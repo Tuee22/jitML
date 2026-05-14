@@ -20,11 +20,13 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `0` closure. Sprint `0.1` (canonical plan suite bootstrap)
-must land and Sprint `0.2` (doctrine-driven scheduling audit) must close before any
-Haskell module is written. Until that happens the entire phase is `Blocked`, not
-`Planned`, per [development_plan_standards.md → C. Honest Completion
-Tracking](development_plan_standards.md#c-honest-completion-tracking).
+✅ **Done** — Sprints `1.1` (toolchain pin and library-first Cabal project),
+`1.2` (`CommandSpec` registry and generated parser), `1.3`
+(`GeneratedSectionRule` and tracked-generated paths), `1.4` (lint stack and
+`forbiddenPathRegistry`), `1.5` (`Plan` / `apply` boundary), `1.6`
+(`Subprocess` typed values), `1.7` (typed prerequisite registry), and `1.8`
+(`Env` and `ReaderT Env IO`) are `✅ Done`; Sprint `1.9` (`AppError`,
+`renderError`, and output rules) is also `✅ Done`.
 
 ## Phase Summary
 
@@ -42,10 +44,9 @@ Phase `1` writes no daemon code, no cluster code, no ML code, no chart code, and
 no PureScript. Its sole job is the CLI scaffold and the doctrine boundaries that
 every subsequent phase plugs into.
 
-## Sprint 1.1: Toolchain Pin and Library-First Cabal Project ⏸️
+## Sprint 1.1: Toolchain Pin and Library-First Cabal Project ✅
 
-**Status**: Blocked
-**Blocked by**: phase-0
+**Status**: Done
 **Implementation**: `jitml.cabal`, `cabal.project`, `app/Main.hs`, `app/Demo.hs`,
 `src/JitML/App.hs`, `.gitignore`, `.dockerignore`
 **Docs to update**: `documents/engineering/cli_command_surface.md`,
@@ -70,6 +71,10 @@ library set per doctrine `Overview → standardized stack`.
   (LLVM, NVCC, Xcode/Metal, oneDNN), the `kindest/node` mirror-pin comment, and
   the report-card knob list from [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs).
+- `cabal.project` carries a narrow GHC `9.14.1` compatibility override for Dhall's
+  transitive CBOR stack while upstream package bounds catch up; the removal is
+  tracked in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal).
 - `app/Main.hs` and `app/Demo.hs` are six-line shims into `App.main` and
   `App.demoMain`. No business logic in `app/`.
 - `src/JitML/App.hs` exports `main` and `demoMain` and is the single composition
@@ -97,12 +102,16 @@ library set per doctrine `Overview → standardized stack`.
    Knobs](system-components.md#poc-report-card-knobs) is grep-findable in
    `cabal.project`.
 
-## Sprint 1.2: `CommandSpec` Registry and Generated Parser ⏸️
+### Remaining Work
 
-**Status**: Blocked
-**Blocked by**: 1.1
+None.
+
+## Sprint 1.2: `CommandSpec` Registry and Generated Parser ✅
+
+**Status**: Done
 **Implementation**: `src/JitML/CLI/Spec.hs`, `src/JitML/CLI/Parser.hs`,
-`src/JitML/CLI/Tree.hs`, `src/JitML/CLI/Json.hs`, `src/JitML/CLI/Help.hs`
+`src/JitML/CLI/Tree.hs`, `src/JitML/CLI/Json.hs`, `src/JitML/CLI/Help.hs`,
+`test/unit/Main.hs`
 **Docs to update**: `documents/engineering/cli_command_surface.md`
 
 ### Objective
@@ -154,13 +163,17 @@ Generated Documentation`.
 4. `jitml-unit` exercises `execParserPure` for the canonical surface and asserts
    parser/registry agreement.
 
-## Sprint 1.3: Generated Sections and Tracking-Generated Paths ⏸️
+### Remaining Work
 
-**Status**: Blocked
-**Blocked by**: 1.2
+None.
+
+## Sprint 1.3: Generated Sections and Tracking-Generated Paths ✅
+
+**Status**: Done
 **Implementation**: `src/JitML/Generated/Registry.hs`,
 `src/JitML/Generated/Paths.hs`, `src/JitML/Docs/Check.hs`,
-`src/JitML/Docs/Generate.hs`, `documents/cli/commands.md`,
+`src/JitML/Docs/Generate.hs`, `src/JitML/Docs/Render.hs`,
+`documents/cli/commands.md`,
 `share/man/man1/jitml.1`, `share/completion/{bash,zsh,fish}/`
 **Docs to update**: `documents/documentation_standards.md`,
 `documents/engineering/code_quality.md`
@@ -220,13 +233,16 @@ doctrine `Generated Artifacts → The generated-section registry`.
 3. `jitml docs generate` followed by `jitml docs generate` returns exit `0`
    (first run mutates) then exit `3` (no-op).
 
-## Sprint 1.4: Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry` ⏸️
+### Remaining Work
 
-**Status**: Blocked
-**Blocked by**: 1.2
+None.
+
+## Sprint 1.4: Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry` ✅
+
+**Status**: Done
 **Implementation**: `fourmolu.yaml`, `.hlint.yaml`, `src/JitML/Lint/Stack.hs`,
 `src/JitML/Lint/ForbiddenPaths.hs`, `src/JitML/Lint/Chart.hs`,
-`test/haskell-style/`
+`src/JitML/Lint/Stack/Types.hs`, `test/haskell-style/`
 **Docs to update**: `documents/engineering/code_quality.md`
 
 ### Objective
@@ -257,7 +273,7 @@ Code-Quality Stack`.
   `kubernetes.io/no-provisioner`; every PV has an explicit `claimRef.namespace`
   and `claimRef.name`; every PVC is created only by a StatefulSet's
   `volumeClaimTemplates`; every hostPath under `chart/templates/pv-*.yaml`
-  matches `<substrate>/<namespace>/<statefulset>/pv_<replica-int>` per
+  matches `<namespace>/<StatefulSet>/pv_<replica-int>` per
   [00-overview.md → Hard Constraint 15](00-overview.md#hard-constraints).
 - `cabal format` round-trip byte-equality is enforced by writing the output to
   a temp file and comparing against the source.
@@ -273,10 +289,13 @@ Code-Quality Stack`.
    error and a non-zero exit code.
 3. `jitml-haskell-style` passes under `cabal test`.
 
-## Sprint 1.5: `Plan` / `apply` Boundary with `--dry-run` and `--plan-file` ⏸️
+### Remaining Work
 
-**Status**: Blocked
-**Blocked by**: 1.2
+None.
+
+## Sprint 1.5: `Plan` / `apply` Boundary with `--dry-run` and `--plan-file` ✅
+
+**Status**: Done
 **Implementation**: `src/JitML/Plan/Plan.hs`, `src/JitML/Plan/Apply.hs`,
 `src/JitML/Plan/Render.hs`
 **Docs to update**: `documents/engineering/haskell_code_guide.md`
@@ -307,10 +326,13 @@ Establish the `Plan` / `apply` separation per doctrine `Plan / Apply`, with
 3. `jitml-unit` exercises pure `build` invariants (golden render of the empty
    plan, idempotence of `--plan-file`).
 
-## Sprint 1.6: `Subprocess` Typed Values, `runStreaming` / `capture` Interpreter ⏸️
+### Remaining Work
 
-**Status**: Blocked
-**Blocked by**: 1.4
+None.
+
+## Sprint 1.6: `Subprocess` Typed Values, `runStreaming` / `capture` Interpreter ✅
+
+**Status**: Done
 **Implementation**: `src/JitML/Sub/Subprocess.hs`, `src/JitML/Sub/Stream.hs`,
 `src/JitML/Sub/Render.hs`
 **Docs to update**: `documents/engineering/haskell_code_guide.md`
@@ -344,10 +366,13 @@ later phases.
 3. `jitml-integration` exercises `runStreaming` against a sentinel binary and
    asserts the typed `(ExitCode, Text, Text)` shape.
 
-## Sprint 1.7: Prerequisite Registry as Typed Effects ⏸️
+### Remaining Work
 
-**Status**: Blocked
-**Blocked by**: 1.6
+None.
+
+## Sprint 1.7: Prerequisite Registry as Typed Effects ✅
+
+**Status**: Done
 **Implementation**: `src/JitML/Prerequisite/Registry.hs`,
 `src/JitML/Prerequisite/Reconcile.hs`
 **Docs to update**: `documents/engineering/haskell_code_guide.md`
@@ -379,10 +404,13 @@ scripts (Phase `2`) reflect.
 2. The structured diagnostic names the failing node, its description, and its
    remediation hint.
 
-## Sprint 1.8: `Env` Record and `ReaderT Env IO` Runner ⏸️
+### Remaining Work
 
-**Status**: Blocked
-**Blocked by**: 1.6
+None.
+
+## Sprint 1.8: `Env` Record and `ReaderT Env IO` Runner ✅
+
+**Status**: Done
 **Implementation**: `src/JitML/Env/Env.hs`, `src/JitML/Env/Build.hs`
 **Docs to update**: `documents/engineering/haskell_code_guide.md`
 
@@ -413,10 +441,13 @@ runners thread through, per doctrine `Application Environment`.
 2. `JITML_BUILD_DIR=/tmp/jitml jitml internal gc <hash> --dry-run` resolves the
    cache against the env override.
 
-## Sprint 1.9: `AppError` ADT, `renderError`, Output Rules ⏸️
+### Remaining Work
 
-**Status**: Blocked
-**Blocked by**: 1.8
+None.
+
+## Sprint 1.9: `AppError` ADT, `renderError`, Output Rules ✅
+
+**Status**: Done
 **Implementation**: `src/JitML/CLI/Output.hs`, `src/JitML/AppError/AppError.hs`,
 `src/JitML/AppError/Render.hs`
 **Docs to update**: `documents/engineering/haskell_code_guide.md`,
@@ -456,6 +487,10 @@ and the doctrine-mandated output flags `--format` and `--color`.
 2. Exit code on a forced `ReconcilerNoop` is `3`.
 3. `jitml --format json commands` emits valid JSON; `jitml --format plain
    commands` emits a deterministic plain-text list.
+
+### Remaining Work
+
+None.
 
 ## Doctrine Sections Cited
 

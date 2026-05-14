@@ -36,22 +36,21 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-Phase `0` (planning and documentation topology) is `🔄 Active` on Sprint `0.1`
-(canonical plan suite bootstrap) at write time; Sprint `0.2` (doctrine-driven
-scheduling audit) is `📋 Planned`. Phases `1` through `12` are all `⏸️ Blocked` on
-Phase `0` closure per [development_plan_standards.md → C. Honest Completion
-Tracking](development_plan_standards.md#c-honest-completion-tracking): no Haskell,
-Dhall, Helm, PureScript, or shell source has been written. The repository currently
-contains the project [../README.md](../README.md), the doctrine
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md), the agent guardrails
-[../AGENTS.md](../AGENTS.md), [../CLAUDE.md](../CLAUDE.md), [../LICENSE](../LICENSE),
-this `DEVELOPMENT_PLAN/` suite, and the governed docs under
-[../documents/](../documents/).
+Phase `0` (planning and documentation topology) is `✅ Done`: Sprint `0.1`
+(canonical plan suite bootstrap) and Sprint `0.2` (doctrine-driven scheduling
+audit) are both validated. Phase `1` (Haskell CLI surface) is `✅ Done` across
+Sprints `1.1` through `1.9`. Phase `2` remains `🔄 Active`: Sprints `2.1`,
+`2.2`, and `2.3` are `✅ Done`, so stage-0 scripts fail fast, build or enter the
+Haskell bootstrap, delegate to `jitml bootstrap --<substrate>`, the Haskell
+prerequisite DAG owns typed remediation and postcondition validation, and the
+typed JIT cache key/layout/manifest/symlink layer is in place. Sprints `2.4`
+and `2.5` are the next `📋 Planned` sprints. Phases `3` through `12` remain
+`⏸️ Blocked` by their predecessor phases in the execution chain.
 
-This is the documentation phase. No source code lands until Sprint `0.2` closes and
-the doctrine-driven scheduling audit confirms every in-scope identifier from
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) is bound to an owning sprint in
-Phases `1`–`12`.
+Source-code work may now land through Phase `2`; every later phase stays blocked
+until its prerequisite phase closes per
+[development_plan_standards.md → C. Honest Completion
+Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
 ## Document Index
 
@@ -103,29 +102,60 @@ A sprint can move to `Done` only when all of the following are true:
 
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
-| 0 | Planning and Documentation Topology | 🔄 Active (Sprint 0.1 🔄; Sprint 0.2 📋) | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ⏸️ Blocked (on Phase 0) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
-| 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ⏸️ Blocked (on Phase 0) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
-| 3 | Cluster Substrate and Routing | ⏸️ Blocked (on Phase 0) | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
-| 4 | Stateful Platform Services | ⏸️ Blocked (on Phase 0) | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
-| 5 | `jitml service` Daemon | ⏸️ Blocked (on Phase 0) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
-| 6 | Numerical Core | ⏸️ Blocked (on Phase 0) | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
-| 7 | JIT Codegen and Per-Substrate Execution | ⏸️ Blocked (on Phase 0) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | ⏸️ Blocked (on Phase 0) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ⏸️ Blocked (on Phase 0) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | ⏸️ Blocked (on Phase 0) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
-| 11 | PureScript Frontend and Demo | ⏸️ Blocked (on Phase 0) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ⏸️ Blocked (on Phase 0) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | 🔄 Active (Sprints 2.1–2.3 ✅; Sprints 2.4–2.5 📋; Sprints 2.6–2.7 ⏸️) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
+| 3 | Cluster Substrate and Routing | ⏸️ Blocked (on Phase 2) | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
+| 4 | Stateful Platform Services | ⏸️ Blocked (on Phase 3) | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
+| 5 | `jitml service` Daemon | ⏸️ Blocked (on Phase 4) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
+| 6 | Numerical Core | ⏸️ Blocked (on Phase 5) | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
+| 7 | JIT Codegen and Per-Substrate Execution | ⏸️ Blocked (on Phase 6) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
+| 8 | Supervised Learning and RL Framework | ⏸️ Blocked (on Phase 7) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ⏸️ Blocked (on Phase 8) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 10 | Checkpointing and Inference-Only Read Path | ⏸️ Blocked (on Phase 9) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 11 | PureScript Frontend and Demo | ⏸️ Blocked (on Phase 10) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
+| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ⏸️ Blocked (on Phase 11) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 
 ## Current Plan Status
 
-The repository currently contains the project README, the doctrine, the agent
-guardrails, the LICENSE, this `DEVELOPMENT_PLAN/` suite, and the governed docs
-under `documents/`. There is no `app/`, `src/`, `cabal.project`, `*.cabal`,
-`chart/`, `kind/`, `bootstrap/`, `docker/`, `web/`, `infra/`, `proto/`,
-`codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, `experiments/`, or `test/`
-directory yet. Every concrete deliverable below is a `Planned` end state, not a
-current source-code artefact.
+Phase `1` implementation is done. Sprint `1.1` has landed the Cabal package,
+`cabal.project`, `app/Main.hs`, `app/Demo.hs`, `src/JitML/App.hs`, ignore files,
+and sentinel Cabal test-suite stanzas. Sprint `1.2` has landed the
+registry-backed CLI parser, command tree, JSON schema, focused help renderer, and
+`jitml-unit` parser/registry tests. Sprint `1.3` has landed `jitml docs check`,
+`jitml docs generate`, generated README marker regions, `documents/cli/commands.md`,
+`share/man/man1/jitml.1`, and bash/zsh/fish completion scripts. Sprint `1.4` is
+now done with `fourmolu.yaml`, `.hlint.yaml`, the in-repo lint stack,
+`jitml lint`, `jitml check-code`, and the `jitml-haskell-style` stanza. Sprint
+`1.5` is now done with `src/JitML/Plan/{Plan,Apply,Render}.hs`,
+`--dry-run`, `--plan-file`, and unit coverage. Sprint `1.6` is now done with
+`src/JitML/Sub/{Subprocess,Render,Stream}.hs`, unit
+render goldens, subprocess lint enforcement, and an integration subprocess
+sentinel. Sprint `1.7` is now done with `src/JitML/Prerequisite/{Registry,Reconcile}.hs`,
+`internal list-prereqs`, and prerequisite unit coverage. Sprint `1.8` is now done
+with `src/JitML/Env/{Env,Build}.hs`, the `ReaderT Env IO` alias, default/env/CLI
+directory resolution, and unit coverage. Sprint `1.9` is now done with
+`src/JitML/AppError/{AppError,Render}.hs`, `src/JitML/CLI/Output.hs`, the
+17-variant `AppError` golden, global format/color flag parsing, JSON/plain
+command output, and structured error rendering for Phase `1` non-zero paths.
+Sprint `2.1` is now done with the registered
+`jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` parser/docs surface,
+the rewritten stage-0 scripts, script tests, and Apple lifecycle validation.
+Apple stage-0 verifies only macOS/Apple Silicon, Xcode Command Line Tools, and
+Homebrew, then builds `./.build/jitml` and delegates to
+`jitml bootstrap --apple-silicon`; Linux stage-0 verifies Docker without `sudo`
+plus CUDA runtime/device capability for the CUDA substrate, then delegates
+through `docker compose run --rm jitml jitml bootstrap --linux-cpu|--linux-cuda`.
+Sprint `2.2` is now done with prerequisite node modules, scoped `jitml doctor`
+reconciliation, typed Homebrew remediation plans, effectful remediation apply
+with postcondition validation, `jitml doctor --remediate`, the lazy `tart`
+cache-miss root, and positive toolchain validation on this Apple Silicon host.
+Sprint `2.3` is now done with `src/JitML/Cache/{Key,Layout,Manifest,Symlink}.hs`,
+the SHA-256 cache-key golden, typed `./.build/jit/<substrate>/<hash>.<ext>`
+layout, atomic `manifest.json` writes, and Apple stable-FFI symlink repointing.
+There is still no
+`chart/`, `kind/`, `docker/`, `web/`, `infra/`, `proto/`,
+`codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, or `experiments/` surface.
 
 The implemented end state, once Phases `1`–`12` close, is:
 
@@ -134,8 +164,9 @@ The implemented end state, once Phases `1`–`12` close, is:
   daemon, the cluster lifecycle, the SL/RL/AlphaZero/tuning logic, the per-substrate
   engines, the observability surfaces, and the browser-contract source.
 - Three substrate bootstrap scripts (`bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh`)
-  each idempotent under `help | doctor | build | up | status | test | down | purge`
-  and the typed prerequisite DAG that they reconcile against.
+  that perform only stage-0 host gates and delegate to the Haskell
+  `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` reconciler, plus
+  the typed prerequisite DAG that performs lazy package validation/remediation.
 - A single Dockerfile (`docker/Dockerfile`) producing one image (`jitml:local`) and a
   one-service `docker/compose.yaml` (service: `jitml`); substrate is a runtime Dhall
   choice, never an image-name dimension.
@@ -182,8 +213,8 @@ The implemented end state, once Phases `1`–`12` close, is:
   Pulumi-orchestrated ephemeral-Kind stack at `infra/pulumi/` driving the
   `jitml-e2e` stanza, and the report-card knobs pinned in `cabal.project`.
 
-Until Phase `0` closes, these surfaces remain plan-level descriptions. No code-level
-artefact is `Done`.
+Until its owning sprint closes, each surface remains a plan-level description. No
+code-level artefact is `Done` before its sprint validates.
 
 ## Sprint Dependencies
 
@@ -238,14 +269,19 @@ This plan is complete only when all of the following are true:
    `BootConfig` / `LiveConfig`, hot-reloadable via SIGHUP, exposing `/healthz`,
    `/readyz`, and `/metrics`, emitting structured JSON logs on stderr, processing
    Pulsar events at-least-once with the typed retry policy.
-3. `jitml cluster up` deploys the umbrella Helm chart against the per-substrate Kind
-   cluster shape with no kubeconfig pollution (`~/.kube/config` untouched), exposes
-   exactly one `127.0.0.1:<edge-port>` Envoy Gateway socket, and routes every
-   HTTPRoute through the `src/JitML/Routes.hs` registry.
-4. The bootstrap script for each substrate is idempotent under
-   `help | doctor | build | up | status | test | down | purge` and reconciles the
-   typed prerequisite DAG; failure emits `AppError PrerequisiteUnmet` carrying the
-   failing `nodeId`, description, and remedy hint.
+3. `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` deploys the
+   umbrella Helm chart against the per-substrate Kind cluster shape with no
+   kubeconfig pollution (`~/.kube/config` untouched), brings Harbor up before
+   later image rollouts, exposes exactly one `127.0.0.1:<edge-port>` Envoy
+   Gateway socket, and routes every HTTPRoute through the `src/JitML/Routes.hs`
+   registry.
+4. The bootstrap script for each substrate is a stage-0 entrypoint: Apple checks
+   macOS/arm64, Xcode Command Line Tools, and Homebrew before building
+   `./.build/jitml`; Linux checks Docker without `sudo`, with CUDA additionally
+   checking NVIDIA runtime and compute capability. All package reconciliation
+   after stage-0 is owned by the typed Haskell prerequisite DAG; failure emits
+   `AppError PrerequisiteUnmet` carrying the failing `nodeId`, description, and
+   remedy hint.
 5. The numerical core (layer catalog, real+complex activations, optimizers,
    schedulers, losses, spectral ops) is exposed in Dhall, the JIT codegen drivers
    are content-addressed by `(model shape, kind, substrate, toolchain)`, and the
@@ -274,9 +310,10 @@ This plan is complete only when all of the following are true:
 10. The toolchain is pinned at GHC `9.14.1` and Cabal `3.16.1.0`. `jitml.cabal`
     declares `tested-with: ghc ==9.14.1` and `cabal.project` declares
     `with-compiler: ghc-9.14.1`.
-11. Every Plan/Apply command (`jitml train`, `jitml tune`, `jitml rl train`,
-    `jitml cluster up`, `jitml test all`, `jitml service` startup-as-plan,
-    `jitml internal gc`) supports `--dry-run` and `--plan-file <path>`.
+11. Every Plan/Apply command (`jitml bootstrap`, `jitml train`, `jitml tune`,
+    `jitml rl train`, `jitml cluster up`, `jitml test all`, `jitml service`
+    startup-as-plan, `jitml internal gc`) supports `--dry-run` and
+    `--plan-file <path>`.
 12. `Subprocess` is the only IO boundary for subprocess execution; `kubectl`,
     `helm`, `kind`, `docker`, and the per-substrate kernel compilers
     (`metal`, `nvcc`, `g++` over oneDNN) are wrapped through the typed boundary.

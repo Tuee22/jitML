@@ -15,7 +15,8 @@
 > **Purpose**: Stand up the per-substrate Kind cluster shape, the umbrella Helm
 > chart skeleton, the `kubernetes.io/no-provisioner` storage discipline, the
 > single `127.0.0.1:<edge-port>` Envoy Gateway listener, the typed route registry
-> that drives every `HTTPRoute` resource, and the `jitml cluster up` reconciler.
+> that drives every `HTTPRoute` resource, and the cluster lifecycle reconciler
+> consumed by `jitml bootstrap --<substrate>`.
 
 ## Phase Status
 
@@ -29,9 +30,9 @@ This phase delivers the per-substrate Kind cluster configurations, the umbrella
 Helm chart skeleton (subchart dependencies pinned but not yet exercised — Phase
 `4` adds bodies), the manual-PV storage layout, the Envoy Gateway listener, the
 `src/JitML/Routes.hs` route registry as the single source of truth for every
-`HTTPRoute`, and the `jitml cluster up` reconciler that runs the phased deploy
-(bootstrap → mirror → final) and writes
-`./.data/runtime/cluster-publication.json`.
+`HTTPRoute`, and the cluster lifecycle reconciler that `jitml bootstrap
+--<substrate>` uses to run the phased deploy (Harbor bootstrap → mirror/build →
+final rollout) and write `./.build/runtime/cluster-publication.json`.
 
 ## Sprint 3.1: Per-Substrate Kind Configs and `extraMounts` ⏸️
 
@@ -89,8 +90,8 @@ binding host `./.build/` into the worker, and the Linux CUDA worker label
 
 Lay down the `jitml-manual` StorageClass (no provisioner), the manual PV
 templates per StatefulSet replica, the on-disk layout
-`./.data/kind/<substrate>/<namespace>/<statefulset>/pv_<replica-int>/`, and the
-chart-shape lint that enforces the discipline.
+`./.data/<namespace>/<StatefulSet>/pv_<replica-int>/`, and the chart-shape lint
+that enforces the discipline.
 
 ### Deliverables
 
@@ -100,7 +101,7 @@ chart-shape lint that enforces the discipline.
 - Manual PV templates per StatefulSet (MinIO 4 replicas, Pulsar BookKeeper 3
   replicas, Pulsar ZooKeeper 3 replicas) with explicit `claimRef.namespace` and
   `claimRef.name`. Each `hostPath` is
-  `./.data/kind/<substrate>/<namespace>/<statefulset>/pv_<replica-int>/`.
+  `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/`.
 - DNS-1123-compatible PV resource names:
   `<namespace>-<statefulset>-pv-<int>`.
 - `src/JitML/Cluster/Storage.hs` is the typed source for the PV layout; the
@@ -116,8 +117,8 @@ chart-shape lint that enforces the discipline.
 2. Hand-introducing a freestanding PVC, a `kubernetes.io/aws-ebs`
    StorageClass, or a non-conformant hostPath surfaces a typed `AppError
    ChartLintFailed`.
-3. `jitml cluster up` against an empty `./.data/` creates the hostPath
-   directories with the expected layout.
+3. `jitml bootstrap --<substrate>` against an empty `./.data/` creates the
+   hostPath directories with the expected layout.
 
 ## Sprint 3.3: Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener ⏸️
 
@@ -138,7 +139,7 @@ at `127.0.0.1:<edge-port>` backed by the in-cluster NodePort `30090`.
 - `GatewayClass/jitml-gateway` declares the Envoy Gateway controller as the
   controller name.
 - `Gateway/jitml-edge` listens on port `<edge-port>` (templated; the actual port
-  is selected by `jitml cluster up` starting at `9090` and incremented until
+  is selected by `jitml bootstrap --<substrate>` starting at `9090` and incremented until
   available).
 - `EnvoyProxy/jitml-edge` is a NodePort service with `externalTrafficPolicy:
   Cluster`, port `30090` in-cluster.
@@ -149,7 +150,7 @@ at `127.0.0.1:<edge-port>` backed by the in-cluster NodePort `30090`.
 
 ### Validation
 
-1. After `jitml cluster up`, `kubectl get gateway -n platform` lists
+1. After `jitml bootstrap --<substrate>`, `kubectl get gateway -n platform` lists
    `jitml-edge` with the chosen port.
 2. `curl http://127.0.0.1:<edge-port>/` returns whatever the demo backend is
    serving (Phase `11` populates this; until then the bootstrap-phase chart
@@ -200,28 +201,31 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
 1. `jitml docs check` exits `0` after `jitml docs generate`.
 2. Hand-editing any `httproute-*.yaml` surfaces `AppError RouteRegistryDrift`
    on the next `jitml lint files`.
-3. After `jitml cluster up`, `curl http://127.0.0.1:<edge-port>/grafana`
+3. After `jitml bootstrap --<substrate>`, `curl http://127.0.0.1:<edge-port>/grafana`
    reaches the Grafana service (Phase `4` populates the upstream).
 
-## Sprint 3.5: `jitml cluster up` Reconciler and Phased Deploy ⏸️
+## Sprint 3.5: Cluster Lifecycle Reconciler and Phased Deploy ⏸️
 
 **Status**: Blocked
 **Blocked by**: 3.2, 3.3, 3.4, 1.5, 1.7
 **Implementation**: `src/JitML/Cluster/Lifecycle.hs`,
 `src/JitML/Cluster/Phased.hs`, `src/JitML/Cluster/Publication.hs`,
-`src/JitML/CLI/Commands/Cluster.hs`
+`src/JitML/CLI/Commands/Cluster.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
 `documents/engineering/daemon_architecture.md`
 
 ### Objective
 
-Land `jitml cluster up` (Plan/Apply with `--dry-run` and `--plan-file`) as the
-canonical full-stack rollout entrypoint. Reconciler discipline: re-running on a
+Land the cluster lifecycle reconciler used by `jitml bootstrap --<substrate>`.
+`jitml cluster up` may remain as a lower-level lifecycle command, but the
+canonical full-stack rollout starts at `jitml bootstrap --<substrate>` so image
+build/upload, Dhall rendering, cluster daemon deployment, and Apple host-daemon
+handoff are sequenced together. Reconciler discipline: re-running on a
 steady-state cluster is a no-op (exit code `3`).
 
 ### Deliverables
 
-- `jitml cluster up` plan steps:
+- Cluster lifecycle plan steps:
   1. Reconcile `cluster` prerequisite subgraph (Sprint `2.2`).
   2. Write `kind/cluster-<substrate>.yaml` from the typed config (Sprint `3.1`).
   3. `kind create cluster --config kind/cluster-<substrate>.yaml --kubeconfig
@@ -229,25 +233,32 @@ steady-state cluster is a no-op (exit code `3`).
   4. Write the `jitml-manual` StorageClass and the manual PVs.
   5. Run the phased Helm rollout (Sprint `3.5`).
   6. Lease the edge port starting at `9090` and write
-     `./.data/runtime/cluster-publication.json`.
+     `./.build/runtime/cluster-publication.json`.
 - Phased deploy:
-  1. **Bootstrap phase**: `helm install jitml-platform ./chart --set
-     phase=bootstrap` brings up Harbor + MinIO + Postgres only, pulling images
-     from public registries.
-  2. **Mirror phase**: every third-party image is mirrored into Harbor.
-  3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
-     TensorBoard, the `jitml-service` workload, the `jitml-demo` workload —
-     all pulling exclusively from local Harbor.
+  1. **Harbor phase**: bring up Harbor plus the Percona operator and
+     Patroni-managed Postgres required by packaged services, using only the
+     public pulls needed to make Harbor available.
+  2. **Mirror/build phase**: mirror third-party images into Harbor; build the
+     `jitml` container and `jitml-demo` container; push both to Harbor.
+  3. **Final phase**: MinIO, Pulsar, Envoy Gateway, kube-prometheus-stack,
+     TensorBoard, the `jitml-service` workload, and the `jitml-demo` workload
+     all pull exclusively from local Harbor.
+- `jitml bootstrap --apple-silicon` renders both host Dhall and cluster ConfigMap
+  Dhall; after the edge port is known it patches the host Dhall so the host
+  daemon can reach Pulsar and MinIO.
+- `jitml bootstrap --linux-cpu|--linux-cuda` renders only the cluster ConfigMap
+  Dhall; Linux JIT operations happen entirely in the cluster.
 - `jitml cluster down`, `jitml cluster status` round out the lifecycle surface.
 - Subsequent `jitml cluster up` invocations on a steady-state cluster exit
   `3` (`AppError ReconcilerNoop`).
 
 ### Validation
 
-1. `jitml cluster up --dry-run` emits the typed plan (every Helm release,
+1. `jitml bootstrap --<substrate> --dry-run` emits the typed plan (every Helm release,
    every Kind operation, every PV write) without side effects.
-2. `jitml cluster up` followed by `jitml cluster up` exits `0` then `3`.
-3. After `up`, `./.data/runtime/cluster-publication.json` carries
+2. `jitml bootstrap --<substrate>` followed by the same bootstrap exits `0`
+   then `3`.
+3. After `up`, `./.build/runtime/cluster-publication.json` carries
    `edge_port`, `pulsar_ws_url`, `pulsar_admin_url`, `minio_s3_url`.
 4. `jitml cluster status` parses the publication and reports a
    per-component health summary.
@@ -269,8 +280,8 @@ steady-state cluster is a no-op (exit code `3`).
   contract, and the phased deploy narrative. Add the
   `<!-- jitml:cluster.routes:start -->` block consumed by Sprint `3.4`.
 - `documents/engineering/daemon_architecture.md` — link to the publication file
-  contract that the daemon reads on Apple Silicon (`./.data/runtime/cluster-
-  publication.json`).
+  contract that bootstrap writes on Apple Silicon
+  (`./.build/runtime/cluster-publication.json`).
 
 **Product docs to create/update:**
 

@@ -25,7 +25,8 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
   `apply :: Env -> Plan -> IO ExitCode`, with `--dry-run` and
   `--plan-file <path>` on every Plan/Apply command.
 - **Prerequisites as Typed Effects** — `prerequisiteRegistry`, `nodeId`,
-  `nodeDescription`, remedy hint, `AppError PrerequisiteUnmet`.
+  `nodeDescription`, remedy hint, `AppError PrerequisiteUnmet`, typed lazy
+  package remediation.
 - **Application Environment** — `ReaderT Env IO`, single `Env` record.
 - **Error Handling** — single `AppError` ADT, `renderError`, forbidden
   `print`/`exitFailure` outside the output module.
@@ -42,6 +43,16 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
   Pulsar consumer semantics.
 - **Reconcilers: Idempotent Mutation as a Single Command** — exit code `3`
   on no-op-on-match.
+
+## Current Implementation Status
+
+Sprints `1.1` through `1.9` have landed the Cabal scaffold, registry-backed CLI,
+generated-docs reconciler, lint stack, typed `Plan` modules, typed
+`Subprocess` boundary, prerequisite registry, single `Env` record with the
+`ReaderT Env IO` alias, the canonical `AppError` ADT, `renderError`, global
+output flags, and the CLI output module. `--dry-run` and `--plan-file <path>`
+now render command plans for the registered Plan/Apply surfaces; concrete apply
+bodies remain owned by later feature sprints.
 
 ## jitML Project-Specific Surfaces
 
@@ -72,7 +83,7 @@ each lifecycle is a phantom-type-indexed GADT with singleton witnesses.
 
 ### Canonical `AppError` Enumeration (17 Variants)
 
-Defined in `src/JitML/AppError/AppError.hs` (Sprint `1.9`):
+Defined in `src/JitML/AppError/AppError.hs`:
 
 | Variant | Triggered by | Exit code |
 |---------|--------------|-----------|
@@ -115,14 +126,32 @@ smart constructors are hlint-forbidden outside the interpreter module.
 
 Every command that mutates external state is Plan/Apply:
 
-- `jitml train`, `jitml tune`, `jitml rl train`, `jitml cluster up`,
-  `jitml test all`, `jitml internal gc`, `jitml service` startup-as-plan.
+- `jitml bootstrap`, `jitml train`, `jitml tune`, `jitml rl train`,
+  `jitml cluster up`, `jitml test all`, `jitml internal gc`, `jitml service`
+  startup-as-plan.
 
 All support `--dry-run` and `--plan-file <path>`.
 
+### Lazy Prerequisite Remediation
+
+Stage-0 shell scripts only check the host gates needed to reach Haskell.
+Package validation and installation lives in the typed prerequisite DAG:
+
+- A Homebrew package prerequisite is a typed value with a package identifier,
+  validation predicate, install/upgrade policy, remedy hint, dependencies, and
+  postcondition.
+- The pure Plan phase decides which packages are missing and renders the
+  intended `brew` actions.
+- The apply phase executes through the typed `Subprocess` interpreter and then
+  re-validates each postcondition before dependent nodes run.
+- Ad hoc `brew install` calls in shell scripts or command runners are forbidden.
+  `tart` follows this path lazily on the first Apple JIT cache miss, not during
+  bootstrap or host-daemon startup.
+
 ### Reconcilers (exit `3` on no-op)
 
-- `jitml cluster up` — already-converged cluster.
+- `jitml bootstrap` — already-converged substrate stack.
+- `jitml cluster up` — already-converged lower-level cluster lifecycle.
 - `jitml docs generate` — already-current generated regions.
 - `jitml lint --write` — nothing to fix.
 - `jitml internal gc <experiment-hash>` — steady-state retention.

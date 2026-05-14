@@ -1,0 +1,22 @@
+- arguments:
+  - --color=never
+
+- warn:
+    name: Use CLI output module instead of print
+    lhs: print x
+    rhs: JitML.CLI.Output.writeLine x
+
+- warn:
+    name: Use typed AppError instead of exitFailure
+    lhs: exitFailure
+    rhs: throwAppError err
+
+- warn:
+    name: Use typed subprocess boundary instead of callProcess
+    lhs: callProcess cmd args
+    rhs: runStreaming subprocess
+
+- warn:
+    name: Use typed subprocess boundary instead of readCreateProcess
+    lhs: readCreateProcess process input
+    rhs: capture subprocess

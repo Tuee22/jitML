@@ -237,8 +237,8 @@ Methodology](determinism_contract.md#cross-substrate-tolerance-methodology).
 
 ## Cross-References
 
-- [../README.md → Checkpointing](../README.md#checkpointing)
-- [../README.md → Concurrency model](../README.md#concurrency-model)
+- [../../README.md → Checkpointing](../../README.md#checkpointing)
+- [../../README.md → Concurrency model](../../README.md#concurrency-model)
 - [determinism_contract.md](determinism_contract.md)
 - [training_workloads.md](training_workloads.md)
 - [../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md)

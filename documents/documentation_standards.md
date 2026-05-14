@@ -353,7 +353,8 @@ A separate tracked-generated-paths registry names files that are owned wholly
 by code generators (no markers required because the entire file is
 generated). The `trackingGeneratedPaths` registry in
 `src/JitML/Generated/Paths.hs` is the authoritative source, with
-`jitml lint files` refusing drift on paths such as:
+`jitml docs check` refusing drift on generated paths now and `jitml lint files`
+adding file-hygiene enforcement in Sprint `1.4`:
 
 - `documents/cli/commands.md`
 - `share/man/man1/jitml.1`

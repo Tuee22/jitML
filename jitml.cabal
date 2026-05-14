@@ -1,0 +1,214 @@
+cabal-version: 3.16
+name: jitml
+version: 0.1.0.0
+synopsis: Deterministic, reproducible, JIT-compiled machine learning for Haskell
+description: jitML is a Haskell-native machine learning framework with a doctrine-shaped CLI.
+license: MIT
+license-file: LICENSE
+author: jitML contributors
+maintainer: maintainers@example.invalid
+build-type: Simple
+tested-with: ghc ==9.14.1
+
+common common-options
+    default-language: GHC2024
+    ghc-options: -Wall -Wcompat
+
+library
+    import: common-options
+    hs-source-dirs: src
+    exposed-modules:
+        JitML.App
+        JitML.AppError.AppError
+        JitML.AppError.Render
+        JitML.Cache.Key
+        JitML.Cache.Layout
+        JitML.Cache.Manifest
+        JitML.Cache.Symlink
+        JitML.CLI.Help
+        JitML.CLI.Json
+        JitML.CLI.Output
+        JitML.CLI.Parser
+        JitML.CLI.Spec
+        JitML.CLI.Tree
+        JitML.Docs.Check
+        JitML.Docs.Generate
+        JitML.Docs.Render
+        JitML.Env.Build
+        JitML.Env.Env
+        JitML.Generated.Paths
+        JitML.Generated.Registry
+        JitML.Lint.Chart
+        JitML.Lint.ForbiddenPaths
+        JitML.Lint.Stack
+        JitML.Lint.Stack.Types
+        JitML.Plan.Apply
+        JitML.Plan.Plan
+        JitML.Plan.Render
+        JitML.Prerequisite.Nodes.Cluster
+        JitML.Prerequisite.Nodes.Common
+        JitML.Prerequisite.Nodes.Container
+        JitML.Prerequisite.Nodes.Toolchain
+        JitML.Prerequisite.Plan
+        JitML.Prerequisite.Reconcile
+        JitML.Prerequisite.Registry
+        JitML.Prerequisite.Types
+        JitML.Sub.Render
+        JitML.Sub.Stream
+        JitML.Sub.Subprocess
+    build-depends:
+        base >=4.22 && <4.23,
+        text,
+        bytestring,
+        aeson,
+        cryptohash-sha256,
+        dhall,
+        directory,
+        filepath,
+        mtl,
+        optparse-applicative,
+        prettyprinter,
+        prettyprinter-ansi-terminal,
+        ansi-terminal,
+        path,
+        path-io,
+        serialise,
+        typed-process,
+        safe-exceptions,
+        tasty,
+        tasty-hunit,
+        tasty-quickcheck,
+        tasty-golden,
+        temporary,
+        unix
+
+executable jitml
+    import: common-options
+    main-is: Main.hs
+    hs-source-dirs: app
+    build-depends:
+        base >=4.22 && <4.23,
+        jitml
+
+executable jitml-demo
+    import: common-options
+    main-is: Demo.hs
+    hs-source-dirs: app
+    build-depends:
+        base >=4.22 && <4.23,
+        jitml
+
+test-suite jitml-unit
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/unit
+    build-depends:
+        base >=4.22 && <4.23,
+        aeson,
+        bytestring,
+        directory,
+        filepath,
+        jitml,
+        optparse-applicative,
+        path,
+        path-io,
+        tasty,
+        tasty-hunit,
+        temporary,
+        text,
+        unix
+
+test-suite jitml-integration
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/integration
+    build-depends:
+        base >=4.22 && <4.23,
+        jitml,
+        tasty,
+        tasty-hunit,
+        text
+
+test-suite jitml-sl-canonicals
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/sentinel
+    build-depends:
+        base >=4.22 && <4.23,
+        tasty,
+        tasty-hunit
+
+test-suite jitml-rl-canonicals
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/sentinel
+    build-depends:
+        base >=4.22 && <4.23,
+        tasty,
+        tasty-hunit
+
+test-suite jitml-hyperparameter
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/sentinel
+    build-depends:
+        base >=4.22 && <4.23,
+        tasty,
+        tasty-hunit
+
+test-suite jitml-cross-backend
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/sentinel
+    build-depends:
+        base >=4.22 && <4.23,
+        tasty,
+        tasty-hunit
+
+test-suite jitml-daemon-lifecycle
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/sentinel
+    build-depends:
+        base >=4.22 && <4.23,
+        tasty,
+        tasty-hunit
+
+test-suite jitml-e2e
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/sentinel
+    build-depends:
+        base >=4.22 && <4.23,
+        tasty,
+        tasty-hunit
+
+test-suite jitml-haskell-style
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/haskell-style
+    build-depends:
+        base >=4.22 && <4.23,
+        jitml,
+        tasty,
+        tasty-hunit,
+        text
+
+test-suite jitml-purescript-style
+    import: common-options
+    type: exitcode-stdio-1.0
+    main-is: Main.hs
+    hs-source-dirs: test/sentinel
+    build-depends:
+        base >=4.22 && <4.23,
+        tasty,
+        tasty-hunit

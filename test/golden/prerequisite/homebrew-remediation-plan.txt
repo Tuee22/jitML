@@ -1,0 +1,6 @@
+Prerequisite remediation plan:
+root: toolchain.pulumi
+  toolchain.pulumi
+    description: Pulumi is installed.
+    remedy: brew install pulumi
+    remediation: Install Homebrew package pulumi. brew install pulumi

@@ -149,7 +149,7 @@ Caveat)](determinism_contract.md#same-substrate-bit-equality-rl-caveat).
 
 `src/JitML/AlphaZero/` owns the AlphaZero stack. Borrows the engineering arc
 from a sibling MCTS project per [../README.md → Borrowed engineering from the
-sibling MCTS project](../README.md#borrowed-engineering-from-the-sibling-mcts-project).
+sibling MCTS project](../../README.md#borrowed-engineering-from-the-sibling-mcts-project).
 
 | Component | Module |
 |-----------|--------|
@@ -187,7 +187,7 @@ panel. Golden self-play game fixtures under `test/golden/az/<game>/<seed>.cbor`.
 
 `src/JitML/Tune/` owns the hyperparameter tuner. The tuning surface follows
 the sampler × scheduler × pruner shape from [../README.md → Hyperparameter
-tuning, first-class](../README.md#hyperparameter-tuning-first-class).
+tuning, first-class](../../README.md#hyperparameter-tuning-first-class).
 
 `TuneSweepLifecycle` GADT (`Sampled → Scheduled → Running → Pruned →
 Reported → Finished`) is the typed lifecycle.
@@ -252,14 +252,14 @@ Plan/Apply. Daemon's at-least-once `TuneHandler` consumes
 
 The `Some Tuning::{ … }` Dhall constructor matches the worked example in
 [../README.md → Concrete `Some Tuning::{ … }`
-example](../README.md#concrete-some-tuning--example).
+example](../../README.md#concrete-some-tuning--example).
 
 ## Cross-References
 
-- [../README.md → RL framework primitives](../README.md#rl-framework-primitives)
-- [../README.md → RL algorithm catalog](../README.md#rl-algorithm-catalog)
-- [../README.md → AlphaZero-style self-play and persistent MCTS state](../README.md#alphazero-style-self-play-and-persistent-mcts-state)
-- [../README.md → Hyperparameter tuning, first-class](../README.md#hyperparameter-tuning-first-class)
+- [../../README.md → RL framework primitives](../../README.md#rl-framework-primitives)
+- [../../README.md → RL algorithm catalog](../../README.md#rl-algorithm-catalog)
+- [../../README.md → AlphaZero-style self-play and persistent MCTS state](../../README.md#alphazero-style-self-play-and-persistent-mcts-state)
+- [../../README.md → Hyperparameter tuning, first-class](../../README.md#hyperparameter-tuning-first-class)
 - [numerical_core.md](numerical_core.md)
 - [checkpoint_format.md](checkpoint_format.md)
 - [daemon_architecture.md](daemon_architecture.md)

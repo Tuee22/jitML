@@ -19,9 +19,9 @@ info when `residency = Host`.
 
 | Substrate | Daemon topology | Dhall configs |
 |-----------|-----------------|----------------|
-| `apple-silicon` | two instances of one binary | `conf/cluster/apple-silicon.dhall` (`Cluster + ForwardToHost`) + `conf/host/apple-silicon.dhall` (`Host + SelfInference`) |
-| `linux-cpu` | one instance | `conf/cluster/linux-cpu.dhall` (`Cluster + SelfInference`) |
-| `linux-cuda` | one instance | `conf/cluster/linux-cuda.dhall` (`Cluster + SelfInference`) |
+| `apple-silicon` | two instances of one binary | ConfigMap from `./.build/conf/cluster/apple-silicon.dhall` (`Cluster + ForwardToHost`) + host file `./.build/conf/host/apple-silicon.dhall` (`Host + SelfInference`) |
+| `linux-cpu` | one instance | ConfigMap from `./.build/conf/cluster/linux-cpu.dhall` (`Cluster + SelfInference`) |
+| `linux-cuda` | one instance | ConfigMap from `./.build/conf/cluster/linux-cuda.dhall` (`Cluster + SelfInference`) |
 
 The clustered `jitml-service` Deployment is **stateless** — durable state
 lives in MinIO and Pulsar exclusively. Pod anti-affinity at `topologyKey:
@@ -41,7 +41,7 @@ load → prereq → acquire → ready → serve → drain → exit
 |-------|-----------|
 | `load` | Read `BootConfig` Dhall; resolve and SHA-hash; resolve `LiveConfig`. |
 | `prereq` | Reconcile the prerequisite DAG via `reconcilePrerequisites`. |
-| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer; on Apple Silicon host instance, ensure tart VM up only on JIT cache miss (lazy). |
+| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer; on Apple Silicon host instance, validate/install tart and start the VM only on JIT cache miss (lazy). |
 | `ready` | `/readyz` flips to `200`. |
 | `serve` | Process commands at-least-once until SIGTERM / SIGINT / SIGHUP-to-restart-required-field. |
 | `drain` | Stop accepting new commands; finish in-flight; flush TensorBoard shards; final checkpoint flush. |
@@ -168,8 +168,16 @@ The host daemon (Dhall: `Host + SelfInference`) subscribes to
 large outputs directly to MinIO, and ACKs on `inference.event.apple-silicon`
 with the small envelope (call-id, kind tag, MinIO refs).
 
+`jitml bootstrap --apple-silicon` writes the cluster publication to
+`./.build/runtime/cluster-publication.json`, patches
+`./.build/conf/host/apple-silicon.dhall` with the routed Pulsar and MinIO
+coordinates, then starts the host daemon from that Dhall. Linux has no
+host-level Dhall; all JIT operations happen inside the cluster daemon.
+
 The host daemon's startup path never touches tart. On a JIT cache miss the
-daemon calls `JitML.Tart.ensureVmUp jitml-build`, which is idempotent.
+daemon first validates or installs the `tart` Homebrew package through typed
+lazy prerequisite remediation, then calls `JitML.Tart.ensureVmUp jitml-build`,
+which is idempotent.
 
 Direct k8s API access from the host is hlint-forbidden.
 
@@ -182,8 +190,8 @@ until generation lands.)_
 
 ## Cross-References
 
-- [../README.md → Apple Silicon hybrid pattern](../README.md#apple-silicon-hybrid-pattern)
-- [../README.md → Pulsar as the control-plane ↔ data-plane bus](../README.md#pulsar-as-the-control-plane--data-plane-bus)
+- [../../README.md → Apple Silicon hybrid pattern](../../README.md#apple-silicon-hybrid-pattern)
+- [../../README.md → Pulsar as the control-plane ↔ data-plane bus](../../README.md#pulsar-as-the-control-plane--data-plane-bus)
 - [haskell_code_guide.md](haskell_code_guide.md)
 - [cluster_topology.md](cluster_topology.md)
 - [../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md)

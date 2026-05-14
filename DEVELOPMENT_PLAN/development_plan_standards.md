@@ -75,12 +75,12 @@ project management summaries.
 
 Status must describe reality, not intent.
 
-| Indicator | Meaning |
-|-----------|---------|
-| ✅ | Completed and validated |
-| 🔄 | Active and partially complete |
-| 📋 | Planned and ready to start |
-| ⏸️ | Blocked by an unmet prerequisite |
+| Status | Meaning | Emoji |
+|--------|---------|-------|
+| **Done** | Deliverables implemented for the sprint-owned surface, validated, and aligned in docs | ✅ |
+| **Active** | Work has started and remaining implementation or documentation work is explicitly listed | 🔄 |
+| **Planned** | Ready to start once execution reaches the sprint in sequence | 📋 |
+| **Blocked** | Closure depends on an unmet prerequisite or prior sprint closure | ⏸️ |
 
 - `Done` requires passing validation, aligned docs, and no remaining sprint-owned
   work.
@@ -156,7 +156,8 @@ for:
 - frontend bundle and generated browser-contract surfaces
 - test stanzas, lint matrix, and Pulumi-orchestrated infrastructure surfaces
 - toolchain prerequisites and pinned versions
-- state locations (cache root, kubeconfig, kind state, runtime spool, golden roots)
+- state locations (cache root, kubeconfig, Kind metadata, runtime metadata,
+  manual PV root, golden roots)
 
 When a phase changes the supported architecture, update the inventory in the same
 change.

@@ -66,13 +66,15 @@ Apple Silicon two daemons run, both the same binary distinguished by Dhall
 (`Cluster + ForwardToHost` in-pod and `Host + SelfInference` host-native) because
 Metal cannot be containerized.
 
-`jitml cluster up` is the canonical full-stack rollout entrypoint: it writes the
-per-substrate Kind config from `./kind/cluster-<substrate>.yaml`, brings up Kind,
-writes `./.build/jitml.kubeconfig` (the user's `~/.kube/config` is never touched),
-and runs the phased Helm rollout from the umbrella chart at `chart/`. The single
-exposed listener is one `127.0.0.1:<edge-port>` socket on the Envoy Gateway; every
-HTTPRoute in the cluster is rendered from the typed registry in
-`src/JitML/Routes.hs`.
+`jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is the canonical
+full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
+under `./.build/`, materializes the per-substrate Kind config from
+`./kind/cluster-<substrate>.yaml`, brings up Kind, writes
+`./.build/jitml.kubeconfig` (the user's `~/.kube/config` is never touched), brings
+Harbor up first, then rolls out every later container through Harbor using the
+umbrella chart at `chart/`. The single exposed listener is one
+`127.0.0.1:<edge-port>` socket on the Envoy Gateway; every HTTPRoute in the
+cluster is rendered from the typed registry in `src/JitML/Routes.hs`.
 
 The numerical core (layer catalog, real+complex activations, optimizers, schedulers,
 losses, spectral ops) ships as a Dhall-typed catalog. Per-substrate JIT codegen
@@ -112,26 +114,34 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   commands --tree`), the JSON command schema (`jitml commands --json`), the markdown
   command reference, the manpages, and the shell completion scripts. Owned by
   [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md).
-- **Bootstrap reconciler, prerequisite DAG, JIT cache.** Three idempotent bootstrap
-  scripts (`bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh`) reconcile host
-  prerequisites under the same subcommand surface
-  `help | doctor | build | up | status | test | down | purge` (Linux adds `push`).
-  The same typed `Prerequisite` DAG that the scripts use is consumed in-process by
-  the Haskell daemon. The content-addressed JIT cache at
+- **Bootstrap reconciler, prerequisite DAG, JIT cache.** Three idempotent stage-0
+  bootstrap scripts (`bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh`) perform
+  only the minimal host gates needed to reach `jitml bootstrap --<substrate>`.
+  Apple verifies macOS on Apple Silicon, Xcode Command Line Tools, and Homebrew,
+  builds `./.build/jitml`, then delegates to `jitml bootstrap --apple-silicon`.
+  Linux verifies Docker without `sudo`, CUDA additionally verifies the NVIDIA
+  container runtime and a qualifying `nvidia-smi` device, then delegates through
+  `docker compose run --rm jitml jitml bootstrap --linux-cpu|--linux-cuda`.
+  The typed `Prerequisite` DAG consumed by the Haskell bootstrap performs lazy
+  package validation/remediation, including Homebrew package installation when
+  a resource is actually needed. The content-addressed JIT cache at
   `./.build/jit/<substrate>/<hash>.<ext>` is keyed on `(canonical-cbor(KernelSpec),
   kind, substrate, toolchain-fingerprint)`; on Apple Silicon, stable symlinks under
   `./.build/host/apple-silicon/` give the FFI a stable dlopen surface across
   re-JITs. The lazy-tart pattern keeps the Swift/Metal build VM down until a fresh
   `(model-shape, kind, substrate, toolchain)` tuple appears. Outer-container Linux
-  builds run as `docker compose run --rm jitml jitml <subcommand>`; the substrate
-  image is `jitml:local`. Owned by
+  commands run as `docker compose run --rm jitml jitml <command>`; the substrate
+  image is `jitml:local`, the outer container is removed after cluster bootstrap,
+  and the cluster daemon owns subsequent work. Owned by
   [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md).
 - **Cluster substrate and routing.** Per-substrate Kind configs at
   `./kind/cluster-<substrate>.yaml`, single control-plane + one worker, NodePort
   30090 backing the edge listener, host `./.build/` bind-mounted into the Kind
   worker via `extraMounts`. Storage uses `kubernetes.io/no-provisioner` only —
   manual PVs against a `jitml-manual` StorageClass backed by hostPath under
-  `./.data/kind/<substrate>/`. The umbrella Helm chart at `chart/` carries subchart
+  `./.data/<namespace>/<StatefulSet>/pv_<integer>`. `.build` carries kubeconfig,
+  generated Dhall, cluster publication, Kind metadata, and JIT artifacts. The
+  umbrella Helm chart at `chart/` carries subchart
   dependencies for Harbor, Apache Pulsar, MinIO, Percona PostgreSQL, Envoy Gateway,
   kube-prometheus-stack, and TensorBoard. The single exposed listener is one
   `127.0.0.1:<edge-port>` Envoy Gateway socket; the typed route registry in
@@ -145,8 +155,9 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   bus with topics `inference.command.apple-silicon`,
   `inference.event.apple-silicon` for the host↔cluster RPC, plus
   `inference.request.<mode>` / `inference.result.<mode>` for the demo-facing
-  inference flow; Percona Operator-managed PostgreSQL **only for Harbor** — there is
-  no relational DB on jitML's data path; kube-prometheus-stack for metrics scraping
+  inference flow; Percona Operator-managed PostgreSQL for every packaged service
+  that requires Postgres — there is no relational DB on jitML's data path;
+  kube-prometheus-stack for metrics scraping
   and Grafana dashboards; TensorBoard event storage with shard rotation against
   MinIO bucket `jitml-tensorboard`. Owned by
   [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md).
@@ -264,9 +275,9 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
   `capture` as the only IO interpreter; `callProcess`, `readCreateProcess`,
   `System.Process` constructors, and `typed-process` smart constructors are
   forbidden from command runners.
-- Plan / Apply — `jitml train`, `jitml tune`, `jitml rl train`,
-  `jitml cluster up`, `jitml test all`, `jitml service` startup-as-plan, and
-  `jitml internal gc` all Plan/Apply commands with `--dry-run` and
+- Plan / Apply — `jitml bootstrap`, `jitml train`, `jitml tune`,
+  `jitml rl train`, `jitml cluster up`, `jitml test all`, `jitml service`
+  startup-as-plan, and `jitml internal gc` all Plan/Apply commands with `--dry-run` and
   `--plan-file <path>`.
 - Output Rules — `--format json|table|plain`, default `table` on TTY else `plain`;
   `--color auto|always|never` / `--no-color`.
@@ -279,11 +290,12 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
 - Capability Classes and Service Errors — `HasMinIO`, `HasPulsar`, `HasHarbor`,
   `HasKubectl`.
 - Retry Policy as First-Class Values.
-- Prerequisites as Typed Effects — bootstrap scripts' contract is also encoded as
-  a typed DAG; one `prerequisiteRegistry` spans every substrate's toolchain, the
-  cluster lifecycle, the platform services, and the daemon's startup contract;
-  failure emits `AppError PrerequisiteUnmet` carrying the failing `nodeId`,
-  description, and remedy hint.
+- Prerequisites as Typed Effects — stage-0 scripts only check the host gates
+  required to reach `jitml bootstrap`; one `prerequisiteRegistry` spans every
+  substrate's toolchain, lazy package remediation, the cluster lifecycle, the
+  platform services, and the daemon's startup contract; failure emits
+  `AppError PrerequisiteUnmet` carrying the failing `nodeId`, description, and
+  remedy hint.
 - Application Environment — `ReaderT Env IO` with a single `Env` record threaded
   through command runners.
 - **Long-Running Daemons in the Same Binary** — `jitml service` is a real daemon
@@ -291,8 +303,9 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
   / `/metrics`, structured JSON logging on stderr, recoverable-vs-fatal error
   kinds. (Contrast: sibling projects may opt out; jitML opts in.)
 - At-Least-Once Event Processing — Pulsar consumer semantics.
-- Reconcilers: Idempotent Mutation as a Single Command — `jitml cluster up`,
-  `jitml docs generate`, `jitml lint --write`, `jitml internal gc`.
+- Reconcilers: Idempotent Mutation as a Single Command — `jitml bootstrap`,
+  `jitml cluster up`, `jitml docs generate`, `jitml lint --write`,
+  `jitml internal gc`.
 - Lint, Format, and Code-Quality Stack — `fourmolu` + `hlint` + `cabal format`;
   pinned `fourmolu.yaml` at repo root with the twelve doctrine-mandated settings;
   the `jitml-haskell-style` stanza enforces all three plus the `cabal format`
@@ -349,9 +362,11 @@ authoritative section that pins each constraint.
    kubernetes.io/hostname`. Durable state lives in MinIO and Pulsar exclusively
    (no relational DB on jitML's data path).
 6. The CLI never touches `~/.kube/config`. Cluster kubeconfig lives at
-   `./.build/jitml.kubeconfig`. The bootstrap scripts forbid touches to
-   `~/.kube/config`, `~/.docker/config.json`, the user's global Homebrew prefix as
-   a writer, or any global state outside the repo.
+   `./.build/jitml.kubeconfig`. Stage-0 bootstrap scripts never write
+   `~/.kube/config`, `~/.docker/config.json`, the user's Homebrew prefix, or any
+   global state outside the repo. Haskell `jitml` may install Homebrew packages
+   lazily through typed prerequisite remediation, with pure plan construction,
+   typed `Subprocess` apply, and postcondition validation.
 7. Every Plan/Apply command supports `--dry-run` (renders the plan and exits 0)
    and `--plan-file <path>` (writes the rendered plan for out-of-band review).
 8. `Subprocess` is the only IO boundary for subprocess execution. `kubectl`,
@@ -379,12 +394,14 @@ authoritative section that pins each constraint.
 14. The single exposed listener is one `127.0.0.1:<edge-port>` socket on the
     Envoy Gateway; the in-cluster NodePort `30090` backs that listener. The edge
     port is selected starting at `9090` and incremented until available; recorded
-    as the `edge_port` field of `./.data/runtime/cluster-publication.json` (the
-    single file `cluster up` writes).
+    as the `edge_port` field of `./.build/runtime/cluster-publication.json` (the
+    single file bootstrap writes).
 15. Storage uses `kubernetes.io/no-provisioner` only — manual PVs against the
-    `jitml-manual` StorageClass backed by hostPath under `./.data/kind/<substrate>/`.
-16. `./.build/` is the only host folder that holds compiled artifacts; `./.data/`
-    is the only host folder that holds runtime state. Both are in `.gitignore`
+    `jitml-manual` StorageClass backed by hostPath under
+    `./.data/<namespace>/<StatefulSet>/pv_<integer>`.
+16. `./.build/` is the host root for compiled artifacts, generated Dhall,
+    kubeconfig, Kind metadata, cluster publication, and JIT cache entries.
+    `./.data/` is strictly for manual PV bind mounts. Both are in `.gitignore`
     and `.dockerignore`.
 17. The JIT cache root is `./.build/jit/<substrate>/<hash>.<ext>`; entries are
     content-addressed by `sha256(canonical-cbor(KernelSpec) || kind || substrate
@@ -394,10 +411,13 @@ authoritative section that pins each constraint.
 18. Apple Silicon stable-named symlinks live at `./.build/host/apple-silicon/`
     and resolve into `./.build/jit/apple-silicon/`; the FFI dlopen surface stays
     stable across re-JITs because the symlink is repointed atomically.
-19. `./bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh` are idempotent
-    reconcilers under `help | doctor | build | up | status | test | down |
-    purge` (Linux adds `push`). The same typed `Prerequisite` DAG that the
-    scripts use is consumed in-process by the Haskell daemon.
+19. `./bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh` are idempotent stage-0
+    entrypoints. Apple checks macOS/arm64, Xcode Command Line Tools, and
+    Homebrew, builds `./.build/jitml`, then calls
+    `jitml bootstrap --apple-silicon`. Linux checks Docker without `sudo`; CUDA
+    additionally checks NVIDIA runtime and device compute capability; both call
+    `docker compose run --rm jitml jitml bootstrap --linux-cpu|--linux-cuda`.
+    The typed `Prerequisite` DAG is consumed in-process by the Haskell bootstrap.
 20. `purge` is destructive but cache-preserving (`./.build/` survives, including
     the JIT cache); `purge --full` additionally removes `./.build/` and, on Linux,
     the substrate image.
@@ -472,7 +492,7 @@ authoritative section that pins each constraint.
 |-------|------------|-----|
 | 0 | — | Bootstrap |
 | 1 | Phase 0 | The CLI surface and lint stack consume the doctrine in-scope/out-of-scope split and the standards rule L doctrine-citation contract |
-| 2 | Phase 1 | The bootstrap reconciler, prerequisite DAG, and JIT cache discipline register their CLI surface (`jitml service`, `jitml cluster up`, `--cache-dir`) and their Plan/Apply discipline through the registry built in Phase 1 |
+| 2 | Phase 1 | The stage-0 bootstrap entrypoints, Haskell `jitml bootstrap --<substrate>` reconciler, prerequisite DAG, and JIT cache discipline register their CLI surface (`jitml bootstrap`, `jitml service`, `jitml cluster up`, `--cache-dir`) and their Plan/Apply discipline through the registry built in Phase 1 |
 | 3 | Phase 2 | The Kind cluster, Helm umbrella chart, and Envoy Gateway consume the prerequisite DAG (kind, helm, kubectl, docker) and the JIT cache mount (`extraMounts` from `./.build/`) established in Phase 2 |
 | 4 | Phase 3 | Harbor, Pulsar, MinIO, PostgreSQL, kube-prometheus-stack, and TensorBoard install through the umbrella chart and route through the Envoy Gateway socket established in Phase 3 |
 | 5 | Phase 4 | The `jitml service` daemon subscribes to Pulsar, persists to MinIO via capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`), pulls images from Harbor, and reports metrics via the Prometheus stack established in Phase 4 |
@@ -484,15 +504,24 @@ authoritative section that pins each constraint.
 | 11 | Phase 10 | The PureScript frontend's REST surfaces consume the inference-only read path established in Phase 10; the demo HTTP server (`jitml-demo`) serves the bundle |
 | 12 | Phase 11 | The ten Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
 
+## Status Vocabulary
+
+| Status | Meaning | Emoji |
+|--------|---------|-------|
+| **Done** | Deliverables implemented for the sprint-owned surface, validated, and aligned in docs | ✅ |
+| **Active** | Work has started and remaining implementation or documentation work is explicitly listed | 🔄 |
+| **Planned** | Ready to start once execution reaches the sprint in sequence | 📋 |
+| **Blocked** | Closure depends on an unmet prerequisite or prior sprint closure | ⏸️ |
+
 ## Current Baseline
 
 | Surface | Current Repo State | Intended End State |
 |---------|--------------------|--------------------|
-| Repository layout | `README.md`, `HASKELL_CLI_TOOL.md`, `AGENTS.md`, `CLAUDE.md`, `LICENSE`, `DEVELOPMENT_PLAN/`, and governed docs under `documents/`. No `app/`, `src/`, `cabal.project`, `*.cabal`, `chart/`, `kind/`, `bootstrap/`, `docker/`, `web/`, `infra/`, `proto/`, `codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, `experiments/`, `test/`, or generated `documents/cli/commands.md` | Full library-first Haskell layout per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
-| Build artefacts | None | `cabal build all`-produced `jitml` and `jitml-demo` binaries, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
-| CLI surface | None | The complete command family parses and runs against three substrates: `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
-| Test stanzas | None | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |
-| Toolchain | Project README declares the pins (GHC `9.14.1`, Cabal `3.16.1.0`); no `cabal.project` or `*.cabal` exists yet | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, Xcode/Metal pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml` |
+| Repository layout | Sprints `1.1` through `2.3` have landed `jitml.cabal`, `cabal.project`, `app/Main.hs`, `app/Demo.hs`, `src/JitML/App.hs`, `src/JitML/AppError/{AppError,Render}.hs`, `src/JitML/Cache/{Key,Layout,Manifest,Symlink}.hs`, `src/JitML/CLI/{Spec,Parser,Tree,Json,Help,Output}.hs`, `src/JitML/Docs/{Check,Generate,Render}.hs`, `src/JitML/Env/{Env,Build}.hs`, `src/JitML/Generated/{Registry,Paths}.hs`, `src/JitML/Lint/{Chart,ForbiddenPaths,Stack}.hs`, `src/JitML/Plan/{Plan,Apply,Render}.hs`, `src/JitML/Sub/{Subprocess,Render,Stream}.hs`, `src/JitML/Prerequisite/{Registry,Reconcile,Plan,Nodes/*}.hs`, `bootstrap/{_lib,apple-silicon,linux-cpu,linux-cuda}.sh`, `fourmolu.yaml`, `.hlint.yaml`, `documents/cli/commands.md`, `share/man/man1/jitml.1`, shell completion scripts, `test/golden/{cache,cli,prerequisite}/`, `test/sentinel/Main.hs`, `test/unit/Main.hs`, `test/integration/Main.hs`, `test/haskell-style/Main.hs`, `.gitignore`, and `.dockerignore`; there is no `chart/`, `kind/`, `docker/`, `web/`, `infra/`, `proto/`, `codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, or `experiments/` yet | Full library-first Haskell layout per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
+| Build artefacts | `cabal build all` produces the Phase `1.9` `jitml` and `jitml-demo` binaries under `dist-newstyle/`; `bootstrap/apple-silicon.sh build` produces the host-native handoff binary at `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented, but no real codegen artefacts are produced until later codegen sprints | `cabal build all`-produced `jitml` and `jitml-demo` binaries, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
+| CLI surface | The full command family is registered and parseable from `CommandSpec`; `jitml bootstrap`, `jitml doctor`, `jitml doctor --remediate`, `jitml commands`, focused help, `jitml docs check/generate`, `jitml lint`, `jitml check-code`, `--dry-run`, `--plan-file`, the `Env` record, default/env/CLI directory resolution, global `--format` / `--color` flags, JSON/plain command output, structured `AppError` rendering, `internal materialize-substrate`, and the stage-0 script handoff are implemented. Mutating command bodies outside docs/lint remain blocked on their owning later sprints; the `jitml bootstrap` full cluster apply body continues in later Phase `3` cluster work | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
+| Test stanzas | Ten Cabal stanzas are declared and pass under `cabal test all`; `jitml-unit` owns parser/registry tests, `jitml-haskell-style` owns the lint stack, and the other phase-owned bodies remain blocked until their owning sprint lands | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |
+| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`, records the codegen-toolchain comments and report-card knobs, carries a ledger-tracked scoped `allow-newer` for Dhall/CBOR package bounds under GHC `9.14.1`, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, Xcode/Metal pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml` |
 | Determinism contract | None | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
 | Frontend | None | Halogen application under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, Playwright E2E suite under `web/playwright/`, demo bundle served by `jitml-demo` |
 

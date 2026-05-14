@@ -29,13 +29,11 @@
 
 ## Ledger Status
 
-The repository at write time contains no source code — only the project README, the
-doctrine, the agent guardrails, and the LICENSE. Both `Pending Removal` and
-`Completed` are empty by construction. Rows are enqueued by Sprint `0.2`'s doctrine-
-driven scheduling audit (if any in-scope doctrine identifier in the plan text turns
-out to lack an owning sprint, the residue is enqueued here under that sprint) and
-by every later sprint that introduces a stand-in, deviation, or compatibility
-helper.
+Phase `0` closed with no doctrine-audit residue. Sprint `1.1` introduced one
+toolchain compatibility helper in `cabal.project` so the doctrine-mandated `dhall`
+dependency builds under pinned GHC `9.14.1`; that row remains pending until the
+upstream package bounds no longer need local override and must be retired before
+the Phase `12` closure gate.
 
 Two classes of entries populate this ledger over time:
 
@@ -56,7 +54,7 @@ opening event itself enqueues a row here naming the originating sprint.
 
 | Item | Location | Reason | Owning Sprint |
 |------|----------|--------|---------------|
-| _(empty at write time)_ | — | — | — |
+| Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 12.9 |
 
 ## Pending Removal Notes
 

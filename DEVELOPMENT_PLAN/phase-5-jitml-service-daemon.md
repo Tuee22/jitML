@@ -95,8 +95,9 @@ schema.
   - `residency : Cluster | Host`
   - `inferenceMode : SelfInference | ForwardToHost`
   - `pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, `harborRegistry`
-    (when `residency = Host`, these are read from
-    `./.data/runtime/cluster-publication.json`)
+    (when `residency = Host`, bootstrap writes these into
+    `./.build/conf/host/apple-silicon.dhall` from
+    `./.build/runtime/cluster-publication.json`)
   - `httpListener : Maybe HttpListener` (none when `residency = Host`)
 - `LiveConfig` carries:
   - `logLevel : LogLevel`
@@ -244,15 +245,14 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 **Status**: Blocked
 **Blocked by**: 5.5, 4.7
 **Implementation**: `chart/templates/deployment-jitml-service.yaml`,
-`conf/cluster/{apple-silicon,linux-cpu,linux-cuda}.dhall`,
-`conf/host/apple-silicon.dhall`
+`src/JitML/Bootstrap/Dhall.hs`, `src/JitML/Service/ConfigMap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
 `documents/engineering/cluster_topology.md`
 
 ### Objective
 
 Land the stateless `Deployment` shape with pod anti-affinity at `topologyKey:
-kubernetes.io/hostname`, plus the per-substrate Dhall configs.
+kubernetes.io/hostname`, plus bootstrap-rendered per-substrate Dhall configs.
 
 ### Deliverables
 
@@ -261,11 +261,16 @@ kubernetes.io/hostname`, plus the per-substrate Dhall configs.
   per node. **Not** a `StatefulSet` — durable state lives entirely in MinIO
   and Pulsar.
 - `runtimeClassName: nvidia` only when substrate is `linux-cuda`.
-- `conf/cluster/<substrate>.dhall` declares `residency = Cluster`,
-  `inferenceMode = SelfInference` for Linux substrates, `ForwardToHost` for
-  Apple.
-- `conf/host/apple-silicon.dhall` declares `residency = Host`,
-  `inferenceMode = SelfInference`, no HTTP listener (Pulsar subscriber only).
+- `jitml bootstrap --<substrate>` renders
+  `./.build/conf/cluster/<substrate>.dhall` and deploys it as a ConfigMap
+  mounted into `jitml-service`.
+- The cluster Dhall declares `residency = Cluster`, `inferenceMode =
+  SelfInference` for Linux substrates, and `ForwardToHost` for Apple.
+- `jitml bootstrap --apple-silicon` also renders
+  `./.build/conf/host/apple-silicon.dhall`, then patches it after the edge port
+  is chosen so the host daemon can reach Pulsar and MinIO.
+- Linux substrates do not render a host-level Dhall file; all JIT operations
+  happen in the cluster and the daemon knows that from its ConfigMap Dhall.
 - Deployment template mounts `./.build/` from the worker hostPath into the
   pod at `/opt/build/` so the JIT cache is shared.
 - `chart/templates/deployment-jitml-demo.yaml` is the sibling Deployment for
@@ -275,12 +280,12 @@ kubernetes.io/hostname`, plus the per-substrate Dhall configs.
 ### Validation
 
 1. `kubectl get deployment -n platform jitml-service` shows `Available` after
-   `jitml cluster up`.
+   `jitml bootstrap --<substrate>`.
 2. `kubectl scale deployment jitml-service --replicas=2` lands two pods on
    distinct nodes.
 3. The Apple Silicon host-native daemon launched by
-   `bootstrap/apple-silicon.sh up` reads
-   `./.data/runtime/cluster-publication.json` and subscribes to
+   `jitml bootstrap --apple-silicon` reads
+   `./.build/conf/host/apple-silicon.dhall` and subscribes to
    `inference.command.apple-silicon`.
 
 ## Doctrine Sections Cited

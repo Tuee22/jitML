@@ -15,15 +15,27 @@
 ```
 .build/
 ├── jitml                                    -- the binary
+├── jitml.kubeconfig                         -- repo-local kubeconfig
+├── conf/                                    -- generated host and cluster Dhall
+├── runtime/cluster-publication.json          -- routed cluster coordinates
+├── kind/<substrate>/                         -- Kind metadata/config for later compose-run commands
 ├── host/apple-silicon/                      -- Apple-only stable-named dlopen() targets
 └── jit/
     ├── manifest.json                        -- index keyed on (model-id, kind, substrate, toolchain)
     └── <substrate>/<hash>.<ext>             -- one file per cached kernel
 ```
 
-`./.build/` is the only host folder that holds compiled artefacts (both the
-`jitml` binary and JIT-compiled kernels). Both `./.build/` and `./.data/`
-are in `.gitignore` and `.dockerignore`.
+`./.build/` is the host root for compiled artefacts, generated Dhall,
+kubeconfig, cluster publication, Kind metadata, and JIT-compiled kernels.
+`./.data/` is strictly for manual PV bind mounts. Both `./.build/` and
+`./.data/` are in `.gitignore` and `.dockerignore`.
+
+The Sprint `2.3` cache support lives in `src/JitML/Cache/`: `Key` owns the
+placeholder cache-key ADTs and SHA-256 derivation, `Layout` owns typed path
+resolution under `./.build/`, `Manifest` owns `manifest.json` round-trip and
+atomic writes, and `Symlink` owns atomic Apple stable-FFI symlink repointing.
+Sprint `7.1` replaces the placeholder `KernelSpec` payload with the numerical
+core's full kernel shape.
 
 `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache —
 every cached kernel lives there, on every substrate.
@@ -115,8 +127,10 @@ Envelope](determinism_contract.md#engine-envelope).
 
 ## Apple Silicon Hybrid Pattern
 
-The host daemon's startup path never touches tart. On a JIT cache miss the
-daemon calls `JitML.Tart.ensureVmUp jitml-build`:
+Bootstrap and the host daemon's startup path never touch tart. On a JIT cache
+miss, the host daemon first validates or installs the `tart` Homebrew package
+through typed lazy prerequisite remediation, then calls
+`JitML.Tart.ensureVmUp jitml-build`:
 
 - If the VM is up, no-op.
 - If down, `tart run jitml-build --no-graphics &` and poll until reachable.
@@ -138,7 +152,7 @@ only; rejected on Linux substrates with `AppError UnknownCommand`).
 `./bootstrap/apple-silicon.sh purge` destroys the tart VM (along with the
 Swift incremental build cache *inside* the VM) but **preserves** `./.build/`.
 After `purge`, every previously compiled kernel is still on disk under
-`./.build/jit/apple-silicon/`, so the next `up` plus any inference command
+`./.build/jit/apple-silicon/`, so the next bootstrap plus any inference command
 can resolve from cache without spinning tart up at all.
 
 `purge --full` is `purge` plus `rm -rf ./.build/` (and on Linux,
@@ -152,9 +166,11 @@ and the `jitml-service` Deployment mounts that path into the pod at
 `/opt/build`. Cache hits / misses behave identically to Apple Silicon — the
 only difference is that on a Linux miss the compile runs in-process inside
 the pod (the substrate image carries the full JIT toolchain), not in a
-separate VM. This is the **one** exception to the "no freestanding host
-paths in pod specs" discipline; the chart lint permits exactly this hostPath
-and rejects any other.
+separate VM. Later `docker compose run --rm jitml jitml <command>` invocations
+reuse the Kind metadata under `./.build/`; the outer container exits after the
+cluster daemon is in charge. This is the **one** exception to the "no
+freestanding host paths in pod specs" discipline; the chart lint permits
+exactly this hostPath and rejects any other.
 
 ## Hardware Auto-Tuning
 
@@ -188,8 +204,8 @@ Linux loaders use `dlopen` directly against the cache file.
 
 ## Cross-References
 
-- [../README.md → Built-artifact and JIT-cache discipline](../README.md#built-artifact-and-jit-cache-discipline)
-- [../README.md → JIT compilation architecture](../README.md#jit-compilation-architecture)
+- [../../README.md → Built-artifact and JIT-cache discipline](../../README.md#built-artifact-and-jit-cache-discipline)
+- [../../README.md → JIT compilation architecture](../../README.md#jit-compilation-architecture)
 - [determinism_contract.md](determinism_contract.md)
 - [daemon_architecture.md](daemon_architecture.md)
 - [../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md](../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md)

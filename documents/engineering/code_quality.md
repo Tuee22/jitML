@@ -30,6 +30,19 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
   `readCreateProcess`, `System.Process.*`, `typed-process` smart
   constructors forbidden outside `src/JitML/Sub/Stream.hs`.
 
+## Current Implementation Status
+
+Sprint `1.1` has landed `jitml.cabal`, `cabal.project`, the app shims, and
+sentinel Cabal test stanzas. Sprint `1.2` has replaced the `jitml-unit` sentinel
+with parser/registry coverage. Sprint `1.3` has landed `jitml docs check`,
+`jitml docs generate`, and the tracked-generated-path registry for CLI docs,
+manpage, and shell completions. Sprint `1.4` has landed `fourmolu.yaml`,
+`.hlint.yaml`, `forbiddenPathRegistry`, `jitml lint`, `jitml check-code`, and the
+`jitml-haskell-style` stanza. `cabal.project` currently carries a scoped
+`allow-newer` block for Dhall / CBOR package bounds under GHC `9.14.1`; its
+removal is tracked in
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+
 ## jitML Project-Specific Lint Rules
 
 The doctrine doesn't address the chart, the route registry, or the
@@ -46,8 +59,8 @@ Owned by `src/JitML/Lint/Chart.hs` (Sprint `1.4`). Refuses:
 - Any freestanding `PersistentVolumeClaim` (must be created by a
   `StatefulSet.volumeClaimTemplates`).
 - Any `hostPath` under `chart/templates/pv-*.yaml` that does not match
-  `<substrate>/<namespace>/<statefulset>/pv_<replica-int>`.
-- Any `PerconaPGCluster` outside the single Harbor-only instance.
+  `<namespace>/<StatefulSet>/pv_<replica-int>`.
+- Any `PerconaPGCluster` outside the typed service-Postgres registry.
 - Drift between the `kindest/node` pin in `kind/cluster-<substrate>.yaml`
   and the comment-mirror in `cabal.project`.
 
@@ -65,11 +78,11 @@ Owned by `src/JitML/Lint/RouteRegistry.hs` (Sprint `3.4`). Enforces:
 The project-specific `forbiddenPathRegistry` (Sprint `1.4`) extends the
 doctrine's set with:
 
-- Anything that touches `~/.kube/config`, `~/.docker/config.json`, or the
-  user's global Homebrew prefix as a writer (enforced by a `bash -n` plus
-  grep audit at CI time, since these are bootstrap-script invariants per
-  [../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md →
-  Sprint 2.7](../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md)).
+- Stage-0 scripts or ad hoc command runners touching `~/.kube/config`,
+  `~/.docker/config.json`, the user's Homebrew prefix, or other global state.
+  Homebrew package installation is allowed only through Haskell typed
+  prerequisite remediation, with pure plan construction, typed `Subprocess`
+  apply, and postcondition validation.
 - Hand-edited Grafana dashboard ConfigMaps (tracked by
   `trackingGeneratedPaths`).
 - Hand-edited `web/src/Generated/Contracts.purs` (tracked).

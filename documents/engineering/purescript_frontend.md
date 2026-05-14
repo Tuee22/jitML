@@ -140,7 +140,7 @@ have its own Cabal stanza.
 
 ## Cross-References
 
-- [../README.md → PureScript frontend](../README.md#purescript-frontend)
+- [../../README.md → PureScript frontend](../../README.md#purescript-frontend)
 - [daemon_architecture.md](daemon_architecture.md)
 - [../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md](../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md)
 - [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)

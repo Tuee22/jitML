@@ -13,7 +13,7 @@
 **Generated sections**: none
 
 > **Purpose**: Install and configure the in-cluster stateful platform services —
-> Harbor, MinIO, Apache Pulsar, Percona PostgreSQL (Harbor-only), the
+> Harbor, MinIO, Apache Pulsar, Percona PostgreSQL for packaged services, the
 > kube-prometheus-stack, and TensorBoard with MinIO event-storage backing — plus
 > the NVIDIA `RuntimeClass` for the Linux CUDA substrate.
 
@@ -26,8 +26,9 @@ chart and routes through the Envoy Gateway listener established in Phase `3`.
 
 This phase populates the umbrella Helm chart's subchart bodies, the MinIO bucket
 provisioning block, the Pulsar topic / namespace bootstrap, the Percona PG
-operator and `pg-db` for Harbor only (jitML itself never writes to a relational
-DB on its data path), the kube-prometheus-stack with Grafana datasources and
+operator and Patroni-managed Postgres clusters for packaged services that need
+Postgres (jitML itself never writes to a relational DB on its data path), the
+kube-prometheus-stack with Grafana datasources and
 provisioned dashboards, the jitML-owned TensorBoard chart with MinIO event-
 storage backing, and the NVIDIA `RuntimeClass` that binds to nodes labelled
 `jitml.runtime/gpu=true`.
@@ -53,19 +54,20 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 - Harbor's portal, core, registry, and notary are deployed in the bootstrap
   phase (image-pull from public registries).
 - Harbor's S3 backend points at MinIO bucket `harbor-registry` (Sprint `4.3`).
-- Push from `bootstrap/linux-cpu.sh push` (Sprint `2.4`) lands at
-  `harbor.platform.svc.cluster.local/jitml/jitml:<sha>`.
+- `jitml bootstrap --<substrate>` builds the `jitml` image, pushes it to
+  `harbor.platform.svc.cluster.local/jitml/jitml:<sha>`, and uses that image for
+  the cluster daemon rollout.
 - HTTPRoute manifests for `/harbor` and `/harbor/api` are generated from the
   route registry (Sprint `3.4`).
 
 ### Validation
 
-1. `jitml cluster up` succeeds; `kubectl get pods -n platform` shows the
+1. `jitml bootstrap --<substrate>` succeeds; `kubectl get pods -n platform` shows the
    Harbor stack ready.
-2. `bootstrap/linux-cpu.sh push` lands an image visible in the Harbor portal
+2. `jitml bootstrap --linux-cpu` lands an image visible in the Harbor portal
    at `127.0.0.1:<edge-port>/harbor`.
 
-## Sprint 4.2: Percona PG Operator and `pg-db` for Harbor ⏸️
+## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres ⏸️
 
 **Status**: Blocked
 **Blocked by**: 4.1
@@ -75,25 +77,27 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 
 ### Objective
 
-Install the Percona Kubernetes Operator and one `pg-db` cluster (HA Postgres
-shape) **only** as Harbor's database. jitML itself never writes to a relational
-DB on its data path — durable state lives in MinIO and Pulsar exclusively.
+Install the Percona Kubernetes Operator and Patroni-managed HA Postgres clusters
+for packaged services that require Postgres. Harbor is the first consumer.
+jitML itself never writes to a relational DB on its data path — durable state
+lives in MinIO and Pulsar exclusively.
 
 ### Deliverables
 
 - `pg-operator` subchart pinned in `chart/Chart.yaml`.
-- One `PerconaPGCluster` resource named `harbor-pg` in namespace `platform`.
+- `PerconaPGCluster` resources are rendered from a typed service-Postgres
+  registry; the first entry is `harbor-pg` in namespace `platform`.
 - The PG cluster's storage uses the `jitml-manual` StorageClass and the
   manual PVs from Sprint `3.2`.
 - Harbor's `database` config block in `chart/templates/harbor-values.yaml`
   points at `harbor-pg`.
-- `jitml lint chart` rejects any `PerconaPGCluster` outside this single
-  Harbor-only instance.
+- `jitml lint chart` rejects any `PerconaPGCluster` outside the typed
+  service-Postgres registry.
 
 ### Validation
 
 1. `kubectl get perconapgcluster -n platform` shows `harbor-pg` ready after
-   `jitml cluster up`.
+   `jitml bootstrap --<substrate>`.
 2. Harbor's portal authenticates against the PG cluster.
 
 ## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server ⏸️
@@ -116,7 +120,7 @@ buckets, and pin the server to a release with S3 conditional-write support
 - `minio` subchart at the conditional-write-supporting pin in
   `chart/Chart.yaml`.
 - Distributed mode with 4 replicas, each backed by a manual PV under
-  `./.data/kind/<substrate>/platform/minio/pv_<i>/` (Sprint `3.2`).
+  `./.data/platform/minio/pv_<i>/` (Sprint `3.2`).
 - `provisioning.buckets` block creates the seven buckets enumerated in
   [system-components.md → MinIO Bucket
   Layout](system-components.md#minio-bucket-layout): `harbor-registry`,
@@ -128,7 +132,7 @@ buckets, and pin the server to a release with S3 conditional-write support
 
 ### Validation
 
-1. `mc ls minio/` after `jitml cluster up` lists the seven buckets.
+1. `mc ls minio/` after `jitml bootstrap --<substrate>` lists the seven buckets.
 2. `mc admin info minio/` confirms the conditional-write-supporting release.
 3. `jitml-integration` exercises `If-None-Match: *` and `If-Match: <etag>`
    against MinIO and asserts the typed `MinIOPreconditionFailed` →
@@ -154,13 +158,13 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 - `src/JitML/Cluster/PulsarBootstrap.hs` declares the typed topic family from
   [system-components.md → Pulsar Topic
   Family](system-components.md#pulsar-topic-family) and reconciles them at
-  `cluster up` final-phase time via `pulsar-admin` through the typed
+  bootstrap final-phase time via `pulsar-admin` through the typed
   `Subprocess` boundary.
 - HTTPRoutes for `/pulsar/admin` and `/pulsar/ws` (Sprint `3.4`).
 
 ### Validation
 
-1. `pulsar-admin topics list public/default` after `jitml cluster up` lists
+1. `pulsar-admin topics list public/default` after `jitml bootstrap --<substrate>` lists
    the substrate-scoped topics.
 2. WebSocket subscribe from `127.0.0.1:<edge-port>/pulsar/ws/v2/consumer/...`
    succeeds.

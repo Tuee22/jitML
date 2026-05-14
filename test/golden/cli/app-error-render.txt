@@ -1,0 +1,42 @@
+prerequisite unmet: ghc-9.14.1
+description: GHC 9.14.1 is required.
+remedy: ghcup install ghc 9.14.1
+---
+subprocess failed: kubectl get pods
+exit: 1
+stderr: kubectl failed
+---
+minio failed: bucket unavailable
+---
+pulsar failed: broker unavailable
+---
+harbor failed: registry unavailable
+---
+kubectl failed: context missing
+---
+file: README.md
+key: command-tree
+Run `jitml docs generate` to update.
+---
+unknown command: jitml missing
+---
+invalid config: BootConfig changed under SIGHUP
+---
+dhall type error: expected Natural
+---
+file: chart/templates/pv.yaml
+key: chart.storage
+message: invalid storage class
+remedy: use jitml-manual
+---
+route registry drift: httproute generated output is stale
+---
+jit cache miss: abc123
+---
+jit toolchain drift: cached with older nvcc
+---
+checkpoint format unsupported: .jmw0
+---
+checkpoint write conflict: latest pointer etag changed
+---
+docs generate: no changes

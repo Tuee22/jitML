@@ -1,0 +1,33 @@
+with-compiler: ghc-9.14.1
+packages: .
+
+allow-newer:
+    dhall:base,
+    dhall:bytestring,
+    dhall:containers,
+    dhall:template-haskell,
+    dhall:time,
+    cborg:base,
+    cborg:bytestring,
+    cborg:containers,
+    cborg-json:base,
+    serialise:base,
+    serialise:containers
+
+-- Codegen toolchain pins recorded for the deterministic JIT cache key:
+-- LLVM: pinned with the GHC 9.14.1 toolchain
+-- NVCC: pinned, --use_fast_math=false, baseline sm_70
+-- Xcode/Metal: pinned by the apple-silicon bootstrap lane
+-- oneDNN: pinned with AVX2 baseline
+-- kindest/node: pinned in kind/cluster-<substrate>.yaml and mirrored here
+
+-- POC report-card knobs:
+-- SL_EPOCHS=5
+-- SL_BATCH=64
+-- RL_STEPS=100_000
+-- RL_EVAL_EPISODES=25
+-- AZ_GAMES=200
+-- AZ_SIMS=400
+-- TUNE_TRIALS=64
+-- TUNE_BUDGET_PER_TRIAL=1_000
+-- XCLUSTER_KIND_NODES=2

@@ -35,7 +35,7 @@ contract holds across:
 ## Per-Substrate Floating-Point Semantics
 
 Per [../README.md → Substrates and runtime
-modes](../README.md#substrates-and-runtime-modes), each substrate carries its
+modes](../../README.md#substrates-and-runtime-modes), each substrate carries its
 own floating-point determinism contract.
 
 ### `apple-silicon` (Metal)
@@ -189,8 +189,8 @@ The tolerance methodology:
 
 ## Cross-References
 
-- [../README.md → Substrates and runtime modes](../README.md#substrates-and-runtime-modes)
-- [../README.md → Bit-determinism contract](../README.md#bit-determinism-contract)
+- [../../README.md → Substrates and runtime modes](../../README.md#substrates-and-runtime-modes)
+- [../../README.md → Bit-determinism contract](../../README.md#bit-determinism-contract)
 - [jit_codegen_architecture.md](jit_codegen_architecture.md)
 - [checkpoint_format.md](checkpoint_format.md)
 - [../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md](../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md)

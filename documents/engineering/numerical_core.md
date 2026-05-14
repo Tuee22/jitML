@@ -161,13 +161,13 @@ Owning module: `src/JitML/Numerics/Loss.hs`.
 ## Worked Example
 
 The worked Dhall example from [../README.md → Concrete Dhall worked
-example](../README.md#concrete-dhall-worked-example) is encoded in
+example](../../README.md#concrete-dhall-worked-example) is encoded in
 `experiments/sl/mnist-baseline.dhall`, parseable end-to-end with `dhall
 resolve` plus `dhall/numerics/Schema.dhall`.
 
 ## Cross-References
 
-- [../README.md → Numerical core](../README.md#numerical-core)
+- [../../README.md → Numerical core](../../README.md#numerical-core)
 - [training_workloads.md](training_workloads.md)
 - [jit_codegen_architecture.md](jit_codegen_architecture.md)
 - [../../DEVELOPMENT_PLAN/phase-6-numerical-core.md](../../DEVELOPMENT_PLAN/phase-6-numerical-core.md)

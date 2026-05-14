@@ -1,0 +1,5 @@
+.build/
+.data/
+dist-newstyle/
+.hlint-output
+*.lock

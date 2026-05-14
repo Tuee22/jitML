@@ -28,11 +28,11 @@
 > drivers, the SL/RL/AlphaZero/tuning surfaces, the checkpoint format, the PureScript
 > frontend, and the Cabal test stanzas.
 
-The inventory documents the authoritative end state. Every row is `📋 Planned` (or
-`⏸️ Blocked` on Phase `0` closure) at write time because the repository contains no
-source code yet — only the project README, the doctrine, the agent guardrails, the
-LICENSE, this plan suite, and governed documentation under `documents/`. Status
-moves to `🔄 Active` and then `✅ Done` as each owning sprint closes per
+The inventory documents the authoritative end state. Phases `0` and `1` are
+`✅ Done`; Phase `2` is `🔄 Active` with Sprints `2.1`, `2.2`, and `2.3`
+closed; later implementation rows remain `⏸️ Blocked` until their owning
+predecessor phases close. Status moves to `🔄 Active` and then `✅ Done` as
+each owning sprint closes per
 [development_plan_standards.md → C. Honest Completion
 Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
@@ -51,6 +51,7 @@ is not in the current support matrix.
 
 | Surface | Command | Purpose | Status | Owning Sprint |
 |---------|---------|---------|--------|---------------|
+| Bootstrap | `jitml bootstrap --apple-silicon\|--linux-cpu\|--linux-cuda` | Plan/Apply full-stack substrate bootstrap: generated Dhall, Kind, Harbor-first rollout, platform services, cluster daemon, demo, and Apple host-daemon handoff | 🔄 Active | Sprint 2.2 |
 | Service daemon | `jitml service` | Long-running daemon parameterised entirely by Dhall config (`BootConfig` / `LiveConfig`); no separate `host-service` verb | ⏸️ Blocked | Sprint 5.1 |
 | Cluster lifecycle | `jitml cluster up`, `jitml cluster down`, `jitml cluster status`, `jitml cluster reset` | Plan/Apply rollout, preserving teardown, status reporting, and destructive reset guarded by `--yes` | ⏸️ Blocked | Sprint 3.5 |
 | Train | `jitml train` | Plan/Apply: run a training job described by an experiment Dhall, publish events on `training.event.<mode>` | ⏸️ Blocked | Sprint 8.2 |
@@ -62,35 +63,37 @@ is not in the current support matrix.
 | Benchmarks | `jitml bench train`, `jitml bench inference`, `jitml bench env` | Reproducible benchmark harnesses for training, inference, and environment-step throughput | ⏸️ Blocked | Sprint 12.9 |
 | Inference | `jitml inference run` | Inference-at-any-point against `latest`, `best/<metric>`, or a manifest SHA | ⏸️ Blocked | Sprint 10.4 |
 | Test runner | `jitml test all` / `jitml test <stanza>` | Plan/Apply over Cabal test stanzas plus the pinned report-card workload | ⏸️ Blocked | Sprint 12.9 |
-| Lint stack | `jitml lint files\|docs\|proto\|chart\|haskell\|purescript\|all` | Hand-written source hygiene, formatter + hlint + `cabal format`, proto schema checks, PureScript formatting, and chart-shape lint | ⏸️ Blocked | Sprint 1.4 |
-| Docs generation | `jitml docs check` / `jitml docs generate` | Paired generated-section check and write per the `GeneratedSectionRule` registry | ⏸️ Blocked | Sprint 1.3 |
-| Command introspection | `jitml commands [--tree\|--json]` | Flat list, tree rendering, or JSON command schema from the `CommandSpec` registry | ⏸️ Blocked | Sprint 1.2 |
-| Focused help | `jitml help <subcommand>` | Equivalent to `<subcommand> --help`; same renderer | ⏸️ Blocked | Sprint 1.2 |
-| Code quality gate | `jitml check-code` | Doctrine-alignment enforcement, formatter, hlint, warning-clean build, forbidden-path scan | ⏸️ Blocked | Sprint 1.4 |
+| Lint stack | `jitml lint files\|docs\|proto\|chart\|haskell\|purescript\|all` | Hand-written source hygiene, formatter + hlint + `cabal format`, proto schema checks, PureScript formatting, and chart-shape lint | ✅ Done | Sprint 1.4 |
+| Docs generation | `jitml docs check` / `jitml docs generate` | Paired generated-section check and write per the `GeneratedSectionRule` registry | ✅ Done | Sprint 1.3 |
+| Command introspection | `jitml commands [--tree\|--json]` | Flat list, tree rendering, or JSON command schema from the `CommandSpec` registry | ✅ Done | Sprint 1.2 |
+| Focused help | `jitml help <subcommand>` | Equivalent to `<subcommand> --help`; same renderer | ✅ Done | Sprint 1.2 |
+| Code quality gate | `jitml check-code` | Doctrine-alignment enforcement, formatter, hlint, warning-clean build, forbidden-path scan | ✅ Done | Sprint 1.4 |
 | Build | `jitml build` | Build the inner Haskell binary inside the substrate container; mirrors `bootstrap/<substrate>.sh build` semantics from inside the daemon | ⏸️ Blocked | Sprint 2.4 |
+| Prerequisite doctor | `jitml doctor [--scope toolchain\|container\|cluster] [--remediate]` | In-process prerequisite registry reconciliation and typed remediation apply/postcondition validation | ✅ Done | Sprint 2.2 |
 | Kubectl passthrough | `jitml kubectl` | `kubectl` passthrough pre-bound to `./.build/jitml.kubeconfig` | ⏸️ Blocked | Sprint 3.5 |
-| Internal substrate materialization | `jitml internal materialize-substrate`, `jitml internal list-prereqs` | Non-doctrine-shaped helpers for bootstrap and substrate materialization | ⏸️ Blocked | Sprint 2.1 |
+| Internal substrate materialization | `jitml internal materialize-substrate`, `jitml internal list-prereqs` | Non-doctrine-shaped helpers for bootstrap and substrate materialization | ✅ Done | Sprint 2.1 |
 | Internal VM lifecycle (Apple) | `jitml internal vm bootstrap\|up\|down\|status\|exec` | Tart VM lifecycle and pass-through debugging for Swift/Metal builds | ⏸️ Blocked | Sprint 2.5 |
-| Internal cache inspection | `jitml internal cache stat\|list\|evict` | JIT cache introspection and idempotent eviction helpers | ⏸️ Blocked | Sprint 2.3 |
+| Internal cache inspection | `jitml internal cache stat\|list\|evict` | JIT cache introspection and idempotent eviction helpers; command leaves are registered, while effectful bodies wait for populated codegen entries | ⏸️ Blocked | Sprint 7.1 |
 | Internal GC | `jitml internal gc <experiment-hash>` | Reconciler that enforces the experiment Dhall's `retain` policy on the checkpoint store; exit code `3` on no-op | ⏸️ Blocked | Sprint 10.3 |
 | Demo HTTP server | `jitml-demo` | Sibling binary serving the PureScript bundle plus the inference REST surface; both binaries share the `src/JitML/` library | ⏸️ Blocked | Sprint 11.5 |
 
-## Bootstrap Reconciler Subcommands
+## Bootstrap Stage-0 Script Surface
 
-Per substrate, identical surface (Linux additionally exposes `push`):
+The shell scripts are stage-0 entrypoints, not broad package reconcilers. They
+fail fast with installation instructions, then delegate to the Haskell
+`jitml bootstrap --<substrate>` command.
 
 | Verb | Purpose | Status | Owning Sprint |
 |------|---------|--------|---------------|
-| `help` | Print supported subcommands | ⏸️ Blocked | Sprint 2.1 |
-| `doctor` | Run the typed prerequisite DAG; emit structured diagnostic on missing nodes (exit code `2`) | ⏸️ Blocked | Sprint 2.1 |
-| `build` | Build the substrate image / inner `jitml` binary (Apple: host-native via ghcup; Linux: container-built, bind-mounted out) | ⏸️ Blocked | Sprint 2.4 |
-| `up` | Bring the cluster up; on Apple, additionally launch host-native `jitml service --config conf/host/apple-silicon.dhall` | ⏸️ Blocked | Sprint 2.6 |
-| `status` | Report bootstrap-side stack health | ⏸️ Blocked | Sprint 2.6 |
+| `help` | Print supported subcommands | ✅ Done | Sprint 2.1 |
+| `doctor` | Run only stage-0 host gates: Apple macOS/arm64/Xcode CLT/Homebrew; Linux Docker without `sudo`; CUDA NVIDIA runtime and compute capability | ✅ Done | Sprint 2.1 |
+| `build` | Apple-only convenience to build `./.build/jitml`; Linux images are built automatically by Compose on `up` | ✅ Done | Sprint 2.1 |
+| `up` | Delegate to `jitml bootstrap --apple-silicon` or `docker compose run --rm jitml jitml bootstrap --linux-cpu\|--linux-cuda` | ✅ Done | Sprint 2.1 |
+| `status` | Report bootstrap-side stack health from `./.build/runtime/cluster-publication.json` | ⏸️ Blocked | Sprint 2.6 |
 | `test` | Thin wrapper for `jitml test all` from outside the container | ⏸️ Blocked | Sprint 2.6 |
 | `down` | Tear down the cluster; preserve `./.data/` and `./.build/`; on Apple, leave the tart VM up | ⏸️ Blocked | Sprint 2.7 |
 | `purge` | Cluster down, `rm -rf ./.data/`, tart VM destroyed (Apple); preserves `./.build/` (including JIT cache) | ⏸️ Blocked | Sprint 2.7 |
 | `purge --full` | `purge` plus `rm -rf ./.build/`; Linux additionally drops the substrate image | ⏸️ Blocked | Sprint 2.7 |
-| `push` (Linux only) | Tag and push the locally-built image to `harbor.platform.svc.cluster.local/jitml/jitml:<sha>` | ⏸️ Blocked | Sprint 2.4 |
 
 ## Cluster Substrate Components
 
@@ -102,20 +105,20 @@ Per substrate, identical surface (Linux additionally exposes `push`):
 | `extraMounts` of `./.build/` | Bind-mounts host `./.build/` into the Kind worker so the in-cluster `jitml-service` pod sees the same JIT artefacts the host built | ⏸️ Blocked | Sprint 3.1 |
 | `jitml-manual` StorageClass | `kubernetes.io/no-provisioner`; the only StorageClass in the chart | ⏸️ Blocked | Sprint 3.2 |
 | Manual PV templates | `chart/templates/pv-<statefulset>.yaml`; one per replica with explicit `claimRef` | ⏸️ Blocked | Sprint 3.2 |
-| HostPath layout | `./.data/kind/<substrate>/<namespace>/<statefulset>/pv_<replica-int>/`; lint-enforced by `jitml lint files` | ⏸️ Blocked | Sprint 3.2 |
+| HostPath layout | `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/`; lint-enforced by `jitml lint files` | ⏸️ Blocked | Sprint 3.2 |
 | `GatewayClass/jitml-gateway` + `Gateway/jitml-edge` | Single localhost listener at `127.0.0.1:<edge-port>` | ⏸️ Blocked | Sprint 3.3 |
 | `EnvoyProxy/jitml-edge` | NodePort service, `externalTrafficPolicy: Cluster`, port 30090 | ⏸️ Blocked | Sprint 3.3 |
 | Route registry | `src/JitML/Routes.hs` — single source of truth for every HTTPRoute resource | ⏸️ Blocked | Sprint 3.4 |
 | Generated HTTPRoute manifests | `chart/templates/httproute-*.yaml`, rendered from the route registry; hand edits fail `jitml lint chart` | ⏸️ Blocked | Sprint 3.4 |
-| Cluster publication | `./.data/runtime/cluster-publication.json` — `edge_port`, `pulsar_ws_url`, `pulsar_admin_url`, `minio_s3_url` | ⏸️ Blocked | Sprint 3.5 |
-| Phased deploy | Bootstrap (Harbor + MinIO + Postgres) → Mirror (third-party images into Harbor) → Final (Pulsar, Envoy, kube-prometheus-stack, TensorBoard, `jitml-service`, `jitml-demo`) | ⏸️ Blocked | Sprint 3.5 |
+| Cluster publication | `./.build/runtime/cluster-publication.json` — `edge_port`, `pulsar_ws_url`, `pulsar_admin_url`, `minio_s3_url` | ⏸️ Blocked | Sprint 3.5 |
+| Phased deploy | Harbor first → Mirror/build into Harbor → Final (MinIO, Pulsar, Envoy, kube-prometheus-stack, TensorBoard, `jitml-service`, `jitml-demo`) | ⏸️ Blocked | Sprint 3.5 |
 
 ## Stateful Platform Services
 
 | Component | Helm Subchart | Routing | Status | Owning Sprint |
 |-----------|---------------|---------|--------|---------------|
 | Harbor (image registry) | `harbor` | `/harbor` (portal), `/harbor/api` (API) | ⏸️ Blocked | Sprint 4.1 |
-| Percona PG operator | `pg-operator` + `pg-db` | (internal — Harbor-only consumer) | ⏸️ Blocked | Sprint 4.2 |
+| Percona PG operator | `pg-operator` + Patroni-managed service Postgres | (internal — packaged services that require Postgres) | ⏸️ Blocked | Sprint 4.2 |
 | MinIO (object store) | `minio` (4 distributed replicas) | `/minio/console`, `/minio/s3` | ⏸️ Blocked | Sprint 4.3 |
 | Apache Pulsar | `pulsar` (3× ZK + 3× BK + 3× Broker + 3× Proxy + WebSocket) | `/pulsar/admin`, `/pulsar/ws` | ⏸️ Blocked | Sprint 4.4 |
 | Envoy Gateway controller | `gateway-helm` | (controller — dispatches the GatewayClass) | ⏸️ Blocked | Sprint 3.3 |
@@ -197,9 +200,10 @@ internal-RPC pair.
 | Apple Silicon engine (Metal codegen + host daemon shim + lazy tart spin-up) | `src/JitML/Engines/AppleSilicon.hs`, `codegen-metal/` | ⏸️ Blocked | Sprint 7.5 |
 | Linux CPU engine (oneDNN codegen) | `src/JitML/Engines/LinuxCPU.hs`, `codegen-onednn/` | ⏸️ Blocked | Sprint 7.3 |
 | Linux CUDA engine (CUDA C codegen) | `src/JitML/Engines/LinuxCUDA.hs`, `codegen-cuda/` | ⏸️ Blocked | Sprint 7.4 |
-| Content-addressed cache key | `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint)` | ⏸️ Blocked | Sprint 7.1 |
-| Cache root | `./.build/jit/<substrate>/<hash>.<ext>` | ⏸️ Blocked | Sprint 7.1 |
-| Apple FFI dlopen surface | `./.build/host/apple-silicon/<model-id>.dylib` (symlinks into `jit/apple-silicon/`) | ⏸️ Blocked | Sprint 7.1 |
+| Content-addressed cache key shape | `src/JitML/Cache/Key.hs`; placeholder `KernelSpec` hashes `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint)`, with full numerical payload populated by Sprint `7.1` | ✅ Done | Sprint 2.3 |
+| Cache root layout | `src/JitML/Cache/Layout.hs`; `./.build/jit/<substrate>/<hash>.<ext>` plus `manifest.json` path resolution | ✅ Done | Sprint 2.3 |
+| Cache manifest index | `src/JitML/Cache/Manifest.hs`; JSON round-trip, lookup, upsert, read, and atomic write helpers | ✅ Done | Sprint 2.3 |
+| Apple stable FFI symlink surface | `src/JitML/Cache/Symlink.hs`; `./.build/host/apple-silicon/<model-id>.dylib` repoints atomically into `jit/apple-silicon/` | ✅ Done | Sprint 2.3 |
 | Hardware auto-tuning | per-substrate reduction strategy / tile size / prefetch width selection preserving the determinism contract | ⏸️ Blocked | Sprint 7.6 |
 | Apple Silicon host↔cluster RPC contract | `inference.command.apple-silicon` / `inference.event.apple-silicon` envelope shape | ⏸️ Blocked | Sprint 7.5 |
 
@@ -270,38 +274,38 @@ standards rule L.
 
 | Component | Doctrine Section | Status | Owning Sprint |
 |-----------|------------------|--------|---------------|
-| `CommandSpec` registry as implementation source | Automatically Generated Documentation; Command Topology | ⏸️ Blocked | Sprint 1.2 |
-| `OptionSpec` record fields (`longName`, `shortName`, `metavar`, `description`, `required`) | Automatically Generated Documentation | ⏸️ Blocked | Sprint 1.2 |
-| Per-leaf `Example` entries on every `CommandSpec` | Automatically Generated Documentation | ⏸️ Blocked | Sprint 1.2 |
-| Parser generated from the registry (parser is a renderer, not the source of truth) | Command Topology | ⏸️ Blocked | Sprint 1.2 |
-| Parser-test category via `execParserPure` | Testing Doctrine → Parser Tests | ⏸️ Blocked | Sprint 1.2 |
-| `jitml commands --tree` and `jitml commands --json` introspection | Progressive Introspection | ⏸️ Blocked | Sprint 1.2 |
-| `Subprocess` ADT plus `runStreaming` / `capture` interpreter; pure `renderSubprocess` | Architecture → Subprocesses as Typed Values | ⏸️ Blocked | Sprint 1.6 |
-| Forbidden subprocess primitives (`callProcess`, `readCreateProcess`, `System.Process` constructors, `typed-process` smart constructors) | Architecture → Subprocesses as Typed Values | ⏸️ Blocked | Sprint 1.6 |
-| `Plan` / `apply` boundary with `--dry-run` and `--plan-file <path>` | Plan / Apply | ⏸️ Blocked | Sprint 1.5 |
-| `prerequisiteRegistry` with `nodeId`, `nodeDescription`, remedy hint, transitive closure | Prerequisites as Typed Effects | ⏸️ Blocked | Sprint 1.7 |
-| Single `Env` record threaded via `ReaderT Env IO` | Application Environment | ⏸️ Blocked | Sprint 1.8 |
-| Single `AppError` ADT (`PrerequisiteUnmet`, `SubprocessFailed`, `MinIOFailed`, `PulsarFailed`, `HarborFailed`, `KubectlFailed`, `DocsCheckDrift`, `UnknownCommand`, `InvalidConfig`, `DhallTypeError`, `ChartLintFailed`, `RouteRegistryDrift`, `JitCacheMiss`, `JitToolchainDrift`, `CheckpointFormatUnsupported`, `CheckpointWriteConflict`, `ReconcilerNoop`) | Error Handling | ⏸️ Blocked | Sprint 1.9 |
-| `renderError :: AppError -> Text` boundary | Error Handling | ⏸️ Blocked | Sprint 1.9 |
-| Exit code `3` for reconciler no-op-on-match | Error Handling | ⏸️ Blocked | Sprint 1.9 |
-| HLint rules refusing `print`, `exitFailure`, direct terminal formatting outside the output module | Error Handling | ⏸️ Blocked | Sprint 1.4 |
-| `--format json\|table\|plain` (default `table` on TTY else `plain`) | Output Rules | ⏸️ Blocked | Sprint 1.9 |
-| `--color auto\|always\|never` plus `--no-color` | Output Rules | ⏸️ Blocked | Sprint 1.9 |
-| `fourmolu.yaml` 12-setting list at repo root | Lint, Format, and Code-Quality Stack → Pinned fourmolu.yaml | ⏸️ Blocked | Sprint 1.4 |
-| `cabal format` temp-file round-trip byte-equality check | Lint, Format, and Code-Quality Stack | ⏸️ Blocked | Sprint 1.4 |
-| `forbiddenPathRegistry` (`.github/workflows/`, `.husky/`, `.githooks/`, `.pre-commit-config.yaml`, root `Makefile`/`justfile`/`Taskfile.yml`) | Lint, Format, and Code-Quality Stack → Forbidden Surfaces | ⏸️ Blocked | Sprint 1.4 |
-| `GeneratedSectionRule` registry for marker-delimited generated regions | Generated Artifacts → The generated-section registry | ⏸️ Blocked | Sprint 1.3 |
-| `trackingGeneratedPaths` registry for fully-generated files (manpages, shell completions, generated PureScript contracts, generated chart HTTPRoutes, generated Grafana dashboards) | Generated Artifacts → Two categories of generation | ⏸️ Blocked | Sprint 1.3 |
+| `CommandSpec` registry as implementation source | Automatically Generated Documentation; Command Topology | ✅ Done | Sprint 1.2 |
+| `OptionSpec` record fields (`longName`, `shortName`, `metavar`, `description`, `required`) | Automatically Generated Documentation | ✅ Done | Sprint 1.2 |
+| Per-leaf `Example` entries on every `CommandSpec` | Automatically Generated Documentation | ✅ Done | Sprint 1.2 |
+| Parser generated from the registry (parser is a renderer, not the source of truth) | Command Topology | ✅ Done | Sprint 1.2 |
+| Parser-test category via `execParserPure` | Testing Doctrine → Parser Tests | ✅ Done | Sprint 1.2 |
+| `jitml commands --tree` and `jitml commands --json` introspection | Progressive Introspection | ✅ Done | Sprint 1.2 |
+| `Subprocess` ADT plus `runStreaming` / `capture` interpreter; pure `renderSubprocess` | Architecture → Subprocesses as Typed Values | ✅ Done | Sprint 1.6 |
+| Forbidden subprocess primitives (`callProcess`, `readCreateProcess`, `System.Process` constructors, `typed-process` smart constructors) | Architecture → Subprocesses as Typed Values | ✅ Done | Sprint 1.6 |
+| `Plan` / `apply` boundary with `--dry-run` and `--plan-file <path>` | Plan / Apply | ✅ Done | Sprint 1.5 |
+| `prerequisiteRegistry` with `nodeId`, `nodeDescription`, remedy hint, transitive closure | Prerequisites as Typed Effects | ✅ Done | Sprint 1.7 |
+| Single `Env` record threaded via `ReaderT Env IO` | Application Environment | ✅ Done | Sprint 1.8 |
+| Single `AppError` ADT (`PrerequisiteUnmet`, `SubprocessFailed`, `MinIOFailed`, `PulsarFailed`, `HarborFailed`, `KubectlFailed`, `DocsCheckDrift`, `UnknownCommand`, `InvalidConfig`, `DhallTypeError`, `ChartLintFailed`, `RouteRegistryDrift`, `JitCacheMiss`, `JitToolchainDrift`, `CheckpointFormatUnsupported`, `CheckpointWriteConflict`, `ReconcilerNoop`) | Error Handling | ✅ Done | Sprint 1.9 |
+| `renderError :: AppError -> Text` boundary | Error Handling | ✅ Done | Sprint 1.9 |
+| Exit code `3` for reconciler no-op-on-match | Error Handling | ✅ Done | Sprint 1.9 |
+| HLint rules refusing `print`, `exitFailure`, direct terminal formatting outside the output module | Error Handling | ✅ Done | Sprint 1.4 |
+| `--format json\|table\|plain` (default `table` on TTY else `plain`) | Output Rules | ✅ Done | Sprint 1.9 |
+| `--color auto\|always\|never` plus `--no-color` | Output Rules | ✅ Done | Sprint 1.9 |
+| `fourmolu.yaml` 12-setting list at repo root | Lint, Format, and Code-Quality Stack → Pinned fourmolu.yaml | ✅ Done | Sprint 1.4 |
+| `cabal format` temp-file round-trip byte-equality check | Lint, Format, and Code-Quality Stack | ✅ Done | Sprint 1.4 |
+| `forbiddenPathRegistry` (`.github/workflows/`, `.husky/`, `.githooks/`, `.pre-commit-config.yaml`, root `Makefile`/`justfile`/`Taskfile.yml`) | Lint, Format, and Code-Quality Stack → Forbidden Surfaces | ✅ Done | Sprint 1.4 |
+| `GeneratedSectionRule` registry for marker-delimited generated regions | Generated Artifacts → The generated-section registry | ✅ Done | Sprint 1.3 |
+| `trackingGeneratedPaths` registry for fully-generated files (manpages, shell completions, generated PureScript contracts, generated chart HTTPRoutes, generated Grafana dashboards) | Generated Artifacts → Two categories of generation | ✅ Done | Sprint 1.3 |
 | GADT-indexed `TrainingLifecycle`, `RLRunLifecycle`, `TuneSweepLifecycle` | GADT-Indexed State Machines | ⏸️ Blocked | Sprint 8.4, 8.6, 9.7 |
 | Capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) | Capability Classes and Service Errors | ⏸️ Blocked | Sprint 5.4 |
 | `RetryPolicy` typed value with named strategies | Retry Policy as First-Class Values | ⏸️ Blocked | Sprint 5.4 |
 | At-least-once Pulsar consumer with protobuf-message-hash deduplication | At-Least-Once Event Processing | ⏸️ Blocked | Sprint 5.5 |
 | Long-running daemon shape (`BootConfig` / `LiveConfig`, SIGHUP, `/healthz`, `/readyz`, `/metrics`, structured JSON stderr logging) | Long-Running Daemons in the Same Binary | ⏸️ Blocked | Sprints 5.2, 5.3 |
-| Reconciler discipline (`jitml cluster up`, `jitml docs generate`, `jitml lint --write`, `jitml internal gc`) | Reconcilers: Idempotent Mutation as a Single Command | ⏸️ Blocked | Sprints 3.5, 1.3, 1.4, 10.3 |
-| Cabal-manifest toolchain pin (`tested-with: ghc ==9.14.1` in `jitml.cabal`, `with-compiler: ghc-9.14.1` in `cabal.project`, codegen toolchains pinned in `cabal.project`) | Toolchain pinning | ⏸️ Blocked | Sprint 1.1 |
-| Library-first layout audit (thin `app/Main.hs` and `app/Demo.hs`, logic in `src/JitML/`) | Project Structure | ⏸️ Blocked | Sprint 1.1 |
-| Durable CLI documentation artefacts (`documents/cli/commands.md`, `share/man/man1/jitml*.1`, `share/completion/{bash,zsh,fish}/`) | Automatically Generated Documentation | ⏸️ Blocked | Sprint 1.3 |
-| Standardized library set audit in `jitml.cabal` (`optparse-applicative`, `text`, `bytestring`, `aeson`, `prettyprinter*`, `ansi-terminal`, `path`, `path-io`, `typed-process`, `safe-exceptions`, `dhall`, `tasty*`, `temporary`, plus the project-specific Pulumi-driven testing plus PureScript bridge under `documents/engineering/purescript_frontend.md`) | Overview → standardized stack | ⏸️ Blocked | Sprint 1.1 |
+| Reconciler discipline (`jitml bootstrap`, `jitml cluster up`, `jitml docs generate`, `jitml lint --write`, `jitml internal gc`) | Reconcilers: Idempotent Mutation as a Single Command | ⏸️ Blocked | Sprints 2.1, 3.5, 1.3, 1.4, 10.3 |
+| Cabal-manifest toolchain pin (`tested-with: ghc ==9.14.1` in `jitml.cabal`, `with-compiler: ghc-9.14.1` in `cabal.project`, codegen toolchains pinned in `cabal.project`) | Toolchain pinning | ✅ Done | Sprint 1.1 |
+| Library-first layout audit (thin `app/Main.hs` and `app/Demo.hs`, logic in `src/JitML/`) | Project Structure | ✅ Done | Sprint 1.1 |
+| Durable CLI documentation artefacts (`documents/cli/commands.md`, `share/man/man1/jitml*.1`, `share/completion/{bash,zsh,fish}/`) | Automatically Generated Documentation | ✅ Done | Sprint 1.3 |
+| Standardized library set audit in `jitml.cabal` (`optparse-applicative`, `text`, `bytestring`, `aeson`, `prettyprinter*`, `ansi-terminal`, `path`, `path-io`, `typed-process`, `safe-exceptions`, `dhall`, `tasty*`, `temporary`, plus the project-specific Pulumi-driven testing plus PureScript bridge under `documents/engineering/purescript_frontend.md`) | Overview → standardized stack | ✅ Done | Sprint 1.1 |
 
 ## Test Stanzas
 
@@ -319,7 +323,7 @@ tree spanning all tiers is forbidden.
 | `jitml-cross-backend` | Integration (project-specific) | Cross-substrate cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; asserts per-tensor drift fits the committed tolerance band per [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ⏸️ Blocked | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | Spawns `jitml service`, polls `/readyz`, exercises the Pulsar consumer protocol (at-least-once + idempotency), drives SIGHUP hot reload, asserts graceful drain on SIGTERM | ⏸️ Blocked | Sprint 12.7 |
 | `jitml-e2e` | Pulumi-Orchestrated Infrastructure | Pulumi-orchestrated ephemeral Kind stack + Playwright against the real Envoy listener; the six demo cohorts — training control, MNIST handwriting, image upload, Connect 4 game-play, TensorBoard/Grafana navigation, hyperparameter sweep | ⏸️ Blocked | Sprint 12.8 |
-| `jitml-haskell-style` | Style (doctrine §Style as a Cabal test-suite) | `fourmolu --mode check`, `hlint --with-group=default --with-group=extra` plus `.hlint.yaml`, `cabal format` temp-file round-trip byte equality, route-registry / chart consistency lint, generated-section drift check | ⏸️ Blocked | Sprint 1.4 |
+| `jitml-haskell-style` | Style (doctrine §Style as a Cabal test-suite) | `fourmolu --mode check`, `hlint --with-group=default --with-group=extra` plus `.hlint.yaml`, `cabal format` temp-file round-trip byte equality, route-registry / chart consistency lint, generated-section drift check | ✅ Done | Sprint 1.4 |
 | `jitml-purescript-style` | Lint (project-specific) | PureScript `purs format` round-trip plus `purescript-spec` smoke tests against the generated browser contracts | ⏸️ Blocked | Sprint 11.3 |
 
 ## Test Categories Mapping (Doctrine → Stanza)
@@ -357,21 +361,21 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 
 | Component | Pinned Version | Purpose | Status | Owning Sprint |
 |-----------|----------------|---------|--------|---------------|
-| GHC | `9.14.1` | Haskell compiler for the CLI binary, the daemon, and every library module | ⏸️ Blocked | Sprint 1.1 |
-| Cabal | `3.16.1.0` | Haskell build tool; per-stanza `type: exitcode-stdio-1.0` | ⏸️ Blocked | Sprint 1.1 |
-| LLVM | pinned in `cabal.project` | Shared by GHC `-fllvm` and JIT codegen | ⏸️ Blocked | Sprint 1.1 |
+| GHC | `9.14.1` | Haskell compiler for the CLI binary, the daemon, and every library module | ✅ Done | Sprint 1.1 |
+| Cabal | `3.16.1.0` | Haskell build tool; per-stanza `type: exitcode-stdio-1.0` | ✅ Done | Sprint 1.1 |
+| LLVM | pinned in `cabal.project` | Shared by GHC `-fllvm` and JIT codegen | ✅ Done | Sprint 1.1 |
 | NVCC | pinned in `cabal.project` (`--use_fast_math=false`, baseline `sm_70`) | CUDA kernel codegen for `linux-cuda` | ⏸️ Blocked | Sprint 7.4 |
 | Xcode/Metal | pinned in bootstrap script + `cabal.project` | Metal kernel codegen for `apple-silicon` (runs inside the `jitml-build` tart VM) | ⏸️ Blocked | Sprint 7.5 |
 | oneDNN | pinned in `cabal.project` (AVX2 baseline, AVX-512 detected at JIT time) | CPU kernel codegen for `linux-cpu` | ⏸️ Blocked | Sprint 7.3 |
 | `kindest/node` | pinned in `./kind/cluster-<substrate>.yaml`; mirrored as a comment in `cabal.project` | Kind worker image; the comment-mirror is a single-source-of-toolchain-truth record (`jitml lint chart` rejects drift) | ⏸️ Blocked | Sprint 3.1 |
-| `tart` | latest stable, `brew install cirruslabs/cli/tart` | macOS VM runner for the Apple Silicon Swift/Metal build | ⏸️ Blocked | Sprint 2.5 |
-| `kind` | pinned in bootstrap | Kubernetes-in-Docker | ⏸️ Blocked | Sprint 2.1 |
-| `kubectl` | pinned in bootstrap | k8s API client invoked through the typed `Subprocess` boundary | ⏸️ Blocked | Sprint 2.1 |
-| `helm` | pinned in bootstrap | Helm CLI invoked through the typed `Subprocess` boundary | ⏸️ Blocked | Sprint 2.1 |
-| `docker` | pinned via Colima on Apple, host Docker on Linux | Container runtime; the only host runtime touched on Linux | ⏸️ Blocked | Sprint 2.1 |
-| Node.js | pinned in bootstrap | Required by the PureScript toolchain (`spago`, `purescript`) and Pulumi | ⏸️ Blocked | Sprint 2.1 |
-| Poetry | pinned in bootstrap | Required for ancillary Python tooling (none on the supported runtime path; only present for codegen support tools) | ⏸️ Blocked | Sprint 2.1 |
-| Formatter GHC | separate isolated install under `.build/jitml-style-tools/` | Lint stack only; never affects the project compiler | ⏸️ Blocked | Sprint 1.4 |
+| `tart` | latest stable, `brew install cirruslabs/cli/tart` | macOS VM runner for the Apple Silicon Swift/Metal build; validated only through the first-JIT-cache-miss prerequisite root | ✅ Done | Sprint 2.2 |
+| `kind` | Haskell prerequisite DAG | Kubernetes-in-Docker | ✅ Done | Sprint 2.2 |
+| `kubectl` | Haskell prerequisite DAG | k8s API client invoked through the typed `Subprocess` boundary | ✅ Done | Sprint 2.2 |
+| `helm` | Haskell prerequisite DAG | Helm CLI invoked through the typed `Subprocess` boundary | ✅ Done | Sprint 2.2 |
+| `docker` | stage-0 Linux gate plus Haskell prerequisite DAG | Container runtime; the only host runtime touched on Linux | ✅ Done | Sprint 2.2 |
+| Node.js | Haskell prerequisite DAG | Required by the PureScript toolchain (`spago`, `purescript`) and Pulumi | ✅ Done | Sprint 2.2 |
+| Poetry | Haskell prerequisite DAG | Required for ancillary Python tooling (none on the supported runtime path; only present for codegen support tools) | ✅ Done | Sprint 2.2 |
+| Formatter GHC | separate isolated install under `.build/jitml-style-tools/` | Lint stack only; never affects the project compiler | ✅ Done | Sprint 1.4 |
 | `purescript-bridge` | pinned in `cabal.project` | Generates PureScript contracts from `src/JitML/Web/Contracts.hs` | ⏸️ Blocked | Sprint 11.2 |
 | Pulumi (TypeScript) | pinned in `infra/pulumi/package.json` | Ephemeral-Kind orchestrator for `jitml-e2e` | ⏸️ Blocked | Sprint 12.8 |
 | Target platforms | `arm64` macOS (Apple Silicon), `amd64` Linux, optional `arm64` Linux | Three substrates × supported host arches | ⏸️ Pinned | n/a |
@@ -383,9 +387,9 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 | Build artefacts | `cabal` (Apple) or `docker compose run` (Linux) | `./.build/` (gitignored, dockerignored) | The only host folder holding compiled artefacts |
 | JIT cache | `jitml service` and `jitml build` | `./.build/jit/<substrate>/<hash>.<ext>` content-addressed by `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint)` | Survives `purge`; only `purge --full` removes it |
 | Apple FFI dlopen surface | `jitml service` (host-native instance) | `./.build/host/apple-silicon/<model-id>.dylib` (symlinks into `jit/apple-silicon/`) | Stable-named so the FFI key never changes across re-JITs |
-| Kubeconfig | `jitml cluster up` | `./.build/jitml.kubeconfig` | The CLI never touches `~/.kube/config` |
-| Cluster publication | `jitml cluster up` | `./.data/runtime/cluster-publication.json` (`edge_port`, `pulsar_ws_url`, `pulsar_admin_url`, `minio_s3_url`) | Read by `jitml cluster status`, the host daemon, and the bootstrap scripts |
-| Kind hostPath state | per-StatefulSet PVs | `./.data/kind/<substrate>/<namespace>/<statefulset>/pv_<replica-int>/` | Lint-enforced by `jitml lint files` |
+| Kubeconfig | `jitml bootstrap --<substrate>` | `./.build/jitml.kubeconfig` | The CLI never touches `~/.kube/config` |
+| Generated Dhall and runtime metadata | `jitml bootstrap --<substrate>` | `./.build/conf/`, `./.build/runtime/cluster-publication.json`, `./.build/kind/<substrate>/` | Host Dhall exists only on Apple; Linux uses only the cluster ConfigMap Dhall |
+| Kind hostPath PV state | per-StatefulSet PVs | `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/` | `.data` is strictly manual PV bind mounts; lint-enforced by `jitml lint files` |
 | Checkpoint store | `jitml service` (training path) | MinIO `jitml-checkpoints/<experiment-hash>/{blobs,manifests,pointers}` | Concurrency: write-once + If-Match CAS on pointers |
 | Trial store | `jitml tune` | MinIO `jitml-trials/<sha256(resolved-dhall \|\| trial-seed)>/` | Trial transcripts content-addressed |
 | TensorBoard events | `jitml service` writers | MinIO `jitml-tensorboard/<experiment-hash>/shards/*.tfevents` plus checkpoint sidecars | Stateless TB pod reads from MinIO |

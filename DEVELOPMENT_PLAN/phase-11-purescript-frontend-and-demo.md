@@ -225,7 +225,7 @@ PureScript bundle plus the typed REST surface.
 
 1. `jitml-demo --port 8080` serves the bundle at `127.0.0.1:8080/` and
    responds to `/api/inference/mnist` against a fixture model.
-2. After `jitml cluster up`, `127.0.0.1:<edge-port>/` reaches the demo
+2. After `jitml bootstrap --<substrate>`, `127.0.0.1:<edge-port>/` reaches the demo
    bundle through the Envoy listener.
 
 ## Sprint 11.6: Playwright E2E Suite ⏸️

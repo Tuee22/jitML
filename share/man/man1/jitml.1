@@ -1,0 +1,253 @@
+.TH JITML 1
+.SH NAME
+jitml \- deterministic, reproducible, JIT-compiled machine learning
+.SH SYNOPSIS
+.B jitml
+COMMAND [OPTIONS]
+.SH DESCRIPTION
+The jitml command surface is generated from the CommandSpec registry.
+.SH COMMANDS
+.SS JITML BOOTSTRAP
+Bootstrap a substrate stack.
+.PP
+.B jitml bootstrap [\\-\\-apple\\-silicon] [\\-\\-linux\\-cpu] [\\-\\-linux\\-cuda] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.SS JITML DOCTOR
+Check host prerequisites.
+.PP
+.B jitml doctor [\\-\\-scope <toolchain|container|cluster>] [\\-\\-remediate]
+.SS JITML SERVICE
+Run the jitML daemon.
+.PP
+.B jitml service [\\-\\-config <path>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.SS JITML CLUSTER UP
+Bring the cluster up.
+.PP
+.B jitml cluster up [\\-\\-substrate <substrate>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.SS JITML CLUSTER DOWN
+Bring the cluster down.
+.PP
+.B jitml cluster down
+.SS JITML CLUSTER STATUS
+Report cluster status.
+.PP
+.B jitml cluster status
+.SS JITML CLUSTER RESET
+Destructively reset cluster state.
+.PP
+.B jitml cluster reset \\-\\-yes
+.SS JITML TRAIN
+Run a supervised training job.
+.PP
+.B jitml train <experiment\\-dhall> [\\-\\-resume <checkpoint\\-id>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.SS JITML EVAL
+Run deterministic evaluation.
+.PP
+.B jitml eval <experiment\\-dhall> [\\-\\-checkpoint <checkpoint\\-id>]
+.SS JITML TUNE
+Run a hyperparameter sweep.
+.PP
+.B jitml tune <tune\\-dhall> [\\-\\-resume <sweep\\-id>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.SS JITML RL TRAIN
+Train an RL policy.
+.PP
+.B jitml rl train <rl\\-experiment\\-dhall> [\\-\\-resume <checkpoint\\-id>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.SS JITML RL EVAL
+Evaluate an RL policy.
+.PP
+.B jitml rl eval <rl\\-experiment\\-dhall> [\\-\\-checkpoint <checkpoint\\-id>]
+.SS JITML RL ROLLOUT
+Run a fixed\\-seed rollout.
+.PP
+.B jitml rl rollout <rl\\-experiment\\-dhall> [\\-\\-seed <word64>]
+.SS JITML VERIFY SAME-RUN
+Verify same\\-run determinism.
+.PP
+.B jitml verify same\\-run \\-\\-experiment <experiment\\-dhall> \\-\\-runs <int>
+.SS JITML VERIFY CROSS-BACKEND
+Verify cross\\-backend parity.
+.PP
+.B jitml verify cross\\-backend \\-\\-experiment <experiment\\-dhall> \\-\\-backends <list>
+.SS JITML VERIFY REPLAY
+Verify checkpoint replay.
+.PP
+.B jitml verify replay \\-\\-experiment <experiment\\-dhall> \\-\\-checkpoint <checkpoint\\-id>
+.SS JITML INSPECT LIST
+List cached manifests.
+.PP
+.B jitml inspect list
+.SS JITML INSPECT SHOW
+Show a manifest.
+.PP
+.B jitml inspect show <manifest\\-sha> [\\-\\-with\\-equity]
+.SS JITML INSPECT REPLAY
+Replay a manifest.
+.PP
+.B jitml inspect replay <manifest\\-sha>
+.SS JITML INSPECT TRIAL
+Inspect a trial.
+.PP
+.B jitml inspect trial <trial\\-hash>
+.SS JITML INSPECT FRONTIER
+Inspect a tuning frontier.
+.PP
+.B jitml inspect frontier <sweep\\-id>
+.SS JITML BENCH TRAIN
+Benchmark training.
+.PP
+.B jitml bench train <experiment\\-dhall>
+.SS JITML BENCH INFERENCE
+Benchmark inference.
+.PP
+.B jitml bench inference <experiment\\-dhall> \\-\\-checkpoint <checkpoint\\-id>
+.SS JITML BENCH ENV
+Benchmark environment stepping.
+.PP
+.B jitml bench env <rl\\-experiment\\-dhall>
+.SS JITML INFERENCE RUN
+Run inference at any point.
+.PP
+.B jitml inference run <experiment\\-dhall> \\-\\-checkpoint <latest|best/<metric>|manifest\\-sha> [\\-\\-trial <trial\\-hash>]
+.SS JITML TEST ALL
+Run all test stanzas.
+.PP
+.B jitml test all [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.SS JITML TEST JITML-UNIT
+Run jitml\\-unit.
+.PP
+.B jitml test jitml\\-unit
+.SS JITML TEST JITML-INTEGRATION
+Run jitml\\-integration.
+.PP
+.B jitml test jitml\\-integration
+.SS JITML TEST JITML-SL-CANONICALS
+Run jitml\\-sl\\-canonicals.
+.PP
+.B jitml test jitml\\-sl\\-canonicals
+.SS JITML TEST JITML-RL-CANONICALS
+Run jitml\\-rl\\-canonicals.
+.PP
+.B jitml test jitml\\-rl\\-canonicals
+.SS JITML TEST JITML-HYPERPARAMETER
+Run jitml\\-hyperparameter.
+.PP
+.B jitml test jitml\\-hyperparameter
+.SS JITML TEST JITML-CROSS-BACKEND
+Run jitml\\-cross\\-backend.
+.PP
+.B jitml test jitml\\-cross\\-backend
+.SS JITML TEST JITML-DAEMON-LIFECYCLE
+Run jitml\\-daemon\\-lifecycle.
+.PP
+.B jitml test jitml\\-daemon\\-lifecycle
+.SS JITML TEST JITML-E2E
+Run jitml\\-e2e.
+.PP
+.B jitml test jitml\\-e2e
+.SS JITML TEST JITML-HASKELL-STYLE
+Run jitml\\-haskell\\-style.
+.PP
+.B jitml test jitml\\-haskell\\-style
+.SS JITML TEST JITML-PURESCRIPT-STYLE
+Run jitml\\-purescript\\-style.
+.PP
+.B jitml test jitml\\-purescript\\-style
+.SS JITML LINT FILES
+Run file hygiene checks.
+.PP
+.B jitml lint files [\\-\\-write]
+.SS JITML LINT DOCS
+Run generated documentation checks.
+.PP
+.B jitml lint docs [\\-\\-write]
+.SS JITML LINT PROTO
+Run protobuf schema checks.
+.PP
+.B jitml lint proto [\\-\\-write]
+.SS JITML LINT CHART
+Run Helm chart shape checks.
+.PP
+.B jitml lint chart [\\-\\-write]
+.SS JITML LINT HASKELL
+Run Haskell formatting and hlint checks.
+.PP
+.B jitml lint haskell [\\-\\-write]
+.SS JITML LINT PURESCRIPT
+Run PureScript formatting checks.
+.PP
+.B jitml lint purescript [\\-\\-write]
+.SS JITML LINT ALL
+Run every lint check.
+.PP
+.B jitml lint all [\\-\\-write]
+.SS JITML DOCS CHECK
+Check generated docs.
+.PP
+.B jitml docs check
+.SS JITML DOCS GENERATE
+Generate docs.
+.PP
+.B jitml docs generate
+.SS JITML CHECK-CODE
+Run the code quality gate.
+.PP
+.B jitml check\\-code
+.SS JITML BUILD
+Build inside the substrate container.
+.PP
+.B jitml build
+.SS JITML KUBECTL
+Run kubectl against the jitML kubeconfig.
+.PP
+.B jitml kubectl [\\-\\- <kubectl\\-args...>]
+.SS JITML INTERNAL MATERIALIZE-SUBSTRATE
+Materialize substrate files.
+.PP
+.B jitml internal materialize\\-substrate [\\-\\-substrate <substrate>]
+.SS JITML INTERNAL LIST-PREREQS
+List prerequisite checks.
+.PP
+.B jitml internal list\\-prereqs
+.SS JITML INTERNAL GC
+Apply checkpoint retention.
+.PP
+.B jitml internal gc <experiment\\-hash> [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.SS JITML INTERNAL VM BOOTSTRAP
+Bootstrap the VM.
+.PP
+.B jitml internal vm bootstrap
+.SS JITML INTERNAL VM UP
+Start the VM.
+.PP
+.B jitml internal vm up
+.SS JITML INTERNAL VM DOWN
+Stop the VM.
+.PP
+.B jitml internal vm down
+.SS JITML INTERNAL VM STATUS
+Report VM status.
+.PP
+.B jitml internal vm status
+.SS JITML INTERNAL VM EXEC
+Run a command in the VM.
+.PP
+.B jitml internal vm exec \\-\\- <cmd...>
+.SS JITML INTERNAL CACHE STAT
+Print cache stats.
+.PP
+.B jitml internal cache stat
+.SS JITML INTERNAL CACHE LIST
+List cache entries.
+.PP
+.B jitml internal cache list
+.SS JITML INTERNAL CACHE EVICT
+Evict a cache entry.
+.PP
+.B jitml internal cache evict <hash>
+.SS JITML COMMANDS
+Print the command registry.
+.PP
+.B jitml commands [\\-\\-tree] [\\-\\-json]
+.SS JITML HELP
+Print focused command help.
+.PP
+.B jitml help [\\-\\- <subcommand...>]
