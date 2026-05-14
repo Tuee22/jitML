@@ -60,8 +60,8 @@ web/
 `src/JitML/Web/Contracts.hs` is the **source of truth** for every ADT
 crossed by the REST / WebSocket surface. `src/JitML/Web/Bridge.hs` invokes
 `purescript-bridge` to generate `web/src/Generated/Contracts.purs`, which is
-in `trackingGeneratedPaths` (Sprint `1.3`); hand edits fail
-`jitml lint files`.
+promoted from a future generated-path pattern into active `trackingGeneratedPaths`
+by Sprint `11.2`; hand edits fail `jitml lint files` after that sprint lands.
 
 The ADTs cover:
 

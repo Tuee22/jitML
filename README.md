@@ -697,11 +697,11 @@ mindmap
 | `jitml test jitml-purescript-style` | Run jitml-purescript-style. | `jitml test jitml-purescript-style` |
 | `jitml lint files` | Run file hygiene checks. | `jitml lint files [--write]` |
 | `jitml lint docs` | Run generated documentation checks. | `jitml lint docs [--write]` |
-| `jitml lint proto` | Run protobuf schema checks. | `jitml lint proto [--write]` |
-| `jitml lint chart` | Run Helm chart shape checks. | `jitml lint chart [--write]` |
-| `jitml lint haskell` | Run Haskell formatting and hlint checks. | `jitml lint haskell [--write]` |
-| `jitml lint purescript` | Run PureScript formatting checks. | `jitml lint purescript [--write]` |
-| `jitml lint all` | Run every lint check. | `jitml lint all [--write]` |
+| `jitml lint proto` | Run the current protobuf lint placeholder. | `jitml lint proto [--write]` |
+| `jitml lint chart` | Run the current Helm chart lint placeholder. | `jitml lint chart [--write]` |
+| `jitml lint haskell` | Run Haskell lint configuration and primitive checks. | `jitml lint haskell [--write]` |
+| `jitml lint purescript` | Run the current PureScript lint placeholder. | `jitml lint purescript [--write]` |
+| `jitml lint all` | Run every currently implemented lint check. | `jitml lint all [--write]` |
 | `jitml docs check` | Check generated docs. | `jitml docs check` |
 | `jitml docs generate` | Generate docs. | `jitml docs generate` |
 | `jitml check-code` | Run the code quality gate. | `jitml check-code` |

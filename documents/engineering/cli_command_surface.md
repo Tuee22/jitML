@@ -232,8 +232,10 @@ jitml help <subcommand>
 
 ### `jitml check-code`
 
-Code quality gate (formatter + hlint + warning-clean build + forbidden-path
-scan + chart lint + route-registry-drift check).
+Current code quality gate for in-repo hygiene, generated-doc drift,
+forbidden-path scans, chart placeholders, and Haskell primitive checks. Sprint
+`1.4` remains open for the external formatter, hlint, cabal-format, and
+warning-clean build runners.
 
 ### `jitml build`
 
@@ -1105,9 +1107,9 @@ Examples:
 ```text
 jitml lint proto
 
-Run protobuf schema checks.
+Run the current protobuf lint placeholder.
 
-Run protobuf schema checks.
+Run the current protobuf lint placeholder.
 
 Usage:
   jitml lint proto [--write]
@@ -1118,7 +1120,7 @@ Options:
 
 Examples:
   jitml lint proto
-      Run protobuf schema checks.
+      Run the current protobuf lint placeholder.
 ```
 
 ### `jitml lint chart`
@@ -1126,9 +1128,9 @@ Examples:
 ```text
 jitml lint chart
 
-Run Helm chart shape checks.
+Run the current Helm chart lint placeholder.
 
-Run Helm chart shape checks.
+Run the current Helm chart lint placeholder.
 
 Usage:
   jitml lint chart [--write]
@@ -1139,7 +1141,7 @@ Options:
 
 Examples:
   jitml lint chart
-      Run Helm chart shape checks.
+      Run the current Helm chart lint placeholder.
 ```
 
 ### `jitml lint haskell`
@@ -1147,9 +1149,9 @@ Examples:
 ```text
 jitml lint haskell
 
-Run Haskell formatting and hlint checks.
+Run Haskell lint configuration and primitive checks.
 
-Run Haskell formatting and hlint checks.
+Run Haskell lint configuration and primitive checks.
 
 Usage:
   jitml lint haskell [--write]
@@ -1160,7 +1162,7 @@ Options:
 
 Examples:
   jitml lint haskell
-      Run Haskell formatting and hlint checks.
+      Run Haskell lint configuration and primitive checks.
 ```
 
 ### `jitml lint purescript`
@@ -1168,9 +1170,9 @@ Examples:
 ```text
 jitml lint purescript
 
-Run PureScript formatting checks.
+Run the current PureScript lint placeholder.
 
-Run PureScript formatting checks.
+Run the current PureScript lint placeholder.
 
 Usage:
   jitml lint purescript [--write]
@@ -1181,7 +1183,7 @@ Options:
 
 Examples:
   jitml lint purescript
-      Run PureScript formatting checks.
+      Run the current PureScript lint placeholder.
 ```
 
 ### `jitml lint all`
@@ -1189,9 +1191,9 @@ Examples:
 ```text
 jitml lint all
 
-Run every lint check.
+Run every currently implemented lint check.
 
-Runs every configured lint category.
+Runs every current lint target.
 
 Usage:
   jitml lint all [--write]
@@ -1202,7 +1204,7 @@ Options:
 
 Examples:
   jitml lint all --write
-      Run every lint check and apply supported rewrites.
+      Run every current lint target and apply supported rewrites.
 ```
 
 ### `jitml docs check`
@@ -1250,7 +1252,7 @@ jitml check-code
 
 Run the code quality gate.
 
-Runs formatter checks, hlint, warning-clean build, forbidden-path scans, chart lint, and drift checks.
+Runs the current in-repo hygiene, generated-doc drift, forbidden-path, chart, and Haskell primitive checks.
 
 Usage:
   jitml check-code

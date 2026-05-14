@@ -46,13 +46,14 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
 
 ## Current Implementation Status
 
-Sprints `1.1` through `1.9` have landed the Cabal scaffold, registry-backed CLI,
-generated-docs reconciler, lint stack, typed `Plan` modules, typed
-`Subprocess` boundary, prerequisite registry, single `Env` record with the
+Sprints `1.1`, `1.2`, `1.3`, and `1.5` through `1.9` have landed the Cabal
+scaffold, registry-backed CLI, generated-docs reconciler, typed `Plan` modules,
+typed `Subprocess` boundary, prerequisite registry, single `Env` record with the
 `ReaderT Env IO` alias, the canonical `AppError` ADT, `renderError`, global
-output flags, and the CLI output module. `--dry-run` and `--plan-file <path>`
-now render command plans for the registered Plan/Apply surfaces; concrete apply
-bodies remain owned by later feature sprints.
+output flags, and the CLI output module. Sprint `1.4` has landed the current
+in-repo lint stack but remains open for the external tool runners. `--dry-run`
+and `--plan-file <path>` now render command plans for the registered Plan/Apply
+surfaces; concrete apply bodies remain owned by later feature sprints.
 
 ## jitML Project-Specific Surfaces
 

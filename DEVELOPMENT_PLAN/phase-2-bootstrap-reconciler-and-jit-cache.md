@@ -88,11 +88,11 @@ cluster, package, image, Dhall, and daemon action.
   `nvidia-smi` checks. At least one GPU must satisfy the required compute
   capability; missing capability exits `2` with installation/remediation
   instructions.
-- Linux `up` delegates to
+- Linux `up` calls the intended outer-container handoff:
   `docker compose run --rm jitml jitml bootstrap --linux-cpu` or
-  `docker compose run --rm jitml jitml bootstrap --linux-cuda`; Compose owns the
-  outer-image build and the outer container is removed after the cluster daemon
-  takes over.
+  `docker compose run --rm jitml jitml bootstrap --linux-cuda`; Sprint `2.4`
+  owns the actual `docker/compose.yaml` and image build target that make this
+  handoff runnable from a clean checkout.
 - `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is registered in
   `CommandSpec` as the Haskell bootstrap command to be implemented by Sprint
   `2.2`.

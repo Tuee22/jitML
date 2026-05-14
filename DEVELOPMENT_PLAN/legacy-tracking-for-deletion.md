@@ -81,10 +81,10 @@ The expected populating events are:
 - **Phase 11.** Any hand-edited HTTPRoute, Grafana dashboard, or PureScript
   contract file that bypasses the generated-section / `trackingGeneratedPaths`
   registry enqueues here under the originating sprint until the renderer covers it.
-- **Phase 12.** If the Pulumi-orchestrated cross-cluster stanza (`jitml-cross-
-  cluster`) leaks state outside the ephemeral Kind stack (orphaned PVs, dangling
-  Harbor projects, residual Docker volumes), the leak enqueues here under Sprint
-  `12.4` until the teardown reconciler is deterministic.
+- **Phase 12.** If the Pulumi-orchestrated `jitml-e2e` stanza leaks state
+  outside the ephemeral Kind stack (orphaned PVs, dangling Harbor projects,
+  residual Docker volumes), the leak enqueues here under Sprint `12.8` until the
+  teardown reconciler is deterministic.
 
 ## Completed
 

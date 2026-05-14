@@ -20,13 +20,12 @@
 
 ## Phase Status
 
-✅ **Done** — Sprints `1.1` (toolchain pin and library-first Cabal project),
-`1.2` (`CommandSpec` registry and generated parser), `1.3`
-(`GeneratedSectionRule` and tracked-generated paths), `1.4` (lint stack and
-`forbiddenPathRegistry`), `1.5` (`Plan` / `apply` boundary), `1.6`
-(`Subprocess` typed values), `1.7` (typed prerequisite registry), and `1.8`
-(`Env` and `ReaderT Env IO`) are `✅ Done`; Sprint `1.9` (`AppError`,
-`renderError`, and output rules) is also `✅ Done`.
+🔄 **Active** — Sprints `1.1`, `1.2`, `1.3`, and `1.5` through `1.9` are
+`✅ Done`. Sprint `1.4` is reopened as `🔄 Active`: the current worktree has
+the lint command surface, config files, forbidden-path registry, generated-doc
+drift checks, and `jitml-haskell-style` stanza, but it does not yet run the
+external `fourmolu`, `hlint`, `cabal format`, and warning-clean build gates that
+the doctrine-owned lint stack requires.
 
 ## Phase Summary
 
@@ -36,9 +35,11 @@ shims, `src/JitML/`), the `CommandSpec` registry as the code source for the
 parser and every generated artefact (markdown command reference, manpages, shell
 completions, JSON command schema, tree output), the typed `Subprocess` / `Plan` /
 `apply` / `prerequisiteRegistry` / `Env` / `AppError` patterns from
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md), the `fourmolu` + `hlint` +
-`cabal format` lint stack, the `forbiddenPathRegistry`, and the
-`GeneratedSectionRule` / `trackingGeneratedPaths` registries.
+[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md), the
+`forbiddenPathRegistry`, and the `GeneratedSectionRule` /
+`trackingGeneratedPaths` registries. The remaining open Phase `1` work is the
+external-tool execution half of the `fourmolu` + `hlint` + `cabal format` +
+warning-clean build gate.
 
 Phase `1` writes no daemon code, no cluster code, no ML code, no chart code, and
 no PureScript. Its sole job is the CLI scaffold and the doctrine boundaries that
@@ -187,33 +188,29 @@ doctrine `Generated Artifacts → The generated-section registry`.
 
 ### Deliverables
 
-- `GeneratedSectionRule` registry in `src/JitML/Generated/Registry.hs` covers:
+- Active `GeneratedSectionRule` entries in
+  `src/JitML/Generated/Registry.hs` cover:
   - the command tree and command registry snapshots inside `README.md` (keys
     `command-tree`, `command-registry`),
-  - the markdown command reference at `documents/cli/commands.md` (key
-    `cli-commands.reference`),
   - the CLI help blocks inside `documents/engineering/cli_command_surface.md`
     (key `cli-commands.help-blocks`),
-  - the route table in [`documents/engineering/cluster_topology.md`](../documents/engineering/cluster_topology.md)
-    (key `cluster.routes` — populated when Phase `3` lands the route registry),
-  - the layer / activation / optimizer / scheduler / loss tables in
-    [`documents/engineering/numerical_core.md`](../documents/engineering/numerical_core.md)
-    (key prefix `numerics.*` — populated by Phase `6`),
-  - the RL algorithm catalog table in
-    [`documents/engineering/training_workloads.md`](../documents/engineering/training_workloads.md)
-    (key `training.rl.catalog` — populated by Phase `9`),
-  - the daemon endpoint and config table in
-    [`documents/engineering/daemon_architecture.md`](../documents/engineering/daemon_architecture.md)
-    (key `daemon.surface` — populated by Phase `5`).
-- `trackingGeneratedPaths` registry in `src/JitML/Generated/Paths.hs` covers:
+  - the generated-section index inside `documents/documentation_standards.md`
+    (key `documentation-standards.generated-section-index`).
+- `futureGeneratedSections` records the marker keys that later phases populate:
+  `cluster.routes`, `numerics.*`, `daemon.surface`, and
+  `training.rl.catalog`.
+- Active `trackingGeneratedPaths` entries in `src/JitML/Generated/Paths.hs`
+  cover:
   - `documents/cli/commands.md`,
-  - `share/man/man1/jitml.1`, `share/man/man1/jitml-*.1`,
+  - `share/man/man1/jitml.1`,
   - `share/completion/bash/jitml`,
   - `share/completion/zsh/_jitml`,
-  - `share/completion/fish/jitml.fish`,
-  - `web/src/Generated/Contracts.purs` (added by Phase `11`),
-  - `chart/templates/httproute-*.yaml` (added by Phase `3`),
-  - `chart/templates/grafana-dashboard-*.yaml` (added by Phase `4`).
+  - `share/completion/fish/jitml.fish`.
+- `futureTrackingGeneratedPathPatterns` records later generated files:
+  `share/man/man1/jitml-*.1`, `web/src/Generated/Contracts.purs`,
+  `chart/templates/httproute-*.yaml`, and
+  `chart/templates/grafana-dashboard-*.yaml`. The owning later sprint moves a
+  future pattern into an active tracked path when the renderer lands.
 - `jitml docs check` walks both registries, fails on drift with the doctrine's
   three-element error message (file path, marker key, literal `` Run `jitml
   docs generate` to update. ``).
@@ -237,9 +234,9 @@ doctrine `Generated Artifacts → The generated-section registry`.
 
 None.
 
-## Sprint 1.4: Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry` ✅
+## Sprint 1.4: Lint Stack, `fourmolu`, `hlint`, `cabal format`, `forbiddenPathRegistry` 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `fourmolu.yaml`, `.hlint.yaml`, `src/JitML/Lint/Stack.hs`,
 `src/JitML/Lint/ForbiddenPaths.hs`, `src/JitML/Lint/Chart.hs`,
 `src/JitML/Lint/Stack/Types.hs`, `test/haskell-style/`
@@ -259,39 +256,56 @@ Code-Quality Stack`.
   (`indentation`, `column-limit`, `function-arrows`, `comma-style`,
   `import-export-style`, `indent-wheres`, `record-brace-space`,
   `newlines-between-decls`, `haddock-style`, `let-style`, `in-style`, `unicode`).
-- `.hlint.yaml` declares the doctrine-required hlint rules: forbid `print`,
-  `exitFailure`, direct terminal formatting (`putStrLn`, `hPutStrLn stdout`)
-  outside `src/JitML/CLI/Output.hs`; forbid `callProcess`, `readCreateProcess`,
-  `System.Process.*`, and `typed-process` smart constructors outside
-  `src/JitML/Sub/Stream.hs` (the `runStreaming` / `capture` interpreter); forbid
-  hand-written HTTPRoute YAML in `chart/templates/`; forbid use of `IO` outside
-  the `runStreaming` / `capture` interpreter and the daemon main loop.
+- Current `.hlint.yaml` declares hints for `print`, `exitFailure`,
+  `callProcess`, and `readCreateProcess`. The broader doctrine-required hlint
+  coverage remains open: direct terminal formatting (`putStrLn`, `hPutStrLn
+  stdout`) outside `src/JitML/CLI/Output.hs`, `System.Process.*` and
+  `typed-process` smart constructors outside `src/JitML/Sub/Stream.hs`, and
+  hand-written HTTPRoute YAML in `chart/templates/`.
 - `forbiddenPathRegistry` in `src/JitML/Lint/ForbiddenPaths.hs` refuses
   `.github/workflows/`, `.husky/`, `.githooks/`, `.pre-commit-config.yaml`, root
   `Makefile` / `justfile` / `Taskfile.yml`. `jitml lint files` enforces.
-- `src/JitML/Lint/Chart.hs` enforces: every StorageClass uses
+- Current `src/JitML/Lint/Chart.hs` is a no-op when `chart/` is absent. When
+  chart files land, it enforces: every StorageClass uses
   `kubernetes.io/no-provisioner`; every PV has an explicit `claimRef.namespace`
   and `claimRef.name`; every PVC is created only by a StatefulSet's
   `volumeClaimTemplates`; every hostPath under `chart/templates/pv-*.yaml`
   matches `<namespace>/<StatefulSet>/pv_<replica-int>` per
   [00-overview.md → Hard Constraint 15](00-overview.md#hard-constraints).
-- `cabal format` round-trip byte-equality is enforced by writing the output to
-  a temp file and comparing against the source.
-- The `jitml-haskell-style` test-suite stanza calls each tool through the typed
-  `Subprocess` boundary (introduced in Sprint `1.6`) and aggregates results.
-- `jitml check-code` runs the full stack plus the warning-clean build gate
+- Target remaining `cabal format` round-trip byte-equality writes the output to
+  a temp file and compares against the source.
+- Current `jitml-haskell-style` runs the in-repo lint stack; target remaining
+  work calls each external tool through the typed `Subprocess` boundary
+  (introduced in Sprint `1.6`) and aggregates results.
+- Current `jitml check-code` delegates to the in-repo lint stack; target
+  remaining work adds the full external stack plus the warning-clean build gate
   (`cabal build all -fwerror`).
 
 ### Validation
 
-1. `jitml lint all` exits `0` on a freshly-formatted tree.
-2. Introducing any forbidden path or hand-formatted source surfaces a typed
-   error and a non-zero exit code.
-3. `jitml-haskell-style` passes under `cabal test`.
+1. Current `jitml lint all` exits `0` on the present tree.
+2. Current validation catches forbidden repository paths, tracked generated-doc
+   drift, missing lint config, and forbidden subprocess primitives.
+3. Target remaining validation catches external formatter/hlint/cabal-format
+   drift and the warning-clean build gate.
+4. `jitml-haskell-style` passes under `cabal test` for its current in-repo body.
 
 ### Remaining Work
 
-None.
+- [x] Add `fourmolu.yaml`, `.hlint.yaml`, `forbiddenPathRegistry`,
+  `jitml lint`, `jitml check-code`, and the `jitml-haskell-style` Cabal stanza.
+- [x] Enforce tracked generated-section drift, forbidden repository paths, and
+  forbidden subprocess primitives through the in-repo lint stack.
+- [ ] Run `fourmolu --mode check` over `src/`, `app/`, and `test/` through the
+  typed `Subprocess` boundary.
+- [ ] Run `hlint --with-group=default --with-group=extra --hint .hlint.yaml`
+  through the typed `Subprocess` boundary.
+- [ ] Implement `cabal format` temp-file round-trip byte-equality on
+  `jitml.cabal`.
+- [ ] Add the warning-clean `cabal build all -fwerror` gate to `jitml
+  check-code`.
+- [ ] Replace the placeholder `JitML.Lint.Chart` body with real chart-shape
+  checks once `chart/` lands.
 
 ## Sprint 1.5: `Plan` / `apply` Boundary with `--dry-run` and `--plan-file` ✅
 
@@ -354,9 +368,9 @@ later phases.
 - `runStreaming :: Env -> Subprocess -> IO (ExitCode, Text, Text)` and
   `capture :: Env -> Subprocess -> IO (ExitCode, ByteString, ByteString)` are
   the only IO interpreters.
-- The hlint rules from Sprint `1.4` refuse `callProcess`, `readCreateProcess`,
-  `System.Process.*`, and `typed-process` smart constructors outside this
-  module.
+- The current Sprint `1.4` in-repo primitive scan refuses `callProcess`,
+  `readCreateProcess`, `System.Process.*`, and `typed-process` smart
+  constructors outside this module.
 
 ### Validation
 
@@ -470,9 +484,9 @@ and the doctrine-mandated output flags `--format` and `--color`.
   `JitCacheMiss`, `JitToolchainDrift`, `CheckpointFormatUnsupported`,
   `CheckpointWriteConflict`, `ReconcilerNoop`.
 - `renderError :: AppError -> Text` is the only Text rendering at the CLI
-  boundary, defined in `src/JitML/CLI/Output.hs`. The hlint rules from Sprint
-  `1.4` refuse `print`, `exitFailure`, and direct terminal formatting outside
-  this module.
+  boundary, defined in `src/JitML/CLI/Output.hs`. Sprint `1.4` currently has
+  `.hlint.yaml` hints for `print` and `exitFailure`; external HLint execution
+  and broader direct-terminal-formatting enforcement remain open.
 - Exit codes follow doctrine `Error Handling` plus `3` on `ReconcilerNoop`
   (already declared in [00-overview.md → Hard Constraints item
   11](00-overview.md#hard-constraints)).

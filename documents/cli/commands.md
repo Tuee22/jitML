@@ -874,9 +874,9 @@ Run generated documentation checks.
 
 ## `jitml lint proto`
 
-Run protobuf schema checks.
+Run the current protobuf lint placeholder.
 
-Run protobuf schema checks.
+Run the current protobuf lint placeholder.
 
 ```text
 jitml lint proto [--write]
@@ -892,14 +892,14 @@ Examples:
 jitml lint proto
 ```
 
-Run protobuf schema checks.
+Run the current protobuf lint placeholder.
 
 
 ## `jitml lint chart`
 
-Run Helm chart shape checks.
+Run the current Helm chart lint placeholder.
 
-Run Helm chart shape checks.
+Run the current Helm chart lint placeholder.
 
 ```text
 jitml lint chart [--write]
@@ -915,14 +915,14 @@ Examples:
 jitml lint chart
 ```
 
-Run Helm chart shape checks.
+Run the current Helm chart lint placeholder.
 
 
 ## `jitml lint haskell`
 
-Run Haskell formatting and hlint checks.
+Run Haskell lint configuration and primitive checks.
 
-Run Haskell formatting and hlint checks.
+Run Haskell lint configuration and primitive checks.
 
 ```text
 jitml lint haskell [--write]
@@ -938,14 +938,14 @@ Examples:
 jitml lint haskell
 ```
 
-Run Haskell formatting and hlint checks.
+Run Haskell lint configuration and primitive checks.
 
 
 ## `jitml lint purescript`
 
-Run PureScript formatting checks.
+Run the current PureScript lint placeholder.
 
-Run PureScript formatting checks.
+Run the current PureScript lint placeholder.
 
 ```text
 jitml lint purescript [--write]
@@ -961,14 +961,14 @@ Examples:
 jitml lint purescript
 ```
 
-Run PureScript formatting checks.
+Run the current PureScript lint placeholder.
 
 
 ## `jitml lint all`
 
-Run every lint check.
+Run every currently implemented lint check.
 
-Runs every configured lint category.
+Runs every current lint target.
 
 ```text
 jitml lint all [--write]
@@ -984,7 +984,7 @@ Examples:
 jitml lint all --write
 ```
 
-Run every lint check and apply supported rewrites.
+Run every current lint target and apply supported rewrites.
 
 
 ## `jitml docs check`
@@ -1029,7 +1029,7 @@ Regenerate tracked documentation.
 
 Run the code quality gate.
 
-Runs formatter checks, hlint, warning-clean build, forbidden-path scans, chart lint, and drift checks.
+Runs the current in-repo hygiene, generated-doc drift, forbidden-path, chart, and Haskell primitive checks.
 
 ```text
 jitml check-code

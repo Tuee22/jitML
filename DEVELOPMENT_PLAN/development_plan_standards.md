@@ -229,9 +229,10 @@ removal.
   sprint that owns the cleanup.
 - When the cleanup lands, move the item from `Pending Removal` to `Completed`.
 - Phase docs reference the owning sprint, not duplicate the full cleanup ledger.
-- The ledger is empty in both sections at write time because the repository contains
-  no source code yet; rows are enqueued by Sprint `0.2`'s doctrine-driven scheduling
-  audit and by every later sprint that introduces a deviation or stand-in.
+- The ledger began empty during the clean-room planning pass. Once source code
+  exists, the ledger must reflect the actual worktree: pending compatibility
+  helpers, deprecated paths, and stand-ins are listed under `Pending Removal`, and
+  completed removals are moved to `Completed`.
 
 ### J. Documentation Harmony
 

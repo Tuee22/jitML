@@ -27,20 +27,21 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
 
 ## jitML Stanzas
 
-The ten Cabal test-suite stanzas declared in `jitml.cabal`:
+The ten Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
+and final ownership differ while the plan is still in early phases:
 
-| Stanza | Tier | Owning Sprint |
-|--------|------|---------------|
-| `jitml-unit` | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
-| `jitml-integration` | Integration | Sprint 12.2 |
-| `jitml-sl-canonicals` | Integration (project-specific) | Sprint 12.3 |
-| `jitml-rl-canonicals` | Integration (project-specific) | Sprint 12.4 |
-| `jitml-hyperparameter` | Integration (project-specific) | Sprint 12.5 |
-| `jitml-cross-backend` | Integration (project-specific) | Sprint 12.6 |
-| `jitml-daemon-lifecycle` | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
-| `jitml-haskell-style` | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
-| `jitml-purescript-style` | Lint (project-specific) | Sprint 11.3 |
+| Stanza | Current body | Final Tier | Owning Sprint |
+|--------|--------------|------------|---------------|
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, and cache surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
+| `jitml-integration` | `test/integration/Main.hs` covers a typed subprocess sentinel | Integration | Sprint 12.2 |
+| `jitml-sl-canonicals` | `test/sentinel/Main.hs` | Integration (project-specific) | Sprint 12.3 |
+| `jitml-rl-canonicals` | `test/sentinel/Main.hs` | Integration (project-specific) | Sprint 12.4 |
+| `jitml-hyperparameter` | `test/sentinel/Main.hs` | Integration (project-specific) | Sprint 12.5 |
+| `jitml-cross-backend` | `test/sentinel/Main.hs` | Integration (project-specific) | Sprint 12.6 |
+| `jitml-daemon-lifecycle` | `test/sentinel/Main.hs` | Daemon Lifecycle | Sprint 12.7 |
+| `jitml-e2e` | `test/sentinel/Main.hs` | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
+| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the current in-repo lint stack; external formatter/hlint/cabal-format/build gates remain open | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
+| `jitml-purescript-style` | `test/sentinel/Main.hs` | Lint (project-specific) | Sprint 11.3 |
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
@@ -159,10 +160,12 @@ All Pulumi invocations flow through the typed `Subprocess` boundary.
 
 ### `jitml-haskell-style`
 
-Doctrine's Style stanza per §Style as a Cabal test-suite: `fourmolu --mode
-check`, `hlint --with-group=default --with-group=extra` plus `.hlint.yaml`,
-`cabal format` temp-file round-trip byte equality, route-registry / chart
-consistency lint, generated-section drift check.
+Doctrine's Style stanza per §Style as a Cabal test-suite. The current body runs
+the in-repo lint stack; Sprint `1.4` remains open until it also runs
+`fourmolu --mode check`, `hlint --with-group=default --with-group=extra` plus
+`.hlint.yaml`, `cabal format` temp-file round-trip byte equality, the
+warning-clean build gate, route-registry / chart consistency lint, and
+generated-section drift check.
 
 ### `jitml-purescript-style`
 

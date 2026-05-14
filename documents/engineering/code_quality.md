@@ -35,12 +35,13 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
 Sprint `1.1` has landed `jitml.cabal`, `cabal.project`, the app shims, and
 sentinel Cabal test stanzas. Sprint `1.2` has replaced the `jitml-unit` sentinel
 with parser/registry coverage. Sprint `1.3` has landed `jitml docs check`,
-`jitml docs generate`, and the tracked-generated-path registry for CLI docs,
-manpage, and shell completions. Sprint `1.4` has landed `fourmolu.yaml`,
-`.hlint.yaml`, `forbiddenPathRegistry`, `jitml lint`, `jitml check-code`, and the
-`jitml-haskell-style` stanza. `cabal.project` currently carries a scoped
-`allow-newer` block for Dhall / CBOR package bounds under GHC `9.14.1`; its
-removal is tracked in
+`jitml docs generate`, and the active tracked-generated-path registry for CLI
+docs, the manpage, and shell completions. Sprint `1.4` has landed
+`fourmolu.yaml`, `.hlint.yaml`, `forbiddenPathRegistry`, `jitml lint`,
+`jitml check-code`, and the `jitml-haskell-style` stanza, but remains open for
+the external `fourmolu`, `hlint`, `cabal format`, and warning-clean build
+runners. `cabal.project` currently carries a scoped `allow-newer` block for
+Dhall / CBOR package bounds under GHC `9.14.1`; its removal is tracked in
 [../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 ## jitML Project-Specific Lint Rules
@@ -50,7 +51,8 @@ PureScript frontend. The project-specific rules below extend the lint stack.
 
 ### Chart-Shape Lint (`jitml lint chart`)
 
-Owned by `src/JitML/Lint/Chart.hs` (Sprint `1.4`). Refuses:
+Owned by `src/JitML/Lint/Chart.hs` (Sprint `1.4`). The current implementation is
+a no-op while `chart/` is absent. Once chart files land, it refuses:
 
 - Any `StorageClass` with a provisioner other than
   `kubernetes.io/no-provisioner`.
@@ -83,27 +85,36 @@ doctrine's set with:
   Homebrew package installation is allowed only through Haskell typed
   prerequisite remediation, with pure plan construction, typed `Subprocess`
   apply, and postcondition validation.
-- Hand-edited Grafana dashboard ConfigMaps (tracked by
-  `trackingGeneratedPaths`).
-- Hand-edited `web/src/Generated/Contracts.purs` (tracked).
+- Hand-edited Grafana dashboard ConfigMaps once Phase `4` promotes them from a
+  future generated-path pattern into active `trackingGeneratedPaths`.
+- Hand-edited `web/src/Generated/Contracts.purs` once Phase `11` promotes it
+  from a future generated-path pattern into active `trackingGeneratedPaths`.
 
 ### `trackingGeneratedPaths` (jitML scope)
 
-The project-specific tracked-generated-paths registry (Sprint `1.3` plus
-later phase additions):
+The active project-specific tracked-generated-paths registry currently covers:
 
 - `documents/cli/commands.md`
-- `share/man/man1/jitml.1`, `share/man/man1/jitml-*.1`
+- `share/man/man1/jitml.1`
 - `share/completion/bash/jitml`, `share/completion/zsh/_jitml`,
   `share/completion/fish/jitml.fish`
+
+Sprint `1.3` also records future generated-path patterns for:
+
+- `share/man/man1/jitml-*.1`
 - `web/src/Generated/Contracts.purs` (Phase 11)
 - `chart/templates/httproute-*.yaml` (Phase 3)
 - `chart/templates/grafana-dashboard-*.yaml` (Phase 4)
-- `kind/cluster-*.yaml` (Phase 3)
 
 ## `jitml check-code`
 
-`jitml check-code` runs the full stack:
+Current `jitml check-code` delegates to the in-repo lint stack: whitespace and
+final-newline normalization checks, forbidden repository paths, generated-doc
+drift checks, required lint config checks, optional-directory placeholders for
+future `proto/` and `web/`, a no-op chart check while `chart/` is absent, and
+forbidden subprocess primitive scans.
+
+Sprint `1.4` remains open until `jitml check-code` runs the full target stack:
 
 1. `fourmolu --mode check` over `src/`, `app/`, `test/`.
 2. `hlint --with-group=default --with-group=extra --hint .hlint.yaml` over

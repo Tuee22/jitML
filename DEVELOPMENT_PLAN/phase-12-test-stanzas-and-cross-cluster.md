@@ -11,7 +11,7 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the ten Cabal test-suite stanzas (`jitml-unit`,
+> **Purpose**: Fill out the ten Cabal test-suite surface (`jitml-unit`,
 > `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
 > `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
 > `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style`), the
@@ -30,9 +30,13 @@ bounds cross-substrate drift inside the per-tensor tolerance band.
 
 ## Phase Summary
 
-This phase delivers the Phase-12-owned Cabal test-suite stanzas per doctrine
-`Test Organization` (each `type: exitcode-stdio-1.0` with `tasty` as the
-in-stanza runner; a single `tasty` tree spanning all tiers is forbidden):
+All ten Cabal stanza declarations already exist from Sprint `1.1`. The current
+tree uses real Phase `1`/`2` bodies for `jitml-unit`, `jitml-integration`, and
+`jitml-haskell-style`, while the later phase-owned stanzas still point at
+`test/sentinel/Main.hs`. This phase replaces those sentinel or partial bodies
+with the final Phase-12-owned workloads per doctrine `Test Organization` (each
+`type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner; a single `tasty`
+tree spanning all tiers is forbidden):
 `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
 `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`,
 `jitml-daemon-lifecycle`, and `jitml-e2e`. It also lands `jitml test all` as
@@ -55,8 +59,9 @@ to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 
 ### Objective
 
-Land the `jitml-unit` stanza, exercising the doctrine's Pure Logic, Parser,
-Property, and Golden test categories.
+Expand the current `jitml-unit` body from the Phase `1`/`2` parser, prerequisite,
+and cache coverage into the final unit workload exercising the doctrine's Pure
+Logic, Parser, Property, and Golden test categories across every landed domain.
 
 ### Deliverables
 
@@ -89,8 +94,8 @@ Property, and Golden test categories.
 
 ### Objective
 
-Land the `jitml-integration` stanza covering the doctrine's Integration test
-category — real-binary subprocess integration plus same-substrate
+Expand the current subprocess sentinel in `jitml-integration` into the doctrine's
+Integration test category — real-binary subprocess integration plus same-substrate
 determinism. Daemon Lifecycle is owned separately by Sprint `12.7`.
 
 ### Deliverables
@@ -128,7 +133,8 @@ determinism. Daemon Lifecycle is owned separately by Sprint `12.7`.
 
 ### Objective
 
-Land the `jitml-sl-canonicals` stanza — project-specific Integration per
+Replace the current sentinel body for `jitml-sl-canonicals` with the
+project-specific Integration workload per
 doctrine §Test Organization's project-specific stanzas allowance — covering
 the eleven canonical SL `(dataset, model)` pairs from [../README.md →
 Canonical supervised learning problems](../README.md#canonical-supervised-learning-problems).
@@ -167,7 +173,8 @@ Canonical supervised learning problems](../README.md#canonical-supervised-learni
 
 ### Objective
 
-Land the `jitml-rl-canonicals` stanza — project-specific Integration per
+Replace the current sentinel body for `jitml-rl-canonicals` with the
+project-specific Integration workload per
 doctrine §Test Organization's project-specific stanzas allowance — covering
 the RL target matrix forms (2) and (3): same-substrate trajectory
 determinism plus per-seed final-reward distribution against committed
@@ -208,7 +215,8 @@ fixtures.
 
 ### Objective
 
-Land the `jitml-hyperparameter` stanza — project-specific Integration per
+Replace the current sentinel body for `jitml-hyperparameter` with the
+project-specific Integration workload per
 doctrine §Test Organization's project-specific stanzas allowance — covering
 per-sampler, per-scheduler, and per-pruner reproducibility plus resume
 equality across the hyperparameter tuning surface.
@@ -247,7 +255,8 @@ equality across the hyperparameter tuning surface.
 
 ### Objective
 
-Land the `jitml-cross-backend` stanza — project-specific Integration per
+Replace the current sentinel body for `jitml-cross-backend` with the
+project-specific Integration workload per
 doctrine §Test Organization's project-specific stanzas allowance — and the
 closure gate for the plan: assert cross-substrate per-tensor drift fits
 inside the committed per-tensor tolerance band on the SL canon cohorts
@@ -293,7 +302,8 @@ inside the committed per-tensor tolerance band on the SL canon cohorts
 
 ### Objective
 
-Land the `jitml-daemon-lifecycle` stanza covering the doctrine's Daemon
+Replace the current sentinel body for `jitml-daemon-lifecycle` with the
+doctrine's Daemon
 Lifecycle test category — spawn the real `jitml service`, exercise the
 boot → ready → serve → SIGHUP reload → drain → exit lifecycle, and assert
 at-least-once Pulsar consumer idempotency.
@@ -332,9 +342,10 @@ at-least-once Pulsar consumer idempotency.
 
 ### Objective
 
-Land the `jitml-e2e` stanza and the Pulumi TypeScript program that brings
-up an ephemeral Kind stack, runs the six demo cohorts against the real
-Envoy listener with Playwright, and tears the stack down deterministically.
+Replace the current sentinel body for `jitml-e2e` with the Pulumi TypeScript
+program and Haskell test driver that bring up an ephemeral Kind stack, run the
+six demo cohorts against the real Envoy listener with Playwright, and tear the
+stack down deterministically.
 This is the doctrine's Pulumi-Orchestrated Infrastructure test category.
 
 ### Deliverables

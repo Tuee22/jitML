@@ -38,17 +38,20 @@ maintenance rules that govern this plan suite.
 
 Phase `0` (planning and documentation topology) is `✅ Done`: Sprint `0.1`
 (canonical plan suite bootstrap) and Sprint `0.2` (doctrine-driven scheduling
-audit) are both validated. Phase `1` (Haskell CLI surface) is `✅ Done` across
-Sprints `1.1` through `1.9`. Phase `2` remains `🔄 Active`: Sprints `2.1`,
-`2.2`, and `2.3` are `✅ Done`, so stage-0 scripts fail fast, build or enter the
-Haskell bootstrap, delegate to `jitml bootstrap --<substrate>`, the Haskell
-prerequisite DAG owns typed remediation and postcondition validation, and the
-typed JIT cache key/layout/manifest/symlink layer is in place. Sprints `2.4`
-and `2.5` are the next `📋 Planned` sprints. Phases `3` through `12` remain
-`⏸️ Blocked` by their predecessor phases in the execution chain.
+audit) are both validated. Phase `1` (Haskell CLI surface) is `🔄 Active` because
+Sprint `1.4` is reopened for the external lint/format/build runners; Sprints
+`1.1`, `1.2`, `1.3`, and `1.5` through `1.9` remain `✅ Done` on their owned
+surfaces. Phase `2` remains `🔄 Active`: Sprints `2.1`, `2.2`, and `2.3` are
+`✅ Done`, so stage-0 scripts fail fast, Apple can build the host handoff binary,
+Linux calls the intended Sprint `2.4` Compose handoff, the Haskell prerequisite
+DAG owns typed remediation and postcondition validation, and the typed JIT cache
+key/layout/manifest/symlink layer is in place. Sprints `2.4` and `2.5` are the
+next `📋 Planned` sprints. Phases `3` through `12` remain `⏸️ Blocked` by their
+predecessor phases in the execution chain.
 
-Source-code work may now land through Phase `2`; every later phase stays blocked
-until its prerequisite phase closes per
+Source-code work may now land through Phase `2`, but the overall handoff remains
+incomplete until reopened Sprint `1.4` and the remaining Phase `2` sprints close.
+Every later phase stays blocked until its prerequisite phase closes per
 [development_plan_standards.md → C. Honest Completion
 Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
@@ -103,7 +106,7 @@ A sprint can move to `Done` only when all of the following are true:
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | 🔄 Active (Sprint 1.4 reopened; other Phase 1 sprints ✅) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | 🔄 Active (Sprints 2.1–2.3 ✅; Sprints 2.4–2.5 📋; Sprints 2.6–2.7 ⏸️) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ⏸️ Blocked (on Phase 2) | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ⏸️ Blocked (on Phase 3) | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
@@ -118,16 +121,19 @@ A sprint can move to `Done` only when all of the following are true:
 
 ## Current Plan Status
 
-Phase `1` implementation is done. Sprint `1.1` has landed the Cabal package,
+Phase `1` is reopened only for Sprint `1.4`'s external lint/format/build
+runners. Sprint `1.1` has landed the Cabal package,
 `cabal.project`, `app/Main.hs`, `app/Demo.hs`, `src/JitML/App.hs`, ignore files,
 and sentinel Cabal test-suite stanzas. Sprint `1.2` has landed the
 registry-backed CLI parser, command tree, JSON schema, focused help renderer, and
 `jitml-unit` parser/registry tests. Sprint `1.3` has landed `jitml docs check`,
 `jitml docs generate`, generated README marker regions, `documents/cli/commands.md`,
-`share/man/man1/jitml.1`, and bash/zsh/fish completion scripts. Sprint `1.4` is
-now done with `fourmolu.yaml`, `.hlint.yaml`, the in-repo lint stack,
-`jitml lint`, `jitml check-code`, and the `jitml-haskell-style` stanza. Sprint
-`1.5` is now done with `src/JitML/Plan/{Plan,Apply,Render}.hs`,
+`share/man/man1/jitml.1`, and bash/zsh/fish completion scripts. Sprint `1.4`
+has landed `fourmolu.yaml`, `.hlint.yaml`, the current in-repo lint stack,
+`jitml lint`, `jitml check-code`, and the `jitml-haskell-style` stanza, but
+still needs the external `fourmolu`, `hlint`, `cabal format`, and warning-clean
+build runners. Sprint `1.5` is now done with
+`src/JitML/Plan/{Plan,Apply,Render}.hs`,
 `--dry-run`, `--plan-file`, and unit coverage. Sprint `1.6` is now done with
 `src/JitML/Sub/{Subprocess,Render,Stream}.hs`, unit
 render goldens, subprocess lint enforcement, and an integration subprocess

@@ -390,19 +390,19 @@ lintCommand =
     group
         "lint"
         "Run lint checks."
-        "Runs source, docs, proto, chart, Haskell, PureScript, or aggregate lint checks."
+        "Runs the currently implemented source, docs, Haskell, placeholder, or aggregate lint checks."
         [ lintLeaf "files" "Run file hygiene checks."
         , lintLeaf "docs" "Run generated documentation checks."
-        , lintLeaf "proto" "Run protobuf schema checks."
-        , lintLeaf "chart" "Run Helm chart shape checks."
-        , lintLeaf "haskell" "Run Haskell formatting and hlint checks."
-        , lintLeaf "purescript" "Run PureScript formatting checks."
+        , lintLeaf "proto" "Run the current protobuf lint placeholder."
+        , lintLeaf "chart" "Run the current Helm chart lint placeholder."
+        , lintLeaf "haskell" "Run Haskell lint configuration and primitive checks."
+        , lintLeaf "purescript" "Run the current PureScript lint placeholder."
         , leaf
             "all"
-            "Run every lint check."
-            "Runs every configured lint category."
+            "Run every currently implemented lint check."
+            "Runs every current lint target."
             [flag "write" Nothing False "Rewrite files for checks that support it."]
-            [Example "jitml lint all --write" "Run every lint check and apply supported rewrites."]
+            [Example "jitml lint all --write" "Run every current lint target and apply supported rewrites."]
         ]
 
 docsCommand :: CommandSpec
@@ -420,7 +420,7 @@ checkCodeCommand =
     leaf
         "check-code"
         "Run the code quality gate."
-        "Runs formatter checks, hlint, warning-clean build, forbidden-path scans, chart lint, and drift checks."
+        "Runs the current in-repo hygiene, generated-doc drift, forbidden-path, chart, and Haskell primitive checks."
         []
         [Example "jitml check-code" "Run the aggregate code quality gate."]
 

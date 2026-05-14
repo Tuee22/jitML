@@ -85,8 +85,8 @@ the spago invocation through the typed `Subprocess` boundary.
 
 Stand up the browser-contract ADTs in `src/JitML/Web/Contracts.hs` and the
 `purescript-bridge` generator that produces `web/src/Generated/Contracts.purs`.
-The generated file is tracked by `trackingGeneratedPaths` (Sprint `1.3`);
-hand edits fail `jitml lint files`.
+Sprint `1.3` reserved the future generated-path pattern; this sprint adds the
+concrete `trackingGeneratedPaths` entry so hand edits fail `jitml lint files`.
 
 ### Deliverables
 
@@ -97,8 +97,9 @@ hand edits fail `jitml lint files`.
 - `src/JitML/Web/Bridge.hs` invokes `purescript-bridge` to generate
   `web/src/Generated/Contracts.purs`; the generation is wrapped in the
   `jitml docs generate` reconciler.
-- `web/src/Generated/Contracts.purs` is in `trackingGeneratedPaths`; hand
-  edits fail `jitml lint files`.
+- `web/src/Generated/Contracts.purs` is promoted from
+  `futureTrackingGeneratedPathPatterns` into an active `trackingGeneratedPaths`
+  entry; hand edits fail `jitml lint files`.
 
 ### Validation
 
@@ -119,10 +120,11 @@ hand edits fail `jitml lint files`.
 
 ### Objective
 
-Land the `jitml-purescript-style` stanza — Lint (project-specific) per
-doctrine §Test Organization's project-specific stanzas allowance — bundling
-the PureScript `purs format` round-trip with the `purescript-spec` smoke
-tests, both run through the typed `Subprocess` boundary.
+Replace the current `jitml-purescript-style` sentinel body from Sprint `1.1`
+with the Lint (project-specific) stanza per doctrine §Test Organization's
+project-specific stanzas allowance — bundling the PureScript `purs format`
+round-trip with the `purescript-spec` smoke tests, both run through the typed
+`Subprocess` boundary.
 
 ### Deliverables
 
