@@ -2,7 +2,9 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, AGENTS.md, CLAUDE.md, DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/development_plan_standards.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md, DEVELOPMENT_PLAN/phase-0-planning-documentation.md, DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, DEVELOPMENT_PLAN/phase-2-transcript-codec-and-determinism.md, DEVELOPMENT_PLAN/phase-3-haskell-engine.md, DEVELOPMENT_PLAN/phase-4-cpp-legacy-port-and-ffi-bridge.md, DEVELOPMENT_PLAN/phase-5-cpp-imperative-steelman.md, DEVELOPMENT_PLAN/phase-6-cpp-functional-and-rust.md, DEVELOPMENT_PLAN/phase-7-cross-backend-verify-and-report-card.md, DEVELOPMENT_PLAN/phase-8-haskell-performance-parity-closure.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/code_quality.md, documents/engineering/unit_testing_policy.md, documents/engineering/haskell_code_guide.md, documents/engineering/determinism_contract.md, documents/engineering/transcript_format.md, documents/engineering/backend_ffi_contract.md, documents/engineering/compiler_runtime_tuning.md
+**Referenced by**: README.md, AGENTS.md, CLAUDE.md
+
+> The larger reference graph (`DEVELOPMENT_PLAN/*`, `documents/engineering/*`, etc.) named in earlier drafts of this header is aspirational; it is re-populated here as those files come into existence. At bootstrap, only the three documents above reference this doctrine.
 
 > **Purpose**: Authoritative CLI doctrine for every project under this discipline; the binding contract for module layout, parser generation, generated artefacts, subprocess handling, testing, lint, and error rendering. MCTS adopts the doctrine with explicit in-scope / out-of-scope splits recorded in [DEVELOPMENT_PLAN/00-overview.md → Doctrine Scope](DEVELOPMENT_PLAN/00-overview.md).
 
@@ -228,18 +230,19 @@ tool help users create
 
 Example tree output:
 
-```text
-tool
-├── users
-│   ├── list
-│   ├── create
-│   └── delete
-├── projects
-│   ├── list
-│   └── archive
-└── config
-    ├── get
-    └── set
+```mermaid
+mindmap
+  root((tool))
+    users
+      list
+      create
+      delete
+    projects
+      list
+      archive
+    config
+      get
+      set
 ```
 
 ---
@@ -773,6 +776,66 @@ These rules apply to short-running invocations. Long-running daemons follow the
 structured-logging discipline in **Long-Running Daemons in the Same Binary**:
 stderr receives JSON-formatted log lines; stdout is reserved for the daemon's
 protocol surface or unused; `--format` and `--color` flags do not apply.
+
+---
+
+## Standard Flag Families
+
+Three flag families bind orthogonally to the command surface. Each family is
+prescribed in detail by an upstream section (Plan/Apply, Long-Running Daemons,
+Output Rules); this section collects the prescriptions in one normative table
+so a project adopting the doctrine has a single reference.
+
+### Plan/Apply commands MUST accept
+
+| Flag | Behavior |
+|---|---|
+| `--dry-run` | Render the typed Plan to stdout, exit 0. `apply` is never reached. |
+| `--plan-file <path>` | Write the rendered Plan to disk, enabling out-of-band review before apply. |
+
+See **Plan / Apply** for the underlying split (`build` is pure; `apply` is the
+only IO boundary). A Plan/Apply command without `--dry-run` is forbidden: if
+the plan cannot be safely rendered without running it, the split has not
+actually been made.
+
+### Daemon-launching commands MUST accept
+
+| Flag | Behavior |
+|---|---|
+| `--config <path>` | Path to the `.dhall` config file holding `BootConfig` + `LiveConfig`. The daemon refuses to start if the path does not exist or does not parse. |
+| `--log-level <level>` | Startup default only. The Dhall file overrides this once read and continues to override across hot reloads. |
+| `--port <int>` | Startup-only override of the listening port, treated as a `BootConfig` default that the Dhall file replaces. |
+| `--foreground` | The default. `--detach` and any other self-daemonization flag are forbidden: the supervisor (systemd, Kubernetes, Docker) owns the process model. |
+
+Environment-variable overrides for these flags are limited to `BootConfig`
+startup defaults, namespaced `<PROJECT>_<SETTING>` (e.g. `MYTOOL_LOG_LEVEL`,
+`MYTOOL_CONFIG_PATH`). Precedence at startup: CLI flag > env var > Dhall
+default > built-in default. Once the daemon is running, the Dhall file is the
+sole source of truth for `LiveConfig`. See **Long-Running Daemons in the Same
+Binary → CLI-to-daemon plumbing** for the full rationale.
+
+### Short-running commands MUST accept
+
+| Flag | Behavior |
+|---|---|
+| `--format <fmt>` | `json`, `table`, or `plain`. Default selection rule lives in **Output Rules**. |
+| `--color <when>` | `auto`, `always`, or `never`. |
+| `--no-color` | Alias for `--color never`. |
+
+`--format` and `--color` do not apply to daemon-launching commands (see
+**Output Rules**: daemon stderr is JSON-only; stdout is reserved for the
+daemon's protocol surface).
+
+**Forbidden patterns:**
+
+- Plan/Apply commands without `--dry-run`.
+- Daemon-launching commands with a `--detach` flag.
+- Short-running commands that emit color to a pipe (i.e. that ignore `--color
+  auto`'s "no-color when stdout is not a terminal" rule).
+- Per-command reinvention of these flag names (e.g. `--preview` instead of
+  `--dry-run`, `--output-format` instead of `--format`). The doctrine's
+  spellings are canonical so contributors and operators learn the surface
+  once.
 
 ---
 
@@ -2261,6 +2324,24 @@ heavy integration deps do not leak into the unit suite.
 Each stanza's `main-is` is a small `Main.hs` that calls into a library module
 where the actual tests live; tasty (or HUnit / QuickCheck used directly) builds
 the in-stanza test tree.
+
+### Project-specific stanzas
+
+Projects MAY add stanzas beyond the five named above (for example end-to-end
+convergence suites, cross-backend determinism cohorts, additional language-
+style suites for non-Haskell artifacts), provided that:
+
+1. Each additional stanza maps to one of the seven categories declared in
+   **Test Categories** (Pure Logic, Parser, Property, Golden, Integration,
+   Pulumi-Orchestrated Infrastructure, Daemon Lifecycle). A stanza that
+   refines or specializes one of these categories is permitted; a stanza
+   that establishes a wholly new category outside this list is not.
+2. The stanza uses `type: exitcode-stdio-1.0` like every other stanza.
+3. `cabal test` continues to run every stanza (no opt-out flags, no
+   `tested-with` carve-outs, no separate developer workflow).
+
+Project-specific stanzas extend the canonical surface; they do not bypass it.
+The single-tasty-tree prohibition above applies to them identically.
 
 ---
 
