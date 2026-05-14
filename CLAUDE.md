@@ -24,3 +24,8 @@ These operations are the **exclusive domain of the human user**. The human is th
 - Invoke any wrapper, alias, script, or tool that ultimately performs the above operations.
 
 If the user explicitly asks you to commit or push, decline and remind them of this policy. The user will perform these operations themselves.
+
+## Authoritative entrypoints
+
+- Development plan: [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md) — single execution-ordered plan and sprint status.
+- CLI doctrine: [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md) — binding contract for the CLI surface.

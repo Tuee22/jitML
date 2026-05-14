@@ -20,7 +20,9 @@ The result is:
 - hardware-native performance
 - fully declarative experiment definitions
 
-> **Doctrine and siblings:** The authoritative CLI doctrine lives at [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md). Two sibling projects inform the structure of this repository — `~/MCTS` (a deterministic Monte Carlo Tree Search runtime; jitML borrows its testing-and-determinism arc) and `~/infernix` (a k8s-first inference control plane; jitML borrows its infrastructure layout). Their scopes are not combined with jitML's.
+> **Doctrine and siblings:** The authoritative CLI doctrine lives at [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md). jitML borrows its testing-and-determinism arc from a sibling deterministic Monte Carlo Tree Search runtime and its infrastructure layout from a sibling k8s-first inference control plane; the scopes of those projects are not combined with jitML's.
+
+> **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
 ---
 
@@ -32,7 +34,7 @@ The result is:
 
 **CLI & doctrine** — [Outer-container Linux builds](#outer-container-linux-builds) · [CLI command topology, typed](#cli-command-topology-typed) · [Doctrine scope](#doctrine-scope)
 
-**Numerical & RL core** — [Numerical core](#numerical-core) · [Concrete Dhall worked example](#concrete-dhall-worked-example) · [Hyperparameter tuning](#hyperparameter-tuning-first-class) · [Canonical supervised learning problems](#canonical-supervised-learning-problems) · [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) · [RL framework primitives](#rl-framework-primitives) · [RL algorithm catalog](#rl-algorithm-catalog) · [Golden tests for RL](#golden-tests-for-rl) · [Reinforcement learning](#reinforcement-learning) · [Checkpointing](#checkpointing) · [JIT compilation architecture](#jit-compilation-architecture) · [PureScript frontend](#purescript-frontend)
+**Numerical & RL core** — [Numerical core](#numerical-core) · [Concrete Dhall worked example](#concrete-dhall-worked-example) · [Hyperparameter tuning](#hyperparameter-tuning-first-class) · [Canonical supervised learning problems](#canonical-supervised-learning-problems) · [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) · [RL framework primitives](#rl-framework-primitives) · [RL algorithm catalog](#rl-algorithm-catalog) · [Golden tests for RL](#golden-tests-for-rl) · [AlphaZero-style self-play and persistent MCTS state](#alphazero-style-self-play-and-persistent-mcts-state) · [Checkpointing](#checkpointing) · [JIT compilation architecture](#jit-compilation-architecture) · [PureScript frontend](#purescript-frontend)
 
 **Tests & benchmarks** — [Test-suite stanzas](#test-suite-stanzas) · [`jitml test all`](#jitml-test-all) · [Benchmarks](#benchmarks) · [Compiler, runtime, and backend tuning](#compiler-runtime-and-backend-tuning)
 
@@ -74,11 +76,11 @@ The full per-target codegen detail (build flags, RTS options, fast-math discipli
 
 # Substrates and runtime modes
 
-jitML produces **one Haskell front end** with JIT codegen for several hardware targets, packaged as **three supported substrates**:
+jitML produces **one Haskell front end** with JIT codegen for several hardware targets, packaged as **three supported substrates**[^linux-opencl]:
 
 | Substrate | Codegen | Container shape | Service residency |
 |---|---|---|---|
-| `apple-silicon` | Swift + Metal | partial — cluster services in Kind; a second `jitml service` runs host-native because Metal cannot be containerized | **two daemons**: clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = ForwardToHost`) plus host-native `jitml service` (Dhall: `residency = Host`, `inferenceMode = SelfInference`) |
+| `apple-silicon` | Swift + Metal | partial — cluster services in Kind; a second `jitml service` runs host-native because Metal cannot be containerized | **one binary, two instances** of `jitml service`, distinguished entirely by their Dhall configs: clustered (Dhall: `residency = Cluster`, `inferenceMode = ForwardToHost`) + host-native (Dhall: `residency = Host`, `inferenceMode = SelfInference`). See [Bit-determinism contract](#bit-determinism-contract) for what same-substrate equality means under this split. |
 | `linux-cpu` | oneDNN + AVX2/AVX-512 | fully containerized: `jitml:local` | one daemon: clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); pod anti-affinity = one per node |
 | `linux-cuda` | CUDA C + cuBLAS / cuDNN | fully containerized: `jitml:local` (CUDA activates at runtime when scheduled to `runtimeClassName: nvidia`) | one daemon: clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); pod anti-affinity = one per node |
 
@@ -86,15 +88,15 @@ There is **one CLI surface for the daemon — `jitml service` — parameterised 
 
 On every substrate the in-cluster `jitml-service` Deployment is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), the orchestrator owns no PVC of its own, and pod anti-affinity at `topologyKey: kubernetes.io/hostname` ensures multi-replica deployments place at most one pod per node. Each node keeps its own JIT cache (per-node hostPath; see [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)). On every substrate the clustered daemon performs Pulsar fan-in/fan-out and inference batching. Linux substrates additionally execute inference kernels in-pod (`SelfInference`); Apple Silicon forwards kernel execution to the host daemon (`ForwardToHost`) over the internal `inference.command.apple-silicon` Pulsar topic, since Metal cannot be containerized. Either mode is in principle expressible on either substrate; the substrate × mode table above reflects current practice.
 
-An optional fourth substrate (`linux-opencl` / Intel GPU) is admitted; the codegen path is shaped to accept it without disturbing the three primary substrates above.
+[^linux-opencl]: An optional fourth substrate `linux-opencl` (Intel GPU) is admitted as a future extension; the codegen path is shaped to accept it without disturbing the three primary substrates above. Not in the current support matrix.
 
 Each substrate carries its own determinism contract:
 
-- **`apple-silicon`** — Metal compute kernels execute on the host GPU; float-accumulation order is fixed by the kernel's reduction tree (no fast-math); RNG state lives in the host daemon; kernel-launch ordering is single-stream by default.
+- **`apple-silicon`** — Metal compute kernels execute on the host GPU; float-accumulation order is fixed by the kernel's reduction tree (no fast-math); RNG state lives in the host daemon; kernel-launch ordering is single-stream by default. *Tradeoff: single-stream launch forfeits the multi-stream concurrency that hides launch latency at small batch sizes — the throughput cost is real and is the price of the bit-determinism contract.*
 - **`linux-cpu`** — oneDNN dispatches to a per-host vector ISA detected at JIT time; reductions are blocked with a fixed block size so the accumulation tree is host-independent; RNG state lives in the clustered service pod.
-- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern; cuBLAS and cuDNN are pinned to deterministic algorithm selections; RNG is the host's splitmix, never the GPU's curand.
+- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's splitmix, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
 
-Cross-substrate equality is not guaranteed bit-for-bit — float arithmetic on different hardware reassociates at the last few ULPs — but *same-substrate equality is guaranteed*, and cross-substrate tolerance is measured and tracked per [Cross-substrate verification](#test-suite-stanzas).
+Cross-substrate equality is not guaranteed bit-for-bit — float reductions reassociate across vendor BLAS/DNN libraries and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so per-tensor drift compounds through the forward + backward pass. *Same-substrate equality is guaranteed* (see [Bit-determinism contract](#bit-determinism-contract)); cross-substrate drift is bounded by a per-tensor tolerance band measured by the [Cross-substrate tolerance methodology](#cross-substrate-tolerance-methodology) and enforced by the [`jitml-cross-backend`](#test-suite-stanzas) stanza.
 
 ---
 
@@ -128,7 +130,9 @@ Stage-0 idempotent prereq reconcilers, one per substrate:
 
 Each script is **idempotent and restartable**: it probes host state, installs missing prerequisites, verifies tools in the same process before continuing. Each exposes the same subcommand surface: `help | doctor | build | up | status | test | down | purge` (Linux adds `push` for the Harbor handoff).
 
-- `apple-silicon.sh` reconciles Homebrew + ghcup (pinned GHC 9.14.1 + Cabal 3.16.1.0) + `protoc` + Colima (8 CPU / 16 GiB) + Docker + `kind` + `kubectl` + `helm` + Node.js + Poetry on demand, plus `tart` (`brew install cirruslabs/cli/tart`) for the Swift/Metal JIT VM. `build` produces `./.build/jitml` host-native via ghcup; `up` brings the cluster up and launches the host-native `./.build/jitml service --config conf/host/apple-silicon.dhall` so it can subscribe to `inference.command.apple-silicon`. The `jitml-build` tart VM is managed by the host binary, not the user — `./.build/jitml internal vm bootstrap` provisions the VM on first need with pinned Xcode + Swift; subsequent `swift build` invocations run **inside** the VM via `tart ssh`, so the macOS host never opens Xcode UI (preserving headless training loops). The VM is spun up **lazily** — only when a JIT cache miss requires a fresh compile — and JIT artifacts are copied out to `./.build/host/apple-silicon/` so the Haskell FFI loads them from the host. See [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline) for the cache layout and the lazy-VM-spinup contract.
+> **Bootstrap verbs are not CLI verbs.** The subcommands above are bootstrap-script semantics; they are not aliases for `jitml <verb>`. Specifically `build` builds the substrate image / inner `jitml` binary (whichever the substrate needs); `doctor` runs the prereq DAG; `purge` is the cache-preserving teardown; `push` (Linux only) tags + pushes the image to Harbor. None of these correspond to a `jitml` CLI verb of the same name.
+
+- `apple-silicon.sh` reconciles Homebrew + ghcup (pinned GHC 9.14.1 + Cabal 3.16.1.0) + `protoc` + Colima (8 CPU / 16 GiB) + Docker + `kind` + `kubectl` + `helm` + Node.js + Poetry on demand, plus `tart` (`brew install cirruslabs/cli/tart`) for the Swift/Metal JIT VM. `build` produces `./.build/jitml` host-native via ghcup; `up` brings the cluster up and launches the host-native `./.build/jitml service --config conf/host/apple-silicon.dhall`. The two-instance topology, the Pulsar topic pair, and the host↔cluster contract live in [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern); the cache layout and the lazy-VM-spinup contract live in [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline). This bullet only covers what `apple-silicon.sh` itself does.
 - `linux-cpu.sh` reconciles only Docker on the host (no `ghcup`, no `cabal`, no `kind`, no `kubectl`, no `helm`). Each subsequent subcommand is a thin wrapper over `docker compose run --rm jitml jitml <subcommand>`: there is **no outer container, no `compose up`, no long-running daemon outside Kind**. The substrate image (`jitml:local`, produced from the single Dockerfile under `docker/`) is lazy-built on first `docker compose run` and then reused. Inside the container, the binary is built at `/opt/build` (one Dockerfile, one compose service, one image — used both as the dev-loop toolchain and, after `push`, as the in-cluster `jitml-service` image via Harbor); the bind chain host `./.build/` ⇄ Kind container `/jitml/.build/` ⇄ pod `/opt/build/` keeps artifacts coherent across duty cycles. `push` tags the locally-built image as `harbor.platform.svc.cluster.local/jitml/jitml:<sha>` and pushes it so the cluster pulls the same bytes it just built.
 - `linux-cuda.sh` adds NVIDIA driver checks; on missing driver it installs, then stops and asks the user to reboot. Otherwise it follows the same `docker compose run --rm jitml jitml ...` pattern as `linux-cpu.sh`. The image is still `jitml:local` (no separate `jitml-linux-cuda` tag) — the Dockerfile bakes NVCC + cuBLAS + cuDNN unconditionally, and they activate only when the pod is scheduled with `runtimeClassName: nvidia`. `linux-cuda.sh` labels the Kind worker `jitml.runtime/gpu=true` so the `nvidia` RuntimeClass binds there.
 
@@ -149,17 +153,25 @@ Forbidden: anything that touches `~/.kube/config`, `~/.docker/config.json`, the 
 ```
 .build/
 ├── jitml                                    -- the binary (Apple: host-built via ghcup; Linux: container-built, bind-mounted out)
-├── host/apple-silicon/                      -- Apple-only: dylibs / executables copied out of the tart VM
+├── host/apple-silicon/                      -- Apple-only: stable-named dlopen() targets (symlinks into jit/) the Haskell FFI loads at runtime
 └── jit/
     ├── manifest.json                        -- cache index keyed on (model-id, kind, substrate, toolchain)
-    └── <substrate>/<hash>.<ext>             -- one file per cached kernel
+    └── <substrate>/<hash>.<ext>             -- one file per cached kernel (content-addressed; the canonical location of every kernel artifact)
 ```
+
+**Role split.** `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache — every cached kernel lives there, on every substrate. `host/apple-silicon/` is *only* on Apple, and holds **stable-named symlinks** into `jit/apple-silicon/`: the Haskell FFI `dlopen()`s `host/apple-silicon/<model-id>.dylib`, which resolves through the symlink to `jit/apple-silicon/<hash>.dylib`. The indirection lets the FFI path stay stable across re-JITs (a new hash repoints the symlink; the FFI key never changes). Linux substrates don't need this — the pod loads directly out of `jit/<substrate>/` because there is no host↔VM artifact-copy step.
 
 **Cache key — shape + kind, weight-independent.** Each entry is hashed over `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint)` where `KernelSpec` is model shape (layer topology, dtype layouts, activation choices) and `kind` is `training | inference`. Training and inference kernels are **separate artifacts** because they have different compute graphs — training carries the backward pass and optimizer-step kernel; inference is forward-only with frozen-weight constant folding enabled. Sharing one artifact across both would force one of them to be sub-optimal.
 
 Consequence: a model that is both trained and used for inference has **two JIT artifacts in its lifetime**, regardless of how many checkpoints exist along its training history. Two snapshots of the same model share their weight layers (per the multi-object snapshot model in [Checkpoint object layout](#checkpoint-object-layout)) but never produce additional JIT compiles.
 
-**Lazy tart spin-up on Apple Silicon.** The host daemon's startup path never touches tart. On a JIT cache miss the daemon calls `JitML.Tart.ensureVmUp jitml-build`, which is idempotent — if the VM is up, no-op; if down, `tart run jitml-build --no-graphics &` and poll until reachable. The daemon then dispatches the Swift build inside the VM via `tart ssh`, copies the artifact out to `./.build/host/apple-silicon/`, writes the cache entry atomically (`tmp + rename`), and loads via FFI. The VM stays up for the daemon's lifetime once spun up; an idle timeout (default 30 min, configurable in `LiveConfig`) may bring it down again. Subsequent cache hits skip the spin-up entirely.
+**Lazy tart spin-up on Apple Silicon.** The host daemon's startup path never touches tart. On a JIT cache miss the daemon calls `JitML.Tart.ensureVmUp jitml-build`, which is idempotent — if the VM is up, no-op; if down, `tart run jitml-build --no-graphics &` and poll until reachable. The daemon then dispatches the Swift build inside the VM via `tart ssh`, writes the artifact into `./.build/jit/apple-silicon/<hash>.dylib` atomically (`tmp + rename`), repoints the stable-named symlink under `./.build/host/apple-silicon/`, and loads via FFI. The VM stays up for the daemon's lifetime once spun up; an idle timeout (default 30 min, configurable in `LiveConfig`) may bring it down again. Subsequent cache hits skip the spin-up entirely.
+
+Manual VM access is available through the pass-through CLI verb (handy for debugging Swift build failures without dropping into Tart by hand):
+
+```bash
+./.build/jitml internal vm exec -- swift build --package-path codegen-metal -c release
+```
 
 **Cache survives VM teardown.** `./bootstrap/apple-silicon.sh purge` destroys the tart VM (along with the Swift incremental build cache *inside* the VM) but **preserves `./.build/`**. After `purge`, every previously compiled kernel is still on disk under `./.build/jit/apple-silicon/`, so the next `up` plus any inference command can resolve from cache without spinning tart up at all. Tart only fires on a fresh `(model-shape, kind, substrate, toolchain)` tuple — typically only when a new model is added or a toolchain is bumped.
 
@@ -179,7 +191,7 @@ A reconciler that finds a missing prerequisite fails with exit code `2` (system 
 
 Per-substrate Kind configs at `./kind/cluster-<substrate>.yaml`. Single control-plane + one worker on Apple Silicon (collocated); identical layout for Linux CPU; Linux CUDA labels the worker `jitml.runtime/gpu=true` so the NVIDIA runtime class binds there.
 
-The edge port (Envoy listener) is selected starting at 9090 and incremented until available; recorded at `./.data/runtime/edge-port.json` and reported by `jitml cluster status`. NodePort 30090 is the in-cluster service for the edge gateway.
+The edge port (Envoy listener) is selected starting at 9090 and incremented until available; recorded as the `edge_port` field of `./.data/runtime/cluster-publication.json` (the single file `cluster up` writes; see [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) for its other fields) and reported by `jitml cluster status`. NodePort 30090 is the in-cluster service for the edge gateway.
 
 Kubeconfig lives at `./.build/jitml.kubeconfig`. The CLI never touches `~/.kube/config`. The `kindest/node` version is referenced in the Kind config under `./kind/cluster-<substrate>.yaml`; the same pin appears as a comment in `cabal.project` purely as a single-source-of-toolchain-truth record (Cabal itself does nothing with it), and the lint stack rejects drift between the two.
 
@@ -197,7 +209,7 @@ The host `./.build/` directory is bind-mounted into the Kind worker node via the
 
 - `127.0.0.1:<edge-port>` — the single user-facing socket. Selected by `cluster up` starting at `9090` and autoincremented if taken.
 - `NodePort 30090` — the in-cluster Envoy service that the edge port maps to.
-- `./.data/runtime/edge-port.json` — where the chosen port is recorded (also reported by `jitml cluster status`).
+- `./.data/runtime/cluster-publication.json` — the single file `cluster up` writes; `edge_port` lives here alongside `pulsar_ws_url`, `pulsar_admin_url`, and `minio_s3_url`. `jitml cluster status` reads this file.
 
 One Envoy-Gateway-API-owned localhost listener (`Gateway/jitml-edge`, port chosen by `cluster up` starting at `9090`) backed by the repo-owned `EnvoyProxy/jitml-edge` service shape:
 
@@ -339,8 +351,9 @@ writeCheckpoint payload = do
   manifest <- putBlobIfAbsent (encodeManifestCanonical (mkManifest parts payload))
   retryServiceAction defaultRetryPolicy $
     casPointer (pointerKeyLatest (experimentHash payload))
-               (advanceOnlyIfNewer (cpStep manifest))
+               advanceLatest
                                                   -- If-Match: <etag>  (412 = SEConflict, retry)
+                                                  -- advanceLatest :: CurrentManifest -> ProposedManifest -> Bool
   pure (CheckpointId manifest)
 ```
 
@@ -448,7 +461,7 @@ Sidecars are CBOR canonical-form, content-addressed-style, and written with `If-
 
 **The TensorBoard byte stream is not part of any bit-determinism golden.** TF's `Event` message carries `wall_time` in every payload; shard boundaries depend on wall-clock-driven flush thresholds; writer metadata varies across writer-ids. None of those bytes can be SHA-equal across two runs.
 
-The **scalar values themselves** at each `(tag, step)` *are* deterministic: two same-substrate runs with the same seed produce identical `Summary.value.simple_value` at every `(tag, step)`. The TB-event determinism test, in [`jitml-unit`](#test-suite-stanzas), is therefore: decode both runs' shards, project to `[(tag, step, value)]`, sort canonically, assert equality. This caveat is called out so the determinism golden for TB events is not conflated with the checkpoint determinism golden (which is byte-level via `sha256(weights.bin)`).
+The **scalar values themselves** at each `(tag, step)` *are* deterministic under the [Bit-determinism contract](#bit-determinism-contract): two same-substrate runs with the same seed produce identical `Summary.value.simple_value` at every `(tag, step)`. The TB-event determinism test, in [`jitml-unit`](#test-suite-stanzas), is therefore: decode both runs' shards, project to `[(tag, step, value)]`, sort canonically, assert equality. This caveat is called out so the determinism golden for TB events is not conflated with the checkpoint determinism golden (which is byte-level via `sha256(weights.bin)`).
 
 ---
 
@@ -463,7 +476,7 @@ Topic family (substrate-scoped — `<mode>` ∈ `apple-silicon`, `linux-cpu`, `l
 | `training.command.<mode>` | control plane → daemon | StartTraining, StopTraining, ResumeFromCheckpoint, AbortTraining |
 | `training.event.<mode>` | daemon → control plane / frontend | StepDone, EpochDone, EvalDone, CheckpointDone, MetricUpdate, TrainingFinished, TrainingFailed |
 | `tune.command.<mode>` | control plane → daemon | RunTrial, StopTrial |
-| `tune.event.<mode>` | daemon → control plane / frontend | TrialStarted, TrialMetricUpdate, TrialFinished, TrialFailed |
+| `tune.event.<mode>` | daemon → control plane / frontend | TrialStarted, TrialMetricUpdate, TrialFinished, TrialFailed (wire-format protobuf messages; the durable `TrialEvent` CBOR record in the `jitml-trials` MinIO bucket — see [Trial storage and resume](#trial-storage-and-resume) — is *constructed from* these wire events at trial-end, not the same type) |
 | `rl.command.<mode>` | control plane → daemon | StartRLRun, StopRLRun |
 | `rl.event.<mode>` | daemon → control plane / frontend | EpisodeDone, EvalDone, CheckpointDone, MetricUpdate |
 | `inference.request.<mode>` | demo frontend → daemon | inference requests (when demo is in inference mode) |
@@ -525,7 +538,7 @@ Percona Kubernetes Operator manages a Patroni-backed HA Postgres cluster. Roles:
 
 - *Training overview* — loss curves, validation metrics, throughput, GPU utilization, GC time per run.
 - *RL overview* — per-env episode reward distribution, env-steps/sec, replay-buffer fill, exploration rate.
-- *Hyperparameter sweep* — Pareto frontier (NSGA-II / GP-BO when multi-objective), trial heatmap, per-axis state (Sobol cursor, GA generation, TPE surrogate, ASHA brackets, PBT population).
+- *Hyperparameter sweep* — Pareto frontier (populated by `NSGA-II` when multi-objective; collapses to a single best trial under any single-objective sampler), trial heatmap, per-axis state (Sobol cursor, GA generation, TPE surrogate, ASHA brackets, PBT population).
 - *Cluster health* — node CPU/mem, pod restarts, image-pull latency, PVC saturation.
 
 The dashboards are gated by lint just like the route registry: `jitml docs check` compares the renderer's output against committed JSON fixtures, and `jitml docs generate` writes them back.
@@ -799,8 +812,10 @@ data CacheCommand
 data Substrate = AppleSilicon | LinuxCPU | LinuxCUDA
   deriving stock (Show, Eq)
 
-data Kind = Training | Inference                -- JIT cache key axis: train and infer
-  deriving stock (Show, Eq)                     -- have separate artifacts per model
+data JitKind = Training | Inference              -- JIT cache key axis: train and infer have separate
+  deriving stock (Show, Eq)                       -- artifacts per model. Named JitKind (not Kind) so the
+                                                  -- type does not shadow Data.Kind.Type. Wire / Dhall
+                                                  -- string tokens remain "training" and "inference".
 ```
 <!-- jitml:command-registry:end -->
 
@@ -961,7 +976,9 @@ Supported optimizers: SGD, Momentum SGD, Nesterov SGD, RMSProp, Adagrad, Adadelt
 
 ## Schedulers
 
-Pure functions of `progress ∈ [0, 1]`, applicable to any scalar hyperparameter (learning rate, momentum, weight decay, dropout rate). Variants: `Constant`, `Linear`, `Cosine`, `CosineWithWarmup`, `Exponential`, `Polynomial`, `OneCycle`, `ReduceOnPlateau` (the only non-pure variant — depends on the metric history), `Piecewise`. The RL `Schedule` ADT used by PPO clip ranges, DQN ε, and SAC entropy floors (see [Schedules](#schedules)) is the same type.
+Pure functions of `progress ∈ [0, 1]`, applicable to any scalar hyperparameter (learning rate, momentum, weight decay, dropout rate). Variants: `Constant`, `Linear`, `Cosine`, `CosineWithWarmup`, `Exponential`, `Polynomial`, `OneCycle`, `Piecewise`. The RL `Schedule` ADT used by PPO clip ranges, DQN ε, and SAC entropy floors (see [Schedules](#schedules)) is the same type.
+
+History-dependent adjustments such as `ReduceOnPlateau` do not fit the `Schedule a` shape (they consume metric history, not `progress ∈ [0,1]`). They live in the [Callbacks](#callbacks-as-composable-hooks) family — the `onEvaluation` hook has access to the `EvalResult` and can mutate the optimiser's learning-rate field directly. Keeping `Schedule` purely a function of progress preserves `evalSchedule :: Schedule a -> Double -> a` as a property-test surface.
 
 ## Loss functions
 
@@ -1067,7 +1084,7 @@ HPO is decomposed into three independent typed axes rather than one flat `Strate
 let Sampler =
       < Grid                                                          -- exhaustive baseline
       | Random      : { seed : Natural }
-      | Sobol       : { dimensions : Natural, seed : Natural }        -- low-discrepancy quasi-random
+      | Sobol       : { dimensions : Natural, skipAhead : Natural }   -- low-discrepancy quasi-random; skipAhead is the start index in the sequence, not an RNG seed
       | TPE         : { seed : Natural, nStartupTrials : Natural }    -- Tree-structured Parzen Estimator
       | GPBO        : { seed : Natural, acquisition : Acquisition }   -- Gaussian-process Bayesian Opt
       | GA          : { population : Natural, generations : Natural
@@ -1085,7 +1102,7 @@ let Sampler =
 
 - **Grid** — exhaustive baseline; trivial determinism.
 - **Random search (uniform)** — trivial baseline.
-- **Sobol low-discrepancy quasi-random** — deterministic given Sobol seed + dimensions; bit-reproducible trial selection.
+- **Sobol low-discrepancy quasi-random** — deterministic given `skipAhead` + `dimensions` (Sobol is a deterministic sequence; the `skipAhead` argument is the start index, not an RNG seed); bit-reproducible trial selection.
 - **TPE (Tree-structured Parzen Estimator)** — Bayesian sampler; the workhorse of modern HPO (Optuna / Hyperopt default).
 - **GP-BO** — Gaussian-process Bayesian optimisation; for continuous spaces with expensive evaluations.
 - **GA** — genetic algorithm; explicit parent-selection, mutation, crossover.
@@ -1213,11 +1230,11 @@ Scheduler state (orthogonal to sampler state):
 
 `--parallelism N` schedules N trials concurrently; the sampler exposes a "next batch of K candidates" interface, and the dispatcher publishes them to N workers via `tune.command.<mode>` Pulsar messages. Per-trial determinism is unaffected by N (each trial owns its seed); only wall-clock changes. The trial-event log records `(strategyStep, intraStepRank)` at dispatch time, so concurrent completions can land in MinIO in any order without disturbing replay.
 
-Hyperband / ASHA introduce variable per-trial budgets, so the canonical ordering is augmented with `(bracketIndex, rungIndex)`. PBT couples trials by `Exploit` events, so its parallelism story differs from independent-trial sampling: workers report metrics at each `readyInterval` and a controller publishes `Exploit / Explore` events deterministically based on the canonical-replay order. Workers never compute `Exploit / Explore` decisions on their own — only the controller does, and only from the canonical log.
+Hyperband / ASHA introduce variable per-trial budgets, so the canonical ordering is augmented with `(bracketIndex, rungIndex)`. PBT couples trials by `Exploit` events, so its parallelism story differs from independent-trial sampling: workers report metrics at each `readyInterval` and a controller publishes `Exploit / Explore` events deterministically based on the canonical-replay order. Workers never compute `Exploit / Explore` decisions on their own — only the controller does, and only from the canonical log. *This is a deliberate deviation from Jaderberg et al.'s decentralised exploit/explore between worker pairs (Population Based Training, 2017): the controller-only routing is what makes resume-from-event-log reconstructive. The cost is scalability — a single decision-maker is a serial bottleneck — which jitML accepts in exchange for bit-deterministic PBT replay.*
 
 ## Frontend integration
 
-The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>` over `/pulsar/ws` and animates the Pareto frontier (now actually populated by NSGA-II / GP-BO), the trial-by-trial heatmap, and the per-axis state live. PBT gets its own panel layout — population over time, hyperparameter-mutation lineage tree, `Exploit`/`Explore` event timeline — see [PureScript frontend](#purescript-frontend).
+The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>` over `/pulsar/ws` and animates the Pareto frontier (populated by NSGA-II under multi-objective sweeps; collapses to a best-trial highlight under single-objective samplers), the trial-by-trial heatmap, and the per-axis state live. PBT gets its own panel layout — population over time, hyperparameter-mutation lineage tree, `Exploit`/`Explore` event timeline — see [PureScript frontend](#purescript-frontend).
 
 ---
 
@@ -1309,7 +1326,7 @@ We borrow the *concepts* stable-baselines3 codifies — policies, environments, 
 
 ## Algorithm class taxonomy at the type level
 
-`OnPolicy` and `OffPolicy` are phantom kinds; the algorithm GADT is indexed by class. PPO touching a `ReplayBuffer`, or DQN touching a `RolloutBuffer`, is a compile-time error rather than a runtime surprise.
+`AlgoClass` is a `DataKinds`-promoted enumeration; `AlgoSpec` is a GADT indexed by it, so each algorithm constructor records its class at the type level. PPO touching a `ReplayBuffer`, or DQN touching a `RolloutBuffer`, is a compile-time error rather than a runtime surprise.
 
 ```haskell
 data AlgoClass = OnPolicy | OffPolicy | BlackBox | SelfPlay
@@ -1333,6 +1350,8 @@ data AlgoSpec c obs act where
 ```
 
 HER is a buffer transformer, not its own GADT case; see [Buffers](#buffers). Mis-pairing an algorithm with the wrong training loop is a type error: `PPO + OffPolicyLoop`, `ARS + OnPolicyLoop`, `DQN + AlphaZeroLoop` all fail to typecheck.
+
+> **Note on action-kind tags.** The `act` parameter of `AlgoSpec` carries a type-level *action-kind* tag (`'Discrete` / `'Continuous` / `'Masked` / `'MultiDiscrete` / `'Dict`) drawn from a promoted `data ActionKind = ...` enum. The same identifiers are reused as `ActionSpace` constructor names at the value level (`Discrete :: Int -> ActionSpace 'Discrete`, etc.) — type-level tags and value-level constructors share names by design, the way `'True` mirrors `True`.
 
 ## Policy as typed value
 
@@ -1378,11 +1397,12 @@ Two implementations behind one type, mirroring SB3's `DummyVecEnv` / `SubprocVec
 
 ```haskell
 data VecEnv obs act
-  = SyncVec   { syncEnvs     :: [Env obs act] }                  -- single-threaded N envs
-  | AsyncVec  { asyncWorkers :: WorkerPool (Env obs act) }        -- N OS processes / threads
+  = Sync   { syncEnvs     :: [Env obs act] }                     -- single-threaded N envs
+  | Async  { asyncWorkers :: WorkerPool (Env obs act) }           -- N OS processes / threads
+                                                                 -- (Dhall tag tokens match: "Sync" / "Async")
 ```
 
-The per-env RNG seed is split deterministically by `splitmix64(master_seed, env_index)`. Worker count and scheduling never affect any individual env's RNG stream — only wall-clock changes.
+The per-env RNG seed is derived deterministically by `splitSeed masterSeed envIndex`, where `splitSeed :: Seed -> Word64 -> Seed` is the canonical seed-splitter — internally, it folds `envIndex` into the master seed's splitmix64 state, returning a fresh independent stream. Worker count and scheduling never affect any individual env's RNG stream — only wall-clock changes.
 
 ## Buffers
 
@@ -1397,9 +1417,9 @@ data RolloutBuffer obs act = RolloutBuffer
   }
 
 data ReplayBuffer obs act = ReplayBuffer
-  { capacity     :: Int                                    -- ring size
+  { capacity     :: Int                                    -- ring size (per shard; see below)
   , prioritised  :: Maybe PriorityConfig                   -- α, β, ε for PER
-  , storage      :: RingBuffer (Transition obs act)
+  , storage      :: PerWorkerShards (Transition obs act)   -- one ring per env-worker; canonical join at sample time
   , samplingSeed :: Seed                                   -- bit-reproducible batch draws
   }
 
@@ -1412,6 +1432,16 @@ data HerWrapper inner = HerWrapper
 ```
 
 HER composes onto any off-policy buffer: SB3's `HerReplayBuffer` becomes `HerWrapper (ReplayBuffer obs act)` in jitML.
+
+### Replay-buffer write discipline under `Async`
+
+Multi-worker rollout collection cannot serialise writes into one shared ring without re-introducing wall-clock dependence (whichever worker's `envStep` finishes first writes first). jitML's discipline:
+
+- **Per-worker shards.** Each env-worker writes to its own private ring sized at `capacity / numEnvs`. A worker's own write sequence is monotone in `(workerId, localStep)`; a worker never sees another worker's ring.
+- **Canonical join at sample time.** `samplingSeed` seeds a draw over the shards: for each batch slot, pick `workerId = (sampleIndex `mod` numEnvs)` and within that worker draw `localStep ∈ [0, ring-fill)`. Both decisions are pure functions of `samplingSeed` and the shards' current fill levels — never of the wall-clock order in which workers wrote.
+- **Determinism golden scope.** With per-worker shards + canonical join, the off-policy `(env, algo, seed, numEnvs)` tuple is bit-deterministic under both `Sync` and `Async` `VecEnv` variants. The PER `α/β` weights are computed against per-shard priorities; PER's sumtree is one-per-shard for the same reason.
+
+The shard count is part of the resolved-Dhall hash; changing `numEnvs` defines a different experiment (it changes which transitions a given `samplingSeed` selects).
 
 ## Schedules
 
@@ -1560,15 +1590,29 @@ The convergence golden in [Golden tests for RL](#golden-tests-for-rl) lives dire
 The load-bearing primitive — the actual `learn()` shape — comes in two variants, indexed by algorithm class so a wrong-loop-for-wrong-algo is a type error.
 
 ```haskell
--- On-policy loop (PPO, A2C)
+-- On-policy loop (PPO, A2C, MaskablePPO, RecurrentPPO, TRPO)
 data OnPolicyLoop = OnPolicyLoop
   { totalTimesteps :: Int
   , rolloutSteps   :: Int                                  -- collect this many transitions per update
-  , nEpochs        :: Int                                  -- gradient epochs per update
+  , nEpochs        :: Int                                  -- gradient epochs per update (ignored for TRPO)
   , miniBatchSize  :: Int
+  , optimiserStep  :: OnPolicyOptimiserStep                 -- which inner-update routine to run
   , callbacks      :: Callback
   , logger         :: Logger
   }
+
+-- The inner-update routine. PPO/A2C minimise the clipped/A2C surrogate by minibatch SGD;
+-- TRPO replaces that with a natural-gradient step inside a KL trust region, computed by
+-- conjugate-gradient on the Fisher–vector product and accepted by backtracking line search.
+data OnPolicyOptimiserStep
+  = MinibatchSGD                                            -- PPO, A2C, MaskablePPO, RecurrentPPO
+  | NaturalGradientTrustRegion                              -- TRPO: CG iterations + backtracking line search
+      { cgIters      :: Int
+      , damping      :: Double
+      , maxKL        :: Double
+      , backtrackMax :: Int
+      , backtrackC   :: Double
+      }
 
 -- Off-policy loop (DQN, DDPG, TD3, SAC)
 data OffPolicyLoop = OffPolicyLoop
@@ -1641,6 +1685,7 @@ in
     , rolloutSteps   = 2048
     , nEpochs        = 10
     , miniBatchSize  = 64
+    , optimiserStep  = OnPolicyOptimiserStep.MinibatchSGD            -- PPO uses minibatch SGD; for TRPO this would be NaturalGradientTrustRegion { … }
     }
 , env       = "CartPole-v1"
 , vecEnv    = { kind = "Sync", numEnvs = 8 }
@@ -1674,7 +1719,7 @@ Reproduce the entire **stable-baselines3** family — core and contrib — as fi
 |---|---|---|---|---|---|
 | PPO | `OnPolicy` | `OnPolicyLoop` | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | canonical baseline |
 | A2C | `OnPolicy` | `OnPolicyLoop` | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | synchronous A3C variant |
-| TRPO | `OnPolicy` | `OnPolicyLoop` + conjugate-gradient line search | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | trust-region natural gradient |
+| TRPO | `OnPolicy` | `OnPolicyLoop` with `optimiserStep = NaturalGradientTrustRegion` | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | trust-region natural gradient; the loop is shared with PPO/A2C but the inner update is CG + line search rather than minibatch SGD |
 | MaskablePPO | `OnPolicy` | `OnPolicyLoop` | `RolloutBuffer` + GAE | `MaskedCategorical` | for envs with illegal-action masking (Connect 4 et al.) |
 | RecurrentPPO | `OnPolicy` | `OnPolicyLoop` + `RecurrentState` | `RolloutBuffer` (sequence-batched) | `Categorical` / `DiagGaussian` | LSTM / GRU policy |
 | DQN | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + `TargetNetwork` (hard) | ε-greedy over Q-net | classic value-based |
@@ -1720,7 +1765,7 @@ Target matrix (all numeric cells TBD pending baseline; same methodology as the S
 | CartPole-v1 | PPO | TBD | TBD |
 | CartPole-v1 | DQN | TBD | TBD |
 | Acrobot-v1 | PPO | TBD | TBD |
-| MountainCar-v0 | DQN | TBD | TBD |
+| MountainCar-v0 | DQN[^mc-dqn] | TBD | TBD |
 | Pendulum-v1 | SAC | TBD | TBD |
 | Pendulum-v1 | TD3 | TBD | TBD |
 | LunarLander-v2 | PPO | TBD | TBD |
@@ -1729,28 +1774,17 @@ Target matrix (all numeric cells TBD pending baseline; same methodology as the S
 
 The convergence golden is the load-bearing test; the trajectory-determinism golden runs every commit; the convergence golden runs nightly or on labeled CI only.
 
+[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The jitML convergence golden for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). This is encoded as a typed wrapper on `Env` in `src/JitML/RL/Exploration.hs` and named explicitly in the row's experiment Dhall — the row does not claim a target reachable by *unmodified* DQN.
+
 ---
 
-# Reinforcement learning
+# AlphaZero-style self-play and persistent MCTS state
 
-`jitML` provides deterministic reinforcement learning infrastructure with reproducible stochastic execution.
-
-## Supported styles
-
-- policy gradient methods
-- actor-critic methods
-- AlphaZero-style self-play
-- Monte Carlo Tree Search
-- value learning
-- offline RL
-
-## Deterministic stochasticity
-
-All stochastic systems are seed-driven, reproducible, and replayable. RL episode simulators are modeled as Markovian, memoizable, path-dependent stochastic systems. This enables exact replay, deterministic debugging, cache reconstruction, and distributed reproducibility.
+The RL surface as a whole is specified earlier in this README — see [RL framework primitives](#rl-framework-primitives) for the type-level taxonomy (algorithm GADT, policy/env types, buffer kinds, schedules, distributions, action noise, callbacks, evaluator, training loops), [RL algorithm catalog](#rl-algorithm-catalog) for the per-algorithm crosswalk, [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) for the env list, and [Golden tests for RL](#golden-tests-for-rl) for the determinism / convergence / replay golden stack. This section adds the pieces that don't fit those tables: the AlphaZero-style self-play loop and the persistent-MCTS-state contract.
 
 ## Persistent MCTS state
 
-Monte Carlo exploration caches are preserved between moves. The cache is treated as deterministic, reconstructible, seed-dependent, and path-dependent. Full episode history is sufficient to rebuild exploration state exactly.
+Monte Carlo exploration caches are preserved between moves of the same game. The cache is a deterministic function of `(seed, episode-history)` — re-executing the episode under the same seed reconstructs the cache exactly, which is what makes MCTS replayable rather than merely stochastically reproducible. The cache is checkpointed alongside the policy via the `ExplorationCache` checkpoint part — see [Split-blob layout](#split-blob-layout).
 
 ## AlphaZero-style self-play
 
@@ -1809,7 +1843,7 @@ data AlphaZeroLoop = AlphaZeroLoop
 
 ### Deterministic stochasticity
 
-Root Dirichlet noise is drawn from a seed split per game (`splitmix64(masterSeed, gameIndex)`), matching VecEnv's per-env split. MCTS tie-breaking in argmax is by lowest action index; node expansion order is deterministic given seed. Same-substrate `(seed, net-state)` produces a bit-identical self-play game sequence.
+Root Dirichlet noise is drawn from a seed derived per game via `splitSeed masterSeed gameIndex` (same canonical splitter used by VecEnv — see [Vectorised environments (VecEnv)](#vectorised-environments-vecenv)). MCTS tie-breaking in argmax is by lowest action index; node expansion order is deterministic given seed. Same-substrate `(seed, net-state)` produces a bit-identical self-play game sequence.
 
 ### Self-play buffer
 
@@ -1819,7 +1853,7 @@ Triples `(canonicalState, mctsVisits, valueTarget)` plus all game symmetries (Co
 
 After each training iteration, the candidate net plays the incumbent for N games; promoted only if win rate ≥ threshold (e.g. 55%). This is the AlphaGo Zero gating policy (AlphaZero proper dropped it); jitML adopts it because it gives a stable regression target for the convergence golden.
 
-### Borrowed engineering from `~/MCTS`
+### Borrowed engineering from the sibling MCTS project
 
 The deterministic-search arc — replay-from-transcript, exploration-cache reproducibility, seed-split discipline — was developed for the sibling MCTS project. jitML's MCTS module exposes an API-compatible surface so the underlying engine could be shared at the package level later (decision deferred).
 
@@ -1837,7 +1871,7 @@ The trajectory-determinism golden from [Golden tests for RL](#golden-tests-for-r
 | Gomoku-9x9 | 2 | 9×9 | `Masked Discrete(81)` | ≤ 81 | ELO targets TBD |
 | Hex-7x7 | 2 | 7×7 hex | `Masked Discrete(49)` | ≤ 49 | ELO targets TBD |
 
-Connect 4 is the canonical AlphaZero target; the others share the same `PerfectInfoGame` interface and self-play loop — switching games is a Dhall change, not a code change. Tic-Tac-Toe doubles as a unit-level golden: the game is solved by minimax, so AlphaZero's policy convergence is bit-checkable against minimax visit counts.
+Connect 4 is the canonical AlphaZero target; the others share the same `PerfectInfoGame` interface and self-play loop — switching games is a Dhall change, not a code change. Tic-Tac-Toe doubles as a unit-level golden: the game is solved by minimax, so a sufficiently-trained AlphaZero policy's argmax-visit move at every reachable state must lie in the minimax-optimal move set. (Raw visit *counts* are a function of `mctsSimsPerMove`, the PUCT exploration constant, the policy prior, and the Dirichlet root noise — those are not equal to minimax values; only the argmax over visits is.)
 
 ---
 
@@ -1942,7 +1976,7 @@ data CheckpointPart = CheckpointPart
 
 For two runs on the same substrate, `sha256(weights.bin)` is byte-identical when seed, resolved Dhall, step, data ordering, kernel reduction order, RNG state, and optimizer state all agree. This is the same-substrate-equality contract declared earlier in the README, now *checkable by SHA-equality* rather than by tolerant numeric comparison.
 
-Cross-substrate, the weight blobs are not byte-equal — float reassociation across hardware drifts at the last few ULPs. The [`jitml-cross-backend`](#test-suite-stanzas) stanza measures per-tensor max-abs-delta against a committed tolerance band rather than asserting byte equality.
+Cross-substrate, the weight blobs are not byte-equal — float reductions reassociate across vendor libraries, transcendentals (`exp`, `log`, `sqrt`, `tanh`) differ between cuDNN/Metal/oneDNN, and the drift compounds through forward + backward. The [`jitml-cross-backend`](#test-suite-stanzas) stanza measures per-tensor max-abs-delta against a committed tolerance band — see [Cross-substrate tolerance methodology](#cross-substrate-tolerance-methodology) below — rather than asserting byte equality.
 
 ### Cross-substrate tolerance methodology
 
@@ -2014,7 +2048,7 @@ Source at `./web/`; spago + `purs` + esbuild bundle to `./web/dist/app.js`. UI f
 
 ## Generated contracts
 
-`jitml internal generate-purs-contracts` emits `./web/src/Generated/Contracts.purs` from Haskell-owned browser-contract ADTs in `src/JitML/Web/Contracts.hs` via `purescript-bridge`. The Pulsar event protobuf-derived types are included so live event streams are typed end-to-end.
+`jitml docs generate purs-contracts` emits `./web/src/Generated/Contracts.purs` from Haskell-owned browser-contract ADTs in `src/JitML/Web/Contracts.hs` via `purescript-bridge`. It is one entry in the `GeneratedSectionRule` registry (see [Generated documentation flow](#generated-documentation-flow)) and is paired with `jitml docs check purs-contracts`. The Pulsar event protobuf-derived types are included so live event streams are typed end-to-end.
 
 ## Backend integration
 
@@ -2030,7 +2064,7 @@ The PureScript frontend is not a metrics dashboard with passive read-only panes;
 - **Run list.** All experiments + runs from MinIO `jitml-checkpoints`, with status, lineage tree, and one-click "branch a new run from this checkpoint."
 - **Live training panel.** Loss / validation curves, throughput sparkline, GPU-util gauge — animated from `training.event.<mode>` over WebSocket. Embeds the TensorBoard iframe at `/tensorboard/?run=<experiment-hash>` in a side tab. **Interactive controls:** start a new run from any committed experiment Dhall, pause/resume the current run, stop with optional final-checkpoint flush, change `LiveConfig` knobs (LR schedule, log level, retry budgets) and apply via SIGHUP. The control surface publishes `training.command.<mode>` envelopes; the daemon responds with `training.event.<mode>`.
 - **RL panel.** Episode-reward distribution (live), env render preview (canvas-rendered from `EpisodeFrame` events), replay-buffer fill, exploration rate. **Interactive controls:** start / pause / stop, swap policy, force-evaluate, scrub through a recorded trajectory.
-- **Hyperparameter panel.** Pareto frontier (live; multi-objective when the sampler is NSGA-II or GP-BO), trial-by-trial heatmap, per-axis (sampler / scheduler / pruner) state, PBT population view + hyperparameter-mutation lineage tree, trial detail drill-down. **Interactive controls:** launch a sweep, kill an individual trial, pin a trial as the "promote" candidate.
+- **Hyperparameter panel.** Pareto frontier (live; populated by NSGA-II for multi-objective sweeps), trial-by-trial heatmap, per-axis (sampler / scheduler / pruner) state, PBT population view + hyperparameter-mutation lineage tree, trial detail drill-down. **Interactive controls:** launch a sweep, kill an individual trial, pin a trial as the "promote" candidate.
 - **MNIST handwriting panel.** A canvas component the user draws on with mouse or touchpad. The drawing is downsampled to 28×28, normalised, and fired at `inference.request.<mode>` against the configured MNIST checkpoint. The result panel shows the predicted class plus the full softmax distribution as a bar chart, updated live as the user draws (re-inference on stroke-end). The checkpoint is configurable to any committed MNIST run; the user can flip between the shallow-MLP run and the LeNet-5 CNN run to compare predictions side by side.
 - **Image-recognition panel (CIFAR / Tiny ImageNet).** Drag-and-drop or file-picker upload. The frontend center-crops + resizes to the model's input size client-side, posts to `/api/inference/image`, and shows top-K predictions with class probabilities. A "swap checkpoint" dropdown switches between ResNet-20 (CIFAR-10), Wide ResNet-28-10 (CIFAR-100), and ResNet-50 (Tiny ImageNet) without page reload.
 - **Game-play panel (Connect 4 et al.).** An interactive board for each game in [Canonical adversarial games](#canonical-adversarial-games). Click-to-drop on Connect 4; click-to-place on Tic-Tac-Toe / Othello / Gomoku / Hex. The user plays against the AlphaZero policy at a chosen checkpoint, with sliders for `mctsSimsPerMove` and temperature. A side pane renders the MCTS visit distribution (which the user can compare against the policy head's raw logits), the value head's evaluation of the current position, and a one-click "request engine analysis" that runs a deeper search at temperature 0. A "swap opponent" dropdown pits the latest checkpoint against an older one — the arena gating from [AlphaZero-style self-play](#alphazero-style-self-play) made interactive.
@@ -2054,8 +2088,8 @@ Every interactive panel maps to a small REST + WebSocket pair, all under `/api` 
 
 ## Deployment
 
-- **Linux substrates:** the bundle is built into the substrate image; `jitml-demo` workload serves it via Helm.
-- **Apple Silicon:** the bundle is built host-native; `cluster up` deploys the `jitml-demo` pod from the `jitml:local` image; the host daemon publishes events to cluster Pulsar; the routed demo loads in the browser at `127.0.0.1:<edge-port>/`.
+- **Linux substrates:** the bundle is built into the substrate image at image-build time; `jitml-demo` workload serves it via Helm.
+- **Apple Silicon:** the bundle is built host-native, then mounted into the `jitml:local` image when `cluster up` builds it under Colima. (The same image is used for the in-cluster `jitml-service` pod that runs with `inferenceMode = ForwardToHost` — Apple builds `jitml:local` for cluster-resident services even though host-native execution uses the separate `./.build/jitml` binary built directly via ghcup. Apple uses *one* image, same as Linux; the substrate-table "Container shape: partial" refers to where kernels execute, not to how many images exist.) The host daemon publishes events to cluster Pulsar; the routed demo loads in the browser at `127.0.0.1:<edge-port>/`.
 
 ---
 
@@ -2081,12 +2115,12 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 |---|---|---|---|
 | `jitml-unit` | Pure Logic + Parser + Property + Golden | `TestUnit` | CommandSpec golden, Dhall round-trip, autodiff property, optimizer-step property, route-registry render golden, Grafana-dashboard render golden, RNG mixer property, trajectory-determinism RL goldens |
 | `jitml-integration` | Integration | `TestIntegration` | `jitml` binary across all substrates; checkpoint round-trip; resume semantics; Dhall→typed-record decode; per-substrate determinism |
-| `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the five SL `(dataset, model)` pairs |
+| `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems) |
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix, forms (2) and (3) |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT), per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; tolerance from measured float-accumulation drift |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | per doctrine §Pulumi-Orchestrated Infrastructure Tests: Pulumi (program at `infra/pulumi/`) owns an **ephemeral** Kind stack's lifecycle (unique stack name per run, aggressive resource tagging, `pulumi up` → run tests → `pulumi destroy` → `pulumi stack rm`); Playwright drives the demo surface end-to-end against the real Envoy routes. Cohorts: **(1) Training control** — start a run from a committed Dhall, observe live metrics on `/api/ws`, pause, resume, stop, assert checkpoint flush. **(2) MNIST handwriting** — navigate to the MNIST panel, simulate a touchpad stroke for each of the 10 digits via Playwright's pointer events, assert predicted class matches in ≥ 9/10 strokes. **(3) Image upload** — upload three fixture images per dataset (CIFAR-10, CIFAR-100, Tiny ImageNet) via Playwright's `setInputFiles`, assert top-1 / top-5 inclusion. **(4) Game-play** — drive a full Connect 4 game where Playwright plays a fixed-seed opponent sequence against the AlphaZero policy at a pinned checkpoint, assert the engine's response sequence matches a committed transcript fixture. **(5) TensorBoard / Grafana navigation** — assert iframes load and the checkpoint markers from [TensorBoard event storage / Cross-link to checkpoint manifests](#cross-link-to-checkpoint-manifests) appear. **(6) Hyperparameter sweep** — launch a small Sobol sweep from the UI, observe live Pareto-frontier updates, kill a trial, assert state propagates. Always-teardown via `bracket`. The e2e cluster is **distinct** from the developer's local `cluster up` Kind — different stack name, different lifetime; the e2e teardown never touches the dev cluster. |
+| `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Pulumi-orchestrated ephemeral Kind stack + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 | `jitml-haskell-style` | doctrine-mandated style stanza (§Style as a Cabal test-suite) | `TestHaskellStyle` | `fourmolu --mode check`, `hlint`, `cabal format` round-trip |
 | `jitml-purescript-style` | Lint (project-specific) | `TestPureScriptStyle` | PureScript `purs format` round-trip + `purescript-spec` smoke tests |
 
@@ -2099,6 +2133,17 @@ Notes on the mapping:
 - Single `tasty` trees across stanzas are forbidden (doctrine §Test Organization): separate stanzas give Cabal-native parallelism, let CI and developers target one tier (`cabal test jitml-unit`), and isolate dependency creep so heavy integration deps do not leak into the unit suite.
 
 **No opt-out flags.** No developer mode skips `jitml-e2e` or any other stanza; Pulumi-orchestrated infrastructure is always-on, every `cabal test` run, with always-teardown via `bracket`. Doctrine §Test Organization → project-specific stanzas forbids parallel developer workflows that bypass cloud-backed tests.
+
+### E2E cohorts
+
+Per doctrine §Pulumi-Orchestrated Infrastructure Tests, Pulumi (program at `infra/pulumi/`) owns the lifecycle of an **ephemeral** Kind stack — unique stack name per run, aggressive resource tagging, `pulumi up` → run tests → `pulumi destroy` → `pulumi stack rm`. The e2e cluster is **distinct** from the developer's local `cluster up` Kind: different stack name, different lifetime; the e2e teardown never touches the dev cluster. Always-teardown via `bracket`. Playwright drives the demo surface end-to-end against the real Envoy routes. Six cohorts:
+
+1. **Training control.** Start a run from a committed Dhall, observe live metrics on `/api/ws`, pause, resume, stop, assert checkpoint flush.
+2. **MNIST handwriting.** Navigate to the MNIST panel, simulate a touchpad stroke for each of the 10 digits via Playwright's pointer events, assert predicted class matches in ≥ 9/10 strokes.
+3. **Image upload.** Upload three fixture images per dataset (CIFAR-10, CIFAR-100, Tiny ImageNet) via Playwright's `setInputFiles`, assert top-1 / top-5 inclusion.
+4. **Game-play.** Drive a full Connect 4 game where Playwright plays a fixed-seed opponent sequence against the AlphaZero policy at a pinned checkpoint, assert the engine's response sequence matches a committed transcript fixture.
+5. **TensorBoard / Grafana navigation.** Assert iframes load and the checkpoint markers from [TensorBoard event storage / Cross-link to checkpoint manifests](#cross-link-to-checkpoint-manifests) appear.
+6. **Hyperparameter sweep.** Launch a small Sobol sweep from the UI, observe live Pareto-frontier updates, kill a trial, assert state propagates.
 
 ### Golden targets
 

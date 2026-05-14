@@ -2,11 +2,38 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, AGENTS.md, CLAUDE.md
+**Referenced by**: README.md, AGENTS.md, CLAUDE.md,
+DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/development_plan_standards.md,
+DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md,
+DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md,
+DEVELOPMENT_PLAN/phase-0-planning-documentation.md,
+DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md,
+DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md,
+DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md,
+DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md,
+DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md,
+DEVELOPMENT_PLAN/phase-6-numerical-core.md,
+DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md,
+DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md,
+DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md,
+DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md,
+DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md,
+DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md,
+documents/documentation_standards.md,
+documents/engineering/cli_command_surface.md,
+documents/engineering/code_quality.md,
+documents/engineering/unit_testing_policy.md,
+documents/engineering/haskell_code_guide.md,
+documents/engineering/determinism_contract.md,
+documents/engineering/cluster_topology.md,
+documents/engineering/daemon_architecture.md,
+documents/engineering/jit_codegen_architecture.md,
+documents/engineering/numerical_core.md,
+documents/engineering/training_workloads.md,
+documents/engineering/checkpoint_format.md,
+documents/engineering/purescript_frontend.md
 
-> The larger reference graph (`DEVELOPMENT_PLAN/*`, `documents/engineering/*`, etc.) named in earlier drafts of this header is aspirational; it is re-populated here as those files come into existence. At bootstrap, only the three documents above reference this doctrine.
-
-> **Purpose**: Authoritative CLI doctrine for every project under this discipline; the binding contract for module layout, parser generation, generated artefacts, subprocess handling, testing, lint, and error rendering. MCTS adopts the doctrine with explicit in-scope / out-of-scope splits recorded in [DEVELOPMENT_PLAN/00-overview.md → Doctrine Scope](DEVELOPMENT_PLAN/00-overview.md).
+> **Purpose**: Authoritative CLI doctrine for every project under this discipline; the binding contract for module layout, parser generation, generated artefacts, subprocess handling, testing, lint, and error rendering. jitML adopts the doctrine with explicit in-scope / out-of-scope splits recorded in [DEVELOPMENT_PLAN/00-overview.md → Doctrine Scope](DEVELOPMENT_PLAN/00-overview.md#doctrine-scope).
 
 ## Overview
 
