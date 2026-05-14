@@ -20,9 +20,23 @@ The result is:
 - hardware-native performance
 - fully declarative experiment definitions
 
-> **Status:** This README expresses the project's intent and roadmap. The repository is in its bootstrap phase. The first deliverable is the MNIST shallow-MLP training run described in [First milestone](#first-milestone).
-
 > **Doctrine and siblings:** The authoritative CLI doctrine lives at [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md). Two sibling projects inform the structure of this repository — `~/MCTS` (a deterministic Monte Carlo Tree Search runtime; jitML borrows its testing-and-determinism arc) and `~/infernix` (a k8s-first inference control plane; jitML borrows its infrastructure layout). Their scopes are not combined with jitML's.
+
+---
+
+## Table of contents
+
+**Substrates & bootstrap** — [Why this exists](#why-this-exists) · [Toolchain pinning](#toolchain-pinning) · [Substrates and runtime modes](#substrates-and-runtime-modes) · [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) · [Bootstrap scripts](#bootstrap-scripts) · [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline) · [Prerequisites as typed effects](#prerequisites-as-typed-effects)
+
+**Cluster & storage** — [Cluster topology and Kind](#cluster-topology-and-kind) · [Envoy Gateway API](#envoy-gateway-api-a-single-localhost-socket) · [Helm chart layout](#helm-chart-layout) · [Harbor](#harbor-as-the-registry) · [MinIO](#minio-object-store) · [TensorBoard event storage](#tensorboard-event-storage) · [Pulsar](#pulsar-as-the-control-plane--data-plane-bus) · [PostgreSQL](#postgresql) · [TensorBoard / Prometheus / Grafana](#tensorboard-prometheus-grafana-as-first-class)
+
+**CLI & doctrine** — [Outer-container Linux builds](#outer-container-linux-builds) · [CLI command topology, typed](#cli-command-topology-typed) · [Doctrine scope](#doctrine-scope)
+
+**Numerical & RL core** — [Numerical core](#numerical-core) · [Concrete Dhall worked example](#concrete-dhall-worked-example) · [Hyperparameter tuning](#hyperparameter-tuning-first-class) · [Canonical supervised learning problems](#canonical-supervised-learning-problems) · [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) · [RL framework primitives](#rl-framework-primitives) · [RL algorithm catalog](#rl-algorithm-catalog) · [Golden tests for RL](#golden-tests-for-rl) · [Reinforcement learning](#reinforcement-learning) · [Checkpointing](#checkpointing) · [JIT compilation architecture](#jit-compilation-architecture) · [PureScript frontend](#purescript-frontend)
+
+**Tests & benchmarks** — [Test-suite stanzas](#test-suite-stanzas) · [`jitml test all`](#jitml-test-all) · [Benchmarks](#benchmarks) · [Compiler, runtime, and backend tuning](#compiler-runtime-and-backend-tuning)
+
+**Build & layout** — [Build and run](#build-and-run) · [Repository layout (target)](#repository-layout-target) · [Why Haskell?](#why-haskell) · [Vision](#vision) · [License](#license)
 
 ---
 
@@ -50,7 +64,7 @@ Per doctrine §Overview → Toolchain pinning, these versions are normative, not
 | NVCC | pinned | `cabal.project` (`--use_fast_math=false`, baseline `sm_70`) |
 | Xcode/Metal | pinned | bootstrap script + `cabal.project` |
 | oneDNN | pinned | `cabal.project` (AVX2 baseline, AVX-512 detected at JIT time) |
-| `kindest/node` | pinned | `cabal.project` |
+| `kindest/node` | pinned | `./kind/cluster-<substrate>.yaml` (canonical); mirrored as a comment in `cabal.project` for the toolchain-truth record |
 | Node.js, Poetry | pinned | bootstrap scripts |
 | Formatter GHC | separate isolated install under `.build/jitml-style-tools/` | lint stack (does not affect the project compiler) |
 
@@ -62,15 +76,17 @@ The full per-target codegen detail (build flags, RTS options, fast-math discipli
 
 jitML produces **one Haskell front end** with JIT codegen for several hardware targets, packaged as **three supported substrates**:
 
-| Substrate | Codegen | Container shape | Orchestrator residence | Inference-engine residence |
-|---|---|---|---|---|
-| `apple-silicon` | Swift + Metal | partial (cluster services in Kind; Metal-using daemon host-native — Metal can't be containerized) | clustered `jitml-service` Deployment (stateless; pod anti-affinity = at most one per node) | **host-native** `./.build/jitml host-service` |
-| `linux-cpu` | oneDNN + AVX2/AVX-512 | fully containerized: `jitml-linux-cpu:local` | clustered `jitml-service` Deployment (same pod also runs inference) | same pod as orchestrator |
-| `linux-cuda` | CUDA C + cuBLAS / cuDNN | fully containerized: `jitml-linux-cuda:local` | clustered `jitml-service` Deployment with `runtimeClassName: nvidia` (same pod also runs inference) | same pod as orchestrator |
+| Substrate | Codegen | Container shape | Service residency |
+|---|---|---|---|
+| `apple-silicon` | Swift + Metal | partial — cluster services in Kind; a second `jitml service` runs host-native because Metal cannot be containerized | **two daemons**: clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = ForwardToHost`) plus host-native `jitml service` (Dhall: `residency = Host`, `inferenceMode = SelfInference`) |
+| `linux-cpu` | oneDNN + AVX2/AVX-512 | fully containerized: `jitml:local` | one daemon: clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); pod anti-affinity = one per node |
+| `linux-cuda` | CUDA C + cuBLAS / cuDNN | fully containerized: `jitml:local` (CUDA activates at runtime when scheduled to `runtimeClassName: nvidia`) | one daemon: clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); pod anti-affinity = one per node |
 
-On every substrate the `jitml-service` orchestrator is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), the orchestrator owns no PVC of its own, and pod anti-affinity at `topologyKey: kubernetes.io/hostname` ensures multi-replica deployments place at most one pod per node. Each node keeps its own JIT cache (per-node hostPath; see [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)). On Linux substrates the orchestrator container carries the full JIT toolchain, so inference runs in-process — there is no separate inference Deployment. On Apple Silicon, inference is the one thing that cannot live in the cluster (Metal isn't containerizable), so the cluster delegates inference to a host-native daemon over a Pulsar RPC topic; this is the *only* substrate that uses an internal `inference.command.<substrate>` topic.
+There is **one CLI surface for the daemon — `jitml service` — parameterised entirely by its Dhall config** ([CLI command topology, typed](#cli-command-topology-typed)). The Dhall declares substrate, residency (cluster | host), inference mode (`SelfInference` | `ForwardToHost`), and the host-side MinIO / Pulsar connection info when `residency = Host`. There is no separate `host-service` CLI verb.
 
-A fourth "coverage" target (`linux-opencl` / Intel GPU) is reserved as an optional substrate; it is not part of the v1 milestone.
+On every substrate the in-cluster `jitml-service` Deployment is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), the orchestrator owns no PVC of its own, and pod anti-affinity at `topologyKey: kubernetes.io/hostname` ensures multi-replica deployments place at most one pod per node. Each node keeps its own JIT cache (per-node hostPath; see [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)). On every substrate the clustered daemon performs Pulsar fan-in/fan-out and inference batching. Linux substrates additionally execute inference kernels in-pod (`SelfInference`); Apple Silicon forwards kernel execution to the host daemon (`ForwardToHost`) over the internal `inference.command.apple-silicon` Pulsar topic, since Metal cannot be containerized. Either mode is in principle expressible on either substrate; the substrate × mode table above reflects current practice.
+
+An optional fourth substrate (`linux-opencl` / Intel GPU) is admitted; the codegen path is shaped to accept it without disturbing the three primary substrates above.
 
 Each substrate carries its own determinism contract:
 
@@ -84,19 +100,19 @@ Cross-substrate equality is not guaranteed bit-for-bit — float arithmetic on d
 
 # Apple Silicon hybrid pattern
 
-Metal cannot be containerized. The supported Apple lane is therefore hybrid: the stateless orchestrator pod runs in Kind like on Linux, but inference delegates to a host-native daemon over Pulsar RPC.
+Metal cannot be containerized. The supported Apple lane is therefore hybrid: a stateless orchestrator pod runs in Kind exactly like on Linux, **and** a second `jitml service` runs host-native because the GPU lives there. Both daemons are the same binary; their Dhall configs are what differ.
 
 Shape:
 
-- The clustered `jitml-service` Deployment runs on every substrate (stateless orchestrator; pod anti-affinity = one per node). On Apple Silicon it does **not** run inference itself — it brokers Pulsar/MinIO contracts with the PureScript demo, persists trial state in MinIO bucket `jitml-trials`, and dispatches inference work to the host.
-- `./.build/jitml host-service` runs **host-native** on Apple (no HTTP listener; Pulsar subscriber only). Launched by `./bootstrap/apple-silicon.sh up`; cluster lifecycle is owned by the host CLI's `jitml cluster up` (writes the Kind config, brings up Kind, writes kubeconfig to `./.build/jitml.kubeconfig`, runs the phased Helm deploy from [Helm chart layout](#helm-chart-layout)).
-- The cluster orchestrator publishes inference RPC envelopes on the internal topic `inference.command.apple-silicon`. The host daemon **subscribes** to that topic and ACKs on `inference.event.apple-silicon` with small envelopes (call-id, kind tag, MinIO refs to outputs). Pulsar carries only small envelopes; large tensors travel via MinIO.
-- The host daemon **reads and writes large artifacts directly to MinIO** through the routed `/minio/s3` surface — same protocol the cluster orchestrator uses. New snapshot weights, optimizer state, and inference outputs go to MinIO straight from the host; the ACK envelope just references the MinIO keys. This keeps Pulsar lean and lets MinIO's optimistic concurrency on HEAD updates serialize concurrent commits (see [Checkpoint snapshot model](#checkpoint-object-layout)).
+- The clustered `jitml-service` Deployment runs on every substrate (stateless; pod anti-affinity = one per node). On Apple Silicon its Dhall sets `inferenceMode = ForwardToHost`, so it **still** performs Pulsar fan-in/fan-out, inference batching, demo proxying, and trial-state persistence to MinIO bucket `jitml-trials`, but it forwards the actual kernel execution to the host daemon over the internal topic `inference.command.apple-silicon`.
+- `./.build/jitml service --config conf/host/apple-silicon.dhall` runs **host-native** on Apple (Dhall: `residency = Host`, `inferenceMode = SelfInference`; no HTTP listener; Pulsar subscriber only). Launched by `./bootstrap/apple-silicon.sh up`; cluster lifecycle is owned by the host CLI's `jitml cluster up` (writes the Kind config, brings up Kind, writes kubeconfig to `./.build/jitml.kubeconfig`, runs the phased Helm deploy from [Helm chart layout](#helm-chart-layout)).
+- The cluster daemon publishes inference RPC envelopes on the internal topic `inference.command.apple-silicon`. The host daemon **subscribes** to that topic and ACKs on `inference.event.apple-silicon` with small envelopes (call-id, kind tag, MinIO refs to outputs). Pulsar carries only small envelopes; large tensors travel via MinIO.
+- The host daemon **reads and writes large artifacts directly to MinIO** through the routed `/minio/s3` surface — same protocol the cluster daemon uses. New snapshot weights, optimizer state, and inference outputs go to MinIO straight from the host; the ACK envelope just references the MinIO keys. This keeps Pulsar lean and lets MinIO's optimistic concurrency on HEAD updates serialize concurrent commits (see [Checkpoint snapshot model](#checkpoint-object-layout)).
 - The host daemon JIT-compiles Metal kernels and executes them with direct GPU access. JIT compilation happens inside a `jitml-build` tart VM whose lifecycle is managed by the host binary — see [Bootstrap scripts](#bootstrap-scripts) and [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline).
 - Pulsar endpoint discovery: the daemon reads `./.data/runtime/cluster-publication.json` (written by `cluster up`) for `pulsar_ws_url`, `pulsar_admin_url`, `minio_s3_url`, `edge_port`. No service-discovery RPC; the cluster publishes its own coordinates to a known file.
 - The host daemon's only cluster contracts are Pulsar (RPC envelopes) and MinIO (large artifacts). Direct k8s API access from the host is forbidden and lint-enforced.
 
-On Linux substrates the orchestrator pod also does inference in-process — the substrate image carries the full JIT toolchain — so there is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and a second pair of internal-RPC topics exists.
+On Linux substrates the clustered daemon's Dhall sets `inferenceMode = SelfInference`, so it executes inference kernels in-pod (the substrate image carries the full JIT toolchain). There is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and the internal-RPC topic pair is active — but the daemon code path is the same; the Dhall flips the mode.
 
 ---
 
@@ -112,9 +128,9 @@ Stage-0 idempotent prereq reconcilers, one per substrate:
 
 Each script is **idempotent and restartable**: it probes host state, installs missing prerequisites, verifies tools in the same process before continuing. Each exposes the same subcommand surface: `help | doctor | build | up | status | test | down | purge` (Linux adds `push` for the Harbor handoff).
 
-- `apple-silicon.sh` reconciles Homebrew + ghcup (pinned GHC 9.14.1 + Cabal 3.16.1.0) + `protoc` + Colima (8 CPU / 16 GiB) + Docker + `kind` + `kubectl` + `helm` + Node.js + Poetry on demand, plus `tart` (`brew install cirruslabs/cli/tart`) for the Swift/Metal JIT VM. `build` produces `./.build/jitml` host-native via ghcup; `up` brings the cluster up and launches the host-native `./.build/jitml host-service` so it can subscribe to `inference.command.apple-silicon`. The `jitml-build` tart VM is managed by the host binary, not the user — `./.build/jitml internal vm bootstrap` provisions the VM on first need with pinned Xcode + Swift; subsequent `swift build` invocations run **inside** the VM via `tart ssh`, so the macOS host never opens Xcode UI (preserving headless training loops). The VM is spun up **lazily** — only when a JIT cache miss requires a fresh compile — and JIT artifacts are copied out to `./.build/host/apple-silicon/` so the Haskell FFI loads them from the host. See [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline) for the cache layout and the lazy-VM-spinup contract.
-- `linux-cpu.sh` reconciles only Docker on the host (no `ghcup`, no `cabal`, no `kind`, no `kubectl`, no `helm`). Each subsequent subcommand is a thin wrapper over `docker compose run --rm jitml-linux-cpu jitml <subcommand>`: there is **no outer container, no `compose up`, no long-running daemon outside Kind**. The substrate image (`jitml-linux-cpu:local`) is lazy-built on first `docker compose run` and then reused. Inside the container, the binary is built at `/opt/build` (one Dockerfile, one image — used both as the dev-loop toolchain and, after `push`, as the in-cluster `jitml-service` image via Harbor); the bind chain host `./.build/` ⇄ Kind container `/jitml/.build/` ⇄ pod `/opt/build/` keeps artifacts coherent across duty cycles. `push` tags the locally-built image as `harbor.platform.svc.cluster.local/jitml/linux-cpu:<sha>` and pushes it so the cluster pulls the same bytes it just built.
-- `linux-cuda.sh` adds NVIDIA driver checks; on missing driver it installs, then stops and asks the user to reboot. Otherwise it follows the same `docker compose run --rm` pattern as `linux-cpu.sh`, producing `jitml-linux-cuda:local` (NVCC + cuBLAS + cuDNN on the linux-cpu base) and labeling the Kind worker `jitml.runtime/gpu=true` so the `nvidia` RuntimeClass binds there.
+- `apple-silicon.sh` reconciles Homebrew + ghcup (pinned GHC 9.14.1 + Cabal 3.16.1.0) + `protoc` + Colima (8 CPU / 16 GiB) + Docker + `kind` + `kubectl` + `helm` + Node.js + Poetry on demand, plus `tart` (`brew install cirruslabs/cli/tart`) for the Swift/Metal JIT VM. `build` produces `./.build/jitml` host-native via ghcup; `up` brings the cluster up and launches the host-native `./.build/jitml service --config conf/host/apple-silicon.dhall` so it can subscribe to `inference.command.apple-silicon`. The `jitml-build` tart VM is managed by the host binary, not the user — `./.build/jitml internal vm bootstrap` provisions the VM on first need with pinned Xcode + Swift; subsequent `swift build` invocations run **inside** the VM via `tart ssh`, so the macOS host never opens Xcode UI (preserving headless training loops). The VM is spun up **lazily** — only when a JIT cache miss requires a fresh compile — and JIT artifacts are copied out to `./.build/host/apple-silicon/` so the Haskell FFI loads them from the host. See [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline) for the cache layout and the lazy-VM-spinup contract.
+- `linux-cpu.sh` reconciles only Docker on the host (no `ghcup`, no `cabal`, no `kind`, no `kubectl`, no `helm`). Each subsequent subcommand is a thin wrapper over `docker compose run --rm jitml jitml <subcommand>`: there is **no outer container, no `compose up`, no long-running daemon outside Kind**. The substrate image (`jitml:local`, produced from the single Dockerfile under `docker/`) is lazy-built on first `docker compose run` and then reused. Inside the container, the binary is built at `/opt/build` (one Dockerfile, one compose service, one image — used both as the dev-loop toolchain and, after `push`, as the in-cluster `jitml-service` image via Harbor); the bind chain host `./.build/` ⇄ Kind container `/jitml/.build/` ⇄ pod `/opt/build/` keeps artifacts coherent across duty cycles. `push` tags the locally-built image as `harbor.platform.svc.cluster.local/jitml/jitml:<sha>` and pushes it so the cluster pulls the same bytes it just built.
+- `linux-cuda.sh` adds NVIDIA driver checks; on missing driver it installs, then stops and asks the user to reboot. Otherwise it follows the same `docker compose run --rm jitml jitml ...` pattern as `linux-cpu.sh`. The image is still `jitml:local` (no separate `jitml-linux-cuda` tag) — the Dockerfile bakes NVCC + cuBLAS + cuDNN unconditionally, and they activate only when the pod is scheduled with `runtimeClassName: nvidia`. `linux-cuda.sh` labels the Kind worker `jitml.runtime/gpu=true` so the `nvidia` RuntimeClass binds there.
 
 Cleanup semantics matter:
 
@@ -165,15 +181,23 @@ Per-substrate Kind configs at `./kind/cluster-<substrate>.yaml`. Single control-
 
 The edge port (Envoy listener) is selected starting at 9090 and incremented until available; recorded at `./.data/runtime/edge-port.json` and reported by `jitml cluster status`. NodePort 30090 is the in-cluster service for the edge gateway.
 
-Kubeconfig lives at `./.build/jitml.kubeconfig`. The CLI never touches `~/.kube/config`. The `kindest/node` version is pinned in `cabal.project` so reproducibility includes the cluster image, not just the GHC version.
+Kubeconfig lives at `./.build/jitml.kubeconfig`. The CLI never touches `~/.kube/config`. The `kindest/node` version is referenced in the Kind config under `./kind/cluster-<substrate>.yaml`; the same pin appears as a comment in `cabal.project` purely as a single-source-of-toolchain-truth record (Cabal itself does nothing with it), and the lint stack rejects drift between the two.
 
 Storage is a `jitml-manual` storage class (no provisioner) backed by host-path PVs under `./.data/kind/<substrate>/`. State is **replayed in/out** of the worker on Apple Silicon (slower bind-mounts, large state) and bind-mounted on Linux.
+
+The host `./.build/` directory is bind-mounted into the Kind worker node via the `extraMounts` block in `./kind/cluster-<substrate>.yaml`, which is what lets the in-cluster `jitml-service` pod see the same JIT artifacts the host built (see [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)).
 
 ---
 
 # Envoy Gateway API: a single localhost socket
 
 > "There is to be a single socket accessible to localhost with Envoy as the reverse proxy to all the endpoints."
+
+**Ports at a glance.**
+
+- `127.0.0.1:<edge-port>` — the single user-facing socket. Selected by `cluster up` starting at `9090` and autoincremented if taken.
+- `NodePort 30090` — the in-cluster Envoy service that the edge port maps to.
+- `./.data/runtime/edge-port.json` — where the chosen port is recorded (also reported by `jitml cluster status`).
 
 One Envoy-Gateway-API-owned localhost listener (`Gateway/jitml-edge`, port chosen by `cluster up` starting at `9090`) backed by the repo-owned `EnvoyProxy/jitml-edge` service shape:
 
@@ -198,7 +222,7 @@ Routes published at the edge (all under one `127.0.0.1:<edge-port>`):
 | `/pulsar/admin` | `jitml-pulsar-proxy:80` | `/admin` |
 | `/pulsar/ws` | `jitml-pulsar-proxy:80` WebSocket | `/ws` |
 
-TLS is off for the local demo. Production deployments are out of scope for v1; the route registry just declares the surfaces.
+TLS is off for the local demo. The production-deployment posture is intentionally not specified by this README; the route registry just declares the local-demo surfaces.
 
 ---
 
@@ -236,7 +260,7 @@ Corresponding PV resources are named `platform-minio-pv-0`, `platform-pulsar-boo
 
 The orchestrator is a stateless **Deployment** with `replicas: 1` by default and pod **anti-affinity** at `topologyKey: kubernetes.io/hostname`, which lets the cluster scale to N replicas (one per node) when throughput requires it without ever placing two on the same node. The daemon owns no PVC of its own — durable state lives entirely in MinIO and Pulsar — so a StatefulSet (which exists for stable identity + ordered scale-up + per-pod PVCs) would be the wrong shape. Each node maintains its own JIT cache under that node's `./.build/jit/<substrate>/` hostPath, which is fine because JIT artifacts are deterministic functions of `(model-shape, kind, substrate, toolchain)` — the worst case is that the same model gets JITted once per node on first use.
 
-Namespace: `platform` (fixed for v1). `jitml cluster up` creates it idempotently.
+Namespace: `platform` (fixed). `jitml cluster up` creates it idempotently.
 
 **Phased deploy** (verbatim from infernix's lessons):
 
@@ -270,7 +294,7 @@ Buckets, provisioned by the Helm `provisioning.buckets` block:
 - `jitml-tensorboard` — TensorBoard event files so the TB pod is stateless and can reschedule freely (see [TensorBoard event storage](#tensorboard-event-storage)).
 - `jitml-artifacts` — large inference outputs (when the demo is in inference mode).
 
-Endpoints: `jitml-minio.platform.svc.cluster.local:9000` (in-cluster); `127.0.0.1:<edge-port>/minio/s3` (routed). Credentials pinned in values for the local demo; production posture is out of scope.
+Endpoints: `jitml-minio.platform.svc.cluster.local:9000` (in-cluster); `127.0.0.1:<edge-port>/minio/s3` (routed). Credentials pinned in values for the local demo; the production-deployment posture is intentionally not specified by this README.
 
 The MinIO server version is pinned to a release with S3 conditional-write support (`If-None-Match`, `If-Match`) — `RELEASE.2024-08-26T15-33-07Z` or later. The concurrency story below depends on it.
 
@@ -302,7 +326,7 @@ All race conditions between trainers, hyperparameter-trial workers, and inferenc
 
 - **Write/write on `blobs/*` and `manifests/*`** — impossible by construction. Keys are derived from `sha256(payload)`. Two writers with the same logical payload write the same key with the same bytes; the second `If-None-Match: *` PUT returns `412`, which the client treats as success because the SHA already exists. Two writers with different logical payloads write different keys; no collision is possible.
 - **Write/read on `blobs/*` and `manifests/*`** — impossible. S3 object PUT is atomic at the object level; a partial blob is never visible. An inference client reading `blobs/<sha>` either sees the full object or gets `404`.
-- **Write/write on `pointers/*`** — handled by `If-Match: <etag>` CAS. The loser receives `412`, which `MinIOPreconditionFailed` translates into the doctrine's `SEConflict` (already classified retryable per doctrine §Capability Classes and Service Errors). The retry re-reads the pointer, applies the caller's resolution policy (e.g., "advance `latest` only if `step` is strictly greater"; "advance `best/acc` only if the new metric clears the old"), and retries through the existing `retryServiceAction` harness.
+- **Write/write on `pointers/*`** — handled by `If-Match: <etag>` CAS. The loser receives `412`, which `MinIOPreconditionFailed` translates into the doctrine's `SEConflict` (already classified retryable per doctrine §Capability Classes and Service Errors). The retry re-reads the pointer, applies the caller's resolution policy, and retries through the existing `retryServiceAction` harness. The policy is a typed predicate `CurrentManifest -> ProposedManifest -> Bool`; concrete predicates are `advanceLatest` (`cpStep new > cpStep cur`), `advanceBestMaximised` (`lookupMetric m new > lookupMetric m cur`), and `advanceBestMinimised` (`lookupMetric m new < lookupMetric m cur`). Trainers pick `Maximised` vs `Minimised` from the experiment Dhall's `metrics[i].direction` field (see [Concrete Dhall worked example](#concrete-dhall-worked-example)); the direction is part of the resolved-Dhall hash, so flipping a metric's direction defines a *different experiment*.
 - **Write/read on `pointers/*`** — a reader observes either the old ETag's bytes or the new ETag's bytes. Both name valid immutable manifests, both of which name valid immutable blobs. No torn state is possible because the only mutation is a single object PUT (atomic) of a 32-byte body.
 
 Sketch of the checkpoint-write orchestration:
@@ -322,6 +346,15 @@ writeCheckpoint payload = do
 
 Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
 
+## Retention and GC
+
+Retention (`retain = Checkpoint.Retention.LastN k` in the experiment Dhall) is enforced by a reconciler — `jitml internal gc <experiment-hash>` — invoked by the trainer at training-end. It is not an out-of-band sweep job. Per doctrine §Reconcilers, re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
+
+- **Live set.** The reconciler reads `pointers/latest`, every `pointers/best/<metric>` for the metrics declared in the experiment Dhall, every `pointers/trial/<trial-hash>/*` reachable from the experiment, and follows `cmParentManifest` along the lineage chain from those tips. The transitive closure is the live set.
+- **`LastN k` semantics.** `LastN k` keeps the k most-recent manifests on the `latest` chain (by `cmStep`). **`pointers/best/<m>` target manifests are always live regardless of `LastN`** — otherwise GC could invalidate a published "best" checkpoint that a downstream reader is pointing at.
+- **Blob GC.** A blob is reapable iff no live manifest references it (the `cpBlobSha` of any live `CheckpointPart`). Per-layer content-addressing means that consecutive checkpoints sharing weight layers keep those layer blobs alive as long as *any* referencing manifest remains live.
+- **Audit trail.** GC emits a structured `gc_reaped` event per doctrine §At-Least-Once Event Processing, naming every reaped manifest and blob SHA so the audit trail survives the deletion.
+
 ---
 
 # TensorBoard event storage
@@ -334,12 +367,18 @@ The event-file format is **dictated by TensorBoard**, not by us: TFRecord framin
 
 ```
 uint64 LE   length
-uint32 LE   masked-CRC32C(length)
+uint32 LE   masked-CRC32C(length-as-8-byte-LE-encoded-bytes)
 bytes       payload                     -- a serialised tensorflow.Event protobuf message
-uint32 LE   masked-CRC32C(payload)
+uint32 LE   masked-CRC32C(payload-bytes)
 ```
 
-CRC32C is the Castagnoli polynomial; the masking step is TF's standard `(crc >> 15) | (crc << 17) + 0xa282ead8` rotation. Nothing about this format is jitML-original — we conform to TB because TB is the reader.
+CRC32C is the Castagnoli polynomial (treating each input byte as an unsigned 32-bit accumulator's input). The mask is TF's standard rotation, applied to the unsigned 32-bit `crc`:
+
+```
+masked(crc) = ((crc >> 15) | (crc << 17)) + 0xa282ead8    (mod 2^32)
+```
+
+Both shift-and-OR halves are 32-bit unsigned operations; the final addition is unsigned with mod-2^32 wraparound. The first CRC covers the 8 bytes of the little-endian encoded length; the second covers the payload bytes. Nothing about this format is jitML-original — we conform to TB because TB is the reader.
 
 ## Bucket layout
 
@@ -482,11 +521,11 @@ Percona Kubernetes Operator manages a Patroni-backed HA Postgres cluster. Roles:
 - Harbor.
 - Kind nodes (kubelet + cAdvisor).
 
-**Grafana.** Provisioned dashboards committed to the repo, **generated from typed Haskell datatypes** via a renderer in `src/JitML/Observability/Grafana.hs`. Dashboards rendered for v1:
+**Grafana.** Provisioned dashboards committed to the repo, **generated from typed Haskell datatypes** via a renderer in `src/JitML/Observability/Grafana.hs`. Dashboards rendered by the renderer:
 
 - *Training overview* — loss curves, validation metrics, throughput, GPU utilization, GC time per run.
 - *RL overview* — per-env episode reward distribution, env-steps/sec, replay-buffer fill, exploration rate.
-- *Hyperparameter sweep* — Pareto frontier, trial heatmap, search-strategy state (Sobol cursor, GA generation).
+- *Hyperparameter sweep* — Pareto frontier (NSGA-II / GP-BO when multi-objective), trial heatmap, per-axis state (Sobol cursor, GA generation, TPE surrogate, ASHA brackets, PBT population).
 - *Cluster health* — node CPU/mem, pod restarts, image-pull latency, PVC saturation.
 
 The dashboards are gated by lint just like the route registry: `jitml docs check` compares the renderer's output against committed JSON fixtures, and `jitml docs generate` writes them back.
@@ -495,7 +534,7 @@ The dashboards are gated by lint just like the route registry: `jitml docs check
 
 # Outer-container Linux builds
 
-On Linux substrates, *all* builds happen inside `docker compose run --rm jitml jitml ...` against the substrate image (`jitml-linux-cpu:local` or `jitml-linux-cuda:local`). The image carries ghcup, Poetry, Node.js 22+, Kind/kubectl/Helm/Docker toolbelt, LLVM, NVCC (on CUDA), and Playwright. Bind mounts: `./` for source, `./.build/` for outputs.
+On Linux substrates, *all* builds happen inside `docker compose run --rm jitml jitml ...` against the single substrate image `jitml:local`. The repo has **one Dockerfile** under `docker/`, **one compose service named `jitml`**, and **one image tag `jitml:local`** — no substrate-suffixed variants. The image carries ghcup, Poetry, Node.js 22+, Kind/kubectl/Helm/Docker toolbelt, LLVM, NVCC + cuBLAS + cuDNN (the CUDA bits are baked unconditionally; they activate at runtime only when the pod is scheduled with `runtimeClassName: nvidia`), and Playwright. Bind mounts: `./` for source, `./.build/` for outputs. Substrate selection (linux-cpu vs linux-cuda) happens at runtime via the Dhall config passed to `jitml service`, not via the image or the compose service.
 
 On Apple Silicon, `cabal install` runs directly on the host because the host is the GPU. The asymmetry is intentional: the inner container ensures the Linux build is bit-reproducible across hosts; the Apple host build is reproducible because the host GHC and Cabal versions are pinned by the bootstrap script.
 
@@ -570,6 +609,17 @@ mindmap
     kubectl
     internal
       materialize-substrate
+      list-prereqs
+      vm
+        bootstrap
+        up
+        down
+        status
+        exec
+      cache
+        stat
+        list
+        evict
     commands
     help
 ```
@@ -584,8 +634,7 @@ Annotations on leaves — reconciler vs read-only, destructive flags, alias rela
 -- Top-level dispatch root
 data Command
   = Cluster      ClusterCommand        -- cluster lifecycle (cluster up is a reconciler)
-  | Service      ServiceOptions        -- in-cluster orchestrator daemon (every substrate)
-  | HostService  HostServiceCommand    -- Apple-only host-native inference daemon (Pulsar subscriber)
+  | Service      ServiceOptions        -- the daemon; residency/substrate/inferenceMode come from --config
   | Train        TrainOptions          -- one-shot training; publishes to Pulsar internally
   | Eval         EvalOptions
   | Tune         TuneOptions           -- hyperparameter search
@@ -614,6 +663,11 @@ data ClusterCommand
 -- Daemon options (see doctrine §Long-Running Daemons in the Same Binary).
 -- --foreground is the only mode; --detach is forbidden (the supervisor owns the
 -- process model). The field is absent from the record because no value carries it.
+--
+-- One CLI surface; the Dhall encodes substrate, residency (cluster | host), and
+-- inferenceMode (SelfInference | ForwardToHost) as BootConfig fields, plus
+-- MinIO/Pulsar URLs when residency = Host. There is no separate `host-service`
+-- command; the host-resident daemon is `jitml service --config conf/host/<sub>.dhall`.
 data ServiceOptions = ServiceOptions
   { serviceConfigPath   :: FilePath        -- --config <path>: Dhall (BootConfig + LiveConfig)
   , serviceLogLevel     :: LogLevel        -- --log-level <level>: startup default
@@ -718,13 +772,6 @@ data DocsTarget
   | DocsCliHelp                       -- CommandSpec → markdown / manpage sections
   deriving stock (Show, Eq)
 
--- Apple-only host-native inference daemon (subscribes to inference.command.apple-silicon)
-data HostServiceCommand
-  = HostServiceStart   HostServiceStartOptions
-  | HostServiceStop
-  | HostServiceStatus
-  deriving stock (Show, Eq)
-
 -- Internal: non-doctrine-shaped commands. VM and cache subcommands are Apple-host-only
 -- (the substrate at use time is detected; misuse on Linux exits with a structured error).
 data InternalCommand
@@ -758,6 +805,8 @@ data Kind = Training | Inference                -- JIT cache key axis: train and
 <!-- jitml:command-registry:end -->
 
 ### Generated documentation flow
+
+**`docs *` vs `lint *` — distinct surfaces, no overlap.** Per doctrine §Generated Artifacts, `docs check` / `docs generate` cover artifacts that are *rendered from typed Haskell source* into a committed file or marker region — the route table, Grafana dashboards, PureScript contracts, proto-derived modules, and CLI help. Per doctrine §Lint, Format, and Code-Quality Stack, `lint *` covers *hand-written* source: Haskell (`fourmolu --mode check` + `hlint`), PureScript (`purs format` round-trip), proto schemas, chart structural invariants, and file-hygiene rules. The two surfaces do not overlap; an artifact owned by `docs *` is never lint-managed, and vice versa. When adding a new generated artifact, extend the `GeneratedSectionRule` registry; when adding a new lint rule, extend the appropriate `LintCommand` constructor.
 
 Per doctrine §Automatically Generated Documentation and §Generated Artifacts, `CommandSpec` fans out to several artifact families:
 
@@ -820,8 +869,8 @@ Concrete invocations:
 ./.build/jitml cluster status                # prints edge port and routes
 
 ./.build/jitml train  experiments/mnist-mlp.dhall --substrate apple-silicon --seed 42
-./.build/jitml tune   experiments/mnist-mlp.dhall --strategy sobol --trials 64 --parallelism 8
-./.build/jitml tune   experiments/mnist-mlp.dhall --strategy ga    --population 32 --generations 20
+./.build/jitml tune   experiments/mnist-mlp.dhall --sampler sobol --trials 64 --parallelism 8
+./.build/jitml tune   experiments/mnist-mlp.dhall --sampler tpe --scheduler asha --trials 256 --parallelism 8
 ./.build/jitml rl     train experiments/cartpole-ppo.dhall --substrate apple-silicon --seed 42
 ./.build/jitml verify same-run     --experiment experiments/mnist-mlp.dhall --runs 3
 ./.build/jitml verify cross-backend --experiment experiments/mnist-mlp.dhall --backends cpu,cuda
@@ -869,22 +918,26 @@ Per doctrine §Progressive Introspection: `jitml commands`, `jitml commands --tr
 
 # Numerical core
 
-## Deep neural networks
+## Layer catalog
 
-`jitML` supports arbitrarily-shaped non-recurrent feedforward networks including:
+`jitML` supports arbitrarily-shaped non-recurrent feedforward networks. Every layer is a first-class Dhall constructor; networks are composed as arbitrary DAGs over these primitives.
 
-- dense / fully-connected layers
-- convolutional layers
-- residual blocks
-- batch normalization
-- multi-headed architectures
-- arbitrary DAG-style computation graphs
+- **Dense / Linear.** With or without bias; optional spectral norm.
+- **Convolution.** `Conv1D`, `Conv2D`, `Conv3D`. Variants: standard, transposed, depthwise / separable, dilated / atrous, grouped.
+- **Pooling.** `MaxPool{1,2,3}D`, `AvgPool{1,2,3}D`, `AdaptiveAvgPool`, `GlobalAvgPool`, spectral pooling (see [Spectral / frequency-domain operations](#spectral--frequency-domain-operations)).
+- **Normalization.** `BatchNorm{1,2,3}D`, `LayerNorm`, `GroupNorm`, `InstanceNorm{1,2,3}D`, `RMSNorm`, `WeightNorm`. Running statistics are deterministic and checkpointable.
+- **Residual building blocks.** `BasicBlock` (ResNet), `BottleneckBlock` (ResNet-50+), `InvertedResidual` (MobileNet-style), `DenseBlock` (DenseNet-style concat).
+- **Regularization.** `Dropout`, `Dropout2D`, `StochasticDepth`, `DropPath`. All seed-deterministic.
+- **Attention.** `ScaledDotProductAttention`, `MultiHeadAttention`, `RotaryPositionalEmbedding`. A `FlashAttention`-style fused kernel is a JIT codegen target.
+- **Embedding.** `TokenEmbedding`, `LearnedPositionalEmbedding`, `SinusoidalPositionalEmbedding`.
+- **Multi-headed architectures.** Explicit Dhall support for K policy/value/auxiliary heads sharing a trunk (used by both actor-critic RL and [AlphaZero-style self-play](#alphazero-style-self-play)).
+- **Arbitrary DAG-style computation graphs.** Composition is a value, not a class hierarchy.
 
 ## Activation functions
 
 ### Real-valued
 
-ReLU, LeakyReLU, GELU, ELU, Sigmoid, Tanh, Softmax.
+ReLU, LeakyReLU, PReLU, ELU, SELU, GELU (exact + tanh approximation), SiLU/Swish, Mish, Sigmoid, Tanh, Softmax, LogSoftmax, Hardtanh, Hardsigmoid, Hardswish, Softplus, Softsign, GLU, GeGLU, SwiGLU.
 
 ### Complex-valued
 
@@ -904,7 +957,11 @@ Native support for DFT, inverse DFT, FFT-based convolutions, spectral pooling, c
 
 ## Optimization
 
-Supported optimizers: SGD, Momentum SGD, RMSProp, Adam, AdamW. Optimizer state is fully deterministic and checkpointable.
+Supported optimizers: SGD, Momentum SGD, Nesterov SGD, RMSProp, Adagrad, Adadelta, Adam, AdamW, LAMB, LARS, Lion. All are composable with gradient-clipping wrappers (`ClipByNorm`, `ClipByValue`, `ClipByGlobalNorm`). Optimizer state is fully deterministic and checkpointable.
+
+## Schedulers
+
+Pure functions of `progress ∈ [0, 1]`, applicable to any scalar hyperparameter (learning rate, momentum, weight decay, dropout rate). Variants: `Constant`, `Linear`, `Cosine`, `CosineWithWarmup`, `Exponential`, `Polynomial`, `OneCycle`, `ReduceOnPlateau` (the only non-pure variant — depends on the metric history), `Piecewise`. The RL `Schedule` ADT used by PPO clip ranges, DQN ε, and SAC entropy floors (see [Schedules](#schedules)) is the same type.
 
 ## Loss functions
 
@@ -914,18 +971,20 @@ Loss functions are represented declaratively in Dhall: scalar losses, multi-head
 
 # Concrete Dhall worked example
 
-A canonical SL experiment, end-to-end:
+A canonical SL experiment, end-to-end. The `dataset.train` field is the source for *both* train and validation splits — `Split.PermuteUnderSeed` slices `fullTrain` into a 55 000-example training partition and a 5 000-example validation partition under a fixed seed. `dataset.test` is the held-out final-evaluation set used by the convergence golden, never seen during training. The `metrics` list declares each metric's direction (`Maximise` for accuracy, `Minimise` for loss), which the trainer's `pointers/best/<m>` CAS predicate consumes (see [Concurrency model](#concurrency-model)). The `tuning` field is `None Tuning` for single-run experiments; setting it to `Some Tuning::{ … }` turns the definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
 
 ```dhall
 -- experiments/mnist-mlp.dhall
 
-let Activation = ./types/Activation.dhall
-let Layer      = ./types/Layer.dhall
-let Optimizer  = ./types/Optimizer.dhall
-let Dataset    = ./types/Dataset.dhall
-let Split      = ./types/Split.dhall
-let Checkpoint = ./types/Checkpoint.dhall
-let Substrate  = ./types/Substrate.dhall
+let Activation       = ./types/Activation.dhall
+let Layer            = ./types/Layer.dhall
+let Optimizer        = ./types/Optimizer.dhall
+let Dataset          = ./types/Dataset.dhall
+let Split            = ./types/Split.dhall
+let Checkpoint       = ./types/Checkpoint.dhall
+let Substrate        = ./types/Substrate.dhall
+let MetricDirection  = ./types/MetricDirection.dhall
+let Tuning           = ./types/Tuning.dhall
 
 let mnistTrain : Dataset =
       { name   = "mnist-train"
@@ -951,7 +1010,15 @@ in
 , loss = Layer.Loss.CrossEntropy
 , optimizer = Optimizer.Adam { learningRate = 1.0e-3, beta1 = 0.9, beta2 = 0.999, eps = 1.0e-8 }
 , dataset = { train = mnistTrain, test = mnistTest }
-, split = Split.PermuteUnderSeed { fullTrain = mnistTrain, trainFraction = 55000.0 / 60000.0, seed = 1729 }
+, split = Split.PermuteUnderSeed
+    { fullTrain     = mnistTrain
+    , trainFraction = 0.9166666666666666     -- 55000 / 60000 of mnistTrain → train; remainder → val
+    , seed          = 1729
+    }
+, metrics =
+    [ { name = "valLoss", direction = MetricDirection.Minimise }
+    , { name = "valAcc",  direction = MetricDirection.Maximise }
+    ]
 , schedule =
     { epochs = 20
     , batchSize = 128
@@ -965,16 +1032,15 @@ in
     }
 , substrate = Substrate.AppleSilicon
 , seed = 42
+, tuning = None Tuning                        -- single-run; see Hyperparameter tuning for the Some shape
 }
 ```
-
-The `Tuning` block, when present, turns the single-run definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
 
 ---
 
 # Hyperparameter tuning, first-class
 
-A `Tuning` block in any experiment Dhall converts a single-run definition into a multi-trial sweep. The same Dhall describes a single training run (no `tuning`) or a 128-trial sweep (`tuning = Some Tuning::{ … }`); the CLI flag `--strategy …` *overrides* the Dhall, never replaces it.
+A `Tuning` block in any experiment Dhall converts a single-run definition into a multi-trial sweep. The same Dhall describes a single training run (no `tuning`) or a 128-trial sweep (`tuning = Some Tuning::{ … }`); CLI flags (`--sampler …`, `--scheduler …`, `--pruner …`) *override* the Dhall on each axis, never replace it.
 
 ## Search-space declaration
 
@@ -991,69 +1057,224 @@ let SearchSpace =
       }
 ```
 
-## Search strategies
+## Three orthogonal axes: sampler × scheduler × pruner
+
+HPO is decomposed into three independent typed axes rather than one flat `Strategy` enum. Any **sampler** (what hyperparameter point to evaluate next) composes with any **scheduler** (how to allocate compute budget across trials) and any **pruner** (whether to terminate a trial early). The combinatorial product is expressible directly in Dhall.
+
+### Samplers
 
 ```dhall
-let Strategy =
-      < Sobol  : { dimensions : Natural, seed : Natural }
-      | Random : { seed : Natural }
-      | GA     : { population : Natural
-                 , generations : Natural
-                 , mutationRate : Double
-                 , crossoverRate : Double
-                 , seed : Natural
-                 }
-      | ES     : { mu : Natural, lambda : Natural, sigma : Double, seed : Natural }
+let Sampler =
+      < Grid                                                          -- exhaustive baseline
+      | Random      : { seed : Natural }
+      | Sobol       : { dimensions : Natural, seed : Natural }        -- low-discrepancy quasi-random
+      | TPE         : { seed : Natural, nStartupTrials : Natural }    -- Tree-structured Parzen Estimator
+      | GPBO        : { seed : Natural, acquisition : Acquisition }   -- Gaussian-process Bayesian Opt
+      | GA          : { population : Natural, generations : Natural
+                      , mutationRate : Double, crossoverRate : Double
+                      , seed : Natural
+                      }
+      | NSGA2       : { population : Natural, generations : Natural, seed : Natural }   -- multi-objective
+      | MuLambdaES  : { mu : Natural, lambda : Natural, sigma : Double, seed : Natural }
+      | CMAES       : { sigma0 : Double, popSize : Natural, seed : Natural }            -- adaptive covariance
+      | PBT         : { population : Natural, exploitFraction : Double
+                      , exploreSigma : Double, readyInterval : Natural, seed : Natural
+                      }
       >
 ```
 
-- **Sobol low-discrepancy quasi-random** — deterministic given the Sobol seed + dimensions; bit-reproducible trial selection.
+- **Grid** — exhaustive baseline; trivial determinism.
 - **Random search (uniform)** — trivial baseline.
-- **Evolutionary / genetic algorithm** — explicit parent-selection, mutation, and crossover operators per parameter type.
+- **Sobol low-discrepancy quasi-random** — deterministic given Sobol seed + dimensions; bit-reproducible trial selection.
+- **TPE (Tree-structured Parzen Estimator)** — Bayesian sampler; the workhorse of modern HPO (Optuna / Hyperopt default).
+- **GP-BO** — Gaussian-process Bayesian optimisation; for continuous spaces with expensive evaluations.
+- **GA** — genetic algorithm; explicit parent-selection, mutation, crossover.
+- **NSGA-II** — multi-objective GA; produces a Pareto frontier directly (the frontend's Pareto-frontier panel actually has a *producer*).
 - **(μ, λ) evolution strategies** — for continuous spaces.
+- **CMA-ES** — Covariance Matrix Adaptation ES; the canonical continuous black-box optimizer.
+- **PBT (Population Based Training)** — population-based; mutates hyperparameters *during* training (touches the inner loop, not just trial scheduling). Especially well-suited to RL where stationary HPO is a poor fit for non-stationary learning dynamics.
+
+### Schedulers
+
+```dhall
+let Scheduler =
+      < Fifo                                                          -- trial-equal-budget; default
+      | SuccessiveHalving : { eta : Natural, maxBudget : Natural }
+      | Hyperband         : { eta : Natural, maxBudget : Natural, rBrackets : Natural }
+      | ASHA              : { eta : Natural, maxBudget : Natural, parallelism : Natural }
+      >
+```
+
+`Fifo` runs every trial to its full budget. `SuccessiveHalving`, `Hyperband`, and `ASHA` allocate compute progressively, terminating under-performing trials at rung boundaries. ASHA is Hyperband's asynchronous variant; it pairs naturally with high `parallelism`.
+
+### Pruners
+
+```dhall
+let Pruner =
+      < NoPruner
+      | MedianPruner     : { warmupTrials : Natural, evalAtPercentile : Natural }
+      | PercentilePruner : { warmupTrials : Natural, percentile : Double }
+      >
+```
+
+Pruners are orthogonal to schedulers: a `Fifo` scheduler with a `MedianPruner` still terminates trials whose intermediate metric drops below the running median, just without the Hyperband-style rung structure.
+
+### Composition
+
+```dhall
+let Tuning =
+      { space       : SearchSpace
+      , sampler     : Sampler
+      , scheduler   : Scheduler
+      , pruner      : Pruner
+      , trials      : Natural
+      , parallelism : Natural
+      , objectives  : List ObjectiveSpec    -- length 1 → single-objective; ≥ 2 → multi-objective (requires NSGA2)
+      }
+```
+
+The `objectives` field must list metrics declared in the parent experiment's `metrics` list so the trial scoreboard knows the direction of each. A length-≥ 2 `objectives` is only meaningful with `sampler = NSGA2`; the validator rejects other pairings.
+
+## Concrete `Some Tuning::{ … }` example
+
+The `tuning = None Tuning` placeholder in [Concrete Dhall worked example](#concrete-dhall-worked-example) becomes:
+
+```dhall
+, tuning = Some Tuning::{
+    , space     = SearchSpace::{ learningRate = { min = 1.0e-5, max = 1.0e-2, scale = Log }
+                               , batchSize    = { values = [32, 64, 128, 256] }
+                               , dropout      = { min = 0.0, max = 0.5, scale = Linear }
+                               , optimizer    = { values = ["Adam", "AdamW", "SGD"] }
+                               }
+    , sampler   = Sampler.TPE { seed = 1729, nStartupTrials = 16 }
+    , scheduler = Scheduler.ASHA { eta = 3, maxBudget = 50000, parallelism = 8 }
+    , pruner    = Pruner.MedianPruner { warmupTrials = 8, evalAtPercentile = 50 }
+    , trials    = 128
+    , parallelism = 8
+    , objectives = [ { metric = "valAcc", direction = MetricDirection.Maximise } ]
+    }
+```
+
+Replacing `sampler` with `Sampler.GA { … }`, `Sampler.NSGA2 { … }`, or `Sampler.PBT { … }` changes the search method without touching any other axis. Replacing `scheduler` with `Scheduler.Hyperband { … }` opts into bracketed multi-fidelity scheduling.
 
 ## Trial storage and resume
 
-Each trial writes a self-contained transcript to MinIO bucket `jitml-trials`, content-addressed by `sha256(resolved-dhall || trial-seed)`. Trial contents: the resolved Dhall, the seed, the metric trajectory, the final-checkpoint MinIO ref, the wall-clock.
+The trial transcript is an **append-only event log** in MinIO bucket `jitml-trials`, per doctrine §At-Least-Once Event Processing. Each trial completion is one immutable object, content-addressed by `sha256(resolved-dhall || trial-seed)`. The payload is a canonical-CBOR `TrialEvent`:
 
-A `tune` run can be resumed: the resumed run re-reads the trial bucket, skips already-completed `(resolved-dhall, seed)` pairs, and proceeds. The search-strategy state (Sobol cursor, GA population, etc.) is itself reproducible from the strategy's seed and the set of completed trials.
+```haskell
+data TrialEvent = TrialEvent
+  { teExperimentHash    :: !Hash32
+  , teSampler           :: !SamplerTag         -- Grid | Random | Sobol | TPE | GPBO | GA | NSGA2 | MuLambdaES | CMAES | PBT
+  , teStrategyStep      :: !Word64             -- cursor index / generation / iteration
+  , teIntraStepRank     :: !Word32             -- dispatch order within the step (0..K-1)
+  , teBracketIndex      :: !(Maybe Word16)     -- Hyperband / ASHA bracket
+  , teRungIndex         :: !(Maybe Word16)     -- Hyperband / ASHA rung within bracket
+  , teBudgetAtRung      :: !(Maybe Word64)     -- per-rung compute budget
+  , tePbtEvent          :: !(Maybe PbtEvent)   -- Exploit / Explore; PBT only
+  , teTrialHash         :: !Hash32             -- sha256(resolved-dhall || trial-seed)
+  , teSeed              :: !Word64
+  , teMetrics           :: ![(Text, Double)]
+  , teCheckpointSha     :: !(Maybe Hash32)     -- final-manifest sha, if checkpoint write succeeded
+  , teParentTrialHashes :: ![Hash32]           -- GA / NSGA2 crossover lineage; PBT exploit source; [] otherwise
+  , teCreatedAtNs       :: !Word64             -- monotonic; recorded for telemetry; NEVER load-bearing
+  }
+
+data PbtEvent
+  = Exploit { from :: Hash32, to :: Hash32 }
+  | Explore { trialHash :: Hash32, mutations :: [(Text, Double, Double)] }   -- (hpName, before, after)
+```
+
+**Canonical replay order.** On resume, events are read out of MinIO and sorted by `(teStrategyStep, teIntraStepRank)`. **Not** by `teCreatedAtNs`, **not** by wall-clock arrival, **not** by trial-hash — wall-clock order is non-reproducible under parallelism, and a sort that depends on it would re-introduce the determinism gap. The strategy-emitted `(step, rank)` tuple is the canonical ordering because the strategy itself is the only thing that knows which trials belong to which generation/cursor position.
+
+**Strategy as a pure state machine.** Each strategy exposes
+
+```haskell
+step      :: StrategyState -> TrialEvent -> StrategyState
+nextBatch :: StrategyState -> [TrialSpec]    -- the next K candidates to dispatch
+```
+
+Resume is `foldl step initialState (sortByCanonical events)`; the next batch follows deterministically. Per-sampler state:
+
+- **Grid / Sobol / Random** — a single `Word64` cursor; replay coincides with cursor order because `teStrategyStep` *is* the cursor index.
+- **TPE / GP-BO** — the surrogate is a pure function of the canonically-ordered trial-event log; replay rebuilds the surrogate exactly. Acquisition is seeded.
+- **GA / NSGA-II** — `[GenomeWithFitness]` for the current generation plus an in-progress buffer; parents come from `teParentTrialHashes`. Replay order is load-bearing: same generation index, same intra-generation rank, same selection-pressure ranking. NSGA-II additionally sorts fronts by domination rank then by crowding distance, both canonical.
+- **(μ, λ) ES** — `(mean, sigma, generation)`; order-dependent.
+- **CMA-ES** — `(mean, covariance, generation)`; serialised in CBOR the same way as ES.
+- **PBT** — population snapshot at each ready-interval; `Exploit` events copy weights between trial hashes, `Explore` events perturb hyperparameters. Resume replays both event kinds against the canonical event log to reconstruct the population.
+
+Scheduler state (orthogonal to sampler state):
+
+- **Fifo** — none.
+- **SuccessiveHalving / Hyperband / ASHA** — bracket/rung occupancy tables, keyed on `(teBracketIndex, teRungIndex)`. Promotions are deterministic on the canonical event log.
+
+**Tightened claim.** The (sampler, scheduler, pruner) state is reproducible from `(strategy-seed, canonically-ordered event log of completed TrialEvents)`. For Grid/Sobol/Random the canonical ordering coincides with cursor order; for everything else the ordering is load-bearing.
 
 ## Parallelism
 
-`--parallelism N` schedules N trials concurrently; the search algorithm exposes a "next batch of K candidates" interface, and the dispatcher publishes them to N workers via `tune.command.<mode>` Pulsar messages. Per-trial determinism is unaffected by N (each trial owns its seed); only wall-clock changes.
+`--parallelism N` schedules N trials concurrently; the sampler exposes a "next batch of K candidates" interface, and the dispatcher publishes them to N workers via `tune.command.<mode>` Pulsar messages. Per-trial determinism is unaffected by N (each trial owns its seed); only wall-clock changes. The trial-event log records `(strategyStep, intraStepRank)` at dispatch time, so concurrent completions can land in MinIO in any order without disturbing replay.
+
+Hyperband / ASHA introduce variable per-trial budgets, so the canonical ordering is augmented with `(bracketIndex, rungIndex)`. PBT couples trials by `Exploit` events, so its parallelism story differs from independent-trial sampling: workers report metrics at each `readyInterval` and a controller publishes `Exploit / Explore` events deterministically based on the canonical-replay order. Workers never compute `Exploit / Explore` decisions on their own — only the controller does, and only from the canonical log.
 
 ## Frontend integration
 
-The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>` over `/pulsar/ws` and animates the Pareto frontier and trial heatmap live (see [PureScript frontend](#purescript-frontend)).
+The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>` over `/pulsar/ws` and animates the Pareto frontier (now actually populated by NSGA-II / GP-BO), the trial-by-trial heatmap, and the per-axis state live. PBT gets its own panel layout — population over time, hyperparameter-mutation lineage tree, `Exploit`/`Explore` event timeline — see [PureScript frontend](#purescript-frontend).
 
 ---
 
 # Canonical supervised learning problems
 
-Five problems, all small enough to live in CI:
+Eleven problems spanning the architectural breadth of the [Layer catalog](#layer-catalog), each compact enough to baseline on a single reference host.
 
-| Dataset | Model | Source | Test target (golden) | Train budget |
+| Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
-| MNIST | shallow MLP (1×128 hidden) | LeCun mirror | TBD | TBD |
-| MNIST | deep CNN (LeNet-5 variant) | LeCun mirror | TBD | TBD |
-| Fashion-MNIST | shallow MLP | Zalando mirror | TBD | TBD |
-| Fashion-MNIST | deep CNN | Zalando mirror | TBD | TBD |
-| CIFAR-10 | ResNet-20 | Toronto mirror | TBD | TBD |
+| MNIST | shallow MLP (1×128 hidden) | Dense + ReLU + Softmax | ~98.0% test acc | LeCun et al. 1998 [^lecun1998] |
+| MNIST | deep MLP w/ BN + Dropout | Dense + BatchNorm + Dropout + GELU | ~98.5–99.0% | Ioffe & Szegedy 2015 [^ioffe2015] |
+| MNIST | deep CNN (LeNet-5 variant) | Conv2D + AvgPool + Tanh | ~99.05% (1998); 99.2–99.4% modern | LeCun et al. 1998 [^lecun1998] |
+| Fashion-MNIST | shallow MLP | Dense + ReLU | ~87–88% | Xiao et al. 2017 [^xiao2017] |
+| Fashion-MNIST | small ResNet | Conv2D + BatchNorm + BasicBlock | ~93% | He et al. 2015 [^he2015] |
+| CIFAR-10 | ResNet-20 | BasicBlock + global avg pool | 91.25% | He et al. 2015 [^he2015] |
+| CIFAR-10 | ResNet-56 | Deeper residual + 3-stage downsample | ~93.0% | He et al. 2015 [^he2015] |
+| CIFAR-100 | Wide ResNet-28-10 | Wider residual + Dropout | ~81.2% | Zagoruyko & Komodakis 2016 [^zagoruyko2016] |
+| CIFAR-10 | small ViT | Patch embed + MultiHeadAttention + LayerNorm + GeGLU | ~80–85% from-scratch (no pre-training) | Dosovitskiy et al. 2020 [^dosovitskiy2020] |
+| Tiny ImageNet (200-class, 64×64) | ResNet-50 | BottleneckBlock + GroupNorm option | ~50–65% top-1 from-scratch | Le & Yang 2015 [^leyang2015]; He et al. 2015 [^he2015] |
+| California Housing (UCI tabular regression) | small MLP | MSE loss; non-classification path | RMSE ≈ 0.50 (standardized target) | Pace & Barry 1997 [^pace1997]; Hernández-Lobato & Adams 2015 [^hernandez2015] |
+
+## Dataset sources
+
+Each dataset's source URL is pinned, the source bytes' SHA-256 is recorded (in the experiment Dhall, not in this table), and the train/val/test split is a deterministic permutation under a fixed seed. Datasets land in MinIO bucket `jitml-datasets` on first use; subsequent runs read from MinIO.
+
+| Dataset | Public download URL | Size (gzipped) | License / re-distribution note |
+|---|---|---|---|
+| MNIST | `https://storage.googleapis.com/cvdf-datasets/mnist/` (4 files: `{train,t10k}-{images-idx3,labels-idx1}-ubyte.gz`) | ~11 MB total | CC BY-SA 3.0 (per LeCun's original distribution terms; CVDF mirrors with permission) |
+| Fashion-MNIST | `https://github.com/zalandoresearch/fashion-mnist/raw/master/data/fashion/` (same 4-file IDX layout as MNIST) | ~30 MB total | MIT license [^xiao2017] |
+| CIFAR-10 | `https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz` | ~170 MB | research use, see Krizhevsky 2009 TR [^krizhevsky2009] |
+| CIFAR-100 | `https://www.cs.toronto.edu/~kriz/cifar-100-binary.tar.gz` | ~170 MB | research use, same TR |
+| Tiny ImageNet | `http://cs231n.stanford.edu/tiny-imagenet-200.zip` | ~237 MB | Stanford CS231N course; derived from ImageNet — abide by ImageNet terms |
+| California Housing (UCI) | `https://www.dcc.fc.up.pt/~ltorgo/Regression/cal_housing.tgz` (or via `sklearn.datasets.fetch_california_housing`) | ~370 KB | public domain (StatLib); cite Pace & Barry 1997 |
 
 ## Threshold methodology
 
-The literal numbers in the table are derived from a `k=5` replicate baseline on the pinned reference host: five seeds, each trained to a budget that visibly plateaus the loss curve, then
+The literature-target column above is a **sanity-check expectation**, not the golden. The actual golden numbers are derived from a `k=5` replicate baseline on the pinned reference host: five seeds, each trained to a budget that visibly plateaus the loss curve, then
 
 ```
 target = median(test_acc) − slack
 slack  = 95th-percentile residual deviation across the five seeds
 ```
 
-so the golden passes with 95% probability if no regression has occurred. The README ships with TBD cells; populating them is gated on the baseline run. Treating the numbers as load-bearing before baselining is forbidden.
+so the golden passes with 95% probability if no regression has occurred. If the reference-host `k=5` median materially undershoots the literature target (e.g. by > 1–2 percentage points on classification, or proportionally on RMSE), that's an investigation trigger before the golden is committed. Treating the literature-target numbers as load-bearing — or as a substitute for the empirical baseline — is forbidden.
 
-## Dataset pinning
+## Citations
 
-Each dataset's source URL is pinned, the source bytes' SHA-256 is recorded, and the train/val/test split is a deterministic permutation under a fixed seed. Datasets land in MinIO bucket `jitml-datasets` on first use; subsequent runs read from MinIO.
+[^lecun1998]: LeCun, Bottou, Bengio, Haffner. ["Gradient-Based Learning Applied to Document Recognition."](http://yann.lecun.com/exdb/publis/pdf/lecun-01a.pdf) Proc. IEEE 86(11):2278–2324, 1998.
+[^ioffe2015]: Ioffe & Szegedy. ["Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift."](https://arxiv.org/abs/1502.03167) ICML 2015.
+[^xiao2017]: Xiao, Rasul, Vollgraf. ["Fashion-MNIST: a Novel Image Dataset for Benchmarking Machine Learning Algorithms."](https://arxiv.org/abs/1708.07747) 2017.
+[^he2015]: He, Zhang, Ren, Sun. ["Deep Residual Learning for Image Recognition."](https://arxiv.org/abs/1512.03385) CVPR 2016.
+[^zagoruyko2016]: Zagoruyko & Komodakis. ["Wide Residual Networks."](https://arxiv.org/abs/1605.07146) BMVC 2016.
+[^dosovitskiy2020]: Dosovitskiy et al. ["An Image is Worth 16×16 Words: Transformers for Image Recognition at Scale."](https://arxiv.org/abs/2010.11929) ICLR 2021.
+[^krizhevsky2009]: Krizhevsky. ["Learning Multiple Layers of Features from Tiny Images."](https://www.cs.toronto.edu/~kriz/learning-features-2009-TR.pdf) Technical Report, University of Toronto, 2009.
+[^leyang2015]: Le & Yang. ["Tiny ImageNet Visual Recognition Challenge."](http://cs231n.stanford.edu/reports/2015/pdfs/yle_project.pdf) Stanford CS231N final report, 2015.
+[^pace1997]: Pace & Barry. "Sparse Spatial Autoregressions." Statistics & Probability Letters 33(3):291–297, 1997.
+[^hernandez2015]: Hernández-Lobato & Adams. ["Probabilistic Backpropagation for Scalable Learning of Bayesian Neural Networks."](https://arxiv.org/abs/1502.05336) ICML 2015.
 
 ## Golden test shapes
 
@@ -1091,19 +1312,27 @@ We borrow the *concepts* stable-baselines3 codifies — policies, environments, 
 `OnPolicy` and `OffPolicy` are phantom kinds; the algorithm GADT is indexed by class. PPO touching a `ReplayBuffer`, or DQN touching a `RolloutBuffer`, is a compile-time error rather than a runtime surprise.
 
 ```haskell
-data AlgoClass = OnPolicy | OffPolicy
+data AlgoClass = OnPolicy | OffPolicy | BlackBox | SelfPlay
 
 type AlgoSpec :: AlgoClass -> Type -> Type -> Type
 data AlgoSpec c obs act where
-  PPO  :: PPOConfig  -> AlgoSpec 'OnPolicy  obs act
-  A2C  :: A2CConfig  -> AlgoSpec 'OnPolicy  obs act
-  DQN  :: DQNConfig  -> AlgoSpec 'OffPolicy obs 'Discrete
-  DDPG :: DDPGConfig -> AlgoSpec 'OffPolicy obs 'Continuous
-  TD3  :: TD3Config  -> AlgoSpec 'OffPolicy obs 'Continuous
-  SAC  :: SACConfig  -> AlgoSpec 'OffPolicy obs 'Continuous
+  PPO          :: PPOConfig          -> AlgoSpec 'OnPolicy  obs act
+  A2C          :: A2CConfig          -> AlgoSpec 'OnPolicy  obs act
+  TRPO         :: TRPOConfig         -> AlgoSpec 'OnPolicy  obs act
+  MaskablePPO  :: MaskablePPOConfig  -> AlgoSpec 'OnPolicy  obs 'Masked
+  RecurrentPPO :: RecurrentPPOConfig -> AlgoSpec 'OnPolicy  obs act           -- carries RNN state
+  DQN          :: DQNConfig          -> AlgoSpec 'OffPolicy obs 'Discrete
+  QRDQN        :: QRDQNConfig        -> AlgoSpec 'OffPolicy obs 'Discrete
+  DDPG         :: DDPGConfig         -> AlgoSpec 'OffPolicy obs 'Continuous
+  TD3          :: TD3Config          -> AlgoSpec 'OffPolicy obs 'Continuous
+  SAC          :: SACConfig          -> AlgoSpec 'OffPolicy obs 'Continuous
+  CrossQ       :: CrossQConfig       -> AlgoSpec 'OffPolicy obs 'Continuous
+  TQC          :: TQCConfig          -> AlgoSpec 'OffPolicy obs 'Continuous
+  ARS          :: ARSConfig          -> AlgoSpec 'BlackBox  obs act
+  AlphaZero    :: AlphaZeroConfig    -> AlgoSpec 'SelfPlay  obs 'Masked
 ```
 
-HER is a buffer transformer, not its own GADT case; see [Buffers](#buffers).
+HER is a buffer transformer, not its own GADT case; see [Buffers](#buffers). Mis-pairing an algorithm with the wrong training loop is a type error: `PPO + OffPolicyLoop`, `ARS + OnPolicyLoop`, `DQN + AlphaZeroLoop` all fail to typecheck.
 
 ## Policy as typed value
 
@@ -1136,7 +1365,10 @@ data ActionSpace a where
   Box            :: Shape -> Bounds -> ActionSpace 'Continuous
   MultiDiscrete  :: [Int] -> ActionSpace 'MultiDiscrete
   Dict           :: Map Text SomeActionSpace -> ActionSpace 'Dict
+  Masked         :: ActionSpace base -> ActionSpace 'Masked   -- legal-action mask injected at step
 ```
+
+`MaskablePPO` and `AlphaZero` both consume `'Masked` action spaces. The mask is supplied by an additional `Env.envLegalMoves :: Obs -> Mask` field on `Env` for any environment that opts into masked actions.
 
 Env *wrappers* are pure `Env -> Env` transformations: `clipReward`, `normaliseObservations`, `frameStack`, `noopReset`, `timeLimit`, `rewardShaper`. They compose via function composition; no class hierarchy.
 
@@ -1210,18 +1442,19 @@ Sample, log-prob, entropy, and `mode` (deterministic action) per variant. All sa
 
 ```haskell
 data ActionDistribution
-  = Categorical      { logits :: Tensor }
-  | DiagGaussian     { mean :: Tensor, logStd :: Tensor }
-  | SquashedGaussian { mean :: Tensor, logStd :: Tensor }    -- tanh-squashed, used by SAC
-  | Bernoulli        { logits :: Tensor }
+  = Categorical         { logits :: Tensor }
+  | MaskedCategorical   { logits :: Tensor, mask :: BoolTensor }    -- −∞ on illegal indices before softmax
+  | DiagGaussian        { mean :: Tensor, logStd :: Tensor }
+  | SquashedGaussian    { mean :: Tensor, logStd :: Tensor }        -- tanh-squashed, used by SAC
+  | Bernoulli           { logits :: Tensor }                        -- independent-multi-label (factorial Bernoulli), distinct from Categorical(2)
+  | QuantileDistribution { quantiles :: Tensor }                    -- QR-DQN / TQC distributional head
+  | GSDE                 { mu :: Tensor, sigma :: Tensor, latentState :: Tensor }  -- generalised State-Dependent Exploration
 
 sample  :: ActionDistribution -> Seed -> Action
 logProb :: ActionDistribution -> Action -> Tensor
 entropy :: ActionDistribution -> Tensor
 mode    :: ActionDistribution -> Action                       -- deterministic
 ```
-
-`gSDE` (generalised State-Dependent Exploration, SB3's alternative continuous-control exploration scheme) is reserved as a future variant; not in v1.
 
 ## Action noise
 
@@ -1348,9 +1581,24 @@ data OffPolicyLoop = OffPolicyLoop
   , logger               :: Logger
   }
 
+-- Black-box loop (ARS)
+data BlackBoxLoop = BlackBoxLoop
+  { totalTimesteps   :: Int
+  , perturbations    :: Int                                  -- ARS: paired ± perturbations per update
+  , topElite         :: Int                                  -- ARS: keep best-K perturbations
+  , noiseStd         :: Double
+  , callbacks        :: Callback
+  , logger           :: Logger
+  }
+
+-- Self-play loop (AlphaZero); full definition under [AlphaZero-style self-play](#alphazero-style-self-play)
+data AlphaZeroLoop = AlphaZeroLoop { ... }
+
 -- The actual driver; LoopFor is a type family:
 --   LoopFor 'OnPolicy  = OnPolicyLoop
 --   LoopFor 'OffPolicy = OffPolicyLoop
+--   LoopFor 'BlackBox  = BlackBoxLoop
+--   LoopFor 'SelfPlay  = AlphaZeroLoop
 learn ::
   AlgoSpec c obs act ->
   Env obs act ->
@@ -1359,11 +1607,11 @@ learn ::
   IO (TrainedPolicy obs act, TrainingResult)
 ```
 
-`PPO + OffPolicyLoop` does not typecheck. The loop body itself decomposes into phases (collect → compute-advantages → optimise → evaluate → checkpoint), each implemented as a pure function over the typed buffers; the IO-effectful steps are env stepping and the checkpoint write to MinIO.
+`PPO + OffPolicyLoop` does not typecheck. Neither does `ARS + OnPolicyLoop`, `DQN + AlphaZeroLoop`, etc. Each on-policy / off-policy loop body decomposes into phases (collect → compute-advantages → optimise → evaluate → checkpoint), each implemented as a pure function over the typed buffers; the IO-effectful steps are env stepping and the checkpoint write to MinIO. The black-box and self-play loops have different phase structures, defined alongside their respective algorithms.
 
 ## Worked Dhall: PPO on CartPole
 
-A concrete PPO algorithm config in Dhall, decoded into the `AlgoSpec 'OnPolicy` + `OnPolicyLoop` pair. This is the file `experiments/cartpole-ppo.dhall` referenced from [First milestone](#first-milestone).
+A concrete PPO algorithm config in Dhall, decoded into the `AlgoSpec 'OnPolicy` + `OnPolicyLoop` pair. This is the canonical CartPole experiment file, `experiments/cartpole-ppo.dhall`.
 
 ```dhall
 let Schedule   = ./types/Schedule.dhall
@@ -1406,34 +1654,41 @@ The Dhall is what the user writes; the typed Haskell record is what the engine s
 
 ## What we explicitly do not borrow
 
-The user's framing for this section was *"we're not reimplementing PyTorch."* The list below names patterns we drop and what jitML uses instead.
+The framing for this section is *"we're not reimplementing PyTorch."* The list below names genuine non-goals and what jitML uses instead.
 
 - **Python class hierarchy** (`BaseAlgorithm` → `OnPolicyAlgorithm` → `PPO`). Replaced with ADTs + GADTs. Inheritance is not an idiomatic Haskell tool here.
 - **Pickle-based save/load** (`model.save()` / `model.load()`). Replaced with Dhall-described configuration + MinIO-checkpointed weights, optimizer state, RNG state, buffer state, and normalisation stats. The full state is reconstructible from `(experiment.dhall, seed, checkpoint blob)`.
 - **`gym.make()` env registry.** Replaced with explicit Dhall env declarations referencing typed envs in `src/JitML/Env/`. No global registry; no string-keyed env lookup.
-- **Atari preprocessing wrappers** (`NoopResetEnv`, `FireResetEnv`, `MaxAndSkipEnv`, `WarpFrame`, `EpisodicLifeEnv`). Atari is out of scope for v1 (none of the six canonical envs are Atari). These wrappers are reserved for a future Atari milestone.
-- **gSDE** (generalised State-Dependent Exploration). Reserved as a future `ActionDistribution` variant; not in v1.
-- **stable-baselines3 contrib** (TRPO, ARS, RecurrentPPO, MaskablePPO, CrossQ, TQC). Out of scope for v1 catalog. Each can be added later as another `AlgoSpec` case once the primitives prove out on the v1 seven.
-- **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: the daemon is single-node by design for v1; cross-substrate determinism is the headline distributed-execution property, not multi-GPU SGD.
+- **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: the daemon is single-node by design; multi-node distributed SGD is an explicit non-goal. Cross-substrate determinism is the headline distributed-execution property, not multi-GPU SGD.
 - **The default multi-sink logger** that fans out to stdout, csv, log, and tensorboard simultaneously. Replaced with `Semigroup` composition over typed `Logger` and `Callback` values, so the developer states the fan-out explicitly.
+
+Patterns we *do* borrow, contrary to "out of scope" language that earlier drafts of this section included: Atari-style env wrappers (`NoopResetEnv`, `FireResetEnv`, `MaxAndSkipEnv`, `WarpFrame`, `EpisodicLifeEnv`) live alongside the standard six wrappers and admit Atari envs whenever the canonical-env table chooses to populate one; gSDE is a first-class `ActionDistribution` variant; every SB3-contrib algorithm (TRPO, MaskablePPO, RecurrentPPO, QR-DQN, CrossQ, TQC, ARS) is a first-class `AlgoSpec` case in [RL algorithm catalog](#rl-algorithm-catalog).
 
 ---
 
 # RL algorithm catalog
 
-Reproduce the **stable-baselines3** major algorithms. Each row is a typed crosswalk into [RL framework primitives](#rl-framework-primitives) — `Class` names the `AlgoSpec` index, `Loop` names the training-loop variant, `Buffer` names the buffer composition, `Distribution` names the action-distribution variant.
+Reproduce the entire **stable-baselines3** family — core and contrib — as first-class `AlgoSpec` cases, plus AlphaZero-style self-play. Each row is a typed crosswalk into [RL framework primitives](#rl-framework-primitives) — `Class` names the `AlgoSpec` index, `Loop` names the training-loop variant, `Buffer` names the buffer composition, `Distribution` names the action-distribution variant.
 
 | Algorithm | Class | Loop | Buffer | Distribution | Notes |
 |---|---|---|---|---|---|
-| PPO | `OnPolicy` | `OnPolicyLoop` | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | the canonical baseline; first to implement |
-| A2C | `OnPolicy` | `OnPolicyLoop` | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | sanity check against PPO |
-| DQN | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + `TargetNetwork` (hard) | (none; ε-greedy over Q-net) | Atari-class problems out of scope for v1 |
-| DDPG | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + `TargetNetwork` (soft) + `ActionNoise` | (deterministic policy + noise) | included for parity with SB3 |
-| TD3 | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + 2× `TargetNetwork` + `ActionNoise` | (deterministic policy + noise) | DDPG with twin critics + delayed updates |
-| SAC | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + 2× `TargetNetwork` | `SquashedGaussian` | headline off-policy continuous-control algo; `AutoEntropy` |
-| HER | meta | (composes onto any off-policy) | `HerWrapper ReplayBuffer` | (inherits) | goal-conditioned replay buffer |
+| PPO | `OnPolicy` | `OnPolicyLoop` | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | canonical baseline |
+| A2C | `OnPolicy` | `OnPolicyLoop` | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | synchronous A3C variant |
+| TRPO | `OnPolicy` | `OnPolicyLoop` + conjugate-gradient line search | `RolloutBuffer` + GAE | `Categorical` / `DiagGaussian` | trust-region natural gradient |
+| MaskablePPO | `OnPolicy` | `OnPolicyLoop` | `RolloutBuffer` + GAE | `MaskedCategorical` | for envs with illegal-action masking (Connect 4 et al.) |
+| RecurrentPPO | `OnPolicy` | `OnPolicyLoop` + `RecurrentState` | `RolloutBuffer` (sequence-batched) | `Categorical` / `DiagGaussian` | LSTM / GRU policy |
+| DQN | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + `TargetNetwork` (hard) | ε-greedy over Q-net | classic value-based |
+| QR-DQN | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + `TargetNetwork` (hard) | `QuantileDistribution` | distributional value learning |
+| DDPG | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + `TargetNetwork` (soft) + `ActionNoise` | deterministic policy + noise | continuous control |
+| TD3 | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + 2× `TargetNetwork` + `ActionNoise` | deterministic policy + noise | DDPG with twin critics + delayed updates |
+| SAC | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + 2× `TargetNetwork` | `SquashedGaussian` | headline off-policy continuous-control; `AutoEntropy` |
+| CrossQ | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + BatchRenorm | `SquashedGaussian` | sample-efficient SAC variant |
+| TQC | `OffPolicy` | `OffPolicyLoop` | `ReplayBuffer` + K× `TargetNetwork` + quantile head | `SquashedGaussian` | truncated quantile critics |
+| ARS | `BlackBox` | `BlackBoxLoop` | (none — perturbation evaluation) | deterministic linear policy + noise | augmented random search |
+| HER | *meta* | (composes onto any off-policy) | `HerWrapper ReplayBuffer` | inherits | goal-conditioned replay buffer |
+| AlphaZero | `SelfPlay` | `AlphaZeroLoop` | `SelfPlayBuffer` + MCTS | softmax(visits) + scalar value head | two-player perfect-info; see [AlphaZero-style self-play](#alphazero-style-self-play) |
 
-Retired SB3 algorithms (`ACER`, `ACKTR`, `GAIL`) are out of scope.
+Retired SB3 algorithms (`ACER`, `ACKTR`, `GAIL`) are not adopted.
 
 Algorithm defaults are pinned via SB3 RL Zoo3 as a sanity check, not as a source of truth (a baselined number that differs from RL Zoo3's by more than 1σ on the same env+algo is worth investigating before pinning).
 
@@ -1497,6 +1752,93 @@ All stochastic systems are seed-driven, reproducible, and replayable. RL episode
 
 Monte Carlo exploration caches are preserved between moves. The cache is treated as deterministic, reconstructible, seed-dependent, and path-dependent. Full episode history is sufficient to rebuild exploration state exactly.
 
+## AlphaZero-style self-play
+
+jitML's RL stack is a strict superset of stable-baselines3's catalog; it also hosts the AlphaZero family — two-player perfect-information games with MCTS-guided self-play and a two-headed policy/value ANN. The AlphaZero loop reuses the buffer-and-logger primitives from [RL framework primitives](#rl-framework-primitives); the only new pieces are the game type class, the MCTS-guided self-play generator, and the dual-headed network.
+
+### Perfect-information game type class
+
+```haskell
+data PerfectInfoGame s a = PerfectInfoGame
+  { gameInitial    :: s
+  , gameLegalMoves :: s -> ActionMask a
+  , gameApply      :: s -> a -> s
+  , gameTerminal   :: s -> Maybe Outcome             -- Win Player | Draw | Nothing
+  , gameToPlay     :: s -> Player
+  , gameCanonical  :: s -> CanonicalForm s           -- player-to-move-normalised view
+  , gameEncode     :: CanonicalForm s -> Tensor      -- network input
+  , gameSymmetries :: CanonicalForm s -> [(CanonicalForm s, Perm a)]    -- e.g. Connect 4 mirror
+  }
+```
+
+Connect 4 is the canonical instance. The same type class also instantiates Tic-Tac-Toe, Othello, Gomoku, and Hex; see [Canonical adversarial games](#canonical-adversarial-games).
+
+### Two-headed network
+
+The `Policy` shape from [RL framework primitives](#rl-framework-primitives), specialised:
+
+```haskell
+data AlphaZeroNet s a = AlphaZeroNet
+  { trunk      :: Network (Encoded s) Features       -- ResNet-style backbone canonical
+  , policyHead :: Network Features (Logits a)        -- softmax over legal actions
+  , valueHead  :: Network Features Scalar            -- ∈ [-1, +1] from player-to-move view
+  }
+```
+
+The trunk is **any** composition of the SL [Layer catalog](#layer-catalog) primitives via Dhall — typically a stack of `BasicBlock` plus `BatchNorm`, but the user may choose `BottleneckBlock`, attention-augmented trunks, etc.
+
+### MCTS-guided self-play loop
+
+```haskell
+data AlphaZeroLoop = AlphaZeroLoop
+  { totalIterations     :: Int                       -- outer (self-play, train, arena) cycles
+  , selfPlayGames       :: Int                       -- games per iteration
+  , mctsSimsPerMove     :: Int                       -- e.g. 800 for Connect 4
+  , temperatureSchedule :: Schedule Double           -- 1.0 for first N moves, 0.0 after
+  , dirichletAlpha      :: Double                    -- root exploration α
+  , dirichletEpsilon    :: Double                    -- root noise mixing weight
+  , cpuct               :: Double                    -- PUCT exploration constant
+  , trainingBatchSize   :: Int
+  , trainingEpochs      :: Int
+  , replayBufferGames   :: Int                       -- last-K games retained
+  , arenaConfig         :: ArenaConfig               -- gating new vs old net
+  , callbacks           :: Callback
+  , logger              :: Logger
+  }
+```
+
+### Deterministic stochasticity
+
+Root Dirichlet noise is drawn from a seed split per game (`splitmix64(masterSeed, gameIndex)`), matching VecEnv's per-env split. MCTS tie-breaking in argmax is by lowest action index; node expansion order is deterministic given seed. Same-substrate `(seed, net-state)` produces a bit-identical self-play game sequence.
+
+### Self-play buffer
+
+Triples `(canonicalState, mctsVisits, valueTarget)` plus all game symmetries (Connect 4's horizontal mirror is a free 2× data multiplier). The buffer is content-addressed and checkpointed exactly like the off-policy `ReplayBuffer` (see [Checkpoint object layout](#checkpoint-object-layout)).
+
+### Arena gating
+
+After each training iteration, the candidate net plays the incumbent for N games; promoted only if win rate ≥ threshold (e.g. 55%). This is the AlphaGo Zero gating policy (AlphaZero proper dropped it); jitML adopts it because it gives a stable regression target for the convergence golden.
+
+### Borrowed engineering from `~/MCTS`
+
+The deterministic-search arc — replay-from-transcript, exploration-cache reproducibility, seed-split discipline — was developed for the sibling MCTS project. jitML's MCTS module exposes an API-compatible surface so the underlying engine could be shared at the package level later (decision deferred).
+
+### Determinism contract
+
+The trajectory-determinism golden from [Golden tests for RL](#golden-tests-for-rl) applies unchanged to AlphaZero self-play. The convergence golden becomes: ELO ≥ T against a fixed random baseline (and ≥ T' against a fixed depth-N alpha-beta baseline for Connect 4), with T and T' derived from `k=5` replicates per the [Threshold methodology](#threshold-methodology).
+
+### Canonical adversarial games
+
+| Game | Players | Board / state | Action space | Branching | Notes / golden anchor |
+|---|---|---|---|---|---|
+| Tic-Tac-Toe | 2 | 3×3 | `Masked Discrete(9)` | ≤ 9 | optimal play → draw; minimax-equivalence golden |
+| Connect 4 | 2 | 6×7 (gravity) | `Masked Discrete(7)` | ≤ 7 | **canonical entry**; ELO vs random baseline; ELO vs depth-6 alpha-beta |
+| Othello (Reversi) | 2 | 8×8 | `Masked Discrete(64)` | ~ 5–15 | ELO targets TBD |
+| Gomoku-9x9 | 2 | 9×9 | `Masked Discrete(81)` | ≤ 81 | ELO targets TBD |
+| Hex-7x7 | 2 | 7×7 hex | `Masked Discrete(49)` | ≤ 49 | ELO targets TBD |
+
+Connect 4 is the canonical AlphaZero target; the others share the same `PerfectInfoGame` interface and self-play loop — switching games is a Dhall change, not a code change. Tic-Tac-Toe doubles as a unit-level golden: the game is solved by minimax, so AlphaZero's policy convergence is bit-checkable against minimax visit counts.
+
 ---
 
 # Checkpointing
@@ -1538,9 +1880,12 @@ offset   field         type             notes
 8+H      payload       bytes            packed dense tensors, no padding, little-endian dtype-native
 ```
 
-The CBOR header (canonical-form, keys sorted lexicographically by encoded byte string per RFC 8949 §4.2.1) decodes into:
+The CBOR header (canonical-form, keys sorted lexicographically by the byte string of their CBOR encoding — with shorter encodings sorting before longer encodings with a shared prefix, per RFC 8949 §4.2.1 (deterministic encoding)) decodes into:
 
 ```haskell
+-- Hash32 ≡ raw 32-byte SHA-256 digest (ByteString of length 32).
+type Hash32 = ByteString
+
 data JmwHeader = JmwHeader
   { jmwExperimentHash :: !Hash32     -- sha256(resolved-dhall)
   , jmwGraphShapeHash :: !Hash32     -- sha256 over canonicalised (path,dtype,shape) list — locked at experiment start
@@ -1597,7 +1942,11 @@ data CheckpointPart = CheckpointPart
 
 For two runs on the same substrate, `sha256(weights.bin)` is byte-identical when seed, resolved Dhall, step, data ordering, kernel reduction order, RNG state, and optimizer state all agree. This is the same-substrate-equality contract declared earlier in the README, now *checkable by SHA-equality* rather than by tolerant numeric comparison.
 
-Cross-substrate, the weight blobs are not byte-equal — float reassociation across hardware drifts at the last few ULPs. The [cross-backend test stanza](#test-suite-stanzas) measures per-tensor max-abs-delta against a tolerance band rather than asserting byte equality.
+Cross-substrate, the weight blobs are not byte-equal — float reassociation across hardware drifts at the last few ULPs. The [`jitml-cross-backend`](#test-suite-stanzas) stanza measures per-tensor max-abs-delta against a committed tolerance band rather than asserting byte equality.
+
+### Cross-substrate tolerance methodology
+
+ε is established by the same `k=5` replicate methodology that pins SL/RL convergence targets (see [Threshold methodology](#threshold-methodology)). For each canonical `(dataset, model)` and `(env, algo)` pair, the reference host runs `k=5` same-substrate replicates per backend; per-tensor `max-abs(deltaᵢⱼ)` is computed across every substrate pair `(cpu↔cuda)` and `(cpu↔metal)`. The 95th-percentile delta across the replicates is stored as a committed fixture under `test/golden/cross-backend/<pair>/<tensor>.json`. The fixture is byte-deterministic per doctrine §Golden Tests — no timestamps, no random IDs, no nondeterministic ordering — and the cross-backend stanza asserts each tensor's drift falls within its committed band. Widening a band requires explaining the cause in the PR description; tightening is a free win.
 
 ## No Postgres on jitML's data path
 
@@ -1672,14 +2021,32 @@ Source at `./web/`; spago + `purs` + esbuild bundle to `./web/dist/app.js`. UI f
 - **REST + JSON** for one-shot operations (`/api/experiments`, `/api/checkpoints`, `/api/runs`, `/api/trials`).
 - **WebSocket** for live event streams: the frontend connects to `/api/ws` (served by `jitml-demo`), which in turn subscribes to `training.event.<mode>` / `rl.event.<mode>` / `tune.event.<mode>` on Pulsar and proxies the relevant subset to the connected client. The frontend never connects to Pulsar directly — Envoy is the single localhost socket.
 
+## Stance
+
+The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Training runs are started, paused, resumed, and stopped from the UI; inference is invoked against any checkpoint by direct human input — drawing, uploading, or playing. Every interactive surface is covered end-to-end by Playwright in [`jitml-e2e`](#test-suite-stanzas).
+
 ## Panels
 
-- **Run list.** All experiments + runs from MinIO `jitml-checkpoints`, with status.
-- **Live training panel.** Loss curve, validation curves, throughput sparkline, GPU-util gauge — animated from `training.event.<mode>` over WebSocket. Embeds the TensorBoard iframe at `/tensorboard/?run=<experiment-hash>` in a side tab.
-- **RL panel.** Episode-reward distribution (live), env render preview (canvas-rendered from `EpisodeFrame` events), replay-buffer fill bar, exploration rate.
-- **Hyperparameter panel.** Pareto frontier (live), trial-by-trial heatmap, search-strategy state, trial detail drill-down.
+- **Run list.** All experiments + runs from MinIO `jitml-checkpoints`, with status, lineage tree, and one-click "branch a new run from this checkpoint."
+- **Live training panel.** Loss / validation curves, throughput sparkline, GPU-util gauge — animated from `training.event.<mode>` over WebSocket. Embeds the TensorBoard iframe at `/tensorboard/?run=<experiment-hash>` in a side tab. **Interactive controls:** start a new run from any committed experiment Dhall, pause/resume the current run, stop with optional final-checkpoint flush, change `LiveConfig` knobs (LR schedule, log level, retry budgets) and apply via SIGHUP. The control surface publishes `training.command.<mode>` envelopes; the daemon responds with `training.event.<mode>`.
+- **RL panel.** Episode-reward distribution (live), env render preview (canvas-rendered from `EpisodeFrame` events), replay-buffer fill, exploration rate. **Interactive controls:** start / pause / stop, swap policy, force-evaluate, scrub through a recorded trajectory.
+- **Hyperparameter panel.** Pareto frontier (live; multi-objective when the sampler is NSGA-II or GP-BO), trial-by-trial heatmap, per-axis (sampler / scheduler / pruner) state, PBT population view + hyperparameter-mutation lineage tree, trial detail drill-down. **Interactive controls:** launch a sweep, kill an individual trial, pin a trial as the "promote" candidate.
+- **MNIST handwriting panel.** A canvas component the user draws on with mouse or touchpad. The drawing is downsampled to 28×28, normalised, and fired at `inference.request.<mode>` against the configured MNIST checkpoint. The result panel shows the predicted class plus the full softmax distribution as a bar chart, updated live as the user draws (re-inference on stroke-end). The checkpoint is configurable to any committed MNIST run; the user can flip between the shallow-MLP run and the LeNet-5 CNN run to compare predictions side by side.
+- **Image-recognition panel (CIFAR / Tiny ImageNet).** Drag-and-drop or file-picker upload. The frontend center-crops + resizes to the model's input size client-side, posts to `/api/inference/image`, and shows top-K predictions with class probabilities. A "swap checkpoint" dropdown switches between ResNet-20 (CIFAR-10), Wide ResNet-28-10 (CIFAR-100), and ResNet-50 (Tiny ImageNet) without page reload.
+- **Game-play panel (Connect 4 et al.).** An interactive board for each game in [Canonical adversarial games](#canonical-adversarial-games). Click-to-drop on Connect 4; click-to-place on Tic-Tac-Toe / Othello / Gomoku / Hex. The user plays against the AlphaZero policy at a chosen checkpoint, with sliders for `mctsSimsPerMove` and temperature. A side pane renders the MCTS visit distribution (which the user can compare against the policy head's raw logits), the value head's evaluation of the current position, and a one-click "request engine analysis" that runs a deeper search at temperature 0. A "swap opponent" dropdown pits the latest checkpoint against an older one — the arena gating from [AlphaZero-style self-play](#alphazero-style-self-play) made interactive.
 - **Cluster panel.** Embedded Grafana iframe at `/grafana` + the route table from `cluster status`.
-- **Inference panel** (demo-only). Pick a checkpoint, submit a request, see the result.
+- **Inference panel.** Catch-all for non-canvas, non-image, non-game inference — paste a tensor as JSON, see the output tensor.
+
+## REST surfaces for interactive panels
+
+Every interactive panel maps to a small REST + WebSocket pair, all under `/api` and all WebSocket fan-in on `/api/ws` (no new top-level localhost routes):
+
+| Surface | HTTP | Daemon contract |
+|---|---|---|
+| Training control | `POST /api/runs/<run-id>/command` | publishes `training.command.<mode>` on Pulsar |
+| MNIST handwriting | `POST /api/inference/mnist` (28×28 tensor as base64 PNG or JSON array) | publishes `inference.request.<mode>`; result on `inference.result.<mode>` |
+| Image upload | `POST /api/inference/image` (multipart form) | same flow |
+| Game move | `POST /api/games/<game-id>/move` (`{player, move}`) | engine move via `inference.result.<mode>` |
 
 ## Tests
 
@@ -1688,13 +2055,27 @@ Source at `./web/`; spago + `purs` + esbuild bundle to `./web/dist/app.js`. UI f
 ## Deployment
 
 - **Linux substrates:** the bundle is built into the substrate image; `jitml-demo` workload serves it via Helm.
-- **Apple Silicon:** the bundle is built host-native; `cluster up` deploys the `jitml-demo` pod (Linux-CPU image); the host daemon publishes events to cluster Pulsar; the routed demo loads in the browser at `127.0.0.1:<edge-port>/`.
+- **Apple Silicon:** the bundle is built host-native; `cluster up` deploys the `jitml-demo` pod from the `jitml:local` image; the host daemon publishes events to cluster Pulsar; the routed demo loads in the browser at `127.0.0.1:<edge-port>/`.
 
 ---
 
 # Test-suite stanzas
 
-Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **Doctrine category** column maps each stanza onto one of the seven categories in doctrine §Test Categories (Pure Logic, Parser, Property, Golden, Integration, Daemon Lifecycle, Pulumi-Orchestrated Infrastructure); project-specific stanzas are flagged as "Integration (project-specific)" under doctrine §Test Organization → project-specific stanzas. The **Delegated by** column names the `TestCommand` constructor that targets the stanza. Per doctrine, the first four categories (Pure / Parser / Property / Golden) share the single `jitml-unit` stanza.
+**Doctrine coverage.** Every one of the seven test categories in [`HASKELL_CLI_TOOL.md` §Test Categories](HASKELL_CLI_TOOL.md#test-categories) is exercised by a jitML stanza — no category omitted, no parallel test surface outside this list:
+
+| Doctrine category | jitML stanzas |
+|---|---|
+| Pure Logic | `jitml-unit` |
+| Parser | `jitml-unit` |
+| Property | `jitml-unit` |
+| Golden | `jitml-unit` |
+| Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` (the four `*-canonicals` and the HPO stanza are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
+| Daemon Lifecycle | `jitml-daemon-lifecycle` |
+| Pulumi-Orchestrated Infrastructure | `jitml-e2e` |
+
+Plus the doctrine-mandated style stanza (per §Style as a Cabal test-suite): `jitml-haskell-style`, with `jitml-purescript-style` as the project-specific Lint extension.
+
+Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **Doctrine category** column below mirrors the matrix above per stanza. The **Delegated by** column names the `TestCommand` constructor that targets the stanza. Per doctrine, the first four categories (Pure / Parser / Property / Golden) share the single `jitml-unit` stanza.
 
 | Stanza | Doctrine category | Delegated by | Scope |
 |---|---|---|---|
@@ -1702,10 +2083,10 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-integration` | Integration | `TestIntegration` | `jitml` binary across all substrates; checkpoint round-trip; resume semantics; Dhall→typed-record decode; per-substrate determinism |
 | `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the five SL `(dataset, model)` pairs |
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix, forms (2) and (3) |
-| `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | Sobol reproducibility, GA reproducibility, resume-from-partial-sweep equality |
+| `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT), per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; tolerance from measured float-accumulation drift |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Pulumi owns the ephemeral Kind stack's lifecycle (`pulumi up` → run tests → `pulumi destroy`); Playwright drives the demo HTTP + WebSocket — kick off a training run via `/api`, observe live metrics over `/api/ws`, navigate to `/tensorboard` and `/grafana`; always-teardown via `bracket` |
+| `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | per doctrine §Pulumi-Orchestrated Infrastructure Tests: Pulumi (program at `infra/pulumi/`) owns an **ephemeral** Kind stack's lifecycle (unique stack name per run, aggressive resource tagging, `pulumi up` → run tests → `pulumi destroy` → `pulumi stack rm`); Playwright drives the demo surface end-to-end against the real Envoy routes. Cohorts: **(1) Training control** — start a run from a committed Dhall, observe live metrics on `/api/ws`, pause, resume, stop, assert checkpoint flush. **(2) MNIST handwriting** — navigate to the MNIST panel, simulate a touchpad stroke for each of the 10 digits via Playwright's pointer events, assert predicted class matches in ≥ 9/10 strokes. **(3) Image upload** — upload three fixture images per dataset (CIFAR-10, CIFAR-100, Tiny ImageNet) via Playwright's `setInputFiles`, assert top-1 / top-5 inclusion. **(4) Game-play** — drive a full Connect 4 game where Playwright plays a fixed-seed opponent sequence against the AlphaZero policy at a pinned checkpoint, assert the engine's response sequence matches a committed transcript fixture. **(5) TensorBoard / Grafana navigation** — assert iframes load and the checkpoint markers from [TensorBoard event storage / Cross-link to checkpoint manifests](#cross-link-to-checkpoint-manifests) appear. **(6) Hyperparameter sweep** — launch a small Sobol sweep from the UI, observe live Pareto-frontier updates, kill a trial, assert state propagates. Always-teardown via `bracket`. The e2e cluster is **distinct** from the developer's local `cluster up` Kind — different stack name, different lifetime; the e2e teardown never touches the dev cluster. |
 | `jitml-haskell-style` | doctrine-mandated style stanza (§Style as a Cabal test-suite) | `TestHaskellStyle` | `fourmolu --mode check`, `hlint`, `cabal format` round-trip |
 | `jitml-purescript-style` | Lint (project-specific) | `TestPureScriptStyle` | PureScript `purs format` round-trip + `purescript-spec` smoke tests |
 
@@ -1740,6 +2121,22 @@ cabal test                          # every stanza — equivalent to phase 1 of 
 ```
 
 `jitml test <stanza>` is sugar over `cabal test jitml-<stanza>`. The authoritative stanza list lives in `jitml.cabal`.
+
+### Lint matrix
+
+Per doctrine §Lint, Format, and Code-Quality Stack and §Standard Testing Stack, `lint *` is the surface for hand-written sources (paired with `docs *` for generated artifacts; see [Generated documentation flow](#generated-documentation-flow)). Each row below maps a `LintCommand` constructor to the tool family it gates. Execution lives inside `cabal test` via the `jitml-haskell-style` and `jitml-purescript-style` stanzas per doctrine §Style as a Cabal test-suite.
+
+| Target | Tools | Covered scope |
+|---|---|---|
+| `lint files` | repo-internal | whitespace, trailing newlines, forbidden paths, tracked-generated drift |
+| `lint docs` | `GeneratedSectionRule` registry | sentinel-marker drift in `README.md` and `HASKELL_CLI_TOOL.md` |
+| `lint proto` | `protoc` round-trip | wire schemas in `proto/jitml/` |
+| `lint chart` | repo-internal | Helm structural invariants (no dynamic provisioning, every PV with explicit `claimRef`, no freestanding PVCs) |
+| `lint haskell` | `fourmolu --mode check` + `hlint` + `cabal format` round-trip | per doctrine §Lint stack |
+| `lint purescript` | `purs format` round-trip + `purescript-spec` smoke | PureScript sources |
+| `lint all` | aggregate | every row above, then `cabal build all` |
+
+Every entry has a paired `--write` mode per doctrine §Paired check and write semantics; `--write` fixes what is auto-fixable and exits `3` when there is nothing to do.
 
 ---
 
@@ -1781,6 +2178,8 @@ cabal test                       PASS     (jitml-unit, jitml-integration,
 
 `jitml test all` is a Plan/Apply command per doctrine §Plan / Apply. `--dry-run` prints the rendered plan and exits 0. The summary block is rendered by a pure function over a typed `ReportCard` value, golden-testable with sentinel placeholders.
 
+The report-card surfaces a representative subset of the SL and RL canonical pairs (chosen to fit one screen). The full matrices are exercised by `cabal test jitml-sl-canonicals` and `cabal test jitml-rl-canonicals` — see [Canonical supervised learning problems](#canonical-supervised-learning-problems) and [Golden tests for RL](#golden-tests-for-rl).
+
 ---
 
 # Benchmarks
@@ -1815,20 +2214,20 @@ End-to-end walkthrough:
 
 ```bash
 # Apple Silicon
-./bootstrap/apple-silicon.sh
-./.build/jitml cluster up                                  # phased Helm deploy
-./.build/jitml cluster status                              # prints edge port
-./.build/jitml service &                                   # host-native daemon
+./bootstrap/apple-silicon.sh                                    # stage-0: prereqs + ./.build/jitml binary
+./.build/jitml cluster up                                       # phased Helm deploy; clustered jitml service starts inside Kind
+./.build/jitml cluster status                                   # prints edge port
+./.build/jitml service --config conf/host/apple-silicon.dhall & # host-native jitml service (residency = Host, inferenceMode = SelfInference)
 ./.build/jitml train experiments/mnist-mlp.dhall --substrate apple-silicon --seed 42
 
 # Linux CPU
-./bootstrap/linux-cpu.sh                                   # builds the substrate image
+./bootstrap/linux-cpu.sh                                        # builds jitml:local from docker/Dockerfile
 docker compose run --rm jitml jitml cluster up
 docker compose run --rm jitml jitml train \
   experiments/mnist-mlp.dhall --substrate linux-cpu --seed 42
 
 # Linux CUDA
-./bootstrap/linux-cuda.sh                                  # adds NVIDIA-driver checks
+./bootstrap/linux-cuda.sh                                       # adds NVIDIA-driver checks; same jitml:local image
 docker compose run --rm jitml jitml cluster up
 docker compose run --rm jitml jitml train \
   experiments/cifar10-resnet.dhall --substrate linux-cuda --seed 42
@@ -1884,7 +2283,9 @@ jitML/
     templates/                  -- GatewayClass, Gateway, HTTPRoutes, EnvoyProxy, ...
   kind/                         -- per-substrate Kind configs
   bootstrap/                    -- stage-0 idempotent reconcilers
-  docker/                       -- substrate Dockerfiles, compose.yaml, playwright.Dockerfile
+  infra/
+    pulumi/                     -- ephemeral-Kind stack for jitml-e2e (TypeScript program; see Test-suite stanzas)
+  docker/                       -- one Dockerfile (jitml:local), compose.yaml (one service: jitml), playwright.Dockerfile
   experiments/                  -- canonical experiment Dhall files
   test/                         -- per-stanza test trees
     test/golden/sl/             -- SL convergence/curve fixtures
@@ -1941,14 +2342,6 @@ Out of scope (informational only):
 
 ---
 
-# First milestone
-
-The first concrete deliverable is `./.build/jitml train experiments/mnist-mlp.dhall --substrate apple-silicon --seed 42` succeeding on a Mac with a fresh `./bootstrap/apple-silicon.sh` + `cluster up`, producing bit-identical checkpoints across reruns, hitting the baselined MNIST shallow-MLP target (TBD; established by the first `k=5` replicate run on the reference host), with live training events flowing to the PureScript frontend at `127.0.0.1:<edge-port>` and TensorBoard scalars visible at `/tensorboard`, all while Harbor, MinIO, Pulsar, Postgres, Envoy Gateway, Prometheus, Grafana run in the Kind cluster and the Metal-using daemon runs on the host.
-
-From there: add Linux CPU substrate, then Linux CUDA, then the Sobol sweep, then the first RL env (CartPole + PPO), then cross-substrate determinism, then the convergence-golden baselines that populate the TBD cells.
-
----
-
 # Why Haskell?
 
 `jitML` is built in Haskell because:
@@ -1963,9 +2356,15 @@ From there: add Linux CPU substrate, then Linux CUDA, then the Sobol sweep, then
 
 # Vision
 
-The long-term goal of `jitML` is to provide:
+jitML's long-term goal is a fully declarative, reproducible, deterministic ML runtime that:
 
-> A fully declarative, reproducible, deterministic machine learning runtime capable of compiling itself efficiently onto heterogeneous hardware while preserving exact experimental replay semantics across both supervised and reinforcement learning workloads.
+- compiles itself efficiently onto heterogeneous hardware (Apple Metal, NVIDIA CUDA, oneDNN/AVX) while preserving exact experimental replay semantics;
+- covers the full feedforward / convolutional / residual / attention SL design space with first-class Dhall types for every layer, activation, optimizer, and scheduler;
+- hosts the entire stable-baselines3 algorithm family — PPO, A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG, TD3, SAC, CrossQ, TQC, ARS, HER — plus AlphaZero-style self-play on perfect-information games (Connect 4 canonical);
+- offers hyperparameter optimisation across the sampler × scheduler × pruner axes — Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT × Fifo, SuccessiveHalving, Hyperband, ASHA × {none, median, percentile} pruners;
+- treats complex-valued networks as first-class citizens throughout the stack;
+- ships an interactive demo app that lets users start, pause, and stop training runs from the browser, draw handwritten digits on a touchpad for live MNIST inference, upload images for CIFAR/ImageNet recognition, and play Connect 4 (and the rest of the canonical adversarial games) against the AlphaZero policy at any committed checkpoint;
+- exercises every test category in [`HASKELL_CLI_TOOL.md` §Test Categories](HASKELL_CLI_TOOL.md#test-categories) — Pure Logic, Parser, Property, Golden, Integration, Daemon Lifecycle, Pulumi-Orchestrated Infrastructure — with Playwright e2e covering every interactive panel above.
 
 ---
 
