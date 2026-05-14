@@ -87,13 +87,17 @@ Owning module: `src/JitML/Numerics/Spectral.hs`.
 <!-- jitml:numerics.optimizers:start -->
 | Constructor | Hyperparameters |
 |-------------|----------------|
-| `SGD` | `lr`, `momentum`, `nesterov`, `weightDecay` |
-| `Momentum` | `lr`, `momentum` |
+| `SGD` | `lr`, `weightDecay` |
+| `MomentumSGD` | `lr`, `momentum`, `weightDecay` |
+| `NesterovSGD` | `lr`, `momentum`, `weightDecay` |
+| `RMSProp` | `lr`, `alpha`, `eps`, `momentum`, `weightDecay`, `centered` |
+| `Adagrad` | `lr`, `eps`, `weightDecay` |
+| `Adadelta` | `lr`, `rho`, `eps`, `weightDecay` |
 | `Adam` | `lr`, `beta1`, `beta2`, `eps`, `weightDecay` |
 | `AdamW` | `lr`, `beta1`, `beta2`, `eps`, `weightDecay` |
-| `RMSProp` | `lr`, `alpha`, `eps`, `momentum`, `weightDecay`, `centered` |
+| `LAMB` | `lr`, `beta1`, `beta2`, `eps`, `weightDecay` |
+| `LARS` | `lr`, `momentum`, `eta`, `weightDecay` |
 | `Lion` | `lr`, `beta1`, `beta2`, `weightDecay` |
-| `Adafactor` | `lr`, `beta2Cap`, `eps1`, `eps2`, `clipThreshold`, `decayRate`, `weightDecay`, `scaleParameter`, `relativeStep`, `warmupInit` |
 <!-- jitml:numerics.optimizers:end -->
 
 Owning module: `src/JitML/Numerics/Optimizer.hs`.
@@ -104,15 +108,18 @@ Owning module: `src/JitML/Numerics/Optimizer.hs`.
 | Constructor | Hyperparameters |
 |-------------|----------------|
 | `Constant` | `lr` |
-| `Step` | `startLr`, `gamma`, `stepSizeEpochs` |
-| `Cosine` | `startLr`, `finalLr`, `periodEpochs` |
-| `Polynomial` | `startLr`, `endLr`, `power`, `totalSteps` |
-| `WarmupCosine` | `warmupSteps`, `peakLr`, `finalLr`, `totalSteps` |
+| `Linear` | `start`, `end`, `totalSteps` |
+| `Cosine` | `start`, `end`, `totalSteps` |
+| `CosineWithWarmup` | `warmupSteps`, `peak`, `final`, `totalSteps` |
+| `Exponential` | `start`, `gamma`, `totalSteps` |
+| `Polynomial` | `start`, `end`, `power`, `totalSteps` |
 | `OneCycle` | `peakLr`, `totalSteps`, `pctStart`, `divFactor`, `finalDivFactor` |
-| `Plateau` | `factor`, `patience`, `threshold`, `minLr` |
+| `Piecewise` | ordered `(step, lr)` breakpoints |
 <!-- jitml:numerics.schedulers:end -->
 
-Owning module: `src/JitML/Numerics/Scheduler.hs`.
+Owning module: `src/JitML/Numerics/Scheduler.hs`. History-dependent
+`ReduceOnPlateau` behavior lives in callbacks because it consumes evaluation
+history rather than only progress.
 
 ## Loss Functions
 

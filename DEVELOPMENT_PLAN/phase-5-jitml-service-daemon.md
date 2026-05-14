@@ -103,7 +103,7 @@ schema.
   - `retryPolicy : RetryPolicy`
   - `tartIdleTimeout : Optional Natural` (Apple host-native only)
   - `inferenceBatchSize`, `inferenceMaxLatencyMillis`
-  - `gcReconcileIntervalSeconds`
+  - `drainDeadlineSeconds`
 - SIGHUP triggers `LiveConfig` re-read; restart-required field changes (i.e.,
   any `BootConfig` field) emit `AppError InvalidConfig` with the structured
   diagnostic and exit `2` so the orchestrator restarts the pod.
@@ -203,7 +203,7 @@ classes are the only allowed entry into external services from the daemon.
 2. `jitml-integration` exercises `putBlobIfAbsent` against MinIO and asserts
    `If-None-Match: *` `412` is treated as success.
 
-## Sprint 5.5: At-Least-Once Pulsar Consumer with Typed `EventID` ⏸️
+## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication ⏸️
 
 **Status**: Blocked
 **Blocked by**: 5.4
@@ -215,7 +215,7 @@ classes are the only allowed entry into external services from the daemon.
 
 Stand up the at-least-once Pulsar consumer per doctrine `At-Least-Once Event
 Processing`. Idempotency is the consumer's responsibility; the typed `EventID`
-deduplication key is opaque to the broker.
+deduplication key is the protobuf message hash and is opaque to the broker.
 
 ### Deliverables
 
@@ -223,8 +223,8 @@ deduplication key is opaque to the broker.
   (`training.command.<mode>`, `tune.command.<mode>`, `rl.command.<mode>`,
   `inference.request.<mode>`, plus `inference.command.apple-silicon` on the
   host daemon).
-- `EventID` is the doctrine-typed deduplication key, derived from
-  `(producerId, sequenceId, schemaVersion)` of the Pulsar message metadata.
+- `EventID` is the doctrine-typed deduplication key, derived from the protobuf
+  message hash. The daemon does not trust client-supplied IDs.
 - The dispatcher routes by event kind to the per-domain handler (training,
   tune, RL, inference). Per-handler `dedupCache :: TVar (LRUSet EventID)`
   provides at-least-once → effectively-once for the duration the entry stays

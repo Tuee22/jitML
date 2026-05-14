@@ -31,7 +31,7 @@ demo HTTP server and PureScript panels.
 ## Phase Summary
 
 This phase delivers the persistence layer in MinIO bucket `jitml-checkpoints`,
-the `.jmw1` dense weight blob format with no schema-library dependency, the
+the `.jmw1` dense weight blob format with a canonical-CBOR header, the
 typed manifest, the concurrency model from
 [../README.md → Concurrency model](../README.md#concurrency-model) (write-
 once + If-Match CAS — no advisory locks), the typed retention reconciler with
@@ -68,7 +68,7 @@ plus a typed manifest enumerating the blob keys).
   uniquely shaped tensor group), optimizer state, RNG state, replay buffer
   (RL only), exploration cache (RL only).
 - `experiment-hash = sha256(resolved-dhall || graph-shape-hash)`.
-- `manifest-sha = sha256(canonical-cbor(Manifest))`.
+- `manifest-sha = sha256(canonical-cbor(CheckpointManifest))`.
 - The `pointers/latest` update is the **single atomic commit point** for a
   checkpoint per [../README.md → Concurrency
   model](../README.md#concurrency-model).
@@ -92,8 +92,8 @@ plus a typed manifest enumerating the blob keys).
 
 ### Objective
 
-Land the `.jmw1` dense weight blob format (little-endian binary, no schema-
-library dependency), the typed CBOR manifest, the `If-None-Match: *`
+Land the `.jmw1` dense weight blob format (magic bytes, `header_len`,
+canonical-CBOR `JmwHeader`, packed little-endian payload), the typed CBOR manifest, the `If-None-Match: *`
 write-once protocol for blobs and manifests, and the `If-Match: <etag>` CAS
 protocol for pointers with typed advance predicates.
 
@@ -101,12 +101,13 @@ protocol for pointers with typed advance predicates.
 
 - `.jmw1` wire format documented in
   [`documents/engineering/checkpoint_format.md`](../documents/engineering/checkpoint_format.md):
-  little-endian header (magic `JMW1`, version `u32`, dtype tag, rank `u8`,
-  shape `u64[rank]`, byte count `u64`), payload bytes.
-- `Manifest` CBOR record carries: `parent-manifest-sha :: Maybe Hash`,
-  `layer-name -> blob-sha` map, `step :: Word64`, `epoch :: Word64`,
-  `resolved-dhall-hash :: Hash`, `substrate :: Substrate`, `engine-envelope
-  :: EngineEnvelope` (Sprint `7.2`), `metrics :: [(MetricName, Double)]`.
+  magic `JMW1`, `header_len :: Word32`, canonical-CBOR `JmwHeader`, then packed
+  little-endian payload bytes.
+- `CheckpointManifest` CBOR record carries: `experiment-hash :: Hash`,
+  `trial-hash :: Maybe Hash`, `step :: Word64`, `epoch :: Word64`,
+  `wall-clock-ns :: Word64` for telemetry only, `substrate :: Substrate`,
+  `schema-version :: Word32`, canonical-ordered `parts :: [CheckpointPart]`,
+  sorted metrics, and `parent-manifest :: Maybe Hash`.
 - `Write.hs` exposes `putBlobIfAbsent :: Hash -> ByteString -> ReaderT Env
   IO ()` using `If-None-Match: *`; `412 Precondition Failed` is success.
 - `Pointer.hs` exposes `casPointer :: PointerKey -> AdvancePredicate ->
@@ -157,7 +158,7 @@ cross-substrate tolerance methodology, and the typed retention reconciler
   - Reads `pointers/latest`, every `pointers/best/<metric>` for the metrics
     declared in the experiment Dhall, every `pointers/trial/<trial-hash>/*`
     reachable from the experiment.
-  - Follows `parent-manifest-sha` along the lineage chain. The transitive
+  - Follows `parent-manifest` along the lineage chain. The transitive
     closure is the **live set**.
   - Per the Dhall-declared `retain` policy (`Retention.LastN k` keeps the
     `k` most-recent manifests on the `latest` chain by `step`;

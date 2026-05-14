@@ -62,7 +62,7 @@ Land the on-policy family with golden trajectory fixtures.
 
 ### Validation
 
-1. `jitml rl run experiments/rl/<algo>-<env>.dhall` reaches the threshold
+1. `jitml rl train experiments/rl/<algo>-<env>.dhall` reaches the threshold
    mean episode reward.
 2. Same-substrate same-seed runs produce bit-identical metric trajectories
    matching the golden curve.
@@ -142,7 +142,7 @@ Stitch the golden trajectory fixtures from Sprints `9.1`–`9.3` into the
 
 - `jitml-unit` golden tasty group exercises every `(algo, env)` golden curve
   per the bit-identical-prefix contract from Sprints `9.1`–`9.2`.
-- `jitml-integration` runs the full `jitml rl run` command end-to-end for a
+- `jitml-integration` runs the full `jitml rl train` command end-to-end for a
   representative subset (PPO/cartpole, DQN/cartpole, SAC/lunarlander) and
   asserts daemon-side at-least-once idempotency holds.
 

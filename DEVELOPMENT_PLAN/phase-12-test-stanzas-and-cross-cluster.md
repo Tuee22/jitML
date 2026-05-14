@@ -20,7 +20,7 @@
 > cross-substrate parity gate that closes the plan. Phase 12 owns the
 > integration / canonicals / cross-backend / daemon-lifecycle / e2e stanzas
 > and the orchestrator; `jitml-haskell-style` is owned by Sprint `1.4`;
-> `jitml-purescript-style` is owned by Sprint `11.7`.
+> `jitml-purescript-style` is owned by Sprint `11.3`.
 
 ## Phase Status
 
@@ -40,7 +40,7 @@ the Plan/Apply orchestrator and the Pulumi TypeScript program at
 `infra/pulumi/` that brings up an ephemeral Kind stack for `jitml-e2e` (the
 doctrine's Pulumi-Orchestrated Infrastructure test category). The two style
 stanzas — `jitml-haskell-style` (owned by Sprint `1.4`) and
-`jitml-purescript-style` (owned by Sprint `11.7`) — are not landed by Phase
+`jitml-purescript-style` (owned by Sprint `11.3`) — are not landed by Phase
 12 but are listed as part of the ten-stanza inventory and consumed by
 `jitml test all`. The ten-stanza coverage maps every doctrine test category
 to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
@@ -346,7 +346,7 @@ This is the doctrine's Pulumi-Orchestrated Infrastructure test category.
   during the run, and the `jitml-demo` Deployment.
 - `test/e2e/` is a Haskell test driver that:
   1. Invokes `pulumi up` through the typed `Subprocess` boundary.
-  2. Runs `jitml train`, `jitml rl run`, `jitml tune` against the
+  2. Runs `jitml train`, `jitml rl train`, `jitml tune` against the
      ephemeral stack to seed the demo state.
   3. Drives the Playwright suite from
      [phase-11-purescript-frontend-and-demo.md → Sprint

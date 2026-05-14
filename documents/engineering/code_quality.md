@@ -98,9 +98,10 @@ later phase additions):
 3. `cabal format` temp-file round-trip byte-equality on `jitml.cabal`.
 4. `cabal build all -fwerror` (warning-clean build gate).
 5. `jitml lint files` (`forbiddenPathRegistry` + tracked-generated-paths).
-6. `jitml lint chart`.
-7. `jitml lint haskell` (forbidden subprocess and IO primitives).
-8. `jitml docs check` (generated-section drift).
+6. `jitml lint docs` (metadata, relative links, forbidden stale commands).
+7. `jitml lint chart`.
+8. `jitml lint haskell` (forbidden subprocess and IO primitives).
+9. `jitml docs check` (generated-section drift).
 
 ## Cross-References
 

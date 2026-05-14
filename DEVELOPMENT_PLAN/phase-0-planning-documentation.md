@@ -298,8 +298,8 @@ per standards rule L.
   - **Long-Running Daemons in the Same Binary**: `BootConfig`, `LiveConfig`,
     SIGHUP hot reload, `/healthz`, `/readyz`, `/metrics`, structured JSON
     stderr logging, recoverable-vs-fatal error kinds.
-  - **At-Least-Once Event Processing**: typed `EventID` deduplication keys;
-    Pulsar consumer semantics; idempotent application of `gc_reaped` and
+  - **At-Least-Once Event Processing**: protobuf-message-hash deduplication
+    keys; Pulsar consumer semantics; idempotent application of `gc_reaped` and
     `CheckpointDone` events.
   - **Reconcilers: Idempotent Mutation as a Single Command**: `jitml cluster
     up`, `jitml docs generate`, `jitml lint --write`, `jitml internal gc
@@ -373,7 +373,7 @@ per standards rule L.
     [system-components.md → POC Report-Card
     Knobs](system-components.md#poc-report-card-knobs) appears in
     `cabal.project` (Sprint `1.1`) and in the report-card sprint
-    (Sprint `12.3`).
+    (Sprint `12.9`).
 - An out-of-scope counter-grep confirms no sprint schedules adoption of any
   out-of-scope doctrine section. The following identifier must produce **zero**
   hits in `DEVELOPMENT_PLAN/*.md` except inside an explicit "out of scope" or

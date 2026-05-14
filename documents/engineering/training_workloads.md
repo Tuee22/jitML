@@ -25,11 +25,17 @@
 
 | Problem | Owning module | Threshold methodology | Golden curve fixture |
 |---------|---------------|-----------------------|----------------------|
-| MNIST | `src/JitML/SL/Problems/Mnist.hs` | Target accuracy ≥ 0.99 within `SL_EPOCHS` | `test/golden/sl/mnist/curve.cbor` |
-| Fashion-MNIST | `src/JitML/SL/Problems/Mnist.hs` (variant) | Target accuracy ≥ 0.92 | `test/golden/sl/fashion-mnist/curve.cbor` |
-| CIFAR-10 | `src/JitML/SL/Problems/Cifar.hs` | Target accuracy ≥ 0.85 | `test/golden/sl/cifar10/curve.cbor` |
-| CIFAR-100 | `src/JitML/SL/Problems/Cifar.hs` (variant) | Target accuracy ≥ 0.55 | `test/golden/sl/cifar100/curve.cbor` |
-| ImageNet | `src/JitML/SL/Problems/Imagenet.hs` | Target top-5 accuracy ≥ 0.85 | `test/golden/sl/imagenet/curve.cbor` |
+| MNIST shallow MLP | `src/JitML/SL/Problems/Mnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/mnist-shallow-mlp/curve.cbor` |
+| MNIST deep MLP | `src/JitML/SL/Problems/Mnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/mnist-deep-mlp/curve.cbor` |
+| MNIST LeNet-style CNN | `src/JitML/SL/Problems/Mnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/mnist-lenet/curve.cbor` |
+| Fashion-MNIST shallow MLP | `src/JitML/SL/Problems/FashionMnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/fashion-mnist-mlp/curve.cbor` |
+| Fashion-MNIST small ResNet | `src/JitML/SL/Problems/FashionMnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/fashion-mnist-resnet/curve.cbor` |
+| CIFAR-10 ResNet-20 | `src/JitML/SL/Problems/Cifar.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/cifar10-resnet20/curve.cbor` |
+| CIFAR-10 ResNet-56 | `src/JitML/SL/Problems/Cifar.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/cifar10-resnet56/curve.cbor` |
+| CIFAR-100 Wide ResNet-28-10 | `src/JitML/SL/Problems/Cifar.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/cifar100-wide-resnet/curve.cbor` |
+| CIFAR-10 small ViT | `src/JitML/SL/Problems/Cifar.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/cifar10-vit/curve.cbor` |
+| Tiny ImageNet ResNet-50 | `src/JitML/SL/Problems/TinyImagenet.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/tiny-imagenet-resnet50/curve.cbor` |
+| California Housing MLP | `src/JitML/SL/Problems/CaliforniaHousing.hs` | README regression target, converted to k=5 median-plus-slack golden | `test/golden/sl/california-housing-mlp/curve.cbor` |
 
 The convergence curve is the per-step loss / per-epoch eval-accuracy series.
 The golden anchor holds bit-identically under same-substrate determinism per
@@ -81,7 +87,7 @@ declarations.
 
 - Replay buffer (off-policy) and rollout buffer (on-policy).
 - `Async` write discipline with backpressure.
-- Per-buffer `EventID`-deduplicated commit log so duplicates from the
+- Per-buffer message-hash-deduplicated commit log so duplicates from the
   at-least-once Pulsar consumer are absorbed.
 
 ### Schedules, Distributions, Noise, Targets, GAE, Callbacks, Logger, Evaluator
@@ -100,12 +106,12 @@ declarations.
 `src/JitML/RL/Loop.hs` composes these into `RLLoop`, the typed pipeline that
 the algorithm catalog plugs into.
 
-### `jitml rl run` CLI
+### `jitml rl train` CLI
 
 ```
-jitml rl run <rl-experiment-dhall>
-             [--resume <checkpoint-id>]
-             [--dry-run | --plan-file <path>]
+jitml rl train <rl-experiment-dhall>
+               [--resume <checkpoint-id>]
+               [--dry-run | --plan-file <path>]
 ```
 
 Plan/Apply. Daemon's at-least-once `RlHandler` consumes

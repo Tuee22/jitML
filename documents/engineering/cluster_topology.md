@@ -94,8 +94,9 @@ lessons):
    public registries.
 2. **Mirror phase**: every third-party image is mirrored into Harbor.
 3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
-   TensorBoard, the `jitml-service` workload (Linux substrates), the
-   `jitml-demo` workload — all pulling exclusively from local Harbor.
+   TensorBoard, the `jitml-service` workload (all substrates: Linux
+   self-inference plus Apple forward-to-host), the `jitml-demo` workload —
+   all pulling exclusively from local Harbor.
 
 This avoids the chicken-and-egg of "Harbor isn't up yet, but everything wants
 to pull from it" without resorting to image-pull-secret juggling.

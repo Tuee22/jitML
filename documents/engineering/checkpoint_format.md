@@ -29,7 +29,7 @@ jitml-checkpoints/
 ```
 
 `experiment-hash = sha256(resolved-dhall || graph-shape-hash)`.
-`manifest-sha = sha256(canonical-cbor(Manifest))`.
+`manifest-sha = sha256(canonical-cbor(CheckpointManifest))`.
 
 ## Three Object Classes, Two Write Protocols
 
@@ -39,20 +39,18 @@ Each blob's key *is* `sha256(its bytes)`. PUTs use `If-None-Match: *` and
 treat `412 Precondition Failed` as success (the bytes already exist by
 definition).
 
-One checkpoint produces **many blobs**: one per model layer's weights
-(`encoder.weight`, `encoder.bias`, `head.weight`, …), plus one for optimizer
-state, one for RNG state, and (RL only) one each for replay buffer and
-exploration cache. Per-layer granularity is what makes dedup across
-checkpoints automatic — two consecutive checkpoints that differ only in
-their final layer share every other layer's blob by content hash.
+One checkpoint produces one blob per checkpoint part: weights, optimizer
+state, RNG state, and, for RL workloads, replay buffer and exploration
+cache. Part-level content addressing makes unchanged state deduplicate
+automatically across consecutive checkpoints.
 
 ### `manifests/<sha256>` — Write-Once Content-Addressed CBOR Manifests
 
 Each manifest names the blob SHAs that constitute one logical checkpoint
-plus the metadata needed to interpret them: parent manifest's SHA (for
-linear history), layer-name → blob-SHA map, step count, resolved Dhall
-hash, substrate that produced the bytes, engine envelope. Same
-`If-None-Match: *` write protocol.
+plus the metadata needed to interpret them: experiment hash, optional trial
+hash, step / epoch, telemetry wall-clock, substrate, schema version,
+canonical-ordered checkpoint parts, metrics, and parent manifest SHA for
+linear history. Same `If-None-Match: *` write protocol.
 
 The manifest's SHA is the canonical *checkpoint id* used by Pulsar
 `CheckpointDone` events, RPC envelopes, and `--resume <checkpoint-id>`.
@@ -62,51 +60,72 @@ The manifest's SHA is the canonical *checkpoint id* used by Pulsar
 Each pointer's body is a 32-byte manifest SHA. Updates use S3 conditional
 PUT with `If-Match: <etag>` — textbook compare-and-swap. The
 `pointers/latest` update is the **single atomic commit point** for a
-checkpoint: layer-level blob writes can happen in any order and may even
+checkpoint: part-level blob writes can happen in any order and may even
 leave orphans on failure, but the manifest is only adopted as HEAD when its
 pointer update succeeds.
 
 ## `.jmw1` Dense Weight Blob Format
 
-Little-endian binary, no schema-library dependency.
+The blob starts with magic bytes, a canonical-CBOR header length, the
+canonical-CBOR header, then packed little-endian tensor bytes:
 
 ```
-+----------------+----------------+----------------------+
-| magic (u32)    | version (u32)  | dtype tag (u8)       |
-+----------------+----------------+----------------------+
-| rank (u8)      | shape (u64[rank])                     |
-+----------------+----------------+----------------------+
-| byte count (u64)                                       |
-+----------------+----------------+----------------------+
-| payload bytes                                          |
-+----------------+----------------+----------------------+
+offset   field         type             notes
+0        magic         4 bytes          "JMW1"
+4        header_len    uint32 LE        size of CBOR header in bytes
+8        header_cbor   bytes            CBOR canonical form
+8+H      payload       bytes            packed dense tensors, no padding
 ```
 
-- magic: ASCII `JMW1` (`0x314D574A` little-endian).
-- version: starts at `1`. Future versions must be backward-compatible at the
-  reader side or fail with `AppError CheckpointFormatUnsupported`.
-- dtype tag: enumerated set of supported dtypes (`f32`, `f16`, `bf16`,
-  `f64`, `c32`, `c64`, `i32`, `i64`).
+The CBOR header decodes into:
 
-Payload is the tensor in row-major C order with no padding. Endianness is
-fixed to little-endian regardless of host arch.
+```haskell
+type Hash32 = ByteString
+
+data JmwHeader = JmwHeader
+  { jmwExperimentHash :: !Hash32
+  , jmwGraphShapeHash :: !Hash32
+  , jmwStep           :: !Word64
+  , jmwEpoch          :: !Word64
+  , jmwSubstrate      :: !Substrate
+  , jmwDtypeMap       :: !DtypeMap
+  , jmwTensors        :: ![TensorEntry]
+  }
+
+data Dtype = F32 | F64 | C32 | C64 | I32 | I64 | U8 | BF16
+```
+
+`jmwTensors` is canonical-ordered by tensor path ascending bytewise. Each
+entry carries path, dtype, shape, payload offset, byte length, and SHA-256.
+Payload bytes are contiguous, little-endian, dtype-native, and unpadded.
 
 ## CBOR Manifest
 
 ```haskell
-data Manifest = Manifest
-  { cmParentManifest    :: !(Maybe Hash)
-  , cmLayerToBlob       :: !(Map LayerName Hash)
-  , cmStep              :: !Word64
-  , cmEpoch             :: !Word64
-  , cmResolvedDhallHash :: !Hash
-  , cmSubstrate         :: !Substrate
-  , cmEngineEnvelope    :: !EngineEnvelope
-  , cmMetrics           :: ![(MetricName, Double)]
+data CheckpointManifest = CheckpointManifest
+  { cmExperimentHash :: !Hash32
+  , cmTrialHash      :: !(Maybe Hash32)
+  , cmStep           :: !Word64
+  , cmEpoch          :: !Word64
+  , cmWallClockNs    :: !Word64
+  , cmSubstrate      :: !Substrate
+  , cmSchemaVersion  :: !Word32
+  , cmParts          :: ![CheckpointPart]
+  , cmMetrics        :: ![(Text, Double)]
+  , cmParentManifest :: !(Maybe Hash32)
+  }
+
+data CheckpointPart = CheckpointPart
+  { cpRole    :: !PartRole
+  , cpBlobSha :: !Hash32
+  , cpBytes   :: !Word64
+  , cpFormat  :: !PartFormat
   }
 ```
 
-CBOR canonical-form encoding so the SHA is deterministic.
+`cmWallClockNs` is telemetry only and is never an input to any content hash.
+`cmParts` is canonical-ordered by role. CBOR canonical-form encoding makes
+the manifest SHA deterministic.
 
 ## Concurrency Model
 
@@ -175,10 +194,10 @@ re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
 ## Inference-Only Read Path
 
 `loadInferenceCheckpoint :: PointerKey -> ReaderT Env IO (KernelHandle,
-Manifest)` reads `pointers/<>`, fetches `manifests/<sha>`, fetches **only**
+CheckpointManifest)` reads `pointers/<>`, fetches `manifests/<sha>`, fetches **only**
 the `Weights` part's blob (skipping optimizer state, RNG state, replay
-buffer, exploration cache), instantiates a `KernelHandle` in `Inference`
-kind.
+buffer, and exploration cache), and instantiates a `KernelHandle` in
+`Inference` kind.
 
 Concurrent training advances are invisible to the reader because the
 snapshot the reader operates against is immutable.

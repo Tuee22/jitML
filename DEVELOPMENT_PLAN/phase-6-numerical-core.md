@@ -147,19 +147,26 @@ Enumerate the supported optimizers and learning-rate schedulers.
 
 ### Deliverables
 
-- `Optimizer` ADT: `SGD { lr, momentum, nesterov, weightDecay }`,
-  `Momentum { lr, momentum }`, `Adam { lr, beta1, beta2, eps, weightDecay }`,
-  `AdamW { lr, beta1, beta2, eps, weightDecay }`,
+- `Optimizer` ADT: `SGD { lr, weightDecay }`,
+  `MomentumSGD { lr, momentum, weightDecay }`,
+  `NesterovSGD { lr, momentum, weightDecay }`,
   `RMSProp { lr, alpha, eps, momentum, weightDecay, centered }`,
-  `Lion { lr, beta1, beta2, weightDecay }`,
-  `Adafactor { lr, beta2Cap, eps1, eps2, clipThreshold, decayRate,
-  weightDecay, scaleParameter, relativeStep, warmupInit }`.
-- `Scheduler` ADT: `Constant Double`, `Step { startLr, gamma, stepSizeEpochs
-  }`, `Cosine { startLr, finalLr, periodEpochs }`,
-  `Polynomial { startLr, endLr, power, totalSteps }`,
-  `WarmupCosine { warmupSteps, peakLr, finalLr, totalSteps }`,
-  `OneCycle { peakLr, totalSteps, pctStart, divFactor, finalDivFactor }`,
-  `Plateau { factor, patience, threshold, minLr }`.
+  `Adagrad { lr, eps, weightDecay }`,
+  `Adadelta { lr, rho, eps, weightDecay }`,
+  `Adam { lr, beta1, beta2, eps, weightDecay }`,
+  `AdamW { lr, beta1, beta2, eps, weightDecay }`,
+  `LAMB { lr, beta1, beta2, eps, weightDecay }`,
+  `LARS { lr, momentum, eta, weightDecay }`,
+  `Lion { lr, beta1, beta2, weightDecay }`.
+- `Scheduler` ADT: `Constant Double`,
+  `Linear { start, end, totalSteps }`,
+  `Cosine { start, end, totalSteps }`,
+  `CosineWithWarmup { warmupSteps, peak, final, totalSteps }`,
+  `Exponential { start, gamma, totalSteps }`,
+  `Polynomial { start, end, power, totalSteps }`,
+  `OneCycle { peak, totalSteps, pctStart, divFactor, finalDivFactor }`,
+  `Piecewise [(Step, Double)]`. History-dependent `ReduceOnPlateau` behavior is
+  modelled as an evaluation callback, not as a `Schedule` constructor.
 - Dhall mirrors.
 - Generated tables under `numerics.optimizers` and `numerics.schedulers`.
 

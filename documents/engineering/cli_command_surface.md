@@ -1,14 +1,13 @@
 # CLI Command Surface
 
-**Status**: Authoritative source
+**Status**: Reference only
 **Supersedes**: N/A
 **Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md
 **Generated sections**: cli-commands.help-blocks
 
-> **Purpose**: Project-specific CLI command matrix for `jitml` and
-> `jitml-demo`. Defers to the doctrine for the patterns that own the parser,
-> the generated artefacts, the introspection surface, the output rules, and
-> the standard flag families.
+> **Purpose**: Reference mirror of the README-owned CLI command matrix for
+> `jitml` and `jitml-demo`; defers to the doctrine for parser, generated
+> artifact, introspection, output, and standard-flag patterns.
 
 ## Doctrine Deferrals
 
@@ -29,8 +28,9 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
   `jitml docs generate`; `GeneratedSectionRule` registry;
   `trackingGeneratedPaths`.
 
-This doc does not duplicate the doctrine's prose — it lists the project-
-specific command tree.
+This doc does not duplicate the doctrine's prose. The authoritative command
+snapshot lives in [../../README.md → CLI command topology, typed](../../README.md#cli-command-topology-typed);
+the tree below is the engineering reference mirror.
 
 ## jitML Command Tree
 
@@ -55,6 +55,7 @@ jitml cluster up [--substrate apple-silicon|linux-cpu|linux-cuda]
                  [--dry-run | --plan-file <path>]
 jitml cluster down
 jitml cluster status
+jitml cluster reset --yes
 ```
 
 ### `jitml train`
@@ -67,6 +68,14 @@ jitml train <experiment-dhall>
             [--dry-run | --plan-file <path>]
 ```
 
+### `jitml eval`
+
+Deterministic evaluation run.
+
+```
+jitml eval <experiment-dhall> [--checkpoint <checkpoint-id>]
+```
+
 ### `jitml tune`
 
 Plan/Apply hyperparameter sweep.
@@ -77,14 +86,26 @@ jitml tune <tune-dhall>
            [--dry-run | --plan-file <path>]
 ```
 
-### `jitml rl run`
+### `jitml rl`
 
-Plan/Apply RL run.
+RL lifecycle.
 
 ```
-jitml rl run <rl-experiment-dhall>
-             [--resume <checkpoint-id>]
-             [--dry-run | --plan-file <path>]
+jitml rl train <rl-experiment-dhall>
+               [--resume <checkpoint-id>]
+               [--dry-run | --plan-file <path>]
+jitml rl eval <rl-experiment-dhall> [--checkpoint <checkpoint-id>]
+jitml rl rollout <rl-experiment-dhall> [--seed <word64>]
+```
+
+### `jitml verify`
+
+Determinism verification.
+
+```
+jitml verify same-run --experiment <experiment-dhall> --runs <int>
+jitml verify cross-backend --experiment <experiment-dhall> --backends <list>
+jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>
 ```
 
 ### `jitml inspect`
@@ -92,8 +113,31 @@ jitml rl run <rl-experiment-dhall>
 Inspect cached transcripts and checkpoints.
 
 ```
-jitml inspect replay <manifest-sha>
+jitml inspect list
 jitml inspect show <manifest-sha> [--with-equity]
+jitml inspect replay <manifest-sha>
+jitml inspect trial <trial-hash>
+jitml inspect frontier <sweep-id>
+```
+
+### `jitml bench`
+
+Benchmark harnesses.
+
+```
+jitml bench train <experiment-dhall>
+jitml bench inference <experiment-dhall> --checkpoint <checkpoint-id>
+jitml bench env <rl-experiment-dhall>
+```
+
+### `jitml inference run`
+
+Inference-at-any-point.
+
+```
+jitml inference run <experiment-dhall>
+                    --checkpoint latest|best/<metric>|<manifest-sha>
+                    [--trial <trial-hash>]
 ```
 
 ### `jitml test`
@@ -112,7 +156,9 @@ Lint stack (paired with `jitml docs check`).
 ```
 jitml lint files
 jitml lint docs
+jitml lint proto
 jitml lint haskell
+jitml lint purescript
 jitml lint chart
 jitml lint all [--write]
 ```
@@ -154,14 +200,37 @@ scan + chart lint + route-registry-drift check).
 Build the inner Haskell binary inside the substrate container; mirrors
 `bootstrap/<substrate>.sh build`.
 
-### `jitml internal vm exec` (Apple Silicon only)
+### `jitml kubectl`
+
+Passthrough pre-bound to `./.build/jitml.kubeconfig`.
+
+### `jitml internal materialize-substrate` / `list-prereqs`
+
+Non-doctrine-shaped helpers for substrate materialization and bootstrap
+prerequisite introspection.
+
+### `jitml internal vm` (Apple Silicon only)
 
 ```
+jitml internal vm bootstrap
+jitml internal vm up
+jitml internal vm down
+jitml internal vm status
 jitml internal vm exec -- <cmd>
 ```
 
 Pass-through to `tart ssh`. Apple-only escape hatch for debugging Swift build
 failures. Rejected on Linux substrates with `AppError UnknownCommand`.
+
+### `jitml internal cache`
+
+JIT cache introspection.
+
+```
+jitml internal cache stat
+jitml internal cache list
+jitml internal cache evict <hash>
+```
 
 ### `jitml internal gc`
 

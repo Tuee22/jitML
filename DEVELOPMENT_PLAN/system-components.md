@@ -30,9 +30,10 @@
 
 The inventory documents the authoritative end state. Every row is `📋 Planned` (or
 `⏸️ Blocked` on Phase `0` closure) at write time because the repository contains no
-source code yet — only the project README, the doctrine, the agent guardrails, and
-the LICENSE. Status moves to `🔄 Active` and then `✅ Done` as each owning sprint
-closes per [development_plan_standards.md → C. Honest Completion
+source code yet — only the project README, the doctrine, the agent guardrails, the
+LICENSE, this plan suite, and governed documentation under `documents/`. Status
+moves to `🔄 Active` and then `✅ Done` as each owning sprint closes per
+[development_plan_standards.md → C. Honest Completion
 Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
 ## Substrates
@@ -51,20 +52,26 @@ is not in the current support matrix.
 | Surface | Command | Purpose | Status | Owning Sprint |
 |---------|---------|---------|--------|---------------|
 | Service daemon | `jitml service` | Long-running daemon parameterised entirely by Dhall config (`BootConfig` / `LiveConfig`); no separate `host-service` verb | ⏸️ Blocked | Sprint 5.1 |
-| Cluster up | `jitml cluster up` | Plan/Apply: write Kind config, bring up Kind, write `./.build/jitml.kubeconfig`, run phased Helm rollout (bootstrap → mirror → final) | ⏸️ Blocked | Sprint 3.5 |
-| Cluster down/status | `jitml cluster down`, `jitml cluster status` | Tear down preserving `./.build/`/`./.data/`; report `edge_port` and stack health from `./.data/runtime/cluster-publication.json` | ⏸️ Blocked | Sprint 3.5 |
+| Cluster lifecycle | `jitml cluster up`, `jitml cluster down`, `jitml cluster status`, `jitml cluster reset` | Plan/Apply rollout, preserving teardown, status reporting, and destructive reset guarded by `--yes` | ⏸️ Blocked | Sprint 3.5 |
 | Train | `jitml train` | Plan/Apply: run a training job described by an experiment Dhall, publish events on `training.event.<mode>` | ⏸️ Blocked | Sprint 8.2 |
+| Eval | `jitml eval` | Evaluate a trained model or policy against a deterministic evaluation cohort | ⏸️ Blocked | Sprint 8.2 |
 | Tune | `jitml tune` | Plan/Apply: run a hyperparameter sweep described by a tuning Dhall, publish trial events on `tune.event.<mode>` | ⏸️ Blocked | Sprint 9.5 |
-| RL run | `jitml rl run` | Plan/Apply: run an RL experiment described by an RL Dhall | ⏸️ Blocked | Sprint 8.5 |
-| Inference replay | `jitml inspect replay <manifest-sha>` | Replay an inference path from a checkpoint, deterministic per the bit-determinism contract | ⏸️ Blocked | Sprint 10.4 |
-| Test runner | `jitml test all` / `jitml test <stanza>` | Plan/Apply over Cabal test stanzas plus the pinned report-card workload | ⏸️ Blocked | Sprint 12.3 |
-| Lint stack | `jitml lint files\|docs\|haskell\|chart\|all` | Whitespace, final newline, forbidden paths, generated sections, formatter + hlint + `cabal format`, chart-shape lint | ⏸️ Blocked | Sprint 1.4 |
+| RL lifecycle | `jitml rl train`, `jitml rl eval`, `jitml rl rollout` | Plan/Apply RL training, deterministic policy evaluation, and fixed-seed rollout cohorts | ⏸️ Blocked | Sprint 8.5 |
+| Verification | `jitml verify same-run`, `jitml verify cross-backend`, `jitml verify replay` | Same-substrate byte-equality, cross-backend tolerance, and checkpoint replay verification | ⏸️ Blocked | Sprint 12.7 |
+| Inspection | `jitml inspect list`, `jitml inspect show`, `jitml inspect replay`, `jitml inspect trial`, `jitml inspect frontier` | Inspect cached transcripts, checkpoints, trials, and hyperparameter frontiers | ⏸️ Blocked | Sprints 9.7, 10.4 |
+| Benchmarks | `jitml bench train`, `jitml bench inference`, `jitml bench env` | Reproducible benchmark harnesses for training, inference, and environment-step throughput | ⏸️ Blocked | Sprint 12.9 |
+| Inference | `jitml inference run` | Inference-at-any-point against `latest`, `best/<metric>`, or a manifest SHA | ⏸️ Blocked | Sprint 10.4 |
+| Test runner | `jitml test all` / `jitml test <stanza>` | Plan/Apply over Cabal test stanzas plus the pinned report-card workload | ⏸️ Blocked | Sprint 12.9 |
+| Lint stack | `jitml lint files\|docs\|proto\|chart\|haskell\|purescript\|all` | Hand-written source hygiene, formatter + hlint + `cabal format`, proto schema checks, PureScript formatting, and chart-shape lint | ⏸️ Blocked | Sprint 1.4 |
 | Docs generation | `jitml docs check` / `jitml docs generate` | Paired generated-section check and write per the `GeneratedSectionRule` registry | ⏸️ Blocked | Sprint 1.3 |
 | Command introspection | `jitml commands [--tree\|--json]` | Flat list, tree rendering, or JSON command schema from the `CommandSpec` registry | ⏸️ Blocked | Sprint 1.2 |
 | Focused help | `jitml help <subcommand>` | Equivalent to `<subcommand> --help`; same renderer | ⏸️ Blocked | Sprint 1.2 |
 | Code quality gate | `jitml check-code` | Doctrine-alignment enforcement, formatter, hlint, warning-clean build, forbidden-path scan | ⏸️ Blocked | Sprint 1.4 |
 | Build | `jitml build` | Build the inner Haskell binary inside the substrate container; mirrors `bootstrap/<substrate>.sh build` semantics from inside the daemon | ⏸️ Blocked | Sprint 2.4 |
-| Internal VM exec (Apple) | `jitml internal vm exec -- <cmd>` | Pass-through to `tart ssh`; Apple-only escape hatch for debugging Swift build failures | ⏸️ Blocked | Sprint 2.5 |
+| Kubectl passthrough | `jitml kubectl` | `kubectl` passthrough pre-bound to `./.build/jitml.kubeconfig` | ⏸️ Blocked | Sprint 3.5 |
+| Internal substrate materialization | `jitml internal materialize-substrate`, `jitml internal list-prereqs` | Non-doctrine-shaped helpers for bootstrap and substrate materialization | ⏸️ Blocked | Sprint 2.1 |
+| Internal VM lifecycle (Apple) | `jitml internal vm bootstrap\|up\|down\|status\|exec` | Tart VM lifecycle and pass-through debugging for Swift/Metal builds | ⏸️ Blocked | Sprint 2.5 |
+| Internal cache inspection | `jitml internal cache stat\|list\|evict` | JIT cache introspection and idempotent eviction helpers | ⏸️ Blocked | Sprint 2.3 |
 | Internal GC | `jitml internal gc <experiment-hash>` | Reconciler that enforces the experiment Dhall's `retain` policy on the checkpoint store; exit code `3` on no-op | ⏸️ Blocked | Sprint 10.3 |
 | Demo HTTP server | `jitml-demo` | Sibling binary serving the PureScript bundle plus the inference REST surface; both binaries share the `src/JitML/` library | ⏸️ Blocked | Sprint 11.5 |
 
@@ -166,7 +173,7 @@ internal-RPC pair.
 | `HasKubectl` capability class | Capability Classes and Service Errors | ⏸️ Blocked | Sprint 5.4 |
 | `RetryPolicy` typed value | Retry Policy as First-Class Values | ⏸️ Blocked | Sprint 5.4 |
 | At-least-once Pulsar consumer | At-Least-Once Event Processing | ⏸️ Blocked | Sprint 5.5 |
-| `EventID` typed deduplication keys | At-Least-Once Event Processing → idempotency | ⏸️ Blocked | Sprint 5.5 |
+| Protobuf-message-hash deduplication keys | At-Least-Once Event Processing → idempotency | ⏸️ Blocked | Sprint 5.5 |
 | Stateless `Deployment` (not `StatefulSet`) | Long-Running Daemons | ⏸️ Blocked | Sprint 5.6 |
 | Pod anti-affinity (`topologyKey: kubernetes.io/hostname`) | Long-Running Daemons | ⏸️ Blocked | Sprint 5.6 |
 
@@ -178,8 +185,8 @@ internal-RPC pair.
 | Real-valued activations (ReLU, LeakyReLU, GELU, SiLU, Tanh, Sigmoid, Softmax, ...) | `src/JitML/Numerics/Activation.hs` | ⏸️ Blocked | Sprint 6.2 |
 | Complex-valued activations (modReLU, zReLU, complex GELU, ...) | `src/JitML/Numerics/Activation/Complex.hs` | ⏸️ Blocked | Sprint 6.2 |
 | Spectral / frequency-domain ops (FFT, IFFT, RFFT, complex multiply) | `src/JitML/Numerics/Spectral.hs` | ⏸️ Blocked | Sprint 6.3 |
-| Optimizers (SGD, Momentum, Adam, AdamW, RMSProp, Lion, Adafactor) | `src/JitML/Numerics/Optimizer.hs` | ⏸️ Blocked | Sprint 6.4 |
-| Schedulers (constant, step, cosine, polynomial, warmup-cosine) | `src/JitML/Numerics/Scheduler.hs` | ⏸️ Blocked | Sprint 6.4 |
+| Optimizers (SGD, Momentum SGD, Nesterov SGD, RMSProp, Adagrad, Adadelta, Adam, AdamW, LAMB, LARS, Lion) | `src/JitML/Numerics/Optimizer.hs` | ⏸️ Blocked | Sprint 6.4 |
+| Schedulers (constant, linear, cosine, cosine-with-warmup, exponential, polynomial, one-cycle, piecewise; `ReduceOnPlateau` as a callback) | `src/JitML/Numerics/Scheduler.hs` | ⏸️ Blocked | Sprint 6.4 |
 | Loss functions (cross-entropy, focal, MSE, Huber, IoU) | `src/JitML/Numerics/Loss.hs` | ⏸️ Blocked | Sprint 6.5 |
 | Dhall types for every constructor | `dhall/numerics/{Layer,Activation,Optimizer,Scheduler,Loss}.dhall` | ⏸️ Blocked | Sprint 6.6 |
 
@@ -201,7 +208,7 @@ internal-RPC pair.
 | Component | Implementation | Status | Owning Sprint |
 |-----------|----------------|--------|---------------|
 | Supervised training loops | `src/JitML/SL/Train.hs`, `src/JitML/SL/Loop.hs` | ⏸️ Blocked | Sprint 8.1 |
-| Canonical SL problem set (MNIST, Fashion-MNIST, CIFAR-10, CIFAR-100, ImageNet) | `src/JitML/SL/Problems/`; threshold methodology and golden curve fixtures under `test/golden/sl/` | ⏸️ Blocked | Sprint 8.1 |
+| Canonical SL problem set (eleven README cells: MNIST MLP/CNN variants, Fashion-MNIST variants, CIFAR-10 variants, CIFAR-100 WideResNet, CIFAR-10 ViT, Tiny ImageNet ResNet-50, California Housing MLP) | `src/JitML/SL/Problems/`; threshold methodology and golden curve fixtures under `test/golden/sl/` | ⏸️ Blocked | Sprint 8.1 |
 | Canonical RL environments (cartpole, mountain-car, lunar-lander, atari-subset) | `src/JitML/Env/` | ⏸️ Blocked | Sprint 8.3 |
 | RL Algorithm class taxonomy (type-level) | `src/JitML/RL/Algorithm.hs` (GADT-indexed per doctrine `GADT-Indexed State Machines`) | ⏸️ Blocked | Sprint 8.4 |
 | Policy as typed value | `src/JitML/RL/Policy.hs` | ⏸️ Blocked | Sprint 8.4 |
@@ -229,7 +236,7 @@ internal-RPC pair.
 |-----------|----------------|--------|---------------|
 | Storage layout (typed) | `src/JitML/Storage/Layout.hs` | ⏸️ Blocked | Sprint 10.1 |
 | Split-blob layout (`blobs/<sha256>`, `manifests/<sha256>`, `pointers/{latest,best/<metric>,trial/...}`) | `src/JitML/Storage/Checkpoint.hs` | ⏸️ Blocked | Sprint 10.1 |
-| `.jmw1` dense weight blob format (little-endian binary, no schema-library dependency) | `src/JitML/Storage/Format.hs` | ⏸️ Blocked | Sprint 10.2 |
+| `.jmw1` dense weight blob format (magic bytes, `header_len`, canonical-CBOR `JmwHeader`, packed little-endian payload) | `src/JitML/Storage/Format.hs` | ⏸️ Blocked | Sprint 10.2 |
 | CBOR manifest | `src/JitML/Storage/Manifest.hs` | ⏸️ Blocked | Sprint 10.2 |
 | `If-None-Match: *` write-once protocol for blobs and manifests | `src/JitML/Storage/Write.hs` | ⏸️ Blocked | Sprint 10.2 |
 | `If-Match: <etag>` CAS for pointers; typed advance predicates (`advanceLatest`, `advanceBestMaximised`, `advanceBestMinimised`) | `src/JitML/Storage/Pointer.hs` | ⏸️ Blocked | Sprint 10.2 |
@@ -263,7 +270,7 @@ standards rule L.
 
 | Component | Doctrine Section | Status | Owning Sprint |
 |-----------|------------------|--------|---------------|
-| `CommandSpec` registry as source of truth | Automatically Generated Documentation; Command Topology | ⏸️ Blocked | Sprint 1.2 |
+| `CommandSpec` registry as implementation source | Automatically Generated Documentation; Command Topology | ⏸️ Blocked | Sprint 1.2 |
 | `OptionSpec` record fields (`longName`, `shortName`, `metavar`, `description`, `required`) | Automatically Generated Documentation | ⏸️ Blocked | Sprint 1.2 |
 | Per-leaf `Example` entries on every `CommandSpec` | Automatically Generated Documentation | ⏸️ Blocked | Sprint 1.2 |
 | Parser generated from the registry (parser is a renderer, not the source of truth) | Command Topology | ⏸️ Blocked | Sprint 1.2 |
@@ -288,7 +295,7 @@ standards rule L.
 | GADT-indexed `TrainingLifecycle`, `RLRunLifecycle`, `TuneSweepLifecycle` | GADT-Indexed State Machines | ⏸️ Blocked | Sprint 8.4, 8.6, 9.7 |
 | Capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) | Capability Classes and Service Errors | ⏸️ Blocked | Sprint 5.4 |
 | `RetryPolicy` typed value with named strategies | Retry Policy as First-Class Values | ⏸️ Blocked | Sprint 5.4 |
-| At-least-once Pulsar consumer with typed `EventID` deduplication | At-Least-Once Event Processing | ⏸️ Blocked | Sprint 5.5 |
+| At-least-once Pulsar consumer with protobuf-message-hash deduplication | At-Least-Once Event Processing | ⏸️ Blocked | Sprint 5.5 |
 | Long-running daemon shape (`BootConfig` / `LiveConfig`, SIGHUP, `/healthz`, `/readyz`, `/metrics`, structured JSON stderr logging) | Long-Running Daemons in the Same Binary | ⏸️ Blocked | Sprints 5.2, 5.3 |
 | Reconciler discipline (`jitml cluster up`, `jitml docs generate`, `jitml lint --write`, `jitml internal gc`) | Reconcilers: Idempotent Mutation as a Single Command | ⏸️ Blocked | Sprints 3.5, 1.3, 1.4, 10.3 |
 | Cabal-manifest toolchain pin (`tested-with: ghc ==9.14.1` in `jitml.cabal`, `with-compiler: ghc-9.14.1` in `cabal.project`, codegen toolchains pinned in `cabal.project`) | Toolchain pinning | ⏸️ Blocked | Sprint 1.1 |
@@ -382,7 +389,7 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 | Checkpoint store | `jitml service` (training path) | MinIO `jitml-checkpoints/<experiment-hash>/{blobs,manifests,pointers}` | Concurrency: write-once + If-Match CAS on pointers |
 | Trial store | `jitml tune` | MinIO `jitml-trials/<sha256(resolved-dhall \|\| trial-seed)>/` | Trial transcripts content-addressed |
 | TensorBoard events | `jitml service` writers | MinIO `jitml-tensorboard/<experiment-hash>/shards/*.tfevents` plus checkpoint sidecars | Stateless TB pod reads from MinIO |
-| RL transcripts | `jitml rl run` | MinIO `jitml-transcripts/` | Analog of MCTS's `.mcts-cache/transcripts/` |
+| RL transcripts | `jitml rl train` / `jitml rl rollout` | MinIO `jitml-transcripts/` | Analog of MCTS's `.mcts-cache/transcripts/` |
 | Plan suite | repository worktree | `DEVELOPMENT_PLAN/` | This document set |
 | Doctrine | repository worktree | `HASKELL_CLI_TOOL.md` (root) | Authoritative CLI doctrine |
 | Governed engineering docs | repository worktree | `documents/engineering/` | Project-specific elaborations of the doctrine and project-owned content |

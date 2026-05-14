@@ -74,7 +74,7 @@ restart):
 | `tartIdleTimeout` | `Optional Natural` | Apple host-native only; default `1800` s |
 | `inferenceBatchSize` | `Natural` | Per-batch inference budget |
 | `inferenceMaxLatencyMillis` | `Natural` | Inference SLO |
-| `gcReconcileIntervalSeconds` | `Natural` | Periodic `jitml internal gc` cadence |
+| `drainDeadlineSeconds` | `Natural` | Graceful shutdown budget before forced exit |
 
 The Dhall schemas at `dhall/service/{BootConfig,LiveConfig}.dhall` are
 authoritative; Haskell decoders use `Dhall.input`.
@@ -138,11 +138,11 @@ Service-error kinds:
 ## At-Least-Once Pulsar Consumer
 
 Per doctrine `At-Least-Once Event Processing`. Idempotency is the consumer's
-responsibility; the typed `EventID` deduplication key is opaque to the
-broker.
+responsibility; the typed `EventID` deduplication key is derived from the
+protobuf message hash and is opaque to the broker.
 
-- `EventID` derived from `(producerId, sequenceId, schemaVersion)` of the
-  Pulsar message metadata.
+- `EventID` is derived from the protobuf message hash. The daemon does not
+  trust client-supplied IDs.
 - Per-handler `dedupCache :: TVar (LRUSet EventID)` provides at-least-once
   → effectively-once for the duration the entry stays cached. Cache size
   and TTL are `LiveConfig` knobs.

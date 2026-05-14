@@ -38,16 +38,18 @@ implementations consume them.
 **Status**: Blocked
 **Blocked by**: phase-7
 **Implementation**: `src/JitML/SL/Train.hs`, `src/JitML/SL/Loop.hs`,
-`src/JitML/SL/Problems/Mnist.hs`, `src/JitML/SL/Problems/Cifar.hs`,
-`src/JitML/SL/Problems/Imagenet.hs`, `src/JitML/SL/Dataset.hs`,
+`src/JitML/SL/Problems/Mnist.hs`, `src/JitML/SL/Problems/FashionMnist.hs`,
+`src/JitML/SL/Problems/Cifar.hs`, `src/JitML/SL/Problems/TinyImagenet.hs`,
+`src/JitML/SL/Problems/CaliforniaHousing.hs`, `src/JitML/SL/Dataset.hs`,
 `test/golden/sl/`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
 
-Stand up the supervised training loop, the canonical SL problem set (MNIST,
-Fashion-MNIST, CIFAR-10, CIFAR-100, ImageNet), the dataset loader against
-MinIO bucket `jitml-datasets`, and golden convergence-curve fixtures.
+Stand up the supervised training loop, the eleven canonical SL problem cells from
+[../README.md → Canonical supervised learning problems](../README.md#canonical-supervised-learning-problems),
+the dataset loader against MinIO bucket `jitml-datasets`, and golden
+convergence-curve fixtures.
 
 ### Deliverables
 
@@ -118,7 +120,7 @@ CLI as the operator-facing entrypoint, and the `training.command.<mode>` /
 2. `jitml train experiments/sl/mnist-baseline.dhall` produces the same
    convergence curve as Sprint `8.1`'s direct invocation.
 3. Replay of the same `StartTraining` envelope is idempotent (Sprint `5.5`'s
-   `EventID` deduplication holds).
+   protobuf-message-hash deduplication holds).
 
 ## Sprint 8.3: Canonical RL Environments ⏸️
 
@@ -206,7 +208,7 @@ value, Environment / VecEnv as typed capability, replay/rollout buffers with
 Land the per-component primitives used by every algorithm in the Phase `9`
 catalog: schedules, action distributions, action noise, target networks +
 Polyak averaging, GAE, callbacks as composable hooks, multi-sink Logger,
-Evaluator. Wire `jitml rl run` and the `rl.command.<mode>` /
+Evaluator. Wire `jitml rl train` and the `rl.command.<mode>` /
 `rl.event.<mode>` Pulsar topics.
 
 ### Deliverables
@@ -229,14 +231,14 @@ Evaluator. Wire `jitml rl run` and the `rl.command.<mode>` /
   deterministic eval episodes against the trained policy.
 - `proto/jitml/rl.proto` declares `StartRLRun`, `StopRLRun`, `EpisodeDone`,
   `EvalDone`, `CheckpointDone`, `MetricUpdate`.
-- `jitml rl run <rl-experiment-dhall>` is Plan/Apply.
+- `jitml rl train <rl-experiment-dhall>` is Plan/Apply.
 
 ### Validation
 
 1. Each primitive has a `decode . encode == id` golden.
 2. `jitml-unit` exercises GAE against a synthetic trajectory and asserts
    bit-identical advantage arrays.
-3. `jitml rl run --dry-run` emits the typed plan.
+3. `jitml rl train --dry-run` emits the typed plan.
 
 ## Sprint 8.6: RL Training Loops as Typed Pipelines ⏸️
 
@@ -263,7 +265,7 @@ algorithm catalog (Phase `9`) plugs into.
 
 ### Validation
 
-1. `jitml rl run experiments/rl/cartpole-ppo-baseline.dhall` reaches the
+1. `jitml rl train experiments/rl/cartpole-ppo-baseline.dhall` reaches the
    threshold mean episode reward inside `RL_STEPS` (see
    [system-components.md → POC Report-Card
    Knobs](system-components.md#poc-report-card-knobs)).
@@ -284,7 +286,7 @@ algorithm catalog (Phase `9`) plugs into.
 
 - `documents/engineering/training_workloads.md` — populate the SL training
   loop, canonical SL problem set with thresholds, RL framework primitive
-  catalog, and the `jitml train` / `jitml rl run` CLI surface.
+  catalog, and the `jitml train` / `jitml rl train` CLI surface.
 - `documents/engineering/daemon_architecture.md` — link to the at-least-once
   `TrainingHandler` and `RlHandler`.
 

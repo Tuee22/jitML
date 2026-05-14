@@ -30,7 +30,7 @@ Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
 This phase delivers the single-binary `jitml` CLI built by Cabal under the pinned
 toolchain (GHC `9.14.1`, Cabal `3.16.1.0`), with the library-first layout (`app/`
-shims, `src/JitML/`), the `CommandSpec` registry as the source of truth for the
+shims, `src/JitML/`), the `CommandSpec` registry as the code source for the
 parser and every generated artefact (markdown command reference, manpages, shell
 completions, JSON command schema, tree output), the typed `Subprocess` / `Plan` /
 `apply` / `prerequisiteRegistry` / `Env` / `AppError` patterns from
@@ -107,7 +107,7 @@ library set per doctrine `Overview → standardized stack`.
 
 ### Objective
 
-Establish the `CommandSpec` registry as the single source of truth for the
+Establish the `CommandSpec` registry as the single implementation source for the
 parser, the command tree (`jitml commands --tree`), the JSON command schema
 (`jitml commands --json`), the markdown command reference, the manpages, and the
 shell completion scripts per doctrine `Command Topology` and `Automatically
@@ -121,13 +121,19 @@ Generated Documentation`.
   `metavar`, `description`, `required`).
 - The `CommandSpec` registry covers every command surface from
   [system-components.md → Haskell CLI
-  Surface](system-components.md#haskell-cli-surface): `service`, `cluster up`,
-  `cluster down`, `cluster status`, `train`, `tune`, `rl run`, `inspect replay`,
-  `test all`, `test <stanza>`, `lint files|docs|haskell|chart|all`, `docs check`,
-  `docs generate`, `commands`, `help`, `check-code`, `build`, `internal vm exec`,
-  `internal gc`. Each leaf carries at least one `Example`.
+  Surface](system-components.md#haskell-cli-surface): `cluster up`, `cluster down`,
+  `cluster status`, `cluster reset`, `service`, `train`, `eval`, `tune`,
+  `rl train`, `rl eval`, `rl rollout`, `verify same-run`, `verify cross-backend`,
+  `verify replay`, `inspect list`, `inspect show`, `inspect replay`,
+  `inspect trial`, `inspect frontier`, `bench train`, `bench inference`,
+  `bench env`, `inference run`, `test all`, every per-stanza `test` leaf,
+  `lint files|docs|proto|chart|haskell|purescript|all`, `docs check`,
+  `docs generate`, `check-code`, `build`, `kubectl`,
+  `internal materialize-substrate`, `internal list-prereqs`, `internal gc`,
+  `internal vm bootstrap|up|down|status|exec`, `internal cache stat|list|evict`,
+  `commands`, and `help`. Each leaf carries at least one `Example`.
 - The parser in `src/JitML/CLI/Parser.hs` is generated from the registry — it is
-  a renderer of the spec, not the source of truth. Hand-written
+  a renderer of the spec, not its own source. Hand-written
   `optparse-applicative` parsers outside the renderer are hlint-forbidden.
 - `jitml commands` flat-prints the leaf commands; `jitml commands --tree` renders
   the tree; `jitml commands --json` emits the JSON schema. All three are
@@ -169,6 +175,8 @@ doctrine `Generated Artifacts → The generated-section registry`.
 ### Deliverables
 
 - `GeneratedSectionRule` registry in `src/JitML/Generated/Registry.hs` covers:
+  - the command tree and command registry snapshots inside `README.md` (keys
+    `command-tree`, `command-registry`),
   - the markdown command reference at `documents/cli/commands.md` (key
     `cli-commands.reference`),
   - the CLI help blocks inside `documents/engineering/cli_command_surface.md`

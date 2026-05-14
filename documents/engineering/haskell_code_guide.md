@@ -38,7 +38,7 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
   → acquire → ready → serve → drain → exit`, `BootConfig` /
   `LiveConfig`, SIGHUP hot reload, `/healthz` / `/readyz` / `/metrics`,
   structured JSON logging on stderr, recoverable-vs-fatal error kinds.
-- **At-Least-Once Event Processing** — typed `EventID` deduplication;
+- **At-Least-Once Event Processing** — protobuf-message-hash deduplication;
   Pulsar consumer semantics.
 - **Reconcilers: Idempotent Mutation as a Single Command** — exit code `3`
   on no-op-on-match.
@@ -115,7 +115,7 @@ smart constructors are hlint-forbidden outside the interpreter module.
 
 Every command that mutates external state is Plan/Apply:
 
-- `jitml train`, `jitml tune`, `jitml rl run`, `jitml cluster up`,
+- `jitml train`, `jitml tune`, `jitml rl train`, `jitml cluster up`,
   `jitml test all`, `jitml internal gc`, `jitml service` startup-as-plan.
 
 All support `--dry-run` and `--plan-file <path>`.
@@ -134,12 +134,12 @@ Per doctrine `Long-Running Daemons in the Same Binary`, `jitml service`:
 - `BootConfig` Dhall: `substrate`, `residency`, `inferenceMode`, Pulsar /
   MinIO / Harbor connection info, HTTP listener.
 - `LiveConfig` Dhall: log level, `RetryPolicy`, `tartIdleTimeout` (Apple),
-  inference batch / latency, `gcReconcileIntervalSeconds`.
+  inference batch / latency, `drainDeadlineSeconds`.
 - SIGHUP triggers `LiveConfig` reload; restart-required field changes emit
   `AppError InvalidConfig` with exit `2`.
 - `/healthz`, `/readyz`, `/metrics` are mandatory.
 - Logging: structured JSON on stderr.
-- At-least-once Pulsar consumer with typed `EventID` deduplication.
+- At-least-once Pulsar consumer with protobuf-message-hash deduplication.
 
 ## Cross-References
 

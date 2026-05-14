@@ -41,10 +41,12 @@ Phase `0` (planning and documentation topology) is `🔄 Active` on Sprint `0.1`
 scheduling audit) is `📋 Planned`. Phases `1` through `12` are all `⏸️ Blocked` on
 Phase `0` closure per [development_plan_standards.md → C. Honest Completion
 Tracking](development_plan_standards.md#c-honest-completion-tracking): no Haskell,
-Dhall, Helm, PureScript, or shell source has been written. The repository at write
-time contains only the project [../README.md](../README.md), the doctrine
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md), and the agent guardrails
-[../AGENTS.md](../AGENTS.md), [../CLAUDE.md](../CLAUDE.md), and [../LICENSE](../LICENSE).
+Dhall, Helm, PureScript, or shell source has been written. The repository currently
+contains the project [../README.md](../README.md), the doctrine
+[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md), the agent guardrails
+[../AGENTS.md](../AGENTS.md), [../CLAUDE.md](../CLAUDE.md), [../LICENSE](../LICENSE),
+this `DEVELOPMENT_PLAN/` suite, and the governed docs under
+[../documents/](../documents/).
 
 This is the documentation phase. No source code lands until Sprint `0.2` closes and
 the doctrine-driven scheduling audit confirms every in-scope identifier from
@@ -117,12 +119,13 @@ A sprint can move to `Done` only when all of the following are true:
 
 ## Current Plan Status
 
-The repository at write time contains only the project README, the doctrine, the
-agent guardrails, and the LICENSE. There is no `app/`, `src/`, `cabal.project`,
-`*.cabal`, `chart/`, `kind/`, `bootstrap/`, `docker/`, `web/`, `infra/`, `proto/`,
+The repository currently contains the project README, the doctrine, the agent
+guardrails, the LICENSE, this `DEVELOPMENT_PLAN/` suite, and the governed docs
+under `documents/`. There is no `app/`, `src/`, `cabal.project`, `*.cabal`,
+`chart/`, `kind/`, `bootstrap/`, `docker/`, `web/`, `infra/`, `proto/`,
 `codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, `experiments/`, or `test/`
 directory yet. Every concrete deliverable below is a `Planned` end state, not a
-current artefact.
+current source-code artefact.
 
 The implemented end state, once Phases `1`–`12` close, is:
 
@@ -249,8 +252,8 @@ This plan is complete only when all of the following are true:
    per-substrate determinism contract from
    [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)
    holds.
-6. `jitml train` and `jitml tune` Plan/Apply commands run the full SL/RL/AlphaZero
-   workloads, hyperparameter tuning is `Some Tuning::{ … }`-shaped per the worked
+6. `jitml train`, `jitml rl train`, and `jitml tune` Plan/Apply commands run the
+   full SL/RL/AlphaZero workloads, hyperparameter tuning is `Some Tuning::{ … }`-shaped per the worked
    Dhall example in [../README.md → Concrete Dhall worked
    example](../README.md), and golden tests for SL convergence and RL trajectories
    pass under `jitml test all`.
@@ -271,9 +274,9 @@ This plan is complete only when all of the following are true:
 10. The toolchain is pinned at GHC `9.14.1` and Cabal `3.16.1.0`. `jitml.cabal`
     declares `tested-with: ghc ==9.14.1` and `cabal.project` declares
     `with-compiler: ghc-9.14.1`.
-11. Every Plan/Apply command (`jitml train`, `jitml tune`, `jitml cluster up`,
-    `jitml test all`, `jitml service` startup-as-plan) supports `--dry-run` and
-    `--plan-file <path>`.
+11. Every Plan/Apply command (`jitml train`, `jitml tune`, `jitml rl train`,
+    `jitml cluster up`, `jitml test all`, `jitml service` startup-as-plan,
+    `jitml internal gc`) supports `--dry-run` and `--plan-file <path>`.
 12. `Subprocess` is the only IO boundary for subprocess execution; `kubectl`,
     `helm`, `kind`, `docker`, and the per-substrate kernel compilers
     (`metal`, `nvcc`, `g++` over oneDNN) are wrapped through the typed boundary.
@@ -289,7 +292,7 @@ This plan is complete only when all of the following are true:
     round-trip byte-equality check, and `jitml-purescript-style` extends the lint
     surface to PureScript `purs format` round-trip and `purescript-spec` smoke
     tests.
-16. `CommandSpec` is the source of truth for the parser, the command tree
+16. `CommandSpec` is the implementation source for the parser, the command tree
     (`jitml commands --tree`), the JSON command schema (`jitml commands --json`),
     the markdown command reference, the manpages, and the shell completion scripts.
 17. The route registry `src/JitML/Routes.hs` is the source of truth for every

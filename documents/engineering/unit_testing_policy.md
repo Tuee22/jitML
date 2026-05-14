@@ -144,7 +144,7 @@ driver:
 1. `pulumi up` brings up the stack (Kind cluster, Helm chart in its `final`
    phase against a temporary registry image pushed during the run, plus the
    `jitml-demo` Deployment).
-2. The driver runs `jitml train`, `jitml rl run`, `jitml tune` against the
+2. The driver runs `jitml train`, `jitml rl train`, `jitml tune` against the
    ephemeral stack to seed the demo state.
 3. The driver invokes the Playwright suite from
    [../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md → Sprint

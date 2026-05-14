@@ -139,15 +139,16 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   touches `~/.kube/config`. Owned by
   [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md).
 - **Stateful platform services.** Harbor as the in-cluster registry against
-  dedicated PostgreSQL storage; MinIO buckets `harbor`, `jitml-checkpoints`,
-  `jitml-events`, `jitml-trials`; Apache Pulsar as the control-plane ↔ data-plane
+  dedicated PostgreSQL storage; MinIO buckets `harbor-registry`,
+  `jitml-checkpoints`, `jitml-datasets`, `jitml-transcripts`, `jitml-trials`,
+  `jitml-tensorboard`, `jitml-artifacts`; Apache Pulsar as the control-plane ↔ data-plane
   bus with topics `inference.command.apple-silicon`,
   `inference.event.apple-silicon` for the host↔cluster RPC, plus
   `inference.request.<mode>` / `inference.result.<mode>` for the demo-facing
   inference flow; Percona Operator-managed PostgreSQL **only for Harbor** — there is
   no relational DB on jitML's data path; kube-prometheus-stack for metrics scraping
   and Grafana dashboards; TensorBoard event storage with shard rotation against
-  MinIO bucket `jitml-events`. Owned by
+  MinIO bucket `jitml-tensorboard`. Owned by
   [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md).
 - **`jitml service` daemon.** The single Pulsar-subscribed worker. `BootConfig` /
   `LiveConfig` Dhall split with mandatory SIGHUP hot reload, `/healthz` / `/readyz`
@@ -160,10 +161,12 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
 - **Numerical core.** Dhall-typed layer catalog (Dense, Conv1D, Conv2D, Conv3D,
   ConvTranspose, BatchNorm, LayerNorm, GroupNorm, Dropout, ResidualBlock,
   MultiHeadAttention, ...), real + complex activations, spectral / frequency-
-  domain ops, optimizers (SGD, Momentum, Adam, AdamW, RMSProp, Lion, Adafactor,
-  ...), schedulers (constant, step, cosine, polynomial, warmup-cosine), loss
+  domain ops, optimizers (SGD, Momentum SGD, Nesterov SGD, RMSProp, Adagrad,
+  Adadelta, Adam, AdamW, LAMB, LARS, Lion), schedulers (constant, linear, cosine,
+  cosine-with-warmup, exponential, polynomial, one-cycle, piecewise), loss
   functions (cross-entropy, focal, MSE, Huber, IoU). Every constructor has a Dhall
-  type. Owned by [phase-6-numerical-core.md](phase-6-numerical-core.md).
+  type. History-dependent `ReduceOnPlateau` behavior lives in callbacks rather than
+  the pure scheduler ADT. Owned by [phase-6-numerical-core.md](phase-6-numerical-core.md).
 - **JIT codegen and per-substrate execution.** `src/JitML/Engines/{AppleSilicon,
   LinuxCPU, LinuxCUDA}.hs`, plus the substrate-specific codegen drivers
   `codegen-metal/`, `codegen-onednn/`, `codegen-cuda/`. The Apple Silicon hybrid
@@ -176,8 +179,9 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   cuDNN explicit algorithm-id pinning. Owned by
   [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md).
 - **Supervised learning and RL framework.** `src/JitML/SL/` supervised training
-  loops, canonical SL problem set (MNIST, CIFAR-10, CIFAR-100, ImageNet) with
-  golden convergence curves; `src/JitML/Env/` canonical RL environments (cartpole,
+  loops, the eleven canonical SL problem cells from the project README (MNIST,
+  Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, and California Housing variants)
+  with golden convergence curves; `src/JitML/Env/` canonical RL environments (cartpole,
   mountain-car, lunar-lander, ...); `src/JitML/RL/` framework primitives —
   Algorithm class taxonomy at the type level, Policy as typed value, Environment /
   VecEnv as typed capability, replay & rollout buffers with `Async` write
@@ -260,8 +264,9 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
   `capture` as the only IO interpreter; `callProcess`, `readCreateProcess`,
   `System.Process` constructors, and `typed-process` smart constructors are
   forbidden from command runners.
-- Plan / Apply — `jitml train`, `jitml tune`, `jitml cluster up`, `jitml test all`,
-  `jitml service` startup-as-plan all Plan/Apply commands with `--dry-run` and
+- Plan / Apply — `jitml train`, `jitml tune`, `jitml rl train`,
+  `jitml cluster up`, `jitml test all`, `jitml service` startup-as-plan, and
+  `jitml internal gc` all Plan/Apply commands with `--dry-run` and
   `--plan-file <path>`.
 - Output Rules — `--format json|table|plain`, default `table` on TTY else `plain`;
   `--color auto|always|never` / `--no-color`.
@@ -287,7 +292,7 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
   kinds. (Contrast: sibling projects may opt out; jitML opts in.)
 - At-Least-Once Event Processing — Pulsar consumer semantics.
 - Reconcilers: Idempotent Mutation as a Single Command — `jitml cluster up`,
-  `jitml docs generate`, `jitml lint --write`.
+  `jitml docs generate`, `jitml lint --write`, `jitml internal gc`.
 - Lint, Format, and Code-Quality Stack — `fourmolu` + `hlint` + `cabal format`;
   pinned `fourmolu.yaml` at repo root with the twelve doctrine-mandated settings;
   the `jitml-haskell-style` stanza enforces all three plus the `cabal format`
@@ -364,7 +369,7 @@ authoritative section that pins each constraint.
     formatting are hlint-forbidden outside `src/JitML/CLI/Output.hs`.
 11. Exit codes follow the doctrine plus exit code `3` for reconciler no-op-on-
     match (the resource already matches the desired state; no change applied).
-12. `CommandSpec` is the source of truth for the parser, the command tree
+12. `CommandSpec` is the implementation source for the parser, the command tree
     (`jitml commands --tree`), the JSON command schema (`jitml commands --json`),
     the markdown command reference, the manpages, and the shell completion
     scripts. The parser is a renderer of the spec.
@@ -404,8 +409,9 @@ authoritative section that pins each constraint.
     fields force a full restart with a structured error. Endpoints `/healthz`,
     `/readyz`, `/metrics` are mandatory. Logging is structured JSON on stderr.
 23. The daemon's Pulsar consumer is at-least-once. Idempotency is the consumer's
-    responsibility (typed `EventID` deduplication keys). The retry policy is a
-    typed value with named retry strategies.
+    responsibility: handlers derive deduplication keys from the protobuf message
+    hash and do not trust client-supplied IDs. The retry policy is a typed value
+    with named retry strategies.
 24. Capability classes `HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl` are the
     only allowed entry into external services from the daemon. The runner is
     `ReaderT Env IO`.
@@ -430,10 +436,11 @@ authoritative section that pins each constraint.
     `<substrate>` is bit-identical when reproduced on the same `<substrate>`
     against the same toolchain pin. Cross-substrate bit-equality is **not**
     guaranteed.
-29. The `.jmw1` dense weight blob format is little-endian binary with no schema-
-    library dependency. Manifests are typed and content-addressed against MinIO
-    bucket `jitml-checkpoints`. Optimizer state (Adam moments, RMSProp
-    accumulators) lives in a separate manifest blob keyed by training-run id.
+29. The `.jmw1` dense weight blob format is magic bytes, `header_len`, a
+    canonical-CBOR `JmwHeader`, and packed little-endian tensor payload bytes.
+    Manifests are typed and content-addressed against MinIO bucket
+    `jitml-checkpoints`. Optimizer state (Adam moments, RMSProp accumulators)
+    lives as a separate checkpoint part.
 30. The PureScript browser-contract ADTs live in `src/JitML/Web/Contracts.hs`
     and are the source for `purescript-bridge`. `web/src/Generated/Contracts.purs`
     is generated; hand edits fail `jitml lint files` per the
@@ -481,9 +488,9 @@ authoritative section that pins each constraint.
 
 | Surface | Current Repo State | Intended End State |
 |---------|--------------------|--------------------|
-| Repository layout | `README.md`, `HASKELL_CLI_TOOL.md`, `AGENTS.md`, `CLAUDE.md`, `LICENSE`. No `app/`, `src/`, `cabal.project`, `*.cabal`, `chart/`, `kind/`, `bootstrap/`, `docker/`, `web/`, `infra/`, `proto/`, `codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, `experiments/`, `test/`, or generated `documents/cli/commands.md` | Full library-first Haskell layout per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
+| Repository layout | `README.md`, `HASKELL_CLI_TOOL.md`, `AGENTS.md`, `CLAUDE.md`, `LICENSE`, `DEVELOPMENT_PLAN/`, and governed docs under `documents/`. No `app/`, `src/`, `cabal.project`, `*.cabal`, `chart/`, `kind/`, `bootstrap/`, `docker/`, `web/`, `infra/`, `proto/`, `codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, `experiments/`, `test/`, or generated `documents/cli/commands.md` | Full library-first Haskell layout per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
 | Build artefacts | None | `cabal build all`-produced `jitml` and `jitml-demo` binaries, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
-| CLI surface | None | The complete command family parses and runs against three substrates: `service`, `cluster {up,down,status}`, `train`, `tune`, `test`, `lint`, `docs`, `commands`, `help`, `check-code`, `build`, `inspect`, `internal vm exec`, plus the `jitml-demo` HTTP server |
+| CLI surface | None | The complete command family parses and runs against three substrates: `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
 | Test stanzas | None | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |
 | Toolchain | Project README declares the pins (GHC `9.14.1`, Cabal `3.16.1.0`); no `cabal.project` or `*.cabal` exists yet | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, Xcode/Metal pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml` |
 | Determinism contract | None | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |

@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../HASKELL_CLI_TOOL.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/numerical_core.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
+**Referenced by**: ../README.md, ../HASKELL_CLI_TOOL.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/numerical_core.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
 **Generated sections**: documentation-standards.generated-section-index
 
 > **Purpose**: Single Source of Truth (SSoT) for writing and maintaining
@@ -106,13 +106,15 @@ Every document must include:
 ### `**Generated sections**:` Metadata Field
 
 Mandatory in every governed document. The value is either `none` or a
-comma-separated list of the `<key>` portion of every marker pair the document
-contains (see Section 11). The lint pass owned by `jitml docs check` enforces
-that the metadata and the markers physically present in the file agree:
-declaring `none` when markers are present is a lint failure, and declaring a
-key whose markers are missing is a lint failure. The reference list of
-generated sections per file is the `GeneratedSectionRule` registry described
-in [../HASKELL_CLI_TOOL.md → Generated
+comma-separated list of the `<key>` portion of every generated-region marker
+pair the document contains (see Section 11). Marker text inside inline code,
+tables, or fenced examples is documentation, not a generated region. The lint
+pass owned by `jitml docs check` enforces that the metadata and the generated
+region markers physically present in the file agree: declaring `none` when
+generated-region markers are present is a lint failure, and declaring a key
+whose markers are missing is a lint failure. The reference list of generated
+sections per file is the `GeneratedSectionRule` registry described in
+[../HASKELL_CLI_TOOL.md → Generated
 Artifacts](../HASKELL_CLI_TOOL.md).
 
 ---
@@ -309,6 +311,7 @@ The currently scheduled registry entries:
 <!-- jitml:documentation-standards.generated-section-index:start -->
 | Generation target | Marker key prefix | Owning sprint |
 |-------------------|-------------------|---------------|
+| Root README command tree and command registry | `command-tree`, `command-registry` | Sprint 1.2 / Sprint 1.3 |
 | CLI command reference | `cli-commands.reference`, `cli-commands.help-blocks` | Sprint 1.2 / Sprint 1.3 |
 | Generated section index in this file | `documentation-standards.generated-section-index` | Sprint 1.3 |
 | Cluster route table | `cluster.routes` | Sprint 3.4 |

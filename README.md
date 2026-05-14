@@ -1,5 +1,12 @@
 # jitML
 
+**Status**: Authoritative source
+**Supersedes**: N/A
+**Referenced by**: HASKELL_CLI_TOOL.md, DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/numerical_core.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
+**Generated sections**: command-tree, command-registry
+
+> **Purpose**: Operator-facing project intent and authoritative high-level architecture for jitML.
+
 > Deterministic, reproducible, JIT-compiled machine learning for Haskell.
 
 `jitML` is a Haskell-native machine learning framework for training deep artificial neural networks with fully reproducible execution semantics across supervised learning and reinforcement learning workloads.
@@ -50,7 +57,7 @@ We want a runtime that is:
 
 1. **Reproducible by construction.** Given identical inputs, seeds, and configuration, two runs produce identical outputs — including parameter initialization, minibatch ordering, optimizer state, RL trajectories, MCTS exploration paths, hyperparameter-trial selection, and checkpoint recovery. Reproducibility is an architectural requirement, not a flag.
 2. **Declarative end-to-end.** A `.dhall` file is the full source of truth for a training run, a hyperparameter sweep, an RL experiment, or a cluster deployment. The CLI flags layered on top *override* the Dhall; they never replace it.
-3. **Hardware-native without an embedded Python runtime.** jitML compiles kernels on demand for Apple Metal, NVIDIA CUDA, oneDNN/AVX, or OpenCL, and executes them through Haskell FFI bindings. The runtime has no Python interpreter in the loop.
+3. **Hardware-native without an embedded Python runtime.** jitML compiles kernels on demand for Apple Metal, NVIDIA CUDA, or oneDNN/AVX, with OpenCL held as a future extension, and executes them through Haskell FFI bindings. The runtime has no Python interpreter in the loop.
 
 ---
 
@@ -278,7 +285,7 @@ Namespace: `platform` (fixed). `jitml cluster up` creates it idempotently.
 
 1. **Bootstrap phase**: Harbor + MinIO + Postgres only, pulling images from public registries.
 2. **Mirror phase**: every third-party image is mirrored into Harbor.
-3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack, TensorBoard, the jitML service workload (Linux substrates), the jitML-demo workload — all pulling exclusively from local Harbor.
+3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack, TensorBoard, the jitML service workload (all substrates: Linux self-inference plus Apple forward-to-host), the jitML-demo workload — all pulling exclusively from local Harbor.
 
 This avoids the chicken-and-egg of "Harbor isn't up yet, but everything wants to pull from it" without resorting to image-pull-secret juggling.
 
@@ -372,7 +379,7 @@ Retention (`retain = Checkpoint.Retention.LastN k` in the experiment Dhall) is e
 
 # TensorBoard event storage
 
-TensorBoard renders scalars, histograms, distributions, and image summaries from the `jitml-tensorboard` MinIO bucket. The TB pod itself is stateless: it reads MinIO at panel-load time, and reschedules freely. Writers are the `jitml-service` daemon (Linux substrates), the host-native Apple daemon, and per-trial workers during hyperparameter sweeps — all writing into the same bucket without coordination.
+TensorBoard renders scalars, histograms, distributions, and image summaries from the `jitml-tensorboard` MinIO bucket. The TB pod itself is stateless: it reads MinIO at panel-load time, and reschedules freely. Writers are the clustered `jitml-service` daemon, the host-native Apple daemon, and per-trial workers during hyperparameter sweeps — all writing into the same bucket without coordination.
 
 ## Format
 
@@ -467,7 +474,7 @@ The **scalar values themselves** at each `(tag, step)` *are* deterministic under
 
 # Pulsar as the control-plane ↔ data-plane bus
 
-Apache Pulsar HA chart: 3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, WebSocket enabled. WebSocket is what lets the PureScript frontend subscribe to live training events through the Envoy `/pulsar/ws` route.
+Apache Pulsar HA chart: 3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, WebSocket enabled. The Pulsar WebSocket proxy is routed at `/pulsar/ws` for operator diagnostics; the PureScript frontend subscribes to live events through the `jitml-demo` proxy at `/api/ws`.
 
 Topic family (substrate-scoped — `<mode>` ∈ `apple-silicon`, `linux-cpu`, `linux-cuda`):
 
@@ -557,12 +564,12 @@ On Apple Silicon, `cabal install` runs directly on the host because the host is 
 
 Per doctrine §Command Topology, commands are modelled as ordinary Haskell data types and the parser is generated from a separate `CommandSpec`. Two Haskell executables share one Cabal library: `app/Main.hs` → `jitml` (control plane + daemon); `app/Demo.hs` → `jitml-demo` (HTTP server hosting the PureScript bundle).
 
-`CommandSpec` is the *source of truth*: the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below are all *generated* from it (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`cluster`, `rl`, `verify`, `inspect`, `bench`, `test`, `lint`, `docs`) hold lifecycle, introspection, benchmarks, and tooling. Sub-ADTs that model >2-state workflows — `ClusterCommand`, `VerifyCommand`, the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `cluster up`, `docs generate`, and `lint --write` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers.
+This README is the authoritative documentation for the target command surface. In the implemented tree, `CommandSpec` is the code source that renders the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`cluster`, `rl`, `verify`, `inspect`, `bench`, `test`, `lint`, `docs`) hold lifecycle, introspection, benchmarks, and tooling. Sub-ADTs that model >2-state workflows — `ClusterCommand`, `VerifyCommand`, the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `cluster up`, `docs generate`, `lint --write`, and `internal gc` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers.
 
-**Source of truth.** Every command-surface artifact in this README — the ADT snapshot, the command tree, generated help fragments — is rendered from `CommandSpec`. The in-tree spec at `src/JitML/CLI/Spec.hs` is authoritative; the blocks below are a non-normative mirror enforced by `jitml docs check cli-help`.
+**Generated mirror.** Every command-surface artifact in this README — the ADT snapshot, the command tree, generated help fragments — is rendered from `CommandSpec` once Sprint `1.3` lands the generator. Until then, the blocks below are the README-owned target snapshot enforced by review.
 
 <!-- jitml:command-tree:start -->
-<!-- non-normative snapshot of `jitml commands --tree`;
+<!-- README-owned target snapshot of `jitml commands --tree`;
      regenerate via `jitml docs generate cli-help` once the generator lands -->
 ```mermaid
 mindmap
@@ -619,10 +626,13 @@ mindmap
     docs
       check
       generate
+    check-code
+    build
     kubectl
     internal
       materialize-substrate
       list-prereqs
+      gc
       vm
         bootstrap
         up
@@ -641,7 +651,7 @@ Annotations on leaves — reconciler vs read-only, destructive flags, alias rela
 <!-- jitml:command-tree:end -->
 
 <!-- jitml:command-registry:start -->
-<!-- non-normative snapshot of `src/JitML/CLI/Spec.hs`;
+<!-- README-owned target snapshot of `src/JitML/CLI/Spec.hs`;
      regenerate via `jitml docs generate cli-help` once the generator lands -->
 ```haskell
 -- Top-level dispatch root
@@ -659,6 +669,8 @@ data Command
   | Test         TestCommand           -- jitml test all + per-stanza
   | Lint         LintCommand           -- per-artifact + aggregate lints (paired check/write)
   | Docs         DocsCommand           -- generated-section paired check/write
+  | CheckCode    CheckCodeOptions      -- full code-quality gate
+  | Build        BuildOptions          -- inner Haskell binary build from substrate container
   | Kubectl      KubectlPassthrough    -- pre-bound to ./.build/jitml.kubeconfig
   | Internal     InternalCommand       -- non-doctrine-shaped commands (substrate materialization, VM, cache)
   | Commands     CommandsOptions       -- progressive introspection
@@ -756,7 +768,7 @@ data TestCommand
 -- Every constructor has a check / write mode; --write fixes what can be auto-fixed.
 data LintCommand
   = LintFiles      LintMode           -- whitespace, newlines, tracked-generated paths, forbidden paths
-  | LintDocs       LintMode           -- generated-section drift via GeneratedSectionRule registry
+  | LintDocs       LintMode           -- hand-written documentation hygiene (metadata, links, stale commands)
   | LintProto      LintMode           -- wire-format schemas in proto/jitml/
   | LintChart      LintMode           -- Helm chart structural invariants in chart/
   | LintHaskell    LintMode           -- fourmolu --mode check + hlint + cabal format round-trip
@@ -791,6 +803,7 @@ data InternalCommand
   = MaterializeSubstrate SubstrateOptions
   | Vm                   VmCommand          -- tart-VM lifecycle: bootstrap/up/down/status/exec
   | Cache                CacheCommand       -- JIT cache introspection: stat/list/evict
+  | InternalGc           GcOptions          -- checkpoint retention reconciler
   | ListPrereqs          ListPrereqsOptions -- emit prereq list for bootstrap shell scripts
   deriving stock (Show, Eq)
 
@@ -842,7 +855,7 @@ flowchart LR
 
 Every entry in the `DocsTarget` enum above has a paired `docs check` / `docs generate` command. `docs check <target>` exact-string-compares the in-tree rendering against the file (or marker region) it should match and exits non-zero with the marker key and a remedy hint on drift; `docs generate <target>` is the reconciler that splices the freshly-rendered content between sentinel markers in place. Implementing only the check half is forbidden by doctrine §Generated Artifacts: a contributor who sees `"X has drifted"` with no way to fix it will eventually disable the lint rather than fight the loop.
 
-The marker-key registry is a `GeneratedSectionRule` table in `src/JitML/Docs/Rules.hs`. Current keys in this README include `jitml:command-tree`, `jitml:command-registry`, plus the route-table, Grafana-dashboard, PureScript-contracts, and proto-schema rules used elsewhere.
+The marker-key registry is a `GeneratedSectionRule` table in `src/JitML/Docs/Rules.hs`. Current keys in this README are `command-tree` and `command-registry`; route-table, Grafana-dashboard, PureScript-contract, and proto-schema rules are used in their owning files.
 
 ### Architecture: module tiers
 
@@ -850,7 +863,7 @@ Per doctrine §Architecture, the CLI binary is one dataflow from typed surface t
 
 ```mermaid
 flowchart LR
-    Spec["CLI.Spec<br/><i>CommandSpec value</i><br/>source of truth"]
+    Spec["CLI.Spec<br/><i>CommandSpec value</i><br/>code registry"]
     Parser["CLI.Parser<br/><i>optparse-applicative</i><br/>generated from the spec"]
     Docs["CLI.Docs<br/><i>Markdown, manpages,</i><br/><i>JSON schema, command tree</i>"]
     Commands["Commands.*<br/><i>one module per top-level constructor</i><br/>build :: Inputs → Either AppError Plan<br/>apply :: Env → Plan → IO ExitCode"]
@@ -869,11 +882,14 @@ Per doctrine §Standard Flag Families for the canonical spellings, semantics, an
 |---|:---:|:---:|:---:|
 | `cluster up` / `cluster down` / `cluster reset` | ✓ |   |   |
 | `cluster status` |   |   | ✓ |
-| `service` |   | ✓ |   |
+| `service` | ✓ | ✓ |   |
 | `train` / `eval` / `tune` / `rl *` | ✓ |   | ✓ |
 | `verify *` / `inspect *` / `bench *` / `inference run` |   |   | ✓ |
 | `test all` | ✓ |   | ✓ |
 | `test <stanza>` / `lint *` / `docs *` |   |   | ✓ |
+| `check-code` / `build` / `kubectl` |   |   | ✓ |
+| `internal gc` | ✓ |   | ✓ |
+| `internal materialize-substrate` / `internal list-prereqs` / `internal vm *` / `internal cache *` |   |   | ✓ |
 | `commands` / `help` |   |   | ✓ |
 
 Concrete invocations:
@@ -1234,7 +1250,7 @@ Hyperband / ASHA introduce variable per-trial budgets, so the canonical ordering
 
 ## Frontend integration
 
-The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>` over `/pulsar/ws` and animates the Pareto frontier (populated by NSGA-II under multi-objective sweeps; collapses to a best-trial highlight under single-objective samplers), the trial-by-trial heatmap, and the per-axis state live. PBT gets its own panel layout — population over time, hyperparameter-mutation lineage tree, `Exploit`/`Explore` event timeline — see [PureScript frontend](#purescript-frontend).
+The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>` over `/api/ws` and animates the Pareto frontier (populated by NSGA-II under multi-objective sweeps; collapses to a best-trial highlight under single-objective samplers), the trial-by-trial heatmap, and the per-axis state live. PBT gets its own panel layout — population over time, hyperparameter-mutation lineage tree, `Exploit`/`Explore` event timeline — see [PureScript frontend](#purescript-frontend).
 
 ---
 
@@ -2026,7 +2042,7 @@ flowchart TD
     ir[backend codegen IR]
     metal[Swift / Metal]
     cuda[CUDA]
-    onednn[oneDNN / OpenCL]
+    onednn[oneDNN]
     native[native compilation]
     ffi[Haskell FFI layer]
     run[deterministic run]
@@ -2174,7 +2190,7 @@ Per doctrine §Lint, Format, and Code-Quality Stack and §Standard Testing Stack
 | Target | Tools | Covered scope |
 |---|---|---|
 | `lint files` | repo-internal | whitespace, trailing newlines, forbidden paths, tracked-generated drift |
-| `lint docs` | `GeneratedSectionRule` registry | sentinel-marker drift in `README.md` and `HASKELL_CLI_TOOL.md` |
+| `lint docs` | repo-internal | documentation metadata, relative links, forbidden stale commands, and hand-written documentation hygiene |
 | `lint proto` | `protoc` round-trip | wire schemas in `proto/jitml/` |
 | `lint chart` | repo-internal | Helm structural invariants (no dynamic provisioning, every PV with explicit `claimRef`, no freestanding PVCs) |
 | `lint haskell` | `fourmolu --mode check` + `hlint` + `cabal format` round-trip | per doctrine §Lint stack |
