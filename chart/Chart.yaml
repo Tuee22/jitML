@@ -1,0 +1,25 @@
+apiVersion: v2
+name: jitml
+description: Umbrella chart for the local jitML substrate stack.
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+dependencies:
+  - name: harbor
+    version: 1.16.2
+    repository: https://helm.goharbor.io
+  - name: minio
+    version: 14.8.5
+    repository: https://charts.bitnami.com/bitnami
+  - name: pulsar
+    version: 3.6.0
+    repository: https://pulsar.apache.org/charts
+  - name: kube-prometheus-stack
+    version: 70.4.2
+    repository: https://prometheus-community.github.io/helm-charts
+  - name: gateway-helm
+    version: 1.2.6
+    repository: oci://docker.io/envoyproxy
+  - name: pg-operator
+    version: 2.5.1
+    repository: https://percona.github.io/percona-helm-charts

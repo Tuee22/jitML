@@ -1107,9 +1107,9 @@ Examples:
 ```text
 jitml lint proto
 
-Run the current protobuf lint placeholder.
+Run protobuf schema lint checks.
 
-Run the current protobuf lint placeholder.
+Run protobuf schema lint checks.
 
 Usage:
   jitml lint proto [--write]
@@ -1120,7 +1120,7 @@ Options:
 
 Examples:
   jitml lint proto
-      Run the current protobuf lint placeholder.
+      Run protobuf schema lint checks.
 ```
 
 ### `jitml lint chart`
@@ -1128,9 +1128,9 @@ Examples:
 ```text
 jitml lint chart
 
-Run the current Helm chart lint placeholder.
+Run Helm chart shape checks.
 
-Run the current Helm chart lint placeholder.
+Run Helm chart shape checks.
 
 Usage:
   jitml lint chart [--write]
@@ -1141,7 +1141,7 @@ Options:
 
 Examples:
   jitml lint chart
-      Run the current Helm chart lint placeholder.
+      Run Helm chart shape checks.
 ```
 
 ### `jitml lint haskell`
@@ -1170,9 +1170,9 @@ Examples:
 ```text
 jitml lint purescript
 
-Run the current PureScript lint placeholder.
+Run PureScript contract and format checks.
 
-Run the current PureScript lint placeholder.
+Run PureScript contract and format checks.
 
 Usage:
   jitml lint purescript [--write]
@@ -1183,7 +1183,7 @@ Options:
 
 Examples:
   jitml lint purescript
-      Run the current PureScript lint placeholder.
+      Run PureScript contract and format checks.
 ```
 
 ### `jitml lint all`

@@ -35,7 +35,7 @@ syntheticMissingPrerequisite =
     Prerequisite
         { nodeId = NodeId "synthetic.missing"
         , nodeDescription = "Synthetic missing prerequisite for validation."
-        , remedyHint = Just "create the synthetic sentinel"
+        , remedyHint = Just "create the synthetic prerequisite fixture"
         , dependsOn = []
         , remediation = Nothing
         , checkNode = pure False

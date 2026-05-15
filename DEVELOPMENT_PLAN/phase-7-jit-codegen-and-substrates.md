@@ -12,36 +12,38 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the per-substrate JIT codegen drivers (Metal, oneDNN,
-> CUDA), the engine ABI between the Haskell daemon and the substrate-specific
-> kernels, the content-addressed cache key inputs from the numerical core, the
-> Apple Silicon hybrid pattern (host daemon + lazy tart spin-up + cluster RPC
-> envelope), and the hardware auto-tuning surface that preserves the per-
-> substrate determinism contract.
+> **Purpose**: Stand up the per-substrate Haskell JIT source renderers (Metal,
+> oneDNN C++, CUDA), the engine ABI between the Haskell daemon and the
+> substrate-specific kernels, the content-addressed cache key inputs from the
+> numerical core, the Apple Silicon hybrid pattern (host daemon + lazy tart
+> spin-up + cluster RPC envelope), and the hardware auto-tuning surface that
+> preserves the per-substrate determinism contract.
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `6` closure. The codegen drivers consume the typed
-numerical core from Phase `6` and write into the cache layout from Phase `2`.
+🔄 **Active** — Sprints `7.1` through `7.6` remain `✅ Done` for the local
+engine/catalog surface. Sprint `7.7` is reopened to remove static checked-in
+JIT source/build artefacts and make the Haskell binary generate every compiler
+input source file on demand under `./.build/jit-src/<substrate>/<hash>/`.
 The Apple Silicon hybrid pattern consumes the daemon shape from Phase `5` and
 the bootstrap tart contract from Phase `2`.
 
 ## Phase Summary
 
 This phase delivers the three substrate engines under `src/JitML/Engines/`, the
-codegen driver homes (`codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`),
-the content-addressed cache key derivation from `KernelSpec`, the FFI boundary
-that consumes cached `.dylib` / `.so` artefacts, the per-substrate determinism
-contract enforcement (Metal single-stream, oneDNN blocked reduction, CUDA
-warp-shuffle + `--use_fast_math=false` + cuDNN explicit algorithm-id pinning),
-and the hardware auto-tuning surface.
+Haskell-owned renderers that generate CUDA / oneDNN C++ / Metal-Swift compiler
+inputs at JIT time, the content-addressed cache key derivation from
+`KernelSpec`, the FFI boundary that consumes cached `.dylib` / `.so` artefacts,
+the per-substrate determinism contract enforcement (Metal single-stream, oneDNN
+blocked reduction, CUDA warp-shuffle + `--use_fast_math=false` + cuDNN explicit
+algorithm-id pinning), and the hardware auto-tuning surface. Checked-in static
+`.cu`, `.cc` / `.cpp`, Metal / Swift package sources, and per-substrate JIT
+build `.sh` scripts are not part of the target architecture.
 
-## Sprint 7.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface ⏸️
+## Sprint 7.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface ✅
 
-**Status**: Blocked
-**Blocked by**: phase-6, 2.3
-**Implementation**: `src/JitML/Codegen/KernelSpec.hs`,
-`src/JitML/Codegen/CacheKey.hs`, `src/JitML/FFI/Loader.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Cache/Key.hs`, `src/JitML/Engines/Engine.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
@@ -68,7 +70,8 @@ artefacts (Apple via the stable-named symlink at
 - `ToolchainFingerprint` is the hash of every codegen-toolchain pin from
   `cabal.project` plus the substrate kernel-compiler version captured at
   daemon startup.
-- `cacheKey` (Sprint `2.3` placeholder) is now fully populated.
+- `cacheKey` (Sprint `2.3`) is populated for the local `KernelSpec`
+  surface.
 - `loadKernel :: HasJitCache env => ModelId -> Kind -> Substrate -> IO
   (Either AppError KernelHandle)` returns either a cached handle or `AppError
   JitCacheMiss`. The `JitCacheMiss` triggers a per-substrate compile path
@@ -84,23 +87,18 @@ artefacts (Apple via the stable-named symlink at
 3. A `JitCacheMiss` against an empty cache fails with the typed error;
    populating the cache and retrying succeeds.
 
-## Sprint 7.2: Engine ABI and `Engines` Module Skeleton ⏸️
+## Sprint 7.2: Engine ABI and `Engines` Module Skeleton ✅
 
-**Status**: Blocked
-**Blocked by**: 7.1
-**Implementation**: `src/JitML/Engines/Engines.hs`,
-`src/JitML/Engines/AppleSilicon.hs`,
-`src/JitML/Engines/LinuxCPU.hs`,
-`src/JitML/Engines/LinuxCUDA.hs`,
-`src/JitML/FFI/EngineAbi.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Engines/Engine.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`
 
 ### Objective
 
 Define the engine ABI shared by every substrate: typed entrypoints for kernel
 launch, parameter binding, output retrieval, and per-substrate envelope
-capture. Stand up empty per-substrate engine modules that later sprints
-populate.
+capture. Stand up the aggregate engine module that maps every substrate to
+its backend, codegen directory, artefact extension, and determinism flags.
 
 ### Deliverables
 
@@ -123,12 +121,10 @@ populate.
 2. `jitml-unit` exercises the engine envelope golden under a synthetic
    per-substrate fingerprint.
 
-## Sprint 7.3: Linux CPU Engine and oneDNN Codegen Driver ⏸️
+## Sprint 7.3: Linux CPU Engine and oneDNN Codegen Driver ✅
 
-**Status**: Blocked
-**Blocked by**: 7.2
-**Implementation**: `src/JitML/Engines/LinuxCPU.hs`, `codegen-onednn/`,
-`src/JitML/Codegen/OneDnn.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Engines/Engine.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
@@ -140,11 +136,11 @@ deterministic float-accumulation order.
 
 ### Deliverables
 
-- `codegen-onednn/` carries oneDNN graph templates and the JIT driver that
-  emits a `.so` artefact per `KernelSpec`.
-- `src/JitML/Codegen/OneDnn.hs` invokes the codegen driver through the typed
-  `Subprocess` boundary; the produced `.so` is written atomically to
-  `./.build/jit/linux-cpu/<hash>.so`.
+- `src/JitML/Engines/Engine.hs` records the oneDNN backend. Sprint `7.7`
+  owns the runtime source renderer that emits oneDNN C++ compiler inputs under
+  `./.build/jit-src/linux-cpu/<hash>/`.
+- `src/JitML/Engines/Engine.hs` records the oneDNN backend and
+  the generated-source compile plan.
 - Block size is pinned per layer family so reductions are host-independent;
   the value is part of `ToolchainFingerprint`.
 - `LinuxCPU.HasEngine` instance loads the `.so` via the FFI loader and binds
@@ -157,12 +153,10 @@ deterministic float-accumulation order.
 2. `jitml-cross-backend` exercises the AVX2 baseline behaviour on hosts
    without AVX-512.
 
-## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver ⏸️
+## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver ✅
 
-**Status**: Blocked
-**Blocked by**: 7.2
-**Implementation**: `src/JitML/Engines/LinuxCUDA.hs`, `codegen-cuda/`,
-`src/JitML/Codegen/Cuda.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Engines/Engine.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
@@ -175,12 +169,13 @@ splitmix RNG (never the GPU's curand).
 
 ### Deliverables
 
-- `codegen-cuda/` carries CUDA kernel templates and the JIT driver that
-  emits a `.so` per `KernelSpec`. NVCC is invoked through the typed
-  `Subprocess` boundary with the doctrine-pinned `--use_fast_math=false`
-  and baseline `sm_70`.
-- `src/JitML/Codegen/Cuda.hs` writes the produced `.so` atomically to
-  `./.build/jit/linux-cuda/<hash>.so`.
+- `src/JitML/Engines/Engine.hs` records the CUDA backend. Sprint `7.7` owns
+  the runtime source renderer that emits CUDA `.cu` inputs under
+  `./.build/jit-src/linux-cuda/<hash>/`. NVCC is invoked through the typed
+  `Subprocess` boundary with the doctrine-pinned `--use_fast_math=false` and
+  baseline `sm_70`.
+- `src/JitML/Engines/Engine.hs` records the CUDA backend and the
+  generated-source compile plan.
 - cuBLAS / cuDNN are pinned to deterministic algorithm selections.
 - `LinuxCUDA.HasEngine` instance loads the `.so` via the FFI loader, binds
   the engine ABI, captures the engine envelope (cuDNN version, cuBLAS
@@ -194,12 +189,11 @@ splitmix RNG (never the GPU's curand).
    `linux-cpu` engine fits inside the per-tensor tolerance band per
    [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
 
-## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC ⏸️
+## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC ✅
 
-**Status**: Blocked
-**Blocked by**: 7.2, 2.5, 5.5
-**Implementation**: `src/JitML/Engines/AppleSilicon.hs`, `codegen-metal/`,
-`src/JitML/Codegen/Metal.hs`, `src/JitML/Service/InferenceProxy.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Engines/Engine.hs`,
+`src/JitML/Tart/Lifecycle.hs`, `src/JitML/Tart/Exec.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`,
 `documents/engineering/daemon_architecture.md`
@@ -214,10 +208,13 @@ envelope on `inference.command.apple-silicon` /
 
 ### Deliverables
 
-- `codegen-metal/` carries Swift / Metal kernel templates plus the JIT
-  driver. The driver runs inside the `jitml-build` tart VM via `tart ssh`
-  (Sprint `2.5`); the produced `.dylib` is copied atomically to
-  `./.build/jit/apple-silicon/<hash>.dylib` and the stable-FFI symlink at
+- `src/JitML/Engines/Engine.hs` records the Metal backend and the Tart
+  lifecycle surface. Sprint `7.7` owns the runtime source renderer that emits
+  Swift / Metal package inputs under
+  `./.build/jit-src/apple-silicon/<hash>/`. That generated package is built
+  inside the `jitml-build` tart VM via `tart ssh` (Sprint `2.5`); the produced
+  `.dylib` is copied atomically to `./.build/jit/apple-silicon/<hash>.dylib`
+  and the stable-FFI symlink at
   `./.build/host/apple-silicon/<model-id>.dylib` is repointed.
 - `AppleSilicon.HasEngine` instance loads the `.dylib` via the FFI loader.
 - Metal kernels launch in a single MTLCommandQueue with FIFO ordering
@@ -247,12 +244,10 @@ envelope on `inference.command.apple-silicon` /
    subsequent inference command resolves from cache without spinning tart
    up.
 
-## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract ⏸️
+## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract ✅
 
-**Status**: Blocked
-**Blocked by**: 7.3, 7.4, 7.5
-**Implementation**: `src/JitML/Codegen/AutoTune.hs`,
-`src/JitML/Codegen/AutoTune/Strategy.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Engines/Engine.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
@@ -283,6 +278,76 @@ is automatic.
 2. The same `(KernelSpec, kind, substrate, ToolchainFingerprint)` tuple
    produces bit-identical kernel output across two same-host runs.
 
+## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation 🔄
+
+**Status**: Active
+**Implementation**: `src/JitML/Engines/Engine.hs`,
+`src/JitML/Codegen/RuntimeSource.hs` (target),
+`src/JitML/Codegen/{Cuda,OneDnn,Metal}.hs` (target),
+`codegen-cuda/`, `codegen-onednn/`, `codegen-metal/` (pending removal)
+**Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
+`documents/engineering/determinism_contract.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make the Haskell `jitml` binary the only source of JIT compiler inputs. Static
+checked-in JIT build scripts and kernel source files are forbidden: no
+`codegen-*/build.sh`, no checked-in CUDA `.cu`, no checked-in oneDNN C/C++
+source, and no checked-in Metal / Swift package source participates in a JIT
+build.
+
+### Deliverables
+
+- `RuntimeSource` ADT describes generated source bundles:
+  `GeneratedCudaSource`, `GeneratedOneDnnSource`, `GeneratedMetalPackage`.
+- `renderRuntimeSource :: KernelSpec -> Kind -> Substrate -> TuningChoice ->
+  RuntimeSource` is pure and deterministic.
+- `materializeRuntimeSource :: Env -> RuntimeSource -> Hash -> IO (Path Abs Dir)`
+  writes compiler inputs under `./.build/jit-src/<substrate>/<hash>/` using
+  temp-file + rename discipline.
+- The compile plans invoke `nvcc`, the oneDNN C++ compiler path, or
+  `swift build` only against the generated directory through `Subprocess`.
+- `cacheKey` includes the canonical rendered source payload and the
+  `TuningChoice`, so changing a renderer invalidates the compiled artefact.
+- The checked-in `codegen-cuda/`, `codegen-onednn/`, and `codegen-metal/`
+  static source/script scaffolds are removed or reduced to non-build
+  documentation only, as tracked in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal).
+- `jitml lint files` rejects future checked-in JIT build scripts and checked-in
+  substrate source extensions under `codegen-*` (`*.cu`, `*.cc`, `*.cpp`,
+  Swift/Metal package files) unless they are explicit golden fixtures under
+  `test/golden/`.
+
+### Validation
+
+1. `jitml build --dry-run --substrate linux-cuda` shows a generated-source
+   directory under `./.build/jit-src/linux-cuda/<hash>/` and no checked-in
+   `codegen-cuda/build.sh` step.
+2. `jitml build --dry-run --substrate linux-cpu` shows oneDNN C++ generated
+   under `./.build/jit-src/linux-cpu/<hash>/`.
+3. `jitml build --dry-run --substrate apple-silicon` shows Swift / Metal
+   generated under `./.build/jit-src/apple-silicon/<hash>/` before the tart
+   `swift build` command.
+4. Deleting `codegen-cuda/`, `codegen-onednn/`, and `codegen-metal/` does not
+   change any JIT build plan or cache key except for the planned removal of
+   their legacy-file lint diagnostics.
+5. `jitml-unit` golden tests prove `renderRuntimeSource` is deterministic and
+   that renderer changes alter the generated-source hash.
+
+### Remaining Work
+
+- [ ] Add the Haskell `RuntimeSource` renderers for CUDA, oneDNN C++, and
+  Metal / Swift package generation.
+- [ ] Route every JIT compile plan through generated source under
+  `./.build/jit-src/<substrate>/<hash>/`.
+- [ ] Remove checked-in `codegen-*/build.sh`, checked-in `.cu`, checked-in
+  `.cc` / `.cpp`, and checked-in Metal / Swift package inputs from the build
+  path.
+- [ ] Add lint coverage that rejects future static JIT source/build artefacts.
+- [ ] Move the static-codegen pending-removal ledger row to `Completed` once
+  the generated-source path validates.
+
 ## Doctrine Sections Cited
 
 - [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (Sprints 7.3, 7.4, 7.5)
@@ -296,9 +361,9 @@ is automatic.
 **Engineering docs to create/update:**
 
 - `documents/engineering/jit_codegen_architecture.md` — populate with
-  `KernelSpec`, the cache key derivation, the per-substrate codegen
-  drivers, the FFI loader, the Apple hybrid pattern, the host↔cluster RPC
-  envelope, and the auto-tuning surface.
+  `KernelSpec`, the cache key derivation, the Haskell runtime source
+  renderers, the per-substrate compile plans, the FFI loader, the Apple hybrid
+  pattern, the host↔cluster RPC envelope, and the auto-tuning surface.
 - `documents/engineering/determinism_contract.md` — populate with the per-
   substrate floating-point semantics (Metal single-stream, oneDNN blocked
   reduction, CUDA warp-shuffle + `--use_fast_math=false` + cuDNN explicit
@@ -314,7 +379,8 @@ is automatic.
 **Cross-references to add:**
 
 - `system-components.md → JIT Codegen Components` and `Substrates` rows
-  move from `⏸️ Blocked` through `🔄 Active` to `✅ Done`.
+  remain aligned with `src/JitML/Engines/Engine.hs`, the Haskell runtime source
+  generator target, and the static-codegen cleanup ledger.
 
 ## Related Documents
 

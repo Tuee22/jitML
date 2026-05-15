@@ -18,34 +18,30 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `5` closure. The numerical core is a typed catalog
-consumed by the daemon's training and inference loops; it has no runtime
-behaviour of its own beyond shape validation and Dhall round-tripping. Per-
-substrate JIT codegen (Phase `7`) consumes this catalog.
+✅ **Done** for the local typed catalog surface. The numerical core is a typed
+catalog consumed by the daemon's training and inference loops; it has no
+runtime behaviour of its own beyond shape validation and Dhall round-tripping.
+Per-substrate JIT codegen (Phase `7`) consumes this catalog.
 
 ## Phase Summary
 
 This phase delivers the typed numerical core — every Haskell ADT for layers,
 activations, spectral ops, optimizers, schedulers, and losses, plus matching
 Dhall schemas. The catalog is the source of truth for what experiments can
-declare; the JIT codegen drivers (Phase `7`) consume the catalog to produce
-substrate-specific kernels. No SL/RL training logic lives here — that is
-Phase `8`.
+declare; the Haskell-owned JIT source renderers (Phase `7`) consume the catalog
+to produce substrate-specific kernels. No SL/RL training logic lives here —
+that is Phase `8`.
 
-## Sprint 6.1: Layer Catalog (Real and Complex) ⏸️
+## Sprint 6.1: Layer Catalog (Real and Complex) ✅
 
-**Status**: Blocked
-**Blocked by**: phase-5
-**Implementation**: `src/JitML/Numerics/Layer.hs`,
-`src/JitML/Numerics/Layer/Real.hs`,
-`src/JitML/Numerics/Layer/Complex.hs`,
-`dhall/numerics/Layer.dhall`
+**Status**: Done
+**Implementation**: `src/JitML/Numerics/Catalog.hs`
 **Docs to update**: `documents/engineering/numerical_core.md`
 
 ### Objective
 
 Stand up the layer catalog as a closed sum type. Every constructor is the
-canonical name used by experiment Dhalls and the JIT codegen drivers.
+canonical name used by experiment Dhalls and the JIT source renderers.
 
 ### Deliverables
 
@@ -74,14 +70,10 @@ canonical name used by experiment Dhalls and the JIT codegen drivers.
 3. The generated catalog table in `numerical_core.md` matches the in-code
    enumeration (Sprint `1.3` `docs check`).
 
-## Sprint 6.2: Activations (Real and Complex) ⏸️
+## Sprint 6.2: Activations (Real and Complex) ✅
 
-**Status**: Blocked
-**Blocked by**: 6.1
-**Implementation**: `src/JitML/Numerics/Activation.hs`,
-`src/JitML/Numerics/Activation/Real.hs`,
-`src/JitML/Numerics/Activation/Complex.hs`,
-`dhall/numerics/Activation.dhall`
+**Status**: Done
+**Implementation**: `src/JitML/Numerics/Catalog.hs`
 **Docs to update**: `documents/engineering/numerical_core.md`
 
 ### Objective
@@ -105,12 +97,10 @@ Enumerate the supported activations, real and complex.
 1. Round-trip property holds.
 2. Numerical-core docs render the activation table consistently.
 
-## Sprint 6.3: Spectral / Frequency-Domain Operations ⏸️
+## Sprint 6.3: Spectral / Frequency-Domain Operations ✅
 
-**Status**: Blocked
-**Blocked by**: 6.2
-**Implementation**: `src/JitML/Numerics/Spectral.hs`,
-`dhall/numerics/Spectral.dhall`
+**Status**: Done
+**Implementation**: `src/JitML/Numerics/Catalog.hs`
 **Docs to update**: `documents/engineering/numerical_core.md`
 
 ### Objective
@@ -131,14 +121,10 @@ multiply, complex add, plus the typed `SpectralOp` ADT.
 1. Round-trip property holds.
 2. The numerical-core docs render the spectral table consistently.
 
-## Sprint 6.4: Optimizers and Schedulers ⏸️
+## Sprint 6.4: Optimizers and Schedulers ✅
 
-**Status**: Blocked
-**Blocked by**: 6.1
-**Implementation**: `src/JitML/Numerics/Optimizer.hs`,
-`src/JitML/Numerics/Scheduler.hs`,
-`dhall/numerics/Optimizer.dhall`,
-`dhall/numerics/Scheduler.dhall`
+**Status**: Done
+**Implementation**: `src/JitML/Numerics/Catalog.hs`
 **Docs to update**: `documents/engineering/numerical_core.md`
 
 ### Objective
@@ -175,12 +161,10 @@ Enumerate the supported optimizers and learning-rate schedulers.
 1. Round-trip property holds.
 2. The numerical-core docs render both tables consistently.
 
-## Sprint 6.5: Loss Functions ⏸️
+## Sprint 6.5: Loss Functions ✅
 
-**Status**: Blocked
-**Blocked by**: 6.1
-**Implementation**: `src/JitML/Numerics/Loss.hs`,
-`dhall/numerics/Loss.dhall`
+**Status**: Done
+**Implementation**: `src/JitML/Numerics/Catalog.hs`
 **Docs to update**: `documents/engineering/numerical_core.md`
 
 ### Objective
@@ -203,12 +187,10 @@ Enumerate the supported loss functions.
 1. Round-trip property holds.
 2. The numerical-core docs render the loss table consistently.
 
-## Sprint 6.6: Dhall Schemas and Cross-Type Audit ⏸️
+## Sprint 6.6: Dhall Schemas and Cross-Type Audit ✅
 
-**Status**: Blocked
-**Blocked by**: 6.1, 6.2, 6.3, 6.4, 6.5
-**Implementation**: `dhall/numerics/`, `src/JitML/Numerics/Schema.hs`,
-`src/JitML/Lint/DhallNumerics.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Numerics/Catalog.hs`, `experiments/`
 **Docs to update**: `documents/engineering/numerical_core.md`
 
 ### Objective
@@ -260,11 +242,11 @@ against the numerical core.
 
 **Cross-references to add:**
 
-- `system-components.md → Numerical Core Inventory` rows move from
-  `⏸️ Blocked` through `🔄 Active` to `✅ Done`.
-- `experiments/sl/mnist-baseline.dhall` lands under `experiments/` (the
-  configuration-as-code surface declared in
-  [../README.md → Repository layout (target)](../README.md#repository-layout-target)).
+- `system-components.md → Numerical Core Inventory` rows remain aligned with
+  the aggregate catalog in `src/JitML/Numerics/Catalog.hs`.
+- `experiments/mnist.dhall`, `experiments/mnist-tune.dhall`, and
+  `experiments/cartpole.dhall` land under `experiments/` as the
+  configuration-as-code fixtures for the local catalog surface.
 
 ## Related Documents
 

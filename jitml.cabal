@@ -1,22 +1,20 @@
 cabal-version: 3.16
-name: jitml
-version: 0.1.0.0
-synopsis: Deterministic, reproducible, JIT-compiled machine learning for Haskell
-description: jitML is a Haskell-native machine learning framework with a doctrine-shaped CLI.
-license: MIT
-license-file: LICENSE
-author: jitML contributors
-maintainer: maintainers@example.invalid
-build-type: Simple
-tested-with: ghc ==9.14.1
+name:          jitml
+version:       0.1.0.0
+license:       MIT
+license-file:  LICENSE
+maintainer:    maintainers@example.invalid
+author:        jitML contributors
+tested-with:   ghc ==9.14.1
+synopsis:
+    Deterministic, reproducible, JIT-compiled machine learning for Haskell
 
-common common-options
-    default-language: GHC2024
-    ghc-options: -Wall -Wcompat
+description:
+    jitML is a Haskell-native machine learning framework with a doctrine-shaped CLI.
+
+build-type:    Simple
 
 library
-    import: common-options
-    hs-source-dirs: src
     exposed-modules:
         JitML.App
         JitML.AppError.AppError
@@ -25,15 +23,23 @@ library
         JitML.Cache.Layout
         JitML.Cache.Manifest
         JitML.Cache.Symlink
+        JitML.Bootstrap
         JitML.CLI.Help
         JitML.CLI.Json
         JitML.CLI.Output
         JitML.CLI.Parser
         JitML.CLI.Spec
         JitML.CLI.Tree
+        JitML.Checkpoint.Format
+        JitML.Cluster.Gateway
+        JitML.Cluster.Kind
+        JitML.Cluster.Publication
+        JitML.Cluster.PulsarBootstrap
+        JitML.Cluster.Storage
         JitML.Docs.Check
         JitML.Docs.Generate
         JitML.Docs.Render
+        JitML.Engines.Engine
         JitML.Env.Build
         JitML.Env.Env
         JitML.Generated.Paths
@@ -42,6 +48,10 @@ library
         JitML.Lint.ForbiddenPaths
         JitML.Lint.Stack
         JitML.Lint.Stack.Types
+        JitML.Numerics.Catalog
+        JitML.Observability.Grafana
+        JitML.Observability.Prometheus
+        JitML.Observability.TensorBoard
         JitML.Plan.Apply
         JitML.Plan.Plan
         JitML.Plan.Render
@@ -53,9 +63,32 @@ library
         JitML.Prerequisite.Reconcile
         JitML.Prerequisite.Registry
         JitML.Prerequisite.Types
+        JitML.RL.Algorithms
+        JitML.RL.AlphaZero
+        JitML.Routes
+        JitML.Service.BootConfig
+        JitML.Service.ConfigMap
+        JitML.Service.Consumer
+        JitML.Service.Endpoints
+        JitML.Service.Lifecycle
+        JitML.Service.LiveConfig
+        JitML.Service.Logger
+        JitML.Service.Retry
+        JitML.SL.Canonicals
+        JitML.Storage.Buckets
         JitML.Sub.Render
         JitML.Sub.Stream
         JitML.Sub.Subprocess
+        JitML.Substrate
+        JitML.Tart.Exec
+        JitML.Tart.Lifecycle
+        JitML.Test.Report
+        JitML.Tune.Catalog
+        JitML.Web.Contracts
+
+    hs-source-dirs:   src
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
         text,
@@ -83,26 +116,29 @@ library
         unix
 
 executable jitml
-    import: common-options
-    main-is: Main.hs
-    hs-source-dirs: app
+    main-is:          Main.hs
+    hs-source-dirs:   app
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
         jitml
 
 executable jitml-demo
-    import: common-options
-    main-is: Demo.hs
-    hs-source-dirs: app
+    main-is:          Demo.hs
+    hs-source-dirs:   app
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
         jitml
 
 test-suite jitml-unit
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/unit
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/unit
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
         aeson,
@@ -120,10 +156,11 @@ test-suite jitml-unit
         unix
 
 test-suite jitml-integration
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/integration
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/integration
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
         jitml,
@@ -132,70 +169,85 @@ test-suite jitml-integration
         text
 
 test-suite jitml-sl-canonicals
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/sentinel
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/sl-canonicals
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        jitml,
         tasty,
         tasty-hunit
 
 test-suite jitml-rl-canonicals
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/sentinel
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/rl-canonicals
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        jitml,
+        text,
         tasty,
         tasty-hunit
 
 test-suite jitml-hyperparameter
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/sentinel
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/hyperparameter
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        jitml,
         tasty,
         tasty-hunit
 
 test-suite jitml-cross-backend
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/sentinel
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/cross-backend
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        jitml,
         tasty,
         tasty-hunit
 
 test-suite jitml-daemon-lifecycle
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/sentinel
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/daemon-lifecycle
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        bytestring,
+        jitml,
         tasty,
         tasty-hunit
 
 test-suite jitml-e2e
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/sentinel
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/e2e
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        jitml,
         tasty,
         tasty-hunit
 
 test-suite jitml-haskell-style
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/haskell-style
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/haskell-style
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
         jitml,
@@ -204,11 +256,15 @@ test-suite jitml-haskell-style
         text
 
 test-suite jitml-purescript-style
-    import: common-options
-    type: exitcode-stdio-1.0
-    main-is: Main.hs
-    hs-source-dirs: test/sentinel
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test/purescript-style
+    default-language: GHC2024
+    ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        directory,
+        jitml,
         tasty,
-        tasty-hunit
+        tasty-hunit,
+        text

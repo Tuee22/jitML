@@ -18,12 +18,12 @@ Stage-0 contract:
 Commands:
   help      Print this help.
   doctor    Check the Linux CUDA stage-0 host gates.
-  build     Build the jitml:local image (Sprint 2.4).
+  build     Build the jitml:local image.
   up        Delegate to the Haskell bootstrap inside the outer container.
-  status    Print local stack status (Sprint 2.6).
-  test      Run the canonical jitML test surface (Sprint 2.6).
-  down      Tear the local stack down while preserving state (Sprint 2.7).
-  purge     Remove runtime state; --full also removes build artifacts (Sprint 2.7).
+  status    Print local stack status from ./.build/runtime/cluster-publication.json.
+  test      Run the canonical jitML test surface in the outer container.
+  down      Tear the local stack down while preserving state.
+  purge     Remove runtime state; --full also removes build artifacts.
 EOF
 }
 
@@ -50,16 +50,26 @@ main() {
       doctor "$@"
       ;;
     build)
-      phase_later "$substrate $command_name" "Sprint 2.4"
+      build_linux_image
       ;;
     up)
       up "$@"
       ;;
-    status|test)
-      phase_later "$substrate $command_name" "Sprint 2.6"
+    status)
+      print_cluster_status "$substrate"
       ;;
-    down|purge)
-      phase_later "$substrate $command_name" "Sprint 2.7"
+    test)
+      run_linux_compose_jitml test all "$@"
+      ;;
+    down)
+      kind_down "$substrate"
+      ;;
+    purge)
+      full=false
+      if [ "${1:-}" = "--full" ]; then
+        full=true
+      fi
+      purge_linux_state "$substrate" "$full"
       ;;
     *)
       die 64 "unknown linux-cuda bootstrap command: $command_name"

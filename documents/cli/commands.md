@@ -874,9 +874,9 @@ Run generated documentation checks.
 
 ## `jitml lint proto`
 
-Run the current protobuf lint placeholder.
+Run protobuf schema lint checks.
 
-Run the current protobuf lint placeholder.
+Run protobuf schema lint checks.
 
 ```text
 jitml lint proto [--write]
@@ -892,14 +892,14 @@ Examples:
 jitml lint proto
 ```
 
-Run the current protobuf lint placeholder.
+Run protobuf schema lint checks.
 
 
 ## `jitml lint chart`
 
-Run the current Helm chart lint placeholder.
+Run Helm chart shape checks.
 
-Run the current Helm chart lint placeholder.
+Run Helm chart shape checks.
 
 ```text
 jitml lint chart [--write]
@@ -915,7 +915,7 @@ Examples:
 jitml lint chart
 ```
 
-Run the current Helm chart lint placeholder.
+Run Helm chart shape checks.
 
 
 ## `jitml lint haskell`
@@ -943,9 +943,9 @@ Run Haskell lint configuration and primitive checks.
 
 ## `jitml lint purescript`
 
-Run the current PureScript lint placeholder.
+Run PureScript contract and format checks.
 
-Run the current PureScript lint placeholder.
+Run PureScript contract and format checks.
 
 ```text
 jitml lint purescript [--write]
@@ -961,7 +961,7 @@ Examples:
 jitml lint purescript
 ```
 
-Run the current PureScript lint placeholder.
+Run PureScript contract and format checks.
 
 
 ## `jitml lint all`

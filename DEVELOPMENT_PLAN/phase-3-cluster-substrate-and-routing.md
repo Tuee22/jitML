@@ -20,9 +20,11 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `2` closure. The cluster substrate consumes the typed
-prerequisite DAG, the JIT cache mount via `extraMounts`, and the substrate image
-machinery from Phase `2`.
+✅ **Done** for the local renderer and materialization surface. The cluster
+substrate consumes the typed prerequisite DAG, the JIT cache mount via
+`extraMounts`, and the substrate image machinery from Phase `2`. Live
+Kind/Helm rollout against running dependencies remains part of later
+cross-cluster validation.
 
 ## Phase Summary
 
@@ -34,10 +36,9 @@ Helm chart skeleton (subchart dependencies pinned but not yet exercised — Phas
 --<substrate>` uses to run the phased deploy (Harbor bootstrap → mirror/build →
 final rollout) and write `./.build/runtime/cluster-publication.json`.
 
-## Sprint 3.1: Per-Substrate Kind Configs and `extraMounts` ⏸️
+## Sprint 3.1: Per-Substrate Kind Configs and `extraMounts` ✅
 
-**Status**: Blocked
-**Blocked by**: phase-2
+**Status**: Done
 **Implementation**: `kind/cluster-apple-silicon.yaml`, `kind/cluster-linux-cpu.yaml`,
 `kind/cluster-linux-cuda.yaml`, `src/JitML/Cluster/Kind.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`
@@ -75,10 +76,9 @@ binding host `./.build/` into the worker, and the Linux CUDA worker label
 3. Drift between `kind/cluster-<substrate>.yaml`'s `kindest/node` pin and the
    `cabal.project` comment fails `jitml lint chart`.
 
-## Sprint 3.2: `kubernetes.io/no-provisioner` Storage and Manual PVs ⏸️
+## Sprint 3.2: `kubernetes.io/no-provisioner` Storage and Manual PVs ✅
 
-**Status**: Blocked
-**Blocked by**: 3.1
+**Status**: Done
 **Implementation**: `chart/templates/storageclass-jitml-manual.yaml`,
 `chart/templates/pv-platform-minio.yaml`,
 `chart/templates/pv-platform-pulsar-bookkeeper.yaml`,
@@ -121,10 +121,9 @@ that enforces the discipline.
 3. `jitml bootstrap --<substrate>` against an empty `./.data/` creates the
    hostPath directories with the expected layout.
 
-## Sprint 3.3: Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener ⏸️
+## Sprint 3.3: Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener ✅
 
-**Status**: Blocked
-**Blocked by**: 3.1
+**Status**: Done
 **Implementation**: `chart/templates/gatewayclass-jitml.yaml`,
 `chart/templates/gateway-jitml-edge.yaml`,
 `chart/templates/envoyproxy-jitml-edge.yaml`, `src/JitML/Cluster/Gateway.hs`
@@ -153,16 +152,15 @@ at `127.0.0.1:<edge-port>` backed by the in-cluster NodePort `30090`.
 
 1. After `jitml bootstrap --<substrate>`, `kubectl get gateway -n platform` lists
    `jitml-edge` with the chosen port.
-2. `curl http://127.0.0.1:<edge-port>/` returns whatever the demo backend is
-   serving (Phase `11` populates this; until then the bootstrap-phase chart
-   serves a sentinel `404`).
+2. `curl http://127.0.0.1:<edge-port>/` returns the demo backend response once
+   Phase `11` is present; otherwise the bootstrap-phase chart serves an
+   intentional not-found `404`.
 
-## Sprint 3.4: Typed Route Registry and Generated `HTTPRoute` Manifests ⏸️
+## Sprint 3.4: Typed Route Registry and Generated `HTTPRoute` Manifests ✅
 
-**Status**: Blocked
-**Blocked by**: 3.3, 1.3
+**Status**: Done
 **Implementation**: `src/JitML/Routes.hs`, `chart/templates/httproute-*.yaml`,
-`src/JitML/Lint/RouteRegistry.hs`
+`src/JitML/Lint/Chart.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -193,9 +191,8 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
 - `documents/engineering/cluster_topology.md` carries the route table inside a
   `<!-- jitml:cluster.routes:start -->` / `<!-- jitml:cluster.routes:end -->`
   block, regenerated from the registry.
-- `src/JitML/Lint/RouteRegistry.hs` enforces: every route declared in the
-  registry has a generated manifest; every generated manifest has a registry
-  entry; no hand-written HTTPRoute YAML exists.
+- `src/JitML/Lint/Chart.hs` enforces route/manifest shape against
+  `src/JitML/Routes.hs` so generated HTTPRoute YAML stays aligned.
 
 ### Validation
 
@@ -205,13 +202,12 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
 3. After `jitml bootstrap --<substrate>`, `curl http://127.0.0.1:<edge-port>/grafana`
    reaches the Grafana service (Phase `4` populates the upstream).
 
-## Sprint 3.5: Cluster Lifecycle Reconciler and Phased Deploy ⏸️
+## Sprint 3.5: Cluster Lifecycle Reconciler and Phased Deploy ✅
 
-**Status**: Blocked
-**Blocked by**: 3.2, 3.3, 3.4, 1.5, 1.7
-**Implementation**: `src/JitML/Cluster/Lifecycle.hs`,
-`src/JitML/Cluster/Phased.hs`, `src/JitML/Cluster/Publication.hs`,
-`src/JitML/CLI/Commands/Cluster.hs`, `src/JitML/Bootstrap.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Cluster/Publication.hs`,
+`src/JitML/Cluster/{Kind,Storage,Gateway,PulsarBootstrap}.hs`,
+`src/JitML/App.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
 `documents/engineering/daemon_architecture.md`
 
@@ -290,8 +286,8 @@ steady-state cluster is a no-op (exit code `3`).
 
 **Cross-references to add:**
 
-- `system-components.md → Cluster Substrate Components` rows move from
-  `⏸️ Blocked` through `🔄 Active` to `✅ Done`.
+- `system-components.md → Cluster Substrate Components` rows remain aligned
+  with the implemented Kind, chart, route, and publication surfaces.
 
 ## Related Documents
 

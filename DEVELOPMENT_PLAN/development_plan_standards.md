@@ -68,6 +68,13 @@ project management summaries.
 - Substrate identifiers are `apple-silicon`, `linux-cpu`, and `linux-cuda` on the CLI
   and in Dhall configuration. Substrate identifiers may not be renamed, abbreviated,
   or pluralised in plan or doctrine prose.
+- JIT build source is not checked in as static substrate files. Any source code
+  artefact needed to compile a JIT kernel, including CUDA `.cu`, C/C++ `.cc` /
+  `.cpp`, Metal / Swift package sources, and per-substrate build `.sh` scripts,
+  is generated on demand by the Haskell `jitml` binary into the content-addressed
+  build/cache tree. Checked-in code may contain Haskell renderers, typed
+  templates, and tests for those renderers, but not ready-to-run kernel source
+  files or build scripts.
 - Deprecated aliases or legacy command paths belong only in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
@@ -150,7 +157,8 @@ for:
 - stateful platform services (Harbor, MinIO, Pulsar, PostgreSQL, observability)
 - the `jitml service` daemon (BootConfig / LiveConfig surfaces, capability classes)
 - numerical-core ADTs (layer catalog, optimizers, schedulers, losses) and Dhall types
-- per-substrate JIT codegen artefacts and content-addressed cache layout
+- per-substrate JIT source renderers, generated-on-demand codegen artefacts, and
+  content-addressed cache layout
 - training-workload surfaces (SL loops, RL framework, RL catalog, AlphaZero, tuning)
 - checkpoint format and inference-only read path
 - frontend bundle and generated browser-contract surfaces

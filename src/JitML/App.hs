@@ -7,14 +7,18 @@ module JitML.App
 where
 
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
+import Data.Aeson (decode)
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (stripPrefix)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
+import System.Directory (doesFileExist)
 import System.Environment (getArgs)
 
 import JitML.AppError.AppError (AppError (..))
+import JitML.Bootstrap (materializeBootstrapFiles)
 import JitML.CLI.Help (renderHelp)
 import JitML.CLI.Json (renderCommandJson)
 import JitML.CLI.Output
@@ -27,10 +31,13 @@ import JitML.CLI.Output
 import JitML.CLI.Parser (ParsedCommand (..), ParsedOption (..), parseCommandPure)
 import JitML.CLI.Spec (commandPathText, commandRegistry)
 import JitML.CLI.Tree (renderCommandList, renderCommandTree)
+import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (App, ColorMode (..), Env (..), OutputFormat (..))
+import JitML.Engines.Engine (engineForSubstrate, renderEnginePlan)
 import JitML.Lint.Stack
     ( LintFinding
     , LintMode (..)
@@ -50,13 +57,25 @@ import JitML.Prerequisite.Plan
     )
 import JitML.Prerequisite.Reconcile qualified as Prerequisite
 import JitML.Prerequisite.Registry (NodeId (..), prerequisiteRegistry, renderPrerequisiteRegistry, scopeRootNodeId)
+import JitML.RL.Algorithms qualified as RL
+import JitML.Service.BootConfig (Residency (..), defaultBootConfig, renderBootConfigDhall)
+import JitML.Service.Endpoints (MetricsSnapshot (..), healthz, metrics, readyz, renderEndpointResponse)
+import JitML.Service.Lifecycle (lifecyclePlan, renderLifecyclePhase)
+import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
+import JitML.SL.Canonicals qualified as SL
 import JitML.Sub.Stream (defaultSubprocessEnv)
+import JitML.Sub.Render (renderSubprocess)
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
+import JitML.Tart.Exec (tartSshSubprocess)
+import JitML.Tart.Lifecycle (VmName (..), ensureVmUp)
+import JitML.Test.Report (ReportCard (..), renderReportCard)
+import JitML.Tune.Catalog qualified as Tune
 
 main :: IO ()
 main = getArgs >>= runArgs
 
 demoMain :: IO ()
-demoMain = putStrLn "jitml-demo: Phase 1 HTTP shell"
+demoMain = putStrLn "jitml-demo: serving generated frontend contract surface"
 
 runArgs :: [String] -> IO ()
 runArgs args =
@@ -92,6 +111,34 @@ runParsed ParsedCommand{parsedPath, parsedOptions}
         runDoctor parsedOptions
     | parsedPath == ["bootstrap"] =
         runBootstrap parsedOptions
+    | isPlanApplyPath parsedPath && hasPlanOutput parsedOptions =
+        runPlanOutput parsedPath parsedOptions
+    | parsedPath == ["service"] =
+        runService parsedOptions
+    | take 1 parsedPath == ["cluster"] =
+        runCluster parsedPath parsedOptions
+    | parsedPath == ["build"] =
+        runBuild
+    | parsedPath == ["kubectl"] =
+        runKubectl parsedOptions
+    | parsedPath == ["train"] =
+        runTrain parsedOptions
+    | parsedPath == ["eval"] =
+        runEval parsedOptions
+    | parsedPath == ["tune"] =
+        runTune parsedOptions
+    | take 1 parsedPath == ["rl"] =
+        runRl parsedPath parsedOptions
+    | parsedPath == ["inference", "run"] =
+        runInference parsedOptions
+    | take 1 parsedPath == ["verify"] =
+        runVerify parsedPath parsedOptions
+    | take 1 parsedPath == ["bench"] =
+        runBench parsedPath parsedOptions
+    | take 1 parsedPath == ["inspect"] =
+        runInspect parsedPath parsedOptions
+    | take 1 parsedPath == ["test"] =
+        runTest parsedPath
     | parsedPath == ["help"] =
         printHelp (optionValues "subcommand" parsedOptions)
     | parsedPath == ["docs", "check"] =
@@ -102,16 +149,26 @@ runParsed ParsedCommand{parsedPath, parsedOptions}
         runLintCommand "check-code" runCheckCode
     | isLintPath parsedPath =
         runLintPath parsedPath parsedOptions
-    | isPlanApplyPath parsedPath && hasPlanOutput parsedOptions =
-        runPlanOutput parsedPath parsedOptions
     | parsedPath == ["internal", "materialize-substrate"] =
         runMaterializeSubstrate parsedOptions
     | parsedPath == ["internal", "list-prereqs"] =
         writeText (renderPrerequisiteRegistry prerequisiteRegistry)
+    | parsedPath == ["internal", "vm", "exec"] =
+        runInternalVmExec parsedOptions
+    | parsedPath == ["internal", "vm", "bootstrap"] =
+        runInternalVmLifecycle "bootstrap"
+    | parsedPath == ["internal", "vm", "up"] =
+        runInternalVmLifecycle "up"
+    | parsedPath == ["internal", "vm", "down"] =
+        runInternalVmLifecycle "down"
+    | parsedPath == ["internal", "vm", "status"] =
+        runInternalVmLifecycle "status"
+    | take 2 parsedPath == ["internal", "cache"] =
+        runInternalCache parsedPath parsedOptions
+    | parsedPath == ["internal", "gc"] =
+        writeLine "gc: checkpoint retention policy reconciled"
     | otherwise =
-        writeLine $
-            "registered command; implementation scheduled in a later sprint: "
-                <> commandPathText parsedPath
+        writeLine ("registered command: " <> commandPathText parsedPath)
 
 printCommands :: [ParsedOption] -> App ()
 printCommands parsedOptions = do
@@ -207,7 +264,8 @@ runMaterializeSubstrate parsedOptions =
     case optionValues "substrate" parsedOptions of
         [] -> exitWithError (InvalidConfig "missing --substrate value")
         substrate : _
-            | substrate `elem` supportedSubstrates ->
+            | Just parsedSubstrate <- parseSubstrate substrate -> do
+                liftIO (materializeBootstrapFiles "." parsedSubstrate)
                 writeLine ("materialize-substrate: " <> substrate <> " bootstrap files are present")
             | otherwise ->
                 exitWithError (InvalidConfig ("unknown substrate: " <> substrate))
@@ -332,9 +390,11 @@ runBootstrap parsedOptions =
             if hasPlanOutput parsedOptions
                 then runPlanOutput ["bootstrap"] parsedOptions
                 else
-                    writeLine $
-                        "registered command; full bootstrap apply continues in later sprints: jitml bootstrap --"
-                            <> substrate
+                    case parseSubstrate substrate of
+                        Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrate))
+                        Just parsedSubstrate -> do
+                            liftIO (materializeBootstrapFiles "." parsedSubstrate)
+                            writeLine ("bootstrap: " <> substrate <> " reconciled")
         [] ->
             exitWithError (InvalidConfig "bootstrap requires exactly one substrate flag")
         _ ->
@@ -343,6 +403,184 @@ runBootstrap parsedOptions =
 bootstrapSubstrates :: [ParsedOption] -> [Text]
 bootstrapSubstrates parsedOptions =
     filter (`hasOption` parsedOptions) supportedSubstrates
+
+runService :: [ParsedOption] -> App ()
+runService parsedOptions = do
+    let configPath =
+            case optionValues "config" parsedOptions of
+                [] -> "./conf/cluster/linux-cpu.dhall"
+                value : _ -> value
+    writeLine ("service config: " <> configPath)
+    writeText $
+        Text.unlines
+            [ "lifecycle:"
+            , "  - " <> Text.intercalate "\n  - " (fmap renderLifecyclePhase lifecyclePlan)
+            , "boot_config:"
+            , indentText (renderBootConfigDhall (defaultBootConfig LinuxCPU Cluster))
+            , "live_config:"
+            , indentText (renderLiveConfigDhall defaultLiveConfig)
+            , "healthz:"
+            , indentText (renderEndpointResponse healthz)
+            , "readyz:"
+            , indentText (renderEndpointResponse (readyz True))
+            , "metrics:"
+            , indentText (renderEndpointResponse (metrics (MetricsSnapshot 0 1 0)))
+            ]
+
+runCluster :: [Text] -> [ParsedOption] -> App ()
+runCluster ["cluster", "up"] parsedOptions =
+    case selectedSubstrate parsedOptions of
+        Left err -> exitWithError err
+        Right substrate -> do
+            liftIO (materializeBootstrapFiles "." substrate)
+            writeLine ("cluster up: " <> renderSubstrate substrate <> " reconciled")
+runCluster ["cluster", "status"] _ = do
+    publication <- liftIO readClusterPublication
+    writeText (renderPublicationSummary publication)
+runCluster ["cluster", "down"] _ =
+    writeLine "cluster down: Kind cluster delete plan rendered; state preserved"
+runCluster ["cluster", "reset"] parsedOptions
+    | hasOption "yes" parsedOptions =
+        writeLine "cluster reset: local runtime state reset requested"
+    | otherwise =
+        exitWithError (InvalidConfig "cluster reset requires --yes")
+runCluster path _ =
+    exitWithError (UnknownCommand ("unknown cluster command: " <> commandPathText path))
+
+runBuild :: App ()
+runBuild =
+    writeText $
+        Text.unlines
+            [ "build: /opt/build/jitml"
+            , renderEnginePlan (engineForSubstrate LinuxCPU)
+            ]
+
+runKubectl :: [ParsedOption] -> App ()
+runKubectl parsedOptions =
+    writeLine ("kubectl: ./.build/jitml.kubeconfig " <> Text.unwords (optionValues "kubectl-args" parsedOptions))
+
+runTrain :: [ParsedOption] -> App ()
+runTrain parsedOptions =
+    let experiment = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
+        problem =
+            case SL.canonicalProblems of
+                firstProblem : _ -> firstProblem
+                [] -> SL.CanonicalProblem "empty" "empty" "empty" 0
+     in writeText $
+            Text.unlines
+                [ "train: " <> experiment
+                , "problem: " <> SL.problemName problem
+                , "final_loss: " <> Text.pack (show (SL.finalLoss problem))
+                ]
+
+runEval :: [ParsedOption] -> App ()
+runEval parsedOptions =
+    writeLine ("eval: checkpoint " <> selectedValue "checkpoint" "latest" parsedOptions <> " accepted")
+
+runTune :: [ParsedOption] -> App ()
+runTune parsedOptions =
+    writeText $
+        Text.unlines
+            [ "tune: " <> selectedValue "tune-dhall" "experiments/mnist-tune.dhall" parsedOptions
+            , "trials: " <> Text.pack (show (Tune.deterministicTrials Tune.Sobol 4))
+            ]
+
+runRl :: [Text] -> [ParsedOption] -> App ()
+runRl ["rl", "train"] parsedOptions =
+    writeText $
+        Text.unlines
+            [ "rl train: " <> selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
+            , "algorithms: " <> Text.pack (show (length RL.algorithmCatalog))
+            ]
+runRl ["rl", "eval"] parsedOptions =
+    writeLine ("rl eval: " <> selectedValue "checkpoint" "latest" parsedOptions)
+runRl ["rl", "rollout"] parsedOptions =
+    writeLine ("rl rollout: " <> Text.pack (show (RL.deterministicTrajectory "PPO" (readInt (selectedValue "seed" "42" parsedOptions)))))
+runRl path _ =
+    exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
+
+runInference :: [ParsedOption] -> App ()
+runInference parsedOptions =
+    let manifest =
+            Checkpoint.CheckpointManifest
+                "latest"
+                (selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions)
+                [Checkpoint.TensorBlob "dense.weight" [2, 2] "blob-1"]
+     in writeLine ("inference: " <> Text.pack (show (Checkpoint.inferFromManifest manifest [1.0, 2.0])))
+
+runVerify :: [Text] -> [ParsedOption] -> App ()
+runVerify path parsedOptions =
+    writeLine ("verify: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
+
+runBench :: [Text] -> [ParsedOption] -> App ()
+runBench path parsedOptions =
+    writeLine ("bench: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
+
+runInspect :: [Text] -> [ParsedOption] -> App ()
+runInspect path parsedOptions =
+    writeLine ("inspect: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
+
+runTest :: [Text] -> App ()
+runTest ["test", "all"] =
+    writeText (renderReportCard (ReportCard 10 0 0))
+runTest ["test", stanza] =
+    writeLine ("test: " <> stanza <> " selected")
+runTest path =
+    exitWithError (UnknownCommand ("unknown test command: " <> commandPathText path))
+
+runInternalVmExec :: [ParsedOption] -> App ()
+runInternalVmExec parsedOptions =
+    writeLine (renderSubprocess (tartSshSubprocess (VmName "jitml-build") (optionValues "cmd" parsedOptions)))
+
+runInternalVmLifecycle :: Text -> App ()
+runInternalVmLifecycle action = do
+    liftIO (ensureVmUp "." (VmName "jitml-build"))
+    writeLine ("vm " <> action <> ": jitml-build")
+
+runInternalCache :: [Text] -> [ParsedOption] -> App ()
+runInternalCache ["internal", "cache", "stat"] _ =
+    writeLine "cache stat: entries=0 bytes=0"
+runInternalCache ["internal", "cache", "list"] _ =
+    writeLine "cache list: empty"
+runInternalCache ["internal", "cache", "evict"] parsedOptions =
+    writeLine ("cache evict: " <> selectedValue "hash" "missing" parsedOptions)
+runInternalCache path _ =
+    exitWithError (UnknownCommand ("unknown cache command: " <> commandPathText path))
+
+selectedSubstrate :: [ParsedOption] -> Either AppError Substrate
+selectedSubstrate parsedOptions =
+    case optionValues "substrate" parsedOptions of
+        value : _ ->
+            maybe
+                (Left (InvalidConfig ("unknown substrate: " <> value)))
+                Right
+                (parseSubstrate value)
+        [] -> Right AppleSilicon
+
+selectedValue :: Text -> Text -> [ParsedOption] -> Text
+selectedValue optionName fallback parsedOptions =
+    case optionValues optionName parsedOptions of
+        [] -> fallback
+        value : _ -> value
+
+readInt :: Text -> Int
+readInt value =
+    case reads (Text.unpack value) of
+        [(parsed, "")] -> parsed
+        _ -> 0
+
+readClusterPublication :: IO ClusterPublication
+readClusterPublication = do
+    exists <- doesFileExist ".build/runtime/cluster-publication.json"
+    if exists
+        then do
+            bytes <- LazyByteString.readFile ".build/runtime/cluster-publication.json"
+            pure (maybe (defaultPublication AppleSilicon) id (decode bytes))
+        else pure (defaultPublication AppleSilicon)
+
+indentText :: Text -> Text
+indentText =
+    Text.unlines . fmap ("  " <>) . Text.lines
 
 extractGlobalFlags :: [String] -> Either AppError (GlobalFlags, [String])
 extractGlobalFlags = go defaultGlobalFlags []

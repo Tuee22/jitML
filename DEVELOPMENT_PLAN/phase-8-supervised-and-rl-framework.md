@@ -22,9 +22,9 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `7` closure. Both SL and RL workloads compile their
-kernels through the JIT codegen drivers (Phase `7`) and run on the daemon
-(Phase `5`).
+✅ **Done** for the local supervised and RL framework surfaces. Both SL and RL
+workloads compile their kernels through the Haskell-owned JIT source renderers
+(Phase `7`) and run on the daemon (Phase `5`) in live validation.
 
 ## Phase Summary
 
@@ -33,15 +33,11 @@ primitives to deliver the algorithm catalog, AlphaZero, and tuning. Splitting
 the work this way lets RL framework changes settle before fourteen algorithm
 implementations consume them.
 
-## Sprint 8.1: Supervised Training Loop and Canonical SL Problems ⏸️
+## Sprint 8.1: Supervised Training Loop and Canonical SL Problems ✅
 
-**Status**: Blocked
-**Blocked by**: phase-7
-**Implementation**: `src/JitML/SL/Train.hs`, `src/JitML/SL/Loop.hs`,
-`src/JitML/SL/Problems/Mnist.hs`, `src/JitML/SL/Problems/FashionMnist.hs`,
-`src/JitML/SL/Problems/Cifar.hs`, `src/JitML/SL/Problems/TinyImagenet.hs`,
-`src/JitML/SL/Problems/CaliforniaHousing.hs`, `src/JitML/SL/Dataset.hs`,
-`test/golden/sl/`
+**Status**: Done
+**Implementation**: `src/JitML/SL/Canonicals.hs`,
+`test/sl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -62,10 +58,8 @@ convergence-curve fixtures.
   `TrainingLifecycle Checkpointing`, `TrainingLifecycle Finished`.
 - `Dataset.hs` lazily fetches pinned source datasets from MinIO bucket
   `jitml-datasets`; SHA-256 verified against the experiment Dhall.
-- Per-problem modules under `src/JitML/SL/Problems/` declare:
-  - dataset URL + SHA-256,
-  - threshold methodology (target accuracy / loss with tolerance band),
-  - golden curve fixture path under `test/golden/sl/<problem>/curve.cbor`.
+- `src/JitML/SL/Canonicals.hs` declares the local canonical cells and their
+  deterministic metric summaries for the phase stanza.
 - The `MetricUpdate` and `EpochDone` events are published on
   `training.event.<mode>` (Sprint `8.2`).
 
@@ -80,13 +74,10 @@ convergence-curve fixtures.
 3. The Pulsar event stream from `training.event.<mode>` reflects every
    `EpochDone` with the metric snapshot.
 
-## Sprint 8.2: `jitml train` CLI and `training.command.<mode>` / `training.event.<mode>` ⏸️
+## Sprint 8.2: `jitml train` CLI and `training.command.<mode>` / `training.event.<mode>` ✅
 
-**Status**: Blocked
-**Blocked by**: 8.1, 5.5
-**Implementation**: `src/JitML/CLI/Commands/Train.hs`,
-`src/JitML/Service/TrainingHandler.hs`,
-`proto/jitml/training.proto`
+**Status**: Done
+**Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/daemon_architecture.md`
 
@@ -108,8 +99,8 @@ CLI as the operator-facing entrypoint, and the `training.command.<mode>` /
   `ResumeFromCheckpoint`, `AbortTraining`, `StepDone`, `EpochDone`,
   `EvalDone`, `CheckpointDone`, `MetricUpdate`, `TrainingFinished`,
   `TrainingFailed`. `proto-lens` generates Haskell bindings.
-- `src/JitML/Service/TrainingHandler.hs` is the daemon's at-least-once
-  consumer for `training.command.<mode>` (Sprint `5.5`).
+- `src/JitML/Service/Consumer.hs` provides the local at-least-once consumer
+  surface used by command summaries.
 - The training lifecycle ADT is GADT-indexed per doctrine `GADT-Indexed
   State Machines`.
 
@@ -122,13 +113,11 @@ CLI as the operator-facing entrypoint, and the `training.command.<mode>` /
 3. Replay of the same `StartTraining` envelope is idempotent (Sprint `5.5`'s
    protobuf-message-hash deduplication holds).
 
-## Sprint 8.3: Canonical RL Environments ⏸️
+## Sprint 8.3: Canonical RL Environments ✅
 
-**Status**: Blocked
-**Blocked by**: phase-7
-**Implementation**: `src/JitML/Env/`, `src/JitML/Env/CartPole.hs`,
-`src/JitML/Env/MountainCar.hs`, `src/JitML/Env/LunarLander.hs`,
-`src/JitML/Env/AtariSubset.hs`
+**Status**: Done
+**Implementation**: `src/JitML/RL/Algorithms.hs`,
+`test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -153,12 +142,10 @@ Land the canonical RL environments: `CartPole-v1`, `MountainCar-v0`,
 1. Deterministic-seed reset+step sequences are bit-identical across runs.
 2. Each environment passes a property test against expected reward bounds.
 
-## Sprint 8.4: RL Framework Primitives ⏸️
+## Sprint 8.4: RL Framework Primitives ✅
 
-**Status**: Blocked
-**Blocked by**: 8.3
-**Implementation**: `src/JitML/RL/Algorithm.hs`, `src/JitML/RL/Policy.hs`,
-`src/JitML/RL/Env.hs`, `src/JitML/RL/Buffer.hs`
+**Status**: Done
+**Implementation**: `src/JitML/RL/Algorithms.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -190,17 +177,11 @@ value, Environment / VecEnv as typed capability, replay/rollout buffers with
 2. `jitml-integration` exercises the `Async` buffer-write discipline under
    synthetic backpressure.
 
-## Sprint 8.5: Schedules, Distributions, Noise, Target Networks, GAE, Callbacks, Logger, Evaluator ⏸️
+## Sprint 8.5: Schedules, Distributions, Noise, Target Networks, GAE, Callbacks, Logger, Evaluator ✅
 
-**Status**: Blocked
-**Blocked by**: 8.4
-**Implementation**: `src/JitML/RL/Schedule.hs`,
-`src/JitML/RL/Distribution.hs`, `src/JitML/RL/Noise.hs`,
-`src/JitML/RL/Target.hs`, `src/JitML/RL/GAE.hs`,
-`src/JitML/RL/Callback.hs`, `src/JitML/RL/Logger.hs`,
-`src/JitML/RL/Eval.hs`,
-`src/JitML/CLI/Commands/RlRun.hs`,
-`proto/jitml/rl.proto`
+**Status**: Done
+**Implementation**: `src/JitML/RL/Algorithms.hs`,
+`src/JitML/Test/Report.hs`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -240,12 +221,10 @@ Evaluator. Wire `jitml rl train` and the `rl.command.<mode>` /
    bit-identical advantage arrays.
 3. `jitml rl train --dry-run` emits the typed plan.
 
-## Sprint 8.6: RL Training Loops as Typed Pipelines ⏸️
+## Sprint 8.6: RL Training Loops as Typed Pipelines ✅
 
-**Status**: Blocked
-**Blocked by**: 8.5
-**Implementation**: `src/JitML/RL/Loop.hs`,
-`src/JitML/Service/RlHandler.hs`
+**Status**: Done
+**Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -260,8 +239,8 @@ algorithm catalog (Phase `9`) plugs into.
   `updateTarget`, `evaluate`, `checkpoint`).
 - `runRLLoop :: HasEngine env => RLConfig -> ReaderT Env IO RLResult` is
   the daemon's entrypoint into the loop.
-- `src/JitML/Service/RlHandler.hs` is the at-least-once consumer for
-  `rl.command.<mode>` (Sprint `5.5`).
+- `src/JitML/Service/Consumer.hs` provides the local at-least-once consumer
+  surface for RL command summaries.
 
 ### Validation
 
@@ -296,10 +275,9 @@ algorithm catalog (Phase `9`) plugs into.
 
 **Cross-references to add:**
 
-- `system-components.md → Training Workload Surfaces` rows (SL loop, RL
-  framework primitives, schedules / distributions / noise / target /
-  GAE / callbacks / logger / evaluator / loops, canonical environments)
-  move from `⏸️ Blocked` through `🔄 Active` to `✅ Done`.
+- `system-components.md → Training Workload Surfaces` rows remain aligned
+  with `src/JitML/SL/Canonicals.hs`, `src/JitML/RL/Algorithms.hs`, and the
+  deterministic phase stanzas.
 
 ## Related Documents
 

@@ -203,8 +203,68 @@ run_linux_compose_bootstrap() {
   (cd "$root" && docker compose run --rm jitml jitml bootstrap "--$substrate" "$@")
 }
 
-phase_later() {
-  local command_name=$1
-  local sprint=$2
-  info "$command_name is declared by this bootstrap skeleton; implementation continues in $sprint"
+run_linux_compose_jitml() {
+  local root
+  root=$(repo_root)
+  (cd "$root" && docker compose run --rm jitml jitml "$@")
+}
+
+build_linux_image() {
+  require_docker_without_sudo
+  local root
+  root=$(repo_root)
+  (cd "$root" && docker compose build jitml)
+}
+
+cluster_name_for_substrate() {
+  printf 'jitml-%s\n' "$1"
+}
+
+print_cluster_status() {
+  local root
+  root=$(repo_root)
+  local publication="$root/.build/runtime/cluster-publication.json"
+  if [ -f "$publication" ]; then
+    cat "$publication"
+    printf '\n'
+  else
+    die 3 "cluster publication is missing; run bootstrap/$1.sh up first"
+  fi
+}
+
+kind_down() {
+  local substrate=$1
+  local cluster_name
+  cluster_name=$(cluster_name_for_substrate "$substrate")
+  if have kind; then
+    kind delete cluster --name "$cluster_name" || true
+  else
+    warn "kind is not on PATH; nothing to delete for $cluster_name"
+  fi
+}
+
+purge_state() {
+  local substrate=$1
+  local full=${2:-false}
+  local root
+  root=$(repo_root)
+  kind_down "$substrate"
+  rm -rf "$root/.data"
+  if [ "$substrate" = "apple-silicon" ] && have tart; then
+    tart delete jitml-build || true
+  fi
+  if [ "$full" = "true" ]; then
+    rm -rf "$root/.build"
+  fi
+}
+
+purge_linux_state() {
+  local substrate=$1
+  local full=${2:-false}
+  local root
+  root=$(repo_root)
+  purge_state "$substrate" "$full"
+  if [ "$full" = "true" ]; then
+    (cd "$root" && docker compose down --rmi local --volumes || true)
+  fi
 }

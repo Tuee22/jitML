@@ -1,0 +1,37 @@
+substrate: apple-silicon
+edgePort: 9090
+
+jitml:
+  image:
+    repository: harbor.platform.svc.cluster.local/jitml/jitml
+    tag: local
+  demoImage:
+    repository: harbor.platform.svc.cluster.local/jitml/jitml-demo
+    tag: local
+  storageClass: jitml-manual
+
+harbor:
+  expose:
+    type: clusterIP
+  persistence:
+    persistentVolumeClaim:
+      registry:
+        storageClass: jitml-manual
+
+minio:
+  mode: distributed
+  replicas: 4
+
+pulsar:
+  zookeeper:
+    replicaCount: 3
+  bookkeeper:
+    replicaCount: 3
+  broker:
+    replicaCount: 3
+  proxy:
+    replicaCount: 3
+
+kube-prometheus-stack:
+  grafana:
+    enabled: true

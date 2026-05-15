@@ -1,0 +1,23 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: jitml-linux-cuda
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.32.2
+    extraPortMappings:
+      - containerPort: 30090
+        hostPort: 9092
+        listenAddress: 127.0.0.1
+        protocol: TCP
+  - role: worker
+    image: kindest/node:v1.32.2
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: jitml.runtime/gpu=true,jitml.substrate/linux-cuda=true
+    extraMounts:
+      - hostPath: ./.build
+        containerPath: /jitml/.build
+        readOnly: false

@@ -21,11 +21,13 @@
 ## Phase Status
 
 🔄 **Active** — Sprints `1.1`, `1.2`, `1.3`, and `1.5` through `1.9` are
-`✅ Done`. Sprint `1.4` is reopened as `🔄 Active`: the current worktree has
-the lint command surface, config files, forbidden-path registry, generated-doc
-drift checks, and `jitml-haskell-style` stanza, but it does not yet run the
-external `fourmolu`, `hlint`, `cabal format`, and warning-clean build gates that
-the doctrine-owned lint stack requires.
+`✅ Done`. Sprint `1.4` remains `🔄 Active` for the external Fourmolu / hlint
+tool bootstrap only. The current worktree has the lint command surface, config
+files, forbidden-path registry, generated-doc drift checks, chart-shape checks,
+forbidden-subprocess checks, `jitml-haskell-style`, and `jitml check-code`
+passing. The external Fourmolu path is blocked until the doctrine's separate
+style-tools GHC is installed, because current Fourmolu resolver bounds reject
+the pinned GHC `9.14.1` / `base-4.22` project compiler.
 
 ## Phase Summary
 
@@ -93,10 +95,10 @@ library set per doctrine `Overview → standardized stack`.
 
 ### Validation
 
-1. `cabal build all` builds the empty `jitml` and `jitml-demo` shells under GHC
+1. `cabal build all` builds the `jitml` and `jitml-demo` shells under GHC
    `9.14.1`.
-2. `cabal test all` runs (no test stanzas have bodies yet; each prints a success
-   sentinel and exits `0`).
+2. `cabal test all` runs the ten declared stanzas; Phase `12` now supplies the
+   dedicated deterministic bodies.
 3. `grep '^tested-with' jitml.cabal` returns `tested-with: ghc ==9.14.1`.
 4. `grep '^with-compiler' cabal.project` returns `with-compiler: ghc-9.14.1`.
 5. Every report-card knob from [system-components.md → POC Report-Card
@@ -265,8 +267,8 @@ Code-Quality Stack`.
 - `forbiddenPathRegistry` in `src/JitML/Lint/ForbiddenPaths.hs` refuses
   `.github/workflows/`, `.husky/`, `.githooks/`, `.pre-commit-config.yaml`, root
   `Makefile` / `justfile` / `Taskfile.yml`. `jitml lint files` enforces.
-- Current `src/JitML/Lint/Chart.hs` is a no-op when `chart/` is absent. When
-  chart files land, it enforces: every StorageClass uses
+- `src/JitML/Lint/Chart.hs` is a no-op when `chart/` is absent. When chart
+  files are present, it enforces: every StorageClass uses
   `kubernetes.io/no-provisioner`; every PV has an explicit `claimRef.namespace`
   and `claimRef.name`; every PVC is created only by a StatefulSet's
   `volumeClaimTemplates`; every hostPath under `chart/templates/pv-*.yaml`
@@ -277,18 +279,19 @@ Code-Quality Stack`.
 - Current `jitml-haskell-style` runs the in-repo lint stack; target remaining
   work calls each external tool through the typed `Subprocess` boundary
   (introduced in Sprint `1.6`) and aggregates results.
-- Current `jitml check-code` delegates to the in-repo lint stack; target
-  remaining work adds the full external stack plus the warning-clean build gate
-  (`cabal build all -fwerror`).
+- `jitml check-code` delegates to the in-repo lint stack and passes on the
+  current tree. Target remaining work adds the full external stack plus the
+  warning-clean build gate (`cabal build all -fwerror`).
 
 ### Validation
 
-1. Current `jitml lint all` exits `0` on the present tree.
-2. Current validation catches forbidden repository paths, tracked generated-doc
+1. `jitml lint all` exits `0` on the present tree.
+2. `jitml check-code` exits `0` on the present tree.
+3. Current validation catches forbidden repository paths, tracked generated-doc
    drift, missing lint config, and forbidden subprocess primitives.
-3. Target remaining validation catches external formatter/hlint/cabal-format
+4. Target remaining validation catches external formatter/hlint/cabal-format
    drift and the warning-clean build gate.
-4. `jitml-haskell-style` passes under `cabal test` for its current in-repo body.
+5. `jitml-haskell-style` passes under `cabal test` for its current in-repo body.
 
 ### Remaining Work
 
@@ -296,16 +299,20 @@ Code-Quality Stack`.
   `jitml lint`, `jitml check-code`, and the `jitml-haskell-style` Cabal stanza.
 - [x] Enforce tracked generated-section drift, forbidden repository paths, and
   forbidden subprocess primitives through the in-repo lint stack.
+- [x] Replace the initial `JitML.Lint.Chart` body with chart-shape checks
+  once `chart/` lands.
+- [x] Record the current external style-tool resolver blocker:
+  `fourmolu-0.19.0.1` requires `ghc-lib-parser <9.13`, whose available
+  `base` bounds reject the pinned GHC `9.14.1` project compiler.
 - [ ] Run `fourmolu --mode check` over `src/`, `app/`, and `test/` through the
-  typed `Subprocess` boundary.
+  typed `Subprocess` boundary using the doctrine's separate style-tools GHC.
 - [ ] Run `hlint --with-group=default --with-group=extra --hint .hlint.yaml`
-  through the typed `Subprocess` boundary.
+  through the typed `Subprocess` boundary using the doctrine's separate
+  style-tools GHC.
 - [ ] Implement `cabal format` temp-file round-trip byte-equality on
   `jitml.cabal`.
 - [ ] Add the warning-clean `cabal build all -fwerror` gate to `jitml
   check-code`.
-- [ ] Replace the placeholder `JitML.Lint.Chart` body with real chart-shape
-  checks once `chart/` lands.
 
 ## Sprint 1.5: `Plan` / `apply` Boundary with `--dry-run` and `--plan-file` ✅
 
@@ -377,7 +384,7 @@ later phases.
 1. `jitml lint haskell` reports zero violations of the forbidden subprocess
    primitives across `src/`.
 2. `jitml-unit` exercises `renderSubprocess` golden tests for the Plan renderer.
-3. `jitml-integration` exercises `runStreaming` against a sentinel binary and
+3. `jitml-integration` exercises `runStreaming` against a fixture binary and
    asserts the typed `(ExitCode, Text, Text)` shape.
 
 ### Remaining Work
@@ -544,7 +551,8 @@ None.
 **Cross-references to add:**
 
 - `system-components.md → CLI Doctrine Components` rows for Sprint `1.1`–`1.9`
-  move from `⏸️ Blocked` to `🔄 Active` then `✅ Done` as each sprint closes.
+  remain aligned with the implemented command, lint, parser, subprocess,
+  plan/apply, prerequisite, env, and error-rendering surfaces.
 - `legacy-tracking-for-deletion.md` enqueues a row only if Sprint `0.2`'s audit
   surfaces a doctrine-adoption gap that this phase does not own.
 

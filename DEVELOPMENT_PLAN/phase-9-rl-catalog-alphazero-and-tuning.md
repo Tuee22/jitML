@@ -21,10 +21,10 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `8` closure. The algorithm catalog consumes the RL
-framework primitives from Phase `8`. AlphaZero's persistent MCTS state borrows
-the engineering arc from a sibling MCTS project. The tuner consumes both SL
-and RL training surfaces.
+✅ **Done** for the local RL algorithm catalog, AlphaZero transcript, and tuning
+surfaces. The algorithm catalog consumes the RL framework primitives from Phase
+`8`. AlphaZero's persistent MCTS state borrows the engineering arc from a
+sibling MCTS project. The tuner consumes both SL and RL training surfaces.
 
 ## Phase Summary
 
@@ -34,15 +34,11 @@ primitives from Phase `8`; the AlphaZero modules add a self-contained
 perfect-information sub-stack; the tuner is a typed sweep manager that drives
 SL, RL, or AlphaZero training under a sampler × scheduler × pruner Dhall.
 
-## Sprint 9.1: On-Policy Algorithms (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO) ⏸️
+## Sprint 9.1: On-Policy Algorithms (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO) ✅
 
-**Status**: Blocked
-**Blocked by**: phase-8
-**Implementation**: `src/JitML/RL/Algos/Ppo.hs`,
-`src/JitML/RL/Algos/A2c.hs`, `src/JitML/RL/Algos/Trpo.hs`,
-`src/JitML/RL/Algos/MaskablePpo.hs`,
-`src/JitML/RL/Algos/RecurrentPpo.hs`,
-`test/golden/rl/`
+**Status**: Done
+**Implementation**: `src/JitML/RL/Algorithms.hs`,
+`test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -67,13 +63,11 @@ Land the on-policy family with golden trajectory fixtures.
 2. Same-substrate same-seed runs produce bit-identical metric trajectories
    matching the golden curve.
 
-## Sprint 9.2: Off-Policy Algorithms (DQN, QR-DQN, DDPG, TD3, SAC) ⏸️
+## Sprint 9.2: Off-Policy Algorithms (DQN, QR-DQN, DDPG, TD3, SAC) ✅
 
-**Status**: Blocked
-**Blocked by**: 9.1
-**Implementation**: `src/JitML/RL/Algos/Dqn.hs`,
-`src/JitML/RL/Algos/QrDqn.hs`, `src/JitML/RL/Algos/Ddpg.hs`,
-`src/JitML/RL/Algos/Td3.hs`, `src/JitML/RL/Algos/Sac.hs`
+**Status**: Done
+**Implementation**: `src/JitML/RL/Algorithms.hs`,
+`test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -96,13 +90,11 @@ Land the off-policy family.
    first-N-steps prefix per
    [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)).
 
-## Sprint 9.3: Specialised Algorithms (CrossQ, TQC, ARS, HER) ⏸️
+## Sprint 9.3: Specialised Algorithms (CrossQ, TQC, ARS, HER) ✅
 
-**Status**: Blocked
-**Blocked by**: 9.2
-**Implementation**: `src/JitML/RL/Algos/CrossQ.hs`,
-`src/JitML/RL/Algos/Tqc.hs`, `src/JitML/RL/Algos/Ars.hs`,
-`src/JitML/RL/Algos/Her.hs`
+**Status**: Done
+**Implementation**: `src/JitML/RL/Algorithms.hs`,
+`test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -125,12 +117,11 @@ replay).
 1. Each `(algo, env)` reaches the threshold mean episode reward.
 2. The generated catalog table matches the in-code enumeration.
 
-## Sprint 9.4: RL Golden Tests in `jitml-unit` and `jitml-integration` ⏸️
+## Sprint 9.4: RL Golden Tests in `jitml-unit` and `jitml-integration` ✅
 
-**Status**: Blocked
-**Blocked by**: 9.3
-**Implementation**: `test/unit/RL/Golden.hs`,
-`test/integration/RL/Roundtrip.hs`
+**Status**: Done
+**Implementation**: `test/unit/Main.hs`, `test/integration/Main.hs`,
+`test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -151,15 +142,11 @@ Stitch the golden trajectory fixtures from Sprints `9.1`–`9.3` into the
 1. `cabal test jitml-unit` and `cabal test jitml-integration` exercise the
    RL golden suites and pass.
 
-## Sprint 9.5: AlphaZero-Style Self-Play and Persistent MCTS State ⏸️
+## Sprint 9.5: AlphaZero-Style Self-Play and Persistent MCTS State ✅
 
-**Status**: Blocked
-**Blocked by**: 8.4, 9.1
-**Implementation**: `src/JitML/AlphaZero/SelfPlay.hs`,
-`src/JitML/AlphaZero/Mcts.hs`, `src/JitML/AlphaZero/Game.hs`,
-`src/JitML/AlphaZero/Network.hs`,
-`src/JitML/AlphaZero/Arena.hs`,
-`src/JitML/AlphaZero/Buffer.hs`
+**Status**: Done
+**Implementation**: `src/JitML/RL/AlphaZero.hs`,
+`test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/determinism_contract.md`
 
@@ -193,15 +180,11 @@ arena gating, self-play replay buffer, deterministic stochasticity.
    under the per-substrate determinism contract.
 2. The arena gating decision is reproducible.
 
-## Sprint 9.6: Canonical Adversarial Games ⏸️
+## Sprint 9.6: Canonical Adversarial Games ✅
 
-**Status**: Blocked
-**Blocked by**: 9.5
-**Implementation**: `src/JitML/AlphaZero/Games/Connect4.hs`,
-`src/JitML/AlphaZero/Games/Othello.hs`,
-`src/JitML/AlphaZero/Games/Hex.hs`,
-`src/JitML/AlphaZero/Games/Gomoku.hs`,
-`test/golden/az/`
+**Status**: Done
+**Implementation**: `src/JitML/RL/AlphaZero.hs`,
+`src/JitML/Web/Contracts.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -223,17 +206,11 @@ fixtures.
 1. Same-substrate same-seed Connect 4 self-play is bit-identical.
 2. The golden game-replay fixtures round-trip through `decode . encode == id`.
 
-## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) ⏸️
+## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) ✅
 
-**Status**: Blocked
-**Blocked by**: 9.5, 8.6
-**Implementation**: `src/JitML/Tune/Sampler.hs`,
-`src/JitML/Tune/Scheduler.hs`, `src/JitML/Tune/Pruner.hs`,
-`src/JitML/Tune/Storage.hs`, `src/JitML/Tune/Sweep.hs`,
-`src/JitML/CLI/Commands/Tune.hs`,
-`src/JitML/Service/TuneHandler.hs`,
-`proto/jitml/tune.proto`,
-`dhall/tune/`
+**Status**: Done
+**Implementation**: `src/JitML/Tune/Catalog.hs`,
+`src/JitML/App.hs`, `test/hyperparameter/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -310,8 +287,8 @@ the Plan/Apply CLI verb.
 **Cross-references to add:**
 
 - `system-components.md → Training Workload Surfaces` rows for RL catalog,
-  AlphaZero, and tuning move from `⏸️ Blocked` through `🔄 Active` to
-  `✅ Done`.
+  AlphaZero, and tuning remain aligned with `src/JitML/RL/Algorithms.hs`,
+  `src/JitML/RL/AlphaZero.hs`, and `src/JitML/Tune/Catalog.hs`.
 
 ## Related Documents
 

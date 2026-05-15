@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jitml-service-config
+  namespace: platform
+data:
+  BootConfig.dhall: |
+    { substrate = "linux-cuda"
+    , residency = Cluster
+    , inferenceMode = SelfInference
+    , pulsarServiceUrl = "pulsar://jitml-pulsar-proxy.platform.svc.cluster.local:6650"
+    , pulsarAdminUrl = "http://jitml-pulsar-proxy.platform.svc.cluster.local:8080"
+    , minioEndpoint = "http://jitml-minio.platform.svc.cluster.local:9000"
+    , harborRegistry = "harbor.platform.svc.cluster.local/jitml"
+    , httpListener = Some { host = "0.0.0.0", port = 8080 }
+    }
+  LiveConfig.dhall: |
+    { logLevel = Info
+    , retryPolicy = ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
+    , tartIdleTimeout = Some 1800
+    , inferenceBatchSize = 64
+    , inferenceMaxLatencyMillis = 25
+    , drainDeadlineSeconds = 30
+    }

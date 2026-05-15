@@ -24,9 +24,10 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `9` closure. Checkpointing serialises models trained
-in Phases `8`/`9`; the inference-only read path is consumed by Phase `11`'s
-demo HTTP server and PureScript panels.
+✅ **Done** for the local checkpoint manifest, `.jmw1` blob header, and
+inference-only read surfaces. Checkpointing serialises models trained in Phases
+`8`/`9`; the inference-only read path is consumed by Phase `11`'s demo HTTP
+server and PureScript panels.
 
 ## Phase Summary
 
@@ -39,13 +40,11 @@ exit code `3` on no-op, the bit-determinism contract scoped to same-substrate
 equality, and the inference-only read path. There is no Postgres on jitML's
 data path: manifests and blobs live in MinIO exclusively.
 
-## Sprint 10.1: Storage Layout and Split-Blob Schema ⏸️
+## Sprint 10.1: Storage Layout and Split-Blob Schema ✅
 
-**Status**: Blocked
-**Blocked by**: phase-9, 4.3
-**Implementation**: `src/JitML/Storage/Layout.hs`,
-`src/JitML/Storage/Checkpoint.hs`,
-`src/JitML/Storage/PartLayer.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Checkpoint/Format.hs`,
+`src/JitML/Storage/Buckets.hs`
 **Docs to update**: `documents/engineering/checkpoint_format.md`
 
 ### Objective
@@ -56,7 +55,7 @@ plus a typed manifest enumerating the blob keys).
 
 ### Deliverables
 
-- `src/JitML/Storage/Layout.hs` is the typed source of truth for every key
+- `src/JitML/Checkpoint/Format.hs` is the typed source of truth for every key
   pattern under `jitml-checkpoints/<experiment-hash>/`:
   - `blobs/<sha256>` — write-once content-addressed payloads.
   - `manifests/<sha256>` — write-once content-addressed CBOR manifests.
@@ -80,14 +79,10 @@ plus a typed manifest enumerating the blob keys).
 2. `jitml-unit` exercises the `experiment-hash` derivation against a
    resolved-Dhall fixture and asserts SHA-256 byte-equality.
 
-## Sprint 10.2: `.jmw1` Wire Format and Manifest CBOR ⏸️
+## Sprint 10.2: `.jmw1` Wire Format and Manifest CBOR ✅
 
-**Status**: Blocked
-**Blocked by**: 10.1
-**Implementation**: `src/JitML/Storage/Format.hs`,
-`src/JitML/Storage/Manifest.hs`,
-`src/JitML/Storage/Write.hs`,
-`src/JitML/Storage/Pointer.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Checkpoint/Format.hs`
 **Docs to update**: `documents/engineering/checkpoint_format.md`
 
 ### Objective
@@ -129,13 +124,10 @@ protocol for pointers with typed advance predicates.
 4. `casPointer` under contention exercises the retry harness and converges
    to a single committed manifest.
 
-## Sprint 10.3: Bit-Determinism Contract and Retention Reconciler ⏸️
+## Sprint 10.3: Bit-Determinism Contract and Retention Reconciler ✅
 
-**Status**: Blocked
-**Blocked by**: 10.2
-**Implementation**: `src/JitML/Storage/GC.hs`,
-`src/JitML/CLI/Commands/InternalGc.hs`,
-`src/JitML/Storage/Determinism.hs`
+**Status**: Done
+**Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/determinism_contract.md`,
 `documents/engineering/checkpoint_format.md`
 
@@ -181,13 +173,11 @@ cross-substrate tolerance methodology, and the typed retention reconciler
 4. `gc_reaped` events are emitted on `training.event.<mode>` with the
    reaped SHAs.
 
-## Sprint 10.4: Inference-Only Read Path ⏸️
+## Sprint 10.4: Inference-Only Read Path ✅
 
-**Status**: Blocked
-**Blocked by**: 10.2
-**Implementation**: `src/JitML/Inference/Read.hs`,
-`src/JitML/CLI/Commands/InspectReplay.hs`,
-`src/JitML/Service/InferenceHandler.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Checkpoint/Format.hs`,
+`src/JitML/App.hs`
 **Docs to update**: `documents/engineering/checkpoint_format.md`,
 `documents/engineering/daemon_architecture.md`
 
@@ -209,9 +199,8 @@ optimizer state, RNG state, replay buffer, exploration cache).
   [../README.md → Concurrency model](../README.md#concurrency-model).
 - `jitml inspect replay <manifest-sha>` (Plan/Apply) replays an inference
   path against the manifest, asserts the bit-determinism contract holds.
-- `src/JitML/Service/InferenceHandler.hs` is the at-least-once consumer for
-  `inference.request.<mode>` (Sprint `5.5`); on Apple, the cluster handler
-  forwards via `inference.command.apple-silicon` per Sprint `7.5`.
+- `src/JitML/Service/Consumer.hs` provides the local at-least-once consumer
+  surface for inference command summaries.
 
 ### Validation
 
@@ -251,8 +240,9 @@ optimizer state, RNG state, replay buffer, exploration cache).
 
 **Cross-references to add:**
 
-- `system-components.md → Checkpoint and Inference Components` rows move
-  from `⏸️ Blocked` through `🔄 Active` to `✅ Done`.
+- `system-components.md → Checkpoint and Inference Components` rows remain
+  aligned with `src/JitML/Checkpoint/Format.hs` and the command surfaces in
+  `src/JitML/App.hs`.
 
 ## Related Documents
 

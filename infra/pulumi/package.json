@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "build": "tsc --noEmit",
+    "preview": "pulumi preview"
+  },
+  "dependencies": {
+    "@pulumi/pulumi": "^3.170.0",
+    "typescript": "^5.8.2"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "build": "spago build",
+    "test": "spago test",
+    "format": "purs-tidy format-in-place 'src/**/*.purs'"
+  },
+  "dependencies": {
+    "spago": "^0.93.44",
+    "purescript": "^0.15.15"
+  }
+}

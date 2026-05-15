@@ -149,7 +149,7 @@ main =
                     Left err -> do
                         failingNodeId err @?= NodeId "synthetic.missing"
                         failingDescription err @?= "Synthetic missing prerequisite for validation."
-                        failingRemedyHint err @?= Just "create the synthetic sentinel"
+                        failingRemedyHint err @?= Just "create the synthetic prerequisite fixture"
                     Right () -> assertFailure "expected prerequisite failure"
             , testCase "transitive prerequisite closure is dependency ordered" $ do
                 let nodeA =
@@ -254,7 +254,7 @@ main =
                 let first = sampleCacheHash
                     second =
                         Cache.cacheKey
-                            (Cache.KernelSpec "phase-2-placeholder:linear")
+                            (Cache.KernelSpec "phase-2-kernel:linear")
                             Cache.Training
                             Cache.AppleSilicon
                             (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")
@@ -295,7 +295,7 @@ main =
                         extension = Cache.Extension "dylib"
                         nextHash =
                             Cache.cacheKey
-                                (Cache.KernelSpec "phase-2-placeholder:conv")
+                                (Cache.KernelSpec "phase-2-kernel:conv")
                                 Cache.Inference
                                 Cache.AppleSilicon
                                 (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")
@@ -474,7 +474,7 @@ takeFileNameCompat path =
 sampleCacheHash :: Cache.Hash
 sampleCacheHash =
     Cache.cacheKey
-        (Cache.KernelSpec "phase-2-placeholder:linear")
+        (Cache.KernelSpec "phase-2-kernel:linear")
         Cache.Training
         Cache.AppleSilicon
         (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")

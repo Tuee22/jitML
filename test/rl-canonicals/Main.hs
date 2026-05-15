@@ -1,0 +1,31 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main where
+
+import Data.Text (Text)
+import Test.Tasty (defaultMain, testGroup)
+import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+
+import JitML.RL.Algorithms (algorithmCatalog, algorithmName, deterministicTrajectory)
+import JitML.RL.AlphaZero (gameMoves, selfPlayTranscript)
+
+main :: IO ()
+main =
+    defaultMain $
+        testGroup
+            "jitml-rl-canonicals"
+            [ testCase "algorithm catalog covers PPO through AlphaZero" $ do
+                let names = fmap algorithmName algorithmCatalog
+                assertContains "PPO" names
+                assertContains "SAC" names
+                assertContains "HER" names
+                assertContains "AlphaZero" names
+            , testCase "trajectory generator is deterministic" $
+                deterministicTrajectory "PPO" 42 @?= deterministicTrajectory "PPO" 42
+            , testCase "AlphaZero self-play records legal Connect 4 columns" $
+                mapM_ (\state -> assertBool "column is legal" (all (\column -> column >= 0 && column < 7) (gameMoves state))) (selfPlayTranscript 3)
+            ]
+
+assertContains :: Text -> [Text] -> IO ()
+assertContains value values =
+    assertBool ("missing " <> show value) (value `elem` values)

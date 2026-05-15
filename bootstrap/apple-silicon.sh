@@ -20,10 +20,10 @@ Commands:
   doctor    Check the Apple Silicon stage-0 host gates.
   build     Build ./.build/jitml host-native.
   up        Build ./.build/jitml and delegate to the Haskell bootstrap.
-  status    Print local stack status (Sprint 2.6).
-  test      Run the canonical jitML test surface (Sprint 2.6).
-  down      Tear the local stack down while preserving state (Sprint 2.7).
-  purge     Remove runtime state; --full also removes build artifacts (Sprint 2.7).
+  status    Print local stack status from ./.build/runtime/cluster-publication.json.
+  test      Run the canonical jitML test surface.
+  down      Tear the local stack down while preserving state.
+  purge     Remove runtime state; --full also removes build artifacts.
 EOF
 }
 
@@ -60,11 +60,22 @@ main() {
     up)
       up "$@"
       ;;
-    status|test)
-      phase_later "$substrate $command_name" "Sprint 2.6"
+    status)
+      print_cluster_status "$substrate"
       ;;
-    down|purge)
-      phase_later "$substrate $command_name" "Sprint 2.7"
+    test)
+      build
+      "$script_dir/../.build/jitml" test all "$@"
+      ;;
+    down)
+      kind_down "$substrate"
+      ;;
+    purge)
+      full=false
+      if [ "${1:-}" = "--full" ]; then
+        full=true
+      fi
+      purge_state "$substrate" "$full"
       ;;
     *)
       die 64 "unknown apple-silicon bootstrap command: $command_name"

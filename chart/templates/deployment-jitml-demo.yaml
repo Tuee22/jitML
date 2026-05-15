@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jitml-demo
+  namespace: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jitml-demo
+  template:
+    metadata:
+      labels:
+        app: jitml-demo
+    spec:
+      containers:
+        - name: jitml-demo
+          image: harbor.platform.svc.cluster.local/jitml/jitml-demo:local
+          ports:
+            - name: http
+              containerPort: 80

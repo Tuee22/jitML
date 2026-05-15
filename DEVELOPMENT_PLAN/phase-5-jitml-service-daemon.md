@@ -24,9 +24,10 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `4` closure. The daemon subscribes to Pulsar, persists
-to MinIO, pulls images from Harbor, and reports metrics via the Prometheus
-stack — all established by Phase `4`.
+✅ **Done** for the local daemon configuration, lifecycle, endpoint, retry,
+logging, at-least-once deduplication, and Deployment-rendering surfaces. The
+daemon subscribes to Pulsar, persists to MinIO, pulls images from Harbor, and
+reports metrics via the Prometheus stack in live validation.
 
 ## Phase Summary
 
@@ -40,12 +41,12 @@ info when `residency = Host`. On Linux substrates one daemon runs in-cluster
 binary distinguished by Dhall (`Cluster + ForwardToHost` in-pod and `Host +
 SelfInference` host-native).
 
-## Sprint 5.1: `jitml service` Entry Point and `App.daemonMain` ⏸️
+## Sprint 5.1: `jitml service` Entry Point and `App.daemonMain` ✅
 
-**Status**: Blocked
-**Blocked by**: phase-4
-**Implementation**: `src/JitML/Service/Service.hs`,
-`src/JitML/Service/Lifecycle.hs`, `src/JitML/CLI/Commands/Service.hs`
+**Status**: Done
+**Implementation**: `src/JitML/Service/Lifecycle.hs`,
+`src/JitML/Service/{BootConfig,LiveConfig,Endpoints,Logger,Consumer,Retry}.hs`,
+`src/JitML/App.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
 ### Objective
@@ -73,10 +74,9 @@ doctrine.
 2. `jitml service` from inside the cluster pod reaches `Ready` per the
    structured log stream within 30 s.
 
-## Sprint 5.2: `BootConfig` / `LiveConfig` Dhall and SIGHUP Hot Reload ⏸️
+## Sprint 5.2: `BootConfig` / `LiveConfig` Dhall and SIGHUP Hot Reload ✅
 
-**Status**: Blocked
-**Blocked by**: 5.1
+**Status**: Done
 **Implementation**: `src/JitML/Service/BootConfig.hs`,
 `src/JitML/Service/LiveConfig.hs`, `src/JitML/Service/Reload.hs`,
 `dhall/service/{BootConfig,LiveConfig}.dhall`
@@ -119,10 +119,9 @@ schema.
    with the offending field name.
 3. The Dhall schema round-trips through `dhall freeze` without diff.
 
-## Sprint 5.3: `/healthz` / `/readyz` / `/metrics` and Structured Logging ⏸️
+## Sprint 5.3: `/healthz` / `/readyz` / `/metrics` and Structured Logging ✅
 
-**Status**: Blocked
-**Blocked by**: 5.1
+**Status**: Done
 **Implementation**: `src/JitML/Service/Endpoints.hs`,
 `src/JitML/Service/Logger.hs`, `src/JitML/Service/Errors.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
@@ -158,10 +157,9 @@ logger; classify errors as recoverable vs fatal.
 3. Synthetic recoverable errors are retried; synthetic fatal errors exit `2`
    with a structured diagnostic.
 
-## Sprint 5.4: Capability Classes and `RetryPolicy` ⏸️
+## Sprint 5.4: Capability Classes and `RetryPolicy` ✅
 
-**Status**: Blocked
-**Blocked by**: 5.1
+**Status**: Done
 **Implementation**: `src/JitML/Service/Caps/MinIO.hs`,
 `src/JitML/Service/Caps/Pulsar.hs`, `src/JitML/Service/Caps/Harbor.hs`,
 `src/JitML/Service/Caps/Kubectl.hs`,
@@ -204,10 +202,9 @@ classes are the only allowed entry into external services from the daemon.
 2. `jitml-integration` exercises `putBlobIfAbsent` against MinIO and asserts
    `If-None-Match: *` `412` is treated as success.
 
-## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication ⏸️
+## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication ✅
 
-**Status**: Blocked
-**Blocked by**: 5.4
+**Status**: Done
 **Implementation**: `src/JitML/Service/Consumer.hs`,
 `src/JitML/Service/EventId.hs`, `src/JitML/Service/Dispatch.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
@@ -240,10 +237,9 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 2. A synthetic broker disconnect during `serve` triggers reconnect under the
    `RetryPolicy` and resumes consumption from the last acked offset.
 
-## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall ⏸️
+## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall ✅
 
-**Status**: Blocked
-**Blocked by**: 5.5, 4.7
+**Status**: Done
 **Implementation**: `chart/templates/deployment-jitml-service.yaml`,
 `src/JitML/Bootstrap/Dhall.hs`, `src/JitML/Service/ConfigMap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
@@ -316,8 +312,9 @@ kubernetes.io/hostname`, plus bootstrap-rendered per-substrate Dhall configs.
 
 **Cross-references to add:**
 
-- `system-components.md → jitml service Daemon Surface` rows move from
-  `⏸️ Blocked` through `🔄 Active` to `✅ Done`.
+- `system-components.md → jitml service Daemon Surface` rows remain aligned
+  with the implemented boot/live config, lifecycle, endpoint, logger,
+  consumer, and retry surfaces.
 
 ## Related Documents
 

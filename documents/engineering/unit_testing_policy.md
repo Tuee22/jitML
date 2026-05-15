@@ -28,20 +28,21 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
 ## jitML Stanzas
 
 The ten Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
-and final ownership differ while the plan is still in early phases:
+exercise the local deterministic contracts for their owning surfaces while live
+cluster validation remains phase-gated:
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
 | `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, and cache surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers a typed subprocess sentinel | Integration | Sprint 12.2 |
-| `jitml-sl-canonicals` | `test/sentinel/Main.hs` | Integration (project-specific) | Sprint 12.3 |
-| `jitml-rl-canonicals` | `test/sentinel/Main.hs` | Integration (project-specific) | Sprint 12.4 |
-| `jitml-hyperparameter` | `test/sentinel/Main.hs` | Integration (project-specific) | Sprint 12.5 |
-| `jitml-cross-backend` | `test/sentinel/Main.hs` | Integration (project-specific) | Sprint 12.6 |
-| `jitml-daemon-lifecycle` | `test/sentinel/Main.hs` | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | `test/sentinel/Main.hs` | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
-| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the current in-repo lint stack; external formatter/hlint/cabal-format/build gates remain open | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
-| `jitml-purescript-style` | `test/sentinel/Main.hs` | Lint (project-specific) | Sprint 11.3 |
+| `jitml-integration` | `test/integration/Main.hs` covers the typed subprocess boundary, bootstrap plan, Kind config renderer, and route renderer | Integration | Sprint 12.2 |
+| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves | Integration (project-specific) | Sprint 12.3 |
+| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, and AlphaZero self-play transcript shape | Integration (project-specific) | Sprint 12.4 |
+| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes and deterministic trial generation | Integration (project-specific) | Sprint 12.5 |
+| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags and checkpoint inference parity | Integration (project-specific) | Sprint 12.6 |
+| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, and at-least-once deduplication | Daemon Lifecycle | Sprint 12.7 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, and report-card surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
+| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the current in-repo lint stack; external formatter/hlint/cabal-format/build gates remain open on the style-tools GHC bootstrap | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
+| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file and renderer | Lint (project-specific) | Sprint 11.3 |
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
@@ -161,11 +162,11 @@ All Pulumi invocations flow through the typed `Subprocess` boundary.
 ### `jitml-haskell-style`
 
 Doctrine's Style stanza per §Style as a Cabal test-suite. The current body runs
-the in-repo lint stack; Sprint `1.4` remains open until it also runs
+the in-repo lint stack, including route-registry / chart consistency lint and
+generated-section drift checks. Sprint `1.4` remains open until it also runs
 `fourmolu --mode check`, `hlint --with-group=default --with-group=extra` plus
 `.hlint.yaml`, `cabal format` temp-file round-trip byte equality, the
-warning-clean build gate, route-registry / chart consistency lint, and
-generated-section drift check.
+warning-clean build gate.
 
 ### `jitml-purescript-style`
 

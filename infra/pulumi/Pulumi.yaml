@@ -1,0 +1,3 @@
+name: jitml-e2e
+runtime: nodejs
+description: Ephemeral Kind stack for jitML end-to-end validation.

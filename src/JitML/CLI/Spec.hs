@@ -390,13 +390,13 @@ lintCommand =
     group
         "lint"
         "Run lint checks."
-        "Runs the currently implemented source, docs, Haskell, placeholder, or aggregate lint checks."
+        "Runs source, docs, Haskell, chart, proto, PureScript, or aggregate lint checks."
         [ lintLeaf "files" "Run file hygiene checks."
         , lintLeaf "docs" "Run generated documentation checks."
-        , lintLeaf "proto" "Run the current protobuf lint placeholder."
-        , lintLeaf "chart" "Run the current Helm chart lint placeholder."
+        , lintLeaf "proto" "Run protobuf schema lint checks."
+        , lintLeaf "chart" "Run Helm chart shape checks."
         , lintLeaf "haskell" "Run Haskell lint configuration and primitive checks."
-        , lintLeaf "purescript" "Run the current PureScript lint placeholder."
+        , lintLeaf "purescript" "Run PureScript contract and format checks."
         , leaf
             "all"
             "Run every currently implemented lint check."

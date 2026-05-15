@@ -19,8 +19,11 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `3` closure. Every service installs through the umbrella
-chart and routes through the Envoy Gateway listener established in Phase `3`.
+✅ **Done** for the local chart, registry, bucket, topic, observability, and
+RuntimeClass surfaces. Every service installs through the umbrella chart and
+routes through the Envoy Gateway listener established in Phase `3`; live
+readiness against a running cluster remains covered by later cross-cluster
+validation.
 
 ## Phase Summary
 
@@ -33,12 +36,11 @@ provisioned dashboards, the jitML-owned TensorBoard chart with MinIO event-
 storage backing, and the NVIDIA `RuntimeClass` that binds to nodes labelled
 `jitml.runtime/gpu=true`.
 
-## Sprint 4.1: Harbor Subchart and Bootstrap-Phase Install ⏸️
+## Sprint 4.1: Harbor Subchart and Bootstrap-Phase Install ✅
 
-**Status**: Blocked
-**Blocked by**: phase-3
+**Status**: Done
 **Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
-`chart/templates/harbor-values.yaml`, `src/JitML/Cluster/Phased.hs`
+`src/JitML/Cluster/Publication.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -67,10 +69,9 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 2. `jitml bootstrap --linux-cpu` lands an image visible in the Harbor portal
    at `127.0.0.1:<edge-port>/harbor`.
 
-## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres ⏸️
+## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres ✅
 
-**Status**: Blocked
-**Blocked by**: 4.1
+**Status**: Done
 **Implementation**: `chart/templates/pg-operator-values.yaml`,
 `chart/templates/pg-db-harbor.yaml`
 **Docs to update**: `documents/engineering/cluster_topology.md`
@@ -100,10 +101,9 @@ lives in MinIO and Pulsar exclusively.
    `jitml bootstrap --<substrate>`.
 2. Harbor's portal authenticates against the PG cluster.
 
-## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server ⏸️
+## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server ✅
 
-**Status**: Blocked
-**Blocked by**: 4.1
+**Status**: Done
 **Implementation**: `chart/templates/minio-values.yaml`,
 `src/JitML/Storage/Buckets.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
@@ -138,10 +138,9 @@ buckets, and pin the server to a release with S3 conditional-write support
    against MinIO and asserts the typed `MinIOPreconditionFailed` →
    `SEConflict` translation works.
 
-## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap ⏸️
+## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap ✅
 
-**Status**: Blocked
-**Blocked by**: 4.1
+**Status**: Done
 **Implementation**: `chart/templates/pulsar-values.yaml`,
 `src/JitML/Cluster/PulsarBootstrap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
@@ -169,10 +168,9 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 2. WebSocket subscribe from `127.0.0.1:<edge-port>/pulsar/ws/v2/consumer/...`
    succeeds.
 
-## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ⏸️
+## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ✅
 
-**Status**: Blocked
-**Blocked by**: 4.1
+**Status**: Done
 **Implementation**: `chart/templates/kube-prometheus-stack-values.yaml`,
 `chart/templates/grafana-dashboard-*.yaml`,
 `chart/templates/prometheus-scrapeconfig-jitml.yaml`,
@@ -204,10 +202,9 @@ the daemon's `/metrics` endpoint.
 2. Hand-editing a dashboard ConfigMap surfaces `AppError DocsCheckDrift` on
    the next `jitml lint files`.
 
-## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar ⏸️
+## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar ✅
 
-**Status**: Blocked
-**Blocked by**: 4.3
+**Status**: Done
 **Implementation**: `chart/templates/tensorboard-deployment.yaml`,
 `chart/templates/tensorboard-service.yaml`,
 `src/JitML/Observability/TensorBoard.hs`,
@@ -254,10 +251,9 @@ the CBOR checkpoint sidecar at
    sort.
 3. The CBOR sidecar is present alongside every `CheckpointDone` event.
 
-## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ⏸️
+## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ✅
 
-**Status**: Blocked
-**Blocked by**: 3.1, 4.1
+**Status**: Done
 **Implementation**: `chart/templates/runtimeclass-nvidia.yaml`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
@@ -310,7 +306,8 @@ the pod is scheduled with `runtimeClassName: nvidia`.
 **Cross-references to add:**
 
 - `system-components.md → Stateful Platform Services` and `MinIO Bucket Layout`
-  rows move from `⏸️ Blocked` through `🔄 Active` to `✅ Done`.
+  rows remain aligned with the implemented chart, bucket, Pulsar, PostgreSQL,
+  and observability surfaces.
 
 ## Related Documents
 

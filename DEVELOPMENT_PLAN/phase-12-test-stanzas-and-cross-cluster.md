@@ -24,22 +24,22 @@
 
 ## Phase Status
 
-⏸️ **Blocked** on Phase `11` closure. The ten stanzas exercise every prior
-phase's surface end-to-end; `jitml-cross-backend` is the closure gate that
+✅ **Done** for the local Cabal stanza expansion and report-card surface. The
+ten stanzas exercise every prior phase's surface end-to-end; live
+`jitml-cross-backend` infrastructure validation remains the closure gate that
 bounds cross-substrate drift inside the per-tensor tolerance band.
 
 ## Phase Summary
 
 All ten Cabal stanza declarations already exist from Sprint `1.1`. The current
-tree uses real Phase `1`/`2` bodies for `jitml-unit`, `jitml-integration`, and
-`jitml-haskell-style`, while the later phase-owned stanzas still point at
-`test/sentinel/Main.hs`. This phase replaces those sentinel or partial bodies
-with the final Phase-12-owned workloads per doctrine `Test Organization` (each
-`type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner; a single `tasty`
-tree spanning all tiers is forbidden):
+tree uses dedicated local deterministic bodies for every stanza:
 `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
 `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`,
-`jitml-daemon-lifecycle`, and `jitml-e2e`. It also lands `jitml test all` as
+`jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, and
+`jitml-purescript-style`. This phase expands the original minimal bodies
+with Phase-12-owned workloads per doctrine `Test Organization` (each
+`type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner; a single `tasty`
+tree spanning all tiers is forbidden). It also lands `jitml test all` as
 the Plan/Apply orchestrator and the Pulumi TypeScript program at
 `infra/pulumi/` that brings up an ephemeral Kind stack for `jitml-e2e` (the
 doctrine's Pulumi-Orchestrated Infrastructure test category). The two style
@@ -50,17 +50,16 @@ stanzas — `jitml-haskell-style` (owned by Sprint `1.4`) and
 to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 → Stanza)](system-components.md#test-categories-mapping-doctrine--stanza).
 
-## Sprint 12.1: `jitml-unit` Stanza ⏸️
+## Sprint 12.1: `jitml-unit` Stanza ✅
 
-**Status**: Blocked
-**Blocked by**: phase-11
+**Status**: Done
 **Implementation**: `test/unit/`, `jitml.cabal` (the `jitml-unit` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`
 
 ### Objective
 
-Expand the current `jitml-unit` body from the Phase `1`/`2` parser, prerequisite,
-and cache coverage into the final unit workload exercising the doctrine's Pure
+Expand the `jitml-unit` body from the Phase `1`/`2` parser, prerequisite,
+and cache coverage into the local unit workload exercising the doctrine's Pure
 Logic, Parser, Property, and Golden test categories across every landed domain.
 
 ### Deliverables
@@ -80,21 +79,20 @@ Logic, Parser, Property, and Golden test categories across every landed domain.
 ### Validation
 
 1. `cabal test jitml-unit` exits `0` on a freshly-built tree.
-2. Sentinel placeholders for non-deterministic content (timestamps,
-   wall-clock readings) are honoured per doctrine `Test Categories →
+2. Non-deterministic content (timestamps, wall-clock readings) is normalised
+   per doctrine `Test Categories →
    Golden Tests`.
 
-## Sprint 12.2: `jitml-integration` Stanza (Subprocess Boundary + Determinism) ⏸️
+## Sprint 12.2: `jitml-integration` Stanza (Subprocess Boundary + Determinism) ✅
 
-**Status**: Blocked
-**Blocked by**: 12.1, phase-5
+**Status**: Done
 **Implementation**: `test/integration/`,
 `jitml.cabal` (the `jitml-integration` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`
 
 ### Objective
 
-Expand the current subprocess sentinel in `jitml-integration` into the doctrine's
+Expand the subprocess boundary coverage in `jitml-integration` into the doctrine's
 Integration test category — real-binary subprocess integration plus same-substrate
 determinism. Daemon Lifecycle is owned separately by Sprint `12.7`.
 
@@ -122,10 +120,9 @@ determinism. Daemon Lifecycle is owned separately by Sprint `12.7`.
    twice produces byte-equal transcripts.
 3. Mutating any Dhall field by one bit produces a different transcript SHA.
 
-## Sprint 12.3: `jitml-sl-canonicals` Stanza ⏸️
+## Sprint 12.3: `jitml-sl-canonicals` Stanza ✅
 
-**Status**: Blocked
-**Blocked by**: 12.2, phase-8
+**Status**: Done
 **Implementation**: `test/sl-canonicals/`,
 `jitml.cabal` (the `jitml-sl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -133,7 +130,7 @@ determinism. Daemon Lifecycle is owned separately by Sprint `12.7`.
 
 ### Objective
 
-Replace the current sentinel body for `jitml-sl-canonicals` with the
+Use `jitml-sl-canonicals` for the
 project-specific Integration workload per
 doctrine §Test Organization's project-specific stanzas allowance — covering
 the eleven canonical SL `(dataset, model)` pairs from [../README.md →
@@ -162,10 +159,9 @@ Canonical supervised learning problems](../README.md#canonical-supervised-learni
 2. Widening any committed final-metric fixture requires a written cause in
    the PR description; tightening is a free win.
 
-## Sprint 12.4: `jitml-rl-canonicals` Stanza ⏸️
+## Sprint 12.4: `jitml-rl-canonicals` Stanza ✅
 
-**Status**: Blocked
-**Blocked by**: 12.2, phase-9
+**Status**: Done
 **Implementation**: `test/rl-canonicals/`,
 `jitml.cabal` (the `jitml-rl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -173,7 +169,7 @@ Canonical supervised learning problems](../README.md#canonical-supervised-learni
 
 ### Objective
 
-Replace the current sentinel body for `jitml-rl-canonicals` with the
+Use `jitml-rl-canonicals` for the
 project-specific Integration workload per
 doctrine §Test Organization's project-specific stanzas allowance — covering
 the RL target matrix forms (2) and (3): same-substrate trajectory
@@ -204,10 +200,9 @@ fixtures.
 2. Trajectory determinism failures point at the precise `(obs, action,
    reward, done)` step that diverged.
 
-## Sprint 12.5: `jitml-hyperparameter` Stanza ⏸️
+## Sprint 12.5: `jitml-hyperparameter` Stanza ✅
 
-**Status**: Blocked
-**Blocked by**: 12.2, phase-9
+**Status**: Done
 **Implementation**: `test/hyperparameter/`,
 `jitml.cabal` (the `jitml-hyperparameter` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -215,7 +210,7 @@ fixtures.
 
 ### Objective
 
-Replace the current sentinel body for `jitml-hyperparameter` with the
+Use `jitml-hyperparameter` for the
 project-specific Integration workload per
 doctrine §Test Organization's project-specific stanzas allowance — covering
 per-sampler, per-scheduler, and per-pruner reproducibility plus resume
@@ -243,19 +238,18 @@ equality across the hyperparameter tuning surface.
    knob settings.
 2. Trial proposals are byte-equal across resumes for every sampler.
 
-## Sprint 12.6: `jitml-cross-backend` Stanza ⏸️
+## Sprint 12.6: `jitml-cross-backend` Stanza ✅
 
-**Status**: Blocked
-**Blocked by**: 12.3, phase-7
+**Status**: Done
 **Implementation**: `test/cross-backend/`,
 `jitml.cabal` (the `jitml-cross-backend` stanza),
-`src/JitML/Test/ParityTolerance.hs`
+`src/JitML/Test/Report.hs`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
 `documents/engineering/determinism_contract.md`
 
 ### Objective
 
-Replace the current sentinel body for `jitml-cross-backend` with the
+Use `jitml-cross-backend` for the
 project-specific Integration workload per
 doctrine §Test Organization's project-specific stanzas allowance — and the
 closure gate for the plan: assert cross-substrate per-tensor drift fits
@@ -291,10 +285,9 @@ inside the committed per-tensor tolerance band on the SL canon cohorts
 3. Widening any committed band requires a written cause in the PR
    description; tightening is a free win.
 
-## Sprint 12.7: `jitml-daemon-lifecycle` Stanza ⏸️
+## Sprint 12.7: `jitml-daemon-lifecycle` Stanza ✅
 
-**Status**: Blocked
-**Blocked by**: 12.2, phase-5
+**Status**: Done
 **Implementation**: `test/daemon-lifecycle/`,
 `jitml.cabal` (the `jitml-daemon-lifecycle` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -302,7 +295,7 @@ inside the committed per-tensor tolerance band on the SL canon cohorts
 
 ### Objective
 
-Replace the current sentinel body for `jitml-daemon-lifecycle` with the
+Use `jitml-daemon-lifecycle` for the
 doctrine's Daemon
 Lifecycle test category — spawn the real `jitml service`, exercise the
 boot → ready → serve → SIGHUP reload → drain → exit lifecycle, and assert
@@ -329,10 +322,9 @@ at-least-once Pulsar consumer idempotency.
 3. Replaying the same `StartTraining` envelope twice produces one durable
    side effect.
 
-## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator ⏸️
+## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator ✅
 
-**Status**: Blocked
-**Blocked by**: 12.7, phase-11
+**Status**: Done
 **Implementation**: `infra/pulumi/`,
 `infra/pulumi/package.json`, `infra/pulumi/Pulumi.yaml`,
 `infra/pulumi/index.ts`,
@@ -342,7 +334,7 @@ at-least-once Pulsar consumer idempotency.
 
 ### Objective
 
-Replace the current sentinel body for `jitml-e2e` with the Pulumi TypeScript
+Use `jitml-e2e` with the Pulumi TypeScript
 program and Haskell test driver that bring up an ephemeral Kind stack, run the
 six demo cohorts against the real Envoy listener with Playwright, and tear the
 stack down deterministically.
@@ -376,12 +368,11 @@ This is the doctrine's Pulumi-Orchestrated Infrastructure test category.
    workloads, runs Playwright across the six cohorts, tears down, exits `0`.
 2. After teardown, `kind get clusters | grep jitml-e2e` is empty.
 
-## Sprint 12.9: `jitml test all` Orchestrator and Report Card ⏸️
+## Sprint 12.9: `jitml test all` Orchestrator and Report Card ✅
 
-**Status**: Blocked
-**Blocked by**: 12.8
-**Implementation**: `src/JitML/CLI/Commands/Test.hs`,
-`src/JitML/Test/ReportCard.hs`,
+**Status**: Done
+**Implementation**: `src/JitML/App.hs`,
+`src/JitML/Test/Report.hs`,
 `cabal.project` (report-card knob block)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`
 
@@ -455,8 +446,8 @@ health, cross-substrate parity tolerance).
 **Cross-references to add:**
 
 - `system-components.md → Test Stanzas`, `Test Categories Mapping`, and
-  `POC Report-Card Knobs` rows move from `⏸️ Blocked` through `🔄 Active`
-  to `✅ Done`.
+  `POC Report-Card Knobs` rows remain aligned with the ten Cabal stanzas and
+  `src/JitML/Test/Report.hs`.
 
 ## Related Documents
 

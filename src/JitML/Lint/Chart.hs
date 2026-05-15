@@ -1,11 +1,18 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JitML.Lint.Chart
     ( checkChartFiles
     )
 where
 
-import System.Directory (doesDirectoryExist)
+import Data.List (isPrefixOf, isSuffixOf)
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
+import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
+import System.FilePath ((</>))
 
 import JitML.Lint.Stack.Types (LintFinding (..))
+import JitML.Routes (Route (..), renderHTTPRoute, routeRegistry)
 
 checkChartFiles :: IO [LintFinding]
 checkChartFiles = do
@@ -16,4 +23,108 @@ checkChartFiles = do
 
 checkChartWhenPresent :: IO [LintFinding]
 checkChartWhenPresent = do
-    pure []
+    chartFiles <- repoFiles "chart"
+    storageFindings <- checkStorageClass
+    pvFindings <- concat <$> traverse checkPvFile (filter isPvFile chartFiles)
+    forbiddenFindings <- concat <$> traverse checkForbiddenProvisioner chartFiles
+    routeFindings <- checkRouteFiles chartFiles
+    pure (storageFindings <> pvFindings <> forbiddenFindings <> routeFindings)
+
+checkStorageClass :: IO [LintFinding]
+checkStorageClass = do
+    let path = "chart/templates/storageclass-jitml-manual.yaml"
+    exists <- doesFileExist path
+    if exists
+        then do
+            content <- Text.IO.readFile path
+            pure
+                [ LintFinding path "chart.storageclass.provisioner" "jitml-manual must use kubernetes.io/no-provisioner" "regenerate chart templates with `jitml bootstrap --<substrate>`"
+                | not ("provisioner: kubernetes.io/no-provisioner" `Text.isInfixOf` content)
+                ]
+        else
+            pure
+                [ LintFinding path "chart.storageclass.missing" "missing jitml-manual StorageClass" "run `jitml bootstrap --apple-silicon` to materialize chart templates"
+                ]
+
+checkPvFile :: FilePath -> IO [LintFinding]
+checkPvFile path = do
+    content <- Text.IO.readFile path
+    pure $
+        [ LintFinding path "chart.pv.claimref" "manual PersistentVolume must declare claimRef" "render PVs from JitML.Cluster.Storage"
+        | not ("claimRef:" `Text.isInfixOf` content)
+        ]
+            <> [ LintFinding path "chart.pv.hostpath" "manual PersistentVolume hostPath must live under ./.data/" "render PVs from JitML.Cluster.Storage"
+               | not ("./.data/" `Text.isInfixOf` content)
+               ]
+
+checkForbiddenProvisioner :: FilePath -> IO [LintFinding]
+checkForbiddenProvisioner path = do
+    content <- Text.IO.readFile path
+    pure
+        [ LintFinding path "chart.storageclass.forbidden-provisioner" "non-manual StorageClass provisioner is forbidden" "use the jitml-manual StorageClass only"
+        | "kubernetes.io/aws-ebs" `Text.isInfixOf` content
+            || "ebs.csi.aws.com" `Text.isInfixOf` content
+            || "provisioner: rancher.io/local-path" `Text.isInfixOf` content
+        ]
+
+checkRouteFiles :: [FilePath] -> IO [LintFinding]
+checkRouteFiles chartFiles = do
+    let routeFiles = filter isRouteFile chartFiles
+    missingFindings <- concat <$> traverse (checkRoutePresent routeFiles) routeRegistry
+    driftFindings <- concat <$> traverse checkRouteDrift routeRegistry
+    extraFindings <- pure [extraRouteFinding path | path <- routeFiles, path `notElem` expectedRouteFiles]
+    pure (missingFindings <> driftFindings <> extraFindings)
+
+checkRoutePresent :: [FilePath] -> Route -> IO [LintFinding]
+checkRoutePresent routeFiles route =
+    pure
+        [ LintFinding (routeFile route) "chart.route.missing" "generated HTTPRoute manifest is missing" "regenerate route manifests from JitML.Routes"
+        | routeFile route `notElem` routeFiles
+        ]
+
+checkRouteDrift :: Route -> IO [LintFinding]
+checkRouteDrift route = do
+    let path = routeFile route
+    exists <- doesFileExist path
+    if exists
+        then do
+            content <- Text.IO.readFile path
+            pure
+                [ LintFinding path "chart.route.drift" "HTTPRoute manifest differs from route registry" "regenerate route manifests from JitML.Routes"
+                | content /= renderHTTPRoute route
+                ]
+        else pure []
+
+extraRouteFinding :: FilePath -> LintFinding
+extraRouteFinding path =
+    LintFinding path "chart.route.extra" "HTTPRoute manifest has no route registry entry" "delete hand-written HTTPRoute YAML"
+
+expectedRouteFiles :: [FilePath]
+expectedRouteFiles = fmap routeFile routeRegistry
+
+routeFile :: Route -> FilePath
+routeFile route =
+    "chart/templates/httproute-" <> Text.unpack (routeName route) <> ".yaml"
+
+isPvFile :: FilePath -> Bool
+isPvFile path =
+    "chart/templates/pv-" `isPrefixOf` path && ".yaml" `isSuffixOf` path
+
+isRouteFile :: FilePath -> Bool
+isRouteFile path =
+    "chart/templates/httproute-" `isPrefixOf` path && ".yaml" `isSuffixOf` path
+
+repoFiles :: FilePath -> IO [FilePath]
+repoFiles root = go root
+  where
+    go dir = do
+        entries <- listDirectory dir
+        paths <- traverse (descend dir) entries
+        pure (concat paths)
+
+    descend dir entry = do
+        let path = dir </> entry
+        isDir <- doesDirectoryExist path
+        if isDir
+            then go path
+            else pure [path]
