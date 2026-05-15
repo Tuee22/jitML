@@ -1,7 +1,7 @@
 module JitML.Plan.Apply
-    ( apply
-    , writePlanFile
-    )
+  ( apply
+  , writePlanFile
+  )
 where
 
 import Data.Text (Text)
@@ -14,9 +14,9 @@ import JitML.Plan.Plan (Plan)
 
 apply :: Plan inputs result -> IO ExitCode
 apply _plan =
-    pure ExitSuccess
+  pure ExitSuccess
 
 writePlanFile :: FilePath -> Text -> IO ()
 writePlanFile path rendered = do
-    createDirectoryIfMissing True (takeDirectory path)
-    Text.IO.writeFile path rendered
+  createDirectoryIfMissing True (takeDirectory path)
+  Text.IO.writeFile path rendered

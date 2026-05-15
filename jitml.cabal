@@ -30,6 +30,11 @@ library
         JitML.CLI.Parser
         JitML.CLI.Spec
         JitML.CLI.Tree
+        JitML.Codegen.Cuda
+        JitML.Codegen.Metal
+        JitML.Codegen.OneDnn
+        JitML.Codegen.RuntimeSource
+        JitML.Codegen.SourceFile
         JitML.Checkpoint.Format
         JitML.Cluster.Gateway
         JitML.Cluster.Kind

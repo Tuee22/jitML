@@ -38,9 +38,10 @@ with parser/registry coverage. Sprint `1.3` has landed `jitml docs check`,
 `jitml docs generate`, and the active tracked-generated-path registry for CLI
 docs, the manpage, and shell completions. Sprint `1.4` has landed
 `fourmolu.yaml`, `.hlint.yaml`, `forbiddenPathRegistry`, `jitml lint`,
-`jitml check-code`, and the `jitml-haskell-style` stanza, but remains open for
-the external `fourmolu`, `hlint`, `cabal format`, and warning-clean build
-runners. `cabal.project` currently carries a scoped `allow-newer` block for
+`jitml check-code`, the isolated `.build/jitml-style-tools/` bootstrap,
+external `fourmolu`, `hlint`, `cabal format` round-trip checks, the
+warning-clean build runner, and the `jitml-haskell-style` stanza.
+`cabal.project` currently carries a scoped `allow-newer` block for
 Dhall / CBOR package bounds under GHC `9.14.1`; its removal is tracked in
 [../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
@@ -112,15 +113,18 @@ Current `jitml check-code` delegates to the in-repo lint stack: whitespace and
 final-newline normalization checks, forbidden repository paths, generated-doc
 drift checks, required lint config checks, optional-directory placeholders for
 future `proto/` and `web/`, a no-op chart check while `chart/` is absent, and
-forbidden subprocess primitive scans.
+forbidden subprocess/terminal primitive scans. It also runs the external
+Haskell style stack through the typed `Subprocess` boundary and adds the
+warning-clean build gate.
 
-Sprint `1.4` remains open until `jitml check-code` runs the full target stack:
+Sprint `1.4` closes with `jitml check-code` running the full target stack:
 
-1. `fourmolu --mode check` over `src/`, `app/`, `test/`.
+1. `fourmolu --no-cabal --ghc-opt -XGHC2024 --mode check` over `src/`, `app/`,
+   `test/`.
 2. `hlint --with-group=default --with-group=extra --hint .hlint.yaml` over
    the same.
 3. `cabal format` temp-file round-trip byte-equality on `jitml.cabal`.
-4. `cabal build all -fwerror` (warning-clean build gate).
+4. `cabal build all --ghc-options=-Werror` (warning-clean build gate).
 5. `jitml lint files` (`forbiddenPathRegistry` + tracked-generated-paths).
 6. `jitml lint docs` (metadata, relative links, forbidden stale commands).
 7. `jitml lint chart`.

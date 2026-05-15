@@ -25,9 +25,18 @@
 ## Phase Status
 
 ✅ **Done** for the local checkpoint manifest, `.jmw1` blob header, and
-inference-only read surfaces. Checkpointing serialises models trained in Phases
-`8`/`9`; the inference-only read path is consumed by Phase `11`'s demo HTTP
-server and PureScript panels.
+inference-only read surfaces. Target checkpointing serialises models trained in
+Phases `8`/`9`; target Phase `11` demo/frontend surfaces consume the real
+inference-only read path once those runtime pieces land.
+
+### Current Implementation Scope
+
+The current worktree implements a small `CheckpointManifest`, `TensorBlob`,
+`manifestPointer`, simplified `encodeJmw1` text encoder, and deterministic
+`inferFromManifest` helper in `src/JitML/Checkpoint/Format.hs`. It does not yet
+implement canonical CBOR manifests, binary little-endian tensor blobs, MinIO
+write-once/CAS pointer protocols, retention graph traversal, kernel-handle
+loading, or real demo/frontend checkpoint reads.
 
 ## Phase Summary
 

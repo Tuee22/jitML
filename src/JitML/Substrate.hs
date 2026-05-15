@@ -1,23 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Substrate
-    ( Substrate (..)
-    , allSubstrates
-    , parseSubstrate
-    , renderSubstrate
-    , substrateClusterName
-    , substrateEdgePort
-    , substrateRuntimeClass
-    )
+  ( Substrate (..)
+  , allSubstrates
+  , parseSubstrate
+  , renderSubstrate
+  , substrateClusterName
+  , substrateEdgePort
+  , substrateRuntimeClass
+  )
 where
 
 import Data.Text (Text)
 
 data Substrate
-    = AppleSilicon
-    | LinuxCPU
-    | LinuxCUDA
-    deriving stock (Bounded, Enum, Eq, Ord, Show)
+  = AppleSilicon
+  | LinuxCPU
+  | LinuxCUDA
+  deriving stock (Bounded, Enum, Eq, Ord, Show)
 
 allSubstrates :: [Substrate]
 allSubstrates = [minBound .. maxBound]

@@ -33,9 +33,9 @@ Phase `0` closed with no doctrine-audit residue. Sprint `1.1` introduced one
 toolchain compatibility helper in `cabal.project` so the doctrine-mandated `dhall`
 dependency builds under pinned GHC `9.14.1`; that row remains pending until the
 upstream package bounds no longer need local override and must be retired before
-the Phase `12` closure gate. Sprint `7.7` introduces a second pending row:
-static checked-in JIT source/build scaffolds must leave the build path because
-JIT compiler inputs are generated on demand by the Haskell binary.
+the final handoff gate. Sprint `7.7` completed the static checked-in JIT
+source/build scaffold removal: JIT compiler inputs are generated on demand by
+the Haskell binary.
 
 Two classes of entries populate this ledger over time:
 
@@ -57,7 +57,6 @@ opening event itself enqueues a row here naming the originating sprint.
 | Item | Location | Reason | Owning Sprint |
 |------|----------|--------|---------------|
 | Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 12.9 |
-| Static JIT source/build scaffolds | `codegen-cuda/build.sh`, `codegen-cuda/kernel.cu`, `codegen-onednn/build.sh`, `codegen-onednn/kernel.cc`, `codegen-metal/build.sh`, and any equivalent checked-in JIT compiler input under `codegen-*` | Target architecture requires the Haskell `jitml` binary to generate every CUDA / oneDNN C++ / Metal-Swift compiler input on demand under `./.build/jit-src/<substrate>/<hash>/`; checked-in JIT `.sh`, `.cu`, `.cc` / `.cpp`, and Metal / Swift package inputs must not participate in the build | Sprint 7.7 |
 
 ## Pending Removal Notes
 
@@ -77,9 +76,8 @@ The expected populating events are:
 - **Phase 7.** Any per-substrate codegen path that bypasses the
   `Subprocess`/`Plan`/`apply` discipline (for example, an in-process Metal compile
   that skips the typed boundary) enqueues here under the Phase `7` sprint that
-  owns that substrate. Any checked-in static JIT source/build input also enqueues
-  here until Sprint `7.7` replaces it with Haskell-rendered runtime source under
-  `./.build/jit-src/<substrate>/<hash>/`.
+  owns that substrate. Any future checked-in static JIT source/build input also
+  enqueues here; Sprint `7.7` now rejects those files through `jitml lint files`.
 - **Phase 10.** If the checkpoint store's `If-Match`-CAS retry harness adopts any
   extra-doctrine retry shape beyond the typed `RetryPolicy` from Sprint `5.4`, the
   deviation enqueues here.
@@ -95,7 +93,7 @@ The expected populating events are:
 
 | Item | Removed In | Notes |
 |------|------------|-------|
-| _(empty at write time)_ | — | — |
+| Static JIT source/build scaffolds | Sprint 7.7 | Removed `codegen-cuda/build.sh`, `codegen-cuda/kernel.cu`, `codegen-onednn/build.sh`, `codegen-onednn/kernel.cc`, and `codegen-metal/build.sh`; `codegen-*` directories now contain documentation only, while Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
 
 ## Related Documents
 

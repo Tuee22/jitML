@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Plan.Render
-    ( renderPlan
-    )
+  ( renderPlan
+  )
 where
 
 import Data.Text (Text)
@@ -12,31 +12,31 @@ import JitML.Plan.Plan (CommandInputs (..), CommandResult (..), Plan (..), PlanS
 
 renderPlan :: Plan CommandInputs CommandResult -> Text
 renderPlan plan =
-    Text.unlines $
-        [ "Plan: " <> planName plan
-        , "Command: " <> inputCommand (planInputs plan)
-        , "Options:"
-        ]
-            <> optionLines (inputOptions (planInputs plan))
-            <> [ "Steps:"
-               ]
-            <> fmap stepLine (zip [(1 :: Int) ..] (planSteps plan))
-            <> [ "Result: " <> resultSummary (planResult plan)
-               ]
+  Text.unlines $
+    [ "Plan: " <> planName plan
+    , "Command: " <> inputCommand (planInputs plan)
+    , "Options:"
+    ]
+      <> optionLines (inputOptions (planInputs plan))
+      <> [ "Steps:"
+         ]
+      <> fmap stepLine (zip [(1 :: Int) ..] (planSteps plan))
+      <> [ "Result: " <> resultSummary (planResult plan)
+         ]
 
 optionLines :: [(Text, [Text])] -> [Text]
 optionLines [] = ["  (none)"]
 optionLines options =
-    fmap optionLine options
+  fmap optionLine options
 
 optionLine :: (Text, [Text]) -> Text
 optionLine (name, values) =
-    "  " <> name <> valueText
-  where
-    valueText
-        | null values = ""
-        | otherwise = ": " <> Text.intercalate ", " values
+  "  " <> name <> valueText
+ where
+  valueText
+    | null values = ""
+    | otherwise = ": " <> Text.intercalate ", " values
 
 stepLine :: (Int, PlanStep) -> Text
 stepLine (index, step) =
-    "  " <> Text.pack (show index) <> ". " <> stepName step <> " - " <> stepDescription step
+  "  " <> Text.pack (show index) <> ". " <> stepName step <> " - " <> stepDescription step

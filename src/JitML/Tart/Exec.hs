@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Tart.Exec
-    ( tartSshSubprocess
-    )
+  ( tartSshSubprocess
+  )
 where
 
 import Data.Text (Text)
@@ -12,4 +12,4 @@ import JitML.Tart.Lifecycle (VmName (..))
 
 tartSshSubprocess :: VmName -> [Text] -> Subprocess
 tartSshSubprocess vmName command =
-    subprocess "tart" (["ssh", unVmName vmName, "--"] <> command)
+  subprocess "tart" (["ssh", unVmName vmName, "--"] <> command)

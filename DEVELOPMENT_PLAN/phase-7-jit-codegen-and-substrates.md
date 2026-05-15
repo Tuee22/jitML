@@ -21,24 +21,21 @@
 
 ## Phase Status
 
-🔄 **Active** — Sprints `7.1` through `7.6` remain `✅ Done` for the local
-engine/catalog surface. Sprint `7.7` is reopened to remove static checked-in
-JIT source/build artefacts and make the Haskell binary generate every compiler
-input source file on demand under `./.build/jit-src/<substrate>/<hash>/`.
-The Apple Silicon hybrid pattern consumes the daemon shape from Phase `5` and
-the bootstrap tart contract from Phase `2`.
+✅ **Done** — Sprints `7.1` through `7.7` are `✅ Done` for the local
+engine/catalog/runtime-source surface. The Haskell binary generates every JIT
+compiler input source file on demand under
+`./.build/jit-src/<substrate>/<hash>/`; checked-in `codegen-*` source/build
+artefacts are removed from the build path and forbidden by lint.
 
 ## Phase Summary
 
-This phase delivers the three substrate engines under `src/JitML/Engines/`, the
-Haskell-owned renderers that generate CUDA / oneDNN C++ / Metal-Swift compiler
-inputs at JIT time, the content-addressed cache key derivation from
-`KernelSpec`, the FFI boundary that consumes cached `.dylib` / `.so` artefacts,
-the per-substrate determinism contract enforcement (Metal single-stream, oneDNN
-blocked reduction, CUDA warp-shuffle + `--use_fast_math=false` + cuDNN explicit
-algorithm-id pinning), and the hardware auto-tuning surface. Checked-in static
-`.cu`, `.cc` / `.cpp`, Metal / Swift package sources, and per-substrate JIT
-build `.sh` scripts are not part of the target architecture.
+This phase delivers substrate engine metadata under `src/JitML/Engines/`,
+deterministic engine flags, runtime source renderers under `src/JitML/Codegen/`,
+cache key derivation from `KernelSpec`, canonical rendered source payload, and
+`TuningChoice`, plus Tart command/state helpers. The local build plan surface
+renders CUDA / oneDNN C++ / Metal-Swift compiler inputs under
+`./.build/jit-src/<substrate>/<hash>/` and routes the compile command through
+typed `Subprocess` values.
 
 ## Sprint 7.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface ✅
 
@@ -49,9 +46,9 @@ build `.sh` scripts are not part of the target architecture.
 
 ### Objective
 
-Populate `KernelSpec` from the numerical core (Phase `6`) and lock the four-
-tuple cache key derivation `(canonical-cbor(KernelSpec), kind, substrate,
-toolchain-fingerprint)`. Stand up the FFI loader that resolves cached
+Populate `KernelSpec` from the numerical core (Phase `6`) and lock the cache key
+derivation `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint,
+rendered-source-payload, tuning-choice)`. Stand up the FFI loader that resolves cached
 artefacts (Apple via the stable-named symlink at
 `./.build/host/apple-silicon/<model-id>.dylib`; Linux directly out of
 `./.build/jit/<substrate>/`).
@@ -278,13 +275,14 @@ is automatic.
 2. The same `(KernelSpec, kind, substrate, ToolchainFingerprint)` tuple
    produces bit-identical kernel output across two same-host runs.
 
-## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation 🔄
+## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Engines/Engine.hs`,
-`src/JitML/Codegen/RuntimeSource.hs` (target),
-`src/JitML/Codegen/{Cuda,OneDnn,Metal}.hs` (target),
-`codegen-cuda/`, `codegen-onednn/`, `codegen-metal/` (pending removal)
+`src/JitML/Codegen/RuntimeSource.hs`,
+`src/JitML/Codegen/{Cuda,OneDnn,Metal,SourceFile}.hs`,
+`codegen-cuda/README.md`, `codegen-onednn/README.md`,
+`codegen-metal/README.md`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
@@ -313,7 +311,7 @@ build.
 - The checked-in `codegen-cuda/`, `codegen-onednn/`, and `codegen-metal/`
   static source/script scaffolds are removed or reduced to non-build
   documentation only, as tracked in
-  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal).
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed).
 - `jitml lint files` rejects future checked-in JIT build scripts and checked-in
   substrate source extensions under `codegen-*` (`*.cu`, `*.cc`, `*.cpp`,
   Swift/Metal package files) unless they are explicit golden fixtures under
@@ -337,15 +335,15 @@ build.
 
 ### Remaining Work
 
-- [ ] Add the Haskell `RuntimeSource` renderers for CUDA, oneDNN C++, and
+- [x] Add the Haskell `RuntimeSource` renderers for CUDA, oneDNN C++, and
   Metal / Swift package generation.
-- [ ] Route every JIT compile plan through generated source under
+- [x] Route every JIT compile plan through generated source under
   `./.build/jit-src/<substrate>/<hash>/`.
-- [ ] Remove checked-in `codegen-*/build.sh`, checked-in `.cu`, checked-in
+- [x] Remove checked-in `codegen-*/build.sh`, checked-in `.cu`, checked-in
   `.cc` / `.cpp`, and checked-in Metal / Swift package inputs from the build
   path.
-- [ ] Add lint coverage that rejects future static JIT source/build artefacts.
-- [ ] Move the static-codegen pending-removal ledger row to `Completed` once
+- [x] Add lint coverage that rejects future static JIT source/build artefacts.
+- [x] Move the static-codegen pending-removal ledger row to `Completed` once
   the generated-source path validates.
 
 ## Doctrine Sections Cited

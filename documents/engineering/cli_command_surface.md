@@ -233,9 +233,8 @@ jitml help <subcommand>
 ### `jitml check-code`
 
 Current code quality gate for in-repo hygiene, generated-doc drift,
-forbidden-path scans, chart placeholders, and Haskell primitive checks. Sprint
-`1.4` remains open for the external formatter, hlint, cabal-format, and
-warning-clean build runners.
+forbidden-path scans, chart checks, Haskell primitive checks, external
+Fourmolu / HLint / cabal-format checks, and the warning-clean build runner.
 
 ### `jitml build`
 
@@ -1271,16 +1270,22 @@ jitml build
 
 Build inside the substrate container.
 
-Builds the inner Haskell binary inside the selected substrate context.
+Builds the inner binary and renders the selected substrate JIT compile plan.
 
 Usage:
-  jitml build
+  jitml build [--substrate <substrate>] [--dry-run] [--plan-file <path>]
 
+Options:
+  --substrate <substrate>  apple-silicon, linux-cpu, or linux-cuda.
+  --dry-run                Print the plan without applying it.
+  --plan-file <path>       Write the plan to a file.
 
 
 Examples:
-  jitml build
+  jitml build --substrate linux-cpu
       Build the inner binary.
+  jitml build --dry-run --substrate linux-cuda
+      Render the CUDA generated-source build plan.
 ```
 
 ### `jitml kubectl`

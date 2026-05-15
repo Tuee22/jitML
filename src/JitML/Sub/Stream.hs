@@ -1,11 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module JitML.Sub.Stream
-    ( SubprocessEnv (..)
-    , capture
-    , defaultSubprocessEnv
-    , runStreaming
-    )
+  ( SubprocessEnv (..)
+  , capture
+  , defaultSubprocessEnv
+  , runStreaming
+  )
 where
 
 import Data.ByteString.Lazy (ByteString)
@@ -20,44 +18,42 @@ import System.Process.Typed qualified as Typed
 import JitML.Sub.Subprocess (Subprocess (..))
 
 data SubprocessEnv = SubprocessEnv
-    deriving stock (Eq, Show)
+  deriving stock (Eq, Show)
 
 defaultSubprocessEnv :: SubprocessEnv
 defaultSubprocessEnv = SubprocessEnv
 
 runStreaming :: SubprocessEnv -> Subprocess -> IO (ExitCode, Text, Text)
 runStreaming env subprocessValue = do
-    (exitCode, stdoutBytes, stderrBytes) <- capture env subprocessValue
-    pure
-        ( exitCode
-        , Text.Encoding.decodeUtf8With lenientDecode (LazyByteString.toStrict stdoutBytes)
-        , Text.Encoding.decodeUtf8With lenientDecode (LazyByteString.toStrict stderrBytes)
-        )
+  (exitCode, stdoutBytes, stderrBytes) <- capture env subprocessValue
+  pure
+    ( exitCode
+    , Text.Encoding.decodeUtf8With lenientDecode (LazyByteString.toStrict stdoutBytes)
+    , Text.Encoding.decodeUtf8With lenientDecode (LazyByteString.toStrict stderrBytes)
+    )
 
 capture :: SubprocessEnv -> Subprocess -> IO (ExitCode, ByteString, ByteString)
 capture _env subprocessValue =
-    Typed.readProcess (processConfig subprocessValue)
+  Typed.readProcess (processConfig subprocessValue)
 
 processConfig :: Subprocess -> Typed.ProcessConfig () () ()
 processConfig subprocessValue =
-    applyWorkingDirectory
-        . applyEnvironment
-        $ Typed.proc
-            (subprocessPath subprocessValue)
-            (fmap showText (subprocessArguments subprocessValue))
-  where
-    applyWorkingDirectory =
-        case subprocessWorkingDirectory subprocessValue of
-            Nothing -> id
-            Just cwd -> Typed.setWorkingDir cwd
+  applyWorkingDirectory
+    . applyEnvironment
+    $ Typed.proc
+      (subprocessPath subprocessValue)
+      (fmap showText (subprocessArguments subprocessValue))
+ where
+  applyWorkingDirectory =
+    maybe id Typed.setWorkingDir (subprocessWorkingDirectory subprocessValue)
 
-    applyEnvironment config =
-        case subprocessEnvironment subprocessValue of
-            [] -> config
-            values -> Typed.setEnv (fmap envPair values) config
+  applyEnvironment config =
+    case subprocessEnvironment subprocessValue of
+      [] -> config
+      values -> Typed.setEnv (fmap envPair values) config
 
-    envPair (key, value) =
-        (showText key, showText value)
+  envPair (key, value) =
+    (showText key, showText value)
 
 showText :: Text -> String
 showText = showStringValue

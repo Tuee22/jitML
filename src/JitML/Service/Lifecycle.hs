@@ -2,37 +2,37 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Service.Lifecycle
-    ( LifecyclePhase (..)
-    , SPhase (..)
-    , lifecyclePlan
-    , renderLifecyclePhase
-    )
+  ( LifecyclePhase (..)
+  , SPhase (..)
+  , lifecyclePlan
+  , renderLifecyclePhase
+  )
 where
 
 import Data.Text (Text)
 
 data LifecyclePhase
-    = Load
-    | Prereq
-    | Acquire
-    | Ready
-    | Serve
-    | Drain
-    | Exit
-    deriving stock (Eq, Show)
+  = Load
+  | Prereq
+  | Acquire
+  | Ready
+  | Serve
+  | Drain
+  | Exit
+  deriving stock (Eq, Show)
 
 data SPhase phase where
-    SLoad :: SPhase 'Load
-    SPrereq :: SPhase 'Prereq
-    SAcquire :: SPhase 'Acquire
-    SReady :: SPhase 'Ready
-    SServe :: SPhase 'Serve
-    SDrain :: SPhase 'Drain
-    SExit :: SPhase 'Exit
+  SLoad :: SPhase 'Load
+  SPrereq :: SPhase 'Prereq
+  SAcquire :: SPhase 'Acquire
+  SReady :: SPhase 'Ready
+  SServe :: SPhase 'Serve
+  SDrain :: SPhase 'Drain
+  SExit :: SPhase 'Exit
 
 lifecyclePlan :: [LifecyclePhase]
 lifecyclePlan =
-    [Load, Prereq, Acquire, Ready, Serve, Drain, Exit]
+  [Load, Prereq, Acquire, Ready, Serve, Drain, Exit]
 
 renderLifecyclePhase :: LifecyclePhase -> Text
 renderLifecyclePhase Load = "load"

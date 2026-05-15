@@ -26,8 +26,18 @@
 
 ✅ **Done** for the local daemon configuration, lifecycle, endpoint, retry,
 logging, at-least-once deduplication, and Deployment-rendering surfaces. The
-daemon subscribes to Pulsar, persists to MinIO, pulls images from Harbor, and
-reports metrics via the Prometheus stack in live validation.
+target daemon subscribes to Pulsar, persists to MinIO, pulls images from Harbor,
+and reports metrics via the Prometheus stack in live validation.
+
+### Current Implementation Scope
+
+The current worktree implements `BootConfig` / `LiveConfig` ADTs and Dhall
+renderers, lifecycle phase data, pure endpoint-response rendering, pure JSON log
+rendering, service error/retry helpers, payload-hash deduplication, and chart
+ConfigMap/Deployment rendering. It does not yet implement `App.daemonMain`,
+SIGHUP handling, capability classes, real MinIO/Pulsar/Harbor/kubectl clients,
+an HTTP server for `/healthz` / `/readyz` / `/metrics`, or a live Pulsar
+consumer loop.
 
 ## Phase Summary
 
@@ -41,7 +51,7 @@ info when `residency = Host`. On Linux substrates one daemon runs in-cluster
 binary distinguished by Dhall (`Cluster + ForwardToHost` in-pod and `Host +
 SelfInference` host-native).
 
-## Sprint 5.1: `jitml service` Entry Point and `App.daemonMain` ✅
+## Sprint 5.1: `jitml service` Entry Point and Lifecycle Summary ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/Service/Lifecycle.hs`,
@@ -51,42 +61,40 @@ SelfInference` host-native).
 
 ### Objective
 
-Wire `jitml service` into the CLI as a long-running command with the
-`Lifecycle: load → prereq → acquire → ready → serve → drain → exit` shape per
-doctrine.
+Wire `jitml service` into the CLI with the local lifecycle/config/endpoint
+summary surface. The real long-running daemon composition root remains target
+runtime work.
 
 ### Deliverables
 
-- `jitml service [--config path/to/config.dhall]` is a Plan/Apply command;
-  startup-as-plan supports `--dry-run` and `--plan-file` (renders the
-  reconciliation plan, exits `0` without subscribing).
-- `App.daemonMain :: BootConfig -> IO ExitCode` is the composition root.
-- `Lifecycle` ADT enumerates the six phases; transitions log structured JSON
-  events on stderr.
-- Default config path resolution: `--config <path>` →
-  `$JITML_SERVICE_CONFIG` →
-  `./conf/<residency>/<substrate>.dhall`.
+- `jitml service [--config path/to/config.dhall]` is registered and supports
+  Plan/Apply output via `--dry-run` and `--plan-file`.
+- `src/JitML/App.hs` renders the lifecycle, BootConfig/LiveConfig, endpoint,
+  and metrics summaries for the command.
+- `Lifecycle` ADT enumerates the phases: `load`, `prereq`, `acquire`,
+  `ready`, `serve`, `drain`, `exit`.
+- Default command summary path is `./conf/cluster/linux-cpu.dhall` when no
+  `--config` is passed.
 
 ### Validation
 
 1. `jitml service --dry-run --config conf/cluster/linux-cpu.dhall` prints the
    typed plan and exits `0` without side effects.
-2. `jitml service` from inside the cluster pod reaches `Ready` per the
-   structured log stream within 30 s.
+2. `jitml service` prints the local lifecycle/config/endpoint summary.
 
 ## Sprint 5.2: `BootConfig` / `LiveConfig` Dhall and SIGHUP Hot Reload ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/Service/BootConfig.hs`,
-`src/JitML/Service/LiveConfig.hs`, `src/JitML/Service/Reload.hs`,
+`src/JitML/Service/LiveConfig.hs`,
 `dhall/service/{BootConfig,LiveConfig}.dhall`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
 ### Objective
 
-Split the daemon configuration into `BootConfig` (start-time only, restart-
-required) and `LiveConfig` (hot-reloadable on SIGHUP), each backed by a Dhall
-schema.
+Split the daemon configuration into current `BootConfig` / `LiveConfig` ADTs,
+Dhall schema files, and renderers. The target live daemon treats `BootConfig` as
+start-time only and `LiveConfig` as hot-reloadable on SIGHUP.
 
 ### Deliverables
 
@@ -105,13 +113,13 @@ schema.
   - `tartIdleTimeout : Optional Natural` (Apple host-native only)
   - `inferenceBatchSize`, `inferenceMaxLatencyMillis`
   - `drainDeadlineSeconds`
-- SIGHUP triggers `LiveConfig` re-read; restart-required field changes (i.e.,
+- Target SIGHUP handling triggers `LiveConfig` re-read; restart-required field changes (i.e.,
   any `BootConfig` field) emit `AppError InvalidConfig` with the structured
   diagnostic and exit `2` so the orchestrator restarts the pod.
-- The Dhall schemas at `dhall/service/{BootConfig,LiveConfig}.dhall` are
-  authoritative; Haskell decoders use `Dhall.input`.
+- The Dhall schemas at `dhall/service/{BootConfig,LiveConfig}.dhall` are present
+  and match the renderers; target Haskell decoders use `Dhall.input`.
 
-### Validation
+### Target Validation
 
 1. SIGHUP on a running daemon re-applies `LiveConfig` changes (e.g.,
    `logLevel`) without restart.
@@ -123,21 +131,24 @@ schema.
 
 **Status**: Done
 **Implementation**: `src/JitML/Service/Endpoints.hs`,
-`src/JitML/Service/Logger.hs`, `src/JitML/Service/Errors.hs`
+`src/JitML/Service/Logger.hs`, `src/JitML/Service/Retry.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
 ### Objective
 
-Expose the doctrine-mandatory daemon endpoints and the structured JSON stderr
-logger; classify errors as recoverable vs fatal.
+Expose the local endpoint response, metrics, retry, and structured-log renderers
+that the target live daemon will serve over HTTP and stderr.
 
 ### Deliverables
 
-- `/healthz` returns `200 OK` if the daemon process is alive; `500` otherwise.
-- `/readyz` returns `200 OK` only after the `Ready` lifecycle phase
+- Current `/healthz`, `/readyz`, and `/metrics` are renderable
+  `EndpointResponse` values; no HTTP listener serves them yet.
+- Target `/healthz` returns `200 OK` if the daemon process is alive; `500`
+  otherwise.
+- Target `/readyz` returns `200 OK` only after the `Ready` lifecycle phase
   (capability classes acquired, prerequisite reconcile passed, Pulsar
   consumer subscribed); `503` otherwise.
-- `/metrics` exposes Prometheus format scraped by the kube-prometheus-stack
+- Target `/metrics` exposes Prometheus format scraped by the kube-prometheus-stack
   scrape config from Sprint `4.5`. Metrics include per-topic consumer lag,
   per-bucket PUT/GET latency histograms, JIT cache hit/miss counts, Lifecycle
   phase counters.
@@ -148,7 +159,7 @@ logger; classify errors as recoverable vs fatal.
   retried via the `RetryPolicy` (Sprint `5.4`); fatal kinds emit a structured
   diagnostic and exit `2`.
 
-### Validation
+### Target Validation
 
 1. `curl http://<pod-ip>:<healthz-port>/healthz` returns `200`; `/readyz`
    returns `503` during `Acquire` and `200` after `Ready`.
@@ -160,33 +171,17 @@ logger; classify errors as recoverable vs fatal.
 ## Sprint 5.4: Capability Classes and `RetryPolicy` ✅
 
 **Status**: Done
-**Implementation**: `src/JitML/Service/Caps/MinIO.hs`,
-`src/JitML/Service/Caps/Pulsar.hs`, `src/JitML/Service/Caps/Harbor.hs`,
-`src/JitML/Service/Caps/Kubectl.hs`,
-`src/JitML/Service/Retry.hs`
+**Implementation**: `src/JitML/Service/Retry.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
 ### Objective
 
-Stand up the typed capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`,
-`HasKubectl`) per doctrine `Capability Classes and Service Errors`, plus the
-typed `RetryPolicy` per `Retry Policy as First-Class Values`. The capability
-classes are the only allowed entry into external services from the daemon.
+Stand up the local `RetryPolicy` and service-error mapping surface. The typed
+capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) remain
+target runtime work per doctrine `Capability Classes and Service Errors`.
 
 ### Deliverables
 
-- `class HasMinIO env where ...` exposes `putBlobIfAbsent`, `casPointer`,
-  `getObject`, `listPrefix` per
-  [../README.md → Concurrency model](../README.md#concurrency-model). The
-  in-`Env` instance routes through the `minio-hs` client; mock instance for
-  `jitml-unit`.
-- `class HasPulsar env where ...` exposes `subscribe`, `produce`, `ack`,
-  `seek`. The in-`Env` instance routes through `pulsar-client-haskell`.
-- `class HasHarbor env where ...` exposes `pushImage`, `getImage`,
-  `deleteImage`.
-- `class HasKubectl env where ...` exposes `applyManifest`, `getResource`,
-  `deleteResource`. All routed through the typed `Subprocess` boundary
-  (Sprint `1.6`).
 - `RetryPolicy` ADT with named strategies (`Once`, `LinearN k delayMs`,
   `ExponentialN k baseMs cap`, `RetryUntil deadline`). `retryServiceAction
   :: RetryPolicy -> (env -> IO a) -> env -> IO (Either AppError a)` is the
@@ -194,43 +189,47 @@ classes are the only allowed entry into external services from the daemon.
 - Service-error kinds: `SEConflict` (retryable; from `If-Match`/`If-None-
   Match` `412`), `SEUnauthorized` (fatal), `SETimeout` (retryable per
   policy), `SETransient` (retryable per policy).
+- Target capability classes expose MinIO, Pulsar, Harbor, and kubectl actions
+  through the typed boundary once live service clients land.
 
 ### Validation
 
 1. `jitml-unit` exercises `retryServiceAction` against a synthetic
    `SEConflict`-emitting capability and asserts the policy is honoured.
-2. `jitml-integration` exercises `putBlobIfAbsent` against MinIO and asserts
-   `If-None-Match: *` `412` is treated as success.
+2. Target integration coverage exercises `putBlobIfAbsent` against MinIO and
+   asserts `If-None-Match: *` `412` is treated as success.
 
 ## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication ✅
 
 **Status**: Done
-**Implementation**: `src/JitML/Service/Consumer.hs`,
-`src/JitML/Service/EventId.hs`, `src/JitML/Service/Dispatch.hs`
+**Implementation**: `src/JitML/Service/Consumer.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
 ### Objective
 
-Stand up the at-least-once Pulsar consumer per doctrine `At-Least-Once Event
-Processing`. Idempotency is the consumer's responsibility; the typed `EventID`
+Stand up the local event-id and de-duplication helpers for the target
+at-least-once Pulsar consumer per doctrine `At-Least-Once Event Processing`.
+Idempotency remains the consumer's responsibility; the typed `EventID`
 deduplication key is the protobuf message hash and is opaque to the broker.
 
 ### Deliverables
 
-- `Consumer` subscribes to the substrate-scoped command topics
+- Current `eventIdFromPayload` derives a SHA-256 payload hash and
+  `processAtLeastOnce` keeps first-seen event IDs in deterministic order.
+- Target `Consumer` subscribes to the substrate-scoped command topics
   (`training.command.<mode>`, `tune.command.<mode>`, `rl.command.<mode>`,
   `inference.request.<mode>`, plus `inference.command.apple-silicon` on the
   host daemon).
-- `EventID` is the doctrine-typed deduplication key, derived from the protobuf
+- Target `EventID` is the doctrine-typed deduplication key, derived from the protobuf
   message hash. The daemon does not trust client-supplied IDs.
-- The dispatcher routes by event kind to the per-domain handler (training,
+- Target dispatcher routes by event kind to the per-domain handler (training,
   tune, RL, inference). Per-handler `dedupCache :: TVar (LRUSet EventID)`
   provides at-least-once → effectively-once for the duration the entry stays
   cached. Cache size and TTL are `LiveConfig` knobs.
 - Acks are explicit; failure to ack within the `RetryPolicy` budget surfaces
   `AppError PulsarFailed`.
 
-### Validation
+### Target Validation
 
 1. Replaying the same Pulsar message twice produces one durable side effect
    (golden against MinIO writes).
@@ -241,7 +240,7 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 
 **Status**: Done
 **Implementation**: `chart/templates/deployment-jitml-service.yaml`,
-`src/JitML/Bootstrap/Dhall.hs`, `src/JitML/Service/ConfigMap.hs`
+`src/JitML/Service/ConfigMap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
 `documents/engineering/cluster_topology.md`
 
@@ -258,22 +257,23 @@ kubernetes.io/hostname`, plus bootstrap-rendered per-substrate Dhall configs.
   and Pulsar.
 - `runtimeClassName: nvidia` only when substrate is `linux-cuda`.
 - `jitml bootstrap --<substrate>` renders
-  `./.build/conf/cluster/<substrate>.dhall` and deploys it as a ConfigMap
-  mounted into `jitml-service`.
+  `./.build/conf/cluster/<substrate>.dhall` and
+  `chart/templates/configmap-jitml-service.yaml`; live deployment into a
+  ConfigMap mounted into `jitml-service` remains target apply behavior.
 - The cluster Dhall declares `residency = Cluster`, `inferenceMode =
   SelfInference` for Linux substrates, and `ForwardToHost` for Apple.
 - `jitml bootstrap --apple-silicon` also renders
-  `./.build/conf/host/apple-silicon.dhall`, then patches it after the edge port
-  is chosen so the host daemon can reach Pulsar and MinIO.
+  `./.build/conf/host/apple-silicon.dhall`; target live bootstrap patches the
+  chosen edge port so the host daemon can reach Pulsar and MinIO.
 - Linux substrates do not render a host-level Dhall file; all JIT operations
   happen in the cluster and the daemon knows that from its ConfigMap Dhall.
 - Deployment template mounts `./.build/` from the worker hostPath into the
   pod at `/opt/build/` so the JIT cache is shared.
 - `chart/templates/deployment-jitml-demo.yaml` is the sibling Deployment for
-  the demo HTTP server (Phase `11` populates the bundle; this sprint owns
-  only the chart shape).
+  the demo executable shim; Phase `11` owns the current frontend/demo scaffold
+  and target HTTP server behavior.
 
-### Validation
+### Target Validation
 
 1. `kubectl get deployment -n platform jitml-service` shows `Available` after
    `jitml bootstrap --<substrate>`.

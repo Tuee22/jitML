@@ -19,18 +19,25 @@
 ## Phase Status
 
 ✅ **Done** for the local typed catalog surface. The numerical core is a typed
-catalog consumed by the daemon's training and inference loops; it has no
-runtime behaviour of its own beyond shape validation and Dhall round-tripping.
+catalog consumed by the daemon's future training and inference loops; it has no
+runtime behaviour of its own beyond catalog enumeration and rendering today.
 Per-substrate JIT codegen (Phase `7`) consumes this catalog.
+
+### Current Implementation Scope
+
+The current worktree implements the Haskell catalog in
+`src/JitML/Numerics/Catalog.hs`: eleven layer constructors, seven activations,
+four spectral operations, eleven optimizers, eight schedulers, five losses, and
+`renderNumericalCatalog`. It does not yet contain the `dhall/numerics/*` schema
+tree, Dhall decoders, generated numerical documentation tables, or rich
+parameterized constructors described by the target architecture below.
 
 ## Phase Summary
 
-This phase delivers the typed numerical core — every Haskell ADT for layers,
-activations, spectral ops, optimizers, schedulers, and losses, plus matching
-Dhall schemas. The catalog is the source of truth for what experiments can
-declare; the Haskell-owned JIT source renderers (Phase `7`) consume the catalog
-to produce substrate-specific kernels. No SL/RL training logic lives here —
-that is Phase `8`.
+This phase delivers the local Haskell numerical catalog for layers,
+activations, spectral ops, optimizers, schedulers, and losses. Matching Dhall
+schemas and generated catalog tables are target documentation/runtime work. No
+SL/RL training logic lives here — that is Phase `8`.
 
 ## Sprint 6.1: Layer Catalog (Real and Complex) ✅
 

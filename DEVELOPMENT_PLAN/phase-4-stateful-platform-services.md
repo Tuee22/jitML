@@ -20,10 +20,20 @@
 ## Phase Status
 
 ✅ **Done** for the local chart, registry, bucket, topic, observability, and
-RuntimeClass surfaces. Every service installs through the umbrella chart and
-routes through the Envoy Gateway listener established in Phase `3`; live
+RuntimeClass surfaces. Target services install through the umbrella chart and
+route through the Envoy Gateway listener established in Phase `3`; live
 readiness against a running cluster remains covered by later cross-cluster
 validation.
+
+### Current Implementation Scope
+
+The current worktree contains the umbrella `chart/Chart.yaml` dependency list,
+`chart/values.yaml`, manual PV templates, route templates, deployment templates,
+the MinIO bucket registry, Pulsar topic registry/command renderer, Grafana
+dashboard renderer, TensorBoard deployment/event-key renderer, and the NVIDIA
+RuntimeClass manifest. It does not contain live Helm install/apply code, running
+Harbor/MinIO/Pulsar/Postgres readiness checks, generated Grafana dashboard
+template files, or a TensorBoard service template.
 
 ## Phase Summary
 
@@ -53,16 +63,19 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 
 - `chart/Chart.yaml` declares the `harbor` subchart dependency at a pinned
   version.
-- Harbor's portal, core, registry, and notary are deployed in the bootstrap
-  phase (image-pull from public registries).
-- Harbor's S3 backend points at MinIO bucket `harbor-registry` (Sprint `4.3`).
-- `jitml bootstrap --<substrate>` builds the `jitml` image, pushes it to
+- Current `chart/values.yaml` provides the local Harbor values scaffold and uses
+  the `jitml-manual` StorageClass for registry persistence.
+- Target live bootstrap deploys Harbor's portal, core, registry, and notary in
+  the bootstrap phase, then configures its S3 backend against MinIO bucket
+  `harbor-registry` (Sprint `4.3`).
+- Current `jitml bootstrap --<substrate>` materializes bootstrap files only. The
+  target live apply path builds the `jitml` image, pushes it to
   `harbor.platform.svc.cluster.local/jitml/jitml:<sha>`, and uses that image for
   the cluster daemon rollout.
 - HTTPRoute manifests for `/harbor` and `/harbor/api` are generated from the
   route registry (Sprint `3.4`).
 
-### Validation
+### Target Validation
 
 1. `jitml bootstrap --<substrate>` succeeds; `kubectl get pods -n platform` shows the
    Harbor stack ready.
@@ -72,8 +85,8 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 ## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres ✅
 
 **Status**: Done
-**Implementation**: `chart/templates/pg-operator-values.yaml`,
-`chart/templates/pg-db-harbor.yaml`
+**Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
+`chart/templates/pv-platform-harbor-pg-*.yaml`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -86,16 +99,15 @@ lives in MinIO and Pulsar exclusively.
 ### Deliverables
 
 - `pg-operator` subchart pinned in `chart/Chart.yaml`.
-- `PerconaPGCluster` resources are rendered from a typed service-Postgres
-  registry; the first entry is `harbor-pg` in namespace `platform`.
-- The PG cluster's storage uses the `jitml-manual` StorageClass and the
-  manual PVs from Sprint `3.2`.
-- Harbor's `database` config block in `chart/templates/harbor-values.yaml`
-  points at `harbor-pg`.
-- `jitml lint chart` rejects any `PerconaPGCluster` outside the typed
+- Current local storage includes manual PV templates for `platform/harbor-pg`.
+- Target `PerconaPGCluster` resources are rendered from a typed service-Postgres
+  registry; the first entry is `harbor-pg` in namespace `platform`, using the
+  `jitml-manual` StorageClass and manual PVs from Sprint `3.2`.
+- Target Harbor database values point at `harbor-pg`.
+- Target `jitml lint chart` rejects any `PerconaPGCluster` outside the typed
   service-Postgres registry.
 
-### Validation
+### Target Validation
 
 1. `kubectl get perconapgcluster -n platform` shows `harbor-pg` ready after
    `jitml bootstrap --<substrate>`.
@@ -127,10 +139,12 @@ buckets, and pin the server to a release with S3 conditional-write support
   `jitml-checkpoints`, `jitml-datasets`, `jitml-transcripts`, `jitml-trials`,
   `jitml-tensorboard`, `jitml-artifacts`.
 - `src/JitML/Storage/Buckets.hs` is the typed source for the bucket layout;
-  the values file is generated and tracked.
+  `chart/templates/minio-values.yaml` is materialized by the bootstrap renderer.
+  Active generated-path tracking remains target work if this file becomes
+  fully generated.
 - HTTPRoutes for `/minio/console` and `/minio/s3` (Sprint `3.4`).
 
-### Validation
+### Target Validation
 
 1. `mc ls minio/` after `jitml bootstrap --<substrate>` lists the seven buckets.
 2. `mc admin info minio/` confirms the conditional-write-supporting release.
@@ -141,7 +155,7 @@ buckets, and pin the server to a release with S3 conditional-write support
 ## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap ✅
 
 **Status**: Done
-**Implementation**: `chart/templates/pulsar-values.yaml`,
+**Implementation**: `chart/values.yaml`,
 `src/JitML/Cluster/PulsarBootstrap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
@@ -156,12 +170,12 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 - 3 ZooKeepers, 3 BookKeepers, 3 Brokers, 3 Proxies, WebSocket enabled.
 - `src/JitML/Cluster/PulsarBootstrap.hs` declares the typed topic family from
   [system-components.md → Pulsar Topic
-  Family](system-components.md#pulsar-topic-family) and reconciles them at
-  bootstrap final-phase time via `pulsar-admin` through the typed
-  `Subprocess` boundary.
+  Family](system-components.md#pulsar-topic-family) and renders the
+  `pulsar-admin topics create ...` commands. Executing those commands at
+  bootstrap final-phase time remains target live apply behavior.
 - HTTPRoutes for `/pulsar/admin` and `/pulsar/ws` (Sprint `3.4`).
 
-### Validation
+### Target Validation
 
 1. `pulsar-admin topics list public/default` after `jitml bootstrap --<substrate>` lists
    the substrate-scoped topics.
@@ -171,9 +185,7 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 ## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ✅
 
 **Status**: Done
-**Implementation**: `chart/templates/kube-prometheus-stack-values.yaml`,
-`chart/templates/grafana-dashboard-*.yaml`,
-`chart/templates/prometheus-scrapeconfig-jitml.yaml`,
+**Implementation**: `chart/values.yaml`,
 `src/JitML/Observability/Grafana.hs`,
 `src/JitML/Observability/Prometheus.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
@@ -189,14 +201,14 @@ the daemon's `/metrics` endpoint.
 - `kube-prometheus-stack` subchart pinned.
 - `src/JitML/Observability/Grafana.hs` renders typed dashboards (training
   throughput, RL episode reward, AlphaZero arena win rate, JIT cache hit rate,
-  Pulsar consumer lag, MinIO PUT latency, daemon health) into provisioned
-  ConfigMaps. Dashboards are generated and tracked by
-  `trackingGeneratedPaths`.
+  Pulsar consumer lag, MinIO PUT latency, daemon health). Writing those
+  dashboards into provisioned ConfigMaps and moving dashboard YAML into active
+  `trackingGeneratedPaths` remains target work.
 - `src/JitML/Observability/Prometheus.hs` declares the typed scrape-target
   list and renders the scrape config.
 - HTTPRoutes for `/grafana` and `/prometheus` (Sprint `3.4`).
 
-### Validation
+### Target Validation
 
 1. `127.0.0.1:<edge-port>/grafana` lists every provisioned dashboard.
 2. Hand-editing a dashboard ConfigMap surfaces `AppError DocsCheckDrift` on
@@ -205,43 +217,43 @@ the daemon's `/metrics` endpoint.
 ## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar ✅
 
 **Status**: Done
-**Implementation**: `chart/templates/tensorboard-deployment.yaml`,
-`chart/templates/tensorboard-service.yaml`,
-`src/JitML/Observability/TensorBoard.hs`,
+**Implementation**: `src/JitML/Observability/TensorBoard.hs`,
 `proto/tensorboard/event.proto`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
 `documents/engineering/checkpoint_format.md`
 
 ### Objective
 
-Stand up the jitML-owned TensorBoard chart pointed at MinIO bucket
-`jitml-tensorboard`, plus the typed event-file writer with shard rotation and
-the CBOR checkpoint sidecar at
+Stand up the local TensorBoard event-key/projection/deployment renderer that the
+target TensorBoard chart will consume. The target chart points at MinIO bucket
+`jitml-tensorboard`, adds a typed event-file writer with shard rotation, and
+writes the CBOR checkpoint sidecar at
 `jitml-tensorboard/<experiment-hash>/checkpoints/<step>-<manifest-sha>.cbor`.
 
 ### Deliverables
 
-- TB pod is stateless; reads MinIO at panel-load time; reschedules freely.
-- `proto/tensorboard/event.proto` is vendored from TensorFlow at a pinned
-  commit; `proto-lens` generates Haskell bindings.
-- `src/JitML/Observability/TensorBoard.hs` implements the TFRecord framing
-  per [../README.md → TensorBoard event storage →
-  Format](../README.md#format) (uint64 LE length + masked-CRC32C +
-  payload + masked-CRC32C). CRC32C is Castagnoli; the mask is TF's standard
-  rotation `((crc >> 15) | (crc << 17)) + 0xa282ead8`.
-- Bucket layout per [system-components.md → MinIO Bucket
+- Current `src/JitML/Observability/TensorBoard.hs` implements deterministic
+  event projection, shard-key rendering under `jitml-tensorboard/.../events/`,
+  and a TensorBoard Deployment renderer.
+- `proto/tensorboard/event.proto` is vendored from TensorFlow for the target
+  binding/codegen path; generated Haskell proto bindings are not present yet.
+- Target TFRecord framing follows [../README.md → TensorBoard event storage →
+  Format](../README.md#format) (uint64 LE length + masked-CRC32C + payload +
+  masked-CRC32C). CRC32C is Castagnoli; the mask is TF's standard rotation
+  `((crc >> 15) | (crc << 17)) + 0xa282ead8`.
+- Target bucket layout per [system-components.md → MinIO Bucket
   Layout](system-components.md#minio-bucket-layout) and [../README.md →
   Bucket layout](../README.md#bucket-layout): overlay mode default, isolated
   mode per Dhall knob, HPO trials always isolated by trial-hash.
-- Shard rotation: flush at 4 MiB, 10 s, or explicit `flush` (e.g.
+- Target shard rotation: flush at 4 MiB, 10 s, or explicit `flush` (e.g.
   `CheckpointDone`, graceful shutdown, SIGTERM drain). PUTs use `If-None-
   Match: *`; the same `(writer-id, shard-seq)` is idempotent.
-- `TbCheckpointMarker` CBOR sidecar (`tcmStep`, `tcmEpoch`, `tcmManifestSha`,
+- Target `TbCheckpointMarker` CBOR sidecar (`tcmStep`, `tcmEpoch`, `tcmManifestSha`,
   `tcmExperimentSha`, `tcmTrialSha`, `tcmRunUuid`, `tcmMetricsAtStep`)
   written on every `CheckpointDone`.
 - HTTPRoute for `/tensorboard` (Sprint `3.4`).
 
-### Validation
+### Target Validation
 
 1. After a synthetic training run, the TB UI lists `(tag, step, value)`
    triples sorted canonically.
@@ -261,20 +273,20 @@ the CBOR checkpoint sidecar at
 
 Add the `RuntimeClass nvidia` and bind it to the Linux CUDA worker label
 `jitml.runtime/gpu=true`. The substrate image (`jitml:local`) is unchanged —
-NVCC + cuBLAS + cuDNN are baked unconditionally and activate at runtime when
-the pod is scheduled with `runtimeClassName: nvidia`.
+target CUDA image hardening bakes NVCC + cuBLAS + cuDNN unconditionally and
+activates them at runtime when the pod is scheduled with
+`runtimeClassName: nvidia`.
 
 ### Deliverables
 
 - `chart/templates/runtimeclass-nvidia.yaml` declares the `RuntimeClass` with
   `handler: nvidia` and node-selector label `jitml.runtime/gpu=true`.
-- The `jitml-service` Deployment template (Sprint `5.6`) sets
-  `spec.template.spec.runtimeClassName: nvidia` only when substrate is
-  `linux-cuda`.
+- The `jitml-service` Deployment renderer sets
+  `spec.template.spec.runtimeClassName: nvidia` when substrate is `linux-cuda`.
 - The Linux CUDA Kind worker (Sprint `3.1`) is labelled
   `jitml.runtime/gpu=true`.
 
-### Validation
+### Target Validation
 
 1. After `bootstrap/linux-cuda.sh up`, `kubectl get runtimeclass` lists
    `nvidia`.

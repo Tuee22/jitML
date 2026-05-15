@@ -25,9 +25,21 @@
 ## Phase Status
 
 ✅ **Done** for the local Cabal stanza expansion and report-card surface. The
-ten stanzas exercise every prior phase's surface end-to-end; live
+ten stanzas exercise prior phases' local renderers, catalogs, command summaries,
+and scaffolds; live
 `jitml-cross-backend` infrastructure validation remains the closure gate that
 bounds cross-substrate drift inside the per-tensor tolerance band.
+
+### Current Implementation Scope
+
+The current worktree declares all ten Cabal test stanzas and gives each a local
+deterministic `tasty` body. These tests exercise parser/docs/cache/bootstrap
+helpers, renderers, catalogs, checkpoint summaries, route/bucket registries,
+daemon lifecycle data, and frontend contract scaffolds. They do not currently
+spawn the real `jitml` binary for integration, run live training, run
+Playwright, bring up Kind through Pulumi, or invoke `cabal test` from
+`jitml test all`; the command currently renders the plan or report-card
+summary.
 
 ## Phase Summary
 
@@ -39,14 +51,15 @@ tree uses dedicated local deterministic bodies for every stanza:
 `jitml-purescript-style`. This phase expands the original minimal bodies
 with Phase-12-owned workloads per doctrine `Test Organization` (each
 `type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner; a single `tasty`
-tree spanning all tiers is forbidden). It also lands `jitml test all` as
-the Plan/Apply orchestrator and the Pulumi TypeScript program at
-`infra/pulumi/` that brings up an ephemeral Kind stack for `jitml-e2e` (the
-doctrine's Pulumi-Orchestrated Infrastructure test category). The two style
-stanzas — `jitml-haskell-style` (owned by Sprint `1.4`) and
-`jitml-purescript-style` (owned by Sprint `11.3`) — are not landed by Phase
-12 but are listed as part of the ten-stanza inventory and consumed by
-`jitml test all`. The ten-stanza coverage maps every doctrine test category
+tree spanning all tiers is forbidden). It also lands the current `jitml test
+all` Plan/Apply report-card surface and the Pulumi TypeScript metadata scaffold
+at `infra/pulumi/`; the live ephemeral-Kind orchestration remains target e2e
+work. The two style stanzas — `jitml-haskell-style` (owned by Sprint `1.4`) and
+`jitml-purescript-style` (owned by Sprint `11.3`) — are declared and have local
+bodies, but their ownership remains with their source phases. Current
+`jitml test all` renders the report-card summary rather than invoking those
+stanzas; target orchestration will delegate to Cabal. The ten-stanza coverage
+maps every doctrine test category
 to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 → Stanza)](system-components.md#test-categories-mapping-doctrine--stanza).
 
@@ -297,30 +310,25 @@ inside the committed per-tensor tolerance band on the SL canon cohorts
 
 Use `jitml-daemon-lifecycle` for the
 doctrine's Daemon
-Lifecycle test category — spawn the real `jitml service`, exercise the
-boot → ready → serve → SIGHUP reload → drain → exit lifecycle, and assert
-at-least-once Pulsar consumer idempotency.
+Lifecycle test category through the current local lifecycle and retry surfaces.
+The target live test spawns the real `jitml service`, exercises boot → ready →
+serve → SIGHUP reload → drain → exit, and asserts at-least-once Pulsar consumer
+idempotency.
 
 ### Deliverables
 
-- `test/daemon-lifecycle/Main.hs` spawns the real `jitml service` binary
-  against a synthetic `BootConfig` Dhall.
-- Drives the daemon through Lifecycle phases (`load → prereq → acquire →
-  ready → serve → drain → exit`); polls `/healthz`, `/readyz`, `/metrics`.
-- SIGHUP hot reload: mutates a `LiveConfig` field (e.g. `logLevel`),
-  signals SIGHUP, asserts the change takes effect without process restart.
-- At-least-once Pulsar consumer idempotency: replays the same envelope
-  twice, asserts exactly one durable side effect (one MinIO write, one
-  checkpoint pointer update).
-- SIGTERM graceful drain: asserts the daemon completes in-flight envelopes,
-  ACKs them, and exits `0` within the documented drain budget.
+- `test/daemon-lifecycle/Main.hs` verifies the current lifecycle phase plan.
+- The test exercises endpoint response helpers and retry behaviour against
+  synthetic service errors.
+- Live process spawning, SIGHUP reload, Pulsar idempotency, and SIGTERM drain
+  remain target runtime validation.
 
 ### Validation
 
 1. `cabal test jitml-daemon-lifecycle` exits `0`.
-2. SIGHUP reload toggles `LiveConfig.logLevel` without restart.
-3. Replaying the same `StartTraining` envelope twice produces one durable
-   side effect.
+2. The lifecycle plan remains `load → prereq → acquire → ready → serve →
+   drain → exit`.
+3. Retry helpers map synthetic service errors to the expected `AppError`.
 
 ## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator ✅
 
@@ -334,39 +342,26 @@ at-least-once Pulsar consumer idempotency.
 
 ### Objective
 
-Use `jitml-e2e` with the Pulumi TypeScript
-program and Haskell test driver that bring up an ephemeral Kind stack, run the
-six demo cohorts against the real Envoy listener with Playwright, and tear the
-stack down deterministically.
+Use `jitml-e2e` for the current local e2e scaffold and target Pulumi/
+Playwright stack. The current body checks route, bucket, publication, contract,
+and report-card surfaces; the future body brings up an ephemeral Kind stack,
+runs the demo cohorts against the real Envoy listener with Playwright, and tears
+the stack down deterministically.
 This is the doctrine's Pulumi-Orchestrated Infrastructure test category.
 
 ### Deliverables
 
-- `infra/pulumi/index.ts` provisions: an ephemeral Kind cluster
-  (`XCLUSTER_KIND_NODES` workers per [system-components.md → POC Report-Card
-  Knobs](system-components.md#poc-report-card-knobs)), the umbrella Helm
-  chart in its `final` phase against a temporary registry image pushed
-  during the run, and the `jitml-demo` Deployment.
-- `test/e2e/` is a Haskell test driver that:
-  1. Invokes `pulumi up` through the typed `Subprocess` boundary.
-  2. Runs `jitml train`, `jitml rl train`, `jitml tune` against the
-     ephemeral stack to seed the demo state.
-  3. Drives the Playwright suite from
-     [phase-11-purescript-frontend-and-demo.md → Sprint
-     11.6](phase-11-purescript-frontend-and-demo.md) against the live
-     bundle across the six demo cohorts (training control, MNIST
-     handwriting, image upload, Connect 4 game-play, TensorBoard/Grafana
-     navigation, hyperparameter sweep).
-  4. Invokes `pulumi destroy` and asserts no orphaned MinIO buckets,
-     Harbor projects, PVs, or Docker volumes survive.
-- The Pulumi stack is the only path that touches Pulumi; it is gated by
+- `infra/pulumi/index.ts` currently exports stack and cluster-name metadata.
+- `test/e2e/Main.hs` currently validates the route registry, bucket registry,
+  publication defaults, browser contract endpoint count, and report-card
+  rendering.
+- The target Pulumi stack is the only path that touches Pulumi; it is gated by
   the `pulumi` prerequisite node from Sprint `2.2`.
 
 ### Validation
 
-1. `cabal test jitml-e2e` brings up the ephemeral stack, runs the
-   workloads, runs Playwright across the six cohorts, tears down, exits `0`.
-2. After teardown, `kind get clusters | grep jitml-e2e` is empty.
+1. `cabal test jitml-e2e` exits `0` for the current local scaffold body.
+2. The future live body proves teardown leaves no `jitml-e2e` Kind cluster.
 
 ## Sprint 12.9: `jitml test all` Orchestrator and Report Card ✅
 
@@ -379,14 +374,14 @@ This is the doctrine's Pulumi-Orchestrated Infrastructure test category.
 ### Objective
 
 Land `jitml test all` (Plan/Apply with `--dry-run` and `--plan-file`) as the
-canonical operator-facing test runner, plus the report-card emitter that
+current operator-facing report-card surface, plus the report-card emitter that
 prints the tidy summary block answering the canonical questions (SL
 convergence, RL reward, AlphaZero arena win rate, JIT cache hit rate, daemon
 health, cross-substrate parity tolerance).
 
 ### Deliverables
 
-- `jitml test all` plan steps:
+- Target `jitml test all` plan steps:
   1. Resolve prerequisites.
   2. Schedule each stanza (`jitml-unit`, `jitml-integration`,
      `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
@@ -394,20 +389,23 @@ health, cross-substrate parity tolerance).
      `jitml-haskell-style`, `jitml-purescript-style`) under `cabal test`
      through the typed `Subprocess` boundary.
   3. Aggregate results into the report card.
+- Current `jitml test all --dry-run` renders the aggregate plan from
+  `src/JitML/Plan/Plan.hs`; current `jitml test all` renders
+  `ReportCard 10 0 0`.
 - The report-card knob block in `cabal.project` carries `SL_EPOCHS`,
   `SL_BATCH`, `RL_STEPS`, `RL_EVAL_EPISODES`, `AZ_GAMES`, `AZ_SIMS`,
   `TUNE_TRIALS`, `TUNE_BUDGET_PER_TRIAL`, `XCLUSTER_KIND_NODES` (see
   [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs)).
 - `ReportCard.hs` renders the tidy summary block on stdout.
-- `jitml test <stanza>` runs a single stanza.
+- `jitml test <stanza>` currently prints the selected stanza name; target
+  runtime invokes that single Cabal stanza.
 
 ### Validation
 
 1. `jitml test all --dry-run` emits the typed plan enumerating all ten
    stanzas.
-2. `jitml test all` exits `0` on a fully-implemented tree and prints the
-   report card.
+2. `jitml test all` exits `0` on the current tree and prints the report card.
 
 ## Doctrine Sections Cited
 

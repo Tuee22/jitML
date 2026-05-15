@@ -26,13 +26,23 @@ surfaces. The algorithm catalog consumes the RL framework primitives from Phase
 `8`. AlphaZero's persistent MCTS state borrows the engineering arc from a
 sibling MCTS project. The tuner consumes both SL and RL training surfaces.
 
+### Current Implementation Scope
+
+The current worktree implements a local `RLAlgorithm` catalog with family/replay
+metadata, deterministic trajectory generation, Connect 4 move/transcript helpers
+in `src/JitML/RL/AlphaZero.hs`, and deterministic sampler/scheduler/pruner
+catalogs in `src/JitML/Tune/Catalog.hs`. It does not yet implement one module
+per RL algorithm, Dhall algorithm schemas, golden RL fixture trees,
+perfect-information game typeclasses, two-headed networks, persistent MCTS
+search, MinIO trial storage, or live tuner resume.
+
 ## Phase Summary
 
-This phase delivers the full RL algorithm family, AlphaZero, and the
-hyperparameter tuner. Each algorithm module plugs into the typed pipelines and
-primitives from Phase `8`; the AlphaZero modules add a self-contained
-perfect-information sub-stack; the tuner is a typed sweep manager that drives
-SL, RL, or AlphaZero training under a sampler × scheduler × pruner Dhall.
+This phase currently delivers local RL algorithm metadata, Connect 4 transcript
+helpers, and deterministic tuning catalogs. The target phase grows those
+surfaces into one module per algorithm, a persistent AlphaZero/MCTS sub-stack,
+and a typed sweep manager that drives SL, RL, or AlphaZero training under a
+sampler × scheduler × pruner Dhall.
 
 ## Sprint 9.1: On-Policy Algorithms (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO) ✅
 

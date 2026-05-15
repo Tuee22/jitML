@@ -41,7 +41,7 @@ cluster validation remains phase-gated:
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags and checkpoint inference parity | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, and at-least-once deduplication | Daemon Lifecycle | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, and report-card surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
-| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the current in-repo lint stack; external formatter/hlint/cabal-format/build gates remain open on the style-tools GHC bootstrap | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
+| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack, including external formatter, HLint, cabal-format, and warning-clean build gates | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
 | `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file and renderer | Lint (project-specific) | Sprint 11.3 |
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
@@ -162,11 +162,11 @@ All Pulumi invocations flow through the typed `Subprocess` boundary.
 ### `jitml-haskell-style`
 
 Doctrine's Style stanza per §Style as a Cabal test-suite. The current body runs
-the in-repo lint stack, including route-registry / chart consistency lint and
-generated-section drift checks. Sprint `1.4` remains open until it also runs
-`fourmolu --mode check`, `hlint --with-group=default --with-group=extra` plus
-`.hlint.yaml`, `cabal format` temp-file round-trip byte equality, the
-warning-clean build gate.
+the lint stack, including route-registry / chart consistency lint,
+generated-section drift checks, `fourmolu --mode check`,
+`hlint --with-group=default --with-group=extra` plus `.hlint.yaml`,
+`cabal format` temp-file round-trip byte equality, and the warning-clean build
+gate.
 
 ### `jitml-purescript-style`
 

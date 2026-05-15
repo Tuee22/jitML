@@ -38,28 +38,33 @@ maintenance rules that govern this plan suite.
 
 Phase `0` (planning and documentation topology) is `✅ Done`: Sprint `0.1`
 (canonical plan suite bootstrap) and Sprint `0.2` (doctrine-driven scheduling
-audit) are both validated. Phase `1` (Haskell CLI surface) is `🔄 Active` only
-because Sprint `1.4` still needs the doctrine's external Fourmolu / hlint
-style-tools GHC bootstrap; the in-repo lint stack, chart-shape checks, and
-`jitml check-code` pass. Sprints `1.1`, `1.2`, `1.3`, and `1.5` through `1.9`
-remain `✅ Done` on their owned surfaces. Phase `2` is now `✅ Done`: Sprints
-`2.1` through `2.7` have landed the stage-0 scripts, typed prerequisite DAG,
-JIT cache layer, `docker/compose.yaml`, `docker/Dockerfile`, lazy Tart command
-surface, and script-side `status`, `test`, `down`, `purge`, and `purge --full`
-wrappers. Phases `3` through `6` and `8` through `12` are now `✅ Done` for
-their local typed renderer, catalog, command, and Cabal-stanza surfaces.
-Phase `7` is `🔄 Active` again because the JIT architecture now forbids
-checked-in static kernel source/build artefacts and requires the Haskell binary
-to generate every JIT source artefact on demand. Live multi-service Kind rollout
-remains covered by the cross-cluster validation narrative.
+audit) are both validated. Phase `1` (Haskell CLI surface) is `✅ Done`:
+Sprints `1.1` through `1.9` have landed the CLI registry, generated docs, typed
+subprocess/plan/prerequisite/env/error boundaries, style-tool bootstrap, and
+`jitml check-code` gate. Phase `2` is `✅ Done`: Sprints `2.1` through `2.7`
+have landed the stage-0 scripts, typed prerequisite DAG, JIT cache layer,
+`docker/compose.yaml`, `docker/Dockerfile`, lazy Tart command surface, and
+script-side `status`, `test`, `down`, `purge`, and `purge --full` wrappers.
+Phases `3` through `12` are now `✅ Done` for their local typed renderer,
+catalog, command, runtime-source, and Cabal-stanza surfaces. Live multi-service
+Kind rollout remains covered by the cross-cluster validation narrative.
 
-Source-code work has now landed through Phase `12`, but the overall handoff
-remains incomplete until reopened Sprint `1.4`'s external style-tool gate
-closes, reopened Sprint `7.7` replaces static codegen residue with Haskell
-runtime source generation, and the live cross-cluster validation chain is
-exercised. Status remains scoped to each phase-owned local surface per
-[development_plan_standards.md → C. Honest Completion
+Source-code scaffolds, deterministic local test bodies, the external style-tool
+gate, and Haskell-owned runtime JIT source generation have landed through Phase
+`12`, but the overall handoff remains incomplete until the live cross-cluster
+validation chain is exercised. Status remains scoped to each phase-owned local
+surface per [development_plan_standards.md → C. Honest Completion
 Tracking](development_plan_standards.md#c-honest-completion-tracking).
+
+## Current Reality Boundary
+
+Rows marked `✅ Done` for Phases `1` through `12` mean the
+checked-in local renderer, catalog, command-summary, contract, or Cabal-stanza
+surface exists and is testable in the current worktree. They do **not** mean the
+live Kind/Helm stack, real Pulsar/MinIO event flow, real training kernels, real
+HTTP serving, or cross-cluster substrate execution has been exercised end to
+end. Those live behaviours remain part of the overall handoff gates called out
+above.
 
 ## Document Index
 
@@ -112,13 +117,13 @@ A sprint can move to `Done` only when all of the following are true:
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | 🔄 Active (Sprint 1.4 reopened; other Phase 1 sprints ✅) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done (Sprints 2.1–2.7 ✅) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done (local renderer/materialization surface) | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done (local chart/service registry surface) | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
 | 5 | `jitml service` Daemon | ✅ Done (local daemon/config/lifecycle surface) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
-| 7 | JIT Codegen and Per-Substrate Execution | 🔄 Active (Sprint 7.7 reopened; Sprints 7.1–7.6 ✅) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
+| 7 | JIT Codegen and Per-Substrate Execution | ✅ Done | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done (local deterministic workload surface) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (local deterministic catalog surface) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done (local format/read-path surface) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
@@ -127,8 +132,7 @@ A sprint can move to `Done` only when all of the following are true:
 
 ## Current Plan Status
 
-Phase `1` is reopened only for Sprint `1.4`'s external Fourmolu / hlint
-style-tools GHC bootstrap. Sprint `1.1` has landed the Cabal package,
+Phase `1` is now done. Sprint `1.1` has landed the Cabal package,
 `cabal.project`, `app/Main.hs`, `app/Demo.hs`, `src/JitML/App.hs`, ignore files,
 and the ten Cabal test-suite stanzas that Phase `12` now expands with
 dedicated deterministic bodies. Sprint `1.2` has landed the
@@ -136,11 +140,11 @@ registry-backed CLI parser, command tree, JSON schema, focused help renderer, an
 `jitml-unit` parser/registry tests. Sprint `1.3` has landed `jitml docs check`,
 `jitml docs generate`, generated README marker regions, `documents/cli/commands.md`,
 `share/man/man1/jitml.1`, and bash/zsh/fish completion scripts. Sprint `1.4`
-has landed `fourmolu.yaml`, `.hlint.yaml`, the current in-repo lint stack,
-`jitml lint`, `jitml check-code`, chart-shape checks, and the
-`jitml-haskell-style` stanza. It still needs the external `fourmolu`, `hlint`,
-`cabal format`, and warning-clean build runners once the doctrine's separate
-style-tools GHC is available. Sprint `1.5` is now done with
+has landed `fourmolu.yaml`, `.hlint.yaml`, the in-repo lint stack, isolated
+style-tool bootstrap under `.build/jitml-style-tools/`, external Fourmolu /
+HLint / `cabal format` runners through typed `Subprocess`, chart-shape checks,
+`jitml lint`, `jitml check-code`, the warning-clean build gate, and the
+`jitml-haskell-style` stanza. Sprint `1.5` is now done with
 `src/JitML/Plan/{Plan,Apply,Render}.hs`,
 `--dry-run`, `--plan-file`, and unit coverage. Sprint `1.6` is now done with
 `src/JitML/Sub/{Subprocess,Render,Stream}.hs`, unit
@@ -172,14 +176,14 @@ Sprints `2.4` through `2.7` are now done with `docker/Dockerfile`,
 `JitML.Bootstrap`, `JitML.Tart.{Lifecycle,Exec}`, `jitml build`,
 `jitml internal vm exec`, and script-side `status`, `test`, `down`, `purge`,
 and `purge --full` wrappers. The worktree now includes the first `chart/`,
-`kind/`, `docker/`, `web/`, `infra/`, `proto/`, `codegen-cuda/`,
-`codegen-metal/`, `codegen-onednn/`, and `experiments/` surfaces. The
-`codegen-*` directories currently contain static JIT build/source residue that
-Sprint `7.7` removes from the target architecture; the supported model is
-Haskell-rendered source emitted on demand into `./.build/`. Phases `3` through
-`6` and `8` through `12` now own their local renderer, catalog, command, and
-test-stanza surfaces; live multi-service rollout remains an explicit validation
-follow-up after the external style-tool gate and Sprint `7.7` close.
+`kind/`, `docker/`, `web/`, `infra/`, `proto/`, documentation-only
+`codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, and `experiments/`
+surfaces. Sprint `7.7` is now done with Haskell-rendered source emitted on
+demand into `./.build/jit-src/<substrate>/<hash>/` and static JIT source/build
+artefacts removed from the checked-in `codegen-*` build path. Phases `3`
+through `12` now own their local renderer, catalog, command, runtime-source,
+and test-stanza surfaces; live multi-service rollout remains an explicit
+validation follow-up.
 
 The implemented local end state is:
 
@@ -195,55 +199,52 @@ The implemented local end state is:
   one-service `docker/compose.yaml` (service: `jitml`); substrate is a runtime Dhall
   choice, never an image-name dimension.
 - The umbrella Helm chart at `chart/` with subchart dependencies for Harbor, Apache
-  Pulsar, MinIO, Percona PostgreSQL, Envoy Gateway, kube-prometheus-stack, and
-  TensorBoard, deployed against three per-substrate Kind cluster shapes
-  (`kind/cluster-{apple-silicon,linux-cpu,linux-cuda}.yaml`).
+  Pulsar, MinIO, Percona PostgreSQL, Envoy Gateway, and kube-prometheus-stack,
+  plus typed local renderers for the TensorBoard, observability, route, storage,
+  service, and demo chart surfaces. The current command path materializes chart
+  and Kind inputs; live deployment remains an overall validation gate.
 - The single `127.0.0.1:<edge-port>` Envoy Gateway socket as the only exposed
   listener; the typed route registry in `src/JitML/Routes.hs` as the source of truth
   for every HTTPRoute manifest.
-- The `jitml service` long-running daemon as the sole Pulsar consumer, parameterised
-  by Dhall `BootConfig` / `LiveConfig` with mandatory SIGHUP hot reload, structured
-  JSON stderr logging, recoverable-vs-fatal error kinds, at-least-once event
-  processing, and a typed retry policy.
+- The `jitml service` command renders the daemon lifecycle, Dhall `BootConfig` /
+  `LiveConfig`, endpoint responses, structured JSON log shape, at-least-once
+  deduplication helper, and typed retry policy. The current binary does not run
+  a real long-lived HTTP/Pulsar daemon.
 - The numerical core (layer catalog, real+complex activations, optimizers,
   schedulers, losses, spectral ops) with a Dhall type for every constructor.
-- Per-substrate JIT source renderers in the Haskell binary consume the
-  numerical-core types, generate any CUDA / oneDNN C++ / Metal-Swift source
-  artefacts on demand under `./.build/jit-src/<substrate>/<hash>/`, and write
-  compiled artefacts into the content-addressed cache at
-  `./.build/jit/<substrate>/<hash>.<ext>` with stable host-side symlinks at
-  `./.build/host/apple-silicon/` for FFI dlopen stability. Static checked-in
-  `.cu`, `.cc` / `.cpp`, Metal/Swift package sources, and per-substrate JIT
-  build `.sh` scripts are not part of the target repository.
-- The full SL training loop, canonical SL problem set with golden curve fixtures, the
-  RL framework primitives (Algorithm typeclass, Policy, Environment, VecEnv, buffers,
-  schedules, action distributions, action noise, target networks, GAE, callbacks,
-  multi-sink Logger, Evaluator, training loops as typed pipelines), the RL algorithm
-  catalog (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG, TD3, SAC,
-  CrossQ, TQC, ARS, HER), AlphaZero-style self-play with persistent MCTS state, and
-  the hyperparameter tuner (Sobol / random / GA / ES samplers × Fifo /
-  SuccessiveHalving / Hyperband / ASHA schedulers × {none / median / percentile}
-  pruners).
-- The split-blob checkpoint format (`.jmw1` dense weight blob plus typed manifest)
-  with the bit-determinism contract and cross-substrate tolerance methodology, the
-  inference-only read path consumed by both the demo HTTP server and the PureScript
-  panels.
-- The PureScript frontend under `web/` (Halogen components, generated contracts from
-  `src/JitML/Web/Contracts.hs` via `purescript-bridge`, `purescript-spec` unit
-  tests, `playwright/` E2E suite, `dist/` bundle output) with the live MNIST
-  handwriting panel, CIFAR/ImageNet upload panel, and the AlphaZero-vs-human Connect
-  4 panel.
+- The current JIT engine surface is `src/JitML/Engines/Engine.hs` plus
+  `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`, which
+  map each substrate to a backend name, artifact extension, determinism flags,
+  generated runtime source bundle, generated-source cache-key payload, and
+  typed compiler `Subprocess` plan. Checked-in `codegen-*` directories contain
+  documentation only.
+- The current SL/RL workload surface is deterministic local catalog and summary
+  code: canonical SL problem summaries, RL algorithm catalog rows, deterministic
+  trajectory generation, AlphaZero Connect 4 transcript helpers, and tuning trial
+  sequences. Real daemon-backed training loops, environment stepping, replay
+  buffers, MinIO transcript persistence, and Pulsar event publication remain
+  target runtime work.
+- The current checkpoint surface is a small typed manifest, a simplified `.jmw1`
+  text encoder, manifest pointer rendering, and deterministic inference summary.
+  Full MinIO write-once/CAS pointer logic and real kernel-handle loading remain
+  target runtime work.
+- The current PureScript/frontend surface is a minimal PureScript entrypoint,
+  generated contract file, Playwright scaffold, chart deployment template, and
+  `jitml-demo` executable shim that prints a status line. There is no checked-in
+  Halogen dependency, browser bundle output, live panel implementation, or real
+  HTTP server yet.
 - Ten Cabal test-suite stanzas (`jitml-unit`, `jitml-integration`,
   `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
   `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`,
-  `jitml-haskell-style`, `jitml-purescript-style`), the `jitml test all`
-  Plan/Apply orchestrator, the lint matrix (fourmolu + hlint + cabal format), the
-  Pulumi-orchestrated ephemeral-Kind stack at `infra/pulumi/` driving the
-  `jitml-e2e` stanza, and the report-card knobs pinned in `cabal.project`.
+  `jitml-haskell-style`, `jitml-purescript-style`) with local deterministic
+  bodies. `jitml test all --dry-run` renders the aggregate plan and `jitml test
+  all` renders the current report-card summary; it does not invoke `cabal test`.
+  The Pulumi program at `infra/pulumi/` exports stack metadata only, not a live
+  ephemeral Kind orchestrator.
 
-Sprints `1.4` and `7.7` are the only reopened local sprints. Live
-cross-cluster rollout and external style-tool execution remain validation gates
-for the overall handoff, not unowned plan surfaces.
+No reopened local sprints remain. Live cross-cluster rollout remains the
+outstanding validation gate for the overall handoff, not an unowned plan
+surface.
 
 ## Sprint Dependencies
 

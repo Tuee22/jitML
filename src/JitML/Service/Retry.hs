@@ -1,12 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Service.Retry
-    ( RetryPolicy (..)
-    , ServiceError (..)
-    , renderRetryPolicyDhall
-    , retryServiceAction
-    , serviceErrorToAppError
-    )
+  ( RetryPolicy (..)
+  , ServiceError (..)
+  , renderRetryPolicyDhall
+  , retryServiceAction
+  , serviceErrorToAppError
+  )
 where
 
 import Data.Text (Text)
@@ -15,48 +15,49 @@ import Data.Text qualified as Text
 import JitML.AppError.AppError (AppError (..))
 
 data RetryPolicy
-    = Once
-    | LinearN Int Int
-    | ExponentialN Int Int Int
-    | RetryUntil Int
-    deriving stock (Eq, Show)
+  = Once
+  | LinearN Int Int
+  | ExponentialN Int Int Int
+  | RetryUntil Int
+  deriving stock (Eq, Show)
 
 data ServiceError
-    = SEConflict Text
-    | SEUnauthorized Text
-    | SETimeout Text
-    | SETransient Text
-    deriving stock (Eq, Show)
+  = SEConflict Text
+  | SEUnauthorized Text
+  | SETimeout Text
+  | SETransient Text
+  deriving stock (Eq, Show)
 
 renderRetryPolicyDhall :: RetryPolicy -> Text
 renderRetryPolicyDhall Once = "Once"
 renderRetryPolicyDhall (LinearN attempts delayMillis) =
-    "LinearN { attempts = " <> showText attempts <> ", delayMillis = " <> showText delayMillis <> " }"
+  "LinearN { attempts = " <> showText attempts <> ", delayMillis = " <> showText delayMillis <> " }"
 renderRetryPolicyDhall (ExponentialN attempts baseMillis capMillis) =
-    "ExponentialN { attempts = "
-        <> showText attempts
-        <> ", baseMillis = "
-        <> showText baseMillis
-        <> ", capMillis = "
-        <> showText capMillis
-        <> " }"
+  "ExponentialN { attempts = "
+    <> showText attempts
+    <> ", baseMillis = "
+    <> showText baseMillis
+    <> ", capMillis = "
+    <> showText capMillis
+    <> " }"
 renderRetryPolicyDhall (RetryUntil deadlineMillis) =
-    "RetryUntil { deadlineMillis = " <> showText deadlineMillis <> " }"
+  "RetryUntil { deadlineMillis = " <> showText deadlineMillis <> " }"
 
-retryServiceAction :: RetryPolicy -> (env -> IO (Either ServiceError a)) -> env -> IO (Either AppError a)
+retryServiceAction
+  :: RetryPolicy -> (env -> IO (Either ServiceError a)) -> env -> IO (Either AppError a)
 retryServiceAction policy action env = go (attemptBudget policy)
-  where
-    go attemptsRemaining = do
-        result <- action env
-        case result of
-            Right value -> pure (Right value)
-            Left err
-                | not (retryableServiceError err) ->
-                    pure (Left (serviceErrorToAppError err))
-                | attemptsRemaining <= 1 ->
-                    pure (Left (serviceErrorToAppError err))
-                | otherwise ->
-                    go (attemptsRemaining - 1)
+ where
+  go attemptsRemaining = do
+    result <- action env
+    case result of
+      Right value -> pure (Right value)
+      Left err
+        | not (retryableServiceError err) ->
+            pure (Left (serviceErrorToAppError err))
+        | attemptsRemaining <= 1 ->
+            pure (Left (serviceErrorToAppError err))
+        | otherwise ->
+            go (attemptsRemaining - 1)
 
 attemptBudget :: RetryPolicy -> Int
 attemptBudget Once = 1
@@ -76,5 +77,5 @@ serviceErrorToAppError (SEUnauthorized message) = MinIOFailed ("unauthorized: " 
 serviceErrorToAppError (SETimeout message) = PulsarFailed ("timeout: " <> message)
 serviceErrorToAppError (SETransient message) = PulsarFailed ("transient: " <> message)
 
-showText :: Show a => a -> Text
+showText :: (Show a) => a -> Text
 showText = Text.pack . show

@@ -93,10 +93,10 @@ seeds and for the MCTS root-noise seed in AlphaZero.
 
 ## JIT Cache Content-Addressing
 
-The JIT cache key is the four-tuple
+The JIT cache key is the six-tuple
 
 ```
-sha256(canonical-cbor(KernelSpec) || kind || substrate || toolchain-fingerprint)
+sha256(canonical-cbor(KernelSpec) || kind || substrate || toolchain-fingerprint || rendered-source-payload || tuning-choice)
 ```
 
 where:
@@ -109,8 +109,10 @@ where:
   enabled.
 - `substrate` ∈ `apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN) plus the auto-tune
-  `TuningChoice` (Sprint `7.6`).
+  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN).
+- `rendered-source-payload` is the canonical Haskell-rendered source bundle
+  produced by `renderRuntimeSource`.
+- `tuning-choice` is the selected auto-tuning choice.
 
 A change in any input invalidates the cache key, so a re-JIT is
 substrate-explicit and toolchain-explicit.

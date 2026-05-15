@@ -7,12 +7,12 @@ import JitML.Lint.Stack (LintMode (..), LintTarget (..), renderLintFinding, runL
 
 main :: IO ()
 main =
-    defaultMain $
-        testGroup
-            "jitml-haskell-style"
-            [ testCase "lint stack passes" $ do
-                findings <- runLint LintAll LintCheck
-                case findings of
-                    [] -> pure ()
-                    _ -> assertFailure (show (fmap renderLintFinding findings))
-            ]
+  defaultMain $
+    testGroup
+      "jitml-haskell-style"
+      [ testCase "lint stack passes" $ do
+          findings <- runLint LintAll LintCheck
+          case findings of
+            [] -> pure ()
+            _ -> assertFailure (show (fmap renderLintFinding findings))
+      ]

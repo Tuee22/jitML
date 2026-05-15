@@ -23,8 +23,19 @@
 ## Phase Status
 
 ✅ **Done** for the local supervised and RL framework surfaces. Both SL and RL
-workloads compile their kernels through the Haskell-owned JIT source renderers
-(Phase `7`) and run on the daemon (Phase `5`) in live validation.
+workloads compile their kernels through the target Haskell-owned JIT source
+renderers (Phase `7`) and run on the target daemon (Phase `5`) in live
+validation.
+
+### Current Implementation Scope
+
+The current worktree implements deterministic local summaries: six canonical SL
+problem cells with synthetic convergence curves in `src/JitML/SL/Canonicals.hs`,
+the `jitml train` / `jitml eval` command summaries, the RL command summaries,
+and deterministic trajectory helpers in `src/JitML/RL/Algorithms.hs`. It does
+not yet implement real dataset loaders, SL/RL training loops, RL environment
+types, buffers, callbacks, GAE, target networks, or live Pulsar event
+publication.
 
 ## Phase Summary
 

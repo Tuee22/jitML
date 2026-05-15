@@ -1,10 +1,26 @@
 - arguments:
   - --color=never
 
+- ignore:
+    name: Use enumerate
+
+- ignore:
+    name: Use zipFrom
+
 - warn:
     name: Use CLI output module instead of print
     lhs: print x
     rhs: JitML.CLI.Output.writeLine x
+
+- warn:
+    name: Use CLI output module instead of putStrLn
+    lhs: putStrLn x
+    rhs: JitML.CLI.Output.writeLineIO x
+
+- warn:
+    name: Use CLI output module instead of hPutStrLn stdout
+    lhs: hPutStrLn stdout x
+    rhs: JitML.CLI.Output.writeLineIO x
 
 - warn:
     name: Use typed AppError instead of exitFailure
@@ -20,3 +36,8 @@
     name: Use typed subprocess boundary instead of readCreateProcess
     lhs: readCreateProcess process input
     rhs: capture subprocess
+
+- warn:
+    name: Use typed subprocess boundary instead of typed-process proc
+    lhs: System.Process.Typed.proc cmd args
+    rhs: JitML.Sub.Subprocess.subprocess cmd args

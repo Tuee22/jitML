@@ -25,6 +25,17 @@
     └── <substrate>/<hash>.<ext>             -- one file per cached kernel
 ```
 
+Generated compiler inputs live alongside the cache under:
+
+```
+.build/jit-src/<substrate>/<hash>/
+```
+
+`src/JitML/Codegen/RuntimeSource.hs` owns the generated-source ADT and
+materialization discipline. `src/JitML/Codegen/{Cuda,OneDnn,Metal}.hs` render the
+per-substrate source bundles. Checked-in `codegen-*` directories are
+documentation-only and must not contain build scripts or compiler input source.
+
 `./.build/` is the host root for compiled artefacts, generated Dhall,
 kubeconfig, cluster publication, Kind metadata, and JIT-compiled kernels.
 `./.data/` is strictly for manual PV bind mounts. Both `./.build/` and
@@ -53,7 +64,7 @@ Linux substrates don't need this — the pod loads directly out of
 ## Cache Key
 
 ```
-sha256(canonical-cbor(KernelSpec) || kind || substrate || toolchain-fingerprint)
+sha256(canonical-cbor(KernelSpec) || kind || substrate || toolchain-fingerprint || rendered-source-payload || tuning-choice)
 ```
 
 where:
@@ -63,8 +74,10 @@ where:
 - `kind ∈ Training | Inference`.
 - `substrate ∈ apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN) plus the auto-tune
-  `TuningChoice`.
+  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN).
+- `rendered-source-payload` is the canonical payload emitted by
+  `renderRuntimeSource`.
+- `tuning-choice` is the selected `TuningChoice`.
 
 Training and inference kernels are **separate artifacts** because they have
 different compute graphs — training carries the backward pass and optimizer-
@@ -92,10 +105,11 @@ Envelope](determinism_contract.md#engine-envelope).
 
 ### `linux-cpu` — oneDNN
 
-- `codegen-onednn/` carries oneDNN graph templates plus the JIT driver.
-- The driver invokes the oneDNN compiler through the typed `Subprocess`
-  boundary; the produced `.so` is written atomically to
-  `./.build/jit/linux-cpu/<hash>.so`.
+- `src/JitML/Codegen/OneDnn.hs` renders the generated C++ compiler input under
+  `./.build/jit-src/linux-cpu/<hash>/`.
+- The build plan invokes the oneDNN C++ compiler path through the typed
+  `Subprocess` boundary against the generated directory; the produced `.so` is
+  written atomically to `./.build/jit/linux-cpu/<hash>.so`.
 - AVX2 is the baseline; AVX-512 is detected at JIT time.
 - Block size for reductions is pinned per layer family so reductions are
   host-independent. The block size is part of `ToolchainFingerprint`.
@@ -103,9 +117,11 @@ Envelope](determinism_contract.md#engine-envelope).
 
 ### `linux-cuda` — CUDA + cuBLAS / cuDNN
 
-- `codegen-cuda/` carries CUDA kernel templates plus the JIT driver.
-- NVCC is invoked through the typed `Subprocess` boundary with the doctrine-
-  pinned `--use_fast_math=false` and baseline `sm_70`.
+- `src/JitML/Codegen/Cuda.hs` renders the generated CUDA compiler input under
+  `./.build/jit-src/linux-cuda/<hash>/`.
+- NVCC is invoked through the typed `Subprocess` boundary against the generated
+  directory with the doctrine-pinned `--use_fast_math=false` and baseline
+  `sm_70`.
 - The produced `.so` is written atomically to
   `./.build/jit/linux-cuda/<hash>.so`.
 - cuBLAS / cuDNN are pinned to deterministic algorithm selections via
@@ -115,9 +131,10 @@ Envelope](determinism_contract.md#engine-envelope).
 
 ### `apple-silicon` — Swift + Metal
 
-- `codegen-metal/` carries Swift / Metal kernel templates plus the JIT
-  driver.
-- The driver runs inside the `jitml-build` tart VM via `tart ssh`.
+- `src/JitML/Codegen/Metal.hs` renders the generated Swift package and Metal
+  kernel input under `./.build/jit-src/apple-silicon/<hash>/`.
+- The build plan runs `swift build` inside the `jitml-build` tart VM via
+  `tart ssh`, against the generated package directory.
 - The produced `.dylib` is copied atomically to
   `./.build/jit/apple-silicon/<hash>.dylib` and the stable-FFI symlink at
   `./.build/host/apple-silicon/<model-id>.dylib` is repointed.
@@ -182,8 +199,7 @@ id from the deterministic-only set).
 `AutoTune` runs at JIT time on a cache miss, picks a `TuningChoice` per
 `KernelSpec` based on a per-substrate strategy (latency-vs-throughput
 trade-off, with a default that prioritises bit-determinism). The chosen
-`TuningChoice` is folded into `ToolchainFingerprint`; a knob change
-invalidates the cache key.
+`TuningChoice` is a cache-key input; a knob change invalidates the cache key.
 
 The cuDNN algorithm-id selection is restricted to the deterministic-only
 set. The `--use_fast_math=false` invariant is preserved.

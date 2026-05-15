@@ -12,13 +12,11 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the PureScript frontend under `web/` (Halogen
-> components, generated browser contracts from `purescript-bridge`,
-> `purescript-spec` unit tests, Playwright E2E suite, bundle output), the
-> interactive panels (live MNIST handwriting, CIFAR/ImageNet upload,
-> AlphaZero-vs-human Connect 4, RL trajectory render), the REST surfaces, and
-> the `jitml-demo` HTTP server shim that serves the bundle plus the inference
-> REST surface.
+> **Purpose**: Stand up the PureScript frontend surface under `web/`, the
+> generated browser contracts from `src/JitML/Web/Contracts.hs`, the Playwright
+> scaffold, the demo deployment template, and the `jitml-demo` executable shim.
+> The target architecture later expands this into Halogen panels, REST/WS
+> handlers, bundle output, and a real HTTP server.
 
 ## Phase Status
 
@@ -26,6 +24,16 @@
 shim, Playwright scaffold, and contract-style test surface. The frontend's REST
 surfaces consume the inference-only read path; the demo HTTP server
 (`jitml-demo`) is the sibling binary that shares the `src/JitML/` library.
+
+### Current Implementation Scope
+
+The current worktree implements a minimal PureScript entrypoint, generated
+contract file, `web/package.json` script surface, `web/test/Main.purs`,
+Playwright spec scaffold, `jitml-demo` executable shim, and demo deployment
+template. It does not include a Halogen dependency, purescript-bridge generator
+dependency, active `trackingGeneratedPaths` entry for
+`web/src/Generated/Contracts.purs`, real interactive panels, browser bundle
+output, REST handlers, WebSocket handlers, or an HTTP server in `jitml-demo`.
 
 ## Phase Summary
 
@@ -37,7 +45,7 @@ the generated frontend contract surface. The PureScript stack is
 project-specific; command and build invocations are represented through the
 typed `Subprocess` boundary from Phase `1`.
 
-## Sprint 11.1: Halogen Application Scaffold ✅
+## Sprint 11.1: Minimal PureScript Application Scaffold ✅
 
 **Status**: Done
 **Implementation**: `web/package.json`, `web/src/Main.purs`
@@ -45,9 +53,8 @@ typed `Subprocess` boundary from Phase `1`.
 
 ### Objective
 
-Stand up the Halogen application skeleton, the spago dependency manifest,
-the bundle output toolchain, and the Haskell-side build wrapper that drives
-the spago invocation through the typed `Subprocess` boundary.
+Stand up the minimal PureScript application skeleton and local frontend script
+surface.
 
 ### Deliverables
 
@@ -59,10 +66,11 @@ the spago invocation through the typed `Subprocess` boundary.
 
 ### Validation
 
-1. `spago build --package-set <pinned-set>` succeeds against `web/`.
-2. The built bundle loads in a smoke headless browser harness.
+1. `web/src/Main.purs` remains a valid PureScript entrypoint.
+2. The frontend package manifest exposes build/test/format script names for
+   the later toolchain runner.
 
-## Sprint 11.2: Browser-Contract ADTs and `purescript-bridge` Generation ✅
+## Sprint 11.2: Browser-Contract ADTs and Local Contract Rendering ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/Web/Contracts.hs`,
@@ -73,28 +81,26 @@ the spago invocation through the typed `Subprocess` boundary.
 ### Objective
 
 Stand up the browser-contract ADTs in `src/JitML/Web/Contracts.hs` and the
-`purescript-bridge` generator that produces `web/src/Generated/Contracts.purs`.
-Sprint `1.3` reserved the future generated-path pattern; this sprint adds the
-concrete `trackingGeneratedPaths` entry so hand edits fail `jitml lint files`.
+local renderer that produces `web/src/Generated/Contracts.purs`. The
+`purescript-bridge` dependency and active generated-path tracking entry remain
+target follow-up work.
 
 ### Deliverables
 
-- `src/JitML/Web/Contracts.hs` enumerates every ADT crossed by the REST /
-  WebSocket surface: training-run lifecycle events, RL episode events,
-  AlphaZero arena events, MNIST inference request/response, CIFAR upload
-  request/response, Connect 4 board / move / game state, trial events.
-- `src/JitML/Web/Contracts.hs` renders `web/src/Generated/Contracts.purs`;
-  the generation is wrapped in the `jitml docs generate` reconciler.
-- `web/src/Generated/Contracts.purs` is promoted from
-  `futureTrackingGeneratedPathPatterns` into an active `trackingGeneratedPaths`
-  entry; hand edits fail `jitml lint files`.
+- `src/JitML/Web/Contracts.hs` enumerates the current endpoint contract:
+  `RunCommand`, `InferenceRun`, `UploadImage`, `Connect4Move`, and
+  `MetricsStream`.
+- `src/JitML/Web/Contracts.hs` renders `web/src/Generated/Contracts.purs`
+  through the local `renderPureScriptContracts` helper.
+- `web/src/Generated/Contracts.purs` remains listed under
+  `futureTrackingGeneratedPathPatterns`; active drift detection is not present
+  yet.
 
 ### Validation
 
-1. `jitml docs generate` produces the same `Contracts.purs` byte-for-byte
-   across runs.
-2. Hand-editing `Contracts.purs` surfaces `AppError DocsCheckDrift` on the
-   next `jitml lint files`.
+1. The renderer produces the same contract text byte-for-byte across runs.
+2. `jitml-purescript-style` verifies the generated contract file exists and
+   names the expected endpoint surface.
 
 ## Sprint 11.3: `jitml-purescript-style` Stanza (`purescript-spec` + `purs format`) ✅
 
@@ -173,7 +179,7 @@ Land the interactive panels and the REST + WebSocket surfaces they consume:
    payloads.
 2. The REST handlers round-trip through the generated contract types.
 
-## Sprint 11.5: `jitml-demo` HTTP Server ✅
+## Sprint 11.5: `jitml-demo` Executable Shim ✅
 
 **Status**: Done
 **Implementation**: `app/Demo.hs`, `src/JitML/App.hs`,
@@ -183,24 +189,23 @@ Land the interactive panels and the REST + WebSocket surfaces they consume:
 
 ### Objective
 
-Stand up the `jitml-demo` sibling HTTP server shim that serves the
-PureScript bundle plus the typed REST surface.
+Stand up the `jitml-demo` sibling executable shim and chart deployment surface.
+The real HTTP server remains target runtime work.
 
 ### Deliverables
 
 - `app/Demo.hs` is a six-line shim into `App.demoMain`.
-- `src/JitML/App.hs` owns `demoMain`, which serves the generated frontend
-  contract surface.
+- `src/JitML/App.hs` owns `demoMain`, which currently prints
+  `jitml-demo: serving generated frontend contract surface`.
 - The `Deployment/jitml-demo` template is populated with the demo image.
 - HTTPRoutes for `/`, `/api`, `/api/ws` (Sprint `3.4`) point at
   `jitml-demo:80`.
 
 ### Validation
 
-1. `jitml-demo --port 8080` serves the bundle at `127.0.0.1:8080/` and
-   responds to `/api/inference/mnist` against a fixture model.
-2. After `jitml bootstrap --<substrate>`, `127.0.0.1:<edge-port>/` reaches the demo
-   bundle through the Envoy listener.
+1. Running `jitml-demo` prints the generated-frontend status line.
+2. The `Deployment/jitml-demo` chart template names the demo image and exposes
+   container port `80`.
 
 ## Sprint 11.6: Playwright E2E Suite ✅
 
@@ -212,31 +217,20 @@ PureScript bundle plus the typed REST surface.
 
 ### Objective
 
-Land the Playwright E2E suite covering every interactive panel.
+Land the Playwright scaffold for the future interactive panel suite.
 
 ### Deliverables
 
-- `playwright/` is a TypeScript Playwright project.
-- One spec per panel covers the golden user flow:
-  - MNIST: draw a digit, assert top-1 matches the expected class against a
-    fixture model.
-  - CIFAR: upload a fixture image, assert classification.
-  - Connect 4: play a fixture game against the AlphaZero policy and assert
-    move sequence matches a golden game.
-  - RL trajectory: trigger a synthetic RL run and assert the trajectory
-    panel renders frames.
-  - Training/Tune: trigger a synthetic training run and assert the live
-    metric panel updates.
-- Playwright is invoked by the Phase `12` E2E stanza through the typed
-  `Subprocess` boundary.
-- The `jitml-e2e` stanza (Phase `12`) invokes the Playwright suite as part
-  of its end-to-end run.
+- `playwright/jitml-demo.spec.ts` exists as the current E2E scaffold.
+- The target suite covers MNIST, CIFAR/ImageNet, Connect 4, RL trajectory,
+  training, and tuning panel flows once those panels and the HTTP server land.
+- The current `jitml-e2e` stanza does not invoke Playwright.
 
 ### Validation
 
-1. `cabal test jitml-e2e` (after Phase `12` lands) drives the Playwright
-   suite against the ephemeral Kind stack.
-2. Each panel's golden flow asserts against the typed contract payloads.
+1. `playwright/jitml-demo.spec.ts` remains present for the future E2E runner.
+2. `jitml-e2e` currently validates local route, bucket, publication, contract,
+   and report-card surfaces.
 
 ## Doctrine Sections Cited
 
@@ -251,11 +245,12 @@ Land the Playwright E2E suite covering every interactive panel.
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/purescript_frontend.md` — full Halogen + spago
-  layout, `purescript-bridge` generation, panel inventory, REST / WS
-  surface, Playwright suite.
-- `documents/engineering/code_quality.md` — `trackingGeneratedPaths` entry
-  for `web/src/Generated/Contracts.purs`.
+- `documents/engineering/purescript_frontend.md` — current minimal PureScript
+  shell, local contract renderer, demo shim, and Playwright scaffold; target
+  Halogen, `purescript-bridge`, panel, REST / WS, and bundle surfaces.
+- `documents/engineering/code_quality.md` — note that
+  `web/src/Generated/Contracts.purs` is still only a
+  `futureTrackingGeneratedPathPatterns` entry.
 - `documents/engineering/daemon_architecture.md` — `jitml-demo` server
   shape and its place in the deployment.
 - `documents/engineering/unit_testing_policy.md` — Playwright belongs to

@@ -26,6 +26,14 @@ substrate consumes the typed prerequisite DAG, the JIT cache mount via
 Kind/Helm rollout against running dependencies remains part of later
 cross-cluster validation.
 
+### Current Implementation Scope
+
+The current worktree implements typed renderers for Kind config, manual PVs,
+storage class, Gateway/GatewayClass/EnvoyProxy, HTTPRoutes, cluster
+publication, and bootstrap file materialization. `jitml bootstrap` and
+`jitml cluster up` write those local files; they do not currently execute
+`kind`, `helm`, image mirroring, or live cluster mutation.
+
 ## Phase Summary
 
 This phase delivers the per-substrate Kind cluster configurations, the umbrella
@@ -80,9 +88,10 @@ binding host `./.build/` into the worker, and the Linux CUDA worker label
 
 **Status**: Done
 **Implementation**: `chart/templates/storageclass-jitml-manual.yaml`,
-`chart/templates/pv-platform-minio.yaml`,
-`chart/templates/pv-platform-pulsar-bookkeeper.yaml`,
-`chart/templates/pv-platform-pulsar-zookeeper.yaml`,
+`chart/templates/pv-platform-minio-*.yaml`,
+`chart/templates/pv-platform-pulsar-bookkeeper-*.yaml`,
+`chart/templates/pv-platform-pulsar-zookeeper-*.yaml`,
+`chart/templates/pv-platform-harbor-pg-*.yaml`,
 `src/JitML/Cluster/Storage.hs`, `src/JitML/Lint/Chart.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 

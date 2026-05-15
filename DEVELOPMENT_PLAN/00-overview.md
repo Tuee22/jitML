@@ -77,36 +77,38 @@ umbrella chart at `chart/`. The single exposed listener is one
 cluster is rendered from the typed registry in `src/JitML/Routes.hs`.
 
 The numerical core (layer catalog, real+complex activations, optimizers, schedulers,
-losses, spectral ops) ships as a Dhall-typed catalog. Per-substrate JIT source
-renderers live in the Haskell binary, consume the catalog, generate any
-compiler input source on demand under `./.build/jit-src/<substrate>/<hash>/`,
-and write compiled artefacts into the content-addressed cache at
-`./.build/jit/<substrate>/<hash>.<ext>`, with stable host-side symlinks at
-`./.build/host/apple-silicon/` for FFI dlopen stability. Static checked-in JIT
-kernel sources and build scripts are forbidden.
+losses, spectral ops) ships as a local Haskell catalog. The target architecture
+keeps per-substrate JIT source renderers in the Haskell binary, consumes the
+catalog, generates any compiler input source on demand under
+`./.build/jit-src/<substrate>/<hash>/`, and writes compiled artefacts into the
+content-addressed cache at `./.build/jit/<substrate>/<hash>.<ext>`, with stable
+host-side symlinks at `./.build/host/apple-silicon/` for FFI dlopen stability.
+Checked-in `codegen-*` directories are documentation-only; JIT compiler inputs
+are rendered by Haskell modules under `src/JitML/Codegen/` and materialized
+under `./.build/jit-src/<substrate>/<hash>/`.
 
-The full SL training loop, canonical SL problem set with golden curve fixtures, the
-RL framework primitives (Algorithm typeclass at the type level, Policy, Environment,
-VecEnv, buffers, schedules, action distributions, action noise, target networks,
-GAE, callbacks, Logger, Evaluator, training loops as typed pipelines), the RL
-algorithm catalog (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG,
-TD3, SAC, CrossQ, TQC, ARS, HER), AlphaZero-style self-play with persistent MCTS
-state, and the hyperparameter tuner (Sobol/random/GA/ES samplers ×
-Fifo/SuccessiveHalving/Hyperband/ASHA schedulers × {none/median/percentile} pruners)
-all run on the same `jitml service` daemon.
+The current SL/RL surfaces are local deterministic catalogs and summaries:
+canonical SL cells, RL algorithm rows, deterministic trajectory generation,
+AlphaZero Connect 4 helpers, and hyperparameter trial sequences. The target
+runtime grows these into daemon-backed SL/RL/AlphaZero training loops and
+Pulsar/MinIO-backed hyperparameter sweeps.
 
-Checkpoints write the split-blob `.jmw1` format with the typed manifest; the
-inference-only read path is consumed by both the demo HTTP server and the PureScript
-panels. The PureScript frontend under `web/` is generated from
-`src/JitML/Web/Contracts.hs` via `purescript-bridge`.
+The current checkpoint surface provides a typed manifest, simplified `.jmw1`
+encoder, manifest pointer renderer, and deterministic inference summary. The
+current frontend surface provides a minimal PureScript entrypoint plus generated
+contract file from `src/JitML/Web/Contracts.hs`; the target runtime adds the
+real demo HTTP server, panel implementations, and full checkpoint read path.
 
-`jitml test all` runs every Cabal test-suite stanza (`jitml-unit`,
+`jitml test all --dry-run` renders the aggregate test plan and `jitml test all`
+renders the current report-card summary. The target runner invokes every Cabal
+test-suite stanza (`jitml-unit`,
 `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
 `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
 `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style`) with the
 report-card knobs pinned in `cabal.project`. The `jitml-e2e` stanza
-orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
-`infra/pulumi/`.
+eventually orchestrates an ephemeral Kind stack via the Pulumi TypeScript
+program at `infra/pulumi/`; the current Pulumi program exports stack metadata
+only.
 
 ## Architecture Overview
 
@@ -128,7 +130,8 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   package validation/remediation, including Homebrew package installation when
   a resource is actually needed. The content-addressed JIT cache at
   `./.build/jit/<substrate>/<hash>.<ext>` is keyed on `(canonical-cbor(KernelSpec),
-  kind, substrate, toolchain-fingerprint)`; on Apple Silicon, stable symlinks under
+  kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)`;
+  on Apple Silicon, stable symlinks under
   `./.build/host/apple-silicon/` give the FFI a stable dlopen surface across
   re-JITs. The lazy-tart pattern keeps the Swift/Metal build VM down until a fresh
   `(model-shape, kind, substrate, toolchain)` tuple appears. Outer-container Linux
@@ -136,7 +139,8 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   image is `jitml:local`, the outer container is removed after cluster bootstrap,
   and the cluster daemon owns subsequent work. Owned by
   [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md).
-- **Cluster substrate and routing.** Per-substrate Kind configs at
+- **Cluster substrate and routing.** Current local renderer surface: per-substrate
+  Kind configs at
   `./kind/cluster-<substrate>.yaml`, single control-plane + one worker, NodePort
   30090 backing the edge listener, host `./.build/` bind-mounted into the Kind
   worker via `extraMounts`. Storage uses `kubernetes.io/no-provisioner` only —
@@ -145,12 +149,15 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   generated Dhall, cluster publication, Kind metadata, and JIT artifacts. The
   umbrella Helm chart at `chart/` carries subchart
   dependencies for Harbor, Apache Pulsar, MinIO, Percona PostgreSQL, Envoy Gateway,
-  kube-prometheus-stack, and TensorBoard. The single exposed listener is one
+  and kube-prometheus-stack, with local TensorBoard/observability renderers. The
+  target exposed listener is one
   `127.0.0.1:<edge-port>` Envoy Gateway socket; the typed route registry in
-  `src/JitML/Routes.hs` is the source of truth for every HTTPRoute. The CLI never
+  `src/JitML/Routes.hs` is the source of truth for every HTTPRoute. Current
+  commands materialize files locally and do not run Kind/Helm. The CLI never
   touches `~/.kube/config`. Owned by
   [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md).
-- **Stateful platform services.** Harbor as the in-cluster registry against
+- **Stateful platform services.** Current local chart/catalog surface for Harbor as
+  the target in-cluster registry against
   dedicated PostgreSQL storage; MinIO buckets `harbor-registry`,
   `jitml-checkpoints`, `jitml-datasets`, `jitml-transcripts`, `jitml-trials`,
   `jitml-tensorboard`, `jitml-artifacts`; Apache Pulsar as the control-plane ↔ data-plane
@@ -160,86 +167,72 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   inference flow; Percona Operator-managed PostgreSQL for every packaged service
   that requires Postgres — there is no relational DB on jitML's data path;
   kube-prometheus-stack for metrics scraping
-  and Grafana dashboards; TensorBoard event storage with shard rotation against
-  MinIO bucket `jitml-tensorboard`. Owned by
+  and Grafana dashboard rendering; TensorBoard deployment/event-key rendering.
+  Live service readiness and object-store/event-bus effects remain target
+  validation. Owned by
   [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md).
-- **`jitml service` daemon.** The single Pulsar-subscribed worker. `BootConfig` /
-  `LiveConfig` Dhall split with mandatory SIGHUP hot reload, `/healthz` / `/readyz`
-  / `/metrics` endpoints, structured JSON stderr logging, recoverable-vs-fatal
-  error kinds, at-least-once Pulsar consumer semantics with the typed retry policy,
-  capability classes `HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`, `ReaderT
-  Env IO` runner. Stateless `Deployment` (not `StatefulSet`) with pod anti-affinity
-  at `topologyKey: kubernetes.io/hostname`. Owned by
+- **`jitml service` daemon.** Current local daemon surface: `BootConfig` /
+  `LiveConfig` renderers, lifecycle phases, pure endpoint responses, structured
+  JSON log rendering, service error/retry helpers, payload-hash deduplication,
+  and stateless `Deployment` rendering. A real long-running HTTP/Pulsar daemon,
+  SIGHUP handling, and capability classes remain target runtime work. Owned by
   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md).
-- **Numerical core.** Dhall-typed layer catalog (Dense, Conv1D, Conv2D, Conv3D,
+- **Numerical core.** Local Haskell layer catalog (Dense, Conv1D, Conv2D, Conv3D,
   ConvTranspose, BatchNorm, LayerNorm, GroupNorm, Dropout, ResidualBlock,
   MultiHeadAttention, ...), real + complex activations, spectral / frequency-
   domain ops, optimizers (SGD, Momentum SGD, Nesterov SGD, RMSProp, Adagrad,
   Adadelta, Adam, AdamW, LAMB, LARS, Lion), schedulers (constant, linear, cosine,
   cosine-with-warmup, exponential, polynomial, one-cycle, piecewise), loss
-  functions (cross-entropy, focal, MSE, Huber, IoU). Every constructor has a Dhall
-  type. History-dependent `ReduceOnPlateau` behavior lives in callbacks rather than
-  the pure scheduler ADT. Owned by [phase-6-numerical-core.md](phase-6-numerical-core.md).
-- **JIT codegen and per-substrate execution.** `src/JitML/Engines/` and the
-  Haskell-owned source renderers for Metal, oneDNN C++, and CUDA. The Apple Silicon hybrid
-  pattern (host daemon shim + lazy tart VM spin-up) is owned here. Hardware auto-
-  tuning chooses among reduction strategies, tile sizes, and prefetch widths per
-  substrate while preserving the determinism contract per
+  functions (cross-entropy, focal, MSE, Huber, IoU). Dhall mirrors and richer
+  parameterized constructors remain target work. Owned by
+  [phase-6-numerical-core.md](phase-6-numerical-core.md).
+- **JIT codegen and per-substrate execution.** Current `src/JitML/Engines/`
+  records backend metadata, determinism flags, and typed compile plans, while
+  `src/JitML/Codegen/` renders Metal / Swift, oneDNN C++, and CUDA runtime
+  source bundles under `./.build/jit-src/<substrate>/<hash>/`. The real Apple
+  hybrid execution path and runtime hardware auto-tuning remain target runtime
+  work preserving the determinism contract per
   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md):
   Metal single-stream launch order, oneDNN blocked reduction with fixed block
   size, CUDA deterministic warp-shuffle reductions with `--use_fast_math=false` and
   cuDNN explicit algorithm-id pinning. Owned by
   [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md).
-- **Supervised learning and RL framework.** `src/JitML/SL/` supervised training
-  loops, the eleven canonical SL problem cells from the project README (MNIST,
-  Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, and California Housing variants)
-  with golden convergence curves; `src/JitML/Env/` canonical RL environments (cartpole,
-  mountain-car, lunar-lander, ...); `src/JitML/RL/` framework primitives —
-  Algorithm class taxonomy at the type level, Policy as typed value, Environment /
-  VecEnv as typed capability, replay & rollout buffers with `Async` write
-  discipline, schedules, action distributions, action noise, target networks +
-  Polyak averaging, GAE, callbacks as composable hooks, multi-sink Logger,
-  Evaluator, training loops as typed pipelines. Owned by
+- **Supervised learning and RL framework.** Current local summaries under
+  `src/JitML/SL/` and `src/JitML/RL/` provide canonical SL problem curves, RL
+  algorithm catalog rows, and deterministic trajectory helpers. Real datasets,
+  environments, buffers, callbacks, target networks, GAE, and daemon-backed
+  training loops remain target work. Owned by
   [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md).
-- **RL algorithm catalog, AlphaZero, hyperparameter tuning.** `src/JitML/RL/`
-  algorithm catalog (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG,
-  TD3, SAC, CrossQ, TQC, ARS, HER) with golden trajectory fixtures. AlphaZero-
-  style self-play with persistent MCTS state, perfect-information game type
-  class, two-headed network, MCTS-guided self-play loop, arena gating, canonical
-  adversarial games (Connect 4 canonical). `src/JitML/Tune/` hyperparameter tuning
-  across the sampler × scheduler × pruner axes (Sobol / random / GA / ES samplers
-  × Fifo / SuccessiveHalving / Hyperband / ASHA schedulers × {none / median /
-  percentile} pruners), trial storage and resume against MinIO `jitml-trials`,
-  parallelism. Owned by
+- **RL algorithm catalog, AlphaZero, hyperparameter tuning.** Current local
+  catalog covers PPO through AlphaZero as metadata rows, Connect 4 transcript
+  helpers, and deterministic tuning trial sequences for Sobol/random/GA/ES ×
+  Fifo/SuccessiveHalving/Hyperband/ASHA × none/median/percentile. Real algorithm
+  modules, persistent MCTS search, trial storage, and resume remain target work.
+  Owned by
   [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md).
-- **Checkpointing and inference-only read path.** Split-blob layout (one immutable
-  weight blob per uniquely shaped tensor group, one manifest per snapshot
-  enumerating the blob keys). `.jmw1` dense weight blob wire format. Typed
-  manifest. Bit-determinism contract scoped to same-substrate equality;
-  cross-substrate drift is bounded by the per-tensor tolerance band measured by
-  the cross-substrate tolerance methodology. No Postgres on jitML's data path —
-  manifests and blobs live in MinIO bucket `jitml-checkpoints`. The inference-only
-  read path is the supported entrypoint for the demo HTTP server and the
-  PureScript panels. Owned by
+- **Checkpointing and inference-only read path.** Current local format surface:
+  a small typed manifest, simplified `.jmw1` text encoder, manifest pointer, and
+  deterministic `inferFromManifest` helper. Full split-blob layout, canonical
+  CBOR, MinIO write-once/CAS, retention, and real kernel-handle loading remain
+  target work. Owned by
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
-- **PureScript frontend and demo.** `web/` Halogen application; `purescript-spec`
-  unit tests under `web/test/`; `playwright/` E2E suite. The browser-contract ADTs
-  live in `src/JitML/Web/Contracts.hs` and are the source for `purescript-bridge`,
-  which generates `web/src/Generated/Contracts.purs`. REST surfaces for interactive
-  panels (training-run lifecycle, MNIST live inference, CIFAR/ImageNet upload, RL
-  trajectory render, AlphaZero-vs-human Connect 4). The bundle is served by the
-  `jitml-demo` HTTP server shim into `App.main`. Owned by
+- **PureScript frontend and demo.** Current local surface: minimal PureScript
+  entrypoint, generated contract file from `src/JitML/Web/Contracts.hs`,
+  `web/test/` smoke file, Playwright scaffold, `jitml-demo` executable shim, and
+  demo deployment template. Halogen, `purescript-bridge`, real panels, REST/WS
+  handlers, bundle output, and HTTP serving remain target work. Owned by
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
 - **Test stanzas, lint matrix, cross-cluster parity.** Ten Cabal test-suite
   stanzas, each `type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner:
   `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
   `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`,
   `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`,
-  `jitml-purescript-style`. `jitml test all` is a Plan/Apply command that
-  delegates to `cabal test`, runs the pinned report-card workload, and emits the
-  tidy summary block. The Pulumi TypeScript program at `infra/pulumi/` is the
-  ephemeral-Kind orchestrator that the `jitml-e2e` stanza calls through the
-  typed `Subprocess` boundary; the seven doctrine test categories (Pure Logic,
+  `jitml-purescript-style`. Current `jitml test all` renders the Plan/Apply
+  test plan or report-card summary; the target runner delegates to `cabal test`.
+  The current Pulumi TypeScript program at `infra/pulumi/` exports metadata; the
+  target e2e program becomes the ephemeral-Kind orchestrator that the
+  `jitml-e2e` stanza calls through the typed `Subprocess` boundary. The seven
+  doctrine test categories (Pure Logic,
   Parser, Property, Golden, Integration, Daemon Lifecycle, Pulumi-Orchestrated
   Infrastructure) all map to one or more of these stanzas, with the four
   `*-canonicals`/HPO/cross-backend rows being project-specific Integration
@@ -332,13 +325,15 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
 - The Architecture (the doctrine's closing capsule) — informational summary; the
   individual sections it recaps are the binding contract.
 
-**Stack deviations from doctrine:** None at write time. The full doctrine-mandated
+**Stack deviations from doctrine:** None for the in-scope Haskell CLI doctrine
+surface at write time. The full doctrine-mandated
 standardized library set (including `dhall`, used as the configuration source for
 both `BootConfig` / `LiveConfig` and every experiment / sweep / cluster-topology
 file) is in scope. The PureScript stack (Halogen, `purescript-bridge`,
-`purescript-spec`, Playwright) is a project-specific surface owned by Phase `11`
+`purescript-spec`, Playwright) is a project-specific target owned by Phase `11`
 and is not a doctrine deviation because the doctrine does not address browser-side
-code.
+code; the current worktree implements only the minimal PureScript shell, generated
+contract file, and Playwright scaffold.
 
 ## Hard Constraints
 
@@ -406,9 +401,9 @@ authoritative section that pins each constraint.
     and `.dockerignore`.
 17. The JIT cache root is `./.build/jit/<substrate>/<hash>.<ext>`; entries are
     content-addressed by `sha256(canonical-cbor(KernelSpec) || kind || substrate
-    || toolchain-fingerprint)` where `KernelSpec` is model shape and `kind` is
-    `training | inference`. Training and inference kernels are separate
-    artifacts.
+    || toolchain-fingerprint || rendered-source-payload || tuning-choice)` where
+    `KernelSpec` is model shape and `kind` is `training | inference`. Training
+    and inference kernels are separate artifacts.
 18. Apple Silicon stable-named symlinks live at `./.build/host/apple-silicon/`
     and resolve into `./.build/jit/apple-silicon/`; the FFI dlopen surface stays
     stable across re-JITs because the symlink is repointed atomically.
@@ -453,10 +448,10 @@ authoritative section that pins each constraint.
     cuDNN explicit algorithm-id pinning. Same-substrate equality is guaranteed;
     cross-substrate drift is bounded by the per-tensor tolerance band measured
     by the cross-substrate tolerance methodology.
-28. JIT compiler inputs are generated by the Haskell `jitml` binary on a cache
-    miss. The repository does not use static checked-in `.cu`, `.cc` / `.cpp`,
-    Metal / Swift package source files, or per-substrate JIT build `.sh` scripts
-    as build inputs. The Haskell renderers may emit those files into
+28. Target JIT compiler inputs are generated by the Haskell `jitml` binary on a
+    cache miss. The repository does not use static checked-in `.cu`, `.cc` /
+    `.cpp`, Metal / Swift package source files, or per-substrate JIT build
+    `.sh` scripts as build inputs. The Haskell renderers emit those files into
     `./.build/jit-src/<substrate>/<hash>/` and invoke `nvcc`, the oneDNN C++
     compiler path, or `swift build` through the typed `Subprocess` boundary.
 29. Same-substrate bit-equality means: a transcript or checkpoint produced on
@@ -468,10 +463,12 @@ authoritative section that pins each constraint.
     Manifests are typed and content-addressed against MinIO bucket
     `jitml-checkpoints`. Optimizer state (Adam moments, RMSProp accumulators)
     lives as a separate checkpoint part.
-31. The PureScript browser-contract ADTs live in `src/JitML/Web/Contracts.hs`
-    and are the source for `purescript-bridge`. `web/src/Generated/Contracts.purs`
-    is generated; hand edits fail `jitml lint files` per the
-    `trackingGeneratedPaths` registry.
+31. The PureScript browser-contract ADTs live in `src/JitML/Web/Contracts.hs`.
+    The current worktree uses a local renderer for
+    `web/src/Generated/Contracts.purs`; the target generator is
+    `purescript-bridge`. Active `trackingGeneratedPaths` protection for the
+    generated contract file remains target work; today the path is still listed
+    under `futureTrackingGeneratedPathPatterns`.
 32. `fourmolu.yaml` at repo root pins the twelve doctrine-mandated settings; the
     `jitml-haskell-style` stanza enforces them plus `cabal format` temp-file
     round-trip byte-equality.
@@ -508,7 +505,7 @@ authoritative section that pins each constraint.
 | 8 | Phase 7 | The SL training loops and RL framework primitives compile their kernels through the JIT codegen established in Phase 7 and run on the daemon established in Phase 5 |
 | 9 | Phase 8 | The RL algorithm catalog (PPO, A2C, ...), AlphaZero self-play, and hyperparameter tuner consume the framework primitives from Phase 8 |
 | 10 | Phase 9 | Checkpointing serialises the trained models from Phases 8/9; the inference-only read path consumes the same wire format and flows back through the daemon |
-| 11 | Phase 10 | The PureScript frontend's REST surfaces consume the inference-only read path established in Phase 10; the demo HTTP server (`jitml-demo`) serves the bundle |
+| 11 | Phase 10 | The target PureScript frontend REST surfaces consume the inference-only read path established in Phase 10; current Phase `11` owns the minimal frontend/contract/demo shim scaffold before the real demo HTTP server serves the bundle |
 | 12 | Phase 11 | The ten Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
 
 ## Status Vocabulary
@@ -522,22 +519,21 @@ authoritative section that pins each constraint.
 
 ## Current Baseline
 
-Phase `1` is reopened only for Sprint `1.4`'s external lint/format/build
-runners. Phase `7` is reopened for Sprint `7.7` so static checked-in JIT
-source/build scaffolds are replaced by Haskell-rendered runtime source under
-`./.build/jit-src/<substrate>/<hash>/`. Sprints `1.1`, `1.2`, `1.3`, and
-`1.5` through `1.9` remain closed on their owned surfaces, and Phase `2`
-Sprints `2.1` through `2.7` are closed on their
-bootstrap/prerequisite/cache/container/VM/script-wrapper surfaces. The overall
-handoff remains incomplete until Sprint `1.4`'s external style-tools GHC
-bootstrap, Sprint `7.7`, and the later live-cluster phase chain close.
+Phases `0` through `12` are closed on their owned local surfaces. Phase `1`
+includes the external lint/format/build runners and isolated style-tool GHC
+bootstrap; Phase `7` includes Haskell-rendered runtime source under
+`./.build/jit-src/<substrate>/<hash>/` and removal of static checked-in JIT
+source/build inputs from the build path. Done status is scoped to checked-in
+local renderers, catalogs, command summaries, contracts, runtime-source plans,
+and test bodies. The overall handoff remains incomplete until the live-cluster
+validation chain closes.
 
 | Surface | Current Repo State | Intended End State |
 |---------|--------------------|--------------------|
-| Repository layout | Sprints `1.1` through `2.7` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, Tart, route, cluster-renderer, service-config, numerical-catalog, engine, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, `codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza. The checked-in `codegen-*` static source/script files are now Sprint `7.7` cleanup residue | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
-| Build artefacts | `cabal build all` produces the Phase `1.9` `jitml` and `jitml-demo` binaries under `dist-newstyle/`; `bootstrap/apple-silicon.sh build` produces the host-native handoff binary at `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented, but static `codegen-*` source/script files still need to be replaced by Haskell runtime generation | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
-| CLI surface | The full command family is registered and parseable from `CommandSpec`; the implemented commands now cover bootstrap materialization, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, service dry-run/surface rendering, train/eval/tune/RL/inference deterministic local summaries, test report rendering, internal substrate materialization, VM subprocess rendering, and cache stubs. The current lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, and forbidden subprocess primitives; external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution remains open in Sprint `1.4`. Live Kind/Helm mutation remains an overall validation follow-up after the local phase surfaces | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
-| Test stanzas | Ten Cabal stanzas are declared and pass under `cabal test all`; `jitml-unit` covers current CLI/docs/prerequisite/env/cache surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, and the SL/RL/hyperparameter/cross-backend/daemon/e2e/PureScript stanzas now have dedicated deterministic local test bodies | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |
+| Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, Tart, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, documentation-only `codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
+| Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/` | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
+| CLI surface | The full command family is registered and parseable from `CommandSpec`; the implemented commands now cover bootstrap materialization, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, service dry-run/surface rendering, train/eval/tune/RL/inference deterministic local summaries, test report rendering, internal substrate materialization, VM subprocess rendering, generated-source build-plan rendering, and cache stubs. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution. Live Kind/Helm mutation remains an overall validation follow-up after the local phase surfaces | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
+| Test stanzas | Ten Cabal stanzas are declared with dedicated deterministic local bodies; `jitml-unit` covers current CLI/docs/prerequisite/env/cache surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, and the SL/RL/hyperparameter/cross-backend/daemon/e2e/PureScript stanzas exercise local scaffold invariants | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |
 | Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`, records the codegen-toolchain comments and report-card knobs, carries a ledger-tracked scoped `allow-newer` for Dhall/CBOR package bounds under GHC `9.14.1`, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, Xcode/Metal pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml` |
 | Determinism contract | Local deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, and engine flags are covered by dedicated Cabal stanzas; live substrate equality remains owned by later phase validation | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
 | Frontend | `web/` contains the PureScript shell and generated browser contracts from `src/JitML/Web/Contracts.hs`; Playwright and Pulumi scaffolds are present for later live E2E validation | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |

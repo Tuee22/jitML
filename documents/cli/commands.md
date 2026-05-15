@@ -1048,19 +1048,31 @@ Run the aggregate code quality gate.
 
 Build inside the substrate container.
 
-Builds the inner Haskell binary inside the selected substrate context.
+Builds the inner binary and renders the selected substrate JIT compile plan.
 
 ```text
-jitml build
+jitml build [--substrate <substrate>] [--dry-run] [--plan-file <path>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--substrate <substrate>` | value | no | apple-silicon, linux-cpu, or linux-cuda. |
+| `--dry-run` | flag | no | Print the plan without applying it. |
+| `--plan-file <path>` | value | no | Write the plan to a file. |
 
 Examples:
 
 ```text
-jitml build
+jitml build --substrate linux-cpu
 ```
 
 Build the inner binary.
+
+```text
+jitml build --dry-run --substrate linux-cuda
+```
+
+Render the CUDA generated-source build plan.
 
 
 ## `jitml kubectl`

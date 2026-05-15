@@ -353,8 +353,9 @@ per standards rule L.
     `./.build/jitml.kubeconfig` each appear in
     [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md).
   - **JIT cache invariants**: `./.build/jit/<substrate>/<hash>.<ext>`,
-    `./.build/host/apple-silicon/`, the four-tuple cache key
-    `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint)`,
+    `./.build/host/apple-silicon/`, the cache key
+    `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint,
+    rendered-source-payload, tuning-choice)`,
     and the lazy-tart contract appear in
     [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md)
     and

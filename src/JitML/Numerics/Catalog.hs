@@ -1,103 +1,103 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Numerics.Catalog
-    ( Activation (..)
-    , Layer (..)
-    , Loss (..)
-    , Optimizer (..)
-    , Scheduler (..)
-    , SpectralOp (..)
-    , activationCatalog
-    , layerCatalog
-    , lossCatalog
-    , optimizerCatalog
-    , renderNumericalCatalog
-    , schedulerCatalog
-    , spectralCatalog
-    )
+  ( Activation (..)
+  , Layer (..)
+  , Loss (..)
+  , Optimizer (..)
+  , Scheduler (..)
+  , SpectralOp (..)
+  , activationCatalog
+  , layerCatalog
+  , lossCatalog
+  , optimizerCatalog
+  , renderNumericalCatalog
+  , schedulerCatalog
+  , spectralCatalog
+  )
 where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
 
 data Layer
-    = Dense
-    | Conv1D
-    | Conv2D
-    | Conv3D
-    | ConvTranspose
-    | BatchNorm
-    | LayerNorm
-    | GroupNorm
-    | Dropout
-    | ResidualBlock
-    | MultiHeadAttention
-    deriving stock (Eq, Ord, Show)
+  = Dense
+  | Conv1D
+  | Conv2D
+  | Conv3D
+  | ConvTranspose
+  | BatchNorm
+  | LayerNorm
+  | GroupNorm
+  | Dropout
+  | ResidualBlock
+  | MultiHeadAttention
+  deriving stock (Eq, Ord, Show)
 
 data Activation
-    = Relu
-    | Gelu
-    | Tanh
-    | Sigmoid
-    | Softmax
-    | ComplexModRelu
-    | ComplexCardioid
-    deriving stock (Eq, Ord, Show)
+  = Relu
+  | Gelu
+  | Tanh
+  | Sigmoid
+  | Softmax
+  | ComplexModRelu
+  | ComplexCardioid
+  deriving stock (Eq, Ord, Show)
 
 data SpectralOp
-    = FFT
-    | IFFT
-    | STFT
-    | DCT
-    deriving stock (Eq, Ord, Show)
+  = FFT
+  | IFFT
+  | STFT
+  | DCT
+  deriving stock (Eq, Ord, Show)
 
 data Optimizer
-    = SGD
-    | MomentumSGD
-    | NesterovSGD
-    | RMSProp
-    | Adagrad
-    | Adadelta
-    | Adam
-    | AdamW
-    | LAMB
-    | LARS
-    | Lion
-    deriving stock (Eq, Ord, Show)
+  = SGD
+  | MomentumSGD
+  | NesterovSGD
+  | RMSProp
+  | Adagrad
+  | Adadelta
+  | Adam
+  | AdamW
+  | LAMB
+  | LARS
+  | Lion
+  deriving stock (Eq, Ord, Show)
 
 data Scheduler
-    = Constant
-    | Linear
-    | Cosine
-    | CosineWithWarmup
-    | Exponential
-    | Polynomial
-    | OneCycle
-    | Piecewise
-    deriving stock (Eq, Ord, Show)
+  = Constant
+  | Linear
+  | Cosine
+  | CosineWithWarmup
+  | Exponential
+  | Polynomial
+  | OneCycle
+  | Piecewise
+  deriving stock (Eq, Ord, Show)
 
 data Loss
-    = CrossEntropy
-    | Focal
-    | MSE
-    | Huber
-    | IoU
-    deriving stock (Eq, Ord, Show)
+  = CrossEntropy
+  | Focal
+  | MSE
+  | Huber
+  | IoU
+  deriving stock (Eq, Ord, Show)
 
 layerCatalog :: [Layer]
 layerCatalog =
-    [ Dense
-    , Conv1D
-    , Conv2D
-    , Conv3D
-    , ConvTranspose
-    , BatchNorm
-    , LayerNorm
-    , GroupNorm
-    , Dropout
-    , ResidualBlock
-    , MultiHeadAttention
-    ]
+  [ Dense
+  , Conv1D
+  , Conv2D
+  , Conv3D
+  , ConvTranspose
+  , BatchNorm
+  , LayerNorm
+  , GroupNorm
+  , Dropout
+  , ResidualBlock
+  , MultiHeadAttention
+  ]
 
 activationCatalog :: [Activation]
 activationCatalog = [Relu, Gelu, Tanh, Sigmoid, Softmax, ComplexModRelu, ComplexCardioid]
@@ -116,15 +116,15 @@ lossCatalog = [CrossEntropy, Focal, MSE, Huber, IoU]
 
 renderNumericalCatalog :: Text
 renderNumericalCatalog =
-    Text.unlines
-        [ "layers: " <> renderNames layerCatalog
-        , "activations: " <> renderNames activationCatalog
-        , "spectral: " <> renderNames spectralCatalog
-        , "optimizers: " <> renderNames optimizerCatalog
-        , "schedulers: " <> renderNames schedulerCatalog
-        , "losses: " <> renderNames lossCatalog
-        ]
+  Text.unlines
+    [ "layers: " <> renderNames layerCatalog
+    , "activations: " <> renderNames activationCatalog
+    , "spectral: " <> renderNames spectralCatalog
+    , "optimizers: " <> renderNames optimizerCatalog
+    , "schedulers: " <> renderNames schedulerCatalog
+    , "losses: " <> renderNames lossCatalog
+    ]
 
-renderNames :: Show a => [a] -> Text
+renderNames :: (Show a) => [a] -> Text
 renderNames values =
-    Text.intercalate ", " (fmap (Text.pack . show) values)
+  Text.intercalate ", " (fmap (Text.pack . show) values)

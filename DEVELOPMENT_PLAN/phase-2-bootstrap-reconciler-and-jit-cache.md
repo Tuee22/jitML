@@ -20,15 +20,27 @@
 
 ## Phase Status
 
-✅ **Done** — Sprints `2.1` through `2.7` are `✅ Done`: the stage-0 scripts
-fail fast on host gates, delegate to the Haskell
-`jitml bootstrap --<substrate>` reconciler, the typed prerequisite DAG performs
-renderable/applicable remediation with postcondition validation, the typed JIT
-cache key/layout/manifest/symlink layer is in place, the one-service
-`docker/compose.yaml` and `jitml:local` image definition exist, the lazy Tart
-VM command surface is typed, and script-side `status`, `test`, `down`,
-`purge`, and `purge --full` wrappers are wired without touching global user
-state.
+✅ **Done** for the local bootstrap, prerequisite, cache-layout, Docker,
+Tart-command, and script-wrapper scaffolds. Sprints `2.1` through `2.7` are
+`✅ Done` at the current implementation level: the stage-0 scripts fail fast on
+host gates, delegate to `jitml bootstrap --<substrate>`, the typed prerequisite
+DAG performs renderable/applicable Homebrew remediation with postcondition
+validation, the typed JIT cache key/layout/manifest/symlink layer is in place,
+the one-service `docker/compose.yaml` and baseline `jitml:local` image definition
+exist, the Tart command surface is typed, and script-side `status`, `test`,
+`down`, `purge`, and `purge --full` wrappers are wired without intentionally
+touching global user state.
+
+### Current Implementation Scope
+
+Current `jitml bootstrap --<substrate>` and `jitml cluster up` materialize
+repo-local Kind, chart, Dhall, service, and publication files, then print
+reconciliation summaries. They do not create Kind clusters, apply Helm, push to
+Harbor, run `jitml service`, or compile JIT kernels. The Docker image is a
+baseline development image, not the complete CUDA / cuDNN / oneDNN / Pulumi /
+Poetry toolchain image described by the target architecture. The Tart helper
+writes repo-local VM state and renders `tart ssh` subprocesses; real lazy VM
+startup and Swift / Metal compilation remain target JIT work.
 
 ## Phase Summary
 
@@ -42,21 +54,24 @@ the current user without `sudo`, then calls
 NVIDIA container-runtime and `nvidia-smi` compute-capability gates before calling
 `docker compose run --rm jitml jitml bootstrap --linux-cuda`.
 
-The Haskell bootstrap owns generated Dhall under `./.build/conf/`, Kind
-metadata and cluster publication under `./.build/`, Harbor-first image rollout
-planning, platform-service chart materialization, the cluster `jitml-service`
-daemon ConfigMap, Apple host Dhall materialization, and Linux in-cluster-only
-execution.
+The current Haskell bootstrap owns generated Dhall under `./.build/conf/`, Kind
+metadata and cluster publication under `./.build/`, platform-service chart input
+materialization, the cluster `jitml-service` ConfigMap / Deployment renderers,
+Apple host Dhall materialization, and Linux in-cluster-only configuration
+rendering. Harbor-first image rollout, Helm apply, and live daemon launch remain
+target apply behavior.
 The populated `prerequisiteRegistry` covers lazy Homebrew/package remediation via
 typed predicates, typed remediation actions, pure plan rendering, effectful apply,
 and postcondition validation. The typed cache layer now owns the
-content-addressed JIT cache at `./.build/jit/<substrate>/<hash>.<ext>` with the
-four-tuple cache key `(canonical-cbor(KernelSpec), kind, substrate,
-toolchain-fingerprint)`, the generated compiler-input source root at
-`./.build/jit-src/<substrate>/<hash>/`, the `manifest.json` index, and the
-Apple Silicon `./.build/host/apple-silicon/` stable-FFI symlink surface. The
-phase also owns the lazy tart VM contract, the single Dockerfile producing the
-`jitml:local` image, and the one-service compose file. The substrate image is **always**
+content-addressed JIT cache layout at `./.build/jit/<substrate>/<hash>.<ext>`
+with the cache key `(canonical-cbor(KernelSpec), kind, substrate,
+toolchain-fingerprint, rendered-source-payload, tuning-choice)`, the generated
+compiler-input source root at
+`./.build/jit-src/<substrate>/<hash>/`, the `manifest.json` index, and the Apple
+Silicon `./.build/host/apple-silicon/` stable-FFI symlink surface. The phase also
+owns the local Tart command/state scaffold, the single Dockerfile producing the
+baseline `jitml:local` image, and the one-service compose file. The substrate
+image is **always**
 `jitml:local` — substrate is a runtime Dhall choice, never an image-name
 dimension.
 
@@ -212,21 +227,24 @@ lazy package validation and remediation.
 
 Stand up the content-addressed JIT cache root at
 `./.build/jit/<substrate>/<hash>.<ext>` keyed on `(canonical-cbor(KernelSpec),
-kind, substrate, toolchain-fingerprint)` and the Apple stable-FFI symlink surface
+kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)`
+and the Apple stable-FFI symlink surface
 at `./.build/host/apple-silicon/<model-id>.<ext>`.
 
 ### Deliverables
 
 - `KernelSpec` ADT for the local cache-key surface; Phase `6` supplies the
   numerical catalog that participates in later kernel payloads.
-- `cacheKey :: KernelSpec -> Kind -> Substrate -> ToolchainFingerprint -> Hash`
-  deterministically hashes `(canonical-cbor(KernelSpec) || kind || substrate ||
-  toolchain-fingerprint)` to a 32-byte SHA-256 digest.
+- `cacheKey :: KernelSpec -> Kind -> Substrate -> ToolchainFingerprint ->
+  RuntimeSourcePayload -> TuningChoice -> Hash` deterministically hashes
+  `(canonical-cbor(KernelSpec) || kind || substrate || toolchain-fingerprint ||
+  rendered-source-payload || tuning-choice)` to a 32-byte SHA-256 digest.
 - `Kind` ADT: `Training | Inference`. Training and inference kernels are
   separate artefacts.
-- Generated JIT compiler inputs are written under
-  `./.build/jit-src/<substrate>/<hex>/` by the Haskell binary on a cache miss.
-  This directory is cache/build state, not a checked-in source root.
+- The cache layout reserves `./.build/jit-src/<substrate>/<hex>/` for generated
+  JIT compiler inputs. The Haskell runtime source renderers that populate this
+  root are target Sprint `7.7` work; current code does not yet materialize CUDA,
+  oneDNN, or Swift / Metal source bundles on cache miss.
 - `cachePath :: Path Abs Dir -> Substrate -> Hash -> Extension -> IO (Path Abs
   File)` resolves to `./.build/jit/<substrate>/<hex>.<ext>` under the configured
   build root.
@@ -284,30 +302,33 @@ at `./.build/host/apple-silicon/<model-id>.<ext>`.
 
 Deliver one Dockerfile producing one image (`jitml:local`) and one compose
 service (`jitml`). Substrate is a runtime Dhall choice — there is no
-`jitml-linux-cpu`, `jitml-linux-cuda`, etc. tag dimension. Harbor upload is owned
-by `jitml bootstrap --<substrate>`, not by a stage-0 shell `push` verb.
+`jitml-linux-cpu`, `jitml-linux-cuda`, etc. tag dimension. Target Harbor upload
+is owned by `jitml bootstrap --<substrate>`, not by a stage-0 shell `push` verb;
+the current command materializes bootstrap inputs only.
 
 ### Deliverables
 
-- `docker/Dockerfile` builds on `ubuntu:24.04` with pinned GHC `9.14.1`, Cabal
-  `3.16.1.0`, GCC, LLVM, NVCC, oneDNN, Node.js, Poetry, PureScript, spago,
-  Pulumi, `kubectl`, `helm`, `kind`, and `docker` CLI client. NVCC + cuBLAS +
-  cuDNN are baked unconditionally and activate at runtime when the pod is
-  scheduled with `runtimeClassName: nvidia`.
+- `docker/Dockerfile` currently builds on `ubuntu:24.04` with pinned GHC
+  `9.14.1`, Cabal `3.16.1.0`, GCC/G++, LLVM, Docker CLI, Node.js/npm, Python,
+  PureScript, spago, `kubectl`, `helm`, and `kind`. The full target image still
+  needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, Poetry, and Pulumi hardening before it
+  can serve as the complete Linux CPU / CUDA runtime image.
 - `docker/compose.yaml` declares one service `jitml` with image `jitml:local`,
   bind-mounts `./` to `/jitml`, working dir `/jitml`, no entrypoint default.
 - `linux-cpu.sh` and `linux-cuda.sh` enter the image through
   `docker compose run --rm jitml ...`; Compose builds `jitml:local`
   automatically when needed.
-- `jitml bootstrap --<substrate>` tags the locally built image as
-  `harbor.platform.svc.cluster.local/jitml/jitml:<sha>` and pushes it after
-  Harbor is live, so subsequent chart rollouts pull through Harbor.
-- `jitml build` (in-CLI) is the same operation invoked from inside the
-  container; it builds the inner Haskell binary at `/opt/build/jitml`.
+- Current `jitml bootstrap --<substrate>` materializes the repo-local bootstrap
+  files. The target live apply path will tag the locally built image as
+  `harbor.platform.svc.cluster.local/jitml/jitml:<sha>` and push it after Harbor
+  is live, so subsequent chart rollouts pull through Harbor.
+- Current `jitml build` renders `/opt/build/jitml` plus engine metadata. The
+  target in-CLI build operation will build the inner Haskell binary at
+  `/opt/build/jitml` from inside the container.
 - The bind chain host `./.build/` ⇄ Kind container `/jitml/.build/` ⇄ pod
   `/opt/build/` keeps artefacts coherent across duty cycles.
 
-### Validation
+### Target Validation
 
 1. `docker compose run --rm jitml jitml bootstrap --linux-cpu --dry-run`
    materializes the build/push plan and exits `0` from scratch.
@@ -320,7 +341,8 @@ by `jitml bootstrap --<substrate>`, not by a stage-0 shell `push` verb.
 - `docker compose -f docker/compose.yaml config` validates the single `jitml`
   service, image tag `jitml:local`, source bind mount, and working directory.
 - `jitml bootstrap --linux-cpu --dry-run` renders the typed bootstrap plan.
-- `cabal test all` exercises the bootstrap plan and script handoff surfaces.
+- Cabal test stanzas cover the bootstrap plan and script handoff surfaces with
+  deterministic local tests.
 
 ### Remaining Work
 
@@ -335,27 +357,27 @@ None.
 
 ### Objective
 
-Deliver the lazy tart-VM contract: the host daemon's startup path never touches
-tart; on a JIT cache miss the daemon calls `ensureVmUp jitml-build`; the VM
-stays up for the daemon's lifetime once spun up; an idle timeout (default 30
-min, configurable in `LiveConfig`) brings it down again.
+Deliver the local Tart command/state scaffold that the target lazy VM contract
+will consume. The target contract is that the host daemon's startup path never
+touches tart; on a JIT cache miss the daemon calls `ensureVmUp jitml-build`; the
+VM stays up for the daemon's lifetime once spun up; an idle timeout (default
+30 min, configurable in `LiveConfig`) brings it down again.
 
 ### Deliverables
 
-- `ensureVmUp :: VmName -> IO ()` is idempotent — if the VM is up, no-op; if
-  down, `tart run jitml-build --no-graphics &` and poll until reachable.
-- Atomic Swift-build dispatch: the Haskell binary renders the Swift / Metal
-  package under `./.build/jit-src/apple-silicon/<hash>/`, then dispatches
-  `tart ssh jitml-build -- swift build --package-path
-  ./.build/jit-src/apple-silicon/<hash> -c release` through the typed
-  subprocess boundary. No checked-in `codegen-metal` package is a build input.
-- Atomic write of the produced `.dylib` into `./.build/jit/apple-silicon/`
-  (`tmp + rename`); symlink repointed atomically per Sprint `2.3`.
-- `jitml internal vm exec -- <cmd>` is a pass-through to `tart ssh`.
-  Apple-only; rejected on Linux substrates.
-- `LiveConfig.tartIdleTimeout : Optional Natural` (in seconds; default `1800`).
+- Current `ensureVmUp :: FilePath -> VmName -> IO ()` materializes
+  `./.build/runtime/<vm>.state` with `up`; it does not start or poll a real Tart
+  VM yet.
+- Current `tartSshSubprocess` renders the typed `tart ssh <vm> -- <cmd>`
+  command used by `jitml internal vm exec -- <cmd>`.
+- Target Swift-build dispatch will render the Swift / Metal package under
+  `./.build/jit-src/apple-silicon/<hash>/`, run `swift build` through the typed
+  subprocess boundary, atomically write the produced `.dylib` into
+  `./.build/jit/apple-silicon/`, and repoint the stable symlink per Sprint `2.3`.
+- Target `LiveConfig.tartIdleTimeout : Optional Natural` (seconds; default
+  `1800`) controls VM idle shutdown once the real host daemon exists.
 
-### Validation
+### Target Validation
 
 1. From a clean state, the first cache miss triggers tart spin-up; the second
    cache miss reuses the running VM (golden timing).
@@ -366,10 +388,11 @@ min, configurable in `LiveConfig`) brings it down again.
 
 ### Current Validation State
 
-- `JitML.Tart.Lifecycle.ensureVmUp` materializes the VM state under
+- `JitML.Tart.Lifecycle.ensureVmUp` materializes repo-local VM state under
   `./.build/runtime/` without touching global state.
 - `jitml internal vm exec -- <cmd>` renders the typed `tart ssh` subprocess.
-- `cabal test all` exercises the daemon lifecycle and subprocess boundaries.
+- Cabal test stanzas exercise the local daemon lifecycle and subprocess
+  boundaries.
 
 ### Remaining Work
 
@@ -378,7 +401,8 @@ None.
 ## Sprint 2.6: Bootstrap Script Wrappers and Status ✅
 
 **Status**: Done
-**Implementation**: `bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh`
+**Implementation**: `bootstrap/apple-silicon.sh`, `bootstrap/linux-cpu.sh`,
+`bootstrap/linux-cuda.sh`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -400,8 +424,10 @@ status presentation.
 
 1. After `bootstrap/<substrate>.sh up`, `bootstrap/<substrate>.sh status`
    prints a populated cluster-publication summary.
-2. `bootstrap/apple-silicon.sh up` leaves both cluster and the host-native
-   `jitml service` running with `./.build/conf/host/apple-silicon.dhall`.
+2. Current `bootstrap/apple-silicon.sh up` builds `./.build/jitml`, delegates to
+   `jitml bootstrap --apple-silicon`, and materializes
+   `./.build/conf/host/apple-silicon.dhall`; starting a host-native
+   `jitml service` remains target daemon work.
 
 ### Current Validation State
 
@@ -409,7 +435,7 @@ status presentation.
   bootstrap/linux-cpu.sh bootstrap/linux-cuda.sh` exits `0`.
 - `bootstrap/apple-silicon.sh status` reads
   `./.build/runtime/cluster-publication.json`.
-- `cabal test all` covers the registered test stanza and script surfaces.
+- Cabal test stanzas cover the registered test and script surfaces.
 
 ### Remaining Work
 
@@ -418,7 +444,8 @@ None.
 ## Sprint 2.7: Bootstrap `down` and `purge` ✅
 
 **Status**: Done
-**Implementation**: `bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh`
+**Implementation**: `bootstrap/apple-silicon.sh`, `bootstrap/linux-cpu.sh`,
+`bootstrap/linux-cuda.sh`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
