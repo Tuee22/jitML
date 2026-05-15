@@ -37,9 +37,8 @@ deterministic `tasty` body. These tests exercise parser/docs/cache/bootstrap
 helpers, renderers, catalogs, checkpoint summaries, route/bucket registries,
 daemon lifecycle data, and frontend contract scaffolds. They do not currently
 spawn the real `jitml` binary for integration, run live training, run
-Playwright, bring up Kind through Pulumi, or invoke `cabal test` from
-`jitml test all`; the command currently renders the plan or report-card
-summary.
+Playwright, or bring up Kind through Pulumi. `jitml test all` invokes Cabal
+through the typed `Subprocess` boundary after the Plan/Apply dry-run surface.
 
 ## Phase Summary
 
@@ -57,8 +56,8 @@ at `infra/pulumi/`; the live ephemeral-Kind orchestration remains target e2e
 work. The two style stanzas — `jitml-haskell-style` (owned by Sprint `1.4`) and
 `jitml-purescript-style` (owned by Sprint `11.3`) — are declared and have local
 bodies, but their ownership remains with their source phases. Current
-`jitml test all` renders the report-card summary rather than invoking those
-stanzas; target orchestration will delegate to Cabal. The ten-stanza coverage
+`jitml test all` delegates to Cabal for those stanzas and then renders the
+report-card summary. The ten-stanza coverage
 maps every doctrine test category
 to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 → Stanza)](system-components.md#test-categories-mapping-doctrine--stanza).
@@ -71,30 +70,29 @@ to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 
 ### Objective
 
-Expand the `jitml-unit` body from the Phase `1`/`2` parser, prerequisite,
-and cache coverage into the local unit workload exercising the doctrine's Pure
-Logic, Parser, Property, and Golden test categories across every landed domain.
+Keep `jitml-unit` as the current local unit workload covering parser, generated
+docs, prerequisite, environment, AppError, Plan/Subprocess, bootstrap-script,
+runtime-source, and cache surfaces. Broader per-domain golden suites remain
+target work.
 
 ### Deliverables
 
-- `test/unit/Main.hs` runs the `tasty` tree.
-- Submodules per domain (CLI parser, Subprocess renderer, Plan renderer,
-  AppError render, prerequisite-DAG topology, JIT cache key derivation,
-  numerical-core round-trips, RL framework primitives, AlphaZero MCTS
-  invariants, hyperparameter sampler determinism, checkpoint codec round-
-  trips, route registry, Grafana renderer, transcript codecs, RNG mixers).
-- Property invariants per doctrine `Test Categories → Property Tests`:
-  `decode . encode == id`, `render is deterministic`, `parser roundtrips`.
-- Golden tests under `test/golden/` for `CommandSpec` output, route-table
-  render, Grafana dashboard JSON, Sobol sequences, GA traces, and the
-  per-domain golden fixtures from prior phases.
+- `test/unit/Main.hs` runs the current `tasty` tree.
+- The current body covers command registry/parser/help/json, generated-doc
+  checks, env resolution, plan rendering, subprocess rendering and fixture
+  execution, prerequisite topology/remediation, bootstrap script diagnostics,
+  cache-key/layout/manifest/symlink behavior, runtime-source determinism, and
+  AppError rendering.
+- Current golden fixtures exist under `test/golden/cache/`,
+  `test/golden/cli/`, and `test/golden/prerequisite/`.
+- Route-table, Grafana, Sobol, GA, transcript, numerical round-trip, and
+  AlphaZero MCTS golden fixtures are not present yet.
 
 ### Validation
 
-1. `cabal test jitml-unit` exits `0` on a freshly-built tree.
-2. Non-deterministic content (timestamps, wall-clock readings) is normalised
-   per doctrine `Test Categories →
-   Golden Tests`.
+1. `cabal test jitml-unit` exits `0` for the current local body.
+2. Existing golden fixtures are deterministic and contain no timestamps or
+   random identifiers.
 
 ## Sprint 12.2: `jitml-integration` Stanza (Subprocess Boundary + Determinism) ✅
 
@@ -105,33 +103,25 @@ Logic, Parser, Property, and Golden test categories across every landed domain.
 
 ### Objective
 
-Expand the subprocess boundary coverage in `jitml-integration` into the doctrine's
-Integration test category — real-binary subprocess integration plus same-substrate
-determinism. Daemon Lifecycle is owned separately by Sprint `12.7`.
+Keep `jitml-integration` as the current local integration workload for the
+typed subprocess boundary and renderer surfaces. Real-binary subprocess
+integration and same-substrate training determinism remain target work.
 
 ### Deliverables
 
-- `test/integration/Main.hs` runs the `tasty` tree.
-- Subprocess integration: exercises the real `jitml` binary across the
-  typed `Subprocess` boundary (`runStreaming`, `capture`) against fixture
-  inputs; asserts exit codes, stdout schema, stderr structured logging.
-- Checkpoint round-trip: split-blob encode/decode + manifest CBOR round-trip
-  against the same `.jmw1` wire format the daemon writes.
-- Resume semantics: stop a training run mid-epoch, resume from the latest
-  pointer, assert the resumed run reaches the same transcript bytes as the
-  uninterrupted reference run.
-- Dhall→typed-record decode: every governed Dhall surface (`BootConfig`,
-  `LiveConfig`, experiment files, sweep files, cluster topology) round-trips
-  through `dhall`-driven decoders against committed fixtures.
-- Same-experiment determinism: same Dhall + same seed ⇒ identical training
-  transcript bytes per the per-substrate bit-equality contract.
+- `test/integration/Main.hs` runs the current `tasty` tree.
+- The current body exercises `runStreaming` against `/bin/echo`.
+- It verifies the local bootstrap plan includes the Harbor-first publication
+  ordering.
+- It verifies Kind config rendering is deterministic and route registry
+  rendering covers the registered routes.
+- Real `jitml` binary spawning, checkpoint round-trip, resume semantics,
+  Dhall decoding, and training transcript determinism are not present yet.
 
 ### Validation
 
-1. `cabal test jitml-integration` exits `0`.
-2. Replaying the same `(experiment-Dhall, seed)` pair through `jitml train`
-   twice produces byte-equal transcripts.
-3. Mutating any Dhall field by one bit produces a different transcript SHA.
+1. `cabal test jitml-integration` exits `0` for the current local body.
+2. Live transcript determinism remains target validation.
 
 ## Sprint 12.3: `jitml-sl-canonicals` Stanza ✅
 
@@ -143,34 +133,22 @@ determinism. Daemon Lifecycle is owned separately by Sprint `12.7`.
 
 ### Objective
 
-Use `jitml-sl-canonicals` for the
-project-specific Integration workload per
-doctrine §Test Organization's project-specific stanzas allowance — covering
-the eleven canonical SL `(dataset, model)` pairs from [../README.md →
-Canonical supervised learning problems](../README.md#canonical-supervised-learning-problems).
+Use `jitml-sl-canonicals` for the current local supervised-learning canonical
+summary workload. The full eleven-cell target matrix remains future runtime
+work.
 
 ### Deliverables
 
-- `test/sl-canonicals/Main.hs` enumerates the eleven canonical SL cells
-  (MNIST shallow MLP, MNIST deep CNN, Fashion-MNIST, CIFAR-10 ResNet-20,
-  CIFAR-100, Tiny ImageNet ResNet-50, plus the remaining variants enumerated
-  in the README canonical list).
-- For each `(dataset, model)` cell:
-  - Same-substrate determinism: two runs with the same `(seed, knobs)`
-    produce byte-equal transcripts.
-  - Convergence golden: `median(final_metric) ≥ T` under the `k=5` replicate
-    methodology per [../README.md → Threshold
-    methodology](../README.md#threshold-methodology); the per-seed
-    final-metric distribution is committed as a JSON fixture and regression
-    detection is by Kolmogorov–Smirnov shift against the fixture.
-- The stanza honours the report-card knobs (`SL_EPOCHS`, `SL_BATCH`).
+- `test/sl-canonicals/Main.hs` verifies the six current local canonical cells
+  from `src/JitML/SL/Canonicals.hs`.
+- It asserts convergence curves are deterministic and contain five points.
+- It asserts each final synthetic loss is lower than the initial loss.
+- It does not run live training or consume `SL_EPOCHS` / `SL_BATCH` yet.
 
 ### Validation
 
-1. `cabal test jitml-sl-canonicals` exits `0` against the report-card knob
-   settings.
-2. Widening any committed final-metric fixture requires a written cause in
-   the PR description; tightening is a free win.
+1. `cabal test jitml-sl-canonicals` exits `0` for the current local body.
+2. Live convergence fixtures remain target validation.
 
 ## Sprint 12.4: `jitml-rl-canonicals` Stanza ✅
 
@@ -182,36 +160,24 @@ Canonical supervised learning problems](../README.md#canonical-supervised-learni
 
 ### Objective
 
-Use `jitml-rl-canonicals` for the
-project-specific Integration workload per
-doctrine §Test Organization's project-specific stanzas allowance — covering
-the RL target matrix forms (2) and (3): same-substrate trajectory
-determinism plus per-seed final-reward distribution against committed
-fixtures.
+Use `jitml-rl-canonicals` for the current local RL algorithm catalog,
+deterministic trajectory helper, and Connect 4 transcript checks.
 
 ### Deliverables
 
-- `test/rl-canonicals/Main.hs` enumerates the canonical RL `(env, algo)`
-  cells (stable-baselines3 family: PPO, A2C, TRPO, MaskablePPO, RecurrentPPO,
-  DQN, QR-DQN, DDPG, TD3, SAC, CrossQ, TQC, ARS, HER) plus the AlphaZero
-  self-play targets on the canonical Connect 4 surface.
-- Form (2): fix `(env, algo, seed, policy_init)`, run for a small fixed
-  number of steps, SHA-256 the resulting `(obs, action, reward, done)`
-  sequence, assert byte equality across runs.
-- Form (3): fix `(env, algo, seed_pool of k=5 seeds, hyperparameters)`,
-  train each seed to budget, golden assertion `median(final_reward) ≥ T`
-  with `T = median(reward) − slack` per the same `k=5` replicate variance
-  methodology used for SL; store the full per-seed final-reward distribution
-  as a JSON fixture; regression detection by Kolmogorov–Smirnov shift.
-- The stanza honours the report-card knobs (`RL_STEPS`, `RL_EVAL_EPISODES`,
-  `AZ_GAMES`, `AZ_SIMS`).
+- `test/rl-canonicals/Main.hs` verifies representative entries in
+  `algorithmCatalog`: `PPO`, `SAC`, `HER`, and `AlphaZero`.
+- It asserts `deterministicTrajectory` is deterministic for a fixed algorithm
+  and seed.
+- It asserts `selfPlayTranscript` emits legal Connect 4 columns.
+- It does not run RL environments, train policies, or consume
+  `RL_STEPS`, `RL_EVAL_EPISODES`, `AZ_GAMES`, or `AZ_SIMS` yet.
 
 ### Validation
 
-1. `cabal test jitml-rl-canonicals` exits `0` against the report-card knob
-   settings.
-2. Trajectory determinism failures point at the precise `(obs, action,
-   reward, done)` step that diverged.
+1. `cabal test jitml-rl-canonicals` exits `0` for the current local body.
+2. Environment trajectory and reward-distribution fixtures remain target
+   validation.
 
 ## Sprint 12.5: `jitml-hyperparameter` Stanza ✅
 
@@ -223,33 +189,23 @@ fixtures.
 
 ### Objective
 
-Use `jitml-hyperparameter` for the
-project-specific Integration workload per
-doctrine §Test Organization's project-specific stanzas allowance — covering
-per-sampler, per-scheduler, and per-pruner reproducibility plus resume
-equality across the hyperparameter tuning surface.
+Use `jitml-hyperparameter` for the current local sampler, scheduler, pruner,
+and deterministic trial-value checks.
 
 ### Deliverables
 
-- Per-sampler reproducibility for: Grid, Random, Sobol, TPE, GP-BO, GA,
-  NSGA-II, (μ,λ)-ES, CMA-ES, PBT — fixing `(sampler, seed, search-space)`
-  produces a byte-equal trial proposal sequence.
-- Per-scheduler reproducibility for: Fifo, SuccessiveHalving, Hyperband,
-  ASHA — bracket-scheduling decisions are deterministic given the same
-  trial-event stream.
-- Per-pruner reproducibility for: none, median, percentile — pruning
-  decisions are deterministic given the same trial telemetry.
-- Resume-from-partial-sweep equality: stopping after `n < TUNE_TRIALS`
-  trials and resuming produces the same final trial transcript as running
-  the full sweep uninterrupted.
-- The stanza honours the report-card knobs (`TUNE_TRIALS`,
-  `TUNE_BUDGET_PER_TRIAL`).
+- `test/hyperparameter/Main.hs` verifies the current axes are populated:
+  four samplers, four schedulers, and three pruners.
+- It asserts `deterministicTrials sampler 8` is stable for every current
+  sampler.
+- It asserts generated trial values are normalized into `[0, 1)`.
+- Full sampler set, scheduler/pruner event semantics, resume equality, and
+  report-card knob consumption remain target work.
 
 ### Validation
 
-1. `cabal test jitml-hyperparameter` exits `0` against the report-card
-   knob settings.
-2. Trial proposals are byte-equal across resumes for every sampler.
+1. `cabal test jitml-hyperparameter` exits `0` for the current local body.
+2. Resume equality remains target validation.
 
 ## Sprint 12.6: `jitml-cross-backend` Stanza ✅
 
@@ -262,41 +218,23 @@ equality across the hyperparameter tuning surface.
 
 ### Objective
 
-Use `jitml-cross-backend` for the
-project-specific Integration workload per
-doctrine §Test Organization's project-specific stanzas allowance — and the
-closure gate for the plan: assert cross-substrate per-tensor drift fits
-inside the committed per-tensor tolerance band on the SL canon cohorts
-`(cpu, cuda)` and `(cpu, metal)` per
-[../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
+Use `jitml-cross-backend` for the current local engine-flag and checkpoint
+inference summary checks. Live cross-substrate tolerance testing remains the
+overall handoff gate.
 
 ### Deliverables
 
-- `test/cross-backend/Main.hs` enumerates the SL canon cohorts the host
-  can exercise (e.g., `linux-cpu` + `linux-cuda` on a CUDA-capable Linux
-  host; `apple-silicon` + `linux-cpu` via container on an Apple Silicon
-  host with Colima).
-- For each `(workload, substrate-pair)` cell:
-  - Asserts same-substrate bit-equality across two runs per the per-
-    substrate determinism contract.
-  - Asserts cross-substrate per-tensor `max-abs(deltaᵢⱼ)` drift fits inside
-    the per-tensor tolerance band fixture under
-    `test/golden/cross-backend/<pair>/<tensor>.json`; the bands are pinned
-    by the `k=5` replicate methodology per
-    [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
-- The stanza emits a per-cell pass/fail row to stdout that the
-  `jitml test all` report card aggregates.
+- `test/cross-backend/Main.hs` verifies every substrate has non-empty
+  deterministic engine flags.
+- It verifies `inferFromManifest` returns the same deterministic summary for
+  each substrate in the local substrate list.
+- It does not launch kernels, train SL canon cohorts, or read
+  `test/golden/cross-backend/` tolerance fixtures yet.
 
 ### Validation
 
-1. `cabal test jitml-cross-backend` against an Apple Silicon host
-   exercising `apple-silicon` + `linux-cpu` exits `0`; the report card
-   reflects the pairwise tolerance results.
-2. A synthetic per-tensor drift exceeding the committed band fails the
-   stanza with a structured diagnostic naming the offending tensor and
-   layer family.
-3. Widening any committed band requires a written cause in the PR
-   description; tightening is a free win.
+1. `cabal test jitml-cross-backend` exits `0` for the current local body.
+2. Live kernel parity and tolerance-band fixture validation remain target work.
 
 ## Sprint 12.7: `jitml-daemon-lifecycle` Stanza ✅
 
@@ -390,22 +328,24 @@ health, cross-substrate parity tolerance).
      through the typed `Subprocess` boundary.
   3. Aggregate results into the report card.
 - Current `jitml test all --dry-run` renders the aggregate plan from
-  `src/JitML/Plan/Plan.hs`; current `jitml test all` renders
-  `ReportCard 10 0 0`.
+  `src/JitML/Plan/Plan.hs`; current non-dry-run `jitml test all` invokes
+  `cabal test all` through `JitML.Sub.Stream.runStreaming` and then renders
+  `ReportCard 10 0 0` after Cabal succeeds.
 - The report-card knob block in `cabal.project` carries `SL_EPOCHS`,
   `SL_BATCH`, `RL_STEPS`, `RL_EVAL_EPISODES`, `AZ_GAMES`, `AZ_SIMS`,
   `TUNE_TRIALS`, `TUNE_BUDGET_PER_TRIAL`, `XCLUSTER_KIND_NODES` (see
   [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs)).
 - `ReportCard.hs` renders the tidy summary block on stdout.
-- `jitml test <stanza>` currently prints the selected stanza name; target
-  runtime invokes that single Cabal stanza.
+- `jitml test <stanza>` invokes that single Cabal stanza through the same typed
+  `Subprocess` boundary.
 
 ### Validation
 
 1. `jitml test all --dry-run` emits the typed plan enumerating all ten
    stanzas.
-2. `jitml test all` exits `0` on the current tree and prints the report card.
+2. `jitml test all` invokes `cabal test all`, exits `0` on the current tree,
+   and prints the report card.
 
 ## Doctrine Sections Cited
 

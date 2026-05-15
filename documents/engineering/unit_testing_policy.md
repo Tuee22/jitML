@@ -33,7 +33,7 @@ cluster validation remains phase-gated:
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, and cache surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS, TensorBoard sidecar, and frontend bundle/panel surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
 | `jitml-integration` | `test/integration/Main.hs` covers the typed subprocess boundary, bootstrap plan, Kind config renderer, and route renderer | Integration | Sprint 12.2 |
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves | Integration (project-specific) | Sprint 12.3 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, and AlphaZero self-play transcript shape | Integration (project-specific) | Sprint 12.4 |
@@ -68,8 +68,10 @@ stanzas allowance — extensions of the Integration category, not parallel
 test systems. `jitml-purescript-style` is a **project-specific Lint**
 stanza under the same allowance.
 
-`jitml test all` (Sprint `12.9`) fans out to every stanza above and
-aggregates the report card.
+`jitml test all` (Sprint `12.9`) fans out to every stanza above by invoking
+`cabal test all` through the typed `Subprocess` boundary, then aggregates the
+report card after Cabal succeeds. `jitml test <stanza>` invokes one Cabal stanza
+through the same boundary.
 
 ## Project-Specific Stanza Notes
 

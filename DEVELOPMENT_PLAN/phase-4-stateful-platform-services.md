@@ -75,12 +75,11 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 - HTTPRoute manifests for `/harbor` and `/harbor/api` are generated from the
   route registry (Sprint `3.4`).
 
-### Target Validation
+### Validation
 
-1. `jitml bootstrap --<substrate>` succeeds; `kubectl get pods -n platform` shows the
-   Harbor stack ready.
-2. `jitml bootstrap --linux-cpu` lands an image visible in the Harbor portal
-   at `127.0.0.1:<edge-port>/harbor`.
+1. `chart/Chart.yaml` declares the Harbor subchart dependency.
+2. The local route registry renders `/harbor` and `/harbor/api` routes.
+3. Live Harbor readiness and image-push validation remain target work.
 
 ## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres ✅
 
@@ -107,11 +106,12 @@ lives in MinIO and Pulsar exclusively.
 - Target `jitml lint chart` rejects any `PerconaPGCluster` outside the typed
   service-Postgres registry.
 
-### Target Validation
+### Validation
 
-1. `kubectl get perconapgcluster -n platform` shows `harbor-pg` ready after
-   `jitml bootstrap --<substrate>`.
-2. Harbor's portal authenticates against the PG cluster.
+1. `chart/Chart.yaml` declares the `pg-operator` subchart dependency.
+2. `chart/templates/pv-platform-harbor-pg-*.yaml` provides the local manual PV
+   surface for service Postgres storage.
+3. Live `PerconaPGCluster` readiness remains target work.
 
 ## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server ✅
 
@@ -144,13 +144,12 @@ buckets, and pin the server to a release with S3 conditional-write support
   fully generated.
 - HTTPRoutes for `/minio/console` and `/minio/s3` (Sprint `3.4`).
 
-### Target Validation
+### Validation
 
-1. `mc ls minio/` after `jitml bootstrap --<substrate>` lists the seven buckets.
-2. `mc admin info minio/` confirms the conditional-write-supporting release.
-3. `jitml-integration` exercises `If-None-Match: *` and `If-Match: <etag>`
-   against MinIO and asserts the typed `MinIOPreconditionFailed` →
-   `SEConflict` translation works.
+1. `src/JitML/Storage/Buckets.hs` enumerates the seven current bucket names.
+2. `chart/templates/minio-values.yaml` exists as the local MinIO values
+   surface.
+3. Live MinIO `mc` and conditional-write validation remain target work.
 
 ## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap ✅
 
@@ -175,12 +174,12 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
   bootstrap final-phase time remains target live apply behavior.
 - HTTPRoutes for `/pulsar/admin` and `/pulsar/ws` (Sprint `3.4`).
 
-### Target Validation
+### Validation
 
-1. `pulsar-admin topics list public/default` after `jitml bootstrap --<substrate>` lists
-   the substrate-scoped topics.
-2. WebSocket subscribe from `127.0.0.1:<edge-port>/pulsar/ws/v2/consumer/...`
-   succeeds.
+1. `src/JitML/Cluster/PulsarBootstrap.hs` renders the local topic-command
+   surface.
+2. The route registry includes `/pulsar/admin` and `/pulsar/ws`.
+3. Live `pulsar-admin` and WebSocket validation remain target work.
 
 ## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ✅
 
@@ -208,11 +207,12 @@ the daemon's `/metrics` endpoint.
   list and renders the scrape config.
 - HTTPRoutes for `/grafana` and `/prometheus` (Sprint `3.4`).
 
-### Target Validation
+### Validation
 
-1. `127.0.0.1:<edge-port>/grafana` lists every provisioned dashboard.
-2. Hand-editing a dashboard ConfigMap surfaces `AppError DocsCheckDrift` on
-   the next `jitml lint files`.
+1. `src/JitML/Observability/Grafana.hs` renders the local dashboard surface.
+2. `src/JitML/Observability/Prometheus.hs` renders the local scrape-target
+   surface.
+3. Live Grafana dashboard provisioning remains target work.
 
 ## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar ✅
 
@@ -253,15 +253,13 @@ writes the CBOR checkpoint sidecar at
   written on every `CheckpointDone`.
 - HTTPRoute for `/tensorboard` (Sprint `3.4`).
 
-### Target Validation
+### Validation
 
-1. After a synthetic training run, the TB UI lists `(tag, step, value)`
-   triples sorted canonically.
-2. The bit-determinism test from [../README.md → Determinism
-   caveat](../README.md#determinism-caveat): two same-substrate same-seed
-   runs project to identical `[(tag, step, value)]` lists after canonical
-   sort.
-3. The CBOR sidecar is present alongside every `CheckpointDone` event.
+1. `src/JitML/Observability/TensorBoard.hs` renders deterministic event keys
+   and the local TensorBoard deployment surface.
+2. `proto/tensorboard/event.proto` exists for the target binding path.
+3. Live TensorBoard UI, TFRecord, and checkpoint-sidecar validation remain
+   target work.
 
 ## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ✅
 
@@ -286,12 +284,11 @@ activates them at runtime when the pod is scheduled with
 - The Linux CUDA Kind worker (Sprint `3.1`) is labelled
   `jitml.runtime/gpu=true`.
 
-### Target Validation
+### Validation
 
-1. After `bootstrap/linux-cuda.sh up`, `kubectl get runtimeclass` lists
-   `nvidia`.
-2. The `jitml-service` pod on the CUDA substrate scheduler-binds to the
-   GPU-labelled worker.
+1. `chart/templates/runtimeclass-nvidia.yaml` declares the local RuntimeClass.
+2. The Linux CUDA Kind config carries the GPU worker label.
+3. Live pod scheduling with `runtimeClassName: nvidia` remains target work.
 
 ## Doctrine Sections Cited
 

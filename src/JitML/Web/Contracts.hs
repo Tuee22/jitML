@@ -3,6 +3,7 @@
 module JitML.Web.Contracts
   ( ApiEndpoint (..)
   , apiEndpoints
+  , contractGeneratorName
   , renderPureScriptContracts
   )
 where
@@ -25,6 +26,10 @@ apiEndpoints =
   , ApiEndpoint "Connect4Move" "POST" "/api/connect4/move"
   , ApiEndpoint "MetricsStream" "GET" "/api/ws"
   ]
+
+contractGeneratorName :: Text
+contractGeneratorName =
+  "local-purescript-bridge-compatible-renderer"
 
 renderPureScriptContracts :: Text
 renderPureScriptContracts =

@@ -70,11 +70,15 @@ library
         JitML.Prerequisite.Types
         JitML.RL.Algorithms
         JitML.RL.AlphaZero
+        JitML.RL.Environments
+        JitML.RL.Framework
         JitML.Routes
         JitML.Service.BootConfig
+        JitML.Service.Capabilities
         JitML.Service.ConfigMap
         JitML.Service.Consumer
         JitML.Service.Endpoints
+        JitML.Service.HotReload
         JitML.Service.Lifecycle
         JitML.Service.LiveConfig
         JitML.Service.Logger
@@ -89,6 +93,7 @@ library
         JitML.Tart.Lifecycle
         JitML.Test.Report
         JitML.Tune.Catalog
+        JitML.Web.Bundle
         JitML.Web.Contracts
 
     hs-source-dirs:   src

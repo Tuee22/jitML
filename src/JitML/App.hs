@@ -18,6 +18,7 @@ import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
 import System.Directory (doesFileExist)
 import System.Environment (getArgs)
+import System.Exit (ExitCode (..))
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Bootstrap (materializeBootstrapFiles)
@@ -84,11 +85,12 @@ import JitML.Service.Endpoints
 import JitML.Service.Lifecycle (lifecyclePlan, renderLifecyclePhase)
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
 import JitML.Sub.Render (renderSubprocess)
-import JitML.Sub.Stream (defaultSubprocessEnv)
+import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
+import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Tart.Exec (tartSshSubprocess)
 import JitML.Tart.Lifecycle (VmName (..), ensureVmUp)
-import JitML.Test.Report (ReportCard (..), renderReportCard)
+import JitML.Test.Report (ReportCard (..), renderReportCard, reportStanzas)
 import JitML.Tune.Catalog qualified as Tune
 
 main :: IO ()
@@ -574,11 +576,26 @@ runInspect path parsedOptions =
 
 runTest :: [Text] -> App ()
 runTest ["test", "all"] =
-  writeText (renderReportCard (ReportCard 10 0 0))
+  runCabalTest ["all"]
 runTest ["test", stanza] =
-  writeLine ("test: " <> stanza <> " selected")
+  runCabalTest [stanza]
 runTest path =
   exitWithError (UnknownCommand ("unknown test command: " <> commandPathText path))
+
+runCabalTest :: [Text] -> App ()
+runCabalTest targets = do
+  let command = subprocess "cabal" ("test" : targets)
+  (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
+  case exitCode of
+    ExitSuccess -> do
+      writeText stdoutText
+      writeText (renderReportCard (ReportCard (passedCount targets) 0 0))
+    ExitFailure _ ->
+      exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
+
+passedCount :: [Text] -> Int
+passedCount ["all"] = length reportStanzas
+passedCount _ = 1
 
 runInternalVmExec :: [ParsedOption] -> App ()
 runInternalVmExec parsedOptions =

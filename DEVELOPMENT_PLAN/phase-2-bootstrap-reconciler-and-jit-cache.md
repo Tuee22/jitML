@@ -328,21 +328,21 @@ the current command materializes bootstrap inputs only.
 - The bind chain host `./.build/` ⇄ Kind container `/jitml/.build/` ⇄ pod
   `/opt/build/` keeps artefacts coherent across duty cycles.
 
-### Target Validation
-
-1. `docker compose run --rm jitml jitml bootstrap --linux-cpu --dry-run`
-   materializes the build/push plan and exits `0` from scratch.
-2. `jitml bootstrap --linux-cpu` succeeds against the bootstrap-phase Harbor
-   and pushes `jitml:<sha>` before deploying the cluster daemon.
-3. `jitml build` from inside the container produces `/opt/build/jitml`.
-
-### Current Validation State
+### Validation
 
 - `docker compose -f docker/compose.yaml config` validates the single `jitml`
   service, image tag `jitml:local`, source bind mount, and working directory.
 - `jitml bootstrap --linux-cpu --dry-run` renders the typed bootstrap plan.
 - Cabal test stanzas cover the bootstrap plan and script handoff surfaces with
   deterministic local tests.
+
+### Target Integration Notes
+
+- Full live `jitml bootstrap --linux-cpu` Harbor tagging/push and cluster-daemon
+  rollout remain target apply behavior owned by the cluster/service phases.
+- Container-internal `jitml build` producing `/opt/build/jitml` remains target
+  runtime work; the current implementation renders the build destination and
+  engine metadata only.
 
 ### Remaining Work
 
@@ -377,22 +377,21 @@ VM stays up for the daemon's lifetime once spun up; an idle timeout (default
 - Target `LiveConfig.tartIdleTimeout : Optional Natural` (seconds; default
   `1800`) controls VM idle shutdown once the real host daemon exists.
 
-### Target Validation
-
-1. From a clean state, the first cache miss triggers tart spin-up; the second
-   cache miss reuses the running VM (golden timing).
-2. `purge` destroys the VM but preserves `./.build/jit/apple-silicon/`; a
-   subsequent inference command resolves from cache without spinning tart up.
-3. `jitml internal vm exec -- swift --version` succeeds on Apple, exits with
-   `AppError UnknownCommand` on Linux.
-
-### Current Validation State
+### Validation
 
 - `JitML.Tart.Lifecycle.ensureVmUp` materializes repo-local VM state under
   `./.build/runtime/` without touching global state.
 - `jitml internal vm exec -- <cmd>` renders the typed `tart ssh` subprocess.
 - Cabal test stanzas exercise the local daemon lifecycle and subprocess
   boundaries.
+
+### Target Integration Notes
+
+- Real first-cache-miss Tart startup, reuse timing, idle shutdown, and
+  `swift --version` execution through `jitml internal vm exec` remain target
+  Apple runtime work.
+- Cache-preserving `purge` plus subsequent inference cache resolution depends on
+  the future inference/JIT runtime path, not the current local state scaffold.
 
 ### Remaining Work
 
@@ -422,20 +421,18 @@ status presentation.
 
 ### Validation
 
-1. After `bootstrap/<substrate>.sh up`, `bootstrap/<substrate>.sh status`
-   prints a populated cluster-publication summary.
-2. Current `bootstrap/apple-silicon.sh up` builds `./.build/jitml`, delegates to
-   `jitml bootstrap --apple-silicon`, and materializes
-   `./.build/conf/host/apple-silicon.dhall`; starting a host-native
-   `jitml service` remains target daemon work.
-
-### Current Validation State
-
 - `bash -n bootstrap/_lib.sh bootstrap/apple-silicon.sh
   bootstrap/linux-cpu.sh bootstrap/linux-cuda.sh` exits `0`.
 - `bootstrap/apple-silicon.sh status` reads
   `./.build/runtime/cluster-publication.json`.
 - Cabal test stanzas cover the registered test and script surfaces.
+
+### Target Integration Notes
+
+- End-to-end `bootstrap/<substrate>.sh up` followed by a populated live
+  cluster-publication status depends on the target live cluster apply path.
+- Starting a host-native `jitml service` after Apple bootstrap remains Phase `5`
+  daemon runtime work.
 
 ### Remaining Work
 
@@ -474,19 +471,20 @@ substrate image.
 
 ### Validation
 
-1. `purge` followed by `up` plus a previously-cached inference command
-   resolves from cache without spinning tart up.
-2. `~/.kube/config` and `~/.docker/config.json` are byte-identical before and
-   after a full `up` / `purge --full` cycle.
-
-### Current Validation State
-
 - Script parsing validation (`bash -n`) covers all bootstrap wrappers.
 - `down`, `purge`, and `purge --full` are repo-local and preserve the
   configured cache semantics; Linux `purge --full` additionally delegates to
   `docker compose down --rmi local --volumes`.
 - The scripts contain no writes to `~/.kube/config`, `~/.docker/config.json`,
   Homebrew prefixes, or other global user state.
+
+### Target Integration Notes
+
+- Cache-preserving `purge` followed by live inference cache resolution depends
+  on the future inference/JIT runtime path.
+- Full byte-for-byte before/after validation of `~/.kube/config` and
+  `~/.docker/config.json` belongs to the later live bootstrap test matrix; the
+  current script boundary is covered by static and local wrapper tests.
 
 ### Remaining Work
 

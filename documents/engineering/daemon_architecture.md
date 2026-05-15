@@ -85,6 +85,11 @@ SIGHUP triggers `LiveConfig` re-read. Restart-required field changes (i.e.,
 any `BootConfig` field) emit `AppError InvalidConfig` with the offending
 field name and exit `2` so the orchestrator restarts the pod.
 
+The current local implementation models this in `JitML.Service.HotReload` with
+`LiveConfigSnapshot` and `handleSighupReload`: unchanged live config is ignored,
+changed live config increments the generation. POSIX signal wiring remains part
+of the live daemon runner.
+
 ## Health Endpoints and Logging
 
 | Endpoint | Behaviour |
@@ -108,10 +113,10 @@ reloadable.
 
 | Class | Operations | Owning module |
 |-------|-----------|---------------|
-| `HasMinIO` | `putBlobIfAbsent`, `casPointer`, `getObject`, `listPrefix` | `src/JitML/Service/Caps/MinIO.hs` |
-| `HasPulsar` | `subscribe`, `produce`, `ack`, `seek` | `src/JitML/Service/Caps/Pulsar.hs` |
-| `HasHarbor` | `pushImage`, `getImage`, `deleteImage` | `src/JitML/Service/Caps/Harbor.hs` |
-| `HasKubectl` | `applyManifest`, `getResource`, `deleteResource` | `src/JitML/Service/Caps/Kubectl.hs` |
+| `HasMinIO` | `minioPutIfAbsent`, `minioReadObject` | `src/JitML/Service/Capabilities.hs` |
+| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge` | `src/JitML/Service/Capabilities.hs` |
+| `HasHarbor` | `harborImageExists`, `harborPromoteImage` | `src/JitML/Service/Capabilities.hs` |
+| `HasKubectl` | `kubectlApply`, `kubectlStatus` | `src/JitML/Service/Capabilities.hs` |
 
 `HasKubectl` operations route through the typed `Subprocess` boundary
 (`kubectl` is a wrapped subprocess).

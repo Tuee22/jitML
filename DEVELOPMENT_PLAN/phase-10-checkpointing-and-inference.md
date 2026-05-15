@@ -24,30 +24,29 @@
 
 ## Phase Status
 
-✅ **Done** for the local checkpoint manifest, `.jmw1` blob header, and
-inference-only read surfaces. Target checkpointing serialises models trained in
-Phases `8`/`9`; target Phase `11` demo/frontend surfaces consume the real
-inference-only read path once those runtime pieces land.
+✅ **Done** for the local checkpoint manifest, split-blob object-key helpers,
+pointer-CAS decision surface, `.jmw1` blob header, and inference-only read
+surfaces. Target checkpointing serialises models trained in Phases `8`/`9`;
+target Phase `11` demo/frontend surfaces consume the real inference-only read
+path once those runtime pieces land.
 
 ### Current Implementation Scope
 
 The current worktree implements a small `CheckpointManifest`, `TensorBlob`,
-`manifestPointer`, simplified `encodeJmw1` text encoder, and deterministic
-`inferFromManifest` helper in `src/JitML/Checkpoint/Format.hs`. It does not yet
-implement canonical CBOR manifests, binary little-endian tensor blobs, MinIO
-write-once/CAS pointer protocols, retention graph traversal, kernel-handle
-loading, or real demo/frontend checkpoint reads.
+split-blob object-key renderers, pointer-CAS decisions, `manifestPointer`,
+simplified `encodeJmw1` text encoder, and deterministic `inferFromManifest`
+helper in `src/JitML/Checkpoint/Format.hs`. It does not yet implement canonical
+CBOR manifests, binary little-endian tensor blobs, live MinIO conditional-write
+effects, retention graph traversal, kernel-handle loading, or real demo/frontend
+checkpoint reads.
 
 ## Phase Summary
 
-This phase delivers the persistence layer in MinIO bucket `jitml-checkpoints`,
-the `.jmw1` dense weight blob format with a canonical-CBOR header, the
-typed manifest, the concurrency model from
-[../README.md → Concurrency model](../README.md#concurrency-model) (write-
-once + If-Match CAS — no advisory locks), the typed retention reconciler with
-exit code `3` on no-op, the bit-determinism contract scoped to same-substrate
-equality, and the inference-only read path. There is no Postgres on jitML's
-data path: manifests and blobs live in MinIO exclusively.
+This phase currently delivers the local checkpoint manifest, split-blob key,
+pointer-CAS, and inference summary helpers. The target persistence layer still
+uses MinIO bucket `jitml-checkpoints`, canonical-CBOR manifests, write-once
+blobs, If-Match CAS pointers, and the split-blob `.jmw1` binary format; the live
+MinIO effects are not implemented in the present codebase.
 
 ## Sprint 10.1: Storage Layout and Split-Blob Schema ✅
 
@@ -58,35 +57,31 @@ data path: manifests and blobs live in MinIO exclusively.
 
 ### Objective
 
-Establish the typed prefix schema for the `jitml-checkpoints` bucket and the
-split-blob layout (one immutable weight blob per uniquely shaped tensor group
-plus a typed manifest enumerating the blob keys).
+Establish the current local manifest shape, bucket pointer string, and
+split-blob object-key renderers used by the inference summary surface.
 
 ### Deliverables
 
-- `src/JitML/Checkpoint/Format.hs` is the typed source of truth for every key
-  pattern under `jitml-checkpoints/<experiment-hash>/`:
-  - `blobs/<sha256>` — write-once content-addressed payloads.
-  - `manifests/<sha256>` — write-once content-addressed CBOR manifests.
-  - `pointers/latest` — mutable, ETag-CAS; body = 32-byte manifest sha.
-  - `pointers/best/<metric>` — mutable, ETag-CAS.
-  - `pointers/trial/<trial-hash>/latest` — per-HPO-trial latest.
-  - `pointers/trial/<trial-hash>/best/<metric>` — per-HPO-trial best.
-- `Checkpoint` ADT enumerates the blob roles: weights per layer (one per
-  uniquely shaped tensor group), optimizer state, RNG state, replay buffer
-  (RL only), exploration cache (RL only).
-- `experiment-hash = sha256(resolved-dhall || graph-shape-hash)`.
-- `manifest-sha = sha256(canonical-cbor(CheckpointManifest))`.
-- The `pointers/latest` update is the **single atomic commit point** for a
-  checkpoint per [../README.md → Concurrency
-  model](../README.md#concurrency-model).
+- `TensorBlob` carries `tensorName`, `tensorShape`, and `tensorBlobKey`.
+- `CheckpointManifest` carries `manifestId`, `manifestExperiment`, and a list
+  of `TensorBlob` values.
+- `manifestPointer` renders the current simplified pointer path
+  `jitml-checkpoints/<experiment>/<manifest>.manifest.cbor`.
+- `blobKey`, `manifestKey`, `latestPointerKey`, `bestPointerKey`, and
+  `trialPointerKey` render the split-blob object layout under
+  `jitml-checkpoints/<experiment-hash>/`.
+- `src/JitML/Storage/Buckets.hs` enumerates the `jitml-checkpoints` bucket
+  among the local MinIO bucket names.
+- Optimizer/RNG parts and experiment-hash derivation remain target runtime
+  validation.
 
 ### Validation
 
-1. `Layout` round-trips every key pattern through `parseKey . renderKey ==
-   id`.
-2. `jitml-unit` exercises the `experiment-hash` derivation against a
-   resolved-Dhall fixture and asserts SHA-256 byte-equality.
+1. `src/JitML/Checkpoint/Format.hs` exposes the current `TensorBlob`,
+   `CheckpointManifest`, and `manifestPointer` helpers.
+2. `cabal test jitml-cross-backend` exercises the local manifest-based
+   inference helper.
+3. `jitml-unit` verifies the split-key renderers.
 
 ## Sprint 10.2: `.jmw1` Wire Format and Manifest CBOR ✅
 
@@ -96,42 +91,25 @@ plus a typed manifest enumerating the blob keys).
 
 ### Objective
 
-Land the `.jmw1` dense weight blob format (magic bytes, `header_len`,
-canonical-CBOR `JmwHeader`, packed little-endian payload), the typed CBOR manifest, the `If-None-Match: *`
-write-once protocol for blobs and manifests, and the `If-Match: <etag>` CAS
-protocol for pointers with typed advance predicates.
+Land the current simplified `.jmw1` encoder and local pointer-CAS decision
+surface. Canonical-CBOR headers, binary little-endian payloads, and live MinIO
+conditional-write effects remain target runtime validation.
 
 ### Deliverables
 
-- `.jmw1` wire format documented in
-  [`documents/engineering/checkpoint_format.md`](../documents/engineering/checkpoint_format.md):
-  magic `JMW1`, `header_len :: Word32`, canonical-CBOR `JmwHeader`, then packed
-  little-endian payload bytes.
-- `CheckpointManifest` CBOR record carries: `experiment-hash :: Hash`,
-  `trial-hash :: Maybe Hash`, `step :: Word64`, `epoch :: Word64`,
-  `wall-clock-ns :: Word64` for telemetry only, `substrate :: Substrate`,
-  `schema-version :: Word32`, canonical-ordered `parts :: [CheckpointPart]`,
-  sorted metrics, and `parent-manifest :: Maybe Hash`.
-- `Write.hs` exposes `putBlobIfAbsent :: Hash -> ByteString -> ReaderT Env
-  IO ()` using `If-None-Match: *`; `412 Precondition Failed` is success.
-- `Pointer.hs` exposes `casPointer :: PointerKey -> AdvancePredicate ->
-  Manifest -> ReaderT Env IO ()` using `If-Match: <etag>`; `412` is
-  `SEConflict` (retryable per Sprint `5.4`'s `RetryPolicy`).
-- Typed advance predicates: `advanceLatest` (`step new > step cur`),
-  `advanceBestMaximised` (`lookupMetric m new > lookupMetric m cur`),
-  `advanceBestMinimised` (`lookupMetric m new < lookupMetric m cur`). The
-  metric direction comes from the experiment Dhall's `metrics[i].direction`
-  field per [../README.md → Concurrency
-  model](../README.md#concurrency-model).
+- `encodeJmw1` emits a lazy bytestring beginning with text line `JMW1`,
+  followed by one textual `Double` per line.
+- `CheckpointManifest` is an in-memory Haskell record only; no CBOR
+  manifest codec exists yet.
+- `PointerWrite`, `PointerWriteResult`, and `applyPointerWrite` model the local
+  CAS decision used by the eventual MinIO pointer writer.
+- Live `Write.hs`, `Pointer.hs`, typed advance predicates, and MinIO
+  conditional-write effects remain target runtime validation.
 
 ### Validation
 
-1. `decodeJmw1 . encodeJmw1 == id` across a property-test grid.
-2. `decodeManifest . encodeManifest == id`.
-3. `putBlobIfAbsent` is idempotent (golden round trip; second write returns
-   `412` and the harness translates to success).
-4. `casPointer` under contention exercises the retry harness and converges
-   to a single committed manifest.
+1. `encodeJmw1` emits the expected `JMW1` marker for local callers.
+2. `jitml-unit` verifies successful and conflicting pointer-CAS decisions.
 
 ## Sprint 10.3: Bit-Determinism Contract and Retention Reconciler ✅
 
@@ -142,45 +120,26 @@ protocol for pointers with typed advance predicates.
 
 ### Objective
 
-Land the bit-determinism contract scoped to same-substrate equality, the
-cross-substrate tolerance methodology, and the typed retention reconciler
-`jitml internal gc <experiment-hash>` with exit code `3` on no-op.
+Land the local determinism documentation tie-in and `jitml internal gc` summary
+surface. Real retention graph traversal and MinIO deletion remain target work.
 
 ### Deliverables
 
-- The bit-determinism contract holds: a checkpoint produced on `<substrate>`
-  is bit-identical when reproduced on the same `<substrate>` against the
-  same toolchain pin (matches the per-substrate determinism contract from
-  Phase `7`).
-- Cross-substrate drift is bounded by the per-tensor tolerance band; the
-  tolerance methodology is documented in
-  [`documents/engineering/determinism_contract.md`](../documents/engineering/determinism_contract.md).
-- `jitml internal gc <experiment-hash>` is a Plan/Apply reconciler:
-  - Reads `pointers/latest`, every `pointers/best/<metric>` for the metrics
-    declared in the experiment Dhall, every `pointers/trial/<trial-hash>/*`
-    reachable from the experiment.
-  - Follows `parent-manifest` along the lineage chain. The transitive
-    closure is the **live set**.
-  - Per the Dhall-declared `retain` policy (`Retention.LastN k` keeps the
-    `k` most-recent manifests on the `latest` chain by `step`;
-    `pointers/best/<m>` target manifests are always live),
-    schedules the reapable manifests and blobs.
-  - A blob is reapable iff no live manifest references it.
-  - Emits a structured `gc_reaped` event per doctrine `At-Least-Once Event
-    Processing`, naming every reaped manifest and blob SHA.
-  - On a steady-state experiment the reconciler exits `3` (`AppError
-    ReconcilerNoop`).
+- `documents/engineering/determinism_contract.md` records the target
+  same-substrate and cross-substrate tolerance methodology.
+- `jitml internal gc <experiment-hash> --dry-run` renders a generic
+  Plan/Apply retention plan.
+- Normal `jitml internal gc <experiment-hash>` currently prints
+  `gc: checkpoint retention policy reconciled`.
+- Pointer live-set traversal, `LastN` policy application, blob reaping,
+  `gc_reaped` events, and no-op exit `3` are not implemented yet.
 
 ### Validation
 
-1. `jitml internal gc <experiment-hash>` after a fresh training run is a
-   no-op (exit `3`).
-2. After producing `k+1` manifests under `Retention.LastN k`, GC reaps the
-   oldest manifest and any blobs referenced only by it.
-3. A `pointers/best/<metric>` target manifest is preserved regardless of
-   `LastN`.
-4. `gc_reaped` events are emitted on `training.event.<mode>` with the
-   reaped SHAs.
+1. `jitml internal gc <experiment-hash> --dry-run` emits the typed plan.
+2. `jitml internal gc <experiment-hash>` prints the local reconciliation
+   summary.
+3. Live retention and MinIO deletion validation remain target work.
 
 ## Sprint 10.4: Inference-Only Read Path ✅
 
@@ -192,52 +151,44 @@ cross-substrate tolerance methodology, and the typed retention reconciler
 
 ### Objective
 
-Land the inference-only read path consumed by both the `jitml-demo` HTTP
-server (Phase `11`) and the PureScript panels. Inference reads `pointers/<>`,
-fetches the manifest, fetches **only** the `Weights` part's blob (skipping
-optimizer state, RNG state, replay buffer, exploration cache).
+Land the current inference-only summary helper consumed by local command and
+test bodies. Real pointer reads, manifest fetches, and kernel-handle loading
+remain target runtime work.
 
 ### Deliverables
 
-- `loadInferenceCheckpoint :: PointerKey -> ReaderT Env IO
-  (KernelHandle, Manifest)` reads `pointers/<>`, fetches `manifests/<sha>`,
-  fetches the weights blobs, instantiates a `KernelHandle` (Sprint `7.1`)
-  in `Inference` kind.
-- Concurrent training advances are invisible to the reader because the
-  snapshot the reader operates against is immutable per
-  [../README.md → Concurrency model](../README.md#concurrency-model).
-- `jitml inspect replay <manifest-sha>` (Plan/Apply) replays an inference
-  path against the manifest, asserts the bit-determinism contract holds.
-- `src/JitML/Service/Consumer.hs` provides the local at-least-once consumer
-  surface for inference command summaries.
+- `inferFromManifest` adds a deterministic bias derived from the number of
+  manifest tensors to each input value.
+- `jitml inference run` constructs a small local manifest and prints the
+  deterministic inference summary.
+- `jitml inspect replay <manifest-sha>` is registered and currently prints a
+  command summary from `src/JitML/App.hs`.
+- `loadInferenceCheckpoint`, pointer reads, manifest fetches, weight-only blob
+  loading, and FFI kernel handles are not implemented yet.
 
 ### Validation
 
-1. `loadInferenceCheckpoint` against a freshly-trained MNIST model produces
-   a `KernelHandle` that runs against the FFI loader.
-2. The inference-only path skips optimizer-state, RNG-state, and buffer
-   blobs (asserted by the GET-trace property test).
-3. `jitml inspect replay` is bit-identical against the same-substrate
-   reproduction of a trained snapshot.
+1. `cabal test jitml-cross-backend` exercises `inferFromManifest` across the
+   local substrate list.
+2. `jitml inference run experiments/mnist.dhall` prints the deterministic
+   local inference summary.
+3. Weight-only GET traces and FFI loading remain target validation.
 
 ## Doctrine Sections Cited
 
 - [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprints 10.3, 10.4)
-- [../HASKELL_CLI_TOOL.md → Capability Classes and Service Errors](../HASKELL_CLI_TOOL.md) (Sprint 10.2 — `HasMinIO` consumers)
-- [../HASKELL_CLI_TOOL.md → Retry Policy as First-Class Values](../HASKELL_CLI_TOOL.md) (Sprint 10.2 — `casPointer` retry harness)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprints 10.3, 10.4 — `gc_reaped`, inference handler)
-- [../HASKELL_CLI_TOOL.md → Reconcilers: Idempotent Mutation as a Single Command](../HASKELL_CLI_TOOL.md) (Sprint 10.3 — exit `3` on no-op)
-- [../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) (Sprint 10.2 — generated `.jmw1` format reference table)
+- [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprint 10.4 — local `jitml-cross-backend` body consumes `inferFromManifest`)
+- [../HASKELL_CLI_TOOL.md → Reconcilers: Idempotent Mutation as a Single Command](../HASKELL_CLI_TOOL.md) (Sprint 10.3 — current local `jitml internal gc` command summary; full no-op exit `3` remains target work)
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/checkpoint_format.md` — full split-blob layout,
-  `.jmw1` wire format, manifest CBOR schema, write protocols (`If-None-
-  Match: *` for blobs/manifests, `If-Match: <etag>` for pointers), typed
-  advance predicates, retention reconciler narrative, inference-only read
-  path.
+- `documents/engineering/checkpoint_format.md` — current local
+  `CheckpointManifest`, simplified `.jmw1` text encoder, manifest pointer,
+  and inference summary helper; target split-blob layout, manifest CBOR,
+  write protocols, typed advance predicates, retention reconciler, and real
+  inference-only read path.
 - `documents/engineering/determinism_contract.md` — same-substrate bit-
   equality contract, cross-substrate tolerance methodology, GC determinism.
 - `documents/engineering/daemon_architecture.md` — `InferenceHandler`

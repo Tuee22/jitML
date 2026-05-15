@@ -44,7 +44,7 @@ primitives to deliver the algorithm catalog, AlphaZero, and tuning. Splitting
 the work this way lets RL framework changes settle before fourteen algorithm
 implementations consume them.
 
-## Sprint 8.1: Supervised Training Loop and Canonical SL Problems ✅
+## Sprint 8.1: Local Supervised Canonical Summaries ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/SL/Canonicals.hs`,
@@ -53,39 +53,33 @@ implementations consume them.
 
 ### Objective
 
-Stand up the supervised training loop, the eleven canonical SL problem cells from
-[../README.md → Canonical supervised learning problems](../README.md#canonical-supervised-learning-problems),
-the dataset loader against MinIO bucket `jitml-datasets`, and golden
-convergence-curve fixtures.
+Stand up the current deterministic supervised-learning catalog summary. Real
+dataset loaders, daemon-backed training loops, MinIO dataset access, and the
+full eleven-cell canonical matrix remain target runtime work.
 
 ### Deliverables
 
-- `Train.hs` exposes `train :: TrainingConfig -> ReaderT Env IO TrainResult`,
-  `TrainingConfig` carrying the resolved-Dhall + numerical-core graph + data
-  loader + optimizer + scheduler + loss + callbacks.
-- `Loop.hs` is the typed pipeline (per doctrine `GADT-Indexed State
-  Machines`): `TrainingLifecycle Loaded`, `TrainingLifecycle Ready`,
-  `TrainingLifecycle Stepping`, `TrainingLifecycle Evaluating`,
-  `TrainingLifecycle Checkpointing`, `TrainingLifecycle Finished`.
-- `Dataset.hs` lazily fetches pinned source datasets from MinIO bucket
-  `jitml-datasets`; SHA-256 verified against the experiment Dhall.
-- `src/JitML/SL/Canonicals.hs` declares the local canonical cells and their
-  deterministic metric summaries for the phase stanza.
-- The `MetricUpdate` and `EpochDone` events are published on
-  `training.event.<mode>` (Sprint `8.2`).
+- `src/JitML/SL/Canonicals.hs` declares six current canonical cells:
+  `mnist-linear`, `fashion-mnist-cnn`, `cifar10-resnet`,
+  `cifar100-resnet`, `tiny-imagenet-attention`, and
+  `california-housing-dense`.
+- `convergenceCurve` produces a five-point deterministic synthetic loss curve
+  from the problem seed.
+- `finalLoss` returns the final value from that deterministic curve.
+- `test/sl-canonicals/Main.hs` verifies the catalog is populated, curves are
+  deterministic, and every final loss improves over the initial loss.
+- `Train.hs`, `Loop.hs`, `Dataset.hs`, live Pulsar training events, and real
+  datasets are not present in the current tree.
 
 ### Validation
 
-1. `jitml train experiments/sl/mnist-baseline.dhall` reaches the threshold
-   accuracy under `SL_EPOCHS` from
-   [system-components.md → POC Report-Card
-   Knobs](system-components.md#poc-report-card-knobs).
-2. The convergence curve matches the golden fixture under same-substrate
-   determinism (per-step loss / per-epoch eval-accuracy bit-identical).
-3. The Pulsar event stream from `training.event.<mode>` reflects every
-   `EpochDone` with the metric snapshot.
+1. `cabal test jitml-sl-canonicals` exercises the current local canonical
+   summary body.
+2. `jitml train experiments/mnist.dhall` renders the deterministic local
+   summary from `src/JitML/App.hs`.
+3. Live training thresholds and Pulsar events remain target validation.
 
-## Sprint 8.2: `jitml train` CLI and `training.command.<mode>` / `training.event.<mode>` ✅
+## Sprint 8.2: `jitml train` Local CLI Summary ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
@@ -94,145 +88,128 @@ convergence-curve fixtures.
 
 ### Objective
 
-Wire `jitml train` (Plan/Apply with `--dry-run` and `--plan-file`) into the
-CLI as the operator-facing entrypoint, and the `training.command.<mode>` /
-`training.event.<mode>` Pulsar topic family as the daemon's I/O.
+Wire `jitml train` into the CLI as a Plan/Apply-capable command with a current
+local summary body. Pulsar command/event publication remains target daemon work.
 
 ### Deliverables
 
-- `jitml train <experiment-dhall>` plan steps:
-  1. Resolve and SHA-hash the experiment Dhall.
-  2. Reconcile prerequisites; dataset materialised in `jitml-datasets`.
-  3. Publish `StartTraining` envelope on `training.command.<mode>`.
-  4. Subscribe to `training.event.<mode>` and stream events to stdout (or
-     write structured JSON when `--format json`).
-- `proto/jitml/training.proto` declares `StartTraining`, `StopTraining`,
-  `ResumeFromCheckpoint`, `AbortTraining`, `StepDone`, `EpochDone`,
-  `EvalDone`, `CheckpointDone`, `MetricUpdate`, `TrainingFinished`,
-  `TrainingFailed`. `proto-lens` generates Haskell bindings.
-- `src/JitML/Service/Consumer.hs` provides the local at-least-once consumer
-  surface used by command summaries.
-- The training lifecycle ADT is GADT-indexed per doctrine `GADT-Indexed
-  State Machines`.
+- `jitml train <experiment-dhall>` is registered in `CommandSpec`.
+- `jitml train --dry-run <experiment-dhall>` renders the generic training plan
+  through `src/JitML/Plan/Plan.hs`.
+- Normal `jitml train` execution prints the selected experiment path, the first
+  local canonical problem, and its deterministic final loss.
+- `src/JitML/Service/Consumer.hs` provides the local at-least-once
+  deduplication helper used by later event-flow work.
+- `proto/jitml/training.proto`, generated Haskell protobuf bindings, and a
+  GADT-indexed training lifecycle are not present in the current tree.
 
 ### Validation
 
-1. `jitml train --dry-run experiments/sl/mnist-baseline.dhall` emits the
-   typed plan and exits `0`.
-2. `jitml train experiments/sl/mnist-baseline.dhall` produces the same
-   convergence curve as Sprint `8.1`'s direct invocation.
-3. Replay of the same `StartTraining` envelope is idempotent (Sprint `5.5`'s
-   protobuf-message-hash deduplication holds).
+1. `jitml train --dry-run experiments/mnist.dhall` emits the typed plan and
+   exits `0`.
+2. `jitml train experiments/mnist.dhall` prints the deterministic local
+   canonical-problem summary.
+3. Protobuf envelope replay remains target validation.
 
-## Sprint 8.3: Canonical RL Environments ✅
+## Sprint 8.3: RL Catalog Hook for Canonical Tests ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
+`src/JitML/RL/Environments.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
 
-Land the canonical RL environments: `CartPole-v1`, `MountainCar-v0`,
-`LunarLander-v2`, plus a small Atari subset (`Pong`, `Breakout`,
-`SpaceInvaders`).
+Land the current local RL catalog and canonical environment hook used by the
+canonical RL stanza.
 
 ### Deliverables
 
-- Each environment is an in-process Haskell implementation; no external
-  Python or Gym dependency.
-- Typed `EnvObs`, `EnvAction`, `EnvReward`, `EnvDone` per environment.
-- Each env supports `reset :: Seed -> IO EnvState`, `step :: EnvState ->
-  EnvAction -> IO (EnvObs, EnvReward, EnvDone, EnvInfo)`,
-  `render :: EnvState -> IO RenderFrame` (RenderFrame is a typed payload
-  consumed by the PureScript trajectory panel in Phase `11`).
-- Per-environment seed derivation is deterministic.
+- `src/JitML/RL/Algorithms.hs` declares the algorithm catalog consumed by the
+  current `jitml-rl-canonicals` stanza.
+- `deterministicTrajectory` provides a fixed-seed integer trajectory helper for
+  local determinism tests.
+- `test/rl-canonicals/Main.hs` verifies representative catalog entries and the
+  deterministic trajectory helper.
+- `src/JitML/RL/Environments.hs` declares the local canonical environment
+  catalog for `cartpole`, `mountain-car`, `lunar-lander`, and `atari-subset`,
+  plus a deterministic local step helper.
+- Full simulator bindings, render frames, and daemon-backed environment stepping
+  remain target runtime validation.
 
 ### Validation
 
-1. Deterministic-seed reset+step sequences are bit-identical across runs.
-2. Each environment passes a property test against expected reward bounds.
+1. `cabal test jitml-rl-canonicals` exercises the current catalog and
+   deterministic trajectory helper.
+2. `jitml-unit` verifies the canonical environment catalog and deterministic
+   local step helper.
 
-## Sprint 8.4: RL Framework Primitives ✅
+## Sprint 8.4: RL Metadata Primitives ✅
 
 **Status**: Done
-**Implementation**: `src/JitML/RL/Algorithms.hs`
+**Implementation**: `src/JitML/RL/Algorithms.hs`,
+`src/JitML/RL/Framework.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
 
-Stand up the typed RL framework primitives consumed by the algorithm catalog
-in Phase `9`: Algorithm class taxonomy at the type level, Policy as typed
-value, Environment / VecEnv as typed capability, replay/rollout buffers with
-`Async` write discipline.
+Stand up the local metadata primitives consumed by the Phase `9` algorithm
+catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 
 ### Deliverables
 
-- `Algorithm` class taxonomy as a GADT-indexed kind (`OnPolicy`,
-  `OffPolicy`, `Hierarchical`, `Recurrent`, `MaskingCapable`,
-  `ContinuousAction`, `DiscreteAction`, `ImageObs`, `VectorObs`). The
-  taxonomy is used at the type level to constrain algorithm-instance
-  declarations.
-- `Policy` ADT carrying the typed action distribution shape, parameter
-  references, and the substrate-bound `KernelHandle` for inference.
-- `Environment` typeclass and `VecEnv` parallel-environment combinator.
-- `Buffer` carries the replay buffer (off-policy) and rollout buffer
-  (on-policy) shapes; writes are `Async` with backpressure per
-  [../README.md → Replay-buffer write discipline under Async](../README.md#replay-buffer-write-discipline-under-async).
-- `RLRunLifecycle` GADT mirrors the SL `TrainingLifecycle` shape.
+- `AlgorithmFamily` enumerates `OnPolicy`, `OffPolicy`, `Specialized`, and
+  `SelfPlay`.
+- `RLAlgorithm` records `algorithmName`, `algorithmFamily`, and
+  `algorithmReplayBased`.
+- `algorithmCatalog` contains the current local metadata rows consumed by the
+  CLI and tests.
+- `src/JitML/RL/Framework.hs` defines the local `TrainingLifecycle`,
+  `TuneSweepLifecycle`, and RL run-plan surface.
+- Runtime `Policy`, `VecEnv`, replay/rollout buffers, and `Async` write
+  discipline remain target runtime validation.
 
 ### Validation
 
-1. `jitml-unit` exercises the type-level Algorithm taxonomy via golden
-   inhabitation tests.
-2. `jitml-integration` exercises the `Async` buffer-write discipline under
-   synthetic backpressure.
+1. `cabal test jitml-rl-canonicals` verifies the current algorithm catalog
+   contains representative expected algorithms.
+2. `jitml-unit` verifies the local run-plan rendering.
 
-## Sprint 8.5: Schedules, Distributions, Noise, Target Networks, GAE, Callbacks, Logger, Evaluator ✅
+## Sprint 8.5: RL CLI Summaries and Report Hooks ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
+`src/JitML/RL/Framework.hs`,
 `src/JitML/Test/Report.hs`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
 
-Land the per-component primitives used by every algorithm in the Phase `9`
-catalog: schedules, action distributions, action noise, target networks +
-Polyak averaging, GAE, callbacks as composable hooks, multi-sink Logger,
-Evaluator. Wire `jitml rl train` and the `rl.command.<mode>` /
-`rl.event.<mode>` Pulsar topics.
+Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 
 ### Deliverables
 
-- `Schedule` ADT (`ConstantSched`, `LinearSched`, `ExponentialSched`,
-  `PiecewiseSched`).
-- `ActionDistribution` ADT (`Categorical`, `Gaussian`, `Bernoulli`,
-  `MaskedCategorical`, `MixtureGaussian`).
-- `ActionNoise` ADT (`Gaussian`, `OrnsteinUhlenbeck`,
-  `ParameterSpaceNoise`).
-- `TargetNetwork`: typed Polyak-averaging step `polyak :: Double -> Params
-  -> Params -> Params` plus periodic-copy mode.
-- `GAE :: GAEParams -> Trajectory -> Advantages` deterministic.
-- `Callback` is a typed composable hook with `onStepEnd`, `onEpisodeEnd`,
-  `onCheckpoint` events.
-- `Logger` is a multi-sink (TensorBoard + Pulsar `rl.event.<mode>` +
-  Prometheus + stdout when `--format plain`).
-- `Evaluator` runs `RL_EVAL_EPISODES` (see [system-components.md → POC
-  Report-Card Knobs](system-components.md#poc-report-card-knobs))
-  deterministic eval episodes against the trained policy.
-- `proto/jitml/rl.proto` declares `StartRLRun`, `StopRLRun`, `EpisodeDone`,
-  `EvalDone`, `CheckpointDone`, `MetricUpdate`.
-- `jitml rl train <rl-experiment-dhall>` is Plan/Apply.
+- `jitml rl train <rl-experiment-dhall>` is registered as a Plan/Apply-capable
+  command and prints the selected experiment plus the local algorithm count
+  during normal execution.
+- `jitml rl eval --checkpoint <id>` prints the selected checkpoint.
+- `jitml rl rollout --seed <n>` prints the deterministic local trajectory from
+  `deterministicTrajectory`.
+- `src/JitML/Test/Report.hs` carries the report-card stanza list used by the
+  current test summary.
+- `src/JitML/RL/Framework.hs` declares schedules, action distributions, action
+  noise, target networks, GAE, callbacks, and evaluator metadata.
+- `proto/jitml/rl.proto` and live Pulsar codecs remain target runtime
+  validation.
 
 ### Validation
 
-1. Each primitive has a `decode . encode == id` golden.
-2. `jitml-unit` exercises GAE against a synthetic trajectory and asserts
-   bit-identical advantage arrays.
-3. `jitml rl train --dry-run` emits the typed plan.
+1. `jitml rl train --dry-run experiments/cartpole.dhall` emits the typed plan.
+2. `jitml rl rollout --seed 42` prints a deterministic local trajectory.
+3. `jitml-unit` verifies the local framework catalog and run-plan surface.
 
-## Sprint 8.6: RL Training Loops as Typed Pipelines ✅
+## Sprint 8.6: RL Training Plan Surface ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
@@ -240,45 +217,44 @@ Evaluator. Wire `jitml rl train` and the `rl.command.<mode>` /
 
 ### Objective
 
-Compose the framework primitives into typed RL training pipelines that the
-algorithm catalog (Phase `9`) plugs into.
+Expose the current RL training plan surface. Real typed RL training pipelines
+remain target runtime work.
 
 ### Deliverables
 
-- `RLLoop` GADT carrying the `RLRunLifecycle` indices and the per-stage
-  combinators (`collectRollout`, `optimisePolicy`, `optimiseValue`,
-  `updateTarget`, `evaluate`, `checkpoint`).
-- `runRLLoop :: HasEngine env => RLConfig -> ReaderT Env IO RLResult` is
-  the daemon's entrypoint into the loop.
-- `src/JitML/Service/Consumer.hs` provides the local at-least-once consumer
-  surface for RL command summaries.
+- `src/JitML/Plan/Plan.hs` renders the current `jitml rl train` plan steps.
+- `src/JitML/App.hs` dispatches `jitml rl train`, `jitml rl eval`, and
+  `jitml rl rollout` to local summaries.
+- `src/JitML/Service/Consumer.hs` provides the payload-hash deduplication
+  helper for later RL event consumers.
+- `RLLoop`, `runRLLoop`, `RLConfig`, and daemon-backed training execution are
+  not implemented in the current tree.
 
 ### Validation
 
-1. `jitml rl train experiments/rl/cartpole-ppo-baseline.dhall` reaches the
-   threshold mean episode reward inside `RL_STEPS` (see
-   [system-components.md → POC Report-Card
-   Knobs](system-components.md#poc-report-card-knobs)).
-2. The daemon's at-least-once `RlHandler` re-applies a duplicated
-   `StartRLRun` envelope idempotently.
+1. `jitml rl train --dry-run experiments/cartpole.dhall` emits the typed plan.
+2. `jitml rl train experiments/cartpole.dhall` prints the local algorithm
+   catalog summary.
+3. Reward thresholds, checkpoint/resume equality, and daemon execution remain
+   target validation.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → GADT-Indexed State Machines](../HASKELL_CLI_TOOL.md) (Sprints 8.1, 8.4, 8.6)
-- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.5)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.6)
-- [../HASKELL_CLI_TOOL.md → Capability Classes and Service Errors](../HASKELL_CLI_TOOL.md) (Sprints 8.1, 8.5 — `HasMinIO`/`HasPulsar` consumers)
-- [../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.5 — generated proto bindings)
+- [../HASKELL_CLI_TOOL.md → Command Topology](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.5 — `jitml train` and `jitml rl *` command leaves)
+- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.5, 8.6 — current dry-run / plan-file surfaces)
+- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.6 — local payload-hash deduplication helper)
+- [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprints 8.1, 8.3, 8.4 — dedicated local `jitml-sl-canonicals` and `jitml-rl-canonicals` bodies)
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/training_workloads.md` — populate the SL training
-  loop, canonical SL problem set with thresholds, RL framework primitive
-  catalog, and the `jitml train` / `jitml rl train` CLI surface.
-- `documents/engineering/daemon_architecture.md` — link to the at-least-once
-  `TrainingHandler` and `RlHandler`.
+- `documents/engineering/training_workloads.md` — current local SL canonical
+  summaries, RL algorithm metadata hooks, deterministic trajectory helper, and
+  `jitml train` / `jitml rl train` summary surfaces; target training loops and
+  environment runtime work.
+- `documents/engineering/daemon_architecture.md` — local payload-hash
+  deduplication helper; target at-least-once `TrainingHandler` and `RlHandler`.
 
 **Product docs to create/update:**
 

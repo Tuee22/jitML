@@ -3,6 +3,7 @@
 module JitML.Observability.TensorBoard
   ( TensorBoardEvent (..)
   , canonicalProjection
+  , checkpointSidecarKey
   , renderTensorBoardDeployment
   , shardKey
   )
@@ -28,6 +29,16 @@ canonicalProjection =
 shardKey :: Text -> Int -> Text
 shardKey experimentHash shardSeq =
   "jitml-tensorboard/" <> experimentHash <> "/events/" <> Text.pack (show shardSeq) <> ".tfevents"
+
+checkpointSidecarKey :: Text -> Int -> Text -> Text
+checkpointSidecarKey experimentHash step manifestSha =
+  "jitml-tensorboard/"
+    <> experimentHash
+    <> "/checkpoints/"
+    <> Text.pack (show step)
+    <> "-"
+    <> manifestSha
+    <> ".cbor"
 
 renderTensorBoardDeployment :: Text
 renderTensorBoardDeployment =

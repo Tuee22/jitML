@@ -13,35 +13,38 @@
 **Generated sections**: none
 
 > **Purpose**: Stand up the PureScript frontend surface under `web/`, the
-> generated browser contracts from `src/JitML/Web/Contracts.hs`, the Playwright
-> scaffold, the demo deployment template, and the `jitml-demo` executable shim.
-> The target architecture later expands this into Halogen panels, REST/WS
-> handlers, bundle output, and a real HTTP server.
+> generated browser contracts from `src/JitML/Web/Contracts.hs`, typed bundle
+> and panel metadata from `src/JitML/Web/Bundle.hs`, the Playwright scaffold,
+> the demo deployment template, and the `jitml-demo` executable shim. The target
+> architecture later expands this into Halogen panels, REST/WS handlers, a
+> compiled browser bundle, and a real HTTP server.
 
 ## Phase Status
 
-✅ **Done** for the local PureScript shell, generated browser contracts, demo
-shim, Playwright scaffold, and contract-style test surface. The frontend's REST
-surfaces consume the inference-only read path; the demo HTTP server
+✅ **Done** for the local PureScript shell, generated browser contracts, typed
+bundle/panel metadata, demo shim, Playwright scaffold, and contract-style test
+surface. The frontend's REST surfaces consume the inference-only read path; the
+demo HTTP server
 (`jitml-demo`) is the sibling binary that shares the `src/JitML/` library.
 
 ### Current Implementation Scope
 
 The current worktree implements a minimal PureScript entrypoint, generated
-contract file, `web/package.json` script surface, `web/test/Main.purs`,
-Playwright spec scaffold, `jitml-demo` executable shim, and demo deployment
-template. It does not include a Halogen dependency, purescript-bridge generator
-dependency, active `trackingGeneratedPaths` entry for
-`web/src/Generated/Contracts.purs`, real interactive panels, browser bundle
-output, REST handlers, WebSocket handlers, or an HTTP server in `jitml-demo`.
+contract file, typed bundle/panel metadata, `web/package.json` script surface,
+`web/test/Main.purs`, Playwright spec scaffold, `jitml-demo` executable shim,
+and demo deployment template. It does not include a Halogen dependency, external
+`purescript-bridge` package dependency, active `trackingGeneratedPaths` entry for
+`web/src/Generated/Contracts.purs`, compiled browser bundle output, REST
+handlers, WebSocket handlers, or an HTTP server in `jitml-demo`.
 
 ## Phase Summary
 
 This phase delivers the browser-side shell: generated browser contracts from
-typed Haskell ADTs in `src/JitML/Web/Contracts.hs`, a PureScript entrypoint
-under `web/src/`, a contract smoke test under `web/test/`, a Playwright
-scaffold under `playwright/`, and the `jitml-demo` sibling binary that serves
-the generated frontend contract surface. The PureScript stack is
+typed Haskell ADTs in `src/JitML/Web/Contracts.hs`, typed bundle/panel metadata
+in `src/JitML/Web/Bundle.hs`, a PureScript entrypoint under `web/src/`, a
+contract smoke test under `web/test/`, a Playwright scaffold under
+`playwright/`, and the `jitml-demo` sibling binary that currently prints the
+generated-frontend status line. The PureScript stack is
 project-specific; command and build invocations are represented through the
 typed `Subprocess` boundary from Phase `1`.
 
@@ -59,8 +62,7 @@ surface.
 ### Deliverables
 
 - `web/package.json` declares the local frontend script surface.
-- `web/src/Main.purs` boots the PureScript shell and imports the generated
-  contracts.
+- `web/src/Main.purs` is the minimal PureScript shell entrypoint.
 - The frontend scaffold keeps build and test commands outside the Haskell
   library while the CLI owns command rendering.
 
@@ -81,9 +83,9 @@ surface.
 ### Objective
 
 Stand up the browser-contract ADTs in `src/JitML/Web/Contracts.hs` and the
-local renderer that produces `web/src/Generated/Contracts.purs`. The
-`purescript-bridge` dependency and active generated-path tracking entry remain
-target follow-up work.
+local renderer that produces `web/src/Generated/Contracts.purs`. The external
+`purescript-bridge` package is not required for the current local renderer;
+active generated-path tracking remains target follow-up work.
 
 ### Deliverables
 
@@ -92,6 +94,8 @@ target follow-up work.
   `MetricsStream`.
 - `src/JitML/Web/Contracts.hs` renders `web/src/Generated/Contracts.purs`
   through the local `renderPureScriptContracts` helper.
+- `contractGeneratorName` identifies the local bridge-compatible renderer used
+  by the current contract surface.
 - `web/src/Generated/Contracts.purs` remains listed under
   `futureTrackingGeneratedPathPatterns`; active drift detection is not present
   yet.
@@ -102,7 +106,7 @@ target follow-up work.
 2. `jitml-purescript-style` verifies the generated contract file exists and
    names the expected endpoint surface.
 
-## Sprint 11.3: `jitml-purescript-style` Stanza (`purescript-spec` + `purs format`) ✅
+## Sprint 11.3: `jitml-purescript-style` Generated-Contract Smoke Stanza ✅
 
 **Status**: Done
 **Implementation**: `web/test/Main.purs`, `test/purescript-style/`,
@@ -112,72 +116,62 @@ target follow-up work.
 
 ### Objective
 
-Keep `jitml-purescript-style` as the Lint (project-specific) stanza per
-doctrine §Test Organization's
-project-specific stanzas allowance — bundling the PureScript `purs format`
-round-trip with the `purescript-spec` smoke tests, both run through the typed
-`Subprocess` boundary.
+Keep `jitml-purescript-style` as the current local generated-contract smoke
+stanza. The target PureScript `purs format` round-trip and `purescript-spec`
+panel tests remain future work.
 
 ### Deliverables
 
-- `web/test/Main.purs` boots the spec runner.
-- One test module per panel exercises the typed event handling against
-  fixture payloads.
-- `purs format` round-trip lint asserts every `web/src/**/*.purs` and
-  `web/test/**/*.purs` file is unchanged by `purs format` (temp-file
-  round-trip byte equality, mirroring the `cabal format` discipline in the
-  `jitml-haskell-style` stanza).
-- The `jitml-purescript-style` Cabal stanza shells out to `spago test` and
-  `purs format` through the typed `Subprocess` boundary.
+- `web/test/Main.purs` is present as a minimal PureScript test entrypoint.
+- `test/purescript-style/Main.hs` verifies
+  `web/src/Generated/Contracts.purs` exists and names the expected endpoint
+  surface.
+- The stanza also checks `renderPureScriptContracts` emits the PureScript
+  module header.
+- It does not currently invoke `spago test`, `purs format`, `purs-tidy`, or
+  `purescript-spec`.
 
 ### Validation
 
-1. `cabal test jitml-purescript-style` exits `0`.
-2. The panel tests use only the generated contract types — hand-defined
-   shapes are forbidden.
-3. Introducing any non-formatted PureScript source fails the round-trip
-   check with a structured diagnostic.
+1. `cabal test jitml-purescript-style` exits `0` for the current smoke body.
+2. Missing generated-contract output fails the stanza.
+3. PureScript formatter and panel-spec validation remain target work.
 
-## Sprint 11.4: Interactive Panels and REST Surfaces ✅
+## Sprint 11.4: Interactive Endpoint Contract Surface ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/Web/Contracts.hs`,
+`src/JitML/Web/Bundle.hs`,
 `web/src/Main.purs`, `web/src/Generated/Contracts.purs`
 **Docs to update**: `documents/engineering/purescript_frontend.md`
 
 ### Objective
 
-Land the interactive panels and the REST + WebSocket surfaces they consume:
-- training-run lifecycle (start/pause/stop, live metric stream),
-- live MNIST inference (touchpad input → inference response),
-- CIFAR/ImageNet upload (image → top-K labels),
-- AlphaZero-vs-human Connect 4,
-- RL trajectory render (live episode replay).
+Land the current endpoint-contract metadata and typed panel/bundle manifest that
+the future interactive panels will consume. No live REST handlers or WebSocket
+handlers exist in the current tree.
 
 ### Deliverables
 
-- `Mnist.purs` exposes a touchpad canvas; on stroke commit, posts to
-  `/api/inference/mnist` and renders the top-K classes.
-- `Cifar.purs` exposes a file-upload widget; posts to
-  `/api/inference/cifar` (or `/api/inference/imagenet`) and renders the
-  classification.
-- `Connect4.purs` exposes the game board, posts moves to
-  `/api/games/connect4/move`, receives the AlphaZero policy via
-  `/api/games/connect4/move` response (which references a checkpoint
-  manifest SHA per [../README.md → AlphaZero-style self-play and persistent
-  MCTS state](../README.md#alphazero-style-self-play-and-persistent-mcts-state)).
-- `Rl.purs` subscribes to `/api/ws` (Pulsar `rl.event.<mode>` proxied) and
-  renders trajectory frames.
-- `Training.purs` subscribes to `training.event.<mode>` for live curves.
-- `Tune.purs` subscribes to `tune.event.<mode>` for live trial telemetry.
-- `src/JitML/Web/Contracts.hs` declares the REST/WebSocket endpoint contract
-  that `jitml-demo` and the PureScript shell share.
+- `src/JitML/Web/Contracts.hs` declares endpoint metadata for `RunCommand`,
+  `InferenceRun`, `UploadImage`, `Connect4Move`, and `MetricsStream`.
+- `src/JitML/Web/Bundle.hs` declares the local bundle asset manifest and panel
+  surfaces for MNIST inference, image upload, Connect 4, and RL trajectory
+  rendering.
+- `web/src/Generated/Contracts.purs` contains the generated local PureScript
+  contract output.
+- `test/e2e/Main.hs` checks the browser contract endpoint count.
+- `Mnist.purs`, `Cifar.purs`, `Connect4.purs`, `Rl.purs`, `Training.purs`,
+  `Tune.purs`, REST handlers, and WebSocket handlers remain target runtime
+  validation.
 
 ### Validation
 
-1. `purescript-spec` exercises each panel's event handling against fixture
-   payloads.
-2. The REST handlers round-trip through the generated contract types.
+1. `cabal test jitml-e2e` validates the current browser contract endpoint
+   count.
+2. `cabal test jitml-purescript-style` validates the generated contract file
+   exists.
+3. `jitml-unit` verifies the local bundle and panel metadata.
 
 ## Sprint 11.5: `jitml-demo` Executable Shim ✅
 
@@ -234,11 +228,11 @@ Land the Playwright scaffold for the future interactive panel suite.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (every sprint — every `spago` / `npm` / Playwright invocation flows through `Subprocess`)
+- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (target frontend tool invocations flow through `Subprocess`; current checked-in bodies are local smoke tests)
 - [../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) (Sprint 11.2 — generated PureScript contracts)
 - [../HASKELL_CLI_TOOL.md → Project Structure](../HASKELL_CLI_TOOL.md) (Sprint 11.5 — six-line `app/Demo.hs` shim)
-- [../HASKELL_CLI_TOOL.md → Application Environment](../HASKELL_CLI_TOOL.md) (Sprint 11.5 — demo server uses `Env`)
-- [../HASKELL_CLI_TOOL.md → Test Categories](../HASKELL_CLI_TOOL.md) (Sprint 11.3 — Lint (project-specific) via `jitml-purescript-style`; Sprint 11.6 — Playwright belongs to the Pulumi-Orchestrated Infrastructure category via `jitml-e2e`)
+- [../HASKELL_CLI_TOOL.md → Application Environment](../HASKELL_CLI_TOOL.md) (target demo server uses `Env`; current `demoMain` is a status-line shim)
+- [../HASKELL_CLI_TOOL.md → Test Categories](../HASKELL_CLI_TOOL.md) (Sprint 11.3 — local project-specific smoke stanza via `jitml-purescript-style`; Sprint 11.6 — Playwright scaffold belongs to the target Pulumi-Orchestrated Infrastructure category via `jitml-e2e`)
 - [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprint 11.3 — project-specific stanza under §Test Organization → project-specific stanzas)
 
 ## Documentation Requirements
@@ -246,17 +240,19 @@ Land the Playwright scaffold for the future interactive panel suite.
 **Engineering docs to create/update:**
 
 - `documents/engineering/purescript_frontend.md` — current minimal PureScript
-  shell, local contract renderer, demo shim, and Playwright scaffold; target
-  Halogen, `purescript-bridge`, panel, REST / WS, and bundle surfaces.
+  shell, local contract renderer, bundle/panel metadata, demo shim, and
+  Playwright scaffold; target Halogen, REST / WS, compiled bundle, and live
+  panel surfaces.
 - `documents/engineering/code_quality.md` — note that
   `web/src/Generated/Contracts.purs` is still only a
   `futureTrackingGeneratedPathPatterns` entry.
 - `documents/engineering/daemon_architecture.md` — `jitml-demo` server
   shape and its place in the deployment.
 - `documents/engineering/unit_testing_policy.md` — Playwright belongs to
-  the doctrine's Pulumi-Orchestrated Infrastructure test category and runs
-  inside the `jitml-e2e` stanza; PureScript lint + `purescript-spec` smoke
-  tests are owned by the `jitml-purescript-style` stanza (Sprint `11.3`).
+  the doctrine's target Pulumi-Orchestrated Infrastructure test category and
+  is scaffolded for `jitml-e2e`; the current PureScript generated-contract
+  smoke checks are owned by the `jitml-purescript-style` stanza (Sprint
+  `11.3`).
 
 **Product docs to create/update:**
 

@@ -93,22 +93,23 @@ AlphaZero Connect 4 helpers, and hyperparameter trial sequences. The target
 runtime grows these into daemon-backed SL/RL/AlphaZero training loops and
 Pulsar/MinIO-backed hyperparameter sweeps.
 
-The current checkpoint surface provides a typed manifest, simplified `.jmw1`
-encoder, manifest pointer renderer, and deterministic inference summary. The
-current frontend surface provides a minimal PureScript entrypoint plus generated
-contract file from `src/JitML/Web/Contracts.hs`; the target runtime adds the
-real demo HTTP server, panel implementations, and full checkpoint read path.
+The current checkpoint surface provides a typed manifest, split-blob object-key
+renderers, pointer-CAS decisions, simplified `.jmw1` encoder, manifest pointer
+renderer, and deterministic inference summary. The current frontend surface
+provides a minimal PureScript entrypoint plus generated contract file from
+`src/JitML/Web/Contracts.hs` and typed bundle/panel metadata from
+`src/JitML/Web/Bundle.hs`; the target runtime adds the real demo HTTP server and
+full checkpoint read path.
 
-`jitml test all --dry-run` renders the aggregate test plan and `jitml test all`
-renders the current report-card summary. The target runner invokes every Cabal
-test-suite stanza (`jitml-unit`,
+`jitml test all --dry-run` renders the aggregate test plan and non-dry-run
+`jitml test all` invokes every Cabal test-suite stanza (`jitml-unit`,
 `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
 `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
-`jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style`) with the
-report-card knobs pinned in `cabal.project`. The `jitml-e2e` stanza
-eventually orchestrates an ephemeral Kind stack via the Pulumi TypeScript
-program at `infra/pulumi/`; the current Pulumi program exports stack metadata
-only.
+`jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style`) through the typed
+`Subprocess` boundary before printing the report-card summary. The report-card
+knobs are pinned in `cabal.project`. The `jitml-e2e` stanza eventually
+orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
+`infra/pulumi/`; the current Pulumi program exports stack metadata only.
 
 ## Architecture Overview
 
@@ -174,8 +175,9 @@ only.
 - **`jitml service` daemon.** Current local daemon surface: `BootConfig` /
   `LiveConfig` renderers, lifecycle phases, pure endpoint responses, structured
   JSON log rendering, service error/retry helpers, payload-hash deduplication,
-  and stateless `Deployment` rendering. A real long-running HTTP/Pulsar daemon,
-  SIGHUP handling, and capability classes remain target runtime work. Owned by
+  SIGHUP reload decisions, capability-class boundaries, and stateless
+  `Deployment` rendering. A real long-running HTTP/Pulsar daemon and live
+  client wiring remain target runtime validation. Owned by
   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md).
 - **Numerical core.** Local Haskell layer catalog (Dense, Conv1D, Conv2D, Conv3D,
   ConvTranspose, BatchNorm, LayerNorm, GroupNorm, Dropout, ResidualBlock,
@@ -199,36 +201,39 @@ only.
   [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md).
 - **Supervised learning and RL framework.** Current local summaries under
   `src/JitML/SL/` and `src/JitML/RL/` provide canonical SL problem curves, RL
-  algorithm catalog rows, and deterministic trajectory helpers. Real datasets,
-  environments, buffers, callbacks, target networks, GAE, and daemon-backed
-  training loops remain target work. Owned by
+  algorithm catalog rows, canonical RL environment metadata, framework run-plan
+  metadata, and deterministic trajectory helpers. Real datasets, buffers, and
+  daemon-backed training loops remain target runtime validation. Owned by
   [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md).
 - **RL algorithm catalog, AlphaZero, hyperparameter tuning.** Current local
   catalog covers PPO through AlphaZero as metadata rows, Connect 4 transcript
-  helpers, and deterministic tuning trial sequences for Sobol/random/GA/ES ×
-  Fifo/SuccessiveHalving/Hyperband/ASHA × none/median/percentile. Real algorithm
-  modules, persistent MCTS search, trial storage, and resume remain target work.
-  Owned by
+  helpers, canonical perfect-information game metadata, arena summary helpers,
+  deterministic tuning trial sequences, and local trial resume summaries for
+  Sobol/random/GA/ES × Fifo/SuccessiveHalving/Hyperband/ASHA ×
+  none/median/percentile. Real algorithm modules, persistent MCTS search, and
+  live trial persistence remain target runtime validation. Owned by
   [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md).
 - **Checkpointing and inference-only read path.** Current local format surface:
-  a small typed manifest, simplified `.jmw1` text encoder, manifest pointer, and
-  deterministic `inferFromManifest` helper. Full split-blob layout, canonical
-  CBOR, MinIO write-once/CAS, retention, and real kernel-handle loading remain
-  target work. Owned by
+  a small typed manifest, split-blob object-key renderers, pointer-CAS decision
+  surface, simplified `.jmw1` text encoder, manifest pointer, and deterministic
+  `inferFromManifest` helper. Canonical CBOR, live MinIO effects, retention, and
+  real kernel-handle loading remain target runtime validation. Owned by
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Current local surface: minimal PureScript
   entrypoint, generated contract file from `src/JitML/Web/Contracts.hs`,
-  `web/test/` smoke file, Playwright scaffold, `jitml-demo` executable shim, and
-  demo deployment template. Halogen, `purescript-bridge`, real panels, REST/WS
-  handlers, bundle output, and HTTP serving remain target work. Owned by
+  typed bundle/panel metadata from `src/JitML/Web/Bundle.hs`, `web/test/` smoke
+  file, Playwright scaffold, `jitml-demo` executable shim, and demo deployment
+  template. Halogen, REST/WS handlers, compiled bundle output, and HTTP serving
+  remain target runtime validation. Owned by
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
 - **Test stanzas, lint matrix, cross-cluster parity.** Ten Cabal test-suite
   stanzas, each `type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner:
   `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
   `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`,
   `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`,
-  `jitml-purescript-style`. Current `jitml test all` renders the Plan/Apply
-  test plan or report-card summary; the target runner delegates to `cabal test`.
+  `jitml-purescript-style`. Current `jitml test all --dry-run` renders the
+  Plan/Apply test plan; non-dry-run `jitml test all` delegates to `cabal test`
+  and prints the report-card summary after Cabal succeeds.
   The current Pulumi TypeScript program at `infra/pulumi/` exports metadata; the
   target e2e program becomes the ephemeral-Kind orchestrator that the
   `jitml-e2e` stanza calls through the typed `Subprocess` boundary. The seven
@@ -464,11 +469,11 @@ authoritative section that pins each constraint.
     `jitml-checkpoints`. Optimizer state (Adam moments, RMSProp accumulators)
     lives as a separate checkpoint part.
 31. The PureScript browser-contract ADTs live in `src/JitML/Web/Contracts.hs`.
-    The current worktree uses a local renderer for
-    `web/src/Generated/Contracts.purs`; the target generator is
-    `purescript-bridge`. Active `trackingGeneratedPaths` protection for the
-    generated contract file remains target work; today the path is still listed
-    under `futureTrackingGeneratedPathPatterns`.
+    The current worktree uses a local bridge-compatible renderer for
+    `web/src/Generated/Contracts.purs` and `src/JitML/Web/Bundle.hs` records
+    the bundle/panel metadata. Active `trackingGeneratedPaths` protection for
+    the generated contract file remains target validation; today the path is
+    still listed under `futureTrackingGeneratedPathPatterns`.
 32. `fourmolu.yaml` at repo root pins the twelve doctrine-mandated settings; the
     `jitml-haskell-style` stanza enforces them plus `cabal format` temp-file
     round-trip byte-equality.

@@ -12,9 +12,9 @@
 
 ## Storage Layout
 
-The `jitml-checkpoints` MinIO bucket uses a fixed prefix schema, owned by
-`src/JitML/Storage/Layout.hs` so paths are typed values rather than stringly-
-typed call sites:
+The `jitml-checkpoints` MinIO bucket uses a fixed prefix schema. The current
+local key renderers live in `src/JitML/Checkpoint/Format.hs` so paths are typed
+values rather than stringly-typed call sites:
 
 ```
 jitml-checkpoints/
@@ -30,6 +30,10 @@ jitml-checkpoints/
 
 `experiment-hash = sha256(resolved-dhall || graph-shape-hash)`.
 `manifest-sha = sha256(canonical-cbor(CheckpointManifest))`.
+
+Current local helpers cover `blobKey`, `manifestKey`, `latestPointerKey`,
+`bestPointerKey`, `trialPointerKey`, and pure `applyPointerWrite` CAS decisions.
+Live MinIO `If-None-Match` / `If-Match` effects remain in the runtime writer.
 
 ## Three Object Classes, Two Write Protocols
 
@@ -226,6 +230,9 @@ CBOR canonical-form, content-addressed-style, written with `If-None-Match:
 *`. The PureScript frontend lists the `checkpoints/` prefix once at panel-
 load and overlays clickable markers on the TB iframe's loss curve — clicking
 opens the inference panel pre-loaded with that manifest SHA.
+
+The current local sidecar path renderer is
+`JitML.Observability.TensorBoard.checkpointSidecarKey`.
 
 ## Bit-Determinism
 

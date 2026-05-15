@@ -62,6 +62,13 @@ Consumer](daemon_architecture.md#at-least-once-pulsar-consumer).
 Machines`, `RLRunLifecycle` (`Loaded → Ready → Collecting → Optimising →
 Evaluating → Checkpointing → Finished`) is the typed lifecycle.
 
+Current local surfaces live in `src/JitML/RL/Algorithms.hs`,
+`src/JitML/RL/Environments.hs`, `src/JitML/RL/Framework.hs`, and
+`src/JitML/RL/AlphaZero.hs`. They provide deterministic catalog, environment,
+run-plan, lifecycle, Connect 4 transcript, canonical-game, two-headed-network,
+and arena-summary helpers. The fuller target module split below is the runtime
+layout the daemon-backed implementation grows into.
+
 ### Algorithm Class Taxonomy (Type-Level)
 
 `Algorithm` is a GADT-indexed kind with traits:
@@ -236,6 +243,10 @@ Trial transcripts are written to MinIO bucket `jitml-trials`, content-
 addressed by `sha256(resolved-dhall || trial-seed)`. Resume reads existing
 trials, recomputes the sampler state, continues from the correct trial
 index.
+
+The current local surface in `src/JitML/Tune/Catalog.hs` exposes
+`trialStorageKey`, `resumeMatchesFullRun`, and `renderTrialResumeSummary` for
+deterministic key and resume-equality checks before the live MinIO writer lands.
 
 ### `jitml tune` CLI
 

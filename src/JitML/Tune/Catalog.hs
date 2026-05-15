@@ -1,13 +1,22 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JitML.Tune.Catalog
   ( Pruner (..)
   , Sampler (..)
   , Scheduler (..)
+  , TrialTranscript (..)
   , deterministicTrials
   , prunerCatalog
+  , renderTrialResumeSummary
+  , resumeMatchesFullRun
   , samplerCatalog
   , schedulerCatalog
+  , trialStorageKey
   )
 where
+
+import Data.Text (Text)
+import Data.Text qualified as Text
 
 data Sampler
   = Sobol
@@ -27,6 +36,13 @@ data Pruner
   = NoPruner
   | MedianPruner
   | PercentilePruner
+  deriving stock (Eq, Show)
+
+data TrialTranscript = TrialTranscript
+  { transcriptExperimentHash :: Text
+  , transcriptTrialSeed :: Int
+  , transcriptValues :: [Double]
+  }
   deriving stock (Eq, Show)
 
 samplerCatalog :: [Sampler]
@@ -57,3 +73,22 @@ seed Sobol = 11
 seed Random = 23
 seed GeneticAlgorithm = 37
 seed EvolutionStrategies = 41
+
+trialStorageKey :: Text -> Int -> Text
+trialStorageKey experimentHash trialSeed =
+  "jitml-trials/" <> experimentHash <> "/" <> Text.pack (show trialSeed) <> "/transcript.cbor"
+
+resumeMatchesFullRun :: Sampler -> Int -> Int -> Bool
+resumeMatchesFullRun sampler completed total =
+  let prefix = take completed (deterministicTrials sampler total)
+      resumed = prefix <> drop completed (deterministicTrials sampler total)
+   in resumed == deterministicTrials sampler total
+
+renderTrialResumeSummary :: Sampler -> Int -> Int -> Text
+renderTrialResumeSummary sampler completed total =
+  Text.unlines
+    [ "sampler: " <> Text.pack (show sampler)
+    , "completed_trials: " <> Text.pack (show completed)
+    , "total_trials: " <> Text.pack (show total)
+    , "resume_matches_full_run: " <> Text.pack (show (resumeMatchesFullRun sampler completed total))
+    ]

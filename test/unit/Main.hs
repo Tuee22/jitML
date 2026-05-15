@@ -49,9 +49,11 @@ import JitML.Cache.Key qualified as Cache
 import JitML.Cache.Layout qualified as CacheLayout
 import JitML.Cache.Manifest qualified as CacheManifest
 import JitML.Cache.Symlink qualified as CacheSymlink
+import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env (..), OutputFormat (..))
+import JitML.Observability.TensorBoard qualified as TensorBoard
 import JitML.Plan.Apply (writePlanFile)
 import JitML.Plan.Plan (buildCommandPlan)
 import JitML.Plan.Render (renderPlan)
@@ -73,9 +75,18 @@ import JitML.Prerequisite.Registry
   , syntheticMissingPrerequisite
   )
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
+import JitML.RL.AlphaZero qualified as AlphaZero
+import JitML.RL.Environments qualified as RLEnvironments
+import JitML.RL.Framework qualified as RLFramework
+import JitML.Service.Capabilities qualified as Capabilities
+import JitML.Service.HotReload qualified as HotReload
+import JitML.Service.LiveConfig qualified as LiveConfig
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
+import JitML.Tune.Catalog qualified as Tune
+import JitML.Web.Bundle qualified as WebBundle
+import JitML.Web.Contracts qualified as WebContracts
 
 newtype CommandSchema = CommandSchema
   { schemaCommands :: [Value]
@@ -549,6 +560,57 @@ main =
             toFilePath (envCacheDir env) @?= dir </> "cli-build/"
             envFormat env @?= OutputJson
             unsetEnv "JITML_BUILD_DIR"
+      , testCase "service hot reload increments only on config changes" $ do
+          let initial = HotReload.initialSnapshot LiveConfig.defaultLiveConfig
+          HotReload.handleSighupReload initial LiveConfig.defaultLiveConfig
+            @?= HotReload.ReloadIgnored "live config unchanged"
+          case HotReload.handleSighupReload
+            initial
+            LiveConfig.defaultLiveConfig {LiveConfig.liveInferenceBatchSize = 128} of
+            HotReload.ReloadIgnored reason -> assertFailure (Text.unpack reason)
+            HotReload.ReloadApplied snapshot -> HotReload.snapshotGeneration snapshot @?= 1
+      , testCase "service capability classes are named in the local surface" $
+          Capabilities.capabilityNames
+            @?= ["HasMinIO", "HasPulsar", "HasHarbor", "HasKubectl"]
+      , testCase "canonical RL environments and framework surfaces are deterministic" $ do
+          fmap RLEnvironments.environmentName RLEnvironments.canonicalEnvironments
+            @?= ["cartpole", "mountain-car", "lunar-lander", "atari-subset"]
+          case RLEnvironments.canonicalEnvironments of
+            [] -> assertFailure "missing canonical environments"
+            environment : _ ->
+              RLEnvironments.deterministicStep environment 7 1
+                @?= RLEnvironments.deterministicStep environment 7 1
+          fmap RLFramework.renderRunPhase RLFramework.rlRunPlan
+            @?= ["collect", "compute-advantages", "optimise", "evaluate", "checkpoint"]
+      , testCase "AlphaZero catalog includes games, two-headed network, and arena summary" $ do
+          fmap AlphaZero.pigName AlphaZero.canonicalGames
+            @?= ["connect4", "othello", "hex", "gomoku"]
+          AlphaZero.policyHeadSize AlphaZero.connect4Network @?= 7
+          AlphaZero.arenaWinRate (AlphaZero.ArenaSummary 3 1 0) @?= 0.75
+      , testCase "tuning trial storage and resume summary are deterministic" $ do
+          Tune.trialStorageKey "exp-a" 42 @?= "jitml-trials/exp-a/42/transcript.cbor"
+          Tune.resumeMatchesFullRun Tune.Sobol 3 8 @?= True
+      , testCase "checkpoint split-blob keys and pointer CAS are deterministic" $ do
+          Checkpoint.blobKey "exp-a" "sha-a" @?= "jitml-checkpoints/exp-a/blobs/sha-a"
+          Checkpoint.manifestKey "exp-a" "sha-m" @?= "jitml-checkpoints/exp-a/manifests/sha-m.cbor"
+          Checkpoint.latestPointerKey "exp-a" @?= "jitml-checkpoints/exp-a/pointers/latest"
+          let write =
+                Checkpoint.PointerWrite
+                  { Checkpoint.pointerWriteKey = Checkpoint.latestPointerKey "exp-a"
+                  , Checkpoint.pointerWriteExpectedETag = Just "etag-a"
+                  , Checkpoint.pointerWriteManifestSha = "sha-m"
+                  }
+          Checkpoint.applyPointerWrite (Just "etag-a") write
+            @?= Checkpoint.PointerWritten "sha-m"
+          Checkpoint.applyPointerWrite (Just "etag-b") write
+            @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp-a")
+      , testCase "TensorBoard checkpoint sidecar keys are stable" $
+          TensorBoard.checkpointSidecarKey "exp-a" 12 "sha-m"
+            @?= "jitml-tensorboard/exp-a/checkpoints/12-sha-m.cbor"
+      , testCase "frontend bundle and panel surfaces cover the demo panels" $ do
+          fmap WebBundle.panelName WebBundle.panelSurfaces
+            @?= ["mnist-live-inference", "image-upload", "connect4-human-vs-alphazero", "rl-trajectory"]
+          WebContracts.contractGeneratorName @?= "local-purescript-bridge-compatible-renderer"
       ]
 
 takeFileNameCompat :: FilePath -> FilePath

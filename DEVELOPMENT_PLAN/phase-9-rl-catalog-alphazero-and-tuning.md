@@ -44,7 +44,7 @@ surfaces into one module per algorithm, a persistent AlphaZero/MCTS sub-stack,
 and a typed sweep manager that drives SL, RL, or AlphaZero training under a
 sampler × scheduler × pruner Dhall.
 
-## Sprint 9.1: On-Policy Algorithms (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO) ✅
+## Sprint 9.1: On-Policy Algorithm Metadata ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
@@ -53,27 +53,22 @@ sampler × scheduler × pruner Dhall.
 
 ### Objective
 
-Land the on-policy family with golden trajectory fixtures.
+Land the current on-policy algorithm metadata rows. Real algorithm modules,
+Dhall schemas, and golden trajectory fixtures remain target work.
 
 ### Deliverables
 
-- One module per algorithm; each declares its `Algorithm` instance against
-  the type-level taxonomy from Sprint `8.4`.
-- Each module provides `algorithmStep :: AlgoConfig -> RolloutBuffer ->
-  Policy -> ReaderT Env IO (Policy, Metrics)`.
-- Per-algorithm Dhall type at `dhall/rl/algos/<algo>.dhall`.
-- Golden trajectory fixtures under `test/golden/rl/<algo>/<env>/curve.cbor`
-  for the canonical `(algo, env)` pairs (e.g., `ppo/cartpole`,
-  `a2c/lunarlander`).
+- `algorithmCatalog` includes on-policy rows for `PPO`, `A2C`, `TRPO`,
+  `MaskablePPO`, and `RecurrentPPO`.
+- Each row records the `OnPolicy` family and `algorithmReplayBased = False`.
+- `renderAlgorithmCatalog` renders the table from the local metadata list.
 
 ### Validation
 
-1. `jitml rl train experiments/rl/<algo>-<env>.dhall` reaches the threshold
-   mean episode reward.
-2. Same-substrate same-seed runs produce bit-identical metric trajectories
-   matching the golden curve.
+1. `cabal test jitml-rl-canonicals` verifies representative catalog entries.
+2. Live reward thresholds and trajectory fixtures remain target validation.
 
-## Sprint 9.2: Off-Policy Algorithms (DQN, QR-DQN, DDPG, TD3, SAC) ✅
+## Sprint 9.2: Off-Policy Algorithm Metadata ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
@@ -82,25 +77,22 @@ Land the on-policy family with golden trajectory fixtures.
 
 ### Objective
 
-Land the off-policy family.
+Land the current off-policy algorithm metadata rows.
 
 ### Deliverables
 
-- One module per algorithm; each declares its `Algorithm` instance.
-- Replay-buffer integration via the `Async` write discipline from Sprint
-  `8.4`.
-- Per-algorithm Dhall type and golden trajectory fixtures.
+- `algorithmCatalog` includes off-policy rows for `DQN`, `QR-DQN`, `DDPG`,
+  `TD3`, and `SAC`.
+- Each row records the `OffPolicy` family and `algorithmReplayBased = True`.
+- Replay buffers, algorithm-specific modules, Dhall types, and golden
+  trajectory fixtures are not present in the current tree.
 
 ### Validation
 
-1. Each `(algo, env)` reaches the threshold mean episode reward.
-2. Bit-identical same-substrate same-seed determinism holds for at least
-   `RL_STEPS / 10` initial steps (full-run determinism for off-policy
-   algorithms is sensitive to scheduler order; the golden anchor is the
-   first-N-steps prefix per
-   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)).
+1. `algorithmCatalog` exposes the five checked-in off-policy rows.
+2. Off-policy training determinism remains target validation.
 
-## Sprint 9.3: Specialised Algorithms (CrossQ, TQC, ARS, HER) ✅
+## Sprint 9.3: Specialised Algorithm Metadata ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
@@ -109,25 +101,21 @@ Land the off-policy family.
 
 ### Objective
 
-Land the specialised family: CrossQ (no target network), TQC (truncated
-quantile critics), ARS (augmented random search), HER (hindsight experience
-replay).
+Land the current specialised algorithm metadata rows.
 
 ### Deliverables
 
-- One module per algorithm; each declares its `Algorithm` instance.
-- HER plugs into the off-policy buffers from Sprint `9.2` as a typed wrapper.
-- Per-algorithm Dhall type and golden trajectory fixtures.
-- The fully-populated catalog table is generated into
-  `documents/engineering/training_workloads.md` under marker key
-  `training.rl.catalog`.
+- `algorithmCatalog` includes specialised rows for `CrossQ`, `TQC`, `ARS`,
+  and `HER`.
+- `CrossQ`, `TQC`, and `HER` are marked replay-based; `ARS` is not.
+- Generated training-workload catalog tables remain target work.
 
 ### Validation
 
-1. Each `(algo, env)` reaches the threshold mean episode reward.
-2. The generated catalog table matches the in-code enumeration.
+1. `algorithmCatalog` exposes the four checked-in specialised rows.
+2. Generated catalog-table validation remains target work.
 
-## Sprint 9.4: RL Golden Tests in `jitml-unit` and `jitml-integration` ✅
+## Sprint 9.4: Local RL Canonical Tests ✅
 
 **Status**: Done
 **Implementation**: `test/unit/Main.hs`, `test/integration/Main.hs`,
@@ -136,23 +124,24 @@ replay).
 
 ### Objective
 
-Stitch the golden trajectory fixtures from Sprints `9.1`–`9.3` into the
-`jitml-unit` and `jitml-integration` stanzas (Phase `12`).
+Stitch the current RL metadata and deterministic trajectory helper into the
+dedicated local RL canonical stanza.
 
 ### Deliverables
 
-- `jitml-unit` golden tasty group exercises every `(algo, env)` golden curve
-  per the bit-identical-prefix contract from Sprints `9.1`–`9.2`.
-- `jitml-integration` runs the full `jitml rl train` command end-to-end for a
-  representative subset (PPO/cartpole, DQN/cartpole, SAC/lunarlander) and
-  asserts daemon-side at-least-once idempotency holds.
+- `test/rl-canonicals/Main.hs` verifies representative algorithm names across
+  the local metadata catalog.
+- The stanza asserts `deterministicTrajectory "PPO" 42` is stable.
+- The stanza also checks the current Connect 4 transcript helper keeps moves
+  within legal column bounds.
+- No `test/golden/rl/` fixture tree exists yet.
 
 ### Validation
 
-1. `cabal test jitml-unit` and `cabal test jitml-integration` exercise the
-   RL golden suites and pass.
+1. `cabal test jitml-rl-canonicals` exits `0` for the current local body.
+2. Golden fixture integration remains target validation.
 
-## Sprint 9.5: AlphaZero-Style Self-Play and Persistent MCTS State ✅
+## Sprint 9.5: AlphaZero Connect 4 Transcript Surface ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
@@ -162,35 +151,33 @@ Stitch the golden trajectory fixtures from Sprints `9.1`–`9.3` into the
 
 ### Objective
 
-Land the AlphaZero core: perfect-information game type class, two-headed
-network, MCTS-guided self-play loop, persistent MCTS state across moves,
-arena gating, self-play replay buffer, deterministic stochasticity.
+Land the current Connect 4 transcript, two-headed-network metadata, canonical
+perfect-information game catalog, and arena summary surface used by the local
+AlphaZero summary.
 
 ### Deliverables
 
-- `class PerfectInformationGame g where` exposes `legalActions`, `applyAction`,
-  `terminal`, `winner`, `encodeObservation`, `actionSpace`.
-- `TwoHeadedNetwork` carries the policy head and value head.
-- `Mcts.hs` implements PUCT with persistent tree state across moves
-  (visits persist; the rest of the tree is discarded incrementally as moves
-  are played). Borrows the engineering arc from a sibling MCTS project per
-  [../README.md → Borrowed engineering from the sibling MCTS project](../README.md#borrowed-engineering-from-the-sibling-mcts-project).
-- `SelfPlay.hs` runs `AZ_GAMES` self-play games per generation with
-  `AZ_SIMS` simulations per move (see
-  [system-components.md → POC Report-Card
-  Knobs](system-components.md#poc-report-card-knobs)).
-- `Arena.hs` runs gating tournaments between successive generations; only
-  improved generations are committed.
-- `Buffer.hs` is the typed self-play buffer with `Async` write discipline.
-- Per-game RNG seed derivation is deterministic.
+- `GameState` carries `gameName`, `gameMoves`, and `gameCurrentPlayer`.
+- `MctsState` exists as a small metadata record with visit count and prior
+  seed; it is not a persistent search tree.
+- `initialConnect4`, `applyMove`, and `selfPlayTranscript` provide a
+  deterministic local transcript helper.
+- `PerfectInformationGame`, `TwoHeadedNetwork`, `connect4Network`,
+  `ArenaSummary`, and `arenaWinRate` provide the local game/network/arena
+  summary surface.
+- `test/rl-canonicals/Main.hs` asserts generated Connect 4 moves stay in
+  columns `0` through `6`.
+- Persistent `Mcts.hs`, `SelfPlay.hs`, `Arena.hs`, and self-play buffers remain
+  target runtime validation.
 
 ### Validation
 
-1. Same-substrate same-seed self-play produces bit-identical visit counts
-   under the per-substrate determinism contract.
-2. The arena gating decision is reproducible.
+1. `selfPlayTranscript` is deterministic for a fixed seed.
+2. `cabal test jitml-rl-canonicals` checks legal Connect 4 columns.
+3. `jitml-unit` verifies the local game catalog, network metadata, and arena
+   win-rate helper.
 
-## Sprint 9.6: Canonical Adversarial Games ✅
+## Sprint 9.6: Connect 4 Local Game Surface ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
@@ -199,22 +186,24 @@ arena gating, self-play replay buffer, deterministic stochasticity.
 
 ### Objective
 
-Land the canonical adversarial games (Connect 4 canonical, plus Othello,
-Hex, Gomoku) as `PerfectInformationGame` instances with golden self-play
-fixtures.
+Land the current Connect 4 local game surface, canonical adversarial-game
+catalog, and corresponding browser-contract endpoint metadata.
 
 ### Deliverables
 
-- Each game declares its `PerfectInformationGame` instance.
-- Connect 4 is the canonical demo game (consumed by the PureScript Connect 4
-  panel in Phase `11`).
-- Golden self-play game fixtures under `test/golden/az/<game>/<seed>.cbor`
-  for representative seeds.
+- `src/JitML/RL/AlphaZero.hs` names the local game `connect4`.
+- `applyMove` normalizes moves into legal Connect 4 columns.
+- `src/JitML/Web/Contracts.hs` includes the `Connect4Move` endpoint metadata
+  used by the frontend scaffold.
+- `canonicalGames` lists Connect 4, Othello, Hex, and Gomoku as local
+  `PerfectInformationGame` metadata rows.
+- No adversarial-game golden fixture tree exists yet.
 
 ### Validation
 
-1. Same-substrate same-seed Connect 4 self-play is bit-identical.
-2. The golden game-replay fixtures round-trip through `decode . encode == id`.
+1. `cabal test jitml-rl-canonicals` validates the current Connect 4 move
+   bounds.
+2. Golden replay codec validation remains target work.
 
 ## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) ✅
 
@@ -225,69 +214,49 @@ fixtures.
 
 ### Objective
 
-Land the typed hyperparameter tuner across the sampler × scheduler × pruner
-axes per [../README.md → Hyperparameter tuning,
-first-class](../README.md#hyperparameter-tuning-first-class), with trial
-storage and resume against MinIO bucket `jitml-trials` and `jitml tune` as
-the Plan/Apply CLI verb.
+Land the current deterministic sampler × scheduler × pruner catalogs,
+trial-storage key helpers, resume equality summary, and `jitml tune` local
+summary.
 
 ### Deliverables
 
-- `Sampler` ADT: `Grid`, `Random`, `Sobol`, `TPE`, `GpBO`, `GA { popSize,
-  crossoverRate, mutationRate }`, `NSGA2 { popSize }`,
-  `MuLambdaES { mu, lambda, sigmaInit }`, `CMAES { sigmaInit }`,
-  `PBT { popSize, exploitInterval, exploreSpec }`.
-- `Scheduler` ADT (tuner-side, distinct from numerical-core scheduler):
-  `Fifo`, `SuccessiveHalving { reductionFactor, minResource }`,
-  `Hyperband { maxResource, reductionFactor }`, `ASHA { reductionFactor,
-  minResource, maxResource }`.
-- `Pruner` ADT: `NoPrune`, `Median { gracePeriod, threshold }`,
-  `Percentile { gracePeriod, percentile }`.
-- `Some Tuning::{ … }` Dhall constructor matches the worked example in
-  [../README.md → Concrete Tuning example](../README.md#concrete-some-tuning--example).
-- `TuneSweepLifecycle` GADT mirrors the SL/RL lifecycle GADTs.
-- `Storage.hs` writes trial transcripts to MinIO bucket `jitml-trials`,
-  content-addressed by `sha256(resolved-dhall || trial-seed)`. Resume
-  reads the existing trials, recomputes the sampler state, and continues.
-- `proto/jitml/tune.proto` declares `RunTrial`, `StopTrial`, `TrialStarted`,
-  `TrialMetricUpdate`, `TrialFinished`, `TrialFailed`.
-- `jitml tune <tune-dhall>` is Plan/Apply.
-- Parallelism: parallel trials are independent SL/RL runs scheduled by the
-  cluster; the tuner is the orchestrator.
-- The fully populated catalog tables are generated into
-  `documents/engineering/training_workloads.md` under
-  `training.tune.samplers`, `training.tune.schedulers`,
-  `training.tune.pruners`.
+- `Sampler` enumerates `Sobol`, `Random`, `GeneticAlgorithm`, and
+  `EvolutionStrategies`.
+- `Scheduler` enumerates `Fifo`, `SuccessiveHalving`, `Hyperband`, and `ASHA`.
+- `Pruner` enumerates `NoPruner`, `MedianPruner`, and `PercentilePruner`.
+- `deterministicTrials` emits normalized deterministic trial values for the
+  current sampler set.
+- `trialStorageKey`, `resumeMatchesFullRun`, and
+  `renderTrialResumeSummary` provide the local trial persistence/resume
+  surface.
+- `jitml tune <tune-dhall>` is Plan/Apply-capable and currently prints four
+  deterministic Sobol trial values.
+- Dhall `Some Tuning`, generated proto bindings, generated catalog tables, and
+  live MinIO persistence remain target runtime validation.
 
 ### Validation
 
-1. `jitml tune --dry-run experiments/tune/cartpole-ppo-sweep.dhall` emits
-   the typed plan.
-2. A `TUNE_TRIALS`-trial sweep (see
-   [system-components.md → POC Report-Card
-   Knobs](system-components.md#poc-report-card-knobs)) completes; resume
-   from a paused sweep continues from the correct trial index.
-3. Same-Dhall same-master-seed sweeps produce bit-identical trial selection
-   sequences.
+1. `jitml tune --dry-run experiments/mnist-tune.dhall` emits the typed plan.
+2. `cabal test jitml-hyperparameter` verifies the sampler, scheduler, and
+   pruner axes are populated and deterministic.
+3. `jitml-unit` verifies the local trial key and resume-equality helpers.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → GADT-Indexed State Machines](../HASKELL_CLI_TOOL.md) (Sprints 9.5, 9.7)
-- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprint 9.7)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprint 9.7 — `TuneHandler`)
-- [../HASKELL_CLI_TOOL.md → Capability Classes and Service Errors](../HASKELL_CLI_TOOL.md) (Sprint 9.7 — `HasMinIO`/`HasPulsar`)
-- [../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) (Sprints 9.3, 9.7 — generated catalog tables)
+- [../HASKELL_CLI_TOOL.md → Command Topology](../HASKELL_CLI_TOOL.md) (Sprint 9.7 — `jitml tune` command leaf)
+- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprint 9.7 — current dry-run / plan-file surface)
+- [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprints 9.4, 9.7 — dedicated local RL and hyperparameter stanzas)
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/training_workloads.md` — populate the RL algorithm
-  catalog table, the AlphaZero narrative (perfect-information game type
-  class, two-headed network, MCTS-guided self-play loop, persistent MCTS
-  state, arena gating), the canonical adversarial games, and the tuner
-  surface (sampler × scheduler × pruner tables).
-- `documents/engineering/determinism_contract.md` — the AlphaZero
+- `documents/engineering/training_workloads.md` — current RL algorithm
+  metadata catalog, Connect 4 transcript helper, and tuner catalog; target
+  algorithm modules, AlphaZero/MCTS runtime, adversarial games, and full tuner
+  storage/resume surface.
+- `documents/engineering/determinism_contract.md` — current deterministic
+  local trajectory/transcript helpers and target AlphaZero
   deterministic-stochasticity narrative.
 
 **Product docs to create/update:**

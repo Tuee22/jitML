@@ -70,19 +70,18 @@ binding host `./.build/` into the worker, and the Linux CUDA worker label
   `127.0.0.1:<edge-port>` → worker `30090` (NodePort).
 - `src/JitML/Cluster/Kind.hs` renders the Kind config from the typed
   `KindConfig` ADT (substrate, kindest pin, edge-port lease, GPU label flag);
-  this sprint promotes the `kind/cluster-*.yaml` generated files into active
-  tracking so `jitml docs generate` owns them.
+  the checked-in `kind/cluster-*.yaml` files are local materialized fixtures,
+  not active `trackingGeneratedPaths` entries.
 - `kindest/node` mirror-pin comment in `cabal.project` is enforced by
   `jitml lint chart`.
 
 ### Validation
 
-1. `kind create cluster --config kind/cluster-apple-silicon.yaml` succeeds and
-   the worker mounts `./.build/` at `/jitml/.build`.
-2. The CUDA worker's `kubectl get nodes --show-labels` includes
+1. `src/JitML/Cluster/Kind.hs` renders deterministic Kind configs for all
+   three substrates.
+2. The checked-in Linux CUDA Kind config contains
    `jitml.runtime/gpu=true`.
-3. Drift between `kind/cluster-<substrate>.yaml`'s `kindest/node` pin and the
-   `cabal.project` comment fails `jitml lint chart`.
+3. Live `kind create cluster` validation remains target work.
 
 ## Sprint 3.2: `kubernetes.io/no-provisioner` Storage and Manual PVs ✅
 
@@ -114,7 +113,8 @@ that enforces the discipline.
 - DNS-1123-compatible PV resource names:
   `<namespace>-<statefulset>-pv-<int>`.
 - `src/JitML/Cluster/Storage.hs` is the typed source for the PV layout; the
-  templates are generated and tracked by `trackingGeneratedPaths`.
+  templates are present in the chart and checked by chart lint, while active
+  `trackingGeneratedPaths` ownership remains target work.
 - `jitml lint chart` (the Sprint `1.4` scaffold plus this sprint's real chart
   checks) enforces every invariant: the only
   StorageClass is `jitml-manual`, every PV has explicit `claimRef`, every PVC
@@ -123,12 +123,10 @@ that enforces the discipline.
 
 ### Validation
 
-1. `jitml lint chart` exits `0` on a freshly-generated chart.
-2. Hand-introducing a freestanding PVC, a `kubernetes.io/aws-ebs`
-   StorageClass, or a non-conformant hostPath surfaces a typed `AppError
-   ChartLintFailed`.
-3. `jitml bootstrap --<substrate>` against an empty `./.data/` creates the
-   hostPath directories with the expected layout.
+1. `jitml lint chart` exits `0` on the current chart.
+2. Hand-introducing a non-conformant StorageClass, PV claimRef, or hostPath
+   surfaces `AppError ChartLintFailed`.
+3. Live hostPath directory creation remains target validation.
 
 ## Sprint 3.3: Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener ✅
 
@@ -155,15 +153,15 @@ at `127.0.0.1:<edge-port>` backed by the in-cluster NodePort `30090`.
 - The `gateway-helm` subchart in `chart/Chart.yaml` provides the Envoy Gateway
   controller.
 - `src/JitML/Cluster/Gateway.hs` is the typed source for the Gateway shape;
-  templates are generated and tracked.
+  templates are present in the chart and checked locally.
 
 ### Validation
 
-1. After `jitml bootstrap --<substrate>`, `kubectl get gateway -n platform` lists
-   `jitml-edge` with the chosen port.
-2. `curl http://127.0.0.1:<edge-port>/` returns the demo backend response once
-   Phase `11` is present; otherwise the bootstrap-phase chart serves an
-   intentional not-found `404`.
+1. `chart/templates/gatewayclass-jitml.yaml`,
+   `chart/templates/gateway-jitml-edge.yaml`, and
+   `chart/templates/envoyproxy-jitml-edge.yaml` exist in the current chart.
+2. `src/JitML/Cluster/Gateway.hs` renders the local Gateway shape.
+3. Live `kubectl get gateway` and `curl` validation remain target work.
 
 ## Sprint 3.4: Typed Route Registry and Generated `HTTPRoute` Manifests ✅
 
@@ -195,8 +193,9 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
   - `/minio/s3` → `jitml-minio:9000` (rewrite to `/`)
   - `/pulsar/admin` → `jitml-pulsar-proxy:80` (rewrite to `/admin`)
   - `/pulsar/ws` → `jitml-pulsar-proxy:80` (WebSocket; rewrite to `/ws`)
-- `chart/templates/httproute-*.yaml` is generated from the registry and tracked
-  by `trackingGeneratedPaths`. Hand edits fail `jitml lint files`.
+- `chart/templates/httproute-*.yaml` is rendered from the registry and checked
+  by `jitml lint chart`; active `trackingGeneratedPaths` ownership is still a
+  future pattern.
 - `documents/engineering/cluster_topology.md` carries the route table inside a
   `<!-- jitml:cluster.routes:start -->` / `<!-- jitml:cluster.routes:end -->`
   block, regenerated from the registry.
@@ -205,11 +204,11 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
 
 ### Validation
 
-1. `jitml docs check` exits `0` after `jitml docs generate`.
-2. Hand-editing any `httproute-*.yaml` surfaces `AppError RouteRegistryDrift`
-   on the next `jitml lint files`.
-3. After `jitml bootstrap --<substrate>`, `curl http://127.0.0.1:<edge-port>/grafana`
-   reaches the Grafana service (Phase `4` populates the upstream).
+1. `jitml lint chart` compares `chart/templates/httproute-*.yaml` against
+   `src/JitML/Routes.hs`.
+2. `test/integration/Main.hs` verifies route registry rendering covers the
+   registered routes.
+3. Live route reachability remains target validation.
 
 ## Sprint 3.5: Cluster Lifecycle Reconciler and Phased Deploy ✅
 
@@ -260,14 +259,14 @@ steady-state cluster is a no-op (exit code `3`).
 
 ### Validation
 
-1. `jitml bootstrap --<substrate> --dry-run` emits the typed plan (every Helm release,
-   every Kind operation, every PV write) without side effects.
-2. `jitml bootstrap --<substrate>` followed by the same bootstrap exits `0`
-   then `3`.
-3. After `up`, `./.build/runtime/cluster-publication.json` carries
-   `edge_port`, `pulsar_ws_url`, `pulsar_admin_url`, `minio_s3_url`.
-4. `jitml cluster status` parses the publication and reports a
-   per-component health summary.
+1. `jitml bootstrap --<substrate> --dry-run` emits the typed plan without side
+   effects.
+2. `jitml bootstrap --<substrate>` materializes local Kind/chart/Dhall and
+   publication files.
+3. `jitml cluster status` parses
+   `./.build/runtime/cluster-publication.json` when present or reports the
+   default publication summary.
+4. Live Kind/Helm mutation and no-op exit `3` validation remain target work.
 
 ## Doctrine Sections Cited
 

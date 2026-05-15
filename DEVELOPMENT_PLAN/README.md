@@ -210,8 +210,9 @@ The implemented local end state is:
   `LiveConfig`, endpoint responses, structured JSON log shape, at-least-once
   deduplication helper, and typed retry policy. The current binary does not run
   a real long-lived HTTP/Pulsar daemon.
-- The numerical core (layer catalog, real+complex activations, optimizers,
-  schedulers, losses, spectral ops) with a Dhall type for every constructor.
+- The current numerical core is a local Haskell catalog for layers,
+  real/complex activation names, optimizers, schedulers, losses, and spectral
+  ops. Dhall mirrors for every constructor remain target work.
 - The current JIT engine surface is `src/JitML/Engines/Engine.hs` plus
   `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`, which
   map each substrate to a backend name, artifact extension, determinism flags,
@@ -229,16 +230,17 @@ The implemented local end state is:
   Full MinIO write-once/CAS pointer logic and real kernel-handle loading remain
   target runtime work.
 - The current PureScript/frontend surface is a minimal PureScript entrypoint,
-  generated contract file, Playwright scaffold, chart deployment template, and
-  `jitml-demo` executable shim that prints a status line. There is no checked-in
-  Halogen dependency, browser bundle output, live panel implementation, or real
-  HTTP server yet.
+  generated contract file, typed bundle/panel manifest, Playwright scaffold,
+  chart deployment template, and `jitml-demo` executable shim that prints a
+  status line. There is no checked-in Halogen dependency, compiled browser
+  bundle, or real HTTP server yet.
 - Ten Cabal test-suite stanzas (`jitml-unit`, `jitml-integration`,
   `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
   `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`,
   `jitml-haskell-style`, `jitml-purescript-style`) with local deterministic
-  bodies. `jitml test all --dry-run` renders the aggregate plan and `jitml test
-  all` renders the current report-card summary; it does not invoke `cabal test`.
+  bodies. `jitml test all --dry-run` renders the aggregate plan and non-dry-run
+  `jitml test all` / `jitml test <stanza>` invokes Cabal through the typed
+  `Subprocess` boundary before emitting the report-card summary.
   The Pulumi program at `infra/pulumi/` exports stack metadata only, not a live
   ephemeral Kind orchestrator.
 

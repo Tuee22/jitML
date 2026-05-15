@@ -46,43 +46,28 @@ typed `Subprocess` values.
 
 ### Objective
 
-Populate `KernelSpec` from the numerical core (Phase `6`) and lock the cache key
-derivation `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint,
-rendered-source-payload, tuning-choice)`. Stand up the FFI loader that resolves cached
-artefacts (Apple via the stable-named symlink at
-`./.build/host/apple-silicon/<model-id>.dylib`; Linux directly out of
-`./.build/jit/<substrate>/`).
+Populate the local cache-key input surface and lock the cache key derivation
+over `KernelSpec`, `Kind`, `Substrate`, `ToolchainFingerprint`,
+`RuntimeSourcePayload`, and `TuningChoice`. Real FFI loading remains target
+runtime work.
 
 ### Deliverables
 
-- `KernelSpec` ADT carrying:
-  - `ksLayers :: [Layer]` (layer topology),
-  - `ksDtypes :: [Dtype]` (per-tensor dtype layout),
-  - `ksActivations :: [Activation]` per applicable layer,
-  - `ksOptimizer :: Maybe Optimizer` (present when `kind = Training`),
-  - `ksLoss :: Maybe Loss` (present when `kind = Training`),
-  - `ksFreezeMask :: [Bool]` (per-layer trainable flag).
-- `canonicalCborKernelSpec :: KernelSpec -> ByteString` is deterministic and
-  golden-tested.
-- `ToolchainFingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` plus the substrate kernel-compiler version captured at
-  daemon startup.
-- `cacheKey` (Sprint `2.3`) is populated for the local `KernelSpec`
-  surface.
-- `loadKernel :: HasJitCache env => ModelId -> Kind -> Substrate -> IO
-  (Either AppError KernelHandle)` returns either a cached handle or `AppError
-  JitCacheMiss`. The `JitCacheMiss` triggers a per-substrate compile path
-  (Sprints `7.3`–`7.5`).
-- Apple Silicon FFI loader uses `dlopen` against the stable-named symlink;
-  Linux loaders use `dlopen` directly against the cache file.
+- `KernelSpec` is the current local cache-key payload wrapper.
+- `Kind` distinguishes `Training` from `Inference`.
+- `ToolchainFingerprint`, `RuntimeSourcePayload`, and `TuningChoice` are typed
+  cache-key inputs.
+- `cacheKey` hashes the serialized kernel spec, kind, substrate, fingerprint,
+  rendered-source payload, and tuning choice into a SHA-256 digest.
+- `loadKernel`, `KernelHandle`, `HasJitCache`, and FFI `dlopen` behavior are
+  not implemented in the current tree.
 
 ### Validation
 
-1. `canonicalCborKernelSpec` produces byte-identical output across two runs
-   for the same `KernelSpec`.
-2. `cacheKey` golden tests pass.
-3. A `JitCacheMiss` against an empty cache fails with the typed error;
-   populating the cache and retrying succeeds.
+1. `jitml-unit` verifies the cache-key golden under `test/golden/cache/`.
+2. `jitml-unit` verifies changing the rendered runtime-source payload changes
+   the cache key.
+3. FFI cache-hit/miss validation remains target work.
 
 ## Sprint 7.2: Engine ABI and `Engines` Module Skeleton ✅
 
@@ -92,31 +77,26 @@ artefacts (Apple via the stable-named symlink at
 
 ### Objective
 
-Define the engine ABI shared by every substrate: typed entrypoints for kernel
-launch, parameter binding, output retrieval, and per-substrate envelope
-capture. Stand up the aggregate engine module that maps every substrate to
-its backend, codegen directory, artefact extension, and determinism flags.
+Define the current local engine metadata shared by every substrate: backend
+name, artifact extension, deterministic flags, and renderable build plan.
+Kernel launch ABI and envelope capture remain target runtime work.
 
 ### Deliverables
 
-- `class HasEngine env where` exposes `launchKernel :: KernelHandle ->
-  KernelInputs -> IO KernelOutputs`, `paramsCommit :: KernelHandle ->
-  ParamSnapshot -> IO ()`, `engineEnvelope :: KernelHandle -> IO
-  EngineEnvelope`.
-- `EngineEnvelope` carries the substrate-specific reproducibility witnesses
-  named in [../documents/engineering/determinism_contract.md → Engine
-  Envelope](../documents/engineering/determinism_contract.md): for Metal,
-  the GPU device id and Metal version; for CUDA, the cuDNN version, cuBLAS
-  version, CUDA driver version, GPU compute capability; for oneDNN, the
-  detected ISA (AVX2 / AVX-512), oneDNN version, glibc version.
-- The three per-substrate engine modules expose stub `instance HasEngine
-  env` skeletons that Sprints `7.3`–`7.5` populate.
+- `Engine` records `engineSubstrate`, `engineBackend`, and
+  `engineArtifactExtension`.
+- `engineForSubstrate` maps `apple-silicon` to `metal` / `.dylib`,
+  `linux-cpu` to `onednn` / `.so`, and `linux-cuda` to `cuda` / `.so`.
+- `deterministicFlags` records the current per-substrate determinism summary.
+- `renderEnginePlan` renders the local engine metadata.
+- `HasEngine`, `KernelInputs`, `KernelOutputs`, and `EngineEnvelope` are not
+  implemented yet.
 
 ### Validation
 
-1. `cabal build all` succeeds with the engine ABI.
-2. `jitml-unit` exercises the engine envelope golden under a synthetic
-   per-substrate fingerprint.
+1. `cabal test jitml-cross-backend` verifies every substrate has
+   deterministic flags.
+2. Engine-envelope validation remains target work.
 
 ## Sprint 7.3: Linux CPU Engine and oneDNN Codegen Driver ✅
 
@@ -127,28 +107,26 @@ its backend, codegen directory, artefact extension, and determinism flags.
 
 ### Objective
 
-Land the `linux-cpu` engine: oneDNN graph wrappers, AVX2 baseline with
-AVX-512 detected at JIT time, blocked reduction with fixed block size for
-deterministic float-accumulation order.
+Land the current `linux-cpu` engine metadata and generated oneDNN-style C++
+source renderer. Real oneDNN graph wrappers and runtime execution remain
+target work.
 
 ### Deliverables
 
-- `src/JitML/Engines/Engine.hs` records the oneDNN backend. Sprint `7.7`
-  owns the runtime source renderer that emits oneDNN C++ compiler inputs under
-  `./.build/jit-src/linux-cpu/<hash>/`.
-- `src/JitML/Engines/Engine.hs` records the oneDNN backend and
-  the generated-source compile plan.
-- Block size is pinned per layer family so reductions are host-independent;
-  the value is part of `ToolchainFingerprint`.
-- `LinuxCPU.HasEngine` instance loads the `.so` via the FFI loader and binds
-  the engine ABI from Sprint `7.2`.
+- `engineForSubstrate LinuxCPU` records backend `onednn` and artifact
+  extension `.so`.
+- `renderOneDnnSource` emits generated `kernel.cc` source with a fixed local
+  reduction-block constant.
+- `compileSubprocess` renders the `g++ -std=c++20 -O2 -fPIC -shared` command
+  against the generated source directory.
+- oneDNN runtime graph wrappers, AVX detection, and FFI loading are not
+  implemented yet.
 
 ### Validation
 
-1. Two same-host runs produce bit-identical reduction outputs (matches the
-   per-substrate determinism contract).
-2. `jitml-cross-backend` exercises the AVX2 baseline behaviour on hosts
-   without AVX-512.
+1. `jitml build --dry-run --substrate linux-cpu` renders a generated-source
+   directory and `g++` compile plan.
+2. Live same-host reduction equality remains target validation.
 
 ## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver ✅
 
@@ -159,32 +137,26 @@ deterministic float-accumulation order.
 
 ### Objective
 
-Land the `linux-cuda` engine: CUDA C codegen, cuBLAS / cuDNN bindings, with
-`--use_fast_math=false`, deterministic warp-shuffle reductions, cuDNN
-`cudnnSetConvolutionMathType` plus explicit algorithm-id pinning, and
-splitmix RNG (never the GPU's curand).
+Land the current `linux-cuda` engine metadata and generated CUDA C source
+renderer. cuBLAS/cuDNN bindings and runtime execution remain target work.
 
 ### Deliverables
 
-- `src/JitML/Engines/Engine.hs` records the CUDA backend. Sprint `7.7` owns
-  the runtime source renderer that emits CUDA `.cu` inputs under
-  `./.build/jit-src/linux-cuda/<hash>/`. NVCC is invoked through the typed
-  `Subprocess` boundary with the doctrine-pinned `--use_fast_math=false` and
-  baseline `sm_70`.
-- `src/JitML/Engines/Engine.hs` records the CUDA backend and the
-  generated-source compile plan.
-- cuBLAS / cuDNN are pinned to deterministic algorithm selections.
-- `LinuxCUDA.HasEngine` instance loads the `.so` via the FFI loader, binds
-  the engine ABI, captures the engine envelope (cuDNN version, cuBLAS
-  version, driver, GPU compute capability).
+- `engineForSubstrate LinuxCUDA` records backend `cuda` and artifact extension
+  `.so`.
+- `renderCudaSource` emits generated `kernel.cu` source under the runtime
+  source bundle.
+- `compileSubprocess` renders the `nvcc --shared --compiler-options=-fPIC
+  --use_fast_math=false -arch=sm_70` command against the generated source
+  directory.
+- cuBLAS/cuDNN bindings, deterministic algorithm-id capture, splitmix RNG, and
+  FFI loading are not implemented yet.
 
 ### Validation
 
-1. Two same-host same-GPU runs produce bit-identical training transcripts
-   for the canonical SL workload.
-2. `jitml-cross-backend` asserts cross-substrate drift versus the
-   `linux-cpu` engine fits inside the per-tensor tolerance band per
-   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
+1. `jitml build --dry-run --substrate linux-cuda` renders a generated-source
+   directory and `nvcc` compile plan.
+2. Live CUDA transcript determinism remains target validation.
 
 ## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC ✅
 
@@ -197,49 +169,29 @@ splitmix RNG (never the GPU's curand).
 
 ### Objective
 
-Land the `apple-silicon` engine: Swift + Metal codegen running inside the
-`jitml-build` tart VM, single-stream kernel launch for deterministic
-accumulation order, the host daemon FFI surface, and the cluster↔host RPC
-envelope on `inference.command.apple-silicon` /
-`inference.event.apple-silicon`.
+Land the current `apple-silicon` engine metadata, generated Swift/Metal package
+renderer, Tart subprocess rendering, and Apple RPC topic names. Real Metal
+execution and host↔cluster message flow remain target work.
 
 ### Deliverables
 
-- `src/JitML/Engines/Engine.hs` records the Metal backend and the Tart
-  lifecycle surface. Sprint `7.7` owns the runtime source renderer that emits
-  Swift / Metal package inputs under
-  `./.build/jit-src/apple-silicon/<hash>/`. That generated package is built
-  inside the `jitml-build` tart VM via `tart ssh` (Sprint `2.5`); the produced
-  `.dylib` is copied atomically to `./.build/jit/apple-silicon/<hash>.dylib`
-  and the stable-FFI symlink at
-  `./.build/host/apple-silicon/<model-id>.dylib` is repointed.
-- `AppleSilicon.HasEngine` instance loads the `.dylib` via the FFI loader.
-- Metal kernels launch in a single MTLCommandQueue with FIFO ordering
-  (single-stream); explicit barriers prevent kernel reordering.
-- The clustered daemon (Dhall: `Cluster + ForwardToHost`) runs the
-  `InferenceProxy`, which:
-  - On `inference.request.apple-silicon`, reads the model snapshot from
-    MinIO, publishes an `inference.command.apple-silicon` envelope per
-    [system-components.md → Pulsar Topic
-    Family](system-components.md#pulsar-topic-family),
-  - Awaits the `inference.event.apple-silicon` ACK from the host daemon,
-  - Republishes on `inference.result.apple-silicon` to the demo frontend.
-- The host daemon (Dhall: `Host + SelfInference`) subscribes to
-  `inference.command.apple-silicon`, executes the kernel via Metal, writes
-  large outputs directly to MinIO, and ACKs on
-  `inference.event.apple-silicon` with the small envelope (call-id, kind
-  tag, MinIO refs).
-- Direct k8s API access from the host daemon is hlint-forbidden.
+- `engineForSubstrate AppleSilicon` records backend `metal` and artifact
+  extension `.dylib`.
+- `renderMetalPackage` emits `Package.swift`, a Swift source file, and
+  `Kernels.metal` into the runtime source bundle.
+- `compileSubprocess` renders `tart ssh jitml-build -- swift build
+  --package-path <generated-source-dir> -c release`.
+- The route/topic documentation records `inference.command.apple-silicon` and
+  `inference.event.apple-silicon` as the target host↔cluster RPC topics.
+- Metal FFI loading, actual Tart VM execution, MinIO tensor handoff, and live
+  Pulsar RPC are not implemented yet.
 
 ### Validation
 
-1. From a clean state, the first host-side cache miss spins tart up;
-   subsequent misses reuse the running VM.
-2. The host↔cluster RPC roundtrip on a synthetic inference request
-   completes within the `LiveConfig.inferenceMaxLatencyMillis` budget.
-3. `purge` destroys the VM but preserves `./.build/jit/apple-silicon/`; a
-   subsequent inference command resolves from cache without spinning tart
-   up.
+1. `jitml build --dry-run --substrate apple-silicon` renders a generated
+   Swift/Metal source directory and Tart `swift build` subprocess.
+2. Live Tart cache-miss behavior and host↔cluster RPC remain target
+   validation.
 
 ## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract ✅
 
@@ -250,30 +202,25 @@ envelope on `inference.command.apple-silicon` /
 
 ### Objective
 
-Choose among reduction strategies, tile sizes, and prefetch widths per
-substrate while preserving the determinism contract. Auto-tuning produces a
-typed `TuningChoice` baked into `ToolchainFingerprint` so cache invalidation
-is automatic.
+Expose `TuningChoice` as a cache-key input and deterministic metadata string.
+Real hardware benchmarking and auto-tuning remain target work.
 
 ### Deliverables
 
-- `TuningChoice` ADT enumerating per-substrate knob spaces (Metal: workgroup
-  size, threadgroup memory; oneDNN: block size variants under the fixed
-  block-reduction discipline; CUDA: tile size, warp-shuffle pattern, cuDNN
-  algorithm id from the deterministic-only set).
-- `AutoTune` runs at JIT time on a cache miss, picks a `TuningChoice` per
-  `KernelSpec` based on a per-substrate strategy (latency-vs-throughput
-  trade-off, with a default that prioritises bit-determinism).
-- The chosen `TuningChoice` is folded into `ToolchainFingerprint`; a knob
-  change invalidates the cache key.
-- The cuDNN algorithm-id selection is restricted to the deterministic-only
-  set; the `--use_fast_math=false` invariant is preserved.
+- `TuningChoice` is a typed cache-key input in `src/JitML/Cache/Key.hs`.
+- `defaultTuningChoice` is the current local choice.
+- Runtime source renderers embed the tuning choice into generated source
+  payloads.
+- `cacheKey` includes the tuning choice and rendered-source payload, so changes
+  invalidate the local cache key.
+- Per-substrate knob spaces, benchmark selection, and deterministic-only cuDNN
+  algorithm selection are not implemented yet.
 
 ### Validation
 
-1. A `TuningChoice` change produces a different `cacheKey` (golden test).
-2. The same `(KernelSpec, kind, substrate, ToolchainFingerprint)` tuple
-   produces bit-identical kernel output across two same-host runs.
+1. `jitml-unit` verifies the rendered runtime-source payload participates in
+   the cache key.
+2. Same-host kernel-output equality remains target validation.
 
 ## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation ✅
 
@@ -349,19 +296,18 @@ build.
 ## Doctrine Sections Cited
 
 - [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (Sprints 7.3, 7.4, 7.5)
-- [../HASKELL_CLI_TOOL.md → Capability Classes and Service Errors](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — `HasMinIO`/`HasPulsar` consumers)
-- [../HASKELL_CLI_TOOL.md → Long-Running Daemons in the Same Binary](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — host/cluster split)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — host↔cluster RPC envelope)
+- [../HASKELL_CLI_TOOL.md → Long-Running Daemons in the Same Binary](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — target host/cluster split represented by local config/topic surfaces)
+- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — target host↔cluster RPC topics documented; live consumer remains target work)
 - [../HASKELL_CLI_TOOL.md → Toolchain pinning](../HASKELL_CLI_TOOL.md) (Sprints 7.3, 7.4, 7.5)
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/jit_codegen_architecture.md` — populate with
-  `KernelSpec`, the cache key derivation, the Haskell runtime source
-  renderers, the per-substrate compile plans, the FFI loader, the Apple hybrid
-  pattern, the host↔cluster RPC envelope, and the auto-tuning surface.
+- `documents/engineering/jit_codegen_architecture.md` — current local
+  `KernelSpec` cache-key payload, cache key derivation, Haskell runtime source
+  renderers, and per-substrate compile plans; target FFI loader, Apple hybrid
+  runtime, host↔cluster RPC, and real auto-tuning surface.
 - `documents/engineering/determinism_contract.md` — populate with the per-
   substrate floating-point semantics (Metal single-stream, oneDNN blocked
   reduction, CUDA warp-shuffle + `--use_fast_math=false` + cuDNN explicit

@@ -39,7 +39,7 @@ activations, spectral ops, optimizers, schedulers, and losses. Matching Dhall
 schemas and generated catalog tables are target documentation/runtime work. No
 SL/RL training logic lives here — that is Phase `8`.
 
-## Sprint 6.1: Layer Catalog (Real and Complex) ✅
+## Sprint 6.1: Layer Catalog ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/Numerics/Catalog.hs`
@@ -47,35 +47,28 @@ SL/RL training logic lives here — that is Phase `8`.
 
 ### Objective
 
-Stand up the layer catalog as a closed sum type. Every constructor is the
-canonical name used by experiment Dhalls and the JIT source renderers.
+Stand up the current local layer catalog as a closed Haskell sum type. Rich
+shape parameters, complex layer variants, Dhall mirrors, and generated catalog
+tables remain target runtime/documentation work.
 
 ### Deliverables
 
-- `Layer` GADT enumerating: `Dense`, `Conv1D`, `Conv2D`, `Conv3D`,
-  `ConvTranspose1D`, `ConvTranspose2D`, `BatchNorm`, `LayerNorm`, `GroupNorm`,
-  `Dropout`, `ResidualBlock`, `MultiHeadAttention`, `MultiQueryAttention`,
-  `Embedding`, `PositionalEncoding`, `RMSNorm`, `Pool` (`Max | Avg | LP`),
-  `Flatten`, `Reshape`, `Permute`.
-- Complex-valued layer variants where applicable: `ComplexDense`,
-  `ComplexConv2D`, `ComplexLayerNorm`, `ComplexAttention`.
-- Each constructor carries typed shape parameters (input/output dims,
-  kernel/stride/dilation, normalisation mode, dropout probability) plus an
-  initialisation strategy (`Glorot`, `He`, `Constant`, `Normal`, `Uniform`).
-- `dhall/numerics/Layer.dhall` mirrors the Haskell ADT; the Haskell type and
-  the Dhall type are kept in sync by Sprint `6.6`.
-- The catalog table is generated into
-  `documents/engineering/numerical_core.md` under marker key
-  `numerics.layers` (Sprint `1.3` registry).
+- `Layer` enumerates the checked-in local catalog: `Dense`, `Conv1D`,
+  `Conv2D`, `Conv3D`, `ConvTranspose`, `BatchNorm`, `LayerNorm`, `GroupNorm`,
+  `Dropout`, `ResidualBlock`, and `MultiHeadAttention`.
+- `layerCatalog` is the implementation source for the local layer list.
+- `renderNumericalCatalog` includes the layer list in the deterministic text
+  summary consumed by command and documentation surfaces.
+- Target work keeps the richer parameterized constructors and Dhall mirrors
+  out of the current `Done` claim until those files exist.
 
 ### Validation
 
-1. Every `Layer` constructor decodes from its Dhall encoding and back round-
-   trips.
-2. `jitml-unit` exercises the property `decode . encode == id` over every
-   constructor.
-3. The generated catalog table in `numerical_core.md` matches the in-code
-   enumeration (Sprint `1.3` `docs check`).
+1. `src/JitML/Numerics/Catalog.hs` exposes the eleven layer constructors named
+   above.
+2. `renderNumericalCatalog` is deterministic for the current catalog.
+3. The target Dhall decode/encode audit remains outside the current local
+   closure because no `dhall/numerics/` schema tree exists yet.
 
 ## Sprint 6.2: Activations (Real and Complex) ✅
 
@@ -85,24 +78,24 @@ canonical name used by experiment Dhalls and the JIT source renderers.
 
 ### Objective
 
-Enumerate the supported activations, real and complex.
+Enumerate the supported local activation catalog, including the current
+complex-valued activation names.
 
 ### Deliverables
 
-- `Activation` ADT for real-valued: `ReLU`, `LeakyReLU Double`, `PReLU`,
-  `ELU`, `GELU`, `SiLU` (a.k.a. `Swish`), `Tanh`, `Sigmoid`, `Softplus`,
-  `Softmax (Maybe Axis)`, `LogSoftmax (Maybe Axis)`, `HardSigmoid`,
-  `HardSwish`, `Mish`.
-- `ComplexActivation` ADT for complex-valued: `ModReLU Double`, `ZReLU`,
-  `ComplexGELU`, `ComplexTanh`, `ComplexSoftmax (Maybe Axis)`.
-- Each variant has a Dhall mirror.
-- The catalog table is generated into `numerical_core.md` under
-  `numerics.activations`.
+- `Activation` enumerates `Relu`, `Gelu`, `Tanh`, `Sigmoid`, `Softmax`,
+  `ComplexModRelu`, and `ComplexCardioid`.
+- `activationCatalog` is the implementation source for the local activation
+  list.
+- `renderNumericalCatalog` includes the activation list in the deterministic
+  text summary.
+- Separate parameterized real/complex activation ADTs and Dhall mirrors remain
+  target work.
 
 ### Validation
 
-1. Round-trip property holds.
-2. Numerical-core docs render the activation table consistently.
+1. `activationCatalog` contains the seven checked-in activation constructors.
+2. `renderNumericalCatalog` renders the activation names deterministically.
 
 ## Sprint 6.3: Spectral / Frequency-Domain Operations ✅
 
@@ -112,21 +105,20 @@ Enumerate the supported activations, real and complex.
 
 ### Objective
 
-Land first-class spectral operations: FFT, IFFT, RFFT, IRFFT, complex
-multiply, complex add, plus the typed `SpectralOp` ADT.
+Land the current local spectral-operation catalog.
 
 ### Deliverables
 
-- `SpectralOp` ADT: `FFT (Maybe Axis)`, `IFFT (Maybe Axis)`, `RFFT`, `IRFFT`,
-  `STFT WindowSpec HopLength`, `MelSpectrogram MelSpec`, `ComplexMul`,
-  `ComplexAdd`, `Magnitude`, `Phase`.
-- Dhall mirror at `dhall/numerics/Spectral.dhall`.
-- Generated table under `numerics.spectral`.
+- `SpectralOp` enumerates `FFT`, `IFFT`, `STFT`, and `DCT`.
+- `spectralCatalog` is the implementation source for the local spectral list.
+- `renderNumericalCatalog` includes the spectral-operation list.
+- Axis-aware spectral operations, complex arithmetic ops, Dhall mirrors, and
+  generated numerical tables remain target work.
 
 ### Validation
 
-1. Round-trip property holds.
-2. The numerical-core docs render the spectral table consistently.
+1. `spectralCatalog` contains the four checked-in spectral constructors.
+2. `renderNumericalCatalog` renders the spectral names deterministically.
 
 ## Sprint 6.4: Optimizers and Schedulers ✅
 
@@ -136,37 +128,26 @@ multiply, complex add, plus the typed `SpectralOp` ADT.
 
 ### Objective
 
-Enumerate the supported optimizers and learning-rate schedulers.
+Enumerate the current local optimizer and scheduler catalogs.
 
 ### Deliverables
 
-- `Optimizer` ADT: `SGD { lr, weightDecay }`,
-  `MomentumSGD { lr, momentum, weightDecay }`,
-  `NesterovSGD { lr, momentum, weightDecay }`,
-  `RMSProp { lr, alpha, eps, momentum, weightDecay, centered }`,
-  `Adagrad { lr, eps, weightDecay }`,
-  `Adadelta { lr, rho, eps, weightDecay }`,
-  `Adam { lr, beta1, beta2, eps, weightDecay }`,
-  `AdamW { lr, beta1, beta2, eps, weightDecay }`,
-  `LAMB { lr, beta1, beta2, eps, weightDecay }`,
-  `LARS { lr, momentum, eta, weightDecay }`,
-  `Lion { lr, beta1, beta2, weightDecay }`.
-- `Scheduler` ADT: `Constant Double`,
-  `Linear { start, end, totalSteps }`,
-  `Cosine { start, end, totalSteps }`,
-  `CosineWithWarmup { warmupSteps, peak, final, totalSteps }`,
-  `Exponential { start, gamma, totalSteps }`,
-  `Polynomial { start, end, power, totalSteps }`,
-  `OneCycle { peak, totalSteps, pctStart, divFactor, finalDivFactor }`,
-  `Piecewise [(Step, Double)]`. History-dependent `ReduceOnPlateau` behavior is
-  modelled as an evaluation callback, not as a `Schedule` constructor.
-- Dhall mirrors.
-- Generated tables under `numerics.optimizers` and `numerics.schedulers`.
+- `Optimizer` enumerates `SGD`, `MomentumSGD`, `NesterovSGD`, `RMSProp`,
+  `Adagrad`, `Adadelta`, `Adam`, `AdamW`, `LAMB`, `LARS`, and `Lion`.
+- `Scheduler` enumerates `Constant`, `Linear`, `Cosine`,
+  `CosineWithWarmup`, `Exponential`, `Polynomial`, `OneCycle`, and
+  `Piecewise`.
+- `optimizerCatalog` and `schedulerCatalog` are the implementation sources for
+  the local lists.
+- Parameterized optimizer/scheduler records, callback-based
+  `ReduceOnPlateau`, Dhall mirrors, and generated catalog tables remain target
+  work.
 
 ### Validation
 
-1. Round-trip property holds.
-2. The numerical-core docs render both tables consistently.
+1. `optimizerCatalog` contains the eleven checked-in optimizer constructors.
+2. `schedulerCatalog` contains the eight checked-in scheduler constructors.
+3. `renderNumericalCatalog` renders both lists deterministically.
 
 ## Sprint 6.5: Loss Functions ✅
 
@@ -176,23 +157,21 @@ Enumerate the supported optimizers and learning-rate schedulers.
 
 ### Objective
 
-Enumerate the supported loss functions.
+Enumerate the current local loss-function catalog.
 
 ### Deliverables
 
-- `Loss` ADT: `CrossEntropy`, `BinaryCrossEntropy`,
-  `Focal { gamma, alpha }`, `MSE`, `MAE`, `Huber { delta }`, `IoU`,
-  `DiceLoss { smooth }`, `KLDivergence`, `CTCLoss { blankIdx }`,
-  `LabelSmoothedCrossEntropy { eps }`,
-  `ContrastiveLoss { margin }`, `TripletLoss { margin }`,
-  `CustomLoss { name, registryRef }` (escape hatch with explicit registration).
-- Dhall mirror.
-- Generated table under `numerics.losses`.
+- `Loss` enumerates `CrossEntropy`, `Focal`, `MSE`, `Huber`, and `IoU`.
+- `lossCatalog` is the implementation source for the local loss list.
+- `renderNumericalCatalog` includes the loss list in the deterministic text
+  summary.
+- Parameterized loss constructors, custom-loss registration, Dhall mirrors, and
+  generated catalog tables remain target work.
 
 ### Validation
 
-1. Round-trip property holds.
-2. The numerical-core docs render the loss table consistently.
+1. `lossCatalog` contains the five checked-in loss constructors.
+2. `renderNumericalCatalog` renders the loss names deterministically.
 
 ## Sprint 6.6: Dhall Schemas and Cross-Type Audit ✅
 
@@ -202,32 +181,26 @@ Enumerate the supported loss functions.
 
 ### Objective
 
-Audit that every Haskell ADT has a Dhall mirror, every Dhall type maps to a
-Haskell ADT, and the experiment-Dhall worked example from
-[../README.md → Concrete Dhall worked
-example](../README.md#concrete-dhall-worked-example) is parseable end-to-end
-against the numerical core.
+Record the local configuration fixtures that exercise the current catalog
+surface. Full Dhall schema mirroring and decoder-based cross-type audit remain
+target work.
 
 ### Deliverables
 
-- `dhall/numerics/Schema.dhall` is the umbrella module re-exporting `Layer`,
-  `Activation`, `ComplexActivation`, `SpectralOp`, `Optimizer`, `Scheduler`,
-  `Loss`.
-- `src/JitML/Numerics/Schema.hs` exposes `decodeNumericsCatalog ::
-  Dhall.Decoder NumericsCatalog`.
-- `src/JitML/Lint/DhallNumerics.hs` enforces the cross-type audit: every
-  Haskell constructor has a Dhall constructor of the same name; every Dhall
-  constructor has a Haskell decoder. `jitml lint haskell` runs this lint.
-- The worked Dhall example from the README is encoded in `experiments/`
-  under `experiments/sl/mnist-baseline.dhall`, parseable with `dhall
-  resolve` plus the schema.
+- `experiments/mnist.dhall`, `experiments/mnist-tune.dhall`, and
+  `experiments/cartpole.dhall` are present as the current configuration-as-code
+  fixtures.
+- The current Haskell catalog remains the only implemented numerical schema.
+- `dhall/numerics/`, `src/JitML/Numerics/Schema.hs`, and
+  `src/JitML/Lint/DhallNumerics.hs` do not exist in the current tree and remain
+  target work.
 
 ### Validation
 
-1. `dhall resolve <experiments/sl/mnist-baseline.dhall>` succeeds.
-2. `jitml lint haskell` reports zero numerical-core type drift.
-3. The generated catalog tables in `numerical_core.md` are byte-equal across
-   `jitml docs generate` runs.
+1. The three current `experiments/*.dhall` fixtures exist in the worktree.
+2. The local catalog is renderable through `renderNumericalCatalog`.
+3. Dhall schema round-trip validation is not claimed until the schema and
+   decoder modules land.
 
 ## Doctrine Sections Cited
 
@@ -239,9 +212,9 @@ against the numerical core.
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/numerical_core.md` — populate the layer / activation
-  / spectral / optimizer / scheduler / loss tables (each generated from the
-  registry) plus the cross-type audit narrative.
+- `documents/engineering/numerical_core.md` — current local layer /
+  activation / spectral / optimizer / scheduler / loss catalog summary; target
+  generated tables, Dhall mirrors, and cross-type audit narrative.
 
 **Product docs to create/update:**
 

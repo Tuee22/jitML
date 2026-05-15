@@ -420,9 +420,9 @@ scripts (Phase `2`) reflect.
 
 - `Prerequisite` record carrying `nodeId`, `nodeDescription`, predicate
   (`Env -> IO Bool`), optional remediation `Subprocess`, and `dependsOn :: [NodeId]`.
-- `prerequisiteRegistry :: [Prerequisite]` enumerates the empty initial set;
-  Phases `2`–`12` populate it (toolchain nodes by Phase `2`; cluster /
-  Pulsar / MinIO / Harbor nodes by Phases `3`–`4`; Pulumi node by Phase `12`).
+- `prerequisiteRegistry :: [Prerequisite]` is the in-process registry; the
+  current tree is populated by later phases with toolchain, container, cluster,
+  and frontend/infrastructure prerequisite nodes.
 - `reconcilePrerequisites :: Env -> NodeId -> IO (Either AppError ())`
   evaluates the transitive closure rooted at `NodeId` and emits
   `AppError PrerequisiteUnmet (failingNodeId, description, remedyHint)` on
