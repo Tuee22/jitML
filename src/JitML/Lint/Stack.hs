@@ -350,7 +350,7 @@ staticJitArtefactFindings = do
     [ LintFinding
         path
         "files.static-jit-source"
-        "checked-in JIT source or build script under codegen-*"
+        "checked-in JIT source or build script"
         "move compiler inputs into Haskell RuntimeSource renderers; generated source belongs under ./.build/jit-src/"
     | path <- files
     , isStaticJitArtefact path
@@ -359,7 +359,6 @@ staticJitArtefactFindings = do
 isStaticJitArtefact :: FilePath -> Bool
 isStaticJitArtefact path =
   not ("test/golden/" `isPrefixOf` path)
-    && any (`isPrefixOf` path) ["codegen-cuda/", "codegen-onednn/", "codegen-metal/"]
     && (FilePath.takeFileName path == "build.sh" || FilePath.takeExtension path `elem` staticJitExtensions)
 
 staticJitExtensions :: [String]

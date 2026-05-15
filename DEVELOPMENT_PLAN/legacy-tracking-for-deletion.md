@@ -93,7 +93,7 @@ The expected populating events are:
 
 | Item | Removed In | Notes |
 |------|------------|-------|
-| Static JIT source/build scaffolds | Sprint 7.7 | Removed `codegen-cuda/build.sh`, `codegen-cuda/kernel.cu`, `codegen-onednn/build.sh`, `codegen-onednn/kernel.cc`, and `codegen-metal/build.sh`; `codegen-*` directories now contain documentation only, while Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
+| Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
 
 ## Related Documents
 

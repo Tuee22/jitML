@@ -24,7 +24,7 @@
 ✅ **Done** — Sprints `7.1` through `7.7` are `✅ Done` for the local
 engine/catalog/runtime-source surface. The Haskell binary generates every JIT
 compiler input source file on demand under
-`./.build/jit-src/<substrate>/<hash>/`; checked-in `codegen-*` source/build
+`./.build/jit-src/<substrate>/<hash>/`; static checked-in source/build
 artefacts are removed from the build path and forbidden by lint.
 
 ## Phase Summary
@@ -227,9 +227,7 @@ Real hardware benchmarking and auto-tuning remain target work.
 **Status**: Done
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Codegen/RuntimeSource.hs`,
-`src/JitML/Codegen/{Cuda,OneDnn,Metal,SourceFile}.hs`,
-`codegen-cuda/README.md`, `codegen-onednn/README.md`,
-`codegen-metal/README.md`
+`src/JitML/Codegen/{Cuda,OneDnn,Metal,SourceFile}.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
@@ -238,9 +236,8 @@ Real hardware benchmarking and auto-tuning remain target work.
 
 Make the Haskell `jitml` binary the only source of JIT compiler inputs. Static
 checked-in JIT build scripts and kernel source files are forbidden: no
-`codegen-*/build.sh`, no checked-in CUDA `.cu`, no checked-in oneDNN C/C++
-source, and no checked-in Metal / Swift package source participates in a JIT
-build.
+checked-in CUDA `.cu`, no checked-in oneDNN C/C++ source, and no checked-in
+Metal / Swift package source participates in a JIT build.
 
 ### Deliverables
 
@@ -255,28 +252,23 @@ build.
   `swift build` only against the generated directory through `Subprocess`.
 - `cacheKey` includes the canonical rendered source payload and the
   `TuningChoice`, so changing a renderer invalidates the compiled artefact.
-- The checked-in `codegen-cuda/`, `codegen-onednn/`, and `codegen-metal/`
-  static source/script scaffolds are removed or reduced to non-build
-  documentation only, as tracked in
+- Static source/script scaffolds are removed, as tracked in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed).
 - `jitml lint files` rejects future checked-in JIT build scripts and checked-in
-  substrate source extensions under `codegen-*` (`*.cu`, `*.cc`, `*.cpp`,
-  Swift/Metal package files) unless they are explicit golden fixtures under
+  substrate source extensions unless they are explicit golden fixtures under
   `test/golden/`.
 
 ### Validation
 
 1. `jitml build --dry-run --substrate linux-cuda` shows a generated-source
-   directory under `./.build/jit-src/linux-cuda/<hash>/` and no checked-in
-   `codegen-cuda/build.sh` step.
+   directory under `./.build/jit-src/linux-cuda/<hash>`.
 2. `jitml build --dry-run --substrate linux-cpu` shows oneDNN C++ generated
    under `./.build/jit-src/linux-cpu/<hash>/`.
 3. `jitml build --dry-run --substrate apple-silicon` shows Swift / Metal
    generated under `./.build/jit-src/apple-silicon/<hash>/` before the tart
    `swift build` command.
-4. Deleting `codegen-cuda/`, `codegen-onednn/`, and `codegen-metal/` does not
-   change any JIT build plan or cache key except for the planned removal of
-   their legacy-file lint diagnostics.
+4. Removing documentation-only substrate folders does not change any JIT build
+   plan or cache key.
 5. `jitml-unit` golden tests prove `renderRuntimeSource` is deterministic and
    that renderer changes alter the generated-source hash.
 
@@ -286,9 +278,8 @@ build.
   Metal / Swift package generation.
 - [x] Route every JIT compile plan through generated source under
   `./.build/jit-src/<substrate>/<hash>/`.
-- [x] Remove checked-in `codegen-*/build.sh`, checked-in `.cu`, checked-in
-  `.cc` / `.cpp`, and checked-in Metal / Swift package inputs from the build
-  path.
+- [x] Remove checked-in JIT build scripts, checked-in `.cu`, checked-in `.cc`
+  / `.cpp`, and checked-in Metal / Swift package inputs from the build path.
 - [x] Add lint coverage that rejects future static JIT source/build artefacts.
 - [x] Move the static-codegen pending-removal ledger row to `Completed` once
   the generated-source path validates.

@@ -176,11 +176,10 @@ Sprints `2.4` through `2.7` are now done with `docker/Dockerfile`,
 `JitML.Bootstrap`, `JitML.Tart.{Lifecycle,Exec}`, `jitml build`,
 `jitml internal vm exec`, and script-side `status`, `test`, `down`, `purge`,
 and `purge --full` wrappers. The worktree now includes the first `chart/`,
-`kind/`, `docker/`, `web/`, `infra/`, `proto/`, documentation-only
-`codegen-cuda/`, `codegen-metal/`, `codegen-onednn/`, and `experiments/`
-surfaces. Sprint `7.7` is now done with Haskell-rendered source emitted on
-demand into `./.build/jit-src/<substrate>/<hash>/` and static JIT source/build
-artefacts removed from the checked-in `codegen-*` build path. Phases `3`
+`kind/`, `docker/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces.
+Sprint `7.7` is now done with Haskell-rendered source emitted on demand into
+`./.build/jit-src/<substrate>/<hash>/` and static JIT source/build artefacts
+removed from the checked-in build path. Phases `3`
 through `12` now own their local renderer, catalog, command, runtime-source,
 and test-stanza surfaces; live multi-service rollout remains an explicit
 validation follow-up.
@@ -217,8 +216,8 @@ The implemented local end state is:
   `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`, which
   map each substrate to a backend name, artifact extension, determinism flags,
   generated runtime source bundle, generated-source cache-key payload, and
-  typed compiler `Subprocess` plan. Checked-in `codegen-*` directories contain
-  documentation only.
+  typed compiler `Subprocess` plan. Generated compiler inputs are materialized
+  under `./.build/jit-src/<substrate>/<hash>/`.
 - The current SL/RL workload surface is deterministic local catalog and summary
   code: canonical SL problem summaries, RL algorithm catalog rows, deterministic
   trajectory generation, AlphaZero Connect 4 transcript helpers, and tuning trial

@@ -33,8 +33,8 @@ Generated compiler inputs live alongside the cache under:
 
 `src/JitML/Codegen/RuntimeSource.hs` owns the generated-source ADT and
 materialization discipline. `src/JitML/Codegen/{Cuda,OneDnn,Metal}.hs` render the
-per-substrate source bundles. Checked-in `codegen-*` directories are
-documentation-only and must not contain build scripts or compiler input source.
+per-substrate source bundles. The repository does not keep checked-in
+substrate-source directories for generated compiler inputs.
 
 `./.build/` is the host root for compiled artefacts, generated Dhall,
 kubeconfig, cluster publication, Kind metadata, and JIT-compiled kernels.

@@ -2219,9 +2219,6 @@ jitML/
       TensorBoard.hs            -- event-file writer
     Web/
       Contracts.hs              -- browser-contract ADTs (source for purescript-bridge)
-  codegen-cuda/                 -- documentation only; generated source lives in ./.build/jit-src/
-  codegen-metal/                -- documentation only; generated source lives in ./.build/jit-src/
-  codegen-onednn/               -- documentation only; generated source lives in ./.build/jit-src/
   proto/jitml/                  -- protobuf contracts (training, tune, rl, inference)
   web/                          -- PureScript frontend
     spago.yaml
