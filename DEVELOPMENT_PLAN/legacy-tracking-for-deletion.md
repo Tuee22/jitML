@@ -36,7 +36,9 @@ cleanup gate until upstream package bounds no longer need the local override.
 It is not remaining implementation work for the already closed local Sprint
 `12.9` test-orchestrator surface. Sprint `7.7` completed the static checked-in
 JIT source/build scaffold removal: JIT compiler inputs are generated on demand
-by the Haskell binary.
+by the Haskell binary. Sprint `4.3` completed the standalone MinIO values
+fragment removal: MinIO subchart values now live under `minio:` in
+`chart/values.yaml`.
 
 Two classes of entries populate this ledger over time:
 
@@ -101,6 +103,7 @@ The expected populating events are:
 | Item | Removed In | Notes |
 |------|------------|-------|
 | Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
+| Standalone MinIO values fragment | Sprint 4.3 | Folded MinIO subchart values into `chart/values.yaml`, removed `chart/minio-values.yaml`, and made bootstrap delete legacy standalone values files during materialization. |
 
 ## Related Documents
 

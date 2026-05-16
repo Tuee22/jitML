@@ -15,6 +15,7 @@ import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, re
 import System.FilePath ((</>))
 
 import JitML.Cluster.Gateway (renderEnvoyProxy, renderGateway, renderGatewayClass)
+import JitML.Cluster.Helm (renderHelmDependencyBuildPlan)
 import JitML.Cluster.Kind (kindConfigFor, renderKindConfig)
 import JitML.Cluster.Publication (defaultPublication)
 import JitML.Cluster.Storage (ManualPV (..), manualPVs, renderManualPV, renderStorageClass)
@@ -22,13 +23,13 @@ import JitML.Routes (Route (..), renderHTTPRoute, routeRegistry)
 import JitML.Service.BootConfig (Residency (..), defaultBootConfig, renderBootConfigDhall)
 import JitML.Service.ConfigMap (renderServiceConfigMap, renderServiceDeployment)
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
-import JitML.Storage.Buckets (renderMinioValues)
 import JitML.Substrate (Substrate (..), renderSubstrate, substrateEdgePort)
 
 bootstrapPlanSteps :: Substrate -> [Text]
 bootstrapPlanSteps substrate =
   [ "reconcile prerequisite graph for cluster"
   , "render kind/cluster-" <> renderSubstrate substrate <> ".yaml"
+  , "prepare Helm dependencies with " <> renderHelmDependencyBuildPlan "chart"
   , "create Kind cluster with ./.build/jitml.kubeconfig"
   , "apply jitml-manual StorageClass and manual PVs"
   , "install Harbor bootstrap phase"
@@ -63,11 +64,11 @@ materializeBootstrapFiles root substrate = do
           (chartTemplatesRoot </> "gateway-jitml-edge.yaml")
           (renderGateway (substrateEdgePort substrate))
       , writeTextFileIfChanged (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml") renderEnvoyProxy
-      , writeTextFileIfChanged (chartRoot </> "minio-values.yaml") renderMinioValues
       ]
   pvResults <- traverse (writePv chartTemplatesRoot) manualPVs
   routeResults <- traverse (writeRoute chartTemplatesRoot) routeRegistry
   legacyValuesChanged <- removeFileIfExists (chartTemplatesRoot </> "minio-values.yaml")
+  standaloneValuesChanged <- removeFileIfExists (chartRoot </> "minio-values.yaml")
   let clusterBoot = defaultBootConfig substrate Cluster
   configResults <-
     sequence
@@ -98,7 +99,7 @@ materializeBootstrapFiles root substrate = do
             <> routeResults
             <> configResults
             <> hostResults
-            <> [publicationChanged, legacyValuesChanged]
+            <> [publicationChanged, legacyValuesChanged, standaloneValuesChanged]
         )
     )
  where

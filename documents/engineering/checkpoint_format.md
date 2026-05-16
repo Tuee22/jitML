@@ -34,8 +34,15 @@ jitml-checkpoints/
 Current local helpers cover `blobKey`, `manifestKey`, `latestPointerKey`,
 `bestPointerKey`, `trialPointerKey`, deterministic `encodeManifestCbor` /
 `decodeManifestCbor` / `manifestContentSha`, and pure `applyPointerWrite` CAS
-decisions. Live MinIO `If-None-Match` / `If-Match` effects remain in the
-runtime writer.
+decisions. `JitML.Checkpoint.Store` provides the local filesystem-backed
+interpreter for write-once object writes, manifest writes/reads, latest-pointer
+CAS, and inference from the latest checkpoint. Live MinIO `If-None-Match` /
+`If-Match` effects remain in the runtime writer.
+
+The live rollout proceeds storage-outward: implement MinIO conditional
+checkpoint writes/reads first, then inference from checkpoint, then training
+persistence, then tuning/resume. Later workload layers should not invent
+parallel persistence paths around the checkpoint store.
 
 ## Three Object Classes, Two Write Protocols
 
@@ -171,7 +178,8 @@ Trainers pick `Maximised` vs `Minimised` from the experiment Dhall's
 `metrics[i].direction` field. The direction is part of the resolved-Dhall
 hash, so flipping a metric's direction defines a *different experiment*.
 The current worktree has a pure `PointerWrite` / `applyPointerWrite` decision
-surface only; it does not perform MinIO conditional writes.
+surface plus a local filesystem-backed checkpoint store. It does not perform
+MinIO conditional writes.
 
 ## Sketch
 
@@ -224,10 +232,12 @@ buffer, and exploration cache), and instantiates a `KernelHandle` in
 Concurrent training advances are invisible to the reader because the
 snapshot the reader operates against is immutable.
 
-The current local read path is `inferFromManifest`, a deterministic summary
-helper used by `jitml inference run` and the local cross-backend stanza. The
-target inference-only read path is the supported entrypoint for `jitml-demo` and
-the PureScript panels.
+The current local read paths are `inferFromManifest`, a deterministic summary
+helper used by `jitml inference run` and the local cross-backend stanza, and
+`JitML.Checkpoint.Store.inferFromLatestCheckpoint`, which reads a local latest
+pointer, fetches the addressed manifest, and applies the same deterministic
+inference helper. The target inference-only read path is the supported
+entrypoint for `jitml-demo` and the PureScript panels.
 
 ## TensorBoard Sidecar
 

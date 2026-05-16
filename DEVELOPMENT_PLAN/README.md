@@ -62,9 +62,48 @@ Rows marked `✅ Done` for Phases `1` through `12` mean the
 checked-in local renderer, catalog, command-summary, contract, or Cabal-stanza
 surface exists and is testable in the current worktree. They do **not** mean the
 live Kind/Helm stack, real Pulsar/MinIO event flow, real training kernels, real
-HTTP serving, or cross-cluster substrate execution has been exercised end to
-end. Those live behaviours remain part of the overall handoff gates called out
+service-client flow, or cross-cluster substrate execution has been exercised
+end to end. Local HTTP serving exists for the daemon and demo surfaces, and the
+daemon now has local POSIX signal/control coverage for reload and graceful-drain
+readiness. The unclosed runtime work is live service clients and live workload
+state. Those live behaviours remain part of the overall handoff gates called out
 above.
+
+## Final Handoff Sequence
+
+The remaining work is ordered by dependency, not by phase number:
+
+1. **Local chart hygiene.** Done for MinIO: subchart values live under
+   `chart/values.yaml`, bootstrap removes legacy standalone values fragments,
+   and `chart/templates/` is linted as Kubernetes-manifest-only.
+2. **Toolchain bounds refresh.** Retest the scoped `allow-newer` block only
+   during a package-set refresh; keep it while `serialise` / CBOR / Dhall
+   releases reject GHC `9.14.1`'s `base-4.22`.
+3. **Helm dependency discipline.** Done for the typed surface:
+   `JitML.Cluster.Helm` renders `helm dependency build chart`; `Chart.lock` is
+   not committed unless reproducible dependency locking is adopted, and
+   `chart/charts/` is not vendored by default.
+4. **Opt-in live Kind/Helm validation.** Default `cabal test all` remains local
+   and deterministic; live Kind creation, Helm apply, route polling, and teardown
+   are gated by `JITML_LIVE_E2E=1`.
+5. **Daemon runtime hardening.** Done for local process semantics:
+   `JitML.Service.Signal` maps `SIGHUP` to reload generation and
+   `SIGINT`/`SIGTERM` to graceful drain/readiness drop before real
+   Pulsar/MinIO/Harbor/kubectl clients are attached.
+6. **First real execution path.** Done locally for the generated Linux CPU
+   identity kernel: `JitML.Engines.Local` compiles generated C++ with `g++`,
+   loads it with `dlopen`, and executes it through `jitml-cross-backend`. Real
+   oneDNN graph kernels, Metal loading, and CUDA loading remain expansion work.
+7. **Storage-outward checkpoint flow.** Done locally through
+   `JitML.Checkpoint.Store`: write-once objects, manifest CBOR writes, latest
+   pointer CAS, and inference from latest checkpoint are tested. Live MinIO
+   conditional writes, training persistence, and tuning/resume remain runtime
+   expansion work.
+8. **Stateful frontend E2E.** Done for the typed live plan: `JitML.Test.LivePlan`
+   sequences Helm dependency build, Pulumi up, Playwright, Pulumi destroy, and
+   stack removal behind `JITML_LIVE_E2E=1`. The plan is not executed by default
+   until panels consume fixture-backed or live-backed state through the demo
+   server.
 
 ## Document Index
 
@@ -217,7 +256,8 @@ The implemented local end state is:
   `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`, which
   map each substrate to a backend name, artifact extension, determinism flags,
   typed kernel handle/envelope surface, generated runtime source bundle,
-  generated-source cache-key payload, and typed compiler `Subprocess` plan.
+  generated-source cache-key payload, typed compiler `Subprocess` plan, and a
+  local Linux CPU compile/load/run identity-kernel path.
   Generated compiler inputs are materialized under
   `./.build/jit-src/<substrate>/<hash>/`.
 - The current SL/RL workload surface is deterministic local catalog and summary
@@ -229,13 +269,15 @@ The implemented local end state is:
   runtime work.
 - The current checkpoint surface is a small typed manifest, deterministic
   manifest CBOR codec/content hash, binary `.jmw1` encoder, manifest pointer
-  rendering, and deterministic inference summary. Full MinIO write-once/CAS
-  pointer effects and real kernel-handle loading remain target runtime work.
+  rendering, local write-once object store with latest-pointer CAS, and
+  deterministic inference from the latest local checkpoint. Live MinIO effects
+  and real production kernel-handle loading remain target runtime work.
 - The current PureScript/frontend surface is a minimal PureScript entrypoint,
   generated contract file, typed bundle/panel/demo-route manifest, Playwright
-  scaffold, chart deployment template, and `jitml-demo` executable shim that
-  serves the current local frontend/API route surface. There is no checked-in
-  Halogen dependency, compiled browser bundle, or live WebSocket proxy yet.
+  scaffold, typed live Helm/Pulumi/Playwright plan, chart deployment template,
+  and `jitml-demo` executable shim that serves the current local frontend/API
+  route surface. There is no checked-in Halogen dependency, compiled browser
+  bundle, or live WebSocket proxy yet.
 - Ten Cabal test-suite stanzas (`jitml-unit`, `jitml-integration`,
   `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
   `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`,
@@ -243,8 +285,9 @@ The implemented local end state is:
   bodies. `jitml test all --dry-run` renders the aggregate plan and non-dry-run
   `jitml test all` / `jitml test <stanza>` invokes Cabal through the typed
   `Subprocess` boundary before emitting the report-card summary.
-  The Pulumi program at `infra/pulumi/` exports stack metadata only, not a live
-  ephemeral Kind orchestrator.
+  The Pulumi program at `infra/pulumi/` exports stack metadata only; the typed
+  live E2E sequence exists in `JitML.Test.LivePlan`, but not a live ephemeral
+  Kind orchestrator.
 
 No reopened local sprints remain. Live cross-cluster rollout and the
 ledger-tracked `allow-newer` removal remain outstanding final-handoff gates, not

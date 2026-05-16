@@ -31,8 +31,9 @@ cross-cluster validation.
 The current worktree implements typed renderers for Kind config, manual PVs,
 storage class, Gateway/GatewayClass/EnvoyProxy, HTTPRoutes, cluster
 publication, and bootstrap file materialization. `jitml bootstrap` and
-`jitml cluster up` write those local files; they do not currently execute
-`kind`, `helm`, image mirroring, or live cluster mutation.
+`jitml cluster up` write those local files and render the typed
+`helm dependency build chart` phase; they do not currently execute `kind`,
+`helm`, image mirroring, or live cluster mutation.
 
 ## Phase Summary
 
@@ -212,6 +213,7 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
 
 **Status**: Done
 **Implementation**: `src/JitML/Cluster/Publication.hs`,
+`src/JitML/Cluster/Helm.hs`,
 `src/JitML/Cluster/{Kind,Storage,Gateway,PulsarBootstrap}.hs`,
 `src/JitML/App.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
@@ -231,13 +233,19 @@ steady-state cluster is a no-op (exit code `3`).
 - Cluster lifecycle plan steps:
   1. Reconcile `cluster` prerequisite subgraph (Sprint `2.2`).
   2. Write `kind/cluster-<substrate>.yaml` from the typed config (Sprint `3.1`).
-  3. `kind create cluster --config kind/cluster-<substrate>.yaml --kubeconfig
+  3. Render the typed `helm dependency build chart` subprocess before any live
+     apply gate.
+  4. `kind create cluster --config kind/cluster-<substrate>.yaml --kubeconfig
      ./.build/jitml.kubeconfig` (the CLI never touches `~/.kube/config`).
-  4. Write the `jitml-manual` StorageClass and the manual PVs.
-  5. Run the phased Helm rollout (Sprint `3.5`).
-  6. Lease the edge port starting at `9090` and write
+  5. Write the `jitml-manual` StorageClass and the manual PVs.
+  6. Run the phased Helm rollout (Sprint `3.5`).
+  7. Lease the edge port starting at `9090` and write
      `./.build/runtime/cluster-publication.json`.
 - Phased deploy:
+  0. **Dependency phase**: render typed `helm dependency build chart` before any
+     live apply. If reproducible dependency locking is adopted, commit
+     `Chart.lock`; do not commit `chart/charts/` unless offline installs become
+     an explicit requirement.
   1. **Harbor phase**: bring up Harbor plus the Percona operator and
      Patroni-managed Postgres required by packaged services, using only the
      public pulls needed to make Harbor available.
@@ -265,7 +273,11 @@ steady-state cluster is a no-op (exit code `3`).
    `./.build/runtime/cluster-publication.json` when present or reports the
    default publication summary.
 4. Local materialization no-op exit `3` is covered by `jitml-unit`; live
-   Kind/Helm mutation validation remains target work.
+   Kind/Helm mutation validation remains target work and must be opt-in rather
+   than part of default `cabal test all`.
+5. `jitml-unit` covers `JitML.Cluster.Helm.renderHelmDependencyBuildPlan
+   "chart" == "helm dependency build chart"` and the `cluster up` plan contains
+   `build-helm-dependencies`.
 
 ## Doctrine Sections Cited
 

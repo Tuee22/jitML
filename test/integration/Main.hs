@@ -29,6 +29,7 @@ main =
           bootstrapPlanSteps LinuxCPU
             @?= [ "reconcile prerequisite graph for cluster"
                 , "render kind/cluster-linux-cpu.yaml"
+                , "prepare Helm dependencies with helm dependency build chart"
                 , "create Kind cluster with ./.build/jitml.kubeconfig"
                 , "apply jitml-manual StorageClass and manual PVs"
                 , "install Harbor bootstrap phase"

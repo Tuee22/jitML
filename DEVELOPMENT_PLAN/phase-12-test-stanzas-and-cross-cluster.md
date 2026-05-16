@@ -38,8 +38,12 @@ deterministic `tasty` body. These tests exercise parser/docs/cache/bootstrap
 helpers, renderers, catalogs, checkpoint summaries, route/bucket registries,
 daemon lifecycle data, and frontend contract scaffolds. They do not currently
 spawn the real `jitml` binary for integration, run live training, run
-Playwright, or bring up Kind through Pulumi. `jitml test all` invokes Cabal
-through the typed `Subprocess` boundary after the Plan/Apply dry-run surface.
+Playwright, or bring up Kind through Pulumi. The local `jitml-cross-backend`
+body now also compiles, loads, and runs the generated Linux CPU identity kernel
+through `dlopen`; the local `jitml-e2e` body verifies the typed live
+Helm/Pulumi/Playwright plan without executing it. `jitml test all` invokes
+Cabal through the typed `Subprocess` boundary after the Plan/Apply dry-run
+surface.
 
 ## Phase Summary
 
@@ -230,9 +234,9 @@ and deterministic trial-value checks.
 
 ### Objective
 
-Use `jitml-cross-backend` for the current local engine-flag and checkpoint
-inference summary checks. Live cross-substrate tolerance testing remains the
-overall handoff gate.
+Use `jitml-cross-backend` for the current local engine-flag, checkpoint
+inference summary, and Linux CPU generated-kernel execution checks. Live
+cross-substrate tolerance testing remains the overall handoff gate.
 
 ### Deliverables
 
@@ -240,13 +244,17 @@ overall handoff gate.
   deterministic engine flags.
 - It verifies `inferFromManifest` returns the same deterministic summary for
   each substrate in the local substrate list.
-- It does not launch kernels, train SL canon cohorts, or read
-  `test/golden/cross-backend/` tolerance fixtures yet.
+- It compiles the generated Linux CPU identity kernel, loads `jitml_kernel`
+  with `dlopen`, and asserts deterministic fixture output.
+- It does not train SL canon cohorts or read `test/golden/cross-backend/`
+  tolerance fixtures yet.
 
 ### Validation
 
 1. `cabal test jitml-cross-backend` exits `0` for the current local body.
-2. Live kernel parity and tolerance-band fixture validation remain target work.
+2. `cabal test jitml-cross-backend` validates the generated Linux CPU identity
+   kernel compile/load/run path.
+3. Live kernel parity and tolerance-band fixture validation remain target work.
 
 ## Sprint 12.7: `jitml-daemon-lifecycle` Stanza ✅
 
@@ -258,21 +266,20 @@ overall handoff gate.
 
 ### Objective
 
-Use `jitml-daemon-lifecycle` for the
-doctrine's Daemon
-Lifecycle test category through the current local lifecycle and retry surfaces.
-The target live test spawns the real `jitml service`, exercises boot → ready →
-serve → SIGHUP reload → drain → exit, and asserts at-least-once Pulsar consumer
-idempotency.
+Use `jitml-daemon-lifecycle` for the doctrine's Daemon Lifecycle test category
+through the current local lifecycle, retry, endpoint, and signal-control
+surfaces. The target live test adds real Pulsar consumer idempotency on top of
+the current boot → ready → serve → SIGHUP reload → drain → exit control model.
 
 ### Deliverables
 
 - `test/daemon-lifecycle/Main.hs` verifies the current lifecycle phase plan.
 - The test exercises endpoint response helpers and retry behaviour against
   synthetic service errors.
+- The test exercises signal mapping (`SIGHUP` reload generation and
+  `SIGINT`/`SIGTERM` graceful drain) and asserts readiness drops during drain.
 - The test exercises the one-shot daemon HTTP listener against `/healthz`.
-- Live process spawning, SIGHUP reload, Pulsar idempotency, and SIGTERM drain
-  remain target runtime validation.
+- Live Pulsar idempotency remains target runtime validation.
 
 ### Validation
 
@@ -288,6 +295,7 @@ idempotency.
 **Implementation**: `infra/pulumi/`,
 `infra/pulumi/package.json`, `infra/pulumi/Pulumi.yaml`,
 `infra/pulumi/index.ts`,
+`src/JitML/Test/LivePlan.hs`,
 `test/e2e/`,
 `jitml.cabal` (the `jitml-e2e` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`
@@ -296,25 +304,40 @@ idempotency.
 
 Use `jitml-e2e` for the current local e2e scaffold and target Pulumi/
 Playwright stack. The current body checks route, bucket, publication, contract,
-and report-card surfaces; the future body brings up an ephemeral Kind stack,
-runs the demo cohorts against the real Envoy listener with Playwright, and tears
-the stack down deterministically.
+report-card, and typed live-plan surfaces; the future body brings up an
+ephemeral Kind stack, runs the demo cohorts against the real Envoy listener with
+Playwright, and tears the stack down deterministically.
 This is the doctrine's Pulumi-Orchestrated Infrastructure test category.
+The live body is an explicit opt-in gate, not part of default `cabal test all`,
+because it creates Kind clusters, builds Helm dependencies, mutates external
+container/runtime state, and validates teardown.
 
 ### Deliverables
 
 - `infra/pulumi/index.ts` currently exports stack and cluster-name metadata.
 - `test/e2e/Main.hs` currently validates the route registry, bucket registry,
-  publication defaults, browser contract endpoint count, demo deployment
-  command, one-shot demo HTTP server, report-card rendering, and report-card
-  knob parsing.
+  `chart/values.yaml` MinIO bucket coverage, publication defaults, browser
+  contract endpoint count, demo deployment command, one-shot demo HTTP server,
+  report-card rendering, report-card knob parsing, typed live plan rendering,
+  and the explicit `JITML_LIVE_E2E` live gate.
+- `JitML.Test.LivePlan` sequences `helm dependency build chart`, `pulumi up`,
+  `npx playwright test`, `pulumi destroy`, and `pulumi stack rm` through typed
+  `Subprocess` values.
 - The target Pulumi stack is the only path that touches Pulumi; it is gated by
   the `pulumi` prerequisite node from Sprint `2.2`.
+- The target live path runs typed `helm dependency build chart` before apply and
+  records whether `Chart.lock` is part of the reproducible dependency surface.
+- Default `cabal test jitml-e2e` remains local; the live path is enabled only
+  by `JITML_LIVE_E2E=1`.
+- Playwright runs only after the demo panels read fixture-backed or live-backed
+  state rather than static scaffold output.
 
 ### Validation
 
 1. `cabal test jitml-e2e` exits `0` for the current local scaffold body.
-2. The future live body proves teardown leaves no `jitml-e2e` Kind cluster.
+2. `cabal test jitml-e2e` verifies the rendered live plan contains the Helm
+   dependency-build and Playwright steps.
+3. The future live body proves teardown leaves no `jitml-e2e` Kind cluster.
 
 ## Sprint 12.9: `jitml test all` Orchestrator and Report Card ✅
 

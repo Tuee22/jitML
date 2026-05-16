@@ -62,6 +62,13 @@ changes).
 Linux substrates don't need this — the pod loads directly out of
 `jit/<substrate>/` because there is no host↔VM artifact-copy step.
 
+The first executable path is local `linux-cpu`. `JitML.Engines.Local`
+materializes the generated identity kernel, compiles it with `g++`, loads the
+shared object through `dlopen`, resolves `jitml_kernel`, and validates
+deterministic fixture output through the Haskell FFI. Production oneDNN graph
+kernels, Apple Metal loading, and Linux CUDA loading extend the same cache and
+kernel-handle contracts later.
+
 ## Cache Key
 
 ```
@@ -99,10 +106,11 @@ It provides:
 - `EngineEnvelope`, carrying the handle, input/output metadata, per-substrate
   determinism witnesses, and compile command text.
 
-The target live daemon grows this into a `HasEngine` capability with real kernel
-launch and parameter-commit effects. `EngineEnvelope` is already the local
-reproducibility witness surface; see [determinism_contract.md → Engine
-Envelope](determinism_contract.md#engine-envelope).
+`src/JitML/Engines/Local.hs` is the narrow local execution interpreter for the
+Linux CPU identity fixture. The target live daemon grows the general surface
+into a `HasEngine` capability with real graph-kernel launch and parameter-commit
+effects. `EngineEnvelope` is already the local reproducibility witness surface;
+see [determinism_contract.md → Engine Envelope](determinism_contract.md#engine-envelope).
 
 ## Per-Substrate Codegen Drivers
 
@@ -113,12 +121,15 @@ Envelope](determinism_contract.md#engine-envelope).
 - The build plan invokes the oneDNN C++ compiler path through the typed
   `Subprocess` boundary against the generated directory; the produced `.so` is
   written atomically to `./.build/jit/linux-cpu/<hash>.so`.
+- `src/JitML/Engines/Local.hs` currently compiles the generated identity source,
+  `dlopen`s the produced `.so`, resolves `jitml_kernel`, and executes a local
+  fixture through the Haskell FFI.
 - AVX2 is the baseline; AVX-512 is detected at JIT time.
 - Block size for reductions is pinned per layer family so reductions are
   host-independent. The block size is part of `ToolchainFingerprint`.
 - The current local engine envelope names the `.so` artifact path and compile
-  command. A `LinuxCPU.HasEngine` instance that loads the `.so` via the FFI
-  loader remains target runtime work.
+  command. A production `LinuxCPU.HasEngine` instance for real oneDNN graph
+  kernels remains target runtime work.
 
 ### `linux-cuda` — CUDA + cuBLAS / cuDNN
 
@@ -215,8 +226,9 @@ set. The `--use_fast_math=false` invariant is preserved.
 ## FFI Boundary
 
 The current worktree has typed cache decisions and `KernelHandle` construction
-in `src/JitML/Engines/Engine.hs`; it does not perform `dlopen`. Target
-`src/JitML/FFI/Loader.hs` exposes
+in `src/JitML/Engines/Engine.hs`, plus a local Linux CPU identity `dlopen`
+runner in `src/JitML/Engines/Local.hs`. Target `src/JitML/FFI/Loader.hs`
+exposes
 `loadKernel :: HasJitCache env => ModelId -> Kind -> Substrate -> IO (Either
 AppError KernelHandle)`:
 

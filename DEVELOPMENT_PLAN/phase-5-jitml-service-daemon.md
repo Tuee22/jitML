@@ -34,10 +34,12 @@ The current worktree implements `BootConfig` / `LiveConfig` ADTs and Dhall
 renderers, lifecycle phase data, hot-reload decision data, pure endpoint-response
 rendering, pure JSON log rendering, service error/retry helpers, payload-hash
 deduplication, capability-class definitions, and chart ConfigMap/Deployment
-rendering, and the low-level in-binary HTTP runtime in
+rendering, the POSIX signal/control surface in `src/JitML/Service/Signal.hs`,
+and the low-level in-binary HTTP runtime in
 `src/JitML/Service/{Http,Runtime}.hs` serving `/healthz`, `/readyz`, and
-`/metrics`. It does not yet implement POSIX signal wiring, real
-MinIO/Pulsar/Harbor/kubectl clients, or a live Pulsar consumer loop.
+`/metrics`. `SIGHUP` increments the reload generation; `SIGINT` and `SIGTERM`
+begin graceful drain and drop readiness. It does not yet implement real
+MinIO/Pulsar/Harbor/kubectl clients or a live Pulsar consumer loop.
 
 ## Phase Summary
 
@@ -56,6 +58,7 @@ SelfInference` host-native).
 **Status**: Done
 **Implementation**: `src/JitML/Service/Lifecycle.hs`,
 `src/JitML/Service/{BootConfig,LiveConfig,Endpoints,Logger,Consumer,Retry}.hs`,
+`src/JitML/Service/Signal.hs`,
 `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
@@ -75,6 +78,9 @@ surface and the in-binary HTTP listener.
   endpoint response helpers.
 - `Lifecycle` ADT enumerates the phases: `load`, `prereq`, `acquire`,
   `ready`, `serve`, `drain`, `exit`.
+- `src/JitML/Service/Signal.hs` maps `SIGHUP` to reload generation changes and
+  `SIGINT` / `SIGTERM` to graceful drain; `src/JitML/Service/Runtime.hs` wires
+  those handlers into `serveDaemon`.
 - Default command summary path is `./conf/cluster/linux-cpu.dhall` when no
   `--config` is passed.
 
@@ -119,9 +125,11 @@ Dhall schema files, renderers, and the local SIGHUP reload-decision surface.
 - `JitML.Service.HotReload` models the local reload snapshot and SIGHUP reload
   decision: unchanged `LiveConfig` is ignored, changed `LiveConfig` increments
   the generation.
-- Target POSIX SIGHUP wiring re-reads `LiveConfig`; restart-required field
-  changes (i.e., any `BootConfig` field) emit `AppError InvalidConfig` with the
-  structured diagnostic and exit `2` so the orchestrator restarts the pod.
+- `JitML.Service.Signal` wires POSIX `SIGHUP`, `SIGINT`, and `SIGTERM` into the
+  daemon control surface: `SIGHUP` increments the reload generation, while
+  `SIGINT` / `SIGTERM` begin graceful drain and make `/readyz` report not ready.
+  Restart-required field changes (i.e., any `BootConfig` field) remain modelled
+  as `AppError InvalidConfig` so the orchestrator restarts the pod.
 - The Dhall schemas at `dhall/service/{BootConfig,LiveConfig}.dhall` are present
   and match the renderers; target Haskell decoders use `Dhall.input`.
 
@@ -131,6 +139,8 @@ Dhall schema files, renderers, and the local SIGHUP reload-decision surface.
 2. `dhall/service/BootConfig.dhall` and `dhall/service/LiveConfig.dhall`
    exist and match the current renderer vocabulary.
 3. `jitml-unit` exercises the local hot-reload decision surface.
+4. `jitml-daemon-lifecycle` exercises signal-to-action mapping and readiness
+   drop on drain.
 
 ## Sprint 5.3: `/healthz` / `/readyz` / `/metrics` and Structured Logging ✅
 

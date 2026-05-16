@@ -66,6 +66,13 @@ runs against the checked-in `chart/` tree and refuses:
 - Any `PerconaPGCluster` outside the typed service-Postgres registry.
 - Drift between the `kindest/node` pin in `kind/cluster-<substrate>.yaml`
   and the comment-mirror in `cabal.project`.
+- The lint rejects Helm values files or other non-manifest YAML under
+  `chart/templates/`, following
+  [cluster_topology.md → Helm Values
+  Ownership](cluster_topology.md#helm-values-ownership). Standalone
+  `chart/<subchart>-values.yaml` files are allowed only when a typed Helm
+  invocation explicitly passes them with `--values`; otherwise they are cleanup
+  candidates that should be folded into `chart/values.yaml`.
 
 ### Route-Registry Drift (`jitml lint chart` against `chart/templates/httproute-*.yaml`)
 

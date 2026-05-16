@@ -31,9 +31,11 @@ The current worktree contains the umbrella `chart/Chart.yaml` dependency list,
 `chart/values.yaml`, manual PV templates, route templates, deployment templates,
 the MinIO bucket registry, Pulsar topic registry/command renderer, Grafana
 dashboard renderer, TensorBoard deployment/event-key renderer, and the NVIDIA
-RuntimeClass manifest. It does not contain live Helm install/apply code, running
-Harbor/MinIO/Pulsar/Postgres readiness checks, generated Grafana dashboard
-template files, or a TensorBoard service template.
+RuntimeClass manifest. MinIO subchart values live under the consuming `minio:`
+key in `chart/values.yaml`; `chart/templates/` remains manifest-only and
+`jitml lint chart` rejects values files placed there. The worktree does not
+contain live Helm install/apply code, running Harbor/MinIO/Pulsar/Postgres
+readiness checks, or a TensorBoard service template.
 
 ## Phase Summary
 
@@ -116,7 +118,7 @@ lives in MinIO and Pulsar exclusively.
 ## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server ✅
 
 **Status**: Done
-**Implementation**: `chart/minio-values.yaml`,
+**Implementation**: `chart/values.yaml`,
 `src/JitML/Storage/Buckets.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
 `documents/engineering/checkpoint_format.md`
@@ -139,18 +141,23 @@ buckets, and pin the server to a release with S3 conditional-write support
   `jitml-checkpoints`, `jitml-datasets`, `jitml-transcripts`, `jitml-trials`,
   `jitml-tensorboard`, `jitml-artifacts`.
 - `src/JitML/Storage/Buckets.hs` is the typed source for the bucket layout;
-  `chart/minio-values.yaml` is materialized by the bootstrap renderer from
-  that list. It is a bootstrap-materialized chart input, not a Kubernetes
-  manifest under `chart/templates/` and not a `jitml docs generate`
-  tracked-generated path.
+  `chart/values.yaml` carries the Helm `minio.provisioning.buckets` block.
+- Bootstrap materialization removes legacy standalone MinIO values fragments
+  from `chart/templates/minio-values.yaml` and `chart/minio-values.yaml` so the
+  chart has one values owner.
 - HTTPRoutes for `/minio/console` and `/minio/s3` (Sprint `3.4`).
 
 ### Validation
 
 1. `src/JitML/Storage/Buckets.hs` enumerates the seven current bucket names.
-2. `chart/minio-values.yaml` exists as the local MinIO values
-   surface.
-3. Live MinIO `mc` and conditional-write validation remain target work.
+2. `chart/values.yaml` includes each typed bucket under
+   `minio.provisioning.buckets`.
+3. `materializeBootstrapFiles` removes legacy standalone MinIO values files and
+   remains idempotent on the second pass.
+4. The cleanup row in
+   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) is marked
+   completed for the standalone values fragment.
+5. Live MinIO `mc` and conditional-write validation remain target work.
 
 ## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap ✅
 

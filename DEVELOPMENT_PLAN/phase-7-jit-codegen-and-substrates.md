@@ -25,7 +25,9 @@
 engine/catalog/runtime-source surface. The Haskell binary generates every JIT
 compiler input source file on demand under
 `./.build/jit-src/<substrate>/<hash>/`; static checked-in source/build
-artefacts are removed from the build path and forbidden by lint.
+artefacts are removed from the build path and forbidden by lint. The local
+Linux CPU identity kernel path now compiles generated C++ with `g++`, loads the
+resulting shared object with `dlopen`, and executes through the Haskell FFI.
 
 ## Phase Summary
 
@@ -36,7 +38,15 @@ cache key derivation from `KernelSpec`, canonical rendered source payload, and
 `TuningChoice`, plus Tart command/state helpers. The local build plan surface
 renders CUDA / oneDNN C++ / Metal-Swift compiler inputs under
 `./.build/jit-src/<substrate>/<hash>/` and routes the compile command through
-typed `Subprocess` values.
+typed `Subprocess` values. `src/JitML/Engines/Local.hs` provides the first
+same-host execution loop for `linux-cpu`: generated source materialization,
+shared-object compilation, `dlopen`, symbol lookup, and deterministic fixture
+execution.
+
+The implemented execution path is intentionally narrow: it validates the
+generated Linux CPU identity kernel through the real FFI boundary before the
+production `HasEngine` loaders grow real oneDNN graph kernels, Apple Metal, and
+Linux CUDA.
 
 ## Sprint 7.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface ✅
 
@@ -50,7 +60,8 @@ typed `Subprocess` values.
 Populate the local cache-key input surface and kernel-handle/cache-decision
 surface, and lock the cache key derivation over `KernelSpec`, `Kind`,
 `Substrate`, `ToolchainFingerprint`, `RuntimeSourcePayload`, and
-`TuningChoice`. Real FFI loading remains target runtime work.
+`TuningChoice`. General production FFI loading remains target runtime work; the
+local Linux CPU identity runner is owned by Sprint `7.3`.
 
 ### Deliverables
 
@@ -63,8 +74,9 @@ surface, and lock the cache key derivation over `KernelSpec`, `Kind`,
 - `KernelHandle` names the engine, content hash, and canonical artifact path.
 - `resolveKernelCache` returns a typed `JitCacheHit` or `JitCacheMiss` with the
   compile `Subprocess` needed to fill the cache.
-- `loadKernel`, `HasJitCache`, and FFI `dlopen` behavior remain target runtime
-  work.
+- `loadKernel` and `HasJitCache` remain target runtime work. Local `dlopen`
+  behavior exists only for the Linux CPU identity fixture through
+  `JitML.Engines.Local`.
 
 ### Validation
 
@@ -96,7 +108,9 @@ shapes, deterministic launch envelope, and renderable build plan.
 - `KernelInputs`, `KernelOutputs`, and `EngineEnvelope` record the local launch
   ABI and reproducibility witness surface.
 - `renderEngineEnvelope` renders the envelope for deterministic inspection.
-- `HasEngine` live execution remains target runtime work.
+- `HasEngine` production execution remains target runtime work; the local Linux
+  CPU identity execution path is implemented separately in
+  `JitML.Engines.Local`.
 
 ### Validation
 
@@ -107,15 +121,17 @@ shapes, deterministic launch envelope, and renderable build plan.
 ## Sprint 7.3: Linux CPU Engine and oneDNN Codegen Driver ✅
 
 **Status**: Done
-**Implementation**: `src/JitML/Engines/Engine.hs`
+**Implementation**: `src/JitML/Engines/Engine.hs`,
+`src/JitML/Engines/Local.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
 ### Objective
 
-Land the current `linux-cpu` engine metadata and generated oneDNN-style C++
-source renderer. Real oneDNN graph wrappers and runtime execution remain
-target work.
+Land the current `linux-cpu` engine metadata, generated oneDNN-style C++
+source renderer, and first same-host compile/load/run path for the generated
+identity kernel. Real oneDNN graph wrappers and production `HasEngine`
+execution remain target work.
 
 ### Deliverables
 
@@ -125,14 +141,20 @@ target work.
   reduction-block constant.
 - `compileSubprocess` renders the `g++ -std=c++20 -O2 -fPIC -shared` command
   against the generated source directory.
-- oneDNN runtime graph wrappers, AVX detection, and FFI loading are not
-  implemented yet.
+- `JitML.Engines.Local` materializes the generated Linux CPU source, compiles
+  it, loads `jitml_kernel` with `dlopen`, and executes a deterministic identity
+  fixture through the Haskell FFI.
+- oneDNN runtime graph wrappers, AVX detection beyond the local metadata
+  surface, and production `HasEngine` loading are not implemented yet.
 
 ### Validation
 
 1. `jitml build --dry-run --substrate linux-cpu` renders a generated-source
    directory and `g++` compile plan.
-2. Live same-host reduction equality remains target validation.
+2. `cabal test jitml-cross-backend` compiles, loads, and executes the generated
+   Linux CPU identity kernel.
+3. Live same-host reduction equality for real oneDNN graph kernels remains
+   target validation.
 
 ## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver ✅
 
@@ -303,8 +325,9 @@ Metal / Swift package source participates in a JIT build.
 
 - `documents/engineering/jit_codegen_architecture.md` — current local
   `KernelSpec` cache-key payload, cache key derivation, Haskell runtime source
-  renderers, and per-substrate compile plans; target FFI loader, Apple hybrid
-  runtime, host↔cluster RPC, and real auto-tuning surface.
+  renderers, per-substrate compile plans, and Linux CPU identity
+  compile/load/run path; target production FFI loader, Apple hybrid runtime,
+  host↔cluster RPC, and real auto-tuning surface.
 - `documents/engineering/determinism_contract.md` — populate with the per-
   substrate floating-point semantics (Metal single-stream, oneDNN blocked
   reduction, CUDA warp-shuffle + `--use_fast_math=false` + cuDNN explicit

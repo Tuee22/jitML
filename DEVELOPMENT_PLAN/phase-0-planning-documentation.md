@@ -147,6 +147,12 @@ ambiguity about where the source of truth lives.
   `checkpoint_format.md`, `purescript_frontend.md`) own their content outright
   with no doctrine overlap. The `engineering/README.md` is a one-line-per-file
   index.
+- `documents/engineering/cluster_topology.md` owns the Helm-values ownership
+  guideline: `chart/templates/` is manifest-only, umbrella values belong in
+  `chart/values.yaml`, and separate `chart/<subchart>-values.yaml` files require
+  a documented typed Helm `--values` invocation or become cleanup candidates.
+  `documents/engineering/code_quality.md` mirrors the enforcement direction for
+  the chart lint surface.
 - `HASKELL_CLI_TOOL.md` carries the standard `**Status**` / `**Supersedes**` /
   `**Referenced by**` metadata block plus a `> **Purpose**:` line. The doctrine
   body is verbatim authoritative; no other edits.
@@ -180,9 +186,12 @@ ambiguity about where the source of truth lives.
    `Project-level documentation standards` subsection shows no missing item.
 8. Each `documents/engineering/*` file that overlaps with the doctrine either
    cites a doctrine section by name or shrinks to a doctrine pointer.
-9. Root `README.md`, `AGENTS.md`, and `CLAUDE.md` link to both
+9. The Helm-values ownership guideline is present in
+   `documents/engineering/cluster_topology.md`, and any chart-lint enforcement
+   direction is cross-referenced from `documents/engineering/code_quality.md`.
+10. Root `README.md`, `AGENTS.md`, and `CLAUDE.md` link to both
    `DEVELOPMENT_PLAN/README.md` and `HASKELL_CLI_TOOL.md`.
-10. Mermaid render pass per standards rule K: `README.md`'s Sprint Dependencies
+11. Mermaid render pass per standards rule K: `README.md`'s Sprint Dependencies
     flowchart is the only Mermaid block in `DEVELOPMENT_PLAN/` at Sprint `0.1`
     closure; it renders successfully.
 
@@ -584,7 +593,8 @@ adopt doctrine — are:
   tolerance methodology.
 - `documents/engineering/cluster_topology.md` — project-specific: Kind cluster
   shapes per substrate, Helm umbrella chart, storage discipline, Envoy
-  Gateway, route registry, no-kubeconfig-pollution invariant.
+  Gateway, route registry, Helm-values ownership, no-kubeconfig-pollution
+  invariant.
 - `documents/engineering/daemon_architecture.md` — project-specific:
   `jitml service` lifecycle, `BootConfig` / `LiveConfig`, hot reload,
   `/healthz` / `/readyz` / `/metrics`, structured logging, recoverable vs
@@ -604,7 +614,8 @@ adopt doctrine — are:
 - `documents/engineering/purescript_frontend.md` — project-specific:
   current PureScript shell, local browser-contract renderer, bundle, panel, and
   demo-route metadata, Playwright scaffold, and demo shim; target Halogen
-  panels, REST / WebSocket surfaces, Playwright E2E, and demo HTTP server.
+  panels, live REST / WebSocket surfaces, compiled bundle serving, and
+  Playwright E2E.
 
 **Product docs to create/update:**
 

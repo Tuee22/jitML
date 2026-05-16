@@ -52,7 +52,7 @@ Plan/Apply dry-run handling.
 | Substrate | Identifier | Codegen | Container Shape | Daemon Topology | Status | Owning Phase |
 |-----------|------------|---------|-----------------|-----------------|--------|--------------|
 | Apple Silicon | `apple-silicon` | generated Swift + Metal package under `./.build/jit-src/apple-silicon/<hash>/` | partial — cluster services in Kind; target second `jitml service` runs host-native (Metal cannot be containerized) | target two instances of one binary, distinguished by Dhall: `Cluster + ForwardToHost` (in-pod) + `Host + SelfInference` (host-native); current code renders configs and lifecycle summaries | ✅ Done | [Phase 7](phase-7-jit-codegen-and-substrates.md) |
-| Linux CPU | `linux-cpu` | generated oneDNN-style C++ source under `./.build/jit-src/linux-cpu/<hash>/` | fully containerized target: `jitml:local` | target one daemon: `Cluster + SelfInference`; current code renders configs and summaries | ✅ Done | [Phase 7](phase-7-jit-codegen-and-substrates.md) |
+| Linux CPU | `linux-cpu` | generated oneDNN-style C++ source under `./.build/jit-src/linux-cpu/<hash>/`, plus local identity-kernel compile/load/run through `JitML.Engines.Local` | fully containerized target: `jitml:local` | target one daemon: `Cluster + SelfInference`; current code renders configs and summaries and validates a same-host identity kernel path | ✅ Done | [Phase 7](phase-7-jit-codegen-and-substrates.md) |
 | Linux CUDA | `linux-cuda` | generated CUDA C source under `./.build/jit-src/linux-cuda/<hash>/` | fully containerized target: `jitml:local` (CUDA activates at runtime when scheduled to `runtimeClassName: nvidia`) | target one daemon: `Cluster + SelfInference`, pod anti-affinity = one per node; current code renders configs and summaries | ✅ Done | [Phase 7](phase-7-jit-codegen-and-substrates.md) |
 
 A fourth substrate `linux-opencl` (Intel GPU) is admitted as a future extension and
@@ -123,7 +123,8 @@ fail fast with installation instructions, then delegate to the Haskell
 | Route registry | `src/JitML/Routes.hs` — single source of truth for every HTTPRoute resource | ✅ Done | Sprint 3.4 |
 | Generated HTTPRoute manifests | `chart/templates/httproute-*.yaml`, rendered from the route registry; hand edits fail `jitml lint chart` | ✅ Done | Sprint 3.4 |
 | Cluster publication | `./.build/runtime/cluster-publication.json` — `edge_port`, Pulsar URL, MinIO URL, component health | ✅ Done | Sprint 3.5 |
-| Phased deploy | Target order is Harbor first → mirror/build into Harbor → final services; current code renders the ordered plan and materializes local inputs only | ✅ Done (local plan) | Sprint 3.5 |
+| Phased deploy | Target order is Harbor first → mirror/build into Harbor → final services; current code renders the ordered plan, includes the typed Helm dependency phase, and materializes local inputs only | ✅ Done (local plan) | Sprint 3.5 |
+| Helm dependency build | `src/JitML/Cluster/Helm.hs` renders the typed `helm dependency build chart` subprocess before live apply; `Chart.lock` is optional until reproducible dependency locking is adopted, and `chart/charts/` is not vendored by default | ✅ Done (typed surface) | Sprint 3.5 |
 
 ## Stateful Platform Services
 
@@ -131,7 +132,8 @@ fail fast with installation instructions, then delegate to the Haskell
 |-----------|---------------|---------|--------|---------------|
 | Harbor (image registry) | `harbor` subchart and local values scaffold; live image push remains target | `/harbor` (portal), `/harbor/api` (API) | ✅ Done (chart surface) | Sprint 4.1 |
 | Percona PG operator | `pg-operator` subchart plus local PV templates; live `PerconaPGCluster` remains target | (internal — packaged services that require Postgres) | ✅ Done (chart surface) | Sprint 4.2 |
-| MinIO (object store) | `minio` values and bucket renderer; no live MinIO client path yet | `/minio/console`, `/minio/s3` | ✅ Done (chart/bucket surface) | Sprint 4.3 |
+| Helm values ownership | `chart/templates/` is manifest-only; subchart values belong under `chart/values.yaml` unless a typed Helm invocation passes a separate values file; `jitml lint chart` rejects values files under `chart/templates/` | ✅ Done | Sprint 4.3 |
+| MinIO (object store) | `minio` values and bucket list live in `chart/values.yaml`; `src/JitML/Storage/Buckets.hs` remains the typed bucket registry; no live MinIO client path yet | `/minio/console`, `/minio/s3` | ✅ Done (chart/bucket surface) | Sprint 4.3 |
 | Apache Pulsar | `pulsar` HA values and topic-command renderer; no live Pulsar admin execution yet | `/pulsar/admin`, `/pulsar/ws` | ✅ Done (chart/topic surface) | Sprint 4.4 |
 | Envoy Gateway controller | `gateway-helm` | (controller — dispatches the GatewayClass) | ✅ Done | Sprint 3.3 |
 | kube-prometheus-stack | `kube-prometheus-stack` values plus Grafana/Prometheus renderers | `/grafana`, `/prometheus` | ✅ Done (renderer surface) | Sprint 4.5 |
@@ -176,7 +178,7 @@ internal-RPC pair.
 |-----------|------------------|--------|---------------|
 | `BootConfig` Dhall (start-time only; restart-required) | Long-Running Daemons in the Same Binary → BootConfig | ✅ Done | Sprint 5.2 |
 | `LiveConfig` Dhall (target hot-reloadable on SIGHUP) | Long-Running Daemons in the Same Binary → LiveConfig | ✅ Done for ADT and renderer | Sprint 5.2 |
-| SIGHUP hot reload handler | Long-Running Daemons in the Same Binary | ✅ Done as local reload-decision surface in `src/JitML/Service/HotReload.hs`; live POSIX signal wiring remains daemon-runtime validation | Sprint 5.2 |
+| SIGHUP hot reload handler | Long-Running Daemons in the Same Binary | ✅ Done as local reload-decision surface in `src/JitML/Service/HotReload.hs` plus POSIX signal/control wiring in `src/JitML/Service/Signal.hs` | Sprint 5.2 |
 | `/healthz` endpoint | Long-Running Daemons → /healthz | ✅ Done as `EndpointResponse` served by `JitML.Service.Runtime.daemonHttpRoutes` | Sprint 5.3 |
 | `/readyz` endpoint | Long-Running Daemons → /readyz | ✅ Done as `EndpointResponse` served by `JitML.Service.Runtime.daemonHttpRoutes` | Sprint 5.3 |
 | `/metrics` endpoint | Long-Running Daemons → /metrics | ✅ Done as Prometheus text served by `JitML.Service.Runtime.daemonHttpRoutes` | Sprint 5.3 |
@@ -211,7 +213,7 @@ internal-RPC pair.
 | Component | Implementation | Status | Owning Sprint |
 |-----------|----------------|--------|---------------|
 | Apple Silicon engine (Metal codegen + host daemon shim + lazy tart spin-up) | `src/JitML/Engines/Engine.hs`, `src/JitML/Codegen/{RuntimeSource,Metal}.hs`, `src/JitML/Tart/{Lifecycle,Exec}.hs`; generated Swift / Metal inputs under `./.build/jit-src/apple-silicon/<hash>/` | ✅ Done | Sprints 7.5, 7.7 |
-| Linux CPU engine (oneDNN codegen) | `src/JitML/Engines/Engine.hs`, `src/JitML/Codegen/{RuntimeSource,OneDnn}.hs`; generated oneDNN C++ inputs under `./.build/jit-src/linux-cpu/<hash>/` | ✅ Done | Sprints 7.3, 7.7 |
+| Linux CPU engine (oneDNN codegen + local FFI fixture) | `src/JitML/Engines/{Engine,Local}.hs`, `src/JitML/Codegen/{RuntimeSource,OneDnn}.hs`; generated oneDNN C++ inputs under `./.build/jit-src/linux-cpu/<hash>/`; local identity kernel compiles with `g++`, loads with `dlopen`, and runs through the Haskell FFI | ✅ Done | Sprints 7.3, 7.7 |
 | Linux CUDA engine (CUDA C codegen) | `src/JitML/Engines/Engine.hs`, `src/JitML/Codegen/{RuntimeSource,Cuda}.hs`; generated CUDA inputs under `./.build/jit-src/linux-cuda/<hash>/` | ✅ Done | Sprints 7.4, 7.7 |
 | Haskell-owned runtime JIT source generation | `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`; no checked-in generated compiler-input directories | ✅ Done | Sprint 7.7 |
 | Kernel handle, cache hit/miss, and engine envelope surface | `src/JitML/Engines/Engine.hs`; `KernelHandle`, `JitCacheStatus`, `KernelInputs`, `KernelOutputs`, `EngineEnvelope` | ✅ Done | Sprints 7.1, 7.2 |
@@ -249,9 +251,9 @@ internal-RPC pair.
 | Split-blob layout (`blobs/<sha256>`, `manifests/<sha256>`, `pointers/{latest,best/<metric>,trial/...}`) | `src/JitML/Checkpoint/Format.hs`; typed object-key renderers for blobs, manifests, latest, best, and trial pointers | ✅ Done | Sprint 10.1 |
 | `.jmw1` dense weight blob format | `src/JitML/Checkpoint/Format.hs`; current `encodeJmw1` writes `JMW1`, a CBOR header length/header, and little-endian `F64` payload bytes | ✅ Done (local encoder) | Sprint 10.2 |
 | Manifest pointer surface | `src/JitML/Checkpoint/Format.hs`; `CheckpointManifest`, deterministic manifest CBOR codec/content hash, `manifestPointer` | ✅ Done | Sprint 10.2 |
-| Write-once and CAS protocol surface | `src/JitML/Checkpoint/Format.hs`; pure pointer-write CAS decision surface; live MinIO `If-Match` / `If-None-Match` remains runtime validation | ✅ Done | Sprint 10.2 |
+| Write-once and CAS protocol surface | `src/JitML/Checkpoint/{Format,Store}.hs`; pure pointer-write CAS decision surface plus local filesystem-backed write-once object/manifest writes and latest-pointer CAS; live MinIO `If-Match` / `If-None-Match` remains runtime validation | ✅ Done | Sprint 10.2 |
 | Bit-determinism contract + cross-substrate tolerance methodology | [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ✅ Done | Sprint 10.3 |
-| Inference-only read path | `src/JitML/Checkpoint/Format.hs`; current `inferFromManifest` deterministic summary consumed by command tests | ✅ Done | Sprint 10.4 |
+| Inference-only read path | `src/JitML/Checkpoint/{Format,Store}.hs`; current `inferFromManifest` deterministic summary plus local latest-pointer → manifest → inference helper consumed by tests | ✅ Done | Sprint 10.4 |
 | Retention reconciler (`jitml internal gc <experiment-hash>`) | command plan rendering in `src/JitML/App.hs` | ✅ Done | Sprint 10.3 |
 | TensorBoard checkpoint sidecar (`<step>-<manifest-sha>.cbor` under `jitml-tensorboard/<experiment-hash>/checkpoints/`) | `src/JitML/Observability/TensorBoard.hs`; `checkpointSidecarKey` renders the sidecar object key | ✅ Done | Sprint 4.6 |
 
@@ -307,7 +309,7 @@ standards rule L.
 | Capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) | Capability Classes and Service Errors | ✅ Done in `src/JitML/Service/Capabilities.hs` | Sprint 5.4 |
 | `RetryPolicy` typed value with named strategies | Retry Policy as First-Class Values | ✅ Done | Sprint 5.4 |
 | At-least-once Pulsar consumer with protobuf-message-hash deduplication | At-Least-Once Event Processing | ✅ Done as payload-hash deduplication helper; live Pulsar subscription remains planned | Sprint 5.5 |
-| Long-running daemon shape (`BootConfig` / `LiveConfig`, SIGHUP, `/healthz`, `/readyz`, `/metrics`, structured JSON stderr logging) | Long-Running Daemons in the Same Binary | ✅ Done for config/endpoint/log renderers and local HTTP serving; POSIX signal wiring remains target runtime validation | Sprints 5.2, 5.3 |
+| Long-running daemon shape (`BootConfig` / `LiveConfig`, SIGHUP, `/healthz`, `/readyz`, `/metrics`, structured JSON stderr logging) | Long-Running Daemons in the Same Binary | ✅ Done for config/endpoint/log renderers, local HTTP serving, POSIX signal mapping, and readiness drop on drain; live service clients remain target runtime work | Sprints 5.2, 5.3 |
 | Implemented reconciler discipline (`jitml docs generate`, `jitml lint --write`, `jitml bootstrap`, `jitml cluster up`, `--dry-run` / `--plan-file` plan rendering, no-op exit code `3`) | Reconcilers: Idempotent Mutation as a Single Command; Plan / Apply | ✅ Done | Sprints 1.3, 1.4, 1.5, 1.9, 2.1, 3.5 |
 | Future mutating reconciler effects (`jitml bootstrap` live Kind/Helm apply, `jitml internal gc` live MinIO deletion) | Reconcilers: Idempotent Mutation as a Single Command | ✅ Done for local materialization / summary surfaces; live apply remains target validation | Sprints 3.5, 10.3 |
 | Cabal-manifest toolchain pin (`tested-with: ghc ==9.14.1` in `jitml.cabal`, `with-compiler: ghc-9.14.1` in `cabal.project`, codegen toolchains pinned in `cabal.project`) | Toolchain pinning | ✅ Done | Sprint 1.1 |
@@ -329,9 +331,9 @@ and each non-style phase stanza now has a dedicated local deterministic body.
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers eleven local deterministic synthetic convergence curves | Live SL convergence golden and per-distribution regression detection | ✅ Done (local body) | Sprint 12.3 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers local algorithm metadata, deterministic trajectory helper, PPO/CartPole golden trajectory, and Connect 4 transcript fixture | RL target matrix forms (2) and (3): same-substrate trajectory determinism plus per-seed final-reward distribution against live committed fixtures | ✅ Done (local body) | Sprint 12.4 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers local sampler / scheduler / pruner axes, deterministic trial values, and Sobol/GA golden fixtures | Per-sampler reproducibility, per-scheduler reproducibility, per-pruner reproducibility, and resume-from-partial-sweep equality against live storage | ✅ Done (local body) | Sprint 12.5 |
-| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers local engine determinism flags and checkpoint inference summaries | Cross-substrate cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; per-tensor drift fits the committed tolerance band per [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ✅ Done (local body) | Sprint 12.6 |
-| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` | Current local lifecycle/retry tests plus one-shot daemon HTTP `/healthz`; target live test spawns `jitml service`, polls `/readyz`, drives SIGHUP, and asserts graceful drain | ✅ Done (local body) | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` | Current local route/bucket/publication/contract/demo HTTP/report tests; target live test uses Pulumi + Playwright against real Envoy listener | ✅ Done (local body) | Sprint 12.8 |
+| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers local engine determinism flags, checkpoint inference summaries, and generated Linux CPU identity-kernel compile/load/run | Cross-substrate cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; per-tensor drift fits the committed tolerance band per [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ✅ Done (local body) | Sprint 12.6 |
+| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` | Current local lifecycle/retry/signal-control tests plus one-shot daemon HTTP `/healthz`; target live test adds real Pulsar idempotency | ✅ Done (local body) | Sprint 12.7 |
+| `jitml-e2e` | `test/e2e/Main.hs` plus `src/JitML/Test/LivePlan.hs` | Current local route/bucket/chart-values/publication/contract/demo HTTP/report/live-gate and typed Helm/Pulumi/Playwright plan tests; target live test uses `JITML_LIVE_E2E=1`, Pulumi, Helm, and Playwright against real Envoy listener | ✅ Done (local body) | Sprint 12.8 |
 | `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack | Formatter, hlint/config, forbidden-path, chart, generated-section, external formatter/hlint/cabal-format/build gates, and optional future lints as they land | ✅ Done | Sprint 1.4 |
 | `jitml-purescript-style` | `test/purescript-style/Main.hs` | Current generated-contract presence/header, whitespace, and panel-contract smoke checks; PureScript `purs format` round-trip and `purescript-spec` remain target work | ✅ Done | Sprint 11.3 |
 
@@ -394,13 +396,13 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 | State Class | Authority | Durable Home | Notes |
 |-------------|-----------|--------------|-------|
 | Build artefacts | `cabal` (Apple) or `docker compose run` (Linux) | `./.build/` (gitignored, dockerignored) | The only host folder holding compiled artefacts |
-| Generated JIT compiler inputs | `jitml` Haskell runtime source renderers | `./.build/jit-src/<substrate>/<hash>/` | CUDA, oneDNN C++, and Metal / Swift inputs are generated on demand |
+| Generated JIT compiler inputs | `jitml` Haskell runtime source renderers | `./.build/jit-src/<substrate>/<hash>/` | CUDA, oneDNN C++, and Metal / Swift inputs are generated on demand; the local Linux CPU identity path compiles and loads from this tree |
 | JIT cache | `jitml service` and `jitml build` | `./.build/jit/<substrate>/<hash>.<ext>` content-addressed by `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)` | Survives `purge`; only `purge --full` removes it |
 | Apple FFI dlopen surface | `jitml service` (host-native instance) | `./.build/host/apple-silicon/<model-id>.dylib` (symlinks into `jit/apple-silicon/`) | Stable-named so the FFI key never changes across re-JITs |
 | Kubeconfig | `jitml bootstrap --<substrate>` | `./.build/jitml.kubeconfig` | The CLI never touches `~/.kube/config` |
 | Generated Dhall and runtime metadata | `jitml bootstrap --<substrate>` | `./.build/conf/`, `./.build/runtime/cluster-publication.json`, `./.build/kind/<substrate>/` | Host Dhall exists only on Apple; Linux uses only the cluster ConfigMap Dhall |
 | Kind hostPath PV state | per-StatefulSet PVs | `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/` | `.data` is strictly manual PV bind mounts; lint-enforced by `jitml lint files` |
-| Checkpoint store | `jitml service` (training path) | MinIO `jitml-checkpoints/<experiment-hash>/{blobs,manifests,pointers}` | Concurrency: write-once + If-Match CAS on pointers |
+| Checkpoint store | `jitml service` (training path); local interpreter in `JitML.Checkpoint.Store` | MinIO `jitml-checkpoints/<experiment-hash>/{blobs,manifests,pointers}`; local tests use a filesystem object root with the same key layout | Concurrency: write-once + If-Match CAS on pointers; local tests exercise write-once objects, manifest writes, latest pointer CAS, and inference from latest |
 | Trial store | `jitml tune` | MinIO `jitml-trials/<sha256(resolved-dhall \|\| trial-seed)>/` | Trial transcripts content-addressed |
 | TensorBoard events | `jitml service` writers | MinIO `jitml-tensorboard/<experiment-hash>/shards/*.tfevents` plus checkpoint sidecars | Stateless TB pod reads from MinIO |
 | RL transcripts | `jitml rl train` / `jitml rl rollout` | MinIO `jitml-transcripts/` | Analog of MCTS's `.mcts-cache/transcripts/` |
@@ -426,8 +428,8 @@ The current concrete worktree is summarized in
 | Per-substrate Kind configs | `./kind/cluster-{apple-silicon,linux-cpu,linux-cuda}.yaml` | Single control-plane + one worker; bind-mounts `./.build/` into the worker via `extraMounts` |
 | Bootstrap scripts | `./bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh` | Stage-0 idempotent reconcilers |
 | Docker assets | `docker/Dockerfile`, `docker/compose.yaml` | One Dockerfile producing one image (`jitml:local`); one compose service (`jitml`) |
-| Helm umbrella chart | `chart/Chart.yaml`, `chart/values.yaml`, `chart/templates/` | Subchart deps for Harbor, Pulsar, MinIO, Postgres, Envoy Gateway, Prometheus, TensorBoard; templates for GatewayClass / Gateway / HTTPRoutes / EnvoyProxy / manual PVs / Deployments / RuntimeClass / dashboards |
-| JIT source generation | `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`, `./.build/jit-src/<substrate>/<hash>/` | Haskell-generated compiler inputs for CUDA, oneDNN C++, and Metal / Swift |
+| Helm umbrella chart | `chart/Chart.yaml`, `chart/values.yaml`, `chart/templates/` | Subchart deps for Harbor, Pulsar, MinIO, Postgres, Envoy Gateway, Prometheus, TensorBoard; templates for GatewayClass / Gateway / HTTPRoutes / EnvoyProxy / manual PVs / Deployments / RuntimeClass / dashboards; subchart values live in `chart/values.yaml` unless passed by a typed Helm subprocess |
+| JIT source generation | `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`, `src/JitML/Engines/Local.hs`, `./.build/jit-src/<substrate>/<hash>/` | Haskell-generated compiler inputs for CUDA, oneDNN C++, and Metal / Swift; local Linux CPU identity compile/load/run |
 | Protobuf contracts | `proto/tensorboard/event.proto` | TensorBoard event vendor proto |
 | PureScript frontend | `web/package.json`, `web/src/`, `web/test/`, `playwright/` | Minimal PureScript shell, generated contract file, smoke tests, and Playwright scaffold |
 | Pulumi infrastructure | `infra/pulumi/` | Current TypeScript metadata scaffold; target ephemeral-Kind stack used by `jitml-e2e` |

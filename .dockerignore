@@ -2,4 +2,5 @@
 .data/
 dist-newstyle/
 .hlint-output
+chart/charts/
 *.lock

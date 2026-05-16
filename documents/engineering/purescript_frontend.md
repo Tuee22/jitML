@@ -22,7 +22,7 @@
 | Bundle/panel/demo-route metadata | Local Haskell metadata | `src/JitML/Web/Bundle.hs` |
 | Demo HTTP routes | Local Haskell HTTP server for the current route/API surface | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Minimal shell | `web/test/Main.purs` |
-| Playwright | Scaffold spec only; not invoked by current `jitml-e2e` body | `playwright/jitml-demo.spec.ts` |
+| Playwright | Scaffold spec plus typed live-plan step; not executed by the current default `jitml-e2e` body | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs` |
 | Demo executable | Status line plus HTTP server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -127,8 +127,10 @@ demo image, `jitml-demo` command, and `PORT=80`. HTTPRoutes for `/`, `/api`,
 ## Playwright E2E
 
 `playwright/jitml-demo.spec.ts` is the current TypeScript Playwright scaffold.
-The current `jitml-e2e` Cabal body does not invoke Playwright. Target work grows
-this into one spec per panel covering the golden user flow:
+`JitML.Test.LivePlan` records the target `npx playwright test` step after Helm
+dependency build and Pulumi stack creation, but the current default
+`jitml-e2e` Cabal body does not invoke Playwright. Target work grows this into
+one spec per panel covering the golden user flow:
 
 - MNIST: draw a digit, assert top-1 matches the expected class against a
   fixture model.
@@ -144,6 +146,9 @@ Target Playwright execution runs through the typed `Subprocess` boundary. The
 target `jitml-e2e` stanza invokes the Playwright suite as part of its
 end-to-end run; Playwright belongs to the doctrine's Pulumi-Orchestrated
 Infrastructure test category and does not have its own Cabal stanza.
+Playwright execution waits until panels consume fixture-backed or live-backed
+state through `jitml-demo`; static route/API scaffold checks stay in the local
+Haskell e2e and PureScript-style stanzas.
 
 ## Cross-References
 

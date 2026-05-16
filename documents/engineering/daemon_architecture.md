@@ -52,6 +52,12 @@ renders summaries, and starts the in-binary HTTP listener for the daemon
 endpoint surface. Target live client transitions log structured JSON events on
 stderr.
 
+Runtime hardening order is part of the daemon contract: POSIX signal handling,
+readiness transitions, and graceful drain land before real Pulsar/MinIO/Harbor/
+kubectl clients. The current local runner implements the signal/control surface
+in `JitML.Service.Signal` and drops readiness when drain begins, so shutdown
+semantics are deterministic before the daemon starts mutating external services.
+
 ## BootConfig and LiveConfig
 
 `BootConfig` (start-time only; restart-required field changes force a full
@@ -84,14 +90,17 @@ for the current surface. Target Haskell decoders use `Dhall.input`.
 
 ## Hot Reload
 
-Target SIGHUP handling triggers `LiveConfig` re-read. Restart-required field
-changes (i.e., any `BootConfig` field) emit `AppError InvalidConfig` with the
-offending field name and exit `2` so the orchestrator restarts the pod.
+SIGHUP handling is wired through `JitML.Service.Signal`: the local control
+surface increments the reload generation, and `JitML.Service.HotReload` decides
+whether a `LiveConfig` change is ignored, applied, or restart-required.
+Restart-required field changes (i.e., any `BootConfig` field) emit
+`AppError InvalidConfig` with the offending field name and exit `2` so the
+orchestrator restarts the pod.
 
-The current local implementation models this in `JitML.Service.HotReload` with
-`LiveConfigSnapshot` and `handleSighupReload`: unchanged live config is ignored,
-changed live config increments the generation. POSIX signal wiring remains part
-of the live daemon runner.
+The local implementation models the reload decision in
+`JitML.Service.HotReload` with `LiveConfigSnapshot` and `handleSighupReload`:
+unchanged live config is ignored and changed live config increments the
+generation.
 
 ## Health Endpoints and Logging
 
@@ -205,6 +214,7 @@ Direct k8s API access from the host is hlint-forbidden.
 | `BootConfig` | `JitML.Service.BootConfig` and `dhall/service/BootConfig.dhall` | Cluster/host residency, inference mode, Pulsar, MinIO, Harbor, HTTP listener fields |
 | `LiveConfig` | `JitML.Service.LiveConfig` and `dhall/service/LiveConfig.dhall` | Log level, retry policy, tart idle timeout, inference batching/SLO, drain deadline fields |
 | SIGHUP reload decision | `JitML.Service.HotReload` | Pure reload/ignore/restart-required decision surface |
+| POSIX signal wiring | `JitML.Service.Signal` and `JitML.Service.Runtime` | SIGHUP increments reload generation; SIGINT/SIGTERM begin graceful drain and drop readiness |
 | Consumer idempotency | `JitML.Service.Consumer` | Pure payload-hash deduplication surface |
 | HTTP listener | `JitML.Service.Http` | Low-level typed route server shared by `jitml service` and `jitml-demo` one-shot tests |
 <!-- jitml:daemon.surface:end -->

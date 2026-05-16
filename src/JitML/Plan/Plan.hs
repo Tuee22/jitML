@@ -65,11 +65,15 @@ commandPlanSteps ["bootstrap"] =
       "render-chart"
       "Write the storage, gateway, route, platform-service, daemon, and demo manifests."
   , PlanStep
+      "build-helm-dependencies"
+      "Prepare subchart dependencies with the typed helm dependency build chart subprocess before live apply."
+  , PlanStep
       "publish-runtime"
       "Write ./.build/runtime/cluster-publication.json and per-substrate Dhall."
   ]
 commandPlanSteps ["cluster", "up"] =
   [ PlanStep "materialize-substrate" "Render the selected substrate's Kind and chart inputs."
+  , PlanStep "build-helm-dependencies" "Prepare subchart dependencies with helm dependency build chart."
   , PlanStep "create-kind-cluster" "Create the Kind cluster with ./.build/jitml.kubeconfig."
   , PlanStep "apply-chart" "Apply the umbrella Helm chart in phased order."
   ]

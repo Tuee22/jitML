@@ -33,14 +33,14 @@ cluster validation remains phase-gated:
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS, TensorBoard sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, TensorBoard sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
 | `jitml-integration` | `test/integration/Main.hs` covers the typed subprocess boundary, bootstrap plan, Kind config renderer, route renderer, and route-table golden fixture | Integration | Sprint 12.2 |
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves | Integration (project-specific) | Sprint 12.3 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, PPO/CartPole golden trajectory, and AlphaZero self-play transcript fixture | Integration (project-specific) | Sprint 12.4 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes, deterministic trial generation, and Sobol/GA golden fixtures | Integration (project-specific) | Sprint 12.5 |
-| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags and checkpoint inference parity | Integration (project-specific) | Sprint 12.6 |
+| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, and generated Linux CPU identity-kernel compile/load/run | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP, deployment, and report-card surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP, deployment, report-card, live-gate, and typed live-plan surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
 | `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack, including external formatter, HLint, cabal-format, and warning-clean build gates | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
 | `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file, renderer, whitespace shape, and panel-contract coverage | Lint (project-specific) | Sprint 11.3 |
 
@@ -106,36 +106,48 @@ resume-from-partial-sweep equality against MinIO remain target validation.
 
 The current body checks that every local substrate has deterministic engine
 flags and that the local `inferFromManifest` helper returns the same summary
-for every substrate. Live kernel launches, same-substrate bit equality, and
-cross-substrate tolerance fixtures under `test/golden/cross-backend/` remain
-the final handoff validation gate.
+for every substrate. It also compiles the generated Linux CPU identity kernel,
+loads `jitml_kernel` with `dlopen`, and asserts fixture output. Live
+cross-substrate graph-kernel launches, same-substrate bit equality, and
+cross-substrate tolerance fixtures under `test/golden/cross-backend/` remain the
+final handoff validation gate.
 
 ### `jitml-daemon-lifecycle`
 
 The current body exercises local lifecycle ordering, renderable endpoint
 responses, retry policy behavior, payload-hash deduplication, and one-shot
-HTTP serving for `/healthz`. Real process spawning, POSIX signal handling, live
-Pulsar redelivery, and SIGTERM drain remain target runtime validation.
+HTTP serving for `/healthz`. It also covers the `JitML.Service.Signal` mapping:
+`SIGHUP` increments reload generation, while `SIGINT` / `SIGTERM` begin drain
+and make readiness false. Real Pulsar redelivery remains target runtime
+validation.
 
 ### `jitml-e2e` and Pulumi
 
-The current `jitml-e2e` body validates local route, bucket, publication,
-browser-contract, demo HTTP, deployment, and report-card surfaces. The Pulumi
-TypeScript program at `infra/pulumi/` currently exports stack metadata only; it is the target
-orchestrator for the ephemeral Kind stack. Future live test driver:
+The current `jitml-e2e` body validates local route, bucket, `chart/values.yaml`
+MinIO coverage, publication, browser-contract, demo HTTP, deployment,
+report-card, explicit `JITML_LIVE_E2E` gate, and typed live-plan surfaces. The
+Pulumi TypeScript program at `infra/pulumi/` currently exports stack metadata
+only; it is the target orchestrator for the ephemeral Kind stack. The live
+driver is explicit opt-in, not part of default `cabal test all`, because it
+creates and destroys Kind, builds Helm dependencies, mutates image/runtime
+state, and polls live routes.
+Future live test driver:
 
-1. `pulumi up` brings up the stack (Kind cluster, Helm chart in its `final`
+1. A typed `helm dependency build chart` step prepares subchart dependencies
+   before any apply. `Chart.lock` becomes part of the reproducible surface only
+   if the project adopts committed chart dependency locking.
+2. `pulumi up` brings up the stack (Kind cluster, Helm chart in its `final`
    phase against a temporary registry image pushed during the run, plus the
    `jitml-demo` Deployment).
-2. The driver runs `jitml train`, `jitml rl train`, `jitml tune` against the
+3. The driver runs `jitml train`, `jitml rl train`, `jitml tune` against the
    ephemeral stack to seed the demo state.
-3. The driver invokes the Playwright suite from
+4. The driver invokes the Playwright suite from
    [../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md → Sprint
    11.6](../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md)
    against the live bundle across the six demo cohorts (training control,
    MNIST handwriting, image upload, Connect 4 game-play, TensorBoard/Grafana
    navigation, hyperparameter sweep).
-4. `pulumi destroy` and a teardown audit (no orphan PVs, MinIO buckets,
+5. `pulumi destroy` and a teardown audit (no orphan PVs, MinIO buckets,
    Harbor projects, or Docker volumes survive).
 
 Future Pulumi invocations flow through the typed `Subprocess` boundary.
@@ -161,7 +173,10 @@ surface, and that the local Haskell renderer emits the module header. PureScript
 
 Playwright belongs to the doctrine's target Pulumi-Orchestrated Infrastructure
 test category. The current repository has `playwright/jitml-demo.spec.ts` as a
-scaffold, but the current `jitml-e2e` body does not invoke it.
+scaffold, but the current `jitml-e2e` body does not invoke it. Playwright
+execution waits until panels consume fixture-backed or live-backed state through
+`jitml-demo`; static route/API scaffold checks stay in the local Haskell e2e
+and PureScript-style stanzas.
 
 ### Property Invariants
 
@@ -173,7 +188,7 @@ canonical invariants:
 - `parser roundtrips`
 
 Current checked coverage applies these invariants to the local parser, renderers,
-route registry, cache helpers, checkpoint key/CAS helpers, runtime-source
+route registry, cache helpers, checkpoint key/CAS/store helpers, runtime-source
 renderers, numerical/RL Dhall catalog mirrors, local catalog helpers, and the
 current route/Grafana/tuning/RL golden fixtures.
 Transcript codecs, manifest CBOR, protobuf schemas, generated Grafana fixtures,

@@ -28,7 +28,8 @@ checkChartWhenPresent = do
   pvFindings <- concat <$> traverse checkPvFile (filter isPvFile chartFiles)
   forbiddenFindings <- concat <$> traverse checkForbiddenProvisioner chartFiles
   routeFindings <- checkRouteFiles chartFiles
-  pure (storageFindings <> pvFindings <> forbiddenFindings <> routeFindings)
+  let templateValueFindings = fmap templateValuesFinding (filter isTemplateValuesFile chartFiles)
+  pure (storageFindings <> pvFindings <> forbiddenFindings <> routeFindings <> templateValueFindings)
 
 checkStorageClass :: IO [LintFinding]
 checkStorageClass = do
@@ -145,6 +146,19 @@ isPvFile path =
 isRouteFile :: FilePath -> Bool
 isRouteFile path =
   "chart/templates/httproute-" `isPrefixOf` path && ".yaml" `isSuffixOf` path
+
+isTemplateValuesFile :: FilePath -> Bool
+isTemplateValuesFile path =
+  "chart/templates/" `isPrefixOf` path
+    && ("values.yaml" `isSuffixOf` path || "-values.yaml" `isSuffixOf` path)
+
+templateValuesFinding :: FilePath -> LintFinding
+templateValuesFinding path =
+  LintFinding
+    path
+    "chart.templates.values-file"
+    "chart/templates must contain Kubernetes manifests, not Helm values files"
+    "move subchart values under chart/values.yaml or pass a separate values file through a typed Helm subprocess"
 
 repoFiles :: FilePath -> IO [FilePath]
 repoFiles = go

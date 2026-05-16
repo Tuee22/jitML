@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, daemon_architecture.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, code_quality.md, daemon_architecture.md
 **Generated sections**: cluster.routes
 
 > **Purpose**: Project-specific cluster topology for jitML — Kind cluster
@@ -105,12 +105,18 @@ content into `chart/values.yaml` and remove the extra materialization path.
 
 This keeps the umbrella chart self-contained, makes `helm lint chart` reflect
 the actual install input, and avoids checked-in values fragments that are
-materialized but never consumed by Helm.
+materialized but never consumed by Helm. `jitml lint chart` rejects values files
+under `chart/templates/`; the former standalone MinIO values fragment now lives
+under `minio:` in `chart/values.yaml`.
 
 ## Phased Deploy
 
 The target `jitml bootstrap --<substrate>` runs the phased rollout:
 
+0. **Dependency phase**: `JitML.Cluster.Helm` renders
+   `helm dependency build chart` before any live apply. `Chart.lock` is adopted
+   only if reproducible dependency locking becomes part of the release surface;
+   `chart/charts/` is not vendored by default.
 1. **Harbor phase**: Harbor plus Percona Operator / Patroni-managed Postgres
    needed by packaged services comes up first, using only the public pulls
    required to make Harbor available.

@@ -27,7 +27,21 @@ import JitML.Service.Endpoints (MetricsSnapshot (..), endpointStatus, healthz, m
 import JitML.Service.Http (withHttpRoutesOnce)
 import JitML.Service.Lifecycle (LifecyclePhase (..), lifecyclePlan)
 import JitML.Service.Retry (RetryPolicy (..), ServiceError (..), retryServiceAction)
-import JitML.Service.Runtime (daemonHttpRoutes, defaultDaemonRuntime)
+import JitML.Service.Runtime
+  ( DaemonRuntime (daemonReady)
+  , daemonHttpRoutes
+  , defaultDaemonRuntime
+  , runtimeAfterSignal
+  )
+import JitML.Service.Signal
+  ( DaemonControlSnapshot (..)
+  , DaemonSignal (..)
+  , DaemonSignalAction (..)
+  , applyDaemonSignal
+  , daemonSignalAction
+  , newDaemonControl
+  , renderDaemonSignalAction
+  )
 
 main :: IO ()
 main =
@@ -41,6 +55,19 @@ main =
           endpointStatus (readyz False) @?= 503
           endpointStatus (readyz True) @?= 200
           endpointStatus (metrics (MetricsSnapshot 0 1 0)) @?= 200
+      , testCase "daemon signals map to reload and graceful drain" $ do
+          daemonSignalAction DaemonSighup @?= ReloadLiveConfig
+          daemonSignalAction DaemonSigterm @?= BeginGracefulDrain
+          renderDaemonSignalAction BeginGracefulDrain @?= "begin-graceful-drain"
+          let drainingRuntime = runtimeAfterSignal defaultDaemonRuntime DaemonSigterm
+          endpointStatus (readyz True) @?= 200
+          endpointStatus (readyz (daemonReady drainingRuntime)) @?= 503
+      , testCase "daemon control records reload generation and drain readiness" $ do
+          control <- newDaemonControl True
+          reloaded <- applyDaemonSignal control DaemonSighup
+          reloaded @?= DaemonControlSnapshot True False 1
+          drained <- applyDaemonSignal control DaemonSigint
+          drained @?= DaemonControlSnapshot False True 1
       , testCase "retry policy retries transient errors" $ do
           result <-
             retryServiceAction (LinearN 2 0) (\() -> pure (Left (SETimeout "timeout"))) ()

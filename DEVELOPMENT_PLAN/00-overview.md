@@ -84,7 +84,9 @@ catalog, generates any compiler input source on demand under
 content-addressed cache at `./.build/jit/<substrate>/<hash>.<ext>`, with stable
 host-side symlinks at `./.build/host/apple-silicon/` for FFI dlopen stability.
 JIT compiler inputs are rendered by Haskell modules under `src/JitML/Codegen/`
-and materialized under `./.build/jit-src/<substrate>/<hash>/`.
+and materialized under `./.build/jit-src/<substrate>/<hash>/`. The current local
+Linux CPU path compiles the generated identity kernel, loads the shared object
+with `dlopen`, and executes it through the Haskell FFI.
 
 The current SL/RL surfaces are local deterministic catalogs and summaries:
 canonical SL cells, RL algorithm rows, deterministic trajectory generation,
@@ -94,7 +96,8 @@ Pulsar/MinIO-backed hyperparameter sweeps.
 
 The current checkpoint surface provides a typed manifest, split-blob object-key
 renderers, pointer-CAS decisions, binary `.jmw1` encoder, manifest pointer
-renderer, and deterministic inference summary. The current frontend surface
+renderer, a filesystem-backed local checkpoint store, and deterministic
+inference from the latest local checkpoint. The current frontend surface
 provides a minimal PureScript entrypoint plus generated contract file from
 `src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route metadata from
 `src/JitML/Web/Bundle.hs`, and the local `jitml-demo` HTTP server in
@@ -110,6 +113,35 @@ path and live WebSocket proxying.
 knobs are pinned in `cabal.project`. The `jitml-e2e` stanza eventually
 orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
 `infra/pulumi/`; the current Pulumi program exports stack metadata only.
+
+## Final Handoff Order
+
+The local phase surfaces are closed, but the remaining handoff gates have a
+strict dependency order:
+
+1. Chart values ownership is clean for MinIO before live Helm work: subchart
+   values belong under the consuming key in `chart/values.yaml` unless a typed
+   Helm invocation explicitly passes a separate `--values` file.
+2. Keep the scoped `allow-newer` block until upstream Dhall / CBOR / `serialise`
+   bounds support the pinned GHC `9.14.1` package set without overrides.
+3. Use the typed `helm dependency build chart` surface before any live apply
+   gate; commit `Chart.lock` only if reproducible dependency locking is adopted,
+   and do not vendor `chart/charts/` by default.
+4. Keep live Kind/Helm validation opt-in through `JITML_LIVE_E2E=1` so default
+   Cabal tests remain local, deterministic, and fast.
+5. Keep `jitml service` process semantics (signals, readiness, graceful drain)
+   hardened before attaching live Pulsar/MinIO/Harbor/kubectl clients.
+6. Validate one real kernel path on Linux CPU first: done locally for the
+   generated identity kernel through `JitML.Engines.Local`; production oneDNN
+   graph kernels, Apple Metal, and Linux CUDA extend the same boundary later.
+7. Build live training/checkpoint behavior from storage outward: done locally
+   for write-once objects, manifest writes, latest pointer CAS, and inference
+   from latest through `JitML.Checkpoint.Store`; live MinIO writes/reads,
+   training persistence, then tuning/resume remain runtime expansion.
+8. Add Playwright execution only after panels consume fixture-backed or
+   live-backed state rather than static scaffold output; `JitML.Test.LivePlan`
+   now records the typed Helm/Pulumi/Playwright sequence behind the opt-in live
+   gate.
 
 ## Architecture Overview
 
@@ -175,9 +207,10 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
 - **`jitml service` daemon.** Current local daemon surface: `BootConfig` /
   `LiveConfig` renderers, lifecycle phases, pure endpoint responses, structured
   JSON log rendering, service error/retry helpers, payload-hash deduplication,
-  SIGHUP reload decisions, capability-class boundaries, and stateless
-  `Deployment` rendering. A real long-running HTTP/Pulsar daemon and live
-  client wiring remain target runtime validation. Owned by
+  SIGHUP reload decisions, capability-class boundaries, stateless
+  `Deployment` rendering, local POSIX signal/control wiring, graceful-drain
+  readiness, and the local in-binary HTTP listener. Pulsar/MinIO/Harbor/kubectl
+  clients and live client flow remain target runtime validation. Owned by
   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md).
 - **Numerical core.** Local Haskell layer catalog (Dense, Conv1D, Conv2D, Conv3D,
   ConvTranspose, BatchNorm, LayerNorm, GroupNorm, Dropout, ResidualBlock,
@@ -193,9 +226,11 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   records backend metadata, determinism flags, typed kernel handles, cache
   hit/miss decisions, engine envelopes, and typed compile plans, while
   `src/JitML/Codegen/` renders Metal / Swift, oneDNN C++, and CUDA runtime
-  source bundles under `./.build/jit-src/<substrate>/<hash>/`. Real FFI
-  loading, the real Apple hybrid execution path, and runtime hardware
-  auto-tuning remain target runtime work preserving the determinism contract per
+  source bundles under `./.build/jit-src/<substrate>/<hash>/`.
+  `JitML.Engines.Local` validates the generated Linux CPU identity kernel by
+  compiling, loading, and running it through the Haskell FFI. Production
+  `HasEngine` loading, the real Apple hybrid execution path, and runtime
+  hardware auto-tuning remain target runtime work preserving the determinism contract per
   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md):
   Metal single-stream launch order, oneDNN blocked reduction with fixed block
   size, CUDA deterministic warp-shuffle reductions with `--use_fast_math=false` and
@@ -220,9 +255,10 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
 - **Checkpointing and inference-only read path.** Current local format surface:
   a small typed manifest, deterministic manifest CBOR codec/content hash,
   split-blob object-key renderers, pointer-CAS decision surface, binary
-  `.jmw1` encoder, manifest pointer, and deterministic `inferFromManifest`
-  helper. Live MinIO effects, retention, and real kernel-handle loading remain
-  target runtime validation. Owned by
+  `.jmw1` encoder, manifest pointer, filesystem-backed local checkpoint store,
+  latest-pointer read path, and deterministic inference helper. Live MinIO
+  effects, retention, and real kernel-handle loading remain target runtime
+  validation. Owned by
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Current local surface: minimal PureScript
   entrypoint, generated contract file from `src/JitML/Web/Contracts.hs`,
@@ -241,7 +277,8 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   Plan/Apply test plan; non-dry-run `jitml test all` delegates to `cabal test`
   and prints the report-card summary after Cabal succeeds.
   The current Pulumi TypeScript program at `infra/pulumi/` exports metadata; the
-  target e2e program becomes the ephemeral-Kind orchestrator that the
+  local `JitML.Test.LivePlan` records the typed Helm/Pulumi/Playwright sequence,
+  and the target e2e program becomes the ephemeral-Kind orchestrator that the
   `jitml-e2e` stanza calls through the typed `Subprocess` boundary. The seven
   doctrine test categories (Pure Logic,
   Parser, Property, Golden, Integration, Daemon Lifecycle, Pulumi-Orchestrated
@@ -545,17 +582,18 @@ bootstrap; Phase `7` includes Haskell-rendered runtime source under
 source/build inputs from the build path. Done status is scoped to checked-in
 local renderers, catalogs, command summaries, contracts, runtime-source plans,
 and test bodies. The overall handoff remains incomplete until the live-cluster
-validation chain closes and the ledger-tracked external package-bounds override
-is retired.
+validation chain closes, the ledger-tracked external package-bounds override is
+retired, and the ledger-tracked standalone Helm values fragment is folded into
+the umbrella chart values surface.
 
 | Surface | Current Repo State | Intended End State |
 |---------|--------------------|--------------------|
 | Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, Tart, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
-| Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/` | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
+| Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; `jitml-cross-backend` validates the generated Linux CPU identity kernel compile/load/run path | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
 | CLI surface | The full command family is registered and parseable from `CommandSpec`; the implemented commands now cover bootstrap materialization with no-op exit `3`, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, service dry-run/surface rendering plus HTTP listener startup, train/eval/tune/RL/inference deterministic local summaries, test report rendering, internal substrate materialization, VM subprocess rendering, generated-source build-plan rendering, and cache stubs. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution. Live Kind/Helm mutation remains an overall validation follow-up after the local phase surfaces | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
-| Test stanzas | Ten Cabal stanzas are declared with dedicated deterministic local bodies; `jitml-unit` covers current CLI/docs/prerequisite/env/cache surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, and the SL/RL/hyperparameter/cross-backend/daemon/e2e/PureScript stanzas exercise local scaffold invariants | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |
+| Test stanzas | Ten Cabal stanzas are declared with dedicated deterministic local bodies; `jitml-unit` covers current CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, `jitml-cross-backend` includes generated Linux CPU identity-kernel compile/load/run, and `jitml-e2e` includes typed live-plan rendering | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |
 | Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`, records the codegen-toolchain comments and report-card knobs, carries a ledger-tracked scoped `allow-newer` for Dhall/CBOR package bounds under GHC `9.14.1`, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, Xcode/Metal pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml` |
-| Determinism contract | Local deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, and engine flags are covered by dedicated Cabal stanzas; live substrate equality remains owned by later phase validation | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
+| Determinism contract | Local deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, and Linux CPU identity-kernel execution are covered by dedicated Cabal stanzas; live substrate equality remains owned by later phase validation | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
 | Frontend | `web/` contains the PureScript shell and generated browser contracts from `src/JitML/Web/Contracts.hs`; `src/JitML/Web/Server.hs` serves the current demo/API surface; Playwright and Pulumi scaffolds are present for later live E2E validation | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
 
 ## Related Documents

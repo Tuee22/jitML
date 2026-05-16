@@ -238,6 +238,10 @@ Land the Playwright scaffold for the future interactive panel suite.
 - The target suite covers MNIST, CIFAR/ImageNet, Connect 4, RL trajectory,
   training, and tuning panel flows once those panels and the HTTP server land.
 - The current `jitml-e2e` stanza does not invoke Playwright.
+- Playwright execution stays out of the default local Cabal matrix until the
+  panels consume fixture-backed or live-backed state through `jitml-demo`;
+  static scaffold assertions remain covered by the current Haskell e2e and
+  PureScript-style stanzas.
 
 ### Validation
 

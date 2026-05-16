@@ -46,6 +46,7 @@ import JitML.Codegen.RuntimeSource
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
 import JitML.Engines.Engine (engineForSubstrate, renderBuildPlan)
+import JitML.Engines.Local (linuxCpuKernelOutput, runLinuxCpuKernel)
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (App, ColorMode (..), Env (..), OutputFormat (..))
 import JitML.Lint.Stack
@@ -492,10 +493,21 @@ runBuild parsedOptions =
       case optionValues "plan-file" parsedOptions of
         [] -> pure ()
         planPath : _ -> liftIO (writePlanFile (Text.unpack planPath) rendered)
-      if hasOption "dry-run" parsedOptions
-        then pure ()
-        else void (liftIO (materializeRuntimeSource env runtimeSource hash))
-      writeText rendered
+      runOutput <-
+        if hasOption "dry-run" parsedOptions
+          then pure []
+          else case substrate of
+            LinuxCPU -> do
+              result <- liftIO (runLinuxCpuKernel env runtimeSource hash [1.0, 2.0])
+              case result of
+                Left message ->
+                  exitWithError (SubprocessFailed "linux-cpu-jit" (ExitFailure 1) message)
+                Right kernelRun ->
+                  pure ["linux_cpu_run: " <> Text.pack (show (linuxCpuKernelOutput kernelRun))]
+            _ -> do
+              void (liftIO (materializeRuntimeSource env runtimeSource hash))
+              pure []
+      writeText (Text.unlines (rendered : runOutput))
 
 runKubectl :: [ParsedOption] -> App ()
 runKubectl parsedOptions =

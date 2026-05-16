@@ -36,7 +36,9 @@ library
         JitML.Codegen.RuntimeSource
         JitML.Codegen.SourceFile
         JitML.Checkpoint.Format
+        JitML.Checkpoint.Store
         JitML.Cluster.Gateway
+        JitML.Cluster.Helm
         JitML.Cluster.Kind
         JitML.Cluster.Publication
         JitML.Cluster.PulsarBootstrap
@@ -45,6 +47,7 @@ library
         JitML.Docs.Generate
         JitML.Docs.Render
         JitML.Engines.Engine
+        JitML.Engines.Local
         JitML.Env.Build
         JitML.Env.Env
         JitML.Generated.Paths
@@ -89,6 +92,7 @@ library
         JitML.Service.Logger
         JitML.Service.Retry
         JitML.Service.Runtime
+        JitML.Service.Signal
         JitML.SL.Canonicals
         JitML.Storage.Buckets
         JitML.Sub.Render
@@ -97,6 +101,8 @@ library
         JitML.Substrate
         JitML.Tart.Exec
         JitML.Tart.Lifecycle
+        JitML.Test.LiveGate
+        JitML.Test.LivePlan
         JitML.Test.Report
         JitML.Tune.Catalog
         JitML.Web.Bundle

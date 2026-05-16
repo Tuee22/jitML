@@ -51,6 +51,8 @@ import JitML.Cache.Layout qualified as CacheLayout
 import JitML.Cache.Manifest qualified as CacheManifest
 import JitML.Cache.Symlink qualified as CacheSymlink
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Engines.Engine qualified as Engine
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
@@ -228,6 +230,14 @@ main =
           case buildCommandPlan ["train"] [("experiment-dhall", ["experiments/mnist.dhall"]), ("dry-run", [])] of
             Left message -> assertFailure (show message)
             Right plan -> renderPlan plan @?= renderPlan plan
+      , testCase "cluster plans include typed Helm dependency build" $ do
+          Helm.renderHelmDependencyBuildPlan "chart" @?= "helm dependency build chart"
+          case buildCommandPlan ["cluster", "up"] [] of
+            Left message -> assertFailure (show message)
+            Right plan ->
+              assertBool
+                "helm dependency build plan step"
+                ("build-helm-dependencies" `Text.isInfixOf` renderPlan plan)
       , testCase "plan-file writes are idempotent" $
           withSystemTempDirectory "jitml-plan" $ \dir -> do
             case buildCommandPlan ["train"] [("experiment-dhall", ["experiments/mnist.dhall"])] of
@@ -524,14 +534,19 @@ main =
       , testCase "bootstrap materialization reports no-op on a second pass" $
           withSystemTempDirectory "jitml-materialize" $ \dir -> do
             let legacyMinioValues = dir </> "chart" </> "templates" </> "minio-values.yaml"
+                standaloneMinioValues = dir </> "chart" </> "minio-values.yaml"
             createDirectoryIfMissing True (takeDirectory legacyMinioValues)
+            createDirectoryIfMissing True (takeDirectory standaloneMinioValues)
             writeFile legacyMinioValues "legacy values location\n"
+            writeFile standaloneMinioValues "standalone values location\n"
             first <- materializeBootstrapFiles dir Substrate.LinuxCPU
             second <- materializeBootstrapFiles dir Substrate.LinuxCPU
             legacyExists <- doesFileExist legacyMinioValues
+            standaloneExists <- doesFileExist standaloneMinioValues
             first @?= True
             second @?= False
             legacyExists @?= False
+            standaloneExists @?= False
       , testGroup
           "stage-0 bootstrap scripts"
           [ testCase "apple help names the Haskell bootstrap delegation" $ do
@@ -736,6 +751,29 @@ main =
             @?= "jitml-checkpoints/exp-a/manifests/"
             <> Checkpoint.manifestContentSha manifest
             <> ".cbor"
+      , testCase "checkpoint store writes blobs/manifests and reads latest inference path" $
+          withSystemTempDirectory "jitml-checkpoint-store" $ \dir -> do
+            let blobKey = Checkpoint.blobKey "exp1" "blob1"
+                manifest =
+                  Checkpoint.CheckpointManifest
+                    "m1"
+                    "exp1"
+                    [Checkpoint.TensorBlob "dense.weight" [2, 2] blobKey]
+                payload = Checkpoint.encodeJmw1 [1, 2, 3, 4]
+            firstWrite <- CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
+            CheckpointStore.storedPointerResult firstWrite
+              @?= Checkpoint.PointerWritten (CheckpointStore.storedManifestSha firstWrite)
+            decoded <-
+              CheckpointStore.readCheckpointManifest
+                dir
+                "exp1"
+                (CheckpointStore.storedManifestSha firstWrite)
+            decoded @?= Right manifest
+            inferred <- CheckpointStore.inferFromLatestCheckpoint dir "exp1" [10, 20]
+            inferred @?= Right (Checkpoint.inferFromManifest manifest [10, 20])
+            conflict <- CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
+            CheckpointStore.storedPointerResult conflict
+              @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp1")
       , testCase "TensorBoard checkpoint sidecar keys are stable" $
           TensorBoard.checkpointSidecarKey "exp-a" 12 "sha-m"
             @?= "jitml-tensorboard/exp-a/checkpoints/12-sha-m.cbor"

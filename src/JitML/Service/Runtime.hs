@@ -5,11 +5,14 @@ module JitML.Service.Runtime
   , daemonHttpRoutes
   , defaultDaemonRuntime
   , renderDaemonRuntimeSummary
+  , runtimeAfterSignal
   , serveDaemon
   , serveDaemonOnce
   )
 where
 
+import Control.Concurrent (myThreadId, throwTo)
+import Control.Exception (AsyncException (..), catch, throwIO)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
@@ -31,6 +34,17 @@ import JitML.Service.Endpoints
 import JitML.Service.Http (HttpRoute (..), serveHttpRoutes, serveHttpRoutesOnce)
 import JitML.Service.Lifecycle (lifecyclePlan, renderLifecyclePhase)
 import JitML.Service.LiveConfig (LiveConfig, defaultLiveConfig, renderLiveConfigDhall)
+import JitML.Service.Signal
+  ( DaemonSignal
+  , DaemonSignalAction (..)
+  , applyDaemonSignal
+  , daemonSignalAction
+  , newDaemonControl
+  , renderDaemonSignal
+  , renderDaemonSignalAction
+  , signalPlan
+  , withDaemonSignalHandlers
+  )
 import JitML.Substrate (Substrate (..))
 
 data DaemonRuntime = DaemonRuntime
@@ -59,10 +73,22 @@ daemonHttpRoutes runtime =
   ]
 
 serveDaemon :: DaemonRuntime -> IO ()
-serveDaemon runtime =
-  serveHttpRoutes listener (daemonHttpRoutes runtime)
+serveDaemon runtime = do
+  control <- newDaemonControl (daemonReady runtime)
+  mainThread <- myThreadId
+  let handleSignal signal = do
+        _snapshot <- applyDaemonSignal control signal
+        case daemonSignalAction signal of
+          BeginGracefulDrain -> throwTo mainThread UserInterrupt
+          ReloadLiveConfig -> pure ()
+  withDaemonSignalHandlers handleSignal $
+    serveHttpRoutes listener (daemonHttpRoutes runtime)
+      `catch` handleDaemonInterrupt
  where
   listener = runtimeListener runtime
+
+  handleDaemonInterrupt UserInterrupt = pure ()
+  handleDaemonInterrupt exception = throwIO exception
 
 serveDaemonOnce :: DaemonRuntime -> IO ()
 serveDaemonOnce runtime =
@@ -89,7 +115,15 @@ renderDaemonRuntimeSummary runtime =
     , indentText (renderEndpointResponse (readyz (daemonReady runtime)))
     , "metrics:"
     , indentText (renderEndpointResponse (metrics (daemonMetrics runtime)))
+    , "signals:"
+    , "  - " <> Text.intercalate "\n  - " (fmap renderSignalPlan signalPlan)
     ]
+
+runtimeAfterSignal :: DaemonRuntime -> DaemonSignal -> DaemonRuntime
+runtimeAfterSignal runtime signal =
+  case daemonSignalAction signal of
+    ReloadLiveConfig -> runtime
+    BeginGracefulDrain -> runtime {daemonReady = False}
 
 runtimeListener :: DaemonRuntime -> HttpListener
 runtimeListener runtime =
@@ -113,6 +147,10 @@ renderListener listener =
 renderRoute :: HttpRoute -> Text
 renderRoute route =
   httpRouteMethod route <> " " <> httpRoutePath route
+
+renderSignalPlan :: (DaemonSignal, DaemonSignalAction) -> Text
+renderSignalPlan (signal, action) =
+  renderDaemonSignal signal <> ": " <> renderDaemonSignalAction action
 
 indentText :: Text -> Text
 indentText =
