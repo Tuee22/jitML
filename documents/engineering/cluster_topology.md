@@ -83,10 +83,29 @@ dependencies:
 
 Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes rendered
 from the route registry, EnvoyProxy, manual PVs, `jitml-service` Deployment,
-`jitml-demo` Deployment, NVIDIA RuntimeClass for the CUDA substrate, MinIO
-values, service ConfigMaps, generated Grafana dashboard ConfigMaps, and the
-generated Prometheus scrape config. The current typed renderers live under
+`jitml-demo` Deployment, NVIDIA RuntimeClass for the CUDA substrate, service
+ConfigMaps, generated Grafana dashboard ConfigMaps, and the generated
+Prometheus scrape config. The current typed renderers live under
 `src/JitML/Observability/`.
+
+## Helm Values Ownership
+
+`chart/templates/` contains only Kubernetes manifests rendered by Helm. It must
+not contain Helm values files, subchart values files, or auxiliary YAML that is
+not itself a Kubernetes object; Helm lint parses every file under
+`chart/templates/` as a manifest.
+
+Umbrella-chart configuration belongs in `chart/values.yaml` under the subchart
+key that consumes it, for example `minio:`, `pulsar:`, or
+`kube-prometheus-stack:`. A separate values file under `chart/` is valid only
+when a typed `helm` subprocess explicitly passes it with `-f` / `--values`, and
+the owning plan/doc section names that invocation. Otherwise, standalone files
+such as `chart/<subchart>-values.yaml` are cleanup candidates: fold their
+content into `chart/values.yaml` and remove the extra materialization path.
+
+This keeps the umbrella chart self-contained, makes `helm lint chart` reflect
+the actual install input, and avoids checked-in values fragments that are
+materialized but never consumed by Helm.
 
 ## Phased Deploy
 

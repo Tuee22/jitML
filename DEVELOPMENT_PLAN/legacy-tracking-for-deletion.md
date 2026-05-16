@@ -67,6 +67,10 @@ release still name the originating sprint, but resolve at the final handoff
 toolchain refresh. Each row moves to `Completed` only when the replacement is
 verified in the worktree.
 
+Current validation: a temporary project file with the scoped `allow-newer`
+block removed still fails dependency solving under pinned GHC `9.14.1`, because
+`serialise-0.2.6.1` excludes the installed `base-4.22`. The row remains pending.
+
 The expected populating events are:
 
 - **Phase 1.** Any doctrine-adoption gap surfaced by Sprint `0.2`'s grep audit

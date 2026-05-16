@@ -210,8 +210,9 @@ and deterministic trial-value checks.
 - It asserts generated trial values are normalized into `[0, 1)`.
 - It compares Sobol and GeneticAlgorithm trial streams against the current
   fixtures under `test/golden/tune/`.
-- Full sampler set, scheduler/pruner event semantics, resume equality, and
-  report-card knob consumption remain target work.
+- Full sampler set, scheduler/pruner event semantics, and resume equality
+  remain target work. Report-card knob parsing is covered through
+  `src/JitML/Test/Report.hs` and `jitml-e2e`.
 
 ### Validation
 
@@ -269,6 +270,7 @@ idempotency.
 - `test/daemon-lifecycle/Main.hs` verifies the current lifecycle phase plan.
 - The test exercises endpoint response helpers and retry behaviour against
   synthetic service errors.
+- The test exercises the one-shot daemon HTTP listener against `/healthz`.
 - Live process spawning, SIGHUP reload, Pulsar idempotency, and SIGTERM drain
   remain target runtime validation.
 
@@ -278,6 +280,7 @@ idempotency.
 2. The lifecycle plan remains `load → prereq → acquire → ready → serve →
    drain → exit`.
 3. Retry helpers map synthetic service errors to the expected `AppError`.
+4. The one-shot daemon HTTP listener returns `200 OK` for `/healthz`.
 
 ## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator ✅
 
@@ -302,8 +305,9 @@ This is the doctrine's Pulumi-Orchestrated Infrastructure test category.
 
 - `infra/pulumi/index.ts` currently exports stack and cluster-name metadata.
 - `test/e2e/Main.hs` currently validates the route registry, bucket registry,
-  publication defaults, browser contract endpoint count, and report-card
-  rendering.
+  publication defaults, browser contract endpoint count, demo deployment
+  command, one-shot demo HTTP server, report-card rendering, and report-card
+  knob parsing.
 - The target Pulumi stack is the only path that touches Pulumi; it is gated by
   the `pulumi` prerequisite node from Sprint `2.2`.
 
@@ -341,13 +345,14 @@ health, cross-substrate parity tolerance).
 - Current `jitml test all --dry-run` renders the aggregate plan from
   `src/JitML/Plan/Plan.hs`; current non-dry-run `jitml test all` invokes
   `cabal test all` through `JitML.Sub.Stream.runStreaming` and then renders
-  `ReportCard 10 0 0` after Cabal succeeds.
+  a typed `ReportCard` with `ReportCardKnobs` after Cabal succeeds.
 - The report-card knob block in `cabal.project` carries `SL_EPOCHS`,
   `SL_BATCH`, `RL_STEPS`, `RL_EVAL_EPISODES`, `AZ_GAMES`, `AZ_SIMS`,
   `TUNE_TRIALS`, `TUNE_BUDGET_PER_TRIAL`, `XCLUSTER_KIND_NODES` (see
   [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs)).
-- `ReportCard.hs` renders the tidy summary block on stdout.
+- `ReportCard.hs` renders the tidy summary block on stdout and consumes
+  environment overrides for the report-card knobs.
 - `jitml test <stanza>` invokes that single Cabal stanza through the same typed
   `Subprocess` boundary.
 
@@ -357,6 +362,7 @@ health, cross-substrate parity tolerance).
    stanzas.
 2. `jitml test all` invokes `cabal test all`, exits `0` on the current tree,
    and prints the report card.
+3. `cabal test jitml-e2e` verifies report-card knob override parsing.
 
 ## Doctrine Sections Cited
 

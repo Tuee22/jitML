@@ -264,7 +264,8 @@ steady-state cluster is a no-op (exit code `3`).
 3. `jitml cluster status` parses
    `./.build/runtime/cluster-publication.json` when present or reports the
    default publication summary.
-4. Live Kind/Helm mutation and no-op exit `3` validation remain target work.
+4. Local materialization no-op exit `3` is covered by `jitml-unit`; live
+   Kind/Helm mutation validation remains target work.
 
 ## Doctrine Sections Cited
 

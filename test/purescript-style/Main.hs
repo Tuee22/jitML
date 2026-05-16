@@ -6,9 +6,11 @@ import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.Directory (doesFileExist)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase)
+import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import JitML.Web.Bundle (panelEndpoint, panelSurfaces)
 import JitML.Web.Contracts (renderPureScriptContracts)
+import JitML.Web.Contracts qualified as Contracts
 
 main :: IO ()
 main =
@@ -24,4 +26,20 @@ main =
           assertBool
             "module header"
             ("module Generated.Contracts where" `Text.isInfixOf` renderPureScriptContracts)
+      , testCase "PureScript sources are whitespace-normalized" $ do
+          mainSource <- Text.IO.readFile "web/src/Main.purs"
+          testSource <- Text.IO.readFile "web/test/Main.purs"
+          assertBool "no tabs in Main.purs" (not ("\t" `Text.isInfixOf` mainSource))
+          assertBool "no tabs in test/Main.purs" (not ("\t" `Text.isInfixOf` testSource))
+          assertBool "Main.purs final newline" ("\n" `Text.isSuffixOf` mainSource)
+          assertBool "test/Main.purs final newline" ("\n" `Text.isSuffixOf` testSource)
+      , testCase "frontend panel endpoints are covered by generated contracts" $
+          fmap panelEndpoint panelSurfaces
+            @?= fmap Contracts.endpointPath panelContractEndpoints
       ]
+
+panelContractEndpoints :: [Contracts.ApiEndpoint]
+panelContractEndpoints =
+  case Contracts.apiEndpoints of
+    _runCommandEndpoint : rest -> rest
+    [] -> []

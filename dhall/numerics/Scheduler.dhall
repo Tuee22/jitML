@@ -6,4 +6,5 @@
 , "Polynomial"
 , "OneCycle"
 , "Piecewise"
+, "ReduceOnPlateau"
 ]

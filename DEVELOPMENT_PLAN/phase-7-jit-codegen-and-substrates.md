@@ -278,7 +278,7 @@ Metal / Swift package source participates in a JIT build.
 5. `jitml-unit` golden tests prove `renderRuntimeSource` is deterministic and
    that renderer changes alter the generated-source hash.
 
-### Remaining Work
+### Closure Checklist
 
 - [x] Add the Haskell `RuntimeSource` renderers for CUDA, oneDNN C++, and
   Metal / Swift package generation.

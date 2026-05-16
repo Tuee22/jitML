@@ -1,8 +1,12 @@
 [ "Relu"
+, "LeakyRelu"
+, "Elu"
+, "Silu"
 , "Gelu"
 , "Tanh"
 , "Sigmoid"
 , "Softmax"
 , "ComplexModRelu"
 , "ComplexCardioid"
+, "ComplexZRelu"
 ]

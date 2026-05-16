@@ -30,16 +30,21 @@ hyperparameters, scheduler parameters, and loss parameters.
 | Constructor | Current scope |
 |-------------|---------------|
 | `Dense` | Generated from current Haskell catalog |
+| `Embedding` | Generated from current Haskell catalog |
 | `Conv1D` | Generated from current Haskell catalog |
 | `Conv2D` | Generated from current Haskell catalog |
 | `Conv3D` | Generated from current Haskell catalog |
 | `ConvTranspose` | Generated from current Haskell catalog |
+| `ComplexDense` | Generated from current Haskell catalog |
+| `ComplexConv2D` | Generated from current Haskell catalog |
 | `BatchNorm` | Generated from current Haskell catalog |
 | `LayerNorm` | Generated from current Haskell catalog |
 | `GroupNorm` | Generated from current Haskell catalog |
 | `Dropout` | Generated from current Haskell catalog |
 | `ResidualBlock` | Generated from current Haskell catalog |
+| `ScaledDotProductAttention` | Generated from current Haskell catalog |
 | `MultiHeadAttention` | Generated from current Haskell catalog |
+| `RotaryPositionalEmbedding` | Generated from current Haskell catalog |
 <!-- jitml:numerics.layers:end -->
 
 Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
@@ -52,7 +57,10 @@ modules.
 | Real-valued | Complex-valued |
 |-------------|----------------|
 | `Relu` | `ComplexModRelu` |
-| `Gelu` | `ComplexCardioid` |
+| `LeakyRelu` | `ComplexCardioid` |
+| `Elu` | `ComplexZRelu` |
+| `Silu` |  |
+| `Gelu` |  |
 | `Tanh` |  |
 | `Sigmoid` |  |
 | `Softmax` |  |
@@ -67,9 +75,15 @@ Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
 | Constructor | Current scope |
 |-------------|---------------|
 | `FFT` | Generated from current Haskell catalog |
+| `FFTAlongAxis` | Generated from current Haskell catalog |
 | `IFFT` | Generated from current Haskell catalog |
+| `IFFTAlongAxis` | Generated from current Haskell catalog |
+| `RFFT` | Generated from current Haskell catalog |
+| `IRFFT` | Generated from current Haskell catalog |
 | `STFT` | Generated from current Haskell catalog |
 | `DCT` | Generated from current Haskell catalog |
+| `ComplexConjugate` | Generated from current Haskell catalog |
+| `ComplexMatMul` | Generated from current Haskell catalog |
 <!-- jitml:numerics.spectral:end -->
 
 Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
@@ -91,6 +105,8 @@ Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
 | `LAMB` | Generated from current Haskell catalog |
 | `LARS` | Generated from current Haskell catalog |
 | `Lion` | Generated from current Haskell catalog |
+| `AdaFactor` | Generated from current Haskell catalog |
+| `Shampoo` | Generated from current Haskell catalog |
 <!-- jitml:numerics.optimizers:end -->
 
 Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
@@ -110,6 +126,7 @@ records remain target work.
 | `Polynomial` | Generated from current Haskell catalog |
 | `OneCycle` | Generated from current Haskell catalog |
 | `Piecewise` | Generated from current Haskell catalog |
+| `ReduceOnPlateau` | Generated from current Haskell catalog |
 <!-- jitml:numerics.schedulers:end -->
 
 Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
@@ -123,10 +140,15 @@ only progress.
 | Constructor | Current scope |
 |-------------|---------------|
 | `CrossEntropy` | Generated from current Haskell catalog |
+| `BinaryCrossEntropy` | Generated from current Haskell catalog |
+| `SparseCrossEntropy` | Generated from current Haskell catalog |
 | `Focal` | Generated from current Haskell catalog |
 | `MSE` | Generated from current Haskell catalog |
 | `Huber` | Generated from current Haskell catalog |
 | `IoU` | Generated from current Haskell catalog |
+| `Dice` | Generated from current Haskell catalog |
+| `KLDiv` | Generated from current Haskell catalog |
+| `Contrastive` | Generated from current Haskell catalog |
 <!-- jitml:numerics.losses:end -->
 
 Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:

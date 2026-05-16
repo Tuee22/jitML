@@ -106,8 +106,9 @@ entry carries path, dtype, shape, payload offset, byte length, and SHA-256.
 Payload bytes are contiguous, little-endian, dtype-native, and unpadded.
 
 The current local `encodeJmw1` helper in `src/JitML/Checkpoint/Format.hs`
-emits a simplified text payload beginning with `JMW1`; it is not the target
-binary encoding yet.
+emits the `JMW1` magic, a little-endian 32-bit CBOR header length, a compact
+CBOR header, and little-endian `F64` payload bytes. The richer target header
+shape above remains the durable contract for full runtime checkpoints.
 
 ## CBOR Manifest
 

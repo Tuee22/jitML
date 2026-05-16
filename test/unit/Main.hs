@@ -34,6 +34,7 @@ import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 import JitML.AppError.AppError (AppError)
 import JitML.AppError.AppError qualified as AppError
 import JitML.AppError.Render (renderError)
+import JitML.Bootstrap (materializeBootstrapFiles)
 import JitML.CLI.Help (renderCommandHelp, renderHelp)
 import JitML.CLI.Json (renderCommandJson)
 import JitML.CLI.Parser (ParsedCommand (..), ParsedOption (..), parserInfo)
@@ -520,6 +521,17 @@ main =
             sameLink @?= link
             secondLinkTarget <- readSymbolicLink (toFilePath link)
             secondLinkTarget @?= toFilePath secondTarget
+      , testCase "bootstrap materialization reports no-op on a second pass" $
+          withSystemTempDirectory "jitml-materialize" $ \dir -> do
+            let legacyMinioValues = dir </> "chart" </> "templates" </> "minio-values.yaml"
+            createDirectoryIfMissing True (takeDirectory legacyMinioValues)
+            writeFile legacyMinioValues "legacy values location\n"
+            first <- materializeBootstrapFiles dir Substrate.LinuxCPU
+            second <- materializeBootstrapFiles dir Substrate.LinuxCPU
+            legacyExists <- doesFileExist legacyMinioValues
+            first @?= True
+            second @?= False
+            legacyExists @?= False
       , testGroup
           "stage-0 bootstrap scripts"
           [ testCase "apple help names the Haskell bootstrap delegation" $ do
@@ -696,6 +708,12 @@ main =
             @?= Checkpoint.PointerWritten "sha-m"
           Checkpoint.applyPointerWrite (Just "etag-b") write
             @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp-a")
+      , testCase "jmw1 encoder emits magic, CBOR header length, and little-endian doubles" $ do
+          let payload = Checkpoint.encodeJmw1 [1.0]
+          ByteString.take 4 payload @?= "JMW1"
+          assertBool "binary header is present" (ByteString.length payload > 16)
+          ByteString.drop (ByteString.length payload - 8) payload
+            @?= ByteString.pack [0, 0, 0, 0, 0, 0, 240, 63]
       , testCase "checkpoint manifest CBOR codec is deterministic and canonical ordered" $ do
           let manifest =
                 Checkpoint.CheckpointManifest

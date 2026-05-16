@@ -231,7 +231,7 @@ One Envoy-Gateway-API-owned localhost listener (`Gateway/jitml-edge`, port chose
 
 - `GatewayClass/jitml-gateway` + `Gateway/jitml-edge` listening at `127.0.0.1:<edge-port>`.
 - `EnvoyProxy/jitml-edge` is a NodePort service with `externalTrafficPolicy: Cluster`, port 30090 in-cluster.
-- Routes are not hand-written YAML; they are Haskell-rendered `HTTPRoute` resources from a single **route registry** in `src/JitML/Routes.hs`. The registry is the source of truth, consumed by both the chart-template renderer and the `docs check`/`docs generate` pair that gates README drift (per doctrine §Generated Artifacts).
+- Routes are not hand-written YAML; they are Haskell-rendered `HTTPRoute` resources from a single **route registry** in `src/JitML/Routes.hs`. The registry is the source of truth, consumed by both the chart-template renderer and the `docs check`/`docs generate` pair that gates route-table and chart-template drift (per doctrine §Generated Artifacts).
 
 Routes published at the edge (all under one `127.0.0.1:<edge-port>`):
 
@@ -725,7 +725,7 @@ mindmap
 
 ### Generated documentation flow
 
-**`docs *` vs `lint *` — distinct surfaces, no overlap.** Per doctrine §Generated Artifacts, `docs check` / `docs generate` cover artifacts that are *rendered from typed Haskell source* into a committed file or marker region — the route table, Grafana dashboards, PureScript contracts, proto-derived modules, and CLI help. Per doctrine §Lint, Format, and Code-Quality Stack, `lint *` covers *hand-written* source: Haskell (`fourmolu --mode check` + `hlint`), PureScript (`purs format` round-trip), proto schemas, chart structural invariants, and file-hygiene rules. The two surfaces do not overlap; an artifact owned by `docs *` is never lint-managed, and vice versa. When adding a new generated artifact, extend the `GeneratedSectionRule` registry; when adding a new lint rule, extend the appropriate `LintCommand` constructor.
+**`docs *` vs `lint *` — distinct surfaces, no overlap.** Per doctrine §Generated Artifacts, `docs check` / `docs generate` cover artifacts that are *rendered from typed Haskell source* into a committed file or marker region — CLI help/reference outputs, route tables, daemon/numerical/training catalog tables, chart routes, Grafana dashboards, the Prometheus scrape config, and PureScript contracts. Per doctrine §Lint, Format, and Code-Quality Stack, `lint *` covers *hand-written* source: Haskell (`fourmolu --mode check` + `hlint`), PureScript (`purs format` round-trip), proto schemas, chart structural invariants, and file-hygiene rules. The two surfaces do not overlap; an artifact owned by `docs *` is never lint-managed, and vice versa. When adding a new marker-delimited generated section, extend the `GeneratedSectionRule` registry; when adding a whole-file generated artifact, extend the `TrackedGeneratedPath` registry; when adding a new lint rule, extend the appropriate `LintCommand` constructor.
 
 Per doctrine §Automatically Generated Documentation and §Generated Artifacts, `CommandSpec` fans out to several artifact families:
 
@@ -744,9 +744,9 @@ flowchart LR
     spec --> json
 ```
 
-Every entry in the `DocsTarget` enum above has a paired `docs check` / `docs generate` command. `docs check <target>` exact-string-compares the in-tree rendering against the file (or marker region) it should match and exits non-zero with the marker key and a remedy hint on drift; `docs generate <target>` is the reconciler that splices the freshly-rendered content between sentinel markers in place. Implementing only the check half is forbidden by doctrine §Generated Artifacts: a contributor who sees `"X has drifted"` with no way to fix it will eventually disable the lint rather than fight the loop.
+Every generated-doc entry has a paired `docs check` / `docs generate` path. `docs check` exact-string-compares the in-tree rendering against the file or marker region it should match and exits non-zero with the marker key and a remedy hint on drift; `docs generate` is the reconciler that splices freshly rendered content between sentinel markers and rewrites tracked generated files in place. Implementing only the check half is forbidden by doctrine §Generated Artifacts: a contributor who sees `"X has drifted"` with no way to fix it will eventually disable the lint rather than fight the loop.
 
-The marker-key registry is a `GeneratedSectionRule` table in `src/JitML/Docs/Rules.hs`. Current keys in this README are `command-tree` and `command-registry`; route-table, Grafana-dashboard, PureScript-contract, and proto-schema rules are used in their owning files.
+The marker-key registry is the `GeneratedSectionRule` table in `src/JitML/Generated/Registry.hs`; whole-file generated artifacts live in `src/JitML/Generated/Paths.hs`. Current keys in this README are `command-tree` and `command-registry`; route, daemon, numerical, training, chart, Grafana, Prometheus, and PureScript outputs are registered in their owning files or tracked paths.
 
 ### Architecture: module tiers
 
@@ -1955,7 +1955,7 @@ Source at `./web/`; spago + `purs` + esbuild bundle to `./web/dist/app.js`. UI f
 
 ## Generated contracts
 
-`jitml docs generate purs-contracts` emits `./web/src/Generated/Contracts.purs` from Haskell-owned browser-contract ADTs in `src/JitML/Web/Contracts.hs` via `purescript-bridge`. It is one entry in the `GeneratedSectionRule` registry (see [Generated documentation flow](#generated-documentation-flow)) and is paired with `jitml docs check purs-contracts`. The Pulsar event protobuf-derived types are included so live event streams are typed end-to-end.
+`jitml docs generate` emits `./web/src/Generated/Contracts.purs` from Haskell-owned browser-contract ADTs in `src/JitML/Web/Contracts.hs` via the tracked generated-path registry (see [Generated documentation flow](#generated-documentation-flow)) and is paired with `jitml docs check`. Live Pulsar event protobuf bridges remain target browser-contract work.
 
 ## Backend integration
 
@@ -2058,7 +2058,7 @@ Per doctrine §Plan / Apply and §Generated Artifacts, the canonical goldens are
 
 - **doctrine-canonical** — `jitml --help` (every command and subcommand path), `jitml commands --tree`, `jitml commands --json`, generated Markdown docs, generated manpages.
 - **plan-render goldens** — the rendered Plan for every Plan/Apply command, reproduced via `--dry-run` and compared exact-string against a committed file: `bootstrap`, `cluster up`, `train`, `eval`, `tune`, `rl train`, `test all`.
-- **jitML-specific** — route-table render from `src/JitML/Routes.hs`, Grafana-dashboard render from `src/JitML/Observability/Grafana.hs`, PureScript contracts (`web/src/Generated/Contracts.purs`), proto-derived Haskell schemas, the report-card summary block from [`jitml test all`](#jitml-test-all).
+- **jitML-specific** — route-table render from `src/JitML/Routes.hs`, Grafana-dashboard render from `src/JitML/Observability/Grafana.hs`, PureScript contracts (`web/src/Generated/Contracts.purs`), numerical/RL Dhall schema mirrors, checkpoint manifest CBOR helpers, and the report-card summary block from [`jitml test all`](#jitml-test-all).
 
 Golden outputs are deterministic. Renderers are pure; timestamps, random IDs, locale-dependent ordering, and terminal-width-dependent wrapping are forbidden in golden content per doctrine §Generated Artifacts.
 
@@ -2266,7 +2266,7 @@ In-scope (binding) from [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md), in doctrin
 - GADT-Indexed State Machines (training lifecycle, RL run lifecycle, tuning sweep lifecycle)
 - Progressive Introspection
 - Automatically Generated Documentation
-- Generated Artifacts (paired check/write for the route table, Grafana dashboards, protobuf schemas, PureScript contracts, CLI help, markdown docs)
+- Generated Artifacts (paired check/write for generated sections and tracked generated files: route tables, Grafana dashboards, PureScript contracts, CLI help, markdown docs, manpages, shell completions, and chart YAML rendered from Haskell registries)
 - Architecture — including Subprocesses as Typed Values (kernel-compiler subprocesses, `kubectl`, `helm`, `kind`, `docker` all wrapped)
 - Plan / Apply (`bootstrap`, `train`, `tune`, `cluster up`, `test all`, `service` startup-as-plan all Plan/Apply with `--dry-run` and `--plan-file`)
 - Output Rules

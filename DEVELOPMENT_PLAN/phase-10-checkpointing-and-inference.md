@@ -15,9 +15,9 @@
 > **Purpose**: Stand up the current local checkpoint and inference surface:
 > split-blob object-key renderers, a small typed manifest, pure pointer-CAS
 > decisions, a local deterministic CBOR manifest codec/content hash, a
-> simplified `.jmw1` text encoder, `jitml internal gc` summary output, and
-> deterministic inference summaries. Binary tensor blobs, live MinIO effects,
-> retention traversal, and kernel-handle loading remain target runtime work.
+> binary `.jmw1` encoder, `jitml internal gc` summary output, and deterministic
+> inference summaries. Live MinIO effects, retention traversal, and
+> kernel-handle loading remain target runtime work.
 
 ## Phase Status
 
@@ -33,11 +33,11 @@ path once those runtime pieces land.
 The current worktree implements a small `CheckpointManifest`, `TensorBlob`,
 split-blob object-key renderers, pointer-CAS decisions, `manifestPointer`,
 deterministic `encodeManifestCbor` / `decodeManifestCbor` /
-`manifestContentSha`, simplified `encodeJmw1` text encoder, and deterministic
+`manifestContentSha`, binary `encodeJmw1` encoder with `JMW1` magic, CBOR
+header length, and little-endian `F64` payload bytes, and deterministic
 `inferFromManifest` helper in `src/JitML/Checkpoint/Format.hs`. It does not yet
-implement binary little-endian tensor blobs, live MinIO conditional-write
-effects, retention graph traversal, kernel-handle loading, or real
-demo/frontend checkpoint reads.
+implement live MinIO conditional-write effects, retention graph traversal,
+kernel-handle loading, or real demo/frontend checkpoint reads.
 
 ## Phase Summary
 
@@ -90,15 +90,15 @@ split-blob object-key renderers used by the inference summary surface.
 
 ### Objective
 
-Land the current simplified `.jmw1` encoder, local deterministic manifest CBOR
-codec, manifest-content SHA helper, and local pointer-CAS decision surface.
-Binary little-endian payloads and live MinIO conditional-write effects remain
-target runtime validation.
+Land the current `.jmw1` encoder, local deterministic manifest CBOR codec,
+manifest-content SHA helper, and local pointer-CAS decision surface. Live MinIO
+conditional-write effects remain target runtime validation.
 
 ### Deliverables
 
-- `encodeJmw1` emits a lazy bytestring beginning with text line `JMW1`,
-  followed by one textual `Double` per line.
+- `encodeJmw1` emits a lazy bytestring beginning with `JMW1`, followed by a
+  little-endian 32-bit CBOR header length, a CBOR header, and little-endian
+  `Double` payload bytes.
 - `encodeManifestCbor` canonicalizes tensor order by name and serializes the
   current `CheckpointManifest`.
 - `decodeManifestCbor` round-trips the current local manifest representation.
@@ -110,7 +110,8 @@ target runtime validation.
 
 ### Validation
 
-1. `encodeJmw1` emits the expected `JMW1` marker for local callers.
+1. `encodeJmw1` emits the expected `JMW1` marker, CBOR header length, and
+   little-endian `Double` payload bytes for local callers.
 2. `jitml-unit` verifies deterministic manifest CBOR encoding/decoding and
    content hashing.
 3. `jitml-unit` verifies successful and conflicting pointer-CAS decisions.
@@ -189,8 +190,8 @@ remain target runtime work.
 **Engineering docs to create/update:**
 
 - `documents/engineering/checkpoint_format.md` — current local
-  `CheckpointManifest`, manifest CBOR codec/content hash, simplified `.jmw1`
-  text encoder, manifest pointer, and inference summary helper; target
+  `CheckpointManifest`, manifest CBOR codec/content hash, binary `.jmw1`
+  encoder, manifest pointer, and inference summary helper; target
   split-blob layout, write protocols, typed advance predicates, retention
   reconciler, and real inference-only read path.
 - `documents/engineering/determinism_contract.md` — same-substrate bit-

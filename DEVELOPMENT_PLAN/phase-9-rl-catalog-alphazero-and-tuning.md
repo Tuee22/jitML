@@ -201,13 +201,15 @@ catalog, and corresponding browser-contract endpoint metadata.
   used by the frontend scaffold.
 - `canonicalGames` lists Connect 4, Othello, Hex, and Gomoku as local
   `PerfectInformationGame` metadata rows.
-- No adversarial-game golden fixture tree exists yet.
+- `test/golden/alphazero/connect4-transcript.txt` pins the current local
+  Connect 4 transcript shape. Full adversarial-game replay fixture trees remain
+  target work.
 
 ### Validation
 
 1. `cabal test jitml-rl-canonicals` validates the current Connect 4 move
    bounds.
-2. Golden replay codec validation remains target work.
+2. Full golden replay codec validation remains target work.
 
 ## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) ✅
 

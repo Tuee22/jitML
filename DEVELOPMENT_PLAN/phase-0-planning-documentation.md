@@ -246,10 +246,12 @@ per standards rule L.
     `jitml docs check`, `jitml docs generate`, marker conventions
     `<!-- jitml:<key>:start -->` (Markdown), `// jitml:<key>:start` (Haskell /
     C / C++ / Rust), `# jitml:<key>:start` (YAML); paired check/write commands;
-    three-element error message contract on drift. Generated artefacts include
-    the route table, Grafana dashboards, protobuf schemas (Pulsar event
-    schemas, vendored TensorBoard `event.proto`), PureScript contracts, CLI
-    help, markdown command reference, manpages, shell completions.
+    three-element error message contract on drift. Current generated artefacts
+    include route tables, Grafana dashboards, the Prometheus scrape config,
+    PureScript contracts, CLI help, markdown command reference, manpages, shell
+    completions, and chart YAML rendered from Haskell registries. Proto schema
+    files remain lint-owned unless a future generated-binding path is added to
+    the registries.
   - **Subprocesses as Typed Values**: `Subprocess`, `subprocessPath`,
     `subprocessArguments`, `subprocessEnvironment`,
     `subprocessWorkingDirectory`, `renderSubprocess`, `runStreaming`,
@@ -414,7 +416,7 @@ blocks, or cleanup-ledger rows are required.
   line `261`; [documents/engineering/haskell_code_guide.md](../documents/engineering/haskell_code_guide.md)
   lines `55`-`60`.
 - Generated artifacts:
-  `grep -RInE 'GeneratedSectionRule|trackingGeneratedPaths|jitml docs check|jitml docs generate|<!-- jitml:<key>:start -->|// jitml:<key>:start|# jitml:<key>:start|route table|Grafana dashboards|protobuf schemas|event\.proto|PureScript contracts|CLI help|manpages|shell completions' DEVELOPMENT_PLAN documents`
+  `grep -RInE 'GeneratedSectionRule|trackingGeneratedPaths|jitml docs check|jitml docs generate|<!-- jitml:<key>:start -->|// jitml:<key>:start|# jitml:<key>:start|route table|Grafana dashboards|Prometheus scrape config|PureScript contracts|CLI help|manpages|shell completions' DEVELOPMENT_PLAN documents`
   Evidence: [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) lines
   `171`-`211`; [documents/documentation_standards.md](../documents/documentation_standards.md)
   lines `304`-`357`.

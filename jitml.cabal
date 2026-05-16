@@ -82,11 +82,13 @@ library
         JitML.Service.ConfigMap
         JitML.Service.Consumer
         JitML.Service.Endpoints
+        JitML.Service.Http
         JitML.Service.HotReload
         JitML.Service.Lifecycle
         JitML.Service.LiveConfig
         JitML.Service.Logger
         JitML.Service.Retry
+        JitML.Service.Runtime
         JitML.SL.Canonicals
         JitML.Storage.Buckets
         JitML.Sub.Render
@@ -99,6 +101,7 @@ library
         JitML.Tune.Catalog
         JitML.Web.Bundle
         JitML.Web.Contracts
+        JitML.Web.Server
 
     hs-source-dirs:   src
     default-language: GHC2024
@@ -113,6 +116,7 @@ library
         directory,
         filepath,
         mtl,
+        network,
         optparse-applicative,
         prettyprinter,
         prettyprinter-ansi-terminal,
@@ -243,8 +247,10 @@ test-suite jitml-daemon-lifecycle
         base >=4.22 && <4.23,
         bytestring,
         jitml,
+        network,
         tasty,
-        tasty-hunit
+        tasty-hunit,
+        text
 
 test-suite jitml-e2e
     type:             exitcode-stdio-1.0
@@ -254,9 +260,12 @@ test-suite jitml-e2e
     ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        bytestring,
         jitml,
+        network,
         tasty,
-        tasty-hunit
+        tasty-hunit,
+        text
 
 test-suite jitml-haskell-style
     type:             exitcode-stdio-1.0

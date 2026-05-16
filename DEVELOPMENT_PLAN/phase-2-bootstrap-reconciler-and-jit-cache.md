@@ -35,8 +35,9 @@ touching global user state.
 
 Current `jitml bootstrap --<substrate>` and `jitml cluster up` materialize
 repo-local Kind, chart, Dhall, service, and publication files, then print
-reconciliation summaries. They do not create Kind clusters, apply Helm, push to
-Harbor, run `jitml service`, or compile JIT kernels. The Docker image is a
+reconciliation summaries or exit `3` when the materialized files are already
+current. They do not create Kind clusters, apply Helm, push to Harbor, run
+`jitml service`, or compile JIT kernels. The Docker image is a
 baseline development image, not the complete CUDA / cuDNN / oneDNN / Pulumi /
 Poetry toolchain image described by the target architecture. The Tart helper
 writes repo-local VM state and renders `tart ssh` subprocesses; real lazy VM
@@ -128,7 +129,7 @@ cluster, package, image, Dhall, and daemon action.
 5. `jitml commands --tree`, generated CLI docs, and parser tests include the
    `bootstrap` command leaf.
 
-### Remaining Work
+### Closure Checklist
 
 - [x] Rewrite Apple script gates to fail fast on macOS/arm64, Xcode Command Line
   Tools, and Homebrew only.
@@ -190,7 +191,7 @@ lazy package validation and remediation.
 2. The structured diagnostic on a synthetic missing `kindest/node` pin names
    the failing node, the description, and the remedy hint.
 
-### Remaining Work
+### Closure Checklist
 
 - [x] Add toolchain, container, and cluster prerequisite node modules.
 - [x] Replace the empty initial `prerequisiteRegistry` with the populated
@@ -242,9 +243,9 @@ at `./.build/host/apple-silicon/<model-id>.<ext>`.
 - `Kind` ADT: `Training | Inference`. Training and inference kernels are
   separate artefacts.
 - The cache layout reserves `./.build/jit-src/<substrate>/<hex>/` for generated
-  JIT compiler inputs. The Haskell runtime source renderers that populate this
-  root are target Sprint `7.7` work; current code does not yet materialize CUDA,
-  oneDNN, or Swift / Metal source bundles on cache miss.
+  JIT compiler inputs. Sprint `7.7` now owns the Haskell runtime source
+  renderers that populate this root for CUDA, oneDNN, and Swift / Metal source
+  bundles during non-dry-run `jitml build`.
 - `cachePath :: Path Abs Dir -> Substrate -> Hash -> Extension -> IO (Path Abs
   File)` resolves to `./.build/jit/<substrate>/<hex>.<ext>` under the configured
   build root.
@@ -266,7 +267,7 @@ at `./.build/host/apple-silicon/<model-id>.<ext>`.
 2. `repointSymlink` is atomic — interleaved test asserts no torn read.
 3. The `manifest.json` round-trips through `decode . encode == id`.
 
-### Remaining Work
+### Closure Checklist
 
 - [x] Add typed `KernelSpec`, `Kind`, `Substrate`, `ToolchainFingerprint`,
   `Hash`, `ModelId`, and `Extension` values for the cache-key surface.
@@ -319,7 +320,8 @@ the current command materializes bootstrap inputs only.
   `docker compose run --rm jitml ...`; Compose builds `jitml:local`
   automatically when needed.
 - Current `jitml bootstrap --<substrate>` materializes the repo-local bootstrap
-  files. The target live apply path will tag the locally built image as
+  files and reports no-op materialization with exit code `3`. The target live
+  apply path will tag the locally built image as
   `harbor.platform.svc.cluster.local/jitml/jitml:<sha>` and push it after Harbor
   is live, so subsequent chart rollouts pull through Harbor.
 - Current `jitml build` renders `/opt/build/jitml` plus engine metadata. The

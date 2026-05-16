@@ -310,7 +310,7 @@ Code-Quality Stack`.
    formatter/HLint/cabal-format drift, and warning-clean build failures.
 4. `jitml-haskell-style` passes under `cabal test`.
 
-### Remaining Work
+### Closure Checklist
 
 - [x] Add `fourmolu.yaml`, `.hlint.yaml`, `forbiddenPathRegistry`,
   `jitml lint`, `jitml check-code`, and the `jitml-haskell-style` Cabal stanza.

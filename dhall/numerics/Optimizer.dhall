@@ -9,4 +9,6 @@
 , "LAMB"
 , "LARS"
 , "Lion"
+, "AdaFactor"
+, "Shampoo"
 ]

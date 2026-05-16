@@ -17,8 +17,8 @@
 > registered CLI entrypoint, Dhall `BootConfig` / `LiveConfig` renderers,
 > lifecycle, endpoint, logging, retry, payload-hash deduplication, SIGHUP
 > reload decisions, capability-class boundaries, and stateless `Deployment`
-> rendering — while keeping the real long-running HTTP/Pulsar daemon and live
-> clients explicit as target runtime validation.
+> rendering — while keeping live Pulsar/MinIO/Harbor clients explicit as target
+> runtime validation.
 
 ## Phase Status
 
@@ -34,9 +34,10 @@ The current worktree implements `BootConfig` / `LiveConfig` ADTs and Dhall
 renderers, lifecycle phase data, hot-reload decision data, pure endpoint-response
 rendering, pure JSON log rendering, service error/retry helpers, payload-hash
 deduplication, capability-class definitions, and chart ConfigMap/Deployment
-rendering. It does not yet implement `App.daemonMain`, POSIX signal wiring, real
-MinIO/Pulsar/Harbor/kubectl clients, an HTTP server for `/healthz` / `/readyz`
-/ `/metrics`, or a live Pulsar consumer loop.
+rendering, and the low-level in-binary HTTP runtime in
+`src/JitML/Service/{Http,Runtime}.hs` serving `/healthz`, `/readyz`, and
+`/metrics`. It does not yet implement POSIX signal wiring, real
+MinIO/Pulsar/Harbor/kubectl clients, or a live Pulsar consumer loop.
 
 ## Phase Summary
 
@@ -60,16 +61,18 @@ SelfInference` host-native).
 
 ### Objective
 
-Wire `jitml service` into the CLI with the local lifecycle/config/endpoint
-summary surface. The real long-running daemon composition root remains target
-runtime work.
+Wire `jitml service` into the CLI with the lifecycle/config/endpoint summary
+surface and the in-binary HTTP listener.
 
 ### Deliverables
 
 - `jitml service [--config path/to/config.dhall]` is registered and supports
   Plan/Apply output via `--dry-run` and `--plan-file`.
 - `src/JitML/App.hs` renders the lifecycle, BootConfig/LiveConfig, endpoint,
-  and metrics summaries for the command.
+  and metrics summaries, then starts `ServiceRuntime.serveDaemon` for the
+  command.
+- `src/JitML/Service/Runtime.hs` composes the daemon HTTP routes over the
+  endpoint response helpers.
 - `Lifecycle` ADT enumerates the phases: `load`, `prereq`, `acquire`,
   `ready`, `serve`, `drain`, `exit`.
 - Default command summary path is `./conf/cluster/linux-cpu.dhall` when no
@@ -79,7 +82,8 @@ runtime work.
 
 1. `jitml service --dry-run --config conf/cluster/linux-cpu.dhall` prints the
    typed plan and exits `0` without side effects.
-2. `jitml service` prints the local lifecycle/config/endpoint summary.
+2. `jitml service` prints the lifecycle/config/endpoint summary and starts the
+   daemon HTTP listener.
 
 ## Sprint 5.2: `BootConfig` / `LiveConfig` Dhall and Hot-Reload Schema Surface ✅
 
@@ -137,13 +141,14 @@ Dhall schema files, renderers, and the local SIGHUP reload-decision surface.
 
 ### Objective
 
-Expose the local endpoint response, metrics, retry, and structured-log renderers
-that the target live daemon will serve over HTTP and stderr.
+Expose the endpoint response, metrics, retry, structured-log renderers, and
+local HTTP route server that the daemon serves in-process.
 
 ### Deliverables
 
 - Current `/healthz`, `/readyz`, and `/metrics` are renderable
-  `EndpointResponse` values; no HTTP listener serves them yet.
+  `EndpointResponse` values served by `JitML.Service.Http` through
+  `daemonHttpRoutes`.
 - Target `/healthz` returns `200 OK` if the daemon process is alive; `500`
   otherwise.
 - Target `/readyz` returns `200 OK` only after the `Ready` lifecycle phase
@@ -165,7 +170,8 @@ that the target live daemon will serve over HTTP and stderr.
 1. `jitml service` renders health, readiness, and metrics response summaries.
 2. `cabal test jitml-daemon-lifecycle` exercises endpoint status codes and
    retry behavior against synthetic service errors.
-3. Live HTTP serving and Prometheus scrape validation remain target work.
+3. `cabal test jitml-daemon-lifecycle` exercises the one-shot HTTP listener
+   against `/healthz`.
 
 ## Sprint 5.4: `RetryPolicy` and Service Error Surface ✅
 

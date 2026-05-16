@@ -11,7 +11,7 @@ import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, renameFile)
 import System.FilePath ((</>))
 
 import JitML.Cluster.Gateway (renderEnvoyProxy, renderGateway, renderGatewayClass)
@@ -37,57 +37,125 @@ bootstrapPlanSteps substrate =
   , "write ./.build/runtime/cluster-publication.json"
   ]
 
-materializeBootstrapFiles :: FilePath -> Substrate -> IO ()
+materializeBootstrapFiles :: FilePath -> Substrate -> IO Bool
 materializeBootstrapFiles root substrate = do
   let buildRoot = root </> ".build"
       runtimeRoot = buildRoot </> "runtime"
       clusterConfRoot = buildRoot </> "conf" </> "cluster"
       hostConfRoot = buildRoot </> "conf" </> "host"
-  createDirectoryIfMissing True "kind"
-  createDirectoryIfMissing True "chart/templates"
+      kindRoot = root </> "kind"
+      chartRoot = root </> "chart"
+      chartTemplatesRoot = chartRoot </> "templates"
+  createDirectoryIfMissing True kindRoot
+  createDirectoryIfMissing True chartRoot
+  createDirectoryIfMissing True chartTemplatesRoot
   createDirectoryIfMissing True runtimeRoot
   createDirectoryIfMissing True clusterConfRoot
   createDirectoryIfMissing True hostConfRoot
-  Text.IO.writeFile ("kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml") $
-    renderKindConfig (kindConfigFor substrate)
-  Text.IO.writeFile "chart/templates/storageclass-jitml-manual.yaml" renderStorageClass
-  mapM_ writePv manualPVs
-  Text.IO.writeFile "chart/templates/gatewayclass-jitml.yaml" renderGatewayClass
-  Text.IO.writeFile
-    "chart/templates/gateway-jitml-edge.yaml"
-    (renderGateway (substrateEdgePort substrate))
-  Text.IO.writeFile "chart/templates/envoyproxy-jitml-edge.yaml" renderEnvoyProxy
-  mapM_ writeRoute routeRegistry
-  Text.IO.writeFile "chart/templates/minio-values.yaml" renderMinioValues
+  results <-
+    sequence
+      [ writeTextFileIfChanged
+          (kindRoot </> "cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml")
+          (renderKindConfig (kindConfigFor substrate))
+      , writeTextFileIfChanged (chartTemplatesRoot </> "storageclass-jitml-manual.yaml") renderStorageClass
+      , writeTextFileIfChanged (chartTemplatesRoot </> "gatewayclass-jitml.yaml") renderGatewayClass
+      , writeTextFileIfChanged
+          (chartTemplatesRoot </> "gateway-jitml-edge.yaml")
+          (renderGateway (substrateEdgePort substrate))
+      , writeTextFileIfChanged (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml") renderEnvoyProxy
+      , writeTextFileIfChanged (chartRoot </> "minio-values.yaml") renderMinioValues
+      ]
+  pvResults <- traverse (writePv chartTemplatesRoot) manualPVs
+  routeResults <- traverse (writeRoute chartTemplatesRoot) routeRegistry
+  legacyValuesChanged <- removeFileIfExists (chartTemplatesRoot </> "minio-values.yaml")
   let clusterBoot = defaultBootConfig substrate Cluster
-  Text.IO.writeFile (clusterConfRoot </> Text.unpack (renderSubstrate substrate) <> ".dhall") $
-    renderBootConfigDhall clusterBoot
-  Text.IO.writeFile (clusterConfRoot </> "LiveConfig.dhall") (renderLiveConfigDhall defaultLiveConfig)
-  Text.IO.writeFile "chart/templates/configmap-jitml-service.yaml" $
-    renderServiceConfigMap clusterBoot defaultLiveConfig
-  Text.IO.writeFile "chart/templates/deployment-jitml-service.yaml" $
-    renderServiceDeployment substrate
-  case substrate of
+  configResults <-
+    sequence
+      [ writeTextFileIfChanged
+          (clusterConfRoot </> Text.unpack (renderSubstrate substrate) <> ".dhall")
+          (renderBootConfigDhall clusterBoot)
+      , writeTextFileIfChanged
+          (clusterConfRoot </> "LiveConfig.dhall")
+          (renderLiveConfigDhall defaultLiveConfig)
+      , writeTextFileIfChanged (chartTemplatesRoot </> "configmap-jitml-service.yaml") $
+          renderServiceConfigMap clusterBoot defaultLiveConfig
+      , writeTextFileIfChanged (chartTemplatesRoot </> "deployment-jitml-service.yaml") $
+          renderServiceDeployment substrate
+      ]
+  hostResults <- case substrate of
     AppleSilicon ->
-      Text.IO.writeFile (hostConfRoot </> "apple-silicon.dhall") $
-        renderBootConfigDhall (defaultBootConfig AppleSilicon Host)
-    _ -> pure ()
-  LazyByteString.writeFile (runtimeRoot </> "cluster-publication.json") $
-    encode (defaultPublication substrate)
+      fmap (: []) $
+        writeTextFileIfChanged (hostConfRoot </> "apple-silicon.dhall") $
+          renderBootConfigDhall (defaultBootConfig AppleSilicon Host)
+    _ -> pure []
+  publicationChanged <-
+    writeLazyByteStringIfChanged (runtimeRoot </> "cluster-publication.json") $
+      encode (defaultPublication substrate)
+  pure
+    ( or
+        ( results
+            <> pvResults
+            <> routeResults
+            <> configResults
+            <> hostResults
+            <> [publicationChanged, legacyValuesChanged]
+        )
+    )
  where
-  writePv pv =
-    Text.IO.writeFile
-      ( "chart/templates/pv-"
-          <> Text.unpack (pvNamespace pv)
-          <> "-"
-          <> Text.unpack (pvStatefulSet pv)
-          <> "-"
-          <> show (pvReplica pv)
-          <> ".yaml"
+  writePv chartTemplatesRoot pv =
+    writeTextFileIfChanged
+      ( chartTemplatesRoot
+          </> ( "pv-"
+                  <> Text.unpack (pvNamespace pv)
+                  <> "-"
+                  <> Text.unpack (pvStatefulSet pv)
+                  <> "-"
+                  <> show (pvReplica pv)
+                  <> ".yaml"
+              )
       )
       (renderManualPV pv)
 
-  writeRoute route =
-    Text.IO.writeFile
-      ("chart/templates/httproute-" <> Text.unpack (routeName route) <> ".yaml")
+  writeRoute chartTemplatesRoot route =
+    writeTextFileIfChanged
+      (chartTemplatesRoot </> ("httproute-" <> Text.unpack (routeName route) <> ".yaml"))
       (renderHTTPRoute route)
+
+writeTextFileIfChanged :: FilePath -> Text -> IO Bool
+writeTextFileIfChanged path expected = do
+  exists <- doesFileExist path
+  current <-
+    if exists
+      then Text.IO.readFile path
+      else pure ""
+  if current == expected
+    then pure False
+    else do
+      let tmpPath = path <> ".tmp"
+      Text.IO.writeFile tmpPath expected
+      renameFile tmpPath path
+      pure True
+
+writeLazyByteStringIfChanged :: FilePath -> LazyByteString.ByteString -> IO Bool
+writeLazyByteStringIfChanged path expected = do
+  exists <- doesFileExist path
+  current <-
+    if exists
+      then LazyByteString.readFile path
+      else pure ""
+  if current == expected
+    then pure False
+    else do
+      let tmpPath = path <> ".tmp"
+      LazyByteString.writeFile tmpPath expected
+      renameFile tmpPath path
+      pure True
+
+removeFileIfExists :: FilePath -> IO Bool
+removeFileIfExists path = do
+  exists <- doesFileExist path
+  if exists
+    then do
+      removeFile path
+      pure True
+    else pure False

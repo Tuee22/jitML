@@ -201,14 +201,15 @@ The implemented local end state is:
   Pulsar, MinIO, Percona PostgreSQL, Envoy Gateway, and kube-prometheus-stack,
   plus typed local renderers for the TensorBoard, observability, route, storage,
   service, and demo chart surfaces. The current command path materializes chart
-  and Kind inputs; live deployment remains an overall validation gate.
+  and Kind inputs with no-op exit `3`; live deployment remains an overall
+  validation gate.
 - The single `127.0.0.1:<edge-port>` Envoy Gateway socket as the only exposed
   listener; the typed route registry in `src/JitML/Routes.hs` as the source of truth
   for every HTTPRoute manifest.
 - The `jitml service` command renders the daemon lifecycle, Dhall `BootConfig` /
   `LiveConfig`, endpoint responses, structured JSON log shape, at-least-once
-  deduplication helper, and typed retry policy. The current binary does not run
-  a real long-lived HTTP/Pulsar daemon.
+  deduplication helper, typed retry policy, and in-binary HTTP listener. Live
+  Pulsar/MinIO/Harbor clients remain target runtime validation.
 - The current numerical core is a local Haskell catalog for layers,
   real/complex activation names, optimizers, schedulers, losses, and spectral
   ops, plus Dhall mirror lists and the cross-type lint audit.
@@ -227,15 +228,14 @@ The implemented local end state is:
   MinIO transcript persistence, and Pulsar event publication remain target
   runtime work.
 - The current checkpoint surface is a small typed manifest, deterministic
-  manifest CBOR codec/content hash, a simplified `.jmw1` text encoder,
-  manifest pointer rendering, and deterministic inference summary. Full MinIO
-  write-once/CAS pointer logic and real kernel-handle loading remain target
-  runtime work.
+  manifest CBOR codec/content hash, binary `.jmw1` encoder, manifest pointer
+  rendering, and deterministic inference summary. Full MinIO write-once/CAS
+  pointer effects and real kernel-handle loading remain target runtime work.
 - The current PureScript/frontend surface is a minimal PureScript entrypoint,
   generated contract file, typed bundle/panel/demo-route manifest, Playwright
   scaffold, chart deployment template, and `jitml-demo` executable shim that
-  prints a typed status line. There is no checked-in Halogen dependency,
-  compiled browser bundle, or real HTTP server yet.
+  serves the current local frontend/API route surface. There is no checked-in
+  Halogen dependency, compiled browser bundle, or live WebSocket proxy yet.
 - Ten Cabal test-suite stanzas (`jitml-unit`, `jitml-integration`,
   `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
   `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`,

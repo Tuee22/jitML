@@ -28,13 +28,14 @@ Per-substrate JIT codegen (Phase `7`) consumes this catalog.
 ### Current Implementation Scope
 
 The current worktree implements the Haskell catalog in
-`src/JitML/Numerics/Catalog.hs`: eleven layer constructors, seven activations,
-four spectral operations, eleven optimizers, eight schedulers, five losses, and
+`src/JitML/Numerics/Catalog.hs`: sixteen layer constructors, eleven
+activations, ten spectral operations, thirteen optimizers, nine schedulers, ten
+losses, and
 `renderNumericalCatalog`. It also implements the Dhall mirror list tree at
 `dhall/numerics/`, the decoder/validator in `src/JitML/Numerics/Schema.hs`,
-and the lint hook in `src/JitML/Lint/DhallNumerics.hs`. It does not yet contain
-the richer parameterized constructors described by the target architecture
-below.
+and the lint hook in `src/JitML/Lint/DhallNumerics.hs`. Parameterized record
+fields for every constructor remain model-schema work, but the richer
+constructor vocabulary is present in the checked-in catalog.
 
 ## Phase Summary
 
@@ -51,14 +52,16 @@ tables. No SL/RL training logic lives here — that is Phase `8`.
 
 ### Objective
 
-Stand up the current local layer catalog as a closed Haskell sum type. Rich
-shape parameters and complex layer variants remain target runtime work.
+Stand up the current local layer catalog as a closed Haskell sum type including
+embedding, attention, rotary-position, and complex layer constructors.
 
 ### Deliverables
 
-- `Layer` enumerates the checked-in local catalog: `Dense`, `Conv1D`,
-  `Conv2D`, `Conv3D`, `ConvTranspose`, `BatchNorm`, `LayerNorm`, `GroupNorm`,
-  `Dropout`, `ResidualBlock`, and `MultiHeadAttention`.
+- `Layer` enumerates the checked-in local catalog: `Dense`, `Embedding`,
+  `Conv1D`, `Conv2D`, `Conv3D`, `ConvTranspose`, `ComplexDense`,
+  `ComplexConv2D`, `BatchNorm`, `LayerNorm`, `GroupNorm`, `Dropout`,
+  `ResidualBlock`, `ScaledDotProductAttention`, `MultiHeadAttention`, and
+  `RotaryPositionalEmbedding`.
 - `layerCatalog` is the implementation source for the local layer list.
 - `renderNumericalCatalog` includes the layer list in the deterministic text
   summary consumed by command and documentation surfaces.
@@ -66,7 +69,7 @@ shape parameters and complex layer variants remain target runtime work.
 
 ### Validation
 
-1. `src/JitML/Numerics/Catalog.hs` exposes the eleven layer constructors named
+1. `src/JitML/Numerics/Catalog.hs` exposes the sixteen layer constructors named
    above.
 2. `renderNumericalCatalog` is deterministic for the current catalog.
 3. `jitml-unit` and `jitml lint haskell` validate the Dhall mirror against the
@@ -85,8 +88,9 @@ complex-valued activation names.
 
 ### Deliverables
 
-- `Activation` enumerates `Relu`, `Gelu`, `Tanh`, `Sigmoid`, `Softmax`,
-  `ComplexModRelu`, and `ComplexCardioid`.
+- `Activation` enumerates `Relu`, `LeakyRelu`, `Elu`, `Silu`, `Gelu`, `Tanh`,
+  `Sigmoid`, `Softmax`, `ComplexModRelu`, `ComplexCardioid`, and
+  `ComplexZRelu`.
 - `activationCatalog` is the implementation source for the local activation
   list.
 - `renderNumericalCatalog` includes the activation list in the deterministic
@@ -95,7 +99,7 @@ complex-valued activation names.
 
 ### Validation
 
-1. `activationCatalog` contains the seven checked-in activation constructors.
+1. `activationCatalog` contains the eleven checked-in activation constructors.
 2. `renderNumericalCatalog` renders the activation names deterministically.
 
 ## Sprint 6.3: Spectral / Frequency-Domain Operations ✅
@@ -110,15 +114,15 @@ Land the current local spectral-operation catalog.
 
 ### Deliverables
 
-- `SpectralOp` enumerates `FFT`, `IFFT`, `STFT`, and `DCT`.
+- `SpectralOp` enumerates `FFT`, `FFTAlongAxis`, `IFFT`, `IFFTAlongAxis`,
+  `RFFT`, `IRFFT`, `STFT`, `DCT`, `ComplexConjugate`, and `ComplexMatMul`.
 - `spectralCatalog` is the implementation source for the local spectral list.
 - `renderNumericalCatalog` includes the spectral-operation list.
 - `dhall/numerics/SpectralOp.dhall` mirrors the current constructor names.
-- Axis-aware spectral operations and complex arithmetic ops remain target work.
 
 ### Validation
 
-1. `spectralCatalog` contains the four checked-in spectral constructors.
+1. `spectralCatalog` contains the ten checked-in spectral constructors.
 2. `renderNumericalCatalog` renders the spectral names deterministically.
 
 ## Sprint 6.4: Optimizers and Schedulers ✅
@@ -134,21 +138,22 @@ Enumerate the current local optimizer and scheduler catalogs.
 ### Deliverables
 
 - `Optimizer` enumerates `SGD`, `MomentumSGD`, `NesterovSGD`, `RMSProp`,
-  `Adagrad`, `Adadelta`, `Adam`, `AdamW`, `LAMB`, `LARS`, and `Lion`.
+  `Adagrad`, `Adadelta`, `Adam`, `AdamW`, `LAMB`, `LARS`, `Lion`,
+  `AdaFactor`, and `Shampoo`.
 - `Scheduler` enumerates `Constant`, `Linear`, `Cosine`,
   `CosineWithWarmup`, `Exponential`, `Polynomial`, `OneCycle`, and
-  `Piecewise`.
+  `Piecewise`, plus `ReduceOnPlateau` as the callback-driven scheduler entry.
 - `optimizerCatalog` and `schedulerCatalog` are the implementation sources for
   the local lists.
-- Parameterized optimizer/scheduler records, callback-based
-  `ReduceOnPlateau`, and richer optimizer state records remain target work.
+- Parameterized optimizer/scheduler records and richer optimizer state records
+  remain model-schema work.
 - `dhall/numerics/Optimizer.dhall` and `dhall/numerics/Scheduler.dhall` mirror
   the current constructor names.
 
 ### Validation
 
-1. `optimizerCatalog` contains the eleven checked-in optimizer constructors.
-2. `schedulerCatalog` contains the eight checked-in scheduler constructors.
+1. `optimizerCatalog` contains the thirteen checked-in optimizer constructors.
+2. `schedulerCatalog` contains the nine checked-in scheduler constructors.
 3. `renderNumericalCatalog` renders both lists deterministically.
 
 ## Sprint 6.5: Loss Functions ✅
@@ -163,17 +168,19 @@ Enumerate the current local loss-function catalog.
 
 ### Deliverables
 
-- `Loss` enumerates `CrossEntropy`, `Focal`, `MSE`, `Huber`, and `IoU`.
+- `Loss` enumerates `CrossEntropy`, `BinaryCrossEntropy`,
+  `SparseCrossEntropy`, `Focal`, `MSE`, `Huber`, `IoU`, `Dice`, `KLDiv`, and
+  `Contrastive`.
 - `lossCatalog` is the implementation source for the local loss list.
 - `renderNumericalCatalog` includes the loss list in the deterministic text
   summary.
 - `dhall/numerics/Loss.dhall` mirrors the current constructor names.
-- Parameterized loss constructors and custom-loss registration remain target
+- Parameterized loss records and custom-loss registration remain model-schema
   work.
 
 ### Validation
 
-1. `lossCatalog` contains the five checked-in loss constructors.
+1. `lossCatalog` contains the ten checked-in loss constructors.
 2. `renderNumericalCatalog` renders the loss names deterministically.
 
 ## Sprint 6.6: Dhall Schemas and Cross-Type Audit ✅

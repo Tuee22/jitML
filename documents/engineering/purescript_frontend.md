@@ -8,8 +8,8 @@
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
 > current local PureScript shell, browser-contract renderer, bundle/panel
 > metadata, demo-route manifest, Playwright scaffold, demo deployment template,
-> and `jitml-demo` executable shim, plus the target Halogen / live REST /
-> WebSocket / HTTP-server work that has not landed yet.
+> and `jitml-demo` HTTP server, plus the target Halogen / live WebSocket /
+> compiled-bundle work that has not landed yet.
 
 ## Stack
 
@@ -19,10 +19,11 @@
 | npm scripts | `build`, `test`, `format` wrappers declared; no checked-in `spago.yaml` yet | `web/package.json` |
 | Contract renderer | Local bridge-compatible renderer | `src/JitML/Web/Contracts.hs` |
 | Generated contracts | Checked-in generated file protected by `trackingGeneratedPaths` | `web/src/Generated/Contracts.purs` |
-| Bundle/panel/demo-route metadata | Local Haskell metadata only | `src/JitML/Web/Bundle.hs` |
+| Bundle/panel/demo-route metadata | Local Haskell metadata | `src/JitML/Web/Bundle.hs` |
+| Demo HTTP routes | Local Haskell HTTP server for the current route/API surface | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Minimal shell | `web/test/Main.purs` |
 | Playwright | Scaffold spec only; not invoked by current `jitml-e2e` body | `playwright/jitml-demo.spec.ts` |
-| Demo executable | Status-line shim, not an HTTP server | `app/Demo.hs`, `src/JitML/App.hs` |
+| Demo executable | Status line plus HTTP server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
 browser-side code). Target npm / spago / Playwright invocations flow through
@@ -50,7 +51,7 @@ playwright/
 
 Target layout adds `web/spago.yaml`, Halogen root/router/panel modules,
 compiled bundle output under `web/dist/`, and a fuller Playwright project once
-the real HTTP server and panels exist.
+the complete panels exist.
 
 ## Current Local Surface
 
@@ -59,9 +60,10 @@ The current worktree contains a minimal `web/src/Main.purs`, generated
 `src/JitML/Web/Contracts.hs`, and `src/JitML/Web/Bundle.hs`. `Web.Bundle`
 records the bundle output paths, the MNIST, image-upload, Connect 4, and RL
 trajectory panel metadata, the `demoStatusLine`, and the local demo route
-manifest for `/`, `/api`, and `/api/ws`. A compiled `web/dist/` bundle, Halogen
-panel modules, live REST handlers, live WebSocket handlers, and WAI/Warp server
-remain target runtime work.
+manifest for `/`, `/api`, and `/api/ws`. `src/JitML/Web/Server.hs` serves the
+current local HTTP surface for `/`, `/api`, `/api/inference`, `/api/images`,
+`/api/connect4/move`, and `/api/ws`. A compiled `web/dist/` bundle, Halogen
+panel modules, and live WebSocket proxying remain target runtime work.
 
 ## Browser-Contract ADTs
 
@@ -86,26 +88,26 @@ payload ADTs remain target browser-contract work.
 
 | Panel | URL | REST handler | WebSocket subscription |
 |-------|-----|--------------|------------------------|
-| MNIST | `/mnist` | `POST /api/inference/mnist` | — |
-| CIFAR / ImageNet | `/cifar`, `/imagenet` | `POST /api/inference/cifar` (or `imagenet`) | — |
-| Connect 4 | `/connect4` | `POST /api/games/connect4/move` | — |
+| MNIST | `/mnist` | `POST /api/inference` | — |
+| CIFAR / ImageNet | `/cifar`, `/imagenet` | `POST /api/images` | — |
+| Connect 4 | `/connect4` | `POST /api/connect4/move` | — |
 | RL trajectory | `/rl/<run-id>` | — | `/api/ws` (proxies `rl.event.<mode>`) |
 | Training | `/training/<run-id>` | — | `/api/ws` (proxies `training.event.<mode>`) |
 | Tune | `/tune/<sweep-id>` | — | `/api/ws` (proxies `tune.event.<mode>`) |
 
 ## REST and WebSocket Surface
 
-REST and WebSocket handlers are target runtime work. The current worktree does
-not contain `src/JitML/Web/Rest.hs` or `src/JitML/Web/Ws.hs`; it records the
-endpoint metadata in `src/JitML/Web/Contracts.hs` and the local route manifest
-in `src/JitML/Web/Bundle.hs`.
+The current local HTTP handlers live in `src/JitML/Web/Server.hs`; they provide
+deterministic responses for the API index, inference, upload acknowledgement,
+Connect 4 move, and metrics stream routes. The current worktree does not
+contain a dedicated live `src/JitML/Web/Ws.hs` proxy; live WebSocket forwarding
+from Pulsar event topics remains target runtime validation.
 
 | Surface | Method | Path | Payload type |
 |---------|--------|------|--------------|
-| MNIST inference | POST | `/api/inference/mnist` | `MnistRequest` → `MnistResponse` |
-| CIFAR inference | POST | `/api/inference/cifar` | `CifarRequest` → `CifarResponse` |
-| ImageNet inference | POST | `/api/inference/imagenet` | `ImagenetRequest` → `ImagenetResponse` |
-| Connect 4 move | POST | `/api/games/connect4/move` | `Connect4Move` → `Connect4MoveResponse` |
+| Inference | POST | `/api/inference` | `InferenceRun` |
+| Image upload | POST | `/api/images` | `UploadImage` |
+| Connect 4 move | POST | `/api/connect4/move` | `Connect4Move` |
 | Live event WS | GET | `/api/ws?topic=…&substrate=…` | typed event envelopes |
 | Checkpoint browse | GET | `/api/checkpoints/<experiment-hash>` | manifest list (cross-link to TB sidecars) |
 
@@ -113,16 +115,14 @@ in `src/JitML/Web/Bundle.hs`.
 
 `app/Demo.hs` is a six-line shim into `App.demoMain`. The current `demoMain`
 prints `demoStatusLine` from `src/JitML/Web/Bundle.hs`:
-`jitml-demo: serving generated frontend contract surface`. It does not serve
-HTTP yet.
-
-Target work adds a WAI/Warp server that serves the static bundle from
-`web/dist/` at `/`, mounts typed REST handlers at `/api/`, and mounts the
-WebSocket handler at `/api/ws`.
+`jitml-demo: serving generated frontend contract surface`, then starts the
+low-level HTTP listener from `src/JitML/Web/Server.hs`. It serves the current
+local route/API surface; target work swaps in the compiled bundle from
+`web/dist/` and a live WebSocket proxy at `/api/ws`.
 
 The `Deployment/jitml-demo` template (Sprint `4.1`) is populated with the
-demo image. HTTPRoutes for `/`, `/api`, `/api/ws` (Sprint `3.4`) point at
-`jitml-demo:80`.
+demo image, `jitml-demo` command, and `PORT=80`. HTTPRoutes for `/`, `/api`,
+`/api/ws` (Sprint `3.4`) point at `jitml-demo:80`.
 
 ## Playwright E2E
 

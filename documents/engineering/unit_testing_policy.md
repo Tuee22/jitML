@@ -39,10 +39,10 @@ cluster validation remains phase-gated:
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, PPO/CartPole golden trajectory, and AlphaZero self-play transcript fixture | Integration (project-specific) | Sprint 12.4 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes, deterministic trial generation, and Sobol/GA golden fixtures | Integration (project-specific) | Sprint 12.5 |
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags and checkpoint inference parity | Integration (project-specific) | Sprint 12.6 |
-| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, and at-least-once deduplication | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, and report-card surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
+| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP, deployment, and report-card surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
 | `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack, including external formatter, HLint, cabal-format, and warning-clean build gates | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
-| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file and renderer | Lint (project-specific) | Sprint 11.3 |
+| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file, renderer, whitespace shape, and panel-contract coverage | Lint (project-specific) | Sprint 11.3 |
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
@@ -113,15 +113,15 @@ the final handoff validation gate.
 ### `jitml-daemon-lifecycle`
 
 The current body exercises local lifecycle ordering, renderable endpoint
-responses, retry policy behavior, and payload-hash deduplication. Real process
-spawning, POSIX signal handling, HTTP polling, live Pulsar redelivery, and
-SIGTERM drain remain target runtime validation.
+responses, retry policy behavior, payload-hash deduplication, and one-shot
+HTTP serving for `/healthz`. Real process spawning, POSIX signal handling, live
+Pulsar redelivery, and SIGTERM drain remain target runtime validation.
 
 ### `jitml-e2e` and Pulumi
 
 The current `jitml-e2e` body validates local route, bucket, publication,
-browser-contract, and report-card surfaces. The Pulumi TypeScript program at
-`infra/pulumi/` currently exports stack metadata only; it is the target
+browser-contract, demo HTTP, deployment, and report-card surfaces. The Pulumi
+TypeScript program at `infra/pulumi/` currently exports stack metadata only; it is the target
 orchestrator for the ephemeral Kind stack. Future live test driver:
 
 1. `pulumi up` brings up the stack (Kind cluster, Helm chart in its `final`

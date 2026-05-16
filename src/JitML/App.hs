@@ -17,7 +17,7 @@ import Data.Text qualified as Text
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
 import System.Directory (doesFileExist)
-import System.Environment (getArgs)
+import System.Environment (getArgs, getEnvironment)
 import System.Exit (ExitCode (..))
 
 import JitML.AppError.AppError (AppError (..))
@@ -74,31 +74,30 @@ import JitML.Prerequisite.Registry
   )
 import JitML.RL.Algorithms qualified as RL
 import JitML.SL.Canonicals qualified as SL
-import JitML.Service.BootConfig (Residency (..), defaultBootConfig, renderBootConfigDhall)
-import JitML.Service.Endpoints
-  ( MetricsSnapshot (..)
-  , healthz
-  , metrics
-  , readyz
-  , renderEndpointResponse
-  )
-import JitML.Service.Lifecycle (lifecyclePlan, renderLifecyclePhase)
-import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
+import JitML.Service.Runtime qualified as ServiceRuntime
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Tart.Exec (tartSshSubprocess)
 import JitML.Tart.Lifecycle (VmName (..), ensureVmUp)
-import JitML.Test.Report (ReportCard (..), renderReportCard, reportStanzas)
+import JitML.Test.Report
+  ( ReportCard (..)
+  , renderReportCardWithKnobs
+  , reportCardKnobsFromEnv
+  , reportStanzas
+  )
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.Bundle qualified as WebBundle
+import JitML.Web.Server qualified as WebServer
 
 main :: IO ()
 main = getArgs >>= runArgs
 
 demoMain :: IO ()
-demoMain = writeLineIO WebBundle.demoStatusLine
+demoMain = do
+  writeLineIO WebBundle.demoStatusLine
+  WebServer.serveDemo
 
 runArgs :: [String] -> IO ()
 runArgs args =
@@ -288,8 +287,10 @@ runMaterializeSubstrate parsedOptions =
     [] -> exitWithError (InvalidConfig "missing --substrate value")
     substrate : _
       | Just parsedSubstrate <- parseSubstrate substrate -> do
-          liftIO (materializeBootstrapFiles "." parsedSubstrate)
-          writeLine ("materialize-substrate: " <> substrate <> " bootstrap files are present")
+          changed <- liftIO (materializeBootstrapFiles "." parsedSubstrate)
+          if changed
+            then writeLine ("materialize-substrate: " <> substrate <> " bootstrap files are present")
+            else exitWithError (ReconcilerNoop ("materialize-substrate: " <> substrate <> " already current"))
       | otherwise ->
           exitWithError (InvalidConfig ("unknown substrate: " <> substrate))
 
@@ -415,8 +416,10 @@ runBootstrap parsedOptions =
         else case parseSubstrate substrate of
           Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrate))
           Just parsedSubstrate -> do
-            liftIO (materializeBootstrapFiles "." parsedSubstrate)
-            writeLine ("bootstrap: " <> substrate <> " reconciled")
+            changed <- liftIO (materializeBootstrapFiles "." parsedSubstrate)
+            if changed
+              then writeLine ("bootstrap: " <> substrate <> " reconciled")
+              else exitWithError (ReconcilerNoop ("bootstrap: " <> substrate <> " already current"))
     [] ->
       exitWithError (InvalidConfig "bootstrap requires exactly one substrate flag")
     _ ->
@@ -433,29 +436,20 @@ runService parsedOptions = do
           [] -> "./conf/cluster/linux-cpu.dhall"
           value : _ -> value
   writeLine ("service config: " <> configPath)
-  writeText $
-    Text.unlines
-      [ "lifecycle:"
-      , "  - " <> Text.intercalate "\n  - " (fmap renderLifecyclePhase lifecyclePlan)
-      , "boot_config:"
-      , indentText (renderBootConfigDhall (defaultBootConfig LinuxCPU Cluster))
-      , "live_config:"
-      , indentText (renderLiveConfigDhall defaultLiveConfig)
-      , "healthz:"
-      , indentText (renderEndpointResponse healthz)
-      , "readyz:"
-      , indentText (renderEndpointResponse (readyz True))
-      , "metrics:"
-      , indentText (renderEndpointResponse (metrics (MetricsSnapshot 0 1 0)))
-      ]
+  writeText (ServiceRuntime.renderDaemonRuntimeSummary ServiceRuntime.defaultDaemonRuntime)
+  writeLine "service: listening on 0.0.0.0:8080"
+  liftIO (ServiceRuntime.serveDaemon ServiceRuntime.defaultDaemonRuntime)
 
 runCluster :: [Text] -> [ParsedOption] -> App ()
 runCluster ["cluster", "up"] parsedOptions =
   case selectedSubstrate parsedOptions of
     Left err -> exitWithError err
     Right substrate -> do
-      liftIO (materializeBootstrapFiles "." substrate)
-      writeLine ("cluster up: " <> renderSubstrate substrate <> " reconciled")
+      changed <- liftIO (materializeBootstrapFiles "." substrate)
+      if changed
+        then writeLine ("cluster up: " <> renderSubstrate substrate <> " reconciled")
+        else
+          exitWithError (ReconcilerNoop ("cluster up: " <> renderSubstrate substrate <> " already current"))
 runCluster ["cluster", "status"] _ = do
   publication <- liftIO readClusterPublication
   writeText (renderPublicationSummary publication)
@@ -590,7 +584,8 @@ runCabalTest targets = do
   case exitCode of
     ExitSuccess -> do
       writeText stdoutText
-      writeText (renderReportCard (ReportCard (passedCount targets) 0 0))
+      knobs <- liftIO (reportCardKnobsFromEnv <$> getEnvironment)
+      writeText (renderReportCardWithKnobs knobs (ReportCard (passedCount targets) 0 0))
     ExitFailure _ ->
       exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
 
@@ -657,10 +652,6 @@ readClusterPublication = do
       bytes <- LazyByteString.readFile ".build/runtime/cluster-publication.json"
       pure (fromMaybe (defaultPublication AppleSilicon) (decode bytes))
     else pure (defaultPublication AppleSilicon)
-
-indentText :: Text -> Text
-indentText =
-  Text.unlines . fmap ("  " <>) . Text.lines
 
 extractGlobalFlags :: [String] -> Either AppError (GlobalFlags, [String])
 extractGlobalFlags = go defaultGlobalFlags []

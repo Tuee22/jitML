@@ -198,7 +198,8 @@ seed self-play produces bit-identical visit counts.
 | Gomoku | `src/JitML/RL/AlphaZero.hs` metadata only |
 
 Connect 4 is the canonical demo game consumed by the PureScript Connect 4
-panel metadata. Golden self-play game fixtures remain target work.
+panel metadata. `test/golden/alphazero/connect4-transcript.txt` pins the current
+local transcript shape; fuller self-play game fixtures remain target work.
 
 ## Hyperparameter Tuning
 

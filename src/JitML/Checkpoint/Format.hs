@@ -23,13 +23,15 @@ where
 
 import Codec.Serialise (Serialise, deserialiseOrFail, serialise)
 import Crypto.Hash.SHA256 qualified as SHA256
+import Data.Bits (Bits, shiftR, (.&.))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (sortOn)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
-import Data.Word (Word8)
+import Data.Word (Word32, Word64, Word8)
+import GHC.Float (castDoubleToWord64)
 import GHC.Generics (Generic)
 
 data TensorBlob = TensorBlob
@@ -60,11 +62,29 @@ data PointerWriteResult
   | PointerConflict Text
   deriving stock (Eq, Show)
 
+data Jmw1Header = Jmw1Header
+  { jmw1Dtype :: Text
+  , jmw1TensorCount :: Int
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
 encodeJmw1 :: [Double] -> LazyByteString.ByteString
 encodeJmw1 values =
   LazyByteString.fromStrict $
-    Text.Encoding.encodeUtf8 $
-      Text.unlines ("JMW1" : fmap (Text.pack . show) values)
+    StrictByteString.concat
+      [ Text.Encoding.encodeUtf8 "JMW1"
+      , word32Le (fromIntegral (LazyByteString.length header))
+      , LazyByteString.toStrict header
+      , StrictByteString.concat (fmap doubleLe values)
+      ]
+ where
+  header =
+    serialise
+      Jmw1Header
+        { jmw1Dtype = "F64"
+        , jmw1TensorCount = length values
+        }
 
 encodeManifestCbor :: CheckpointManifest -> LazyByteString.ByteString
 encodeManifestCbor =
@@ -128,6 +148,36 @@ canonicalManifest manifest =
 hexBytes :: StrictByteString.ByteString -> Text
 hexBytes =
   Text.pack . concatMap hexWord8 . StrictByteString.unpack
+
+doubleLe :: Double -> StrictByteString.ByteString
+doubleLe =
+  word64Le . castDoubleToWord64
+
+word32Le :: Word32 -> StrictByteString.ByteString
+word32Le word =
+  StrictByteString.pack
+    [ byteAt 0 word
+    , byteAt 8 word
+    , byteAt 16 word
+    , byteAt 24 word
+    ]
+
+word64Le :: Word64 -> StrictByteString.ByteString
+word64Le word =
+  StrictByteString.pack
+    [ byteAt 0 word
+    , byteAt 8 word
+    , byteAt 16 word
+    , byteAt 24 word
+    , byteAt 32 word
+    , byteAt 40 word
+    , byteAt 48 word
+    , byteAt 56 word
+    ]
+
+byteAt :: (Integral a, Bits a) => Int -> a -> Word8
+byteAt offset word =
+  fromIntegral ((word `shiftR` offset) .&. 0xff)
 
 hexWord8 :: Word8 -> String
 hexWord8 byte =

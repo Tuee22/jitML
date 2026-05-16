@@ -116,7 +116,7 @@ lives in MinIO and Pulsar exclusively.
 ## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server ✅
 
 **Status**: Done
-**Implementation**: `chart/templates/minio-values.yaml`,
+**Implementation**: `chart/minio-values.yaml`,
 `src/JitML/Storage/Buckets.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
 `documents/engineering/checkpoint_format.md`
@@ -139,15 +139,16 @@ buckets, and pin the server to a release with S3 conditional-write support
   `jitml-checkpoints`, `jitml-datasets`, `jitml-transcripts`, `jitml-trials`,
   `jitml-tensorboard`, `jitml-artifacts`.
 - `src/JitML/Storage/Buckets.hs` is the typed source for the bucket layout;
-  `chart/templates/minio-values.yaml` is materialized by the bootstrap renderer.
-  Active generated-path tracking remains target work if this file becomes
-  fully generated.
+  `chart/minio-values.yaml` is materialized by the bootstrap renderer from
+  that list. It is a bootstrap-materialized chart input, not a Kubernetes
+  manifest under `chart/templates/` and not a `jitml docs generate`
+  tracked-generated path.
 - HTTPRoutes for `/minio/console` and `/minio/s3` (Sprint `3.4`).
 
 ### Validation
 
 1. `src/JitML/Storage/Buckets.hs` enumerates the seven current bucket names.
-2. `chart/templates/minio-values.yaml` exists as the local MinIO values
+2. `chart/minio-values.yaml` exists as the local MinIO values
    surface.
 3. Live MinIO `mc` and conditional-write validation remain target work.
 

@@ -1,6 +1,11 @@
 [ "CrossEntropy"
+, "BinaryCrossEntropy"
+, "SparseCrossEntropy"
 , "Focal"
 , "MSE"
 , "Huber"
 , "IoU"
+, "Dice"
+, "KLDiv"
+, "Contrastive"
 ]

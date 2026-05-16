@@ -47,9 +47,10 @@ load → prereq → acquire → ready → serve → drain → exit
 | `drain` | Stop accepting new commands; finish in-flight; flush TensorBoard shards; final checkpoint flush. |
 | `exit` | Release capabilities; close logger. |
 
-The current implementation exposes these phases as local lifecycle data and
-renders summaries; it does not run a long-lived daemon loop yet. Target
-transitions log structured JSON events on stderr.
+The current implementation exposes these phases as local lifecycle data,
+renders summaries, and starts the in-binary HTTP listener for the daemon
+endpoint surface. Target live client transitions log structured JSON events on
+stderr.
 
 ## BootConfig and LiveConfig
 
@@ -182,9 +183,9 @@ Target `jitml bootstrap --apple-silicon` writes the cluster publication to
 coordinates, then starts the host daemon from that Dhall. Linux has no
 host-level Dhall; all JIT operations happen inside the cluster daemon.
 
-The current implementation renders the configs, topic names, lifecycle, and
-deployment surfaces only; live host daemon startup and Pulsar/MinIO flow remain
-target runtime validation.
+The current implementation renders the configs, topic names, lifecycle,
+deployment surfaces, and local HTTP endpoint server; live host daemon startup
+and Pulsar/MinIO flow remain target runtime validation.
 
 The host daemon's startup path never touches tart. On a JIT cache miss the
 daemon first validates or installs the `tart` Homebrew package through typed
@@ -198,13 +199,14 @@ Direct k8s API access from the host is hlint-forbidden.
 <!-- jitml:daemon.surface:start -->
 | Surface | Current owner | Current behavior |
 |---------|---------------|------------------|
-| `/healthz` | `JitML.Service.Endpoints.healthz` | Renderable `200` response body |
-| `/readyz` | `JitML.Service.Endpoints.readyz` | Renderable ready/not-ready response body |
-| `/metrics` | `JitML.Service.Endpoints.metrics` | Renderable Prometheus text snapshot |
+| `/healthz` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime as a `200` response body |
+| `/readyz` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime with ready/not-ready status |
+| `/metrics` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime as Prometheus text |
 | `BootConfig` | `JitML.Service.BootConfig` and `dhall/service/BootConfig.dhall` | Cluster/host residency, inference mode, Pulsar, MinIO, Harbor, HTTP listener fields |
 | `LiveConfig` | `JitML.Service.LiveConfig` and `dhall/service/LiveConfig.dhall` | Log level, retry policy, tart idle timeout, inference batching/SLO, drain deadline fields |
 | SIGHUP reload decision | `JitML.Service.HotReload` | Pure reload/ignore/restart-required decision surface |
 | Consumer idempotency | `JitML.Service.Consumer` | Pure payload-hash deduplication surface |
+| HTTP listener | `JitML.Service.Http` | Low-level typed route server shared by `jitml service` and `jitml-demo` one-shot tests |
 <!-- jitml:daemon.surface:end -->
 
 ## Cross-References

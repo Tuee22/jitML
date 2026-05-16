@@ -62,9 +62,9 @@ is not in the current support matrix.
 
 | Surface | Command | Purpose | Status | Owning Sprint |
 |---------|---------|---------|--------|---------------|
-| Bootstrap | `jitml bootstrap --apple-silicon\|--linux-cpu\|--linux-cuda` | Plan/Apply substrate bootstrap surface; current apply materializes Kind/chart/Dhall/publication files locally and does not run Kind/Helm | ✅ Done | Sprints 2.1–2.7 |
-| Service daemon | `jitml service` | Renders daemon lifecycle, BootConfig/LiveConfig, endpoint, logging, retry, and at-least-once helper surfaces; no separate `host-service` verb; current command is not a real long-running HTTP/Pulsar daemon | ✅ Done | Sprint 5.1 |
-| Cluster lifecycle | `jitml cluster up`, `jitml cluster down`, `jitml cluster status`, `jitml cluster reset` | Current `up` materializes substrate files; `status` reads local publication JSON or defaults; `down`/`reset` print guarded summaries | ✅ Done | Sprint 3.5 |
+| Bootstrap | `jitml bootstrap --apple-silicon\|--linux-cpu\|--linux-cuda` | Plan/Apply substrate bootstrap surface; current apply materializes Kind/chart/Dhall/publication files locally, exits `3` on no-op materialization, and does not run Kind/Helm | ✅ Done | Sprints 2.1–2.7 |
+| Service daemon | `jitml service` | Renders daemon lifecycle, BootConfig/LiveConfig, endpoint, logging, retry, and at-least-once helper surfaces; starts the in-binary HTTP listener; live Pulsar/MinIO/Harbor clients remain runtime validation | ✅ Done | Sprint 5.1 |
+| Cluster lifecycle | `jitml cluster up`, `jitml cluster down`, `jitml cluster status`, `jitml cluster reset` | Current `up` materializes substrate files and exits `3` on no-op materialization; `status` reads local publication JSON or defaults; `down`/`reset` print guarded summaries | ✅ Done | Sprint 3.5 |
 | Train | `jitml train` | Current command renders a deterministic local canonical-problem summary; target runtime publishes `training.event.<mode>` | ✅ Done | Sprint 8.2 |
 | Eval | `jitml eval` | Current command accepts a checkpoint selector and prints a deterministic summary | ✅ Done | Sprint 8.2 |
 | Tune | `jitml tune` | Current command renders deterministic local trial samples from `JitML.Tune.Catalog`; target runtime publishes trial events | ✅ Done | Sprint 9.5 |
@@ -87,7 +87,7 @@ is not in the current support matrix.
 | Internal VM lifecycle (Apple) | `jitml internal vm bootstrap\|up\|down\|status\|exec` | Current lifecycle commands write/read the local VM state marker; `exec` renders a typed `tart ssh` subprocess command | ✅ Done | Sprint 2.5 |
 | Internal cache inspection | `jitml internal cache stat\|list\|evict` | JIT cache introspection and idempotent eviction helpers; command leaves are registered, while effectful bodies wait for populated codegen entries | ✅ Done | Sprint 7.1 |
 | Internal GC | `jitml internal gc <experiment-hash>` | Current command prints a local retention-policy summary and supports Plan/Apply output; target runtime enforces checkpoint retention in MinIO | ✅ Done | Sprint 10.3 |
-| Demo executable shim | `jitml-demo` | Sibling binary that prints `demoStatusLine` from `src/JitML/Web/Bundle.hs`; target runtime serves the PureScript bundle plus inference REST surface | ✅ Done | Sprint 11.5 |
+| Demo executable shim | `jitml-demo` | Sibling binary that prints `demoStatusLine` and serves the current local frontend/API route surface through `src/JitML/Web/Server.hs`; compiled PureScript bundle and live WebSocket proxying remain target runtime validation | ✅ Done | Sprint 11.5 |
 
 ## Bootstrap Stage-0 Script Surface
 
@@ -137,7 +137,7 @@ fail fast with installation instructions, then delegate to the Haskell
 | kube-prometheus-stack | `kube-prometheus-stack` values plus Grafana/Prometheus renderers | `/grafana`, `/prometheus` | ✅ Done (renderer surface) | Sprint 4.5 |
 | TensorBoard | TensorBoard event-key/projection/deployment renderer; live MinIO event storage remains target | `/tensorboard` | ✅ Done (renderer surface) | Sprint 4.6 |
 | `jitml-service` Deployment | `chart/templates/deployment-jitml-service.yaml`; live daemon still target | (internal target Pulsar consumer) | ✅ Done (template surface) | Sprint 5.6 |
-| `jitml-demo` Deployment | `chart/templates/deployment-jitml-demo.yaml`; current executable is a shim, not HTTP server | `/`, `/api`, `/api/ws` target | ✅ Done (template surface) | Sprint 11.5 |
+| `jitml-demo` Deployment | `chart/templates/deployment-jitml-demo.yaml`; executable runs the local demo HTTP server | `/`, `/api`, `/api/ws` target | ✅ Done (template surface) | Sprint 11.5 |
 | NVIDIA RuntimeClass (CUDA) | `chart/templates/runtimeclass-nvidia.yaml`; binds to nodes labelled `jitml.runtime/gpu=true` | (RuntimeClass — selected by the Linux CUDA Deployment podSpec) | ✅ Done | Sprint 4.7 |
 
 ## MinIO Bucket Layout
@@ -177,9 +177,9 @@ internal-RPC pair.
 | `BootConfig` Dhall (start-time only; restart-required) | Long-Running Daemons in the Same Binary → BootConfig | ✅ Done | Sprint 5.2 |
 | `LiveConfig` Dhall (target hot-reloadable on SIGHUP) | Long-Running Daemons in the Same Binary → LiveConfig | ✅ Done for ADT and renderer | Sprint 5.2 |
 | SIGHUP hot reload handler | Long-Running Daemons in the Same Binary | ✅ Done as local reload-decision surface in `src/JitML/Service/HotReload.hs`; live POSIX signal wiring remains daemon-runtime validation | Sprint 5.2 |
-| `/healthz` endpoint | Long-Running Daemons → /healthz | ✅ Done as renderable `EndpointResponse`; no HTTP server yet | Sprint 5.3 |
-| `/readyz` endpoint | Long-Running Daemons → /readyz | ✅ Done as renderable `EndpointResponse`; no HTTP server yet | Sprint 5.3 |
-| `/metrics` endpoint | Long-Running Daemons → /metrics | ✅ Done as renderable Prometheus text; no HTTP server yet | Sprint 5.3 |
+| `/healthz` endpoint | Long-Running Daemons → /healthz | ✅ Done as `EndpointResponse` served by `JitML.Service.Runtime.daemonHttpRoutes` | Sprint 5.3 |
+| `/readyz` endpoint | Long-Running Daemons → /readyz | ✅ Done as `EndpointResponse` served by `JitML.Service.Runtime.daemonHttpRoutes` | Sprint 5.3 |
+| `/metrics` endpoint | Long-Running Daemons → /metrics | ✅ Done as Prometheus text served by `JitML.Service.Runtime.daemonHttpRoutes` | Sprint 5.3 |
 | Structured JSON stderr logging | Long-Running Daemons → structured logging | ✅ Done as pure `renderLogEvent`; daemon integration target remains | Sprint 5.3 |
 | Recoverable-vs-fatal error kinds | Long-Running Daemons → error classification | ✅ Done through `ServiceError` → `AppError` retry mapping; full daemon classification target remains | Sprint 5.3 |
 | `HasMinIO` capability class | Capability Classes and Service Errors | ✅ Done in `src/JitML/Service/Capabilities.hs` | Sprint 5.4 |
@@ -247,7 +247,7 @@ internal-RPC pair.
 |-----------|----------------|--------|---------------|
 | Storage layout (typed) | `src/JitML/Checkpoint/Format.hs` plus bucket registry in `src/JitML/Storage/Buckets.hs`; current manifest pointer is simplified | ✅ Done | Sprint 10.1 |
 | Split-blob layout (`blobs/<sha256>`, `manifests/<sha256>`, `pointers/{latest,best/<metric>,trial/...}`) | `src/JitML/Checkpoint/Format.hs`; typed object-key renderers for blobs, manifests, latest, best, and trial pointers | ✅ Done | Sprint 10.1 |
-| `.jmw1` dense weight blob format | `src/JitML/Checkpoint/Format.hs`; current `encodeJmw1` writes a simplified text payload beginning `JMW1` | ✅ Done (local encoder) | Sprint 10.2 |
+| `.jmw1` dense weight blob format | `src/JitML/Checkpoint/Format.hs`; current `encodeJmw1` writes `JMW1`, a CBOR header length/header, and little-endian `F64` payload bytes | ✅ Done (local encoder) | Sprint 10.2 |
 | Manifest pointer surface | `src/JitML/Checkpoint/Format.hs`; `CheckpointManifest`, deterministic manifest CBOR codec/content hash, `manifestPointer` | ✅ Done | Sprint 10.2 |
 | Write-once and CAS protocol surface | `src/JitML/Checkpoint/Format.hs`; pure pointer-write CAS decision surface; live MinIO `If-Match` / `If-None-Match` remains runtime validation | ✅ Done | Sprint 10.2 |
 | Bit-determinism contract + cross-substrate tolerance methodology | [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ✅ Done | Sprint 10.3 |
@@ -262,14 +262,14 @@ internal-RPC pair.
 | Minimal PureScript application | `web/src/Main.purs` | ✅ Done | Sprint 11.1 |
 | Browser-contract source ADTs | `src/JitML/Web/Contracts.hs` renders `web/src/Generated/Contracts.purs` through the local bridge-compatible renderer | ✅ Done | Sprint 11.2 |
 | Generated PureScript contracts | `web/src/Generated/Contracts.purs`; current local contract renderer is covered by the PureScript-style stanza | ✅ Done | Sprint 11.2 |
-| PureScript style smoke tests | `web/test/`, `test/purescript-style/`; current Cabal stanza checks generated-contract presence rather than running `purescript-spec` | ✅ Done | Sprint 11.3 |
+| PureScript style smoke tests | `web/test/`, `test/purescript-style/`; current Cabal stanza checks generated-contract presence, source whitespace shape, and panel-contract coverage rather than running `purescript-spec` | ✅ Done | Sprint 11.3 |
 | Playwright scaffold | `playwright/jitml-demo.spec.ts`; not invoked by current `jitml-e2e` body | ✅ Done | Sprint 11.6 |
 | Bundle output | `src/JitML/Web/Bundle.hs`; typed bundle asset manifest and local demo route manifest for the generated PureScript bundle output paths | ✅ Done | Sprint 11.4 |
 | MNIST live inference panel | `src/JitML/Web/Bundle.hs`; local panel metadata bound to `InferenceRun` | ✅ Done | Sprint 11.4 |
 | CIFAR/ImageNet upload panel | `src/JitML/Web/Bundle.hs`; local panel metadata bound to `UploadImage` | ✅ Done | Sprint 11.4 |
 | AlphaZero-vs-human Connect 4 panel | `src/JitML/Web/Bundle.hs`; local panel metadata bound to `Connect4Move` | ✅ Done | Sprint 11.4 |
 | RL trajectory render panel | `src/JitML/Web/Bundle.hs`; local panel metadata bound to `MetricsStream` | ✅ Done | Sprint 11.4 |
-| Demo executable shim (`jitml-demo`) | `app/Demo.hs` shim into `App.demoMain`; current `demoMain` prints a typed status line rather than serving HTTP | ✅ Done | Sprint 11.5 |
+| Demo executable shim (`jitml-demo`) | `app/Demo.hs` shim into `App.demoMain`; `demoMain` prints `demoStatusLine` and starts `WebServer.serveDemo` | ✅ Done | Sprint 11.5 |
 
 ## CLI Doctrine Components
 
@@ -307,9 +307,9 @@ standards rule L.
 | Capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) | Capability Classes and Service Errors | ✅ Done in `src/JitML/Service/Capabilities.hs` | Sprint 5.4 |
 | `RetryPolicy` typed value with named strategies | Retry Policy as First-Class Values | ✅ Done | Sprint 5.4 |
 | At-least-once Pulsar consumer with protobuf-message-hash deduplication | At-Least-Once Event Processing | ✅ Done as payload-hash deduplication helper; live Pulsar subscription remains planned | Sprint 5.5 |
-| Long-running daemon shape (`BootConfig` / `LiveConfig`, SIGHUP, `/healthz`, `/readyz`, `/metrics`, structured JSON stderr logging) | Long-Running Daemons in the Same Binary | ✅ Done for config/endpoint/log renderers; SIGHUP and HTTP serving remain planned | Sprints 5.2, 5.3 |
-| Implemented reconciler discipline (`jitml docs generate`, `jitml lint --write`, `--dry-run` / `--plan-file` plan rendering, no-op exit code `3`) | Reconcilers: Idempotent Mutation as a Single Command; Plan / Apply | ✅ Done | Sprints 1.3, 1.4, 1.5, 1.9 |
-| Future mutating reconcilers (`jitml bootstrap` full apply, `jitml cluster up`, `jitml internal gc`) | Reconcilers: Idempotent Mutation as a Single Command | ✅ Done for local materialization / summary surfaces; live apply and no-op exit `3` remain target work | Sprints 3.5, 10.3 |
+| Long-running daemon shape (`BootConfig` / `LiveConfig`, SIGHUP, `/healthz`, `/readyz`, `/metrics`, structured JSON stderr logging) | Long-Running Daemons in the Same Binary | ✅ Done for config/endpoint/log renderers and local HTTP serving; POSIX signal wiring remains target runtime validation | Sprints 5.2, 5.3 |
+| Implemented reconciler discipline (`jitml docs generate`, `jitml lint --write`, `jitml bootstrap`, `jitml cluster up`, `--dry-run` / `--plan-file` plan rendering, no-op exit code `3`) | Reconcilers: Idempotent Mutation as a Single Command; Plan / Apply | ✅ Done | Sprints 1.3, 1.4, 1.5, 1.9, 2.1, 3.5 |
+| Future mutating reconciler effects (`jitml bootstrap` live Kind/Helm apply, `jitml internal gc` live MinIO deletion) | Reconcilers: Idempotent Mutation as a Single Command | ✅ Done for local materialization / summary surfaces; live apply remains target validation | Sprints 3.5, 10.3 |
 | Cabal-manifest toolchain pin (`tested-with: ghc ==9.14.1` in `jitml.cabal`, `with-compiler: ghc-9.14.1` in `cabal.project`, codegen toolchains pinned in `cabal.project`) | Toolchain pinning | ✅ Done | Sprint 1.1 |
 | Library-first layout audit (thin `app/Main.hs` and `app/Demo.hs`, logic in `src/JitML/`) | Project Structure | ✅ Done | Sprint 1.1 |
 | Durable CLI documentation artefacts (`documents/cli/commands.md`, `share/man/man1/jitml*.1`, `share/completion/{bash,zsh,fish}/`) | Automatically Generated Documentation | ✅ Done | Sprint 1.3 |
@@ -330,10 +330,10 @@ and each non-style phase stanza now has a dedicated local deterministic body.
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers local algorithm metadata, deterministic trajectory helper, PPO/CartPole golden trajectory, and Connect 4 transcript fixture | RL target matrix forms (2) and (3): same-substrate trajectory determinism plus per-seed final-reward distribution against live committed fixtures | ✅ Done (local body) | Sprint 12.4 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers local sampler / scheduler / pruner axes, deterministic trial values, and Sobol/GA golden fixtures | Per-sampler reproducibility, per-scheduler reproducibility, per-pruner reproducibility, and resume-from-partial-sweep equality against live storage | ✅ Done (local body) | Sprint 12.5 |
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers local engine determinism flags and checkpoint inference summaries | Cross-substrate cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; per-tensor drift fits the committed tolerance band per [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ✅ Done (local body) | Sprint 12.6 |
-| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` | Current local lifecycle/retry tests; target live test spawns `jitml service`, polls `/readyz`, drives SIGHUP, and asserts graceful drain | ✅ Done (local body) | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` | Current local route/bucket/publication/contract/report tests; target live test uses Pulumi + Playwright against real Envoy listener | ✅ Done (local body) | Sprint 12.8 |
+| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` | Current local lifecycle/retry tests plus one-shot daemon HTTP `/healthz`; target live test spawns `jitml service`, polls `/readyz`, drives SIGHUP, and asserts graceful drain | ✅ Done (local body) | Sprint 12.7 |
+| `jitml-e2e` | `test/e2e/Main.hs` | Current local route/bucket/publication/contract/demo HTTP/report tests; target live test uses Pulumi + Playwright against real Envoy listener | ✅ Done (local body) | Sprint 12.8 |
 | `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack | Formatter, hlint/config, forbidden-path, chart, generated-section, external formatter/hlint/cabal-format/build gates, and optional future lints as they land | ✅ Done | Sprint 1.4 |
-| `jitml-purescript-style` | `test/purescript-style/Main.hs` | Current generated-contract presence/header smoke checks; PureScript `purs format` round-trip and `purescript-spec` remain target work | ✅ Done | Sprint 11.3 |
+| `jitml-purescript-style` | `test/purescript-style/Main.hs` | Current generated-contract presence/header, whitespace, and panel-contract smoke checks; PureScript `purs format` round-trip and `purescript-spec` remain target work | ✅ Done | Sprint 11.3 |
 
 ## Test Categories Mapping (Doctrine → Stanza)
 

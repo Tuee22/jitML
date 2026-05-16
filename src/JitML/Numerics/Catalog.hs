@@ -22,33 +22,48 @@ import Data.Text qualified as Text
 
 data Layer
   = Dense
+  | Embedding
   | Conv1D
   | Conv2D
   | Conv3D
   | ConvTranspose
+  | ComplexDense
+  | ComplexConv2D
   | BatchNorm
   | LayerNorm
   | GroupNorm
   | Dropout
   | ResidualBlock
+  | ScaledDotProductAttention
   | MultiHeadAttention
+  | RotaryPositionalEmbedding
   deriving stock (Eq, Ord, Show)
 
 data Activation
   = Relu
+  | LeakyRelu
+  | Elu
+  | Silu
   | Gelu
   | Tanh
   | Sigmoid
   | Softmax
   | ComplexModRelu
   | ComplexCardioid
+  | ComplexZRelu
   deriving stock (Eq, Ord, Show)
 
 data SpectralOp
   = FFT
+  | FFTAlongAxis
   | IFFT
+  | IFFTAlongAxis
+  | RFFT
+  | IRFFT
   | STFT
   | DCT
+  | ComplexConjugate
+  | ComplexMatMul
   deriving stock (Eq, Ord, Show)
 
 data Optimizer
@@ -63,6 +78,8 @@ data Optimizer
   | LAMB
   | LARS
   | Lion
+  | AdaFactor
+  | Shampoo
   deriving stock (Eq, Ord, Show)
 
 data Scheduler
@@ -74,45 +91,114 @@ data Scheduler
   | Polynomial
   | OneCycle
   | Piecewise
+  | ReduceOnPlateau
   deriving stock (Eq, Ord, Show)
 
 data Loss
   = CrossEntropy
+  | BinaryCrossEntropy
+  | SparseCrossEntropy
   | Focal
   | MSE
   | Huber
   | IoU
+  | Dice
+  | KLDiv
+  | Contrastive
   deriving stock (Eq, Ord, Show)
 
 layerCatalog :: [Layer]
 layerCatalog =
   [ Dense
+  , Embedding
   , Conv1D
   , Conv2D
   , Conv3D
   , ConvTranspose
+  , ComplexDense
+  , ComplexConv2D
   , BatchNorm
   , LayerNorm
   , GroupNorm
   , Dropout
   , ResidualBlock
+  , ScaledDotProductAttention
   , MultiHeadAttention
+  , RotaryPositionalEmbedding
   ]
 
 activationCatalog :: [Activation]
-activationCatalog = [Relu, Gelu, Tanh, Sigmoid, Softmax, ComplexModRelu, ComplexCardioid]
+activationCatalog =
+  [ Relu
+  , LeakyRelu
+  , Elu
+  , Silu
+  , Gelu
+  , Tanh
+  , Sigmoid
+  , Softmax
+  , ComplexModRelu
+  , ComplexCardioid
+  , ComplexZRelu
+  ]
 
 spectralCatalog :: [SpectralOp]
-spectralCatalog = [FFT, IFFT, STFT, DCT]
+spectralCatalog =
+  [ FFT
+  , FFTAlongAxis
+  , IFFT
+  , IFFTAlongAxis
+  , RFFT
+  , IRFFT
+  , STFT
+  , DCT
+  , ComplexConjugate
+  , ComplexMatMul
+  ]
 
 optimizerCatalog :: [Optimizer]
-optimizerCatalog = [SGD, MomentumSGD, NesterovSGD, RMSProp, Adagrad, Adadelta, Adam, AdamW, LAMB, LARS, Lion]
+optimizerCatalog =
+  [ SGD
+  , MomentumSGD
+  , NesterovSGD
+  , RMSProp
+  , Adagrad
+  , Adadelta
+  , Adam
+  , AdamW
+  , LAMB
+  , LARS
+  , Lion
+  , AdaFactor
+  , Shampoo
+  ]
 
 schedulerCatalog :: [Scheduler]
-schedulerCatalog = [Constant, Linear, Cosine, CosineWithWarmup, Exponential, Polynomial, OneCycle, Piecewise]
+schedulerCatalog =
+  [ Constant
+  , Linear
+  , Cosine
+  , CosineWithWarmup
+  , Exponential
+  , Polynomial
+  , OneCycle
+  , Piecewise
+  , ReduceOnPlateau
+  ]
 
 lossCatalog :: [Loss]
-lossCatalog = [CrossEntropy, Focal, MSE, Huber, IoU]
+lossCatalog =
+  [ CrossEntropy
+  , BinaryCrossEntropy
+  , SparseCrossEntropy
+  , Focal
+  , MSE
+  , Huber
+  , IoU
+  , Dice
+  , KLDiv
+  , Contrastive
+  ]
 
 renderNumericalCatalog :: Text
 renderNumericalCatalog =

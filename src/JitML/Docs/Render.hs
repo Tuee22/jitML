@@ -140,13 +140,14 @@ renderDaemonSurface =
   Text.unlines
     [ "| Surface | Current owner | Current behavior |"
     , "|---------|---------------|------------------|"
-    , "| `/healthz` | `JitML.Service.Endpoints.healthz` | Renderable `200` response body |"
-    , "| `/readyz` | `JitML.Service.Endpoints.readyz` | Renderable ready/not-ready response body |"
-    , "| `/metrics` | `JitML.Service.Endpoints.metrics` | Renderable Prometheus text snapshot |"
+    , "| `/healthz` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime as a `200` response body |"
+    , "| `/readyz` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime with ready/not-ready status |"
+    , "| `/metrics` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime as Prometheus text |"
     , "| `BootConfig` | `JitML.Service.BootConfig` and `dhall/service/BootConfig.dhall` | Cluster/host residency, inference mode, Pulsar, MinIO, Harbor, HTTP listener fields |"
     , "| `LiveConfig` | `JitML.Service.LiveConfig` and `dhall/service/LiveConfig.dhall` | Log level, retry policy, tart idle timeout, inference batching/SLO, drain deadline fields |"
     , "| SIGHUP reload decision | `JitML.Service.HotReload` | Pure reload/ignore/restart-required decision surface |"
     , "| Consumer idempotency | `JitML.Service.Consumer` | Pure payload-hash deduplication surface |"
+    , "| HTTP listener | `JitML.Service.Http` | Low-level typed route server shared by `jitml service` and `jitml-demo` one-shot tests |"
     ]
 
 renderTrainingRlCatalog :: Text

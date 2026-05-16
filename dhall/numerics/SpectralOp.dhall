@@ -1,5 +1,11 @@
 [ "FFT"
+, "FFTAlongAxis"
 , "IFFT"
+, "IFFTAlongAxis"
+, "RFFT"
+, "IRFFT"
 , "STFT"
 , "DCT"
+, "ComplexConjugate"
+, "ComplexMatMul"
 ]

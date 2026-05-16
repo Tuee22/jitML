@@ -362,21 +362,21 @@ adding file-hygiene enforcement in Sprint `1.4`:
 
 - `documents/cli/commands.md`
 - `share/man/man1/jitml.1`
-- `share/man/man1/jitml-*.1`
 - `share/completion/bash/jitml`
 - `share/completion/zsh/_jitml`
 - `share/completion/fish/jitml.fish`
 - `web/src/Generated/Contracts.purs`
 - `chart/templates/httproute-*.yaml`
 - `chart/templates/grafana-dashboard-*.yaml`
-- `kind/cluster-*.yaml`
+- `chart/templates/prometheus-scrapeconfig-jitml.yaml`
 
-The current registry contents are the authoritative source; future
-fully-generated paths must be added there in the same change that introduces
-them. The `jitml-haskell-style` suite also checks the renderer-source modules named
-by the registry for forbidden non-deterministic inputs such as timestamps,
-random IDs, locale-dependent ordering, terminal-width state, and environment-
-derived paths.
+`futureTrackingGeneratedPathPatterns` currently records
+`share/man/man1/jitml-*.1` for later per-command manpages. The current registry
+contents are the authoritative source; future fully-generated paths must be
+added there in the same change that introduces them. The `jitml-haskell-style`
+suite also checks the renderer-source modules named by the registry for
+forbidden non-deterministic inputs such as timestamps, random IDs,
+locale-dependent ordering, terminal-width state, and environment-derived paths.
 
 ---
 
