@@ -51,8 +51,24 @@ import JitML.Cache.Manifest qualified as CacheManifest
 import JitML.Cache.Symlink qualified as CacheSymlink
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
+import JitML.Engines.Engine qualified as Engine
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env (..), OutputFormat (..))
+import JitML.Generated.Paths
+  ( TrackedGeneratedPath (..)
+  , trackingGeneratedPaths
+  )
+import JitML.Generated.Registry
+  ( GeneratedSectionRule (..)
+  , generatedSectionRules
+  )
+import JitML.Lint.DhallNumerics (checkDhallNumerics)
+import JitML.Lint.DhallRL (checkDhallRL)
+import JitML.Numerics.Schema
+  ( loadNumericsCatalog
+  , validateNumericsCatalog
+  )
+import JitML.Observability.Grafana qualified as Grafana
 import JitML.Observability.TensorBoard qualified as TensorBoard
 import JitML.Plan.Apply (writePlanFile)
 import JitML.Plan.Plan (buildCommandPlan)
@@ -78,12 +94,14 @@ import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.Environments qualified as RLEnvironments
 import JitML.RL.Framework qualified as RLFramework
+import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.HotReload qualified as HotReload
 import JitML.Service.LiveConfig qualified as LiveConfig
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
+import JitML.Substrate qualified as Substrate
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.Bundle qualified as WebBundle
 import JitML.Web.Contracts qualified as WebContracts
@@ -161,6 +179,47 @@ main =
           renderCommandJson commandRegistry @?= renderCommandJson commandRegistry
       , testCase "json output is non-empty" $
           ByteString.null (renderCommandJson commandRegistry) @?= False
+      , testCase "generated registries cover active phase artifacts" $ do
+          let sectionKeys = fmap ruleKey generatedSectionRules
+              trackedPaths = fmap trackedPath trackingGeneratedPaths
+          traverse_
+            ( \key ->
+                assertBool
+                  ("missing generated section key: " <> Text.unpack key)
+                  (key `elem` sectionKeys)
+            )
+            [ "cluster.routes"
+            , "daemon.surface"
+            , "numerics.layers"
+            , "numerics.activations"
+            , "numerics.spectral"
+            , "numerics.optimizers"
+            , "numerics.schedulers"
+            , "numerics.losses"
+            , "training.rl.catalog"
+            , "training.tune.samplers"
+            , "training.tune.schedulers"
+            , "training.tune.pruners"
+            ]
+          traverse_
+            ( \path ->
+                assertBool
+                  ("missing tracked generated path: " <> path)
+                  (path `elem` trackedPaths)
+            )
+            [ "web/src/Generated/Contracts.purs"
+            , "chart/templates/httproute-demo-root.yaml"
+            , "chart/templates/grafana-dashboard-daemon-health.yaml"
+            , "chart/templates/prometheus-scrapeconfig-jitml.yaml"
+            ]
+      , testCase "numerical Dhall schema mirrors the Haskell catalog" $ do
+          catalog <- loadNumericsCatalog "."
+          validateNumericsCatalog catalog @?= Right ()
+          checkDhallNumerics >>= (@?= [])
+      , testCase "RL Dhall schema mirrors the Haskell catalog" $ do
+          catalog <- loadRlCatalogSchema "."
+          validateRlCatalogSchema catalog @?= Right ()
+          checkDhallRL >>= (@?= [])
       , testCase "AppError render golden covers canonical variants" $ do
           expected <- Text.IO.readFile "test/golden/cli/app-error-render.txt"
           Text.intercalate "---\n" (fmap renderError canonicalErrors) @?= expected
@@ -350,6 +409,39 @@ main =
                   Cache.AppleSilicon
                   Cache.defaultTuningChoice
           first @?= second
+      , testCase "engine cache decisions and envelopes are deterministic" $ do
+          let kernelSpec = Cache.KernelSpec "phase-7-kernel:envelope"
+              engine = Engine.engineForSubstrate Substrate.LinuxCPU
+              source =
+                renderRuntimeSource
+                  kernelSpec
+                  Cache.Inference
+                  Cache.LinuxCPU
+                  Cache.defaultTuningChoice
+              miss = Engine.resolveKernelCache engine source sampleCacheHash False
+              hit = Engine.resolveKernelCache engine source sampleCacheHash True
+              envelope =
+                Engine.engineEnvelope
+                  engine
+                  source
+                  sampleCacheHash
+                  (Engine.KernelInputs [1, 4] 16)
+                  (Engine.KernelOutputs [1, 4] 16)
+          case miss of
+            Engine.JitCacheMiss handle command -> do
+              Engine.kernelHandleArtifactPath handle @?= ".build/jit/linux-cpu/"
+                <> Cache.hashHex sampleCacheHash
+                <> ".so"
+              renderSubprocess command @?= renderSubprocess command
+            Engine.JitCacheHit _ -> assertFailure "expected cache miss"
+          case hit of
+            Engine.JitCacheHit handle ->
+              Engine.kernelHandleHash handle @?= sampleCacheHash
+            Engine.JitCacheMiss _ _ -> assertFailure "expected cache hit"
+          Engine.renderEngineEnvelope envelope @?= Engine.renderEngineEnvelope envelope
+          assertBool
+            "engine envelope names deterministic reduction mode"
+            ("onednn-fixed-block-reduction" `Text.isInfixOf` Engine.renderEngineEnvelope envelope)
       , testCase "cachePath resolves under the substrate cache root" $
           withSystemTempDirectory "jitml-cache-layout" $ \dir -> do
             root <- resolveDir' (dir </> ".build")
@@ -604,12 +696,42 @@ main =
             @?= Checkpoint.PointerWritten "sha-m"
           Checkpoint.applyPointerWrite (Just "etag-b") write
             @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp-a")
+      , testCase "checkpoint manifest CBOR codec is deterministic and canonical ordered" $ do
+          let manifest =
+                Checkpoint.CheckpointManifest
+                  "manifest-a"
+                  "exp-a"
+                  [ Checkpoint.TensorBlob "z" [1] "blob-z"
+                  , Checkpoint.TensorBlob "a" [2] "blob-a"
+                  ]
+              reordered =
+                Checkpoint.CheckpointManifest
+                  "manifest-a"
+                  "exp-a"
+                  [ Checkpoint.TensorBlob "a" [2] "blob-a"
+                  , Checkpoint.TensorBlob "z" [1] "blob-z"
+                  ]
+          Checkpoint.decodeManifestCbor (Checkpoint.encodeManifestCbor manifest)
+            @?= Right reordered
+          Checkpoint.manifestContentSha manifest @?= Checkpoint.manifestContentSha reordered
+          Checkpoint.manifestKey "exp-a" (Checkpoint.manifestContentSha manifest)
+            @?= "jitml-checkpoints/exp-a/manifests/"
+            <> Checkpoint.manifestContentSha manifest
+            <> ".cbor"
       , testCase "TensorBoard checkpoint sidecar keys are stable" $
           TensorBoard.checkpointSidecarKey "exp-a" 12 "sha-m"
             @?= "jitml-tensorboard/exp-a/checkpoints/12-sha-m.cbor"
+      , testCase "Grafana daemon-health dashboard matches golden fixture" $ do
+          expected <- Text.IO.readFile "test/golden/observability/grafana-daemon-health.yaml"
+          case find ((== "daemon-health") . Grafana.dashboardName) Grafana.dashboards of
+            Nothing -> assertFailure "missing daemon-health dashboard"
+            Just dashboard -> Grafana.renderDashboardConfigMap dashboard @?= expected
       , testCase "frontend bundle and panel surfaces cover the demo panels" $ do
           fmap WebBundle.panelName WebBundle.panelSurfaces
             @?= ["mnist-live-inference", "image-upload", "connect4-human-vs-alphazero", "rl-trajectory"]
+          fmap WebBundle.demoRoutePath WebBundle.demoRoutes @?= ["/", "/api", "/api/ws"]
+          WebBundle.renderDemoRouteManifest
+            @?= "demo-routes:\n- / static-shell <- web/src/Main.purs\n- /api contract-index <- src/JitML/Web/Contracts.hs\n- /api/ws websocket-contract <- src/JitML/Web/Contracts.hs\n"
           WebContracts.contractGeneratorName @?= "local-purescript-bridge-compatible-renderer"
       ]
 

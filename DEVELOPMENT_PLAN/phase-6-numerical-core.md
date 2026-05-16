@@ -11,10 +11,12 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the Dhall-typed numerical core: layer catalog (real and
-> complex), activations (real and complex), spectral / frequency-domain
-> operations, optimizers, schedulers, loss functions, and the Dhall types that
-> mirror every Haskell ADT.
+> **Purpose**: Stand up the current local numerical catalog surface — layer
+> names, real/complex activation names, spectral / frequency-domain operation
+> names, optimizers, schedulers, loss functions, and deterministic catalog
+> rendering — plus Dhall mirror lists and the Haskell cross-type audit that
+> keeps those lists aligned with the catalog. Rich parameterized constructors
+> remain target work.
 
 ## Phase Status
 
@@ -28,16 +30,18 @@ Per-substrate JIT codegen (Phase `7`) consumes this catalog.
 The current worktree implements the Haskell catalog in
 `src/JitML/Numerics/Catalog.hs`: eleven layer constructors, seven activations,
 four spectral operations, eleven optimizers, eight schedulers, five losses, and
-`renderNumericalCatalog`. It does not yet contain the `dhall/numerics/*` schema
-tree, Dhall decoders, generated numerical documentation tables, or rich
-parameterized constructors described by the target architecture below.
+`renderNumericalCatalog`. It also implements the Dhall mirror list tree at
+`dhall/numerics/`, the decoder/validator in `src/JitML/Numerics/Schema.hs`,
+and the lint hook in `src/JitML/Lint/DhallNumerics.hs`. It does not yet contain
+the richer parameterized constructors described by the target architecture
+below.
 
 ## Phase Summary
 
 This phase delivers the local Haskell numerical catalog for layers,
-activations, spectral ops, optimizers, schedulers, and losses. Matching Dhall
-schemas and generated catalog tables are target documentation/runtime work. No
-SL/RL training logic lives here — that is Phase `8`.
+activations, spectral ops, optimizers, schedulers, and losses; the Dhall mirror
+lists; the Haskell decoder/validator; the lint audit; and the generated catalog
+tables. No SL/RL training logic lives here — that is Phase `8`.
 
 ## Sprint 6.1: Layer Catalog ✅
 
@@ -48,8 +52,7 @@ SL/RL training logic lives here — that is Phase `8`.
 ### Objective
 
 Stand up the current local layer catalog as a closed Haskell sum type. Rich
-shape parameters, complex layer variants, Dhall mirrors, and generated catalog
-tables remain target runtime/documentation work.
+shape parameters and complex layer variants remain target runtime work.
 
 ### Deliverables
 
@@ -59,16 +62,15 @@ tables remain target runtime/documentation work.
 - `layerCatalog` is the implementation source for the local layer list.
 - `renderNumericalCatalog` includes the layer list in the deterministic text
   summary consumed by command and documentation surfaces.
-- Target work keeps the richer parameterized constructors and Dhall mirrors
-  out of the current `Done` claim until those files exist.
+- `dhall/numerics/Layer.dhall` mirrors the current constructor names.
 
 ### Validation
 
 1. `src/JitML/Numerics/Catalog.hs` exposes the eleven layer constructors named
    above.
 2. `renderNumericalCatalog` is deterministic for the current catalog.
-3. The target Dhall decode/encode audit remains outside the current local
-   closure because no `dhall/numerics/` schema tree exists yet.
+3. `jitml-unit` and `jitml lint haskell` validate the Dhall mirror against the
+   Haskell catalog.
 
 ## Sprint 6.2: Activations (Real and Complex) ✅
 
@@ -89,8 +91,7 @@ complex-valued activation names.
   list.
 - `renderNumericalCatalog` includes the activation list in the deterministic
   text summary.
-- Separate parameterized real/complex activation ADTs and Dhall mirrors remain
-  target work.
+- `dhall/numerics/Activation.dhall` mirrors the current constructor names.
 
 ### Validation
 
@@ -112,8 +113,8 @@ Land the current local spectral-operation catalog.
 - `SpectralOp` enumerates `FFT`, `IFFT`, `STFT`, and `DCT`.
 - `spectralCatalog` is the implementation source for the local spectral list.
 - `renderNumericalCatalog` includes the spectral-operation list.
-- Axis-aware spectral operations, complex arithmetic ops, Dhall mirrors, and
-  generated numerical tables remain target work.
+- `dhall/numerics/SpectralOp.dhall` mirrors the current constructor names.
+- Axis-aware spectral operations and complex arithmetic ops remain target work.
 
 ### Validation
 
@@ -140,8 +141,9 @@ Enumerate the current local optimizer and scheduler catalogs.
 - `optimizerCatalog` and `schedulerCatalog` are the implementation sources for
   the local lists.
 - Parameterized optimizer/scheduler records, callback-based
-  `ReduceOnPlateau`, Dhall mirrors, and generated catalog tables remain target
-  work.
+  `ReduceOnPlateau`, and richer optimizer state records remain target work.
+- `dhall/numerics/Optimizer.dhall` and `dhall/numerics/Scheduler.dhall` mirror
+  the current constructor names.
 
 ### Validation
 
@@ -165,8 +167,9 @@ Enumerate the current local loss-function catalog.
 - `lossCatalog` is the implementation source for the local loss list.
 - `renderNumericalCatalog` includes the loss list in the deterministic text
   summary.
-- Parameterized loss constructors, custom-loss registration, Dhall mirrors, and
-  generated catalog tables remain target work.
+- `dhall/numerics/Loss.dhall` mirrors the current constructor names.
+- Parameterized loss constructors and custom-loss registration remain target
+  work.
 
 ### Validation
 
@@ -181,26 +184,26 @@ Enumerate the current local loss-function catalog.
 
 ### Objective
 
-Record the local configuration fixtures that exercise the current catalog
-surface. Full Dhall schema mirroring and decoder-based cross-type audit remain
-target work.
+Record the local configuration fixtures and Dhall schema mirror that exercise
+the current catalog surface.
 
 ### Deliverables
 
 - `experiments/mnist.dhall`, `experiments/mnist-tune.dhall`, and
   `experiments/cartpole.dhall` are present as the current configuration-as-code
   fixtures.
-- The current Haskell catalog remains the only implemented numerical schema.
-- `dhall/numerics/`, `src/JitML/Numerics/Schema.hs`, and
-  `src/JitML/Lint/DhallNumerics.hs` do not exist in the current tree and remain
-  target work.
+- `dhall/numerics/Schema.dhall` re-exports the current constructor-name lists
+  for layers, activations, spectral ops, optimizers, schedulers, and losses.
+- `src/JitML/Numerics/Schema.hs` decodes the Dhall schema and validates it
+  against the Haskell catalog.
+- `src/JitML/Lint/DhallNumerics.hs` plugs that audit into `jitml lint haskell`.
 
 ### Validation
 
 1. The three current `experiments/*.dhall` fixtures exist in the worktree.
 2. The local catalog is renderable through `renderNumericalCatalog`.
-3. Dhall schema round-trip validation is not claimed until the schema and
-   decoder modules land.
+3. `cabal test jitml-unit` validates the Dhall schema mirror.
+4. `jitml lint haskell` includes the Dhall numerical drift audit.
 
 ## Doctrine Sections Cited
 
@@ -213,7 +216,7 @@ target work.
 **Engineering docs to create/update:**
 
 - `documents/engineering/numerical_core.md` — current local layer /
-  activation / spectral / optimizer / scheduler / loss catalog summary; target
+  activation / spectral / optimizer / scheduler / loss catalog summary, active
   generated tables, Dhall mirrors, and cross-type audit narrative.
 
 **Product docs to create/update:**

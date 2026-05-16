@@ -319,6 +319,10 @@ The currently scheduled registry entries:
 | Daemon endpoint and config table | `daemon.surface` | Sprint 5.3 |
 | RL algorithm catalog table | `training.rl.catalog` | Sprint 9.3 |
 | Hyperparameter tuning tables | `training.tune.samplers`, `training.tune.schedulers`, `training.tune.pruners` | Sprint 9.7 |
+| PureScript contract file | `web.contracts.purescript` | Sprint 11.2 |
+| Chart HTTPRoutes | `chart.routes.*` | Sprint 3.4 |
+| Grafana dashboard ConfigMaps | `chart.grafana.*` | Sprint 4.5 |
+| Prometheus scrape config | `chart.prometheus.scrape` | Sprint 4.5 |
 | Cross-language types (TypeScript / PureScript mirrors of Haskell ADTs) | `cross-language-types.*` | Sprint 11.2 |
 <!-- jitml:documentation-standards.generated-section-index:end -->
 

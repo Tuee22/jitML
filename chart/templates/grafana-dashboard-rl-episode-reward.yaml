@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-rl-episode-reward
+  namespace: platform
+  labels:
+    grafana_dashboard: "1"
+data:
+  dashboard.json: |
+    {
+      "title": "rl-episode-reward",
+      "panels": [{"type":"timeseries","targets":[{"expr":"jitml_rl_episode_reward"}]}]
+    }

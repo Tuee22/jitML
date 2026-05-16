@@ -2,10 +2,14 @@
 
 module JitML.Web.Bundle
   ( BundleAsset (..)
+  , DemoRoute (..)
   , PanelSurface (..)
   , bundleAssets
+  , demoRoutes
+  , demoStatusLine
   , panelSurfaces
   , renderBundleManifest
+  , renderDemoRouteManifest
   )
 where
 
@@ -25,6 +29,13 @@ data PanelSurface = PanelSurface
   }
   deriving stock (Eq, Show)
 
+data DemoRoute = DemoRoute
+  { demoRoutePath :: Text
+  , demoRouteSurface :: Text
+  , demoRouteSource :: Text
+  }
+  deriving stock (Eq, Show)
+
 bundleAssets :: [BundleAsset]
 bundleAssets =
   [ BundleAsset "web/dist/index.html" "web/src/Main.purs"
@@ -37,6 +48,17 @@ panelSurfaces =
   , PanelSurface "image-upload" "/api/images" "CIFAR/ImageNet upload"
   , PanelSurface "connect4-human-vs-alphazero" "/api/connect4/move" "Connect 4 moves"
   , PanelSurface "rl-trajectory" "/api/ws" "RL trajectory stream"
+  ]
+
+demoStatusLine :: Text
+demoStatusLine =
+  "jitml-demo: serving generated frontend contract surface"
+
+demoRoutes :: [DemoRoute]
+demoRoutes =
+  [ DemoRoute "/" "static-shell" "web/src/Main.purs"
+  , DemoRoute "/api" "contract-index" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/ws" "websocket-contract" "src/JitML/Web/Contracts.hs"
   ]
 
 renderBundleManifest :: Text
@@ -54,3 +76,18 @@ renderBundleManifest =
 
   renderPanel panel =
     "- " <> panelName panel <> " " <> panelEndpoint panel <> " (" <> panelPurpose panel <> ")"
+
+renderDemoRouteManifest :: Text
+renderDemoRouteManifest =
+  Text.unlines $
+    [ "demo-routes:"
+    ]
+      <> fmap renderRoute demoRoutes
+ where
+  renderRoute route =
+    "- "
+      <> demoRoutePath route
+      <> " "
+      <> demoRouteSurface route
+      <> " <- "
+      <> demoRouteSource route

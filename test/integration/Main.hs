@@ -2,13 +2,14 @@
 
 module Main where
 
+import Data.Text.IO qualified as Text.IO
 import System.Exit (ExitCode (..))
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase, (@?=))
 
 import JitML.Bootstrap (bootstrapPlanSteps)
 import JitML.Cluster.Kind (kindConfigFor, renderKindConfig)
-import JitML.Routes (renderHTTPRoute, routeRegistry)
+import JitML.Routes (renderHTTPRoute, renderRouteTable, routeRegistry)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..))
@@ -40,4 +41,7 @@ main =
             @?= renderKindConfig (kindConfigFor AppleSilicon)
       , testCase "route registry renders HTTPRoute manifests" $
           length (fmap renderHTTPRoute routeRegistry) @?= length routeRegistry
+      , testCase "route table matches golden fixture" $ do
+          expected <- Text.IO.readFile "test/golden/cluster/route-table.md"
+          renderRouteTable @?= expected
       ]

@@ -52,11 +52,13 @@ tracked generated CLI paths, in-repo lint checks, the prerequisite registry,
 generic command-plan rendering, and local command dispatch. Later-phase command
 leaves are registered, but many currently dispatch to deterministic summaries or
 file materializers rather than live cluster, daemon, training, or JIT effects.
-The active `trackingGeneratedPaths` registry protects CLI docs, the main manpage,
-and shell completions; PureScript contracts, route YAML, and dashboard YAML are
-still future generated-path patterns. The Plan/Apply `apply` interpreter is
-currently a no-op, and normal command execution enters the plan renderer only
-when `--dry-run` or `--plan-file` is requested on selected plan-capable leaves.
+The active `trackingGeneratedPaths` registry protects CLI docs, the main
+manpage, shell completions, PureScript contracts, route YAML, Grafana dashboard
+YAML, and the Prometheus scrape config. The remaining future generated-path
+pattern is for per-command manpages (`share/man/man1/jitml-*.1`). The
+Plan/Apply `apply` interpreter is currently a no-op, and normal command
+execution enters the plan renderer only when `--dry-run` or `--plan-file` is
+requested on selected plan-capable leaves.
 
 ## Sprint 1.1: Toolchain Pin and Library-First Cabal Project ✅
 
@@ -209,22 +211,27 @@ doctrine `Generated Artifacts → The generated-section registry`.
   - the CLI help blocks inside `documents/engineering/cli_command_surface.md`
     (key `cli-commands.help-blocks`),
   - the generated-section index inside `documents/documentation_standards.md`
-    (key `documentation-standards.generated-section-index`).
-- `futureGeneratedSections` records the marker keys that later phases populate:
-  `cluster.routes`, `numerics.*`, `daemon.surface`, and
-  `training.rl.catalog`.
+    (key `documentation-standards.generated-section-index`),
+  - the cluster route table, daemon surface table, numerical catalog tables,
+    RL algorithm catalog table, and hyperparameter tuning catalog tables.
+- `futureGeneratedSections` records the remaining marker family that a later
+  phase still owns: `cross-language-types.*`.
 - Active `trackingGeneratedPaths` entries in `src/JitML/Generated/Paths.hs`
   cover:
   - `documents/cli/commands.md`,
   - `share/man/man1/jitml.1`,
   - `share/completion/bash/jitml`,
   - `share/completion/zsh/_jitml`,
-  - `share/completion/fish/jitml.fish`.
+  - `share/completion/fish/jitml.fish`,
+  - `web/src/Generated/Contracts.purs`,
+  - every `chart/templates/httproute-*.yaml` rendered from
+    `src/JitML/Routes.hs`,
+  - every `chart/templates/grafana-dashboard-*.yaml` rendered from
+    `src/JitML/Observability/Grafana.hs`,
+  - `chart/templates/prometheus-scrapeconfig-jitml.yaml`.
 - `futureTrackingGeneratedPathPatterns` records later generated files:
-  `share/man/man1/jitml-*.1`, `web/src/Generated/Contracts.purs`,
-  `chart/templates/httproute-*.yaml`, and
-  `chart/templates/grafana-dashboard-*.yaml`. The owning later sprint moves a
-  future pattern into an active tracked path when the renderer lands.
+  `share/man/man1/jitml-*.1`. The owning later sprint moves a future pattern
+  into an active tracked path when the renderer lands.
 - `jitml docs check` walks both registries, fails on drift with the doctrine's
   three-element error message (file path, marker key, literal `` Run `jitml
   docs generate` to update. ``).

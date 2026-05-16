@@ -1,0 +1,12 @@
+[ "SGD"
+, "MomentumSGD"
+, "NesterovSGD"
+, "RMSProp"
+, "Adagrad"
+, "Adadelta"
+, "Adam"
+, "AdamW"
+, "LAMB"
+, "LARS"
+, "Lion"
+]

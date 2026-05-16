@@ -590,17 +590,19 @@ adopt doctrine — are:
 - `documents/engineering/jit_codegen_architecture.md` — project-specific:
   content-addressed cache, per-substrate compilers (Metal, oneDNN, CUDA),
   Apple Silicon hybrid pattern, hardware auto-tuning, FFI boundary.
-- `documents/engineering/numerical_core.md` — project-specific: layer
-  catalog, activations (real + complex), spectral ops, optimizers,
-  schedulers, losses, Dhall types.
-- `documents/engineering/training_workloads.md` — project-specific: SL
-  training loops, RL framework primitives, RL algorithm catalog, AlphaZero /
-  MCTS state, hyperparameter tuning. Owns the union of Phases `8` and `9`.
+- `documents/engineering/numerical_core.md` — project-specific: current local
+  layer / activation / spectral / optimizer / scheduler / loss catalog, Dhall
+  mirrors, and cross-type audit.
+- `documents/engineering/training_workloads.md` — project-specific: current
+  local SL summaries, RL framework metadata, RL algorithm catalog, AlphaZero /
+  Connect 4 helpers, and hyperparameter tuning catalogs; target daemon-backed
+  workloads. Owns the union of Phases `8` and `9`.
 - `documents/engineering/checkpoint_format.md` — project-specific: split-blob
   layout, `.jmw1` wire format, manifest, inference-only read path.
 - `documents/engineering/purescript_frontend.md` — project-specific:
-  `src/JitML/Web/Contracts.hs` as source for `purescript-bridge`, Halogen
-  panels, REST surfaces, Playwright E2E, demo HTTP server.
+  current PureScript shell, local browser-contract renderer, bundle, panel, and
+  demo-route metadata, Playwright scaffold, and demo shim; target Halogen
+  panels, REST / WebSocket surfaces, Playwright E2E, and demo HTTP server.
 
 **Product docs to create/update:**
 

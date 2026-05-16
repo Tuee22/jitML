@@ -5,7 +5,7 @@ module Main where
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
-import JitML.SL.Canonicals (canonicalProblems, convergenceCurve, finalLoss)
+import JitML.SL.Canonicals (canonicalProblems, convergenceCurve, finalLoss, problemName)
 
 main :: IO ()
 main =
@@ -13,7 +13,19 @@ main =
     testGroup
       "jitml-sl-canonicals"
       [ testCase "canonical supervised problems are populated" $
-          length canonicalProblems @?= 6
+          fmap problemName canonicalProblems
+            @?= [ "mnist-shallow-mlp"
+                , "mnist-deep-mlp"
+                , "mnist-lenet"
+                , "fashion-mnist-mlp"
+                , "fashion-mnist-resnet"
+                , "cifar10-resnet20"
+                , "cifar10-resnet56"
+                , "cifar100-wide-resnet"
+                , "cifar10-vit"
+                , "tiny-imagenet-resnet50"
+                , "california-housing-mlp"
+                ]
       , testCase "convergence curves are deterministic and descending" $
           map convergenceCurve canonicalProblems @?= map convergenceCurve canonicalProblems
       , testCase "final loss improves for every canonical problem" $

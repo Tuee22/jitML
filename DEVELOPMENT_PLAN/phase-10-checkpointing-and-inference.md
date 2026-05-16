@@ -12,21 +12,19 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the split-blob checkpoint format (`blobs/<sha256>`,
-> `manifests/<sha256>`, `pointers/{latest,best/<metric>,trial/...}`), the
-> `.jmw1` dense weight blob wire format, the typed CBOR manifest, the
-> `If-None-Match: *` write-once protocol for blobs and manifests, the
-> `If-Match: <etag>` CAS protocol for pointers with typed advance predicates,
-> the bit-determinism contract scoped to same-substrate equality with the
-> cross-substrate tolerance methodology, the retention reconciler
-> (`jitml internal gc`), and the inference-only read path consumed by both
-> `jitml-demo` and the PureScript panels.
+> **Purpose**: Stand up the current local checkpoint and inference surface:
+> split-blob object-key renderers, a small typed manifest, pure pointer-CAS
+> decisions, a local deterministic CBOR manifest codec/content hash, a
+> simplified `.jmw1` text encoder, `jitml internal gc` summary output, and
+> deterministic inference summaries. Binary tensor blobs, live MinIO effects,
+> retention traversal, and kernel-handle loading remain target runtime work.
 
 ## Phase Status
 
 ✅ **Done** for the local checkpoint manifest, split-blob object-key helpers,
-pointer-CAS decision surface, `.jmw1` blob header, and inference-only read
-surfaces. Target checkpointing serialises models trained in Phases `8`/`9`;
+pointer-CAS decision surface, deterministic manifest CBOR codec/content hash,
+`.jmw1` blob header, and inference-only read surfaces. Target checkpointing
+serialises models trained in Phases `8`/`9`;
 target Phase `11` demo/frontend surfaces consume the real inference-only read
 path once those runtime pieces land.
 
@@ -34,19 +32,20 @@ path once those runtime pieces land.
 
 The current worktree implements a small `CheckpointManifest`, `TensorBlob`,
 split-blob object-key renderers, pointer-CAS decisions, `manifestPointer`,
-simplified `encodeJmw1` text encoder, and deterministic `inferFromManifest`
-helper in `src/JitML/Checkpoint/Format.hs`. It does not yet implement canonical
-CBOR manifests, binary little-endian tensor blobs, live MinIO conditional-write
-effects, retention graph traversal, kernel-handle loading, or real demo/frontend
-checkpoint reads.
+deterministic `encodeManifestCbor` / `decodeManifestCbor` /
+`manifestContentSha`, simplified `encodeJmw1` text encoder, and deterministic
+`inferFromManifest` helper in `src/JitML/Checkpoint/Format.hs`. It does not yet
+implement binary little-endian tensor blobs, live MinIO conditional-write
+effects, retention graph traversal, kernel-handle loading, or real
+demo/frontend checkpoint reads.
 
 ## Phase Summary
 
 This phase currently delivers the local checkpoint manifest, split-blob key,
-pointer-CAS, and inference summary helpers. The target persistence layer still
-uses MinIO bucket `jitml-checkpoints`, canonical-CBOR manifests, write-once
-blobs, If-Match CAS pointers, and the split-blob `.jmw1` binary format; the live
-MinIO effects are not implemented in the present codebase.
+pointer-CAS, deterministic manifest CBOR, and inference summary helpers. The
+target persistence layer still uses MinIO bucket `jitml-checkpoints`,
+write-once blobs, If-Match CAS pointers, and the split-blob `.jmw1` binary
+format; the live MinIO effects are not implemented in the present codebase.
 
 ## Sprint 10.1: Storage Layout and Split-Blob Schema ✅
 
@@ -91,16 +90,19 @@ split-blob object-key renderers used by the inference summary surface.
 
 ### Objective
 
-Land the current simplified `.jmw1` encoder and local pointer-CAS decision
-surface. Canonical-CBOR headers, binary little-endian payloads, and live MinIO
-conditional-write effects remain target runtime validation.
+Land the current simplified `.jmw1` encoder, local deterministic manifest CBOR
+codec, manifest-content SHA helper, and local pointer-CAS decision surface.
+Binary little-endian payloads and live MinIO conditional-write effects remain
+target runtime validation.
 
 ### Deliverables
 
 - `encodeJmw1` emits a lazy bytestring beginning with text line `JMW1`,
   followed by one textual `Double` per line.
-- `CheckpointManifest` is an in-memory Haskell record only; no CBOR
-  manifest codec exists yet.
+- `encodeManifestCbor` canonicalizes tensor order by name and serializes the
+  current `CheckpointManifest`.
+- `decodeManifestCbor` round-trips the current local manifest representation.
+- `manifestContentSha` hashes the deterministic manifest CBOR bytes.
 - `PointerWrite`, `PointerWriteResult`, and `applyPointerWrite` model the local
   CAS decision used by the eventual MinIO pointer writer.
 - Live `Write.hs`, `Pointer.hs`, typed advance predicates, and MinIO
@@ -109,7 +111,9 @@ conditional-write effects remain target runtime validation.
 ### Validation
 
 1. `encodeJmw1` emits the expected `JMW1` marker for local callers.
-2. `jitml-unit` verifies successful and conflicting pointer-CAS decisions.
+2. `jitml-unit` verifies deterministic manifest CBOR encoding/decoding and
+   content hashing.
+3. `jitml-unit` verifies successful and conflicting pointer-CAS decisions.
 
 ## Sprint 10.3: Bit-Determinism Contract and Retention Reconciler ✅
 
@@ -185,10 +189,10 @@ remain target runtime work.
 **Engineering docs to create/update:**
 
 - `documents/engineering/checkpoint_format.md` — current local
-  `CheckpointManifest`, simplified `.jmw1` text encoder, manifest pointer,
-  and inference summary helper; target split-blob layout, manifest CBOR,
-  write protocols, typed advance predicates, retention reconciler, and real
-  inference-only read path.
+  `CheckpointManifest`, manifest CBOR codec/content hash, simplified `.jmw1`
+  text encoder, manifest pointer, and inference summary helper; target
+  split-blob layout, write protocols, typed advance predicates, retention
+  reconciler, and real inference-only read path.
 - `documents/engineering/determinism_contract.md` — same-substrate bit-
   equality contract, cross-substrate tolerance methodology, GC determinism.
 - `documents/engineering/daemon_architecture.md` — `InferenceHandler`

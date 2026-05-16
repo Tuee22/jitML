@@ -30,6 +30,8 @@ import System.IO.Temp (withSystemTempDirectory)
 import JitML.Docs.Check (checkDocs)
 import JitML.Docs.Check qualified as DocsCheck
 import JitML.Lint.Chart (checkChartFiles)
+import JitML.Lint.DhallNumerics (checkDhallNumerics)
+import JitML.Lint.DhallRL (checkDhallRL)
 import JitML.Lint.ForbiddenPaths (ForbiddenPathRule (..), matchForbiddenPath)
 import JitML.Lint.Stack.Types (LintFinding (..), LintMode (..), LintTarget (..))
 import JitML.Sub.Render (renderSubprocess)
@@ -94,6 +96,8 @@ checkHaskellLint mode = do
   fourmoluFindings <- checkRequiredConfig "fourmolu.yaml" requiredFourmoluKeys
   hlintExists <- doesFileExist ".hlint.yaml"
   primitiveFindings <- forbiddenPrimitiveFindings
+  dhallNumericsFindings <- checkDhallNumerics
+  dhallRLFindings <- checkDhallRL
   externalFindings <- checkExternalHaskellStyle mode
   let hlintFindings =
         [ LintFinding
@@ -103,7 +107,14 @@ checkHaskellLint mode = do
             "create .hlint.yaml with the doctrine-required rules"
         | not hlintExists
         ]
-  pure (fourmoluFindings <> hlintFindings <> primitiveFindings <> externalFindings)
+  pure
+    ( fourmoluFindings
+        <> hlintFindings
+        <> primitiveFindings
+        <> dhallNumericsFindings
+        <> dhallRLFindings
+        <> externalFindings
+    )
 
 checkRequiredConfig :: FilePath -> [Text] -> IO [LintFinding]
 checkRequiredConfig path keys = do

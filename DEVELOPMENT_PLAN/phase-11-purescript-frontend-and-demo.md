@@ -14,37 +14,38 @@
 
 > **Purpose**: Stand up the PureScript frontend surface under `web/`, the
 > generated browser contracts from `src/JitML/Web/Contracts.hs`, typed bundle
-> and panel metadata from `src/JitML/Web/Bundle.hs`, the Playwright scaffold,
-> the demo deployment template, and the `jitml-demo` executable shim. The target
-> architecture later expands this into Halogen panels, REST/WS handlers, a
-> compiled browser bundle, and a real HTTP server.
+> and panel/demo-route metadata from `src/JitML/Web/Bundle.hs`, the Playwright
+> scaffold, the demo deployment template, and the `jitml-demo` executable shim.
+> The target architecture later expands this into Halogen panels, live REST/WS
+> handlers, a compiled browser bundle, and a real HTTP server.
 
 ## Phase Status
 
 ✅ **Done** for the local PureScript shell, generated browser contracts, typed
-bundle/panel metadata, demo shim, Playwright scaffold, and contract-style test
-surface. The frontend's REST surfaces consume the inference-only read path; the
-demo HTTP server
+bundle/panel/demo-route metadata, demo shim, Playwright scaffold, and
+contract-style test surface. The frontend's REST surfaces consume the
+inference-only read path; the demo HTTP server
 (`jitml-demo`) is the sibling binary that shares the `src/JitML/` library.
 
 ### Current Implementation Scope
 
 The current worktree implements a minimal PureScript entrypoint, generated
-contract file, typed bundle/panel metadata, `web/package.json` script surface,
-`web/test/Main.purs`, Playwright spec scaffold, `jitml-demo` executable shim,
-and demo deployment template. It does not include a Halogen dependency, external
-`purescript-bridge` package dependency, active `trackingGeneratedPaths` entry for
-`web/src/Generated/Contracts.purs`, compiled browser bundle output, REST
-handlers, WebSocket handlers, or an HTTP server in `jitml-demo`.
+contract file, typed bundle/panel/demo-route metadata, `web/package.json` script
+surface, `web/test/Main.purs`, Playwright spec scaffold, `jitml-demo`
+executable shim, and demo deployment template. It does not include a Halogen
+dependency, external `purescript-bridge` package dependency, compiled browser
+bundle output, live REST handlers, live WebSocket handlers, or an HTTP server in
+`jitml-demo`.
 
 ## Phase Summary
 
 This phase delivers the browser-side shell: generated browser contracts from
-typed Haskell ADTs in `src/JitML/Web/Contracts.hs`, typed bundle/panel metadata
-in `src/JitML/Web/Bundle.hs`, a PureScript entrypoint under `web/src/`, a
+typed Haskell ADTs in `src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route
+metadata in `src/JitML/Web/Bundle.hs`, a PureScript entrypoint under `web/src/`, a
 contract smoke test under `web/test/`, a Playwright scaffold under
 `playwright/`, and the `jitml-demo` sibling binary that currently prints the
-generated-frontend status line. The PureScript stack is
+generated-frontend status line from the same typed demo metadata. The
+PureScript stack is
 project-specific; command and build invocations are represented through the
 typed `Subprocess` boundary from Phase `1`.
 
@@ -85,7 +86,7 @@ surface.
 Stand up the browser-contract ADTs in `src/JitML/Web/Contracts.hs` and the
 local renderer that produces `web/src/Generated/Contracts.purs`. The external
 `purescript-bridge` package is not required for the current local renderer;
-active generated-path tracking remains target follow-up work.
+`web/src/Generated/Contracts.purs` is protected by `trackingGeneratedPaths`.
 
 ### Deliverables
 
@@ -96,9 +97,8 @@ active generated-path tracking remains target follow-up work.
   through the local `renderPureScriptContracts` helper.
 - `contractGeneratorName` identifies the local bridge-compatible renderer used
   by the current contract surface.
-- `web/src/Generated/Contracts.purs` remains listed under
-  `futureTrackingGeneratedPathPatterns`; active drift detection is not present
-  yet.
+- `web/src/Generated/Contracts.purs` is an active `trackingGeneratedPaths`
+  entry; hand edits fail `jitml docs check`.
 
 ### Validation
 
@@ -155,15 +155,15 @@ handlers exist in the current tree.
 
 - `src/JitML/Web/Contracts.hs` declares endpoint metadata for `RunCommand`,
   `InferenceRun`, `UploadImage`, `Connect4Move`, and `MetricsStream`.
-- `src/JitML/Web/Bundle.hs` declares the local bundle asset manifest and panel
+- `src/JitML/Web/Bundle.hs` declares the local bundle asset manifest, panel
   surfaces for MNIST inference, image upload, Connect 4, and RL trajectory
-  rendering.
+  rendering, and the demo route manifest for `/`, `/api`, and `/api/ws`.
 - `web/src/Generated/Contracts.purs` contains the generated local PureScript
   contract output.
 - `test/e2e/Main.hs` checks the browser contract endpoint count.
 - `Mnist.purs`, `Cifar.purs`, `Connect4.purs`, `Rl.purs`, `Training.purs`,
-  `Tune.purs`, REST handlers, and WebSocket handlers remain target runtime
-  validation.
+  `Tune.purs`, live REST handlers, and live WebSocket handlers remain target
+  runtime validation.
 
 ### Validation
 
@@ -171,7 +171,7 @@ handlers exist in the current tree.
    count.
 2. `cabal test jitml-purescript-style` validates the generated contract file
    exists.
-3. `jitml-unit` verifies the local bundle and panel metadata.
+3. `jitml-unit` verifies the local bundle, panel, and demo-route metadata.
 
 ## Sprint 11.5: `jitml-demo` Executable Shim ✅
 
@@ -183,14 +183,16 @@ handlers exist in the current tree.
 
 ### Objective
 
-Stand up the `jitml-demo` sibling executable shim and chart deployment surface.
-The real HTTP server remains target runtime work.
+Stand up the `jitml-demo` sibling executable shim, typed demo route manifest,
+and chart deployment surface. The real HTTP server remains target runtime work.
 
 ### Deliverables
 
 - `app/Demo.hs` is a six-line shim into `App.demoMain`.
-- `src/JitML/App.hs` owns `demoMain`, which currently prints
-  `jitml-demo: serving generated frontend contract surface`.
+- `src/JitML/App.hs` owns `demoMain`, which prints the typed `demoStatusLine`
+  from `src/JitML/Web/Bundle.hs`.
+- `src/JitML/Web/Bundle.hs` declares `demoRoutes` for `/`, `/api`, and
+  `/api/ws`.
 - The `Deployment/jitml-demo` template is populated with the demo image.
 - HTTPRoutes for `/`, `/api`, `/api/ws` (Sprint `3.4`) point at
   `jitml-demo:80`.
@@ -200,6 +202,8 @@ The real HTTP server remains target runtime work.
 1. Running `jitml-demo` prints the generated-frontend status line.
 2. The `Deployment/jitml-demo` chart template names the demo image and exposes
    container port `80`.
+3. `jitml-e2e` verifies the local demo route manifest covers `/`, `/api`, and
+   `/api/ws`.
 
 ## Sprint 11.6: Playwright E2E Suite ✅
 
@@ -240,12 +244,11 @@ Land the Playwright scaffold for the future interactive panel suite.
 **Engineering docs to create/update:**
 
 - `documents/engineering/purescript_frontend.md` — current minimal PureScript
-  shell, local contract renderer, bundle/panel metadata, demo shim, and
-  Playwright scaffold; target Halogen, REST / WS, compiled bundle, and live
-  panel surfaces.
+  shell, local contract renderer, bundle/panel/demo-route metadata, demo shim,
+  and Playwright scaffold; target Halogen, live REST / WS, compiled bundle, and
+  live panel surfaces.
 - `documents/engineering/code_quality.md` — note that
-  `web/src/Generated/Contracts.purs` is still only a
-  `futureTrackingGeneratedPathPatterns` entry.
+  `web/src/Generated/Contracts.purs` is an active generated path.
 - `documents/engineering/daemon_architecture.md` — `jitml-demo` server
   shape and its place in the deployment.
 - `documents/engineering/unit_testing_policy.md` — Playwright belongs to

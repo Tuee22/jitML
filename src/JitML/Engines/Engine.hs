@@ -2,11 +2,20 @@
 
 module JitML.Engines.Engine
   ( Engine (..)
+  , EngineEnvelope (..)
+  , JitCacheStatus (..)
+  , KernelHandle (..)
+  , KernelInputs (..)
+  , KernelOutputs (..)
   , compileSubprocess
   , deterministicFlags
+  , engineEnvelope
   , engineForSubstrate
+  , kernelHandleFor
   , renderBuildPlan
+  , renderEngineEnvelope
   , renderEnginePlan
+  , resolveKernelCache
   )
 where
 
@@ -29,6 +38,39 @@ data Engine = Engine
   , engineBackend :: Text
   , engineArtifactExtension :: Text
   }
+  deriving stock (Eq, Show)
+
+data KernelHandle = KernelHandle
+  { kernelHandleEngine :: Engine
+  , kernelHandleHash :: Cache.Hash
+  , kernelHandleArtifactPath :: Text
+  }
+  deriving stock (Eq, Show)
+
+data KernelInputs = KernelInputs
+  { kernelInputShape :: [Int]
+  , kernelInputBytes :: Int
+  }
+  deriving stock (Eq, Show)
+
+data KernelOutputs = KernelOutputs
+  { kernelOutputShape :: [Int]
+  , kernelOutputBytes :: Int
+  }
+  deriving stock (Eq, Show)
+
+data EngineEnvelope = EngineEnvelope
+  { envelopeHandle :: KernelHandle
+  , envelopeInputs :: KernelInputs
+  , envelopeOutputs :: KernelOutputs
+  , envelopeDeterminism :: [Text]
+  , envelopeCompileCommand :: Text
+  }
+  deriving stock (Eq, Show)
+
+data JitCacheStatus
+  = JitCacheHit KernelHandle
+  | JitCacheMiss KernelHandle Subprocess
   deriving stock (Eq, Show)
 
 engineForSubstrate :: Substrate -> Engine
@@ -62,6 +104,48 @@ renderBuildPlan engine source hash =
     , "compile:"
     , "  - " <> renderSubprocess (compileSubprocess engine source hash)
     ]
+
+kernelHandleFor :: Engine -> Cache.Hash -> KernelHandle
+kernelHandleFor engine hash =
+  KernelHandle
+    { kernelHandleEngine = engine
+    , kernelHandleHash = hash
+    , kernelHandleArtifactPath = artifactPathText engine hash
+    }
+
+resolveKernelCache :: Engine -> RuntimeSource -> Cache.Hash -> Bool -> JitCacheStatus
+resolveKernelCache engine source hash cacheArtifactExists =
+  let handle = kernelHandleFor engine hash
+   in if cacheArtifactExists
+        then JitCacheHit handle
+        else JitCacheMiss handle (compileSubprocess engine source hash)
+
+engineEnvelope
+  :: Engine -> RuntimeSource -> Cache.Hash -> KernelInputs -> KernelOutputs -> EngineEnvelope
+engineEnvelope engine source hash inputs outputs =
+  EngineEnvelope
+    { envelopeHandle = kernelHandleFor engine hash
+    , envelopeInputs = inputs
+    , envelopeOutputs = outputs
+    , envelopeDeterminism = deterministicFlags engine
+    , envelopeCompileCommand = renderSubprocess (compileSubprocess engine source hash)
+    }
+
+renderEngineEnvelope :: EngineEnvelope -> Text
+renderEngineEnvelope envelope =
+  Text.unlines
+    [ "artifact: " <> kernelHandleArtifactPath handle
+    , "backend: " <> engineBackend (kernelHandleEngine handle)
+    , "input_shape: " <> renderIntList (kernelInputShape (envelopeInputs envelope))
+    , "input_bytes: " <> Text.pack (show (kernelInputBytes (envelopeInputs envelope)))
+    , "output_shape: " <> renderIntList (kernelOutputShape (envelopeOutputs envelope))
+    , "output_bytes: " <> Text.pack (show (kernelOutputBytes (envelopeOutputs envelope)))
+    , "determinism:"
+    , "  - " <> Text.intercalate "\n  - " (envelopeDeterminism envelope)
+    , "compile: " <> envelopeCompileCommand envelope
+    ]
+ where
+  handle = envelopeHandle envelope
 
 compileSubprocess :: Engine -> RuntimeSource -> Cache.Hash -> Subprocess
 compileSubprocess engine source hash =
@@ -106,3 +190,7 @@ artifactPathText engine hash =
     , "."
     , engineArtifactExtension engine
     ]
+
+renderIntList :: [Int] -> Text
+renderIntList values =
+  "[" <> Text.intercalate ", " (fmap (Text.pack . show) values) <> "]"

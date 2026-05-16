@@ -92,12 +92,13 @@ import JitML.Tart.Exec (tartSshSubprocess)
 import JitML.Tart.Lifecycle (VmName (..), ensureVmUp)
 import JitML.Test.Report (ReportCard (..), renderReportCard, reportStanzas)
 import JitML.Tune.Catalog qualified as Tune
+import JitML.Web.Bundle qualified as WebBundle
 
 main :: IO ()
 main = getArgs >>= runArgs
 
 demoMain :: IO ()
-demoMain = writeLineIO "jitml-demo: serving generated frontend contract surface"
+demoMain = writeLineIO WebBundle.demoStatusLine
 
 runArgs :: [String] -> IO ()
 runArgs args =

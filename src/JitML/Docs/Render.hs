@@ -3,13 +3,25 @@
 
 module JitML.Docs.Render
   ( renderBashCompletion
+  , renderClusterRoutes
+  , renderDaemonSurface
   , renderFishCompletion
   , renderGeneratedSectionIndex
   , renderHelpBlocks
   , renderManpage
   , renderMarkdownReference
+  , renderNumericsActivations
+  , renderNumericsLayers
+  , renderNumericsLosses
+  , renderNumericsOptimizers
+  , renderNumericsSchedulers
+  , renderNumericsSpectral
   , renderReadmeCommandRegistry
   , renderReadmeCommandTree
+  , renderTrainingRlCatalog
+  , renderTrainingTunePruners
+  , renderTrainingTuneSamplers
+  , renderTrainingTuneSchedulers
   , renderZshCompletion
   )
 where
@@ -29,6 +41,10 @@ import JitML.CLI.Spec
   , commandRegistry
   , commandUsage
   )
+import JitML.Numerics.Catalog qualified as Numerics
+import JitML.RL.Algorithms qualified as RL
+import JitML.Routes qualified as Routes
+import JitML.Tune.Catalog qualified as Tune
 
 renderReadmeCommandTree :: Text
 renderReadmeCommandTree =
@@ -82,8 +98,110 @@ renderGeneratedSectionIndex =
     , "| Daemon endpoint and config table | `daemon.surface` | Sprint 5.3 |"
     , "| RL algorithm catalog table | `training.rl.catalog` | Sprint 9.3 |"
     , "| Hyperparameter tuning tables | `training.tune.samplers`, `training.tune.schedulers`, `training.tune.pruners` | Sprint 9.7 |"
+    , "| PureScript contract file | `web.contracts.purescript` | Sprint 11.2 |"
+    , "| Chart HTTPRoutes | `chart.routes.*` | Sprint 3.4 |"
+    , "| Grafana dashboard ConfigMaps | `chart.grafana.*` | Sprint 4.5 |"
+    , "| Prometheus scrape config | `chart.prometheus.scrape` | Sprint 4.5 |"
     , "| Cross-language types (TypeScript / PureScript mirrors of Haskell ADTs) | `cross-language-types.*` | Sprint 11.2 |"
     ]
+
+renderClusterRoutes :: Text
+renderClusterRoutes = Routes.renderRouteTable
+
+renderNumericsLayers :: Text
+renderNumericsLayers = renderCurrentScopeTable "Constructor" (fmap showText Numerics.layerCatalog)
+
+renderNumericsActivations :: Text
+renderNumericsActivations =
+  Text.unlines $
+    [ "| Real-valued | Complex-valued |"
+    , "|-------------|----------------|"
+    ]
+      <> zipActivationRows realActivations complexActivations
+ where
+  names = fmap showText Numerics.activationCatalog
+  realActivations = filter (not . Text.isPrefixOf "Complex") names
+  complexActivations = filter (Text.isPrefixOf "Complex") names
+
+renderNumericsSpectral :: Text
+renderNumericsSpectral = renderCurrentScopeTable "Constructor" (fmap showText Numerics.spectralCatalog)
+
+renderNumericsOptimizers :: Text
+renderNumericsOptimizers = renderCurrentScopeTable "Constructor" (fmap showText Numerics.optimizerCatalog)
+
+renderNumericsSchedulers :: Text
+renderNumericsSchedulers = renderCurrentScopeTable "Constructor" (fmap showText Numerics.schedulerCatalog)
+
+renderNumericsLosses :: Text
+renderNumericsLosses = renderCurrentScopeTable "Constructor" (fmap showText Numerics.lossCatalog)
+
+renderDaemonSurface :: Text
+renderDaemonSurface =
+  Text.unlines
+    [ "| Surface | Current owner | Current behavior |"
+    , "|---------|---------------|------------------|"
+    , "| `/healthz` | `JitML.Service.Endpoints.healthz` | Renderable `200` response body |"
+    , "| `/readyz` | `JitML.Service.Endpoints.readyz` | Renderable ready/not-ready response body |"
+    , "| `/metrics` | `JitML.Service.Endpoints.metrics` | Renderable Prometheus text snapshot |"
+    , "| `BootConfig` | `JitML.Service.BootConfig` and `dhall/service/BootConfig.dhall` | Cluster/host residency, inference mode, Pulsar, MinIO, Harbor, HTTP listener fields |"
+    , "| `LiveConfig` | `JitML.Service.LiveConfig` and `dhall/service/LiveConfig.dhall` | Log level, retry policy, tart idle timeout, inference batching/SLO, drain deadline fields |"
+    , "| SIGHUP reload decision | `JitML.Service.HotReload` | Pure reload/ignore/restart-required decision surface |"
+    , "| Consumer idempotency | `JitML.Service.Consumer` | Pure payload-hash deduplication surface |"
+    ]
+
+renderTrainingRlCatalog :: Text
+renderTrainingRlCatalog =
+  Text.unlines $
+    [ "| Algorithm | Family | Replay-backed | Current owner |"
+    , "|-----------|--------|---------------|---------------|"
+    ]
+      <> fmap rlAlgorithmRow RL.algorithmCatalog
+
+renderTrainingTuneSamplers :: Text
+renderTrainingTuneSamplers = renderCurrentScopeTable "Constructor" (fmap showText Tune.samplerCatalog)
+
+renderTrainingTuneSchedulers :: Text
+renderTrainingTuneSchedulers = renderCurrentScopeTable "Constructor" (fmap showText Tune.schedulerCatalog)
+
+renderTrainingTunePruners :: Text
+renderTrainingTunePruners = renderCurrentScopeTable "Constructor" (fmap showText Tune.prunerCatalog)
+
+renderCurrentScopeTable :: Text -> [Text] -> Text
+renderCurrentScopeTable label values =
+  Text.unlines $
+    [ "| " <> label <> " | Current scope |"
+    , "|-------------|---------------|"
+    ]
+      <> fmap (\value -> "| `" <> value <> "` | Generated from current Haskell catalog |") values
+
+zipActivationRows :: [Text] -> [Text] -> [Text]
+zipActivationRows left right =
+  [ "| " <> renderCell realValue <> " | " <> renderCell complexValue <> " |"
+  | (realValue, complexValue) <- zipPad left right
+  ]
+
+zipPad :: [Text] -> [Text] -> [(Maybe Text, Maybe Text)]
+zipPad [] [] = []
+zipPad (left : leftRest) [] = (Just left, Nothing) : zipPad leftRest []
+zipPad [] (right : rightRest) = (Nothing, Just right) : zipPad [] rightRest
+zipPad (left : leftRest) (right : rightRest) = (Just left, Just right) : zipPad leftRest rightRest
+
+renderCell :: Maybe Text -> Text
+renderCell Nothing = ""
+renderCell (Just value) = "`" <> value <> "`"
+
+rlAlgorithmRow :: RL.RLAlgorithm -> Text
+rlAlgorithmRow algorithm =
+  Text.intercalate
+    " | "
+    [ "| `" <> RL.algorithmName algorithm <> "`"
+    , Text.pack (show (RL.algorithmFamily algorithm))
+    , if RL.algorithmReplayBased algorithm then "yes" else "no"
+    , "`src/JitML/RL/Algorithms.hs` |"
+    ]
+
+showText :: (Show value) => value -> Text
+showText = Text.pack . show
 
 renderManpage :: Text
 renderManpage =

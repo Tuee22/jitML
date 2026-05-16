@@ -81,15 +81,16 @@ dependencies:
 | `kube-prometheus-stack` | Prometheus operator + Grafana | Sprint 4.5 |
 | `tensorboard` | jitML-owned chart with MinIO event-storage backing | Sprint 4.6 |
 
-Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes (rendered
-from the route registry), EnvoyProxy, manual PVs (one per replica),
-`jitml-service` Deployment, `jitml-demo` Deployment, NVIDIA RuntimeClass for
-the CUDA substrate, Grafana datasources and dashboards (provisioned
-ConfigMaps), Prometheus scrape configs.
+Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes rendered
+from the route registry, EnvoyProxy, manual PVs, `jitml-service` Deployment,
+`jitml-demo` Deployment, NVIDIA RuntimeClass for the CUDA substrate, MinIO
+values, service ConfigMaps, generated Grafana dashboard ConfigMaps, and the
+generated Prometheus scrape config. The current typed renderers live under
+`src/JitML/Observability/`.
 
 ## Phased Deploy
 
-`jitml bootstrap --<substrate>` runs the phased rollout:
+The target `jitml bootstrap --<substrate>` runs the phased rollout:
 
 1. **Harbor phase**: Harbor plus Percona Operator / Patroni-managed Postgres
    needed by packaged services comes up first, using only the public pulls
@@ -103,6 +104,10 @@ ConfigMaps), Prometheus scrape configs.
 
 This avoids the chicken-and-egg of "Harbor isn't up yet, but everything wants
 to pull from it" without resorting to image-pull-secret juggling.
+
+The current command path materializes local Kind, chart, Dhall, and publication
+inputs; it does not create a Kind cluster, run Helm, mirror images, or mutate a
+live cluster yet.
 
 ## `jitml-service` Deployment, Not StatefulSet
 
@@ -118,8 +123,9 @@ Each node maintains its own JIT cache under that node's
 functions of `(model-shape, kind, substrate, toolchain)`, so the worst case
 is that the same model gets JITted once per node on first use.
 
-Namespace: `platform` (fixed). `jitml bootstrap --<substrate>` creates it
-idempotently.
+Namespace: `platform` (fixed) in the target chart. Current local bootstrap
+materializes chart inputs only; live namespace creation remains target apply
+behavior.
 
 ## Envoy Gateway: A Single Localhost Socket
 
@@ -142,20 +148,20 @@ Hand-written HTTPRoute YAML is hlint-forbidden.
 ## Routes Published at the Edge
 
 <!-- jitml:cluster.routes:start -->
-| Path prefix | Upstream | Rewrite |
-|---|---|---|
-| `/` | `jitml-demo:80` (PureScript bundle) | (none) |
-| `/api` | `jitml-demo:80` | (none) |
-| `/api/ws` | `jitml-demo:80` (WebSocket) | (none) — live training events |
-| `/tensorboard` | `tensorboard:6006` | `/` |
-| `/grafana` | `grafana:3000` | `/` |
-| `/prometheus` | `prometheus:9090` | `/` |
-| `/harbor` | `jitml-harbor-portal:80` | `/` |
-| `/harbor/api` | `jitml-harbor-core:80` | `/api` |
-| `/minio/console` | `jitml-minio-console:9090` | `/` |
-| `/minio/s3` | `jitml-minio:9000` | `/` |
-| `/pulsar/admin` | `jitml-pulsar-proxy:80` | `/admin` |
-| `/pulsar/ws` | `jitml-pulsar-proxy:80` (WebSocket) | `/ws` |
+| Prefix | Service | Port | Rewrite | WebSocket |
+|--------|---------|------|---------|-----------|
+| `/` | `jitml-demo` | 80 | `-` | no |
+| `/api` | `jitml-demo` | 80 | `-` | no |
+| `/api/ws` | `jitml-demo` | 80 | `-` | yes |
+| `/tensorboard` | `tensorboard` | 6006 | `/` | no |
+| `/grafana` | `grafana` | 3000 | `/` | no |
+| `/prometheus` | `prometheus` | 9090 | `/` | no |
+| `/harbor` | `jitml-harbor-portal` | 80 | `/` | no |
+| `/harbor/api` | `jitml-harbor-core` | 80 | `/api` | no |
+| `/minio/console` | `jitml-minio-console` | 9090 | `/` | no |
+| `/minio/s3` | `jitml-minio` | 9000 | `/` | no |
+| `/pulsar/admin` | `jitml-pulsar-proxy` | 80 | `/admin` | no |
+| `/pulsar/ws` | `jitml-pulsar-proxy` | 80 | `/ws` | yes |
 <!-- jitml:cluster.routes:end -->
 
 This table is regenerated from the route registry (Sprint `3.4`) by

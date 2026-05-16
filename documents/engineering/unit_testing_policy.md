@@ -33,11 +33,11 @@ cluster validation remains phase-gated:
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS, TensorBoard sidecar, and frontend bundle/panel surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers the typed subprocess boundary, bootstrap plan, Kind config renderer, and route renderer | Integration | Sprint 12.2 |
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS, TensorBoard sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
+| `jitml-integration` | `test/integration/Main.hs` covers the typed subprocess boundary, bootstrap plan, Kind config renderer, route renderer, and route-table golden fixture | Integration | Sprint 12.2 |
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves | Integration (project-specific) | Sprint 12.3 |
-| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, and AlphaZero self-play transcript shape | Integration (project-specific) | Sprint 12.4 |
-| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes and deterministic trial generation | Integration (project-specific) | Sprint 12.5 |
+| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, PPO/CartPole golden trajectory, and AlphaZero self-play transcript fixture | Integration (project-specific) | Sprint 12.4 |
+| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes, deterministic trial generation, and Sobol/GA golden fixtures | Integration (project-specific) | Sprint 12.5 |
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags and checkpoint inference parity | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, and at-least-once deduplication | Daemon Lifecycle | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, and report-card surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
@@ -77,73 +77,52 @@ through the same boundary.
 
 ### `jitml-sl-canonicals` — SL canon coverage
 
-Exercises the eleven canonical SL `(dataset, model)` pairs from
-[../../README.md → Canonical supervised learning
-problems](../../README.md#canonical-supervised-learning-problems). For
-each cell:
-
-1. **Same-substrate determinism.** Two runs with the same `(seed, knobs)`
-   produce byte-equal training transcripts.
-2. **Convergence golden.** `median(final_metric) ≥ T` where `T` is set per
-   the `k=5` replicate methodology in [../../README.md → Threshold
-   methodology](../../README.md#threshold-methodology); per-seed final-metric
-   distributions are committed as JSON fixtures; regression detection by
-   Kolmogorov–Smirnov shift.
+The current body exercises the eleven local canonical cells from
+`src/JitML/SL/Canonicals.hs`, verifies each synthetic convergence curve is
+deterministic, and asserts the final synthetic loss improves over the initial
+loss. Live training transcript byte equality and committed convergence fixtures
+remain target runtime validation.
 
 ### `jitml-rl-canonicals` — RL canon coverage
 
-Exercises the stable-baselines3 algorithm family plus AlphaZero self-play
-on the canonical Connect 4 surface. Forms (2) and (3) from
-[../../README.md](../../README.md):
-
-- **Form (2) trajectory determinism.** Fix `(env, algo, seed, policy_init)`,
-  run a small fixed number of steps, SHA-256 the `(obs, action, reward,
-  done)` sequence, assert byte equality across runs.
-- **Form (3) final-reward distribution.** Fix `(env, algo, seed_pool of k=5,
-  hyperparameters)`, train to budget, `median(final_reward) ≥ T`. Stores the
-  full per-seed distribution as a JSON fixture; regression detection by
-  Kolmogorov–Smirnov.
+The current body checks representative entries in `algorithmCatalog`, verifies
+`deterministicTrajectory` is stable for a fixed algorithm and seed, compares the
+PPO/CartPole trajectory to `test/golden/rl/ppo/cartpole/trajectory.txt`, and
+checks the local Connect 4 transcript helper emits legal columns and matches
+`test/golden/alphazero/connect4-transcript.txt`. Environment rollouts, policy
+training, reward-distribution fixtures, and live AlphaZero self-play remain
+target validation.
 
 ### `jitml-hyperparameter` — sampler / scheduler / pruner reproducibility
 
-Per-sampler reproducibility for Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II,
-(μ,λ)-ES, CMA-ES, PBT (fixing `(sampler, seed, search-space)` produces a
-byte-equal trial proposal sequence); per-scheduler reproducibility for
-Fifo, SuccessiveHalving, Hyperband, ASHA; per-pruner reproducibility for
-median and percentile; resume-from-partial-sweep equality.
+The current body checks the local `Sobol`, `Random`, `GeneticAlgorithm`, and
+`EvolutionStrategies` samplers; `Fifo`, `SuccessiveHalving`, `Hyperband`, and
+`ASHA` schedulers; and `NoPruner`, `MedianPruner`, and `PercentilePruner`
+pruners. It verifies deterministic local trial values and the current Sobol/GA
+golden fixtures. Larger sampler families, live trial persistence, and
+resume-from-partial-sweep equality against MinIO remain target validation.
 
 ### `jitml-cross-backend` and the Tolerance Band
 
-Cross-substrate cohorts `(cpu, cuda)` and `(cpu, metal)` on the SL canon.
-For each `(workload, substrate-pair)` cell:
-
-- Asserts same-substrate bit-equality across two runs (matches the per-
-  substrate determinism contract from
-  [determinism_contract.md](determinism_contract.md)).
-- Asserts cross-substrate per-tensor `max-abs(deltaᵢⱼ)` drift fits inside
-  the committed tolerance band at
-  `test/golden/cross-backend/<pair>/<tensor>.json`; bands are set per
-  layer family in [determinism_contract.md](determinism_contract.md) by the
-  `k=5` replicate methodology.
-
-Widening any committed band requires a written cause in the PR
-description; tightening is a free win. This stanza is the closure gate for
-the development plan.
+The current body checks that every local substrate has deterministic engine
+flags and that the local `inferFromManifest` helper returns the same summary
+for every substrate. Live kernel launches, same-substrate bit equality, and
+cross-substrate tolerance fixtures under `test/golden/cross-backend/` remain
+the final handoff validation gate.
 
 ### `jitml-daemon-lifecycle`
 
-Spawns the real `jitml service` binary against a synthetic `BootConfig`
-Dhall, drives it through `load → prereq → acquire → ready → serve → drain →
-exit`, polls `/healthz` / `/readyz` / `/metrics`, exercises SIGHUP hot
-reload, asserts at-least-once Pulsar consumer idempotency (replaying the
-same envelope twice ⇒ one durable side effect), and asserts SIGTERM
-graceful drain within the documented budget.
+The current body exercises local lifecycle ordering, renderable endpoint
+responses, retry policy behavior, and payload-hash deduplication. Real process
+spawning, POSIX signal handling, HTTP polling, live Pulsar redelivery, and
+SIGTERM drain remain target runtime validation.
 
 ### `jitml-e2e` and Pulumi
 
-The Pulumi TypeScript program at `infra/pulumi/` is the orchestrator for
-the ephemeral Kind stack. It is the only path that touches Pulumi. Test
-driver:
+The current `jitml-e2e` body validates local route, bucket, publication,
+browser-contract, and report-card surfaces. The Pulumi TypeScript program at
+`infra/pulumi/` currently exports stack metadata only; it is the target
+orchestrator for the ephemeral Kind stack. Future live test driver:
 
 1. `pulumi up` brings up the stack (Kind cluster, Helm chart in its `final`
    phase against a temporary registry image pushed during the run, plus the
@@ -159,7 +138,7 @@ driver:
 4. `pulumi destroy` and a teardown audit (no orphan PVs, MinIO buckets,
    Harbor projects, or Docker volumes survive).
 
-All Pulumi invocations flow through the typed `Subprocess` boundary.
+Future Pulumi invocations flow through the typed `Subprocess` boundary.
 
 ### `jitml-haskell-style`
 
@@ -173,15 +152,16 @@ gate.
 ### `jitml-purescript-style`
 
 Project-specific Lint extension under doctrine §Test Organization's
-project-specific stanzas allowance: `purs format` round-trip byte equality
-across every `web/src/**/*.purs` and `web/test/**/*.purs` file, plus the
-`purescript-spec` smoke tests against the generated browser contracts. Both
-run through the typed `Subprocess` boundary from the Haskell side.
+project-specific stanzas allowance. The current body checks that
+`web/src/Generated/Contracts.purs` exists and names the expected endpoint
+surface, and that the local Haskell renderer emits the module header. PureScript
+`purs format` round-trip and `purescript-spec` smoke tests remain target work.
 
 ### Playwright
 
-Playwright belongs to the doctrine's Pulumi-Orchestrated Infrastructure
-test category and runs inside `jitml-e2e`, not in its own stanza.
+Playwright belongs to the doctrine's target Pulumi-Orchestrated Infrastructure
+test category. The current repository has `playwright/jitml-demo.spec.ts` as a
+scaffold, but the current `jitml-e2e` body does not invoke it.
 
 ### Property Invariants
 
@@ -192,10 +172,12 @@ canonical invariants:
 - `render is deterministic`
 - `parser roundtrips`
 
-These hold for the transcript codec, the `.jmw1` checkpoint format, the
-manifest CBOR, the route registry, the Grafana dashboard renderer, every
-proto schema, the numerical-core ADT round-trips, and the RL framework
-primitives.
+Current checked coverage applies these invariants to the local parser, renderers,
+route registry, cache helpers, checkpoint key/CAS helpers, runtime-source
+renderers, numerical/RL Dhall catalog mirrors, local catalog helpers, and the
+current route/Grafana/tuning/RL golden fixtures.
+Transcript codecs, manifest CBOR, protobuf schemas, generated Grafana fixtures,
+and richer numerical-core Dhall round-trips remain target validation.
 
 ### Golden Tests and Sentinel Placeholders
 

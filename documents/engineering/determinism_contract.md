@@ -119,8 +119,11 @@ substrate-explicit and toolchain-explicit.
 
 ## Engine Envelope
 
-Every checkpoint manifest carries a typed `EngineEnvelope` block that captures
-the substrate-specific reproducibility witnesses:
+The current local `EngineEnvelope` in `src/JitML/Engines/Engine.hs` captures
+the kernel handle, input/output shape metadata, deterministic flag list, and
+compile command for deterministic inspection. Target checkpoint manifests carry
+a richer typed `EngineEnvelope` block with substrate-specific reproducibility
+witnesses:
 
 | Substrate | Envelope fields |
 |-----------|-----------------|

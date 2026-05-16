@@ -12,13 +12,12 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up supervised learning training loops with the canonical SL
-> problem set and golden convergence curves, the canonical RL environment set,
-> and the typed RL framework primitives — Algorithm class taxonomy at the type
-> level, Policy as typed value, Environment / VecEnv as typed capability,
-> replay/rollout buffers with `Async` write discipline, schedules, action
-> distributions, action noise, target networks + Polyak averaging, GAE,
-> callbacks, multi-sink Logger, Evaluator, training loops as typed pipelines.
+> **Purpose**: Stand up the current local supervised-learning and RL framework
+> surfaces — canonical SL summaries, RL catalog/environment metadata,
+> deterministic trajectory helpers, command summaries, and run-plan metadata —
+> while keeping daemon-backed training loops, real datasets, buffers,
+> callbacks, GAE, target networks, and live Pulsar events explicit as target
+> runtime work.
 
 ## Phase Status
 
@@ -29,8 +28,9 @@ validation.
 
 ### Current Implementation Scope
 
-The current worktree implements deterministic local summaries: six canonical SL
-problem cells with synthetic convergence curves in `src/JitML/SL/Canonicals.hs`,
+The current worktree implements deterministic local summaries: eleven canonical
+SL problem cells with synthetic convergence curves in
+`src/JitML/SL/Canonicals.hs`,
 the `jitml train` / `jitml eval` command summaries, the RL command summaries,
 and deterministic trajectory helpers in `src/JitML/RL/Algorithms.hs`. It does
 not yet implement real dataset loaders, SL/RL training loops, RL environment
@@ -54,15 +54,17 @@ implementations consume them.
 ### Objective
 
 Stand up the current deterministic supervised-learning catalog summary. Real
-dataset loaders, daemon-backed training loops, MinIO dataset access, and the
-full eleven-cell canonical matrix remain target runtime work.
+dataset loaders, daemon-backed training loops, MinIO dataset access, live
+convergence thresholds, and committed golden curve fixtures remain target
+runtime work.
 
 ### Deliverables
 
-- `src/JitML/SL/Canonicals.hs` declares six current canonical cells:
-  `mnist-linear`, `fashion-mnist-cnn`, `cifar10-resnet`,
-  `cifar100-resnet`, `tiny-imagenet-attention`, and
-  `california-housing-dense`.
+- `src/JitML/SL/Canonicals.hs` declares the eleven current canonical cells:
+  `mnist-shallow-mlp`, `mnist-deep-mlp`, `mnist-lenet`,
+  `fashion-mnist-mlp`, `fashion-mnist-resnet`, `cifar10-resnet20`,
+  `cifar10-resnet56`, `cifar100-wide-resnet`, `cifar10-vit`,
+  `tiny-imagenet-resnet50`, and `california-housing-mlp`.
 - `convergenceCurve` produces a five-point deterministic synthetic loss curve
   from the problem seed.
 - `finalLoss` returns the final value from that deterministic curve.
@@ -73,8 +75,8 @@ full eleven-cell canonical matrix remain target runtime work.
 
 ### Validation
 
-1. `cabal test jitml-sl-canonicals` exercises the current local canonical
-   summary body.
+1. `cabal test jitml-sl-canonicals` exercises the current eleven-cell local
+   canonical summary body.
 2. `jitml train experiments/mnist.dhall` renders the deterministic local
    summary from `src/JitML/App.hs`.
 3. Live training thresholds and Pulsar events remain target validation.

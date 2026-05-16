@@ -7,8 +7,9 @@
 
 > **Purpose**: Project-specific JIT codegen architecture for jitML — the
 > content-addressed cache, the per-substrate compilers (Metal, oneDNN,
-> CUDA), the FFI boundary, the Apple Silicon hybrid pattern with lazy tart
-> spin-up, and the hardware auto-tuning surface.
+> CUDA), the current typed engine handle/envelope surface, the target FFI
+> boundary, the Apple Silicon hybrid pattern with lazy tart spin-up, and the
+> hardware auto-tuning surface.
 
 ## Cache Layout
 
@@ -87,18 +88,20 @@ sub-optimal.
 
 ## Engine ABI
 
-The Haskell daemon binds to substrate-specific engines through a typed ABI
-defined in `src/JitML/FFI/EngineAbi.hs`:
+The current checked-in ABI surface lives in `src/JitML/Engines/Engine.hs`.
+It provides:
 
-```haskell
-class HasEngine env where
-  launchKernel  :: KernelHandle -> KernelInputs -> IO KernelOutputs
-  paramsCommit  :: KernelHandle -> ParamSnapshot -> IO ()
-  engineEnvelope :: KernelHandle -> IO EngineEnvelope
-```
+- `KernelHandle`, naming the engine, content hash, and cache artifact path.
+- `JitCacheStatus`, distinguishing `JitCacheHit` from `JitCacheMiss` with the
+  typed compile `Subprocess` needed to fill the cache.
+- `KernelInputs` / `KernelOutputs`, recording local launch shape and byte
+  counts.
+- `EngineEnvelope`, carrying the handle, input/output metadata, per-substrate
+  determinism witnesses, and compile command text.
 
-`EngineEnvelope` carries the substrate-specific reproducibility witnesses —
-see [determinism_contract.md → Engine
+The target live daemon grows this into a `HasEngine` capability with real kernel
+launch and parameter-commit effects. `EngineEnvelope` is already the local
+reproducibility witness surface; see [determinism_contract.md → Engine
 Envelope](determinism_contract.md#engine-envelope).
 
 ## Per-Substrate Codegen Drivers
@@ -113,7 +116,9 @@ Envelope](determinism_contract.md#engine-envelope).
 - AVX2 is the baseline; AVX-512 is detected at JIT time.
 - Block size for reductions is pinned per layer family so reductions are
   host-independent. The block size is part of `ToolchainFingerprint`.
-- `LinuxCPU.HasEngine` instance loads the `.so` via the FFI loader.
+- The current local engine envelope names the `.so` artifact path and compile
+  command. A `LinuxCPU.HasEngine` instance that loads the `.so` via the FFI
+  loader remains target runtime work.
 
 ### `linux-cuda` — CUDA + cuBLAS / cuDNN
 
@@ -126,8 +131,9 @@ Envelope](determinism_contract.md#engine-envelope).
   `./.build/jit/linux-cuda/<hash>.so`.
 - cuBLAS / cuDNN are pinned to deterministic algorithm selections via
   `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning.
-- `LinuxCUDA.HasEngine` instance loads the `.so` via the FFI loader,
-  captures the engine envelope.
+- The current local engine envelope names the `.so` artifact path and compile
+  command. A `LinuxCUDA.HasEngine` instance that loads the `.so` via the FFI
+  loader remains target runtime work.
 
 ### `apple-silicon` — Swift + Metal
 
@@ -138,7 +144,9 @@ Envelope](determinism_contract.md#engine-envelope).
 - The produced `.dylib` is copied atomically to
   `./.build/jit/apple-silicon/<hash>.dylib` and the stable-FFI symlink at
   `./.build/host/apple-silicon/<model-id>.dylib` is repointed.
-- `AppleSilicon.HasEngine` instance loads the `.dylib` via the FFI loader.
+- The current local engine envelope names the `.dylib` artifact path and Tart
+  `swift build` command. An `AppleSilicon.HasEngine` instance that loads the
+  `.dylib` via the FFI loader remains target runtime work.
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
 
@@ -206,6 +214,8 @@ set. The `--use_fast_math=false` invariant is preserved.
 
 ## FFI Boundary
 
+The current worktree has typed cache decisions and `KernelHandle` construction
+in `src/JitML/Engines/Engine.hs`; it does not perform `dlopen`. Target
 `src/JitML/FFI/Loader.hs` exposes
 `loadKernel :: HasJitCache env => ModelId -> Kind -> Substrate -> IO (Either
 AppError KernelHandle)`:

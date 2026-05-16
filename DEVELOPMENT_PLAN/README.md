@@ -79,13 +79,13 @@ above.
 | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) | Phase 3: Kind cluster substrate, Helm umbrella chart, Envoy Gateway, `Routes.hs` registry |
 | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) | Phase 4: Harbor, MinIO, Pulsar, PostgreSQL, observability stack |
 | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) | Phase 5: `jitml service` daemon (BootConfig/LiveConfig, hot reload, capability classes, at-least-once Pulsar consumer) |
-| [phase-6-numerical-core.md](phase-6-numerical-core.md) | Phase 6: Layer catalog, real+complex activations, optimizers, schedulers, losses, Dhall types |
+| [phase-6-numerical-core.md](phase-6-numerical-core.md) | Phase 6: Local layer/activation/optimizer/scheduler/loss catalog, Dhall mirrors, and audit |
 | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) | Phase 7: Per-substrate JIT codegen (Metal, oneDNN, CUDA), content-addressed cache, hardware auto-tuning |
 | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) | Phase 8: Supervised learning loops, canonical SL problems, RL framework primitives |
 | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) | Phase 9: RL algorithm catalog, AlphaZero self-play, hyperparameter tuning |
 | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) | Phase 10: Split-blob checkpoint format, manifest, inference-only read path |
-| [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) | Phase 11: PureScript frontend, generated browser contracts, demo HTTP server, Playwright E2E |
-| [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Ten Cabal test stanzas, lint matrix, Pulumi-orchestrated cross-cluster parity, report-card knobs |
+| [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) | Phase 11: PureScript shell, generated browser contracts, demo shim, Playwright scaffold |
+| [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Ten Cabal test stanzas, lint matrix, Pulumi metadata scaffold, report-card knobs |
 | [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) | Cleanup ledger |
 
 ## Status Vocabulary
@@ -211,28 +211,31 @@ The implemented local end state is:
   a real long-lived HTTP/Pulsar daemon.
 - The current numerical core is a local Haskell catalog for layers,
   real/complex activation names, optimizers, schedulers, losses, and spectral
-  ops. Dhall mirrors for every constructor remain target work.
+  ops, plus Dhall mirror lists and the cross-type lint audit.
 - The current JIT engine surface is `src/JitML/Engines/Engine.hs` plus
   `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`, which
   map each substrate to a backend name, artifact extension, determinism flags,
-  generated runtime source bundle, generated-source cache-key payload, and
-  typed compiler `Subprocess` plan. Generated compiler inputs are materialized
-  under `./.build/jit-src/<substrate>/<hash>/`.
+  typed kernel handle/envelope surface, generated runtime source bundle,
+  generated-source cache-key payload, and typed compiler `Subprocess` plan.
+  Generated compiler inputs are materialized under
+  `./.build/jit-src/<substrate>/<hash>/`.
 - The current SL/RL workload surface is deterministic local catalog and summary
-  code: canonical SL problem summaries, RL algorithm catalog rows, deterministic
-  trajectory generation, AlphaZero Connect 4 transcript helpers, and tuning trial
-  sequences. Real daemon-backed training loops, environment stepping, replay
-  buffers, MinIO transcript persistence, and Pulsar event publication remain
-  target runtime work.
-- The current checkpoint surface is a small typed manifest, a simplified `.jmw1`
-  text encoder, manifest pointer rendering, and deterministic inference summary.
-  Full MinIO write-once/CAS pointer logic and real kernel-handle loading remain
-  target runtime work.
+  code: canonical SL problem summaries, RL algorithm catalog rows with a Dhall
+  mirror/audit, deterministic trajectory generation with a PPO/CartPole golden
+  fixture, AlphaZero Connect 4 transcript helpers, and tuning trial sequences.
+  Real daemon-backed training loops, environment stepping, replay buffers,
+  MinIO transcript persistence, and Pulsar event publication remain target
+  runtime work.
+- The current checkpoint surface is a small typed manifest, deterministic
+  manifest CBOR codec/content hash, a simplified `.jmw1` text encoder,
+  manifest pointer rendering, and deterministic inference summary. Full MinIO
+  write-once/CAS pointer logic and real kernel-handle loading remain target
+  runtime work.
 - The current PureScript/frontend surface is a minimal PureScript entrypoint,
-  generated contract file, typed bundle/panel manifest, Playwright scaffold,
-  chart deployment template, and `jitml-demo` executable shim that prints a
-  status line. There is no checked-in Halogen dependency, compiled browser
-  bundle, or real HTTP server yet.
+  generated contract file, typed bundle/panel/demo-route manifest, Playwright
+  scaffold, chart deployment template, and `jitml-demo` executable shim that
+  prints a typed status line. There is no checked-in Halogen dependency,
+  compiled browser bundle, or real HTTP server yet.
 - Ten Cabal test-suite stanzas (`jitml-unit`, `jitml-integration`,
   `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
   `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`,
@@ -243,9 +246,9 @@ The implemented local end state is:
   The Pulumi program at `infra/pulumi/` exports stack metadata only, not a live
   ephemeral Kind orchestrator.
 
-No reopened local sprints remain. Live cross-cluster rollout remains the
-outstanding validation gate for the overall handoff, not an unowned plan
-surface.
+No reopened local sprints remain. Live cross-cluster rollout and the
+ledger-tracked `allow-newer` removal remain outstanding final-handoff gates, not
+unowned local phase surfaces.
 
 ## Sprint Dependencies
 
@@ -368,7 +371,7 @@ This plan is complete only when all of the following are true:
 17. The route registry `src/JitML/Routes.hs` is the source of truth for every
     HTTPRoute resource emitted by the umbrella chart's renderer.
 18. [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) contains no
-    unresolved cleanup once Phase `12` closes.
+    unresolved cleanup once the final handoff gate closes.
 
 ## Related Documents
 

@@ -16,8 +16,9 @@
 > `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
 > `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style`), the
 > `jitml test all` Plan/Apply orchestrator, the report-card knob plumbing,
-> the Pulumi-orchestrated ephemeral-Kind stack at `infra/pulumi/`, and the
-> cross-substrate parity gate that closes the plan. Phase 12 owns the
+> the current Pulumi metadata scaffold at `infra/pulumi/` for the target
+> ephemeral-Kind orchestrator, and the cross-substrate parity gate that closes
+> the final handoff. Phase 12 owns the
 > integration / canonicals / cross-backend / daemon-lifecycle / e2e stanzas
 > and the orchestrator; `jitml-haskell-style` is owned by Sprint `1.4`;
 > `jitml-purescript-style` is owned by Sprint `11.3`.
@@ -85,8 +86,11 @@ target work.
   AppError rendering.
 - Current golden fixtures exist under `test/golden/cache/`,
   `test/golden/cli/`, and `test/golden/prerequisite/`.
-- Route-table, Grafana, Sobol, GA, transcript, numerical round-trip, and
-  AlphaZero MCTS golden fixtures are not present yet.
+- Route-table, Grafana daemon-health, Sobol, GA, PPO/CartPole trajectory, and
+  AlphaZero Connect 4 transcript golden fixtures are present under
+  `test/golden/`. Richer transcript codecs and AlphaZero MCTS golden fixtures
+  remain target work. The numerical and RL Dhall catalog mirrors are audited by
+  the current unit/lint body.
 
 ### Validation
 
@@ -115,8 +119,11 @@ integration and same-substrate training determinism remain target work.
   ordering.
 - It verifies Kind config rendering is deterministic and route registry
   rendering covers the registered routes.
-- Real `jitml` binary spawning, checkpoint round-trip, resume semantics,
-  Dhall decoding, and training transcript determinism are not present yet.
+- It compares the rendered route table against
+  `test/golden/cluster/route-table.md`.
+- Real `jitml` binary spawning, checkpoint round-trip, resume semantics, and
+  training transcript determinism are not present yet. Current numerical and RL
+  Dhall catalog mirrors are decoded and drift-checked by `jitml-unit`.
 
 ### Validation
 
@@ -133,14 +140,14 @@ integration and same-substrate training determinism remain target work.
 
 ### Objective
 
-Use `jitml-sl-canonicals` for the current local supervised-learning canonical
-summary workload. The full eleven-cell target matrix remains future runtime
-work.
+Use `jitml-sl-canonicals` for the current eleven-cell local supervised-learning
+canonical summary workload. Live training thresholds and committed convergence
+fixtures remain future runtime work.
 
 ### Deliverables
 
-- `test/sl-canonicals/Main.hs` verifies the six current local canonical cells
-  from `src/JitML/SL/Canonicals.hs`.
+- `test/sl-canonicals/Main.hs` verifies the eleven current local canonical
+  cells from `src/JitML/SL/Canonicals.hs`.
 - It asserts convergence curves are deterministic and contain five points.
 - It asserts each final synthetic loss is lower than the initial loss.
 - It does not run live training or consume `SL_EPOCHS` / `SL_BATCH` yet.
@@ -168,8 +175,10 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 - `test/rl-canonicals/Main.hs` verifies representative entries in
   `algorithmCatalog`: `PPO`, `SAC`, `HER`, and `AlphaZero`.
 - It asserts `deterministicTrajectory` is deterministic for a fixed algorithm
-  and seed.
+  and seed and matches the current PPO/CartPole golden fixture.
 - It asserts `selfPlayTranscript` emits legal Connect 4 columns.
+- It compares the local Connect 4 transcript shape against
+  `test/golden/alphazero/connect4-transcript.txt`.
 - It does not run RL environments, train policies, or consume
   `RL_STEPS`, `RL_EVAL_EPISODES`, `AZ_GAMES`, or `AZ_SIMS` yet.
 
@@ -199,6 +208,8 @@ and deterministic trial-value checks.
 - It asserts `deterministicTrials sampler 8` is stable for every current
   sampler.
 - It asserts generated trial values are normalized into `[0, 1)`.
+- It compares Sobol and GeneticAlgorithm trial streams against the current
+  fixtures under `test/golden/tune/`.
 - Full sampler set, scheduler/pruner event semantics, resume equality, and
   report-card knob consumption remain target work.
 

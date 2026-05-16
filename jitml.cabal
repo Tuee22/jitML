@@ -50,10 +50,13 @@ library
         JitML.Generated.Paths
         JitML.Generated.Registry
         JitML.Lint.Chart
+        JitML.Lint.DhallNumerics
+        JitML.Lint.DhallRL
         JitML.Lint.ForbiddenPaths
         JitML.Lint.Stack
         JitML.Lint.Stack.Types
         JitML.Numerics.Catalog
+        JitML.Numerics.Schema
         JitML.Observability.Grafana
         JitML.Observability.Prometheus
         JitML.Observability.TensorBoard
@@ -72,6 +75,7 @@ library
         JitML.RL.AlphaZero
         JitML.RL.Environments
         JitML.RL.Framework
+        JitML.RL.Schema
         JitML.Routes
         JitML.Service.BootConfig
         JitML.Service.Capabilities
@@ -188,7 +192,8 @@ test-suite jitml-sl-canonicals
         base >=4.22 && <4.23,
         jitml,
         tasty,
-        tasty-hunit
+        tasty-hunit,
+        text
 
 test-suite jitml-rl-canonicals
     type:             exitcode-stdio-1.0
@@ -213,7 +218,8 @@ test-suite jitml-hyperparameter
         base >=4.22 && <4.23,
         jitml,
         tasty,
-        tasty-hunit
+        tasty-hunit,
+        text
 
 test-suite jitml-cross-backend
     type:             exitcode-stdio-1.0

@@ -10,6 +10,7 @@ import JitML.Routes (routeRegistry, routeServiceName)
 import JitML.Storage.Buckets (bucketNames)
 import JitML.Substrate (Substrate (..))
 import JitML.Test.Report (ReportCard (..), renderReportCard, reportStanzas)
+import JitML.Web.Bundle (demoRoutePath, demoRoutes)
 import JitML.Web.Contracts (apiEndpoints)
 
 main :: IO ()
@@ -29,6 +30,8 @@ main =
           publicationEdgePort (defaultPublication LinuxCUDA) @?= 9092
       , testCase "browser contracts expose interactive surfaces" $
           length apiEndpoints @?= 5
+      , testCase "demo route manifest covers edge listener paths" $
+          fmap demoRoutePath demoRoutes @?= ["/", "/api", "/api/ws"]
       , testCase "report card renders aggregate suite summary" $ do
           length reportStanzas @?= 10
           renderReportCard (ReportCard 10 0 0) @?= "passed: 10\nfailed: 0\nduration_seconds: 0\n"

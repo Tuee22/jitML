@@ -52,8 +52,8 @@ PureScript frontend. The project-specific rules below extend the lint stack.
 
 ### Chart-Shape Lint (`jitml lint chart`)
 
-Owned by `src/JitML/Lint/Chart.hs` (Sprint `1.4`). The current implementation is
-a no-op while `chart/` is absent. Once chart files land, it refuses:
+Owned by `src/JitML/Lint/Chart.hs` (Sprint `1.4`). The current implementation
+runs against the checked-in `chart/` tree and refuses:
 
 - Any `StorageClass` with a provisioner other than
   `kubernetes.io/no-provisioner`.
@@ -67,9 +67,9 @@ a no-op while `chart/` is absent. Once chart files land, it refuses:
 - Drift between the `kindest/node` pin in `kind/cluster-<substrate>.yaml`
   and the comment-mirror in `cabal.project`.
 
-### Route-Registry Drift (`jitml lint files` against `chart/templates/httproute-*.yaml`)
+### Route-Registry Drift (`jitml lint chart` against `chart/templates/httproute-*.yaml`)
 
-Owned by `src/JitML/Lint/RouteRegistry.hs` (Sprint `3.4`). Enforces:
+Owned by `src/JitML/Lint/Chart.hs` (Sprint `3.4`). Enforces:
 
 - Every route declared in `src/JitML/Routes.hs` has a generated
   `chart/templates/httproute-*.yaml` manifest.
@@ -86,10 +86,9 @@ doctrine's set with:
   Homebrew package installation is allowed only through Haskell typed
   prerequisite remediation, with pure plan construction, typed `Subprocess`
   apply, and postcondition validation.
-- Hand-edited Grafana dashboard ConfigMaps once Phase `4` promotes them from a
-  future generated-path pattern into active `trackingGeneratedPaths`.
-- Hand-edited `web/src/Generated/Contracts.purs` once Phase `11` promotes it
-  from a future generated-path pattern into active `trackingGeneratedPaths`.
+- Hand-edited Grafana dashboard ConfigMaps, generated HTTPRoute manifests,
+  generated Prometheus scrape config, or `web/src/Generated/Contracts.purs`
+  outside the active `trackingGeneratedPaths` renderer.
 
 ### `trackingGeneratedPaths` (jitML scope)
 
@@ -99,20 +98,21 @@ The active project-specific tracked-generated-paths registry currently covers:
 - `share/man/man1/jitml.1`
 - `share/completion/bash/jitml`, `share/completion/zsh/_jitml`,
   `share/completion/fish/jitml.fish`
+- `web/src/Generated/Contracts.purs`
+- `chart/templates/httproute-*.yaml`
+- `chart/templates/grafana-dashboard-*.yaml`
+- `chart/templates/prometheus-scrapeconfig-jitml.yaml`
 
 Sprint `1.3` also records future generated-path patterns for:
 
 - `share/man/man1/jitml-*.1`
-- `web/src/Generated/Contracts.purs` (Phase 11)
-- `chart/templates/httproute-*.yaml` (Phase 3)
-- `chart/templates/grafana-dashboard-*.yaml` (Phase 4)
 
 ## `jitml check-code`
 
 Current `jitml check-code` delegates to the in-repo lint stack: whitespace and
 final-newline normalization checks, forbidden repository paths, generated-doc
-drift checks, required lint config checks, optional-directory placeholders for
-future `proto/` and `web/`, a no-op chart check while `chart/` is absent, and
+drift checks, required lint config checks, optional-directory checks for
+`proto/` and `web/`, chart-shape checks, route-registry drift checks, and
 forbidden subprocess/terminal primitive scans. It also runs the external
 Haskell style stack through the typed `Subprocess` boundary and adds the
 warning-clean build gate.

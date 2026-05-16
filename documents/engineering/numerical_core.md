@@ -5,165 +5,154 @@
 **Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-6-numerical-core.md, training_workloads.md
 **Generated sections**: numerics.layers, numerics.activations, numerics.spectral, numerics.optimizers, numerics.schedulers, numerics.losses
 
-> **Purpose**: Project-specific numerical-core catalog for jitML — the layer
-> catalog (real and complex), activations (real and complex), spectral /
-> frequency-domain operations, optimizers, schedulers, loss functions, and
-> the Dhall types that mirror every Haskell ADT.
+> **Purpose**: Project-specific numerical-core catalog for jitML — the current
+> local Haskell catalog under `src/JitML/Numerics/Catalog.hs`, the Dhall mirror
+> list tree under `dhall/numerics/`, and the generated documentation tables
+> rendered from those sources.
 
 ## Catalog Shape
 
-The numerical core is a typed catalog. Every Haskell ADT has a Dhall mirror;
-every Dhall type maps to a Haskell ADT. The catalog is the source of truth
-for what experiments can declare; the JIT codegen drivers
-([jit_codegen_architecture.md](jit_codegen_architecture.md)) consume the
-catalog to produce substrate-specific kernels.
+The current numerical core is a local typed Haskell catalog. It enumerates the
+constructor names consumed by command summaries, tests, and the JIT codegen
+metadata surface. The implementation source is
+`src/JitML/Numerics/Catalog.hs`; it exposes `layerCatalog`,
+`activationCatalog`, `spectralCatalog`, `optimizerCatalog`,
+`schedulerCatalog`, `lossCatalog`, and `renderNumericalCatalog`.
 
-The catalog has no runtime behaviour of its own beyond shape validation and
-Dhall round-tripping. The training and inference loops in
-[training_workloads.md](training_workloads.md) consume the catalog.
+The current schema mirror is a constructor-name audit, not a full parameterized
+model schema. The target runtime keeps the same ownership model but adds richer
+parameterized constructors and typed records for layer shapes, optimizer
+hyperparameters, scheduler parameters, and loss parameters.
 
 ## Layers
 
 <!-- jitml:numerics.layers:start -->
-| Constructor | Real / Complex | Notes |
-|-------------|----------------|-------|
-| `Dense` | Real | Fully-connected; init strategy parameterised |
-| `Conv1D` / `Conv2D` / `Conv3D` | Real | Standard convolutions; kernel/stride/dilation parameterised |
-| `ConvTranspose1D` / `ConvTranspose2D` | Real | Transposed convolution |
-| `BatchNorm` | Real | Batch normalisation; running stats; momentum parameter |
-| `LayerNorm` | Real | Layer normalisation |
-| `GroupNorm` | Real | Group normalisation; group count parameterised |
-| `RMSNorm` | Real | Root-mean-square normalisation |
-| `Dropout` | Real | Probability parameterised; deterministic per-step under the same RNG seed |
-| `ResidualBlock` | Real | Skip-connection block; sub-graph parameterised |
-| `MultiHeadAttention` | Real | head count, head dim, dropout parameterised |
-| `MultiQueryAttention` | Real | shared-K/V variant of MHA |
-| `Embedding` | Real | Token embedding |
-| `PositionalEncoding` | Real | Sinusoidal or learned |
-| `Pool` | Real | `Max`, `Avg`, or `LP`; window/stride parameterised |
-| `Flatten` / `Reshape` / `Permute` | Real | Shape ops |
-| `ComplexDense` | Complex | Complex-valued fully-connected |
-| `ComplexConv2D` | Complex | Complex-valued 2D convolution |
-| `ComplexLayerNorm` | Complex | |
-| `ComplexAttention` | Complex | |
+| Constructor | Current scope |
+|-------------|---------------|
+| `Dense` | Generated from current Haskell catalog |
+| `Conv1D` | Generated from current Haskell catalog |
+| `Conv2D` | Generated from current Haskell catalog |
+| `Conv3D` | Generated from current Haskell catalog |
+| `ConvTranspose` | Generated from current Haskell catalog |
+| `BatchNorm` | Generated from current Haskell catalog |
+| `LayerNorm` | Generated from current Haskell catalog |
+| `GroupNorm` | Generated from current Haskell catalog |
+| `Dropout` | Generated from current Haskell catalog |
+| `ResidualBlock` | Generated from current Haskell catalog |
+| `MultiHeadAttention` | Generated from current Haskell catalog |
 <!-- jitml:numerics.layers:end -->
 
-Owning module: `src/JitML/Numerics/Layer.hs` plus the Dhall mirror at
-`dhall/numerics/Layer.dhall`.
+Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
+`dhall/numerics/Layer.dhall`. Target work adds separate parameterized layer
+modules.
 
 ## Activations
 
 <!-- jitml:numerics.activations:start -->
 | Real-valued | Complex-valued |
 |-------------|----------------|
-| `ReLU`, `LeakyReLU Double`, `PReLU` | `ModReLU Double` |
-| `ELU`, `GELU`, `SiLU` (= `Swish`) | `ZReLU` |
-| `Tanh`, `Sigmoid`, `Softplus` | `ComplexGELU` |
-| `Softmax (Maybe Axis)`, `LogSoftmax (Maybe Axis)` | `ComplexTanh` |
-| `HardSigmoid`, `HardSwish`, `Mish` | `ComplexSoftmax (Maybe Axis)` |
+| `Relu` | `ComplexModRelu` |
+| `Gelu` | `ComplexCardioid` |
+| `Tanh` |  |
+| `Sigmoid` |  |
+| `Softmax` |  |
 <!-- jitml:numerics.activations:end -->
 
-Owning modules: `src/JitML/Numerics/Activation/Real.hs`,
-`src/JitML/Numerics/Activation/Complex.hs`.
+Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
+`dhall/numerics/Activation.dhall`.
 
 ## Spectral / Frequency-Domain Operations
 
 <!-- jitml:numerics.spectral:start -->
-| Constructor | Notes |
-|-------------|-------|
-| `FFT (Maybe Axis)` | Forward complex FFT |
-| `IFFT (Maybe Axis)` | Inverse complex FFT |
-| `RFFT` | Real-input forward FFT |
-| `IRFFT` | Real-output inverse FFT |
-| `STFT WindowSpec HopLength` | Short-time FT with windowing |
-| `MelSpectrogram MelSpec` | Mel-scaled spectrogram |
-| `ComplexMul`, `ComplexAdd`, `Magnitude`, `Phase` | Complex arithmetic ops |
+| Constructor | Current scope |
+|-------------|---------------|
+| `FFT` | Generated from current Haskell catalog |
+| `IFFT` | Generated from current Haskell catalog |
+| `STFT` | Generated from current Haskell catalog |
+| `DCT` | Generated from current Haskell catalog |
 <!-- jitml:numerics.spectral:end -->
 
-Owning module: `src/JitML/Numerics/Spectral.hs`.
+Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
+`dhall/numerics/SpectralOp.dhall`.
 
 ## Optimizers
 
 <!-- jitml:numerics.optimizers:start -->
-| Constructor | Hyperparameters |
-|-------------|----------------|
-| `SGD` | `lr`, `weightDecay` |
-| `MomentumSGD` | `lr`, `momentum`, `weightDecay` |
-| `NesterovSGD` | `lr`, `momentum`, `weightDecay` |
-| `RMSProp` | `lr`, `alpha`, `eps`, `momentum`, `weightDecay`, `centered` |
-| `Adagrad` | `lr`, `eps`, `weightDecay` |
-| `Adadelta` | `lr`, `rho`, `eps`, `weightDecay` |
-| `Adam` | `lr`, `beta1`, `beta2`, `eps`, `weightDecay` |
-| `AdamW` | `lr`, `beta1`, `beta2`, `eps`, `weightDecay` |
-| `LAMB` | `lr`, `beta1`, `beta2`, `eps`, `weightDecay` |
-| `LARS` | `lr`, `momentum`, `eta`, `weightDecay` |
-| `Lion` | `lr`, `beta1`, `beta2`, `weightDecay` |
+| Constructor | Current scope |
+|-------------|---------------|
+| `SGD` | Generated from current Haskell catalog |
+| `MomentumSGD` | Generated from current Haskell catalog |
+| `NesterovSGD` | Generated from current Haskell catalog |
+| `RMSProp` | Generated from current Haskell catalog |
+| `Adagrad` | Generated from current Haskell catalog |
+| `Adadelta` | Generated from current Haskell catalog |
+| `Adam` | Generated from current Haskell catalog |
+| `AdamW` | Generated from current Haskell catalog |
+| `LAMB` | Generated from current Haskell catalog |
+| `LARS` | Generated from current Haskell catalog |
+| `Lion` | Generated from current Haskell catalog |
 <!-- jitml:numerics.optimizers:end -->
 
-Owning module: `src/JitML/Numerics/Optimizer.hs`.
+Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
+`dhall/numerics/Optimizer.dhall`. Separate optimizer modules and parameterized
+records remain target work.
 
 ## Schedulers
 
 <!-- jitml:numerics.schedulers:start -->
-| Constructor | Hyperparameters |
-|-------------|----------------|
-| `Constant` | `lr` |
-| `Linear` | `start`, `end`, `totalSteps` |
-| `Cosine` | `start`, `end`, `totalSteps` |
-| `CosineWithWarmup` | `warmupSteps`, `peak`, `final`, `totalSteps` |
-| `Exponential` | `start`, `gamma`, `totalSteps` |
-| `Polynomial` | `start`, `end`, `power`, `totalSteps` |
-| `OneCycle` | `peakLr`, `totalSteps`, `pctStart`, `divFactor`, `finalDivFactor` |
-| `Piecewise` | ordered `(step, lr)` breakpoints |
+| Constructor | Current scope |
+|-------------|---------------|
+| `Constant` | Generated from current Haskell catalog |
+| `Linear` | Generated from current Haskell catalog |
+| `Cosine` | Generated from current Haskell catalog |
+| `CosineWithWarmup` | Generated from current Haskell catalog |
+| `Exponential` | Generated from current Haskell catalog |
+| `Polynomial` | Generated from current Haskell catalog |
+| `OneCycle` | Generated from current Haskell catalog |
+| `Piecewise` | Generated from current Haskell catalog |
 <!-- jitml:numerics.schedulers:end -->
 
-Owning module: `src/JitML/Numerics/Scheduler.hs`. History-dependent
-`ReduceOnPlateau` behavior lives in callbacks because it consumes evaluation
-history rather than only progress.
+Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
+`dhall/numerics/Scheduler.dhall`. History-dependent `ReduceOnPlateau` behavior
+remains target callback work because it consumes evaluation history rather than
+only progress.
 
 ## Loss Functions
 
 <!-- jitml:numerics.losses:start -->
-| Constructor | Hyperparameters |
-|-------------|----------------|
-| `CrossEntropy` | (none — class count from upstream layer) |
-| `BinaryCrossEntropy` | (none) |
-| `Focal` | `gamma`, `alpha` |
-| `MSE` | (none) |
-| `MAE` | (none) |
-| `Huber` | `delta` |
-| `IoU` | (none) |
-| `DiceLoss` | `smooth` |
-| `KLDivergence` | (none) |
-| `CTCLoss` | `blankIdx` |
-| `LabelSmoothedCrossEntropy` | `eps` |
-| `ContrastiveLoss` | `margin` |
-| `TripletLoss` | `margin` |
-| `CustomLoss` | `name`, `registryRef` (escape hatch with explicit registration) |
+| Constructor | Current scope |
+|-------------|---------------|
+| `CrossEntropy` | Generated from current Haskell catalog |
+| `Focal` | Generated from current Haskell catalog |
+| `MSE` | Generated from current Haskell catalog |
+| `Huber` | Generated from current Haskell catalog |
+| `IoU` | Generated from current Haskell catalog |
 <!-- jitml:numerics.losses:end -->
 
-Owning module: `src/JitML/Numerics/Loss.hs`.
+Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
+`dhall/numerics/Loss.dhall`.
 
 ## Dhall Schemas
 
-`dhall/numerics/Schema.dhall` is the umbrella module re-exporting `Layer`,
-`Activation`, `ComplexActivation`, `SpectralOp`, `Optimizer`, `Scheduler`,
-`Loss`. `src/JitML/Numerics/Schema.hs` exposes
-`decodeNumericsCatalog :: Dhall.Decoder NumericsCatalog`.
-
-`src/JitML/Lint/DhallNumerics.hs` enforces the cross-type audit:
+`dhall/numerics/Schema.dhall` is the umbrella module re-exporting the current
+constructor-name lists for `Layer`, `Activation`, `SpectralOp`, `Optimizer`,
+`Scheduler`, and `Loss`. `src/JitML/Numerics/Schema.hs` exposes the Haskell
+decoder/validator, and `src/JitML/Lint/DhallNumerics.hs` enforces the
+cross-type audit:
 
 - Every Haskell constructor has a Dhall constructor of the same name.
 - Every Dhall constructor has a Haskell decoder.
 
-`jitml lint haskell` runs this lint.
+`jitml lint haskell` runs this audit. The current configuration-as-code
+fixtures are `experiments/mnist.dhall`, `experiments/mnist-tune.dhall`, and
+`experiments/cartpole.dhall`.
 
 ## Worked Example
 
-The worked Dhall example from [../README.md → Concrete Dhall worked
-example](../../README.md#concrete-dhall-worked-example) is encoded in
-`experiments/sl/mnist-baseline.dhall`, parseable end-to-end with `dhall
-resolve` plus `dhall/numerics/Schema.dhall`.
+The current worked examples are the checked-in local fixtures under
+`experiments/`. The numerical schema mirror resolves through
+`dhall/numerics/Schema.dhall` and is validated by `jitml-unit` plus
+`jitml lint haskell`.
 
 ## Cross-References
 

@@ -11,13 +11,11 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the full RL algorithm catalog (PPO, A2C, TRPO,
-> MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG, TD3, SAC, CrossQ, TQC, ARS,
-> HER), the AlphaZero-style self-play surface (perfect-information game type
-> class, two-headed network, MCTS-guided self-play loop, persistent MCTS state,
-> arena gating, canonical adversarial games), and the hyperparameter tuning
-> surface (samplers × schedulers × pruners, trial storage and resume,
-> parallelism).
+> **Purpose**: Stand up the current local RL algorithm metadata catalog, Connect
+> 4 / AlphaZero transcript helpers, canonical game metadata, and deterministic
+> hyperparameter tuning catalogs. The target runtime extends these surfaces into
+> one module per algorithm, persistent MCTS state, live trial storage/resume, and
+> daemon-backed training.
 
 ## Phase Status
 
@@ -29,12 +27,13 @@ sibling MCTS project. The tuner consumes both SL and RL training surfaces.
 ### Current Implementation Scope
 
 The current worktree implements a local `RLAlgorithm` catalog with family/replay
-metadata, deterministic trajectory generation, Connect 4 move/transcript helpers
-in `src/JitML/RL/AlphaZero.hs`, and deterministic sampler/scheduler/pruner
-catalogs in `src/JitML/Tune/Catalog.hs`. It does not yet implement one module
-per RL algorithm, Dhall algorithm schemas, golden RL fixture trees,
-perfect-information game typeclasses, two-headed networks, persistent MCTS
-search, MinIO trial storage, or live tuner resume.
+metadata, a Dhall schema mirror/audit at `dhall/rl/Schema.dhall`, deterministic
+trajectory generation with a PPO/CartPole golden fixture, Connect 4
+move/transcript helpers in `src/JitML/RL/AlphaZero.hs`, and deterministic
+sampler/scheduler/pruner catalogs in `src/JitML/Tune/Catalog.hs`. It does not
+yet implement one module per RL algorithm, full per-algorithm golden RL fixture
+trees, perfect-information game typeclasses, two-headed networks, persistent
+MCTS search, MinIO trial storage, or live tuner resume.
 
 ## Phase Summary
 
@@ -53,8 +52,8 @@ sampler × scheduler × pruner Dhall.
 
 ### Objective
 
-Land the current on-policy algorithm metadata rows. Real algorithm modules,
-Dhall schemas, and golden trajectory fixtures remain target work.
+Land the current on-policy algorithm metadata rows. Real algorithm modules and
+full golden trajectory fixture coverage remain target work.
 
 ### Deliverables
 
@@ -84,8 +83,8 @@ Land the current off-policy algorithm metadata rows.
 - `algorithmCatalog` includes off-policy rows for `DQN`, `QR-DQN`, `DDPG`,
   `TD3`, and `SAC`.
 - Each row records the `OffPolicy` family and `algorithmReplayBased = True`.
-- Replay buffers, algorithm-specific modules, Dhall types, and golden
-  trajectory fixtures are not present in the current tree.
+- Replay buffers, algorithm-specific modules, and full golden trajectory
+  fixture coverage are not present in the current tree.
 
 ### Validation
 
@@ -108,12 +107,13 @@ Land the current specialised algorithm metadata rows.
 - `algorithmCatalog` includes specialised rows for `CrossQ`, `TQC`, `ARS`,
   and `HER`.
 - `CrossQ`, `TQC`, and `HER` are marked replay-based; `ARS` is not.
-- Generated training-workload catalog tables remain target work.
+- The generated training-workload catalog table is actively rendered from the
+  current Haskell catalog by `jitml docs generate`.
 
 ### Validation
 
 1. `algorithmCatalog` exposes the four checked-in specialised rows.
-2. Generated catalog-table validation remains target work.
+2. `jitml docs check` validates the generated catalog table.
 
 ## Sprint 9.4: Local RL Canonical Tests ✅
 
@@ -131,15 +131,19 @@ dedicated local RL canonical stanza.
 
 - `test/rl-canonicals/Main.hs` verifies representative algorithm names across
   the local metadata catalog.
-- The stanza asserts `deterministicTrajectory "PPO" 42` is stable.
+- The stanza asserts `deterministicTrajectory "PPO" 42` is stable and matches
+  the current PPO/CartPole golden fixture.
 - The stanza also checks the current Connect 4 transcript helper keeps moves
   within legal column bounds.
-- No `test/golden/rl/` fixture tree exists yet.
+- `test/golden/rl/ppo/cartpole/trajectory.txt` pins the current local
+  PPO/CartPole deterministic trajectory; full per-algorithm fixture trees
+  remain target work.
 
 ### Validation
 
 1. `cabal test jitml-rl-canonicals` exits `0` for the current local body.
-2. Golden fixture integration remains target validation.
+2. Full per-algorithm reward/trajectory fixture coverage remains target
+   validation.
 
 ## Sprint 9.5: AlphaZero Connect 4 Transcript Surface ✅
 
@@ -226,13 +230,15 @@ summary.
 - `Pruner` enumerates `NoPruner`, `MedianPruner`, and `PercentilePruner`.
 - `deterministicTrials` emits normalized deterministic trial values for the
   current sampler set.
+- `test/golden/tune/` pins the current Sobol and GeneticAlgorithm trial
+  streams.
 - `trialStorageKey`, `resumeMatchesFullRun`, and
   `renderTrialResumeSummary` provide the local trial persistence/resume
   surface.
 - `jitml tune <tune-dhall>` is Plan/Apply-capable and currently prints four
   deterministic Sobol trial values.
-- Dhall `Some Tuning`, generated proto bindings, generated catalog tables, and
-  live MinIO persistence remain target runtime validation.
+- Dhall `Some Tuning`, generated proto bindings, and live MinIO persistence
+  remain target runtime validation.
 
 ### Validation
 
@@ -252,9 +258,10 @@ summary.
 **Engineering docs to create/update:**
 
 - `documents/engineering/training_workloads.md` — current RL algorithm
-  metadata catalog, Connect 4 transcript helper, and tuner catalog; target
-  algorithm modules, AlphaZero/MCTS runtime, adversarial games, and full tuner
-  storage/resume surface.
+  metadata catalog, Dhall mirror, PPO/CartPole golden trajectory fixture,
+  Connect 4 transcript helper, and tuner catalog; target algorithm modules,
+  AlphaZero/MCTS runtime, adversarial games, and full tuner storage/resume
+  surface.
 - `documents/engineering/determinism_contract.md` — current deterministic
   local trajectory/transcript helpers and target AlphaZero
   deterministic-stochasticity narrative.

@@ -1,0 +1,1 @@
+{ algorithms = ./Algorithm.dhall }

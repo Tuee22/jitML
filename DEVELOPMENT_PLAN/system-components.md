@@ -87,7 +87,7 @@ is not in the current support matrix.
 | Internal VM lifecycle (Apple) | `jitml internal vm bootstrap\|up\|down\|status\|exec` | Current lifecycle commands write/read the local VM state marker; `exec` renders a typed `tart ssh` subprocess command | ✅ Done | Sprint 2.5 |
 | Internal cache inspection | `jitml internal cache stat\|list\|evict` | JIT cache introspection and idempotent eviction helpers; command leaves are registered, while effectful bodies wait for populated codegen entries | ✅ Done | Sprint 7.1 |
 | Internal GC | `jitml internal gc <experiment-hash>` | Current command prints a local retention-policy summary and supports Plan/Apply output; target runtime enforces checkpoint retention in MinIO | ✅ Done | Sprint 10.3 |
-| Demo executable shim | `jitml-demo` | Sibling binary that currently prints `jitml-demo: serving generated frontend contract surface`; target runtime serves the PureScript bundle plus inference REST surface | ✅ Done | Sprint 11.5 |
+| Demo executable shim | `jitml-demo` | Sibling binary that prints `demoStatusLine` from `src/JitML/Web/Bundle.hs`; target runtime serves the PureScript bundle plus inference REST surface | ✅ Done | Sprint 11.5 |
 
 ## Bootstrap Stage-0 Script Surface
 
@@ -203,6 +203,7 @@ internal-RPC pair.
 | Optimizers (SGD, Momentum SGD, Nesterov SGD, RMSProp, Adagrad, Adadelta, Adam, AdamW, LAMB, LARS, Lion) | `src/JitML/Numerics/Catalog.hs` | ✅ Done | Sprint 6.4 |
 | Schedulers (constant, linear, cosine, cosine-with-warmup, exponential, polynomial, one-cycle, piecewise) | `src/JitML/Numerics/Catalog.hs` | ✅ Done | Sprint 6.4 |
 | Loss functions (cross-entropy, focal, MSE, Huber, IoU) | `src/JitML/Numerics/Catalog.hs` | ✅ Done | Sprint 6.5 |
+| Dhall numerical mirror and cross-type audit | `dhall/numerics/`, `src/JitML/Numerics/Schema.hs`, `src/JitML/Lint/DhallNumerics.hs` | ✅ Done | Sprint 6.6 |
 | Experiment Dhall fixtures that exercise the catalog | `experiments/mnist.dhall`, `experiments/mnist-tune.dhall`, `experiments/cartpole.dhall` | ✅ Done | Sprint 6.6 |
 
 ## JIT Codegen Components
@@ -213,6 +214,7 @@ internal-RPC pair.
 | Linux CPU engine (oneDNN codegen) | `src/JitML/Engines/Engine.hs`, `src/JitML/Codegen/{RuntimeSource,OneDnn}.hs`; generated oneDNN C++ inputs under `./.build/jit-src/linux-cpu/<hash>/` | ✅ Done | Sprints 7.3, 7.7 |
 | Linux CUDA engine (CUDA C codegen) | `src/JitML/Engines/Engine.hs`, `src/JitML/Codegen/{RuntimeSource,Cuda}.hs`; generated CUDA inputs under `./.build/jit-src/linux-cuda/<hash>/` | ✅ Done | Sprints 7.4, 7.7 |
 | Haskell-owned runtime JIT source generation | `src/JitML/Codegen/{RuntimeSource,Cuda,OneDnn,Metal,SourceFile}.hs`; no checked-in generated compiler-input directories | ✅ Done | Sprint 7.7 |
+| Kernel handle, cache hit/miss, and engine envelope surface | `src/JitML/Engines/Engine.hs`; `KernelHandle`, `JitCacheStatus`, `KernelInputs`, `KernelOutputs`, `EngineEnvelope` | ✅ Done | Sprints 7.1, 7.2 |
 | Content-addressed cache key shape | `src/JitML/Cache/Key.hs`; `KernelSpec` hashes `(canonical payload, kind, substrate, toolchain-fingerprint, rendered-source payload, tuning choice)` | ✅ Done | Sprints 2.3, 7.7 |
 | Cache root layout | `src/JitML/Cache/Layout.hs`; `./.build/jit/<substrate>/<hash>.<ext>` plus `manifest.json` path resolution | ✅ Done | Sprint 2.3 |
 | Cache manifest index | `src/JitML/Cache/Manifest.hs`; JSON round-trip, lookup, upsert, read, and atomic write helpers | ✅ Done | Sprint 2.3 |
@@ -227,12 +229,12 @@ internal-RPC pair.
 | Supervised training summaries | `src/JitML/SL/Canonicals.hs`; command surface in `src/JitML/App.hs` renders deterministic canonical-problem summaries | ✅ Done | Sprint 8.1 |
 | Canonical SL problem set | `src/JitML/SL/Canonicals.hs`; deterministic coverage in `test/sl-canonicals/Main.hs` | ✅ Done | Sprint 8.1 |
 | Canonical RL environments (cartpole, mountain-car, lunar-lander, atari-subset) | `src/JitML/RL/Environments.hs`; deterministic local step surface and catalog renderer | ✅ Done | Sprint 8.3 |
-| RL Algorithm catalog and local trajectory surface | `src/JitML/RL/Algorithms.hs`; deterministic command summaries in `src/JitML/App.hs` | ✅ Done | Sprint 8.4 |
+| RL Algorithm catalog and local trajectory surface | `src/JitML/RL/Algorithms.hs`; `dhall/rl/Schema.dhall` mirror/audit; deterministic command summaries in `src/JitML/App.hs` | ✅ Done | Sprint 8.4 |
 | Replay/rollout trajectory determinism | `src/JitML/RL/Algorithms.hs`; `deterministicTrajectory` | ✅ Done | Sprint 8.4 |
 | Schedules, action distributions, action noise, target networks, GAE, callbacks, logger, evaluator | `src/JitML/RL/Framework.hs`; typed local framework catalog, run plan, evaluator, and callback surfaces | ✅ Done | Sprint 8.5 |
 | Training loops as typed pipelines | Plan/Apply command rendering in `src/JitML/Plan/Plan.hs` and `src/JitML/App.hs`; real loop execution remains target runtime work | ✅ Done | Sprint 8.6 |
 | RL algorithm catalog (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG, TD3, SAC, CrossQ, TQC, ARS, HER) | `src/JitML/RL/Algorithms.hs` | ✅ Done | Sprints 9.1–9.3 |
-| RL golden tests | deterministic local tests in `test/rl-canonicals/Main.hs`; no `test/golden/rl/` tree exists yet | ✅ Done | Sprint 9.4 |
+| RL golden tests | deterministic local tests in `test/rl-canonicals/Main.hs` plus `test/golden/rl/ppo/cartpole/trajectory.txt`; full live reward fixtures remain target work | ✅ Done | Sprint 9.4 |
 | AlphaZero-style self-play and persistent MCTS state | `src/JitML/RL/AlphaZero.hs` provides Connect 4 state/move helpers and deterministic transcript summaries; full MCTS target remains | ✅ Done | Sprint 9.5 |
 | Perfect-information game, two-headed network, and arena summary surface | `src/JitML/RL/AlphaZero.hs`; canonical game catalog, Connect 4 two-headed network metadata, and arena summary helpers | ✅ Done | Sprint 9.5 |
 | Canonical adversarial games (Connect 4, Othello, Hex, Gomoku) | current `src/JitML/RL/AlphaZero.hs` covers Connect 4 only; generated browser contract endpoint lives in `src/JitML/Web/Contracts.hs` | ✅ Done (Connect 4 local) | Sprint 9.6 |
@@ -246,7 +248,7 @@ internal-RPC pair.
 | Storage layout (typed) | `src/JitML/Checkpoint/Format.hs` plus bucket registry in `src/JitML/Storage/Buckets.hs`; current manifest pointer is simplified | ✅ Done | Sprint 10.1 |
 | Split-blob layout (`blobs/<sha256>`, `manifests/<sha256>`, `pointers/{latest,best/<metric>,trial/...}`) | `src/JitML/Checkpoint/Format.hs`; typed object-key renderers for blobs, manifests, latest, best, and trial pointers | ✅ Done | Sprint 10.1 |
 | `.jmw1` dense weight blob format | `src/JitML/Checkpoint/Format.hs`; current `encodeJmw1` writes a simplified text payload beginning `JMW1` | ✅ Done (local encoder) | Sprint 10.2 |
-| Manifest pointer surface | `src/JitML/Checkpoint/Format.hs`; `CheckpointManifest`, `manifestPointer` | ✅ Done | Sprint 10.2 |
+| Manifest pointer surface | `src/JitML/Checkpoint/Format.hs`; `CheckpointManifest`, deterministic manifest CBOR codec/content hash, `manifestPointer` | ✅ Done | Sprint 10.2 |
 | Write-once and CAS protocol surface | `src/JitML/Checkpoint/Format.hs`; pure pointer-write CAS decision surface; live MinIO `If-Match` / `If-None-Match` remains runtime validation | ✅ Done | Sprint 10.2 |
 | Bit-determinism contract + cross-substrate tolerance methodology | [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ✅ Done | Sprint 10.3 |
 | Inference-only read path | `src/JitML/Checkpoint/Format.hs`; current `inferFromManifest` deterministic summary consumed by command tests | ✅ Done | Sprint 10.4 |
@@ -262,12 +264,12 @@ internal-RPC pair.
 | Generated PureScript contracts | `web/src/Generated/Contracts.purs`; current local contract renderer is covered by the PureScript-style stanza | ✅ Done | Sprint 11.2 |
 | PureScript style smoke tests | `web/test/`, `test/purescript-style/`; current Cabal stanza checks generated-contract presence rather than running `purescript-spec` | ✅ Done | Sprint 11.3 |
 | Playwright scaffold | `playwright/jitml-demo.spec.ts`; not invoked by current `jitml-e2e` body | ✅ Done | Sprint 11.6 |
-| Bundle output | `src/JitML/Web/Bundle.hs`; typed bundle asset manifest for the generated PureScript bundle output paths | ✅ Done | Sprint 11.4 |
+| Bundle output | `src/JitML/Web/Bundle.hs`; typed bundle asset manifest and local demo route manifest for the generated PureScript bundle output paths | ✅ Done | Sprint 11.4 |
 | MNIST live inference panel | `src/JitML/Web/Bundle.hs`; local panel metadata bound to `InferenceRun` | ✅ Done | Sprint 11.4 |
 | CIFAR/ImageNet upload panel | `src/JitML/Web/Bundle.hs`; local panel metadata bound to `UploadImage` | ✅ Done | Sprint 11.4 |
 | AlphaZero-vs-human Connect 4 panel | `src/JitML/Web/Bundle.hs`; local panel metadata bound to `Connect4Move` | ✅ Done | Sprint 11.4 |
 | RL trajectory render panel | `src/JitML/Web/Bundle.hs`; local panel metadata bound to `MetricsStream` | ✅ Done | Sprint 11.4 |
-| Demo executable shim (`jitml-demo`) | `app/Demo.hs` shim into `App.demoMain`; current `demoMain` prints a status line rather than serving HTTP | ✅ Done | Sprint 11.5 |
+| Demo executable shim (`jitml-demo`) | `app/Demo.hs` shim into `App.demoMain`; current `demoMain` prints a typed status line rather than serving HTTP | ✅ Done | Sprint 11.5 |
 
 ## CLI Doctrine Components
 
@@ -299,8 +301,8 @@ standards rule L.
 | `cabal format` temp-file round-trip byte-equality check | Lint, Format, and Code-Quality Stack | ✅ Done | Sprint 1.4 |
 | `forbiddenPathRegistry` (`.github/workflows/`, `.husky/`, `.githooks/`, `.pre-commit-config.yaml`, root `Makefile`/`justfile`/`Taskfile.yml`) | Lint, Format, and Code-Quality Stack → Forbidden Surfaces | ✅ Done | Sprint 1.4 |
 | `GeneratedSectionRule` registry for marker-delimited generated regions | Generated Artifacts → The generated-section registry | ✅ Done | Sprint 1.3 |
-| `trackingGeneratedPaths` registry for active fully-generated files (`documents/cli/commands.md`, `share/man/man1/jitml.1`, shell completions) | Generated Artifacts → Two categories of generation | ✅ Done | Sprint 1.3 |
-| `futureTrackingGeneratedPathPatterns` registry for later generated artefacts (`share/man/man1/jitml-*.1`, PureScript contracts, chart HTTPRoutes, Grafana dashboards) | Generated Artifacts → Two categories of generation | ✅ Done | Sprint 1.3 |
+| `trackingGeneratedPaths` registry for active fully-generated files (`documents/cli/commands.md`, `share/man/man1/jitml.1`, shell completions, PureScript contracts, chart HTTPRoutes, Grafana dashboards, Prometheus scrape config) | Generated Artifacts → Two categories of generation | ✅ Done | Sprint 1.3 |
+| `futureTrackingGeneratedPathPatterns` registry for later generated artefacts (`share/man/man1/jitml-*.1`) | Generated Artifacts → Two categories of generation | ✅ Done | Sprint 1.3 |
 | GADT-indexed `TrainingLifecycle`, `RLRunLifecycle`, `TuneSweepLifecycle` | GADT-Indexed State Machines | ✅ Done in `src/JitML/RL/Framework.hs` as local lifecycle state surfaces | Sprint 8.4, 8.6, 9.7 |
 | Capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) | Capability Classes and Service Errors | ✅ Done in `src/JitML/Service/Capabilities.hs` | Sprint 5.4 |
 | `RetryPolicy` typed value with named strategies | Retry Policy as First-Class Values | ✅ Done | Sprint 5.4 |
@@ -320,14 +322,14 @@ Per doctrine `Test Organization`, each tier is a separate Cabal `test-suite` wit
 tree spanning all tiers is forbidden. All ten stanza declarations exist today,
 and each non-style phase stanza now has a dedicated local deterministic body.
 
-| Stanza | Current body | Final Phase-Owned Scope | Status | Owning Sprint |
-|--------|--------------|-------------------------|--------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current parser, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, and cache surfaces | Expand to every final Pure Logic, Parser, Property, and Golden category: engine invariants, numerical-core round-trips, RL framework primitives, AlphaZero MCTS invariants, hyperparameter sampler determinism, checkpoint codec round-trips, route registry, Grafana renderer, transcript codecs, RNG mixers, Sobol sequence golden, GA trace golden | ✅ Done | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers a typed subprocess boundary and renderer suite | Expand to real-binary subprocess integration, checkpoint round-trip, resume semantics, Dhall→typed-record decode, and per-substrate determinism | ✅ Done | Sprint 12.2 |
-| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` | Eleven SL `(dataset, model)` pairs from [../README.md → Canonical supervised learning problems](../README.md#canonical-supervised-learning-problems), convergence golden, and per-distribution regression detection | ✅ Done | Sprint 12.3 |
-| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` | RL target matrix forms (2) and (3): same-substrate trajectory determinism plus per-seed final-reward distribution against committed fixtures | ✅ Done | Sprint 12.4 |
-| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` | Per-sampler reproducibility, per-scheduler reproducibility, per-pruner reproducibility, and resume-from-partial-sweep equality | ✅ Done | Sprint 12.5 |
-| `jitml-cross-backend` | `test/cross-backend/Main.hs` | Cross-substrate cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; per-tensor drift fits the committed tolerance band per [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ✅ Done | Sprint 12.6 |
+| Stanza | Current body | Target expansion | Status | Owning Sprint |
+|--------|--------------|------------------|--------|---------------|
+| `jitml-unit` | `test/unit/Main.hs` covers current parser, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, runtime-source, daemon-surface, checkpoint, frontend, Grafana fixture, and local catalog helpers | Final Pure Logic, Parser, Property, and Golden coverage across engine invariants, richer transcript codecs, RNG mixers, generated Grafana fixture breadth, and richer RL/tuning/checkpoint codecs | ✅ Done (local body) | Sprint 12.1 |
+| `jitml-integration` | `test/integration/Main.hs` covers a typed subprocess boundary, renderer suite, and route-table golden fixture | Real-binary subprocess integration, checkpoint round-trip, resume semantics, Dhall-to-typed-record decode, and per-substrate determinism | ✅ Done (local body) | Sprint 12.2 |
+| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers eleven local deterministic synthetic convergence curves | Live SL convergence golden and per-distribution regression detection | ✅ Done (local body) | Sprint 12.3 |
+| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers local algorithm metadata, deterministic trajectory helper, PPO/CartPole golden trajectory, and Connect 4 transcript fixture | RL target matrix forms (2) and (3): same-substrate trajectory determinism plus per-seed final-reward distribution against live committed fixtures | ✅ Done (local body) | Sprint 12.4 |
+| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers local sampler / scheduler / pruner axes, deterministic trial values, and Sobol/GA golden fixtures | Per-sampler reproducibility, per-scheduler reproducibility, per-pruner reproducibility, and resume-from-partial-sweep equality against live storage | ✅ Done (local body) | Sprint 12.5 |
+| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers local engine determinism flags and checkpoint inference summaries | Cross-substrate cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; per-tensor drift fits the committed tolerance band per [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | ✅ Done (local body) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` | Current local lifecycle/retry tests; target live test spawns `jitml service`, polls `/readyz`, drives SIGHUP, and asserts graceful drain | ✅ Done (local body) | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` | Current local route/bucket/publication/contract/report tests; target live test uses Pulumi + Playwright against real Envoy listener | ✅ Done (local body) | Sprint 12.8 |
 | `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack | Formatter, hlint/config, forbidden-path, chart, generated-section, external formatter/hlint/cabal-format/build gates, and optional future lints as they land | ✅ Done | Sprint 1.4 |

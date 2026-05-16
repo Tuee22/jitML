@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-pulsar-consumer-lag
+  namespace: platform
+  labels:
+    grafana_dashboard: "1"
+data:
+  dashboard.json: |
+    {
+      "title": "pulsar-consumer-lag",
+      "panels": [{"type":"timeseries","targets":[{"expr":"jitml_pulsar_consumer_lag"}]}]
+    }

@@ -1,0 +1,9 @@
+[ "Constant"
+, "Linear"
+, "Cosine"
+, "CosineWithWarmup"
+, "Exponential"
+, "Polynomial"
+, "OneCycle"
+, "Piecewise"
+]

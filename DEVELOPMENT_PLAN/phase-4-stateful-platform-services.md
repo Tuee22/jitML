@@ -200,11 +200,12 @@ the daemon's `/metrics` endpoint.
 - `kube-prometheus-stack` subchart pinned.
 - `src/JitML/Observability/Grafana.hs` renders typed dashboards (training
   throughput, RL episode reward, AlphaZero arena win rate, JIT cache hit rate,
-  Pulsar consumer lag, MinIO PUT latency, daemon health). Writing those
-  dashboards into provisioned ConfigMaps and moving dashboard YAML into active
-  `trackingGeneratedPaths` remains target work.
+  Pulsar consumer lag, MinIO PUT latency, daemon health), writes provisioned
+  ConfigMaps under `chart/templates/grafana-dashboard-*.yaml`, and protects
+  those YAML files through `trackingGeneratedPaths`.
 - `src/JitML/Observability/Prometheus.hs` declares the typed scrape-target
-  list and renders the scrape config.
+  list, renders `chart/templates/prometheus-scrapeconfig-jitml.yaml`, and
+  protects it through `trackingGeneratedPaths`.
 - HTTPRoutes for `/grafana` and `/prometheus` (Sprint `3.4`).
 
 ### Validation
@@ -212,7 +213,7 @@ the daemon's `/metrics` endpoint.
 1. `src/JitML/Observability/Grafana.hs` renders the local dashboard surface.
 2. `src/JitML/Observability/Prometheus.hs` renders the local scrape-target
    surface.
-3. Live Grafana dashboard provisioning remains target work.
+3. Live Grafana dashboard provisioning remains target validation.
 
 ## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar ✅
 

@@ -20,12 +20,17 @@ data CanonicalProblem = CanonicalProblem
 
 canonicalProblems :: [CanonicalProblem]
 canonicalProblems =
-  [ CanonicalProblem "mnist-linear" "MNIST" "Dense" 1001
-  , CanonicalProblem "fashion-mnist-cnn" "Fashion-MNIST" "Conv2D" 1002
-  , CanonicalProblem "cifar10-resnet" "CIFAR-10" "ResidualBlock" 1003
-  , CanonicalProblem "cifar100-resnet" "CIFAR-100" "ResidualBlock" 1004
-  , CanonicalProblem "tiny-imagenet-attention" "Tiny ImageNet" "MultiHeadAttention" 1005
-  , CanonicalProblem "california-housing-dense" "California Housing" "Dense" 1006
+  [ CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
+  , CanonicalProblem "mnist-deep-mlp" "MNIST" "DeepDense" 1002
+  , CanonicalProblem "mnist-lenet" "MNIST" "Conv2D" 1003
+  , CanonicalProblem "fashion-mnist-mlp" "Fashion-MNIST" "Dense" 1004
+  , CanonicalProblem "fashion-mnist-resnet" "Fashion-MNIST" "ResidualBlock" 1005
+  , CanonicalProblem "cifar10-resnet20" "CIFAR-10" "ResidualBlock20" 1006
+  , CanonicalProblem "cifar10-resnet56" "CIFAR-10" "ResidualBlock56" 1007
+  , CanonicalProblem "cifar100-wide-resnet" "CIFAR-100" "WideResidualBlock" 1008
+  , CanonicalProblem "cifar10-vit" "CIFAR-10" "VisionTransformer" 1009
+  , CanonicalProblem "tiny-imagenet-resnet50" "Tiny ImageNet" "ResidualBlock50" 1010
+  , CanonicalProblem "california-housing-mlp" "California Housing" "Dense" 1011
   ]
 
 convergenceCurve :: CanonicalProblem -> [Double]

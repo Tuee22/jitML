@@ -31,11 +31,12 @@
 
 Phase `0` closed with no doctrine-audit residue. Sprint `1.1` introduced one
 toolchain compatibility helper in `cabal.project` so the doctrine-mandated `dhall`
-dependency builds under pinned GHC `9.14.1`; that row remains pending until the
-upstream package bounds no longer need local override and must be retired before
-the final handoff gate. Sprint `7.7` completed the static checked-in JIT
-source/build scaffold removal: JIT compiler inputs are generated on demand by
-the Haskell binary.
+dependency builds under pinned GHC `9.14.1`; that row remains a final-handoff
+cleanup gate until upstream package bounds no longer need the local override.
+It is not remaining implementation work for the already closed local Sprint
+`12.9` test-orchestrator surface. Sprint `7.7` completed the static checked-in
+JIT source/build scaffold removal: JIT compiler inputs are generated on demand
+by the Haskell binary.
 
 Two classes of entries populate this ledger over time:
 
@@ -54,15 +55,17 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-| Item | Location | Reason | Owning Sprint |
-|------|----------|--------|---------------|
-| Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 12.9 |
+| Item | Location | Reason | Owning Sprint / Gate |
+|------|----------|--------|----------------------|
+| Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 1.1 / final handoff toolchain refresh |
 
 ## Pending Removal Notes
 
-Each pending-removal row resolves on the closure of the owning sprint listed in the
-relevant phase document. Each row will move to `Completed` when the owning sprint
-closes and the doctrine-required replacement is verified.
+Pending-removal rows normally resolve on the closure of the owning sprint listed
+in the relevant phase document. Rows whose blocker is an external upstream
+release still name the originating sprint, but resolve at the final handoff
+toolchain refresh. Each row moves to `Completed` only when the replacement is
+verified in the worktree.
 
 The expected populating events are:
 

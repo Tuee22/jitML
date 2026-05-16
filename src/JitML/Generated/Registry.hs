@@ -13,10 +13,22 @@ where
 import Data.Text (Text)
 
 import JitML.Docs.Render
-  ( renderGeneratedSectionIndex
+  ( renderClusterRoutes
+  , renderDaemonSurface
+  , renderGeneratedSectionIndex
   , renderHelpBlocks
+  , renderNumericsActivations
+  , renderNumericsLayers
+  , renderNumericsLosses
+  , renderNumericsOptimizers
+  , renderNumericsSchedulers
+  , renderNumericsSpectral
   , renderReadmeCommandRegistry
   , renderReadmeCommandTree
+  , renderTrainingRlCatalog
+  , renderTrainingTunePruners
+  , renderTrainingTuneSamplers
+  , renderTrainingTuneSchedulers
   )
 
 data GeneratedSectionRule = GeneratedSectionRule
@@ -55,22 +67,74 @@ generatedSectionRules =
       , rulePath = "documents/documentation_standards.md"
       , ruleRendered = renderGeneratedSectionIndex
       }
+  , GeneratedSectionRule
+      { ruleKey = "cluster.routes"
+      , rulePath = "documents/engineering/cluster_topology.md"
+      , ruleRendered = renderClusterRoutes
+      }
+  , GeneratedSectionRule
+      { ruleKey = "daemon.surface"
+      , rulePath = "documents/engineering/daemon_architecture.md"
+      , ruleRendered = renderDaemonSurface
+      }
+  , GeneratedSectionRule
+      { ruleKey = "numerics.layers"
+      , rulePath = "documents/engineering/numerical_core.md"
+      , ruleRendered = renderNumericsLayers
+      }
+  , GeneratedSectionRule
+      { ruleKey = "numerics.activations"
+      , rulePath = "documents/engineering/numerical_core.md"
+      , ruleRendered = renderNumericsActivations
+      }
+  , GeneratedSectionRule
+      { ruleKey = "numerics.spectral"
+      , rulePath = "documents/engineering/numerical_core.md"
+      , ruleRendered = renderNumericsSpectral
+      }
+  , GeneratedSectionRule
+      { ruleKey = "numerics.optimizers"
+      , rulePath = "documents/engineering/numerical_core.md"
+      , ruleRendered = renderNumericsOptimizers
+      }
+  , GeneratedSectionRule
+      { ruleKey = "numerics.schedulers"
+      , rulePath = "documents/engineering/numerical_core.md"
+      , ruleRendered = renderNumericsSchedulers
+      }
+  , GeneratedSectionRule
+      { ruleKey = "numerics.losses"
+      , rulePath = "documents/engineering/numerical_core.md"
+      , ruleRendered = renderNumericsLosses
+      }
+  , GeneratedSectionRule
+      { ruleKey = "training.rl.catalog"
+      , rulePath = "documents/engineering/training_workloads.md"
+      , ruleRendered = renderTrainingRlCatalog
+      }
+  , GeneratedSectionRule
+      { ruleKey = "training.tune.samplers"
+      , rulePath = "documents/engineering/training_workloads.md"
+      , ruleRendered = renderTrainingTuneSamplers
+      }
+  , GeneratedSectionRule
+      { ruleKey = "training.tune.schedulers"
+      , rulePath = "documents/engineering/training_workloads.md"
+      , ruleRendered = renderTrainingTuneSchedulers
+      }
+  , GeneratedSectionRule
+      { ruleKey = "training.tune.pruners"
+      , rulePath = "documents/engineering/training_workloads.md"
+      , ruleRendered = renderTrainingTunePruners
+      }
   ]
 
 futureGeneratedSections :: [FutureGeneratedSection]
 futureGeneratedSections =
-  [ FutureGeneratedSection "cluster.routes" "documents/engineering/cluster_topology.md" "Sprint 3.4"
-  , FutureGeneratedSection "numerics.layers" "documents/engineering/numerical_core.md" "Sprint 6.1"
-  , FutureGeneratedSection "numerics.activations" "documents/engineering/numerical_core.md" "Sprint 6.2"
-  , FutureGeneratedSection "numerics.spectral" "documents/engineering/numerical_core.md" "Sprint 6.3"
-  , FutureGeneratedSection "numerics.optimizers" "documents/engineering/numerical_core.md" "Sprint 6.4"
-  , FutureGeneratedSection "numerics.schedulers" "documents/engineering/numerical_core.md" "Sprint 6.5"
-  , FutureGeneratedSection "numerics.losses" "documents/engineering/numerical_core.md" "Sprint 6.6"
-  , FutureGeneratedSection "daemon.surface" "documents/engineering/daemon_architecture.md" "Sprint 5.3"
-  , FutureGeneratedSection
-      "training.rl.catalog"
-      "documents/engineering/training_workloads.md"
-      "Sprint 9.3"
+  [ FutureGeneratedSection
+      "cross-language-types.*"
+      "documents/engineering/purescript_frontend.md"
+      "Sprint 11.2"
   ]
 
 startMarker :: Text -> Text

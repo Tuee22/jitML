@@ -30,6 +30,7 @@ artefacts are removed from the build path and forbidden by lint.
 ## Phase Summary
 
 This phase delivers substrate engine metadata under `src/JitML/Engines/`,
+typed kernel handles, cache hit/miss decisions, deterministic launch envelopes,
 deterministic engine flags, runtime source renderers under `src/JitML/Codegen/`,
 cache key derivation from `KernelSpec`, canonical rendered source payload, and
 `TuningChoice`, plus Tart command/state helpers. The local build plan surface
@@ -46,10 +47,10 @@ typed `Subprocess` values.
 
 ### Objective
 
-Populate the local cache-key input surface and lock the cache key derivation
-over `KernelSpec`, `Kind`, `Substrate`, `ToolchainFingerprint`,
-`RuntimeSourcePayload`, and `TuningChoice`. Real FFI loading remains target
-runtime work.
+Populate the local cache-key input surface and kernel-handle/cache-decision
+surface, and lock the cache key derivation over `KernelSpec`, `Kind`,
+`Substrate`, `ToolchainFingerprint`, `RuntimeSourcePayload`, and
+`TuningChoice`. Real FFI loading remains target runtime work.
 
 ### Deliverables
 
@@ -59,15 +60,18 @@ runtime work.
   cache-key inputs.
 - `cacheKey` hashes the serialized kernel spec, kind, substrate, fingerprint,
   rendered-source payload, and tuning choice into a SHA-256 digest.
-- `loadKernel`, `KernelHandle`, `HasJitCache`, and FFI `dlopen` behavior are
-  not implemented in the current tree.
+- `KernelHandle` names the engine, content hash, and canonical artifact path.
+- `resolveKernelCache` returns a typed `JitCacheHit` or `JitCacheMiss` with the
+  compile `Subprocess` needed to fill the cache.
+- `loadKernel`, `HasJitCache`, and FFI `dlopen` behavior remain target runtime
+  work.
 
 ### Validation
 
 1. `jitml-unit` verifies the cache-key golden under `test/golden/cache/`.
 2. `jitml-unit` verifies changing the rendered runtime-source payload changes
    the cache key.
-3. FFI cache-hit/miss validation remains target work.
+3. `jitml-unit` verifies the typed cache-hit/cache-miss decision surface.
 
 ## Sprint 7.2: Engine ABI and `Engines` Module Skeleton ✅
 
@@ -78,8 +82,8 @@ runtime work.
 ### Objective
 
 Define the current local engine metadata shared by every substrate: backend
-name, artifact extension, deterministic flags, and renderable build plan.
-Kernel launch ABI and envelope capture remain target runtime work.
+name, artifact extension, deterministic flags, typed kernel input/output
+shapes, deterministic launch envelope, and renderable build plan.
 
 ### Deliverables
 
@@ -89,14 +93,16 @@ Kernel launch ABI and envelope capture remain target runtime work.
   `linux-cpu` to `onednn` / `.so`, and `linux-cuda` to `cuda` / `.so`.
 - `deterministicFlags` records the current per-substrate determinism summary.
 - `renderEnginePlan` renders the local engine metadata.
-- `HasEngine`, `KernelInputs`, `KernelOutputs`, and `EngineEnvelope` are not
-  implemented yet.
+- `KernelInputs`, `KernelOutputs`, and `EngineEnvelope` record the local launch
+  ABI and reproducibility witness surface.
+- `renderEngineEnvelope` renders the envelope for deterministic inspection.
+- `HasEngine` live execution remains target runtime work.
 
 ### Validation
 
 1. `cabal test jitml-cross-backend` verifies every substrate has
    deterministic flags.
-2. Engine-envelope validation remains target work.
+2. `jitml-unit` validates local engine envelope rendering.
 
 ## Sprint 7.3: Linux CPU Engine and oneDNN Codegen Driver ✅
 

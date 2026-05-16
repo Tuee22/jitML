@@ -40,7 +40,7 @@ renderPureScriptContracts =
     , ""
     , "endpoints :: Array Endpoint"
     , "endpoints ="
-    , "  [ "
+    , "  ["
     ]
       <> endpointLines
       <> ["  ]"]

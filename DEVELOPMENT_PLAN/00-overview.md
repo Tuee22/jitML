@@ -96,7 +96,7 @@ The current checkpoint surface provides a typed manifest, split-blob object-key
 renderers, pointer-CAS decisions, simplified `.jmw1` encoder, manifest pointer
 renderer, and deterministic inference summary. The current frontend surface
 provides a minimal PureScript entrypoint plus generated contract file from
-`src/JitML/Web/Contracts.hs` and typed bundle/panel metadata from
+`src/JitML/Web/Contracts.hs` and typed bundle/panel/demo-route metadata from
 `src/JitML/Web/Bundle.hs`; the target runtime adds the real demo HTTP server and
 full checkpoint read path.
 
@@ -184,15 +184,17 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
   domain ops, optimizers (SGD, Momentum SGD, Nesterov SGD, RMSProp, Adagrad,
   Adadelta, Adam, AdamW, LAMB, LARS, Lion), schedulers (constant, linear, cosine,
   cosine-with-warmup, exponential, polynomial, one-cycle, piecewise), loss
-  functions (cross-entropy, focal, MSE, Huber, IoU). Dhall mirrors and richer
-  parameterized constructors remain target work. Owned by
+  functions (cross-entropy, focal, MSE, Huber, IoU), Dhall mirror lists, and
+  the cross-type lint audit. Richer parameterized constructors remain target
+  work. Owned by
   [phase-6-numerical-core.md](phase-6-numerical-core.md).
 - **JIT codegen and per-substrate execution.** Current `src/JitML/Engines/`
-  records backend metadata, determinism flags, and typed compile plans, while
+  records backend metadata, determinism flags, typed kernel handles, cache
+  hit/miss decisions, engine envelopes, and typed compile plans, while
   `src/JitML/Codegen/` renders Metal / Swift, oneDNN C++, and CUDA runtime
-  source bundles under `./.build/jit-src/<substrate>/<hash>/`. The real Apple
-  hybrid execution path and runtime hardware auto-tuning remain target runtime
-  work preserving the determinism contract per
+  source bundles under `./.build/jit-src/<substrate>/<hash>/`. Real FFI
+  loading, the real Apple hybrid execution path, and runtime hardware
+  auto-tuning remain target runtime work preserving the determinism contract per
   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md):
   Metal single-stream launch order, oneDNN blocked reduction with fixed block
   size, CUDA deterministic warp-shuffle reductions with `--use_fast_math=false` and
@@ -201,29 +203,32 @@ orchestrates an ephemeral Kind stack via the Pulumi TypeScript program at
 - **Supervised learning and RL framework.** Current local summaries under
   `src/JitML/SL/` and `src/JitML/RL/` provide canonical SL problem curves, RL
   algorithm catalog rows, canonical RL environment metadata, framework run-plan
-  metadata, and deterministic trajectory helpers. Real datasets, buffers, and
-  daemon-backed training loops remain target runtime validation. Owned by
+  metadata, deterministic trajectory helpers, and a PPO/CartPole golden
+  trajectory fixture. Real datasets, buffers, and daemon-backed training loops
+  remain target runtime validation. Owned by
   [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md).
 - **RL algorithm catalog, AlphaZero, hyperparameter tuning.** Current local
-  catalog covers PPO through AlphaZero as metadata rows, Connect 4 transcript
-  helpers, canonical perfect-information game metadata, arena summary helpers,
-  deterministic tuning trial sequences, and local trial resume summaries for
-  Sobol/random/GA/ES × Fifo/SuccessiveHalving/Hyperband/ASHA ×
+  catalog covers PPO through AlphaZero as metadata rows with a Dhall
+  mirror/audit, Connect 4 transcript helpers, canonical perfect-information
+  game metadata, arena summary helpers, deterministic tuning trial sequences,
+  and local trial resume summaries for Sobol/random/GA/ES ×
+  Fifo/SuccessiveHalving/Hyperband/ASHA ×
   none/median/percentile. Real algorithm modules, persistent MCTS search, and
   live trial persistence remain target runtime validation. Owned by
   [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md).
 - **Checkpointing and inference-only read path.** Current local format surface:
-  a small typed manifest, split-blob object-key renderers, pointer-CAS decision
-  surface, simplified `.jmw1` text encoder, manifest pointer, and deterministic
-  `inferFromManifest` helper. Canonical CBOR, live MinIO effects, retention, and
-  real kernel-handle loading remain target runtime validation. Owned by
+  a small typed manifest, deterministic manifest CBOR codec/content hash,
+  split-blob object-key renderers, pointer-CAS decision surface, simplified
+  `.jmw1` text encoder, manifest pointer, and deterministic `inferFromManifest`
+  helper. Live MinIO effects, retention, and real kernel-handle loading remain
+  target runtime validation. Owned by
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Current local surface: minimal PureScript
   entrypoint, generated contract file from `src/JitML/Web/Contracts.hs`,
-  typed bundle/panel metadata from `src/JitML/Web/Bundle.hs`, `web/test/` smoke
-  file, Playwright scaffold, `jitml-demo` executable shim, and demo deployment
-  template. Halogen, REST/WS handlers, compiled bundle output, and HTTP serving
-  remain target runtime validation. Owned by
+  typed bundle/panel/demo-route metadata from `src/JitML/Web/Bundle.hs`,
+  `web/test/` smoke file, Playwright scaffold, `jitml-demo` executable shim,
+  and demo deployment template. Halogen, live REST/WS handlers, compiled bundle
+  output, and HTTP serving remain target runtime validation. Owned by
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
 - **Test stanzas, lint matrix, cross-cluster parity.** Ten Cabal test-suite
   stanzas, each `type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner:
@@ -341,8 +346,11 @@ contract file, and Playwright scaffold.
 
 ## Hard Constraints
 
-The supported architecture closes on the following non-negotiable rules. Numbered
-for referenceability. Cross-references to [../README.md](../README.md) name the
+The supported architecture closes on the following non-negotiable target rules.
+The current local baseline is summarized separately below; where the checked-in
+tree only has a local renderer, catalog, or scaffold today, that current state
+is called out in the phase files and component inventory. Numbered for
+referenceability. Cross-references to [../README.md](../README.md) name the
 authoritative section that pins each constraint.
 
 1. One Haskell CLI binary named `jitml`, plus one bundled HTTP server shim named
@@ -442,9 +450,13 @@ authoritative section that pins each constraint.
     `inference.event.apple-silicon`. Pulsar carries only small envelopes; large
     tensors travel via MinIO. Direct k8s API access from the host is forbidden
     and lint-enforced.
-26. The numerical core is fully Dhall-typed: every layer constructor, every
-    activation, every optimizer, every scheduler, every loss function has a
-    Dhall type and a corresponding Haskell ADT.
+26. Target numerical-core closure is fully Dhall-typed: every layer
+    constructor, activation, optimizer, scheduler, and loss function has a Dhall
+    type and a corresponding Haskell ADT. The current checked-in surface has
+    Haskell constructors in `src/JitML/Numerics/Catalog.hs`, constructor-name
+    Dhall mirrors under `dhall/numerics/`, and a Haskell audit in
+    `src/JitML/Numerics/Schema.hs` / `src/JitML/Lint/DhallNumerics.hs`; richer
+    parameterized Dhall records remain target work.
 27. Per-substrate determinism contract per
     [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md):
     Metal single-stream launch order; oneDNN blocked reduction with fixed block
@@ -470,9 +482,8 @@ authoritative section that pins each constraint.
 31. The PureScript browser-contract ADTs live in `src/JitML/Web/Contracts.hs`.
     The current worktree uses a local bridge-compatible renderer for
     `web/src/Generated/Contracts.purs` and `src/JitML/Web/Bundle.hs` records
-    the bundle/panel metadata. Active `trackingGeneratedPaths` protection for
-    the generated contract file remains target validation; today the path is
-    still listed under `futureTrackingGeneratedPathPatterns`.
+    the bundle/panel/demo-route metadata. The generated contract file is
+    protected by the active `trackingGeneratedPaths` registry.
 32. `fourmolu.yaml` at repo root pins the twelve doctrine-mandated settings; the
     `jitml-haskell-style` stanza enforces them plus `cabal format` temp-file
     round-trip byte-equality.
@@ -482,14 +493,14 @@ authoritative section that pins each constraint.
     `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`,
     `jitml-haskell-style`, `jitml-purescript-style`. A single `tasty` tree
     spanning all tiers is forbidden.
-33. The Pulumi TypeScript program at `infra/pulumi/` is the ephemeral-Kind
-    orchestrator that the `jitml-e2e` stanza calls through the typed
-    `Subprocess` boundary. The Pulumi stack is one of the seven doctrine test
-    categories.
-34. Report-card knobs are pinned in `cabal.project` and surfaced through `jitml
+34. Target e2e closure uses the Pulumi TypeScript program at `infra/pulumi/` as
+    the ephemeral-Kind orchestrator that the `jitml-e2e` stanza calls through the
+    typed `Subprocess` boundary. The current Pulumi program exports stack
+    metadata only, and the current `jitml-e2e` body does not invoke Pulumi.
+35. Report-card knobs are pinned in `cabal.project` and surfaced through `jitml
     test all`. The exact knob list is owned by Sprint `12.9` and recorded in
     [system-components.md](system-components.md).
-35. The toolchain is pinned at GHC `9.14.1` and Cabal `3.16.1.0`. `jitml.cabal`
+36. The toolchain is pinned at GHC `9.14.1` and Cabal `3.16.1.0`. `jitml.cabal`
     declares `tested-with: ghc ==9.14.1`; `cabal.project` declares
     `with-compiler: ghc-9.14.1`. Codegen toolchains (LLVM, NVCC, Xcode/Metal,
     oneDNN, `kindest/node`) are pinned in `cabal.project`.
@@ -504,7 +515,7 @@ authoritative section that pins each constraint.
 | 3 | Phase 2 | The Kind cluster, Helm umbrella chart, and Envoy Gateway consume the prerequisite DAG (kind, helm, kubectl, docker) and the JIT cache mount (`extraMounts` from `./.build/`) established in Phase 2 |
 | 4 | Phase 3 | Harbor, Pulsar, MinIO, PostgreSQL, kube-prometheus-stack, and TensorBoard install through the umbrella chart and route through the Envoy Gateway socket established in Phase 3 |
 | 5 | Phase 4 | The `jitml service` daemon subscribes to Pulsar, persists to MinIO via capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`), pulls images from Harbor, and reports metrics via the Prometheus stack established in Phase 4 |
-| 6 | Phase 5 | The numerical core's Dhall types and Haskell ADTs are consumed by the daemon's training and inference loops; the layer catalog precedes the JIT codegen that compiles it |
+| 6 | Phase 5 | The numerical core's current Haskell catalog and Dhall mirrors are consumed by the daemon's training and inference loops; the layer catalog precedes the JIT codegen that compiles it |
 | 7 | Phase 6 | The per-substrate Haskell JIT source renderers (Metal / Swift, oneDNN C++, CUDA) consume the typed numerical core from Phase 6, generate compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, and write compiled artefacts into the content-addressed cache established in Phase 2 |
 | 8 | Phase 7 | The SL training loops and RL framework primitives compile their kernels through the JIT codegen established in Phase 7 and run on the daemon established in Phase 5 |
 | 9 | Phase 8 | The RL algorithm catalog (PPO, A2C, ...), AlphaZero self-play, and hyperparameter tuner consume the framework primitives from Phase 8 |
@@ -530,7 +541,8 @@ bootstrap; Phase `7` includes Haskell-rendered runtime source under
 source/build inputs from the build path. Done status is scoped to checked-in
 local renderers, catalogs, command summaries, contracts, runtime-source plans,
 and test bodies. The overall handoff remains incomplete until the live-cluster
-validation chain closes.
+validation chain closes and the ledger-tracked external package-bounds override
+is retired.
 
 | Surface | Current Repo State | Intended End State |
 |---------|--------------------|--------------------|

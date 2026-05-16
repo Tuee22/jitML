@@ -1,0 +1,12 @@
+[ "Dense"
+, "Conv1D"
+, "Conv2D"
+, "Conv3D"
+, "ConvTranspose"
+, "BatchNorm"
+, "LayerNorm"
+, "GroupNorm"
+, "Dropout"
+, "ResidualBlock"
+, "MultiHeadAttention"
+]

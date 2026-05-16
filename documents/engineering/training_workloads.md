@@ -5,41 +5,41 @@
 **Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, checkpoint_format.md, numerical_core.md
 **Generated sections**: training.rl.catalog, training.tune.samplers, training.tune.schedulers, training.tune.pruners
 
-> **Purpose**: Project-specific training-workload doctrine for jitML — the SL
-> training loop and canonical SL problem set, the RL framework primitives,
-> the RL algorithm catalog (PPO, A2C, ..., HER), AlphaZero-style self-play
-> with persistent MCTS state, and hyperparameter tuning across the
-> sampler × scheduler × pruner axes.
+> **Purpose**: Project-specific training-workload doctrine for jitML — the
+> current local SL summaries, RL metadata/framework surfaces, AlphaZero Connect
+> 4 helpers, and hyperparameter tuning catalogs, plus the target daemon-backed
+> training/runtime surfaces that have not landed yet.
 
 ## SL Training Loops
 
-`src/JitML/SL/` owns the supervised training stack.
+`src/JitML/SL/` owns the supervised-learning surface. The current worktree has
+local canonical summaries in `src/JitML/SL/Canonicals.hs`; it does not yet have
+real dataset loaders, training loops, or MinIO dataset access.
 
-- `Train.hs` exposes `train :: TrainingConfig -> ReaderT Env IO TrainResult`.
-- `Loop.hs` is the typed pipeline backed by the `TrainingLifecycle` GADT
+- Target `Train.hs` exposes `train :: TrainingConfig -> ReaderT Env IO TrainResult`.
+- Target `Loop.hs` is the typed pipeline backed by the `TrainingLifecycle` GADT
   (`Loaded → Ready → Stepping → Evaluating → Checkpointing → Finished`).
-- `Dataset.hs` lazily fetches pinned source datasets from MinIO bucket
+- Target `Dataset.hs` lazily fetches pinned source datasets from MinIO bucket
   `jitml-datasets`; SHA-256 verified against the experiment Dhall.
 
 ### Canonical SL Problems
 
-| Problem | Owning module | Threshold methodology | Golden curve fixture |
-|---------|---------------|-----------------------|----------------------|
-| MNIST shallow MLP | `src/JitML/SL/Problems/Mnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/mnist-shallow-mlp/curve.cbor` |
-| MNIST deep MLP | `src/JitML/SL/Problems/Mnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/mnist-deep-mlp/curve.cbor` |
-| MNIST LeNet-style CNN | `src/JitML/SL/Problems/Mnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/mnist-lenet/curve.cbor` |
-| Fashion-MNIST shallow MLP | `src/JitML/SL/Problems/FashionMnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/fashion-mnist-mlp/curve.cbor` |
-| Fashion-MNIST small ResNet | `src/JitML/SL/Problems/FashionMnist.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/fashion-mnist-resnet/curve.cbor` |
-| CIFAR-10 ResNet-20 | `src/JitML/SL/Problems/Cifar.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/cifar10-resnet20/curve.cbor` |
-| CIFAR-10 ResNet-56 | `src/JitML/SL/Problems/Cifar.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/cifar10-resnet56/curve.cbor` |
-| CIFAR-100 Wide ResNet-28-10 | `src/JitML/SL/Problems/Cifar.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/cifar100-wide-resnet/curve.cbor` |
-| CIFAR-10 small ViT | `src/JitML/SL/Problems/Cifar.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/cifar10-vit/curve.cbor` |
-| Tiny ImageNet ResNet-50 | `src/JitML/SL/Problems/TinyImagenet.hs` | README literature target, converted to k=5 median-minus-slack golden | `test/golden/sl/tiny-imagenet-resnet50/curve.cbor` |
-| California Housing MLP | `src/JitML/SL/Problems/CaliforniaHousing.hs` | README regression target, converted to k=5 median-plus-slack golden | `test/golden/sl/california-housing-mlp/curve.cbor` |
+| Current problem key | Owning module | Current validation |
+|---------------------|---------------|--------------------|
+| `mnist-shallow-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `mnist-deep-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `mnist-lenet` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `fashion-mnist-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `fashion-mnist-resnet` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `cifar10-resnet20` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `cifar10-resnet56` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `cifar100-wide-resnet` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `cifar10-vit` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `tiny-imagenet-resnet50` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `california-housing-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
 
-The convergence curve is the per-step loss / per-epoch eval-accuracy series.
-The golden anchor holds bit-identically under same-substrate determinism per
-[determinism_contract.md](determinism_contract.md).
+Live convergence thresholds and committed golden curve fixtures remain runtime
+validation work.
 
 ### `jitml train` CLI
 
@@ -49,12 +49,12 @@ jitml train <experiment-dhall>
             [--dry-run | --plan-file <path>]
 ```
 
-Plan/Apply: resolve and SHA-hash the experiment Dhall, reconcile
-prerequisites, materialise the dataset, publish `StartTraining` on
-`training.command.<mode>`, subscribe to `training.event.<mode>`. The daemon's
-at-least-once `TrainingHandler` consumes the command per
-[daemon_architecture.md → At-Least-Once Pulsar
-Consumer](daemon_architecture.md#at-least-once-pulsar-consumer).
+Current `jitml train` supports the Plan/Apply dry-run surface and, on normal
+execution, prints the selected experiment path plus a deterministic local
+canonical-problem summary. Target runtime work resolves and SHA-hashes the
+experiment Dhall, reconciles prerequisites, materializes the dataset, publishes
+`StartTraining` on `training.command.<mode>`, and consumes
+`training.event.<mode>` through the daemon.
 
 ## RL Framework Primitives
 
@@ -71,7 +71,9 @@ layout the daemon-backed implementation grows into.
 
 ### Algorithm Class Taxonomy (Type-Level)
 
-`Algorithm` is a GADT-indexed kind with traits:
+The current `AlgorithmFamily` metadata in `src/JitML/RL/Algorithms.hs`
+enumerates `OnPolicy`, `OffPolicy`, `Specialized`, and `SelfPlay`. Target
+runtime work grows this into a GADT-indexed `Algorithm` kind with traits:
 
 - `OnPolicy` / `OffPolicy` / `Hierarchical` / `Recurrent`
 - `MaskingCapable` (algorithm supports action masks)
@@ -83,12 +85,12 @@ declarations.
 
 ### Policy and Environment
 
-- `Policy` carries the typed action distribution shape, parameter
+- Target `Policy` carries the typed action distribution shape, parameter
   references, and the substrate-bound `KernelHandle` for inference.
-- `Environment` typeclass plus `VecEnv` parallel-environment combinator.
-- Each canonical environment (cartpole, mountain-car, lunar-lander,
-  Atari subset) is an in-process Haskell implementation with deterministic
-  seeded `reset` and `step`.
+- Target `Environment` typeclass plus `VecEnv` parallel-environment combinator.
+- Current `src/JitML/RL/Environments.hs` provides local metadata and a
+  deterministic step helper for cartpole, mountain-car, lunar-lander, and an
+  atari-subset row.
 
 ### Buffers
 
@@ -101,17 +103,18 @@ declarations.
 
 | Primitive | Variants | Owning module |
 |-----------|----------|---------------|
-| Schedule | `ConstantSched`, `LinearSched`, `ExponentialSched`, `PiecewiseSched` | `src/JitML/RL/Schedule.hs` |
-| Action distribution | `Categorical`, `Gaussian`, `Bernoulli`, `MaskedCategorical`, `MixtureGaussian` | `src/JitML/RL/Distribution.hs` |
-| Action noise | `Gaussian`, `OrnsteinUhlenbeck`, `ParameterSpaceNoise` | `src/JitML/RL/Noise.hs` |
-| Target network | Polyak averaging step + periodic-copy mode | `src/JitML/RL/Target.hs` |
-| GAE | `GAE :: GAEParams -> Trajectory -> Advantages` deterministic | `src/JitML/RL/GAE.hs` |
-| Callback | Typed composable hook with `onStepEnd`, `onEpisodeEnd`, `onCheckpoint` | `src/JitML/RL/Callback.hs` |
-| Logger | Multi-sink (TensorBoard + Pulsar `rl.event.<mode>` + Prometheus + stdout) | `src/JitML/RL/Logger.hs` |
-| Evaluator | `RL_EVAL_EPISODES` deterministic eval episodes | `src/JitML/RL/Eval.hs` |
+| Primitive | Current location |
+|-----------|------------------|
+| Schedules | `src/JitML/RL/Framework.hs` metadata |
+| Action distributions | `src/JitML/RL/Framework.hs` metadata |
+| Action noise | `src/JitML/RL/Framework.hs` metadata |
+| Target networks | `src/JitML/RL/Framework.hs` metadata |
+| GAE | `src/JitML/RL/Framework.hs` metadata |
+| Callbacks | `src/JitML/RL/Framework.hs` metadata |
+| Evaluator | `src/JitML/RL/Framework.hs` metadata |
 
-`src/JitML/RL/Loop.hs` composes these into `RLLoop`, the typed pipeline that
-the algorithm catalog plugs into.
+Target runtime work splits these into dedicated modules and composes them into
+`RLLoop`.
 
 ### `jitml rl train` CLI
 
@@ -121,32 +124,38 @@ jitml rl train <rl-experiment-dhall>
                [--dry-run | --plan-file <path>]
 ```
 
-Plan/Apply. Daemon's at-least-once `RlHandler` consumes
-`rl.command.<mode>`.
+Current normal execution prints the selected RL experiment and local algorithm
+count. Target runtime work publishes `rl.command.<mode>` for the daemon's
+at-least-once `RlHandler`.
 
 ## RL Algorithm Catalog
 
 <!-- jitml:training.rl.catalog:start -->
-| Algorithm | Family | Owning module | Notes |
-|-----------|--------|---------------|-------|
-| PPO | On-policy | `src/JitML/RL/Algos/Ppo.hs` | Clipped objective; entropy bonus |
-| A2C | On-policy | `src/JitML/RL/Algos/A2c.hs` | Synchronous A3C variant |
-| TRPO | On-policy | `src/JitML/RL/Algos/Trpo.hs` | Trust region |
-| MaskablePPO | On-policy + `MaskingCapable` | `src/JitML/RL/Algos/MaskablePpo.hs` | PPO with action masks |
-| RecurrentPPO | On-policy + `Recurrent` | `src/JitML/RL/Algos/RecurrentPpo.hs` | PPO with LSTM/GRU policy |
-| DQN | Off-policy + `DiscreteAction` | `src/JitML/RL/Algos/Dqn.hs` | Vanilla deep Q |
-| QR-DQN | Off-policy + `DiscreteAction` | `src/JitML/RL/Algos/QrDqn.hs` | Quantile regression DQN |
-| DDPG | Off-policy + `ContinuousAction` | `src/JitML/RL/Algos/Ddpg.hs` | Deterministic policy gradient |
-| TD3 | Off-policy + `ContinuousAction` | `src/JitML/RL/Algos/Td3.hs` | Twin-delayed DDPG |
-| SAC | Off-policy + `ContinuousAction` | `src/JitML/RL/Algos/Sac.hs` | Maximum-entropy actor-critic |
-| CrossQ | Off-policy + `ContinuousAction` | `src/JitML/RL/Algos/CrossQ.hs` | No target network |
-| TQC | Off-policy + `ContinuousAction` | `src/JitML/RL/Algos/Tqc.hs` | Truncated quantile critics |
-| ARS | Hierarchical + parameter-space search | `src/JitML/RL/Algos/Ars.hs` | Augmented random search |
-| HER | Off-policy wrapper | `src/JitML/RL/Algos/Her.hs` | Hindsight experience replay |
+| Algorithm | Family | Replay-backed | Current owner |
+|-----------|--------|---------------|---------------|
+| `PPO` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
+| `A2C` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
+| `TRPO` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
+| `MaskablePPO` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
+| `RecurrentPPO` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
+| `DQN` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
+| `QR-DQN` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
+| `DDPG` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
+| `TD3` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
+| `SAC` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
+| `CrossQ` | Specialized | yes | `src/JitML/RL/Algorithms.hs` |
+| `TQC` | Specialized | yes | `src/JitML/RL/Algorithms.hs` |
+| `ARS` | Specialized | no | `src/JitML/RL/Algorithms.hs` |
+| `HER` | Specialized | yes | `src/JitML/RL/Algorithms.hs` |
+| `AlphaZero` | SelfPlay | no | `src/JitML/RL/Algorithms.hs` |
 <!-- jitml:training.rl.catalog:end -->
 
-Per-algorithm Dhall types at `dhall/rl/algos/<algo>.dhall`. Golden trajectory
-fixtures under `test/golden/rl/<algo>/<env>/curve.cbor`.
+`dhall/rl/Schema.dhall` is the current Dhall mirror for the local Haskell
+algorithm catalog and is audited by `JitML.RL.Schema` plus the Haskell lint
+stack. `test/golden/rl/ppo/cartpole/trajectory.txt` pins the current
+PPO/CartPole deterministic trajectory. Per-algorithm runtime modules, richer
+Dhall types at `dhall/rl/algos/<algo>.dhall`, and full trajectory fixture
+coverage under `test/golden/rl/<algo>/<env>/` remain target work.
 
 For off-policy algorithms, the bit-equality golden anchor is the first-N-
 steps prefix per [determinism_contract.md → Same-Substrate Bit-Equality (RL
@@ -154,23 +163,24 @@ Caveat)](determinism_contract.md#same-substrate-bit-equality-rl-caveat).
 
 ## AlphaZero-Style Self-Play
 
-`src/JitML/AlphaZero/` owns the AlphaZero stack. Borrows the engineering arc
-from a sibling MCTS project per [../README.md → Borrowed engineering from the
-sibling MCTS project](../../README.md#borrowed-engineering-from-the-sibling-mcts-project).
+The current AlphaZero surface lives in `src/JitML/RL/AlphaZero.hs`. It provides
+Connect 4 state/move helpers, deterministic transcript summaries, local game
+metadata, two-headed-network metadata, and arena summaries. A persistent
+AlphaZero/MCTS stack remains target runtime work.
 
-| Component | Module |
-|-----------|--------|
-| Perfect-information game type class | `src/JitML/AlphaZero/Game.hs` |
-| Two-headed network (policy + value) | `src/JitML/AlphaZero/Network.hs` |
-| MCTS with PUCT and persistent tree state | `src/JitML/AlphaZero/Mcts.hs` |
-| Self-play loop | `src/JitML/AlphaZero/SelfPlay.hs` |
-| Arena gating | `src/JitML/AlphaZero/Arena.hs` |
-| Self-play replay buffer (`Async` writes) | `src/JitML/AlphaZero/Buffer.hs` |
+| Component | Current / target |
+|-----------|------------------|
+| Connect 4 helpers | Current: `src/JitML/RL/AlphaZero.hs` |
+| Perfect-information game metadata | Current: `src/JitML/RL/AlphaZero.hs` |
+| Two-headed network metadata | Current: `src/JitML/RL/AlphaZero.hs` |
+| MCTS with PUCT and persistent tree state | Target runtime module |
+| Self-play loop and replay buffer | Target runtime module |
+| Arena gating | Current summary helper; target runtime module |
 
 ### Persistent MCTS State
 
-Visits persist across moves within a single game; the rest of the tree is
-discarded incrementally as moves are played.
+The current `MctsState` is a small local metadata record with visit count and a
+prior seed. Persistent visits across moves remain target runtime work.
 
 ### Deterministic Stochasticity
 
@@ -182,19 +192,20 @@ seed self-play produces bit-identical visit counts.
 
 | Game | Owning module |
 |------|---------------|
-| Connect 4 (canonical demo game) | `src/JitML/AlphaZero/Games/Connect4.hs` |
-| Othello | `src/JitML/AlphaZero/Games/Othello.hs` |
-| Hex | `src/JitML/AlphaZero/Games/Hex.hs` |
-| Gomoku | `src/JitML/AlphaZero/Games/Gomoku.hs` |
+| Connect 4 | `src/JitML/RL/AlphaZero.hs` metadata and helper |
+| Othello | `src/JitML/RL/AlphaZero.hs` metadata only |
+| Hex | `src/JitML/RL/AlphaZero.hs` metadata only |
+| Gomoku | `src/JitML/RL/AlphaZero.hs` metadata only |
 
 Connect 4 is the canonical demo game consumed by the PureScript Connect 4
-panel. Golden self-play game fixtures under `test/golden/az/<game>/<seed>.cbor`.
+panel metadata. Golden self-play game fixtures remain target work.
 
 ## Hyperparameter Tuning
 
-`src/JitML/Tune/` owns the hyperparameter tuner. The tuning surface follows
-the sampler × scheduler × pruner shape from [../README.md → Hyperparameter
-tuning, first-class](../../README.md#hyperparameter-tuning-first-class).
+`src/JitML/Tune/` owns the hyperparameter tuner surface. The current local
+catalog lives in `src/JitML/Tune/Catalog.hs` and follows the sampler x
+scheduler x pruner shape from [../README.md → Hyperparameter tuning,
+first-class](../../README.md#hyperparameter-tuning-first-class).
 
 `TuneSweepLifecycle` GADT (`Sampled → Scheduled → Running → Pruned →
 Reported → Finished`) is the typed lifecycle.
@@ -202,51 +213,46 @@ Reported → Finished`) is the typed lifecycle.
 ### Samplers
 
 <!-- jitml:training.tune.samplers:start -->
-| Constructor | Notes |
-|-------------|-------|
-| `Grid` | Cartesian product of declared values |
-| `Random` | Uniform random sampling |
-| `Sobol` | Low-discrepancy quasi-random sequence |
-| `TPE` | Tree-structured Parzen estimator |
-| `GpBO` | Gaussian-process Bayesian optimisation |
-| `GA` | Genetic algorithm with `popSize`, `crossoverRate`, `mutationRate` |
-| `NSGA2` | Multi-objective GA with `popSize` |
-| `MuLambdaES` | (μ,λ)-evolution strategy with `mu`, `lambda`, `sigmaInit` |
-| `CMAES` | Covariance matrix adaptation ES with `sigmaInit` |
-| `PBT` | Population-based training with `popSize`, `exploitInterval`, `exploreSpec` |
+| Constructor | Current scope |
+|-------------|---------------|
+| `Sobol` | Generated from current Haskell catalog |
+| `Random` | Generated from current Haskell catalog |
+| `GeneticAlgorithm` | Generated from current Haskell catalog |
+| `EvolutionStrategies` | Generated from current Haskell catalog |
 <!-- jitml:training.tune.samplers:end -->
 
 ### Schedulers (tuner-side)
 
 <!-- jitml:training.tune.schedulers:start -->
-| Constructor | Notes |
-|-------------|-------|
-| `Fifo` | First-in-first-out trial scheduler |
-| `SuccessiveHalving` | `reductionFactor`, `minResource` |
-| `Hyperband` | `maxResource`, `reductionFactor` |
-| `ASHA` | Async successive halving with `reductionFactor`, `minResource`, `maxResource` |
+| Constructor | Current scope |
+|-------------|---------------|
+| `Fifo` | Generated from current Haskell catalog |
+| `SuccessiveHalving` | Generated from current Haskell catalog |
+| `Hyperband` | Generated from current Haskell catalog |
+| `ASHA` | Generated from current Haskell catalog |
 <!-- jitml:training.tune.schedulers:end -->
 
 ### Pruners
 
 <!-- jitml:training.tune.pruners:start -->
-| Constructor | Notes |
-|-------------|-------|
-| `NoPrune` | No pruning |
-| `Median` | `gracePeriod`, `threshold` |
-| `Percentile` | `gracePeriod`, `percentile` |
+| Constructor | Current scope |
+|-------------|---------------|
+| `NoPruner` | Generated from current Haskell catalog |
+| `MedianPruner` | Generated from current Haskell catalog |
+| `PercentilePruner` | Generated from current Haskell catalog |
 <!-- jitml:training.tune.pruners:end -->
 
 ### Trial Storage and Resume
 
-Trial transcripts are written to MinIO bucket `jitml-trials`, content-
-addressed by `sha256(resolved-dhall || trial-seed)`. Resume reads existing
-trials, recomputes the sampler state, continues from the correct trial
-index.
+Target trial transcripts are written to MinIO bucket `jitml-trials`, content-
+addressed by `sha256(resolved-dhall || trial-seed)`. Target resume reads
+existing trials, recomputes the sampler state, and continues from the correct
+trial index.
 
 The current local surface in `src/JitML/Tune/Catalog.hs` exposes
 `trialStorageKey`, `resumeMatchesFullRun`, and `renderTrialResumeSummary` for
 deterministic key and resume-equality checks before the live MinIO writer lands.
+`test/golden/tune/` pins the current Sobol and GeneticAlgorithm trial streams.
 
 ### `jitml tune` CLI
 
@@ -256,8 +262,9 @@ jitml tune <tune-dhall>
            [--dry-run | --plan-file <path>]
 ```
 
-Plan/Apply. Daemon's at-least-once `TuneHandler` consumes
-`tune.command.<mode>`.
+Current normal execution prints deterministic local trial values. Target
+runtime work publishes `tune.command.<mode>` for the daemon's at-least-once
+`TuneHandler`.
 
 ### Worked Example
 

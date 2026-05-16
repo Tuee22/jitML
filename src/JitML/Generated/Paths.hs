@@ -8,6 +8,7 @@ module JitML.Generated.Paths
 where
 
 import Data.Text (Text)
+import Data.Text qualified as Text
 
 import JitML.Docs.Render
   ( renderBashCompletion
@@ -16,6 +17,10 @@ import JitML.Docs.Render
   , renderMarkdownReference
   , renderZshCompletion
   )
+import JitML.Observability.Grafana qualified as Grafana
+import JitML.Observability.Prometheus (renderPrometheusScrapeConfig)
+import JitML.Routes qualified as Routes
+import JitML.Web.Contracts (renderPureScriptContracts)
 
 data TrackedGeneratedPath = TrackedGeneratedPath
   { trackedKey :: Text
@@ -52,11 +57,41 @@ trackingGeneratedPaths =
       , trackedRendered = renderFishCompletion
       }
   ]
+    <> [ TrackedGeneratedPath
+           { trackedKey = "web.contracts.purescript"
+           , trackedPath = "web/src/Generated/Contracts.purs"
+           , trackedRendered = renderPureScriptContracts
+           }
+       ]
+    <> fmap trackedRoute Routes.routeRegistry
+    <> fmap trackedDashboard Grafana.dashboards
+    <> [ TrackedGeneratedPath
+           { trackedKey = "chart.prometheus.scrape"
+           , trackedPath = "chart/templates/prometheus-scrapeconfig-jitml.yaml"
+           , trackedRendered = renderPrometheusScrapeConfig
+           }
+       ]
 
 futureTrackingGeneratedPathPatterns :: [FilePath]
 futureTrackingGeneratedPathPatterns =
   [ "share/man/man1/jitml-*.1"
-  , "web/src/Generated/Contracts.purs"
-  , "chart/templates/httproute-*.yaml"
-  , "chart/templates/grafana-dashboard-*.yaml"
   ]
+
+trackedRoute :: Routes.Route -> TrackedGeneratedPath
+trackedRoute route =
+  TrackedGeneratedPath
+    { trackedKey = "chart.routes." <> Routes.routeName route
+    , trackedPath = "chart/templates/httproute-" <> Text.unpack (Routes.routeName route) <> ".yaml"
+    , trackedRendered = Routes.renderHTTPRoute route
+    }
+
+trackedDashboard :: Grafana.Dashboard -> TrackedGeneratedPath
+trackedDashboard dashboard =
+  TrackedGeneratedPath
+    { trackedKey = "chart.grafana." <> Grafana.dashboardName dashboard
+    , trackedPath =
+        "chart/templates/grafana-dashboard-"
+          <> Text.unpack (Grafana.dashboardName dashboard)
+          <> ".yaml"
+    , trackedRendered = Grafana.renderDashboardConfigMap dashboard
+    }

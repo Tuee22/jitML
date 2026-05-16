@@ -32,8 +32,10 @@ jitml-checkpoints/
 `manifest-sha = sha256(canonical-cbor(CheckpointManifest))`.
 
 Current local helpers cover `blobKey`, `manifestKey`, `latestPointerKey`,
-`bestPointerKey`, `trialPointerKey`, and pure `applyPointerWrite` CAS decisions.
-Live MinIO `If-None-Match` / `If-Match` effects remain in the runtime writer.
+`bestPointerKey`, `trialPointerKey`, deterministic `encodeManifestCbor` /
+`decodeManifestCbor` / `manifestContentSha`, and pure `applyPointerWrite` CAS
+decisions. Live MinIO `If-None-Match` / `If-Match` effects remain in the
+runtime writer.
 
 ## Three Object Classes, Two Write Protocols
 
@@ -70,7 +72,7 @@ pointer update succeeds.
 
 ## `.jmw1` Dense Weight Blob Format
 
-The blob starts with magic bytes, a canonical-CBOR header length, the
+Target blob format starts with magic bytes, a canonical-CBOR header length, the
 canonical-CBOR header, then packed little-endian tensor bytes:
 
 ```
@@ -103,6 +105,10 @@ data Dtype = F32 | F64 | C32 | C64 | I32 | I64 | U8 | BF16
 entry carries path, dtype, shape, payload offset, byte length, and SHA-256.
 Payload bytes are contiguous, little-endian, dtype-native, and unpadded.
 
+The current local `encodeJmw1` helper in `src/JitML/Checkpoint/Format.hs`
+emits a simplified text payload beginning with `JMW1`; it is not the target
+binary encoding yet.
+
 ## CBOR Manifest
 
 ```haskell
@@ -127,13 +133,18 @@ data CheckpointPart = CheckpointPart
   }
 ```
 
-`cmWallClockNs` is telemetry only and is never an input to any content hash.
-`cmParts` is canonical-ordered by role. CBOR canonical-form encoding makes
-the manifest SHA deterministic.
+This is the target manifest shape. The current `CheckpointManifest` is a small
+record with `manifestId`, `manifestExperiment`, and tensor blobs only.
+`encodeManifestCbor` canonicalizes tensor order by `tensorName`,
+`decodeManifestCbor` round-trips that local representation, and
+`manifestContentSha` hashes the deterministic CBOR bytes. `cmWallClockNs` is
+telemetry only and is never an input to any content hash. `cmParts` is
+canonical-ordered by role in the target richer manifest. CBOR canonical-form
+encoding makes the manifest SHA deterministic.
 
 ## Concurrency Model
 
-All race conditions between trainers, hyperparameter-trial workers, and
+Target live race conditions between trainers, hyperparameter-trial workers, and
 inference clients are eliminated at the protocol layer; nothing relies on
 advisory locks, leases, or a separate lock service.
 
@@ -146,7 +157,7 @@ advisory locks, leases, or a separate lock service.
 
 ## Typed Advance Predicates
 
-The pointer-CAS retry harness applies a typed predicate `CurrentManifest →
+The target pointer-CAS retry harness applies a typed predicate `CurrentManifest →
 ProposedManifest → Bool`:
 
 | Predicate | Meaning |
@@ -158,6 +169,8 @@ ProposedManifest → Bool`:
 Trainers pick `Maximised` vs `Minimised` from the experiment Dhall's
 `metrics[i].direction` field. The direction is part of the resolved-Dhall
 hash, so flipping a metric's direction defines a *different experiment*.
+The current worktree has a pure `PointerWrite` / `applyPointerWrite` decision
+surface only; it does not perform MinIO conditional writes.
 
 ## Sketch
 
@@ -177,8 +190,8 @@ writeCheckpoint payload = do
 
 ## Retention and GC
 
-Retention (`retain = Checkpoint.Retention.LastN k` in the experiment Dhall)
-is enforced by a reconciler — `jitml internal gc <experiment-hash>` —
+Target retention (`retain = Checkpoint.Retention.LastN k` in the experiment
+Dhall) is enforced by a reconciler — `jitml internal gc <experiment-hash>` —
 invoked by the trainer at training-end. Per doctrine `Reconcilers`,
 re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
 
@@ -195,9 +208,13 @@ re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
   `At-Least-Once Event Processing`, naming every reaped manifest and blob
   SHA so the audit trail survives the deletion.
 
+The current `jitml internal gc <experiment-hash>` prints a local reconciliation
+summary and supports dry-run plan rendering; it does not traverse MinIO or reap
+objects.
+
 ## Inference-Only Read Path
 
-`loadInferenceCheckpoint :: PointerKey -> ReaderT Env IO (KernelHandle,
+Target `loadInferenceCheckpoint :: PointerKey -> ReaderT Env IO (KernelHandle,
 CheckpointManifest)` reads `pointers/<>`, fetches `manifests/<sha>`, fetches **only**
 the `Weights` part's blob (skipping optimizer state, RNG state, replay
 buffer, and exploration cache), and instantiates a `KernelHandle` in
@@ -206,12 +223,14 @@ buffer, and exploration cache), and instantiates a `KernelHandle` in
 Concurrent training advances are invisible to the reader because the
 snapshot the reader operates against is immutable.
 
-The inference-only read path is the supported entrypoint for `jitml-demo`
-and the PureScript panels.
+The current local read path is `inferFromManifest`, a deterministic summary
+helper used by `jitml inference run` and the local cross-backend stanza. The
+target inference-only read path is the supported entrypoint for `jitml-demo` and
+the PureScript panels.
 
 ## TensorBoard Sidecar
 
-Every `CheckpointDone` event also writes a CBOR sidecar at
+Target `CheckpointDone` events also write a CBOR sidecar at
 `jitml-tensorboard/<experiment-hash>/checkpoints/<step>-<manifest-sha>.cbor`:
 
 ```haskell
@@ -236,8 +255,8 @@ The current local sidecar path renderer is
 
 ## Bit-Determinism
 
-Same-substrate same-toolchain reproduction of a checkpoint produces a byte-
-identical `.jmw1` payload and a byte-identical manifest SHA. Cross-substrate
+Target same-substrate same-toolchain reproduction of a checkpoint produces a
+byte-identical `.jmw1` payload and a byte-identical manifest SHA. Cross-substrate
 drift is bounded by the per-tensor tolerance band per
 [determinism_contract.md → Cross-Substrate Tolerance
 Methodology](determinism_contract.md#cross-substrate-tolerance-methodology).
