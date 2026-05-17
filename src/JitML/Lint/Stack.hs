@@ -12,7 +12,7 @@ where
 
 import Control.Monad (filterM)
 import Data.ByteString qualified as ByteString
-import Data.List (isPrefixOf, isSuffixOf)
+import Data.List (isInfixOf, isPrefixOf, isSuffixOf)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -179,7 +179,17 @@ shouldSkipPath path =
     , ".build/"
     , ".data/"
     , "dist-newstyle/"
+    , "node_modules/"
+    , "web/node_modules/"
+    , "web/output/"
+    , "web/.spago/"
+    , "playwright-report/"
+    , "test-results/"
+    , "infra/pulumi/node_modules/"
     ]
+    || "/node_modules/" `isInfixOf` path
+    || "/.spago/" `isInfixOf` path
+    || "/output/" `isInfixOf` path
 
 isLintedTextFile :: FilePath -> Bool
 isLintedTextFile path =

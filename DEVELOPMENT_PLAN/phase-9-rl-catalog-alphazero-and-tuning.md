@@ -291,10 +291,12 @@ AlphaZero summary.
   (`ucbScore`), and the self-play buffer (`SelfPlayBuffer`) already
   exist. **Open**: wire the `runSearch` prior into a real network
   evaluation via the JIT engine (gated by Phase 7 production loaders).
-- Implement a transposition-table cache keyed on the canonical move
-  sequence — the current implementation re-runs `expand` on first
-  visit; a real transposition table de-dupes equivalent search
-  subtrees.
+- `JitML.RL.AlphaZero.Mcts.TranspositionTable` + `transpositionKey`
+  (SHA-256 over the canonical move sequence) + `runSearchWithTable`
+  cache the canonical node-per-position so equivalent move sequences
+  de-dupe their search subtrees. Validated by `jitml-unit`: identical
+  move sequences collapse to a single entry, distinct sequences
+  allocate distinct entries.
 - Wire MinIO checkpoint round-trip of the persistent self-play buffer
   (gated by Phase 10 + 4 live MinIO).
 - `AZ_GAMES` and `AZ_SIMS` are exposed via `SelfPlayConfig`; the

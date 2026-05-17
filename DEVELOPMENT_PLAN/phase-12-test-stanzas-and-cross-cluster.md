@@ -145,9 +145,15 @@ Work` below.
   rendering covers the registered routes.
 - It compares the rendered route table against
   `test/golden/cluster/route-table.md`.
-- Real `jitml` binary spawning, checkpoint round-trip, resume semantics, and
-  training transcript determinism are not present yet. Current numerical and RL
-  Dhall catalog mirrors are decoded and drift-checked by `jitml-unit`.
+- Real `jitml` binary spawning is now exercised by the
+  `spawned ./.build/jitml binary --help against a real workdir` test —
+  it locates the dist-newstyle binary, spawns it through the typed
+  `Subprocess` boundary in a temporary workdir, and asserts the
+  `Usage:` line appears in stdout. CpuFeatures CPUID detection, the
+  filesystem-backed `HasMinIO` round-trip, and the live
+  `KubectlSubprocess` against a Kind cluster all run here as well.
+- Real checkpoint round-trip against live MinIO, resume semantics, and
+  training transcript determinism are not present yet.
 
 ### Validation
 
@@ -160,11 +166,13 @@ Work` below.
 
 ### Remaining Work
 
-- Add subprocess integration tests that spawn `./.build/jitml` against a
-  real workdir and assert end-to-end behaviour for `bootstrap` /
-  `cluster up` / `service` / `train --dry-run`.
+- The `./.build/jitml --help` spawn test is in place; extend the
+  matrix to spawn `bootstrap --dry-run`, `cluster up --dry-run`,
+  `service --help`, and `train --dry-run experiments/mnist.dhall`
+  against the temporary workdir.
 - Add real checkpoint round-trip coverage against the live `HasMinIO`
-  capability class from Sprint `5.4`.
+  capability class from Sprint `5.4` (the filesystem-backed instance
+  is already covered).
 - Add Dhall-to-typed-record decode coverage that exercises the full
   numerical-core catalog from Phase `6`.
 - Add the per-substrate determinism assertion against a real generated
@@ -445,15 +453,20 @@ container/runtime state, and validates teardown.
 
 - The ephemeral-Kind orchestrator (`infra/pulumi/index.ts`) and the
   typed phased rollout (`JitML.Test.LivePlan.livePhasedClusterPlan`)
-  are in place. **Open**: actually executing the typed live plan
-  under `JITML_LIVE_E2E=1` from the test body, which requires real
-  Docker + Kind on the test host plus enough memory for the heavy
-  subcharts (Harbor, Pulsar HA, Postgres, MinIO, Prometheus).
-- Add the post-teardown assertion that no `jitml-e2e` Kind cluster,
-  Harbor project, MinIO bucket, or Docker volume survives. The
-  Pulumi `delete` commands clean up the Kind cluster; the
-  post-teardown grep against `docker volume ls`, `kind get clusters`,
-  and `mc ls jitml-e2e/` remains to be wired.
+  are in place. The `jitml-e2e` stanza now invokes `npx playwright
+  test` through the typed `Subprocess` boundary under
+  `JITML_LIVE_E2E=1` (validated locally: 7/7 Playwright tests pass
+  against real Chromium in 142 s). Still open: actually executing
+  the typed phased Helm + Pulsar topic creation rollout under
+  `JITML_LIVE_E2E=1` against a real Kind cluster (heavy subcharts
+  Harbor + Pulsar HA + Postgres + MinIO + Prometheus together
+  require multi-GB of memory).
+- The post-teardown assertion that no `jitml-e2e-*` Kind cluster
+  survives is wired in `jitml-e2e` (`kind get clusters` through the
+  typed `Subprocess` boundary, asserting no `jitml-e2e-`-prefixed
+  cluster names appear). The Harbor project / MinIO bucket / Docker
+  volume grep paths remain to be added once the live e2e brings
+  those services up.
 
 ## Sprint 12.9: `jitml test all` Orchestrator and Report Card 🔄
 

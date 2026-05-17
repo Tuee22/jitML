@@ -142,16 +142,17 @@ lives in MinIO and Pulsar exclusively.
   service-Postgres registry with `harbor-pg` in namespace `platform` as
   the first entry. `renderPerconaPGCluster` emits the `PerconaPGCluster`
   YAML; `validateRegisteredPostgres` is the lint helper that rejects
-  unknown cluster names.
+  unknown cluster names. **The lint rule is now wired into
+  `JitML.Lint.Chart.checkPerconaCluster`** — `jitml lint chart` rejects
+  any `PerconaPGCluster` in `chart/templates/*.yaml` whose name is not
+  declared in `postgresRegistry`, with the remedy pointing at
+  `src/JitML/Cluster/PostgresRegistry.hs`.
 - The `helm install` of the Percona operator is sequenced in
   `JitML.Cluster.Helm.phasedReleases` (HarborPhase, `harbor-pg` row).
   The pending work is the `kubectl apply` of the rendered
   `PerconaPGCluster` CR through `HasKubectl.kubectlApply`.
 - Implement the readiness check that waits for the Patroni-managed Postgres
   cluster to reach Ready and exposes its DSN to Harbor.
-- Wire `validateRegisteredPostgres` into `JitML.Lint.Chart` so
-  `jitml lint chart` rejects any `PerconaPGCluster` not declared in the
-  registry.
 
 ## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server 🔄
 
@@ -204,13 +205,17 @@ buckets, and pin the server to a release with S3 conditional-write support
 
 - The typed `HasMinIO` capability class exposes the full conditional-write
   surface (`putBlobIfAbsent`, `casPointer`, `listObjects`,
-  `deleteObject`) with `ETag` newtype. The pending work is the live
-  instance against a running MinIO StatefulSet issued via the typed
-  `helm install` from `JitML.Cluster.Helm.helmInstallSubprocess`.
+  `deleteObject`) with `ETag` newtype. A filesystem-backed instance
+  (`JitML.Service.FilesystemMinIO`) honours the same conditional
+  semantics — `putBlobIfAbsent` returns `Left (SEConflict ...)` on the
+  second PUT (the 412 → `SEConflict` mapping doctrine prescribes), and
+  `casPointer` returns `Left (SEConflict ...)` on a stale ETag.
+  Validated by `jitml-integration` against a real on-disk temporary
+  store. The pending work is the live HTTP-backed instance against a
+  running MinIO StatefulSet issued via the typed `helm install` from
+  `JitML.Cluster.Helm.helmInstallSubprocess`.
 - Implement the `mc`-based or in-process readiness check that confirms the
   seven buckets exist.
-- Integration coverage exercising conditional-write semantics (412 →
-  `SEConflict`) end to end through the typed capability class.
 
 ## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap 🔄
 
@@ -249,12 +254,12 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 
 ### Remaining Work
 
-- `JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocess` returns a
-  typed subprocess that invokes `kubectl exec pulsar-broker-0 --
-  pulsar-admin topics create <topic>`;
-  `pulsarTopicCreateSubprocesses` is the list of one subprocess per
-  registered topic. The pending work is invoking them at bootstrap
-  final-phase time from `JitML.Bootstrap`.
+- `JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocesses` is now
+  appended to the typed `liveExecutePhasedRollout` step list in
+  `JitML.Bootstrap`, so `jitml bootstrap --<substrate>` under
+  `JITML_LIVE_E2E=1` invokes `kubectl exec pulsar-broker-0 -- pulsar-admin
+  topics create <topic>` for every registered topic after the phased
+  Helm rollout completes.
 - The typed `HasPulsar` capability class now exposes
   `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek`,
   `pulsarPublish`, `pulsarAcknowledge` with the `SubscriptionId`
@@ -361,12 +366,21 @@ writes the CBOR checkpoint sidecar at
 
 ### Remaining Work
 
-- Generate Haskell proto bindings from `proto/tensorboard/event.proto`.
-- Implement the TFRecord framing writer (uint64 LE length +
-  masked-CRC32C-Castagnoli + payload + masked-CRC32C).
+- The TFRecord framing writer is implemented as
+  `JitML.Observability.TensorBoard.encodeTfRecord` (with batch helper
+  `encodeTfRecordBatch`); the Castagnoli `crc32cCastagnoli` and TF's
+  `maskedCrc32c` mask `((crc >> 15) | (crc << 17)) + 0xa282ead8` are
+  exposed and validated by `jitml-unit` against canonical CRC32C
+  vectors (empty / single byte / 32 zeros / "123456789") and against a
+  TFRecord round-trip that confirms the length / payload byte
+  positions.
+- Generate Haskell proto bindings from `proto/tensorboard/event.proto`
+  via `proto-lens-protoc` once the dep lands.
 - Implement shard rotation (flush at 4 MiB, 10 s, or explicit `flush`) with
-  idempotent `If-None-Match: *` PUTs keyed by `(writer-id, shard-seq)`.
-- Wire `CheckpointDone` to write the typed `TbCheckpointMarker` CBOR sidecar.
+  idempotent `If-None-Match: *` PUTs keyed by `(writer-id, shard-seq)`
+  using `HasMinIO.putBlobIfAbsent` from Sprint 5.4.
+- Wire `CheckpointDone` to write the typed `TbCheckpointMarker` CBOR
+  sidecar at the shard key produced by `checkpointSidecarKey`.
 - Deploy a TensorBoard `Service` template alongside the Deployment.
 
 ## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA 🔄

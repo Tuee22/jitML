@@ -48,6 +48,7 @@ library
         JitML.Docs.Check
         JitML.Docs.Generate
         JitML.Docs.Render
+        JitML.Engines.CpuFeatures
         JitML.Engines.Engine
         JitML.Engines.Local
         JitML.Engines.Tuning
@@ -114,8 +115,10 @@ library
         JitML.Service.ConfigMap
         JitML.Service.Consumer
         JitML.Service.Endpoints
+        JitML.Service.FilesystemMinIO
         JitML.Service.Http
         JitML.Service.HotReload
+        JitML.Service.KubectlSubprocess
         JitML.Service.Lifecycle
         JitML.Service.LiveConfig
         JitML.Service.Logger
@@ -219,9 +222,13 @@ test-suite jitml-integration
     ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        directory,
+        filepath,
         jitml,
+        safe-exceptions,
         tasty,
         tasty-hunit,
+        temporary,
         text
 
 test-suite jitml-sl-canonicals

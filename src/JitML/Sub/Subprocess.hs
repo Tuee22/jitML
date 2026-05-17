@@ -1,6 +1,7 @@
 module JitML.Sub.Subprocess
   ( Subprocess (..)
   , subprocess
+  , subprocessWithStdin
   )
 where
 
@@ -11,6 +12,11 @@ data Subprocess = Subprocess
   , subprocessArguments :: [Text]
   , subprocessEnvironment :: [(Text, Text)]
   , subprocessWorkingDirectory :: Maybe FilePath
+  , subprocessStdin :: Maybe Text
+  -- ^ Optional stdin payload. The typed boundary's `runStreaming` /
+  -- `capture` feed the bytes verbatim when present. Used by, e.g.,
+  -- `kubectl apply -f -` to thread YAML into the child process without
+  -- shelling out.
   }
   deriving stock (Eq, Show)
 
@@ -21,4 +27,11 @@ subprocess path arguments =
     , subprocessArguments = arguments
     , subprocessEnvironment = []
     , subprocessWorkingDirectory = Nothing
+    , subprocessStdin = Nothing
     }
+
+-- | Same as `subprocess` but pipes the given `Text` payload as the child
+-- process's stdin.
+subprocessWithStdin :: FilePath -> [Text] -> Text -> Subprocess
+subprocessWithStdin path arguments stdinPayload =
+  (subprocess path arguments) {subprocessStdin = Just stdinPayload}

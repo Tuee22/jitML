@@ -252,14 +252,26 @@ class surface per doctrine `Capability Classes and Service Errors`.
   `HasKubectl` adds `kubectlGet`, `kubectlDelete`. The typed
   `ETag` and `SubscriptionId` newtypes carry the broker / store
   cursor identities through the capability boundary.
-- Implement live `HasMinIO` instance against the running MinIO
-  StatefulSet (Sprint `4.3`).
+- The filesystem-backed instance `JitML.Service.FilesystemMinIO`
+  honours `putBlobIfAbsent` (412 → `SEConflict`) and `casPointer`
+  (`If-Match: <etag>` → `SEConflict`); validated by `jitml-integration`.
+  Implement the live HTTP-backed `HasMinIO` instance against the
+  running MinIO StatefulSet (Sprint `4.3`).
 - Implement live `HasPulsar` instance against the running Pulsar HA
   cluster (Sprint `4.4`).
 - Implement live `HasHarbor` instance against the running Harbor
   portal+registry (Sprint `4.1`).
-- Implement live `HasKubectl` instance through the typed `Subprocess`
-  boundary against `./.build/jitml.kubeconfig`.
+- `JitML.Service.KubectlSubprocess` implements the `HasKubectl`
+  instance through the typed `Subprocess` boundary against
+  `./.build/jitml.kubeconfig`. The typed `Subprocess` boundary now
+  carries an optional `subprocessStdin :: Maybe Text` payload
+  (`subprocessWithStdin` smart constructor) that `kubectlApply` uses
+  to pipe YAML into `kubectl apply -f -` without shelling out.
+  Validated live against a real Kind cluster (`kindCreateSubprocess`
+  + `kubectl get nodes` returning YAML naming `jitml-linux-cpu`) by
+  `jitml-integration` under `JITML_LIVE_E2E=1`; the test no-ops
+  without the env var. The stdin path is independently validated by
+  a `cat`-based fixture in `jitml-integration`.
 - Add integration coverage in `jitml-integration` (Sprint `12.2`) that
   exercises each capability class against the live cluster behind
   `JITML_LIVE_E2E=1`.

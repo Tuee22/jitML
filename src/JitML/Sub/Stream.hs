@@ -34,18 +34,26 @@ runStreaming env subprocessValue = do
 
 capture :: SubprocessEnv -> Subprocess -> IO (ExitCode, ByteString, ByteString)
 capture _env subprocessValue =
-  Typed.readProcess (processConfig subprocessValue)
+  case subprocessStdin subprocessValue of
+    Nothing ->
+      Typed.readProcess (baseProcessConfig subprocessValue)
+    Just payload ->
+      Typed.readProcess
+        ( Typed.setStdin
+            (Typed.byteStringInput (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 payload)))
+            (baseProcessConfig subprocessValue)
+        )
 
-processConfig :: Subprocess -> Typed.ProcessConfig () () ()
-processConfig subprocessValue =
+baseProcessConfig :: Subprocess -> Typed.ProcessConfig () () ()
+baseProcessConfig subprocessValue =
   applyWorkingDirectory
     . applyEnvironment
     $ Typed.proc
       (subprocessPath subprocessValue)
       (fmap showText (subprocessArguments subprocessValue))
  where
-  applyWorkingDirectory =
-    maybe id Typed.setWorkingDir (subprocessWorkingDirectory subprocessValue)
+  applyWorkingDirectory config =
+    maybe config (`Typed.setWorkingDir` config) (subprocessWorkingDirectory subprocessValue)
 
   applyEnvironment config =
     case subprocessEnvironment subprocessValue of

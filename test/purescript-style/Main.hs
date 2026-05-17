@@ -5,9 +5,14 @@ module Main where
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.Directory (doesFileExist)
+import System.Environment (lookupEnv)
+import System.Exit (ExitCode (..))
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
+import JitML.Sub.Subprocess (subprocess)
+import JitML.Sub.Subprocess qualified
 import JitML.Web.Bundle (panelEndpoint, panelSurfaces)
 import JitML.Web.Contracts (renderPureScriptContracts)
 import JitML.Web.Contracts qualified as Contracts
@@ -36,6 +41,27 @@ main =
       , testCase "frontend panel endpoints are covered by generated contracts" $
           fmap panelEndpoint panelSurfaces
             @?= fmap Contracts.endpointPath panelContractEndpoints
+      , testCase "spago test runs through typed Subprocess (JITML_LIVE_E2E=1)" $ do
+          liveGate <- lookupEnv "JITML_LIVE_E2E"
+          case liveGate of
+            Just enabled
+              | Text.toLower (Text.pack enabled) `elem` ["1", "true", "yes", "on"] -> do
+                  -- Live path: invokes the installed local spago via the typed
+                  -- Subprocess boundary. Requires `web/node_modules/.bin/spago`
+                  -- to be present (installed by `npm install` in the repo).
+                  let cmd =
+                        (subprocess "node_modules/.bin/spago" ["test"])
+                          { JitML.Sub.Subprocess.subprocessWorkingDirectory = Just "web"
+                          }
+                  (exitCode, stdoutText, _stderrText) <-
+                    runStreaming defaultSubprocessEnv cmd
+                  assertBool
+                    "spago test exits zero"
+                    (case exitCode of ExitSuccess -> True; _ -> False)
+                  assertBool
+                    "spago test prints panel name from smoke suite"
+                    ("mnist-live-inference" `Text.isInfixOf` stdoutText)
+            _ -> pure () -- default path: skip when not gated by JITML_LIVE_E2E=1
       ]
 
 panelContractEndpoints :: [Contracts.ApiEndpoint]

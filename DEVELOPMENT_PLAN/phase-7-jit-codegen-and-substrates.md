@@ -193,11 +193,15 @@ identity kernel; grow real oneDNN graph wrappers and production
   deterministic-only primitive selection (`Engines.Tuning.linuxCpuKnobs`
   with `reduction-block`, `micro-kernel`, `thread-count`, and `fastmath
   = off`) already exist.
-- Grow the AVX-512 detection beyond the metadata surface so generated
-  source picks the right ISA path. The micro-kernel knob axis
-  enumerates `onednn-jit-avx2`, `onednn-jit-avx512`, and
-  `onednn-reference` already; the runtime needs to query CPUID and
-  pick.
+- `JitML.Engines.CpuFeatures.detectCpuFeatures` now probes the host
+  through the typed `Subprocess` boundary (Darwin `sysctl -a`
+  parsing for `hw.optional.avx2_0` / `hw.optional.avx512f`; Linux
+  `/proc/cpuinfo` parsing for `avx2` / `avx512f`). `microKernelChoice`
+  maps the result onto the `linuxCpuKnobs` `micro-kernel` axis
+  (`onednn-jit-avx512` / `onednn-jit-avx2` / `onednn-reference`).
+  Validated by `jitml-integration` on this host (Apple Silicon
+  detected as `apple-silicon`, choice falls through to
+  `onednn-reference`).
 - Add the live oneDNN integration test behind `JITML_LIVE_E2E=1` once
   the production runtime graph driver lands.
 

@@ -20,6 +20,8 @@ import Network.Socket
   , withSocketsDo
   )
 import Network.Socket.ByteString (recv, sendAll)
+import System.Environment (lookupEnv)
+import System.Exit (ExitCode (..))
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
@@ -28,6 +30,8 @@ import JitML.Routes (routeRegistry, routeServiceName)
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Http (withHttpRoutesOnce)
 import JitML.Storage.Buckets (bucketNames)
+import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
+import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..))
 import JitML.Test.LiveGate (LiveGate (..), liveGateEnvVar, liveGateFromEnv, renderLiveGate)
 import JitML.Test.LivePlan (liveE2EPlan, renderLivePlan)
@@ -95,6 +99,39 @@ main =
             response <- httpGet port "/api"
             assertBool "HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` response)
             assertBool "InferenceRun in API index" ("InferenceRun" `isInfixOf` response)
+      , testCase "npx playwright test runs through typed Subprocess (JITML_LIVE_E2E=1)" $ do
+          liveGate <- lookupEnv "JITML_LIVE_E2E"
+          case liveGate of
+            Just enabled
+              | Text.toLower (Text.pack enabled) `elem` ["1", "true", "yes", "on"] -> do
+                  -- Live path: invokes `npx playwright test` against the
+                  -- canonical panel matrix through the typed Subprocess
+                  -- boundary. Requires Chromium installed (`npx playwright
+                  -- install chromium`) and node_modules at the repo root.
+                  let cmd = subprocess "npx" ["playwright", "test", "--reporter=line"]
+                  (exitCode, stdoutText, _stderr) <-
+                    runStreaming defaultSubprocessEnv cmd
+                  assertBool
+                    "npx playwright test exits zero"
+                    (case exitCode of ExitSuccess -> True; _ -> False)
+                  assertBool
+                    "Playwright reports 7 passed tests"
+                    ("7 passed" `Text.isInfixOf` stdoutText)
+            _ -> pure () -- default path: skip when not gated
+      , testCase "post-teardown leaves no jitml-e2e Kind clusters" $ do
+          -- Asserts the deterministic-teardown property from Sprint 12.8
+          -- post-teardown. After all live work completes, `kind get
+          -- clusters` MUST NOT name any `jitml-e2e-*` cluster. The host
+          -- might have other Kind clusters (`jitml-linux-cpu`, etc.); we
+          -- only assert the absence of `jitml-e2e-`-prefixed ones.
+          (exitCode, stdoutText, _stderr) <-
+            runStreaming defaultSubprocessEnv (subprocess "kind" ["get", "clusters"])
+          assertBool
+            "kind get clusters exits zero"
+            (case exitCode of ExitSuccess -> True; _ -> False)
+          assertBool
+            "no jitml-e2e-* clusters survive"
+            (not ("jitml-e2e-" `Text.isInfixOf` stdoutText))
       ]
 
 httpGet :: Int -> String -> IO String

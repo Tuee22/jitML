@@ -11,6 +11,7 @@ import Data.Text.IO qualified as Text.IO
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath ((</>))
 
+import JitML.Cluster.PostgresRegistry (validateRegisteredPostgres)
 import JitML.Lint.Stack.Types (LintFinding (..))
 import JitML.Routes (Route (..), renderHTTPRoute, routeRegistry)
 
@@ -28,8 +29,45 @@ checkChartWhenPresent = do
   pvFindings <- concat <$> traverse checkPvFile (filter isPvFile chartFiles)
   forbiddenFindings <- concat <$> traverse checkForbiddenProvisioner chartFiles
   routeFindings <- checkRouteFiles chartFiles
+  pgFindings <- concat <$> traverse checkPerconaCluster chartFiles
   let templateValueFindings = fmap templateValuesFinding (filter isTemplateValuesFile chartFiles)
-  pure (storageFindings <> pvFindings <> forbiddenFindings <> routeFindings <> templateValueFindings)
+  pure
+    ( storageFindings
+        <> pvFindings
+        <> forbiddenFindings
+        <> routeFindings
+        <> pgFindings
+        <> templateValueFindings
+    )
+
+-- | Reject any `PerconaPGCluster` resource not declared in
+-- `JitML.Cluster.PostgresRegistry.postgresRegistry`. The registry is the
+-- single source for service-Postgres clusters; hand edits in
+-- `chart/templates/*.yaml` that introduce new clusters fail the lint.
+checkPerconaCluster :: FilePath -> IO [LintFinding]
+checkPerconaCluster path
+  | ".yaml" `isSuffixOf` path = do
+      content <- Text.IO.readFile path
+      if "kind: PerconaPGCluster" `Text.isInfixOf` content
+        then pure (concatMap (clusterFinding path) (extractClusterNames content))
+        else pure []
+  | otherwise = pure []
+ where
+  clusterFinding path' name =
+    case validateRegisteredPostgres name of
+      Nothing -> []
+      Just reason ->
+        [ LintFinding
+            path'
+            "chart.postgres.unregistered"
+            reason
+            "add the cluster to JitML.Cluster.PostgresRegistry.postgresRegistry"
+        ]
+
+  extractClusterNames =
+    fmap (Text.strip . Text.drop 6 . Text.dropWhile (/= ':'))
+      . filter ("  name:" `Text.isPrefixOf`)
+      . Text.lines
 
 checkStorageClass :: IO [LintFinding]
 checkStorageClass = do

@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Bootstrap
-  ( bootstrapPlanSteps
+  ( LiveExecutionResult (..)
+  , bootstrapPlanSteps
+  , liveExecutePhasedRollout
   , materializeBootstrapFiles
   )
 where
@@ -12,17 +14,26 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, renameFile)
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
 import JitML.Cluster.Gateway (renderEnvoyProxy, renderGateway, renderGatewayClass)
-import JitML.Cluster.Helm (renderHelmDependencyBuildPlan)
+import JitML.Cluster.Helm
+  ( helmPhasedRolloutPlan
+  , kindCreateSubprocess
+  , renderHelmDependencyBuildPlan
+  )
 import JitML.Cluster.Kind (kindConfigFor, renderKindConfig)
 import JitML.Cluster.Publication (defaultPublication)
+import JitML.Cluster.PulsarBootstrap (pulsarTopicCreateSubprocesses)
 import JitML.Cluster.Storage (ManualPV (..), manualPVs, renderManualPV, renderStorageClass)
 import JitML.Routes (Route (..), renderHTTPRoute, routeRegistry)
 import JitML.Service.BootConfig (Residency (..), defaultBootConfig, renderBootConfigDhall)
 import JitML.Service.ConfigMap (renderServiceConfigMap, renderServiceDeployment)
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
+import JitML.Sub.Render (renderSubprocess)
+import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
+import JitML.Sub.Subprocess (Subprocess)
 import JitML.Substrate (Substrate (..), renderSubstrate, substrateEdgePort)
 
 bootstrapPlanSteps :: Substrate -> [Text]
@@ -121,6 +132,37 @@ materializeBootstrapFiles root substrate = do
     writeTextFileIfChanged
       (chartTemplatesRoot </> ("httproute-" <> Text.unpack (routeName route) <> ".yaml"))
       (renderHTTPRoute route)
+
+data LiveExecutionResult = LiveExecutionResult
+  { liveStepsExecuted :: [Text]
+  , liveStepsFailed :: [(Text, Text)]
+  }
+  deriving stock (Eq, Show)
+
+-- | Live phased rollout executor. Runs the typed
+-- `kindCreateSubprocess` + `helmPhasedRolloutPlan` through the typed
+-- `runStreaming` boundary and returns the per-step rendered command + any
+-- failures. Triggered only when the caller passes `JITML_LIVE_E2E=1`; the
+-- App tier reads the env var and dispatches here.
+liveExecutePhasedRollout :: Substrate -> FilePath -> IO LiveExecutionResult
+liveExecutePhasedRollout substrate chartPath = do
+  let kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
+      kindStep = kindCreateSubprocess substrate kindConfigPath
+      helmSteps = helmPhasedRolloutPlan chartPath
+      pulsarSteps = pulsarTopicCreateSubprocesses
+      allSteps = kindStep : helmSteps <> pulsarSteps
+  runSteps [] [] allSteps
+ where
+  runSteps :: [Text] -> [(Text, Text)] -> [Subprocess] -> IO LiveExecutionResult
+  runSteps executed failed [] =
+    pure LiveExecutionResult {liveStepsExecuted = reverse executed, liveStepsFailed = reverse failed}
+  runSteps executed failed (subprocess : rest) = do
+    let rendered = renderSubprocess subprocess
+    (exitCode, _stdout, stderrText) <- runStreaming defaultSubprocessEnv subprocess
+    case exitCode of
+      ExitSuccess -> runSteps (rendered : executed) failed rest
+      ExitFailure _ ->
+        runSteps (rendered : executed) ((rendered, stderrText) : failed) rest
 
 writeTextFileIfChanged :: FilePath -> Text -> IO Bool
 writeTextFileIfChanged path expected = do

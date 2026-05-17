@@ -5,6 +5,7 @@ module Main where
 import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Exception (SomeException, try)
 import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObject, (.:))
+import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
 import Data.Foldable (traverse_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
@@ -95,6 +96,7 @@ import JitML.Prerequisite.Registry
   )
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.RL.AlphaZero qualified as AlphaZero
+import JitML.RL.AlphaZero.Mcts qualified as Mcts
 import JitML.RL.Environments qualified as RLEnvironments
 import JitML.RL.Framework qualified as RLFramework
 import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
@@ -258,6 +260,7 @@ main =
                 , subprocessArguments = ["build", "all"]
                 , subprocessEnvironment = [("LC_ALL", "C")]
                 , subprocessWorkingDirectory = Just "/tmp/jit ml"
+                , subprocessStdin = Nothing
                 }
             )
             @?= "LC_ALL=C cd '/tmp/jit ml' && cabal build all"
@@ -706,6 +709,21 @@ main =
             @?= ["connect4", "othello", "hex", "gomoku"]
           AlphaZero.policyHeadSize AlphaZero.connect4Network @?= 7
           AlphaZero.arenaWinRate (AlphaZero.ArenaSummary 3 1 0) @?= 0.75
+      , testCase "MCTS transposition table de-dupes equivalent move sequences" $ do
+          let cfg = Mcts.defaultMctsConfig 7
+              table0 = Mcts.emptyTranspositionTable
+              (_, table1) = Mcts.runSearchWithTable cfg 42 [0, 1, 2] table0
+              (_, table2) = Mcts.runSearchWithTable cfg 42 [0, 1, 2] table1
+              (_, table3) = Mcts.runSearchWithTable cfg 42 [0, 1, 3] table2
+          Mcts.transpositionSize table1 @?= 1
+          Mcts.transpositionSize table2 @?= 1 -- duplicate move sequence collapses
+          Mcts.transpositionSize table3 @?= 2 -- distinct move sequence allocates
+          assertBool
+            "transposition key is stable across calls"
+            (Mcts.transpositionKey [0, 1, 2] == Mcts.transpositionKey [0, 1, 2])
+          assertBool
+            "distinct move sequences hash differently"
+            (Mcts.transpositionKey [0, 1, 2] /= Mcts.transpositionKey [0, 1, 3])
       , testCase "tuning trial storage and resume summary are deterministic" $ do
           Tune.trialStorageKey "exp-a" 42 @?= "jitml-trials/exp-a/42/transcript.cbor"
           Tune.resumeMatchesFullRun Tune.Sobol 3 8 @?= True
@@ -777,6 +795,22 @@ main =
       , testCase "TensorBoard checkpoint sidecar keys are stable" $
           TensorBoard.checkpointSidecarKey "exp-a" 12 "sha-m"
             @?= "jitml-tensorboard/exp-a/checkpoints/12-sha-m.cbor"
+      , testCase "TensorBoard CRC32C-Castagnoli matches canonical vectors" $ do
+          -- Canonical CRC32C test vectors from RFC 3720 Appendix B.4.
+          TensorBoard.crc32cCastagnoli "" @?= 0x00000000
+          TensorBoard.crc32cCastagnoli (StrictByteString.pack [0x61]) @?= 0xC1D04330
+          TensorBoard.crc32cCastagnoli (StrictByteString.replicate 32 0x00) @?= 0x8A9136AA
+          TensorBoard.crc32cCastagnoli "123456789" @?= 0xE3069283
+      , testCase "TFRecord frame encodes length + masked CRCs + payload" $ do
+          let payload = StrictByteString.pack [0x01, 0x02, 0x03, 0x04]
+              frame = ByteString.toStrict (TensorBoard.encodeTfRecord payload)
+          StrictByteString.length frame @?= 8 + 4 + 4 + 4
+          StrictByteString.take 8 frame
+            @?= StrictByteString.pack [0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          let payloadOffset = 8 + 4
+              extractedPayload =
+                StrictByteString.take 4 (StrictByteString.drop payloadOffset frame)
+          extractedPayload @?= payload
       , testCase "Grafana daemon-health dashboard matches golden fixture" $ do
           expected <- Text.IO.readFile "test/golden/observability/grafana-daemon-health.yaml"
           case find ((== "daemon-health") . Grafana.dashboardName) Grafana.dashboards of
@@ -871,6 +905,7 @@ runBootstrapScript pathPrefix script args extraEnv = do
           , subprocessArguments = fmap Text.pack args
           , subprocessEnvironment = fmap envPair processEnv
           , subprocessWorkingDirectory = Just "."
+          , subprocessStdin = Nothing
           }
   (exitCode, stdoutText, stderrText) <- runStreaming defaultSubprocessEnv process
   pure

@@ -4,3 +4,13 @@
 /.hlint-output
 chart/charts/
 *.lock
+/node_modules/
+/package.json
+/playwright-report/
+/test-results/
+/web/node_modules/
+/web/output/
+/web/.spago/
+/web/spago.yaml
+/web/spago.lock
+/web/package-lock.json

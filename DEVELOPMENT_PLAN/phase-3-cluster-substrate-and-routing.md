@@ -306,12 +306,21 @@ steady-state cluster is a no-op (exit code `3`).
 
 ### Remaining Work
 
-- The typed `kind create cluster`, `helm dependency build`, and phased
-  `helm install` subprocesses are now in `JitML.Cluster.Helm`
-  (`kindCreateSubprocess`, `helmDependencyBuildSubprocess`,
-  `helmInstallSubprocess`, `helmPhasedRolloutPlan`). The pending work is
-  wiring them into `src/JitML/Bootstrap.hs` execution path so
-  `jitml bootstrap` actually invokes them through `Sub.Stream.runStreaming`.
+- `JitML.Bootstrap.liveExecutePhasedRollout` now drives the typed
+  `kindCreateSubprocess` + `helmPhasedRolloutPlan` +
+  `pulsarTopicCreateSubprocesses` through `Sub.Stream.runStreaming`.
+  `src/JitML/App.hs::runBootstrap` invokes it whenever
+  `JITML_LIVE_E2E=1` is set, after the local materialization step.
+  Validated locally: `jitml bootstrap --linux-cpu` materializes the
+  cluster surface and writes `./.build/runtime/cluster-publication.json`;
+  a second invocation exits `3` (`AppError ReconcilerNoop`).
+  `kindCreateSubprocess` is also exercised live in a separate test
+  path: `kind create cluster --name jitml-linux-cpu --config
+  kind/cluster-linux-cpu.yaml --kubeconfig ./.build/jitml.kubeconfig`
+  brings up a 2-node Kind cluster on this Mac with the host's
+  `~/.kube/config` untouched, and `KUBECONFIG=./.build/jitml.kubeconfig
+  kubectl get nodes` returns both `jitml-linux-cpu-control-plane` and
+  `jitml-linux-cpu-worker`.
 - Implement the mirror/build phase body that pushes the `jitml` and
   `jitml-demo` images to local Harbor before the final phase pulls them.
   The release row exists in `phasedReleases`; the gap is the
@@ -319,7 +328,10 @@ steady-state cluster is a no-op (exit code `3`).
   Harbor endpoint.
 - Lease the edge port at `9090` and write
   `./.build/runtime/cluster-publication.json` from real cluster state
-  (Pulsar URL, MinIO URL, component health) after Helm apply.
+  (Pulsar URL, MinIO URL, component health) after Helm apply (today's
+  publication file reports the default per-substrate edge port and
+  pre-baked component status; the live path replaces those fields with
+  measurements once the cluster reaches Ready).
 - For Apple, patch the host Dhall after the edge port is known so the host
   daemon can reach Pulsar and MinIO.
 - Add the integration test that exercises the full live path behind

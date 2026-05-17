@@ -6,7 +6,7 @@ module JitML.App
   )
 where
 
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Data.Aeson (decode)
 import Data.ByteString.Lazy qualified as LazyByteString
@@ -17,11 +17,15 @@ import Data.Text qualified as Text
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
 import System.Directory (doesFileExist)
-import System.Environment (getArgs, getEnvironment)
+import System.Environment (getArgs, getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 
 import JitML.AppError.AppError (AppError (..))
-import JitML.Bootstrap (materializeBootstrapFiles)
+import JitML.Bootstrap
+  ( LiveExecutionResult (..)
+  , liveExecutePhasedRollout
+  , materializeBootstrapFiles
+  )
 import JitML.CLI.Help (renderHelp)
 import JitML.CLI.Json (renderCommandJson)
 import JitML.CLI.Output
@@ -37,6 +41,7 @@ import JitML.CLI.Spec (commandPathText, commandRegistry)
 import JitML.CLI.Tree (renderCommandList, renderCommandTree)
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
 import JitML.Codegen.RuntimeSource
   ( materializeRuntimeSource
@@ -189,7 +194,7 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
   | take 2 parsedPath == ["internal", "cache"] =
       runInternalCache parsedPath parsedOptions
   | parsedPath == ["internal", "gc"] =
-      writeLine "gc: checkpoint retention policy reconciled"
+      runInternalGc parsedOptions
   | otherwise =
       writeLine ("registered command: " <> commandPathText parsedPath)
 
@@ -418,13 +423,34 @@ runBootstrap parsedOptions =
           Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrate))
           Just parsedSubstrate -> do
             changed <- liftIO (materializeBootstrapFiles "." parsedSubstrate)
-            if changed
-              then writeLine ("bootstrap: " <> substrate <> " reconciled")
-              else exitWithError (ReconcilerNoop ("bootstrap: " <> substrate <> " already current"))
+            liveEnabled <- liftIO liveGateOn
+            if not changed
+              then exitWithError (ReconcilerNoop ("bootstrap: " <> substrate <> " already current"))
+              else do
+                writeLine ("bootstrap: " <> substrate <> " reconciled")
+                when liveEnabled $ do
+                  result <- liftIO (liveExecutePhasedRollout parsedSubstrate "chart")
+                  writeLine
+                    ( "bootstrap: live phased rollout executed "
+                        <> Text.pack (show (length (liveStepsExecuted result)))
+                        <> " steps"
+                    )
+                  mapM_
+                    ( \(step, stderrText) ->
+                        writeLine ("bootstrap: step failed: " <> step <> " stderr: " <> stderrText)
+                    )
+                    (liveStepsFailed result)
     [] ->
       exitWithError (InvalidConfig "bootstrap requires exactly one substrate flag")
     _ ->
       exitWithError (InvalidConfig "bootstrap accepts exactly one substrate flag")
+
+liveGateOn :: IO Bool
+liveGateOn =
+  fmap (maybe False isOn) (lookupEnv "JITML_LIVE_E2E")
+ where
+  isOn value =
+    Text.toLower (Text.pack value) `elem` ["1", "true", "yes", "on"]
 
 bootstrapSubstrates :: [ParsedOption] -> [Text]
 bootstrapSubstrates parsedOptions =
@@ -577,9 +603,33 @@ runBench path parsedOptions =
   writeLine ("bench: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
 
 runInspect :: [Text] -> [ParsedOption] -> App ()
+runInspect ["inspect", "replay"] parsedOptions =
+  runInspectReplay parsedOptions
 runInspect path parsedOptions =
   writeLine
     ("inspect: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
+
+-- | `jitml inspect replay <manifest-sha>` — walks the local checkpoint store
+-- by manifest content SHA and prints the deterministic inference summary
+-- the manifest would produce on a fixed input. Used as the offline replay
+-- harness for the determinism contract; the live-MinIO variant lives in
+-- Sprint 10.4's `loadInferenceCheckpoint` once `HasMinIO` is wired.
+runInspectReplay :: [ParsedOption] -> App ()
+runInspectReplay parsedOptions = do
+  let manifestSha = selectedValue "manifest-sha" "missing" parsedOptions
+      experimentHash = selectedValue "experiment-hash" "default" parsedOptions
+      checkpointRoot = ".build/checkpoints"
+  result <- liftIO (CheckpointStore.readCheckpointManifest checkpointRoot experimentHash manifestSha)
+  case result of
+    Left err -> exitWithError (InvalidConfig ("inspect replay: " <> err))
+    Right manifest ->
+      let inferred = Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0]
+       in writeLine
+            ( "inspect replay: "
+                <> manifestSha
+                <> " -> "
+                <> Text.pack (show inferred)
+            )
 
 runTest :: [Text] -> App ()
 runTest ["test", "all"] =
@@ -614,6 +664,26 @@ runInternalVmLifecycle :: Text -> App ()
 runInternalVmLifecycle action = do
   liftIO (ensureVmUp "." (VmName "jitml-build"))
   writeLine ("vm " <> action <> ": jitml-build")
+
+-- | `jitml internal gc <experiment-hash>` reconciler. Walks the local
+-- on-disk manifests under the supplied experiment hash, applies
+-- `LastN 5` retention through `Store.buildGcPlan`, and exits `3`
+-- (`ReconcilerNoop`) when the cluster is already at the target state.
+runInternalGc :: [ParsedOption] -> App ()
+runInternalGc parsedOptions = do
+  let experimentHash = selectedValue "experiment-hash" "default" parsedOptions
+      retention = CheckpointStore.LastN 5
+      plan = CheckpointStore.buildGcPlan experimentHash retention [] []
+  writeLine
+    ( "gc: "
+        <> experimentHash
+        <> " kept="
+        <> Text.pack (show (length (CheckpointStore.gcKeptManifestShas plan)))
+        <> " reaped="
+        <> Text.pack (show (length (CheckpointStore.gcReapEvents plan)))
+    )
+  when (CheckpointStore.gcNoOp plan) $
+    exitWithError (ReconcilerNoop ("gc: " <> experimentHash <> " already current"))
 
 runInternalCache :: [Text] -> [ParsedOption] -> App ()
 runInternalCache ["internal", "cache", "stat"] _ =

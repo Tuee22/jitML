@@ -235,14 +235,13 @@ per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Wire `Store.buildGcPlan` into `src/JitML/App.hs` so `jitml internal
-  gc <experiment-hash>` actually executes the GC reconciler against
-  the live MinIO bucket. The typed plan (kept SHAs + reap events +
-  `gcNoOp` flag) is ready; the gap is plumbing it through the
-  `HasMinIO` deletion path and emitting `gc_reaped` Pulsar events.
-- Make the steady-state second invocation exit `3`
-  (`AppError ReconcilerNoop`) once `gcNoOp` is wired into the App's
-  exit-code logic.
+- `JitML.App.runInternalGc` now consumes `Store.buildGcPlan` and
+  writes the reconciler summary; second-invocation `gcNoOp` exits `3`
+  via `AppError ReconcilerNoop`. Validated locally: `jitml internal gc
+  <experiment-hash>` prints `gc: <hash> kept=N reaped=M` and exits 3
+  when there are no reap events. The pending work is plumbing the
+  reap events through the live `HasMinIO` delete path and emitting
+  `gc_reaped` Pulsar events (gated on Sprint 4.3 + 4.4 live brokers).
 - Add the per-substrate ULP tolerance measurement to
   `documents/engineering/determinism_contract.md` based on real
   cross-substrate runs from Sprint `12.6`.
@@ -306,9 +305,12 @@ remain target runtime work.
 - Wire FFI `KernelHandle` loading through `JitML.Engines.Local` (and
   the future per-substrate engines) so inference actually executes the
   generated kernel.
-- Implement `jitml inspect replay <manifest-sha>` to walk a real
-  manifest by content SHA and replay through the deterministic inference
-  helper.
+- `jitml inspect replay <manifest-sha>` is implemented in
+  `JitML.App.runInspectReplay`: walks the local checkpoint store under
+  `.build/checkpoints/`, reads the manifest by content SHA via
+  `CheckpointStore.readCheckpointManifest`, and prints the
+  deterministic `inferFromManifest` summary. Surfaces
+  `AppError InvalidConfig` when the manifest is missing.
 
 ## Doctrine Sections Cited
 

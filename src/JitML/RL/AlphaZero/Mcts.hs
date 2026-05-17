@@ -1,19 +1,35 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module JitML.RL.AlphaZero.Mcts
   ( MctsConfig (..)
   , MctsEdge (..)
   , MctsNode (..)
+  , TranspositionKey (..)
+  , TranspositionTable (..)
   , defaultMctsConfig
+  , emptyTranspositionTable
   , expand
   , initialNode
   , priorFor
   , runSearch
+  , runSearchWithTable
   , selectAction
+  , transpositionKey
+  , transpositionLookup
+  , transpositionSize
   , ucbScore
   )
 where
 
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.ByteString qualified as ByteString
+import Data.Char (intToDigit)
 import Data.List (maximumBy, sortOn)
 import Data.Ord (comparing)
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
+import Data.Word (Word8)
 
 data MctsConfig = MctsConfig
   { mctsSimulations :: Int
@@ -104,6 +120,70 @@ runSearch config seed =
  where
   go 0 node = node
   go n node = go (n - 1) (simulate config seed node)
+
+-- | Transposition-table key. Two distinct move sequences that lead to the
+-- same position collapse to the same key. The canonical form sorts the
+-- move-history prefix's terminal symmetry; for now the prefix is the raw
+-- move list, which is correct for adversarial perfect-information games
+-- without state-space symmetry collapse. Hashing via SHA-256 keeps the
+-- key fixed-width regardless of game depth.
+newtype TranspositionKey = TranspositionKey
+  { unTranspositionKey :: Text
+  }
+  deriving stock (Eq, Ord, Show)
+
+-- | Simple assoc-list-backed transposition table. The MCTS hot path mostly
+-- inserts unique keys so an assoc list is fine for the canonical Connect 4 /
+-- Othello / Hex / Gomoku search budgets; swap for `Data.Map.Strict` when
+-- the `containers` dep lands.
+newtype TranspositionTable = TranspositionTable
+  { unTranspositionTable :: [(TranspositionKey, MctsNode)]
+  }
+  deriving stock (Eq, Show)
+
+emptyTranspositionTable :: TranspositionTable
+emptyTranspositionTable = TranspositionTable []
+
+transpositionKey :: [Int] -> TranspositionKey
+transpositionKey moves =
+  TranspositionKey . hashHex . SHA256.hash $
+    Text.Encoding.encodeUtf8
+      (Text.intercalate "," (fmap (Text.pack . show) moves))
+
+transpositionLookup :: TranspositionKey -> TranspositionTable -> Maybe MctsNode
+transpositionLookup key (TranspositionTable entries) = lookup key entries
+
+transpositionInsert :: TranspositionKey -> MctsNode -> TranspositionTable -> TranspositionTable
+transpositionInsert key node (TranspositionTable entries) =
+  TranspositionTable ((key, node) : filter ((/= key) . fst) entries)
+
+transpositionSize :: TranspositionTable -> Int
+transpositionSize (TranspositionTable entries) = length entries
+
+hashHex :: ByteString.ByteString -> Text
+hashHex =
+  Text.pack . concatMap byteHex . ByteString.unpack
+ where
+  byteHex :: Word8 -> String
+  byteHex byte =
+    [ intToDigit (fromIntegral byte `div` 16)
+    , intToDigit (fromIntegral byte `mod` 16)
+    ]
+
+-- | Same as `runSearch` but threads a transposition table that caches the
+-- canonical node-per-position. The table starts empty; subsequent searches
+-- can pass in an accumulated table to short-circuit `expand` calls for
+-- already-visited positions.
+runSearchWithTable
+  :: MctsConfig -> Int -> [Int] -> TranspositionTable -> (MctsNode, TranspositionTable)
+runSearchWithTable config seed moves table =
+  let key = transpositionKey moves
+   in case transpositionLookup key table of
+        Just cached -> (cached, table)
+        Nothing ->
+          let result = runSearch config seed
+              table' = transpositionInsert key result table
+           in (result, table')
 
 simulate :: MctsConfig -> Int -> MctsNode -> MctsNode
 simulate config seed node =

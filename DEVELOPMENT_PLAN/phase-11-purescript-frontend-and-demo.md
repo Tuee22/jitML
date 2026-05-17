@@ -167,11 +167,15 @@ whitespace, and panel-contract smoke stanza. The target PureScript
 
 ### Remaining Work
 
+- The smoke `web/test/Main.purs` exists and exercises all six typed
+  panel names + the generated contracts surface.
+- The stanza now invokes `./node_modules/.bin/spago test` through the
+  typed `Subprocess` boundary inside the stanza body when
+  `JITML_LIVE_E2E=1` is set; validated locally (live build + test
+  + `mnist-live-inference` substring assertion against the stdout).
 - Wire `purs format` (or `purs-tidy`) round-trip through the typed
-  `Subprocess` boundary from inside the stanza.
-- Wire `spago test` invocation through the typed `Subprocess` boundary.
-- Add a `purescript-spec` smoke suite under `web/test/` that exercises
-  every typed panel contract.
+  `Subprocess` boundary from inside the stanza (currently the format
+  check is done as a tab/final-newline scan via Haskell).
 
 ## Sprint 11.4: Interactive Endpoint Contract Surface 🔄
 
@@ -324,17 +328,16 @@ Land the Playwright scaffold for the future interactive panel suite.
   matrix: the smoke shell test plus six per-panel DOM-shape tests
   (`mnist-live-inference`, `cifar-imagenet-upload`,
   `connect4-human-vs-alphazero`, `rl-trajectory`,
-  `training-progress`, `hyperparameter-sweep`). The DOM bodies are
-  inline `page.setContent` stubs until the live `jitml-demo` server
-  serves the compiled Halogen bundle.
-- Wire `jitml-e2e` Sprint `12.8` to invoke Playwright through the typed
-  `Subprocess` boundary when `JITML_LIVE_E2E=1` is set. The
-  `JitML.Test.LivePlan.liveE2EPlan` already enumerates the
-  `playwright` step; the pending work is gating the execution on the
-  env var and feeding it the live edge port from
-  `cluster-publication.json`.
-- Confirm Playwright stays out of the default `cabal test all` matrix
-  until the panels are live-backed.
+  `training-progress`, `hyperparameter-sweep`). The `jitml-e2e`
+  stanza now invokes `npx playwright test` through the typed
+  `Subprocess` boundary when `JITML_LIVE_E2E=1` is set; validated
+  locally with **7/7 tests passing against real Chromium**.
+- The pending wiring is feeding Playwright the live edge port from
+  `cluster-publication.json` so the panels load against
+  `jitml-demo` rather than inline `page.setContent` stubs (gated on
+  Sprint 11.5 compiled bundle).
+- Playwright stays out of the default `cabal test all` matrix (the
+  live invocation is env-gated).
 
 ## Doctrine Sections Cited
 

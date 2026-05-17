@@ -53,14 +53,42 @@ their typed scaffolds: the family-aware JIT codegen surface
 the four-game `PerfectInformation` typeclass, the typed proto envelopes
 under `JitML.Proto.{Training,Rl,Tune}`, the typed daemon capability
 surface with full `HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl`
-methods + per-domain `HandlerRouter`, the typed phased Helm rollout
-(`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus the service-Postgres
-registry, the optimizer/RNG/metric/parent-lineage CheckpointManifest
-shape with typed `AdvancePredicate` and `RetentionPolicy`, and the
-six Halogen panels with the typed Pulumi ephemeral-Kind orchestrator
-under `infra/pulumi/index.ts` are all checked in. The live runtime
-behaviours remain gated by absent infrastructure (NVIDIA GPU, Tart VM,
-live Pulsar HA, etc.) per the per-sprint `### Remaining Work` blocks.
+methods + per-domain `HandlerRouter` + filesystem-backed `HasMinIO`
+instance (`JitML.Service.FilesystemMinIO`) + subprocess-backed
+`HasKubectl` instance (`JitML.Service.KubectlSubprocess`) with
+stdin-piped YAML `kubectlApply` validated against a live Kind cluster,
+the typed phased Helm rollout
+(`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus
+`pulsarTopicCreateSubprocesses` actually invoked through
+`JitML.Bootstrap.liveExecutePhasedRollout` under `JITML_LIVE_E2E=1`,
+the service-Postgres registry lint wired into `JitML.Lint.Chart`,
+the optimizer/RNG/metric/parent-lineage CheckpointManifest shape
+with typed `AdvancePredicate` and `RetentionPolicy` +
+`JitML.App.runInternalGc` reconciler exiting `3` on no-op +
+`JitML.App.runInspectReplay` for `jitml inspect replay
+<manifest-sha>`, the TFRecord wire format with Castagnoli CRC32C
+(`JitML.Observability.TensorBoard.{encodeTfRecord,crc32cCastagnoli,maskedCrc32c}`)
+validated against canonical CRC vectors, the AVX2 / AVX-512 CPU
+detection (`JitML.Engines.CpuFeatures`) probing the host through the
+typed `Subprocess` boundary, the MCTS transposition table
+(`JitML.RL.AlphaZero.Mcts.{TranspositionTable,runSearchWithTable}`)
+deduplicating equivalent search subtrees, the six Halogen panels
+validated against real Chromium through Playwright invoked from
+`jitml-e2e` through the typed `Subprocess` boundary under
+`JITML_LIVE_E2E=1`, the `spago test` smoke suite invoked from
+`jitml-purescript-style` through the typed `Subprocess` boundary
+under `JITML_LIVE_E2E=1`, the real-binary `./.build/jitml` spawn
+through the typed boundary in a temp workdir covered by
+`jitml-integration`, the live Kind cluster spin-up producing
+`./.build/jitml.kubeconfig` without polluting `~/.kube/config`, the
+post-teardown `no jitml-e2e-* Kind clusters survive` assertion in
+`jitml-e2e`, and the typed Pulumi ephemeral-Kind orchestrator under
+`infra/pulumi/index.ts` are all checked in. The remaining
+live runtime behaviours (NVIDIA GPU, Tart VM, live Pulsar HA, live
+training-to-convergence on real hardware, full Helm rollout of
+Harbor + Pulsar HA + Postgres + MinIO + Prometheus together) remain
+gated by absent infrastructure per the per-sprint `### Remaining
+Work` blocks.
 
 Against the eighteen-item [Exit Definition](#exit-definition), the
 following items currently pass: 4 (stage-0 scripts + typed prerequisite
