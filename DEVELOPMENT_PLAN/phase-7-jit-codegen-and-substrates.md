@@ -21,13 +21,24 @@
 
 ## Phase Status
 
-✅ **Done** — Sprints `7.1` through `7.7` are `✅ Done` for the local
-engine/catalog/runtime-source surface. The Haskell binary generates every JIT
-compiler input source file on demand under
-`./.build/jit-src/<substrate>/<hash>/`; static checked-in source/build
-artefacts are removed from the build path and forbidden by lint. The local
-Linux CPU identity kernel path now compiles generated C++ with `g++`, loads the
-resulting shared object with `dlopen`, and executes through the Haskell FFI.
+🔄 **Active**. The phase owns
+[Exit Definition](README.md#exit-definition) item 1 (three substrate JIT
+source renderers behind one `jitml` binary: `apple-silicon` via generated
+Metal/Swift, `linux-cpu` via generated oneDNN C++, `linux-cuda` via
+generated CUDA), the per-substrate-execution half of item 5 (content
+addressing + no static JIT inputs + the per-substrate determinism
+contract holding), and contributes to item 12 (typed `Subprocess` for
+`metal` / `nvcc` / `g++`). **Met today**: Sprints `7.1`, `7.2`, `7.7`
+close the typed engine/kernel-handle/envelope surface, the
+content-addressed cache key, and Haskell-owned runtime JIT source
+generation (no static checked-in inputs; lint enforces). **Unmet today**:
+Sprint `7.3` owes real oneDNN graph wrappers and reduction kernels beyond
+the Linux CPU identity fixture; Sprint `7.4` owes CUDA FFI loading, real
+cuBLAS/cuDNN bindings, and deterministic algorithm-id capture; Sprint
+`7.5` owes real Tart spin-up, Metal FFI loading, and live MinIO/Pulsar
+host↔cluster RPC; Sprint `7.6` owes per-substrate knob spaces and
+benchmark-driven auto-tuning. Detailed remaining work lives in each
+sprint's `### Remaining Work` block below.
 
 ## Phase Summary
 
@@ -118,9 +129,9 @@ shapes, deterministic launch envelope, and renderable build plan.
    deterministic flags.
 2. `jitml-unit` validates local engine envelope rendering.
 
-## Sprint 7.3: Linux CPU Engine and oneDNN Codegen Driver ✅
+## Sprint 7.3: Linux CPU Engine and oneDNN Codegen Driver 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Engines/Local.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
@@ -128,10 +139,10 @@ shapes, deterministic launch envelope, and renderable build plan.
 
 ### Objective
 
-Land the current `linux-cpu` engine metadata, generated oneDNN-style C++
-source renderer, and first same-host compile/load/run path for the generated
-identity kernel. Real oneDNN graph wrappers and production `HasEngine`
-execution remain target work.
+Land the `linux-cpu` engine metadata, generated oneDNN-style C++ source
+renderer, and first same-host compile/load/run path for the generated
+identity kernel; grow real oneDNN graph wrappers and production
+`HasEngine` execution per `### Remaining Work` below.
 
 ### Deliverables
 
@@ -149,24 +160,39 @@ execution remain target work.
 
 ### Validation
 
-1. `jitml build --dry-run --substrate linux-cpu` renders a generated-source
-   directory and `g++` compile plan.
-2. `cabal test jitml-cross-backend` compiles, loads, and executes the generated
-   Linux CPU identity kernel.
-3. Live same-host reduction equality for real oneDNN graph kernels remains
-   target validation.
+1. `jitml build --dry-run --substrate linux-cpu` renders a
+   generated-source directory and `g++` compile plan.
+2. `cabal test jitml-cross-backend` compiles, loads, and executes the
+   generated Linux CPU identity kernel.
+3. Live validation (target): real oneDNN graph wrappers execute
+   representative reduction / convolution / matmul kernels and reproduce
+   bit-deterministic results within the per-substrate ULP tolerance.
 
-## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver ✅
+### Remaining Work
 
-**Status**: Done
+- Implement real oneDNN graph wrappers for the kernel families the
+  numerical core enumerates (Conv2D/3D, BatchNorm, MultiHeadAttention,
+  reductions).
+- Capture deterministic-only oneDNN primitive selection (no
+  threading-dependent reductions) and embed it in the cache key.
+- Grow the AVX-512 detection beyond the metadata surface so generated
+  source picks the right ISA path.
+- Plug the real oneDNN-backed kernels into `HasEngine` production loading
+  so `jitml service` actually executes generated SL/RL kernels on
+  `linux-cpu`.
+
+## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/Engines/Engine.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
 ### Objective
 
-Land the current `linux-cuda` engine metadata and generated CUDA C source
-renderer. cuBLAS/cuDNN bindings and runtime execution remain target work.
+Land the `linux-cuda` engine metadata and generated CUDA C source
+renderer; grow cuBLAS/cuDNN bindings, FFI loading, and runtime
+execution per `### Remaining Work` below.
 
 ### Deliverables
 
@@ -182,13 +208,28 @@ renderer. cuBLAS/cuDNN bindings and runtime execution remain target work.
 
 ### Validation
 
-1. `jitml build --dry-run --substrate linux-cuda` renders a generated-source
-   directory and `nvcc` compile plan.
-2. Live CUDA transcript determinism remains target validation.
+1. `jitml build --dry-run --substrate linux-cuda` renders a
+   generated-source directory and `nvcc` compile plan.
+2. Live validation (target): generated `.cu` compiles via real `nvcc` on a
+   GPU-backed Kind worker, the resulting `.so` loads through the Haskell
+   FFI, cuBLAS/cuDNN-backed kernels execute, and a same-seed run produces
+   a bit-identical transcript when deterministic algorithm IDs are pinned.
 
-## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC ✅
+### Remaining Work
 
-**Status**: Done
+- Add cuBLAS / cuDNN bindings under the typed engine surface.
+- Capture deterministic algorithm-id selection (no `_FAST_MATH`, no
+  TF32 unless allowed) and embed it in the cache key.
+- Wire the splitmix-based RNG path for any kernel using stochastic
+  initialisation.
+- Implement FFI loading of the compiled CUDA `.so` and plug it into
+  `HasEngine` production loading.
+- Add the live CUDA transcript-determinism integration test behind
+  `JITML_LIVE_E2E=1` (Sprint `12.6`).
+
+## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Tart/Lifecycle.hs`, `src/JitML/Tart/Exec.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
@@ -197,9 +238,10 @@ renderer. cuBLAS/cuDNN bindings and runtime execution remain target work.
 
 ### Objective
 
-Land the current `apple-silicon` engine metadata, generated Swift/Metal package
-renderer, Tart subprocess rendering, and Apple RPC topic names. Real Metal
-execution and host↔cluster message flow remain target work.
+Land the `apple-silicon` engine metadata, generated Swift/Metal package
+renderer, Tart subprocess rendering, and Apple RPC topic names; grow real
+Metal execution, Tart spin-up, and host↔cluster message flow per
+`### Remaining Work` below.
 
 ### Deliverables
 
@@ -218,20 +260,40 @@ execution and host↔cluster message flow remain target work.
 
 1. `jitml build --dry-run --substrate apple-silicon` renders a generated
    Swift/Metal source directory and Tart `swift build` subprocess.
-2. Live Tart cache-miss behavior and host↔cluster RPC remain target
-   validation.
+2. Live validation (target): on the first JIT cache miss for `apple-silicon`,
+   the typed lifecycle spins up the `jitml-build` Tart VM, runs
+   `swift build` inside it, atomically writes the resulting `.dylib` under
+   `./.build/jit/apple-silicon/`, repoints the host-stable symlink, and
+   the host daemon loads the kernel through the FFI. The cluster orchestrator
+   round-trips a typed `(call-id, kind, model-id, inputs)` envelope on
+   `inference.command.apple-silicon` and gets a typed reply on
+   `inference.event.apple-silicon`.
 
-## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract ✅
+### Remaining Work
 
-**Status**: Done
+- Implement real lazy Tart VM spin-up on first JIT cache miss, with
+  postcondition validation of the VM's `swift build` toolchain.
+- Implement Metal FFI loading of the compiled `.dylib` through the
+  symlinked `./.build/host/apple-silicon/<model-id>.dylib`.
+- Implement the typed host↔cluster RPC envelope flow (real Pulsar
+  produce/consume on the `inference.command.apple-silicon` and
+  `inference.event.apple-silicon` topics) with MinIO-staged tensor
+  payloads.
+- Add the live test that exercises the full host-resident inference path
+  behind `JITML_LIVE_E2E=1` (Sprint `12.6`).
+
+## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/Engines/Engine.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
 ### Objective
 
-Expose `TuningChoice` as a cache-key input and deterministic metadata string.
-Real hardware benchmarking and auto-tuning remain target work.
+Expose `TuningChoice` as a cache-key input and deterministic metadata
+string; grow real hardware benchmarking and per-substrate auto-tuning
+per `### Remaining Work` below.
 
 ### Deliverables
 
@@ -246,9 +308,24 @@ Real hardware benchmarking and auto-tuning remain target work.
 
 ### Validation
 
-1. `jitml-unit` verifies the rendered runtime-source payload participates in
-   the cache key.
-2. Same-host kernel-output equality remains target validation.
+1. `jitml-unit` verifies the rendered runtime-source payload participates
+   in the cache key.
+2. Live validation (target): per-substrate knob spaces drive
+   benchmark-based selection on real hardware (matmul tile sizes,
+   reduction strategies, cuDNN deterministic algorithm IDs) and the
+   chosen tuning influences the cache key without breaking determinism.
+
+### Remaining Work
+
+- Define per-substrate knob spaces (matmul tile / reduction strategy /
+  block dims for CUDA, threadgroup sizes for Metal, micro-kernel pick for
+  oneDNN).
+- Implement deterministic-only cuDNN algorithm pinning (reject any
+  non-deterministic algorithm even if it benchmarks faster).
+- Implement a benchmark driver that picks the chosen knob set on first
+  cache miss and records it for cache-key derivation.
+- Add a same-host kernel-output equality test that holds across repeated
+  runs with the same tuning choice.
 
 ## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation ✅
 
@@ -316,7 +393,7 @@ Metal / Swift package source participates in a JIT build.
 
 - [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (Sprints 7.3, 7.4, 7.5)
 - [../HASKELL_CLI_TOOL.md → Long-Running Daemons in the Same Binary](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — target host/cluster split represented by local config/topic surfaces)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — target host↔cluster RPC topics documented; live consumer remains target work)
+- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — host↔cluster RPC topics documented; live consumer owned by Sprint 7.5's Remaining Work)
 - [../HASKELL_CLI_TOOL.md → Toolchain pinning](../HASKELL_CLI_TOOL.md) (Sprints 7.3, 7.4, 7.5)
 
 ## Documentation Requirements

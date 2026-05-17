@@ -20,10 +20,17 @@
 
 ## Phase Status
 
-✅ **Done** — Sprints `1.1` through `1.9` are `✅ Done`. Sprint `1.4`
-bootstraps the isolated `.build/jitml-style-tools/` tool directory with the
-doctrine's separate style-tools GHC, runs Fourmolu / HLint / `cabal format`
-through the typed `Subprocess` boundary, and includes the warning-clean
+✅ **Done**. The phase owns
+[Exit Definition](README.md#exit-definition) items 11 (Plan/Apply
+`--dry-run` / `--plan-file`), 12 (typed `Subprocess` boundary), 13 (one
+`prerequisiteRegistry`), 14 (single `AppError` ADT and `renderError`), 15
+(`fourmolu.yaml` + style stanzas), 16 (`CommandSpec` as implementation
+source) and contributes to item 4 (stage-0 entrypoints + typed prerequisite
+DAG). Every owned obligation is met in the worktree and validated by
+Sprints `1.1`–`1.9`. Sprint `1.4` bootstraps the isolated
+`.build/jitml-style-tools/` tool directory with the doctrine's separate
+style-tools GHC, runs Fourmolu / HLint / `cabal format` through the typed
+`Subprocess` boundary, and includes the warning-clean
 `cabal build all --ghc-options=-Werror` gate in `jitml check-code`.
 
 ## Phase Summary

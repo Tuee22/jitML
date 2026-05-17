@@ -19,21 +19,33 @@
 
 ## Phase Status
 
-✅ **Done** for the local RL algorithm catalog, AlphaZero transcript, and tuning
-surfaces. The algorithm catalog consumes the RL framework primitives from Phase
-`8`. AlphaZero's persistent MCTS state borrows the engineering arc from a
-sibling MCTS project. The tuner consumes both SL and RL training surfaces.
+🔄 **Active**. The phase owns the catalog/AlphaZero/tuning half of
+[Exit Definition](README.md#exit-definition) item 6 (`jitml rl train`
+runs the full RL workloads, AlphaZero self-play executes, and `jitml
+tune` consumes `Some Tuning::{ … }`-shaped Dhall per the worked example
+in [../README.md → Concrete Dhall worked example](../README.md)).
+**Met today**: nothing closes outright — every Sprint `9.x` ships
+metadata or deterministic helpers without the real algorithm /
+self-play / tuner execution Exit 6 demands. **Unmet today**: Sprints
+`9.1`–`9.3` owe one module per algorithm with real loss/policy/buffer
+code; Sprint `9.4` owes the live RL canonical body; Sprints `9.5` /
+`9.6` owe persistent MCTS, perfect-information game typeclasses, and
+state/move helpers for Othello / Hex / Gomoku; Sprint `9.7` owes live
+`Some Tuning` Dhall flow, real protos, and live tuner trial
+persistence/resume. Detailed remaining work lives in each sprint's
+`### Remaining Work` block below.
 
 ### Current Implementation Scope
 
-The current worktree implements a local `RLAlgorithm` catalog with family/replay
-metadata, a Dhall schema mirror/audit at `dhall/rl/Schema.dhall`, deterministic
-trajectory generation with a PPO/CartPole golden fixture, Connect 4
-move/transcript helpers in `src/JitML/RL/AlphaZero.hs`, and deterministic
-sampler/scheduler/pruner catalogs in `src/JitML/Tune/Catalog.hs`. It does not
-yet implement one module per RL algorithm, full per-algorithm golden RL fixture
-trees, perfect-information game typeclasses, two-headed networks, persistent
-MCTS search, MinIO trial storage, or live tuner resume.
+The worktree implements an `RLAlgorithm` catalog with family/replay
+metadata, a Dhall schema mirror/audit at `dhall/rl/Schema.dhall`,
+deterministic trajectory generation with a PPO/CartPole golden fixture,
+Connect 4 move/transcript helpers in `src/JitML/RL/AlphaZero.hs`, and
+deterministic sampler/scheduler/pruner catalogs in
+`src/JitML/Tune/Catalog.hs`. Real per-algorithm modules,
+perfect-information game typeclasses, persistent MCTS, MinIO trial
+storage, and live tuner resume live in the sprints' `### Remaining Work`
+blocks below.
 
 ## Phase Summary
 
@@ -43,17 +55,18 @@ surfaces into one module per algorithm, a persistent AlphaZero/MCTS sub-stack,
 and a typed sweep manager that drives SL, RL, or AlphaZero training under a
 sampler × scheduler × pruner Dhall.
 
-## Sprint 9.1: On-Policy Algorithm Metadata ✅
+## Sprint 9.1: On-Policy Algorithm Metadata 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
 
-Land the current on-policy algorithm metadata rows. Real algorithm modules and
-full golden trajectory fixture coverage remain target work.
+Land the on-policy algorithm metadata rows; grow real algorithm modules
+and full golden trajectory fixture coverage per `### Remaining Work`
+below.
 
 ### Deliverables
 
@@ -64,12 +77,28 @@ full golden trajectory fixture coverage remain target work.
 
 ### Validation
 
-1. `cabal test jitml-rl-canonicals` verifies representative catalog entries.
-2. Live reward thresholds and trajectory fixtures remain target validation.
+1. `cabal test jitml-rl-canonicals` verifies representative catalog
+   entries.
+2. Live validation (target): each on-policy algorithm has a dedicated
+   module with real loss / policy / rollout-buffer code, reaches the
+   committed reward threshold for its canonical environment, and its
+   per-seed trajectory matches the committed golden fixture.
 
-## Sprint 9.2: Off-Policy Algorithm Metadata ✅
+### Remaining Work
 
-**Status**: Done
+- Implement `src/JitML/RL/Algorithms/Ppo.hs` (clipped surrogate loss,
+  GAE rollouts, KL-trigger early stop).
+- Implement `src/JitML/RL/Algorithms/A2c.hs` and
+  `src/JitML/RL/Algorithms/Trpo.hs` (conjugate-gradient natural-grad
+  step).
+- Implement `src/JitML/RL/Algorithms/MaskablePpo.hs` and
+  `src/JitML/RL/Algorithms/RecurrentPpo.hs`.
+- Commit per-algorithm goldens under
+  `test/golden/rl/<algo>/<env>/trajectory.txt`.
+
+## Sprint 9.2: Off-Policy Algorithm Metadata 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -89,11 +118,21 @@ Land the current off-policy algorithm metadata rows.
 ### Validation
 
 1. `algorithmCatalog` exposes the five checked-in off-policy rows.
-2. Off-policy training determinism remains target validation.
+2. Live validation (target): each off-policy algorithm has a dedicated
+   module with real replay-buffer code and per-seed transcript
+   determinism against committed goldens.
 
-## Sprint 9.3: Specialised Algorithm Metadata ✅
+### Remaining Work
 
-**Status**: Done
+- Implement `src/JitML/RL/Algorithms/{Dqn,QrDqn,Ddpg,Td3,Sac}.hs` with
+  the typed replay buffer and target-network update plumbing.
+- Pin deterministic algorithm-id selection where any backend offers a
+  choice (e.g. cuDNN).
+- Commit per-algorithm goldens.
+
+## Sprint 9.3: Specialised Algorithm Metadata 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -114,10 +153,19 @@ Land the current specialised algorithm metadata rows.
 
 1. `algorithmCatalog` exposes the four checked-in specialised rows.
 2. `jitml docs check` validates the generated catalog table.
+3. Live validation (target): each specialised algorithm has a dedicated
+   module exercised by `jitml-rl-canonicals` against committed goldens.
 
-## Sprint 9.4: Local RL Canonical Tests ✅
+### Remaining Work
 
-**Status**: Done
+- Implement `src/JitML/RL/Algorithms/{CrossQ,Tqc,Ars,Her}.hs`.
+- Pin per-algorithm deterministic seeds and commit goldens.
+- Verify `jitml docs generate` regenerates the catalog table without
+  drift after each new module lands.
+
+## Sprint 9.4: Local RL Canonical Tests 🔄
+
+**Status**: Active
 **Implementation**: `test/unit/Main.hs`, `test/integration/Main.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -135,19 +183,29 @@ dedicated local RL canonical stanza.
   the current PPO/CartPole golden fixture.
 - The stanza also checks the current Connect 4 transcript helper keeps moves
   within legal column bounds.
-- `test/golden/rl/ppo/cartpole/trajectory.txt` pins the current local
-  PPO/CartPole deterministic trajectory; full per-algorithm fixture trees
-  remain target work.
+- `test/golden/rl/ppo/cartpole/trajectory.txt` pins the PPO/CartPole
+  deterministic trajectory; full per-algorithm fixture trees are owned
+  by `### Remaining Work` below.
 
 ### Validation
 
-1. `cabal test jitml-rl-canonicals` exits `0` for the current local body.
-2. Full per-algorithm reward/trajectory fixture coverage remains target
-   validation.
+1. `cabal test jitml-rl-canonicals` exits `0` for the body.
+2. Live validation (target): the stanza exercises the RL target matrix
+   forms (2) same-substrate trajectory determinism and (3) per-seed
+   final-reward distribution against live committed fixtures for every
+   algorithm in the catalog.
 
-## Sprint 9.5: AlphaZero Connect 4 Transcript Surface ✅
+### Remaining Work
 
-**Status**: Done
+- Grow `test/golden/rl/<algo>/<env>/` into a fixture tree per algorithm.
+- Consume the `RL_STEPS` and `RL_EVAL_EPISODES` report-card knobs from
+  `cabal.project`.
+- Implement the per-seed final-reward distribution check (form 3) that
+  consumes live training output.
+
+## Sprint 9.5: AlphaZero Connect 4 Transcript Surface 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
@@ -178,12 +236,28 @@ AlphaZero summary.
 
 1. `selfPlayTranscript` is deterministic for a fixed seed.
 2. `cabal test jitml-rl-canonicals` checks legal Connect 4 columns.
-3. `jitml-unit` verifies the local game catalog, network metadata, and arena
+3. `jitml-unit` verifies the game catalog, network metadata, and arena
    win-rate helper.
+4. Live validation (target): real `Mcts.hs` runs `AZ_SIMS` simulations
+   per move; `SelfPlay.hs` plays `AZ_GAMES` games per generation;
+   `Arena.hs` evaluates the new network against the previous best and
+   the new champion is promoted only when the win rate exceeds the
+   committed threshold; checkpoints round-trip the persistent self-play
+   buffer bit-deterministically.
 
-## Sprint 9.6: Connect 4 Local Game Surface ✅
+### Remaining Work
 
-**Status**: Done
+- Implement `src/JitML/RL/AlphaZero/Mcts.hs` (persistent search tree,
+  prior + visit-count UCB, transposition table).
+- Implement `src/JitML/RL/AlphaZero/SelfPlay.hs` and
+  `src/JitML/RL/AlphaZero/Arena.hs`.
+- Implement persistent self-play buffer with deterministic insertion
+  ordering and MinIO checkpoint round-trip.
+- Consume the `AZ_GAMES` and `AZ_SIMS` report-card knobs.
+
+## Sprint 9.6: Connect 4 Local Game Surface 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
 `src/JitML/Web/Contracts.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -207,13 +281,26 @@ catalog, and corresponding browser-contract endpoint metadata.
 
 ### Validation
 
-1. `cabal test jitml-rl-canonicals` validates the current Connect 4 move
-   bounds.
-2. Full golden replay codec validation remains target work.
+1. `cabal test jitml-rl-canonicals` validates the Connect 4 move bounds.
+2. Live validation (target): Othello, Hex, and Gomoku each carry real
+   `initial<Game>`, `applyMove`, and `selfPlayTranscript` helpers; each
+   game has committed golden replay fixtures; the
+   `PerfectInformationGame` typeclass admits all four canonical games.
 
-## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) ✅
+### Remaining Work
 
-**Status**: Done
+- Implement `initialOthello` / `initialHex` / `initialGomoku` plus the
+  corresponding `applyMove` rules.
+- Promote `PerfectInformationGame` to a typeclass that all four canonical
+  games implement.
+- Commit per-game golden replays under
+  `test/golden/alphazero/<game>-transcript.txt`.
+- Surface each game in `canonicalGames` with `gameMoveCount` populated
+  from the helpers rather than the metadata shim.
+
+## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/Tune/Catalog.hs`,
 `src/JitML/App.hs`, `test/hyperparameter/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -247,7 +334,25 @@ summary.
 1. `jitml tune --dry-run experiments/mnist-tune.dhall` emits the typed plan.
 2. `cabal test jitml-hyperparameter` verifies the sampler, scheduler, and
    pruner axes are populated and deterministic.
-3. `jitml-unit` verifies the local trial key and resume-equality helpers.
+3. `jitml-unit` verifies the trial key and resume-equality helpers.
+4. Live validation (target): a real `Some Tuning::{ … }`-shaped Dhall
+   drives `jitml tune` end-to-end through the daemon, trial transcripts
+   persist to MinIO bucket `jitml-trials/`, and resume-from-partial-sweep
+   reproduces the same trial outcome bit-for-bit.
+
+### Remaining Work
+
+- Render the canonical `Some Tuning::{ … }` worked example from
+  [../README.md → Concrete Dhall worked example](../README.md) as a
+  committed `experiments/mnist-tune.dhall`.
+- Generate Haskell protobuf bindings for `proto/jitml/tune.proto`.
+- Implement the daemon-side tune handler that consumes
+  `tune.command.<mode>` and persists trial transcripts to MinIO bucket
+  `jitml-trials/<sha256(resolved-dhall || trial-seed)>/`.
+- Implement live resume-from-partial-sweep that reuses cached trial
+  transcripts.
+- Consume the `TUNE_TRIALS` and `TUNE_BUDGET_PER_TRIAL` report-card
+  knobs.
 
 ## Doctrine Sections Cited
 

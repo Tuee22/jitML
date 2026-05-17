@@ -21,21 +21,29 @@
 
 ## Phase Status
 
-✅ **Done** for the local supervised and RL framework surfaces. Both SL and RL
-workloads compile their kernels through the target Haskell-owned JIT source
-renderers (Phase `7`) and run on the target daemon (Phase `5`) in live
-validation.
+🔄 **Active**. The phase owns the framework half of
+[Exit Definition](README.md#exit-definition) item 6 (`jitml train` and
+`jitml rl train` run the full SL/RL workloads, with golden tests for SL
+convergence and RL trajectories under `jitml test all`). **Met today**:
+Sprint `8.5` closed the typed framework metadata catalog (schedules,
+action distributions, action noise, target networks, GAE, callbacks,
+evaluator); Sprint `8.7` closed the `RLRunLifecycle` GADT retrofit.
+**Unmet today**: Sprints `8.1`–`8.6` owe real dataset loaders, real SL
+training loops, real RL environment stepping, real Policy/VecEnv/replay
+buffers, real proto bindings, and the live `training.command` /
+`training.event` / `rl.command` / `rl.event` Pulsar round-trips. Detailed
+remaining work lives in each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
-The current worktree implements deterministic local summaries: eleven canonical
+The worktree implements deterministic catalog summaries: eleven canonical
 SL problem cells with synthetic convergence curves in
-`src/JitML/SL/Canonicals.hs`,
-the `jitml train` / `jitml eval` command summaries, the RL command summaries,
-and deterministic trajectory helpers in `src/JitML/RL/Algorithms.hs`. It does
-not yet implement real dataset loaders, SL/RL training loops, RL environment
-types, buffers, callbacks, GAE, target networks, or live Pulsar event
-publication.
+`src/JitML/SL/Canonicals.hs`; the `jitml train` / `jitml eval` command
+summaries; the RL command summaries; and deterministic trajectory helpers
+in `src/JitML/RL/Algorithms.hs`. It does not yet implement real dataset
+loaders, SL/RL training loops, RL environment stepping, replay buffers,
+or live Pulsar event publication — those land in the sprints' `###
+Remaining Work` blocks below.
 
 ## Phase Summary
 
@@ -44,9 +52,9 @@ primitives to deliver the algorithm catalog, AlphaZero, and tuning. Splitting
 the work this way lets RL framework changes settle before fourteen algorithm
 implementations consume them.
 
-## Sprint 8.1: Local Supervised Canonical Summaries ✅
+## Sprint 8.1: Local Supervised Canonical Summaries 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/SL/Canonicals.hs`,
 `test/sl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -75,15 +83,31 @@ runtime work.
 
 ### Validation
 
-1. `cabal test jitml-sl-canonicals` exercises the current eleven-cell local
-   canonical summary body.
-2. `jitml train experiments/mnist.dhall` renders the deterministic local
+1. `cabal test jitml-sl-canonicals` exercises the eleven-cell canonical
+   summary body.
+2. `jitml train experiments/mnist.dhall` renders the deterministic
    summary from `src/JitML/App.hs`.
-3. Live training thresholds and Pulsar events remain target validation.
+3. Live validation (target): a real training run against MNIST hits the
+   canonical convergence threshold, the trained checkpoint round-trips,
+   and the committed golden curve under `test/golden/sl/mnist/` matches
+   bit-for-bit on the determinism-contract substrate.
 
-## Sprint 8.2: `jitml train` Local CLI Summary ✅
+### Remaining Work
 
-**Status**: Done
+- Implement `src/JitML/SL/Dataset.hs` (real dataset loader against MinIO
+  bucket `jitml-datasets` with SHA-256 verification from the experiment
+  Dhall).
+- Implement `src/JitML/SL/Loop.hs` (typed training pipeline backed by the
+  `TrainingLifecycle` GADT) plus `src/JitML/SL/Train.hs`
+  (`train :: TrainingConfig -> ReaderT Env IO TrainResult`).
+- Commit golden convergence fixtures under
+  `test/golden/sl/<problem-key>/` for every canonical cell.
+- Add the live SL convergence assertion to `jitml-sl-canonicals` (Sprint
+  `12.3`).
+
+## Sprint 8.2: `jitml train` Local CLI Summary 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/daemon_architecture.md`
@@ -107,15 +131,31 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 ### Validation
 
-1. `jitml train --dry-run experiments/mnist.dhall` emits the typed plan and
-   exits `0`.
-2. `jitml train experiments/mnist.dhall` prints the deterministic local
+1. `jitml train --dry-run experiments/mnist.dhall` emits the typed plan
+   and exits `0`.
+2. `jitml train experiments/mnist.dhall` prints the deterministic
    canonical-problem summary.
-3. Protobuf envelope replay remains target validation.
+3. Live validation (target): `jitml train` resolves and SHA-hashes the
+   experiment Dhall, reconciles prerequisites, materializes the dataset,
+   publishes `StartTraining` on `training.command.<mode>`, the daemon's
+   `TrainingHandler` consumes it, and the resulting
+   `training.event.<mode>` envelopes drive the report card.
 
-## Sprint 8.3: RL Catalog Hook for Canonical Tests ✅
+### Remaining Work
 
-**Status**: Done
+- Add `proto/jitml/training.proto` and generate Haskell protobuf bindings.
+- Add the GADT-indexed training lifecycle binding the `jitml train` →
+  daemon flow (`Loaded → Ready → Stepping → Evaluating → Checkpointing →
+  Finished`).
+- Implement the daemon-side `TrainingHandler` that consumes
+  `training.command.<mode>` and publishes `training.event.<mode>` through
+  the `RetryPolicy` boundary.
+- Add the integration test that exercises one real publish → consume
+  round-trip behind `JITML_LIVE_E2E=1`.
+
+## Sprint 8.3: RL Catalog Hook for Canonical Tests 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`,
 `test/rl-canonicals/Main.hs`
@@ -142,14 +182,27 @@ canonical RL stanza.
 
 ### Validation
 
-1. `cabal test jitml-rl-canonicals` exercises the current catalog and
+1. `cabal test jitml-rl-canonicals` exercises the catalog and the
    deterministic trajectory helper.
-2. `jitml-unit` verifies the canonical environment catalog and deterministic
-   local step helper.
+2. `jitml-unit` verifies the canonical environment catalog and
+   deterministic step helper.
+3. Live validation (target): real cartpole / mountain-car / lunar-lander
+   / atari-subset environments step under the daemon-backed env loop,
+   render frames on request, and reproduce the per-seed trajectory
+   determinism that the deterministic helper today only models.
 
-## Sprint 8.4: RL Metadata Primitives ✅
+### Remaining Work
 
-**Status**: Done
+- Implement real simulator bindings for cartpole, mountain-car,
+  lunar-lander, and atari-subset.
+- Implement the typed env-step boundary (`step :: Env -> Action -> IO
+  (Obs, Reward, Done)`) plus render-frame access.
+- Implement the daemon-backed environment loop driven by Sprint `5.5`'s
+  Pulsar consumer.
+
+## Sprint 8.4: RL Metadata Primitives 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Framework.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -175,13 +228,27 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 
 ### Validation
 
-1. `cabal test jitml-rl-canonicals` verifies the current algorithm catalog
+1. `cabal test jitml-rl-canonicals` verifies the algorithm catalog
    contains representative expected algorithms.
-2. `jitml-unit` verifies the local run-plan rendering.
+2. `jitml-unit` verifies the run-plan rendering.
+3. Live validation (target): real `Policy`, `VecEnv`, replay/rollout
+   buffers, and `Async` write discipline are exercised end-to-end against
+   running environments through the daemon.
 
-## Sprint 8.5: RL CLI Summaries and Report Hooks ✅
+### Remaining Work
 
-**Status**: Done
+- Implement the runtime `Policy` carrying typed action distribution
+  shape, parameter references, and the substrate-bound `KernelHandle`
+  for inference.
+- Implement `VecEnv` for parallel environment stepping.
+- Implement replay/rollout buffers with deterministic insertion + sample
+  ordering.
+- Wire `Async` write discipline so MinIO transcript writes do not block
+  the env loop.
+
+## Sprint 8.5: RL CLI Summaries and Report Hooks 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Framework.hs`,
 `src/JitML/Test/Report.hs`, `src/JitML/App.hs`
@@ -208,13 +275,30 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 
 ### Validation
 
-1. `jitml rl train --dry-run experiments/cartpole.dhall` emits the typed plan.
-2. `jitml rl rollout --seed 42` prints a deterministic local trajectory.
-3. `jitml-unit` verifies the local framework catalog and run-plan surface.
+1. `jitml rl train --dry-run experiments/cartpole.dhall` emits the typed
+   plan.
+2. `jitml rl rollout --seed 42` prints a deterministic trajectory.
+3. `jitml-unit` verifies the framework catalog and run-plan surface.
+4. Live validation (target): `jitml rl train` publishes `StartRLRun` on
+   `rl.command.<mode>`; the daemon's `RlHandler` consumes it, runs the
+   real RL loop, and publishes `rl.event.<mode>` envelopes
+   (`EpisodeDone`, `EvalDone`, `CheckpointDone`, `MetricUpdate`) that
+   round-trip into the report card.
 
-## Sprint 8.6: RL Training Plan Surface ✅
+### Remaining Work
 
-**Status**: Done
+- Add `proto/jitml/rl.proto` and the generated Haskell protobuf bindings.
+- Implement the live Pulsar codecs that translate between the protobuf
+  envelopes and the typed framework values.
+- Implement the daemon-side `RlHandler` that consumes
+  `rl.command.<mode>` and emits `rl.event.<mode>` through the
+  `RetryPolicy` boundary.
+- Add the live integration test that round-trips one `StartRLRun` →
+  `EpisodeDone` cycle behind `JITML_LIVE_E2E=1`.
+
+## Sprint 8.6: RL Training Plan Surface 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
@@ -235,13 +319,24 @@ remain target runtime work.
 
 ### Validation
 
-1. `jitml rl train --dry-run experiments/cartpole.dhall` emits the typed plan.
-2. `jitml rl train experiments/cartpole.dhall` prints the local algorithm
+1. `jitml rl train --dry-run experiments/cartpole.dhall` emits the typed
+   plan.
+2. `jitml rl train experiments/cartpole.dhall` prints the algorithm
    catalog summary.
-3. Reward thresholds, checkpoint/resume equality, and daemon execution remain
-   target validation.
+3. Live validation (target): a real `RLLoop` executes against the daemon
+   for one cartpole episode, reaches the reward threshold, and the
+   resulting checkpoint resumes bit-deterministically to the same reward.
 
-## Sprint 8.7: RL Run Lifecycle GADT Retrofit ✅
+### Remaining Work
+
+- Implement `src/JitML/RL/Loop.hs` (`RLLoop`, `runRLLoop`, `RLConfig`)
+  backed by the `RLRunLifecycle` GADT from Sprint `8.7`.
+- Plumb the loop through the daemon's `RlHandler` and verify it consumes
+  the per-domain dedup cache, checkpoints to MinIO, and emits live
+  `rl.event.<mode>` envelopes.
+- Add the live reward-threshold + checkpoint/resume equality assertion to
+  `jitml-rl-canonicals` (Sprint `12.4`).
+
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/Framework.hs`, `test/unit/Main.hs`

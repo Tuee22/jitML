@@ -19,23 +19,19 @@
 
 ## Phase Status
 
-✅ **Done** for the local chart, registry, bucket, topic, observability, and
-RuntimeClass surfaces. Target services install through the umbrella chart and
-route through the Envoy Gateway listener established in Phase `3`; live
-readiness against a running cluster remains covered by later cross-cluster
-validation.
-
-### Current Implementation Scope
-
-The current worktree contains the umbrella `chart/Chart.yaml` dependency list,
-`chart/values.yaml`, manual PV templates, route templates, deployment templates,
-the MinIO bucket registry, Pulsar topic registry/command renderer, Grafana
-dashboard renderer, TensorBoard deployment/event-key renderer, and the NVIDIA
-RuntimeClass manifest. MinIO subchart values live under the consuming `minio:`
-key in `chart/values.yaml`; `chart/templates/` remains manifest-only and
-`jitml lint chart` rejects values files placed there. The worktree does not
-contain live Helm install/apply code, running Harbor/MinIO/Pulsar/Postgres
-readiness checks, or a TensorBoard service template.
+🔄 **Active**. The phase contributes the stateful-platform-services half of
+[Exit Definition](README.md#exit-definition) item 3 (Harbor up first;
+MinIO, Pulsar, Postgres, observability, TensorBoard, NVIDIA RuntimeClass
+all installed and routable through the single Envoy Gateway socket).
+**Met today**: typed chart-values, manual-PV templates, route templates,
+deployment templates, the MinIO bucket registry, the Pulsar topic
+registry/command renderer, the Grafana dashboard renderer, the TensorBoard
+deployment/event-key renderer, and the NVIDIA RuntimeClass manifest are in
+place; MinIO subchart values live under `minio:` in `chart/values.yaml`;
+`jitml lint chart` rejects values files under `chart/templates/`. **Unmet
+today**: every Sprint `4.x` owes live readiness against a real Kind +
+Helm rollout. Detailed remaining work lives in each sprint's
+`### Remaining Work` block below.
 
 ## Phase Summary
 
@@ -48,9 +44,9 @@ provisioned dashboards, the jitML-owned TensorBoard chart with MinIO event-
 storage backing, and the NVIDIA `RuntimeClass` that binds to nodes labelled
 `jitml.runtime/gpu=true`.
 
-## Sprint 4.1: Harbor Subchart and Bootstrap-Phase Install ✅
+## Sprint 4.1: Harbor Subchart and Bootstrap-Phase Install 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
 `src/JitML/Cluster/Publication.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`
@@ -81,11 +77,24 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 
 1. `chart/Chart.yaml` declares the Harbor subchart dependency.
 2. The local route registry renders `/harbor` and `/harbor/api` routes.
-3. Live Harbor readiness and image-push validation remain target work.
+3. Live validation (target): Harbor portal/core/registry/notary all reach
+   Ready in the bootstrap phase, S3 backend is configured against MinIO
+   bucket `harbor-registry`, and the `jitml` image pushes successfully to
+   `harbor.platform.svc.cluster.local/jitml/jitml:<sha>`.
 
-## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres ✅
+### Remaining Work
 
-**Status**: Done
+- Wire `helm install` for Harbor through the typed `Subprocess` boundary in
+  Sprint `3.5`'s bootstrap phase order.
+- Implement the readiness check that waits for Harbor portal / core /
+  registry / notary to all report Ready.
+- Implement the live image-build → tag → push flow against local Harbor.
+- Integration coverage exercising a real push and subsequent pull from
+  Harbor through the `HasHarbor` capability class.
+
+## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres 🔄
+
+**Status**: Active
 **Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
 `chart/templates/pv-platform-harbor-pg-*.yaml`
 **Docs to update**: `documents/engineering/cluster_topology.md`
@@ -111,13 +120,27 @@ lives in MinIO and Pulsar exclusively.
 ### Validation
 
 1. `chart/Chart.yaml` declares the `pg-operator` subchart dependency.
-2. `chart/templates/pv-platform-harbor-pg-*.yaml` provides the local manual PV
+2. `chart/templates/pv-platform-harbor-pg-*.yaml` provides the manual PV
    surface for service Postgres storage.
-3. Live `PerconaPGCluster` readiness remains target work.
+3. Live validation (target): `PerconaPGCluster` `harbor-pg` reaches Ready
+   in namespace `platform`, Harbor's database values point at the live
+   service, and `jitml lint chart` rejects any `PerconaPGCluster` outside
+   the typed service-Postgres registry.
 
-## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server ✅
+### Remaining Work
 
-**Status**: Done
+- Render `PerconaPGCluster` resources from a typed service-Postgres
+  registry (first entry `harbor-pg` in `platform`).
+- Wire `helm install` of the Percona operator and the `PerconaPGCluster`
+  apply through the typed `Subprocess` boundary.
+- Implement the readiness check that waits for the Patroni-managed Postgres
+  cluster to reach Ready and exposes its DSN to Harbor.
+- Add the lint rule that rejects any `PerconaPGCluster` not declared in the
+  registry.
+
+## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server 🔄
+
+**Status**: Active
 **Implementation**: `chart/values.yaml`,
 `src/JitML/Storage/Buckets.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
@@ -152,16 +175,29 @@ buckets, and pin the server to a release with S3 conditional-write support
 1. `src/JitML/Storage/Buckets.hs` enumerates the seven current bucket names.
 2. `chart/values.yaml` includes each typed bucket under
    `minio.provisioning.buckets`.
-3. `materializeBootstrapFiles` removes legacy standalone MinIO values files and
-   remains idempotent on the second pass.
+3. `materializeBootstrapFiles` removes legacy standalone MinIO values files
+   and remains idempotent on the second pass.
 4. The cleanup row in
-   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) is marked
-   completed for the standalone values fragment.
-5. Live MinIO `mc` and conditional-write validation remain target work.
+   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) is
+   marked completed for the standalone values fragment.
+5. Live validation (target): the four-replica MinIO StatefulSet reaches
+   Ready, the seven buckets exist (verified through `mc ls`), and the
+   `HasMinIO` capability class exercises `If-None-Match: *` PUT and
+   `If-Match: <etag>` pointer CAS against the running cluster.
 
-## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap ✅
+### Remaining Work
 
-**Status**: Done
+- Implement the live `HasMinIO` capability class against a running MinIO
+  instance (issued via `helm install` on the conditional-write-supporting
+  pin).
+- Implement the `mc`-based or in-process readiness check that confirms the
+  seven buckets exist.
+- Integration coverage exercising conditional-write semantics (412 →
+  `SEConflict`) end to end through the typed capability class.
+
+## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap 🔄
+
+**Status**: Active
 **Implementation**: `chart/values.yaml`,
 `src/JitML/Cluster/PulsarBootstrap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
@@ -184,14 +220,28 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 
 ### Validation
 
-1. `src/JitML/Cluster/PulsarBootstrap.hs` renders the local topic-command
+1. `src/JitML/Cluster/PulsarBootstrap.hs` renders the typed topic-command
    surface.
 2. The route registry includes `/pulsar/admin` and `/pulsar/ws`.
-3. Live `pulsar-admin` and WebSocket validation remain target work.
+3. Live validation (target): the 3× ZooKeeper / 3× BookKeeper / 3× Broker /
+   3× Proxy Pulsar StatefulSets reach Ready, `pulsar-admin topics create`
+   creates every substrate-scoped topic in
+   [system-components.md → Pulsar Topic Family](system-components.md#pulsar-topic-family),
+   and the `HasPulsar` capability class subscribes successfully via the
+   WebSocket proxy.
 
-## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ✅
+### Remaining Work
 
-**Status**: Done
+- Execute the rendered `pulsar-admin topics create ...` commands during the
+  bootstrap final-phase through the typed `Subprocess` boundary.
+- Implement the live `HasPulsar` capability class that subscribes, produces,
+  acks, and seeks against the running cluster.
+- Integration coverage exercising at-least-once redelivery + payload-hash
+  dedup against a live broker.
+
+## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards 🔄
+
+**Status**: Active
 **Implementation**: `chart/values.yaml`,
 `src/JitML/Observability/Grafana.hs`,
 `src/JitML/Observability/Prometheus.hs`
@@ -218,14 +268,26 @@ the daemon's `/metrics` endpoint.
 
 ### Validation
 
-1. `src/JitML/Observability/Grafana.hs` renders the local dashboard surface.
-2. `src/JitML/Observability/Prometheus.hs` renders the local scrape-target
+1. `src/JitML/Observability/Grafana.hs` renders the dashboard surface.
+2. `src/JitML/Observability/Prometheus.hs` renders the scrape-target
    surface.
-3. Live Grafana dashboard provisioning remains target validation.
+3. Live validation (target): the kube-prometheus-stack reaches Ready,
+   Grafana serves the provisioned dashboards behind `/grafana`, and
+   Prometheus scrapes the `jitml service` `/metrics` endpoint at the
+   declared interval.
 
-## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar ✅
+### Remaining Work
 
-**Status**: Done
+- Bring up the kube-prometheus-stack via `helm install` against the
+  cluster.
+- Confirm Grafana dashboard ConfigMaps are picked up and rendered behind
+  `/grafana`.
+- Confirm Prometheus scrapes the daemon's `/metrics` endpoint successfully
+  through the Envoy listener.
+
+## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/Observability/TensorBoard.hs`,
 `proto/tensorboard/event.proto`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
@@ -264,15 +326,28 @@ writes the CBOR checkpoint sidecar at
 
 ### Validation
 
-1. `src/JitML/Observability/TensorBoard.hs` renders deterministic event keys
-   and the local TensorBoard deployment surface.
+1. `src/JitML/Observability/TensorBoard.hs` renders deterministic event
+   keys and the TensorBoard deployment surface.
 2. `proto/tensorboard/event.proto` exists for the target binding path.
-3. Live TensorBoard UI, TFRecord, and checkpoint-sidecar validation remain
-   target work.
+3. Live validation (target): TensorBoard pod reaches Ready behind
+   `/tensorboard`, reads TFRecord shards from MinIO bucket
+   `jitml-tensorboard`, and a `CheckpointDone` event causes the
+   `TbCheckpointMarker` CBOR sidecar to land under
+   `jitml-tensorboard/<experiment-hash>/checkpoints/`.
 
-## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ✅
+### Remaining Work
 
-**Status**: Done
+- Generate Haskell proto bindings from `proto/tensorboard/event.proto`.
+- Implement the TFRecord framing writer (uint64 LE length +
+  masked-CRC32C-Castagnoli + payload + masked-CRC32C).
+- Implement shard rotation (flush at 4 MiB, 10 s, or explicit `flush`) with
+  idempotent `If-None-Match: *` PUTs keyed by `(writer-id, shard-seq)`.
+- Wire `CheckpointDone` to write the typed `TbCheckpointMarker` CBOR sidecar.
+- Deploy a TensorBoard `Service` template alongside the Deployment.
+
+## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA 🔄
+
+**Status**: Active
 **Implementation**: `chart/templates/runtimeclass-nvidia.yaml`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
@@ -295,9 +370,18 @@ activates them at runtime when the pod is scheduled with
 
 ### Validation
 
-1. `chart/templates/runtimeclass-nvidia.yaml` declares the local RuntimeClass.
+1. `chart/templates/runtimeclass-nvidia.yaml` declares the RuntimeClass.
 2. The Linux CUDA Kind config carries the GPU worker label.
-3. Live pod scheduling with `runtimeClassName: nvidia` remains target work.
+3. Live validation (target): a pod with `runtimeClassName: nvidia` lands on
+   the labelled Kind worker and successfully runs an `nvidia-smi` probe.
+
+### Remaining Work
+
+- Validate the live pod scheduling against the labelled Kind worker with
+  the `nvidia` runtime installed.
+- Confirm the `jitml-service` Deployment renders
+  `runtimeClassName: nvidia` only when substrate is `linux-cuda` and that
+  the resulting pod actually sees the GPU.
 
 ## Doctrine Sections Cited
 

@@ -25,25 +25,36 @@
 
 ## Phase Status
 
-✅ **Done** for the local Cabal stanza expansion and report-card surface. The
-ten stanzas exercise prior phases' local renderers, catalogs, command summaries,
-and scaffolds; live
-`jitml-cross-backend` infrastructure validation remains the closure gate that
-bounds cross-substrate drift inside the per-tensor tolerance band.
+🔄 **Active**. The phase owns
+[Exit Definition](README.md#exit-definition) item 9 (`jitml test all`
+runs every Cabal test-suite stanza with the report-card knobs pinned in
+`cabal.project`; the `jitml-e2e` stanza orchestrates an ephemeral Kind
+stack via the `infra/pulumi/` TypeScript program) and item 18 (empty
+legacy ledger after items 1–9 close). **Met today**: Sprint `12.1`
+(`jitml-unit` body) and Sprint `12.7` (`jitml-daemon-lifecycle` body)
+close their owned obligations because their entire body is pure-logic /
+parser / property / golden / lifecycle / signal coverage. **Unmet
+today**: Sprint `12.2` owes real-binary subprocess integration; Sprints
+`12.3`–`12.6` owe live SL convergence, live RL trajectory, live
+hyperparameter reproducibility, and live cross-substrate parity against
+committed fixtures; Sprint `12.8` owes the live `JITML_LIVE_E2E=1`
+Pulumi + Helm + Playwright path against an ephemeral Kind stack; Sprint
+`12.9` owes the report card consuming live results from Sprint `12.8`.
+Detailed remaining work lives in each sprint's `### Remaining Work`
+block below.
 
 ### Current Implementation Scope
 
-The current worktree declares all ten Cabal test stanzas and gives each a local
-deterministic `tasty` body. These tests exercise parser/docs/cache/bootstrap
-helpers, renderers, catalogs, checkpoint summaries, route/bucket registries,
-daemon lifecycle data, and frontend contract scaffolds. They do not currently
-spawn the real `jitml` binary for integration, run live training, run
-Playwright, or bring up Kind through Pulumi. The local `jitml-cross-backend`
-body now also compiles, loads, and runs the generated Linux CPU identity kernel
-through `dlopen`; the local `jitml-e2e` body verifies the typed live
-Helm/Pulumi/Playwright plan without executing it. `jitml test all` invokes
-Cabal through the typed `Subprocess` boundary after the Plan/Apply dry-run
-surface.
+All ten Cabal test stanzas are declared and each has a deterministic
+`tasty` body. These tests exercise parser/docs/cache/bootstrap helpers,
+renderers, catalogs, checkpoint summaries, route/bucket registries,
+daemon lifecycle data, and frontend contract scaffolds. The
+`jitml-cross-backend` body also compiles, loads, and runs the generated
+Linux CPU identity kernel through `dlopen`; the `jitml-e2e` body
+verifies the typed live Helm/Pulumi/Playwright plan without executing
+it. `jitml test all` invokes Cabal through the typed `Subprocess`
+boundary after the Plan/Apply dry-run surface. Live execution paths live
+in the sprints' `### Remaining Work` blocks below.
 
 ## Phase Summary
 
@@ -90,11 +101,12 @@ target work.
   AppError rendering.
 - Current golden fixtures exist under `test/golden/cache/`,
   `test/golden/cli/`, and `test/golden/prerequisite/`.
-- Route-table, Grafana daemon-health, Sobol, GA, PPO/CartPole trajectory, and
-  AlphaZero Connect 4 transcript golden fixtures are present under
-  `test/golden/`. Richer transcript codecs and AlphaZero MCTS golden fixtures
-  remain target work. The numerical and RL Dhall catalog mirrors are audited by
-  the current unit/lint body.
+- Route-table, Grafana daemon-health, Sobol, GA, PPO/CartPole trajectory,
+  and AlphaZero Connect 4 transcript golden fixtures are present under
+  `test/golden/`. Richer transcript codecs and AlphaZero MCTS golden
+  fixtures grow alongside Sprints `9.5` / `9.6` / `10.x` real bodies. The
+  numerical and RL Dhall catalog mirrors are audited by the unit/lint
+  body.
 
 ### Validation
 
@@ -102,18 +114,19 @@ target work.
 2. Existing golden fixtures are deterministic and contain no timestamps or
    random identifiers.
 
-## Sprint 12.2: `jitml-integration` Stanza (Subprocess Boundary + Determinism) ✅
+## Sprint 12.2: `jitml-integration` Stanza (Subprocess Boundary + Determinism) 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `test/integration/`,
 `jitml.cabal` (the `jitml-integration` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`
 
 ### Objective
 
-Keep `jitml-integration` as the current local integration workload for the
-typed subprocess boundary and renderer surfaces. Real-binary subprocess
-integration and same-substrate training determinism remain target work.
+Keep `jitml-integration` as the integration workload for the typed
+subprocess boundary and renderer surfaces; grow real-binary subprocess
+integration and same-substrate training determinism per `### Remaining
+Work` below.
 
 ### Deliverables
 
@@ -131,12 +144,28 @@ integration and same-substrate training determinism remain target work.
 
 ### Validation
 
-1. `cabal test jitml-integration` exits `0` for the current local body.
-2. Live transcript determinism remains target validation.
+1. `cabal test jitml-integration` exits `0` for the body.
+2. Live validation (target): the stanza spawns the real `jitml` binary
+   through the typed `Subprocess` boundary, exercises a real checkpoint
+   round-trip via MinIO, validates resume-from-checkpoint semantics, and
+   round-trips a Dhall experiment through the typed decoder against the
+   actual numerical-core catalog.
 
-## Sprint 12.3: `jitml-sl-canonicals` Stanza ✅
+### Remaining Work
 
-**Status**: Done
+- Add subprocess integration tests that spawn `./.build/jitml` against a
+  real workdir and assert end-to-end behaviour for `bootstrap` /
+  `cluster up` / `service` / `train --dry-run`.
+- Add real checkpoint round-trip coverage against the live `HasMinIO`
+  capability class from Sprint `5.4`.
+- Add Dhall-to-typed-record decode coverage that exercises the full
+  numerical-core catalog from Phase `6`.
+- Add the per-substrate determinism assertion against a real generated
+  kernel.
+
+## Sprint 12.3: `jitml-sl-canonicals` Stanza 🔄
+
+**Status**: Active
 **Implementation**: `test/sl-canonicals/`,
 `jitml.cabal` (the `jitml-sl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -158,12 +187,24 @@ fixtures remain future runtime work.
 
 ### Validation
 
-1. `cabal test jitml-sl-canonicals` exits `0` for the current local body.
-2. Live convergence fixtures remain target validation.
+1. `cabal test jitml-sl-canonicals` exits `0` for the body.
+2. Live validation (target): the stanza runs real training against every
+   canonical SL problem with the `SL_EPOCHS` / `SL_BATCH` knobs from
+   `cabal.project`, asserts the final loss meets the committed
+   convergence threshold per problem, and bit-matches committed goldens
+   under `test/golden/sl/<problem-key>/`.
 
-## Sprint 12.4: `jitml-rl-canonicals` Stanza ✅
+### Remaining Work
 
-**Status**: Done
+- Drive `jitml train` against every canonical SL cell with real datasets
+  fetched from MinIO bucket `jitml-datasets`.
+- Consume the `SL_EPOCHS` / `SL_BATCH` report-card knobs from
+  `cabal.project`.
+- Commit per-problem convergence goldens under `test/golden/sl/`.
+
+## Sprint 12.4: `jitml-rl-canonicals` Stanza 🔄
+
+**Status**: Active
 **Implementation**: `test/rl-canonicals/`,
 `jitml.cabal` (the `jitml-rl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -188,13 +229,28 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 
 ### Validation
 
-1. `cabal test jitml-rl-canonicals` exits `0` for the current local body.
-2. Environment trajectory and reward-distribution fixtures remain target
-   validation.
+1. `cabal test jitml-rl-canonicals` exits `0` for the body.
+2. Live validation (target): the stanza runs real RL training against
+   every algorithm × canonical environment cohort with the `RL_STEPS`,
+   `RL_EVAL_EPISODES`, `AZ_GAMES`, `AZ_SIMS` knobs from `cabal.project`,
+   asserts trajectory determinism (target matrix form 2) and per-seed
+   final-reward distribution (form 3) against committed fixtures, and
+   bit-matches committed AlphaZero arena summaries.
 
-## Sprint 12.5: `jitml-hyperparameter` Stanza ✅
+### Remaining Work
 
-**Status**: Done
+- Drive `jitml rl train` against every algorithm × environment cohort
+  with real env simulators from Sprint `8.3`.
+- Consume the `RL_STEPS` / `RL_EVAL_EPISODES` / `AZ_GAMES` / `AZ_SIMS`
+  report-card knobs from `cabal.project`.
+- Commit per-cohort goldens (`test/golden/rl/<algo>/<env>/`) and per-game
+  AlphaZero arena fixtures.
+- Add per-seed final-reward distribution assertion (RL target matrix
+  form 3).
+
+## Sprint 12.5: `jitml-hyperparameter` Stanza 🔄
+
+**Status**: Active
 **Implementation**: `test/hyperparameter/`,
 `jitml.cabal` (the `jitml-hyperparameter` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -214,18 +270,33 @@ and deterministic trial-value checks.
 - It asserts generated trial values are normalized into `[0, 1)`.
 - It compares Sobol and GeneticAlgorithm trial streams against the current
   fixtures under `test/golden/tune/`.
-- Full sampler set, scheduler/pruner event semantics, and resume equality
-  remain target work. Report-card knob parsing is covered through
-  `src/JitML/Test/Report.hs` and `jitml-e2e`.
+- Full sampler set, scheduler/pruner event semantics, and resume
+  equality are owned by `### Remaining Work` below. Report-card knob
+  parsing is covered through `src/JitML/Test/Report.hs` and
+  `jitml-e2e`.
 
 ### Validation
 
-1. `cabal test jitml-hyperparameter` exits `0` for the current local body.
-2. Resume equality remains target validation.
+1. `cabal test jitml-hyperparameter` exits `0` for the body.
+2. Live validation (target): the stanza runs real tuning sweeps with the
+   `TUNE_TRIALS` / `TUNE_BUDGET_PER_TRIAL` knobs, asserts per-sampler /
+   per-scheduler / per-pruner reproducibility, and asserts
+   resume-from-partial-sweep equality against trial transcripts persisted
+   to MinIO bucket `jitml-trials/`.
 
-## Sprint 12.6: `jitml-cross-backend` Stanza ✅
+### Remaining Work
 
-**Status**: Done
+- Drive `jitml tune` against the full canonical sampler × scheduler ×
+  pruner grid through the live tuner from Sprint `9.7`.
+- Consume the `TUNE_TRIALS` / `TUNE_BUDGET_PER_TRIAL` report-card knobs.
+- Assert per-sampler / per-scheduler / per-pruner reproducibility
+  against committed golden trial-key streams.
+- Implement resume-from-partial-sweep equality test that reads cached
+  trial transcripts from live MinIO.
+
+## Sprint 12.6: `jitml-cross-backend` Stanza 🔄
+
+**Status**: Active
 **Implementation**: `test/cross-backend/`,
 `jitml.cabal` (the `jitml-cross-backend` stanza),
 `src/JitML/Test/Report.hs`
@@ -251,10 +322,23 @@ cross-substrate tolerance testing remains the overall handoff gate.
 
 ### Validation
 
-1. `cabal test jitml-cross-backend` exits `0` for the current local body.
-2. `cabal test jitml-cross-backend` validates the generated Linux CPU identity
-   kernel compile/load/run path.
-3. Live kernel parity and tolerance-band fixture validation remain target work.
+1. `cabal test jitml-cross-backend` exits `0` for the body.
+2. `cabal test jitml-cross-backend` validates the generated Linux CPU
+   identity kernel compile/load/run path.
+3. Live validation (target): the stanza runs the canonical SL cohorts
+   on the `(linux-cpu, linux-cuda)` and `(linux-cpu, apple-silicon)`
+   substrate pairs, asserts per-tensor drift fits the committed
+   tolerance band per
+   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md),
+   and bit-matches committed cross-substrate fixtures.
+
+### Remaining Work
+
+- Drive the cross-substrate cohorts through real per-substrate engines
+  from Sprints `7.3` / `7.4` / `7.5`.
+- Commit `test/golden/cross-backend/` tolerance fixtures per cohort.
+- Add the per-tensor drift assertion against the committed ULP
+  tolerance band.
 
 ## Sprint 12.7: `jitml-daemon-lifecycle` Stanza ✅
 
@@ -289,9 +373,9 @@ the current boot → ready → serve → SIGHUP reload → drain → exit contro
 3. Retry helpers map synthetic service errors to the expected `AppError`.
 4. The one-shot daemon HTTP listener returns `200 OK` for `/healthz`.
 
-## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator ✅
+## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `infra/pulumi/`,
 `infra/pulumi/package.json`, `infra/pulumi/Pulumi.yaml`,
 `infra/pulumi/index.ts`,
@@ -334,14 +418,30 @@ container/runtime state, and validates teardown.
 
 ### Validation
 
-1. `cabal test jitml-e2e` exits `0` for the current local scaffold body.
-2. `cabal test jitml-e2e` verifies the rendered live plan contains the Helm
-   dependency-build and Playwright steps.
-3. The future live body proves teardown leaves no `jitml-e2e` Kind cluster.
+1. `cabal test jitml-e2e` exits `0` for the scaffold body.
+2. `cabal test jitml-e2e` verifies the rendered live plan contains the
+   Helm dependency-build and Playwright steps.
+3. Live validation (target): under `JITML_LIVE_E2E=1`, `cabal test
+   jitml-e2e` runs the full live sequence: `helm dependency build chart`
+   → `pulumi up` (ephemeral Kind) → demo cohorts reach Ready behind the
+   real Envoy listener → `npx playwright test` against every canonical
+   panel → `pulumi destroy` → `pulumi stack rm`. Teardown leaves no
+   orphan `jitml-e2e` Kind clusters, Harbor projects, PVs, or Docker
+   volumes.
 
-## Sprint 12.9: `jitml test all` Orchestrator and Report Card ✅
+### Remaining Work
 
-**Status**: Done
+- Grow `infra/pulumi/index.ts` from metadata-only into the full
+  ephemeral-Kind orchestrator that creates the cluster, runs the
+  bootstrap, deploys the demo, and tears down.
+- Wire `JitML.Test.LivePlan` into a live test path that runs only when
+  `JITML_LIVE_E2E=1` is set.
+- Add the post-teardown assertion that no `jitml-e2e` Kind cluster,
+  Harbor project, MinIO bucket, or Docker volume survives.
+
+## Sprint 12.9: `jitml test all` Orchestrator and Report Card 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/App.hs`,
 `src/JitML/Test/Report.hs`,
 `cabal.project` (report-card knob block)
@@ -383,9 +483,26 @@ health, cross-substrate parity tolerance).
 
 1. `jitml test all --dry-run` emits the typed plan enumerating all ten
    stanzas.
-2. `jitml test all` invokes `cabal test all`, exits `0` on the current tree,
-   and prints the report card.
+2. `jitml test all` invokes `cabal test all`, exits `0` on the current
+   tree, and prints the report card.
 3. `cabal test jitml-e2e` verifies report-card knob override parsing.
+4. Live validation (target): under `JITML_LIVE_E2E=1`, `jitml test all`
+   schedules the live `jitml-e2e` body too; the rendered report card
+   answers every canonical question (SL convergence, RL reward,
+   AlphaZero arena win rate, JIT cache hit rate, daemon health,
+   cross-substrate parity tolerance) from real measurements rather than
+   placeholder summaries.
+
+### Remaining Work
+
+- Drive the live `jitml-e2e` body from `jitml test all` when
+  `JITML_LIVE_E2E=1` is set, threading the resulting live measurements
+  back into the report card.
+- Populate every canonical report-card question with real data once
+  Sprints `8.x`, `9.x`, `10.x`, and `12.x` start emitting live results.
+- Add the live integration test that confirms the report card
+  surfaces real SL/RL/AlphaZero/tuning/cross-substrate numbers and not
+  placeholder text.
 
 ## Doctrine Sections Cited
 

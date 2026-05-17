@@ -80,27 +80,43 @@ project management summaries.
 
 ### C. Honest Completion Tracking
 
-Status must describe reality, not intent.
+Status describes reality against the project's Exit Definition, not against an
+intermediate scaffold layer. The Exit Definition is the eighteen-item list in
+[README.md → Exit Definition](README.md#exit-definition). Each sprint owns a
+subset of those Exit Definition obligations; that subset is named in the
+sprint's `### Objective` and `### Deliverables` blocks.
 
 | Status | Meaning | Emoji |
 |--------|---------|-------|
-| **Done** | Deliverables implemented for the sprint-owned surface, validated, and aligned in docs | ✅ |
-| **Active** | Work has started and remaining implementation or documentation work is explicitly listed | 🔄 |
-| **Planned** | Ready to start once execution reaches the sprint in sequence | 📋 |
-| **Blocked** | Closure depends on an unmet prerequisite or prior sprint closure | ⏸️ |
+| **Done** | Every Exit-Definition obligation the sprint owns is met in the worktree, validated by the sprint's `### Validation` commands, and the listed docs are aligned. A sprint whose entire obligation is documentation, typed scaffolding, schema/ADT, generated-section, or pure-Haskell catalog work is legitimately Done when that surface is in place and tested; a sprint whose obligation includes live runtime behaviour (cluster up, Helm apply, Pulsar subscribe, MinIO put, kernel compile-and-execute, browser interaction, etc.) is Done only after that live behaviour is exercised through the sprint's validation. | ✅ |
+| **Active** | Work has started and at least one owned Exit-Definition obligation is unmet. The sprint body lists those gaps in an explicit `### Remaining Work` block. | 🔄 |
+| **Planned** | All upstream sprint dependencies are Done. The sprint has not yet started. It must list no unmet blockers. | 📋 |
+| **Blocked** | At least one upstream sprint or external prerequisite required for this sprint's owned obligations is not Done. The sprint body lists the blockers in a `**Blocked by**:` line. | ⏸️ |
 
-- `Done` requires passing validation, aligned docs, and no remaining sprint-owned
-  work.
-- `Active` requires a `Remaining Work` section.
-- `Blocked` requires a `Blocked by` line.
+- `Done` requires passing validation, aligned docs, and zero remaining
+  sprint-owned obligations against the Exit Definition.
+- `Active` requires a `### Remaining Work` block that enumerates the unmet
+  Exit-Definition obligations the sprint still owns and the validation commands
+  that would close them.
+- `Blocked` requires a `**Blocked by**:` line naming the upstream sprint id(s)
+  or external prerequisite.
 - `Planned` means dependencies are already satisfied; it must not list unmet
   blockers.
-- Status is always scoped to the sprint or phase-owned surface. A later phase may
-  remain `Done` when an earlier phase reopens, but the reopened dependency must be
-  called out explicitly in `README.md` and `00-overview.md`.
+- Status applies to the full obligation, not to a checked-in scaffold layer.
+  The plan does not distinguish a "local surface" Done from a "live runtime"
+  Done — there is one Done bar, and it is the Exit Definition obligation.
+- Primary unmet obligations do not flow into
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md); they
+  remain in the owning sprint's `### Remaining Work` until closed. The legacy
+  ledger tracks only doctrine deviations and temporary compatibility helpers
+  per rule I.
 - If Phase `0` is still open, later code-writing phases (Phases `1`–`12`) use
-  `Blocked`, not `Planned`, since their owned surfaces depend on the doctrine-
-  citation contract and the documentation-topology baseline that Phase `0` provides.
+  `Blocked`, not `Planned`, since their owned surfaces depend on the
+  doctrine-citation contract and the documentation-topology baseline that
+  Phase `0` provides.
+- If a previously Done phase reopens because the Exit Definition expands, the
+  reopened phase moves back to `Active` and `README.md` and `00-overview.md`
+  call the reopening out explicitly.
 
 ### D. Declarative Plan Language
 

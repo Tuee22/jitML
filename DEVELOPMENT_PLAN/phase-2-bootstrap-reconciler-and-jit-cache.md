@@ -20,28 +20,30 @@
 
 ## Phase Status
 
-✅ **Done** for the local bootstrap, prerequisite, cache-layout, Docker,
-Tart-command, and script-wrapper scaffolds. Sprints `2.1` through `2.7` are
-`✅ Done` at the current implementation level: the stage-0 scripts fail fast on
-host gates, delegate to `jitml bootstrap --<substrate>`, the typed prerequisite
-DAG performs renderable/applicable Homebrew remediation with postcondition
-validation, the typed JIT cache key/layout/manifest/symlink layer is in place,
-the one-service `docker/compose.yaml` and baseline `jitml:local` image definition
-exist, the Tart command surface is typed, and script-side `status`, `test`,
-`down`, `purge`, and `purge --full` wrappers are wired without intentionally
-touching global user state.
+✅ **Done**. The phase owns
+[Exit Definition](README.md#exit-definition) items 4 (stage-0 entrypoints
+plus the typed Haskell prerequisite DAG that performs all post-stage-0
+reconciliation) and 10 (toolchain pin), and contributes to item 12 (typed
+`Subprocess` for `kubectl` / `helm` / `kind` / `docker`). Every owned
+obligation is met in the worktree and validated by Sprints `2.1`–`2.7`:
+the stage-0 scripts fail fast on host gates and delegate to
+`jitml bootstrap --<substrate>`, the typed prerequisite DAG performs
+renderable/applicable Homebrew remediation with postcondition validation,
+the typed JIT cache key/layout/manifest/symlink layer is in place, the
+one-service `docker/compose.yaml` and `jitml:local` image definition exist,
+the Tart command surface is typed, and the script-side `status`, `test`,
+`down`, `purge`, and `purge --full` wrappers are wired without
+intentionally touching global user state.
 
 ### Current Implementation Scope
 
-Current `jitml bootstrap --<substrate>` and `jitml cluster up` materialize
+`jitml bootstrap --<substrate>` and `jitml cluster up` materialize
 repo-local Kind, chart, Dhall, service, and publication files, then print
-reconciliation summaries or exit `3` when the materialized files are already
-current. They do not create Kind clusters, apply Helm, push to Harbor, run
-`jitml service`, or compile JIT kernels. The Docker image is a
-baseline development image, not the complete CUDA / cuDNN / oneDNN / Pulumi /
-Poetry toolchain image described by the target architecture. The Tart helper
-writes repo-local VM state and renders `tart ssh` subprocesses; real lazy VM
-startup and Swift / Metal compilation remain target JIT work.
+reconciliation summaries or exit `3` when the materialized files are
+already current. Live `kind create cluster` / `helm install` execution
+belongs to Sprint `3.5` (Phase `3`); the JIT cache layer here is the
+content-addressed key/layout/manifest/symlink surface that the per-
+substrate engines in Phase `7` populate.
 
 ## Phase Summary
 

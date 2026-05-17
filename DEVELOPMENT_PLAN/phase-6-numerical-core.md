@@ -12,30 +12,36 @@
 **Generated sections**: none
 
 > **Purpose**: Stand up the current local numerical catalog surface — layer
-> names, real/complex activation names, spectral / frequency-domain operation
-> names, optimizers, schedulers, loss functions, and deterministic catalog
-> rendering — plus Dhall mirror lists and the Haskell cross-type audit that
-> keeps those lists aligned with the catalog. Rich parameterized constructors
-> remain target work.
+> names, real/complex activation names, spectral / frequency-domain
+> operation names, optimizers, schedulers, loss functions, and
+> deterministic catalog rendering — plus Dhall mirror lists and the
+> Haskell cross-type audit that keeps those lists aligned with the
+> catalog. Rich parameterized constructors are owned by future
+> numerical-core work logged through standards rule G's Doc Requirements
+> blocks.
 
 ## Phase Status
 
-✅ **Done** for the local typed catalog surface. The numerical core is a typed
-catalog consumed by the daemon's future training and inference loops; it has no
-runtime behaviour of its own beyond catalog enumeration and rendering today.
-Per-substrate JIT codegen (Phase `7`) consumes this catalog.
+✅ **Done**. The phase contributes the numerical-core half of
+[Exit Definition](README.md#exit-definition) item 5 (numerical core
+exposed in Dhall; per-substrate JIT consumes the catalog). Every owned
+obligation is met in the worktree and validated by Sprints `6.1`–`6.6`.
+The numerical core is a typed catalog with a Dhall mirror; it has no
+runtime behaviour of its own beyond enumeration, rendering, and the
+cross-type lint audit. Real per-substrate execution of the catalog lives
+in Phase `7`'s engines and is tracked there.
 
 ### Current Implementation Scope
 
-The current worktree implements the Haskell catalog in
+The worktree implements the Haskell catalog in
 `src/JitML/Numerics/Catalog.hs`: sixteen layer constructors, eleven
-activations, ten spectral operations, thirteen optimizers, nine schedulers, ten
-losses, and
-`renderNumericalCatalog`. It also implements the Dhall mirror list tree at
-`dhall/numerics/`, the decoder/validator in `src/JitML/Numerics/Schema.hs`,
-and the lint hook in `src/JitML/Lint/DhallNumerics.hs`. Parameterized record
-fields for every constructor remain model-schema work, but the richer
-constructor vocabulary is present in the checked-in catalog.
+activations, ten spectral operations, thirteen optimizers, nine schedulers,
+ten losses, and `renderNumericalCatalog`. It also implements the Dhall
+mirror list tree at `dhall/numerics/`, the decoder/validator in
+`src/JitML/Numerics/Schema.hs`, and the lint hook in
+`src/JitML/Lint/DhallNumerics.hs`. Parameterized record fields for every
+constructor remain model-schema work, but the constructor vocabulary that
+Phase `7` consumes is present in the checked-in catalog.
 
 ## Phase Summary
 

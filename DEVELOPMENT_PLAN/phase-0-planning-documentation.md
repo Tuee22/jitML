@@ -15,9 +15,11 @@
 
 ## Phase Status
 
-✅ **Done** — Sprint `0.1` (canonical plan suite bootstrap) and Sprint `0.2`
-(doctrine-driven scheduling audit) are implemented and validated. Every in-scope
-doctrine identifier is bound to an owned deliverable in Phases `1`–`12`.
+✅ **Done**. The phase establishes the doctrine envelope and plan topology
+that every Exit-Definition obligation refers back to. Sprint `0.1`
+(canonical plan suite bootstrap) and Sprint `0.2` (doctrine-driven
+scheduling audit) are implemented and validated; every in-scope doctrine
+identifier is bound to an owned deliverable in Phases `1`–`12`.
 
 ## Phase Summary
 

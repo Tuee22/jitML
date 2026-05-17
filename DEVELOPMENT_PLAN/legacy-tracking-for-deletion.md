@@ -29,32 +29,36 @@
 
 ## Ledger Status
 
-Phase `0` closed with no doctrine-audit residue. Sprint `1.1` introduced one
-toolchain compatibility helper in `cabal.project` so the doctrine-mandated `dhall`
-dependency builds under pinned GHC `9.14.1`; that row remains a final-handoff
-cleanup gate until upstream package bounds no longer need the local override.
-It is not remaining implementation work for the already closed local Sprint
-`12.9` test-orchestrator surface. Sprint `7.7` completed the static checked-in
-JIT source/build scaffold removal: JIT compiler inputs are generated on demand
-by the Haskell binary. Sprint `4.3` completed the standalone MinIO values
-fragment removal: MinIO subchart values now live under `minio:` in
-`chart/values.yaml`. Sprint `8.7` completed the `RLRunLifecycle` GADT retrofit:
-`src/JitML/RL/Framework.hs` no longer exports the flat `RunPhase` enum and now
-exposes the `RLRunPhase` data kind plus the phase-indexed singleton GADT
-`RLRunLifecycle` so all three jitML lifecycles share doctrine-aligned shape.
+This ledger tracks **doctrine deviations and compatibility helpers**, not
+unmet primary Exit-Definition obligations. Primary unmet obligations live in
+the owning sprint's `### Remaining Work` block per
+[development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
+
+One toolchain compatibility helper is currently active: the scoped
+`allow-newer` block in `cabal.project` keeps Dhall's transitive CBOR stack
+building under pinned GHC `9.14.1` while upstream package bounds catch up.
+The row resolves at the final-handoff toolchain refresh once upstream
+releases relax bounds for `base-4.22`. Three doctrine-deviation rows have
+closed and live in the `Completed` table: Sprint `4.3` folded the
+standalone MinIO values fragment into `chart/values.yaml`; Sprint `7.7`
+removed the static checked-in JIT source/build scaffold (JIT compiler inputs
+are generated on demand by the Haskell binary); Sprint `8.7` replaced the
+flat `RunPhase` enum with the phase-indexed `RLRunLifecycle` GADT so all
+three jitML lifecycles share doctrine-aligned shape.
 
 Two classes of entries populate this ledger over time:
 
-1. **Doctrine-deviation residue.** Any worktree behavior that the implemented code
-   does not yet honour against an in-scope doctrine section, scheduled through the
-   owning sprint per standards rule L.
+1. **Doctrine-deviation residue.** Any worktree behavior that the implemented
+   code does not yet honour against an in-scope doctrine section, scheduled
+   through the owning sprint per standards rule L.
 2. **Stand-in residue.** Any temporary scaffolding (placeholder kernel, smoke
-   subprocess, in-memory MinIO stub, etc.) used to keep CI green while the real
-   implementation lands. Each stand-in must name the sprint that retires it.
+   subprocess, in-memory MinIO stub, etc.) used to keep CI green while the
+   real implementation lands. Each stand-in must name the sprint that retires
+   it.
 
-The doctrine envelope at [00-overview.md → Doctrine Scope](00-overview.md#doctrine-
-scope) admits no out-of-scope-but-implemented sections at write time — when
-the `Smart Constructors for Paired Resources` doctrine section becomes in-scope
+The doctrine envelope at [00-overview.md → Doctrine Scope](00-overview.md#doctrine-scope)
+admits no out-of-scope-but-implemented sections at write time — when the
+`Smart Constructors for Paired Resources` doctrine section becomes in-scope
 (any future PV/PVC pair, DNS/cert pair, or analogous coupled resources), that
 opening event itself enqueues a row here naming the originating sprint.
 
@@ -66,40 +70,26 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal Notes
 
-Pending-removal rows normally resolve on the closure of the owning sprint listed
-in the relevant phase document. Rows whose blocker is an external upstream
-release still name the originating sprint, but resolve at the final handoff
-toolchain refresh. Each row moves to `Completed` only when the replacement is
-verified in the worktree.
+Pending-removal rows normally resolve on the closure of the owning sprint
+listed in the relevant phase document. Rows whose blocker is an external
+upstream release still name the originating sprint, but resolve at the final
+handoff toolchain refresh. Each row moves to `Completed` only when the
+replacement is verified in the worktree.
 
 Current validation: a temporary project file with the scoped `allow-newer`
-block removed still fails dependency solving under pinned GHC `9.14.1`, because
-`serialise-0.2.6.1` excludes the installed `base-4.22`. The row remains pending.
+block removed still fails dependency solving under pinned GHC `9.14.1`,
+because `serialise-0.2.6.1` excludes the installed `base-4.22`. The row
+remains pending.
 
-The expected populating events are:
-
-- **Phase 1.** Any doctrine-adoption gap surfaced by Sprint `0.2`'s grep audit
-  enqueues here under its owning Phase `1`–`12` sprint. The audit's job is to
-  ensure no gap is silently adopted; the ledger is where unowned gaps would become
-  visible.
-- **Phase 5.** Any temporary in-memory or single-replica fake of `HasMinIO` /
-  `HasPulsar` / `HasHarbor` / `HasKubectl` introduced before the real chart is up
-  enqueues here under Sprint `5.4`.
-- **Phase 7.** Any per-substrate codegen path that bypasses the
-  `Subprocess`/`Plan`/`apply` discipline (for example, an in-process Metal compile
-  that skips the typed boundary) enqueues here under the Phase `7` sprint that
-  owns that substrate. Any future checked-in static JIT source/build input also
-  enqueues here; Sprint `7.7` now rejects those files through `jitml lint files`.
-- **Phase 10.** If the checkpoint store's `If-Match`-CAS retry harness adopts any
-  extra-doctrine retry shape beyond the typed `RetryPolicy` from Sprint `5.4`, the
-  deviation enqueues here.
-- **Phase 11.** Any hand-edited HTTPRoute, Grafana dashboard, or PureScript
-  contract file that bypasses the generated-section / `trackingGeneratedPaths`
-  registry enqueues here under the originating sprint until the renderer covers it.
-- **Phase 12.** If the Pulumi-orchestrated `jitml-e2e` stanza leaks state
-  outside the ephemeral Kind stack (orphaned PVs, dangling Harbor projects,
-  residual Docker volumes), the leak enqueues here under Sprint `12.8` until the
-  teardown reconciler is deterministic.
+This ledger never holds primary unmet Exit-Definition obligations. Live
+Kind/Helm rollout, real Pulsar/MinIO/Harbor clients, real per-substrate
+kernel execution, real Playwright runs, and similar primary obligations live
+in the owning sprint's `### Remaining Work` block per standards rule C —
+not here. Rows here are exclusively for: an implemented behaviour that does
+not yet honour an in-scope doctrine section (enqueued by the owning sprint
+per standards rule L), or a temporary scaffold (placeholder kernel, smoke
+subprocess, in-memory client stub) introduced to keep CI green while the
+real implementation lands (with the retiring sprint named on the row).
 
 ## Completed
 

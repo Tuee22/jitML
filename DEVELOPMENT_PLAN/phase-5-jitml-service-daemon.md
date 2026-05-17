@@ -22,24 +22,39 @@
 
 ## Phase Status
 
-✅ **Done** for the local daemon configuration, lifecycle, endpoint, retry,
-logging, at-least-once deduplication, hot-reload decision, capability-class, and
-Deployment-rendering surfaces. The target daemon subscribes to Pulsar, persists
-to MinIO, pulls images from Harbor, and reports metrics via the Prometheus stack
-in live validation.
+🔄 **Active**. The phase owns
+[Exit Definition](README.md#exit-definition) item 2 (`jitml service` is
+the canonical long-running daemon, parameterised by Dhall `BootConfig` /
+`LiveConfig`, hot-reloadable via SIGHUP, exposing `/healthz` / `/readyz` /
+`/metrics`, emitting structured JSON logs on stderr, processing Pulsar
+events at-least-once with the typed retry policy). **Met today**:
+Sprints `5.1`, `5.2`, `5.3` close the daemon entry point, the BootConfig
+/ LiveConfig ADTs and Dhall renderers, the in-binary HTTP listener
+serving the three endpoints, the structured JSON logger wired through the
+listener, the POSIX `SIGHUP` → reload-generation and `SIGINT` /
+`SIGTERM` → graceful-drain-and-readiness-drop wiring, and the
+`ServiceError` → `AppError` retry-classification mapping. **Unmet today**:
+Sprint `5.4` owes live HasMinIO / HasPulsar / HasHarbor / HasKubectl
+implementations against the running cluster; Sprint `5.5` owes a live
+Pulsar consumer subscription with real ack handling; Sprint `5.6` owes
+live Deployment readiness and validated pod anti-affinity across multiple
+replicas. Detailed remaining work lives in those sprints'
+`### Remaining Work` blocks below.
 
 ### Current Implementation Scope
 
-The current worktree implements `BootConfig` / `LiveConfig` ADTs and Dhall
-renderers, lifecycle phase data, hot-reload decision data, pure endpoint-response
-rendering, pure JSON log rendering, service error/retry helpers, payload-hash
-deduplication, capability-class definitions, and chart ConfigMap/Deployment
-rendering, the POSIX signal/control surface in `src/JitML/Service/Signal.hs`,
-and the low-level in-binary HTTP runtime in
+The worktree implements `BootConfig` / `LiveConfig` ADTs and Dhall
+renderers, lifecycle phase data, hot-reload decision data, pure
+endpoint-response rendering, pure JSON log rendering, service
+error/retry helpers, payload-hash deduplication, capability-class
+definitions, and chart ConfigMap/Deployment rendering, the POSIX
+signal/control surface in `src/JitML/Service/Signal.hs`, and the
+low-level in-binary HTTP runtime in
 `src/JitML/Service/{Http,Runtime}.hs` serving `/healthz`, `/readyz`, and
-`/metrics`. `SIGHUP` increments the reload generation; `SIGINT` and `SIGTERM`
-begin graceful drain and drop readiness. It does not yet implement real
-MinIO/Pulsar/Harbor/kubectl clients or a live Pulsar consumer loop.
+`/metrics`. `SIGHUP` increments the reload generation; `SIGINT` and
+`SIGTERM` begin graceful drain and drop readiness. Live capability-class
+implementations against MinIO / Pulsar / Harbor / kubectl are owned by
+Sprints `5.4`–`5.6`.
 
 ## Phase Summary
 
@@ -183,9 +198,9 @@ local HTTP route server that the daemon serves in-process.
 3. `cabal test jitml-daemon-lifecycle` exercises the one-shot HTTP listener
    against `/healthz`.
 
-## Sprint 5.4: `RetryPolicy` and Service Error Surface ✅
+## Sprint 5.4: `RetryPolicy` and Service Error Surface 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `src/JitML/Service/Retry.hs`,
 `src/JitML/Service/Capabilities.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
@@ -213,12 +228,30 @@ class surface per doctrine `Capability Classes and Service Errors`.
    `SEConflict`-emitting capability and asserts the policy is honoured.
 2. `jitml-unit` verifies the capability-class surface names all four
    doctrine-required classes.
-3. Target integration coverage exercises `putBlobIfAbsent` against MinIO and
-   asserts `If-None-Match: *` `412` is treated as success.
+3. Live validation (target): integration coverage exercises
+   `putBlobIfAbsent` against real MinIO and asserts `If-None-Match: *`
+   `412` is treated as `SEConflict`; `HasPulsar` subscribes, produces,
+   acks, and seeks against real Pulsar; `HasHarbor` pushes/pulls an image
+   against real Harbor; `HasKubectl` invokes `kubectl get pods` against
+   the cluster's kubeconfig.
 
-## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication ✅
+### Remaining Work
 
-**Status**: Done
+- Implement live `HasMinIO` against the running MinIO StatefulSet (Sprint
+  `4.3`).
+- Implement live `HasPulsar` against the running Pulsar HA cluster (Sprint
+  `4.4`).
+- Implement live `HasHarbor` against the running Harbor portal+registry
+  (Sprint `4.1`).
+- Implement live `HasKubectl` through the typed `Subprocess` boundary
+  against `./.build/jitml.kubeconfig`.
+- Add integration coverage in `jitml-integration` (Sprint `12.2`) that
+  exercises each capability class against the live cluster behind
+  `JITML_LIVE_E2E=1`.
+
+## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication 🔄
+
+**Status**: Active
 **Implementation**: `src/JitML/Service/Consumer.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
@@ -248,14 +281,34 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 
 ### Validation
 
-1. `cabal test jitml-daemon-lifecycle` verifies identical payloads produce the
-   same event id.
+1. `cabal test jitml-daemon-lifecycle` verifies identical payloads produce
+   the same event id.
 2. `processAtLeastOnce` collapses repeated event ids in deterministic order.
-3. Live Pulsar redelivery and MinIO side-effect validation remain target work.
+3. Live validation (target): the daemon's `Consumer` subscribes to the
+   substrate-scoped command topics on a real Pulsar broker, dispatches
+   each event by kind to the per-domain handler, populates the per-handler
+   LRU dedup cache, acks each event explicitly, and treats Pulsar
+   redeliveries of the same `EventID` as no-ops.
 
-## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall ✅
+### Remaining Work
 
-**Status**: Done
+- Implement the live `Consumer` that subscribes to substrate-scoped command
+  topics (`training.command.<mode>`, `tune.command.<mode>`,
+  `rl.command.<mode>`, `inference.request.<mode>`, and
+  `inference.command.apple-silicon` on the host daemon).
+- Implement the dispatcher that routes by event kind to the per-domain
+  handler (training, tune, RL, inference).
+- Implement the per-handler `dedupCache :: TVar (LRUSet EventID)` with
+  cache size and TTL driven by `LiveConfig` knobs.
+- Make ack failure beyond the `RetryPolicy` budget surface
+  `AppError PulsarFailed`.
+- Add integration coverage in `jitml-daemon-lifecycle` (Sprint `12.7`)
+  exercising real redelivery + dedup against live Pulsar behind
+  `JITML_LIVE_E2E=1`.
+
+## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall 🔄
+
+**Status**: Active
 **Implementation**: `chart/templates/deployment-jitml-service.yaml`,
 `src/JitML/Service/ConfigMap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
@@ -294,10 +347,24 @@ kubernetes.io/hostname`, plus bootstrap-rendered per-substrate Dhall configs.
 
 1. `chart/templates/deployment-jitml-service.yaml` renders the stateless
    Deployment surface.
-2. `jitml bootstrap --<substrate>` materializes the local service ConfigMap and
+2. `jitml bootstrap --<substrate>` materializes the service ConfigMap and
    Dhall files.
-3. Live `kubectl get deployment`, scale, and Apple host-daemon subscription
-   validation remain target work.
+3. Live validation (target): `kubectl get deployment jitml-service` returns
+   Ready, scaling to multiple replicas honours pod anti-affinity by placing
+   each replica on a distinct hostname, and the Apple host daemon
+   subscribes to `inference.command.apple-silicon` after the edge port is
+   leased.
+
+### Remaining Work
+
+- Apply `chart/templates/deployment-jitml-service.yaml` against a live
+  cluster and confirm it reaches Ready.
+- Validate the `topologyKey: kubernetes.io/hostname` anti-affinity by
+  scaling to two replicas on a two-worker Kind cluster.
+- Patch the Apple host Dhall after the edge port is leased so the host
+  daemon connects to Pulsar and MinIO; validate the live subscription.
+- Confirm `runtimeClassName: nvidia` is set only for `linux-cuda` and that
+  the resulting pod actually sees the GPU on a GPU-labelled worker.
 
 ## Doctrine Sections Cited
 
