@@ -25,6 +25,8 @@ apiEndpoints =
   , ApiEndpoint "UploadImage" "POST" "/api/images"
   , ApiEndpoint "Connect4Move" "POST" "/api/connect4/move"
   , ApiEndpoint "MetricsStream" "GET" "/api/ws"
+  , ApiEndpoint "TrainingStream" "GET" "/api/ws/training"
+  , ApiEndpoint "TuneStream" "GET" "/api/ws/tune"
   ]
 
 contractGeneratorName :: Text

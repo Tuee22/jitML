@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package jitml.rl;
+
+// Envelope sent on `rl.command.<mode>` to drive an RL run via the daemon's
+// RlHandler.
+message StartRLRun {
+  string experiment_hash = 1;
+  string algorithm       = 2;  // PPO, DQN, AlphaZero, ...
+  string environment     = 3;  // cartpole, mountain-car, ...
+  string substrate       = 4;
+  uint64 seed            = 5;
+  uint32 max_steps       = 6;
+  uint32 eval_episodes   = 7;
+}
+
+message StopRLRun {
+  string experiment_hash = 1;
+  bool   drain = 2;
+}
+
+message EpisodeDone {
+  string experiment_hash = 1;
+  uint32 episode = 2;
+  double reward = 3;
+  uint32 steps = 4;
+  uint64 timestamp_ns = 5;
+}
+
+message EvalDone {
+  string experiment_hash = 1;
+  uint32 epoch = 2;
+  double avg_reward = 3;
+  double std_reward = 4;
+  uint64 timestamp_ns = 5;
+}
+
+message CheckpointDoneRL {
+  string experiment_hash = 1;
+  string manifest_sha = 2;
+  uint64 step = 3;
+  string pointer_key = 4;
+}
+
+message MetricUpdate {
+  string experiment_hash = 1;
+  string name = 2;
+  double value = 3;
+  uint64 timestamp_ns = 4;
+}
+
+message RlCommand {
+  oneof body {
+    StartRLRun start = 1;
+    StopRLRun  stop  = 2;
+  }
+}
+
+message RlEvent {
+  oneof body {
+    EpisodeDone      episode    = 1;
+    EvalDone         eval       = 2;
+    CheckpointDoneRL checkpoint = 3;
+    MetricUpdate     metric     = 4;
+  }
+}

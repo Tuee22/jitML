@@ -33,15 +33,22 @@ stack via the `infra/pulumi/` TypeScript program) and item 18 (empty
 legacy ledger after items 1–9 close). **Met today**: Sprint `12.1`
 (`jitml-unit` body) and Sprint `12.7` (`jitml-daemon-lifecycle` body)
 close their owned obligations because their entire body is pure-logic /
-parser / property / golden / lifecycle / signal coverage. **Unmet
-today**: Sprint `12.2` owes real-binary subprocess integration; Sprints
-`12.3`–`12.6` owe live SL convergence, live RL trajectory, live
-hyperparameter reproducibility, and live cross-substrate parity against
-committed fixtures; Sprint `12.8` owes the live `JITML_LIVE_E2E=1`
-Pulumi + Helm + Playwright path against an ephemeral Kind stack; Sprint
-`12.9` owes the report card consuming live results from Sprint `12.8`.
-Detailed remaining work lives in each sprint's `### Remaining Work`
-block below.
+parser / property / golden / lifecycle / signal coverage.
+`infra/pulumi/index.ts` now contains the typed ephemeral-Kind
+orchestrator that runs `kind create cluster` → `helm dependency
+build` → `jitml bootstrap --<substrate>` → publication-check, with
+the symmetric `kind delete cluster` rollback on destroy.
+`JitML.Test.LivePlan.livePhasedClusterPlan` enumerates the typed
+phased Helm rollout per substrate so the e2e body can verify the
+ordering before invoking the live path. **Unmet today**: Sprint
+`12.2` owes real-binary subprocess integration; Sprints `12.3`–`12.6`
+owe live SL convergence, live RL trajectory, live hyperparameter
+reproducibility, and live cross-substrate parity against committed
+fixtures; Sprint `12.8` owes the live `JITML_LIVE_E2E=1` Pulumi + Helm
++ Playwright path actually executed against a real Kind cluster;
+Sprint `12.9` owes the report card consuming live results from Sprint
+`12.8`. Detailed remaining work lives in each sprint's
+`### Remaining Work` block below.
 
 ### Current Implementation Scope
 
@@ -86,7 +93,7 @@ to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 
 ### Objective
 
-Keep `jitml-unit` as the current local unit workload covering parser, generated
+Keep `jitml-unit` as the unit workload covering parser, generated
 docs, prerequisite, environment, AppError, Plan/Subprocess, bootstrap-script,
 runtime-source, and cache surfaces. Broader per-domain golden suites remain
 target work.
@@ -110,7 +117,7 @@ target work.
 
 ### Validation
 
-1. `cabal test jitml-unit` exits `0` for the current local body.
+1. `cabal test jitml-unit` exits `0` for the body.
 2. Existing golden fixtures are deterministic and contain no timestamps or
    random identifiers.
 
@@ -179,7 +186,7 @@ fixtures remain future runtime work.
 
 ### Deliverables
 
-- `test/sl-canonicals/Main.hs` verifies the eleven current local canonical
+- `test/sl-canonicals/Main.hs` verifies the eleven canonical
   cells from `src/JitML/SL/Canonicals.hs`.
 - It asserts convergence curves are deterministic and contain five points.
 - It asserts each final synthetic loss is lower than the initial loss.
@@ -212,7 +219,7 @@ fixtures remain future runtime work.
 
 ### Objective
 
-Use `jitml-rl-canonicals` for the current local RL algorithm catalog,
+Use `jitml-rl-canonicals` for the RL algorithm catalog,
 deterministic trajectory helper, and Connect 4 transcript checks.
 
 ### Deliverables
@@ -258,7 +265,7 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 
 ### Objective
 
-Use `jitml-hyperparameter` for the current local sampler, scheduler, pruner,
+Use `jitml-hyperparameter` for the sampler, scheduler, pruner,
 and deterministic trial-value checks.
 
 ### Deliverables
@@ -305,7 +312,7 @@ and deterministic trial-value checks.
 
 ### Objective
 
-Use `jitml-cross-backend` for the current local engine-flag, checkpoint
+Use `jitml-cross-backend` for the engine-flag, checkpoint
 inference summary, and Linux CPU generated-kernel execution checks. Live
 cross-substrate tolerance testing remains the overall handoff gate.
 
@@ -351,7 +358,7 @@ cross-substrate tolerance testing remains the overall handoff gate.
 ### Objective
 
 Use `jitml-daemon-lifecycle` for the doctrine's Daemon Lifecycle test category
-through the current local lifecycle, retry, endpoint, and signal-control
+through the lifecycle, retry, endpoint, and signal-control
 surfaces. The target live test adds real Pulsar consumer idempotency on top of
 the current boot → ready → serve → SIGHUP reload → drain → exit control model.
 
@@ -386,7 +393,7 @@ the current boot → ready → serve → SIGHUP reload → drain → exit contro
 
 ### Objective
 
-Use `jitml-e2e` for the current local e2e scaffold and target Pulumi/
+Use `jitml-e2e` for the e2e scaffold and target Pulumi/
 Playwright stack. The current body checks route, bucket, publication, contract,
 report-card, and typed live-plan surfaces; the future body brings up an
 ephemeral Kind stack, runs the demo cohorts against the real Envoy listener with
@@ -398,7 +405,12 @@ container/runtime state, and validates teardown.
 
 ### Deliverables
 
-- `infra/pulumi/index.ts` currently exports stack and cluster-name metadata.
+- `infra/pulumi/index.ts` now declares the typed `kindCluster`,
+  `helmDeps`, `jitmlBootstrap`, and `publicationCheck`
+  `@pulumi/command` `local.Command` resources, in dependency order;
+  destroy reverses the order via the typed `delete` commands. The
+  `playwrightCommand` output exposes the typed `npx playwright
+  test` invocation with the leased kubeconfig.
 - `test/e2e/Main.hs` currently validates the route registry, bucket registry,
   `chart/values.yaml` MinIO bucket coverage, publication defaults, browser
   contract endpoint count, demo deployment command, one-shot demo HTTP server,
@@ -431,13 +443,17 @@ container/runtime state, and validates teardown.
 
 ### Remaining Work
 
-- Grow `infra/pulumi/index.ts` from metadata-only into the full
-  ephemeral-Kind orchestrator that creates the cluster, runs the
-  bootstrap, deploys the demo, and tears down.
-- Wire `JitML.Test.LivePlan` into a live test path that runs only when
-  `JITML_LIVE_E2E=1` is set.
+- The ephemeral-Kind orchestrator (`infra/pulumi/index.ts`) and the
+  typed phased rollout (`JitML.Test.LivePlan.livePhasedClusterPlan`)
+  are in place. **Open**: actually executing the typed live plan
+  under `JITML_LIVE_E2E=1` from the test body, which requires real
+  Docker + Kind on the test host plus enough memory for the heavy
+  subcharts (Harbor, Pulsar HA, Postgres, MinIO, Prometheus).
 - Add the post-teardown assertion that no `jitml-e2e` Kind cluster,
-  Harbor project, MinIO bucket, or Docker volume survives.
+  Harbor project, MinIO bucket, or Docker volume survives. The
+  Pulumi `delete` commands clean up the Kind cluster; the
+  post-teardown grep against `docker volume ls`, `kind get clusters`,
+  and `mc ls jitml-e2e/` remains to be wired.
 
 ## Sprint 12.9: `jitml test all` Orchestrator and Report Card 🔄
 

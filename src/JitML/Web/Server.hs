@@ -83,7 +83,7 @@ renderApiIndex =
 renderInferenceResponse :: Text
 renderInferenceResponse =
   let manifest =
-        Checkpoint.CheckpointManifest
+        Checkpoint.emptyManifest
           "demo"
           "experiments/mnist.dhall"
           [Checkpoint.TensorBlob "dense.weight" [2, 2] "blob-demo"]

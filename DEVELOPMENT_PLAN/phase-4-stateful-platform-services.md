@@ -28,10 +28,15 @@ deployment templates, the MinIO bucket registry, the Pulsar topic
 registry/command renderer, the Grafana dashboard renderer, the TensorBoard
 deployment/event-key renderer, and the NVIDIA RuntimeClass manifest are in
 place; MinIO subchart values live under `minio:` in `chart/values.yaml`;
-`jitml lint chart` rejects values files under `chart/templates/`. **Unmet
-today**: every Sprint `4.x` owes live readiness against a real Kind +
-Helm rollout. Detailed remaining work lives in each sprint's
-`### Remaining Work` block below.
+`jitml lint chart` rejects values files under `chart/templates/`. The
+typed service-Postgres registry (`JitML.Cluster.PostgresRegistry`) and
+its `validateRegisteredPostgres` lint helper are checked in;
+`JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocess` is the
+typed `pulsar-admin topics create` subprocess. The capability classes
+(`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) now expose the
+full doctrine-required method set. **Unmet today**: every Sprint `4.x`
+owes live readiness against a real Kind + Helm rollout. Detailed
+remaining work lives in each sprint's `### Remaining Work` block below.
 
 ## Phase Summary
 
@@ -84,11 +89,15 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 
 ### Remaining Work
 
-- Wire `helm install` for Harbor through the typed `Subprocess` boundary in
-  Sprint `3.5`'s bootstrap phase order.
+- The typed `helm install` subprocess for Harbor lives in
+  `JitML.Cluster.Helm.helmInstallSubprocess` and is sequenced first
+  in `JitML.Cluster.Helm.phasedReleases` (HarborPhase). The
+  pending work is invoking it from `JitML.Bootstrap` against a live
+  cluster.
 - Implement the readiness check that waits for Harbor portal / core /
   registry / notary to all report Ready.
-- Implement the live image-build → tag → push flow against local Harbor.
+- Implement the live image-build → tag → push flow against local Harbor
+  via `HasHarbor.{harborPushImage,harborPullImage,harborListImages}`.
 - Integration coverage exercising a real push and subsequent pull from
   Harbor through the `HasHarbor` capability class.
 
@@ -129,13 +138,19 @@ lives in MinIO and Pulsar exclusively.
 
 ### Remaining Work
 
-- Render `PerconaPGCluster` resources from a typed service-Postgres
-  registry (first entry `harbor-pg` in `platform`).
-- Wire `helm install` of the Percona operator and the `PerconaPGCluster`
-  apply through the typed `Subprocess` boundary.
+- `JitML.Cluster.PostgresRegistry.postgresRegistry` is the typed
+  service-Postgres registry with `harbor-pg` in namespace `platform` as
+  the first entry. `renderPerconaPGCluster` emits the `PerconaPGCluster`
+  YAML; `validateRegisteredPostgres` is the lint helper that rejects
+  unknown cluster names.
+- The `helm install` of the Percona operator is sequenced in
+  `JitML.Cluster.Helm.phasedReleases` (HarborPhase, `harbor-pg` row).
+  The pending work is the `kubectl apply` of the rendered
+  `PerconaPGCluster` CR through `HasKubectl.kubectlApply`.
 - Implement the readiness check that waits for the Patroni-managed Postgres
   cluster to reach Ready and exposes its DSN to Harbor.
-- Add the lint rule that rejects any `PerconaPGCluster` not declared in the
+- Wire `validateRegisteredPostgres` into `JitML.Lint.Chart` so
+  `jitml lint chart` rejects any `PerconaPGCluster` not declared in the
   registry.
 
 ## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server 🔄
@@ -187,9 +202,11 @@ buckets, and pin the server to a release with S3 conditional-write support
 
 ### Remaining Work
 
-- Implement the live `HasMinIO` capability class against a running MinIO
-  instance (issued via `helm install` on the conditional-write-supporting
-  pin).
+- The typed `HasMinIO` capability class exposes the full conditional-write
+  surface (`putBlobIfAbsent`, `casPointer`, `listObjects`,
+  `deleteObject`) with `ETag` newtype. The pending work is the live
+  instance against a running MinIO StatefulSet issued via the typed
+  `helm install` from `JitML.Cluster.Helm.helmInstallSubprocess`.
 - Implement the `mc`-based or in-process readiness check that confirms the
   seven buckets exist.
 - Integration coverage exercising conditional-write semantics (412 →
@@ -232,10 +249,17 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 
 ### Remaining Work
 
-- Execute the rendered `pulsar-admin topics create ...` commands during the
-  bootstrap final-phase through the typed `Subprocess` boundary.
-- Implement the live `HasPulsar` capability class that subscribes, produces,
-  acks, and seeks against the running cluster.
+- `JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocess` returns a
+  typed subprocess that invokes `kubectl exec pulsar-broker-0 --
+  pulsar-admin topics create <topic>`;
+  `pulsarTopicCreateSubprocesses` is the list of one subprocess per
+  registered topic. The pending work is invoking them at bootstrap
+  final-phase time from `JitML.Bootstrap`.
+- The typed `HasPulsar` capability class now exposes
+  `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek`,
+  `pulsarPublish`, `pulsarAcknowledge` with the `SubscriptionId`
+  newtype naming the broker cursor. The pending work is the live
+  instance against the running broker.
 - Integration coverage exercising at-least-once redelivery + payload-hash
   dedup against a live broker.
 

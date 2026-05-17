@@ -3,6 +3,7 @@
 module JitML.Test.LivePlan
   ( LivePlanStep (..)
   , liveE2EPlan
+  , livePhasedClusterPlan
   , renderLivePlan
   )
 where
@@ -10,9 +11,16 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 
-import JitML.Cluster.Helm (helmDependencyBuildSubprocess)
+import JitML.Cluster.Helm
+  ( helmDependencyBuildSubprocess
+  , helmInstallSubprocess
+  , kindCreateSubprocess
+  , phasedReleases
+  , releaseName
+  )
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
+import JitML.Substrate (Substrate (..))
 
 data LivePlanStep = LivePlanStep
   { livePlanStepName :: Text
@@ -20,6 +28,9 @@ data LivePlanStep = LivePlanStep
   }
   deriving stock (Eq, Show)
 
+-- | The single-command e2e plan. Triggered only when `JITML_LIVE_E2E=1` is
+-- set; sequences `helm dependency build chart` → `pulumi up` (ephemeral
+-- Kind) → `npx playwright test` → `pulumi destroy` → `pulumi stack rm`.
 liveE2EPlan :: [LivePlanStep]
 liveE2EPlan =
   [ LivePlanStep "helm-dependency-build" (helmDependencyBuildSubprocess "chart")
@@ -30,6 +41,24 @@ liveE2EPlan =
       "pulumi-stack-rm"
       (subprocess "pulumi" ["stack", "rm", "--yes", "--cwd", "infra/pulumi"])
   ]
+
+-- | The phased cluster plan emitted by `JitML.Cluster.Helm.phasedReleases`.
+-- The Pulumi orchestrator runs this end-to-end during the `jitml bootstrap`
+-- step of `pulumi up`.
+livePhasedClusterPlan :: Substrate -> FilePath -> [LivePlanStep]
+livePhasedClusterPlan substrate chartPath =
+  LivePlanStep "kind-create-cluster" (kindCreateSubprocess substrate kindConfigPath)
+    : LivePlanStep "helm-dependency-build" (helmDependencyBuildSubprocess chartPath)
+    : [ LivePlanStep
+          ("helm-install-" <> releaseName release)
+          (helmInstallSubprocess release chartPath)
+      | release <- phasedReleases
+      ]
+ where
+  kindConfigPath = "kind/cluster-" <> substratePath substrate <> ".yaml"
+  substratePath AppleSilicon = "apple-silicon"
+  substratePath LinuxCPU = "linux-cpu"
+  substratePath LinuxCUDA = "linux-cuda"
 
 renderLivePlan :: [LivePlanStep] -> Text
 renderLivePlan =

@@ -11,14 +11,13 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the current local numerical catalog surface — layer
-> names, real/complex activation names, spectral / frequency-domain
-> operation names, optimizers, schedulers, loss functions, and
-> deterministic catalog rendering — plus Dhall mirror lists and the
-> Haskell cross-type audit that keeps those lists aligned with the
-> catalog. Rich parameterized constructors are owned by future
-> numerical-core work logged through standards rule G's Doc Requirements
-> blocks.
+> **Purpose**: Own the numerical-core catalog — layer names,
+> real/complex activation names, spectral / frequency-domain operation
+> names, optimizers, schedulers, loss functions, and deterministic
+> catalog rendering — plus Dhall mirror lists and the Haskell cross-type
+> audit that keeps those lists aligned with the catalog. Rich
+> parameterized constructors are owned by future numerical-core work
+> logged through standards rule G's Doc Requirements blocks.
 
 ## Phase Status
 
@@ -45,10 +44,11 @@ Phase `7` consumes is present in the checked-in catalog.
 
 ## Phase Summary
 
-This phase delivers the local Haskell numerical catalog for layers,
-activations, spectral ops, optimizers, schedulers, and losses; the Dhall mirror
-lists; the Haskell decoder/validator; the lint audit; and the generated catalog
-tables. No SL/RL training logic lives here — that is Phase `8`.
+This phase delivers the Haskell numerical catalog for layers,
+activations, spectral ops, optimizers, schedulers, and losses; the Dhall
+mirror lists; the Haskell decoder/validator; the lint audit; and the
+generated catalog tables. No SL/RL training logic lives here — that is
+Phase `8`.
 
 ## Sprint 6.1: Layer Catalog ✅
 
@@ -58,17 +58,17 @@ tables. No SL/RL training logic lives here — that is Phase `8`.
 
 ### Objective
 
-Stand up the current local layer catalog as a closed Haskell sum type including
+Stand up the layer catalog as a closed Haskell sum type including
 embedding, attention, rotary-position, and complex layer constructors.
 
 ### Deliverables
 
-- `Layer` enumerates the checked-in local catalog: `Dense`, `Embedding`,
+- `Layer` enumerates the catalog: `Dense`, `Embedding`,
   `Conv1D`, `Conv2D`, `Conv3D`, `ConvTranspose`, `ComplexDense`,
   `ComplexConv2D`, `BatchNorm`, `LayerNorm`, `GroupNorm`, `Dropout`,
   `ResidualBlock`, `ScaledDotProductAttention`, `MultiHeadAttention`, and
   `RotaryPositionalEmbedding`.
-- `layerCatalog` is the implementation source for the local layer list.
+- `layerCatalog` is the implementation source for the layer list.
 - `renderNumericalCatalog` includes the layer list in the deterministic text
   summary consumed by command and documentation surfaces.
 - `dhall/numerics/Layer.dhall` mirrors the current constructor names.
@@ -89,15 +89,15 @@ embedding, attention, rotary-position, and complex layer constructors.
 
 ### Objective
 
-Enumerate the supported local activation catalog, including the current
-complex-valued activation names.
+Enumerate the activation catalog, including the complex-valued
+activation names.
 
 ### Deliverables
 
-- `Activation` enumerates `Relu`, `LeakyRelu`, `Elu`, `Silu`, `Gelu`, `Tanh`,
-  `Sigmoid`, `Softmax`, `ComplexModRelu`, `ComplexCardioid`, and
+- `Activation` enumerates `Relu`, `LeakyRelu`, `Elu`, `Silu`, `Gelu`,
+  `Tanh`, `Sigmoid`, `Softmax`, `ComplexModRelu`, `ComplexCardioid`, and
   `ComplexZRelu`.
-- `activationCatalog` is the implementation source for the local activation
+- `activationCatalog` is the implementation source for the activation
   list.
 - `renderNumericalCatalog` includes the activation list in the deterministic
   text summary.
@@ -116,13 +116,13 @@ complex-valued activation names.
 
 ### Objective
 
-Land the current local spectral-operation catalog.
+Land the spectral-operation catalog.
 
 ### Deliverables
 
 - `SpectralOp` enumerates `FFT`, `FFTAlongAxis`, `IFFT`, `IFFTAlongAxis`,
   `RFFT`, `IRFFT`, `STFT`, `DCT`, `ComplexConjugate`, and `ComplexMatMul`.
-- `spectralCatalog` is the implementation source for the local spectral list.
+- `spectralCatalog` is the implementation source for the spectral list.
 - `renderNumericalCatalog` includes the spectral-operation list.
 - `dhall/numerics/SpectralOp.dhall` mirrors the current constructor names.
 
@@ -139,7 +139,7 @@ Land the current local spectral-operation catalog.
 
 ### Objective
 
-Enumerate the current local optimizer and scheduler catalogs.
+Enumerate the optimizer and scheduler catalogs.
 
 ### Deliverables
 
@@ -149,8 +149,8 @@ Enumerate the current local optimizer and scheduler catalogs.
 - `Scheduler` enumerates `Constant`, `Linear`, `Cosine`,
   `CosineWithWarmup`, `Exponential`, `Polynomial`, `OneCycle`, and
   `Piecewise`, plus `ReduceOnPlateau` as the callback-driven scheduler entry.
-- `optimizerCatalog` and `schedulerCatalog` are the implementation sources for
-  the local lists.
+- `optimizerCatalog` and `schedulerCatalog` are the implementation
+  sources for the lists.
 - Parameterized optimizer/scheduler records and richer optimizer state records
   remain model-schema work.
 - `dhall/numerics/Optimizer.dhall` and `dhall/numerics/Scheduler.dhall` mirror
@@ -170,14 +170,14 @@ Enumerate the current local optimizer and scheduler catalogs.
 
 ### Objective
 
-Enumerate the current local loss-function catalog.
+Enumerate the loss-function catalog.
 
 ### Deliverables
 
 - `Loss` enumerates `CrossEntropy`, `BinaryCrossEntropy`,
   `SparseCrossEntropy`, `Focal`, `MSE`, `Huber`, `IoU`, `Dice`, `KLDiv`, and
   `Contrastive`.
-- `lossCatalog` is the implementation source for the local loss list.
+- `lossCatalog` is the implementation source for the loss list.
 - `renderNumericalCatalog` includes the loss list in the deterministic text
   summary.
 - `dhall/numerics/Loss.dhall` mirrors the current constructor names.
@@ -214,7 +214,7 @@ the current catalog surface.
 ### Validation
 
 1. The three current `experiments/*.dhall` fixtures exist in the worktree.
-2. The local catalog is renderable through `renderNumericalCatalog`.
+2. The catalog is renderable through `renderNumericalCatalog`.
 3. `cabal test jitml-unit` validates the Dhall schema mirror.
 4. `jitml lint haskell` includes the Dhall numerical drift audit.
 
@@ -228,7 +228,7 @@ the current catalog surface.
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/numerical_core.md` — current local layer /
+- `documents/engineering/numerical_core.md` — layer /
   activation / spectral / optimizer / scheduler / loss catalog summary, active
   generated tables, Dhall mirrors, and cross-type audit narrative.
 
@@ -242,7 +242,7 @@ the current catalog surface.
   the aggregate catalog in `src/JitML/Numerics/Catalog.hs`.
 - `experiments/mnist.dhall`, `experiments/mnist-tune.dhall`, and
   `experiments/cartpole.dhall` land under `experiments/` as the
-  configuration-as-code fixtures for the local catalog surface.
+  configuration-as-code fixtures for the catalog.
 
 ## Related Documents
 

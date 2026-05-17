@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package jitml.training;
+
+// Envelope sent on the substrate-scoped command topic
+// `training.command.<mode>` to drive an SL training run via the daemon's
+// TrainingHandler.
+message StartTraining {
+  string experiment_hash = 1;   // sha256(resolved-dhall || substrate-fingerprint)
+  string dhall_object_key = 2;  // MinIO key for the resolved Dhall blob
+  string substrate = 3;         // "apple-silicon" | "linux-cpu" | "linux-cuda"
+  uint64 seed = 4;
+  uint32 epochs = 5;
+  uint32 batch_size = 6;
+}
+
+message StopTraining {
+  string experiment_hash = 1;
+  bool   drain = 2;
+}
+
+// Envelopes published on `training.event.<mode>`.
+message EpochCompleted {
+  string experiment_hash = 1;
+  uint32 epoch = 2;
+  double loss = 3;
+  double validation_loss = 4;
+  uint64 timestamp_ns = 5;
+}
+
+message CheckpointDone {
+  string experiment_hash = 1;
+  string manifest_sha = 2;
+  uint64 step = 3;
+  string pointer_key = 4;
+}
+
+message TrainingFailed {
+  string experiment_hash = 1;
+  string error_code = 2;
+  string error_text = 3;
+  uint64 timestamp_ns = 4;
+}
+
+// Discriminated union for the command topic.
+message TrainingCommand {
+  oneof body {
+    StartTraining start = 1;
+    StopTraining  stop  = 2;
+  }
+}
+
+// Discriminated union for the event topic.
+message TrainingEvent {
+  oneof body {
+    EpochCompleted epoch       = 1;
+    CheckpointDone checkpoint  = 2;
+    TrainingFailed failure     = 3;
+  }
+}

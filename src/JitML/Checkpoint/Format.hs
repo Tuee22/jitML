@@ -2,14 +2,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Checkpoint.Format
-  ( CheckpointManifest (..)
+  ( AdvancePredicate (..)
+  , CheckpointManifest (..)
+  , CheckpointPartKind (..)
+  , MetricDirection (..)
+  , OptimizerBlob (..)
   , PointerWrite (..)
   , PointerWriteResult (..)
+  , RngBlob (..)
   , TensorBlob (..)
+  , advanceBestMaximised
+  , advanceBestMinimised
+  , advanceLatest
+  , applyAdvancePredicate
   , applyPointerWrite
   , bestPointerKey
   , blobKey
   , decodeManifestCbor
+  , deriveExperimentHash
+  , emptyManifest
   , encodeJmw1
   , encodeManifestCbor
   , inferFromManifest
@@ -18,6 +29,7 @@ module JitML.Checkpoint.Format
   , manifestKey
   , manifestPointer
   , trialPointerKey
+  , weightOnlyTensors
   )
 where
 
@@ -26,6 +38,7 @@ import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Bits (Bits, shiftR, (.&.))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
+import Data.Char (intToDigit)
 import Data.List (sortOn)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -34,18 +47,46 @@ import Data.Word (Word32, Word64, Word8)
 import GHC.Float (castDoubleToWord64)
 import GHC.Generics (Generic)
 
+data CheckpointPartKind
+  = WeightPart
+  | OptimizerPart
+  | RngPart
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
 data TensorBlob = TensorBlob
   { tensorName :: Text
   , tensorShape :: [Int]
   , tensorBlobKey :: Text
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data OptimizerBlob = OptimizerBlob
+  { optimizerKind :: Text
+  , optimizerBlobKey :: Text
+  , optimizerStateSize :: Int
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data RngBlob = RngBlob
+  { rngStreamId :: Text
+  , rngBlobKey :: Text
+  , rngWordCount :: Int
+  }
+  deriving stock (Eq, Generic, Show, Ord)
   deriving anyclass (Serialise)
 
 data CheckpointManifest = CheckpointManifest
   { manifestId :: Text
   , manifestExperiment :: Text
   , manifestTensors :: [TensorBlob]
+  , manifestOptimizer :: [OptimizerBlob]
+  , manifestRng :: [RngBlob]
+  , manifestStep :: Word64
+  , manifestMetrics :: [(Text, Double)]
+  , manifestParentManifestSha :: Maybe Text
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
@@ -68,6 +109,76 @@ data Jmw1Header = Jmw1Header
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
+
+data MetricDirection
+  = Maximise
+  | Minimise
+  deriving stock (Eq, Show)
+
+-- | Typed advance predicates for the pointer-CAS step. The trainer picks the
+-- predicate from the experiment Dhall's `metrics[i].direction` field per
+-- README → Concurrency model.
+data AdvancePredicate
+  = AdvanceLatest
+  | -- | metric name
+    AdvanceBestMaximised Text
+  | -- | metric name
+    AdvanceBestMinimised Text
+  deriving stock (Eq, Show)
+
+advanceLatest :: AdvancePredicate
+advanceLatest = AdvanceLatest
+
+advanceBestMaximised :: Text -> AdvancePredicate
+advanceBestMaximised = AdvanceBestMaximised
+
+advanceBestMinimised :: Text -> AdvancePredicate
+advanceBestMinimised = AdvanceBestMinimised
+
+-- | Evaluate the advance predicate against the current and proposed manifests.
+-- True means the pointer should advance to the proposed manifest.
+applyAdvancePredicate
+  :: AdvancePredicate
+  -> Maybe CheckpointManifest
+  -- ^ current pointer target
+  -> CheckpointManifest
+  -- ^ proposed
+  -> Bool
+applyAdvancePredicate _ Nothing _ = True
+applyAdvancePredicate predicate (Just current) proposed =
+  case predicate of
+    AdvanceLatest ->
+      manifestStep proposed > manifestStep current
+    AdvanceBestMaximised metric ->
+      lookupMetric metric proposed > lookupMetric metric current
+    AdvanceBestMinimised metric ->
+      lookupMetric metric proposed < lookupMetric metric current
+
+lookupMetric :: Text -> CheckpointManifest -> Maybe Double
+lookupMetric metric manifest =
+  lookup metric (manifestMetrics manifest)
+
+-- | Convenience builder. Use record syntax on the result to fill richer
+-- manifests with optimizer / RNG / metric details.
+emptyManifest :: Text -> Text -> [TensorBlob] -> CheckpointManifest
+emptyManifest mid experiment tensors =
+  CheckpointManifest
+    { manifestId = mid
+    , manifestExperiment = experiment
+    , manifestTensors = tensors
+    , manifestOptimizer = []
+    , manifestRng = []
+    , manifestStep = 0
+    , manifestMetrics = []
+    , manifestParentManifestSha = Nothing
+    }
+
+-- | The experiment hash: `sha256(resolved-dhall || substrate-fingerprint)`.
+deriveExperimentHash :: Text -> Text -> Text
+deriveExperimentHash resolvedDhall substrateFingerprint =
+  hexBytes $
+    SHA256.hash $
+      Text.Encoding.encodeUtf8 (resolvedDhall <> "||" <> substrateFingerprint)
 
 encodeJmw1 :: [Double] -> LazyByteString.ByteString
 encodeJmw1 values =
@@ -128,6 +239,11 @@ manifestPointer manifest =
     <> manifestId manifest
     <> ".manifest.cbor"
 
+-- | The inference path loads only weight-only blobs and skips optimizer/RNG
+-- parts.
+weightOnlyTensors :: CheckpointManifest -> [TensorBlob]
+weightOnlyTensors = manifestTensors
+
 inferFromManifest :: CheckpointManifest -> [Double] -> [Double]
 inferFromManifest manifest =
   fmap (+ bias)
@@ -143,7 +259,12 @@ applyPointerWrite currentETag write
 
 canonicalManifest :: CheckpointManifest -> CheckpointManifest
 canonicalManifest manifest =
-  manifest {manifestTensors = sortOn tensorName (manifestTensors manifest)}
+  manifest
+    { manifestTensors = sortOn tensorName (manifestTensors manifest)
+    , manifestOptimizer = sortOn optimizerKind (manifestOptimizer manifest)
+    , manifestRng = sortOn rngStreamId (manifestRng manifest)
+    , manifestMetrics = sortOn fst (manifestMetrics manifest)
+    }
 
 hexBytes :: StrictByteString.ByteString -> Text
 hexBytes =
@@ -181,9 +302,6 @@ byteAt offset word =
 
 hexWord8 :: Word8 -> String
 hexWord8 byte =
-  [hexDigit (byte `div` 16), hexDigit (byte `mod` 16)]
-
-hexDigit :: Word8 -> Char
-hexDigit nibble
-  | nibble < 10 = toEnum (fromEnum '0' + fromIntegral nibble)
-  | otherwise = toEnum (fromEnum 'a' + fromIntegral nibble - 10)
+  [ intToDigit (fromIntegral byte `div` 16)
+  , intToDigit (fromIntegral byte `mod` 16)
+  ]

@@ -12,7 +12,7 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the current local checkpoint and inference surface:
+> **Purpose**: Stand up the checkpoint and inference surface:
 > split-blob object-key renderers, a small typed manifest, pure pointer-CAS
 > decisions, a local deterministic CBOR manifest codec/content hash, a
 > binary `.jmw1` encoder, a filesystem-backed local checkpoint store,
@@ -26,17 +26,31 @@
 [Exit Definition](README.md#exit-definition) item 7 (split-blob `.jmw1`
 format with the typed manifest, inference-only read path, bit-determinism
 contract holding within the per-substrate ULP tolerance methodology).
-**Met today**: the typed `CheckpointManifest`, split-blob object-key
-renderers, deterministic manifest CBOR codec, `manifestContentSha`,
-`.jmw1` encoder, pointer-CAS decision surface, and the filesystem-backed
-local checkpoint store with `inferFromManifest` /
-`inferFromLatestCheckpoint`. **Unmet today**: Sprints `10.1`–`10.4` owe
-optimizer/RNG split-blob parts, experiment-hash derivation from the
-resolved Dhall, live MinIO `If-None-Match` / `If-Match` effects,
-retention reconciler graph traversal and blob reaping, real
-kernel-handle loading, and the per-substrate ULP tolerance measured from
-real cross-substrate runs. Detailed remaining work lives in each sprint's
-`### Remaining Work` block below.
+**Met today**: the typed `CheckpointManifest` now carries the full
+split-blob shape (weights, optimizer state, RNG streams, monotonic
+`manifestStep`, per-metric values, parent-manifest lineage SHA);
+`emptyManifest` is the convenience builder. The split-blob object-key
+renderers, deterministic manifest CBOR codec (with canonical
+ordering across tensors / optimizer parts / RNG parts / metrics),
+`manifestContentSha`, `.jmw1` encoder, pointer-CAS decision surface,
+and the filesystem-backed local checkpoint store with
+`inferFromManifest` / `inferFromLatestCheckpoint` /
+`inferWeightsOnlyFromLatestCheckpoint` are all in place. The typed
+`AdvancePredicate` ADT (`AdvanceLatest`, `AdvanceBestMaximised`,
+`AdvanceBestMinimised`) and `applyAdvancePredicate` evaluate the
+typed CAS predicates from README → Concurrency model.
+`deriveExperimentHash resolvedDhall substrateFingerprint` computes
+`sha256(resolved-dhall || substrate-fingerprint)`. The GC
+reconciler surface (`RetentionPolicy`, `walkLiveSet`,
+`applyRetentionPolicy`, `buildGcPlan`, `GcEvent`) implements
+`LastN k` retention with always-live best/trial pointer targets,
+`gc_reaped` event materialisation, and a second-invocation no-op
+detection. **Unmet today**: Sprints `10.2`–`10.4` still owe live
+MinIO `If-None-Match` / `If-Match` effects through `HasMinIO`, the
+live `gc_reaped` Pulsar publish, the live `loadInferenceCheckpoint`
+KernelHandle FFI load, and the per-substrate ULP tolerance measured
+from real cross-substrate runs. Detailed remaining work lives in
+each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
@@ -73,7 +87,7 @@ semantics.
 
 ### Objective
 
-Establish the current local manifest shape, bucket pointer string, and
+Establish the manifest shape, bucket pointer string, and
 split-blob object-key renderers used by the inference summary surface.
 
 ### Deliverables
@@ -88,8 +102,14 @@ split-blob object-key renderers used by the inference summary surface.
   `jitml-checkpoints/<experiment-hash>/`.
 - `src/JitML/Storage/Buckets.hs` enumerates the `jitml-checkpoints` bucket
   among the local MinIO bucket names.
-- Optimizer/RNG parts and experiment-hash derivation remain target runtime
-  validation.
+- `CheckpointManifest` carries `manifestOptimizer :: [OptimizerBlob]`,
+  `manifestRng :: [RngBlob]`, `manifestStep :: Word64`,
+  `manifestMetrics :: [(Text, Double)]`, and `manifestParentManifestSha`.
+- `deriveExperimentHash resolvedDhall substrateFingerprint` computes
+  the canonical `sha256(resolved-dhall || substrate-fingerprint)`
+  used as the bucket prefix and pointer-key key.
+- Live MinIO bucket-layout validation remains target work owned by
+  Sprint 4.3.
 
 ### Validation
 
@@ -105,13 +125,12 @@ split-blob object-key renderers used by the inference summary surface.
 
 ### Remaining Work
 
-- Grow `CheckpointManifest` to carry optimizer state and RNG split-blob
-  parts beyond the weight tensors.
-- Implement experiment-hash derivation
-  `sha256(resolved-dhall || substrate-fingerprint)` and thread it through
-  the manifest, blob, and pointer renderers.
 - Validate the bucket layout against a live MinIO instance once Sprint
-  `4.3` brings up the conditional-write server.
+  `4.3` brings up the conditional-write server. The typed split-blob
+  layout (`OptimizerBlob`, `RngBlob`, `manifestStep`,
+  `manifestMetrics`, `manifestParentManifestSha`) and the experiment
+  hash derivation are in place; the gap is the live `HasMinIO`
+  client.
 
 ## Sprint 10.2: `.jmw1` Wire Format and Manifest CBOR 🔄
 
@@ -134,15 +153,18 @@ remain target runtime validation.
   `Double` payload bytes.
 - `encodeManifestCbor` canonicalizes tensor order by name and serializes the
   current `CheckpointManifest`.
-- `decodeManifestCbor` round-trips the current local manifest representation.
+- `decodeManifestCbor` round-trips the manifest representation.
 - `manifestContentSha` hashes the deterministic manifest CBOR bytes.
 - `PointerWrite`, `PointerWriteResult`, and `applyPointerWrite` model the local
   CAS decision used by the eventual MinIO pointer writer.
 - `JitML.Checkpoint.Store` writes blob and manifest objects if absent, advances
   the latest pointer through `applyPointerWrite`, and reads manifests by content
   SHA from a local filesystem root.
-- Live MinIO conditional-write effects and richer typed advance predicates
-  remain target runtime validation.
+- The typed `AdvancePredicate` ADT (`AdvanceLatest`,
+  `AdvanceBestMaximised "<metric>"`, `AdvanceBestMinimised
+  "<metric>"`) plus `applyAdvancePredicate` evaluate the typed CAS
+  predicates from README → Concurrency model. Live MinIO
+  conditional-write effects remain target runtime validation.
 
 ### Validation
 
@@ -162,12 +184,10 @@ remain target runtime validation.
 ### Remaining Work
 
 - Implement the live MinIO put-blob-if-absent and pointer-CAS effects
-  through the `HasMinIO` capability class from Sprint `5.4`.
+  through the `HasMinIO` capability class from Sprint `5.4` (gated by
+  Sprint 4.3 live MinIO bring-up).
 - Add integration coverage in `jitml-integration` (Sprint `12.2`) that
   exercises the CAS retry against a live MinIO instance.
-- Grow the typed advance predicates beyond simple
-  `pointerWriteExpectedETag` matching (e.g. monotonic step number, best
-  metric).
 
 ## Sprint 10.3: Bit-Determinism Contract and Retention Reconciler 🔄
 
@@ -190,8 +210,15 @@ per `### Remaining Work` below.
   Plan/Apply retention plan.
 - Normal `jitml internal gc <experiment-hash>` currently prints
   `gc: checkpoint retention policy reconciled`.
-- Pointer live-set traversal, `LastN` policy application, blob reaping,
-  `gc_reaped` events, and no-op exit `3` are not implemented yet.
+- `JitML.Checkpoint.Store.{walkLiveSet,applyRetentionPolicy,buildGcPlan}`
+  implement the pointer live-set traversal across the `latest` chain
+  and `best/<m>` / `trial/<...>` always-live pointer targets,
+  `LastN k` retention application, blob-reap event materialisation
+  (`GcEvent` records the manifest SHA, blob SHAs, experiment hash,
+  and step), and the steady-state no-op detection
+  (`gcNoOp` flag flips when there are no reap events). Live blob
+  deletion through MinIO + Pulsar `gc_reaped` publish remain target
+  runtime work.
 
 ### Validation
 
@@ -208,15 +235,14 @@ per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Implement the pointer-live-set traversal (root: `latest` and every
-  `best/<metric>` and `trial/<...>` pointer) and the `LastN` retention
-  policy application.
-- Wire the blob-reaping path through the live `HasMinIO` capability
-  class.
-- Emit `gc_reaped` events on the platform metrics surface (Prometheus
-  counter + Pulsar event) for each reaped blob/manifest.
-- Make a steady-state second invocation exit `3`
-  (`AppError ReconcilerNoop`).
+- Wire `Store.buildGcPlan` into `src/JitML/App.hs` so `jitml internal
+  gc <experiment-hash>` actually executes the GC reconciler against
+  the live MinIO bucket. The typed plan (kept SHAs + reap events +
+  `gcNoOp` flag) is ready; the gap is plumbing it through the
+  `HasMinIO` deletion path and emitting `gc_reaped` Pulsar events.
+- Make the steady-state second invocation exit `3`
+  (`AppError ReconcilerNoop`) once `gcNoOp` is wired into the App's
+  exit-code logic.
 - Add the per-substrate ULP tolerance measurement to
   `documents/engineering/determinism_contract.md` based on real
   cross-substrate runs from Sprint `12.6`.
@@ -248,8 +274,14 @@ remain target runtime work.
   deterministic inference summary.
 - `jitml inspect replay <manifest-sha>` is registered and currently prints a
   command summary from `src/JitML/App.hs`.
-- Live `loadInferenceCheckpoint`, live MinIO pointer reads, weight-only blob
-  loading, and FFI kernel handles are not implemented yet.
+- `inferWeightsOnlyFromLatestCheckpoint` reads the latest pointer,
+  fetches the manifest, drops `manifestOptimizer` / `manifestRng`
+  parts (the inference path doesn't need them), and runs
+  `inferFromManifest`. The typed `weightOnlyTensors` predicate
+  selects the inference subset of the manifest.
+- Live `loadInferenceCheckpoint` against MinIO + the FFI kernel
+  handle load through `JitML.Engines.Local` remain target runtime
+  work.
 
 ### Validation
 
@@ -268,9 +300,9 @@ remain target runtime work.
 ### Remaining Work
 
 - Implement live `loadInferenceCheckpoint` against MinIO through the
-  `HasMinIO` capability class.
-- Implement weight-only blob loading (skip optimizer/RNG parts the
-  inference path does not need).
+  `HasMinIO` capability class — the local
+  `inferWeightsOnlyFromLatestCheckpoint` is the typed shape; the gap
+  is the MinIO read path.
 - Wire FFI `KernelHandle` loading through `JitML.Engines.Local` (and
   the future per-substrate engines) so inference actually executes the
   generated kernel.

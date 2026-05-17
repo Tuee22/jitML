@@ -561,7 +561,7 @@ runRl path _ =
 runInference :: [ParsedOption] -> App ()
 runInference parsedOptions =
   let manifest =
-        Checkpoint.CheckpointManifest
+        Checkpoint.emptyManifest
           "latest"
           (selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions)
           [Checkpoint.TensorBlob "dense.weight" [2, 2] "blob-1"]

@@ -28,9 +28,16 @@ image rollouts, exactly one `127.0.0.1:<edge-port>` Envoy Gateway socket)
 and 17 (`src/JitML/Routes.hs` is the source of truth for every HTTPRoute
 resource). **Met today**: item 17 — the Routes registry is the sole
 HTTPRoute source, every chart-rendered HTTPRoute is generated from it,
-hand edits fail `jitml lint chart` (Sprints `3.1`–`3.4`). **Unmet today**:
-item 3 — live `kind create cluster`, live `helm install`, live Harbor-first
-rollout, populated `cluster-publication.json` from a real cluster
+hand edits fail `jitml lint chart` (Sprints `3.1`–`3.4`). The typed
+`JitML.Cluster.Helm` module now exposes `kindCreateSubprocess` (the
+typed Kind create command bound to `./.build/jitml.kubeconfig`),
+`helmInstallSubprocess` (a per-release upgrade-install with `--wait`
++ kubeconfig pinning), and `helmPhasedRolloutPlan` (the four-phase
+`HarborPhase → PlatformPhase → MirrorBuildPhase → FinalPhase`
+sequence backed by `phasedReleases`). **Unmet today**: item 3 — the
+live execution of those typed subprocesses against a real Docker +
+Kind on this host, the populated `cluster-publication.json` from a
+real cluster, and the deterministic teardown integration test
 (Sprint `3.5`). Detailed remaining work lives in
 [Sprint 3.5 → Remaining Work](#sprint-35-cluster-lifecycle-reconciler-and-phased-deploy-).
 
@@ -299,14 +306,17 @@ steady-state cluster is a no-op (exit code `3`).
 
 ### Remaining Work
 
-- Wire `kind create cluster --config kind/cluster-<substrate>.yaml
-  --kubeconfig ./.build/jitml.kubeconfig` through the typed `Subprocess`
-  boundary and exercise it.
-- Wire `helm dependency build chart` and the phased `helm install`
-  invocations through the typed boundary, with Harbor (plus Percona /
-  Patroni Postgres) coming up first.
-- Implement the mirror/build phase that pushes the `jitml` and `jitml-demo`
-  images to local Harbor before the final phase pulls them.
+- The typed `kind create cluster`, `helm dependency build`, and phased
+  `helm install` subprocesses are now in `JitML.Cluster.Helm`
+  (`kindCreateSubprocess`, `helmDependencyBuildSubprocess`,
+  `helmInstallSubprocess`, `helmPhasedRolloutPlan`). The pending work is
+  wiring them into `src/JitML/Bootstrap.hs` execution path so
+  `jitml bootstrap` actually invokes them through `Sub.Stream.runStreaming`.
+- Implement the mirror/build phase body that pushes the `jitml` and
+  `jitml-demo` images to local Harbor before the final phase pulls them.
+  The release row exists in `phasedReleases`; the gap is the
+  `docker build`/`docker tag`/`docker push` subprocesses against the
+  Harbor endpoint.
 - Lease the edge port at `9090` and write
   `./.build/runtime/cluster-publication.json` from real cluster state
   (Pulsar URL, MinIO URL, component health) after Helm apply.

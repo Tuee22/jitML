@@ -31,14 +31,23 @@ contract holding), and contributes to item 12 (typed `Subprocess` for
 `metal` / `nvcc` / `g++`). **Met today**: Sprints `7.1`, `7.2`, `7.7`
 close the typed engine/kernel-handle/envelope surface, the
 content-addressed cache key, and Haskell-owned runtime JIT source
-generation (no static checked-in inputs; lint enforces). **Unmet today**:
-Sprint `7.3` owes real oneDNN graph wrappers and reduction kernels beyond
-the Linux CPU identity fixture; Sprint `7.4` owes CUDA FFI loading, real
-cuBLAS/cuDNN bindings, and deterministic algorithm-id capture; Sprint
-`7.5` owes real Tart spin-up, Metal FFI loading, and live MinIO/Pulsar
-host↔cluster RPC; Sprint `7.6` owes per-substrate knob spaces and
-benchmark-driven auto-tuning. Detailed remaining work lives in each
-sprint's `### Remaining Work` block below.
+generation (no static checked-in inputs; lint enforces). The Haskell
+`KernelFamily` ADT under `src/JitML/Codegen/KernelFamily.hs` and the
+per-substrate knob spaces under `src/JitML/Engines/Tuning.hs` are in
+place; the family-aware renderers under `src/JitML/Codegen/{OneDnn,Cuda,Metal}.hs`
+emit substrate-specific source for `identity`, `reduction`, `dense`,
+`conv2d`, `conv3d`, `batchnorm`, `layernorm`, `mha`, and `embedding`
+families, embedding the kernel family, deterministic flags, and
+deterministic-only cuDNN algorithm pin into the generated source payload.
+**Unmet today**: Sprint `7.3` owes the live oneDNN graph wiring through
+`HasEngine` production loading (needs `libdnnl` on the build host plus
+the runtime graph driver beyond the family source scaffold); Sprint `7.4`
+owes CUDA FFI loading + live `nvcc`/cuBLAS/cuDNN execution (gated by
+absent NVIDIA hardware); Sprint `7.5` owes real Tart spin-up + Metal FFI
+loading + live host↔cluster RPC (gated by absent Tart toolchain); Sprint
+`7.6` owes the benchmark driver against real hardware + the same-host
+equality assertion. Detailed remaining work lives in each sprint's
+`### Remaining Work` block below.
 
 ## Phase Summary
 
@@ -76,7 +85,7 @@ local Linux CPU identity runner is owned by Sprint `7.3`.
 
 ### Deliverables
 
-- `KernelSpec` is the current local cache-key payload wrapper.
+- `KernelSpec` is the cache-key payload wrapper.
 - `Kind` distinguishes `Training` from `Inference`.
 - `ToolchainFingerprint`, `RuntimeSourcePayload`, and `TuningChoice` are typed
   cache-key inputs.
@@ -104,7 +113,7 @@ local Linux CPU identity runner is owned by Sprint `7.3`.
 
 ### Objective
 
-Define the current local engine metadata shared by every substrate: backend
+Define the engine metadata shared by every substrate: backend
 name, artifact extension, deterministic flags, typed kernel input/output
 shapes, deterministic launch envelope, and renderable build plan.
 
@@ -155,8 +164,14 @@ identity kernel; grow real oneDNN graph wrappers and production
 - `JitML.Engines.Local` materializes the generated Linux CPU source, compiles
   it, loads `jitml_kernel` with `dlopen`, and executes a deterministic identity
   fixture through the Haskell FFI.
-- oneDNN runtime graph wrappers, AVX detection beyond the local metadata
-  surface, and production `HasEngine` loading are not implemented yet.
+- `renderOneDnnFamilySource` extends the local renderer to emit
+  `reduction`, `dense`, `conv2d`, `conv3d`, `batchnorm`, `layernorm`,
+  `mha`, and `embedding` family scaffolds with deterministic
+  block-stride reductions and layernorm with double-precision
+  accumulation, embedding the kernel family into the generated payload.
+- oneDNN runtime graph wrappers wired into `HasEngine` production
+  loading and AVX-512 detection beyond the metadata surface are not
+  implemented yet.
 
 ### Validation
 
@@ -170,16 +185,21 @@ identity kernel; grow real oneDNN graph wrappers and production
 
 ### Remaining Work
 
-- Implement real oneDNN graph wrappers for the kernel families the
-  numerical core enumerates (Conv2D/3D, BatchNorm, MultiHeadAttention,
-  reductions).
-- Capture deterministic-only oneDNN primitive selection (no
-  threading-dependent reductions) and embed it in the cache key.
+- Wire the family-aware oneDNN sources into `HasEngine` production
+  loading so `jitml service` actually executes generated SL/RL kernels
+  on `linux-cpu`. The runtime graph driver needs a `libdnnl` link
+  surface plus an FFI loader that dispatches by kernel family. The
+  family-aware source renderer (`renderOneDnnFamilySource`) and
+  deterministic-only primitive selection (`Engines.Tuning.linuxCpuKnobs`
+  with `reduction-block`, `micro-kernel`, `thread-count`, and `fastmath
+  = off`) already exist.
 - Grow the AVX-512 detection beyond the metadata surface so generated
-  source picks the right ISA path.
-- Plug the real oneDNN-backed kernels into `HasEngine` production loading
-  so `jitml service` actually executes generated SL/RL kernels on
-  `linux-cpu`.
+  source picks the right ISA path. The micro-kernel knob axis
+  enumerates `onednn-jit-avx2`, `onednn-jit-avx512`, and
+  `onednn-reference` already; the runtime needs to query CPUID and
+  pick.
+- Add the live oneDNN integration test behind `JITML_LIVE_E2E=1` once
+  the production runtime graph driver lands.
 
 ## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver 🔄
 
@@ -203,8 +223,17 @@ execution per `### Remaining Work` below.
 - `compileSubprocess` renders the `nvcc --shared --compiler-options=-fPIC
   --use_fast_math=false -arch=sm_70` command against the generated source
   directory.
-- cuBLAS/cuDNN bindings, deterministic algorithm-id capture, splitmix RNG, and
-  FFI loading are not implemented yet.
+- `renderCudaFamilySource` extends the local renderer to emit
+  `reduction` (warp-shuffle), `dense` (cuBLAS scaffold), `conv2d`/`conv3d`
+  (cuDNN scaffold pinning `CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM`),
+  `batchnorm` (cuDNN `BATCHNORM_SPATIAL_PERSISTENT`), and `mha`
+  (deterministic cuBLAS GEMM chain) families. The deterministic cuDNN
+  algorithm pin is recorded in `Engines.Tuning.cuDnnDeterministicAlgorithms`
+  and embedded in the generated source payload (which participates in
+  the cache key).
+- Live cuBLAS/cuDNN execution, FFI loading of the compiled `.so`,
+  splitmix RNG path wiring, and the live transcript-determinism test
+  remain blocked by absent NVIDIA hardware on the development host.
 
 ### Validation
 
@@ -217,15 +246,21 @@ execution per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Add cuBLAS / cuDNN bindings under the typed engine surface.
-- Capture deterministic algorithm-id selection (no `_FAST_MATH`, no
-  TF32 unless allowed) and embed it in the cache key.
+- Wire the family-aware CUDA source renderer into `HasEngine`
+  production loading once NVIDIA hardware is reachable from the
+  bootstrap host. The deterministic algorithm-id capture
+  (`Engines.Tuning.cuDnnDeterministicAlgorithms`) and the
+  no-`_FAST_MATH` / no-TF32 knob defaults are already in place.
+- Add real cuBLAS/cuDNN typed bindings under the engine surface (the
+  source-level scaffold pins the algorithm but the runtime driver still
+  needs the binding crate equivalent in Haskell, e.g. `inline-c`).
 - Wire the splitmix-based RNG path for any kernel using stochastic
   initialisation.
 - Implement FFI loading of the compiled CUDA `.so` and plug it into
   `HasEngine` production loading.
 - Add the live CUDA transcript-determinism integration test behind
-  `JITML_LIVE_E2E=1` (Sprint `12.6`).
+  `JITML_LIVE_E2E=1` (Sprint `12.6`) — blocked by absent NVIDIA
+  hardware.
 
 ## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC 🔄
 
@@ -253,6 +288,11 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
   --package-path <generated-source-dir> -c release`.
 - The route/topic documentation records `inference.command.apple-silicon` and
   `inference.event.apple-silicon` as the target host↔cluster RPC topics.
+- `renderMetalFamilyPackage` extends the local Metal renderer to embed
+  the per-substrate threadgroup-size knob into the generated Swift
+  enum and emits family-aware Metal kernels (the `reduction` family
+  uses `simd_sum` with single-stream launch ordering). The threadgroup
+  axis is enumerated by `Engines.Tuning.appleSiliconKnobs`.
 - Metal FFI loading, actual Tart VM execution, MinIO tensor handoff, and live
   Pulsar RPC are not implemented yet.
 
@@ -298,13 +338,21 @@ per `### Remaining Work` below.
 ### Deliverables
 
 - `TuningChoice` is a typed cache-key input in `src/JitML/Cache/Key.hs`.
-- `defaultTuningChoice` is the current local choice.
+- `defaultTuningChoice` is the default choice.
 - Runtime source renderers embed the tuning choice into generated source
   payloads.
 - `cacheKey` includes the tuning choice and rendered-source payload, so changes
   invalidate the local cache key.
-- Per-substrate knob spaces, benchmark selection, and deterministic-only cuDNN
-  algorithm selection are not implemented yet.
+- `src/JitML/Engines/Tuning.hs` defines per-substrate `KnobSpace`
+  values: `appleSiliconKnobs` (threadgroup-size, matmul-tile,
+  reduction-strategy, command-queue-discipline), `linuxCpuKnobs`
+  (micro-kernel, reduction-block, thread-count, fastmath off),
+  `linuxCudaKnobs` (matmul-tile, block-dim, cuDNN deterministic algo,
+  reduction-strategy, no-TF32, no-fast-math). `selectDeterministic`
+  picks the deterministic default per axis; `tuningChoiceForResult`
+  emits the cache-key payload string.
+- Benchmark-driven selection on real hardware and the same-host
+  equality assertion against repeated runs remain open.
 
 ### Validation
 
@@ -317,15 +365,14 @@ per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Define per-substrate knob spaces (matmul tile / reduction strategy /
-  block dims for CUDA, threadgroup sizes for Metal, micro-kernel pick for
-  oneDNN).
-- Implement deterministic-only cuDNN algorithm pinning (reject any
-  non-deterministic algorithm even if it benchmarks faster).
 - Implement a benchmark driver that picks the chosen knob set on first
-  cache miss and records it for cache-key derivation.
+  cache miss and records it for cache-key derivation. The
+  deterministic default selection (`Engines.Tuning.selectDeterministic`)
+  is in place; the missing piece is the on-hardware micro-benchmark
+  loop that ranks the deterministic-only choices.
 - Add a same-host kernel-output equality test that holds across repeated
-  runs with the same tuning choice.
+  runs with the same tuning choice. Requires live hardware to be
+  meaningful.
 
 ## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation ✅
 

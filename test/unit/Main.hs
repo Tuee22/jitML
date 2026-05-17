@@ -731,14 +731,14 @@ main =
             @?= ByteString.pack [0, 0, 0, 0, 0, 0, 240, 63]
       , testCase "checkpoint manifest CBOR codec is deterministic and canonical ordered" $ do
           let manifest =
-                Checkpoint.CheckpointManifest
+                Checkpoint.emptyManifest
                   "manifest-a"
                   "exp-a"
                   [ Checkpoint.TensorBlob "z" [1] "blob-z"
                   , Checkpoint.TensorBlob "a" [2] "blob-a"
                   ]
               reordered =
-                Checkpoint.CheckpointManifest
+                Checkpoint.emptyManifest
                   "manifest-a"
                   "exp-a"
                   [ Checkpoint.TensorBlob "a" [2] "blob-a"
@@ -755,7 +755,7 @@ main =
           withSystemTempDirectory "jitml-checkpoint-store" $ \dir -> do
             let blobKey = Checkpoint.blobKey "exp1" "blob1"
                 manifest =
-                  Checkpoint.CheckpointManifest
+                  Checkpoint.emptyManifest
                     "m1"
                     "exp1"
                     [Checkpoint.TensorBlob "dense.weight" [2, 2] blobKey]
@@ -784,7 +784,13 @@ main =
             Just dashboard -> Grafana.renderDashboardConfigMap dashboard @?= expected
       , testCase "frontend bundle and panel surfaces cover the demo panels" $ do
           fmap WebBundle.panelName WebBundle.panelSurfaces
-            @?= ["mnist-live-inference", "image-upload", "connect4-human-vs-alphazero", "rl-trajectory"]
+            @?= [ "mnist-live-inference"
+                , "cifar-imagenet-upload"
+                , "connect4-human-vs-alphazero"
+                , "rl-trajectory"
+                , "training-progress"
+                , "hyperparameter-sweep"
+                ]
           fmap WebBundle.demoRoutePath WebBundle.demoRoutes @?= ["/", "/api", "/api/ws"]
           WebBundle.renderDemoRouteManifest
             @?= "demo-routes:\n- / static-shell <- web/src/Main.purs\n- /api contract-index <- src/JitML/Web/Contracts.hs\n- /api/ws websocket-contract <- src/JitML/Web/Contracts.hs\n"

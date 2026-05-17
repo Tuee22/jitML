@@ -45,17 +45,35 @@ Phases `3`, `4`, `5`, `7`, `8`, `9`, `10`, `11`, and `12` are `🔄 Active`:
 each owns at least one Exit Definition obligation that requires live runtime
 behaviour (cluster apply, real service clients, real kernel execution,
 checkpoint storage, browser flow, cross-substrate parity) which the worktree
-does not yet exercise.
+does not yet exercise. The active phases have all materially advanced
+their typed scaffolds: the family-aware JIT codegen surface
+(`JitML.Codegen.KernelFamily`), the per-substrate knob spaces
+(`JitML.Engines.Tuning`), the 14 RL algorithm modules under
+`JitML.RL.Algorithms.*`, the AlphaZero MCTS / SelfPlay / Arena substack,
+the four-game `PerfectInformation` typeclass, the typed proto envelopes
+under `JitML.Proto.{Training,Rl,Tune}`, the typed daemon capability
+surface with full `HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl`
+methods + per-domain `HandlerRouter`, the typed phased Helm rollout
+(`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus the service-Postgres
+registry, the optimizer/RNG/metric/parent-lineage CheckpointManifest
+shape with typed `AdvancePredicate` and `RetentionPolicy`, and the
+six Halogen panels with the typed Pulumi ephemeral-Kind orchestrator
+under `infra/pulumi/index.ts` are all checked in. The live runtime
+behaviours remain gated by absent infrastructure (NVIDIA GPU, Tart VM,
+live Pulsar HA, etc.) per the per-sprint `### Remaining Work` blocks.
 
-Against the eighteen-item [Exit Definition](#exit-definition), the following
-items currently pass: 4 (stage-0 scripts + typed prerequisite DAG), 10
-(toolchain pin), 11 (Plan/Apply `--dry-run` / `--plan-file` for implemented
-leaves), 12 (typed `Subprocess` boundary), 13 (one `prerequisiteRegistry`),
-14 (single `AppError` ADT and `renderError`), 15 (`fourmolu` and the style
-stanzas), 16 (`CommandSpec` as implementation source), 17
-(`src/JitML/Routes.hs` registry). Items 1, 2, 3, 5, 6, 7, 8, 9, 18 are
-partial or unmet; the owning sprints list the open work in their
-`### Remaining Work` blocks per
+Against the eighteen-item [Exit Definition](#exit-definition), the
+following items currently pass: 4 (stage-0 scripts + typed prerequisite
+DAG), 10 (toolchain pin), 11 (every enumerated Plan/Apply command —
+`jitml bootstrap`, `jitml train`, `jitml tune`, `jitml rl train`,
+`jitml cluster up`, `jitml test all`, `jitml service`, `jitml internal
+gc` — supports `--dry-run` and `--plan-file <path>`), 12 (typed
+`Subprocess` boundary), 13 (one `prerequisiteRegistry`), 14 (single
+`AppError` ADT and `renderError`), 15 (`fourmolu` and the style stanzas),
+16 (`CommandSpec` as implementation source), 17 (`src/JitML/Routes.hs`
+registry). Items 1, 2, 3, 5, 6, 7, 8, 9, 18 are partial or unmet; the
+owning sprints list the open work in their `### Remaining Work` blocks
+per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
 ## Execution Roadmap
@@ -212,20 +230,44 @@ three stage-0 bootstrap scripts that delegate to `jitml bootstrap
 --<substrate>`; one Dockerfile and one Compose service (`jitml:local`); the
 umbrella Helm chart at `chart/` with subchart deps for Harbor, Pulsar,
 MinIO, Percona Postgres, Envoy Gateway, and kube-prometheus-stack; typed
-chart/Kind renderers; `src/JitML/Routes.hs` as the HTTPRoute registry; the
-`jitml service` daemon's BootConfig / LiveConfig / endpoints / structured
-log / retry / at-least-once helper / in-binary HTTP listener / POSIX signal
-wiring; the numerical-core Haskell catalog and Dhall mirror; per-substrate
-JIT source renderers under `src/JitML/Codegen/` and the generated-source
-content-addressed cache; the Linux CPU identity-kernel compile/load/run path
-in `JitML.Engines.Local`; deterministic SL canonical summaries; the RL
-algorithm catalog, environment metadata, framework primitives, the three
-GADT-indexed lifecycles, AlphaZero Connect 4 helpers; the tuning catalog
-and trial-key surface; the local checkpoint store, `.jmw1` encoder, and
-deterministic `inferFromManifest`; the minimal PureScript scaffold and
-generated contracts; the `jitml-demo` HTTP server; and the ten Cabal
-test-suite stanzas with deterministic bodies that `jitml test all` invokes
-through the typed `Subprocess` boundary.
+chart/Kind renderers (including the typed `kindCreateSubprocess` /
+`helmInstallSubprocess` / `helmPhasedRolloutPlan` / typed
+service-Postgres registry); `src/JitML/Routes.hs` as the HTTPRoute
+registry; the `jitml service` daemon's BootConfig / LiveConfig / endpoints
+/ structured log / retry / at-least-once helper / in-binary HTTP listener
+/ POSIX signal wiring (with `HandlerRouter` + per-domain `DedupCache`);
+the full four-class capability surface
+(`HasMinIO.{putBlobIfAbsent,casPointer,listObjects,deleteObject}`,
+`HasPulsar.{pulsarSubscribe,pulsarConsume,pulsarSeek}`,
+`HasHarbor.{harborPushImage,harborPullImage,harborListImages}`,
+`HasKubectl.{kubectlGet,kubectlDelete}`) plus `ETag` / `SubscriptionId`
+newtypes; the numerical-core Haskell catalog and Dhall mirror; per-substrate
+JIT source renderers under `src/JitML/Codegen/` with the
+`KernelFamily`-aware variants and the per-substrate `KnobSpace` from
+`JitML.Engines.Tuning`; the Linux CPU identity-kernel compile/load/run
+path in `JitML.Engines.Local`; the deterministic SL canonical summaries
+plus the typed pipeline (`JitML.SL.{Dataset,Loop,Train}`); the RL
+algorithm catalog with one module per algorithm
+(`JitML.RL.Algorithms.{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}`)
+aggregated through `Registry.algorithmModuleRegistry`; the runtime RL
+primitives (`Policy`, `VecEnv`, `ReplayBuffer`, `RLLoop`); the AlphaZero
+substack (`Mcts`, `SelfPlay`, `Arena`) plus the `PerfectInformation`
+typeclass admitting Connect 4 / Othello / Hex / Gomoku; the tuning
+catalog, trial-key surface, and the canonical
+`experiments/mnist-tune.dhall` worked example; the typed proto
+envelopes under `proto/jitml/{training,rl,tune}.proto` mirrored by
+`JitML.Proto.{Training,Rl,Tune}`; the extended checkpoint
+manifest (optimizer state, RNG streams, monotonic step, metrics,
+parent lineage), the typed `AdvancePredicate` ADT, the
+`deriveExperimentHash` function, the `RetentionPolicy` + `walkLiveSet`
++ `buildGcPlan` GC reconciler surface, and the
+`inferWeightsOnlyFromLatestCheckpoint` inference path; the PureScript
+scaffold with six Halogen panels under `web/src/Panels/` and the
+generated contracts; the `jitml-demo` HTTP server; the Playwright
+canonical panel matrix at `playwright/jitml-demo.spec.ts`; the typed
+ephemeral-Kind Pulumi orchestrator at `infra/pulumi/index.ts`; and the
+ten Cabal test-suite stanzas with deterministic bodies that
+`jitml test all` invokes through the typed `Subprocess` boundary.
 
 ## Sprint Dependencies
 

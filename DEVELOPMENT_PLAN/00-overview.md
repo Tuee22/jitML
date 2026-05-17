@@ -192,14 +192,21 @@ moves to Done and the legacy ledger is empty.
   and the live client flow are owned by Sprints `5.4` / `5.5` / `5.6`'s
   Remaining Work. Phase:
   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md).
-- **Numerical core.** Haskell layer catalog (Dense, Conv1D, Conv2D,
-  Conv3D, ConvTranspose, BatchNorm, LayerNorm, GroupNorm, Dropout,
-  ResidualBlock, MultiHeadAttention, ...), real + complex activations,
-  spectral / frequency-domain ops, optimizers (SGD, Momentum SGD,
-  Nesterov SGD, RMSProp, Adagrad, Adadelta, Adam, AdamW, LAMB, LARS,
-  Lion), schedulers (constant, linear, cosine, cosine-with-warmup,
-  exponential, polynomial, one-cycle, piecewise), loss functions
-  (cross-entropy, focal, MSE, Huber, IoU), Dhall mirror lists, and the
+- **Numerical core.** Haskell layer catalog (16 constructors: Dense,
+  Embedding, Conv1D, Conv2D, Conv3D, ConvTranspose, ComplexDense,
+  ComplexConv2D, BatchNorm, LayerNorm, GroupNorm, Dropout, ResidualBlock,
+  ScaledDotProductAttention, MultiHeadAttention,
+  RotaryPositionalEmbedding); 8 real activations (Relu, LeakyRelu, Elu,
+  Silu, Gelu, Tanh, Sigmoid, Softmax) plus 3 complex activations
+  (ComplexModRelu, ComplexCardioid, ComplexZRelu); 10 spectral /
+  frequency-domain ops (FFT, FFTAlongAxis, IFFT, IFFTAlongAxis, RFFT,
+  IRFFT, STFT, DCT, ComplexConjugate, ComplexMatMul); 13 optimizers
+  (SGD, MomentumSGD, NesterovSGD, RMSProp, Adagrad, Adadelta, Adam,
+  AdamW, LAMB, LARS, Lion, AdaFactor, Shampoo); 9 schedulers
+  (Constant, Linear, Cosine, CosineWithWarmup, Exponential, Polynomial,
+  OneCycle, Piecewise, ReduceOnPlateau); 10 loss functions
+  (CrossEntropy, BinaryCrossEntropy, SparseCrossEntropy, Focal, MSE,
+  Huber, IoU, Dice, KLDiv, Contrastive); Dhall mirror lists; and the
   cross-type lint audit. Owned by
   [phase-6-numerical-core.md](phase-6-numerical-core.md).
 - **JIT codegen and per-substrate execution.** `src/JitML/Engines/`
@@ -207,12 +214,23 @@ moves to Done and the legacy ledger is empty.
   cache hit/miss decisions, engine envelopes, and typed compile plans;
   `src/JitML/Codegen/` renders Metal / Swift, oneDNN C++, and CUDA
   runtime source bundles under
-  `./.build/jit-src/<substrate>/<hash>/`. `JitML.Engines.Local`
-  compiles, loads, and runs the generated Linux CPU identity kernel
-  through the Haskell FFI. Real oneDNN graph kernels, Apple Metal
-  loading + Tart spin-up, Linux CUDA loading, and benchmark-driven
-  hardware auto-tuning are owned by Sprints `7.3` / `7.4` / `7.5` /
-  `7.6`'s Remaining Work, preserving the determinism contract per
+  `./.build/jit-src/<substrate>/<hash>/`. `JitML.Codegen.KernelFamily`
+  defines the typed `KernelFamily` ADT (`identity`, `reduction`,
+  `dense`, `conv2d`, `conv3d`, `batchnorm`, `layernorm`, `mha`,
+  `embedding`) consumed by the family-aware renderers
+  (`renderOneDnnFamilySource`, `renderCudaFamilySource`,
+  `renderMetalFamilyPackage`). `JitML.Engines.Tuning` declares the
+  per-substrate `KnobSpace` (matmul tile / block-dim / cuDNN
+  deterministic algorithm pin / threadgroup size / micro-kernel /
+  reduction strategy / no-TF32 / no-fast-math) with
+  `selectDeterministic` choosing the deterministic default and
+  `tuningChoiceForResult` emitting the cache-key payload.
+  `JitML.Engines.Local` compiles, loads, and runs the generated Linux
+  CPU identity kernel through the Haskell FFI. Real oneDNN graph
+  kernels, Apple Metal loading + Tart spin-up, Linux CUDA loading, and
+  benchmark-driven hardware auto-tuning are owned by Sprints `7.3` /
+  `7.4` / `7.5` / `7.6`'s Remaining Work, preserving the determinism
+  contract per
   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md):
   Metal single-stream launch order, oneDNN blocked reduction with fixed
   block size, CUDA deterministic warp-shuffle reductions with
@@ -220,42 +238,71 @@ moves to Done and the legacy ledger is empty.
   Phase:
   [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md).
 - **Supervised learning and RL framework.** `src/JitML/SL/` and
-  `src/JitML/RL/` provide canonical SL problem curves, RL algorithm
-  catalog rows, canonical RL environment metadata, framework run-plan
-  metadata, deterministic trajectory helpers, the three GADT-indexed
-  lifecycles (`TrainingLifecycle`, `RLRunLifecycle`,
-  `TuneSweepLifecycle`), and a PPO/CartPole golden trajectory fixture.
-  Real datasets, buffers, daemon-backed training loops, and live
-  Pulsar event flow are owned by Sprints `8.1`–`8.6`'s Remaining Work.
-  Phase:
+  `src/JitML/RL/` provide canonical SL problem curves, the typed
+  dataset registry (`SL.Dataset.canonicalDatasets`), the deterministic
+  SL training pipeline (`SL.Loop.runDeterministicLoop`,
+  `SL.Train.train`), the RL algorithm catalog rows, canonical RL
+  environment metadata, framework run-plan metadata, deterministic
+  trajectory helpers, the three GADT-indexed lifecycles
+  (`TrainingLifecycle`, `RLRunLifecycle`, `TuneSweepLifecycle`), the
+  runtime RL primitives (`Policy`, `VecEnv`, `ReplayBuffer`, `RLLoop`),
+  and a PPO/CartPole golden trajectory fixture. The typed proto
+  envelopes (`proto/jitml/{training,rl,tune}.proto` and
+  `JitML.Proto.{Training,Rl,Tune}`) declare the substrate-scoped Pulsar
+  topic family. Live MinIO dataset fetch, daemon-backed training loops,
+  and live Pulsar publish/consume are owned by Sprints `8.1`–`8.6`'s
+  Remaining Work. Phase:
   [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md).
 - **RL algorithm catalog, AlphaZero, hyperparameter tuning.** Catalog
   covers PPO through AlphaZero as metadata rows with a Dhall
-  mirror/audit, Connect 4 transcript helpers, canonical
-  perfect-information game metadata, arena summary helpers,
-  deterministic tuning trial sequences, and trial resume summaries for
-  Sobol/random/GA/ES × Fifo/SuccessiveHalving/Hyperband/ASHA ×
-  none/median/percentile. One module per algorithm, persistent MCTS
-  search, Othello/Hex/Gomoku state/move helpers, and live trial
-  persistence are owned by Sprints `9.1`–`9.7`'s Remaining Work. Phase:
+  mirror/audit; the 14 per-algorithm modules under
+  `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}.hs`
+  expose typed hyperparameter rows and deterministic per-seed rollout
+  transcripts aggregated through `Registry.algorithmModuleRegistry`.
+  The AlphaZero substack lives at
+  `src/JitML/RL/AlphaZero/{Mcts,SelfPlay,Arena}.hs` with persistent
+  search tree (UCB + visit-count), self-play buffer with content hash,
+  and arena win-rate promotion. The `PerfectInformation` typeclass
+  admits Connect 4 / Othello / Hex / Gomoku with per-game
+  `applyMove` rules and per-game two-headed network metadata.
+  `experiments/mnist-tune.dhall` renders the canonical `Some
+  Tuning::{ … }` worked example from README. Real network forward /
+  back through the JIT engine, live trial transcript persistence, and
+  on-hardware reward thresholds are owned by Sprints `9.1`–`9.7`'s
+  Remaining Work. Phase:
   [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md).
-- **Checkpointing and inference-only read path.** Typed manifest,
-  deterministic manifest CBOR codec / content hash, split-blob
-  object-key renderers, pointer-CAS decision surface, binary `.jmw1`
-  encoder, manifest pointer, filesystem-backed checkpoint store,
-  latest-pointer read path, and deterministic inference helper. Live
-  MinIO effects, retention reaping, and real kernel-handle loading are
-  owned by Sprints `10.1`–`10.4`'s Remaining Work. Phase:
+- **Checkpointing and inference-only read path.** Typed manifest with
+  the full split-blob shape (`TensorBlob`, `OptimizerBlob`, `RngBlob`,
+  monotonic step, per-metric values, parent-manifest lineage SHA),
+  deterministic manifest CBOR codec / content hash with canonical
+  ordering, split-blob object-key renderers, pointer-CAS decision
+  surface, the typed `AdvancePredicate` ADT
+  (`AdvanceLatest`/`AdvanceBestMaximised`/`AdvanceBestMinimised`),
+  `deriveExperimentHash` computing
+  `sha256(resolved-dhall || substrate-fingerprint)`, the
+  binary `.jmw1` encoder, manifest pointer, filesystem-backed
+  checkpoint store, latest-pointer read path,
+  `inferWeightsOnlyFromLatestCheckpoint` for the weight-only inference
+  path, and the GC reconciler surface
+  (`RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
+  `applyRetentionPolicy`, `buildGcPlan` with `gcReapEvents` and the
+  `gcNoOp` second-invocation detector). Live MinIO effects, live
+  `gc_reaped` Pulsar publish, and real kernel-handle loading are owned
+  by Sprints `10.1`–`10.4`'s Remaining Work. Phase:
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Minimal PureScript entrypoint,
   generated contract file from `src/JitML/Web/Contracts.hs`, typed
-  bundle/panel/demo-route metadata from `src/JitML/Web/Bundle.hs`,
-  `web/test/` smoke file, Playwright scaffold, `jitml-demo` executable
-  shim, `src/JitML/Web/Server.hs` HTTP serving, and demo deployment
-  template. Halogen panels, compiled bundle output, live REST/WS
-  proxying, and `purs format` / `purescript-spec` stanza integration
-  are owned by Sprints `11.3` / `11.4` / `11.5` / `11.6`'s Remaining
-  Work. Phase:
+  bundle/panel/demo-route metadata from `src/JitML/Web/Bundle.hs` (six
+  canonical panel surfaces), the six panel modules under
+  `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` with
+  typed request/response payload shapes, `web/test/Main.purs` smoke
+  suite, the canonical seven-test Playwright matrix at
+  `playwright/jitml-demo.spec.ts`, `jitml-demo` executable shim,
+  `src/JitML/Web/Server.hs` HTTP serving, and demo deployment template.
+  The Halogen mount machinery, compiled bundle output, live REST/WS
+  proxying against real daemon Pulsar topics, and `purs format` /
+  `purescript-spec` live invocation are owned by Sprints `11.3` /
+  `11.4` / `11.5` / `11.6`'s Remaining Work. Phase:
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
 - **Test stanzas, lint matrix, cross-cluster parity.** Ten Cabal
   test-suite stanzas, each `type: exitcode-stdio-1.0` with `tasty` as
@@ -265,18 +312,24 @@ moves to Done and the legacy ledger is empty.
   `jitml-haskell-style`, `jitml-purescript-style`. `jitml test all
   --dry-run` renders the Plan/Apply test plan; non-dry-run `jitml test
   all` delegates to `cabal test` through the typed `Subprocess`
-  boundary and prints the report-card summary. Real-binary integration,
-  live SL convergence, live RL trajectories, live hyperparameter
-  reproducibility, live cross-substrate parity, and the live
-  `JITML_LIVE_E2E=1` Pulumi + Helm + Playwright path against an
-  ephemeral Kind stack are owned by Sprints `12.2`–`12.6` / `12.8` /
-  `12.9`'s Remaining Work. The seven doctrine test categories (Pure
-  Logic, Parser, Property, Golden, Integration, Daemon Lifecycle,
-  Pulumi-Orchestrated Infrastructure) all map to one or more of these
-  stanzas, with the four `*-canonicals`/HPO/cross-backend rows being
-  project-specific Integration extensions under doctrine §Test
-  Organization → project-specific stanzas, and `jitml-purescript-style`
-  a project-specific Lint extension. Phase:
+  boundary and prints the report-card summary.
+  `JitML.Test.LivePlan.livePhasedClusterPlan` enumerates the typed
+  phased Helm rollout per substrate; `infra/pulumi/index.ts` is the
+  typed ephemeral-Kind orchestrator that runs `kind create cluster`
+  → `helm dependency build` → `jitml bootstrap` →
+  `publication-check` under the `@pulumi/command` resource graph,
+  with the symmetric `kind delete cluster` rollback. Real-binary
+  integration, live SL convergence, live RL trajectories, live
+  hyperparameter reproducibility, live cross-substrate parity, and the
+  live `JITML_LIVE_E2E=1` Pulumi + Helm + Playwright path actually
+  executed against an ephemeral Kind stack are owned by Sprints
+  `12.2`–`12.6` / `12.8` / `12.9`'s Remaining Work. The seven doctrine
+  test categories (Pure Logic, Parser, Property, Golden, Integration,
+  Daemon Lifecycle, Pulumi-Orchestrated Infrastructure) all map to one
+  or more of these stanzas, with the four `*-canonicals`/HPO/cross-
+  backend rows being project-specific Integration extensions under
+  doctrine §Test Organization → project-specific stanzas, and
+  `jitml-purescript-style` a project-specific Lint extension. Phase:
   [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md).
 
 ## Doctrine Scope

@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package jitml.tune;
+
+// Envelope sent on `tune.command.<mode>` to drive a hyperparameter sweep
+// via the daemon's TuneHandler.
+message StartSweep {
+  string experiment_hash = 1;
+  string dhall_object_key = 2;
+  string substrate = 3;
+  uint64 sweep_seed = 4;
+  uint32 trial_budget = 5;
+  uint32 budget_per_trial = 6;
+  string sampler = 7;   // sobol, latin-hypercube, grid, genetic-algorithm
+  string scheduler = 8; // constant, asha, successive-halving
+  string pruner = 9;    // none, percentile, hyperband
+}
+
+message StopSweep {
+  string experiment_hash = 1;
+}
+
+message TrialStarted {
+  string experiment_hash = 1;
+  uint32 trial = 2;
+  uint64 trial_seed = 3;
+  string parameters_json = 4;
+  uint64 timestamp_ns = 5;
+}
+
+message TrialFinished {
+  string experiment_hash = 1;
+  uint32 trial = 2;
+  double objective = 3;
+  bool pruned = 4;
+  string transcript_object_key = 5;
+  uint64 timestamp_ns = 6;
+}
+
+message SweepDone {
+  string experiment_hash = 1;
+  uint32 trials_completed = 2;
+  uint32 trials_pruned = 3;
+  double best_objective = 4;
+}
+
+message TuneCommand {
+  oneof body {
+    StartSweep start = 1;
+    StopSweep  stop  = 2;
+  }
+}
+
+message TuneEvent {
+  oneof body {
+    TrialStarted   started   = 1;
+    TrialFinished  finished  = 2;
+    SweepDone      done      = 3;
+  }
+}

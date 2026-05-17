@@ -11,7 +11,7 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the current local RL algorithm metadata catalog, Connect
+> **Purpose**: Stand up the RL algorithm metadata catalog, Connect
 > 4 / AlphaZero transcript helpers, canonical game metadata, and deterministic
 > hyperparameter tuning catalogs. The target runtime extends these surfaces into
 > one module per algorithm, persistent MCTS state, live trial storage/resume, and
@@ -24,15 +24,21 @@
 runs the full RL workloads, AlphaZero self-play executes, and `jitml
 tune` consumes `Some Tuning::{ … }`-shaped Dhall per the worked example
 in [../README.md → Concrete Dhall worked example](../README.md)).
-**Met today**: nothing closes outright — every Sprint `9.x` ships
-metadata or deterministic helpers without the real algorithm /
-self-play / tuner execution Exit 6 demands. **Unmet today**: Sprints
-`9.1`–`9.3` owe one module per algorithm with real loss/policy/buffer
-code; Sprint `9.4` owes the live RL canonical body; Sprints `9.5` /
-`9.6` owe persistent MCTS, perfect-information game typeclasses, and
-state/move helpers for Othello / Hex / Gomoku; Sprint `9.7` owes live
-`Some Tuning` Dhall flow, real protos, and live tuner trial
-persistence/resume. Detailed remaining work lives in each sprint's
+**Met today**: 14 algorithm modules under
+`src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}.hs`
+expose typed hyperparameter rows and deterministic per-algorithm
+trajectory transcripts through the shared `AlgorithmModule` interface
+in `JitML.RL.Algorithms.Common`. `JitML.RL.Algorithms.Registry`
+aggregates the catalog and resolves a module by name. The AlphaZero
+substack lands as `JitML.RL.AlphaZero.{Mcts,SelfPlay,Arena}` with the
+typed `PerfectInformation` typeclass admitting Connect 4 / Othello /
+Hex / Gomoku via per-game `applyMove` rules and per-game two-headed
+network metadata. `experiments/mnist-tune.dhall` renders the canonical
+`Some Tuning::{ … }` worked example. **Unmet today**: real on-hardware
+training to canonical reward thresholds, real network forward / back
+passes through the JIT engine layer, live MinIO trial transcript
+persistence/resume, and live Pulsar handlers — all gated by the
+absent cluster infra. Detailed remaining work lives in each sprint's
 `### Remaining Work` block below.
 
 ### Current Implementation Scope
@@ -40,12 +46,24 @@ persistence/resume. Detailed remaining work lives in each sprint's
 The worktree implements an `RLAlgorithm` catalog with family/replay
 metadata, a Dhall schema mirror/audit at `dhall/rl/Schema.dhall`,
 deterministic trajectory generation with a PPO/CartPole golden fixture,
-Connect 4 move/transcript helpers in `src/JitML/RL/AlphaZero.hs`, and
-deterministic sampler/scheduler/pruner catalogs in
-`src/JitML/Tune/Catalog.hs`. Real per-algorithm modules,
-perfect-information game typeclasses, persistent MCTS, MinIO trial
-storage, and live tuner resume live in the sprints' `### Remaining Work`
-blocks below.
+and deterministic sampler/scheduler/pruner catalogs in
+`src/JitML/Tune/Catalog.hs`. The 14 per-algorithm modules under
+`src/JitML/RL/Algorithms/` carry typed hyperparameter rows + a
+deterministic `AlgorithmModule.moduleRolloutGenerator` that produces a
+per-seed integer trajectory + reward stream the canonical stanza
+golden-checks; `Registry.algorithmModuleRegistry` aggregates them.
+`JitML.RL.AlphaZero.Mcts` implements a deterministic prior + UCB +
+visit-count tree with `runSearch` walking `mctsSimulations` rollouts;
+`SelfPlay` plays `selfPlayGamesPerGeneration` games per generation
+with a `SelfPlayBuffer` that exposes a `bufferTranscriptHash` for the
+MinIO pointer; `Arena` decides `candidateShouldBePromoted` from the
+`arenaWinRate`. The `PerfectInformation` typeclass admits all four
+canonical games with per-game `applyMove` rules.
+`experiments/mnist-tune.dhall` renders the `Some Tuning::{ … }` worked
+example mirroring [../README.md → Concrete `Some Tuning::{ … }` example](../README.md).
+Live MinIO trial storage, live tuner resume, real network execution,
+and on-hardware reward thresholds remain in the per-sprint
+`### Remaining Work` blocks below.
 
 ## Phase Summary
 
@@ -86,15 +104,18 @@ below.
 
 ### Remaining Work
 
-- Implement `src/JitML/RL/Algorithms/Ppo.hs` (clipped surrogate loss,
-  GAE rollouts, KL-trigger early stop).
-- Implement `src/JitML/RL/Algorithms/A2c.hs` and
-  `src/JitML/RL/Algorithms/Trpo.hs` (conjugate-gradient natural-grad
-  step).
-- Implement `src/JitML/RL/Algorithms/MaskablePpo.hs` and
-  `src/JitML/RL/Algorithms/RecurrentPpo.hs`.
-- Commit per-algorithm goldens under
-  `test/golden/rl/<algo>/<env>/trajectory.txt`.
+- All five on-policy algorithm modules
+  (`src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo}.hs`)
+  now expose typed deterministic hyperparameter rows + per-seed
+  trajectory transcripts through `AlgorithmModule`. **Open**: replace
+  the deterministic-fixture rollout with a real clipped-surrogate-loss
+  / GAE / KL-trigger update once the JIT engine layer can execute the
+  network — gated by Phase 7 production loaders against real
+  hardware.
+- Commit per-algorithm + per-environment goldens under
+  `test/golden/rl/<algo>/<env>/trajectory.txt` once the deterministic
+  `AlgorithmModule.moduleRolloutGenerator` is wired into the canonical
+  stanza body (Sprint 12.4 owns the stanza wiring).
 
 ## Sprint 9.2: Off-Policy Algorithm Metadata 🔄
 
@@ -124,11 +145,15 @@ Land the current off-policy algorithm metadata rows.
 
 ### Remaining Work
 
-- Implement `src/JitML/RL/Algorithms/{Dqn,QrDqn,Ddpg,Td3,Sac}.hs` with
-  the typed replay buffer and target-network update plumbing.
-- Pin deterministic algorithm-id selection where any backend offers a
-  choice (e.g. cuDNN).
-- Commit per-algorithm goldens.
+- All five off-policy algorithm modules
+  (`src/JitML/RL/Algorithms/{Dqn,QrDqn,Ddpg,Td3,Sac}.hs`) now exist with
+  typed hyperparameter rows and deterministic per-seed transcripts. The
+  typed `ReplayBuffer` (`JitML.RL.Buffer`) backs the off-policy update
+  loop. **Open**: wire the deterministic-cuDNN algorithm pin into the
+  real network forward / target-network update path (gated by Phase
+  7.4 real cuDNN execution).
+- Commit per-algorithm goldens under `test/golden/rl/<algo>/<env>/`
+  through the stanza body in Sprint 12.4.
 
 ## Sprint 9.3: Specialised Algorithm Metadata 🔄
 
@@ -158,10 +183,14 @@ Land the current specialised algorithm metadata rows.
 
 ### Remaining Work
 
-- Implement `src/JitML/RL/Algorithms/{CrossQ,Tqc,Ars,Her}.hs`.
-- Pin per-algorithm deterministic seeds and commit goldens.
-- Verify `jitml docs generate` regenerates the catalog table without
-  drift after each new module lands.
+- All four specialised algorithm modules
+  (`src/JitML/RL/Algorithms/{CrossQ,Tqc,Ars,Her}.hs`) now exist with
+  typed hyperparameter rows and deterministic per-seed transcripts.
+- `jitml docs generate` regeneration check stays target work until the
+  generated catalog table grows the per-module hyperparameter
+  surface; the module-aggregating registry
+  (`JitML.RL.Algorithms.Registry`) is ready to feed it.
+- Per-algorithm goldens land through the stanza body in Sprint 12.4.
 
 ## Sprint 9.4: Local RL Canonical Tests 🔄
 
@@ -229,8 +258,19 @@ AlphaZero summary.
   summary surface.
 - `test/rl-canonicals/Main.hs` asserts generated Connect 4 moves stay in
   columns `0` through `6`.
-- Persistent `Mcts.hs`, `SelfPlay.hs`, `Arena.hs`, and self-play buffers remain
-  target runtime validation.
+- `src/JitML/RL/AlphaZero/Mcts.hs` declares `MctsConfig`, `MctsNode`,
+  `MctsEdge`, `runSearch` (walking `mctsSimulations` rollouts), and
+  `selectAction` (UCB with `cpuct`). The prior is deterministic via
+  `priorFor seed action`.
+- `src/JitML/RL/AlphaZero/SelfPlay.hs` declares `SelfPlayConfig`,
+  `SelfPlayBuffer`, `runSelfPlay` (drives
+  `selfPlayGamesPerGeneration` games), and `bufferTranscriptHash` (the
+  SHA-256 used as MinIO pointer suffix).
+- `src/JitML/RL/AlphaZero/Arena.hs` declares `ArenaConfig`,
+  `ArenaOutcome`, `playArena`, and `candidateShouldBePromoted` keyed on
+  `arenaPromotionThreshold`.
+- Live MinIO checkpoint round-trip of the persistent self-play buffer
+  remains gated on Phase 10 / Phase 4 platform services.
 
 ### Validation
 
@@ -247,13 +287,19 @@ AlphaZero summary.
 
 ### Remaining Work
 
-- Implement `src/JitML/RL/AlphaZero/Mcts.hs` (persistent search tree,
-  prior + visit-count UCB, transposition table).
-- Implement `src/JitML/RL/AlphaZero/SelfPlay.hs` and
-  `src/JitML/RL/AlphaZero/Arena.hs`.
-- Implement persistent self-play buffer with deterministic insertion
-  ordering and MinIO checkpoint round-trip.
-- Consume the `AZ_GAMES` and `AZ_SIMS` report-card knobs.
+- The persistent search tree (`MctsNode`), prior + visit-count UCB
+  (`ucbScore`), and the self-play buffer (`SelfPlayBuffer`) already
+  exist. **Open**: wire the `runSearch` prior into a real network
+  evaluation via the JIT engine (gated by Phase 7 production loaders).
+- Implement a transposition-table cache keyed on the canonical move
+  sequence — the current implementation re-runs `expand` on first
+  visit; a real transposition table de-dupes equivalent search
+  subtrees.
+- Wire MinIO checkpoint round-trip of the persistent self-play buffer
+  (gated by Phase 10 + 4 live MinIO).
+- `AZ_GAMES` and `AZ_SIMS` are exposed via `SelfPlayConfig`; the
+  report-card knob block in `cabal.project` already names them — wire
+  them into the canonical stanza body in Sprint 12.4.
 
 ## Sprint 9.6: Connect 4 Local Game Surface 🔄
 
@@ -289,14 +335,21 @@ catalog, and corresponding browser-contract endpoint metadata.
 
 ### Remaining Work
 
-- Implement `initialOthello` / `initialHex` / `initialGomoku` plus the
-  corresponding `applyMove` rules.
-- Promote `PerfectInformationGame` to a typeclass that all four canonical
-  games implement.
-- Commit per-game golden replays under
-  `test/golden/alphazero/<game>-transcript.txt`.
-- Surface each game in `canonicalGames` with `gameMoveCount` populated
-  from the helpers rather than the metadata shim.
+- `initialOthello`, `initialHex`, `initialGomoku` plus the per-game
+  `applyMove` rules now exist in
+  `src/JitML/RL/AlphaZero.hs`; `applyMove` dispatches on
+  `gameName` to the per-game rule.
+- `PerfectInformation` is now a typeclass admitting all four canonical
+  games via `gameTwoHeadedNetwork` and `gameActionCount`. `GameState`
+  is the canonical instance.
+- Per-game golden replays under
+  `test/golden/alphazero/<game>-transcript.txt` land via the
+  canonical stanza body wiring in Sprint 12.4 (the deterministic
+  `selfPlayTranscript` already produces stable per-seed sequences).
+- The full real-rules engine for Othello (capture flip), Hex
+  (connectivity), and Gomoku (line-of-five) lands when the game
+  position evaluator graduates from the deterministic shim — gated by
+  the JIT engine's ability to evaluate game-specific feature tensors.
 
 ## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) 🔄
 
@@ -326,8 +379,16 @@ summary.
   surface.
 - `jitml tune <tune-dhall>` is Plan/Apply-capable and currently prints four
   deterministic Sobol trial values.
-- Dhall `Some Tuning`, generated proto bindings, and live MinIO persistence
-  remain target runtime validation.
+- `experiments/mnist-tune.dhall` renders the canonical `Some Tuning::{
+  … }` worked example from
+  [../README.md → Concrete `Some Tuning::{ … }` example](../README.md)
+  with the TPE sampler / ASHA scheduler / MedianPruner triple and the
+  full search space.
+- `proto/jitml/tune.proto` + `src/JitML/Proto/Tune.hs` declare the
+  typed `TuneCommand` / `TuneEvent` surfaces for the substrate-scoped
+  Pulsar topics.
+- Wire-format protobuf bindings (proto-lens) and live MinIO persistence
+  remain target runtime work.
 
 ### Validation
 
@@ -342,17 +403,19 @@ summary.
 
 ### Remaining Work
 
-- Render the canonical `Some Tuning::{ … }` worked example from
-  [../README.md → Concrete Dhall worked example](../README.md) as a
-  committed `experiments/mnist-tune.dhall`.
-- Generate Haskell protobuf bindings for `proto/jitml/tune.proto`.
+- Generate `proto-lens`-driven Haskell bindings for
+  `proto/jitml/tune.proto` so the typed envelopes round-trip
+  binary-equivalent with other-language clients.
 - Implement the daemon-side tune handler that consumes
   `tune.command.<mode>` and persists trial transcripts to MinIO bucket
-  `jitml-trials/<sha256(resolved-dhall || trial-seed)>/`.
+  `jitml-trials/<sha256(resolved-dhall || trial-seed)>/` — owned by
+  Sprint 5.5 once the live broker + MinIO are reachable.
 - Implement live resume-from-partial-sweep that reuses cached trial
-  transcripts.
+  transcripts. The `Tune.Catalog` `trialStorageKey` and
+  `renderTrialResumeSummary` already produce the keys; the gap is the
+  MinIO read path.
 - Consume the `TUNE_TRIALS` and `TUNE_BUDGET_PER_TRIAL` report-card
-  knobs.
+  knobs in the canonical stanza body (Sprint 12.5).
 
 ## Doctrine Sections Cited
 

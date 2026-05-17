@@ -3,12 +3,15 @@
 module JitML.Cluster.PulsarBootstrap
   ( Topic (..)
   , pulsarTopics
+  , pulsarTopicCreateSubprocess
+  , pulsarTopicCreateSubprocesses
   , renderPulsarAdminCommands
   )
 where
 
 import Data.Text (Text)
 
+import JitML.Sub.Subprocess (Subprocess, subprocess)
 import JitML.Substrate (Substrate, allSubstrates, renderSubstrate)
 
 newtype Topic = Topic
@@ -36,6 +39,26 @@ pulsarTopics =
 renderPulsarAdminCommands :: [Text]
 renderPulsarAdminCommands =
   fmap (\topic -> "pulsar-admin topics create " <> topicName topic) pulsarTopics
+
+-- | Subprocess that creates a single Pulsar topic through `pulsar-admin`.
+pulsarTopicCreateSubprocess :: Topic -> Subprocess
+pulsarTopicCreateSubprocess topic =
+  subprocess
+    "kubectl"
+    [ "exec"
+    , "-n"
+    , "platform"
+    , "pulsar-broker-0"
+    , "--"
+    , "pulsar-admin"
+    , "topics"
+    , "create"
+    , topicName topic
+    ]
+
+pulsarTopicCreateSubprocesses :: [Subprocess]
+pulsarTopicCreateSubprocesses =
+  fmap pulsarTopicCreateSubprocess pulsarTopics
 
 substrateTopics :: Substrate -> [Topic]
 substrateTopics substrate =

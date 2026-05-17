@@ -45,9 +45,11 @@ bundleAssets =
 panelSurfaces :: [PanelSurface]
 panelSurfaces =
   [ PanelSurface "mnist-live-inference" "/api/inference" "MNIST inference"
-  , PanelSurface "image-upload" "/api/images" "CIFAR/ImageNet upload"
+  , PanelSurface "cifar-imagenet-upload" "/api/images" "CIFAR/ImageNet upload"
   , PanelSurface "connect4-human-vs-alphazero" "/api/connect4/move" "Connect 4 moves"
   , PanelSurface "rl-trajectory" "/api/ws" "RL trajectory stream"
+  , PanelSurface "training-progress" "/api/ws/training" "Training metric stream"
+  , PanelSurface "hyperparameter-sweep" "/api/ws/tune" "Tuner trial stream"
   ]
 
 demoStatusLine :: Text

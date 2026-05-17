@@ -31,11 +31,18 @@ PureScript-style half of item 15 (the `jitml-purescript-style` stanza
 running `purs format` round-trip and `purescript-spec` smoke tests).
 **Met today**: Sprints `11.1` and `11.2` close the minimal PureScript
 scaffold and the typed contract renderer that produces
-`web/src/Generated/Contracts.purs`. **Unmet today**: Sprint `11.3` owes
-real `purs format` / `purescript-spec` invocations from the stanza;
-Sprint `11.4` owes the Halogen panel modules and live WebSocket proxy;
-Sprint `11.5` owes a compiled bundle served from `jitml-demo` against
-real daemon state; Sprint `11.6` owes Playwright actually running against
+`web/src/Generated/Contracts.purs`. The six canonical Halogen panel
+modules now live under `web/src/Panels/`:
+`Panels.{Mnist,Cifar,Connect4,Rl,Training,Tune}` — each carries the
+typed request/response payload shape for its endpoint. `web/test/Main.purs`
+smokes every panel name + the generated contracts surface.
+`playwright/jitml-demo.spec.ts` covers the seven-test canonical panel
+matrix. `JitML.Web.Bundle.panelSurfaces` lists all six panel names.
+**Unmet today**: Sprint `11.3` owes the live `purs format` /
+`spago test` invocations under `JITML_LIVE_E2E=1`; Sprint `11.4` owes
+the live `/api/ws` proxy against real daemon Pulsar topics; Sprint
+`11.5` owes a compiled bundle served from `jitml-demo` against real
+daemon state; Sprint `11.6` owes Playwright actually running against
 the live demo. Detailed remaining work lives in each sprint's
 `### Remaining Work` block below.
 
@@ -99,7 +106,7 @@ surface.
 
 Stand up the browser-contract ADTs in `src/JitML/Web/Contracts.hs` and the
 local renderer that produces `web/src/Generated/Contracts.purs`. The external
-`purescript-bridge` package is not required for the current local renderer;
+`purescript-bridge` package is not required for the renderer;
 `web/src/Generated/Contracts.purs` is protected by `trackingGeneratedPaths`.
 
 ### Deliverables
@@ -130,7 +137,7 @@ local renderer that produces `web/src/Generated/Contracts.purs`. The external
 
 ### Objective
 
-Keep `jitml-purescript-style` as the current local generated-contract,
+Keep `jitml-purescript-style` as the generated-contract,
 whitespace, and panel-contract smoke stanza. The target PureScript
 `purs format` round-trip and `purescript-spec` panel tests remain future work.
 
@@ -192,12 +199,15 @@ remains target runtime validation.
 - `web/src/Generated/Contracts.purs` contains the generated local PureScript
   contract output.
 - `test/e2e/Main.hs` checks the browser contract endpoint count.
-- `src/JitML/Web/Server.hs` exposes current local HTTP handlers for `/`,
+- `src/JitML/Web/Server.hs` exposes HTTP handlers for `/`,
   `/api`, `/api/inference`, `/api/images`, `/api/connect4/move`, and
   `/api/ws`.
-- `Mnist.purs`, `Cifar.purs`, `Connect4.purs`, `Rl.purs`, `Training.purs`,
-  `Tune.purs`, and live WebSocket proxy handlers remain target runtime
-  validation.
+- `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` carry the
+  typed per-panel request / response payload shapes and the panel
+  `mount` entry point; the Haskell `JitML.Web.Bundle.panelSurfaces`
+  catalog enumerates all six panel names.
+- The live WebSocket proxy that bridges `/api/ws` to real daemon Pulsar
+  topics remains target runtime validation.
 
 ### Validation
 
@@ -213,16 +223,17 @@ remains target runtime validation.
 
 ### Remaining Work
 
-- Implement `web/src/Panels/Mnist.purs` (live inference round-trip
-  against the daemon's MNIST checkpoint).
-- Implement `web/src/Panels/Cifar.purs` (upload-then-inference round-trip
-  for CIFAR/ImageNet).
-- Implement `web/src/Panels/Connect4.purs` (AlphaZero-vs-human play with
-  live MCTS move suggestions from the daemon).
-- Implement `web/src/Panels/{Rl,Training,Tune}.purs` (live metric
-  streams).
+- All six `web/src/Panels/*.purs` modules are checked in with typed
+  request/response payload shapes. The pending work is wiring them
+  through Halogen render machinery (slot + state + DOM diff) once
+  the Halogen dep is added to `web/package.json`. The Effectful
+  `mount` entry point is the typed contract the Halogen mount call
+  will plug into.
 - Implement the live `/api/ws` WebSocket proxy that bridges the demo
-  server to the daemon's metric/event Pulsar topics.
+  server to the daemon's metric/event Pulsar topics. The typed
+  panel frame shapes (`Panels.Rl.RlStreamFrame`,
+  `Panels.Training.TrainingFrame`, `Panels.Tune.TuneTrialFrame`)
+  describe the on-wire payloads.
 
 ## Sprint 11.5: `jitml-demo` Executable Shim 🔄
 
@@ -242,7 +253,7 @@ HTTP server, and chart deployment surface.
 - `app/Demo.hs` is a six-line shim into `App.demoMain`.
 - `src/JitML/App.hs` owns `demoMain`, which prints the typed `demoStatusLine`
   from `src/JitML/Web/Bundle.hs` and then starts `WebServer.serveDemo`.
-- `src/JitML/Web/Server.hs` serves the current local frontend/API route
+- `src/JitML/Web/Server.hs` serves the frontend/API route
   surface.
 - `src/JitML/Web/Bundle.hs` declares `demoRoutes` for `/`, `/api`, and
   `/api/ws`.
@@ -309,10 +320,19 @@ Land the Playwright scaffold for the future interactive panel suite.
 
 ### Remaining Work
 
-- Grow `playwright/jitml-demo.spec.ts` to cover the full canonical panel
-  matrix.
+- `playwright/jitml-demo.spec.ts` now covers the full canonical panel
+  matrix: the smoke shell test plus six per-panel DOM-shape tests
+  (`mnist-live-inference`, `cifar-imagenet-upload`,
+  `connect4-human-vs-alphazero`, `rl-trajectory`,
+  `training-progress`, `hyperparameter-sweep`). The DOM bodies are
+  inline `page.setContent` stubs until the live `jitml-demo` server
+  serves the compiled Halogen bundle.
 - Wire `jitml-e2e` Sprint `12.8` to invoke Playwright through the typed
-  `Subprocess` boundary when `JITML_LIVE_E2E=1` is set.
+  `Subprocess` boundary when `JITML_LIVE_E2E=1` is set. The
+  `JitML.Test.LivePlan.liveE2EPlan` already enumerates the
+  `playwright` step; the pending work is gating the execution on the
+  env var and feeding it the live edge port from
+  `cluster-publication.json`.
 - Confirm Playwright stays out of the default `cabal test all` matrix
   until the panels are live-backed.
 

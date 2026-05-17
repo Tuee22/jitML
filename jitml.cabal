@@ -31,6 +31,7 @@ library
         JitML.CLI.Spec
         JitML.CLI.Tree
         JitML.Codegen.Cuda
+        JitML.Codegen.KernelFamily
         JitML.Codegen.Metal
         JitML.Codegen.OneDnn
         JitML.Codegen.RuntimeSource
@@ -40,6 +41,7 @@ library
         JitML.Cluster.Gateway
         JitML.Cluster.Helm
         JitML.Cluster.Kind
+        JitML.Cluster.PostgresRegistry
         JitML.Cluster.Publication
         JitML.Cluster.PulsarBootstrap
         JitML.Cluster.Storage
@@ -48,6 +50,7 @@ library
         JitML.Docs.Render
         JitML.Engines.Engine
         JitML.Engines.Local
+        JitML.Engines.Tuning
         JitML.Env.Build
         JitML.Env.Env
         JitML.Generated.Paths
@@ -66,6 +69,9 @@ library
         JitML.Plan.Apply
         JitML.Plan.Plan
         JitML.Plan.Render
+        JitML.Proto.Rl
+        JitML.Proto.Training
+        JitML.Proto.Tune
         JitML.Prerequisite.Nodes.Cluster
         JitML.Prerequisite.Nodes.Common
         JitML.Prerequisite.Nodes.Container
@@ -75,10 +81,33 @@ library
         JitML.Prerequisite.Registry
         JitML.Prerequisite.Types
         JitML.RL.Algorithms
+        JitML.RL.Algorithms.A2c
+        JitML.RL.Algorithms.Ars
+        JitML.RL.Algorithms.Common
+        JitML.RL.Algorithms.CrossQ
+        JitML.RL.Algorithms.Ddpg
+        JitML.RL.Algorithms.Dqn
+        JitML.RL.Algorithms.Her
+        JitML.RL.Algorithms.MaskablePpo
+        JitML.RL.Algorithms.Ppo
+        JitML.RL.Algorithms.QrDqn
+        JitML.RL.Algorithms.RecurrentPpo
+        JitML.RL.Algorithms.Registry
+        JitML.RL.Algorithms.Sac
+        JitML.RL.Algorithms.Td3
+        JitML.RL.Algorithms.Tqc
+        JitML.RL.Algorithms.Trpo
         JitML.RL.AlphaZero
+        JitML.RL.AlphaZero.Arena
+        JitML.RL.AlphaZero.Mcts
+        JitML.RL.AlphaZero.SelfPlay
+        JitML.RL.Buffer
         JitML.RL.Environments
         JitML.RL.Framework
+        JitML.RL.Loop
+        JitML.RL.Policy
         JitML.RL.Schema
+        JitML.RL.VecEnv
         JitML.Routes
         JitML.Service.BootConfig
         JitML.Service.Capabilities
@@ -94,6 +123,9 @@ library
         JitML.Service.Runtime
         JitML.Service.Signal
         JitML.SL.Canonicals
+        JitML.SL.Dataset
+        JitML.SL.Loop
+        JitML.SL.Train
         JitML.Storage.Buckets
         JitML.Sub.Render
         JitML.Sub.Stream

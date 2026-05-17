@@ -67,7 +67,7 @@ main =
       , testCase "publication leases stable per-substrate edge ports" $
           publicationEdgePort (defaultPublication LinuxCUDA) @?= 9092
       , testCase "browser contracts expose interactive surfaces" $
-          length apiEndpoints @?= 5
+          length apiEndpoints @?= 7
       , testCase "demo route manifest covers edge listener paths" $
           fmap demoRoutePath demoRoutes @?= ["/", "/api", "/api/ws"]
       , testCase "demo deployment starts the jitml-demo HTTP server" $ do

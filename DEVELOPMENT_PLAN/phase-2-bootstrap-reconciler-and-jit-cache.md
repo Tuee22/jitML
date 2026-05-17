@@ -395,7 +395,7 @@ VM stays up for the daemon's lifetime once spun up; an idle timeout (default
   `swift --version` execution through `jitml internal vm exec` remain target
   Apple runtime work.
 - Cache-preserving `purge` plus subsequent inference cache resolution depends on
-  the future inference/JIT runtime path, not the current local state scaffold.
+  the future inference/JIT runtime path, not the local state scaffold.
 
 ### Remaining Work
 

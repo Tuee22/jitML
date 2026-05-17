@@ -4,6 +4,7 @@
     "preview": "pulumi preview"
   },
   "dependencies": {
+    "@pulumi/command": "^1.0.0",
     "@pulumi/pulumi": "^3.170.0",
     "typescript": "^5.8.2"
   },

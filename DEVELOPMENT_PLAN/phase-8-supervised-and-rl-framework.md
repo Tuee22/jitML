@@ -12,12 +12,12 @@
 [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
 **Generated sections**: none
 
-> **Purpose**: Stand up the current local supervised-learning and RL framework
-> surfaces — canonical SL summaries, RL catalog/environment metadata,
-> deterministic trajectory helpers, command summaries, and run-plan metadata —
-> while keeping daemon-backed training loops, real datasets, buffers,
-> callbacks, GAE, target networks, and live Pulsar events explicit as target
-> runtime work.
+> **Purpose**: Own the SL canonical summaries, RL catalog/environment
+> metadata, deterministic trajectory helpers, command summaries, run-plan
+> metadata, and the three GADT-indexed lifecycles. Daemon-backed training
+> loops, real datasets, buffers, callbacks, GAE, target networks, and
+> live Pulsar events are tracked in the per-sprint `### Remaining Work`
+> blocks below.
 
 ## Phase Status
 
@@ -28,11 +28,17 @@ convergence and RL trajectories under `jitml test all`). **Met today**:
 Sprint `8.5` closed the typed framework metadata catalog (schedules,
 action distributions, action noise, target networks, GAE, callbacks,
 evaluator); Sprint `8.7` closed the `RLRunLifecycle` GADT retrofit.
-**Unmet today**: Sprints `8.1`–`8.6` owe real dataset loaders, real SL
-training loops, real RL environment stepping, real Policy/VecEnv/replay
-buffers, real proto bindings, and the live `training.command` /
-`training.event` / `rl.command` / `rl.event` Pulsar round-trips. Detailed
-remaining work lives in each sprint's `### Remaining Work` block below.
+The typed dataset surface (`src/JitML/SL/Dataset.hs`), the deterministic
+SL training pipeline (`src/JitML/SL/{Loop,Train}.hs`), the runtime RL
+primitives (`src/JitML/RL/{Policy,VecEnv,Buffer,Loop}.hs`), the
+`training` / `rl` / `tune` proto files (`proto/jitml/*.proto`), and
+their typed Haskell envelopes (`src/JitML/Proto/{Training,Rl,Tune}.hs`)
+are checked in. **Unmet today**: Sprints `8.1`–`8.6` still owe the
+live MinIO dataset fetch, the live Pulsar publish/consume round-trip
+through real `HasMinIO`/`HasPulsar` clients, generated protobuf
+serialization (proto-lens output), and the live convergence / reward
+golden fixtures against real hardware. Detailed remaining work lives in
+each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
@@ -40,17 +46,25 @@ The worktree implements deterministic catalog summaries: eleven canonical
 SL problem cells with synthetic convergence curves in
 `src/JitML/SL/Canonicals.hs`; the `jitml train` / `jitml eval` command
 summaries; the RL command summaries; and deterministic trajectory helpers
-in `src/JitML/RL/Algorithms.hs`. It does not yet implement real dataset
-loaders, SL/RL training loops, RL environment stepping, replay buffers,
-or live Pulsar event publication — those land in the sprints' `###
-Remaining Work` blocks below.
+in `src/JitML/RL/Algorithms.hs`. The typed pipeline surfaces in
+`src/JitML/SL/{Dataset,Loop,Train}.hs` and `src/JitML/RL/{Policy,VecEnv,Buffer,Loop}.hs`
+implement deterministic-fixture-producing training loops, replay
+buffers with deterministic insertion/sample ordering, a typed `Policy`
+carrying the substrate-bound `KernelHandle` model id, and a `VecEnv`
+that parallel-steps the existing canonical environments. The proto
+surfaces (`proto/jitml/{training,rl,tune}.proto` + typed envelopes in
+`src/JitML/Proto/{Training,Rl,Tune}.hs`) define the substrate-scoped
+Pulsar command / event topic family. Live MinIO dataset fetch, live
+Pulsar publish/consume, and real-hardware convergence assertions are
+the open work in the per-sprint `### Remaining Work` blocks below.
 
 ## Phase Summary
 
-This phase delivers SL plus the RL *framework*. Phase `9` builds on these
-primitives to deliver the algorithm catalog, AlphaZero, and tuning. Splitting
-the work this way lets RL framework changes settle before fourteen algorithm
-implementations consume them.
+This phase delivers SL plus the RL *framework*. Phase `9` builds on
+these primitives to deliver the algorithm catalog (14 traditional RL
+algorithms plus AlphaZero), the AlphaZero self-play stack, and the
+hyperparameter tuner. Splitting the work this way lets RL framework
+changes settle before the algorithm implementations consume them.
 
 ## Sprint 8.1: Local Supervised Canonical Summaries 🔄
 
@@ -78,8 +92,20 @@ runtime work.
 - `finalLoss` returns the final value from that deterministic curve.
 - `test/sl-canonicals/Main.hs` verifies the catalog is populated, curves are
   deterministic, and every final loss improves over the initial loss.
-- `Train.hs`, `Loop.hs`, `Dataset.hs`, live Pulsar training events, and real
-  datasets are not present in the current tree.
+- `src/JitML/SL/Dataset.hs` declares the typed `DatasetRef` / `DatasetSplit`
+  surface, the `canonicalDatasets` registry covering MNIST,
+  Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, and California
+  Housing, and the deterministic `expectedSha256` derivation.
+- `src/JitML/SL/Loop.hs` declares `LoopConfig`, `EpochOutcome`, and
+  `TrainPipeline`, threading the deterministic convergence curve from
+  Sprint 8.1 through the `TrainingLifecycle` GADT singletons.
+- `src/JitML/SL/Train.hs` declares `TrainingConfig`, `TrainResult`,
+  and `train :: TrainingConfig -> ReaderT Env m TrainResult`, computing
+  the per-dataset convergence threshold and the `converged` flag from
+  the deterministic pipeline final loss.
+- Live Pulsar training events backed by real `HasPulsar` and real
+  MinIO-staged datasets remain target work owned by Sprint 5.4 / 5.5 /
+  4.3 / 4.4 once the cluster is up.
 
 ### Validation
 
@@ -94,16 +120,19 @@ runtime work.
 
 ### Remaining Work
 
-- Implement `src/JitML/SL/Dataset.hs` (real dataset loader against MinIO
-  bucket `jitml-datasets` with SHA-256 verification from the experiment
-  Dhall).
-- Implement `src/JitML/SL/Loop.hs` (typed training pipeline backed by the
-  `TrainingLifecycle` GADT) plus `src/JitML/SL/Train.hs`
-  (`train :: TrainingConfig -> ReaderT Env IO TrainResult`).
-- Commit golden convergence fixtures under
-  `test/golden/sl/<problem-key>/` for every canonical cell.
+- Wire the typed `DatasetRef` surface into the live `HasMinIO` capability
+  class so `jitml train` fetches real bytes from the
+  `jitml-datasets` bucket and SHA-256-verifies against the experiment
+  Dhall. The typed `Dataset.hs` surface and `datasetForProblem`
+  resolver are in place; the gap is the live MinIO client (owned by
+  Sprint 5.4 / 4.3).
+- Commit live golden convergence fixtures under
+  `test/golden/sl/<problem-key>/` once the daemon-backed training loop
+  runs on real hardware against real datasets. The deterministic
+  pipeline fixtures (`runDeterministicLoop`) already produce
+  bit-identical curves for the synthetic per-seed model.
 - Add the live SL convergence assertion to `jitml-sl-canonicals` (Sprint
-  `12.3`).
+  `12.3`) once the live MinIO + live cluster path is up.
 
 ## Sprint 8.2: `jitml train` Local CLI Summary 🔄
 
@@ -126,8 +155,18 @@ local summary body. Pulsar command/event publication remains target daemon work.
   local canonical problem, and its deterministic final loss.
 - `src/JitML/Service/Consumer.hs` provides the local at-least-once
   deduplication helper used by later event-flow work.
-- `proto/jitml/training.proto`, generated Haskell protobuf bindings, and a
-  GADT-indexed training lifecycle are not present in the current tree.
+- `proto/jitml/training.proto` declares `StartTraining`, `StopTraining`,
+  `EpochCompleted`, `CheckpointDone`, `TrainingFailed` plus
+  discriminated `TrainingCommand` / `TrainingEvent` unions for the
+  substrate-scoped Pulsar topics. `src/JitML/Proto/Training.hs` mirrors
+  the proto into typed Haskell envelopes with deterministic renderers.
+  `trainingCommandTopic` / `trainingEventTopic` resolve the
+  substrate-scoped topic names.
+- The GADT-indexed `TrainingLifecycle` already lives in
+  `src/JitML/RL/Framework.hs` (Sprint 8.4 / 8.7); the pipeline in
+  `src/JitML/SL/Loop.hs` walks the singleton lifecycle.
+- `proto-lens`-generated Haskell bindings for wire-format serialization
+  remain to be added when the `proto-lens-protoc` dependency lands.
 
 ### Validation
 
@@ -143,13 +182,15 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 ### Remaining Work
 
-- Add `proto/jitml/training.proto` and generate Haskell protobuf bindings.
-- Add the GADT-indexed training lifecycle binding the `jitml train` →
-  daemon flow (`Loaded → Ready → Stepping → Evaluating → Checkpointing →
-  Finished`).
+- Generate wire-format protobuf bindings via `proto-lens-protoc` (or
+  equivalent) so the typed envelopes in `src/JitML/Proto/Training.hs`
+  round-trip with binary equivalence. The typed surface and the
+  substrate-scoped topic name family already exist.
 - Implement the daemon-side `TrainingHandler` that consumes
   `training.command.<mode>` and publishes `training.event.<mode>` through
-  the `RetryPolicy` boundary.
+  the `RetryPolicy` boundary against a live Pulsar broker (owned by
+  Sprint 5.5; the at-least-once dedup helper already exists in
+  `JitML.Service.Consumer`).
 - Add the integration test that exercises one real publish → consume
   round-trip behind `JITML_LIVE_E2E=1`.
 
@@ -163,7 +204,7 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 ### Objective
 
-Land the current local RL catalog and canonical environment hook used by the
+Land the RL catalog and canonical environment hook used by the
 canonical RL stanza.
 
 ### Deliverables
@@ -177,8 +218,12 @@ canonical RL stanza.
 - `src/JitML/RL/Environments.hs` declares the local canonical environment
   catalog for `cartpole`, `mountain-car`, `lunar-lander`, and `atari-subset`,
   plus a deterministic local step helper.
-- Full simulator bindings, render frames, and daemon-backed environment stepping
-  remain target runtime validation.
+- `src/JitML/RL/VecEnv.hs` declares `VecEnv` and `vecEnvStep`, which
+  fan the existing deterministic per-environment step helper across N
+  parallel replicas with per-replica seed offsets.
+- Full simulator bindings (real cartpole physics, real lunar-lander
+  Box2D physics, ALE atari-subset bindings) and render-frame access
+  remain target runtime work.
 
 ### Validation
 
@@ -194,11 +239,16 @@ canonical RL stanza.
 ### Remaining Work
 
 - Implement real simulator bindings for cartpole, mountain-car,
-  lunar-lander, and atari-subset.
+  lunar-lander, and atari-subset (e.g., via `inline-c`, an embedded
+  Box2D, and ALE). The typed environment metadata and deterministic
+  per-seed step helper already produce reproducible transcripts the
+  real simulators can be validated against.
 - Implement the typed env-step boundary (`step :: Env -> Action -> IO
   (Obs, Reward, Done)`) plus render-frame access.
 - Implement the daemon-backed environment loop driven by Sprint `5.5`'s
-  Pulsar consumer.
+  Pulsar consumer — the typed `RL.Loop.runRLLoop` and the `RlHandler`
+  envelope surface in `src/JitML/Proto/Rl.hs` are ready to be plumbed
+  together once the live broker is up.
 
 ## Sprint 8.4: RL Metadata Primitives 🔄
 
@@ -218,13 +268,22 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
   `SelfPlay`.
 - `RLAlgorithm` records `algorithmName`, `algorithmFamily`, and
   `algorithmReplayBased`.
-- `algorithmCatalog` contains the current local metadata rows consumed by the
+- `algorithmCatalog` contains the metadata rows consumed by the
   CLI and tests.
 - `src/JitML/RL/Framework.hs` defines the local `TrainingLifecycle`,
   `TuneSweepLifecycle`, and (after Sprint 8.7) `RLRunLifecycle` GADT
   lifecycle surfaces plus the matching `rlRunPlan`.
-- Runtime `Policy`, `VecEnv`, replay/rollout buffers, and `Async` write
-  discipline remain target runtime validation.
+- `src/JitML/RL/Policy.hs` declares the runtime `Policy` record with
+  `PolicyShape`, `ParamRef` references, the substrate binding, and the
+  `KernelHandle` model id.
+- `src/JitML/RL/VecEnv.hs` provides parallel environment stepping
+  (`VecEnv`, `vecEnvStep`, `vecEnvTrajectory`).
+- `src/JitML/RL/Buffer.hs` provides the `ReplayBuffer` with
+  deterministic insertion + sample ordering, supporting both
+  `OnPolicyRollout` and `OffPolicyReplay` modes.
+- `Async` write discipline that keeps MinIO transcript writes off the
+  env-loop hot path lands once the live `HasMinIO` client is wired
+  (Sprint 5.4).
 
 ### Validation
 
@@ -237,14 +296,10 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 
 ### Remaining Work
 
-- Implement the runtime `Policy` carrying typed action distribution
-  shape, parameter references, and the substrate-bound `KernelHandle`
-  for inference.
-- Implement `VecEnv` for parallel environment stepping.
-- Implement replay/rollout buffers with deterministic insertion + sample
-  ordering.
 - Wire `Async` write discipline so MinIO transcript writes do not block
-  the env loop.
+  the env loop, once the live `HasMinIO` client is up (Sprint 5.4 /
+  4.3). The typed `ReplayBuffer` already supports deterministic
+  insertion + sample ordering with no blocking on the hot path.
 
 ## Sprint 8.5: RL CLI Summaries and Report Hooks 🔄
 
@@ -270,8 +325,14 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
   current test summary.
 - `src/JitML/RL/Framework.hs` declares schedules, action distributions, action
   noise, target networks, GAE, callbacks, and evaluator metadata.
-- `proto/jitml/rl.proto` and live Pulsar codecs remain target runtime
-  validation.
+- `proto/jitml/rl.proto` declares `StartRLRun`, `StopRLRun`,
+  `EpisodeDone`, `EvalDone`, `CheckpointDoneRL`, `MetricUpdate` plus
+  the discriminated `RlCommand` / `RlEvent` unions for the
+  substrate-scoped topics. `src/JitML/Proto/Rl.hs` mirrors the proto
+  into typed envelopes; `rlCommandTopic` / `rlEventTopic` resolve the
+  topic names per substrate.
+- Live Pulsar codecs that serialize the typed envelopes to wire format
+  remain to be added when proto-lens-protoc lands.
 
 ### Validation
 
@@ -287,12 +348,12 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 
 ### Remaining Work
 
-- Add `proto/jitml/rl.proto` and the generated Haskell protobuf bindings.
-- Implement the live Pulsar codecs that translate between the protobuf
-  envelopes and the typed framework values.
+- Generate `proto-lens` Haskell wire bindings to round-trip the
+  envelopes binary-equivalent to other-language clients. The typed
+  envelopes already exist.
 - Implement the daemon-side `RlHandler` that consumes
   `rl.command.<mode>` and emits `rl.event.<mode>` through the
-  `RetryPolicy` boundary.
+  `RetryPolicy` boundary against a live broker (owned by Sprint 5.5).
 - Add the live integration test that round-trips one `StartRLRun` →
   `EpisodeDone` cycle behind `JITML_LIVE_E2E=1`.
 
@@ -314,8 +375,13 @@ remain target runtime work.
   `jitml rl rollout` to local summaries.
 - `src/JitML/Service/Consumer.hs` provides the payload-hash deduplication
   helper for later RL event consumers.
-- `RLLoop`, `runRLLoop`, `RLConfig`, and daemon-backed training execution are
-  not implemented in the current tree.
+- `src/JitML/RL/Loop.hs` declares `RLLoop`, `RLConfig`, `EpisodeResult`,
+  and `RLLoopResult`. `runRLLoop` walks the algorithm × policy ×
+  environment cohort through the `RLRunPhase` plan, accumulating
+  per-episode rewards from the deterministic environment step helper
+  and recording the rollout in a typed `ReplayBuffer`.
+- Daemon-backed training execution against live Pulsar / live MinIO
+  remains target runtime work.
 
 ### Validation
 
@@ -329,11 +395,11 @@ remain target runtime work.
 
 ### Remaining Work
 
-- Implement `src/JitML/RL/Loop.hs` (`RLLoop`, `runRLLoop`, `RLConfig`)
-  backed by the `RLRunLifecycle` GADT from Sprint `8.7`.
-- Plumb the loop through the daemon's `RlHandler` and verify it consumes
-  the per-domain dedup cache, checkpoints to MinIO, and emits live
-  `rl.event.<mode>` envelopes.
+- Plumb the typed `RL.Loop.runRLLoop` through the daemon's `RlHandler`
+  and verify it consumes the per-domain dedup cache, checkpoints to
+  MinIO, and emits live `rl.event.<mode>` envelopes. The typed loop
+  surface is in place; the live broker + capability classes remain
+  owned by Sprint 5.4 / 5.5.
 - Add the live reward-threshold + checkpoint/resume equality assertion to
   `jitml-rl-canonicals` (Sprint `12.4`).
 
@@ -386,7 +452,7 @@ None.
 
 - [../HASKELL_CLI_TOOL.md → Command Topology](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.5 — `jitml train` and `jitml rl *` command leaves)
 - [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.5, 8.6 — current dry-run / plan-file surfaces)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.6 — local payload-hash deduplication helper)
+- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprints 8.2, 8.6 — payload-hash deduplication helper)
 - [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprints 8.1, 8.3, 8.4 — dedicated local `jitml-sl-canonicals` and `jitml-rl-canonicals` bodies)
 - [../HASKELL_CLI_TOOL.md → GADT-Indexed State Machines](../HASKELL_CLI_TOOL.md) (Sprint 8.7 — `RLRunLifecycle` joins `TrainingLifecycle` and `TuneSweepLifecycle` as phase-indexed singleton GADTs)
 
@@ -394,13 +460,15 @@ None.
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/training_workloads.md` — current local SL canonical
-  summaries, RL algorithm metadata hooks, deterministic trajectory helper,
-  `jitml train` / `jitml rl train` summary surfaces, and the
-  `RLRunLifecycle` GADT bound to `src/JitML/RL/Framework.hs` after Sprint
-  8.7; target training loops and environment runtime work.
-- `documents/engineering/daemon_architecture.md` — local payload-hash
-  deduplication helper; target at-least-once `TrainingHandler` and `RlHandler`.
+- `documents/engineering/training_workloads.md` — SL canonical
+  summaries, RL algorithm metadata hooks, deterministic trajectory
+  helper, `jitml train` / `jitml rl train` summary surfaces, and the
+  `RLRunLifecycle` GADT bound to `src/JitML/RL/Framework.hs` after
+  Sprint 8.7; target training loops and environment runtime work owned
+  by per-sprint `### Remaining Work` blocks.
+- `documents/engineering/daemon_architecture.md` — payload-hash
+  deduplication helper; target at-least-once `TrainingHandler` and
+  `RlHandler` owned by Sprints `5.5` / `8.2` / `8.6` Remaining Work.
 - `documents/engineering/haskell_code_guide.md` — lifecycle GADT table
   reflects the current `TrainingPhase` / `RLRunPhase` / `TuneSweepPhase`
   data-kind indices co-located in `src/JitML/RL/Framework.hs` after Sprint

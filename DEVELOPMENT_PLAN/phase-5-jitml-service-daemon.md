@@ -33,12 +33,19 @@ Sprints `5.1`, `5.2`, `5.3` close the daemon entry point, the BootConfig
 serving the three endpoints, the structured JSON logger wired through the
 listener, the POSIX `SIGHUP` → reload-generation and `SIGINT` /
 `SIGTERM` → graceful-drain-and-readiness-drop wiring, and the
-`ServiceError` → `AppError` retry-classification mapping. **Unmet today**:
-Sprint `5.4` owes live HasMinIO / HasPulsar / HasHarbor / HasKubectl
-implementations against the running cluster; Sprint `5.5` owes a live
-Pulsar consumer subscription with real ack handling; Sprint `5.6` owes
-live Deployment readiness and validated pod anti-affinity across multiple
-replicas. Detailed remaining work lives in those sprints'
+`ServiceError` → `AppError` retry-classification mapping. The typed
+capability classes now carry the full doctrine method set
+(`HasMinIO.{putBlobIfAbsent,casPointer,listObjects,deleteObject}`,
+`HasPulsar.{pulsarSubscribe,pulsarConsume,pulsarSeek}`,
+`HasHarbor.{harborPushImage,harborPullImage,harborListImages}`,
+`HasKubectl.{kubectlGet,kubectlDelete}`) with `ETag` and
+`SubscriptionId` newtypes. The Consumer dispatcher
+(`EventDomain`, `HandlerRouter`, `routeByKind`) and the per-domain
+LRU `DedupCache` are checked in. **Unmet today**: Sprint `5.4` owes
+the live instance methods against the running cluster; Sprint `5.5`
+owes the live consumer IO loop using the typed router; Sprint `5.6`
+owes live Deployment readiness and validated pod anti-affinity across
+multiple replicas. Detailed remaining work lives in those sprints'
 `### Remaining Work` blocks below.
 
 ### Current Implementation Scope
@@ -237,14 +244,22 @@ class surface per doctrine `Capability Classes and Service Errors`.
 
 ### Remaining Work
 
-- Implement live `HasMinIO` against the running MinIO StatefulSet (Sprint
-  `4.3`).
-- Implement live `HasPulsar` against the running Pulsar HA cluster (Sprint
-  `4.4`).
-- Implement live `HasHarbor` against the running Harbor portal+registry
-  (Sprint `4.1`).
-- Implement live `HasKubectl` through the typed `Subprocess` boundary
-  against `./.build/jitml.kubeconfig`.
+- The four typed capability classes now expose the full
+  doctrine-required method set: `HasMinIO` adds `putBlobIfAbsent`,
+  `casPointer`, `listObjects`, `deleteObject`; `HasPulsar` adds
+  `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek`; `HasHarbor` adds
+  `harborPushImage`, `harborPullImage`, `harborListImages`;
+  `HasKubectl` adds `kubectlGet`, `kubectlDelete`. The typed
+  `ETag` and `SubscriptionId` newtypes carry the broker / store
+  cursor identities through the capability boundary.
+- Implement live `HasMinIO` instance against the running MinIO
+  StatefulSet (Sprint `4.3`).
+- Implement live `HasPulsar` instance against the running Pulsar HA
+  cluster (Sprint `4.4`).
+- Implement live `HasHarbor` instance against the running Harbor
+  portal+registry (Sprint `4.1`).
+- Implement live `HasKubectl` instance through the typed `Subprocess`
+  boundary against `./.build/jitml.kubeconfig`.
 - Add integration coverage in `jitml-integration` (Sprint `12.2`) that
   exercises each capability class against the live cluster behind
   `JITML_LIVE_E2E=1`.
@@ -292,16 +307,21 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 
 ### Remaining Work
 
-- Implement the live `Consumer` that subscribes to substrate-scoped command
-  topics (`training.command.<mode>`, `tune.command.<mode>`,
-  `rl.command.<mode>`, `inference.request.<mode>`, and
-  `inference.command.apple-silicon` on the host daemon).
-- Implement the dispatcher that routes by event kind to the per-domain
-  handler (training, tune, RL, inference).
-- Implement the per-handler `dedupCache :: TVar (LRUSet EventID)` with
-  cache size and TTL driven by `LiveConfig` knobs.
+- `JitML.Service.Consumer` now exposes the typed dispatcher surface:
+  `EventDomain` enumerates the four per-handler buckets (`TrainingDomain`,
+  `TuneDomain`, `RlDomain`, `InferenceDomain`); `domainFor` pure-routes
+  a topic name to its domain; `DedupCache` carries the bounded LRU
+  list with `dedupCacheLimit`, `dedupCacheKnown`,
+  `dedupCacheInsert`; `HandlerRouter` aggregates the four
+  per-domain caches; `routeByKind` returns the updated router and a
+  fresh-event flag in one step.
+- Implement the live `Consumer` IO loop that uses
+  `HasPulsar.pulsarSubscribe` / `pulsarConsume` /
+  `pulsarAcknowledge` against substrate-scoped command topics, with
+  the cache size and TTL driven by `LiveConfig` knobs. The typed
+  router + dedup cache shape is ready.
 - Make ack failure beyond the `RetryPolicy` budget surface
-  `AppError PulsarFailed`.
+  `AppError PulsarFailed` once the live `HasPulsar` instance lands.
 - Add integration coverage in `jitml-daemon-lifecycle` (Sprint `12.7`)
   exercising real redelivery + dedup against live Pulsar behind
   `JITML_LIVE_E2E=1`.

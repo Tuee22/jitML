@@ -1,22 +1,32 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Checkpoint.Store
-  ( ObjectWriteResult (..)
+  ( GcEvent (..)
+  , GcPlan (..)
+  , ObjectWriteResult (..)
+  , RetentionPolicy (..)
   , StoredCheckpoint (..)
+  , applyRetentionPolicy
+  , buildGcPlan
   , inferFromLatestCheckpoint
+  , inferWeightsOnlyFromLatestCheckpoint
   , objectPathForKey
   , readCheckpointManifest
   , readCheckpointPointer
   , readObject
+  , walkLiveSet
   , writeCheckpointSnapshot
   , writeObjectIfAbsent
   )
 where
 
 import Data.ByteString.Lazy qualified as LazyByteString
+import Data.List (nub, sortOn)
+import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
+import Data.Word (Word64)
 import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
 import System.FilePath (isRelative, normalise, takeDirectory, (</>))
 
@@ -24,6 +34,7 @@ import JitML.Checkpoint.Format
   ( CheckpointManifest (..)
   , PointerWrite (..)
   , PointerWriteResult (..)
+  , TensorBlob (..)
   , applyPointerWrite
   , decodeManifestCbor
   , encodeManifestCbor
@@ -31,6 +42,7 @@ import JitML.Checkpoint.Format
   , latestPointerKey
   , manifestContentSha
   , manifestKey
+  , weightOnlyTensors
   )
 
 data ObjectWriteResult
@@ -100,6 +112,115 @@ inferFromLatestCheckpoint root experimentHash input = do
     Just manifestSha -> do
       manifest <- readCheckpointManifest root experimentHash manifestSha
       pure (inferFromManifest <$> manifest <*> pure input)
+
+-- | Weight-only inference: loads only the weight tensors from the addressed
+-- manifest and skips optimizer / RNG split-blob parts (the inference path does
+-- not need them).
+inferWeightsOnlyFromLatestCheckpoint
+  :: FilePath -> Text -> [Double] -> IO (Either Text [Double])
+inferWeightsOnlyFromLatestCheckpoint root experimentHash input = do
+  pointer <- readCheckpointPointer root (latestPointerKey experimentHash)
+  case pointer of
+    Nothing ->
+      pure (Left ("missing checkpoint pointer for " <> experimentHash))
+    Just manifestSha -> do
+      manifest <- readCheckpointManifest root experimentHash manifestSha
+      case manifest of
+        Left err -> pure (Left err)
+        Right m ->
+          let weightOnlyManifest = m {manifestOptimizer = [], manifestRng = []}
+              _ = weightOnlyTensors m -- explicit use of the inference predicate
+           in pure (Right (inferFromManifest weightOnlyManifest input))
+
+-- | Retention policy applied by `jitml internal gc <experiment-hash>` per
+-- README → Retention and GC.
+data RetentionPolicy
+  = KeepAll
+  | LastN Int
+  deriving stock (Eq, Show)
+
+-- | Live-set traversal: the trainer follows `pointers/latest`, every
+-- `pointers/best/<m>`, and every `pointers/trial/<...>` plus the parent-manifest
+-- chain. The result is the set of manifest SHAs whose blobs must not be reaped.
+walkLiveSet :: [CheckpointManifest] -> [Text]
+walkLiveSet manifests =
+  nub
+    [ sha
+    | manifest <- manifests
+    , sha <- manifestContentSha manifest : maybeToList (manifestParentManifestSha manifest)
+    ]
+ where
+  maybeToList Nothing = []
+  maybeToList (Just t) = [t]
+
+-- | Apply `LastN k` retention to a list of manifests sorted by step descending.
+-- `pointers/best/<m>` and `pointers/trial/<m>` targets must be in the input as
+-- additional "always live" manifests.
+applyRetentionPolicy
+  :: RetentionPolicy
+  -> [CheckpointManifest]
+  -- ^ candidates on the `latest` chain
+  -> [CheckpointManifest]
+  -- ^ always-live (best / trial pointer targets)
+  -> [Text]
+  -- ^ manifest SHAs to keep
+applyRetentionPolicy policy chain alwaysLive =
+  let alwaysLiveSet = walkLiveSet alwaysLive
+      kept =
+        case policy of
+          KeepAll -> chain
+          LastN k -> take k (sortOn (Down . manifestStep) chain)
+   in nub (alwaysLiveSet <> walkLiveSet kept)
+
+data GcEvent = GcEvent
+  { gcReapedManifestSha :: Text
+  , gcReapedBlobShas :: [Text]
+  , gcExperimentHash :: Text
+  , gcStepAtReap :: Word64
+  }
+  deriving stock (Eq, Show)
+
+data GcPlan = GcPlan
+  { gcKeptManifestShas :: [Text]
+  , gcReapEvents :: [GcEvent]
+  , gcNoOp :: Bool
+  }
+  deriving stock (Eq, Show)
+
+-- | Build the GC reconciler plan from the candidate manifests, always-live
+-- pointer targets, and the retention policy. A second invocation against the
+-- same input is a no-op (`gcNoOp = True`) per README → Reconcilers.
+buildGcPlan
+  :: Text
+  -- ^ experiment hash
+  -> RetentionPolicy
+  -> [CheckpointManifest]
+  -- ^ all manifests under this experiment
+  -> [CheckpointManifest]
+  -- ^ pointer-target manifests (best / trial)
+  -> GcPlan
+buildGcPlan experimentHash policy allManifests alwaysLive =
+  let kept = applyRetentionPolicy policy allManifests alwaysLive
+      reapTargets =
+        [ manifest
+        | manifest <- allManifests
+        , manifestContentSha manifest `notElem` kept
+        ]
+      events =
+        [ GcEvent
+            { gcReapedManifestSha = manifestContentSha manifest
+            , gcReapedBlobShas =
+                fmap tensorBlobKey (manifestTensors manifest)
+            , gcExperimentHash = experimentHash
+            , gcStepAtReap = manifestStep manifest
+            }
+        | manifest <- reapTargets
+        ]
+   in GcPlan
+        { gcKeptManifestShas = kept
+        , gcReapEvents = events
+        , gcNoOp = null events
+        }
 
 writeObjectIfAbsent :: FilePath -> Text -> LazyByteString.ByteString -> IO ObjectWriteResult
 writeObjectIfAbsent root objectKey payload = do
