@@ -59,8 +59,12 @@ experiment Dhall, reconciles prerequisites, materializes the dataset, publishes
 ## RL Framework Primitives
 
 `src/JitML/RL/` owns the framework. Per doctrine `GADT-Indexed State
-Machines`, `RLRunLifecycle` (`Loaded → Ready → Collecting → Optimising →
-Evaluating → Checkpointing → Finished`) is the typed lifecycle.
+Machines`, the run lifecycle is the phase-indexed GADT
+`RLRunLifecycle` in `src/JitML/RL/Framework.hs`. Its current data-kind
+phases are `RLCollect → RLComputeAdvantages → RLOptimise → RLEvaluate →
+RLCheckpoint`; the daemon-backed runtime target lifecycle additionally
+brackets these with `Loaded → Ready → … → Finished` bookend states once
+`RL/Loop.hs` lands.
 
 Current local surfaces live in `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`, `src/JitML/RL/Framework.hs`, and

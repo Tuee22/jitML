@@ -8,7 +8,8 @@ module JitML.RL.Framework
   , AdvantageEstimator (..)
   , Callback (..)
   , Evaluator (..)
-  , RunPhase (..)
+  , RLRunLifecycle (..)
+  , RLRunPhase (..)
   , Schedule (..)
   , TargetNetwork (..)
   , TrainingLifecycle (..)
@@ -17,7 +18,7 @@ module JitML.RL.Framework
   , TuneSweepPhase (..)
   , rlRunPlan
   , renderFrameworkCatalog
-  , renderRunPhase
+  , renderRLRunPhase
   , trainingLifecyclePlan
   , tuneSweepPlan
   )
@@ -56,13 +57,20 @@ data TuneSweepLifecycle phase where
   SSweepPruning :: TuneSweepLifecycle 'SweepPruning
   SSweepCompleted :: TuneSweepLifecycle 'SweepCompleted
 
-data RunPhase
-  = Collect
-  | ComputeAdvantages
-  | Optimise
-  | Evaluate
-  | Checkpoint
+data RLRunPhase
+  = RLCollect
+  | RLComputeAdvantages
+  | RLOptimise
+  | RLEvaluate
+  | RLCheckpoint
   deriving stock (Eq, Show)
+
+data RLRunLifecycle phase where
+  SRLCollect :: RLRunLifecycle 'RLCollect
+  SRLComputeAdvantages :: RLRunLifecycle 'RLComputeAdvantages
+  SRLOptimise :: RLRunLifecycle 'RLOptimise
+  SRLEvaluate :: RLRunLifecycle 'RLEvaluate
+  SRLCheckpoint :: RLRunLifecycle 'RLCheckpoint
 
 data Schedule
   = ConstantSchedule Double
@@ -122,16 +130,16 @@ tuneSweepPlan =
   , SweepCompleted
   ]
 
-rlRunPlan :: [RunPhase]
+rlRunPlan :: [RLRunPhase]
 rlRunPlan =
-  [Collect, ComputeAdvantages, Optimise, Evaluate, Checkpoint]
+  [RLCollect, RLComputeAdvantages, RLOptimise, RLEvaluate, RLCheckpoint]
 
-renderRunPhase :: RunPhase -> Text
-renderRunPhase Collect = "collect"
-renderRunPhase ComputeAdvantages = "compute-advantages"
-renderRunPhase Optimise = "optimise"
-renderRunPhase Evaluate = "evaluate"
-renderRunPhase Checkpoint = "checkpoint"
+renderRLRunPhase :: RLRunPhase -> Text
+renderRLRunPhase RLCollect = "collect"
+renderRLRunPhase RLComputeAdvantages = "compute-advantages"
+renderRLRunPhase RLOptimise = "optimise"
+renderRLRunPhase RLEvaluate = "evaluate"
+renderRLRunPhase RLCheckpoint = "checkpoint"
 
 renderFrameworkCatalog :: Text
 renderFrameworkCatalog =
@@ -143,5 +151,5 @@ renderFrameworkCatalog =
     , "advantage_estimators: monte-carlo, gae"
     , "callbacks: checkpoint, evaluate, stop-on-reward"
     , "evaluator: fixed-episode"
-    , "rl_run_plan: " <> Text.intercalate " -> " (fmap renderRunPhase rlRunPlan)
+    , "rl_run_plan: " <> Text.intercalate " -> " (fmap renderRLRunPhase rlRunPlan)
     ]

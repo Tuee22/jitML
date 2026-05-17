@@ -38,7 +38,10 @@ It is not remaining implementation work for the already closed local Sprint
 JIT source/build scaffold removal: JIT compiler inputs are generated on demand
 by the Haskell binary. Sprint `4.3` completed the standalone MinIO values
 fragment removal: MinIO subchart values now live under `minio:` in
-`chart/values.yaml`.
+`chart/values.yaml`. Sprint `8.7` completed the `RLRunLifecycle` GADT retrofit:
+`src/JitML/RL/Framework.hs` no longer exports the flat `RunPhase` enum and now
+exposes the `RLRunPhase` data kind plus the phase-indexed singleton GADT
+`RLRunLifecycle` so all three jitML lifecycles share doctrine-aligned shape.
 
 Two classes of entries populate this ledger over time:
 
@@ -104,6 +107,7 @@ The expected populating events are:
 |------|------------|-------|
 | Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
 | Standalone MinIO values fragment | Sprint 4.3 | Folded MinIO subchart values into `chart/values.yaml`, removed `chart/minio-values.yaml`, and made bootstrap delete legacy standalone values files during materialization. |
+| RL run sequencing as a `RunPhase` enum instead of an `RLRunLifecycle` GADT | Sprint 8.7 | Replaced the flat `RunPhase` enum with the `RLRunPhase` data kind plus the phase-indexed singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`; updated `rlRunPlan`, `renderRLRunPhase`, and the `jitml-unit` consumer; `cabal test jitml-unit` keeps 57/57 passing. |
 
 ## Related Documents
 

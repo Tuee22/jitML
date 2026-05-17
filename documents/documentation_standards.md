@@ -171,7 +171,7 @@ data BootConfig = BootConfig
 First line of code blocks should indicate source:
 
 ```haskell
--- File: src/JitML/RL/Loop.hs  -- Actual source file
+-- File: src/JitML/RL/Framework.hs  -- Actual source file
 ```
 
 Or for teaching examples:

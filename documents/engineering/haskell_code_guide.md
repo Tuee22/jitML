@@ -61,14 +61,18 @@ surfaces; concrete apply bodies remain owned by later feature sprints.
 Per doctrine `GADT-Indexed State Machines`, jitML carries three GADT-indexed
 lifecycles:
 
-| GADT | Indices | Owning module |
-|------|---------|---------------|
-| `TrainingLifecycle` | `Loaded \| Ready \| Stepping \| Evaluating \| Checkpointing \| Finished` | `src/JitML/SL/Loop.hs` |
-| `RLRunLifecycle` | `Loaded \| Ready \| Collecting \| Optimising \| Evaluating \| Checkpointing \| Finished` | `src/JitML/RL/Loop.hs` |
-| `TuneSweepLifecycle` | `Sampled \| Scheduled \| Running \| Pruned \| Reported \| Finished` | `src/JitML/Tune/Sweep.hs` |
+| GADT | Indices (data kind) | Owning module |
+|------|---------------------|---------------|
+| `TrainingLifecycle` | `TrainingPhase`: `TrainingConfigured \| TrainingCollecting \| TrainingOptimizing \| TrainingEvaluating \| TrainingCheckpointing` | `src/JitML/RL/Framework.hs` |
+| `RLRunLifecycle` | `RLRunPhase`: `RLCollect \| RLComputeAdvantages \| RLOptimise \| RLEvaluate \| RLCheckpoint` | `src/JitML/RL/Framework.hs` |
+| `TuneSweepLifecycle` | `TuneSweepPhase`: `SweepConfigured \| SweepScheduling \| SweepRunningTrial \| SweepPruning \| SweepCompleted` | `src/JitML/RL/Framework.hs` |
 
 The doctrine forbids the runtime-status-enum-with-manual-validation pattern;
-each lifecycle is a phantom-type-indexed GADT with singleton witnesses.
+each lifecycle is a phantom-type-indexed GADT with singleton witnesses
+(`STrainingConfigured`, `SRLCollect`, `SSweepConfigured`, etc.). All three
+GADTs currently co-locate in `src/JitML/RL/Framework.hs`; daemon-backed
+runtime expansion may later split them into per-domain `Loop.hs` / `Sweep.hs`
+homes, but the type-level shape is fixed.
 
 ### Capability Classes
 

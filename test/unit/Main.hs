@@ -699,7 +699,7 @@ main =
             environment : _ ->
               RLEnvironments.deterministicStep environment 7 1
                 @?= RLEnvironments.deterministicStep environment 7 1
-          fmap RLFramework.renderRunPhase RLFramework.rlRunPlan
+          fmap RLFramework.renderRLRunPhase RLFramework.rlRunPlan
             @?= ["collect", "compute-advantages", "optimise", "evaluate", "checkpoint"]
       , testCase "AlphaZero catalog includes games, two-headed network, and arena summary" $ do
           fmap AlphaZero.pigName AlphaZero.canonicalGames

@@ -163,7 +163,7 @@ A sprint can move to `Done` only when all of the following are true:
 | 5 | `jitml service` Daemon | ✅ Done (local daemon/config/lifecycle surface) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | ✅ Done (local deterministic workload surface) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 8 | Supervised Learning and RL Framework | ✅ Done (Sprints 8.1–8.7 ✅; local deterministic workload surface + `RLRunLifecycle` GADT) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (local deterministic catalog surface) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done (local format/read-path surface) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (local contract/demo scaffold surface) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
@@ -288,6 +288,12 @@ The implemented local end state is:
   The Pulumi program at `infra/pulumi/` exports stack metadata only; the typed
   live E2E sequence exists in `JitML.Test.LivePlan`, but not a live ephemeral
   Kind orchestrator.
+
+Sprint `8.7` is now done with the `RLRunPhase` data kind and the phase-indexed
+singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`, retiring the
+flat `RunPhase` enum so all three jitML lifecycles (`TrainingLifecycle`,
+`RLRunLifecycle`, `TuneSweepLifecycle`) share the doctrine `§ GADT-Indexed State
+Machines` shape with singleton witnesses.
 
 No reopened local sprints remain. Live cross-cluster rollout and the
 ledger-tracked `allow-newer` removal remain outstanding final-handoff gates, not

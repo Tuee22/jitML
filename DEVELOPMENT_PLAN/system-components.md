@@ -239,7 +239,7 @@ internal-RPC pair.
 | RL golden tests | deterministic local tests in `test/rl-canonicals/Main.hs` plus `test/golden/rl/ppo/cartpole/trajectory.txt`; full live reward fixtures remain target work | ✅ Done | Sprint 9.4 |
 | AlphaZero-style self-play and persistent MCTS state | `src/JitML/RL/AlphaZero.hs` provides Connect 4 state/move helpers and deterministic transcript summaries; full MCTS target remains | ✅ Done | Sprint 9.5 |
 | Perfect-information game, two-headed network, and arena summary surface | `src/JitML/RL/AlphaZero.hs`; canonical game catalog, Connect 4 two-headed network metadata, and arena summary helpers | ✅ Done | Sprint 9.5 |
-| Canonical adversarial games (Connect 4, Othello, Hex, Gomoku) | current `src/JitML/RL/AlphaZero.hs` covers Connect 4 only; generated browser contract endpoint lives in `src/JitML/Web/Contracts.hs` | ✅ Done (Connect 4 local) | Sprint 9.6 |
+| Canonical adversarial games (Connect 4, Othello, Hex, Gomoku) | `src/JitML/RL/AlphaZero.hs` `canonicalGames` lists all four as metadata rows; only Connect 4 ships state/move helpers (`initialConnect4`, `applyMove`, `selfPlayTranscript`); generated browser contract endpoint lives in `src/JitML/Web/Contracts.hs` | ✅ Done (metadata for four, Connect 4 helpers local) | Sprint 9.6 |
 | Hyperparameter tuning (sampler × scheduler × pruner) | `src/JitML/Tune/Catalog.hs` covers Sobol/random/GA/ES, Fifo/SuccessiveHalving/Hyperband/ASHA, and none/median/percentile local catalogs | ✅ Done | Sprint 9.7 |
 | Trial storage and resume summary surface | `src/JitML/Tune/Catalog.hs`; deterministic trial keys and resume-equality summary helpers; real MinIO persistence remains runtime validation | ✅ Done | Sprint 9.7 |
 
@@ -305,7 +305,7 @@ standards rule L.
 | `GeneratedSectionRule` registry for marker-delimited generated regions | Generated Artifacts → The generated-section registry | ✅ Done | Sprint 1.3 |
 | `trackingGeneratedPaths` registry for active fully-generated files (`documents/cli/commands.md`, `share/man/man1/jitml.1`, shell completions, PureScript contracts, chart HTTPRoutes, Grafana dashboards, Prometheus scrape config) | Generated Artifacts → Two categories of generation | ✅ Done | Sprint 1.3 |
 | `futureTrackingGeneratedPathPatterns` registry for later generated artefacts (`share/man/man1/jitml-*.1`) | Generated Artifacts → Two categories of generation | ✅ Done | Sprint 1.3 |
-| GADT-indexed `TrainingLifecycle`, `RLRunLifecycle`, `TuneSweepLifecycle` | GADT-Indexed State Machines | ✅ Done in `src/JitML/RL/Framework.hs` as local lifecycle state surfaces | Sprint 8.4, 8.6, 9.7 |
+| GADT-indexed `TrainingLifecycle`, `RLRunLifecycle`, and `TuneSweepLifecycle` with singleton witnesses in `src/JitML/RL/Framework.hs` (`RLRunLifecycle` indexes the `RLRunPhase` data kind: `RLCollect`, `RLComputeAdvantages`, `RLOptimise`, `RLEvaluate`, `RLCheckpoint`) | GADT-Indexed State Machines | ✅ Done | Sprints 8.4, 8.6, 8.7, 9.7 |
 | Capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) | Capability Classes and Service Errors | ✅ Done in `src/JitML/Service/Capabilities.hs` | Sprint 5.4 |
 | `RetryPolicy` typed value with named strategies | Retry Policy as First-Class Values | ✅ Done | Sprint 5.4 |
 | At-least-once Pulsar consumer with protobuf-message-hash deduplication | At-Least-Once Event Processing | ✅ Done as payload-hash deduplication helper; live Pulsar subscription remains planned | Sprint 5.5 |
