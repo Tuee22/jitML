@@ -293,7 +293,18 @@ HTTP server, and chart deployment surface.
 
 - Build the compiled Halogen bundle (`spago build --output web/dist/`)
   as part of the demo image build.
-- Serve `web/dist/` from `jitml-demo` instead of the placeholder shim.
+- The demo server now serves the compiled Halogen bundle from
+  `web/dist/Main/index.js` when present:
+  `JitML.Web.Server.loadBundleEntry` reads the file from the
+  canonical path (`bundleEntryPath`), and
+  `demoHttpRoutesWithBundle :: Maybe Text -> [HttpRoute]` appends a
+  `/bundle/main.js` route serving the JS bytes whenever the bundle
+  is on disk; without it, the routes fall back to the placeholder
+  shim. Validated by `jitml-e2e`: when the bundle is present, the
+  route table is one entry larger than `demoHttpRoutes`; when
+  absent, it matches the placeholder length. The `spago`-driven
+  bundle build itself stays gated on the `web/node_modules` install
+  step.
 - Implement the live `/api/ws` proxy that bridges browser WebSocket
   clients to Pulsar event topics.
 

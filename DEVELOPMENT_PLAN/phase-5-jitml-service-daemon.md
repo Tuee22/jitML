@@ -345,9 +345,13 @@ deduplication key is the protobuf message hash and is opaque to the broker.
   `SETimeout` / `SETransient` from the ack path becomes
   `PulsarFailed`; clean `ConsumerDispatched` / `ConsumerDeduplicated`
   outcomes return `Nothing`. Validated via `jitml-daemon-lifecycle`.
-  The pending wiring is the daemon loop calling
-  `consumerOutcomeError` at the end of each outcome and propagating
-  the `AppError` to the lifecycle exit path.
+  The lifecycle exit path is wired through
+  `JitML.Service.Runtime.consumerLoopExit :: [ConsumerOutcome] ->
+  Maybe AppError`, which walks the outcome batch via `asum . fmap
+  consumerOutcomeError` and surfaces the first `AppError`. Validated
+  by `jitml-daemon-lifecycle` against a clean batch (returns
+  `Nothing`) and a poisoned batch with a `SETimeout` mid-stream
+  (returns `Just (PulsarFailed "timeout: ack budget exhausted")`).
 - Add integration coverage in `jitml-daemon-lifecycle` (Sprint `12.7`)
   exercising real redelivery + dedup against live Pulsar behind
   `JITML_LIVE_E2E=1`.

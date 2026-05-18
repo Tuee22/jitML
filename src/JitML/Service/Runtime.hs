@@ -2,6 +2,7 @@
 
 module JitML.Service.Runtime
   ( DaemonRuntime (..)
+  , consumerLoopExit
   , daemonHttpRoutes
   , defaultDaemonRuntime
   , renderDaemonRuntimeSummary
@@ -16,6 +17,9 @@ import Control.Exception (AsyncException (..), catch, throwIO)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import Data.Foldable (asum)
+
+import JitML.AppError.AppError (AppError (..))
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , HttpListener (..)
@@ -23,6 +27,7 @@ import JitML.Service.BootConfig
   , defaultBootConfig
   , renderBootConfigDhall
   )
+import JitML.Service.Consumer (ConsumerOutcome, consumerOutcomeError)
 import JitML.Service.Endpoints
   ( EndpointResponse (..)
   , MetricsSnapshot (..)
@@ -155,3 +160,12 @@ renderSignalPlan (signal, action) =
 indentText :: Text -> Text
 indentText =
   Text.unlines . fmap ("  " <>) . Text.lines
+
+-- | Walk the typed `ConsumerOutcome` list returned from a
+-- `runConsumerLoop` batch and surface the first `AppError`. The daemon
+-- lifecycle's exit path consumes this: `Nothing` means the batch is
+-- entirely clean (dispatched / dedup'd / skipped), `Just err` (typically
+-- `PulsarFailed`) propagates to the typed exit code per the doctrine's
+-- §Capability Classes and Service Errors.
+consumerLoopExit :: [ConsumerOutcome] -> Maybe AppError
+consumerLoopExit = asum . fmap consumerOutcomeError

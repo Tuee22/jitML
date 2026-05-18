@@ -305,7 +305,12 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
   inserts produce 5 in-order writes after `drainAsync`, with
   `pendingAsyncCount = 0` afterwards. The sink interface
   (`AsyncSink :: [Transition] -> IO AsyncWriteResult`) is the typed
-  contract a `HasMinIO`-backed sink will satisfy.
+  contract a `HasMinIO`-backed sink satisfies, and the
+  `jitml-integration` stanza validates that contract end-to-end
+  against the filesystem-backed `HasMinIO` instance: an `AsyncSink`
+  whose closure serialises the transcript batch and writes through
+  `putBlobBytesIfAbsent` lands the bytes at the expected key, and
+  the round-trip read confirms byte-equality.
 
 ## Sprint 8.5: RL CLI Summaries and Report Hooks 🔄
 

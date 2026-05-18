@@ -3,6 +3,7 @@
 module JitML.Cluster.Publication
   ( ClusterPublication (..)
   , defaultPublication
+  , publicationWithLeasedPort
   , renderPublicationSummary
   )
 where
@@ -11,6 +12,7 @@ import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.=))
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Cluster.EdgePort (EdgePortLease (..))
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate, substrateEdgePort)
 
 data ClusterPublication = ClusterPublication
@@ -75,6 +77,31 @@ defaultPublication substrate =
         , ("jitml-service", "ready")
         , ("jitml-demo", "ready")
         ]
+    }
+
+-- | Overlay a `leaseEdgePort` result onto a `ClusterPublication`,
+-- rewriting `publicationEdgePort` and the Pulsar / MinIO URLs so they
+-- point at the actually-bindable port. The lease's host (always
+-- `"127.0.0.1"` per `JitML.Cluster.EdgePort.leaseEdgePort`) is used
+-- verbatim. This is the bridge between Sprint 3.5's port-lease probe
+-- and the JSON publication consumed by downstream Apple-host /
+-- Linux-host substrates.
+publicationWithLeasedPort :: EdgePortLease -> ClusterPublication -> ClusterPublication
+publicationWithLeasedPort lease publication =
+  publication
+    { publicationEdgePort = leasedPort lease
+    , publicationPulsarUrl =
+        "pulsar://"
+          <> Text.pack (leasedHost lease)
+          <> ":"
+          <> Text.pack (show (leasedPort lease))
+          <> "/pulsar"
+    , publicationMinioUrl =
+        "http://"
+          <> Text.pack (leasedHost lease)
+          <> ":"
+          <> Text.pack (show (leasedPort lease))
+          <> "/minio/s3"
     }
 
 renderPublicationSummary :: ClusterPublication -> Text

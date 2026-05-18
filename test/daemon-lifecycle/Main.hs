@@ -51,6 +51,7 @@ import JitML.Service.Runtime
   , defaultDaemonRuntime
   , runtimeAfterSignal
   )
+import JitML.Service.Runtime qualified as Runtime
 import JitML.Service.Signal
   ( DaemonControlSnapshot (..)
   , DaemonSignal (..)
@@ -101,6 +102,21 @@ main =
             response <- httpGet port "/healthz"
             assertBool "HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` response)
             assertBool "health body" ("\r\n\r\nok\n" `isInfixOf` response)
+      , testCase "consumerLoopExit short-circuits on first PulsarFailed (Sprint 5.5)" $ do
+          -- The lifecycle exit helper walks the outcome list and surfaces
+          -- the first AppError. A clean batch returns Nothing.
+          let cleanBatch =
+                [ ConsumerDispatched TrainingDomain (eventIdFromPayload "a")
+                , ConsumerDeduplicated TuneDomain (eventIdFromPayload "a")
+                ]
+              poisonedBatch =
+                [ ConsumerDispatched TrainingDomain (eventIdFromPayload "a")
+                , ConsumerError (SETimeout "ack budget exhausted")
+                , ConsumerDispatched RlDomain (eventIdFromPayload "b")
+                ]
+          Runtime.consumerLoopExit cleanBatch @?= Nothing
+          Runtime.consumerLoopExit poisonedBatch
+            @?= Just (PulsarFailed "timeout: ack budget exhausted")
       , testCase "Consumer ack failure surfaces AppError PulsarFailed (Sprint 5.5)" $ do
           -- A ConsumerError carrying SETimeout/SETransient/SEConflict maps
           -- to AppError PulsarFailed per the typed exit contract; a clean

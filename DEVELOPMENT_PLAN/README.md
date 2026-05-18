@@ -96,9 +96,21 @@ under `web/dist/` produced by `spago build`, the real-binary
 temp workdir covered by `jitml-integration`, the live Kind cluster
 spin-up producing `./.build/jitml.kubeconfig` without polluting
 `~/.kube/config`, the post-teardown `no jitml-e2e-* Kind clusters
-survive` assertion in `jitml-e2e`, and the typed Pulumi
-ephemeral-Kind orchestrator under `infra/pulumi/index.ts` are all
-checked in. The remaining
+survive` assertion in `jitml-e2e`, the typed Pulumi
+ephemeral-Kind orchestrator under `infra/pulumi/index.ts`, the
+typed Tune resume surface (`JitML.Tune.Resume.{persistTrialTranscript,replaySweep}`)
+round-tripping through filesystem-backed `HasMinIO`, the TbSidecar
+writer (`JitML.Observability.TbSidecar.writeCheckpointSidecar`)
+plus `renderTensorBoardService` chart template, the typed Docker
+mirror plan (`JitML.Cluster.DockerImage.{dockerMirrorPlan,docker{Build,Tag,Push,Login}Subprocess}`)
++ edge-port lease (`JitML.Cluster.EdgePort.leaseEdgePort`), the
+lifecycle-exit wiring (`JitML.Service.Runtime.consumerLoopExit`)
+surfacing typed `AppError` from the consumer outcome batch, the
+demo bundle-serving path (`JitML.Web.Server.{loadBundleEntry,demoHttpRoutesWithBundle}`)
+serving the compiled Halogen `web/dist/Main/index.js` when
+present, and the per-problem SL convergence goldens under
+`test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
+problems are all checked in. The remaining
 live runtime behaviours (NVIDIA GPU, Tart VM, live Pulsar HA, live
 training-to-convergence on real hardware, full Helm rollout of
 Harbor + Pulsar HA + Postgres + MinIO + Prometheus together) remain

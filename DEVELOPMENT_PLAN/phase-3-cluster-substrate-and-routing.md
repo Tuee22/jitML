@@ -321,17 +321,31 @@ steady-state cluster is a no-op (exit code `3`).
   `~/.kube/config` untouched, and `KUBECONFIG=./.build/jitml.kubeconfig
   kubectl get nodes` returns both `jitml-linux-cpu-control-plane` and
   `jitml-linux-cpu-worker`.
-- Implement the mirror/build phase body that pushes the `jitml` and
-  `jitml-demo` images to local Harbor before the final phase pulls them.
-  The release row exists in `phasedReleases`; the gap is the
-  `docker build`/`docker tag`/`docker push` subprocesses against the
-  Harbor endpoint.
-- Lease the edge port at `9090` and write
-  `./.build/runtime/cluster-publication.json` from real cluster state
-  (Pulsar URL, MinIO URL, component health) after Helm apply (today's
-  publication file reports the default per-substrate edge port and
-  pre-baked component status; the live path replaces those fields with
-  measurements once the cluster reaches Ready).
+- The mirror/build subprocesses for the `jitml` / `jitml-demo` images now
+  exist as typed values in `JitML.Cluster.DockerImage`
+  (`dockerBuildSubprocess`, `dockerTagSubprocess`, `dockerPushSubprocess`,
+  `dockerLoginSubprocess`, `dockerMirrorPlan`). The integration stanza
+  asserts `dockerMirrorPlan` emits build + tag + push for each image.
+  Remaining gap: wiring `dockerMirrorPlan` into the live Helm phased
+  rollout body so the mirror phase runs against the bootstrapped Harbor
+  endpoint (today the planner returns the plan; the live executor still
+  hard-codes the placeholder).
+- Edge port leasing is implemented via `JitML.Cluster.EdgePort.leaseEdgePort`
+  which `Network.Socket.bind`s 127.0.0.1 against the candidate set
+  `[9090, 9091, 9092]` and returns the first available port. The bridge
+  from the lease into the JSON publication is
+  `JitML.Cluster.Publication.publicationWithLeasedPort :: EdgePortLease
+  -> ClusterPublication -> ClusterPublication`, which rewrites
+  `publicationEdgePort` and the Pulsar / MinIO URLs to reflect the
+  leased port. Both surfaces are validated by `jitml-integration`:
+  `leaseEdgePort` returns one of the canonical candidates on a free
+  host, and the lease overlay rewrites the publication's `edge_port`
+  + Pulsar/MinIO URL strings to the leased value while preserving
+  the substrate identity. Remaining gap: calling
+  `publicationWithLeasedPort` from `liveExecutePhasedRollout` after
+  the cluster reaches Ready (so the JSON file on disk reflects the
+  real lease + measured component health, not the per-substrate
+  defaults).
 - For Apple, patch the host Dhall after the edge port is known so the host
   daemon can reach Pulsar and MinIO.
 - Add the integration test that exercises the full live path behind

@@ -224,7 +224,14 @@ fixtures remain future runtime work.
   fetched from MinIO bucket `jitml-datasets`.
 - Consume the `SL_EPOCHS` / `SL_BATCH` report-card knobs from
   `cabal.project`.
-- Commit per-problem convergence goldens under `test/golden/sl/`.
+- Per-problem convergence goldens are committed under
+  `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
+  problems (`mnist-shallow-mlp` through `california-housing-mlp`).
+  Each file contains the deterministic `convergenceCurve` output
+  (5 (step, loss) pairs) for that problem, generated through the
+  `JitML.SL.Catalog` cohort surface. Validated by
+  `jitml-sl-canonicals` against the live `convergenceCurve` for each
+  cohort.
 
 ## Sprint 12.4: `jitml-rl-canonicals` Stanza 🔄
 

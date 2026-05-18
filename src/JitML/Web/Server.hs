@@ -1,17 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Web.Server
-  ( demoHttpRoutes
+  ( bundleEntryPath
+  , demoHttpRoutes
+  , demoHttpRoutesWithBundle
   , demoListener
+  , loadBundleEntry
   , renderDemoIndex
+  , renderDemoIndexWithBundle
   , serveDemo
   , serveDemoOnce
   )
 where
 
+import Control.Exception qualified
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
+import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 
 import JitML.Checkpoint.Format qualified as Checkpoint
@@ -31,25 +38,71 @@ demoListener =
 serveDemo :: IO ()
 serveDemo = do
   port <- demoPort
-  serveHttpRoutes (demoListener port) demoHttpRoutes
+  bundle <- loadBundleEntry
+  serveHttpRoutes (demoListener port) (demoHttpRoutesWithBundle bundle)
 
 serveDemoOnce :: IO ()
 serveDemoOnce = do
   port <- demoPort
-  serveHttpRoutesOnce (demoListener port) demoHttpRoutes
+  bundle <- loadBundleEntry
+  serveHttpRoutesOnce (demoListener port) (demoHttpRoutesWithBundle bundle)
+
+-- | Canonical path to the compiled Halogen entry bundle. `spago build
+-- --output web/dist` writes the per-module CoreFn JS under
+-- `web/dist/<Module>/index.js`; the demo serves the Main module's entry
+-- at `/bundle/main.js`.
+bundleEntryPath :: FilePath
+bundleEntryPath = "web/dist/Main/index.js"
+
+-- | Read the compiled Halogen bundle if `spago build` has produced it;
+-- returns Nothing otherwise so the demo falls back to the placeholder
+-- HTML shell.
+loadBundleEntry :: IO (Maybe Text)
+loadBundleEntry = do
+  exists <- doesFileExist bundleEntryPath
+  if exists
+    then
+      (Just <$> Text.IO.readFile bundleEntryPath)
+        `Control.Exception.catch` \(_ :: Control.Exception.SomeException) -> pure Nothing
+    else pure Nothing
 
 demoHttpRoutes :: [HttpRoute]
-demoHttpRoutes =
-  [ htmlRoute "GET" "/" (EndpointResponse 200 renderDemoIndex)
+demoHttpRoutes = demoHttpRoutesWithBundle Nothing
+
+-- | Build the demo HTTP route table, optionally embedding the compiled
+-- Halogen bundle. When `Just <js>` is passed, `/` serves an HTML shell
+-- that script-tags `/bundle/main.js`, and `/bundle/main.js` serves the
+-- bundle bytes; otherwise the route table falls back to the placeholder
+-- HTML shell.
+demoHttpRoutesWithBundle :: Maybe Text -> [HttpRoute]
+demoHttpRoutesWithBundle bundle =
+  [ htmlRoute "GET" "/" (EndpointResponse 200 (renderDemoIndexWithBundle bundle))
   , textRoute "GET" "/api" (EndpointResponse 200 renderApiIndex)
   , textRoute "POST" "/api/inference" (EndpointResponse 200 renderInferenceResponse)
   , textRoute "POST" "/api/images" (EndpointResponse 200 "accepted image upload contract\n")
   , textRoute "POST" "/api/connect4/move" (EndpointResponse 200 renderConnect4Response)
   , textRoute "GET" "/api/ws" (EndpointResponse 200 renderMetricsStream)
   ]
+    <> case bundle of
+      Just js ->
+        [ HttpRoute
+            { httpRouteMethod = "GET"
+            , httpRoutePath = "/bundle/main.js"
+            , httpRouteContentType = "application/javascript; charset=utf-8"
+            , httpRouteResponse = EndpointResponse 200 js
+            }
+        ]
+      Nothing -> []
 
 renderDemoIndex :: Text
-renderDemoIndex =
+renderDemoIndex = renderDemoIndexWithBundle Nothing
+
+-- | HTML shell for the demo `/` route. When `Just <js>` is supplied, a
+-- `<script src="/bundle/main.js">` tag is included that loads the
+-- compiled Halogen bundle; otherwise the page renders the placeholder
+-- bundle manifest.
+renderDemoIndexWithBundle :: Maybe Text -> Text
+renderDemoIndexWithBundle bundle =
   Text.unlines
     [ "<!doctype html>"
     , "<html lang=\"en\">"
@@ -60,6 +113,9 @@ renderDemoIndex =
     , "<pre>"
     , Bundle.renderBundleManifest
     , "</pre>"
+    , case bundle of
+        Just _ -> "<script type=\"module\" src=\"/bundle/main.js\"></script>"
+        Nothing -> "<!-- bundle not built: run `spago build --output web/dist/` -->"
     , "</main>"
     , "</body>"
     , "</html>"

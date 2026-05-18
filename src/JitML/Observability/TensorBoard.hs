@@ -15,6 +15,7 @@ module JitML.Observability.TensorBoard
   , encodeTfRecordBatch
   , maskedCrc32c
   , renderTensorBoardDeployment
+  , renderTensorBoardService
   , shardKey
   , shouldRotateShard
   )
@@ -80,6 +81,29 @@ renderTensorBoardDeployment =
     , "        - name: tensorboard"
     , "          image: tensorboard:local"
     , "          args: [\"--logdir\", \"s3://jitml-tensorboard\"]"
+    , "          ports:"
+    , "            - name: http"
+    , "              containerPort: 6006"
+    ]
+
+-- | TensorBoard Service backing the `/tensorboard` HTTPRoute. Routes Envoy
+-- Gateway traffic to the Deployment's container port 6006 (TensorBoard's
+-- default HTTP listener).
+renderTensorBoardService :: Text
+renderTensorBoardService =
+  Text.unlines
+    [ "apiVersion: v1"
+    , "kind: Service"
+    , "metadata:"
+    , "  name: tensorboard"
+    , "  namespace: platform"
+    , "spec:"
+    , "  selector:"
+    , "    app: tensorboard"
+    , "  ports:"
+    , "    - name: http"
+    , "      port: 80"
+    , "      targetPort: http"
     ]
 
 -- | TFRecord frame: `uint64 LE length` + `uint32 LE masked-CRC32C(8-byte LE length)`

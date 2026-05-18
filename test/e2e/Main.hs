@@ -44,7 +44,7 @@ import JitML.Test.Report
   )
 import JitML.Web.Bundle (demoRoutePath, demoRoutes)
 import JitML.Web.Contracts (apiEndpoints)
-import JitML.Web.Server (demoHttpRoutes)
+import JitML.Web.Server (bundleEntryPath, demoHttpRoutes, demoHttpRoutesWithBundle, loadBundleEntry)
 
 main :: IO ()
 main =
@@ -118,6 +118,24 @@ main =
                     "Playwright reports 7 passed tests"
                     ("7 passed" `Text.isInfixOf` stdoutText)
             _ -> pure () -- default path: skip when not gated
+      , testCase "demo server serves the compiled Halogen bundle when present (Sprint 11.5)" $ do
+          -- Read the bundle entry from web/dist/Main/index.js; if spago
+          -- has built it, the demo routes include the /bundle/main.js
+          -- route serving the JS bytes.
+          bundle <- loadBundleEntry
+          let routes = demoHttpRoutesWithBundle bundle
+          case bundle of
+            Just _ -> do
+              assertBool
+                "demo route table includes /bundle/main.js when bundle present"
+                (length routes > length demoHttpRoutes)
+              assertBool
+                "bundle entry path is the canonical Halogen Main module"
+                ("web/dist/Main/index.js" `isInfixOf` bundleEntryPath)
+            Nothing ->
+              assertBool
+                "demo route table falls back to placeholder when bundle missing"
+                (length routes == length demoHttpRoutes)
       , testCase "post-teardown leaves no jitml-e2e Kind clusters" $ do
           -- Asserts the deterministic-teardown property from Sprint 12.8
           -- post-teardown. After all live work completes, `kind get

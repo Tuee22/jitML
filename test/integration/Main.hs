@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -13,16 +14,26 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Data.ByteString.Lazy qualified as ByteString.Lazy
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text.Encoding qualified as Text.Encoding
 
+import Data.ByteString qualified
 import JitML.Bootstrap (bootstrapPlanSteps)
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Cluster.DockerImage qualified as DockerImage
+import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Kind (kindConfigFor, renderKindConfig)
 import JitML.Cluster.PostgresRegistry qualified as PostgresRegistry
+import JitML.Cluster.Publication qualified as Publication
 import JitML.Engines.CpuFeatures (CpuFeatures (..), detectCpuFeatures, microKernelChoice)
 import JitML.Numerics.Schema qualified as Numerics
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
+
+import JitML.Observability.TbSidecar qualified as TbSidecar
+import JitML.Observability.TensorBoard qualified as TensorBoard
+import JitML.RL.AsyncBuffer qualified as AsyncBuffer
+import JitML.RL.Buffer qualified as Buffer
 import JitML.Routes (renderHTTPRoute, renderRouteTable, routeRegistry)
 import JitML.Service.Capabilities
   ( BucketName (..)
@@ -36,10 +47,13 @@ import JitML.Service.Capabilities
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
 import JitML.Service.KubectlSubprocess (defaultKubectlSettings, runKubectlSubprocess)
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..))
+import JitML.Tune.Catalog qualified as Tune
+import JitML.Tune.Resume qualified as TuneResume
 import System.Directory (doesFileExist, listDirectory, makeAbsolute)
 import System.FilePath ((</>))
 
@@ -282,6 +296,213 @@ main =
               (JitML.Sub.Subprocess.subprocessWithStdin "/bin/cat" [] "stdin-ok\n")
           exitCode @?= ExitSuccess
           stdoutText @?= "stdin-ok\n"
+      , testCase "writeCheckpointSidecar puts TbCheckpointMarker via HasMinIO (Sprint 4.6)" $
+          withSystemTempDirectory "jitml-tb-sidecar" $ \root ->
+            runFilesystemMinIO root $ do
+              let marker =
+                    TensorBoard.TbCheckpointMarker
+                      { TensorBoard.tcmStep = 200
+                      , TensorBoard.tcmEpoch = 5
+                      , TensorBoard.tcmManifestSha = "sha-tb-1"
+                      , TensorBoard.tcmExperimentSha = "exp-tb"
+                      , TensorBoard.tcmTrialSha = Nothing
+                      , TensorBoard.tcmRunUuid = "run-tb"
+                      , TensorBoard.tcmMetricsAtStep = [("loss", 0.42)]
+                      }
+              writeResult <-
+                TbSidecar.writeCheckpointSidecar "exp-tb" 200 "sha-tb-1" marker
+              case writeResult of
+                Right _ -> pure ()
+                Left err ->
+                  liftIO (assertFailure ("expected sidecar PUT OK, got: " <> show err))
+              let bucket = BucketName "jitml-tensorboard"
+                  key = TensorBoard.checkpointSidecarKey "exp-tb" 200 "sha-tb-1"
+                  ref = ObjectRef bucket (ObjectKey key)
+              readback <- minioReadBytes ref
+              liftIO $
+                case readback of
+                  Right bytes ->
+                    assertBool
+                      "TbCheckpointMarker round-trip CBOR is non-empty"
+                      (Data.ByteString.length bytes > 0)
+                  Left err ->
+                    assertFailure ("expected sidecar read OK, got: " <> show err)
+      , testCase "leaseEdgePort binds 127.0.0.1 on the first available candidate (Sprint 3.5)" $ do
+          lease <- EdgePort.leaseEdgePort [49997, 49998, 49999]
+          case lease of
+            Just l -> do
+              assertBool
+                "leased port is one of the candidates"
+                (EdgePort.leasedPort l `elem` [49997, 49998, 49999])
+              EdgePort.leasedHost l @?= "127.0.0.1"
+            Nothing -> assertFailure "expected at least one port to be bindable"
+      , testCase "publicationWithLeasedPort rewrites edge_port + pulsar/minio URLs (Sprint 3.5)" $ do
+          -- The bridge from `leaseEdgePort`'s probe to the JSON
+          -- publication consumed by downstream substrates. The default
+          -- per-substrate publication uses the canonical 9090; after
+          -- the lease binds 9092, the publication's edge_port + Pulsar
+          -- URL + MinIO URL all reflect the leased port.
+          let lease = EdgePort.EdgePortLease {EdgePort.leasedPort = 9092, EdgePort.leasedHost = "127.0.0.1"}
+              base = Publication.defaultPublication LinuxCPU
+              relocated = Publication.publicationWithLeasedPort lease base
+          Publication.publicationEdgePort relocated @?= 9092
+          assertBool
+            "pulsar URL carries the leased port"
+            (":9092/pulsar" `Text.isInfixOf` Publication.publicationPulsarUrl relocated)
+          assertBool
+            "minio URL carries the leased port"
+            (":9092/minio/s3" `Text.isInfixOf` Publication.publicationMinioUrl relocated)
+          -- Substrate identity preserved.
+          Publication.publicationSubstrate relocated @?= LinuxCPU
+      , testCase "dispatchCheckpointDone routes a marker through HasMinIO (Sprint 4.6)" $
+          -- The Consumer-domain entry point: given a typed
+          -- `TbCheckpointMarker` (the in-memory shape of a CheckpointDone
+          -- inference event), `dispatchCheckpointDone` derives the
+          -- sidecar key from the marker's own fields and writes the
+          -- CBOR bytes through `HasMinIO.putBlobBytesIfAbsent`.
+          withSystemTempDirectory "jitml-dispatch-ckpt" $ \root ->
+            runFilesystemMinIO root $ do
+              let marker =
+                    TensorBoard.TbCheckpointMarker
+                      { TensorBoard.tcmStep = 1234
+                      , TensorBoard.tcmEpoch = 5
+                      , TensorBoard.tcmManifestSha = "sha-abc"
+                      , TensorBoard.tcmExperimentSha = "exp-xyz"
+                      , TensorBoard.tcmTrialSha = Nothing
+                      , TensorBoard.tcmRunUuid = "run-1"
+                      , TensorBoard.tcmMetricsAtStep = [("loss", 0.5)]
+                      }
+              result <- TbSidecar.dispatchCheckpointDone marker
+              case result of
+                Right _ -> pure ()
+                Left err -> liftIO (assertFailure ("dispatch failed: " <> show err))
+              -- Verify the sidecar landed at the canonical key.
+              let expectedKey = TensorBoard.checkpointSidecarKey "exp-xyz" 1234 "sha-abc"
+                  ref =
+                    ObjectRef
+                      (BucketName "jitml-tensorboard")
+                      (ObjectKey expectedKey)
+              bytesResult <- minioReadBytes ref
+              case bytesResult of
+                Right bytes ->
+                  liftIO $
+                    assertBool
+                      "dispatched sidecar is non-empty"
+                      (Data.ByteString.length bytes > 0)
+                Left err ->
+                  liftIO (assertFailure ("expected sidecar read OK: " <> show err))
+      , testCase "dockerMirrorPlan emits build + tag + push subprocesses (Sprint 3.5)" $ do
+          let localTag = "jitml:local"
+              harborTag = "harbor.platform.svc.cluster.local/jitml/jitml:dev"
+              plan = DockerImage.dockerMirrorPlan localTag "." harborTag
+              rendered = fmap renderSubprocess plan
+          length plan @?= 3
+          assertBool
+            "first step builds"
+            (any ("docker build" `Text.isPrefixOf`) rendered)
+          assertBool
+            "second step tags to harbor"
+            (any (harborTag `Text.isInfixOf`) rendered)
+          assertBool
+            "third step pushes"
+            (any ("docker push" `Text.isInfixOf`) rendered)
+      , testCase "Tune resume-from-partial-sweep via HasMinIO (Sprint 9.7)" $
+          withSystemTempDirectory "jitml-tune-resume" $ \root ->
+            runFilesystemMinIO root $ do
+              let experimentHash = "exp-tune-resume"
+                  transcripts =
+                    [ Tune.TrialTranscript experimentHash 1 [0.5, 0.4]
+                    , Tune.TrialTranscript experimentHash 2 [0.6, 0.45]
+                    , Tune.TrialTranscript experimentHash 3 [0.55, 0.42]
+                    ]
+              mapM_ TuneResume.persistTrialTranscript transcripts
+              outcome <- TuneResume.replaySweep experimentHash [1, 2, 3]
+              liftIO $ do
+                TuneResume.resumedSeeds outcome @?= [1, 2, 3]
+                length (TuneResume.resumedTrials outcome) @?= 3
+                TuneResume.resumeReadFailures outcome @?= []
+                fmap Tune.transcriptValues (TuneResume.resumedTrials outcome)
+                  @?= fmap Tune.transcriptValues transcripts
+      , testCase "AsyncBuffer sink writes transcripts through HasMinIO (Sprint 8.4)" $
+          withSystemTempDirectory "jitml-async-minio-sink" $ \root -> do
+            -- Build an AsyncSink that closes over a per-batch counter and
+            -- writes each batch's content-hashed payload through
+            -- `HasMinIO.putBlobBytesIfAbsent` via the filesystem instance.
+            counter <- newIORef (0 :: Int)
+            let bucket = BucketName "jitml-transcripts"
+                experimentHash = "exp-async"
+                sink =
+                  AsyncBuffer.AsyncSink
+                    ( \batch -> do
+                        seqNum <- readIORef counter
+                        modifyIORef' counter (+ 1)
+                        let payload =
+                              Text.Encoding.encodeUtf8
+                                ( Text.pack
+                                    ("transcript:" <> show (length batch))
+                                )
+                            ref =
+                              ObjectRef
+                                bucket
+                                ( ObjectKey
+                                    ( "jitml-transcripts/"
+                                        <> experimentHash
+                                        <> "/"
+                                        <> Text.pack (show seqNum)
+                                        <> ".cbor"
+                                    )
+                                )
+                        result <-
+                          runFilesystemMinIO root $
+                            putBlobBytesIfAbsent ref payload
+                        case result of
+                          Right _ ->
+                            pure
+                              ( AsyncBuffer.AsyncWriteOk
+                                  ( "jitml-transcripts/"
+                                      <> experimentHash
+                                      <> "/"
+                                      <> Text.pack (show seqNum)
+                                      <> ".cbor"
+                                  )
+                              )
+                          Left err ->
+                            pure (AsyncBuffer.AsyncWriteFailed (Text.pack (show err)))
+                    )
+            buffer <- AsyncBuffer.newAsyncBuffer Buffer.OffPolicyReplay 16 sink
+            let mkT n =
+                  Buffer.Transition
+                    { Buffer.transitionStep = n
+                    , Buffer.transitionAction = n
+                    , Buffer.transitionReward = fromIntegral n
+                    , Buffer.transitionObservation = n
+                    , Buffer.transitionDone = False
+                    }
+            mapM_ (AsyncBuffer.insertAsync buffer . mkT) [0, 1, 2]
+            results <- AsyncBuffer.drainAsync buffer
+            length results @?= 3
+            mapM_
+              ( \case
+                  AsyncBuffer.AsyncWriteOk _ -> pure ()
+                  AsyncBuffer.AsyncWriteFailed err ->
+                    assertFailure ("async sink write failed: " <> Text.unpack err)
+              )
+              results
+            -- Verify the blob landed in MinIO.
+            readback <-
+              runFilesystemMinIO root $
+                minioReadBytes
+                  ( ObjectRef
+                      bucket
+                      (ObjectKey "jitml-transcripts/exp-async/0.cbor")
+                  )
+            case readback of
+              Right bytes ->
+                assertBool
+                  "MinIO holds the first transcript batch"
+                  ("transcript:" `Text.isPrefixOf` Text.Encoding.decodeUtf8 bytes)
+              Left err ->
+                assertFailure ("expected MinIO read OK, got: " <> show err)
       , testCase "kubectlApply pipes PerconaPGCluster YAML against live Kind (Sprint 4.2)" $ do
           -- Validates that the typed `kubectlApply` instance pipes the
           -- rendered PerconaPGCluster YAML through stdin to the live

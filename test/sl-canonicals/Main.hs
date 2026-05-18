@@ -2,6 +2,8 @@
 
 module Main where
 
+import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
@@ -37,6 +39,18 @@ main =
                   initialLoss : _ ->
                     assertBool "final loss is below initial loss" (finalLoss problem < initialLoss)
                   [] -> assertBool "empty curve" False
+            )
+            canonicalProblems
+      , testCase "convergence curves match per-problem golden fixtures (Sprint 12.3)" $
+          mapM_
+            ( \problem -> do
+                let goldenPath =
+                      "test/golden/sl/"
+                        <> Text.unpack (problemName problem)
+                        <> "/curve.txt"
+                fixture <- Text.IO.readFile goldenPath
+                Text.lines fixture
+                  @?= fmap (Text.pack . show) (convergenceCurve problem)
             )
             canonicalProblems
       ]

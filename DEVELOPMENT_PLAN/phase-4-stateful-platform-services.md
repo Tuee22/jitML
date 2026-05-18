@@ -392,11 +392,29 @@ writes the CBOR checkpoint sidecar at
 - The typed `TbCheckpointMarker` CBOR sidecar
   (`JitML.Observability.TensorBoard.TbCheckpointMarker` +
   `encodeTbCheckpointMarker` via `Codec.Serialise`) is in place;
-  validated for deterministic encoding by `jitml-unit`. The pending
-  wiring is plugging `CheckpointDone` events into a writer that calls
-  `encodeTbCheckpointMarker` + writes the bytes at
-  `checkpointSidecarKey` through `HasMinIO.putBlobBytesIfAbsent`.
-- Deploy a TensorBoard `Service` template alongside the Deployment.
+  validated for deterministic encoding by `jitml-unit`. The writer
+  surface `JitML.Observability.TbSidecar.writeCheckpointSidecar`
+  consumes a `TbCheckpointMarker` and writes the CBOR bytes at
+  `checkpointSidecarKey` through `HasMinIO.putBlobBytesIfAbsent`,
+  validated by `jitml-integration` against the filesystem-backed
+  `HasMinIO` instance. The Consumer-domain entry point is
+  `JitML.Observability.TbSidecar.dispatchCheckpointDone ::
+  HasMinIO m => TbCheckpointMarker -> m (Either ServiceError ETag)`,
+  which derives the sidecar key from the marker's own
+  `tcmExperimentSha` / `tcmStep` / `tcmManifestSha` fields and writes
+  through `writeCheckpointSidecar`. Validated by `jitml-integration`
+  against the filesystem-backed instance: a marker round-trips
+  through the dispatcher and the resulting bytes land at the
+  canonical `checkpointSidecarKey` location. The pending wiring is
+  plugging the `inference.event.<substrate>` payload deserialiser
+  into the Consumer's per-domain dispatcher so it invokes
+  `dispatchCheckpointDone` on each `CheckpointDone` envelope.
+- The TensorBoard `Service` template is rendered by
+  `JitML.Observability.TensorBoard.renderTensorBoardService`
+  alongside the existing Deployment renderer; the chart consumes the
+  rendered manifest via `chart/templates/service-tensorboard.yaml`.
+  The live deployment validation against a real cluster remains
+  behind `JITML_LIVE_E2E=1`.
 
 ## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA 🔄
 

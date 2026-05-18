@@ -419,10 +419,19 @@ summary.
   `tune.command.<mode>` and persists trial transcripts to MinIO bucket
   `jitml-trials/<sha256(resolved-dhall || trial-seed)>/` — owned by
   Sprint 5.5 once the live broker + MinIO are reachable.
-- Implement live resume-from-partial-sweep that reuses cached trial
-  transcripts. The `Tune.Catalog` `trialStorageKey` and
-  `renderTrialResumeSummary` already produce the keys; the gap is the
-  MinIO read path.
+- Resume-from-partial-sweep is implemented as
+  `JitML.Tune.Resume.persistTrialTranscript` (CBOR-serialises a
+  `TrialTranscript` via `Codec.Serialise` and writes it through
+  `HasMinIO.putBlobBytesIfAbsent` keyed by
+  `Tune.Catalog.trialStorageKey experimentHash trialSeed`) and
+  `replaySweep :: HasMinIO m => Text -> [Int] -> m ResumeOutcome`
+  (reads the same keys back via `minioReadBytes`, deserialises, and
+  returns `ResumeOutcome { resumedSeeds, resumedTrials,
+  resumeReadFailures }` preserving canonical seed order). Validated
+  by `jitml-integration` against the filesystem-backed `HasMinIO`
+  instance: a 3-trial sweep persists, replays bit-equal, and a
+  missing seed lands in `resumeReadFailures`. The live MinIO
+  validation remains gated on Sprint 4.3.
 - Consume the `TUNE_TRIALS` and `TUNE_BUDGET_PER_TRIAL` report-card
   knobs in the canonical stanza body (Sprint 12.5).
 
