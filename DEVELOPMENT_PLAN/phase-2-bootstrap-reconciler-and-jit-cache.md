@@ -40,10 +40,11 @@ intentionally touching global user state.
 `jitml bootstrap --<substrate>` and `jitml cluster up` materialize
 repo-local Kind, chart, Dhall, service, and publication files, then print
 reconciliation summaries or exit `3` when the materialized files are
-already current. Live `kind create cluster` / `helm install` execution
-belongs to Sprint `3.5` (Phase `3`); the JIT cache layer here is the
-content-addressed key/layout/manifest/symlink surface that the per-
-substrate engines in Phase `7` populate.
+already current. Sprint `3.5` owns the `JITML_LIVE_E2E=1` live bootstrap
+runner that executes typed `kind` / `helm` subprocesses; this phase's
+closed surface remains the stage-0 gates, prerequisite DAG, and
+content-addressed JIT cache key/layout/manifest/symlink layer that the
+per-substrate engines in Phase `7` populate.
 
 ## Phase Summary
 

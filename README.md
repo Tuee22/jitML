@@ -340,7 +340,7 @@ The `jitml-checkpoints` bucket uses a fixed prefix schema, owned by Haskell modu
 
 ```
 jitml-checkpoints/
-  <experiment-hash>/                      -- sha256(resolved-dhall || graph-shape-hash)
+  <experiment-hash>/                      -- sha256(resolved-dhall || substrate-fingerprint)
     blobs/<sha256>                        -- write-once, content-addressed, opaque bytes
     manifests/<sha256>                    -- write-once, content-addressed, CBOR manifest objects
     pointers/
@@ -1988,7 +1988,7 @@ Source at `./web/`; spago + `purs` + esbuild bundle to `./web/dist/app.js`. UI f
 
 ## Stance
 
-The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Target training runs are started, paused, resumed, and stopped from the UI; inference is invoked against any checkpoint by direct human input — drawing, uploading, or playing. Playwright coverage belongs to the target live `jitml-e2e` gate once panels consume fixture-backed or live-backed state through `jitml-demo`; the current local e2e surface covers route/API, deployment, contract, report-card, live-gate, and typed live-plan scaffolds.
+The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Target training runs are started, paused, resumed, and stopped from the UI; inference is invoked against any checkpoint by direct human input — drawing, uploading, or playing. Playwright coverage belongs to the target live `jitml-e2e` gate once panels consume fixture-backed or live-backed state through `jitml-demo`; the current local e2e surface covers route/API, deployment, contract, report-card, live-gate, typed live-plan scaffolds, and env-gated Playwright execution against inline DOM stubs.
 
 ## Panels
 
@@ -2016,9 +2016,10 @@ Every interactive panel maps to a small REST + WebSocket pair, all under `/api` 
 ## Tests
 
 Current local frontend checks live in the Haskell `jitml-purescript-style` and
-`jitml-e2e` stanzas. Target `purescript-spec` unit tests live in `./web/test/`,
-and target Playwright E2E runs through the live, opt-in `jitml-e2e` gate
-against the real Envoy route surface.
+`jitml-e2e` stanzas, with `spago test`, `purs-tidy check`, and Playwright
+invocation gated behind `JITML_LIVE_E2E=1`. Target `purescript-spec` unit tests
+live in `./web/test/`, and target Playwright E2E runs through the live, opt-in
+`jitml-e2e` gate against the real Envoy route surface.
 
 ## Deployment
 
@@ -2056,7 +2057,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report/live-gate and typed live-plan checks; target opt-in live gate uses Pulumi-orchestrated ephemeral Kind + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 | `jitml-haskell-style` | doctrine-mandated style stanza (§Style as a Cabal test-suite) | `TestHaskellStyle` | `fourmolu --mode check`, `hlint`, `cabal format` round-trip |
-| `jitml-purescript-style` | Lint (project-specific) | `TestPureScriptStyle` | PureScript `purs format` round-trip + `purescript-spec` smoke tests |
+| `jitml-purescript-style` | Lint (project-specific) | `TestPureScriptStyle` | Current generated-contract / whitespace / panel-contract checks plus live-gated `spago test` and `purs-tidy check`; target default `purs format` round-trip + `purescript-spec` smoke tests |
 
 `TestAll` fans out to every stanza above (via phase 1 of `jitml test all`). Lint runs inside `cabal test` via the `jitml-haskell-style` stanza, not as a separate `test` subcommand — `jitml lint all --check` is the lint surface.
 

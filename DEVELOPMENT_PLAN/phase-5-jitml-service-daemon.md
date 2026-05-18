@@ -34,16 +34,17 @@ serving the three endpoints, the structured JSON logger wired through the
 listener, the POSIX `SIGHUP` → reload-generation and `SIGINT` /
 `SIGTERM` → graceful-drain-and-readiness-drop wiring, and the
 `ServiceError` → `AppError` retry-classification mapping. The typed
-capability classes now carry the full doctrine method set
-(`HasMinIO.{putBlobIfAbsent,casPointer,listObjects,deleteObject}`,
-`HasPulsar.{pulsarSubscribe,pulsarConsume,pulsarSeek}`,
-`HasHarbor.{harborPushImage,harborPullImage,harborListImages}`,
-`HasKubectl.{kubectlGet,kubectlDelete}`) with `ETag` and
-`SubscriptionId` newtypes. The Consumer dispatcher
+capability classes now carry the full current method set
+(`HasMinIO.{minioPutIfAbsent,minioReadObject,minioReadBytes,putBlobIfAbsent,putBlobBytesIfAbsent,casPointer,listObjects,deleteObject}`,
+`HasPulsar.{pulsarPublish,pulsarAcknowledge,pulsarSubscribe,pulsarConsume,pulsarSeek}`,
+`HasHarbor.{harborImageExists,harborPromoteImage,harborPushImage,harborPullImage,harborListImages}`,
+`HasKubectl.{kubectlApply,kubectlStatus,kubectlGet,kubectlDelete}`) with
+`ETag` and `SubscriptionId` newtypes. The Consumer dispatcher
 (`EventDomain`, `HandlerRouter`, `routeByKind`) and the per-domain
 LRU `DedupCache` are checked in. **Unmet today**: Sprint `5.4` owes
-the live instance methods against the running cluster; Sprint `5.5`
-owes the live consumer IO loop using the typed router; Sprint `5.6`
+the live MinIO / Pulsar / Harbor instance methods against the running
+cluster; Sprint `5.5`
+owes the live Pulsar broker path using the typed router; Sprint `5.6`
 owes live Deployment readiness and validated pod anti-affinity across
 multiple replicas. Detailed remaining work lives in those sprints'
 `### Remaining Work` blocks below.
@@ -59,9 +60,10 @@ signal/control surface in `src/JitML/Service/Signal.hs`, and the
 low-level in-binary HTTP runtime in
 `src/JitML/Service/{Http,Runtime}.hs` serving `/healthz`, `/readyz`, and
 `/metrics`. `SIGHUP` increments the reload generation; `SIGINT` and
-`SIGTERM` begin graceful drain and drop readiness. Live capability-class
-implementations against MinIO / Pulsar / Harbor / kubectl are owned by
-Sprints `5.4`–`5.6`.
+`SIGTERM` begin graceful drain and drop readiness. The filesystem-backed
+`HasMinIO` instance and subprocess-backed `HasKubectl` instance are checked
+in and covered locally / behind the live gate; live HTTP-backed MinIO,
+Pulsar, and Harbor clients are owned by Sprints `5.4`–`5.6`.
 
 ## Phase Summary
 
@@ -244,14 +246,13 @@ class surface per doctrine `Capability Classes and Service Errors`.
 
 ### Remaining Work
 
-- The four typed capability classes now expose the full
-  doctrine-required method set: `HasMinIO` adds `putBlobIfAbsent`,
-  `casPointer`, `listObjects`, `deleteObject`; `HasPulsar` adds
-  `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek`; `HasHarbor` adds
-  `harborPushImage`, `harborPullImage`, `harborListImages`;
-  `HasKubectl` adds `kubectlGet`, `kubectlDelete`. The typed
-  `ETag` and `SubscriptionId` newtypes carry the broker / store
-  cursor identities through the capability boundary.
+- The four typed capability classes now expose the full current method
+  set: `HasMinIO` includes text and byte read/write helpers plus
+  conditional write/CAS/list/delete; `HasPulsar` includes publish,
+  acknowledge, subscribe, consume, and seek; `HasHarbor` includes
+  exists/promote/push/pull/list; `HasKubectl` includes apply, status,
+  get, and delete. The typed `ETag` and `SubscriptionId` newtypes carry
+  the broker / store cursor identities through the capability boundary.
 - The filesystem-backed instance `JitML.Service.FilesystemMinIO`
   honours `putBlobIfAbsent` (412 → `SEConflict`) and `casPointer`
   (`If-Match: <etag>` → `SEConflict`); validated by `jitml-integration`.

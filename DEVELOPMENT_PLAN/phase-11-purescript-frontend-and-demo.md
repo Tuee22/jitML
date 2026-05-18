@@ -31,30 +31,34 @@ PureScript-style half of item 15 (the `jitml-purescript-style` stanza
 running `purs format` round-trip and `purescript-spec` smoke tests).
 **Met today**: Sprints `11.1` and `11.2` close the minimal PureScript
 scaffold and the typed contract renderer that produces
-`web/src/Generated/Contracts.purs`. The six canonical Halogen panel
+`web/src/Generated/Contracts.purs`. The six canonical panel payload
 modules now live under `web/src/Panels/`:
 `Panels.{Mnist,Cifar,Connect4,Rl,Training,Tune}` — each carries the
 typed request/response payload shape for its endpoint. `web/test/Main.purs`
 smokes every panel name + the generated contracts surface.
 `playwright/jitml-demo.spec.ts` covers the seven-test canonical panel
 matrix. `JitML.Web.Bundle.panelSurfaces` lists all six panel names.
-**Unmet today**: Sprint `11.3` owes the live `purs format` /
-`spago test` invocations under `JITML_LIVE_E2E=1`; Sprint `11.4` owes
-the live `/api/ws` proxy against real daemon Pulsar topics; Sprint
-`11.5` owes a compiled bundle served from `jitml-demo` against real
-daemon state; Sprint `11.6` owes Playwright actually running against
-the live demo. Detailed remaining work lives in each sprint's
+**Unmet today**: Sprint `11.3` still owes the default/non-gated
+`purs format` round-trip and `purescript-spec` smoke suite; the
+`spago test` and `purs-tidy check` subprocess paths are present behind
+`JITML_LIVE_E2E=1`. Sprint `11.4` owes Halogen render wiring and the
+live `/api/ws` proxy against real daemon Pulsar topics; Sprint `11.5`
+owes building the compiled bundle as part of the demo image and serving
+it against real daemon state; Sprint `11.6` owes Playwright against the
+live `jitml-demo` edge route rather than inline DOM stubs. Detailed
+remaining work lives in each sprint's
 `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
 The worktree implements a minimal PureScript entrypoint, generated
 contract file, typed bundle/panel/demo-route metadata,
-`web/package.json` script surface, `web/test/Main.purs`, Playwright spec
-scaffold, `jitml-demo` executable shim, and demo deployment template.
-Halogen dependency, external `purescript-bridge` package dependency,
-compiled browser bundle output, full panel modules, and live WebSocket
-proxying live in the sprints' `### Remaining Work` blocks below.
+`web/package.json` script surface, `web/test/Main.purs`, six
+`web/src/Panels/*.purs` payload modules, Playwright spec scaffold,
+`jitml-demo` executable shim, and demo deployment template. Halogen
+dependency/mount machinery, external `purescript-bridge` package
+dependency, checked-in compiled browser bundle output, and live
+WebSocket proxying live in the sprints' `### Remaining Work` blocks below.
 `jitml-demo` serves the present route/API surface through
 `src/JitML/Web/Server.hs`.
 
@@ -112,8 +116,8 @@ local renderer that produces `web/src/Generated/Contracts.purs`. The external
 ### Deliverables
 
 - `src/JitML/Web/Contracts.hs` enumerates the current endpoint contract:
-  `RunCommand`, `InferenceRun`, `UploadImage`, `Connect4Move`, and
-  `MetricsStream`.
+  `RunCommand`, `InferenceRun`, `UploadImage`, `Connect4Move`,
+  `MetricsStream`, `TrainingStream`, and `TuneStream`.
 - `src/JitML/Web/Contracts.hs` renders `web/src/Generated/Contracts.purs`
   through the local `renderPureScriptContracts` helper.
 - `contractGeneratorName` identifies the local bridge-compatible renderer used
@@ -152,28 +156,34 @@ whitespace, and panel-contract smoke stanza. The target PureScript
 - The stanza checks the current PureScript files for tab-free, final-newline
   source shape and verifies each typed panel endpoint is covered by the
   generated contract endpoint list.
-- It does not currently invoke `spago test`, `purs format`, `purs-tidy`, or
-  `purescript-spec`.
+- It invokes `spago test` and `purs-tidy check` through the typed
+  `Subprocess` boundary when `JITML_LIVE_E2E=1` is set.
+- It does not currently run a default/non-gated `purs format`
+  round-trip or `purescript-spec` smoke suite.
 
 ### Validation
 
 1. `cabal test jitml-purescript-style` exits `0` for the smoke body.
 2. Missing generated-contract output fails the stanza.
 3. PureScript whitespace and panel-contract validation run in the stanza.
-4. Live validation (target): the stanza invokes `purs format` (or
-   `purs-tidy`) for a round-trip byte-equality check across `web/src/`,
-   runs `spago test`, and executes a `purescript-spec` smoke suite that
-   touches every typed panel contract.
+4. Live-gated validation: with `JITML_LIVE_E2E=1`, the stanza invokes
+   `spago test` and `purs-tidy check` through typed `Subprocess` values.
+5. Target validation: the default style path adds a `purs format`
+   round-trip byte-equality check and a `purescript-spec` smoke suite
+   that touches every typed panel contract.
 
 ### Remaining Work
 
+- Add the default/non-gated `purs format` round-trip byte-equality
+  check and `purescript-spec` smoke suite once the frontend toolchain is
+  installed as part of the normal developer/test environment.
 - The smoke `web/test/Main.purs` exists and exercises all six typed
   panel names + the generated contracts surface.
-- The stanza now invokes `./node_modules/.bin/spago test` through the
+- The stanza invokes `./node_modules/.bin/spago test` through the
   typed `Subprocess` boundary inside the stanza body when
   `JITML_LIVE_E2E=1` is set; validated locally (live build + test
   + `mnist-live-inference` substring assertion against the stdout).
-- The stanza now invokes `./node_modules/.bin/purs-tidy check
+- The stanza invokes `./node_modules/.bin/purs-tidy check
   'src/**/*.purs'` through the typed `Subprocess` boundary inside
   the stanza body when `JITML_LIVE_E2E=1` is set; validated locally
   (purs-tidy reports `All files are formatted` against
@@ -204,8 +214,9 @@ remains target runtime validation.
 - `src/JitML/Web/Contracts.hs` declares endpoint metadata for `RunCommand`,
   `InferenceRun`, `UploadImage`, `Connect4Move`, and `MetricsStream`.
 - `src/JitML/Web/Bundle.hs` declares the local bundle asset manifest, panel
-  surfaces for MNIST inference, image upload, Connect 4, and RL trajectory
-  rendering, and the demo route manifest for `/`, `/api`, and `/api/ws`.
+  surfaces for MNIST inference, image upload, Connect 4, RL trajectory,
+  training progress, and hyperparameter sweep rendering, and the demo route
+  manifest for `/`, `/api`, and `/api/ws`.
 - `web/src/Generated/Contracts.purs` contains the generated local PureScript
   contract output.
 - `test/e2e/Main.hs` checks the browser contract endpoint count.
@@ -234,14 +245,12 @@ remains target runtime validation.
 ### Remaining Work
 
 - All six `web/src/Panels/*.purs` modules are checked in with typed
-  request/response payload shapes; `spago build --output web/dist/`
-  produces compiled CoreFn JS bundles per panel
-  (`web/dist/Panels.{Mnist,Cifar,Connect4,Rl,Training,Tune}/index.js`)
-  alongside `Generated.Contracts/index.js` and the dependency closure.
-  The pending work is wiring them through Halogen render machinery
-  (slot + state + DOM diff) once the Halogen dep is added to
-  `web/package.json`. The Effectful `mount` entry point is the typed
-  contract the Halogen mount call will plug into.
+  request/response or stream payload shapes and an Effectful `mount`
+  placeholder. The pending work is adding the Halogen dependency and
+  render machinery (slot + state + DOM diff), then wiring the normal
+  `spago build --output web/dist` path so the demo image gets a compiled
+  browser bundle rather than relying on a locally present `web/dist/`
+  file.
 - Implement the live `/api/ws` WebSocket proxy that bridges the demo
   server to the daemon's metric/event Pulsar topics. The typed
   panel frame shapes (`Panels.Rl.RlStreamFrame`,
@@ -325,7 +334,8 @@ Land the Playwright scaffold for the future interactive panel suite.
 - `playwright/jitml-demo.spec.ts` exists as the current E2E scaffold.
 - The target suite covers MNIST, CIFAR/ImageNet, Connect 4, RL trajectory,
   training, and tuning panel flows once those panels and the HTTP server land.
-- The current `jitml-e2e` stanza does not invoke Playwright.
+- The current `jitml-e2e` stanza invokes Playwright through the typed
+  `Subprocess` boundary only when `JITML_LIVE_E2E=1` is set.
 - Playwright execution stays out of the default local Cabal matrix until the
   panels consume fixture-backed or live-backed state through `jitml-demo`;
   static scaffold assertions remain covered by the current Haskell e2e and
@@ -349,9 +359,10 @@ Land the Playwright scaffold for the future interactive panel suite.
   (`mnist-live-inference`, `cifar-imagenet-upload`,
   `connect4-human-vs-alphazero`, `rl-trajectory`,
   `training-progress`, `hyperparameter-sweep`). The `jitml-e2e`
-  stanza now invokes `npx playwright test` through the typed
-  `Subprocess` boundary when `JITML_LIVE_E2E=1` is set; validated
-  locally with **7/7 tests passing against real Chromium**.
+  stanza invokes `npx playwright test` through the typed `Subprocess`
+  boundary when `JITML_LIVE_E2E=1` is set; the checked-in spec still
+  drives inline `page.setContent` DOM stubs rather than the live edge
+  route.
 - The pending wiring is feeding Playwright the live edge port from
   `cluster-publication.json` so the panels load against
   `jitml-demo` rather than inline `page.setContent` stubs (gated on

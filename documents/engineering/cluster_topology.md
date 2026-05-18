@@ -130,9 +130,13 @@ The target `jitml bootstrap --<substrate>` runs the phased rollout:
 This avoids the chicken-and-egg of "Harbor isn't up yet, but everything wants
 to pull from it" without resorting to image-pull-secret juggling.
 
-The current command path materializes local Kind, chart, Dhall, and publication
-inputs; it does not create a Kind cluster, run Helm, mirror images, or mutate a
-live cluster yet.
+The default command path materializes local Kind, chart, Dhall, and publication
+inputs without mutating a live cluster. When `JITML_LIVE_E2E=1` is set,
+`jitml bootstrap` calls `JitML.Bootstrap.liveExecutePhasedRollout`, which runs
+the typed `kind`, `helm`, and Pulsar-topic subprocesses through the
+`Subprocess` boundary. Wiring image mirroring into that live executor,
+publishing the leased edge port from the real cluster, readiness polling, and
+deterministic teardown remain target work.
 
 ## `jitml-service` Deployment, Not StatefulSet
 

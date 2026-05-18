@@ -45,10 +45,14 @@ real cluster, and the deterministic teardown integration test
 
 The worktree implements typed renderers for Kind config, manual PVs,
 storage class, Gateway/GatewayClass/EnvoyProxy, HTTPRoutes, cluster
-publication, and bootstrap file materialization. `jitml bootstrap` and
-`jitml cluster up` write those files and render the typed
-`helm dependency build chart` phase; they do not currently execute `kind`,
-`helm`, image mirroring, or live cluster mutation.
+publication, and bootstrap file materialization. By default, `jitml
+bootstrap` and `jitml cluster up` write those files and render the typed
+`helm dependency build chart` phase without live cluster mutation. When
+`JITML_LIVE_E2E=1` is set, `jitml bootstrap` calls
+`JitML.Bootstrap.liveExecutePhasedRollout`, which runs the typed `kind`,
+`helm`, and Pulsar-topic subprocesses; wiring image mirroring, edge-port
+publication from the live lease, readiness polling, and deterministic
+teardown remains open.
 
 ## Phase Summary
 
@@ -301,8 +305,9 @@ steady-state cluster is a no-op (exit code `3`).
    build → final services), populates
    `./.build/runtime/cluster-publication.json` with the leased edge port
    and live component health, and a second `jitml bootstrap --<substrate>`
-   invocation exits `3` (`AppError ReconcilerNoop`). Gated behind
-   `JITML_LIVE_E2E=1` until Phase `12`'s `jitml-e2e` stanza wires it.
+   invocation exits `3` (`AppError ReconcilerNoop`). The live bootstrap
+   runner is gated behind `JITML_LIVE_E2E=1`; the full Pulumi + Helm +
+   Playwright e2e orchestration remains Sprint `12.8` work.
 
 ### Remaining Work
 

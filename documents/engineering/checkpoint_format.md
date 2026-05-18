@@ -18,7 +18,7 @@ values rather than stringly-typed call sites:
 
 ```
 jitml-checkpoints/
-  <experiment-hash>/                      -- sha256(resolved-dhall || graph-shape-hash)
+  <experiment-hash>/                      -- sha256(resolved-dhall || substrate-fingerprint)
     blobs/<sha256>                        -- write-once, content-addressed, opaque bytes
     manifests/<sha256>                    -- write-once, content-addressed, CBOR manifest objects
     pointers/
@@ -28,16 +28,18 @@ jitml-checkpoints/
       trial/<trial-hash>/best/<metric>    -- per-HPO-trial best pointer
 ```
 
-`experiment-hash = sha256(resolved-dhall || graph-shape-hash)`.
+`experiment-hash = sha256(resolved-dhall || substrate-fingerprint)`.
 `manifest-sha = sha256(canonical-cbor(CheckpointManifest))`.
 
-Current local helpers cover `blobKey`, `manifestKey`, `latestPointerKey`,
-`bestPointerKey`, `trialPointerKey`, deterministic `encodeManifestCbor` /
-`decodeManifestCbor` / `manifestContentSha`, and pure `applyPointerWrite` CAS
-decisions. `JitML.Checkpoint.Store` provides the local filesystem-backed
-interpreter for write-once object writes, manifest writes/reads, latest-pointer
-CAS, and inference from the latest checkpoint. Live MinIO `If-None-Match` /
-`If-Match` effects remain in the runtime writer.
+Current local helpers cover `deriveExperimentHash`, `blobKey`, `manifestKey`,
+`latestPointerKey`, `bestPointerKey`, `trialPointerKey`, deterministic
+`encodeManifestCbor` / `decodeManifestCbor` / `manifestContentSha`, typed
+`AdvancePredicate`, and pure `applyPointerWrite` CAS decisions.
+`JitML.Checkpoint.Store` provides the local filesystem-backed interpreter for
+write-once object writes, manifest writes/reads, latest-pointer CAS, retention
+planning, GC execution through `HasMinIO`, and inference from the latest
+checkpoint. Live HTTP MinIO `If-None-Match` / `If-Match` effects remain in the
+runtime writer.
 
 The live rollout proceeds storage-outward: implement MinIO conditional
 checkpoint writes/reads first, then inference from checkpoint, then training
@@ -141,14 +143,16 @@ data CheckpointPart = CheckpointPart
   }
 ```
 
-This is the target manifest shape. The current `CheckpointManifest` is a small
-record with `manifestId`, `manifestExperiment`, and tensor blobs only.
-`encodeManifestCbor` canonicalizes tensor order by `tensorName`,
-`decodeManifestCbor` round-trips that local representation, and
-`manifestContentSha` hashes the deterministic CBOR bytes. `cmWallClockNs` is
-telemetry only and is never an input to any content hash. `cmParts` is
-canonical-ordered by role in the target richer manifest. CBOR canonical-form
-encoding makes the manifest SHA deterministic.
+The Haskell `CheckpointManifest` in `src/JitML/Checkpoint/Format.hs` carries
+the implemented local shape: manifest id, experiment hash, tensor blobs,
+optimizer blobs, RNG blobs, monotonic step, metrics, and optional parent
+manifest SHA. `encodeManifestCbor` canonicalizes tensor order by `tensorName`,
+optimizer order by `optimizerKind`, RNG order by `rngStreamId`, and metrics by
+name; `decodeManifestCbor` round-trips that representation, and
+`manifestContentSha` hashes the deterministic CBOR bytes. The richer target
+shape above still documents the full runtime contract for wall-clock telemetry,
+epoch, substrate, schema version, and generalized part roles. `cmWallClockNs`
+is telemetry only and is never an input to any content hash.
 
 ## Concurrency Model
 
@@ -165,8 +169,8 @@ advisory locks, leases, or a separate lock service.
 
 ## Typed Advance Predicates
 
-The target pointer-CAS retry harness applies a typed predicate `CurrentManifest →
-ProposedManifest → Bool`:
+The pointer-CAS retry harness applies the typed `AdvancePredicate` ADT in
+`src/JitML/Checkpoint/Format.hs` through `applyAdvancePredicate`:
 
 | Predicate | Meaning |
 |-----------|---------|
@@ -177,9 +181,11 @@ ProposedManifest → Bool`:
 Trainers pick `Maximised` vs `Minimised` from the experiment Dhall's
 `metrics[i].direction` field. The direction is part of the resolved-Dhall
 hash, so flipping a metric's direction defines a *different experiment*.
-The current worktree has a pure `PointerWrite` / `applyPointerWrite` decision
-surface plus a local filesystem-backed checkpoint store. It does not perform
-MinIO conditional writes.
+The current worktree has `AdvanceLatest`, `AdvanceBestMaximised`, and
+`AdvanceBestMinimised` constructors, pure `applyAdvancePredicate`, a pure
+`PointerWrite` / `applyPointerWrite` decision surface, and a local
+filesystem-backed checkpoint store. It does not perform live HTTP MinIO
+conditional writes yet.
 
 ## Sketch
 
@@ -217,9 +223,13 @@ re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
   `At-Least-Once Event Processing`, naming every reaped manifest and blob
   SHA so the audit trail survives the deletion.
 
-The current `jitml internal gc <experiment-hash>` prints a local reconciliation
-summary and supports dry-run plan rendering; it does not traverse MinIO or reap
-objects.
+The current store exposes `RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
+`applyRetentionPolicy`, `buildGcPlan`, and `executeGcPlan` over the typed
+`HasMinIO` boundary, with filesystem-backed coverage in tests. The current
+`jitml internal gc <experiment-hash>` prints `gc: <experiment-hash> kept=<n>
+reaped=<n>` and exits `3` when the local plan is a no-op. Live HTTP MinIO
+traversal/deletion and live `gc_reaped` Pulsar publication remain target
+runtime work.
 
 ## Inference-Only Read Path
 
@@ -233,11 +243,15 @@ Concurrent training advances are invisible to the reader because the
 snapshot the reader operates against is immutable.
 
 The current local read paths are `inferFromManifest`, a deterministic summary
-helper used by `jitml inference run` and the local cross-backend stanza, and
+helper used by `jitml inference run` and the local cross-backend stanza,
 `JitML.Checkpoint.Store.inferFromLatestCheckpoint`, which reads a local latest
 pointer, fetches the addressed manifest, and applies the same deterministic
-inference helper. The target inference-only read path is the supported
-entrypoint for `jitml-demo` and the PureScript panels.
+inference helper, and `inferWeightsOnlyFromLatestCheckpoint`, which clears
+optimizer/RNG parts before inference. `loadInferenceCheckpoint` already reads
+the latest pointer and manifest through `HasMinIO` and is covered by the
+filesystem-backed instance; live HTTP MinIO and real `KernelHandle` loading
+remain target work. The inference-only read path is the supported entrypoint
+for `jitml-demo` and the PureScript panels.
 
 ## TensorBoard Sidecar
 
@@ -261,8 +275,13 @@ CBOR canonical-form, content-addressed-style, written with `If-None-Match:
 load and overlays clickable markers on the TB iframe's loss curve — clicking
 opens the inference panel pre-loaded with that manifest SHA.
 
-The current local sidecar path renderer is
-`JitML.Observability.TensorBoard.checkpointSidecarKey`.
+The current local sidecar surface includes
+`JitML.Observability.TensorBoard.checkpointSidecarKey`,
+`TbCheckpointMarker`, `encodeTbCheckpointMarker`, and
+`JitML.Observability.TbSidecar.{writeCheckpointSidecar,dispatchCheckpointDone}`
+over `HasMinIO`, with filesystem-backed integration coverage. Live
+`CheckpointDone` dispatch from the daemon runtime and live MinIO writes remain
+target work.
 
 ## Bit-Determinism
 

@@ -13,14 +13,18 @@
 ## SL Training Loops
 
 `src/JitML/SL/` owns the supervised-learning surface. The current worktree has
-local canonical summaries in `src/JitML/SL/Canonicals.hs`; it does not yet have
-real dataset loaders, training loops, or MinIO dataset access.
+local canonical summaries in `src/JitML/SL/Canonicals.hs`, typed dataset
+references in `src/JitML/SL/Dataset.hs`, a deterministic GADT-shaped loop in
+`src/JitML/SL/Loop.hs`, and `train :: TrainingConfig -> ReaderT Env m
+TrainResult` in `src/JitML/SL/Train.hs`.
 
-- Target `Train.hs` exposes `train :: TrainingConfig -> ReaderT Env IO TrainResult`.
-- Target `Loop.hs` is the typed pipeline backed by the `TrainingLifecycle` GADT
-  (`Loaded → Ready → Stepping → Evaluating → Checkpointing → Finished`).
-- Target `Dataset.hs` lazily fetches pinned source datasets from MinIO bucket
-  `jitml-datasets`; SHA-256 verified against the experiment Dhall.
+- Current `Train.hs` exposes a deterministic local training result over the
+  canonical problem catalog.
+- Current `Loop.hs` is the typed pipeline backed by the `TrainingLifecycle`
+  GADT phases and deterministic convergence curves.
+- Current `Dataset.hs` renders pinned dataset object keys and SHA-256 fixture
+  hashes; live MinIO dataset fetch and source binary validation remain target
+  runtime work.
 
 ### Canonical SL Problems
 
@@ -62,22 +66,27 @@ experiment Dhall, reconciles prerequisites, materializes the dataset, publishes
 Machines`, the run lifecycle is the phase-indexed GADT
 `RLRunLifecycle` in `src/JitML/RL/Framework.hs`. Its current data-kind
 phases are `RLCollect → RLComputeAdvantages → RLOptimise → RLEvaluate →
-RLCheckpoint`; the daemon-backed runtime target lifecycle additionally
-brackets these with `Loaded → Ready → … → Finished` bookend states once
-`RL/Loop.hs` lands.
+RLCheckpoint`; `src/JitML/RL/Loop.hs` provides the deterministic local
+`RLLoop` / `runRLLoop` surface. The daemon-backed runtime target additionally
+brackets this with live load/ready/serve/drain states.
 
 Current local surfaces live in `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`, `src/JitML/RL/Framework.hs`, and
-`src/JitML/RL/AlphaZero.hs`. They provide deterministic catalog, environment,
-run-plan, lifecycle, Connect 4 transcript, canonical-game, two-headed-network,
-and arena-summary helpers. The fuller target module split below is the runtime
-layout the daemon-backed implementation grows into.
+`src/JitML/RL/{Policy,VecEnv,Buffer,AsyncBuffer,Loop}.hs`, plus one module per
+traditional algorithm under `src/JitML/RL/Algorithms/` and the AlphaZero
+substack under `src/JitML/RL/AlphaZero/`. They provide deterministic catalog,
+environment, run-plan, lifecycle, policy, buffer, loop, per-algorithm module,
+canonical-game, MCTS, self-play, and arena helpers. Live environment stepping,
+network forward/backward passes, and daemon-backed persistence remain target
+runtime work.
 
 ### Algorithm Class Taxonomy (Type-Level)
 
 The current `AlgorithmFamily` metadata in `src/JitML/RL/Algorithms.hs`
-enumerates `OnPolicy`, `OffPolicy`, `Specialized`, and `SelfPlay`. Target
-runtime work grows this into a GADT-indexed `Algorithm` kind with traits:
+enumerates `OnPolicy`, `OffPolicy`, `Specialized`, and `SelfPlay`; the concrete
+per-algorithm modules are aggregated by
+`src/JitML/RL/Algorithms/Registry.hs`. Target runtime work grows this into a
+GADT-indexed `Algorithm` kind with traits:
 
 - `OnPolicy` / `OffPolicy` / `Hierarchical` / `Recurrent`
 - `MaskingCapable` (algorithm supports action masks)
@@ -89,24 +98,27 @@ declarations.
 
 ### Policy and Environment
 
-- Target `Policy` carries the typed action distribution shape, parameter
-  references, and the substrate-bound `KernelHandle` for inference.
-- Target `Environment` typeclass plus `VecEnv` parallel-environment combinator.
+- Current `Policy` carries the typed local policy metadata; target runtime work
+  adds parameter references and the substrate-bound `KernelHandle` for
+  inference.
+- Current `RLEnvironment` metadata plus `VecEnv` combinator cover local
+  deterministic stepping; live simulator bindings remain target work.
 - Current `src/JitML/RL/Environments.hs` provides local metadata and a
   deterministic step helper for cartpole, mountain-car, lunar-lander, and an
   atari-subset row.
 
 ### Buffers
 
-- Replay buffer (off-policy) and rollout buffer (on-policy).
-- `Async` write discipline with backpressure.
-- Per-buffer message-hash-deduplicated commit log so duplicates from the
-  at-least-once Pulsar consumer are absorbed.
+- Current `ReplayBuffer` covers off-policy and on-policy rollout storage with
+  deterministic sampling.
+- Current `AsyncBuffer` provides the bounded async write discipline and drain
+  boundary.
+- Target work backs the async sink with live `HasMinIO` and adds the
+  message-hash-deduplicated commit log so duplicates from the at-least-once
+  Pulsar consumer are absorbed.
 
 ### Schedules, Distributions, Noise, Targets, GAE, Callbacks, Logger, Evaluator
 
-| Primitive | Variants | Owning module |
-|-----------|----------|---------------|
 | Primitive | Current location |
 |-----------|------------------|
 | Schedules | `src/JitML/RL/Framework.hs` metadata |
@@ -156,10 +168,12 @@ at-least-once `RlHandler`.
 
 `dhall/rl/Schema.dhall` is the current Dhall mirror for the local Haskell
 algorithm catalog and is audited by `JitML.RL.Schema` plus the Haskell lint
-stack. `test/golden/rl/ppo/cartpole/trajectory.txt` pins the current
-PPO/CartPole deterministic trajectory. Per-algorithm runtime modules, richer
-Dhall types at `dhall/rl/algos/<algo>.dhall`, and full trajectory fixture
-coverage under `test/golden/rl/<algo>/<env>/` remain target work.
+stack. The traditional algorithms have concrete modules under
+`src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}.hs`
+aggregated by `Registry.algorithmModuleRegistry`. `test/golden/rl/ppo/cartpole/trajectory.txt`
+pins the current PPO/CartPole deterministic trajectory. Richer Dhall types at
+`dhall/rl/algos/<algo>.dhall`, real network/update logic, and full trajectory
+fixture coverage under `test/golden/rl/<algo>/<env>/` remain target work.
 
 For off-policy algorithms, the bit-equality golden anchor is the first-N-
 steps prefix per [determinism_contract.md → Same-Substrate Bit-Equality (RL
@@ -167,24 +181,30 @@ Caveat)](determinism_contract.md#same-substrate-bit-equality-rl-caveat).
 
 ## AlphaZero-Style Self-Play
 
-The current AlphaZero surface lives in `src/JitML/RL/AlphaZero.hs`. It provides
-Connect 4 state/move helpers, deterministic transcript summaries, local game
-metadata, two-headed-network metadata, and arena summaries. A persistent
-AlphaZero/MCTS stack remains target runtime work.
+The current AlphaZero surface lives in `src/JitML/RL/AlphaZero.hs` plus
+`src/JitML/RL/AlphaZero/{Mcts,SelfPlay,Arena}.hs`. It provides per-game
+state/move helpers for Connect 4, Othello, Hex, and Gomoku, deterministic
+transcript summaries, local game metadata, two-headed-network metadata,
+persistent MCTS transposition-table helpers, self-play buffer hashing, and
+arena promotion summaries. Real network evaluation and live checkpoint
+persistence remain target runtime work.
 
 | Component | Current / target |
 |-----------|------------------|
 | Connect 4 helpers | Current: `src/JitML/RL/AlphaZero.hs` |
 | Perfect-information game metadata | Current: `src/JitML/RL/AlphaZero.hs` |
 | Two-headed network metadata | Current: `src/JitML/RL/AlphaZero.hs` |
-| MCTS with PUCT and persistent tree state | Target runtime module |
-| Self-play loop and replay buffer | Target runtime module |
-| Arena gating | Current summary helper; target runtime module |
+| MCTS with PUCT and persistent tree state | Current deterministic module: `src/JitML/RL/AlphaZero/Mcts.hs`; target real network prior/evaluator |
+| Self-play loop and replay buffer | Current deterministic module: `src/JitML/RL/AlphaZero/SelfPlay.hs`; target live MinIO checkpoint persistence |
+| Arena gating | Current deterministic module: `src/JitML/RL/AlphaZero/Arena.hs`; target measured candidate-vs-reference evaluation |
 
 ### Persistent MCTS State
 
-The current `MctsState` is a small local metadata record with visit count and a
-prior seed. Persistent visits across moves remain target runtime work.
+The top-level `MctsState` is a small local metadata record with visit count and
+a prior seed. `JitML.RL.AlphaZero.Mcts` now provides the persistent
+`TranspositionTable`, `TranspositionKey`, and `runSearchWithTable` helpers;
+target runtime work replaces the deterministic prior with a real two-headed
+network evaluator.
 
 ### Deterministic Stochasticity
 
@@ -196,14 +216,15 @@ seed self-play produces bit-identical visit counts.
 
 | Game | Owning module |
 |------|---------------|
-| Connect 4 | `src/JitML/RL/AlphaZero.hs` metadata and helper |
-| Othello | `src/JitML/RL/AlphaZero.hs` metadata only |
-| Hex | `src/JitML/RL/AlphaZero.hs` metadata only |
-| Gomoku | `src/JitML/RL/AlphaZero.hs` metadata only |
+| Connect 4 | `src/JitML/RL/AlphaZero.hs` metadata, `initialConnect4`, `applyMove`, transcript helper, and two-headed network |
+| Othello | `src/JitML/RL/AlphaZero.hs` metadata, `initialOthello`, `othelloApplyMove`, transcript helper, and two-headed network |
+| Hex | `src/JitML/RL/AlphaZero.hs` metadata, `initialHex`, `hexApplyMove`, transcript helper, and two-headed network |
+| Gomoku | `src/JitML/RL/AlphaZero.hs` metadata, `initialGomoku`, `gomokuApplyMove`, transcript helper, and two-headed network |
 
 Connect 4 is the canonical demo game consumed by the PureScript Connect 4
-panel metadata. `test/golden/alphazero/connect4-transcript.txt` pins the current
-local transcript shape; fuller self-play game fixtures remain target work.
+panel metadata. `test/golden/alphazero/{connect4,othello,hex,gomoku}-transcript.txt`
+pin the current local transcript shapes; full rule-complete replay fixture
+trees remain target work.
 
 ## Hyperparameter Tuning
 
@@ -256,8 +277,11 @@ trial index.
 
 The current local surface in `src/JitML/Tune/Catalog.hs` exposes
 `trialStorageKey`, `resumeMatchesFullRun`, and `renderTrialResumeSummary` for
-deterministic key and resume-equality checks before the live MinIO writer lands.
-`test/golden/tune/` pins the current Sobol and GeneticAlgorithm trial streams.
+deterministic key and resume-equality checks. `src/JitML/Tune/Resume.hs`
+provides `persistTrialTranscript` and `replaySweep` over `HasMinIO`, validated
+against the filesystem-backed instance; live HTTP MinIO persistence remains
+target work. `test/golden/tune/` pins the current Sobol and GeneticAlgorithm
+trial streams.
 
 ### `jitml tune` CLI
 

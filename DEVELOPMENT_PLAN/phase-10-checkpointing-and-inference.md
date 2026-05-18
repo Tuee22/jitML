@@ -54,17 +54,19 @@ each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
-The worktree implements a `CheckpointManifest`, `TensorBlob`, split-blob
-object-key renderers, pointer-CAS decisions, `manifestPointer`,
-deterministic `encodeManifestCbor` / `decodeManifestCbor` /
-`manifestContentSha`, binary `encodeJmw1` encoder with `JMW1` magic, CBOR
+The worktree implements a `CheckpointManifest`, `TensorBlob`, optimizer/RNG
+blob metadata, split-blob object-key renderers, pointer-CAS decisions,
+`manifestPointer`, deterministic `encodeManifestCbor` / `decodeManifestCbor`
+/ `manifestContentSha`, binary `encodeJmw1` encoder with `JMW1` magic, CBOR
 header length, and little-endian `F64` payload bytes, plus
 `inferFromManifest`. `src/JitML/Checkpoint/Store.hs` adds a local
 object-store interpreter for write-once payloads, manifest writes/reads,
-latest pointer CAS, and inference from the latest checkpoint. Live MinIO
-conditional-write effects, retention graph traversal, kernel-handle
-loading, and real demo/frontend checkpoint reads live in the sprints'
-`### Remaining Work` blocks below.
+latest pointer CAS, inference from the latest checkpoint, retention planning,
+`HasMinIO`-backed GC execution, and `HasMinIO`-backed inference checkpoint
+loading covered by the filesystem-backed instance. Live HTTP MinIO effects,
+live `gc_reaped` Pulsar publishing, kernel-handle loading, and real
+demo/frontend checkpoint reads live in the sprints' `### Remaining Work`
+blocks below.
 
 ## Phase Summary
 
@@ -208,8 +210,9 @@ per `### Remaining Work` below.
   same-substrate and cross-substrate tolerance methodology.
 - `jitml internal gc <experiment-hash> --dry-run` renders a generic
   Plan/Apply retention plan.
-- Normal `jitml internal gc <experiment-hash>` currently prints
-  `gc: checkpoint retention policy reconciled`.
+- Normal `jitml internal gc <experiment-hash>` currently prints the local
+  retention summary (`gc: <experiment-hash> kept=<n> reaped=<n>`) and exits
+  `3` on a no-op plan through `AppError ReconcilerNoop`.
 - `JitML.Checkpoint.Store.{walkLiveSet,applyRetentionPolicy,buildGcPlan}`
   implement the pointer live-set traversal across the `latest` chain
   and `best/<m>` / `trial/<...>` always-live pointer targets,
@@ -327,7 +330,7 @@ remain target runtime work.
 
 - [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprints 10.3, 10.4)
 - [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprint 10.4 — local `jitml-cross-backend` body consumes `inferFromManifest`)
-- [../HASKELL_CLI_TOOL.md → Reconcilers: Idempotent Mutation as a Single Command](../HASKELL_CLI_TOOL.md) (Sprint 10.3 — `jitml internal gc` command summary; full no-op exit `3` owned by Sprint 10.3's Remaining Work)
+- [../HASKELL_CLI_TOOL.md → Reconcilers: Idempotent Mutation as a Single Command](../HASKELL_CLI_TOOL.md) (Sprint 10.3 — `jitml internal gc` command summary and local no-op exit `3`; live MinIO deletion / Pulsar `gc_reaped` events remain Sprint 10.3 Remaining Work)
 
 ## Documentation Requirements
 

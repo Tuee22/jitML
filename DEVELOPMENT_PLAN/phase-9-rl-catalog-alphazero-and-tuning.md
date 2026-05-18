@@ -13,9 +13,10 @@
 
 > **Purpose**: Stand up the RL algorithm metadata catalog, Connect
 > 4 / AlphaZero transcript helpers, canonical game metadata, and deterministic
-> hyperparameter tuning catalogs. The target runtime extends these surfaces into
-> one module per algorithm, persistent MCTS state, live trial storage/resume, and
-> daemon-backed training.
+> hyperparameter tuning catalogs. The current tree includes one module per
+> traditional RL algorithm and a local AlphaZero MCTS/self-play/arena substack;
+> the target runtime extends these surfaces into live trial storage/resume,
+> JIT-backed network execution, and daemon-backed training.
 
 ## Phase Status
 
@@ -67,16 +68,18 @@ and on-hardware reward thresholds remain in the per-sprint
 
 ## Phase Summary
 
-This phase currently delivers local RL algorithm metadata, Connect 4 transcript
-helpers, and deterministic tuning catalogs. The target phase grows those
-surfaces into one module per algorithm, a persistent AlphaZero/MCTS sub-stack,
-and a typed sweep manager that drives SL, RL, or AlphaZero training under a
-sampler × scheduler × pruner Dhall.
+This phase currently delivers local RL algorithm metadata, one module per
+traditional RL algorithm, Connect 4 / Othello / Hex / Gomoku transcript
+helpers, a local AlphaZero MCTS/self-play/arena substack, and deterministic
+tuning catalogs. The target runtime grows those surfaces into real
+JIT-backed network updates and a typed sweep manager that drives SL, RL, or
+AlphaZero training under a sampler × scheduler × pruner Dhall.
 
 ## Sprint 9.1: On-Policy Algorithm Metadata 🔄
 
 **Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
+`src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo}.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
@@ -121,6 +124,7 @@ below.
 
 **Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
+`src/JitML/RL/Algorithms/{Dqn,QrDqn,Ddpg,Td3,Sac}.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
@@ -133,8 +137,11 @@ Land the current off-policy algorithm metadata rows.
 - `algorithmCatalog` includes off-policy rows for `DQN`, `QR-DQN`, `DDPG`,
   `TD3`, and `SAC`.
 - Each row records the `OffPolicy` family and `algorithmReplayBased = True`.
-- Replay buffers, algorithm-specific modules, and full golden trajectory
-  fixture coverage are not present in the current tree.
+- The five checked-in off-policy algorithm modules expose typed
+  deterministic hyperparameter rows and per-seed transcripts.
+- Replay-buffer primitives are present in `JitML.RL.Buffer`; real
+  network update code and full golden trajectory fixture coverage are
+  still target work.
 
 ### Validation
 
@@ -159,6 +166,7 @@ Land the current off-policy algorithm metadata rows.
 
 **Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
+`src/JitML/RL/Algorithms/{CrossQ,Tqc,Ars,Her}.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
@@ -335,10 +343,11 @@ catalog, and corresponding browser-contract endpoint metadata.
 ### Validation
 
 1. `cabal test jitml-rl-canonicals` validates the Connect 4 move bounds.
-2. Live validation (target): Othello, Hex, and Gomoku each carry real
-   `initial<Game>`, `applyMove`, and `selfPlayTranscript` helpers; each
-   game has committed golden replay fixtures; the
-   `PerfectInformationGame` typeclass admits all four canonical games.
+2. Local validation checks the deterministic replay fixture for each
+   canonical game.
+3. Live validation (target): Othello, Hex, and Gomoku graduate from the
+   deterministic local rules to full rule-complete position evaluators
+   and JIT-backed network forward passes.
 
 ### Remaining Work
 

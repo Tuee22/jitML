@@ -78,10 +78,10 @@ homes, but the type-level shape is fixed.
 
 | Class | Operations | Owning module |
 |-------|-----------|---------------|
-| `HasMinIO` | `putBlobIfAbsent`, `casPointer`, `getObject`, `listPrefix` | `src/JitML/Service/Caps/MinIO.hs` |
-| `HasPulsar` | `subscribe`, `produce`, `ack`, `seek` | `src/JitML/Service/Caps/Pulsar.hs` |
-| `HasHarbor` | `pushImage`, `getImage`, `deleteImage` | `src/JitML/Service/Caps/Harbor.hs` |
-| `HasKubectl` | `applyManifest`, `getResource`, `deleteResource` | `src/JitML/Service/Caps/Kubectl.hs` |
+| `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs` |
+| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge`, `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek` | `src/JitML/Service/Capabilities.hs` |
+| `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs` |
+| `HasKubectl` | `kubectlApply`, `kubectlStatus`, `kubectlGet`, `kubectlDelete` | `src/JitML/Service/Capabilities.hs` |
 
 `HasKubectl` operations route through the typed `Subprocess` boundary.
 

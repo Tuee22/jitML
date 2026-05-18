@@ -449,8 +449,10 @@ container/runtime state, and validates teardown.
   records whether `Chart.lock` is part of the reproducible dependency surface.
 - Default `cabal test jitml-e2e` remains local; the live path is enabled only
   by `JITML_LIVE_E2E=1`.
-- Playwright runs only after the demo panels read fixture-backed or live-backed
-  state rather than static scaffold output.
+- Playwright invocation is present only on the `JITML_LIVE_E2E=1` path today;
+  the checked-in spec still uses inline DOM stubs. Live edge-route Playwright
+  remains target work after the demo panels read fixture-backed or live-backed
+  state.
 
 ### Validation
 
@@ -469,14 +471,14 @@ container/runtime state, and validates teardown.
 
 - The ephemeral-Kind orchestrator (`infra/pulumi/index.ts`) and the
   typed phased rollout (`JitML.Test.LivePlan.livePhasedClusterPlan`)
-  are in place. The `jitml-e2e` stanza now invokes `npx playwright
-  test` through the typed `Subprocess` boundary under
-  `JITML_LIVE_E2E=1` (validated locally: 7/7 Playwright tests pass
-  against real Chromium in 142 s). Still open: actually executing
-  the typed phased Helm + Pulsar topic creation rollout under
-  `JITML_LIVE_E2E=1` against a real Kind cluster (heavy subcharts
-  Harbor + Pulsar HA + Postgres + MinIO + Prometheus together
-  require multi-GB of memory).
+  are in place. The `jitml-e2e` stanza invokes `npx playwright test`
+  through the typed `Subprocess` boundary under `JITML_LIVE_E2E=1`
+  against the current inline DOM stub spec. Still open: actually
+  executing the typed phased Helm + Pulsar topic creation rollout under
+  `JITML_LIVE_E2E=1` against a real Kind cluster and then driving
+  Playwright against the live edge route (heavy subcharts Harbor +
+  Pulsar HA + Postgres + MinIO + Prometheus together require multi-GB
+  of memory).
 - The post-teardown assertion that no `jitml-e2e-*` Kind cluster
   survives is wired in `jitml-e2e` (`kind get clusters` through the
   typed `Subprocess` boundary, asserting no `jitml-e2e-`-prefixed

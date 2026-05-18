@@ -83,25 +83,30 @@ filesystem-backed `HasMinIO` instance, the same-host bit-equality of
 the linux-cpu identity kernel across three successive FFI runs
 validated by `jitml-cross-backend`, the Dhall numerics schema decode
 that round-trips the full Haskell catalog
-(`JitML.Numerics.Schema.loadNumericsCatalog`), the six Halogen
-panels validated against real Chromium through Playwright invoked
-from `jitml-e2e` through the typed `Subprocess` boundary under
-`JITML_LIVE_E2E=1`, the `spago test` smoke suite invoked from
-`jitml-purescript-style` through the typed `Subprocess` boundary
-under `JITML_LIVE_E2E=1`, the compiled Halogen CoreFn JS bundle
-under `web/dist/` produced by `spago build`, the real-binary
-`./.build/jitml` spawn matrix (`--help`, `bootstrap --linux-cpu
---dry-run`, `cluster up --substrate linux-cpu --dry-run`,
-`internal gc <hash>` exiting `3`) through the typed boundary in a
-temp workdir covered by `jitml-integration`, the live Kind cluster
-spin-up producing `./.build/jitml.kubeconfig` without polluting
-`~/.kube/config`, the post-teardown `no jitml-e2e-* Kind clusters
-survive` assertion in `jitml-e2e`, the typed Pulumi
-ephemeral-Kind orchestrator under `infra/pulumi/index.ts`, the
-typed Tune resume surface (`JitML.Tune.Resume.{persistTrialTranscript,replaySweep}`)
+(`JitML.Numerics.Schema.loadNumericsCatalog`), the generated
+TensorBoard Service renderer
+(`JitML.Observability.TensorBoard.renderTensorBoardService`, not yet
+materialized as `chart/templates/service-tensorboard.yaml`), the six
+PureScript panel payload modules under `web/src/Panels/`, the seven-test
+Playwright matrix invoked from `jitml-e2e` through the typed
+`Subprocess` boundary under `JITML_LIVE_E2E=1` against inline DOM stubs,
+the `spago test` and `purs-tidy check` smoke paths invoked from
+`jitml-purescript-style` through the typed `Subprocess` boundary under
+`JITML_LIVE_E2E=1`, the demo route logic that serves
+`web/dist/Main/index.js` when a local `spago build --output web/dist`
+has produced it, the real-binary `./.build/jitml` spawn matrix
+(`--help`, `bootstrap --linux-cpu --dry-run`, `cluster up --substrate
+linux-cpu --dry-run`, `internal gc <hash>` exiting `3`) through the
+typed boundary in a temp workdir covered by `jitml-integration`, the
+spin-up path through `kindCreateSubprocess` that writes
+`./.build/jitml.kubeconfig` without polluting `~/.kube/config` when the
+live gate is used, the post-teardown `no jitml-e2e-* Kind clusters
+survive` assertion in `jitml-e2e`, the typed Pulumi ephemeral-Kind
+orchestrator under `infra/pulumi/index.ts`, the typed Tune resume
+surface (`JitML.Tune.Resume.{persistTrialTranscript,replaySweep}`)
 round-tripping through filesystem-backed `HasMinIO`, the TbSidecar
-writer (`JitML.Observability.TbSidecar.writeCheckpointSidecar`)
-plus `renderTensorBoardService` chart template, the typed Docker
+writer (`JitML.Observability.TbSidecar.writeCheckpointSidecar`) plus the
+`renderTensorBoardService` renderer, the typed Docker
 mirror plan (`JitML.Cluster.DockerImage.{dockerMirrorPlan,docker{Build,Tag,Push,Login}Subprocess}`)
 + edge-port lease (`JitML.Cluster.EdgePort.leaseEdgePort`), the
 lifecycle-exit wiring (`JitML.Service.Runtime.consumerLoopExit`)
@@ -292,10 +297,10 @@ registry; the `jitml service` daemon's BootConfig / LiveConfig / endpoints
 / structured log / retry / at-least-once helper / in-binary HTTP listener
 / POSIX signal wiring (with `HandlerRouter` + per-domain `DedupCache`);
 the full four-class capability surface
-(`HasMinIO.{putBlobIfAbsent,casPointer,listObjects,deleteObject}`,
-`HasPulsar.{pulsarSubscribe,pulsarConsume,pulsarSeek}`,
-`HasHarbor.{harborPushImage,harborPullImage,harborListImages}`,
-`HasKubectl.{kubectlGet,kubectlDelete}`) plus `ETag` / `SubscriptionId`
+(`HasMinIO.{minioPutIfAbsent,minioReadObject,minioReadBytes,putBlobIfAbsent,putBlobBytesIfAbsent,casPointer,listObjects,deleteObject}`,
+`HasPulsar.{pulsarPublish,pulsarAcknowledge,pulsarSubscribe,pulsarConsume,pulsarSeek}`,
+`HasHarbor.{harborImageExists,harborPromoteImage,harborPushImage,harborPullImage,harborListImages}`,
+`HasKubectl.{kubectlApply,kubectlStatus,kubectlGet,kubectlDelete}`) plus `ETag` / `SubscriptionId`
 newtypes; the numerical-core Haskell catalog and Dhall mirror; per-substrate
 JIT source renderers under `src/JitML/Codegen/` with the
 `KernelFamily`-aware variants and the per-substrate `KnobSpace` from
@@ -317,7 +322,7 @@ parent lineage), the typed `AdvancePredicate` ADT, the
 `deriveExperimentHash` function, the `RetentionPolicy` + `walkLiveSet`
 + `buildGcPlan` GC reconciler surface, and the
 `inferWeightsOnlyFromLatestCheckpoint` inference path; the PureScript
-scaffold with six Halogen panels under `web/src/Panels/` and the
+scaffold with six panel payload modules under `web/src/Panels/` and the
 generated contracts; the `jitml-demo` HTTP server; the Playwright
 canonical panel matrix at `playwright/jitml-demo.spec.ts`; the typed
 ephemeral-Kind Pulumi orchestrator at `infra/pulumi/index.ts`; and the

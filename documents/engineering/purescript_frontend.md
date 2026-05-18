@@ -22,14 +22,16 @@
 | Bundle/panel/demo-route metadata | Local Haskell metadata | `src/JitML/Web/Bundle.hs` |
 | Demo HTTP routes | Local Haskell HTTP server for the current route/API surface | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Minimal shell | `web/test/Main.purs` |
-| Playwright | Scaffold spec plus typed live-plan step; not executed by the current default `jitml-e2e` body | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs` |
+| Panel payload modules | Six typed request/response and stream payload modules; Halogen mount/rendering remains target work | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
+| Playwright | Scaffold spec plus typed live-plan step; invoked only when `JITML_LIVE_E2E=1`, currently against inline DOM stubs | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Demo executable | Status line plus HTTP server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
 browser-side code). Target npm / spago / Playwright invocations flow through
 the typed `Subprocess` boundary from doctrine `Architecture → Subprocesses as
-Typed Values`; the current checked-in Cabal bodies only perform local smoke
-checks.
+Typed Values`; the current checked-in Cabal bodies perform local smoke checks
+by default, with `spago test`, `purs-tidy check`, and Playwright invocations
+gated behind `JITML_LIVE_E2E=1`.
 
 ## Layout
 
@@ -40,6 +42,13 @@ web/
 ├── package.json
 ├── src/
 │   ├── Main.purs
+│   ├── Panels/
+│   │   ├── Cifar.purs
+│   │   ├── Connect4.purs
+│   │   ├── Mnist.purs
+│   │   ├── Rl.purs
+│   │   ├── Training.purs
+│   │   └── Tune.purs
 │   └── Generated/
 │       └── Contracts.purs
 └── test/
@@ -49,21 +58,22 @@ playwright/
 └── jitml-demo.spec.ts
 ```
 
-Target layout adds `web/spago.yaml`, Halogen root/router/panel modules,
-compiled bundle output under `web/dist/`, and a fuller Playwright project once
-the complete panels exist.
+Target layout adds `web/spago.yaml`, Halogen root/router modules that mount the
+existing panel payload modules, compiled bundle output under `web/dist/`, and a
+fuller Playwright project once the live panel flows exist.
 
 ## Current Local Surface
 
 The current worktree contains a minimal `web/src/Main.purs`, generated
-`web/src/Generated/Contracts.purs`, `web/test/Main.purs`,
-`src/JitML/Web/Contracts.hs`, and `src/JitML/Web/Bundle.hs`. `Web.Bundle`
-records the bundle output paths, the MNIST, image-upload, Connect 4, and RL
-trajectory panel metadata, the `demoStatusLine`, and the local demo route
+`web/src/Generated/Contracts.purs`, six payload-shape modules under
+`web/src/Panels/`, `web/test/Main.purs`, `src/JitML/Web/Contracts.hs`, and
+`src/JitML/Web/Bundle.hs`. `Web.Bundle` records the bundle output paths, the
+six canonical panel surfaces, the `demoStatusLine`, and the local demo route
 manifest for `/`, `/api`, and `/api/ws`. `src/JitML/Web/Server.hs` serves the
 current local HTTP surface for `/`, `/api`, `/api/inference`, `/api/images`,
 `/api/connect4/move`, and `/api/ws`. A compiled `web/dist/` bundle, Halogen
-panel modules, and live WebSocket proxying remain target runtime work.
+mount/rendering modules, and live WebSocket proxying remain target runtime
+work.
 
 ## Browser-Contract ADTs
 
@@ -80,9 +90,11 @@ The current endpoint metadata covers:
 - `UploadImage` at `POST /api/images`
 - `Connect4Move` at `POST /api/connect4/move`
 - `MetricsStream` at `GET /api/ws`
+- `TrainingStream` at `GET /api/ws/training`
+- `TuneStream` at `GET /api/ws/tune`
 
-Typed training, RL, AlphaZero, inference, image-upload, Connect 4, and tuning
-payload ADTs remain target browser-contract work.
+Richer typed training, RL, AlphaZero, inference, image-upload, Connect 4, and
+tuning payload ADTs remain target browser-contract work.
 
 ## Panels
 
@@ -128,9 +140,12 @@ demo image, `jitml-demo` command, and `PORT=80`. HTTPRoutes for `/`, `/api`,
 
 `playwright/jitml-demo.spec.ts` is the current TypeScript Playwright scaffold.
 `JitML.Test.LivePlan` records the target `npx playwright test` step after Helm
-dependency build and Pulumi stack creation, but the current default
-`jitml-e2e` Cabal body does not invoke Playwright. Target work grows this into
-one spec per panel covering the golden user flow:
+dependency build and Pulumi stack creation. The current default `jitml-e2e`
+Cabal body does not invoke Playwright; when `JITML_LIVE_E2E=1` is set it runs
+`npx playwright test --reporter=line` through the typed `Subprocess` boundary.
+The checked-in spec currently validates seven inline DOM stub flows rather
+than the live edge route. Target work grows this into one spec per panel
+covering the golden user flow:
 
 - MNIST: draw a digit, assert top-1 matches the expected class against a
   fixture model.

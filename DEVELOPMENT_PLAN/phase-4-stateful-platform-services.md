@@ -409,12 +409,12 @@ writes the CBOR checkpoint sidecar at
   plugging the `inference.event.<substrate>` payload deserialiser
   into the Consumer's per-domain dispatcher so it invokes
   `dispatchCheckpointDone` on each `CheckpointDone` envelope.
-- The TensorBoard `Service` template is rendered by
-  `JitML.Observability.TensorBoard.renderTensorBoardService`
-  alongside the existing Deployment renderer; the chart consumes the
-  rendered manifest via `chart/templates/service-tensorboard.yaml`.
-  The live deployment validation against a real cluster remains
-  behind `JITML_LIVE_E2E=1`.
+- `JitML.Observability.TensorBoard.renderTensorBoardService` now renders
+  the TensorBoard `Service` manifest alongside the existing Deployment
+  renderer. The chart template file is not checked in yet
+  (`chart/templates/service-tensorboard.yaml` is absent); wiring that
+  rendered Service into chart materialization remains open before live
+  deployment validation behind `JITML_LIVE_E2E=1`.
 
 ## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA 🔄
 

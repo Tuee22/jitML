@@ -414,6 +414,7 @@ remain target runtime work.
 - Add the live reward-threshold + checkpoint/resume equality assertion to
   `jitml-rl-canonicals` (Sprint `12.4`).
 
+## Sprint 8.7: `RLRunLifecycle` GADT Retrofit ✅
 
 **Status**: Done
 **Implementation**: `src/JitML/RL/Framework.hs`, `test/unit/Main.hs`

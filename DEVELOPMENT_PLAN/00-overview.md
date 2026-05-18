@@ -112,9 +112,9 @@ proxy are owned by Phase `10` and Phase `11`'s Active sprints.
 `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style`) through the
 typed `Subprocess` boundary before printing the report-card summary. The
 report-card knobs are pinned in `cabal.project`. The `jitml-e2e` stanza's
-live `JITML_LIVE_E2E=1` body orchestrates an ephemeral Kind stack via the
-Pulumi TypeScript program at `infra/pulumi/`; the live orchestrator is
-owned by Sprint `12.8`.
+default body validates the typed live plan; the `JITML_LIVE_E2E=1` path
+currently invokes Playwright against inline DOM stubs, while the Pulumi +
+Kind + Helm live orchestrator remains Sprint `12.8` work.
 
 ## Execution Roadmap
 
@@ -300,9 +300,10 @@ moves to Done and the legacy ledger is empty.
   `playwright/jitml-demo.spec.ts`, `jitml-demo` executable shim,
   `src/JitML/Web/Server.hs` HTTP serving, and demo deployment template.
   The Halogen mount machinery, compiled bundle output, live REST/WS
-  proxying against real daemon Pulsar topics, and `purs format` /
-  `purescript-spec` live invocation are owned by Sprints `11.3` /
-  `11.4` / `11.5` / `11.6`'s Remaining Work. Phase:
+  proxying against real daemon Pulsar topics, default `purs format` /
+  `purescript-spec` execution, and Playwright against the live edge route
+  rather than inline DOM stubs are owned by Sprints `11.3` / `11.4` /
+  `11.5` / `11.6`'s Remaining Work. Phase:
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
 - **Test stanzas, lint matrix, cross-cluster parity.** Ten Cabal
   test-suite stanzas, each `type: exitcode-stdio-1.0` with `tasty` as
@@ -582,8 +583,10 @@ each constraint.
     spanning all tiers is forbidden.
 34. Target e2e closure uses the Pulumi TypeScript program at `infra/pulumi/` as
     the ephemeral-Kind orchestrator that the `jitml-e2e` stanza calls through the
-    typed `Subprocess` boundary. The current Pulumi program exports stack
-    metadata only, and the current `jitml-e2e` body does not invoke Pulumi.
+    typed `Subprocess` boundary. The current Pulumi program contains a typed
+    `@pulumi/command` resource graph for Kind, Helm, bootstrap, publication
+    checking, and teardown; the current default `jitml-e2e` body validates that
+    plan shape but does not invoke Pulumi.
 35. Report-card knobs are pinned in `cabal.project` and surfaced through `jitml
     test all`. The exact knob list is owned by Sprint `12.9` and recorded in
     [system-components.md](system-components.md).
@@ -642,7 +645,7 @@ dependency-ordered sequence lives in
 | Test stanzas | Ten Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, `jitml-cross-backend` includes generated Linux CPU identity-kernel compile/load/run, and `jitml-e2e` includes typed live-plan rendering. Live integration / SL convergence / RL trajectory / hyperparameter / cross-substrate parity / Pulumi+Playwright execution is owned by Sprints `12.2`–`12.6` / `12.8` / `12.9`'s Remaining Work | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |
 | Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`, records the codegen-toolchain comments and report-card knobs, carries a ledger-tracked scoped `allow-newer` for Dhall/CBOR package bounds under GHC `9.14.1`, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, Xcode/Metal pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml` |
 | Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, and Linux CPU identity-kernel execution are covered by dedicated Cabal stanzas; live cross-substrate equality is owned by Sprint `12.6`'s Remaining Work | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
-| Frontend | `web/` contains the PureScript shell and generated browser contracts from `src/JitML/Web/Contracts.hs`; `src/JitML/Web/Server.hs` serves the demo/API surface; Playwright and Pulumi scaffolds are present. Halogen panels, compiled bundle, live WebSocket proxy, and live Playwright execution are owned by Sprints `11.3`–`11.6`'s Remaining Work | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
+| Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, and six panel payload modules under `web/src/Panels/`; `src/JitML/Web/Server.hs` serves the demo/API surface; Playwright and Pulumi scaffolds are present. Halogen mount machinery, compiled bundle, live WebSocket proxy, and Playwright against the live edge route are owned by Sprints `11.3`–`11.6`'s Remaining Work | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel payload modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
 
 ## Related Documents
 

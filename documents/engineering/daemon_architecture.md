@@ -125,10 +125,10 @@ structured JSON on stderr with fields `ts`, `level`, `msg`, `lifecyclePhase`,
 
 | Class | Operations | Owning module |
 |-------|-----------|---------------|
-| `HasMinIO` | `minioPutIfAbsent`, `minioReadObject` | `src/JitML/Service/Capabilities.hs` |
-| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge` | `src/JitML/Service/Capabilities.hs` |
-| `HasHarbor` | `harborImageExists`, `harborPromoteImage` | `src/JitML/Service/Capabilities.hs` |
-| `HasKubectl` | `kubectlApply`, `kubectlStatus` | `src/JitML/Service/Capabilities.hs` |
+| `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs` |
+| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge`, `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek` | `src/JitML/Service/Capabilities.hs` |
+| `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs` |
+| `HasKubectl` | `kubectlApply`, `kubectlStatus`, `kubectlGet`, `kubectlDelete` | `src/JitML/Service/Capabilities.hs` |
 
 `HasKubectl` operations route through the typed `Subprocess` boundary
 (`kubectl` is a wrapped subprocess).
@@ -166,9 +166,13 @@ protobuf message hash and is opaque to the broker.
 - Acks are explicit; failure to ack within the `RetryPolicy` budget surfaces
   `AppError PulsarFailed`.
 
-The current consumer surface is the payload-hash deduplication helper. Target
-consumer wiring subscribes to the substrate-scoped command topics (training,
-tune, RL, inference, plus `inference.command.apple-silicon` on the host daemon).
+The current consumer surface includes the payload-hash deduplication helper,
+`JitML.Service.Consumer.{consumerStep,runConsumerLoop,ConsumerOutcome}`, and
+per-domain `HandlerRouter` dispatch coverage against a synthetic broker in
+`jitml-daemon-lifecycle`. Target live consumer wiring subscribes to the
+substrate-scoped command topics (training, tune, RL, inference, plus
+`inference.command.apple-silicon` on the host daemon) against a real Pulsar
+broker.
 
 ## Apple Silicon Hybrid Pattern
 
