@@ -10,6 +10,7 @@ chart/charts/
 /test-results/
 /web/node_modules/
 /web/output/
+/web/dist/
 /web/.spago/
 /web/spago.yaml
 /web/spago.lock

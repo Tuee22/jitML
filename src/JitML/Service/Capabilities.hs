@@ -18,6 +18,7 @@ module JitML.Service.Capabilities
   )
 where
 
+import Data.ByteString qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
 
@@ -55,10 +56,17 @@ newtype SubscriptionId = SubscriptionId {unSubscriptionId :: Text}
 -- `If-None-Match: *`; `casPointer` issues an `If-Match: <etag>` PUT and
 -- surfaces `412` as `SEConflict` so the caller's `retryServiceAction` harness
 -- can back off per the typed `RetryPolicy`.
+--
+-- `minioReadObject` returns Text (lenient-decoded for binary safety); the
+-- byte-faithful sibling `minioReadBytes` returns the raw `ByteString` and
+-- is the right call for binary CBOR manifests / split-blob tensor payloads.
+-- `putBlobBytesIfAbsent` is the byte-faithful PUT variant.
 class (Monad m) => HasMinIO m where
   minioPutIfAbsent :: ObjectRef -> Text -> m (Either ServiceError ObjectRef)
   minioReadObject :: ObjectRef -> m (Either ServiceError Text)
+  minioReadBytes :: ObjectRef -> m (Either ServiceError Data.ByteString.ByteString)
   putBlobIfAbsent :: ObjectRef -> Text -> m (Either ServiceError ETag)
+  putBlobBytesIfAbsent :: ObjectRef -> Data.ByteString.ByteString -> m (Either ServiceError ETag)
   casPointer :: ObjectRef -> Maybe ETag -> Text -> m (Either ServiceError ETag)
   listObjects :: BucketName -> Text -> m (Either ServiceError [ObjectRef])
   deleteObject :: ObjectRef -> m (Either ServiceError ())

@@ -26,6 +26,7 @@ module JitML.RL.AlphaZero
   , othelloNetwork
   , renderArenaSummary
   , selfPlayTranscript
+  , selfPlayTranscriptFor
   , twoHeadedNetworkFor
   )
 where
@@ -211,11 +212,31 @@ gomokuApplyMove cell state =
     }
 
 selfPlayTranscript :: Int -> [GameState]
-selfPlayTranscript seed =
+selfPlayTranscript = selfPlayTranscriptFor "connect4"
+
+-- | Per-game deterministic self-play transcript. The move modulus and initial
+-- state depend on the named game; the move sequence is seeded by `seed`.
+-- Used by `jitml-rl-canonicals` to bind per-game golden replay fixtures
+-- under `test/golden/alphazero/<game>-transcript.txt`.
+selfPlayTranscriptFor :: Text -> Int -> [GameState]
+selfPlayTranscriptFor gameId seed =
   take 8 $
-    scanl (flip applyMove) initialConnect4 (moves seed)
+    scanl (flip applyMove) (initialFor gameId) (movesFor gameId seed)
  where
-  moves = iterate (\value -> (value * 5 + 3) `mod` 7)
+  initialFor "connect4" = initialConnect4
+  initialFor "othello" = initialOthello
+  initialFor "hex" = initialHex
+  initialFor "gomoku" = initialGomoku
+  initialFor _ = initialConnect4
+
+  movesFor name s =
+    let modulus = case name of
+          "connect4" -> connect4ActionCount
+          "othello" -> othelloActionCount
+          "hex" -> hexActionCount
+          "gomoku" -> gomokuActionCount
+          _ -> connect4ActionCount
+     in iterate (\value -> (value * 5 + 3) `mod` modulus) s
 
 arenaWinRate :: ArenaSummary -> Double
 arenaWinRate summary =

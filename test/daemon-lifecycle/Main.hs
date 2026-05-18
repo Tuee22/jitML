@@ -20,9 +20,27 @@ import Network.Socket.ByteString (recv, sendAll)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.State.Strict (StateT, evalStateT, get)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.Text (Text)
+import Data.Text qualified as Text
+
 import JitML.AppError.AppError (AppError (..))
 import JitML.Service.BootConfig (HttpListener (..))
-import JitML.Service.Consumer (eventIdFromPayload, processAtLeastOnce)
+import JitML.Service.Capabilities
+  ( HasPulsar (..)
+  , SubscriptionId (..)
+  )
+import JitML.Service.Consumer
+  ( ConsumerOutcome (..)
+  , EventDomain (..)
+  , consumerOutcomeError
+  , emptyHandlerRouter
+  , eventIdFromPayload
+  , processAtLeastOnce
+  , runConsumerLoop
+  )
 import JitML.Service.Endpoints (MetricsSnapshot (..), endpointStatus, healthz, metrics, readyz)
 import JitML.Service.Http (withHttpRoutesOnce)
 import JitML.Service.Lifecycle (LifecyclePhase (..), lifecyclePlan)
@@ -83,7 +101,91 @@ main =
             response <- httpGet port "/healthz"
             assertBool "HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` response)
             assertBool "health body" ("\r\n\r\nok\n" `isInfixOf` response)
+      , testCase "Consumer ack failure surfaces AppError PulsarFailed (Sprint 5.5)" $ do
+          -- A ConsumerError carrying SETimeout/SETransient/SEConflict maps
+          -- to AppError PulsarFailed per the typed exit contract; a clean
+          -- dispatch/dedup outcome returns Nothing.
+          let timeoutOutcome = ConsumerError (SETimeout "ack timeout")
+              transientOutcome = ConsumerError (SETransient "broker hiccup")
+              cleanOutcome = ConsumerDispatched TrainingDomain (eventIdFromPayload "abc")
+              dedupOutcome = ConsumerDeduplicated TuneDomain (eventIdFromPayload "abc")
+          consumerOutcomeError timeoutOutcome
+            @?= Just (PulsarFailed "timeout: ack timeout")
+          consumerOutcomeError transientOutcome
+            @?= Just (PulsarFailed "transient: broker hiccup")
+          consumerOutcomeError cleanOutcome @?= Nothing
+          consumerOutcomeError dedupOutcome @?= Nothing
+      , testCase "Consumer loop dispatches, dedups, and acks against a synthetic broker" $ do
+          -- Synthetic HasPulsar instance backed by an IORef pull queue +
+          -- an IORef ack log. The Consumer loop reads N events, dedups the
+          -- repeated EventID, and acks each delivery (including dedup hits)
+          -- per the at-least-once contract.
+          pullRef <-
+            newIORef
+              [ ("training.command.linux-cpu", "payload-a")
+              , ("training.command.linux-cpu", "payload-a") -- redelivery
+              , ("rl.command.linux-cpu", "payload-b")
+              , ("inference.request.linux-cpu", "payload-c")
+              ]
+          ackRef <- newIORef ([] :: [Text])
+          dispatchRef <- newIORef ([] :: [(EventDomain, Text)])
+          let router0 = emptyHandlerRouter 16
+          (_, outcomes) <-
+            evalStateT
+              ( runConsumerLoop
+                  (SubscriptionId "test-sub")
+                  router0
+                  4
+                  ( \domain _eventId payload ->
+                      liftIO (modifyIORef' dispatchRef ((domain, payload) :))
+                  )
+              )
+              (SyntheticBrokerState pullRef ackRef)
+          length outcomes @?= 4
+          dispatchedCount outcomes @?= 3
+          dedupCount outcomes @?= 1
+          ackedPayloads <- readIORef ackRef
+          length ackedPayloads @?= 4 -- every delivery (incl. dedup) acked
+          dispatched <- readIORef dispatchRef
+          length dispatched @?= 3
       ]
+
+-- | A synthetic `HasPulsar` instance that pulls envelopes off an IORef-backed
+-- queue and records acks in another IORef. Used only by the Consumer loop
+-- dedup-and-ack test above; the production daemon uses a real Pulsar client.
+data SyntheticBrokerState = SyntheticBrokerState
+  { syntheticPullQueue :: IORef [(Text, Text)]
+  , syntheticAckLog :: IORef [Text]
+  }
+
+instance HasPulsar (StateT SyntheticBrokerState IO) where
+  pulsarPublish _ _ = pure (Right "synthetic-message-id")
+  pulsarAcknowledge _ payload = do
+    state <- get
+    liftIO (modifyIORef' (syntheticAckLog state) (payload :))
+    pure (Right ())
+  pulsarSubscribe _ _ = pure (Right (SubscriptionId "synthetic-sub"))
+  pulsarSeek _ _ = pure (Right ())
+  pulsarConsume _ = do
+    state <- get
+    pending <- liftIO (readIORef (syntheticPullQueue state))
+    case pending of
+      [] -> pure (Left (SETransient "synthetic queue exhausted"))
+      (envelope : rest) -> do
+        liftIO (modifyIORef' (syntheticPullQueue state) (const rest))
+        pure (Right envelope)
+
+dispatchedCount :: [ConsumerOutcome] -> Int
+dispatchedCount = length . filter isDispatched
+ where
+  isDispatched (ConsumerDispatched _ _) = True
+  isDispatched _ = False
+
+dedupCount :: [ConsumerOutcome] -> Int
+dedupCount = length . filter isDedup
+ where
+  isDedup (ConsumerDeduplicated _ _) = True
+  isDedup _ = False
 
 httpGet :: Int -> String -> IO String
 httpGet port path =

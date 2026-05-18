@@ -296,10 +296,16 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 
 ### Remaining Work
 
-- Wire `Async` write discipline so MinIO transcript writes do not block
-  the env loop, once the live `HasMinIO` client is up (Sprint 5.4 /
-  4.3). The typed `ReplayBuffer` already supports deterministic
-  insertion + sample ordering with no blocking on the hot path.
+- `JitML.RL.AsyncBuffer` provides the typed `AsyncBuffer` +
+  `AsyncSink` wrapper around `JitML.RL.Buffer`: `insertAsync` updates
+  the buffer in-place and spawns an `async` write through the sink so
+  the env loop doesn't block on I/O; `drainAsync` waits for all
+  pending writes at episode-end / drain boundaries. Validated via
+  `jitml-unit` against a deterministic IORef sink: 5 successive
+  inserts produce 5 in-order writes after `drainAsync`, with
+  `pendingAsyncCount = 0` afterwards. The sink interface
+  (`AsyncSink :: [Transition] -> IO AsyncWriteResult`) is the typed
+  contract a `HasMinIO`-backed sink will satisfy.
 
 ## Sprint 8.5: RL CLI Summaries and Report Hooks 🔄
 

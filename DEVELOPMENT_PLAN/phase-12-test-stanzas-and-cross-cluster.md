@@ -166,15 +166,24 @@ Work` below.
 
 ### Remaining Work
 
-- The `./.build/jitml --help` spawn test is in place; extend the
-  matrix to spawn `bootstrap --dry-run`, `cluster up --dry-run`,
-  `service --help`, and `train --dry-run experiments/mnist.dhall`
-  against the temporary workdir.
+- The spawn matrix now covers `./.build/jitml --help`,
+  `./.build/jitml bootstrap --linux-cpu --dry-run`,
+  `./.build/jitml cluster up --substrate linux-cpu --dry-run`,
+  `./.build/jitml internal gc <hash>` (asserting `ExitFailure 3` on
+  no-op), `./.build/jitml service --help` (asserting the
+  `Run the jitML daemon` line), and
+  `./.build/jitml train --dry-run experiments/mnist.dhall`
+  (asserting the `decode-experiment` plan step). Each invocation
+  runs through the typed Subprocess in a temporary workdir.
 - Add real checkpoint round-trip coverage against the live `HasMinIO`
   capability class from Sprint `5.4` (the filesystem-backed instance
   is already covered).
-- Add Dhall-to-typed-record decode coverage that exercises the full
-  numerical-core catalog from Phase `6`.
+- Dhall-to-typed-record decode coverage now exists: the
+  `Dhall numerics schema decodes against the full Haskell catalog`
+  test in `jitml-integration` reads `dhall/numerics/Schema.dhall`
+  through `Dhall.inputFile` via
+  `JitML.Numerics.Schema.loadNumericsCatalog` and asserts
+  `validateNumericsCatalog` returns `Right ()`.
 - Add the per-substrate determinism assertion against a real generated
   kernel.
 

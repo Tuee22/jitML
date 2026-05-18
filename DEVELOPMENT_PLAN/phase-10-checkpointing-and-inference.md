@@ -235,13 +235,17 @@ per `### Remaining Work` below.
 
 ### Remaining Work
 
-- `JitML.App.runInternalGc` now consumes `Store.buildGcPlan` and
-  writes the reconciler summary; second-invocation `gcNoOp` exits `3`
-  via `AppError ReconcilerNoop`. Validated locally: `jitml internal gc
-  <experiment-hash>` prints `gc: <hash> kept=N reaped=M` and exits 3
-  when there are no reap events. The pending work is plumbing the
-  reap events through the live `HasMinIO` delete path and emitting
-  `gc_reaped` Pulsar events (gated on Sprint 4.3 + 4.4 live brokers).
+- `JitML.App.runInternalGc` consumes `Store.buildGcPlan` and writes the
+  reconciler summary; second-invocation `gcNoOp` exits `3` via
+  `AppError ReconcilerNoop`. `JitML.Checkpoint.Store.executeGcPlan`
+  walks each `GcEvent` through `HasMinIO.deleteObject` (manifest +
+  per-blob deletes), recording per-class deletion tallies and a
+  `gcExecutedDeleteFailures` list. Validated via `jitml-integration`
+  end-to-end against the filesystem `HasMinIO` instance: seeding 3
+  manifests + 3 blobs with `LastN 1` produces 2 reap events that
+  delete 2 manifests + 2 blobs with no failures. The pending work
+  is emitting `gc_reaped` Pulsar events on each delete (gated on
+  Sprint 4.4 live broker).
 - Add the per-substrate ULP tolerance measurement to
   `documents/engineering/determinism_contract.md` based on real
   cross-substrate runs from Sprint `12.6`.
@@ -298,10 +302,17 @@ remain target runtime work.
 
 ### Remaining Work
 
-- Implement live `loadInferenceCheckpoint` against MinIO through the
-  `HasMinIO` capability class — the local
-  `inferWeightsOnlyFromLatestCheckpoint` is the typed shape; the gap
-  is the MinIO read path.
+- `JitML.Checkpoint.Store.loadInferenceCheckpoint` is implemented
+  against the typed `HasMinIO` capability class — it reads the
+  `pointers/latest` object, strips the manifest SHA, fetches the
+  binary CBOR manifest via the new `minioReadBytes` method, decodes
+  it, and runs `inferFromManifest` on the weight-only manifest
+  subset (optimizer + RNG parts dropped). Validated via
+  `jitml-integration` against the filesystem `HasMinIO` instance:
+  a CBOR manifest written via `putBlobBytesIfAbsent` round-trips
+  through the loader producing the same inference output as the
+  in-memory `inferFromManifest` call. The live HTTP-backed MinIO
+  variant remains gated on Sprint 4.3.
 - Wire FFI `KernelHandle` loading through `JitML.Engines.Local` (and
   the future per-substrate engines) so inference actually executes the
   generated kernel.

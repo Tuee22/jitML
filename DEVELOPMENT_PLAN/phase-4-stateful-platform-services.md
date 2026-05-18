@@ -149,8 +149,12 @@ lives in MinIO and Pulsar exclusively.
   `src/JitML/Cluster/PostgresRegistry.hs`.
 - The `helm install` of the Percona operator is sequenced in
   `JitML.Cluster.Helm.phasedReleases` (HarborPhase, `harbor-pg` row).
-  The pending work is the `kubectl apply` of the rendered
-  `PerconaPGCluster` CR through `HasKubectl.kubectlApply`.
+  The rendered `PerconaPGCluster` YAML now flows through
+  `HasKubectl.kubectlApply` (stdin-piped) — validated via
+  `jitml-integration` under `JITML_LIVE_E2E=1` against the live Kind
+  cluster: `kubectl apply --dry-run=client -f -` accepts the YAML
+  and reports `harbor-pg`. The live server-side apply requires the
+  Percona operator CRD installed (gated by the heavy Helm rollout).
 - Implement the readiness check that waits for the Patroni-managed Postgres
   cluster to reach Ready and exposes its DSN to Harbor.
 
@@ -376,11 +380,22 @@ writes the CBOR checkpoint sidecar at
   positions.
 - Generate Haskell proto bindings from `proto/tensorboard/event.proto`
   via `proto-lens-protoc` once the dep lands.
-- Implement shard rotation (flush at 4 MiB, 10 s, or explicit `flush`) with
-  idempotent `If-None-Match: *` PUTs keyed by `(writer-id, shard-seq)`
-  using `HasMinIO.putBlobIfAbsent` from Sprint 5.4.
-- Wire `CheckpointDone` to write the typed `TbCheckpointMarker` CBOR
-  sidecar at the shard key produced by `checkpointSidecarKey`.
+- Shard rotation is implemented as the pure predicate
+  `JitML.Observability.TensorBoard.shouldRotateShard` with knobs
+  carried in `ShardRotationLimits` (4 MiB default byte cap, 10 s
+  default elapsed cap, `shardExplicitFlush` override). Validated by
+  `jitml-unit` against the four-branch decision matrix
+  (keep-open / byte-cap / elapsed-cap / explicit-flush). The pending
+  wiring is the live IO loop that maintains the running byte/elapsed
+  counters and issues `HasMinIO.putBlobBytesIfAbsent` writes keyed by
+  `(writer-id, shard-seq)`.
+- The typed `TbCheckpointMarker` CBOR sidecar
+  (`JitML.Observability.TensorBoard.TbCheckpointMarker` +
+  `encodeTbCheckpointMarker` via `Codec.Serialise`) is in place;
+  validated for deterministic encoding by `jitml-unit`. The pending
+  wiring is plugging `CheckpointDone` events into a writer that calls
+  `encodeTbCheckpointMarker` + writes the bytes at
+  `checkpointSidecarKey` through `HasMinIO.putBlobBytesIfAbsent`.
 - Deploy a TensorBoard `Service` template alongside the Deployment.
 
 ## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA 🔄

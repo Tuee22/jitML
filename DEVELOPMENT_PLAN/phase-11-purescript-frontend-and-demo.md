@@ -173,9 +173,15 @@ whitespace, and panel-contract smoke stanza. The target PureScript
   typed `Subprocess` boundary inside the stanza body when
   `JITML_LIVE_E2E=1` is set; validated locally (live build + test
   + `mnist-live-inference` substring assertion against the stdout).
-- Wire `purs format` (or `purs-tidy`) round-trip through the typed
-  `Subprocess` boundary from inside the stanza (currently the format
-  check is done as a tab/final-newline scan via Haskell).
+- The stanza now invokes `./node_modules/.bin/purs-tidy check
+  'src/**/*.purs'` through the typed `Subprocess` boundary inside
+  the stanza body when `JITML_LIVE_E2E=1` is set; validated locally
+  (purs-tidy reports `All files are formatted` against
+  `web/src/Main.purs`, `web/src/Generated/Contracts.purs`, and the
+  six `web/src/Panels/*.purs` modules). The Haskell-side
+  `renderPureScriptContracts` now produces purs-tidy-clean output so
+  the generated contract file no longer needs an external format
+  step.
 
 ## Sprint 11.4: Interactive Endpoint Contract Surface 🔄
 
@@ -228,11 +234,14 @@ remains target runtime validation.
 ### Remaining Work
 
 - All six `web/src/Panels/*.purs` modules are checked in with typed
-  request/response payload shapes. The pending work is wiring them
-  through Halogen render machinery (slot + state + DOM diff) once
-  the Halogen dep is added to `web/package.json`. The Effectful
-  `mount` entry point is the typed contract the Halogen mount call
-  will plug into.
+  request/response payload shapes; `spago build --output web/dist/`
+  produces compiled CoreFn JS bundles per panel
+  (`web/dist/Panels.{Mnist,Cifar,Connect4,Rl,Training,Tune}/index.js`)
+  alongside `Generated.Contracts/index.js` and the dependency closure.
+  The pending work is wiring them through Halogen render machinery
+  (slot + state + DOM diff) once the Halogen dep is added to
+  `web/package.json`. The Effectful `mount` entry point is the typed
+  contract the Halogen mount call will plug into.
 - Implement the live `/api/ws` WebSocket proxy that bridges the demo
   server to the daemon's metric/event Pulsar topics. The typed
   panel frame shapes (`Panels.Rl.RlStreamFrame`,

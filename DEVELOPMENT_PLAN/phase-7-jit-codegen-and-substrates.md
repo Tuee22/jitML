@@ -374,9 +374,14 @@ per `### Remaining Work` below.
   deterministic default selection (`Engines.Tuning.selectDeterministic`)
   is in place; the missing piece is the on-hardware micro-benchmark
   loop that ranks the deterministic-only choices.
-- Add a same-host kernel-output equality test that holds across repeated
-  runs with the same tuning choice. Requires live hardware to be
-  meaningful.
+- The same-host kernel-output equality test now lives in
+  `jitml-cross-backend` as `linux-cpu kernel output is bit-equal
+  across repeated runs (Sprint 7.6)`: three successive invocations of
+  the generated identity kernel through the live FFI boundary
+  produce bit-identical output. The remaining open piece is the
+  cross-substrate equality test (linux-cpu vs apple-silicon vs
+  linux-cuda), which is gated on the absent Tart VM + NVIDIA
+  hardware.
 
 ## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation ✅
 

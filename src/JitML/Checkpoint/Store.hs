@@ -2,14 +2,17 @@
 
 module JitML.Checkpoint.Store
   ( GcEvent (..)
+  , GcExecutionResult (..)
   , GcPlan (..)
   , ObjectWriteResult (..)
   , RetentionPolicy (..)
   , StoredCheckpoint (..)
   , applyRetentionPolicy
   , buildGcPlan
+  , executeGcPlan
   , inferFromLatestCheckpoint
   , inferWeightsOnlyFromLatestCheckpoint
+  , loadInferenceCheckpoint
   , objectPathForKey
   , readCheckpointManifest
   , readCheckpointPointer
@@ -36,6 +39,7 @@ import JitML.Checkpoint.Format
   , PointerWriteResult (..)
   , TensorBlob (..)
   , applyPointerWrite
+  , blobKey
   , decodeManifestCbor
   , encodeManifestCbor
   , inferFromManifest
@@ -44,6 +48,13 @@ import JitML.Checkpoint.Format
   , manifestKey
   , weightOnlyTensors
   )
+import JitML.Service.Capabilities
+  ( BucketName (..)
+  , HasMinIO (..)
+  , ObjectKey (..)
+  , ObjectRef (..)
+  )
+import JitML.Service.Retry (ServiceError)
 
 data ObjectWriteResult
   = ObjectCreated Text
@@ -221,6 +232,95 @@ buildGcPlan experimentHash policy allManifests alwaysLive =
         , gcReapEvents = events
         , gcNoOp = null events
         }
+
+-- | Outcome of executing a GC plan through `HasMinIO`. The reaped tally
+-- counts manifests + per-blob deletes; the failed list names objects the
+-- broker reported on (e.g. 404 on a blob that was already missing).
+data GcExecutionResult = GcExecutionResult
+  { gcExecutedReapedManifests :: Int
+  , gcExecutedReapedBlobs :: Int
+  , gcExecutedDeleteFailures :: [(Text, ServiceError)]
+  }
+  deriving stock (Eq, Show)
+
+-- | Execute a `GcPlan` through the typed `HasMinIO` capability boundary.
+-- For each reap event the executor calls `deleteObject` against the
+-- manifest object key and each referenced blob key. Failed deletes are
+-- recorded but do not short-circuit the loop (the broker may have already
+-- garbage-collected a partial write); the executor returns the per-class
+-- tally + failure list.
+executeGcPlan :: (HasMinIO m) => GcPlan -> m GcExecutionResult
+executeGcPlan plan =
+  go 0 0 [] (gcReapEvents plan)
+ where
+  go reapedManifests reapedBlobs failures [] =
+    pure
+      GcExecutionResult
+        { gcExecutedReapedManifests = reapedManifests
+        , gcExecutedReapedBlobs = reapedBlobs
+        , gcExecutedDeleteFailures = reverse failures
+        }
+  go reapedManifests reapedBlobs failures (event : rest) = do
+    let bucket = BucketName "jitml-checkpoints"
+        manifestRef =
+          ObjectRef
+            bucket
+            (ObjectKey (manifestKey (gcExperimentHash event) (gcReapedManifestSha event)))
+    manifestResult <- deleteObject manifestRef
+    let failuresAfterManifest =
+          case manifestResult of
+            Left err -> (manifestKey (gcExperimentHash event) (gcReapedManifestSha event), err) : failures
+            Right () -> failures
+    blobOutcomes <- traverse (deleteBlob bucket (gcExperimentHash event)) (gcReapedBlobShas event)
+    let blobFailures = [(k, err) | Left (k, err) <- blobOutcomes]
+        deletedBlobCount = length [() | Right () <- blobOutcomes]
+    go
+      (reapedManifests + 1)
+      (reapedBlobs + deletedBlobCount)
+      (reverse blobFailures <> failuresAfterManifest)
+      rest
+
+  deleteBlob bucket experimentHash blobSha = do
+    let ref = ObjectRef bucket (ObjectKey (blobKey experimentHash blobSha))
+    outcome <- deleteObject ref
+    case outcome of
+      Left err -> pure (Left (blobKey experimentHash blobSha, err))
+      Right () -> pure (Right ())
+
+-- | Inference-only read path: pulls the latest pointer from MinIO, fetches
+-- the addressed manifest object, decodes it, and runs the deterministic
+-- `inferFromManifest` over the supplied input. Distinguishes manifest-decode
+-- errors from MinIO transport errors. The filesystem-backed `HasMinIO`
+-- instance + a real HTTP-backed instance both satisfy the signature.
+loadInferenceCheckpoint
+  :: (HasMinIO m)
+  => Text
+  -- ^ experiment hash
+  -> [Double]
+  -- ^ inference input
+  -> m (Either Text [Double])
+loadInferenceCheckpoint experimentHash input = do
+  let bucket = BucketName "jitml-checkpoints"
+      pointerRef = ObjectRef bucket (ObjectKey (latestPointerKey experimentHash))
+  pointerResult <- minioReadObject pointerRef
+  case pointerResult of
+    Left err -> pure (Left ("pointer read failed: " <> Text.pack (show err)))
+    Right rawPointer -> do
+      let manifestSha = Text.strip rawPointer
+          manifestRef =
+            ObjectRef bucket (ObjectKey (manifestKey experimentHash manifestSha))
+      manifestPayload <- minioReadBytes manifestRef
+      case manifestPayload of
+        Left err -> pure (Left ("manifest read failed: " <> Text.pack (show err)))
+        Right rawManifest ->
+          let decoded =
+                decodeManifestCbor (LazyByteString.fromStrict rawManifest)
+           in case decoded of
+                Left err -> pure (Left ("manifest decode failed: " <> err))
+                Right manifest ->
+                  let weightOnly = manifest {manifestOptimizer = [], manifestRng = []}
+                      _ = weightOnlyTensors manifest
+                   in pure (Right (inferFromManifest weightOnly input))
 
 writeObjectIfAbsent :: FilePath -> Text -> LazyByteString.ByteString -> IO ObjectWriteResult
 writeObjectIfAbsent root objectKey payload = do

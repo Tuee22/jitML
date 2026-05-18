@@ -1,18 +1,26 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Observability.TensorBoard
-  ( TensorBoardEvent (..)
+  ( ShardRotationDecision (..)
+  , ShardRotationLimits (..)
+  , TbCheckpointMarker (..)
+  , TensorBoardEvent (..)
   , canonicalProjection
   , checkpointSidecarKey
   , crc32cCastagnoli
+  , defaultShardRotationLimits
+  , encodeTbCheckpointMarker
   , encodeTfRecord
   , encodeTfRecordBatch
   , maskedCrc32c
   , renderTensorBoardDeployment
   , shardKey
+  , shouldRotateShard
   )
 where
 
+import Codec.Serialise (Serialise, serialise)
 import Data.Bits (Bits, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
@@ -21,6 +29,7 @@ import Data.List (sortOn)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64, Word8)
+import GHC.Generics (Generic)
 
 data TensorBoardEvent = TensorBoardEvent
   { tbTag :: Text
@@ -149,3 +158,64 @@ word64Le word =
 byteAt :: (Integral a, Bits a) => Int -> a -> Word8
 byteAt offset word =
   fromIntegral ((word `shiftR` offset) .&. 0xff)
+
+-- | Typed `TbCheckpointMarker` CBOR sidecar payload. Written under
+-- `jitml-tensorboard/<experiment-hash>/checkpoints/<step>-<manifest-sha>.cbor`
+-- whenever the daemon's training loop emits `CheckpointDone`. The sidecar
+-- lets TensorBoard's UI thread map a particular displayed loss step back
+-- to the manifest content SHA so the operator can replay or fork from
+-- that point.
+data TbCheckpointMarker = TbCheckpointMarker
+  { tcmStep :: Word64
+  , tcmEpoch :: Word32
+  , tcmManifestSha :: Text
+  , tcmExperimentSha :: Text
+  , tcmTrialSha :: Maybe Text
+  , tcmRunUuid :: Text
+  , tcmMetricsAtStep :: [(Text, Double)]
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
+encodeTbCheckpointMarker :: TbCheckpointMarker -> LazyByteString.ByteString
+encodeTbCheckpointMarker = serialise
+
+-- | Shard-rotation policy knobs. The daemon rotates the active TFRecord
+-- shard when ANY of the limits is exceeded; the `shardExplicitFlush`
+-- flag is set when the trainer requests an immediate flush (e.g.
+-- `CheckpointDone`, graceful drain, SIGTERM).
+data ShardRotationLimits = ShardRotationLimits
+  { shardMaxBytes :: Word64
+  , shardMaxElapsedSeconds :: Int
+  , shardExplicitFlush :: Bool
+  }
+  deriving stock (Eq, Show)
+
+defaultShardRotationLimits :: ShardRotationLimits
+defaultShardRotationLimits =
+  ShardRotationLimits
+    { shardMaxBytes = 4 * 1024 * 1024 -- 4 MiB
+    , shardMaxElapsedSeconds = 10
+    , shardExplicitFlush = False
+    }
+
+data ShardRotationDecision
+  = ShardKeepOpen
+  | -- | current vs limit
+    ShardRotateForBytes Word64 Word64
+  | -- | current vs limit
+    ShardRotateForElapsed Int Int
+  | ShardRotateForExplicit
+  deriving stock (Eq, Show)
+
+-- | Pure rotation predicate. The explicit flush takes precedence;
+-- otherwise the byte limit; otherwise the elapsed limit; otherwise the
+-- shard stays open.
+shouldRotateShard :: Word64 -> Int -> ShardRotationLimits -> ShardRotationDecision
+shouldRotateShard currentBytes elapsedSeconds limits
+  | shardExplicitFlush limits = ShardRotateForExplicit
+  | currentBytes >= shardMaxBytes limits =
+      ShardRotateForBytes currentBytes (shardMaxBytes limits)
+  | elapsedSeconds >= shardMaxElapsedSeconds limits =
+      ShardRotateForElapsed elapsedSeconds (shardMaxElapsedSeconds limits)
+  | otherwise = ShardKeepOpen

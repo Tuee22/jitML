@@ -182,6 +182,7 @@ shouldSkipPath path =
     , "node_modules/"
     , "web/node_modules/"
     , "web/output/"
+    , "web/dist/"
     , "web/.spago/"
     , "playwright-report/"
     , "test-results/"
@@ -190,6 +191,7 @@ shouldSkipPath path =
     || "/node_modules/" `isInfixOf` path
     || "/.spago/" `isInfixOf` path
     || "/output/" `isInfixOf` path
+    || "/dist/" `isInfixOf` path
 
 isLintedTextFile :: FilePath -> Bool
 isLintedTextFile path =

@@ -8,7 +8,7 @@ import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
@@ -62,6 +62,28 @@ main =
                     "spago test prints panel name from smoke suite"
                     ("mnist-live-inference" `Text.isInfixOf` stdoutText)
             _ -> pure () -- default path: skip when not gated by JITML_LIVE_E2E=1
+      , testCase "purs-tidy check runs through typed Subprocess (JITML_LIVE_E2E=1)" $ do
+          liveGate <- lookupEnv "JITML_LIVE_E2E"
+          case liveGate of
+            Just enabled
+              | Text.toLower (Text.pack enabled) `elem` ["1", "true", "yes", "on"] -> do
+                  -- Live path: invokes `purs-tidy check 'src/**/*.purs'`
+                  -- through the typed Subprocess in the web/ workdir.
+                  let cmd =
+                        (subprocess "node_modules/.bin/purs-tidy" ["check", "src/**/*.purs"])
+                          { JitML.Sub.Subprocess.subprocessWorkingDirectory = Just "web"
+                          }
+                  (exitCode, stdoutText, stderrText) <-
+                    runStreaming defaultSubprocessEnv cmd
+                  case exitCode of
+                    ExitSuccess ->
+                      assertBool
+                        "purs-tidy reports all files formatted"
+                        ("All files are formatted" `Text.isInfixOf` stdoutText)
+                    ExitFailure _ ->
+                      assertFailure
+                        ("purs-tidy check failed: " <> Text.unpack (stdoutText <> stderrText))
+            _ -> pure ()
       ]
 
 panelContractEndpoints :: [Contracts.ApiEndpoint]

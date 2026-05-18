@@ -327,13 +327,27 @@ deduplication key is the protobuf message hash and is opaque to the broker.
   `dedupCacheInsert`; `HandlerRouter` aggregates the four
   per-domain caches; `routeByKind` returns the updated router and a
   fresh-event flag in one step.
-- Implement the live `Consumer` IO loop that uses
-  `HasPulsar.pulsarSubscribe` / `pulsarConsume` /
-  `pulsarAcknowledge` against substrate-scoped command topics, with
-  the cache size and TTL driven by `LiveConfig` knobs. The typed
-  router + dedup cache shape is ready.
-- Make ack failure beyond the `RetryPolicy` budget surface
-  `AppError PulsarFailed` once the live `HasPulsar` instance lands.
+- `JitML.Service.Consumer.{consumerStep,runConsumerLoop,ConsumerOutcome}`
+  implement the typed live Consumer IO loop. `consumerStep` walks one
+  envelope: computes the payload-hash `EventID`, routes by topic
+  prefix to the per-domain `HandlerRouter` cache, dispatches when
+  fresh (via a caller-supplied `EventDomain -> EventId -> Text -> m
+  ()` action), and acks every delivery (including dedup hits) through
+  `HasPulsar.pulsarAcknowledge`. `runConsumerLoop` drains the
+  subscription cursor for a budgeted N envelopes. Validated by
+  `jitml-daemon-lifecycle` against a synthetic `HasPulsar` instance:
+  4 deliveries with one duplicate produce 3 `ConsumerDispatched` +
+  1 `ConsumerDeduplicated` outcomes and 4 acks; the live Pulsar
+  variant remains gated on Sprint 4.4.
+- Ack failure surfacing `AppError PulsarFailed` is now exposed via
+  `JitML.Service.Consumer.consumerOutcomeError`, which maps a
+  `ConsumerError serviceErr` through `serviceErrorToAppError`. A
+  `SETimeout` / `SETransient` from the ack path becomes
+  `PulsarFailed`; clean `ConsumerDispatched` / `ConsumerDeduplicated`
+  outcomes return `Nothing`. Validated via `jitml-daemon-lifecycle`.
+  The pending wiring is the daemon loop calling
+  `consumerOutcomeError` at the end of each outcome and propagating
+  the `AppError` to the lifecycle exit path.
 - Add integration coverage in `jitml-daemon-lifecycle` (Sprint `12.7`)
   exercising real redelivery + dedup against live Pulsar behind
   `JITML_LIVE_E2E=1`.

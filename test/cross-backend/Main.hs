@@ -33,4 +33,22 @@ main =
             Left message -> assertBool ("linux-cpu JIT run failed: " <> show message) False
             Right kernelRun ->
               linuxCpuKernelOutput kernelRun @?= [1.25, 2.5, -3.75]
+      , testCase "linux-cpu kernel output is bit-equal across repeated runs (Sprint 7.6)" $ do
+          -- Sprint 7.6 same-host kernel-output equality test: two
+          -- successive invocations against the same input through the
+          -- generated identity kernel must produce bit-identical output.
+          -- Validates the local determinism contract for `linux-cpu` per
+          -- documents/engineering/determinism_contract.md.
+          env <- buildEnv defaultGlobalFlags
+          let payload = [0.0, 1.5, -2.25, 3.875, -4.125]
+          first <- runLinuxCpuIdentityKernel env payload
+          second <- runLinuxCpuIdentityKernel env payload
+          third <- runLinuxCpuIdentityKernel env payload
+          case (first, second, third) of
+            (Right a, Right b, Right c) -> do
+              linuxCpuKernelOutput a @?= linuxCpuKernelOutput b
+              linuxCpuKernelOutput b @?= linuxCpuKernelOutput c
+              linuxCpuKernelOutput a @?= payload
+            _ ->
+              assertBool "all three linux-cpu kernel runs succeed" False
       ]

@@ -14,6 +14,7 @@ import Data.Char (intToDigit)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
+import Data.Text.Encoding.Error qualified as TextErr
 import Data.Word (Word8)
 import System.Directory
   ( createDirectoryIfMissing
@@ -88,6 +89,32 @@ instance HasMinIO FilesystemMinIO where
     if exists
       then fmap Right (liftIO (readText path))
       else pure (Left (SEUnauthorized "filesystem: object missing"))
+
+  minioReadBytes ref = do
+    root <- ask
+    let path = objectPath root ref
+    exists <- liftIO (doesFileExist path)
+    if exists
+      then fmap Right (liftIO (ByteString.readFile path))
+      else pure (Left (SEUnauthorized "filesystem: object missing"))
+
+  putBlobBytesIfAbsent ref payload = do
+    root <- ask
+    let path = objectPath root ref
+    exists <- liftIO (doesFileExist path)
+    if exists
+      then pure (Left (SEConflict "filesystem: object exists"))
+      else do
+        liftIO (createDirectoryIfMissing True (takeDirectory' path))
+        liftIO (ByteString.writeFile path payload)
+        pure
+          ( Right
+              ( ETag
+                  ( sha256Hex
+                      (Text.Encoding.decodeUtf8With TextErr.lenientDecode payload)
+                  )
+              )
+          )
 
   putBlobIfAbsent ref payload = do
     root <- ask

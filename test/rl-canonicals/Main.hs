@@ -9,7 +9,7 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import JitML.RL.Algorithms (algorithmCatalog, algorithmName, deterministicTrajectory)
-import JitML.RL.AlphaZero (gameMoves, selfPlayTranscript)
+import JitML.RL.AlphaZero (gameMoves, selfPlayTranscript, selfPlayTranscriptFor)
 
 main :: IO ()
 main =
@@ -34,6 +34,18 @@ main =
       , testCase "AlphaZero Connect 4 transcript matches golden fixture" $ do
           fixture <- Text.IO.readFile "test/golden/alphazero/connect4-transcript.txt"
           Text.lines fixture @?= fmap (Text.pack . show . gameMoves) (selfPlayTranscript 3)
+      , testCase "AlphaZero Othello transcript matches golden fixture" $ do
+          fixture <- Text.IO.readFile "test/golden/alphazero/othello-transcript.txt"
+          Text.lines fixture
+            @?= fmap (Text.pack . show . gameMoves) (selfPlayTranscriptFor "othello" 3)
+      , testCase "AlphaZero Hex transcript matches golden fixture" $ do
+          fixture <- Text.IO.readFile "test/golden/alphazero/hex-transcript.txt"
+          Text.lines fixture
+            @?= fmap (Text.pack . show . gameMoves) (selfPlayTranscriptFor "hex" 3)
+      , testCase "AlphaZero Gomoku transcript matches golden fixture" $ do
+          fixture <- Text.IO.readFile "test/golden/alphazero/gomoku-transcript.txt"
+          Text.lines fixture
+            @?= fmap (Text.pack . show . gameMoves) (selfPlayTranscriptFor "gomoku" 3)
       ]
 
 assertContains :: Text -> [Text] -> IO ()

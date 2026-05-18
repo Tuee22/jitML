@@ -42,25 +42,22 @@ renderPureScriptContracts =
     , ""
     , "endpoints :: Array Endpoint"
     , "endpoints ="
-    , "  ["
     ]
       <> endpointLines
       <> ["  ]"]
  where
   endpointLines =
     case apiEndpoints of
-      [] -> []
+      [] -> ["  []"]
       firstEndpoint : rest ->
-        renderEndpoint firstEndpoint : fmap (("  , " <>) . dropPrefix . renderEndpoint) rest
+        ("  [ " <> renderEndpointBody firstEndpoint)
+          : fmap (\e -> "  , " <> renderEndpointBody e) rest
 
-  renderEndpoint endpoint =
-    "    { name: \""
+  renderEndpointBody endpoint =
+    "{ name: \""
       <> endpointName endpoint
       <> "\", method: \""
       <> endpointMethod endpoint
       <> "\", path: \""
       <> endpointPath endpoint
       <> "\" }"
-
-  dropPrefix =
-    Text.dropWhile (== ' ')

@@ -57,8 +57,11 @@ methods + per-domain `HandlerRouter` + filesystem-backed `HasMinIO`
 instance (`JitML.Service.FilesystemMinIO`) + subprocess-backed
 `HasKubectl` instance (`JitML.Service.KubectlSubprocess`) with
 stdin-piped YAML `kubectlApply` validated against a live Kind cluster,
-the typed phased Helm rollout
-(`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus
+the typed Consumer IO loop
+(`JitML.Service.Consumer.{consumerStep,runConsumerLoop,ConsumerOutcome}`)
+exercising HasPulsar subscribe/consume/ack + per-domain dedup against
+a synthetic broker in `jitml-daemon-lifecycle`, the typed phased Helm
+rollout (`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus
 `pulsarTopicCreateSubprocesses` actually invoked through
 `JitML.Bootstrap.liveExecutePhasedRollout` under `JITML_LIVE_E2E=1`,
 the service-Postgres registry lint wired into `JitML.Lint.Chart`,
@@ -72,18 +75,30 @@ validated against canonical CRC vectors, the AVX2 / AVX-512 CPU
 detection (`JitML.Engines.CpuFeatures`) probing the host through the
 typed `Subprocess` boundary, the MCTS transposition table
 (`JitML.RL.AlphaZero.Mcts.{TranspositionTable,runSearchWithTable}`)
-deduplicating equivalent search subtrees, the six Halogen panels
-validated against real Chromium through Playwright invoked from
-`jitml-e2e` through the typed `Subprocess` boundary under
+deduplicating equivalent search subtrees, per-game AlphaZero golden
+replays (`test/golden/alphazero/{connect4,othello,hex,gomoku}-transcript.txt`)
+bound by `JitML.RL.AlphaZero.selfPlayTranscriptFor` and validated by
+`jitml-rl-canonicals`, the SelfPlayBuffer round-trip through the
+filesystem-backed `HasMinIO` instance, the same-host bit-equality of
+the linux-cpu identity kernel across three successive FFI runs
+validated by `jitml-cross-backend`, the Dhall numerics schema decode
+that round-trips the full Haskell catalog
+(`JitML.Numerics.Schema.loadNumericsCatalog`), the six Halogen
+panels validated against real Chromium through Playwright invoked
+from `jitml-e2e` through the typed `Subprocess` boundary under
 `JITML_LIVE_E2E=1`, the `spago test` smoke suite invoked from
 `jitml-purescript-style` through the typed `Subprocess` boundary
-under `JITML_LIVE_E2E=1`, the real-binary `./.build/jitml` spawn
-through the typed boundary in a temp workdir covered by
-`jitml-integration`, the live Kind cluster spin-up producing
-`./.build/jitml.kubeconfig` without polluting `~/.kube/config`, the
-post-teardown `no jitml-e2e-* Kind clusters survive` assertion in
-`jitml-e2e`, and the typed Pulumi ephemeral-Kind orchestrator under
-`infra/pulumi/index.ts` are all checked in. The remaining
+under `JITML_LIVE_E2E=1`, the compiled Halogen CoreFn JS bundle
+under `web/dist/` produced by `spago build`, the real-binary
+`./.build/jitml` spawn matrix (`--help`, `bootstrap --linux-cpu
+--dry-run`, `cluster up --substrate linux-cpu --dry-run`,
+`internal gc <hash>` exiting `3`) through the typed boundary in a
+temp workdir covered by `jitml-integration`, the live Kind cluster
+spin-up producing `./.build/jitml.kubeconfig` without polluting
+`~/.kube/config`, the post-teardown `no jitml-e2e-* Kind clusters
+survive` assertion in `jitml-e2e`, and the typed Pulumi
+ephemeral-Kind orchestrator under `infra/pulumi/index.ts` are all
+checked in. The remaining
 live runtime behaviours (NVIDIA GPU, Tart VM, live Pulsar HA, live
 training-to-convergence on real hardware, full Helm rollout of
 Harbor + Pulsar HA + Postgres + MinIO + Prometheus together) remain

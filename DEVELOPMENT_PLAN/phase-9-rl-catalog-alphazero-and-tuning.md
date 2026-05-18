@@ -297,8 +297,13 @@ AlphaZero summary.
   de-dupe their search subtrees. Validated by `jitml-unit`: identical
   move sequences collapse to a single entry, distinct sequences
   allocate distinct entries.
-- Wire MinIO checkpoint round-trip of the persistent self-play buffer
-  (gated by Phase 10 + 4 live MinIO).
+- The MinIO checkpoint round-trip of the persistent self-play buffer
+  is validated via `jitml-integration`: a deterministic
+  `SelfPlayBuffer` is written under
+  `selfplay/<bufferTranscriptHash>.cbor` through the filesystem
+  `HasMinIO` instance, and re-deriving the buffer with the same seed
+  produces the identical transcript hash + game count. The live MinIO
+  HTTP variant remains gated on Sprint 4.3.
 - `AZ_GAMES` and `AZ_SIMS` are exposed via `SelfPlayConfig`; the
   report-card knob block in `cabal.project` already names them — wire
   them into the canonical stanza body in Sprint 12.4.
@@ -345,9 +350,11 @@ catalog, and corresponding browser-contract endpoint metadata.
   games via `gameTwoHeadedNetwork` and `gameActionCount`. `GameState`
   is the canonical instance.
 - Per-game golden replays under
-  `test/golden/alphazero/<game>-transcript.txt` land via the
-  canonical stanza body wiring in Sprint 12.4 (the deterministic
-  `selfPlayTranscript` already produces stable per-seed sequences).
+  `test/golden/alphazero/<game>-transcript.txt` are now committed for
+  all four canonical games (Connect 4, Othello, Hex, Gomoku);
+  `JitML.RL.AlphaZero.selfPlayTranscriptFor` parameterises the
+  transcript on game name and `jitml-rl-canonicals` binds each golden
+  fixture against the deterministic output for `seed=3`.
 - The full real-rules engine for Othello (capture flip), Hex
   (connectivity), and Gomoku (line-of-five) lands when the game
   position evaluator graduates from the deterministic shim — gated by

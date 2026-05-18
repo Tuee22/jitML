@@ -102,6 +102,7 @@ library
         JitML.RL.AlphaZero.Arena
         JitML.RL.AlphaZero.Mcts
         JitML.RL.AlphaZero.SelfPlay
+        JitML.RL.AsyncBuffer
         JitML.RL.Buffer
         JitML.RL.Environments
         JitML.RL.Framework
@@ -150,6 +151,7 @@ library
     build-depends:
         base >=4.22 && <4.23,
         text,
+        async,
         bytestring,
         aeson,
         cryptohash-sha256,
@@ -165,6 +167,7 @@ library
         path,
         path-io,
         serialise,
+        stm,
         typed-process,
         safe-exceptions,
         tasty,
@@ -222,6 +225,7 @@ test-suite jitml-integration
     ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        bytestring,
         directory,
         filepath,
         jitml,
@@ -292,6 +296,7 @@ test-suite jitml-daemon-lifecycle
         base >=4.22 && <4.23,
         bytestring,
         jitml,
+        mtl,
         network,
         tasty,
         tasty-hunit,

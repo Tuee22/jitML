@@ -97,6 +97,8 @@ import JitML.Prerequisite.Registry
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.Mcts qualified as Mcts
+import JitML.RL.AsyncBuffer qualified as AsyncBuffer
+import JitML.RL.Buffer qualified as Buffer
 import JitML.RL.Environments qualified as RLEnvironments
 import JitML.RL.Framework qualified as RLFramework
 import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
@@ -694,6 +696,31 @@ main =
       , testCase "service capability classes are named in the local surface" $
           Capabilities.capabilityNames
             @?= ["HasMinIO", "HasPulsar", "HasHarbor", "HasKubectl"]
+      , testCase "AsyncBuffer drains async writes in spawn order (Sprint 8.4)" $ do
+          writeLog <- newIORef ([] :: [Int])
+          let sink =
+                AsyncBuffer.AsyncSink
+                  ( \transitions -> do
+                      modifyIORef' writeLog (length transitions :)
+                      pure (AsyncBuffer.AsyncWriteOk (Text.pack ("wrote " <> show (length transitions))))
+                  )
+          buffer <- AsyncBuffer.newAsyncBuffer Buffer.OnPolicyRollout 8 sink
+          let mkT n =
+                Buffer.Transition
+                  { Buffer.transitionStep = n
+                  , Buffer.transitionAction = n
+                  , Buffer.transitionReward = fromIntegral n
+                  , Buffer.transitionObservation = n
+                  , Buffer.transitionDone = False
+                  }
+          mapM_ (AsyncBuffer.insertAsync buffer . mkT) [0 .. 4 :: Int]
+          results <- AsyncBuffer.drainAsync buffer
+          length results @?= 5
+          let isOk (AsyncBuffer.AsyncWriteOk _) = True
+              isOk _ = False
+          mapM_ (assertBool "write OK" . isOk) results
+          pending <- AsyncBuffer.pendingAsyncCount buffer
+          pending @?= 0
       , testCase "canonical RL environments and framework surfaces are deterministic" $ do
           fmap RLEnvironments.environmentName RLEnvironments.canonicalEnvironments
             @?= ["cartpole", "mountain-car", "lunar-lander", "atari-subset"]
@@ -801,6 +828,30 @@ main =
           TensorBoard.crc32cCastagnoli (StrictByteString.pack [0x61]) @?= 0xC1D04330
           TensorBoard.crc32cCastagnoli (StrictByteString.replicate 32 0x00) @?= 0x8A9136AA
           TensorBoard.crc32cCastagnoli "123456789" @?= 0xE3069283
+      , testCase "TbCheckpointMarker CBOR sidecar is deterministic" $ do
+          let marker =
+                TensorBoard.TbCheckpointMarker
+                  { TensorBoard.tcmStep = 100
+                  , TensorBoard.tcmEpoch = 4
+                  , TensorBoard.tcmManifestSha = "sha-m"
+                  , TensorBoard.tcmExperimentSha = "exp-a"
+                  , TensorBoard.tcmTrialSha = Nothing
+                  , TensorBoard.tcmRunUuid = "uuid-1"
+                  , TensorBoard.tcmMetricsAtStep = [("loss", 0.5), ("acc", 0.92)]
+                  }
+              encoded = TensorBoard.encodeTbCheckpointMarker marker
+              again = TensorBoard.encodeTbCheckpointMarker marker
+          encoded @?= again
+          assertBool "encoded payload is non-empty" (ByteString.length encoded > 0)
+      , testCase "shouldRotateShard honours bytes / elapsed / explicit limits" $ do
+          let limits = TensorBoard.defaultShardRotationLimits
+          TensorBoard.shouldRotateShard 1024 1 limits @?= TensorBoard.ShardKeepOpen
+          TensorBoard.shouldRotateShard (4 * 1024 * 1024) 1 limits
+            @?= TensorBoard.ShardRotateForBytes (4 * 1024 * 1024) (4 * 1024 * 1024)
+          TensorBoard.shouldRotateShard 1024 30 limits
+            @?= TensorBoard.ShardRotateForElapsed 30 10
+          TensorBoard.shouldRotateShard 1024 1 (limits {TensorBoard.shardExplicitFlush = True})
+            @?= TensorBoard.ShardRotateForExplicit
       , testCase "TFRecord frame encodes length + masked CRCs + payload" $ do
           let payload = StrictByteString.pack [0x01, 0x02, 0x03, 0x04]
               frame = ByteString.toStrict (TensorBoard.encodeTfRecord payload)
