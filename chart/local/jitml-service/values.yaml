@@ -1,0 +1,6 @@
+substrate: linux-cpu
+edgePort: 9090
+
+image:
+  repository: jitml
+  tag: local

@@ -296,8 +296,9 @@ Code-Quality Stack`.
 - `src/JitML/Lint/Chart.hs` is a no-op when `chart/` is absent. When chart
   files are present, it enforces: every StorageClass uses
   `kubernetes.io/no-provisioner`; every PV has an explicit `claimRef.namespace`
-  and `claimRef.name`; every PVC is created only by a StatefulSet's
-  `volumeClaimTemplates`; every hostPath under `chart/templates/pv-*.yaml`
+  / `claimRef.name` or a registered Percona `volumeName` binding; every PVC is
+  created only by a StatefulSet's `volumeClaimTemplates` or the registered
+  Percona operator resource; every hostPath under `chart/templates/pv-*.yaml`
   matches `<namespace>/<StatefulSet>/pv_<replica-int>` per
   [00-overview.md → Hard Constraint 15](00-overview.md#hard-constraints).
 - `cabal format` round-trip byte-equality writes the output to a temp file and
@@ -394,8 +395,10 @@ later phases.
 ### Deliverables
 
 - `Subprocess` record in `src/JitML/Sub/Subprocess.hs` carrying
-  `subprocessPath`, `subprocessArguments`, `subprocessEnvironment`,
-  `subprocessWorkingDirectory`.
+  `subprocessPath`, `subprocessArguments`, `subprocessWorkingDirectory`, and
+  optional stdin payload. It deliberately does not carry process-environment
+  overrides; command configuration is explicit in arguments, working directory,
+  stdin, Dhall, or typed config.
 - `renderSubprocess :: Subprocess -> Text` is pure and used by the Plan
   renderer and the structured logger.
 - `runStreaming :: Env -> Subprocess -> IO (ExitCode, Text, Text)` and
@@ -471,9 +474,10 @@ runners thread through, per doctrine `Application Environment`.
 ### Deliverables
 
 - `Env` record in `src/JitML/Env/Env.hs` carrying:
-  - `envCacheDir :: Path Abs Dir` (resolves `--cache-dir <path>` →
-    `$JITML_BUILD_DIR` → `./.build/`),
-  - `envDataDir :: Path Abs Dir` (resolves `$JITML_DATA_DIR` → `./.data/`),
+  - `envCacheDir :: Path Abs Dir` (resolves explicit `--cache-dir <path>` or
+    defaults to `./.build/`),
+  - `envDataDir :: Path Abs Dir` (resolves explicit `--data-dir <path>` or
+    defaults to `./.data/`),
   - `envFormat :: OutputFormat`, `envColor :: ColorMode`,
   - `envLogger :: Subprocess -> ExitCode -> Text -> IO ()` (defaults to
     structured JSON on stderr; daemon overrides),
@@ -487,8 +491,8 @@ runners thread through, per doctrine `Application Environment`.
 ### Validation
 
 1. `jitml --format json commands --json | jq '.format'` returns `"json"`.
-2. `JITML_BUILD_DIR=/tmp/jitml jitml internal gc <hash> --dry-run` resolves the
-   cache against the env override.
+2. `jitml --cache-dir /tmp/jitml internal gc <hash> --dry-run` resolves the
+   cache against the explicit CLI override.
 
 ### Remaining Work
 

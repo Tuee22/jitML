@@ -3,6 +3,7 @@
 module JitML.Cluster.PostgresRegistry
   ( PerconaPGCluster (..)
   , Postgres (..)
+  , perconaPgVolumeNames
   , postgresRegistry
   , renderPerconaPGCluster
   , validateRegisteredPostgres
@@ -46,28 +47,76 @@ postgresRegistry =
 renderPerconaPGCluster :: PerconaPGCluster -> Text
 renderPerconaPGCluster cluster =
   Text.unlines
-    [ "apiVersion: pgv2.percona.com/v2"
-    , "kind: PerconaPGCluster"
-    , "metadata:"
-    , "  name: " <> perconaClusterName cluster
-    , "  namespace: " <> perconaNamespace cluster
-    , "spec:"
-    , "  postgresVersion: 16"
-    , "  instances:"
-    , "    - name: instance1"
-    , "      replicas: " <> Text.pack (show (perconaReplicas cluster))
-    , "      dataVolumeClaimSpec:"
-    , "        accessModes: [\"ReadWriteOnce\"]"
-    , "        resources:"
-    , "          requests:"
-    , "            storage: " <> perconaStorageSize cluster
-    , "  database: " <> perconaDatabase cluster
-    , "  users:"
-    , "    - name: " <> perconaDatabase cluster
-    , "      databases:"
-    , "        - " <> perconaDatabase cluster
-    , "      secretName: " <> perconaSecretName cluster
-    ]
+    ( [ "apiVersion: pgv2.percona.com/v2"
+      , "kind: PerconaPGCluster"
+      , "metadata:"
+      , "  name: " <> perconaClusterName cluster
+      , "  namespace: " <> perconaNamespace cluster
+      , "spec:"
+      , "  postgresVersion: 16"
+      , "  image: percona/percona-postgresql-operator:2.5.1-ppg16.8-postgres"
+      , "  backups:"
+      , "    pgbackrest:"
+      , "      image: percona/percona-postgresql-operator:2.5.1-ppg16.8-pgbackrest2.54.2"
+      , "      repos:"
+      , "        - name: repo1"
+      , "          volume:"
+      , "            volumeClaimSpec:"
+      , "              accessModes:"
+      , "                - ReadWriteOnce"
+      , "              resources:"
+      , "                requests:"
+      , "                  storage: " <> perconaStorageSize cluster
+      , "              storageClassName: jitml-manual"
+      , "              volumeName: " <> perconaPgBackupVolumeName cluster
+      , "  instances:"
+      ]
+        <> concatMap (renderInstance cluster) [0 .. perconaReplicas cluster - 1]
+        <> [ "  proxy:"
+           , "    pgBouncer:"
+           , "      image: percona/percona-postgresql-operator:2.5.1-ppg16.8-pgbouncer1.24.0"
+           , "      replicas: 1"
+           , "  users:"
+           , "    - name: " <> perconaDatabase cluster
+           , "      databases:"
+           , "        - " <> perconaDatabase cluster
+           , "      secretName: " <> perconaSecretName cluster
+           ]
+    )
+
+perconaPgVolumeNames :: PerconaPGCluster -> [Text]
+perconaPgVolumeNames cluster =
+  perconaPgBackupVolumeName cluster
+    : fmap (perconaPgVolumeName cluster) [0 .. perconaReplicas cluster - 1]
+
+renderInstance :: PerconaPGCluster -> Int -> [Text]
+renderInstance cluster replica =
+  [ "    - name: instance" <> Text.pack (show (replica + 1))
+  , "      replicas: 1"
+  , "      dataVolumeClaimSpec:"
+  , "        accessModes:"
+  , "          - ReadWriteOnce"
+  , "        resources:"
+  , "          requests:"
+  , "            storage: " <> perconaStorageSize cluster
+  , "        storageClassName: jitml-manual"
+  , "        volumeName: " <> perconaPgVolumeName cluster replica
+  ]
+
+perconaPgVolumeName :: PerconaPGCluster -> Int -> Text
+perconaPgVolumeName cluster replica =
+  perconaNamespace cluster
+    <> "-"
+    <> perconaClusterName cluster
+    <> "-pv-"
+    <> Text.pack (show replica)
+
+perconaPgBackupVolumeName :: PerconaPGCluster -> Text
+perconaPgBackupVolumeName cluster =
+  perconaNamespace cluster
+    <> "-"
+    <> perconaClusterName cluster
+    <> "-repo1-pv-0"
 
 -- | Lint helper: given a cluster name observed in a manifest, return Nothing
 -- if it is in the registry and `Just <reason>` if it must be removed.

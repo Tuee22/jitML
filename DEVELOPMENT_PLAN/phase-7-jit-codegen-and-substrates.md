@@ -202,7 +202,7 @@ identity kernel; grow real oneDNN graph wrappers and production
   Validated by `jitml-integration` on this host (Apple Silicon
   detected as `apple-silicon`, choice falls through to
   `onednn-reference`).
-- Add the live oneDNN integration test behind `JITML_LIVE_E2E=1` once
+- Add the live oneDNN integration test on the explicit live validation path once
   the production runtime graph driver lands.
 
 ## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver 🔄
@@ -262,8 +262,8 @@ execution per `### Remaining Work` below.
   initialisation.
 - Implement FFI loading of the compiled CUDA `.so` and plug it into
   `HasEngine` production loading.
-- Add the live CUDA transcript-determinism integration test behind
-  `JITML_LIVE_E2E=1` (Sprint `12.6`) — blocked by absent NVIDIA
+- Add the live CUDA transcript-determinism integration test on the explicit live
+  validation path (Sprint `12.6`) — blocked by absent NVIDIA
   hardware.
 
 ## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC 🔄
@@ -323,8 +323,8 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
   produce/consume on the `inference.command.apple-silicon` and
   `inference.event.apple-silicon` topics) with MinIO-staged tensor
   payloads.
-- Add the live test that exercises the full host-resident inference path
-  behind `JITML_LIVE_E2E=1` (Sprint `12.6`).
+- Add the live test that exercises the full host-resident inference path on the
+  explicit live validation path (Sprint `12.6`).
 
 ## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract 🔄
 

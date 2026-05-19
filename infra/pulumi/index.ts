@@ -19,8 +19,8 @@ import { local } from "@pulumi/command";
 //        Kind cluster, Harbor project, MinIO bucket, or Docker volume
 //        remains.
 //
-// Triggered only under `JITML_LIVE_E2E=1`; the test stanza falls back to the
-// scaffold body in `JitML.Test.LivePlan` when the env var is unset.
+// Invoked explicitly by the `jitml-e2e` live orchestration path; the Cabal
+// stanza validates the typed scaffold in `JitML.Test.LivePlan`.
 
 const config = new pulumi.Config();
 
@@ -55,16 +55,12 @@ const helmDeps = new local.Command(
 // Step 3 — `jitml bootstrap --<substrate>` drives the phased Helm rollout.
 // Per `JitML.Cluster.Helm.helmPhasedRolloutPlan`, the daemon installs Harbor
 // first, then the platform services, then mirrors the jitml images, then the
-// final per-substrate services. The KUBECONFIG env override ensures the
-// host's `~/.kube/config` is untouched.
+// final per-substrate services. The generated Kind kubeconfig path is explicit
+// so the host's `~/.kube/config` is untouched.
 const jitmlBootstrap = new local.Command(
   "jitml-bootstrap",
   {
     create: pulumi.interpolate`${jitmlBinary} bootstrap --${substrate}`,
-    environment: {
-      KUBECONFIG: kubeconfigPath,
-      JITML_LIVE_E2E: "1",
-    },
     triggers: [substrate, jitmlBinary, kubeconfigPath],
   },
   { dependsOn: [helmDeps] }
@@ -85,4 +81,4 @@ const publicationCheck = new local.Command(
 // Outputs the e2e stanza consumes.
 export const clusterReady = publicationCheck.stdout;
 export const edgePort = config.getNumber("edgePort") ?? 9090;
-export const playwrightCommand = pulumi.interpolate`KUBECONFIG=${kubeconfigPath} npx playwright test`;
+export const playwrightCommand = pulumi.output("npx playwright test");

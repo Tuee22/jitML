@@ -235,7 +235,7 @@ dedicated local RL canonical stanza.
 ### Remaining Work
 
 - Grow `test/golden/rl/<algo>/<env>/` into a fixture tree per algorithm.
-- Consume the `RL_STEPS` and `RL_EVAL_EPISODES` report-card knobs from
+- Consume the `rl_steps` and `rl_eval_episodes` report-card knobs from
   `cabal.project`.
 - Implement the per-seed final-reward distribution check (form 3) that
   consumes live training output.
@@ -286,8 +286,8 @@ AlphaZero summary.
 2. `cabal test jitml-rl-canonicals` checks legal Connect 4 columns.
 3. `jitml-unit` verifies the game catalog, network metadata, and arena
    win-rate helper.
-4. Live validation (target): real `Mcts.hs` runs `AZ_SIMS` simulations
-   per move; `SelfPlay.hs` plays `AZ_GAMES` games per generation;
+4. Live validation (target): real `Mcts.hs` runs `az_sims` simulations
+   per move; `SelfPlay.hs` plays `az_games` games per generation;
    `Arena.hs` evaluates the new network against the previous best and
    the new champion is promoted only when the win rate exceeds the
    committed threshold; checkpoints round-trip the persistent self-play
@@ -312,7 +312,7 @@ AlphaZero summary.
   `HasMinIO` instance, and re-deriving the buffer with the same seed
   produces the identical transcript hash + game count. The live MinIO
   HTTP variant remains gated on Sprint 4.3.
-- `AZ_GAMES` and `AZ_SIMS` are exposed via `SelfPlayConfig`; the
+- `az_games` and `az_sims` are exposed via `SelfPlayConfig`; the
   report-card knob block in `cabal.project` already names them — wire
   them into the canonical stanza body in Sprint 12.4.
 
@@ -441,7 +441,7 @@ summary.
   instance: a 3-trial sweep persists, replays bit-equal, and a
   missing seed lands in `resumeReadFailures`. The live MinIO
   validation remains gated on Sprint 4.3.
-- Consume the `TUNE_TRIALS` and `TUNE_BUDGET_PER_TRIAL` report-card
+- Consume the `tune_trials` and `tune_budget_per_trial` report-card
   knobs in the canonical stanza body (Sprint 12.5).
 
 ## Doctrine Sections Cited

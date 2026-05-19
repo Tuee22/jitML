@@ -1,17 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Cluster.DockerImage
-  ( dockerBuildSubprocess
+  ( dockerBuildAndKindLoadPlan
+  , dockerBuildSubprocess
   , dockerLoginSubprocess
   , dockerMirrorPlan
   , dockerPushSubprocess
   , dockerTagSubprocess
+  , kindLoadDockerImageSubprocess
   )
 where
 
 import Data.Text (Text)
+import Data.Text qualified as Text
+import System.FilePath ((</>))
 
 import JitML.Sub.Subprocess (Subprocess, subprocess)
+import JitML.Substrate (Substrate, renderSubstrate)
 
 -- | `docker build -t <localTag> <contextDir>` — builds the image locally.
 dockerBuildSubprocess :: Text -> FilePath -> Subprocess
@@ -22,16 +27,9 @@ dockerBuildSubprocess localTag contextDir =
     , "-t"
     , localTag
     , "-f"
-    , "docker/Dockerfile"
-    , "--load"
-    , "--progress=plain"
-    , "--"
-    , "."
+    , Text.pack (contextDir </> "docker" </> "Dockerfile")
+    , Text.pack contextDir
     ]
-    `withArg` contextDir
-
-withArg :: Subprocess -> FilePath -> Subprocess
-withArg sp _ = sp -- the contextDir is the trailing `"."`; kept for API shape
 
 -- | `docker tag <local> <harborRegistry>/<project>/<image>:<sha>`.
 dockerTagSubprocess :: Text -> Text -> Subprocess
@@ -53,7 +51,29 @@ dockerLoginSubprocess registry username =
     "docker"
     ["login", "--username", username, "--password-stdin", registry]
 
--- | The Sprint 3.5 mirror/build phase plan: build the image locally,
+-- | `kind load docker-image <tag> --name jitml-<substrate>` — loads a
+-- locally built image into the local Kind cluster's container runtime.
+kindLoadDockerImageSubprocess :: Substrate -> Text -> Subprocess
+kindLoadDockerImageSubprocess substrate localTag =
+  subprocess
+    "kind"
+    [ "load"
+    , "docker-image"
+    , localTag
+    , "--name"
+    , "jitml-" <> renderSubstrate substrate
+    ]
+
+-- | Phase 3 local live path: build the image locally, then load it into
+-- Kind explicitly. This avoids relying on host Docker or Kind containerd
+-- resolving an in-cluster Harbor DNS name during local bootstrap.
+dockerBuildAndKindLoadPlan :: Substrate -> Text -> FilePath -> [Subprocess]
+dockerBuildAndKindLoadPlan substrate localTag contextDir =
+  [ dockerBuildSubprocess localTag contextDir
+  , kindLoadDockerImageSubprocess substrate localTag
+  ]
+
+-- | Harbor mirror/build phase plan: build the image locally,
 -- tag it for Harbor, push it. The caller supplies the contextDir,
 -- localTag, and harborTag; the sequencer walks the three subprocesses
 -- through the typed `runStreaming` boundary.

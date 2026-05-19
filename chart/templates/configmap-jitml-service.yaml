@@ -5,13 +5,13 @@ metadata:
   namespace: platform
 data:
   BootConfig.dhall: |
-    { substrate = "linux-cuda"
+    { substrate = "linux-cpu"
     , residency = Cluster
     , inferenceMode = SelfInference
-    , pulsarServiceUrl = "pulsar://jitml-pulsar-proxy.platform.svc.cluster.local:6650"
-    , pulsarAdminUrl = "http://jitml-pulsar-proxy.platform.svc.cluster.local:8080"
-    , minioEndpoint = "http://jitml-minio.platform.svc.cluster.local:9000"
-    , harborRegistry = "harbor.platform.svc.cluster.local/jitml"
+    , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
+    , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
+    , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
+    , harborRegistry = "harbor-registry.platform.svc.cluster.local:5000/library"
     , httpListener = Some { host = "0.0.0.0", port = 8080 }
     }
   LiveConfig.dhall: |

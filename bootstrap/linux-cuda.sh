@@ -40,6 +40,13 @@ up() {
 }
 
 main() {
+  while [ "${1:-}" = "--command-dir" ]; do
+    bootstrap_command_dir=${2:-}
+    if [ -z "$bootstrap_command_dir" ]; then
+      die 64 "missing value for --command-dir"
+    fi
+    shift 2
+  done
   local command_name=${1:-help}
   shift || true
   case "$command_name" in

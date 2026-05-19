@@ -46,22 +46,13 @@ capture _env subprocessValue =
 
 baseProcessConfig :: Subprocess -> Typed.ProcessConfig () () ()
 baseProcessConfig subprocessValue =
-  applyWorkingDirectory
-    . applyEnvironment
-    $ Typed.proc
+  applyWorkingDirectory $
+    Typed.proc
       (subprocessPath subprocessValue)
       (fmap showText (subprocessArguments subprocessValue))
  where
   applyWorkingDirectory config =
     maybe config (`Typed.setWorkingDir` config) (subprocessWorkingDirectory subprocessValue)
-
-  applyEnvironment config =
-    case subprocessEnvironment subprocessValue of
-      [] -> config
-      values -> Typed.setEnv (fmap envPair values) config
-
-  envPair (key, value) =
-    (showText key, showText value)
 
 showText :: Text -> String
 showText = showStringValue

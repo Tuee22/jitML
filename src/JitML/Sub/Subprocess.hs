@@ -10,7 +10,6 @@ import Data.Text (Text)
 data Subprocess = Subprocess
   { subprocessPath :: FilePath
   , subprocessArguments :: [Text]
-  , subprocessEnvironment :: [(Text, Text)]
   , subprocessWorkingDirectory :: Maybe FilePath
   , subprocessStdin :: Maybe Text
   -- ^ Optional stdin payload. The typed boundary's `runStreaming` /
@@ -25,7 +24,6 @@ subprocess path arguments =
   Subprocess
     { subprocessPath = path
     , subprocessArguments = arguments
-    , subprocessEnvironment = []
     , subprocessWorkingDirectory = Nothing
     , subprocessStdin = Nothing
     }

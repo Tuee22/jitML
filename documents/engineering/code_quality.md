@@ -57,8 +57,8 @@ runs against the checked-in `chart/` tree and refuses:
 
 - Any `StorageClass` with a provisioner other than
   `kubernetes.io/no-provisioner`.
-- Any `PersistentVolume` without an explicit `claimRef.namespace` and
-  `claimRef.name`.
+- Any `PersistentVolume` without an explicit `claimRef.namespace` /
+  `claimRef.name` or a registered Percona `volumeName` binding.
 - Any freestanding `PersistentVolumeClaim` (must be created by a
   `StatefulSet.volumeClaimTemplates`).
 - Any `hostPath` under `chart/templates/pv-*.yaml` that does not match

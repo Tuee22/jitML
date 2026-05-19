@@ -10,7 +10,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: jitml-manual
   local:
-    path: ./.data/platform/pulsar-zookeeper/pv_0/
+    path: /jitml/.data/platform/pulsar-zookeeper/pv_0/
   nodeAffinity:
     required:
       nodeSelectorTerms:

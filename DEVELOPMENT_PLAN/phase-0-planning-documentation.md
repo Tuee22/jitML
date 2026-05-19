@@ -264,8 +264,8 @@ per standards rule L.
     files remain lint-owned unless a future generated-binding path is added to
     the registries.
   - **Subprocesses as Typed Values**: `Subprocess`, `subprocessPath`,
-    `subprocessArguments`, `subprocessEnvironment`,
-    `subprocessWorkingDirectory`, `renderSubprocess`, `runStreaming`,
+    `subprocessArguments`, `subprocessWorkingDirectory`, optional stdin payload,
+    `renderSubprocess`, `runStreaming`,
     `capture`; forbidden primitives `callProcess`, `readCreateProcess`,
     `System.Process`, `typed-process` smart constructors. Wrapped subprocesses
     must include `kubectl`, `helm`, `kind`, `docker`, `metal`, `nvcc`, `g++`
@@ -320,7 +320,8 @@ per standards rule L.
     `forbiddenPathRegistry` refusing `.github/workflows/`, `.husky/`,
     `.githooks/`, root `Makefile` / `justfile` / `Taskfile.yml`. Plus chart
     lint refusing freestanding PVCs, non-`kubernetes.io/no-provisioner`
-    StorageClasses, and PVs without explicit `claimRef`.
+    StorageClasses, and PVs without explicit `claimRef` or a registered
+    Percona `volumeName` binding.
   - **Testing Doctrine, Standard Testing Stack, Test Categories, Test
     Organization**: per-tier stanza model, `type: exitcode-stdio-1.0`,
     `tasty`, `execParserPure`, property invariants `decode . encode == id`,
@@ -432,7 +433,7 @@ blocks, or cleanup-ledger rows are required.
   `171`-`211`; [documents/documentation_standards.md](../documents/documentation_standards.md)
   lines `304`-`357`.
 - Typed subprocess boundary:
-  `grep -RInE 'Subprocess|subprocessPath|subprocessArguments|subprocessEnvironment|subprocessWorkingDirectory|renderSubprocess|runStreaming|capture|callProcess|readCreateProcess|System\.Process|typed-process|kubectl|helm|kind|docker|metal|nvcc|g\+\+|tart' DEVELOPMENT_PLAN documents/engineering`
+  `grep -RInE 'Subprocess|subprocessPath|subprocessArguments|subprocessWorkingDirectory|subprocessStdin|renderSubprocess|runStreaming|capture|callProcess|readCreateProcess|System\.Process|typed-process|kubectl|helm|kind|docker|metal|nvcc|g\+\+|tart' DEVELOPMENT_PLAN documents/engineering`
   Evidence: [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) lines
   `322`-`339`; [documents/engineering/haskell_code_guide.md](../documents/engineering/haskell_code_guide.md)
   lines `100`-`120`.
@@ -509,7 +510,7 @@ blocks, or cleanup-ledger rows are required.
   [documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md)
   lines `136`-`146`.
 - Report-card knobs:
-  `grep -RInE 'SL_EPOCHS|SL_BATCH|RL_STEPS|RL_EVAL_EPISODES|AZ_GAMES|AZ_SIMS|TUNE_TRIALS|TUNE_BUDGET_PER_TRIAL|XCLUSTER_KIND_NODES' DEVELOPMENT_PLAN/system-components.md DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md`
+  `grep -RInE 'sl_epochs|sl_batch|rl_steps|rl_eval_episodes|az_games|az_sims|tune_trials|tune_budget_per_trial|xcluster_kind_nodes' DEVELOPMENT_PLAN/system-components.md DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md`
   Evidence: [system-components.md](system-components.md) lines `346`-`354`;
   [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
   lines `395`-`397`.

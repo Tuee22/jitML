@@ -14,12 +14,10 @@ module JitML.Web.Server
 where
 
 import Control.Exception qualified
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.Directory (doesFileExist)
-import System.Environment (lookupEnv)
 
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.RL.Algorithms qualified as RL
@@ -31,21 +29,19 @@ import JitML.Service.Http (HttpRoute (..), serveHttpRoutes, serveHttpRoutesOnce)
 import JitML.Web.Bundle qualified as Bundle
 import JitML.Web.Contracts qualified as Contracts
 
-demoListener :: Int -> HttpListener
+demoListener :: Text -> Int -> HttpListener
 demoListener =
-  HttpListener "127.0.0.1"
+  HttpListener
 
-serveDemo :: IO ()
-serveDemo = do
-  port <- demoPort
+serveDemo :: Text -> Int -> IO ()
+serveDemo host port = do
   bundle <- loadBundleEntry
-  serveHttpRoutes (demoListener port) (demoHttpRoutesWithBundle bundle)
+  serveHttpRoutes (demoListener host port) (demoHttpRoutesWithBundle bundle)
 
-serveDemoOnce :: IO ()
-serveDemoOnce = do
-  port <- demoPort
+serveDemoOnce :: Text -> Int -> IO ()
+serveDemoOnce host port = do
   bundle <- loadBundleEntry
-  serveHttpRoutesOnce (demoListener port) (demoHttpRoutesWithBundle bundle)
+  serveHttpRoutesOnce (demoListener host port) (demoHttpRoutesWithBundle bundle)
 
 -- | Canonical path to the compiled Halogen entry bundle. `spago build
 -- --output web/dist` writes the per-module CoreFn JS under
@@ -181,14 +177,3 @@ htmlRoute method path response =
     , httpRouteContentType = "text/html; charset=utf-8"
     , httpRouteResponse = response
     }
-
-demoPort :: IO Int
-demoPort = do
-  value <- lookupEnv "PORT"
-  pure (fromMaybe 8080 (value >>= readMaybeInt))
-
-readMaybeInt :: String -> Maybe Int
-readMaybeInt value =
-  case reads value of
-    [(parsed, "")] -> Just parsed
-    _ -> Nothing

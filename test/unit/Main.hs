@@ -10,7 +10,6 @@ import Data.ByteString.Lazy qualified as ByteString
 import Data.Foldable (traverse_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (find, isInfixOf)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -24,9 +23,8 @@ import System.Directory
   , setOwnerExecutable
   , setPermissions
   )
-import System.Environment (getEnvironment, setEnv, unsetEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (searchPathSeparator, takeDirectory, (</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Posix.Files (readSymbolicLink)
 import Test.Tasty (defaultMain, testGroup)
@@ -260,12 +258,11 @@ main =
             ( Subprocess
                 { subprocessPath = "cabal"
                 , subprocessArguments = ["build", "all"]
-                , subprocessEnvironment = [("LC_ALL", "C")]
                 , subprocessWorkingDirectory = Just "/tmp/jit ml"
                 , subprocessStdin = Nothing
                 }
             )
-            @?= "LC_ALL=C cd '/tmp/jit ml' && cabal build all"
+            @?= "cd '/tmp/jit ml' && cabal build all"
       , testCase "missing prerequisite surfaces typed diagnostic" $ do
           result <- reconcilePrerequisites [syntheticMissingPrerequisite] (NodeId "synthetic.missing")
           case result of
@@ -555,85 +552,66 @@ main =
       , testGroup
           "stage-0 bootstrap scripts"
           [ testCase "apple help names the Haskell bootstrap delegation" $ do
-              result <- runBootstrapScript Nothing "bootstrap/apple-silicon.sh" ["help"] []
+              result <- runBootstrapScript Nothing "bootstrap/apple-silicon.sh" ["help"]
               scriptExit result @?= ExitSuccess
               assertContains "apple help" "./.build/jitml bootstrap --apple-silicon" (scriptStdout result)
           , testCase "apple doctor rejects non-macOS hosts" $ do
-              result <-
-                runBootstrapScript
-                  Nothing
-                  "bootstrap/apple-silicon.sh"
-                  ["doctor"]
-                  [ ("JITML_BOOTSTRAP_UNAME_S", "Linux")
-                  , ("JITML_BOOTSTRAP_UNAME_M", "arm64")
-                  ]
-              scriptExit result @?= ExitFailure 2
-              assertContains "apple non-macOS diagnostic" "requires macOS" (scriptStderr result)
-          , testCase "apple doctor rejects non-arm64 hosts" $ do
-              result <-
-                runBootstrapScript
-                  Nothing
-                  "bootstrap/apple-silicon.sh"
-                  ["doctor"]
-                  [ ("JITML_BOOTSTRAP_UNAME_S", "Darwin")
-                  , ("JITML_BOOTSTRAP_UNAME_M", "x86_64")
-                  ]
-              scriptExit result @?= ExitFailure 2
-              assertContains "apple non-arm64 diagnostic" "requires Apple Silicon arm64" (scriptStderr result)
-          , testCase "apple doctor reports missing Xcode Command Line Tools" $
-              withStubCommands [brewStub] $ \stubDir -> do
+              withStubCommands [unameStub "Linux" "arm64"] $ \stubDir -> do
                 result <-
                   runBootstrapScript
                     (Just stubDir)
                     "bootstrap/apple-silicon.sh"
                     ["doctor"]
-                    [ ("JITML_BOOTSTRAP_UNAME_S", "Darwin")
-                    , ("JITML_BOOTSTRAP_UNAME_M", "arm64")
-                    , ("JITML_BOOTSTRAP_MISSING_COMMANDS", "xcode-select")
-                    ]
+                scriptExit result @?= ExitFailure 2
+                assertContains "apple non-macOS diagnostic" "requires macOS" (scriptStderr result)
+          , testCase "apple doctor rejects non-arm64 hosts" $ do
+              withStubCommands [unameStub "Darwin" "x86_64"] $ \stubDir -> do
+                result <-
+                  runBootstrapScript
+                    (Just stubDir)
+                    "bootstrap/apple-silicon.sh"
+                    ["doctor"]
+                scriptExit result @?= ExitFailure 2
+                assertContains "apple non-arm64 diagnostic" "requires Apple Silicon arm64" (scriptStderr result)
+          , testCase "apple doctor reports missing Xcode Command Line Tools" $
+              withStubCommands [unameStub "Darwin" "arm64", xcodeSelectUnavailableStub, brewStub] $ \stubDir -> do
+                result <-
+                  runBootstrapScript
+                    (Just stubDir)
+                    "bootstrap/apple-silicon.sh"
+                    ["doctor"]
                 scriptExit result @?= ExitFailure 2
                 assertContains "apple xcode diagnostic" "xcode-select --install" (scriptStderr result)
           , testCase "apple doctor reports missing Homebrew" $
-              withStubCommands [xcodeSelectStub] $ \stubDir -> do
+              withStubCommands [unameStub "Darwin" "arm64", xcodeSelectStub] $ \stubDir -> do
                 result <-
                   runBootstrapScript
                     (Just stubDir)
                     "bootstrap/apple-silicon.sh"
                     ["doctor"]
-                    [ ("JITML_BOOTSTRAP_UNAME_S", "Darwin")
-                    , ("JITML_BOOTSTRAP_UNAME_M", "arm64")
-                    , ("JITML_BOOTSTRAP_MISSING_COMMANDS", "brew")
-                    ]
                 scriptExit result @?= ExitFailure 2
                 assertContains "apple homebrew diagnostic" "install Homebrew" (scriptStderr result)
           , testCase "apple doctor ignores broad package-toolchain gaps" $
-              withStubCommands [xcodeSelectStub, brewStub] $ \stubDir -> do
+              withStubCommands [unameStub "Darwin" "arm64", xcodeSelectStub, brewStub] $ \stubDir -> do
                 result <-
                   runBootstrapScript
                     (Just stubDir)
                     "bootstrap/apple-silicon.sh"
                     ["doctor"]
-                    [ ("JITML_BOOTSTRAP_UNAME_S", "Darwin")
-                    , ("JITML_BOOTSTRAP_UNAME_M", "arm64")
-                    ,
-                      ( "JITML_BOOTSTRAP_MISSING_COMMANDS"
-                      , "ghcup protoc colima docker kind kubectl helm node poetry tart purs spago pulumi"
-                      )
-                    ]
                 scriptExit result @?= ExitSuccess
                 assertContains "apple doctor ok" "stage-0 doctor: ok" (scriptStderr result)
           , testCase "linux CPU doctor reports missing Docker" $ do
-              result <-
-                runBootstrapScript
-                  Nothing
-                  "bootstrap/linux-cpu.sh"
-                  ["doctor"]
-                  [("JITML_BOOTSTRAP_MISSING_COMMANDS", "docker")]
-              scriptExit result @?= ExitFailure 2
-              assertContains "linux docker diagnostic" "missing required command 'docker'" (scriptStderr result)
+              withStubCommands [] $ \stubDir -> do
+                result <-
+                  runBootstrapScript
+                    (Just stubDir)
+                    "bootstrap/linux-cpu.sh"
+                    ["doctor"]
+                scriptExit result @?= ExitFailure 2
+                assertContains "linux docker diagnostic" "missing required command 'docker'" (scriptStderr result)
           , testCase "linux CPU doctor requires Docker without sudo" $
               withStubCommands [dockerInfoFailureStub] $ \stubDir -> do
-                result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cpu.sh" ["doctor"] []
+                result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cpu.sh" ["doctor"]
                 scriptExit result @?= ExitFailure 2
                 assertContains "linux sudo diagnostic" "without sudo" (scriptStderr result)
           , testCase "linux CPU doctor ignores non-Docker toolchain gaps" $
@@ -643,38 +621,25 @@ main =
                     (Just stubDir)
                     "bootstrap/linux-cpu.sh"
                     ["doctor"]
-                    [("JITML_BOOTSTRAP_MISSING_COMMANDS", "kind kubectl helm node poetry tart purs spago pulumi")]
                 scriptExit result @?= ExitSuccess
                 assertContains "linux cpu doctor ok" "stage-0 doctor: ok" (scriptStderr result)
           , testCase "linux CUDA doctor reports missing NVIDIA runtime" $
               withStubCommands [dockerWithoutNvidiaRuntimeStub, nvidiaSmiHighCapabilityStub] $ \stubDir -> do
-                result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cuda.sh" ["doctor"] []
+                result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cuda.sh" ["doctor"]
                 scriptExit result @?= ExitFailure 2
                 assertContains "cuda runtime diagnostic" "NVIDIA container runtime" (scriptStderr result)
           , testCase "linux CUDA doctor reports insufficient compute capability" $
               withStubCommands [dockerWithNvidiaRuntimeStub, nvidiaSmiLowCapabilityStub] $ \stubDir -> do
-                result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cuda.sh" ["doctor"] []
+                result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cuda.sh" ["doctor"]
                 scriptExit result @?= ExitFailure 2
                 assertContains "cuda capability diagnostic" "compute capability" (scriptStderr result)
           ]
       , testCase "buildEnv uses default dirs" $ do
-          unsetEnv "JITML_BUILD_DIR"
-          unsetEnv "JITML_DATA_DIR"
           env <- buildEnv defaultGlobalFlags
           takeFileNameCompat (toFilePath (envCacheDir env)) @?= ".build"
           takeFileNameCompat (toFilePath (envDataDir env)) @?= ".data"
-      , testCase "buildEnv uses env overrides" $
-          withSystemTempDirectory "jitml-env" $ \dir -> do
-            setEnv "JITML_BUILD_DIR" (dir </> "build")
-            setEnv "JITML_DATA_DIR" (dir </> "data")
-            env <- buildEnv defaultGlobalFlags
-            toFilePath (envCacheDir env) @?= dir </> "build/"
-            toFilePath (envDataDir env) @?= dir </> "data/"
-            unsetEnv "JITML_BUILD_DIR"
-            unsetEnv "JITML_DATA_DIR"
-      , testCase "buildEnv uses CLI overrides before env" $
+      , testCase "buildEnv uses explicit CLI overrides" $
           withSystemTempDirectory "jitml-env-cli" $ \dir -> do
-            setEnv "JITML_BUILD_DIR" (dir </> "ignored")
             env <-
               buildEnv
                 defaultGlobalFlags
@@ -683,7 +648,6 @@ main =
                   }
             toFilePath (envCacheDir env) @?= dir </> "cli-build/"
             envFormat env @?= OutputJson
-            unsetEnv "JITML_BUILD_DIR"
       , testCase "service hot reload increments only on config changes" $ do
           let initial = HotReload.initialSnapshot LiveConfig.defaultLiveConfig
           HotReload.handleSighupReload initial LiveConfig.defaultLiveConfig
@@ -946,15 +910,12 @@ data ScriptResult = ScriptResult
   deriving stock (Eq, Show)
 
 runBootstrapScript
-  :: Maybe FilePath -> FilePath -> [String] -> [(String, String)] -> IO ScriptResult
-runBootstrapScript pathPrefix script args extraEnv = do
-  baseEnv <- getEnvironment
-  let processEnv = mergeEnv (pathOverride baseEnv <> extraEnv) baseEnv
-      process =
+  :: Maybe FilePath -> FilePath -> [String] -> IO ScriptResult
+runBootstrapScript pathPrefix script args = do
+  let process =
         Subprocess
           { subprocessPath = script
-          , subprocessArguments = fmap Text.pack args
-          , subprocessEnvironment = fmap envPair processEnv
+          , subprocessArguments = fmap Text.pack (commandDirArgs <> args)
           , subprocessWorkingDirectory = Just "."
           , subprocessStdin = Nothing
           }
@@ -966,21 +927,10 @@ runBootstrapScript pathPrefix script args extraEnv = do
       , scriptStderr = Text.unpack stderrText
       }
  where
-  envPair (key, value) =
-    (Text.pack key, Text.pack value)
-
-  pathOverride baseEnv =
+  commandDirArgs =
     case pathPrefix of
       Nothing -> []
-      Just dir ->
-        let inheritedPath = fromMaybe "" (lookup "PATH" baseEnv)
-         in [("PATH", dir <> [searchPathSeparator] <> inheritedPath)]
-
-mergeEnv :: [(String, String)] -> [(String, String)] -> [(String, String)]
-mergeEnv overrides baseEnv =
-  overrides <> filter ((`notElem` overrideNames) . fst) baseEnv
- where
-  overrideNames = fmap fst overrides
+      Just dir -> ["--command-dir", dir]
 
 withStubCommands :: [(FilePath, String)] -> (FilePath -> IO a) -> IO a
 withStubCommands commands action =
@@ -1011,6 +961,31 @@ xcodeSelectStub =
       , "  exit 0"
       , "fi"
       , "exit 0"
+      ]
+  )
+
+xcodeSelectUnavailableStub :: (FilePath, String)
+xcodeSelectUnavailableStub =
+  ( "xcode-select"
+  , unlines
+      [ "#!/usr/bin/env bash"
+      , "if [ \"${1:-}\" = \"-p\" ]; then"
+      , "  exit 1"
+      , "fi"
+      , "exit 0"
+      ]
+  )
+
+unameStub :: String -> String -> (FilePath, String)
+unameStub osName archName =
+  ( "uname"
+  , unlines
+      [ "#!/usr/bin/env bash"
+      , "case \"${1:-}\" in"
+      , "  -s) printf '%s\\n' '" <> osName <> "' ;;"
+      , "  -m) printf '%s\\n' '" <> archName <> "' ;;"
+      , "  *) printf '%s\\n' '" <> osName <> "' ;;"
+      , "esac"
       ]
   )
 

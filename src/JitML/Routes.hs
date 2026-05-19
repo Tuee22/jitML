@@ -26,15 +26,17 @@ routeRegistry =
   [ Route "demo-root" "/" "jitml-demo" 80 Nothing False
   , Route "demo-api" "/api" "jitml-demo" 80 Nothing False
   , Route "demo-ws" "/api/ws" "jitml-demo" 80 Nothing True
-  , Route "tensorboard" "/tensorboard" "tensorboard" 6006 (Just "/") False
-  , Route "grafana" "/grafana" "grafana" 3000 (Just "/") False
-  , Route "prometheus" "/prometheus" "prometheus" 9090 (Just "/") False
-  , Route "harbor-portal" "/harbor" "jitml-harbor-portal" 80 (Just "/") False
-  , Route "harbor-api" "/harbor/api" "jitml-harbor-core" 80 (Just "/api") False
-  , Route "minio-console" "/minio/console" "jitml-minio-console" 9090 (Just "/") False
-  , Route "minio-s3" "/minio/s3" "jitml-minio" 9000 (Just "/") False
-  , Route "pulsar-admin" "/pulsar/admin" "jitml-pulsar-proxy" 80 (Just "/admin") False
-  , Route "pulsar-ws" "/pulsar/ws" "jitml-pulsar-proxy" 80 (Just "/ws") True
+  , Route "tensorboard" "/tensorboard" "tensorboard" 80 (Just "/") False
+  , Route "grafana" "/grafana" "kube-prometheus-stack-grafana" 80 (Just "/") False
+  , Route "prometheus" "/prometheus" "kube-prometheus-stack-prometheus" 9090 (Just "/") False
+  , Route "harbor-portal" "/harbor" "harbor" 80 (Just "/") False
+  , Route "harbor-api" "/harbor/api" "harbor" 80 (Just "/api") False
+  , Route "harbor-registry" "/v2" "harbor" 80 Nothing False
+  , Route "harbor-service" "/service" "harbor" 80 Nothing False
+  , Route "minio-console" "/minio/console" "minio" 9001 (Just "/") False
+  , Route "minio-s3" "/minio/s3" "minio" 9000 (Just "/") False
+  , Route "pulsar-admin" "/pulsar/admin" "pulsar-proxy" 80 (Just "/admin") False
+  , Route "pulsar-ws" "/pulsar/ws" "pulsar-proxy" 80 (Just "/ws") True
   ]
 
 renderRouteTable :: Text

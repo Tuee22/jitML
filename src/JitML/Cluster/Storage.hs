@@ -3,6 +3,7 @@
 module JitML.Cluster.Storage
   ( ManualPV (..)
   , manualPVs
+  , pvLocalDataPath
   , renderManualPV
   , renderStorageClass
   )
@@ -16,16 +17,18 @@ data ManualPV = ManualPV
   , pvStatefulSet :: Text
   , pvReplica :: Int
   , pvSize :: Text
+  , pvClaimRefName :: Maybe Text
   }
   deriving stock (Eq, Show)
 
 manualPVs :: [ManualPV]
 manualPVs =
   concat
-    [ replicas "platform" "minio" 4 "20Gi"
-    , replicas "platform" "pulsar-bookkeeper" 3 "20Gi"
-    , replicas "platform" "pulsar-zookeeper" 3 "10Gi"
-    , replicas "platform" "harbor-pg" 3 "10Gi"
+    [ statefulSetReplicas "platform" "minio" 4 "20Gi"
+    , statefulSetReplicas "platform" "pulsar-bookkeeper" 3 "20Gi"
+    , statefulSetReplicas "platform" "pulsar-zookeeper" 3 "10Gi"
+    , perconaReplicas "platform" "harbor-pg" 3 "10Gi"
+    , perconaReplicas "platform" "harbor-pg-repo1" 1 "10Gi"
     ]
 
 renderStorageClass :: Text
@@ -41,7 +44,7 @@ renderStorageClass =
 
 renderManualPV :: ManualPV -> Text
 renderManualPV pv =
-  Text.unlines
+  Text.unlines $
     [ "apiVersion: v1"
     , "kind: PersistentVolume"
     , "metadata:"
@@ -61,10 +64,8 @@ renderManualPV pv =
     , "        - matchExpressions:"
     , "            - key: kubernetes.io/hostname"
     , "              operator: Exists"
-    , "  claimRef:"
-    , "    namespace: " <> pvNamespace pv
-    , "    name: data-" <> pvStatefulSet pv <> "-" <> Text.pack (show (pvReplica pv))
     ]
+      <> claimRefLines pv
 
 pvName :: ManualPV -> Text
 pvName pv =
@@ -72,6 +73,16 @@ pvName pv =
 
 pvHostPath :: ManualPV -> Text
 pvHostPath pv =
+  "/jitml/.data/"
+    <> pvNamespace pv
+    <> "/"
+    <> pvStatefulSet pv
+    <> "/pv_"
+    <> Text.pack (show (pvReplica pv))
+    <> "/"
+
+pvLocalDataPath :: ManualPV -> Text
+pvLocalDataPath pv =
   "./.data/"
     <> pvNamespace pv
     <> "/"
@@ -80,8 +91,24 @@ pvHostPath pv =
     <> Text.pack (show (pvReplica pv))
     <> "/"
 
-replicas :: Text -> Text -> Int -> Text -> [ManualPV]
-replicas namespace statefulSet count size =
-  [ ManualPV namespace statefulSet replica size
+claimRefLines :: ManualPV -> [Text]
+claimRefLines pv =
+  case pvClaimRefName pv of
+    Nothing -> []
+    Just claimName ->
+      [ "  claimRef:"
+      , "    namespace: " <> pvNamespace pv
+      , "    name: " <> claimName
+      ]
+
+statefulSetReplicas :: Text -> Text -> Int -> Text -> [ManualPV]
+statefulSetReplicas namespace statefulSet count size =
+  [ ManualPV namespace statefulSet replica size (Just ("data-" <> statefulSet <> "-" <> Text.pack (show replica)))
+  | replica <- [0 .. count - 1]
+  ]
+
+perconaReplicas :: Text -> Text -> Int -> Text -> [ManualPV]
+perconaReplicas namespace statefulSet count size =
+  [ ManualPV namespace statefulSet replica size Nothing
   | replica <- [0 .. count - 1]
   ]

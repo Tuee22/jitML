@@ -46,6 +46,7 @@ library
         JitML.Cluster.PostgresRegistry
         JitML.Cluster.Publication
         JitML.Cluster.PulsarBootstrap
+        JitML.Cluster.Readiness
         JitML.Cluster.Storage
         JitML.Docs.Check
         JitML.Docs.Generate
@@ -119,6 +120,7 @@ library
         JitML.Service.ConfigMap
         JitML.Service.Consumer
         JitML.Service.Endpoints
+        JitML.Service.HarborSubprocess
         JitML.Service.FilesystemMinIO
         JitML.Service.Http
         JitML.Service.HotReload
@@ -140,7 +142,6 @@ library
         JitML.Substrate
         JitML.Tart.Exec
         JitML.Tart.Lifecycle
-        JitML.Test.LiveGate
         JitML.Test.LivePlan
         JitML.Test.Report
         JitML.Tune.Catalog

@@ -11,7 +11,11 @@ import Data.Text.IO qualified as Text.IO
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath ((</>))
 
-import JitML.Cluster.PostgresRegistry (validateRegisteredPostgres)
+import JitML.Cluster.PostgresRegistry
+  ( perconaPgVolumeNames
+  , postgresRegistry
+  , validateRegisteredPostgres
+  )
 import JitML.Lint.Stack.Types (LintFinding (..))
 import JitML.Routes (Route (..), renderHTTPRoute, routeRegistry)
 
@@ -100,17 +104,24 @@ checkPvFile path = do
     [ LintFinding
         path
         "chart.pv.claimref"
-        "manual PersistentVolume must declare claimRef"
-        "render PVs from JitML.Cluster.Storage"
+        "manual PersistentVolume must declare claimRef unless a registered PerconaPGCluster pins it by volumeName"
+        "render PVs from JitML.Cluster.Storage and Percona clusters from JitML.Cluster.PostgresRegistry"
     | not ("claimRef:" `Text.isInfixOf` content)
+        && not (pvPinnedByRegisteredPerconaCluster content)
     ]
       <> [ LintFinding
              path
              "chart.pv.hostpath"
-             "manual PersistentVolume hostPath must live under ./.data/"
+             "manual PersistentVolume hostPath must live under /jitml/.data/ inside the Kind node"
              "render PVs from JitML.Cluster.Storage"
-         | not ("./.data/" `Text.isInfixOf` content)
+         | not ("/jitml/.data/" `Text.isInfixOf` content)
          ]
+
+pvPinnedByRegisteredPerconaCluster :: Text.Text -> Bool
+pvPinnedByRegisteredPerconaCluster content =
+  any
+    (\volumeName -> ("  name: " <> volumeName) `Text.isInfixOf` content)
+    (concatMap perconaPgVolumeNames postgresRegistry)
 
 checkForbiddenProvisioner :: FilePath -> IO [LintFinding]
 checkForbiddenProvisioner path = do

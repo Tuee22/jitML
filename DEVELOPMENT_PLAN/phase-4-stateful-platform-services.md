@@ -34,9 +34,30 @@ its `validateRegisteredPostgres` lint helper are checked in;
 `JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocess` is the
 typed `pulsar-admin topics create` subprocess. The capability classes
 (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) now expose the
-full doctrine-required method set. **Unmet today**: every Sprint `4.x`
-owes live readiness against a real Kind + Helm rollout. Detailed
-remaining work lives in each sprint's `### Remaining Work` block below.
+full doctrine-required method set, and `JitML.Service.HarborSubprocess`
+provides the explicit Docker/curl-backed Harbor client settings and command
+surface for push, pull, promote, existence, and repository listing. The route
+registry now targets the actual live Helm service names and includes Harbor's
+Docker registry/token paths (`/v2`, `/service`) alongside `/harbor` and
+`/harbor/api`. Live Linux CPU validation on 2026-05-18 also exercises
+`JitML.Cluster.Readiness.platformReadinessSubprocesses` against the installed
+Harbor, MinIO, Pulsar, Envoy Gateway, observability, TensorBoard,
+`jitml-service`, and `jitml-demo` rollouts, plus MinIO bucket existence
+through the typed in-pod `mc` readiness subprocess. **Unmet today**: Phase `4` still
+owes the live service-client effects: Harbor S3-backend verification,
+MinIO conditional-write checks,
+`HasPulsar` subscription semantics, Grafana dashboard inspection, Prometheus
+scrape verification, TensorBoard event reads, and CUDA RuntimeClass binding on
+a real NVIDIA worker. Live Linux CPU validation on 2026-05-18 confirms Harbor
+push/promote, pull, repository listing, and artifact existence through
+`JitML.Service.HarborSubprocess` after routing Harbor public paths through the
+chart's `harbor` nginx service, and confirms all seven typed MinIO buckets
+exist through `JitML.Cluster.Readiness.minioBucketReadinessSubprocess`. The
+same live run family now confirms the registered `harbor-pg`
+`PerconaPGCluster` reaches `ready` with three Postgres instances, PgBouncer,
+and the pgBackRest repo backed by explicit manual PV `volumeName` bindings.
+Detailed remaining work lives in each sprint's `### Remaining Work` block
+below.
 
 ## Phase Summary
 
@@ -53,14 +74,15 @@ storage backing, and the NVIDIA `RuntimeClass` that binds to nodes labelled
 
 **Status**: Active
 **Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
-`src/JitML/Cluster/Publication.hs`, `src/JitML/Bootstrap.hs`
+`src/JitML/Cluster/Publication.hs`, `src/JitML/Bootstrap.hs`,
+`src/JitML/Service/HarborSubprocess.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
 
 Install Harbor as the in-cluster image registry, with MinIO as its S3 backend
-and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
-`/harbor/api` (API).
+and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal),
+`/harbor/api` (API), `/v2` (Docker registry), and `/service` (token service).
 
 ### Deliverables
 
@@ -71,41 +93,70 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal) and
 - Target live bootstrap deploys Harbor's portal, core, registry, and notary in
   the bootstrap phase, then configures its S3 backend against MinIO bucket
   `harbor-registry` (Sprint `4.3`).
-- Current `jitml bootstrap --<substrate>` materializes bootstrap files only. The
-  target live apply path builds the `jitml` image, pushes it to
-  `harbor.platform.svc.cluster.local/jitml/jitml:<sha>`, and uses that image for
-  the cluster daemon rollout.
-- HTTPRoute manifests for `/harbor` and `/harbor/api` are generated from the
-  route registry (Sprint `3.4`).
+- Current `jitml bootstrap --<substrate>` installs Harbor in the first live
+  Helm phase, then uses explicit Kind-loaded `jitml:local` /
+  `jitml-demo:local` tags for the Phase `3` local workload rollout. The Harbor
+  phase target is live registry readiness plus a validated image push/pull path
+  through the `HasHarbor` capability surface.
+- HTTPRoute manifests for `/harbor`, `/harbor/api`, `/v2`, and `/service` are
+  generated from the route registry (Sprint `3.4`).
+- `JitML.Service.HarborSubprocess` is the explicit local Harbor client:
+  callers pass `HarborSettings` with Docker binary, optional Docker host,
+  curl binary, registry, API base URL, username, password, and repo-local
+  Docker config directory; no process environment or global Docker config is
+  consulted.
 
 ### Validation
 
 1. `chart/Chart.yaml` declares the Harbor subchart dependency.
-2. The local route registry renders `/harbor` and `/harbor/api` routes.
-3. Live validation (target): Harbor portal/core/registry/notary all reach
-   Ready in the bootstrap phase, S3 backend is configured against MinIO
-   bucket `harbor-registry`, and the `jitml` image pushes successfully to
-   `harbor.platform.svc.cluster.local/jitml/jitml:<sha>`.
+2. The local route registry renders `/harbor`, `/harbor/api`, `/v2`, and
+   `/service` routes against the live Harbor service names.
+3. Live Linux CPU validation on 2026-05-18 confirms Harbor core, portal,
+   registry, jobservice, database, redis, and trivy rollouts reach Ready.
+4. `cabal test jitml-integration` covers the typed `HarborSubprocess` login,
+   artifact-existence, manifest-inspect, and repository-list command surface,
+   including explicit optional Docker host flag, repo-local Docker config path,
+   stdin-piped Docker credentials, and the routed `/harbor/api` base.
+5. Live Linux CPU validation on 2026-05-18 pushes/promotes
+   `jitml:local` to `127.0.0.1:9091/library/jitml:phase4`, pulls it back
+   with digest `sha256:ab610bc0672453ee42c1d4f6b052c36208c614ec7ff198eccf3f46ccf0e5710d`,
+   lists `library/jitml` through `harborListImages`, and confirms
+   `harborImageExists` via Harbor's artifact API.
+6. Live validation target: S3 backend is configured against MinIO bucket
+   `harbor-registry`.
 
 ### Remaining Work
 
 - The typed `helm install` subprocess for Harbor lives in
   `JitML.Cluster.Helm.helmInstallSubprocess` and is sequenced first
-  in `JitML.Cluster.Helm.phasedReleases` (HarborPhase). The
-  pending work is invoking it from `JitML.Bootstrap` against a live
-  cluster.
-- Implement the readiness check that waits for Harbor portal / core /
-  registry / notary to all report Ready.
-- Implement the live image-build → tag → push flow against local Harbor
-  via `HasHarbor.{harborPushImage,harborPullImage,harborListImages}`.
-- Integration coverage exercising a real push and subsequent pull from
-  Harbor through the `HasHarbor` capability class.
+  in `JitML.Cluster.Helm.phasedReleases` (HarborPhase). The live rollout
+  invokes it from `JitML.Bootstrap` against the repo-local kubeconfig and
+  passes an explicit `externalURL=http://127.0.0.1:<edge-port>` so Harbor's
+  registry auth challenge points at the selected localhost edge.
+  `JitML.Cluster.Readiness.platformReadinessSubprocesses` waits for the
+  Harbor rollouts before topic bootstrap.
+- `JitML.Service.HarborSubprocess` implements
+  `HasHarbor.{harborImageExists,harborPromoteImage,harborPushImage,
+  harborPullImage,harborListImages}` through typed Docker/curl subprocesses.
+  Existence checks use Harbor's `/api/v2.0/projects/.../artifacts/...`
+  endpoint because Docker `manifest inspect` does not reliably report local
+  HTTP Harbor registry artifacts. Live Linux CPU validation has exercised
+  image tag/push through `harborPromoteImage`, pull through
+  `harborPullImage`, project listing through `harborListImages`, and artifact
+  lookup through `harborImageExists`.
+- Verify Harbor's S3 backend against MinIO bucket `harbor-registry` once the
+  MinIO bucket-readiness check from Sprint `4.3` is live.
+- Codify the live Harbor push/pull/list sequence in the future live e2e
+  harness once Sprint `12.8` owns always-live cross-cluster execution.
 
 ## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres 🔄
 
 **Status**: Active
 **Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
-`chart/templates/pv-platform-harbor-pg-*.yaml`
+`chart/templates/pv-platform-harbor-pg-*.yaml`,
+`chart/templates/pv-platform-harbor-pg-repo1-0.yaml`,
+`src/JitML/Cluster/PostgresRegistry.hs`,
+`src/JitML/Cluster/Readiness.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -118,10 +169,13 @@ lives in MinIO and Pulsar exclusively.
 ### Deliverables
 
 - `pg-operator` subchart pinned in `chart/Chart.yaml`.
-- Current local storage includes manual PV templates for `platform/harbor-pg`.
-- Target `PerconaPGCluster` resources are rendered from a typed service-Postgres
+- Current local storage includes manual PV templates for the `platform/harbor-pg`
+  data volumes and `platform/harbor-pg-repo1` pgBackRest repo volume.
+- `PerconaPGCluster` resources are rendered from a typed service-Postgres
   registry; the first entry is `harbor-pg` in namespace `platform`, using the
-  `jitml-manual` StorageClass and manual PVs from Sprint `3.2`.
+  `jitml-manual` StorageClass and manual PVs from Sprint `3.2`. Percona data
+  and pgBackRest PVCs bind through explicit `volumeName` fields because the
+  operator-generated PVC names carry controller suffixes.
 - Target Harbor database values point at `harbor-pg`.
 - Target `jitml lint chart` rejects any `PerconaPGCluster` outside the typed
   service-Postgres registry.
@@ -129,12 +183,19 @@ lives in MinIO and Pulsar exclusively.
 ### Validation
 
 1. `chart/Chart.yaml` declares the `pg-operator` subchart dependency.
-2. `chart/templates/pv-platform-harbor-pg-*.yaml` provides the manual PV
-   surface for service Postgres storage.
-3. Live validation (target): `PerconaPGCluster` `harbor-pg` reaches Ready
-   in namespace `platform`, Harbor's database values point at the live
-   service, and `jitml lint chart` rejects any `PerconaPGCluster` outside
-   the typed service-Postgres registry.
+2. `chart/templates/pv-platform-harbor-pg-*.yaml` and
+   `chart/templates/pv-platform-harbor-pg-repo1-0.yaml` provide the manual PV
+   surface for service Postgres data and pgBackRest storage.
+3. `cabal test jitml-integration` covers the rendered `PerconaPGCluster`,
+   pinned Percona component images, explicit `volumeName` PV bindings,
+   stdin-piped apply command, and readiness wait command.
+4. Live Linux CPU validation on 2026-05-19 confirms `PerconaPGCluster`
+   `harbor-pg` reaches `ready` in namespace `platform`, with
+   `postgres=3/3`, `pgbouncer=1/1`, host
+   `harbor-pg-pgbouncer.platform.svc`, and all four manual PVs bound.
+5. Live validation target: Harbor's database values point at the live
+   `harbor-pg` service, and `jitml lint chart` rejects any
+   `PerconaPGCluster` outside the typed service-Postgres registry.
 
 ### Remaining Work
 
@@ -149,20 +210,28 @@ lives in MinIO and Pulsar exclusively.
   `src/JitML/Cluster/PostgresRegistry.hs`.
 - The `helm install` of the Percona operator is sequenced in
   `JitML.Cluster.Helm.phasedReleases` (HarborPhase, `harbor-pg` row).
-  The rendered `PerconaPGCluster` YAML now flows through
-  `HasKubectl.kubectlApply` (stdin-piped) — validated via
-  `jitml-integration` under `JITML_LIVE_E2E=1` against the live Kind
-  cluster: `kubectl apply --dry-run=client -f -` accepts the YAML
-  and reports `harbor-pg`. The live server-side apply requires the
-  Percona operator CRD installed (gated by the heavy Helm rollout).
-- Implement the readiness check that waits for the Patroni-managed Postgres
-  cluster to reach Ready and exposes its DSN to Harbor.
+  The rendered `PerconaPGCluster` YAML now flows through the live bootstrap as
+  a stdin-piped `kubectl --kubeconfig ./.build/jitml.kubeconfig apply -n
+  platform -f -` after the operator CRD is installed. The CR pins Postgres,
+  PgBouncer, and pgBackRest images for Percona Operator `2.5.1`; renders three
+  single-replica instance volumes plus one pgBackRest repo volume; and binds
+  all four manual PVs through explicit `volumeName` fields. Live Linux CPU
+  validation on 2026-05-19 confirmed `harbor-pg` reaches `ready` with
+  `postgres=3/3` and `pgbouncer=1/1`.
+- `JitML.Cluster.Readiness.postgresReadinessSubprocesses` waits for
+  `perconapgcluster/harbor-pg` to report `.status.state=ready` before
+  Pulsar topic bootstrap.
+- Remaining work: wire Harbor's Helm values to use the live
+  `harbor-pg-pgbouncer.platform.svc` database endpoint instead of Harbor's
+  internal chart database, including the rollout ordering needed to make that
+  external database available before Harbor switches to it.
 
 ## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server 🔄
 
 **Status**: Active
 **Implementation**: `chart/values.yaml`,
-`src/JitML/Storage/Buckets.hs`
+`src/JitML/Storage/Buckets.hs`,
+`src/JitML/Cluster/Readiness.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
 `documents/engineering/checkpoint_format.md`
 
@@ -200,10 +269,15 @@ buckets, and pin the server to a release with S3 conditional-write support
 4. The cleanup row in
    [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) is
    marked completed for the standalone values fragment.
-5. Live validation (target): the four-replica MinIO StatefulSet reaches
-   Ready, the seven buckets exist (verified through `mc ls`), and the
-   `HasMinIO` capability class exercises `If-None-Match: *` PUT and
-   `If-Match: <etag>` pointer CAS against the running cluster.
+5. Live Linux CPU validation on 2026-05-18 confirms the installed MinIO rollout
+   reaches Ready.
+6. Live Linux CPU validation on 2026-05-18 confirms all seven typed buckets
+   exist through `JitML.Cluster.Readiness.minioBucketReadinessSubprocess`,
+   which runs the Bitnami in-pod MinIO client (`mc`) against the local service
+   endpoint and checks every bucket from `JitML.Storage.Buckets.bucketNames`.
+7. Live validation target: the `HasMinIO` capability class exercises
+   `If-None-Match: *` PUT and `If-Match: <etag>` pointer CAS against the
+   running cluster.
 
 ### Remaining Work
 
@@ -215,11 +289,15 @@ buckets, and pin the server to a release with S3 conditional-write support
   second PUT (the 412 → `SEConflict` mapping doctrine prescribes), and
   `casPointer` returns `Left (SEConflict ...)` on a stale ETag.
   Validated by `jitml-integration` against a real on-disk temporary
-  store. The pending work is the live HTTP-backed instance against a
-  running MinIO StatefulSet issued via the typed `helm install` from
-  `JitML.Cluster.Helm.helmInstallSubprocess`.
-- Implement the `mc`-based or in-process readiness check that confirms the
-  seven buckets exist.
+  store. The pending work is the live HTTP-backed instance against the
+  running MinIO service.
+- `JitML.Cluster.Readiness.minioBucketReadinessSubprocess` is wired into
+  `platformReadinessSubprocesses` after the MinIO rollout check and before
+  Pulsar topic bootstrap. It executes the Bitnami in-pod `mc` binary from
+  `deploy/minio`, aliases `http://127.0.0.1:9000` with the chart's explicit
+  local demo credentials, and checks every bucket from
+  `JitML.Storage.Buckets.bucketNames`. Live Linux CPU validation confirmed the
+  seven buckets on 2026-05-18.
 
 ## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap 🔄
 
@@ -240,8 +318,8 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 - `src/JitML/Cluster/PulsarBootstrap.hs` declares the typed topic family from
   [system-components.md → Pulsar Topic
   Family](system-components.md#pulsar-topic-family) and renders the
-  `pulsar-admin topics create ...` commands. Executing those commands at
-  bootstrap final-phase time remains target live apply behavior.
+  idempotent `/pulsar/bin/pulsar-admin topics list` / `topics create`
+  commands executed from `pulsar-toolset-0` after the phased bootstrap rollout.
 - HTTPRoutes for `/pulsar/admin` and `/pulsar/ws` (Sprint `3.4`).
 
 ### Validation
@@ -249,21 +327,24 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 1. `src/JitML/Cluster/PulsarBootstrap.hs` renders the typed topic-command
    surface.
 2. The route registry includes `/pulsar/admin` and `/pulsar/ws`.
-3. Live validation (target): the 3× ZooKeeper / 3× BookKeeper / 3× Broker /
-   3× Proxy Pulsar StatefulSets reach Ready, `pulsar-admin topics create`
-   creates every substrate-scoped topic in
-   [system-components.md → Pulsar Topic Family](system-components.md#pulsar-topic-family),
-   and the `HasPulsar` capability class subscribes successfully via the
-   WebSocket proxy.
+3. Live Linux CPU validation on 2026-05-18 reaches Ready Pulsar components and
+   creates every topic in
+   [system-components.md → Pulsar Topic Family](system-components.md#pulsar-topic-family).
+4. Live validation target: the `HasPulsar` capability class subscribes
+   successfully via the WebSocket proxy.
 
 ### Remaining Work
 
 - `JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocesses` is now
   appended to the typed `liveExecutePhasedRollout` step list in
-  `JitML.Bootstrap`, so `jitml bootstrap --<substrate>` under
-  `JITML_LIVE_E2E=1` invokes `kubectl exec pulsar-broker-0 -- pulsar-admin
-  topics create <topic>` for every registered topic after the phased
-  Helm rollout completes.
+  `JitML.Bootstrap`, so `jitml bootstrap --<substrate>` invokes
+  `kubectl --kubeconfig
+  ./.build/jitml.kubeconfig exec -n platform pulsar-toolset-0 -- sh -c
+  '<list namespace>; <create if absent>' <topic>` for every registered topic after
+  the phased Helm rollout completes. The script uses the chart's explicit
+  `/pulsar/bin/pulsar-admin` path and treats an already-created topic as
+  reconciled. Sprint `3.5` live validation confirmed the topic family exists
+  in `public/default`.
 - The typed `HasPulsar` capability class now exposes
   `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek`,
   `pulsarPublish`, `pulsarAcknowledge` with the `SubscriptionId`
@@ -304,15 +385,14 @@ the daemon's `/metrics` endpoint.
 1. `src/JitML/Observability/Grafana.hs` renders the dashboard surface.
 2. `src/JitML/Observability/Prometheus.hs` renders the scrape-target
    surface.
-3. Live validation (target): the kube-prometheus-stack reaches Ready,
-   Grafana serves the provisioned dashboards behind `/grafana`, and
-   Prometheus scrapes the `jitml service` `/metrics` endpoint at the
-   declared interval.
+3. Live Linux CPU validation on 2026-05-18 confirms the kube-prometheus-stack
+   operator, Grafana, kube-state-metrics, and Prometheus rollouts reach Ready.
+4. Live validation target: Grafana serves the provisioned dashboards behind
+   `/grafana`, and Prometheus scrapes the `jitml service` `/metrics` endpoint
+   at the declared interval.
 
 ### Remaining Work
 
-- Bring up the kube-prometheus-stack via `helm install` against the
-  cluster.
 - Confirm Grafana dashboard ConfigMaps are picked up and rendered behind
   `/grafana`.
 - Confirm Prometheus scrapes the daemon's `/metrics` endpoint successfully
@@ -362,8 +442,10 @@ writes the CBOR checkpoint sidecar at
 1. `src/JitML/Observability/TensorBoard.hs` renders deterministic event
    keys and the TensorBoard deployment surface.
 2. `proto/tensorboard/event.proto` exists for the target binding path.
-3. Live validation (target): TensorBoard pod reaches Ready behind
-   `/tensorboard`, reads TFRecord shards from MinIO bucket
+3. Live Linux CPU validation on 2026-05-18 confirms the TensorBoard rollout
+   reaches Ready.
+4. Live validation target: TensorBoard serves behind `/tensorboard`, reads
+   TFRecord shards from MinIO bucket
    `jitml-tensorboard`, and a `CheckpointDone` event causes the
    `TbCheckpointMarker` CBOR sidecar to land under
    `jitml-tensorboard/<experiment-hash>/checkpoints/`.
@@ -411,10 +493,11 @@ writes the CBOR checkpoint sidecar at
   `dispatchCheckpointDone` on each `CheckpointDone` envelope.
 - `JitML.Observability.TensorBoard.renderTensorBoardService` now renders
   the TensorBoard `Service` manifest alongside the existing Deployment
-  renderer. The chart template file is not checked in yet
-  (`chart/templates/service-tensorboard.yaml` is absent); wiring that
-  rendered Service into chart materialization remains open before live
-  deployment validation behind `JITML_LIVE_E2E=1`.
+  renderer. The checked-in `chart/local/tensorboard` chart now carries
+  both the Deployment and the Service for the live Phase `3` rollout and
+  uses `tensorflow/tensorflow:2.16.1` as a pullable TensorBoard image.
+  Live Linux CPU bootstrap reaches a Running TensorBoard pod. Remaining gap:
+  MinIO-backed event reads through the live rollout path.
 
 ## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA 🔄
 
@@ -443,7 +526,9 @@ activates them at runtime when the pod is scheduled with
 
 1. `chart/templates/runtimeclass-nvidia.yaml` declares the RuntimeClass.
 2. The Linux CUDA Kind config carries the GPU worker label.
-3. Live validation (target): a pod with `runtimeClassName: nvidia` lands on
+3. Live Linux CPU validation on 2026-05-18 confirms the RuntimeClass manifest
+   applies and `kubectl get runtimeclass nvidia` succeeds.
+4. Live validation target: a pod with `runtimeClassName: nvidia` lands on
    the labelled Kind worker and successfully runs an `nvidia-smi` probe.
 
 ### Remaining Work

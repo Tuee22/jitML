@@ -144,7 +144,7 @@ determinism is sensitive to scheduler order: the replay-buffer write
 discipline is `Async`, so two same-substrate same-seed runs may differ in
 which step pulls a particular sample. The bit-equality golden anchor for
 off-policy algorithms is therefore the **first-N-steps prefix** (default
-`RL_STEPS / 10` per
+`rl_steps / 10` per
 [../../DEVELOPMENT_PLAN/system-components.md → POC Report-Card
 Knobs](../../DEVELOPMENT_PLAN/system-components.md#poc-report-card-knobs)).
 

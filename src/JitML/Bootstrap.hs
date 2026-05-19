@@ -3,37 +3,64 @@
 module JitML.Bootstrap
   ( LiveExecutionResult (..)
   , bootstrapPlanSteps
+  , hostBootConfigForPublication
+  , livePhasedRolloutSubprocesses
   , liveExecutePhasedRollout
   , materializeBootstrapFiles
   )
 where
 
-import Data.Aeson (encode)
+import Data.Aeson (FromJSON (..), encode, eitherDecode, withObject, (.:))
 import Data.ByteString.Lazy qualified as LazyByteString
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.IO qualified as Text.IO
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, renameFile)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
+import JitML.Cluster.DockerImage (dockerBuildAndKindLoadPlan)
+import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Gateway (renderEnvoyProxy, renderGateway, renderGatewayClass)
 import JitML.Cluster.Helm
-  ( helmPhasedRolloutPlan
+  ( HelmPhase (..)
+  , helmDependencyBuildSubprocess
+  , helmInstallSubprocessForEdgePort
   , kindCreateSubprocess
+  , phasedReleases
+  , releasePhase
   , renderHelmDependencyBuildPlan
   )
-import JitML.Cluster.Kind (kindConfigFor, renderKindConfig)
-import JitML.Cluster.Publication (defaultPublication)
+import JitML.Cluster.Kind (kindConfigFor, kindConfigForEdgePort, renderKindConfig)
+import JitML.Cluster.Publication
+  ( ClusterPublication (..)
+  , defaultPublication
+  , publicationWithLeasedPort
+  )
 import JitML.Cluster.PulsarBootstrap (pulsarTopicCreateSubprocesses)
-import JitML.Cluster.Storage (ManualPV (..), manualPVs, renderManualPV, renderStorageClass)
+import JitML.Cluster.PostgresRegistry (PerconaPGCluster, postgresRegistry, renderPerconaPGCluster)
+import JitML.Cluster.Readiness (platformReadinessSubprocesses)
+import JitML.Cluster.Storage
+  ( ManualPV (..)
+  , manualPVs
+  , pvLocalDataPath
+  , renderManualPV
+  , renderStorageClass
+  )
 import JitML.Routes (Route (..), renderHTTPRoute, routeRegistry)
-import JitML.Service.BootConfig (Residency (..), defaultBootConfig, renderBootConfigDhall)
+import JitML.Service.BootConfig
+  ( BootConfig (..)
+  , Residency (..)
+  , defaultBootConfig
+  , renderBootConfigDhall
+  )
 import JitML.Service.ConfigMap (renderServiceConfigMap, renderServiceDeployment)
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
-import JitML.Sub.Subprocess (Subprocess)
+import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
 import JitML.Substrate (Substrate (..), renderSubstrate, substrateEdgePort)
 
 bootstrapPlanSteps :: Substrate -> [Text]
@@ -44,7 +71,7 @@ bootstrapPlanSteps substrate =
   , "create Kind cluster with ./.build/jitml.kubeconfig"
   , "apply jitml-manual StorageClass and manual PVs"
   , "install Harbor bootstrap phase"
-  , "push jitml:local into Harbor"
+  , "build jitml:local and jitml-demo:local and load them into Kind"
   , "install MinIO, Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
   , "write ./.build/runtime/cluster-publication.json"
   ]
@@ -74,9 +101,10 @@ materializeBootstrapFiles root substrate = do
       , writeTextFileIfChanged
           (chartTemplatesRoot </> "gateway-jitml-edge.yaml")
           (renderGateway (substrateEdgePort substrate))
-      , writeTextFileIfChanged (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml") renderEnvoyProxy
+      , writeTextFileIfChanged (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml") $
+          renderEnvoyProxy (substrateEdgePort substrate)
       ]
-  pvResults <- traverse (writePv chartTemplatesRoot) manualPVs
+  pvResults <- traverse (materializePv chartTemplatesRoot) manualPVs
   routeResults <- traverse (writeRoute chartTemplatesRoot) routeRegistry
   legacyValuesChanged <- removeFileIfExists (chartTemplatesRoot </> "minio-values.yaml")
   standaloneValuesChanged <- removeFileIfExists (chartRoot </> "minio-values.yaml")
@@ -98,7 +126,7 @@ materializeBootstrapFiles root substrate = do
     AppleSilicon ->
       fmap (: []) $
         writeTextFileIfChanged (hostConfRoot </> "apple-silicon.dhall") $
-          renderBootConfigDhall (defaultBootConfig AppleSilicon Host)
+          renderBootConfigDhall (hostBootConfigForPublication (defaultPublication AppleSilicon))
     _ -> pure []
   publicationChanged <-
     writeLazyByteStringIfChanged (runtimeRoot </> "cluster-publication.json") $
@@ -114,7 +142,8 @@ materializeBootstrapFiles root substrate = do
         )
     )
  where
-  writePv chartTemplatesRoot pv =
+  materializePv chartTemplatesRoot pv = do
+    createDirectoryIfMissing True (Text.unpack (pvLocalDataPath pv))
     writeTextFileIfChanged
       ( chartTemplatesRoot
           </> ( "pv-"
@@ -136,33 +165,278 @@ materializeBootstrapFiles root substrate = do
 data LiveExecutionResult = LiveExecutionResult
   { liveStepsExecuted :: [Text]
   , liveStepsFailed :: [(Text, Text)]
+  , livePublication :: ClusterPublication
   }
   deriving stock (Eq, Show)
 
+livePhasedRolloutSubprocesses :: Substrate -> FilePath -> [Subprocess]
+livePhasedRolloutSubprocesses substrate chartPath =
+  livePhasedRolloutSubprocessesForPort substrate (substrateEdgePort substrate) chartPath
+
+livePhasedRolloutSubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
+livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
+  [ kindCreateSubprocess substrate kindConfigPath
+  , helmDependencyBuildSubprocess chartPath
+  ]
+    <> foundationManifestApplySubprocesses chartPath
+    <> concatMap releaseSteps phasedReleases
+    <> postgresClusterApplySubprocesses
+    <> platformReadinessSubprocesses
+    <> edgeManifestApplySubprocesses chartPath
+    <> pulsarTopicCreateSubprocesses
+ where
+  kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
+
+  releaseSteps release
+    | releasePhase release == MirrorBuildPhase = mirrorBuildSteps substrate
+    | otherwise = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
+
+mirrorBuildSteps :: Substrate -> [Subprocess]
+mirrorBuildSteps substrate =
+  dockerBuildAndKindLoadPlan substrate "jitml:local" "."
+    ++ dockerBuildAndKindLoadPlan substrate "jitml-demo:local" "."
+
+foundationManifestApplySubprocesses :: FilePath -> [Subprocess]
+foundationManifestApplySubprocesses chartPath =
+  fmap
+    (kubectlApplyFileSubprocess . templatePath)
+    ( ["storageclass-jitml-manual.yaml", "runtimeclass-nvidia.yaml"]
+        <> fmap pvManifestName manualPVs
+    )
+ where
+  templatePath fileName = chartPath </> "templates" </> fileName
+
+edgeManifestApplySubprocesses :: FilePath -> [Subprocess]
+edgeManifestApplySubprocesses chartPath =
+  fmap
+    (kubectlApplyFileSubprocess . templatePath)
+    ( [ "gatewayclass-jitml.yaml"
+      , "envoyproxy-jitml-edge.yaml"
+      , "gateway-jitml-edge.yaml"
+      ]
+        <> fmap routeManifestName routeRegistry
+    )
+ where
+  templatePath fileName = chartPath </> "templates" </> fileName
+
+kubectlApplyFileSubprocess :: FilePath -> Subprocess
+kubectlApplyFileSubprocess path =
+  subprocess
+    "kubectl"
+    [ "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "apply"
+    , "-f"
+    , Text.pack path
+    ]
+
+postgresClusterApplySubprocesses :: [Subprocess]
+postgresClusterApplySubprocesses =
+  fmap postgresClusterApplySubprocess postgresRegistry
+
+postgresClusterApplySubprocess :: PerconaPGCluster -> Subprocess
+postgresClusterApplySubprocess cluster =
+  subprocessWithStdin
+    "kubectl"
+    [ "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "apply"
+    , "-n"
+    , "platform"
+    , "-f"
+    , "-"
+    ]
+    (renderPerconaPGCluster cluster)
+
+pvManifestName :: ManualPV -> FilePath
+pvManifestName pv =
+  "pv-"
+    <> Text.unpack (pvNamespace pv)
+    <> "-"
+    <> Text.unpack (pvStatefulSet pv)
+    <> "-"
+    <> show (pvReplica pv)
+    <> ".yaml"
+
+routeManifestName :: Route -> FilePath
+routeManifestName route =
+  "httproute-" <> Text.unpack (routeName route) <> ".yaml"
+
+hostBootConfigForPublication :: ClusterPublication -> BootConfig
+hostBootConfigForPublication publication =
+  (defaultBootConfig AppleSilicon Host)
+    { bootPulsarServiceUrl = publicationPulsarUrl publication
+    , bootPulsarAdminUrl = "http://127.0.0.1:" <> portText <> "/pulsar/admin"
+    , bootMinioEndpoint = publicationMinioUrl publication
+    , bootHarborRegistry = "127.0.0.1:" <> portText <> "/library"
+    }
+ where
+  portText = Text.pack (show (publicationEdgePort publication))
+
 -- | Live phased rollout executor. Runs the typed
--- `kindCreateSubprocess` + `helmPhasedRolloutPlan` through the typed
+-- `kindCreateSubprocess` + Helm phases + Docker build / Kind image-load phase through the typed
 -- `runStreaming` boundary and returns the per-step rendered command + any
--- failures. Triggered only when the caller passes `JITML_LIVE_E2E=1`; the
--- App tier reads the env var and dispatches here.
+-- failures. The App tier invokes this directly for a substrate bootstrap
+-- command after handling explicit plan/dry-run output.
 liveExecutePhasedRollout :: Substrate -> FilePath -> IO LiveExecutionResult
 liveExecutePhasedRollout substrate chartPath = do
-  let kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
-      kindStep = kindCreateSubprocess substrate kindConfigPath
-      helmSteps = helmPhasedRolloutPlan chartPath
-      pulsarSteps = pulsarTopicCreateSubprocesses
-      allSteps = kindStep : helmSteps <> pulsarSteps
-  runSteps [] [] allSteps
+  lease <- selectLiveLease substrate
+  let publication = publicationWithLeasedPort lease (defaultPublication substrate)
+  patchLiveMaterialization substrate lease publication
+  runSteps publication [] [] (livePhasedRolloutSubprocessesForPort substrate (EdgePort.leasedPort lease) chartPath)
  where
-  runSteps :: [Text] -> [(Text, Text)] -> [Subprocess] -> IO LiveExecutionResult
-  runSteps executed failed [] =
-    pure LiveExecutionResult {liveStepsExecuted = reverse executed, liveStepsFailed = reverse failed}
-  runSteps executed failed (subprocess : rest) = do
-    let rendered = renderSubprocess subprocess
-    (exitCode, _stdout, stderrText) <- runStreaming defaultSubprocessEnv subprocess
+  runSteps :: ClusterPublication -> [Text] -> [(Text, Text)] -> [Subprocess] -> IO LiveExecutionResult
+  runSteps publication executed failed [] = do
+    measuredPublication <- measureLivePublication publication
+    _ <- writeLivePublication "." measuredPublication
+    pure
+      LiveExecutionResult
+        { liveStepsExecuted = reverse executed
+        , liveStepsFailed = reverse failed
+        , livePublication = measuredPublication
+        }
+  runSteps publication executed failed (subprocessValue : rest) = do
+    let rendered = renderSubprocess subprocessValue
+    (exitCode, _stdout, stderrText) <- runStreaming defaultSubprocessEnv subprocessValue
     case exitCode of
-      ExitSuccess -> runSteps (rendered : executed) failed rest
+      ExitSuccess -> runSteps publication (rendered : executed) failed rest
       ExitFailure _ ->
-        runSteps (rendered : executed) ((rendered, stderrText) : failed) rest
+        runSteps publication (rendered : executed) ((rendered, stderrText) : failed) rest
+
+selectLiveLease :: Substrate -> IO EdgePort.EdgePortLease
+selectLiveLease substrate = do
+  existing <- readExistingLivePublication "."
+  case existing of
+    Just publication
+      | publicationSubstrate publication == substrate ->
+          pure
+            EdgePort.EdgePortLease
+              { EdgePort.leasedPort = publicationEdgePort publication
+              , EdgePort.leasedHost = "127.0.0.1"
+              }
+    _ ->
+      fromMaybe defaultLease
+        <$> EdgePort.leaseEdgePort
+          (substrateEdgePort substrate : filter (/= substrateEdgePort substrate) EdgePort.defaultPortCandidates)
+ where
+  defaultLease =
+    EdgePort.EdgePortLease
+      { EdgePort.leasedPort = substrateEdgePort substrate
+      , EdgePort.leasedHost = "127.0.0.1"
+      }
+
+readExistingLivePublication :: FilePath -> IO (Maybe ClusterPublication)
+readExistingLivePublication root = do
+  let path = root </> ".build" </> "runtime" </> "cluster-publication.json"
+  exists <- doesFileExist path
+  if exists
+    then do
+      bytes <- LazyByteString.readFile path
+      pure (either (const Nothing) Just (eitherDecode bytes))
+    else pure Nothing
+
+newtype HelmStatus = HelmStatus Text
+  deriving stock (Eq, Show)
+
+instance FromJSON HelmStatus where
+  parseJSON =
+    withObject "HelmStatus" $ \objectValue -> do
+      infoValue <- objectValue .: "info"
+      withObject "HelmInfo" (\infoObject -> HelmStatus <$> infoObject .: "status") infoValue
+
+measureLivePublication :: ClusterPublication -> IO ClusterPublication
+measureLivePublication publication = do
+  components <- traverse measureComponent publicationHealthChecks
+  pure publication {publicationComponents = components}
+
+publicationHealthChecks :: [(Text, [Text])]
+publicationHealthChecks =
+  [ ("harbor", ["harbor"])
+  , ("minio", ["minio"])
+  , ("pulsar", ["pulsar"])
+  , ("postgres", ["harbor-pg"])
+  , ("observability", ["kube-prometheus-stack", "tensorboard", "envoy-gateway"])
+  , ("jitml-service", ["jitml-service"])
+  , ("jitml-demo", ["jitml-demo"])
+  ]
+
+measureComponent :: (Text, [Text]) -> IO (Text, Text)
+measureComponent (componentName, releases) = do
+  releaseStatuses <- traverse measureHelmRelease releases
+  pure (componentName, componentStatus releaseStatuses)
+
+measureHelmRelease :: Text -> IO (Text, Text)
+measureHelmRelease release = do
+  (exitCode, stdoutText, _stderrText) <- runStreaming defaultSubprocessEnv (helmStatusSubprocess release)
+  case exitCode of
+    ExitSuccess -> pure (release, parseHelmStatus stdoutText)
+    ExitFailure _ -> pure (release, "unavailable")
+
+componentStatus :: [(Text, Text)] -> Text
+componentStatus releaseStatuses
+  | all ((== "deployed") . snd) releaseStatuses = "ready"
+  | otherwise =
+      "not-ready:"
+        <> Text.intercalate "," (fmap renderReleaseStatus releaseStatuses)
+ where
+  renderReleaseStatus (release, status) =
+    release <> "=" <> status
+
+parseHelmStatus :: Text -> Text
+parseHelmStatus stdoutText =
+  case eitherDecode (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 stdoutText)) of
+    Right (HelmStatus status) -> status
+    Left _ -> "unknown"
+
+helmStatusSubprocess :: Text -> Subprocess
+helmStatusSubprocess release =
+  subprocess
+    "helm"
+    [ "status"
+    , release
+    , "--namespace"
+    , "platform"
+    , "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "--output"
+    , "json"
+    ]
+
+patchLiveMaterialization :: Substrate -> EdgePort.EdgePortLease -> ClusterPublication -> IO ()
+patchLiveMaterialization substrate lease publication = do
+  let kindRoot = "kind"
+      chartTemplatesRoot = "chart" </> "templates"
+      hostConfRoot = ".build" </> "conf" </> "host"
+      kindConfigPath = kindRoot </> "cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
+  createDirectoryIfMissing True kindRoot
+  createDirectoryIfMissing True chartTemplatesRoot
+  createDirectoryIfMissing True hostConfRoot
+  _ <-
+    writeTextFileIfChanged
+      kindConfigPath
+      (renderKindConfig (kindConfigForEdgePort substrate (EdgePort.leasedPort lease)))
+  _ <-
+    writeTextFileIfChanged
+      (chartTemplatesRoot </> "gateway-jitml-edge.yaml")
+      (renderGateway (EdgePort.leasedPort lease))
+  _ <-
+    writeTextFileIfChanged
+      (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml")
+      (renderEnvoyProxy (EdgePort.leasedPort lease))
+  case substrate of
+    AppleSilicon -> do
+      _ <-
+        writeTextFileIfChanged
+          (hostConfRoot </> "apple-silicon.dhall")
+          (renderBootConfigDhall (hostBootConfigForPublication publication))
+      pure ()
+    _ -> pure ()
+
+writeLivePublication :: FilePath -> ClusterPublication -> IO Bool
+writeLivePublication root publication = do
+  let runtimeRoot = root </> ".build" </> "runtime"
+  createDirectoryIfMissing True runtimeRoot
+  writeLazyByteStringIfChanged (runtimeRoot </> "cluster-publication.json") (encode publication)
 
 writeTextFileIfChanged :: FilePath -> Text -> IO Bool
 writeTextFileIfChanged path expected = do

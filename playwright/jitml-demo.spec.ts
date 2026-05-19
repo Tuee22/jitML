@@ -4,8 +4,8 @@ import { test, expect } from "@playwright/test";
 // scaffold-only (`page.setContent` against an inline DOM stub) until the
 // live `jitml-demo` HTTP server serves the compiled Halogen bundle from
 // `web/dist/` and the daemon's `/api/ws` proxy streams real metric / event
-// updates. The full matrix is exercised live by the `jitml-e2e` stanza
-// under `JITML_LIVE_E2E=1`.
+// updates. The full matrix is exercised by the explicit live e2e orchestration
+// path.
 
 test("demo shell responds", async ({ page }) => {
   await page.setContent("<main id=\"app\">jitML demo</main>");

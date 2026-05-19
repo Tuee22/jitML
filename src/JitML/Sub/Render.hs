@@ -13,15 +13,9 @@ import JitML.Sub.Subprocess (Subprocess (..))
 renderSubprocess :: Subprocess -> Text
 renderSubprocess subprocessValue =
   Text.unwords $
-    envPrefix
-      <> cwdPrefix
+    cwdPrefix
       <> fmap quoteShell (Text.pack (subprocessPath subprocessValue) : subprocessArguments subprocessValue)
  where
-  envPrefix =
-    [ key <> "=" <> quoteShell value
-    | (key, value) <- subprocessEnvironment subprocessValue
-    ]
-
   cwdPrefix =
     case subprocessWorkingDirectory subprocessValue of
       Nothing -> []

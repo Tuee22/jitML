@@ -8,6 +8,3 @@ services:
     volumes:
       - ..:/jitml
       - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      JITML_BUILD_DIR: /jitml/.build
-      JITML_DATA_DIR: /jitml/.data

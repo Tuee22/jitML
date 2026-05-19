@@ -19,6 +19,11 @@ renderGatewayClass =
     , "  name: jitml-gateway"
     , "spec:"
     , "  controllerName: gateway.envoyproxy.io/gatewayclass-controller"
+    , "  parametersRef:"
+    , "    group: gateway.envoyproxy.io"
+    , "    kind: EnvoyProxy"
+    , "    name: jitml-edge"
+    , "    namespace: platform"
     ]
 
 renderGateway :: Int -> Text
@@ -40,8 +45,8 @@ renderGateway edgePort =
     , "          from: All"
     ]
 
-renderEnvoyProxy :: Text
-renderEnvoyProxy =
+renderEnvoyProxy :: Int -> Text
+renderEnvoyProxy edgePort =
   Text.unlines
     [ "apiVersion: gateway.envoyproxy.io/v1alpha1"
     , "kind: EnvoyProxy"
@@ -60,5 +65,6 @@ renderEnvoyProxy =
     , "            spec:"
     , "              ports:"
     , "                - name: http"
+    , "                  port: " <> Text.pack (show edgePort)
     , "                  nodePort: 30090"
     ]

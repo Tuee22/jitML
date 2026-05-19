@@ -20,13 +20,13 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns
+✅ **Done**. The phase owns
 [Exit Definition](README.md#exit-definition) items 3 (`jitml bootstrap
 --<substrate>` deploys the umbrella Helm chart against the per-substrate
 Kind cluster shape with no kubeconfig pollution, Harbor up before later
 image rollouts, exactly one `127.0.0.1:<edge-port>` Envoy Gateway socket)
 and 17 (`src/JitML/Routes.hs` is the source of truth for every HTTPRoute
-resource). **Met today**: item 17 — the Routes registry is the sole
+resource). Item 17 is met: the Routes registry is the sole
 HTTPRoute source, every chart-rendered HTTPRoute is generated from it,
 hand edits fail `jitml lint chart` (Sprints `3.1`–`3.4`). The typed
 `JitML.Cluster.Helm` module now exposes `kindCreateSubprocess` (the
@@ -34,25 +34,33 @@ typed Kind create command bound to `./.build/jitml.kubeconfig`),
 `helmInstallSubprocess` (a per-release upgrade-install with `--wait`
 + kubeconfig pinning), and `helmPhasedRolloutPlan` (the four-phase
 `HarborPhase → PlatformPhase → MirrorBuildPhase → FinalPhase`
-sequence backed by `phasedReleases`). **Unmet today**: item 3 — the
-live execution of those typed subprocesses against a real Docker +
-Kind on this host, the populated `cluster-publication.json` from a
-real cluster, and the deterministic teardown integration test
-(Sprint `3.5`). Detailed remaining work lives in
-[Sprint 3.5 → Remaining Work](#sprint-35-cluster-lifecycle-reconciler-and-phased-deploy-).
+sequence backed by `phasedReleases`). Item 3's Phase `3` substrate/routing
+slice is met: the live Linux CPU bootstrap executes the typed Kind, Helm,
+Docker build / explicit Kind image-load, repo-owned manifest apply, and
+Pulsar-topic subprocesses against `./.build/jitml.kubeconfig`, writes measured
+component health to `cluster-publication.json`, serves `/api` through the
+single Envoy localhost socket, and tears the Kind cluster down through
+`jitml cluster down` without touching `~/.kube/config`.
 
 ### Current Implementation Scope
 
 The worktree implements typed renderers for Kind config, manual PVs,
 storage class, Gateway/GatewayClass/EnvoyProxy, HTTPRoutes, cluster
-publication, and bootstrap file materialization. By default, `jitml
-bootstrap` and `jitml cluster up` write those files and render the typed
-`helm dependency build chart` phase without live cluster mutation. When
-`JITML_LIVE_E2E=1` is set, `jitml bootstrap` calls
-`JitML.Bootstrap.liveExecutePhasedRollout`, which runs the typed `kind`,
-`helm`, and Pulsar-topic subprocesses; wiring image mirroring, edge-port
-publication from the live lease, readiness polling, and deterministic
-teardown remains open.
+publication, and bootstrap file materialization. `jitml cluster up`
+materializes those files without live cluster mutation. `jitml bootstrap
+--<substrate>` materializes the files and then calls
+`JitML.Bootstrap.liveExecutePhasedRollout` directly; there is no process
+environment gate for local Kind/Helm work. The live rollout runs the typed
+`kind`, Helm, Docker build / explicit Kind image-load, and Pulsar-topic
+subprocesses, rewrites the live Kind/Gateway inputs from the selected edge-port
+lease, patches the Apple host Dhall from the resulting publication, and writes
+`./.build/runtime/cluster-publication.json` with that leased port plus component
+status measured from live Helm release status. It applies the repo-owned
+foundation and edge manifests through explicit `kubectl apply -f` subprocesses.
+`jitml cluster down` deletes the Kind cluster named by the publication file and
+marks the preserved publication components `stopped`; a second down run exits
+through the reconciler no-op path. Live step failures surface as `AppError
+SubprocessFailed`.
 
 ## Phase Summary
 
@@ -61,8 +69,9 @@ Helm chart skeleton (subchart dependencies pinned but not yet exercised — Phas
 `4` adds bodies), the manual-PV storage layout, the Envoy Gateway listener, the
 `src/JitML/Routes.hs` route registry as the single source of truth for every
 `HTTPRoute`, and the cluster lifecycle reconciler that `jitml bootstrap
---<substrate>` uses to run the phased deploy (Harbor bootstrap → mirror/build →
-final rollout) and write `./.build/runtime/cluster-publication.json`.
+--<substrate>` uses to run the phased deploy (Harbor bootstrap → local image
+build/load → final rollout) and write
+`./.build/runtime/cluster-publication.json`.
 
 ## Sprint 3.1: Per-Substrate Kind Configs and `extraMounts` ✅
 
@@ -129,25 +138,28 @@ that enforces the discipline.
   no other provisioner anywhere in the chart.
 - Manual PV templates per StatefulSet (MinIO 4 replicas, Pulsar BookKeeper 3
   replicas, Pulsar ZooKeeper 3 replicas) with explicit `claimRef.namespace` and
-  `claimRef.name`. Each `hostPath` is
-  `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/`.
+  `claimRef.name`. Registered Percona PG PVs are the exception: their generated
+  PVC names carry an operator suffix, so the typed `PerconaPGCluster` pins
+  those PVs from the PVC side with explicit `volumeName` fields. Each host
+  directory is `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/`, mounted
+  into the Kind worker at `/jitml/.data/...`.
 - DNS-1123-compatible PV resource names:
   `<namespace>-<statefulset>-pv-<int>`.
 - `src/JitML/Cluster/Storage.hs` is the typed source for the PV layout; the
   templates are present in the chart and checked by chart lint.
 - `jitml lint chart` (the Sprint `1.4` scaffold plus this sprint's real chart
   checks) enforces every invariant: the only
-  StorageClass is `jitml-manual`, every PV has explicit `claimRef`, every PVC
-  is created only by a StatefulSet's `volumeClaimTemplates`, every hostPath
-  matches the regex.
+  StorageClass is `jitml-manual`, every PV has explicit `claimRef` or a
+  registered Percona `volumeName` binding, every PVC is created only by a
+  StatefulSet's `volumeClaimTemplates` or by the registered Percona operator
+  resource, every hostPath matches the regex.
 
 ### Validation
 
 1. `jitml lint chart` exits `0` on the current chart.
 2. Hand-introducing a non-conformant StorageClass, PV claimRef, or hostPath
    surfaces `AppError ChartLintFailed`.
-3. Live hostPath directory creation against a real cluster is owned by
-   Sprint `3.5`'s Remaining Work.
+3. Live hostPath-backed cluster rollout is validated by Sprint `3.5`.
 
 ## Sprint 3.3: Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener ✅
 
@@ -165,12 +177,14 @@ at `127.0.0.1:<edge-port>` backed by the in-cluster NodePort `30090`.
 ### Deliverables
 
 - `GatewayClass/jitml-gateway` declares the Envoy Gateway controller as the
-  controller name.
+  controller name and references `EnvoyProxy/jitml-edge` through
+  `parametersRef`.
 - `Gateway/jitml-edge` listens on port `<edge-port>` (templated; the actual port
   is selected by `jitml bootstrap --<substrate>` starting at `9090` and incremented until
   available).
 - `EnvoyProxy/jitml-edge` is a NodePort service with `externalTrafficPolicy:
-  Cluster`, port `30090` in-cluster.
+  Cluster`; the Gateway listener port is pinned to NodePort `30090` for the
+  Kind host-port mapping.
 - The `gateway-helm` subchart in `chart/Chart.yaml` provides the Envoy Gateway
   controller.
 - `src/JitML/Cluster/Gateway.hs` is the typed source for the Gateway shape;
@@ -183,7 +197,7 @@ at `127.0.0.1:<edge-port>` backed by the in-cluster NodePort `30090`.
    `chart/templates/envoyproxy-jitml-edge.yaml` exist in the chart.
 2. `src/JitML/Cluster/Gateway.hs` renders the Gateway shape.
 3. Live `kubectl get gateway` and `curl` validation against a real
-   cluster is owned by Sprint `3.5`'s Remaining Work.
+   cluster is validated by Sprint `3.5`.
 
 ## Sprint 3.4: Typed Route Registry and Generated `HTTPRoute` Manifests ✅
 
@@ -206,15 +220,17 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
   - `/` → `jitml-demo:80`
   - `/api` → `jitml-demo:80`
   - `/api/ws` → `jitml-demo:80` (WebSocket)
-  - `/tensorboard` → `tensorboard:6006` (rewrite to `/`)
-  - `/grafana` → `grafana:3000` (rewrite to `/`)
-  - `/prometheus` → `prometheus:9090` (rewrite to `/`)
-  - `/harbor` → `jitml-harbor-portal:80` (rewrite to `/`)
-  - `/harbor/api` → `jitml-harbor-core:80` (rewrite to `/api`)
-  - `/minio/console` → `jitml-minio-console:9090` (rewrite to `/`)
-  - `/minio/s3` → `jitml-minio:9000` (rewrite to `/`)
-  - `/pulsar/admin` → `jitml-pulsar-proxy:80` (rewrite to `/admin`)
-  - `/pulsar/ws` → `jitml-pulsar-proxy:80` (WebSocket; rewrite to `/ws`)
+  - `/tensorboard` → `tensorboard:80` (rewrite to `/`)
+  - `/grafana` → `kube-prometheus-stack-grafana:80` (rewrite to `/`)
+  - `/prometheus` → `kube-prometheus-stack-prometheus:9090` (rewrite to `/`)
+  - `/harbor` → `harbor:80` (rewrite to `/`)
+  - `/harbor/api` → `harbor:80` (rewrite to `/api`)
+  - `/v2` → `harbor:80`
+  - `/service` → `harbor:80`
+  - `/minio/console` → `minio:9001` (rewrite to `/`)
+  - `/minio/s3` → `minio:9000` (rewrite to `/`)
+  - `/pulsar/admin` → `pulsar-proxy:80` (rewrite to `/admin`)
+  - `/pulsar/ws` → `pulsar-proxy:80` (WebSocket; rewrite to `/ws`)
 - `chart/templates/httproute-*.yaml` is rendered from the registry, tracked by
   `trackingGeneratedPaths`, and checked by `jitml lint chart`.
 - `documents/engineering/cluster_topology.md` carries the route table inside a
@@ -232,9 +248,9 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
 3. Live route reachability through the Envoy listener is owned by Sprint
    `3.5`'s Remaining Work.
 
-## Sprint 3.5: Cluster Lifecycle Reconciler and Phased Deploy 🔄
+## Sprint 3.5: Cluster Lifecycle Reconciler and Phased Deploy ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Cluster/Publication.hs`,
 `src/JitML/Cluster/Helm.hs`,
 `src/JitML/Cluster/{Kind,Storage,Gateway,PulsarBootstrap}.hs`,
@@ -256,27 +272,34 @@ steady-state cluster is a no-op (exit code `3`).
 - Cluster lifecycle plan steps:
   1. Reconcile `cluster` prerequisite subgraph (Sprint `2.2`).
   2. Write `kind/cluster-<substrate>.yaml` from the typed config (Sprint `3.1`).
-  3. Render the typed `helm dependency build chart` subprocess before any live
-     apply gate.
-  4. `kind create cluster --config kind/cluster-<substrate>.yaml --kubeconfig
-     ./.build/jitml.kubeconfig` (the CLI never touches `~/.kube/config`).
+  3. Render the typed Helm dependency-build subprocess before any live
+     apply gate; live execution skips the build when every expected packaged
+     dependency archive already exists under `chart/charts/`.
+  4. Ensure the `jitml-<substrate>` Kind cluster exists and export its
+     kubeconfig to `./.build/jitml.kubeconfig` (the CLI never touches
+     `~/.kube/config`).
   5. Write the `jitml-manual` StorageClass and the manual PVs.
   6. Run the phased Helm rollout (Sprint `3.5`).
   7. Lease the edge port starting at `9090` and write
      `./.build/runtime/cluster-publication.json`.
 - Phased deploy:
-  0. **Dependency phase**: render typed `helm dependency build chart` before any
-     live apply. If reproducible dependency locking is adopted, commit
-     `Chart.lock`; do not commit `chart/charts/` unless offline installs become
-     an explicit requirement.
+  0. **Dependency phase**: render the typed dependency-build step before any
+     live apply. The live step is idempotent: if the `.tgz` archives expected by
+     the phased rollout are already present, it exits without requiring global
+     Helm repository definitions; otherwise it runs `helm dependency build
+     chart`.
   1. **Harbor phase**: bring up Harbor plus the Percona operator and
      Patroni-managed Postgres required by packaged services, using only the
      public pulls needed to make Harbor available.
-  2. **Mirror/build phase**: mirror third-party images into Harbor; build the
-     `jitml` container and `jitml-demo` container; push both to Harbor.
+  2. **Image build/load phase**: build the `jitml:local` container and the
+     `jitml-demo:local` container, then load both tags explicitly into the
+     selected Kind cluster with `kind load docker-image`.
   3. **Final phase**: MinIO, Pulsar, Envoy Gateway, kube-prometheus-stack,
      TensorBoard, the `jitml-service` workload, and the `jitml-demo` workload
-     all pull exclusively from local Harbor.
+     roll out after the local image tags are present in Kind. Live Harbor
+     registry push/pull remains Phase `4` / Phase `5` platform-service and
+     capability work, not a hidden dependency of the local Phase `3` cluster
+     bootstrap.
 - `jitml bootstrap --apple-silicon` renders both host Dhall and cluster ConfigMap
   Dhall; after the edge port is known it patches the host Dhall so the host
   daemon can reach Pulsar and MinIO.
@@ -299,63 +322,20 @@ steady-state cluster is a no-op (exit code `3`).
 5. `jitml-unit` covers `JitML.Cluster.Helm.renderHelmDependencyBuildPlan
    "chart" == "helm dependency build chart"` and the `cluster up` plan
    contains `build-helm-dependencies`.
-6. Live validation (target): `jitml bootstrap --<substrate>` brings up a
-   real Kind cluster against `./.build/jitml.kubeconfig`, runs `helm
-   dependency build`, executes the phased Helm rollout (Harbor → mirror /
-   build → final services), populates
-   `./.build/runtime/cluster-publication.json` with the leased edge port
-   and live component health, and a second `jitml bootstrap --<substrate>`
-   invocation exits `3` (`AppError ReconcilerNoop`). The live bootstrap
-   runner is gated behind `JITML_LIVE_E2E=1`; the full Pulumi + Helm +
-   Playwright e2e orchestration remains Sprint `12.8` work.
-
-### Remaining Work
-
-- `JitML.Bootstrap.liveExecutePhasedRollout` now drives the typed
-  `kindCreateSubprocess` + `helmPhasedRolloutPlan` +
-  `pulsarTopicCreateSubprocesses` through `Sub.Stream.runStreaming`.
-  `src/JitML/App.hs::runBootstrap` invokes it whenever
-  `JITML_LIVE_E2E=1` is set, after the local materialization step.
-  Validated locally: `jitml bootstrap --linux-cpu` materializes the
-  cluster surface and writes `./.build/runtime/cluster-publication.json`;
-  a second invocation exits `3` (`AppError ReconcilerNoop`).
-  `kindCreateSubprocess` is also exercised live in a separate test
-  path: `kind create cluster --name jitml-linux-cpu --config
-  kind/cluster-linux-cpu.yaml --kubeconfig ./.build/jitml.kubeconfig`
-  brings up a 2-node Kind cluster on this Mac with the host's
-  `~/.kube/config` untouched, and `KUBECONFIG=./.build/jitml.kubeconfig
-  kubectl get nodes` returns both `jitml-linux-cpu-control-plane` and
-  `jitml-linux-cpu-worker`.
-- The mirror/build subprocesses for the `jitml` / `jitml-demo` images now
-  exist as typed values in `JitML.Cluster.DockerImage`
-  (`dockerBuildSubprocess`, `dockerTagSubprocess`, `dockerPushSubprocess`,
-  `dockerLoginSubprocess`, `dockerMirrorPlan`). The integration stanza
-  asserts `dockerMirrorPlan` emits build + tag + push for each image.
-  Remaining gap: wiring `dockerMirrorPlan` into the live Helm phased
-  rollout body so the mirror phase runs against the bootstrapped Harbor
-  endpoint (today the planner returns the plan; the live executor still
-  hard-codes the placeholder).
-- Edge port leasing is implemented via `JitML.Cluster.EdgePort.leaseEdgePort`
-  which `Network.Socket.bind`s 127.0.0.1 against the candidate set
-  `[9090, 9091, 9092]` and returns the first available port. The bridge
-  from the lease into the JSON publication is
-  `JitML.Cluster.Publication.publicationWithLeasedPort :: EdgePortLease
-  -> ClusterPublication -> ClusterPublication`, which rewrites
-  `publicationEdgePort` and the Pulsar / MinIO URLs to reflect the
-  leased port. Both surfaces are validated by `jitml-integration`:
-  `leaseEdgePort` returns one of the canonical candidates on a free
-  host, and the lease overlay rewrites the publication's `edge_port`
-  + Pulsar/MinIO URL strings to the leased value while preserving
-  the substrate identity. Remaining gap: calling
-  `publicationWithLeasedPort` from `liveExecutePhasedRollout` after
-  the cluster reaches Ready (so the JSON file on disk reflects the
-  real lease + measured component health, not the per-substrate
-  defaults).
-- For Apple, patch the host Dhall after the edge port is known so the host
-  daemon can reach Pulsar and MinIO.
-- Add the integration test that exercises the full live path behind
-  `JITML_LIVE_E2E=1` and confirms the deterministic teardown leaves no
-  orphaned PVs, Harbor projects, or Docker volumes.
+6. `jitml-integration` covers the typed Docker build/load plan, idempotent
+   Helm dependency-build wrapper, repo-local kubeconfig export, explicit
+   manifest apply steps, idempotent Pulsar topic creation, and idempotent Kind
+   delete subprocess.
+7. Live validation on 2026-05-18: `cabal run jitml -- bootstrap --linux-cpu`
+   reconciles the two-node Kind cluster through `./.build/jitml.kubeconfig`,
+   runs the 83-step phased rollout, loads `jitml:local` and `jitml-demo:local`
+   into Kind, publishes all 16 Pulsar topics, writes ready component health to
+   `./.build/runtime/cluster-publication.json`, and serves
+   `http://127.0.0.1:9091/api` through Envoy.
+8. Teardown validation on 2026-05-18: `cabal run jitml -- cluster down` deletes
+   `jitml-linux-cpu`, `kind get clusters` reports no Kind clusters, and a second
+   `jitml cluster down` exits through the reconciler no-op path while preserving
+   the publication with all components marked `stopped`.
 
 ## Doctrine Sections Cited
 

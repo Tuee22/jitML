@@ -1,0 +1,47 @@
+initialize: true
+persistence: false
+
+volumes:
+  persistence: false
+
+affinity:
+  anti_affinity: false
+
+kube-prometheus-stack:
+  enabled: false
+
+zookeeper:
+  replicaCount: 1
+  podMonitor:
+    enabled: false
+  affinity:
+    anti_affinity: false
+  volumes:
+    persistence: false
+
+bookkeeper:
+  replicaCount: 1
+  podMonitor:
+    enabled: false
+  affinity:
+    anti_affinity: false
+  volumes:
+    persistence: false
+
+broker:
+  replicaCount: 1
+  podMonitor:
+    enabled: false
+  affinity:
+    anti_affinity: false
+
+proxy:
+  replicaCount: 1
+  podMonitor:
+    enabled: false
+  affinity:
+    anti_affinity: false
+
+autorecovery:
+  podMonitor:
+    enabled: false

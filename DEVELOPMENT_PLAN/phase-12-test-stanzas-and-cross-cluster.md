@@ -44,8 +44,8 @@ ordering before invoking the live path. **Unmet today**: Sprint
 `12.2` owes real-binary subprocess integration; Sprints `12.3`–`12.6`
 owe live SL convergence, live RL trajectory, live hyperparameter
 reproducibility, and live cross-substrate parity against committed
-fixtures; Sprint `12.8` owes the live `JITML_LIVE_E2E=1` Pulumi + Helm
-+ Playwright path actually executed against a real Kind cluster;
+fixtures; Sprint `12.8` owes the explicit live Pulumi + Helm + Playwright
+path actually executed against a real Kind cluster;
 Sprint `12.9` owes the report card consuming live results from Sprint
 `12.8`. Detailed remaining work lives in each sprint's
 `### Remaining Work` block below.
@@ -207,13 +207,13 @@ fixtures remain future runtime work.
   cells from `src/JitML/SL/Canonicals.hs`.
 - It asserts convergence curves are deterministic and contain five points.
 - It asserts each final synthetic loss is lower than the initial loss.
-- It does not run live training or consume `SL_EPOCHS` / `SL_BATCH` yet.
+- It does not run live training or consume `sl_epochs` / `sl_batch` yet.
 
 ### Validation
 
 1. `cabal test jitml-sl-canonicals` exits `0` for the body.
 2. Live validation (target): the stanza runs real training against every
-   canonical SL problem with the `SL_EPOCHS` / `SL_BATCH` knobs from
+   canonical SL problem with the `sl_epochs` / `sl_batch` knobs from
    `cabal.project`, asserts the final loss meets the committed
    convergence threshold per problem, and bit-matches committed goldens
    under `test/golden/sl/<problem-key>/`.
@@ -222,7 +222,7 @@ fixtures remain future runtime work.
 
 - Drive `jitml train` against every canonical SL cell with real datasets
   fetched from MinIO bucket `jitml-datasets`.
-- Consume the `SL_EPOCHS` / `SL_BATCH` report-card knobs from
+- Consume the `sl_epochs` / `sl_batch` report-card knobs from
   `cabal.project`.
 - Per-problem convergence goldens are committed under
   `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
@@ -256,14 +256,14 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 - It compares the local Connect 4 transcript shape against
   `test/golden/alphazero/connect4-transcript.txt`.
 - It does not run RL environments, train policies, or consume
-  `RL_STEPS`, `RL_EVAL_EPISODES`, `AZ_GAMES`, or `AZ_SIMS` yet.
+  `rl_steps`, `rl_eval_episodes`, `az_games`, or `az_sims` yet.
 
 ### Validation
 
 1. `cabal test jitml-rl-canonicals` exits `0` for the body.
 2. Live validation (target): the stanza runs real RL training against
-   every algorithm × canonical environment cohort with the `RL_STEPS`,
-   `RL_EVAL_EPISODES`, `AZ_GAMES`, `AZ_SIMS` knobs from `cabal.project`,
+   every algorithm × canonical environment cohort with the `rl_steps`,
+   `rl_eval_episodes`, `az_games`, `az_sims` knobs from `cabal.project`,
    asserts trajectory determinism (target matrix form 2) and per-seed
    final-reward distribution (form 3) against committed fixtures, and
    bit-matches committed AlphaZero arena summaries.
@@ -272,7 +272,7 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 
 - Drive `jitml rl train` against every algorithm × environment cohort
   with real env simulators from Sprint `8.3`.
-- Consume the `RL_STEPS` / `RL_EVAL_EPISODES` / `AZ_GAMES` / `AZ_SIMS`
+- Consume the `rl_steps` / `rl_eval_episodes` / `az_games` / `az_sims`
   report-card knobs from `cabal.project`.
 - Commit per-cohort goldens (`test/golden/rl/<algo>/<env>/`) and per-game
   AlphaZero arena fixtures.
@@ -310,7 +310,7 @@ and deterministic trial-value checks.
 
 1. `cabal test jitml-hyperparameter` exits `0` for the body.
 2. Live validation (target): the stanza runs real tuning sweeps with the
-   `TUNE_TRIALS` / `TUNE_BUDGET_PER_TRIAL` knobs, asserts per-sampler /
+   `tune_trials` / `tune_budget_per_trial` knobs, asserts per-sampler /
    per-scheduler / per-pruner reproducibility, and asserts
    resume-from-partial-sweep equality against trial transcripts persisted
    to MinIO bucket `jitml-trials/`.
@@ -319,7 +319,7 @@ and deterministic trial-value checks.
 
 - Drive `jitml tune` against the full canonical sampler × scheduler ×
   pruner grid through the live tuner from Sprint `9.7`.
-- Consume the `TUNE_TRIALS` / `TUNE_BUDGET_PER_TRIAL` report-card knobs.
+- Consume the `tune_trials` / `tune_budget_per_trial` report-card knobs.
 - Assert per-sampler / per-scheduler / per-pruner reproducibility
   against committed golden trial-key streams.
 - Implement resume-from-partial-sweep equality test that reads cached
@@ -438,8 +438,8 @@ container/runtime state, and validates teardown.
 - `test/e2e/Main.hs` currently validates the route registry, bucket registry,
   `chart/values.yaml` MinIO bucket coverage, publication defaults, browser
   contract endpoint count, demo deployment command, one-shot demo HTTP server,
-  report-card rendering, report-card knob parsing, typed live plan rendering,
-  and the explicit `JITML_LIVE_E2E` live gate.
+  report-card rendering, typed report-card defaults, typed live plan rendering,
+  and the absence of leaked `jitml-e2e-*` Kind clusters.
 - `JitML.Test.LivePlan` sequences `helm dependency build chart`, `pulumi up`,
   `npx playwright test`, `pulumi destroy`, and `pulumi stack rm` through typed
   `Subprocess` values.
@@ -447,20 +447,19 @@ container/runtime state, and validates teardown.
   the `pulumi` prerequisite node from Sprint `2.2`.
 - The target live path runs typed `helm dependency build chart` before apply and
   records whether `Chart.lock` is part of the reproducible dependency surface.
-- Default `cabal test jitml-e2e` remains local; the live path is enabled only
-  by `JITML_LIVE_E2E=1`.
-- Playwright invocation is present only on the `JITML_LIVE_E2E=1` path today;
-  the checked-in spec still uses inline DOM stubs. Live edge-route Playwright
-  remains target work after the demo panels read fixture-backed or live-backed
-  state.
+- Default `cabal test jitml-e2e` remains local. The full live path is a separate
+  explicit orchestration command, not a process-environment gate.
+- Playwright invocation is represented in the typed live plan today; the
+  checked-in spec still uses inline DOM stubs. Live edge-route Playwright remains
+  target work after the demo panels read fixture-backed or live-backed state.
 
 ### Validation
 
 1. `cabal test jitml-e2e` exits `0` for the scaffold body.
 2. `cabal test jitml-e2e` verifies the rendered live plan contains the
    Helm dependency-build and Playwright steps.
-3. Live validation (target): under `JITML_LIVE_E2E=1`, `cabal test
-   jitml-e2e` runs the full live sequence: `helm dependency build chart`
+3. Live validation (target): the explicit live e2e orchestration runs the full
+   sequence: `helm dependency build chart`
    → `pulumi up` (ephemeral Kind) → demo cohorts reach Ready behind the
    real Envoy listener → `npx playwright test` against every canonical
    panel → `pulumi destroy` → `pulumi stack rm`. Teardown leaves no
@@ -471,11 +470,10 @@ container/runtime state, and validates teardown.
 
 - The ephemeral-Kind orchestrator (`infra/pulumi/index.ts`) and the
   typed phased rollout (`JitML.Test.LivePlan.livePhasedClusterPlan`)
-  are in place. The `jitml-e2e` stanza invokes `npx playwright test`
-  through the typed `Subprocess` boundary under `JITML_LIVE_E2E=1`
-  against the current inline DOM stub spec. Still open: actually
-  executing the typed phased Helm + Pulsar topic creation rollout under
-  `JITML_LIVE_E2E=1` against a real Kind cluster and then driving
+  are in place. The `jitml-e2e` stanza validates the typed `npx playwright test`
+  `Subprocess` boundary against the current inline DOM stub spec. Still open:
+  actually executing the typed phased Helm + Pulsar topic creation rollout
+  against a real Kind cluster and then driving
   Playwright against the live edge route (heavy subcharts Harbor +
   Pulsar HA + Postgres + MinIO + Prometheus together require multi-GB
   of memory).
@@ -516,13 +514,13 @@ health, cross-substrate parity tolerance).
   `src/JitML/Plan/Plan.hs`; current non-dry-run `jitml test all` invokes
   `cabal test all` through `JitML.Sub.Stream.runStreaming` and then renders
   a typed `ReportCard` with `ReportCardKnobs` after Cabal succeeds.
-- The report-card knob block in `cabal.project` carries `SL_EPOCHS`,
-  `SL_BATCH`, `RL_STEPS`, `RL_EVAL_EPISODES`, `AZ_GAMES`, `AZ_SIMS`,
-  `TUNE_TRIALS`, `TUNE_BUDGET_PER_TRIAL`, `XCLUSTER_KIND_NODES` (see
+- The report-card knob block in `cabal.project` carries `sl_epochs`,
+  `sl_batch`, `rl_steps`, `rl_eval_episodes`, `az_games`, `az_sims`,
+  `tune_trials`, `tune_budget_per_trial`, `xcluster_kind_nodes` (see
   [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs)).
 - `ReportCard.hs` renders the tidy summary block on stdout and consumes
-  environment overrides for the report-card knobs.
+  the typed `defaultReportCardKnobs`.
 - `jitml test <stanza>` invokes that single Cabal stanza through the same typed
   `Subprocess` boundary.
 
@@ -532,9 +530,9 @@ health, cross-substrate parity tolerance).
    stanzas.
 2. `jitml test all` invokes `cabal test all`, exits `0` on the current
    tree, and prints the report card.
-3. `cabal test jitml-e2e` verifies report-card knob override parsing.
-4. Live validation (target): under `JITML_LIVE_E2E=1`, `jitml test all`
-   schedules the live `jitml-e2e` body too; the rendered report card
+3. `cabal test jitml-e2e` verifies report-card default rendering.
+4. Live validation (target): the explicit live `jitml test all` path schedules
+   the live `jitml-e2e` body too; the rendered report card
    answers every canonical question (SL convergence, RL reward,
    AlphaZero arena win rate, JIT cache hit rate, daemon health,
    cross-substrate parity tolerance) from real measurements rather than
@@ -542,9 +540,8 @@ health, cross-substrate parity tolerance).
 
 ### Remaining Work
 
-- Drive the live `jitml-e2e` body from `jitml test all` when
-  `JITML_LIVE_E2E=1` is set, threading the resulting live measurements
-  back into the report card.
+- Drive the live `jitml-e2e` body from an explicit `jitml test all` live mode,
+  threading the resulting live measurements back into the report card.
 - Populate every canonical report-card question with real data once
   Sprints `8.x`, `9.x`, `10.x`, and `12.x` start emitting live results.
 - Add the live integration test that confirms the report card

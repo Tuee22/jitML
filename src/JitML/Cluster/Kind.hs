@@ -4,6 +4,7 @@ module JitML.Cluster.Kind
   ( KindConfig (..)
   , defaultKindestNodeImage
   , kindConfigFor
+  , kindConfigForEdgePort
   , renderKindConfig
   )
 where
@@ -27,11 +28,15 @@ defaultKindestNodeImage = "kindest/node:v1.32.2"
 
 kindConfigFor :: Substrate -> KindConfig
 kindConfigFor substrate =
+  kindConfigForEdgePort substrate (substrateEdgePort substrate)
+
+kindConfigForEdgePort :: Substrate -> Int -> KindConfig
+kindConfigForEdgePort substrate edgePort =
   KindConfig
     { kindConfigSubstrate = substrate
     , kindConfigName = substrateClusterName substrate
     , kindConfigNodeImage = defaultKindestNodeImage
-    , kindConfigEdgePort = substrateEdgePort substrate
+    , kindConfigEdgePort = edgePort
     , kindConfigWorkerGpuLabel = substrate == LinuxCUDA
     }
 
@@ -56,6 +61,9 @@ renderKindConfig config =
       <> [ "    extraMounts:"
          , "      - hostPath: ./.build"
          , "        containerPath: /jitml/.build"
+         , "        readOnly: false"
+         , "      - hostPath: ./.data"
+         , "        containerPath: /jitml/.data"
          , "        readOnly: false"
          ]
  where

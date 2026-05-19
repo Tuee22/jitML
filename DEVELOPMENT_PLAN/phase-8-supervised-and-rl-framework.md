@@ -192,7 +192,7 @@ local summary body. Pulsar command/event publication remains target daemon work.
   Sprint 5.5; the at-least-once dedup helper already exists in
   `JitML.Service.Consumer`).
 - Add the integration test that exercises one real publish → consume
-  round-trip behind `JITML_LIVE_E2E=1`.
+  round-trip on the explicit live validation path.
 
 ## Sprint 8.3: RL Catalog Hook for Canonical Tests 🔄
 
@@ -366,7 +366,7 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
   `rl.command.<mode>` and emits `rl.event.<mode>` through the
   `RetryPolicy` boundary against a live broker (owned by Sprint 5.5).
 - Add the live integration test that round-trips one `StartRLRun` →
-  `EpisodeDone` cycle behind `JITML_LIVE_E2E=1`.
+  `EpisodeDone` cycle on the explicit live validation path.
 
 ## Sprint 8.6: RL Training Plan Surface 🔄
 

@@ -40,9 +40,9 @@ cluster validation remains phase-gated:
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes, deterministic trial generation, and Sobol/GA golden fixtures | Integration (project-specific) | Sprint 12.5 |
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, and generated Linux CPU identity-kernel compile/load/run | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP, deployment, report-card, live-gate, and typed live-plan surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP, deployment, report-card, no leaked `jitml-e2e-*` clusters, and typed live-plan surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
 | `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack, including external formatter, HLint, cabal-format, and warning-clean build gates | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
-| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file, renderer, whitespace shape, panel-contract coverage, and invokes `spago test` / `purs-tidy check` only when `JITML_LIVE_E2E=1` | Lint (project-specific) | Sprint 11.3 |
+| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file, renderer, whitespace shape, panel-contract coverage, and explicit typed `spago test` / `purs-tidy check` command shapes | Lint (project-specific) | Sprint 11.3 |
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
@@ -125,12 +125,14 @@ validation.
 
 The current `jitml-e2e` body validates local route, bucket, `chart/values.yaml`
 MinIO coverage, publication, browser-contract, demo HTTP, deployment,
-report-card, explicit `JITML_LIVE_E2E` gate, typed live-plan surfaces, and the
-bundle-serving fallback. The Pulumi TypeScript program at `infra/pulumi/`
+report-card, typed live-plan surfaces, no leaked `jitml-e2e-*` Kind clusters,
+and the bundle-serving fallback. The Pulumi TypeScript program at
+`infra/pulumi/`
 contains a typed `@pulumi/command` resource graph for Kind creation, Helm
 dependency build, `jitml bootstrap`, publication checking, and symmetric Kind
-deletion. The live driver is explicit opt-in, not part of default `cabal test
-all`, because it creates and destroys Kind, builds Helm dependencies, mutates
+deletion. The live driver is an explicit command path, not a process-environment
+gate or part of default `cabal test all`, because it creates and destroys Kind,
+builds Helm dependencies, mutates
 image/runtime state, and polls live routes.
 Future live test driver:
 
@@ -168,19 +170,18 @@ Project-specific Lint extension under doctrine §Test Organization's
 project-specific stanzas allowance. The current body checks that
 `web/src/Generated/Contracts.purs` exists and names the expected endpoint
 surface, that the local Haskell renderer emits the module header, that panel
-metadata is covered by generated contracts, and, when `JITML_LIVE_E2E=1`, that
-`spago test` and `purs-tidy check "src/**/*.purs"` run through the typed
-`Subprocess` boundary. Default/non-gated `purs format` round-trip and
+metadata is covered by generated contracts, and that the explicit
+`spago test` and `purs-tidy check "src/**/*.purs"` commands are represented as
+typed `Subprocess` values. Default `purs format` round-trip and
 `purescript-spec` smoke tests remain target work.
 
 ### Playwright
 
 Playwright belongs to the doctrine's target Pulumi-Orchestrated Infrastructure
 test category. The current repository has `playwright/jitml-demo.spec.ts` as a
-scaffold. The default `jitml-e2e` body does not invoke it; when
-`JITML_LIVE_E2E=1` is set, `test/e2e/Main.hs` invokes `npx playwright test
---reporter=line` through the typed `Subprocess` boundary against the current
-inline DOM stub spec. Live edge-route Playwright execution waits until panels
+scaffold. The default `jitml-e2e` body validates the typed Playwright plan and
+the current inline DOM stub spec without invoking the live stack. Live
+edge-route Playwright execution waits until panels
 consume fixture-backed or live-backed state through `jitml-demo`; static
 route/API scaffold checks stay in the local Haskell e2e and PureScript-style
 stanzas.

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 bootstrap_component="bootstrap"
-cuda_min_compute_capability=${JITML_CUDA_MIN_COMPUTE_CAPABILITY:-7.0}
+cuda_min_compute_capability=7.0
+bootstrap_command_dir=""
 
 json_escape() {
   local value=${1:-}
@@ -37,10 +38,27 @@ die() {
 }
 
 have() {
-  case " ${JITML_BOOTSTRAP_MISSING_COMMANDS:-} " in
-    *" $1 "*) return 1 ;;
-  esac
-  command -v "$1" >/dev/null 2>&1
+  command_path "$1" >/dev/null 2>&1
+}
+
+command_path() {
+  local command_name=$1
+  if [ -n "$bootstrap_command_dir" ]; then
+    if [ -x "$bootstrap_command_dir/$command_name" ]; then
+      printf '%s\n' "$bootstrap_command_dir/$command_name"
+      return 0
+    fi
+    return 127
+  fi
+  command -v "$command_name"
+}
+
+run_command() {
+  local command_name=$1
+  shift || true
+  local resolved
+  resolved=$(command_path "$command_name") || return 127
+  "$resolved" "$@"
 }
 
 repo_root() {
@@ -49,30 +67,12 @@ repo_root() {
   cd "$script_dir/.." && pwd
 }
 
-prepend_ghcup_path() {
-  local ghcup_bin=${HOME:-}/.ghcup/bin
-  if [ -d "$ghcup_bin" ]; then
-    case ":$PATH:" in
-      *":$ghcup_bin:"*) ;;
-      *) export PATH="$ghcup_bin:$PATH" ;;
-    esac
-  fi
-}
-
 host_uname_s() {
-  if [ -n "${JITML_BOOTSTRAP_UNAME_S:-}" ]; then
-    printf '%s\n' "$JITML_BOOTSTRAP_UNAME_S"
-  else
-    uname -s
-  fi
+  run_command uname -s
 }
 
 host_uname_m() {
-  if [ -n "${JITML_BOOTSTRAP_UNAME_M:-}" ]; then
-    printf '%s\n' "$JITML_BOOTSTRAP_UNAME_M"
-  else
-    uname -m
-  fi
+  run_command uname -m
 }
 
 require_command() {
@@ -98,28 +98,28 @@ require_macos_arm64() {
 
 require_xcode_command_line_tools() {
   require_command "xcode-select" "install Xcode Command Line Tools with 'xcode-select --install'"
-  if ! xcode-select -p >/dev/null 2>&1; then
+  if ! run_command xcode-select -p >/dev/null 2>&1; then
     die 2 "Xcode Command Line Tools are not selected; run 'xcode-select --install'"
   fi
 }
 
 require_homebrew() {
   require_command "brew" "install Homebrew from https://brew.sh/"
-  if ! brew --version >/dev/null 2>&1; then
+  if ! run_command brew --version >/dev/null 2>&1; then
     die 2 "Homebrew is installed but not runnable; repair Homebrew before bootstrapping"
   fi
 }
 
 require_docker_without_sudo() {
   require_command "docker" "install Docker and make it usable by the current user"
-  if ! docker info >/dev/null 2>&1; then
+  if ! run_command docker info >/dev/null 2>&1; then
     die 2 "Docker must be usable by the current user without sudo; start Docker or add this user to the docker group"
   fi
 }
 
 require_nvidia_container_runtime() {
   local runtimes
-  if ! runtimes=$(docker info --format '{{json .Runtimes}}' 2>/dev/null); then
+  if ! runtimes=$(run_command docker info --format '{{json .Runtimes}}' 2>/dev/null); then
     die 2 "cannot inspect Docker runtimes; ensure Docker is running without sudo"
   fi
   case "$runtimes" in
@@ -158,7 +158,7 @@ compute_capability_at_least() {
 require_cuda_compute_capability() {
   require_command "nvidia-smi" "install NVIDIA drivers and ensure nvidia-smi is on PATH"
   local capabilities
-  if ! capabilities=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null); then
+  if ! capabilities=$(run_command nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null); then
     die 2 "cannot query NVIDIA GPU compute capability with nvidia-smi"
   fi
   local capability
@@ -172,15 +172,16 @@ require_cuda_compute_capability() {
 }
 
 build_host_jitml() {
-  prepend_ghcup_path
   require_command "cabal" "install the pinned Haskell toolchain before building ./.build/jitml"
   local root
+  local cabal_binary
   root=$(repo_root)
+  cabal_binary=$(command_path cabal)
   mkdir -p "$root/.build"
   info "building host-native jitml binary"
-  (cd "$root" && cabal build exe:jitml)
+  (cd "$root" && "$cabal_binary" build exe:jitml)
   local built_binary
-  built_binary=$(cd "$root" && cabal list-bin exe:jitml)
+  built_binary=$(cd "$root" && "$cabal_binary" list-bin exe:jitml)
   if [ ! -x "$built_binary" ]; then
     die 2 "cabal did not produce an executable jitml binary at '$built_binary'"
   fi
@@ -200,20 +201,20 @@ run_linux_compose_bootstrap() {
   shift || true
   local root
   root=$(repo_root)
-  (cd "$root" && docker compose run --rm jitml jitml bootstrap "--$substrate" "$@")
+  (cd "$root" && run_command docker compose run --rm jitml jitml bootstrap "--$substrate" "$@")
 }
 
 run_linux_compose_jitml() {
   local root
   root=$(repo_root)
-  (cd "$root" && docker compose run --rm jitml jitml "$@")
+  (cd "$root" && run_command docker compose run --rm jitml jitml "$@")
 }
 
 build_linux_image() {
   require_docker_without_sudo
   local root
   root=$(repo_root)
-  (cd "$root" && docker compose build jitml)
+  (cd "$root" && run_command docker compose build jitml)
 }
 
 cluster_name_for_substrate() {
@@ -237,7 +238,7 @@ kind_down() {
   local cluster_name
   cluster_name=$(cluster_name_for_substrate "$substrate")
   if have kind; then
-    kind delete cluster --name "$cluster_name" || true
+    run_command kind delete cluster --name "$cluster_name" || true
   else
     warn "kind is not on PATH; nothing to delete for $cluster_name"
   fi
@@ -251,7 +252,7 @@ purge_state() {
   kind_down "$substrate"
   rm -rf "$root/.data"
   if [ "$substrate" = "apple-silicon" ] && have tart; then
-    tart delete jitml-build || true
+    run_command tart delete jitml-build || true
   fi
   if [ "$full" = "true" ]; then
     rm -rf "$root/.build"
@@ -265,6 +266,6 @@ purge_linux_state() {
   root=$(repo_root)
   purge_state "$substrate" "$full"
   if [ "$full" = "true" ]; then
-    (cd "$root" && docker compose down --rmi local --volumes || true)
+    (cd "$root" && run_command docker compose down --rmi local --volumes || true)
   fi
 }

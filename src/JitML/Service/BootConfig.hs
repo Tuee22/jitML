@@ -51,10 +51,10 @@ defaultBootConfig substrate residency =
     { bootSubstrate = substrate
     , bootResidency = residency
     , bootInferenceMode = defaultInferenceMode substrate residency
-    , bootPulsarServiceUrl = "pulsar://jitml-pulsar-proxy.platform.svc.cluster.local:6650"
-    , bootPulsarAdminUrl = "http://jitml-pulsar-proxy.platform.svc.cluster.local:8080"
-    , bootMinioEndpoint = "http://jitml-minio.platform.svc.cluster.local:9000"
-    , bootHarborRegistry = "harbor.platform.svc.cluster.local/jitml"
+    , bootPulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
+    , bootPulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
+    , bootMinioEndpoint = "http://minio.platform.svc.cluster.local:9000"
+    , bootHarborRegistry = "harbor-registry.platform.svc.cluster.local:5000/library"
     , bootHttpListener =
         case residency of
           Cluster -> Just (HttpListener "0.0.0.0" 8080)

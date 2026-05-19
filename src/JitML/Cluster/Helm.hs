@@ -5,8 +5,11 @@ module JitML.Cluster.Helm
   , HelmRelease (..)
   , helmDependencyBuildSubprocess
   , helmInstallSubprocess
+  , helmInstallSubprocessForEdgePort
+  , helmInstallSubprocessForSubstrate
   , helmPhasedRolloutPlan
   , kindCreateSubprocess
+  , kindDeleteSubprocess
   , phasedReleases
   , renderHelmDependencyBuildPlan
   , renderHelmPhasedRolloutPlan
@@ -15,23 +18,34 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
+import System.FilePath ((</>))
 
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
-import JitML.Substrate (Substrate, renderSubstrate)
+import JitML.Substrate (Substrate, renderSubstrate, substrateEdgePort)
 
 helmDependencyBuildSubprocess :: FilePath -> Subprocess
 helmDependencyBuildSubprocess chartPath =
-  subprocess "helm" ["dependency", "build", Text.pack chartPath]
+  subprocess
+    "sh"
+    [ "-c"
+    , Text.unwords
+        [ "if"
+        , Text.intercalate " && " (fmap (packageExists chartPath) dependencyPackages)
+        , "; then exit 0;"
+        , "fi;"
+        , "helm dependency build"
+        , Text.pack chartPath
+        ]
+    ]
 
 renderHelmDependencyBuildPlan :: FilePath -> Text
-renderHelmDependencyBuildPlan =
-  renderSubprocess . helmDependencyBuildSubprocess
+renderHelmDependencyBuildPlan chartPath =
+  "helm dependency build " <> Text.pack chartPath
 
--- | The phased rollout the cluster reconciler walks: Harbor first (so later
--- pulls succeed), then the rest of the platform services, then mirror/build
--- of the jitml images into Harbor, then the final per-substrate services
--- (jitml-service + jitml-demo + observability).
+-- | The phased rollout the cluster reconciler walks: Harbor first, then the
+-- rest of the platform services, then the local jitML images, then the final
+-- per-substrate services (jitml-service + jitml-demo + observability).
 data HelmPhase
   = HarborPhase
   | PlatformPhase
@@ -43,38 +57,100 @@ data HelmRelease = HelmRelease
   { releaseName :: Text
   , releaseChart :: Text
   , releasePhase :: HelmPhase
+  , releasePackage :: Maybe Text
+  , releaseValuesFile :: Maybe FilePath
   }
   deriving stock (Eq, Show)
 
 phasedReleases :: [HelmRelease]
 phasedReleases =
-  [ HelmRelease "harbor" "harbor" HarborPhase
-  , HelmRelease "harbor-pg" "pg-operator" HarborPhase
-  , HelmRelease "minio" "minio" PlatformPhase
-  , HelmRelease "pulsar" "pulsar" PlatformPhase
-  , HelmRelease "kube-prometheus-stack" "kube-prometheus-stack" PlatformPhase
-  , HelmRelease "tensorboard" "tensorboard" PlatformPhase
-  , HelmRelease "jitml-mirror" "jitml-images" MirrorBuildPhase
-  , HelmRelease "jitml-service" "jitml-service" FinalPhase
-  , HelmRelease "jitml-demo" "jitml-demo" FinalPhase
-  , HelmRelease "envoy-gateway" "envoy-gateway" FinalPhase
+  [ HelmRelease "harbor" "harbor" HarborPhase (Just "harbor-1.16.2.tgz") Nothing
+  , HelmRelease "harbor-pg" "pg-operator" HarborPhase (Just "pg-operator-2.5.1.tgz") Nothing
+  , HelmRelease "minio" "minio" PlatformPhase (Just "minio-14.8.5.tgz") (Just "values/minio.yaml")
+  , HelmRelease "pulsar" "pulsar" PlatformPhase (Just "pulsar-3.6.0.tgz") (Just "values/pulsar.yaml")
+  , HelmRelease
+      "kube-prometheus-stack"
+      "kube-prometheus-stack"
+      PlatformPhase
+      (Just "kube-prometheus-stack-70.4.2.tgz")
+      (Just "values/kube-prometheus-stack.yaml")
+  , HelmRelease "tensorboard" "tensorboard" PlatformPhase Nothing Nothing
+  , HelmRelease "jitml-mirror" "jitml-images" MirrorBuildPhase Nothing Nothing
+  , HelmRelease "jitml-service" "jitml-service" FinalPhase Nothing Nothing
+  , HelmRelease "jitml-demo" "jitml-demo" FinalPhase Nothing Nothing
+  , HelmRelease "envoy-gateway" "gateway-helm" FinalPhase (Just "gateway-helm-1.2.6.tgz") Nothing
   ]
 
+dependencyPackages :: [Text]
+dependencyPackages =
+  [package | Just package <- fmap releasePackage phasedReleases]
+
+packageExists :: FilePath -> Text -> Text
+packageExists chartPath package =
+  "test -f " <> Text.pack chartPath <> "/charts/" <> package
+
 helmInstallSubprocess :: HelmRelease -> FilePath -> Subprocess
-helmInstallSubprocess release chartPath =
+helmInstallSubprocess =
+  helmInstallSubprocessWith []
+
+helmInstallSubprocessForSubstrate :: Substrate -> HelmRelease -> FilePath -> Subprocess
+helmInstallSubprocessForSubstrate substrate =
+  helmInstallSubprocessForEdgePort substrate (substrateEdgePort substrate)
+
+helmInstallSubprocessForEdgePort :: Substrate -> Int -> HelmRelease -> FilePath -> Subprocess
+helmInstallSubprocessForEdgePort substrate edgePort release =
+  helmInstallSubprocessWith
+    ( [ "--set"
+      , "substrate=" <> renderSubstrate substrate
+      , "--set"
+      , "edgePort=" <> Text.pack (show edgePort)
+      ]
+        <> harborEdgeArgs edgePort release
+    )
+    release
+
+helmInstallSubprocessWith :: [Text] -> HelmRelease -> FilePath -> Subprocess
+helmInstallSubprocessWith extraArgs release chartPath =
   subprocess
     "helm"
-    [ "upgrade"
-    , "--install"
-    , releaseName release
-    , Text.pack chartPath <> "/charts/" <> releaseChart release
-    , "--namespace"
-    , "platform"
-    , "--create-namespace"
-    , "--wait"
-    , "--kubeconfig"
-    , "./.build/jitml.kubeconfig"
-    ]
+    ( [ "upgrade"
+      , "--install"
+      , releaseName release
+      , chartReference release chartPath
+      , "--namespace"
+      , "platform"
+      , "--create-namespace"
+      , "--wait"
+      , "--kubeconfig"
+      , "./.build/jitml.kubeconfig"
+      ]
+        <> valuesArgs release chartPath
+        <> extraArgs
+    )
+
+chartReference :: HelmRelease -> FilePath -> Text
+chartReference release chartPath =
+  case releasePackage release of
+    Just package -> Text.pack chartPath <> "/charts/" <> package
+    Nothing -> Text.pack chartPath <> "/local/" <> releaseChart release
+
+valuesArgs :: HelmRelease -> FilePath -> [Text]
+valuesArgs release chartPath =
+  case releaseValuesFile release of
+    Just valuesFile -> ["--values", Text.pack (chartPath </> valuesFile)]
+    Nothing -> []
+
+harborEdgeArgs :: Int -> HelmRelease -> [Text]
+harborEdgeArgs edgePort release
+  | releaseName release == "harbor" =
+      [ "--set"
+      , "expose.type=clusterIP"
+      , "--set"
+      , "expose.tls.enabled=false"
+      , "--set-string"
+      , "externalURL=http://127.0.0.1:" <> Text.pack (show edgePort)
+      ]
+  | otherwise = []
 
 helmPhasedRolloutPlan :: FilePath -> [Subprocess]
 helmPhasedRolloutPlan chartPath =
@@ -88,13 +164,41 @@ renderHelmPhasedRolloutPlan chartPath =
 kindCreateSubprocess :: Substrate -> FilePath -> Subprocess
 kindCreateSubprocess substrate kindConfigPath =
   subprocess
-    "kind"
-    [ "create"
-    , "cluster"
-    , "--name"
-    , "jitml-" <> renderSubstrate substrate
-    , "--config"
-    , Text.pack kindConfigPath
-    , "--kubeconfig"
-    , "./.build/jitml.kubeconfig"
+    "sh"
+    [ "-c"
+    , Text.unwords
+        [ "if kind get clusters | grep -Fx"
+        , clusterName
+        , ">/dev/null;"
+        , "then kind export kubeconfig --name"
+        , clusterName
+        , "--kubeconfig ./.build/jitml.kubeconfig;"
+        , "else kind create cluster --name"
+        , clusterName
+        , "--config"
+        , Text.pack kindConfigPath
+        , "--kubeconfig ./.build/jitml.kubeconfig;"
+        , "fi"
+        ]
     ]
+ where
+  clusterName = "jitml-" <> renderSubstrate substrate
+
+kindDeleteSubprocess :: Substrate -> Subprocess
+kindDeleteSubprocess substrate =
+  subprocess
+    "sh"
+    [ "-c"
+    , Text.unwords
+        [ "if kind get clusters | grep -Fx"
+        , clusterName
+        , ">/dev/null;"
+        , "then kind delete cluster --name"
+        , clusterName
+        , ";"
+        , "else exit 3;"
+        , "fi"
+        ]
+    ]
+ where
+  clusterName = "jitml-" <> renderSubstrate substrate

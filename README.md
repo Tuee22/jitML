@@ -139,7 +139,7 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 > **Bootstrap verbs are not CLI verbs.** Historical script verbs such as `doctor`, `status`, `down`, and `purge` remain script conveniences, but the cluster bootstrap contract is the Haskell command `jitml bootstrap --apple-silicon | --linux-cpu | --linux-cuda`. Script `up` is a wrapper around that command.
 
-- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings Harbor up first, then rolls out every subsequent container through Harbor: MinIO, Pulsar, Prometheus/Grafana, Envoy Gateway, the Percona operator plus Patroni-managed Postgres for services that need Postgres, the `jitml-service` cluster daemon via Helm, and the demo app built from its own Dockerfile. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO and then starts the host daemon as the long-running Apple inference resident. The host does **not** install or start tart during bootstrap; tart is installed and started lazily on the first JIT that misses the cache.
+- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings Harbor up first, builds `jitml:local` / `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out MinIO, Pulsar, Prometheus/Grafana, Envoy Gateway, the Percona operator plus Patroni-managed Postgres for services that need Postgres, the `jitml-service` cluster daemon via Helm, and the demo app. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO and then starts the host daemon as the long-running Apple inference resident. The host does **not** install or start tart during bootstrap; tart is installed and started lazily on the first JIT that misses the cache.
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically, the in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
 - `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast with installation instructions. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda`; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass and GPU worker labeling applied by bootstrap.
 
@@ -229,8 +229,8 @@ The host `./.build/` directory is bind-mounted into the Kind worker node via the
 
 One Envoy-Gateway-API-owned localhost listener (`Gateway/jitml-edge`, port chosen by bootstrap starting at `9090`) backed by the repo-owned `EnvoyProxy/jitml-edge` service shape:
 
-- `GatewayClass/jitml-gateway` + `Gateway/jitml-edge` listening at `127.0.0.1:<edge-port>`.
-- `EnvoyProxy/jitml-edge` is a NodePort service with `externalTrafficPolicy: Cluster`, port 30090 in-cluster.
+- `GatewayClass/jitml-gateway` references `EnvoyProxy/jitml-edge`, and `Gateway/jitml-edge` listens at `127.0.0.1:<edge-port>`.
+- `EnvoyProxy/jitml-edge` is a NodePort service with `externalTrafficPolicy: Cluster`; the Gateway listener port is pinned to NodePort 30090 for the Kind host-port mapping.
 - Routes are not hand-written YAML; they are Haskell-rendered `HTTPRoute` resources from a single **route registry** in `src/JitML/Routes.hs`. The registry is the source of truth, consumed by both the chart-template renderer and the `docs check`/`docs generate` pair that gates route-table and chart-template drift (per doctrine §Generated Artifacts).
 
 Routes published at the edge (all under one `127.0.0.1:<edge-port>`):
@@ -240,15 +240,17 @@ Routes published at the edge (all under one `127.0.0.1:<edge-port>`):
 | `/` | `jitml-demo:80` (the PureScript app) | (none) |
 | `/api` | `jitml-demo:80` | (none) |
 | `/api/ws` | `jitml-demo:80` WebSocket | (none) — live training events |
-| `/tensorboard` | `tensorboard:6006` | `/` |
-| `/grafana` | `grafana:3000` | `/` |
-| `/prometheus` | `prometheus:9090` | `/` |
-| `/harbor` | `jitml-harbor-portal:80` | `/` |
-| `/harbor/api` | `jitml-harbor-core:80` | `/api` |
-| `/minio/console` | `jitml-minio-console:9090` | `/` |
-| `/minio/s3` | `jitml-minio:9000` | `/` |
-| `/pulsar/admin` | `jitml-pulsar-proxy:80` | `/admin` |
-| `/pulsar/ws` | `jitml-pulsar-proxy:80` WebSocket | `/ws` |
+| `/tensorboard` | `tensorboard:80` | `/` |
+| `/grafana` | `kube-prometheus-stack-grafana:80` | `/` |
+| `/prometheus` | `kube-prometheus-stack-prometheus:9090` | `/` |
+| `/harbor` | `harbor:80` | `/` |
+| `/harbor/api` | `harbor:80` | `/api` |
+| `/v2` | `harbor:80` | (none) |
+| `/service` | `harbor:80` | (none) |
+| `/minio/console` | `minio:9001` | `/` |
+| `/minio/s3` | `minio:9000` | `/` |
+| `/pulsar/admin` | `pulsar-proxy:80` | `/admin` |
+| `/pulsar/ws` | `pulsar-proxy:80` WebSocket | `/ws` |
 
 TLS is off for the local demo. The production-deployment posture is intentionally not specified by this README; the route registry just declares the local-demo surfaces.
 
@@ -278,7 +280,7 @@ typed invocation exists.
 
 ## Storage discipline: `kubernetes.io/no-provisioner` only
 
-Every StorageClass uses the `kubernetes.io/no-provisioner` provisioner — no dynamic provisioning anywhere in the chart. Every PV is **manually defined** in `chart/templates/pv-<statefulset>.yaml` against the `jitml-manual` StorageClass and backed by a `hostPath` under `./.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/`. Every PVC is created **only** by a StatefulSet's `volumeClaimTemplates`; freestanding PVCs are a chart-lint failure. Each PV's `claimRef.namespace` and `claimRef.name` explicitly bind it to one PVC so a teardown/spinup yields the exact same binding — the PV ↔ PVC pairing is the persistence contract; dynamic provisioning would erode reproducibility.
+Every StorageClass uses the `kubernetes.io/no-provisioner` provisioner — no dynamic provisioning anywhere in the chart. Every PV is **manually defined** in `chart/templates/pv-<statefulset>.yaml` against the `jitml-manual` StorageClass and backed by the repo-local `./.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/` directory, mounted into Kind at `/jitml/.data/...`. StatefulSet-owned PVCs bind through explicit PV-side `claimRef.namespace` / `claimRef.name`. Operator-generated Percona PVCs instead bind through explicit `volumeName` fields rendered in the registered `PerconaPGCluster`, because the operator-generated PVC names carry a controller suffix. Both paths are explicit; neither uses dynamic provisioning.
 
 Naming convention is uniform: **`<k8s-namespace>/<StatefulSet-name>/pv_<replica-int>`** on disk, and **`<namespace>-<statefulset>-pv-<int>`** as the PV resource name (DNS-1123 compatible). Example layout for the `platform` namespace on the Apple Silicon substrate:
 
@@ -287,10 +289,12 @@ Naming convention is uniform: **`<k8s-namespace>/<StatefulSet-name>/pv_<replica-
 └── platform/
     ├── minio/{pv_0, pv_1, pv_2, pv_3}                  -- 4 distributed replicas
     ├── pulsar-bookkeeper/{pv_0, pv_1, pv_2}            -- 3 bookies
-    └── pulsar-zookeeper/{pv_0, pv_1, pv_2}             -- 3 ZK nodes
+    ├── pulsar-zookeeper/{pv_0, pv_1, pv_2}             -- 3 ZK nodes
+    ├── harbor-pg/{pv_0, pv_1, pv_2}                    -- 3 Postgres instances
+    └── harbor-pg-repo1/pv_0                            -- pgBackRest repo
 ```
 
-Corresponding PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookkeeper-pv-1`, etc.; each is bound to the per-replica StatefulSet PVC (e.g. `data-minio-0`, `journal-pulsar-bookkeeper-1`). `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without an explicit `claimRef`.
+Corresponding PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookkeeper-pv-1`, etc.; StatefulSet PVs are bound to the per-replica PVC (e.g. `data-minio-0`, `journal-pulsar-bookkeeper-1`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
 
 ## `jitml-service` Deployment, not StatefulSet
 
@@ -301,20 +305,20 @@ Namespace: `platform` (fixed). `jitml bootstrap --<substrate>` creates it idempo
 **Phased deploy** (verbatim from infernix's lessons):
 
 1. **Harbor phase**: Harbor plus the Percona operator / Patroni-managed Postgres required by packaged services comes up first, using only the public pulls needed to make Harbor available.
-2. **Mirror/build phase**: third-party images are mirrored into Harbor; the `jitml` image and the demo image are built and pushed to Harbor.
-3. **Final phase**: MinIO, Pulsar, Envoy Gateway, kube-prometheus-stack, TensorBoard, the jitML service workload (all substrates: Linux self-inference plus Apple forward-to-host), and the jitML-demo workload — all pulling exclusively from local Harbor.
+2. **Image build/load phase**: `jitml:local` and `jitml-demo:local` are built locally and loaded explicitly into the selected Kind cluster with `kind load docker-image`.
+3. **Final phase**: MinIO, Pulsar, Envoy Gateway, kube-prometheus-stack, TensorBoard, the jitML service workload (all substrates: Linux self-inference plus Apple forward-to-host), and the jitML-demo workload roll out after the local image tags are present in Kind. Bootstrap applies the repo-owned foundation manifests before Helm, waits on explicit platform rollout/readiness checks, and applies the repo-owned Gateway/HTTPRoute manifests after the controller is installed.
 
-This avoids the chicken-and-egg of "Harbor isn't up yet, but everything wants to pull from it" without resorting to image-pull-secret juggling.
+This avoids a hidden DNS/trust assumption between the host Docker daemon, the Kind node runtime, and an in-cluster Harbor registry while still bringing Harbor up as the platform registry surface.
 
 ---
 
 # Harbor as the registry
 
-All container images go through Harbor. No Docker Hub pulls after the Harbor phase. The build pipeline pushes to `harbor.platform.svc.cluster.local/jitml/<image>:<tag>` and the in-cluster `imagePullPolicy: IfNotPresent` resolves from there.
+Harbor is the platform registry surface. The local Kind bootstrap path is explicit: it builds `jitml:local` and `jitml-demo:local`, loads both into Kind with `kind load docker-image`, and sets the in-cluster workloads to `imagePullPolicy: IfNotPresent`. The Harbor Helm release receives an explicit localhost `externalURL` for the selected edge port, and the edge routes send Harbor's public portal/API/registry/token paths through the chart's public `harbor` nginx service. The `HasHarbor` subprocess client takes explicit registry/API settings, Docker host socket when the local daemon is not at Docker's default path, and a repo-local Docker config directory under `./.build/docker/harbor`; live Linux CPU validation has exercised push/promote, pull, artifact existence, and repository listing without environment variables or global Docker config writes.
 
 Harbor's own image-chart storage backend is **MinIO** (S3 API), so Harbor's blobs and MinIO's buckets share a durability story.
 
-Routed at `/harbor` (portal) and `/harbor/api` (API).
+Routed at `/harbor` (portal), `/harbor/api` (API), `/v2` (Docker registry), and `/service` (Harbor token service).
 
 ---
 
@@ -330,7 +334,7 @@ Buckets, provisioned by the Helm `provisioning.buckets` block:
 - `jitml-tensorboard` — TensorBoard event files so the TB pod is stateless and can reschedule freely (see [TensorBoard event storage](#tensorboard-event-storage)).
 - `jitml-artifacts` — large inference outputs (when the demo is in inference mode).
 
-Endpoints: `jitml-minio.platform.svc.cluster.local:9000` (in-cluster); `127.0.0.1:<edge-port>/minio/s3` (routed). Credentials pinned in values for the local demo; the production-deployment posture is intentionally not specified by this README.
+Endpoints: `minio.platform.svc.cluster.local:9000` (in-cluster); `127.0.0.1:<edge-port>/minio/s3` (routed). Credentials pinned in values for the local demo; the production-deployment posture is intentionally not specified by this README. Bootstrap readiness checks every typed bucket through the Bitnami in-pod MinIO client (`mc`) before continuing to the topic bootstrap.
 
 The MinIO server version is pinned to a release with S3 conditional-write support (`If-None-Match`, `If-Match`) — `RELEASE.2024-08-26T15-33-07Z` or later. The concurrency story below depends on it.
 
@@ -534,7 +538,10 @@ Pulsar carries small envelopes only. Per-layer weight blobs, optimizer state, an
 
 **Protobuf contract.** Schemas in `./proto/jitml/`, with Haskell bindings via `proto-lens` and PureScript bindings via `purescript-bridge`.
 
-**Fallback when Pulsar is absent.** When `JITML_PULSAR_WS_BASE_URL` and `JITML_PULSAR_ADMIN_URL` env vars are unset (e.g., unit tests), the harness uses a repo-local topic spool at `./.build/runtime/pulsar/`. Tests use this; nothing else.
+**Fallback when Pulsar is absent.** Unit tests that do not start a real Pulsar
+broker use the repo-local topic spool at `./.build/runtime/pulsar/`. Tests use
+this explicit filesystem harness; runtime Pulsar endpoints come from typed
+configuration, not process environment variables.
 
 **At-least-once delivery.** Per doctrine §At-Least-Once Event Processing, every Pulsar message handler is idempotent: idempotency is enforced via MinIO `If-None-Match: *` writes on content-addressed blobs (a redelivered message produces the same SHA, the second PUT returns `412 Precondition Failed`, the handler treats it as success). Redelivery on broker restart or consumer crash is expected and benign. Handlers classify transient failures using the shared [Retry policy](#retry-policy); a `Fatal` classification negatively-acks the message and lets the broker redeliver after backoff. Idempotency keys derive from the protobuf message hash; the daemon does not trust client-supplied IDs.
 
@@ -542,7 +549,7 @@ Pulsar carries small envelopes only. Per-layer weight blobs, optimizer state, an
 
 # PostgreSQL
 
-Percona Kubernetes Operator manages a Patroni-backed HA Postgres cluster. Roles:
+Percona Kubernetes Operator manages a Patroni-backed HA Postgres cluster. The local live path renders the registered `harbor-pg` `PerconaPGCluster` with pinned Percona component images, three manual data PVs, and one pgBackRest repo PV. Roles:
 
 - Harbor's metadata store.
 - (Optional, deployment-time) Grafana dashboard provisioning history when an operator wants persistence across pod restarts beyond what SQLite gives.
@@ -1988,7 +1995,7 @@ Source at `./web/`; spago + `purs` + esbuild bundle to `./web/dist/app.js`. UI f
 
 ## Stance
 
-The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Target training runs are started, paused, resumed, and stopped from the UI; inference is invoked against any checkpoint by direct human input — drawing, uploading, or playing. Playwright coverage belongs to the target live `jitml-e2e` gate once panels consume fixture-backed or live-backed state through `jitml-demo`; the current local e2e surface covers route/API, deployment, contract, report-card, live-gate, typed live-plan scaffolds, and env-gated Playwright execution against inline DOM stubs.
+The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Target training runs are started, paused, resumed, and stopped from the UI; inference is invoked against any checkpoint by direct human input — drawing, uploading, or playing. Playwright coverage belongs to the target live `jitml-e2e` orchestration path once panels consume fixture-backed or live-backed state through `jitml-demo`; the current local e2e surface covers route/API, deployment, contract, report-card, typed live-plan scaffolds, and explicit Playwright command shape against inline DOM stubs.
 
 ## Panels
 
@@ -2016,15 +2023,17 @@ Every interactive panel maps to a small REST + WebSocket pair, all under `/api` 
 ## Tests
 
 Current local frontend checks live in the Haskell `jitml-purescript-style` and
-`jitml-e2e` stanzas, with `spago test`, `purs-tidy check`, and Playwright
-invocation gated behind `JITML_LIVE_E2E=1`. Target `purescript-spec` unit tests
-live in `./web/test/`, and target Playwright E2E runs through the live, opt-in
-`jitml-e2e` gate against the real Envoy route surface.
+`jitml-e2e` stanzas. They validate generated contracts, whitespace, panel
+coverage, demo HTTP routing, report-card output, and the explicit typed
+Subprocess shapes for `spago test`, `purs-tidy check`, and Playwright without
+using process-environment gates. Target `purescript-spec` unit tests live in
+`./web/test/`, and target Playwright E2E runs through the explicit live
+`jitml-e2e` orchestration path against the real Envoy route surface.
 
 ## Deployment
 
 - **Linux substrates:** the bundle is built into the substrate image at image-build time; `jitml-demo` workload serves it via Helm.
-- **Apple Silicon:** the bundle is built host-native, then mounted into the `jitml:local` image when `jitml bootstrap --apple-silicon` builds and uploads it to Harbor. (The same image is used for the in-cluster `jitml-service` pod that runs with `inferenceMode = ForwardToHost` — Apple builds `jitml:local` for cluster-resident services even though host-native execution uses the separate `./.build/jitml` binary built directly via ghcup. Apple uses *one* image, same as Linux; the substrate-table "Container shape: partial" refers to where kernels execute, not to how many images exist.) The host daemon publishes events to cluster Pulsar; the routed demo loads in the browser at `127.0.0.1:<edge-port>/`.
+- **Apple Silicon:** the bundle is built host-native, then mounted into the `jitml:local` image when `jitml bootstrap --apple-silicon` builds and loads that image into Kind. (The same image is used for the in-cluster `jitml-service` pod that runs with `inferenceMode = ForwardToHost` — Apple builds `jitml:local` for cluster-resident services even though host-native execution uses the separate `./.build/jitml` binary built directly via ghcup. Apple uses *one* image, same as Linux; the substrate-table "Container shape: partial" refers to where kernels execute, not to how many images exist.) The host daemon publishes events to cluster Pulsar; the routed demo loads in the browser at `127.0.0.1:<edge-port>/`.
 
 ---
 
@@ -2055,9 +2064,9 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT), per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, and Linux CPU identity-kernel compile/load/run; target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from measured float-accumulation drift |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report/live-gate and typed live-plan checks; target opt-in live gate uses Pulumi-orchestrated ephemeral Kind + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
+| `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report and typed live-plan checks; target explicit live path uses Pulumi-orchestrated ephemeral Kind + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 | `jitml-haskell-style` | doctrine-mandated style stanza (§Style as a Cabal test-suite) | `TestHaskellStyle` | `fourmolu --mode check`, `hlint`, `cabal format` round-trip |
-| `jitml-purescript-style` | Lint (project-specific) | `TestPureScriptStyle` | Current generated-contract / whitespace / panel-contract checks plus live-gated `spago test` and `purs-tidy check`; target default `purs format` round-trip + `purescript-spec` smoke tests |
+| `jitml-purescript-style` | Lint (project-specific) | `TestPureScriptStyle` | Current generated-contract / whitespace / panel-contract checks plus explicit live `spago test` and `purs-tidy check`; target default `purs format` round-trip + `purescript-spec` smoke tests |
 
 `TestAll` fans out to every stanza above (via phase 1 of `jitml test all`). Lint runs inside `cabal test` via the `jitml-haskell-style` stanza, not as a separate `test` subcommand — `jitml lint all --check` is the lint surface.
 
@@ -2067,14 +2076,14 @@ Notes on the mapping:
 - Every stanza uses `type: exitcode-stdio-1.0` (doctrine §Standard Testing Stack): the test binary signals pass/fail by exit code, which is the only contract Cabal needs to schedule and aggregate stanzas in parallel. Each stanza's `main-is` is a thin `Main.hs` calling into a library module where the tests live.
 - Single `tasty` trees across stanzas are forbidden (doctrine §Test Organization): separate stanzas give Cabal-native parallelism, let CI and developers target one tier (`cabal test jitml-unit`), and isolate dependency creep so heavy integration deps do not leak into the unit suite.
 
-**Local by default, live by explicit gate.** Default `cabal test all` remains
-local and deterministic. The Pulumi/Kind/Helm/Playwright infrastructure gate is
-explicit opt-in via `JITML_LIVE_E2E=1` because it creates clusters, builds Helm
-dependencies, mutates image/runtime state, polls live routes, and tears
-everything down via `bracket`. `JitML.Test.LivePlan` records that typed live
-sequence without running it by default. There is still only one live
-infrastructure path; parallel ad hoc developer workflows are not part of the
-doctrine.
+**Local by default, live by explicit command.** Default `cabal test all` remains
+local and deterministic. Live infrastructure work is reached by explicit command
+paths, not process environment variables: `jitml bootstrap --<substrate>` applies
+the local Kind/Helm stack directly, and the target Pulumi/Kind/Helm/Playwright
+e2e path is a separately invoked orchestration path that creates clusters,
+builds Helm dependencies, mutates image/runtime state, polls live routes, and
+tears everything down via `bracket`. `JitML.Test.LivePlan` records that typed
+sequence without running it by default.
 
 ### E2E cohorts
 
@@ -2118,7 +2127,7 @@ Per doctrine §Lint, Format, and Code-Quality Stack and §Standard Testing Stack
 | `lint files` | repo-internal | whitespace, trailing newlines, forbidden paths, tracked-generated drift |
 | `lint docs` | repo-internal | documentation metadata, relative links, forbidden stale commands, and hand-written documentation hygiene |
 | `lint proto` | `protoc` round-trip | wire schemas in `proto/jitml/` |
-| `lint chart` | repo-internal | Helm structural invariants (no dynamic provisioning, every PV with explicit `claimRef`, no freestanding PVCs) |
+| `lint chart` | repo-internal | Helm structural invariants (no dynamic provisioning, every PV with explicit `claimRef` or registered Percona `volumeName`, no freestanding PVCs) |
 | `lint haskell` | `fourmolu --mode check` + `hlint` + `cabal format` round-trip | per doctrine §Lint stack |
 | `lint purescript` | `purs format` round-trip + `purescript-spec` smoke | PureScript sources |
 | `lint all` | aggregate | every row above, then `cabal build all` |
@@ -2216,7 +2225,7 @@ docker compose run --rm jitml jitml train \
   experiments/cifar10-resnet.dhall --substrate linux-cuda --seed 42
 ```
 
-After bootstrap, the full surface lives at one URL — `127.0.0.1:<edge-port>/` — with the demo at `/`, TensorBoard at `/tensorboard`, Grafana at `/grafana`, Prometheus at `/prometheus`, Harbor at `/harbor`, MinIO at `/minio/console`, and Pulsar at `/pulsar/admin`.
+After bootstrap, the full surface lives at one URL — `127.0.0.1:<edge-port>/` — with the demo at `/`, TensorBoard at `/tensorboard`, Grafana at `/grafana`, Prometheus at `/prometheus`, Harbor at `/harbor` plus Docker registry paths `/v2` and `/service`, MinIO at `/minio/console`, and Pulsar at `/pulsar/admin`.
 
 ---
 

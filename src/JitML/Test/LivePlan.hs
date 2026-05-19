@@ -28,9 +28,10 @@ data LivePlanStep = LivePlanStep
   }
   deriving stock (Eq, Show)
 
--- | The single-command e2e plan. Triggered only when `JITML_LIVE_E2E=1` is
--- set; sequences `helm dependency build chart` → `pulumi up` (ephemeral
--- Kind) → `npx playwright test` → `pulumi destroy` → `pulumi stack rm`.
+-- | The single-command e2e plan. Sequences `helm dependency build chart` →
+-- `pulumi up` (ephemeral Kind) → `npx playwright test` → `pulumi destroy` →
+-- `pulumi stack rm`; local stanzas validate the typed order while explicit
+-- live commands execute the real stack.
 liveE2EPlan :: [LivePlanStep]
 liveE2EPlan =
   [ LivePlanStep "helm-dependency-build" (helmDependencyBuildSubprocess "chart")

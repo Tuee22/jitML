@@ -6,9 +6,9 @@ module JitML.App
   )
 where
 
-import Control.Monad (void, when)
+import Control.Monad (unless, void, when)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
-import Data.Aeson (decode)
+import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe)
@@ -16,9 +16,10 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
-import System.Directory (doesFileExist)
-import System.Environment (getArgs, getEnvironment, lookupEnv)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Environment (getArgs)
 import System.Exit (ExitCode (..))
+import System.FilePath ((</>))
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Bootstrap
@@ -43,6 +44,8 @@ import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
+import JitML.Cluster.Publication qualified as Publication
+import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.RuntimeSource
   ( materializeRuntimeSource
   , renderRuntimeSource
@@ -89,8 +92,7 @@ import JitML.Tart.Exec (tartSshSubprocess)
 import JitML.Tart.Lifecycle (VmName (..), ensureVmUp)
 import JitML.Test.Report
   ( ReportCard (..)
-  , renderReportCardWithKnobs
-  , reportCardKnobsFromEnv
+  , renderReportCard
   , reportStanzas
   )
 import JitML.Tune.Catalog qualified as Tune
@@ -102,8 +104,12 @@ main = getArgs >>= runArgs
 
 demoMain :: IO ()
 demoMain = do
-  writeLineIO WebBundle.demoStatusLine
-  WebServer.serveDemo
+  args <- getArgs
+  case parseDemoArgs args of
+    Left err -> exitWithErrorIO (InvalidConfig err)
+    Right demoArgs -> do
+      writeLineIO WebBundle.demoStatusLine
+      WebServer.serveDemo (demoHost demoArgs) (demoPort demoArgs)
 
 runArgs :: [String] -> IO ()
 runArgs args =
@@ -423,34 +429,40 @@ runBootstrap parsedOptions =
           Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrate))
           Just parsedSubstrate -> do
             changed <- liftIO (materializeBootstrapFiles "." parsedSubstrate)
-            liveEnabled <- liftIO liveGateOn
-            if not changed
-              then exitWithError (ReconcilerNoop ("bootstrap: " <> substrate <> " already current"))
-              else do
-                writeLine ("bootstrap: " <> substrate <> " reconciled")
-                when liveEnabled $ do
-                  result <- liftIO (liveExecutePhasedRollout parsedSubstrate "chart")
-                  writeLine
-                    ( "bootstrap: live phased rollout executed "
-                        <> Text.pack (show (length (liveStepsExecuted result)))
-                        <> " steps"
-                    )
-                  mapM_
-                    ( \(step, stderrText) ->
-                        writeLine ("bootstrap: step failed: " <> step <> " stderr: " <> stderrText)
-                    )
-                    (liveStepsFailed result)
+            writeLine
+              ( "bootstrap: "
+                  <> substrate
+                  <> if changed then " reconciled" else " materialization already current"
+              )
+            result <- liftIO (liveExecutePhasedRollout parsedSubstrate "chart")
+            writeLine
+              ( "bootstrap: live phased rollout executed "
+                  <> Text.pack (show (length (liveStepsExecuted result)))
+                  <> " steps"
+              )
+            mapM_
+              ( \(step, stderrText) ->
+                  writeLine ("bootstrap: step failed: " <> step <> " stderr: " <> stderrText)
+              )
+              (liveStepsFailed result)
+            unless (null (liveStepsFailed result)) $
+              exitWithError
+                ( SubprocessFailed
+                    "bootstrap live phased rollout"
+                    (ExitFailure 1)
+                    (renderLiveStepFailures (liveStepsFailed result))
+                )
     [] ->
       exitWithError (InvalidConfig "bootstrap requires exactly one substrate flag")
     _ ->
       exitWithError (InvalidConfig "bootstrap accepts exactly one substrate flag")
 
-liveGateOn :: IO Bool
-liveGateOn =
-  fmap (maybe False isOn) (lookupEnv "JITML_LIVE_E2E")
+renderLiveStepFailures :: [(Text, Text)] -> Text
+renderLiveStepFailures =
+  Text.intercalate "\n" . fmap renderFailureLine
  where
-  isOn value =
-    Text.toLower (Text.pack value) `elem` ["1", "true", "yes", "on"]
+  renderFailureLine (step, stderrText) =
+    step <> ": " <> stderrText
 
 bootstrapSubstrates :: [ParsedOption] -> [Text]
 bootstrapSubstrates parsedOptions =
@@ -480,8 +492,21 @@ runCluster ["cluster", "up"] parsedOptions =
 runCluster ["cluster", "status"] _ = do
   publication <- liftIO readClusterPublication
   writeText (renderPublicationSummary publication)
-runCluster ["cluster", "down"] _ =
-  writeLine "cluster down: Kind cluster delete plan rendered; state preserved"
+runCluster ["cluster", "down"] _ = do
+  publication <- liftIO readClusterPublication
+  let substrate = Publication.publicationSubstrate publication
+      command = Helm.kindDeleteSubprocess substrate
+      clusterName = "jitml-" <> renderSubstrate substrate
+  (exitCode, _stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
+  case exitCode of
+    ExitSuccess ->
+      liftIO (writeClusterPublication (publicationWithStatus "stopped" publication))
+        >> writeLine ("cluster down: " <> clusterName <> " deleted; ./.build and ./.data preserved")
+    ExitFailure 3 -> do
+      liftIO (writeClusterPublication (publicationWithStatus "stopped" publication))
+      exitWithError (ReconcilerNoop ("cluster down: " <> clusterName <> " already absent"))
+    ExitFailure _ ->
+      exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
 runCluster ["cluster", "reset"] parsedOptions
   | hasOption "yes" parsedOptions =
       writeLine "cluster reset: local runtime state reset requested"
@@ -646,8 +671,7 @@ runCabalTest targets = do
   case exitCode of
     ExitSuccess -> do
       writeText stdoutText
-      knobs <- liftIO (reportCardKnobsFromEnv <$> getEnvironment)
-      writeText (renderReportCardWithKnobs knobs (ReportCard (passedCount targets) 0 0))
+      writeText (renderReportCard (ReportCard (passedCount targets) 0 0))
     ExitFailure _ ->
       exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
 
@@ -735,6 +759,19 @@ readClusterPublication = do
       pure (fromMaybe (defaultPublication AppleSilicon) (decode bytes))
     else pure (defaultPublication AppleSilicon)
 
+writeClusterPublication :: ClusterPublication -> IO ()
+writeClusterPublication publication = do
+  let runtimeRoot = ".build" </> "runtime"
+  createDirectoryIfMissing True runtimeRoot
+  LazyByteString.writeFile (runtimeRoot </> "cluster-publication.json") (encode publication)
+
+publicationWithStatus :: Text -> ClusterPublication -> ClusterPublication
+publicationWithStatus status publication =
+  publication
+    { Publication.publicationComponents =
+        [(name, status) | (name, _) <- Publication.publicationComponents publication]
+    }
+
 extractGlobalFlags :: [String] -> Either AppError (GlobalFlags, [String])
 extractGlobalFlags = go defaultGlobalFlags []
  where
@@ -778,6 +815,52 @@ extractGlobalFlags = go defaultGlobalFlags []
     case args of
       [] -> Left (InvalidConfig ("missing value for " <> Text.pack flagName))
       value : remaining -> applyValue value remaining
+
+data DemoArgs = DemoArgs
+  { demoHost :: Text
+  , demoPort :: Int
+  }
+  deriving stock (Eq, Show)
+
+defaultDemoArgs :: DemoArgs
+defaultDemoArgs =
+  DemoArgs
+    { demoHost = "127.0.0.1"
+    , demoPort = 8080
+    }
+
+parseDemoArgs :: [String] -> Either Text DemoArgs
+parseDemoArgs = go defaultDemoArgs
+ where
+  go demoArgs [] = Right demoArgs
+  go demoArgs ("--host" : value : rest)
+    | null value = Left "invalid --host value: empty"
+    | otherwise = go demoArgs {demoHost = Text.pack value} rest
+  go _ ["--host"] = Left "missing value for --host"
+  go demoArgs ("--port" : value : rest) =
+    maybe
+      (Left ("invalid --port value: " <> Text.pack value))
+      (\port -> go demoArgs {demoPort = port} rest)
+      (readMaybeInt value)
+  go _ ["--port"] = Left "missing value for --port"
+  go demoArgs (arg : rest)
+    | Just value <- stripPrefix "--host=" arg =
+        if null value
+          then Left "invalid --host value: empty"
+          else go demoArgs {demoHost = Text.pack value} rest
+    | Just value <- stripPrefix "--port=" arg =
+        maybe
+          (Left ("invalid --port value: " <> Text.pack value))
+          (\port -> go demoArgs {demoPort = port} rest)
+          (readMaybeInt value)
+    | otherwise = Left ("unknown jitml-demo argument: " <> Text.pack arg)
+
+readMaybeInt :: String -> Maybe Int
+readMaybeInt value =
+  case reads value of
+    [(parsed, "")]
+      | parsed > 0 && parsed <= 65535 -> Just parsed
+    _ -> Nothing
 
 parseOutputFormat :: String -> Either AppError OutputFormat
 parseOutputFormat "plain" = Right OutputPlain

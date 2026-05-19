@@ -10,6 +10,7 @@ module JitML.Cluster.PulsarBootstrap
 where
 
 import Data.Text (Text)
+import Data.Text qualified as Text
 
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 import JitML.Substrate (Substrate, allSubstrates, renderSubstrate)
@@ -40,19 +41,30 @@ renderPulsarAdminCommands :: [Text]
 renderPulsarAdminCommands =
   fmap (\topic -> "pulsar-admin topics create " <> topicName topic) pulsarTopics
 
--- | Subprocess that creates a single Pulsar topic through `pulsar-admin`.
+-- | Subprocess that creates a single Pulsar topic through the chart's toolset pod.
 pulsarTopicCreateSubprocess :: Topic -> Subprocess
 pulsarTopicCreateSubprocess topic =
   subprocess
     "kubectl"
-    [ "exec"
+    [ "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "exec"
     , "-n"
     , "platform"
-    , "pulsar-broker-0"
+    , "pulsar-toolset-0"
     , "--"
-    , "pulsar-admin"
-    , "topics"
-    , "create"
+    , "sh"
+    , "-c"
+    , Text.unwords
+        [ "topic=\"$1\";"
+        , "namespace=\"${topic#persistent://}\";"
+        , "namespace=\"${namespace%/*}\";"
+        , "if /pulsar/bin/pulsar-admin topics list \"$namespace\" | grep -Fx \"$topic\" >/dev/null;"
+        , "then exit 0;"
+        , "fi;"
+        , "/pulsar/bin/pulsar-admin topics create \"$topic\""
+        ]
+    , "jitml-topic-create"
     , topicName topic
     ]
 

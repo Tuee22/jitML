@@ -4,3 +4,8 @@ metadata:
   name: jitml-gateway
 spec:
   controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: jitml-edge
+    namespace: platform

@@ -71,7 +71,7 @@ restart):
 | `pulsarServiceUrl` | `Text` | Pulsar broker URL |
 | `pulsarAdminUrl` | `Text` | Pulsar admin URL |
 | `minioEndpoint` | `Text` | MinIO S3 endpoint |
-| `harborRegistry` | `Text` | Harbor registry FQDN |
+| `harborRegistry` | `Text` | Harbor registry/project image prefix, e.g. `harbor-registry.platform.svc.cluster.local:5000/library` in-cluster or `127.0.0.1:<edge-port>/library` from the host |
 | `httpListener` | `Optional HttpListener` | None when `residency = Host` |
 
 `LiveConfig` (hot-reloadable on SIGHUP):
@@ -127,11 +127,14 @@ structured JSON on stderr with fields `ts`, `level`, `msg`, `lifecyclePhase`,
 |-------|-----------|---------------|
 | `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs` |
 | `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge`, `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek` | `src/JitML/Service/Capabilities.hs` |
-| `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs` |
+| `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs`; explicit Docker/curl subprocess instance in `src/JitML/Service/HarborSubprocess.hs` |
 | `HasKubectl` | `kubectlApply`, `kubectlStatus`, `kubectlGet`, `kubectlDelete` | `src/JitML/Service/Capabilities.hs` |
 
-`HasKubectl` operations route through the typed `Subprocess` boundary
-(`kubectl` is a wrapped subprocess).
+`HasHarbor` and `HasKubectl` operations route through the typed `Subprocess`
+boundary. Harbor settings are passed as a value (`HarborSettings`) containing
+registry/API coordinates, credentials, optional Docker host socket, and the
+repo-local Docker config directory; the client does not read process
+environment variables or write to the user's global Docker config.
 
 ## RetryPolicy
 
@@ -190,11 +193,12 @@ The host daemon (Dhall: `Host + SelfInference`) subscribes to
 large outputs directly to MinIO, and ACKs on `inference.event.apple-silicon`
 with the small envelope (call-id, kind tag, MinIO refs).
 
-Target `jitml bootstrap --apple-silicon` writes the cluster publication to
-`./.build/runtime/cluster-publication.json`, patches
-`./.build/conf/host/apple-silicon.dhall` with the routed Pulsar and MinIO
-coordinates, then starts the host daemon from that Dhall. Linux has no
-host-level Dhall; all JIT operations happen inside the cluster daemon.
+`jitml bootstrap --apple-silicon` writes the cluster publication to
+`./.build/runtime/cluster-publication.json` and the explicit live rollout patches
+`./.build/conf/host/apple-silicon.dhall` with the routed Pulsar, MinIO, and
+Harbor coordinates. The target live bootstrap then starts the host daemon from
+that Dhall. Linux has no host-level Dhall; all JIT operations happen inside the
+cluster daemon.
 
 The current implementation renders the configs, topic names, lifecycle,
 deployment surfaces, and local HTTP endpoint server; live host daemon startup

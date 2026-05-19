@@ -38,10 +38,11 @@ maintenance rules that govern this plan suite.
 
 The plan is mid-build. Phases `0` (planning and documentation topology), `1`
 (Haskell CLI surface, `CommandSpec`, lint stack), `2` (bootstrap reconciler,
-prerequisite DAG, JIT cache, outer-container builds), and `6` (numerical
+prerequisite DAG, JIT cache, outer-container builds), `3` (cluster substrate
+and routing), and `6` (numerical
 core) are `✅ Done` — every Exit Definition obligation those phases own is met
 in the worktree and validated by their sprints' `### Validation` blocks.
-Phases `3`, `4`, `5`, `7`, `8`, `9`, `10`, `11`, and `12` are `🔄 Active`:
+Phases `4`, `5`, `7`, `8`, `9`, `10`, `11`, and `12` are `🔄 Active`:
 each owns at least one Exit Definition obligation that requires live runtime
 behaviour (cluster apply, real service clients, real kernel execution,
 checkpoint storage, browser flow, cross-substrate parity) which the worktree
@@ -55,7 +56,9 @@ under `JitML.Proto.{Training,Rl,Tune}`, the typed daemon capability
 surface with full `HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl`
 methods + per-domain `HandlerRouter` + filesystem-backed `HasMinIO`
 instance (`JitML.Service.FilesystemMinIO`) + subprocess-backed
-`HasKubectl` instance (`JitML.Service.KubectlSubprocess`) with
+`HasHarbor` / `HasKubectl` instances
+(`JitML.Service.HarborSubprocess`, `JitML.Service.KubectlSubprocess`) with
+explicit Harbor settings and
 stdin-piped YAML `kubectlApply` validated against a live Kind cluster,
 the typed Consumer IO loop
 (`JitML.Service.Consumer.{consumerStep,runConsumerLoop,ConsumerOutcome}`)
@@ -63,8 +66,10 @@ exercising HasPulsar subscribe/consume/ack + per-domain dedup against
 a synthetic broker in `jitml-daemon-lifecycle`, the typed phased Helm
 rollout (`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus
 `pulsarTopicCreateSubprocesses` actually invoked through
-`JitML.Bootstrap.liveExecutePhasedRollout` under `JITML_LIVE_E2E=1`,
-the service-Postgres registry lint wired into `JitML.Lint.Chart`,
+`JitML.Bootstrap.liveExecutePhasedRollout` from
+`jitml bootstrap --<substrate>`,
+the service-Postgres registry lint wired into `JitML.Lint.Chart` plus the
+live-validated `harbor-pg` Percona cluster readiness path,
 the optimizer/RNG/metric/parent-lineage CheckpointManifest shape
 with typed `AdvancePredicate` and `RetentionPolicy` +
 `JitML.App.runInternalGc` reconciler exiting `3` on no-op +
@@ -88,28 +93,29 @@ TensorBoard Service renderer
 (`JitML.Observability.TensorBoard.renderTensorBoardService`, not yet
 materialized as `chart/templates/service-tensorboard.yaml`), the six
 PureScript panel payload modules under `web/src/Panels/`, the seven-test
-Playwright matrix invoked from `jitml-e2e` through the typed
-`Subprocess` boundary under `JITML_LIVE_E2E=1` against inline DOM stubs,
-the `spago test` and `purs-tidy check` smoke paths invoked from
-`jitml-purescript-style` through the typed `Subprocess` boundary under
-`JITML_LIVE_E2E=1`, the demo route logic that serves
+Playwright matrix represented in `jitml-e2e` through the typed
+`Subprocess` boundary against inline DOM stubs, the `spago test` and
+`purs-tidy check` command shapes represented from `jitml-purescript-style`
+through typed `Subprocess` values, the demo route logic that serves
 `web/dist/Main/index.js` when a local `spago build --output web/dist`
 has produced it, the real-binary `./.build/jitml` spawn matrix
 (`--help`, `bootstrap --linux-cpu --dry-run`, `cluster up --substrate
 linux-cpu --dry-run`, `internal gc <hash>` exiting `3`) through the
 typed boundary in a temp workdir covered by `jitml-integration`, the
 spin-up path through `kindCreateSubprocess` that writes
-`./.build/jitml.kubeconfig` without polluting `~/.kube/config` when the
-live gate is used, the post-teardown `no jitml-e2e-* Kind clusters
+`./.build/jitml.kubeconfig` without polluting `~/.kube/config`, the
+post-teardown `no jitml-e2e-* Kind clusters
 survive` assertion in `jitml-e2e`, the typed Pulumi ephemeral-Kind
 orchestrator under `infra/pulumi/index.ts`, the typed Tune resume
 surface (`JitML.Tune.Resume.{persistTrialTranscript,replaySweep}`)
 round-tripping through filesystem-backed `HasMinIO`, the TbSidecar
 writer (`JitML.Observability.TbSidecar.writeCheckpointSidecar`) plus the
 `renderTensorBoardService` renderer, the typed Docker
-mirror plan (`JitML.Cluster.DockerImage.{dockerMirrorPlan,docker{Build,Tag,Push,Login}Subprocess}`)
-+ edge-port lease (`JitML.Cluster.EdgePort.leaseEdgePort`), the
-lifecycle-exit wiring (`JitML.Service.Runtime.consumerLoopExit`)
+image-publication plans (`JitML.Cluster.DockerImage.{dockerBuildAndKindLoadPlan,kindLoadDockerImageSubprocess,dockerMirrorPlan,docker{Build,Tag,Push,Login}Subprocess}`)
+wired into `JitML.Bootstrap.livePhasedRolloutSubprocesses`, the
+edge-port lease (`JitML.Cluster.EdgePort.leaseEdgePort`) wired into the
+live publication writer and Apple host Dhall patch, the lifecycle-exit
+wiring (`JitML.Service.Runtime.consumerLoopExit`)
 surfacing typed `AppError` from the consumer outcome batch, the
 demo bundle-serving path (`JitML.Web.Server.{loadBundleEntry,demoHttpRoutesWithBundle}`)
 serving the compiled Halogen `web/dist/Main/index.js` when
@@ -146,32 +152,33 @@ block, where the validation gate lives:
    block in `cabal.project` survives only while upstream Dhall/CBOR releases
    reject GHC `9.14.1`'s `base-4.22`. See
    [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
-2. **Live Kind/Helm rollout (Exit 3).** See
-   [phase-3-cluster-substrate-and-routing.md → Sprint 3.5](phase-3-cluster-substrate-and-routing.md).
-3. **Live stateful platform services (Exit 3 cont.).** See
+2. **Live stateful platform services (Exit 3 cont.).** See
    [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md)
    Sprints `4.1`–`4.7` `Remaining Work` blocks for Harbor, Postgres, MinIO,
    Pulsar, Prometheus, TensorBoard, and NVIDIA RuntimeClass live readiness.
-4. **Real daemon runtime (Exit 2).** See
+3. **Real daemon runtime (Exit 2).** See
    [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md)
    Sprints `5.4` / `5.5` / `5.6` `Remaining Work`.
-5. **Real per-substrate JIT execution (Exit 1, 5, 12).** See
+4. **Real per-substrate JIT execution (Exit 1, 5, 12).** See
    [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md)
    Sprints `7.3` / `7.4` / `7.5` / `7.6` `Remaining Work`.
-6. **Real SL/RL/AlphaZero/tuning loops (Exit 6).** See
+5. **Real SL/RL/AlphaZero/tuning loops (Exit 6).** See
    [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md)
    and [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md)
    sprint `Remaining Work` blocks.
-7. **Live MinIO checkpoint storage and inference (Exit 7).** See
+6. **Live MinIO checkpoint storage and inference (Exit 7).** See
    [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md)
    Sprints `10.1`–`10.4` `Remaining Work`.
-8. **Stateful frontend E2E and Playwright (Exit 8).** See
+7. **Stateful frontend E2E and Playwright (Exit 8).** See
    [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md)
    Sprints `11.3` / `11.4` / `11.5` / `11.6` `Remaining Work`.
-9. **`jitml-e2e` live Pulumi-orchestrated cross-cluster validation (Exit 9).** See
+8. **`jitml-e2e` live Pulumi-orchestrated cross-cluster validation (Exit 9).** See
    [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
    Sprints `12.2`–`12.6` and `12.8` / `12.9` `Remaining Work`.
-10. **Empty legacy ledger (Exit 18).** Closes after items 1–9 close.
+9. **Empty legacy ledger (Exit 18).** Closes after items 1–8 close and
+    the remaining cleanup rows in
+    [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal)
+    are moved to `Completed`.
 
 ## Document Index
 
@@ -237,7 +244,7 @@ obligation exists.
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
 | 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
-| 3 | Cluster Substrate and Routing | 🔄 Active | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
+| 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | 🔄 Active | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
 | 5 | `jitml service` Daemon | 🔄 Active | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
@@ -250,7 +257,7 @@ obligation exists.
 
 ## Current Plan Status
 
-Phases `0`, `1`, `2`, and `6` are `✅ Done`. Phase `0` owns the plan suite,
+Phases `0`, `1`, `2`, `3`, and `6` are `✅ Done`. Phase `0` owns the plan suite,
 the governed `documents/` doctrine suite, and the doctrine envelope. Phase
 `1` owns the `CommandSpec` registry, the typed `Subprocess` / `Plan` /
 `apply` / `Env` / `AppError` boundaries, the lint stack, and the
@@ -259,12 +266,15 @@ prerequisite DAG (with effectful remediation), the content-addressed JIT
 cache key/layout/manifest/symlink layer, the one-service
 `docker/compose.yaml`, the baseline `jitml:local` image, the Tart command
 scaffold, and the script-side `status` / `test` / `down` / `purge` /
-`purge --full` wrappers. Phase `6` owns the numerical-core catalog
+`purge --full` wrappers. Phase `3` owns the per-substrate Kind configs,
+repo-local kubeconfig discipline, manual PV/storage-class surface, Envoy
+Gateway listener, typed route registry, live phased bootstrap, and typed
+cluster teardown path. Phase `6` owns the numerical-core catalog
 (`src/JitML/Numerics/Catalog.hs`), its Dhall mirror, and the cross-type lint
-audit. Together these four phases close [Exit Definition](#exit-definition)
+audit. Together these five phases close [Exit Definition](#exit-definition)
 items 4, 10, 11, 12, 13, 14, 15, 16, and 17.
 
-Phases `3` (cluster substrate), `4` (stateful platform services), `5` (jitml
+Phases `4` (stateful platform services), `5` (jitml
 service daemon), `7` (JIT codegen and per-substrate execution), `8`
 (supervised and RL framework), `9` (RL catalog, AlphaZero, tuning), `10`
 (checkpointing and inference), `11` (PureScript frontend and demo), and `12`
@@ -272,8 +282,8 @@ service daemon), `7` (JIT codegen and per-substrate execution), `8`
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
 runtime behaviour that the worktree does not exercise. The unmet runtime
-obligations are: live `kind create cluster` and Helm apply (Exit 3); live
-Pulsar / MinIO / Harbor / kubectl clients and event flow (Exit 2, 7); real
+obligations are: live Pulsar / MinIO / Harbor / kubectl clients and event flow
+(Exit 2, 7); real
 per-substrate kernel compile-and-execute beyond the Linux CPU identity
 fixture in `JitML.Engines.Local` (Exit 1, 5, 12); real SL / RL / AlphaZero
 training loops with golden convergence and reward fixtures (Exit 6); the
@@ -283,8 +293,8 @@ close (Exit 18). Each gap is logged in the owning sprint's `### Remaining
 Work` block; the dependency-ordered sequence is in
 [Execution Roadmap](#execution-roadmap) above.
 
-The local worktree implementation that backs the four Done phases and the
-typed scaffolding inside the nine Active phases comprises: `app/Main.hs` and
+The local worktree implementation that backs the five Done phases and the
+typed scaffolding inside the eight Active phases comprises: `app/Main.hs` and
 `app/Demo.hs` (six-line shims into the library-first `src/JitML/` tree);
 three stage-0 bootstrap scripts that delegate to `jitml bootstrap
 --<substrate>`; one Dockerfile and one Compose service (`jitml:local`); the
@@ -292,8 +302,10 @@ umbrella Helm chart at `chart/` with subchart deps for Harbor, Pulsar,
 MinIO, Percona Postgres, Envoy Gateway, and kube-prometheus-stack; typed
 chart/Kind renderers (including the typed `kindCreateSubprocess` /
 `helmInstallSubprocess` / `helmPhasedRolloutPlan` / typed
-service-Postgres registry); `src/JitML/Routes.hs` as the HTTPRoute
-registry; the `jitml service` daemon's BootConfig / LiveConfig / endpoints
+service-Postgres registry plus the live Docker build / Kind image-load phase in
+`JitML.Bootstrap.livePhasedRolloutSubprocesses` and the in-pod MinIO bucket
+readiness check in `JitML.Cluster.Readiness`); `src/JitML/Routes.hs` as the HTTPRoute
+registry, including Harbor `/v2` and `/service` registry/token routes; the `jitml service` daemon's BootConfig / LiveConfig / endpoints
 / structured log / retry / at-least-once helper / in-binary HTTP listener
 / POSIX signal wiring (with `HandlerRouter` + per-domain `DedupCache`);
 the full four-class capability surface

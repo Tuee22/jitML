@@ -7,7 +7,6 @@ where
 
 import Data.Maybe (fromMaybe)
 import Path.IO (resolveDir')
-import System.Environment (lookupEnv)
 import System.IO (hIsTerminalDevice, stdout)
 
 import JitML.Env.Env (ColorMode (..), Env (..), MonotonicTime (..), OutputFormat (..))
@@ -31,8 +30,8 @@ defaultGlobalFlags =
 
 buildEnv :: GlobalFlags -> IO Env
 buildEnv flags = do
-  cacheDir <- resolveDir' =<< resolvePath (globalCacheDir flags) "JITML_BUILD_DIR" ".build"
-  dataDir <- resolveDir' =<< resolvePath (globalDataDir flags) "JITML_DATA_DIR" ".data"
+  cacheDir <- resolveDir' (fromMaybe ".build" (globalCacheDir flags))
+  dataDir <- resolveDir' (fromMaybe ".data" (globalDataDir flags))
   outputFormat <- resolveOutputFormat (globalFormat flags)
   pure
     Env
@@ -43,14 +42,6 @@ buildEnv flags = do
       , envLogger = \_subprocess _exitCode _message -> pure ()
       , envClock = pure (MonotonicTime 0)
       }
-
-resolvePath :: Maybe FilePath -> String -> FilePath -> IO FilePath
-resolvePath cliValue envName defaultValue =
-  case cliValue of
-    Just path -> pure path
-    Nothing -> do
-      envValue <- lookupEnv envName
-      pure (fromMaybe defaultValue envValue)
 
 resolveOutputFormat :: Maybe OutputFormat -> IO OutputFormat
 resolveOutputFormat (Just format) = pure format

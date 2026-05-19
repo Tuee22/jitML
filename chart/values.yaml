@@ -3,10 +3,10 @@ edgePort: 9090
 
 jitml:
   image:
-    repository: harbor.platform.svc.cluster.local/jitml/jitml
+    repository: jitml
     tag: local
   demoImage:
-    repository: harbor.platform.svc.cluster.local/jitml/jitml-demo
+    repository: jitml-demo
     tag: local
   storageClass: jitml-manual
 
@@ -22,7 +22,13 @@ minio:
   mode: distributed
   replicas: 4
   image:
-    tag: RELEASE.2024-08-26T15-33-07Z
+    registry: docker.io
+    repository: bitnamilegacy/minio
+    tag: 2024.11.7-debian-12-r0
+  clientImage:
+    registry: docker.io
+    repository: bitnamilegacy/minio-client
+    tag: 2024.10.29-debian-12-r1
   persistence:
     storageClass: jitml-manual
   provisioning:

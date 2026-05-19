@@ -1,0 +1,6 @@
+apiVersion: v2
+name: jitml-demo
+description: Local jitML demo HTTP server chart.
+type: application
+version: 0.1.0
+appVersion: 0.1.0

@@ -21,5 +21,5 @@ spec:
               type: ReplacePrefixMatch
               replacePrefixMatch: /
       backendRefs:
-        - name: prometheus
+        - name: kube-prometheus-stack-prometheus
           port: 9090

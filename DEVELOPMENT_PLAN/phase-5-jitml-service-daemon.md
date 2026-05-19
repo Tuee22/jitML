@@ -62,7 +62,7 @@ low-level in-binary HTTP runtime in
 `/metrics`. `SIGHUP` increments the reload generation; `SIGINT` and
 `SIGTERM` begin graceful drain and drop readiness. The filesystem-backed
 `HasMinIO` instance and subprocess-backed `HasKubectl` instance are checked
-in and covered locally / behind the live gate; live HTTP-backed MinIO,
+in and covered locally / behind the live path; live HTTP-backed MinIO,
 Pulsar, and Harbor clients are owned by Sprints `5.4`–`5.6`.
 
 ## Phase Summary
@@ -260,22 +260,23 @@ class surface per doctrine `Capability Classes and Service Errors`.
   running MinIO StatefulSet (Sprint `4.3`).
 - Implement live `HasPulsar` instance against the running Pulsar HA
   cluster (Sprint `4.4`).
-- Implement live `HasHarbor` instance against the running Harbor
-  portal+registry (Sprint `4.1`).
+- `JitML.Service.HarborSubprocess` implements the `HasHarbor` instance
+  through typed Docker/curl subprocesses and explicit `HarborSettings`.
+  Sprint `4.1` live Linux CPU validation pushes/promotes, pulls, lists, and
+  checks artifact existence against the running Harbor portal+registry. The
+  remaining daemon work is wiring that client into the long-running service
+  acquisition path.
 - `JitML.Service.KubectlSubprocess` implements the `HasKubectl`
   instance through the typed `Subprocess` boundary against
   `./.build/jitml.kubeconfig`. The typed `Subprocess` boundary now
   carries an optional `subprocessStdin :: Maybe Text` payload
   (`subprocessWithStdin` smart constructor) that `kubectlApply` uses
   to pipe YAML into `kubectl apply -f -` without shelling out.
-  Validated live against a real Kind cluster (`kindCreateSubprocess`
-  + `kubectl get nodes` returning YAML naming `jitml-linux-cpu`) by
-  `jitml-integration` under `JITML_LIVE_E2E=1`; the test no-ops
-  without the env var. The stdin path is independently validated by
-  a `cat`-based fixture in `jitml-integration`.
+  Validated by `jitml-integration` with an explicit repo-local kubeconfig
+  setting and stdin command-shape assertions. The stdin path is independently
+  validated by a `cat`-based fixture in `jitml-integration`.
 - Add integration coverage in `jitml-integration` (Sprint `12.2`) that
-  exercises each capability class against the live cluster behind
-  `JITML_LIVE_E2E=1`.
+  exercises each capability class against the explicit live cluster path.
 
 ## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication 🔄
 
@@ -354,8 +355,8 @@ deduplication key is the protobuf message hash and is opaque to the broker.
   `Nothing`) and a poisoned batch with a `SETimeout` mid-stream
   (returns `Just (PulsarFailed "timeout: ack budget exhausted")`).
 - Add integration coverage in `jitml-daemon-lifecycle` (Sprint `12.7`)
-  exercising real redelivery + dedup against live Pulsar behind
-  `JITML_LIVE_E2E=1`.
+  exercising real redelivery + dedup against live Pulsar through the explicit
+  live validation path.
 
 ## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall 🔄
 
@@ -412,8 +413,9 @@ kubernetes.io/hostname`, plus bootstrap-rendered per-substrate Dhall configs.
   cluster and confirm it reaches Ready.
 - Validate the `topologyKey: kubernetes.io/hostname` anti-affinity by
   scaling to two replicas on a two-worker Kind cluster.
-- Patch the Apple host Dhall after the edge port is leased so the host
-  daemon connects to Pulsar and MinIO; validate the live subscription.
+- Validate that the Apple host Dhall patched by Sprint `3.5` after the
+  edge-port lease lets the host daemon connect to Pulsar and MinIO and
+  subscribe live.
 - Confirm `runtimeClassName: nvidia` is set only for `linux-cuda` and that
   the resulting pod actually sees the GPU on a GPU-labelled worker.
 

@@ -12,9 +12,8 @@ spec:
     metadata:
       labels:
         app: jitml-service
-        jitml.substrate: linux-cuda
+        jitml.substrate: linux-cpu
     spec:
-      runtimeClassName: nvidia
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -26,7 +25,9 @@ spec:
                     app: jitml-service
       containers:
         - name: jitml-service
-          image: harbor.platform.svc.cluster.local/jitml/jitml:local
+          image: jitml:local
+          imagePullPolicy: IfNotPresent
+          command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
           volumeMounts:
             - name: jit-cache

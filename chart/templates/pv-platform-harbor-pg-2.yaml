@@ -10,13 +10,10 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: jitml-manual
   local:
-    path: ./.data/platform/harbor-pg/pv_2/
+    path: /jitml/.data/platform/harbor-pg/pv_2/
   nodeAffinity:
     required:
       nodeSelectorTerms:
         - matchExpressions:
             - key: kubernetes.io/hostname
               operator: Exists
-  claimRef:
-    namespace: platform
-    name: data-harbor-pg-2

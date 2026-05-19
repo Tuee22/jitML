@@ -34,11 +34,12 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-One toolchain compatibility helper is currently active: the scoped
-`allow-newer` block in `cabal.project` keeps Dhall's transitive CBOR stack
-building under pinned GHC `9.14.1` while upstream package bounds catch up.
-The row resolves at the final-handoff toolchain refresh once upstream
-releases relax bounds for `base-4.22`. Three doctrine-deviation rows have
+Two cleanup rows are currently active. The scoped `allow-newer` block in
+`cabal.project` keeps Dhall's transitive CBOR stack building under pinned
+GHC `9.14.1` while upstream package bounds catch up. The remaining
+`jitml-mirror` Helm placeholder stays only as a stand-in in the rendered
+phased-release list now that Sprint `3.5`'s live executor uses typed Docker
+build / Kind image-load subprocesses for that phase. Three doctrine-deviation rows have
 closed and live in the `Completed` table: Sprint `4.3` folded the
 standalone MinIO values fragment into `chart/values.yaml`; Sprint `7.7`
 removed the static checked-in JIT source/build scaffold (JIT compiler inputs
@@ -67,6 +68,7 @@ opening event itself enqueues a row here naming the originating sprint.
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
 | Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 1.1 / final handoff toolchain refresh |
+| `jitml-mirror` Helm release placeholder | `src/JitML/Cluster/Helm.hs` (`HelmRelease "jitml-mirror" "jitml-images" MirrorBuildPhase Nothing Nothing`) | The live Sprint `3.5` rollout now replaces the mirror phase with typed Docker build plus explicit Kind image-load subprocesses via `JitML.Bootstrap.livePhasedRolloutSubprocesses`; remove the placeholder once the rendered phased-release list models non-Helm phases directly | Sprint 3.5 / live rollout final cleanup |
 
 ## Pending Removal Notes
 

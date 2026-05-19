@@ -287,7 +287,7 @@ jitml internal gc <experiment-hash>
 Sibling binary serving the PureScript bundle plus the inference REST surface.
 
 ```
-jitml-demo [--port <int>] [--bundle-path <dir>]
+jitml-demo [--host <addr>] [--port <int>]
 ```
 
 ## Generated Help Blocks

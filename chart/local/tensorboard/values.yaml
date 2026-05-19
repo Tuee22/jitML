@@ -1,0 +1,3 @@
+image:
+  repository: tensorflow/tensorflow
+  tag: 2.16.1

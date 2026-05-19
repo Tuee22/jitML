@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tensorboard
+  namespace: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tensorboard
+  template:
+    metadata:
+      labels:
+        app: tensorboard
+    spec:
+      containers:
+        - name: tensorboard
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["tensorboard"]
+          args: ["--logdir", "s3://jitml-tensorboard"]
+          ports:
+            - name: http
+              containerPort: 6006

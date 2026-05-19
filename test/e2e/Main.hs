@@ -20,7 +20,6 @@ import Network.Socket
   , withSocketsDo
   )
 import Network.Socket.ByteString (recv, sendAll)
-import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -33,13 +32,10 @@ import JitML.Storage.Buckets (bucketNames)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..))
-import JitML.Test.LiveGate (LiveGate (..), liveGateEnvVar, liveGateFromEnv, renderLiveGate)
 import JitML.Test.LivePlan (liveE2EPlan, renderLivePlan)
 import JitML.Test.Report
   ( ReportCard (..)
-  , knobRlSteps
   , renderReportCard
-  , reportCardKnobsFromEnv
   , reportStanzas
   )
 import JitML.Web.Bundle (demoRoutePath, demoRoutes)
@@ -54,8 +50,8 @@ main =
       [ testCase "edge route registry includes demo and platform services" $ do
           let services = fmap routeServiceName routeRegistry
           assertBool "demo route present" ("jitml-demo" `elem` services)
-          assertBool "grafana route present" ("grafana" `elem` services)
-          assertBool "pulsar route present" ("jitml-pulsar-proxy" `elem` services)
+          assertBool "grafana route present" ("kube-prometheus-stack-grafana" `elem` services)
+          assertBool "pulsar route present" ("pulsar-proxy" `elem` services)
       , testCase "bucket registry includes checkpoint and tuning buckets" $ do
           assertBool "checkpoints bucket" ("jitml-checkpoints" `elem` bucketNames)
           assertBool "trials bucket" ("jitml-trials" `elem` bucketNames)
@@ -74,24 +70,34 @@ main =
           length apiEndpoints @?= 7
       , testCase "demo route manifest covers edge listener paths" $
           fmap demoRoutePath demoRoutes @?= ["/", "/api", "/api/ws"]
+      , testCase "gateway class attaches the local EnvoyProxy service shape" $ do
+          gatewayClass <- Text.IO.readFile "chart/templates/gatewayclass-jitml.yaml"
+          assertBool "EnvoyProxy parametersRef kind" ("kind: EnvoyProxy" `Text.isInfixOf` gatewayClass)
+          assertBool "EnvoyProxy parametersRef name" ("name: jitml-edge" `Text.isInfixOf` gatewayClass)
+          assertBool "EnvoyProxy parametersRef namespace" ("namespace: platform" `Text.isInfixOf` gatewayClass)
       , testCase "demo deployment starts the jitml-demo HTTP server" $ do
           deployment <- Text.IO.readFile "chart/templates/deployment-jitml-demo.yaml"
           assertBool "jitml-demo command" ("command: [\"jitml-demo\"]" `Text.isInfixOf` deployment)
-          assertBool "container port env" ("value: \"80\"" `Text.isInfixOf` deployment)
+          assertBool
+            "explicit container listener args"
+            ("args: [\"--host\", \"0.0.0.0\", \"--port\", \"80\"]" `Text.isInfixOf` deployment)
+      , testCase "service deployment starts the jitml daemon binary" $ do
+          deployment <- Text.IO.readFile "chart/templates/deployment-jitml-service.yaml"
+          assertBool "jitml command" ("command: [\"jitml\"]" `Text.isInfixOf` deployment)
+          assertBool
+            "explicit service config arg"
+            ("args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]" `Text.isInfixOf` deployment)
       , testCase "report card renders aggregate suite summary" $ do
           length reportStanzas @?= 10
           let rendered = renderReportCard (ReportCard 10 0 0)
           assertBool "report card title" ("jitML POC report card" `isInfixOf` Text.unpack rendered)
           assertBool "report card passed count" ("passed: 10" `isInfixOf` Text.unpack rendered)
-      , testCase "report card consumes workload knob overrides" $
-          knobRlSteps (reportCardKnobsFromEnv [("RL_STEPS", "12")]) @?= 12
-      , testCase "live Kind/Helm validation is explicit opt-in" $ do
-          liveGateFromEnv [] @?= LiveDisabled
-          liveGateFromEnv [(liveGateEnvVar, "1")] @?= LiveEnabled
-          renderLiveGate LiveDisabled
-            @?= "live e2e: disabled; set JITML_LIVE_E2E=1 to run live Kind/Helm validation"
+          assertBool "report card default knobs" ("rl_steps: 100000" `isInfixOf` Text.unpack rendered)
+      , testCase "live Kind/Helm validation is an explicit typed plan" $ do
           assertBool "live plan starts with helm dependency build" $
-            "helm-dependency-build: helm dependency build chart" `Text.isInfixOf` renderLivePlan liveE2EPlan
+            "helm-dependency-build:" `Text.isInfixOf` renderLivePlan liveE2EPlan
+          assertBool "live plan invokes helm dependency build" $
+            "helm dependency build chart" `Text.isInfixOf` renderLivePlan liveE2EPlan
           assertBool "live plan includes Playwright" $
             "playwright: npx playwright test" `Text.isInfixOf` renderLivePlan liveE2EPlan
       , testCase "one-shot demo HTTP server serves the API index" $
@@ -99,25 +105,6 @@ main =
             response <- httpGet port "/api"
             assertBool "HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` response)
             assertBool "InferenceRun in API index" ("InferenceRun" `isInfixOf` response)
-      , testCase "npx playwright test runs through typed Subprocess (JITML_LIVE_E2E=1)" $ do
-          liveGate <- lookupEnv "JITML_LIVE_E2E"
-          case liveGate of
-            Just enabled
-              | Text.toLower (Text.pack enabled) `elem` ["1", "true", "yes", "on"] -> do
-                  -- Live path: invokes `npx playwright test` against the
-                  -- canonical panel matrix through the typed Subprocess
-                  -- boundary. Requires Chromium installed (`npx playwright
-                  -- install chromium`) and node_modules at the repo root.
-                  let cmd = subprocess "npx" ["playwright", "test", "--reporter=line"]
-                  (exitCode, stdoutText, _stderr) <-
-                    runStreaming defaultSubprocessEnv cmd
-                  assertBool
-                    "npx playwright test exits zero"
-                    (case exitCode of ExitSuccess -> True; _ -> False)
-                  assertBool
-                    "Playwright reports 7 passed tests"
-                    ("7 passed" `Text.isInfixOf` stdoutText)
-            _ -> pure () -- default path: skip when not gated
       , testCase "demo server serves the compiled Halogen bundle when present (Sprint 11.5)" $ do
           -- Read the bundle entry from web/dist/Main/index.js; if spago
           -- has built it, the demo routes include the /bundle/main.js

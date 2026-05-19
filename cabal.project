@@ -21,13 +21,13 @@ allow-newer:
 -- oneDNN: pinned with AVX2 baseline
 -- kindest/node: pinned in kind/cluster-<substrate>.yaml and mirrored here
 
--- POC report-card knobs:
--- SL_EPOCHS=5
--- SL_BATCH=64
--- RL_STEPS=100_000
--- RL_EVAL_EPISODES=25
--- AZ_GAMES=200
--- AZ_SIMS=400
--- TUNE_TRIALS=64
--- TUNE_BUDGET_PER_TRIAL=1_000
--- XCLUSTER_KIND_NODES=2
+-- POC report-card typed defaults, mirrored by JitML.Test.Report:
+-- sl_epochs: 5
+-- sl_batch: 64
+-- rl_steps: 100_000
+-- rl_eval_episodes: 25
+-- az_games: 200
+-- az_sims: 400
+-- tune_trials: 64
+-- tune_budget_per_trial: 1_000
+-- xcluster_kind_nodes: 2

@@ -6,12 +6,10 @@ module JitML.Test.Report
   , defaultReportCardKnobs
   , renderReportCardWithKnobs
   , reportStanzas
-  , reportCardKnobsFromEnv
   , renderReportCard
   )
 where
 
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
@@ -94,31 +92,6 @@ renderReportCardWithKnobs knobs report =
     , "  failed: " <> showText (reportFailed report)
     , "  duration_seconds: " <> showText (reportDurationSeconds report)
     ]
-
-reportCardKnobsFromEnv :: [(String, String)] -> ReportCardKnobs
-reportCardKnobsFromEnv env =
-  ReportCardKnobs
-    { knobSlEpochs = envInt "SL_EPOCHS" (knobSlEpochs defaultReportCardKnobs)
-    , knobSlBatch = envInt "SL_BATCH" (knobSlBatch defaultReportCardKnobs)
-    , knobRlSteps = envInt "RL_STEPS" (knobRlSteps defaultReportCardKnobs)
-    , knobRlEvalEpisodes = envInt "RL_EVAL_EPISODES" (knobRlEvalEpisodes defaultReportCardKnobs)
-    , knobAzGames = envInt "AZ_GAMES" (knobAzGames defaultReportCardKnobs)
-    , knobAzSims = envInt "AZ_SIMS" (knobAzSims defaultReportCardKnobs)
-    , knobTuneTrials = envInt "TUNE_TRIALS" (knobTuneTrials defaultReportCardKnobs)
-    , knobTuneBudgetPerTrial =
-        envInt "TUNE_BUDGET_PER_TRIAL" (knobTuneBudgetPerTrial defaultReportCardKnobs)
-    , knobCrossClusterKindNodes =
-        envInt "XCLUSTER_KIND_NODES" (knobCrossClusterKindNodes defaultReportCardKnobs)
-    }
- where
-  envInt key fallback =
-    fromMaybe fallback (lookup key env >>= readMaybeInt)
-
-readMaybeInt :: String -> Maybe Int
-readMaybeInt value =
-  case reads value of
-    [(parsed, "")] -> Just parsed
-    _ -> Nothing
 
 showText :: (Show a) => a -> Text
 showText = Text.pack . show

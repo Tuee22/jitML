@@ -23,15 +23,15 @@
 | Demo HTTP routes | Local Haskell HTTP server for the current route/API surface | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Minimal shell | `web/test/Main.purs` |
 | Panel payload modules | Six typed request/response and stream payload modules; Halogen mount/rendering remains target work | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Scaffold spec plus typed live-plan step; invoked only when `JITML_LIVE_E2E=1`, currently against inline DOM stubs | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Scaffold spec plus typed live-plan step; the default stanza validates the command shape against inline DOM stubs, while the live edge-route run remains target work | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Demo executable | Status line plus HTTP server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
 browser-side code). Target npm / spago / Playwright invocations flow through
 the typed `Subprocess` boundary from doctrine `Architecture → Subprocesses as
 Typed Values`; the current checked-in Cabal bodies perform local smoke checks
-by default, with `spago test`, `purs-tidy check`, and Playwright invocations
-gated behind `JITML_LIVE_E2E=1`.
+and validate the `spago test`, `purs-tidy check`, and Playwright command shapes
+without process-environment gates.
 
 ## Layout
 
@@ -133,16 +133,17 @@ local route/API surface; target work swaps in the compiled bundle from
 `web/dist/` and a live WebSocket proxy at `/api/ws`.
 
 The `Deployment/jitml-demo` template (Sprint `4.1`) is populated with the
-demo image, `jitml-demo` command, and `PORT=80`. HTTPRoutes for `/`, `/api`,
-`/api/ws` (Sprint `3.4`) point at `jitml-demo:80`.
+demo image, `jitml-demo` command, and explicit `--host 0.0.0.0 --port 80`
+arguments so Envoy can reach the pod IP. HTTPRoutes for `/`, `/api`, `/api/ws`
+(Sprint `3.4`) point at `jitml-demo:80`.
 
 ## Playwright E2E
 
 `playwright/jitml-demo.spec.ts` is the current TypeScript Playwright scaffold.
 `JitML.Test.LivePlan` records the target `npx playwright test` step after Helm
 dependency build and Pulumi stack creation. The current default `jitml-e2e`
-Cabal body does not invoke Playwright; when `JITML_LIVE_E2E=1` is set it runs
-`npx playwright test --reporter=line` through the typed `Subprocess` boundary.
+Cabal body validates that typed Playwright command shape without starting the
+live stack.
 The checked-in spec currently validates seven inline DOM stub flows rather
 than the live edge route. Target work grows this into one spec per panel
 covering the golden user flow:

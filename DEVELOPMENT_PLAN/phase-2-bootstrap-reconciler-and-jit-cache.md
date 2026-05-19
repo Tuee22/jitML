@@ -37,11 +37,11 @@ intentionally touching global user state.
 
 ### Current Implementation Scope
 
-`jitml bootstrap --<substrate>` and `jitml cluster up` materialize
-repo-local Kind, chart, Dhall, service, and publication files, then print
-reconciliation summaries or exit `3` when the materialized files are
-already current. Sprint `3.5` owns the `JITML_LIVE_E2E=1` live bootstrap
-runner that executes typed `kind` / `helm` subprocesses; this phase's
+`jitml cluster up` materializes repo-local Kind, chart, Dhall, service, and
+publication files, then prints reconciliation summaries or exits `3` when the
+materialized files are already current. `jitml bootstrap --<substrate>`
+materializes those files and then executes the live bootstrap runner that
+drives typed `kind` / `helm` subprocesses; this phase's
 closed surface remains the stage-0 gates, prerequisite DAG, and
 content-addressed JIT cache key/layout/manifest/symlink layer that the
 per-substrate engines in Phase `7` populate.
@@ -111,6 +111,10 @@ cluster, package, image, Dhall, and daemon action.
   `nvidia-smi` checks. At least one GPU must satisfy the required compute
   capability; missing capability exits `2` with installation/remediation
   instructions.
+- Stage-0 command test doubles are wired through the explicit
+  `--command-dir <path>` script argument. The scripts do not consume test-only
+  process environment variables for host OS, architecture, missing commands, or
+  CUDA capability.
 - Linux `up` calls the intended outer-container handoff:
   `docker compose run --rm jitml jitml bootstrap --linux-cpu` or
   `docker compose run --rm jitml jitml bootstrap --linux-cuda`; Sprint `2.4`
@@ -314,19 +318,21 @@ the current command materializes bootstrap inputs only.
 
 - `docker/Dockerfile` currently builds on `ubuntu:24.04` with pinned GHC
   `9.14.1`, Cabal `3.16.1.0`, GCC/G++, LLVM, Docker CLI, Node.js/npm, Python,
-  PureScript, spago, `kubectl`, `helm`, and `kind`. The full target image still
-  needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, Poetry, and Pulumi hardening before it
-  can serve as the complete Linux CPU / CUDA runtime image.
+  PureScript, spago, architecture-aware `kubectl` / `kind`, and `helm`, then
+  installs the `jitml` and `jitml-demo` executables into `/usr/local/bin`.
+  The full target image still needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, Poetry,
+  and Pulumi hardening before it can serve as the complete Linux CPU / CUDA
+  runtime image.
 - `docker/compose.yaml` declares one service `jitml` with image `jitml:local`,
   bind-mounts `./` to `/jitml`, working dir `/jitml`, no entrypoint default.
 - `linux-cpu.sh` and `linux-cuda.sh` enter the image through
   `docker compose run --rm jitml ...`; Compose builds `jitml:local`
   automatically when needed.
 - Current `jitml bootstrap --<substrate>` materializes the repo-local bootstrap
-  files and reports no-op materialization with exit code `3`. The target live
-  apply path will tag the locally built image as
-  `harbor.platform.svc.cluster.local/jitml/jitml:<sha>` and push it after Harbor
-  is live, so subsequent chart rollouts pull through Harbor.
+  files and reports no-op materialization with exit code `3`. The live Phase `3`
+  apply path builds `jitml:local` / `jitml-demo:local` and loads those tags
+  explicitly into Kind; live Harbor image push/pull is owned by the Phase `4`
+  platform-service and Phase `5` daemon capability work.
 - Current `jitml build` renders `/opt/build/jitml` plus engine metadata. The
   target in-CLI build operation will build the inner Haskell binary at
   `/opt/build/jitml` from inside the container.

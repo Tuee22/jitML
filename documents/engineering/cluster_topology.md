@@ -35,15 +35,20 @@ Every StorageClass uses the `kubernetes.io/no-provisioner` provisioner — no
 dynamic provisioning anywhere in the chart. Every PV is **manually defined**
 in `chart/templates/pv-<statefulset>.yaml` against the `jitml-manual`
 StorageClass and backed by a `hostPath` under
-`./.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/`. `.data` is
-strictly for these manual PV bind mounts; Kind metadata, runtime coordinates,
-kubeconfig, generated Dhall, and JIT artifacts live under `./.build/`.
+`/jitml/.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/` inside the
+Kind worker. The host directory is repo-local
+`./.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/`, mounted into the
+worker at `/jitml/.data`; `.data` is strictly for these manual PV bind mounts.
+Kind metadata, runtime coordinates, kubeconfig, generated Dhall, and JIT
+artifacts live under `./.build/`.
 
 Every PVC is created **only** by a StatefulSet's `volumeClaimTemplates`;
-freestanding PVCs are a chart-lint failure. Each PV's `claimRef.namespace`
-and `claimRef.name` explicitly bind it to one PVC so a teardown / spinup
-yields the exact same binding. Dynamic provisioning would erode
-reproducibility.
+freestanding PVCs are a chart-lint failure. StatefulSet PVs carry
+`claimRef.namespace` and `claimRef.name` to bind each PV to one PVC so a
+teardown / spinup yields the exact same binding. Registered Percona
+`PerconaPGCluster` volumes bind from the generated PVC side through explicit
+`volumeName` fields because the Percona operator appends controller suffixes to
+PVC names. Dynamic provisioning would erode reproducibility.
 
 Naming convention is uniform:
 
@@ -57,14 +62,16 @@ Example layout for the `platform` namespace:
 └── platform/
     ├── minio/{pv_0, pv_1, pv_2, pv_3}                  -- 4 distributed replicas
     ├── pulsar-bookkeeper/{pv_0, pv_1, pv_2}            -- 3 bookies
-    └── pulsar-zookeeper/{pv_0, pv_1, pv_2}             -- 3 ZK nodes
+    ├── pulsar-zookeeper/{pv_0, pv_1, pv_2}             -- 3 ZK nodes
+    ├── harbor-pg/{pv_0, pv_1, pv_2}                    -- 3 Postgres instances
+    └── harbor-pg-repo1/pv_0                            -- pgBackRest repo
 ```
 
 `jitml lint files` rejects any path under `.data/` that does not match the
 `<namespace>/<StatefulSet>/pv_<int>` regex. `jitml lint chart`
 rejects any StorageClass with a provisioner other than
-`kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without an
-explicit `claimRef`.
+`kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either
+an explicit `claimRef` or a registered Percona `volumeName` binding.
 
 ## Helm Chart Layout
 
@@ -79,7 +86,7 @@ dependencies:
 | `minio` | Distributed-mode object store (4 replicas) | Sprint 4.3 |
 | `gateway-helm` | Envoy Gateway controller | Sprint 3.3 |
 | `kube-prometheus-stack` | Prometheus operator + Grafana | Sprint 4.5 |
-| `tensorboard` | jitML-owned chart with MinIO event-storage backing | Sprint 4.6 |
+| `tensorboard` | jitML-owned local chart with MinIO event-storage backing | Sprint 4.6 |
 
 Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes rendered
 from the route registry, EnvoyProxy, manual PVs, `jitml-service` Deployment,
@@ -87,6 +94,20 @@ from the route registry, EnvoyProxy, manual PVs, `jitml-service` Deployment,
 ConfigMaps, generated Grafana dashboard ConfigMaps, and the generated
 Prometheus scrape config. The current typed renderers live under
 `src/JitML/Observability/`.
+
+Checked-in jitML-owned local charts live under `chart/local/`:
+`tensorboard`, `jitml-service`, and `jitml-demo`. The typed live rollout
+installs those paths directly and leaves `chart/charts/` as Helm's generated
+dependency cache for third-party archives only.
+
+Typed direct-install values live under `chart/values/` and are passed only by
+the corresponding `JitML.Cluster.Helm` subprocess. Current files cover the
+local live footprints for MinIO, Pulsar, and kube-prometheus-stack; Harbor's
+direct install receives typed `--set` / `--set-string` flags for clusterIP
+exposure, disabled local TLS, and `externalURL=http://127.0.0.1:<edge-port>`.
+Those inputs keep the generated dependency archives installable when the live
+rollout installs a subchart `.tgz` directly instead of installing the umbrella
+chart.
 
 ## Helm Values Ownership
 
@@ -120,23 +141,46 @@ The target `jitml bootstrap --<substrate>` runs the phased rollout:
 1. **Harbor phase**: Harbor plus Percona Operator / Patroni-managed Postgres
    needed by packaged services comes up first, using only the public pulls
    required to make Harbor available.
-2. **Mirror/build phase**: every third-party image is mirrored into Harbor; the
-   `jitml` image and the demo image are built and pushed to Harbor.
+2. **Image build/load phase**: the `jitml:local` image and the
+   `jitml-demo:local` image are built locally, then loaded explicitly into the
+   selected Kind cluster with `kind load docker-image`.
 3. **Final phase**: MinIO, Pulsar, Envoy Gateway, kube-prometheus-stack,
    TensorBoard, the `jitml-service` workload (all substrates: Linux
-   self-inference plus Apple forward-to-host), and the `jitml-demo` workload —
-   all pulling exclusively from local Harbor.
+   self-inference plus Apple forward-to-host), and the `jitml-demo` workload
+   roll out after the local image tags are present in Kind.
 
-This avoids the chicken-and-egg of "Harbor isn't up yet, but everything wants
-to pull from it" without resorting to image-pull-secret juggling.
+This makes local bootstrap explicit: Harbor is installed and routed as the
+stateful platform registry, but Phase `3` does not require the host Docker
+daemon or Kind node container runtime to resolve an in-cluster Harbor DNS name
+before the cluster itself is stable. The route registry exposes Harbor's portal
+and API under `/harbor`, and exposes Docker registry auth surfaces at `/v2` and
+`/service`. Those public paths route through the chart's `harbor` nginx service
+rather than directly to the internal registry service, so Docker receives the
+Bearer-token challenge from Harbor's public auth flow. Live Harbor push/pull is
+validated through `JitML.Service.HarborSubprocess`, whose settings name the
+registry, API base URL, credentials, repo-local Docker config directory,
+optional Docker host socket, Docker binary, and curl binary explicitly.
 
-The default command path materializes local Kind, chart, Dhall, and publication
-inputs without mutating a live cluster. When `JITML_LIVE_E2E=1` is set,
-`jitml bootstrap` calls `JitML.Bootstrap.liveExecutePhasedRollout`, which runs
-the typed `kind`, `helm`, and Pulsar-topic subprocesses through the
-`Subprocess` boundary. Wiring image mirroring into that live executor,
-publishing the leased edge port from the real cluster, readiness polling, and
-deterministic teardown remain target work.
+`jitml cluster up` materializes local Kind, chart, Dhall, and publication inputs
+without mutating a live cluster. `jitml bootstrap --<substrate>` materializes
+those inputs and then calls `JitML.Bootstrap.liveExecutePhasedRollout` directly;
+there is no process-environment safety gate for local Kind/Helm work. The live
+path runs the typed `kind`, Helm, Docker build / Kind image-load, repo-owned
+manifest apply, platform readiness, and Pulsar-topic subprocesses through the
+`Subprocess` boundary, rewrites the Kind/Gateway/EnvoyProxy inputs from the
+selected edge-port lease, writes `./.build/runtime/cluster-publication.json`
+with that lease and measured Helm release status, and patches the Apple host
+Dhall from the publication. Platform readiness includes rollout checks and an
+in-pod MinIO bucket check that aliases `http://127.0.0.1:9000` through the
+Bitnami `mc` client and lists every bucket from `JitML.Storage.Buckets`.
+External Helm dependencies install from the `.tgz` archives produced by
+`helm dependency build`, using typed values files from `chart/values/` when
+direct subchart installs need values; jitML-owned workloads install from
+`chart/local/`. Live Linux CPU validation on 2026-05-18 completed the phased
+rollout plus readiness checks, served
+`http://127.0.0.1:9091/api` through Envoy, published the expected Pulsar
+topics, wrote ready publication health, and validated `jitml cluster down`
+teardown.
 
 ## `jitml-service` Deployment, Not StatefulSet
 
@@ -166,10 +210,12 @@ available. Recorded as the `edge_port` field of
 
 The shape:
 
-- `GatewayClass/jitml-gateway` declares the Envoy Gateway controller.
+- `GatewayClass/jitml-gateway` declares the Envoy Gateway controller and
+  references `EnvoyProxy/jitml-edge` via `parametersRef`.
 - `Gateway/jitml-edge` listens at `127.0.0.1:<edge-port>`.
 - `EnvoyProxy/jitml-edge` is a NodePort service, `externalTrafficPolicy:
-  Cluster`, port `30090` in-cluster.
+  Cluster`, with the Gateway listener port pinned to NodePort `30090` for the
+  Kind host-port mapping.
 
 Routes are rendered from the typed route registry in `src/JitML/Routes.hs`.
 Hand-written HTTPRoute YAML is hlint-forbidden.
@@ -182,15 +228,17 @@ Hand-written HTTPRoute YAML is hlint-forbidden.
 | `/` | `jitml-demo` | 80 | `-` | no |
 | `/api` | `jitml-demo` | 80 | `-` | no |
 | `/api/ws` | `jitml-demo` | 80 | `-` | yes |
-| `/tensorboard` | `tensorboard` | 6006 | `/` | no |
-| `/grafana` | `grafana` | 3000 | `/` | no |
-| `/prometheus` | `prometheus` | 9090 | `/` | no |
-| `/harbor` | `jitml-harbor-portal` | 80 | `/` | no |
-| `/harbor/api` | `jitml-harbor-core` | 80 | `/api` | no |
-| `/minio/console` | `jitml-minio-console` | 9090 | `/` | no |
-| `/minio/s3` | `jitml-minio` | 9000 | `/` | no |
-| `/pulsar/admin` | `jitml-pulsar-proxy` | 80 | `/admin` | no |
-| `/pulsar/ws` | `jitml-pulsar-proxy` | 80 | `/ws` | yes |
+| `/tensorboard` | `tensorboard` | 80 | `/` | no |
+| `/grafana` | `kube-prometheus-stack-grafana` | 80 | `/` | no |
+| `/prometheus` | `kube-prometheus-stack-prometheus` | 9090 | `/` | no |
+| `/harbor` | `harbor` | 80 | `/` | no |
+| `/harbor/api` | `harbor` | 80 | `/api` | no |
+| `/v2` | `harbor` | 80 | `-` | no |
+| `/service` | `harbor` | 80 | `-` | no |
+| `/minio/console` | `minio` | 9001 | `/` | no |
+| `/minio/s3` | `minio` | 9000 | `/` | no |
+| `/pulsar/admin` | `pulsar-proxy` | 80 | `/admin` | no |
+| `/pulsar/ws` | `pulsar-proxy` | 80 | `/ws` | yes |
 <!-- jitml:cluster.routes:end -->
 
 This table is regenerated from the route registry (Sprint `3.4`) by

@@ -22,4 +22,4 @@ spec:
               replacePrefixMatch: /
       backendRefs:
         - name: tensorboard
-          port: 6006
+          port: 80
