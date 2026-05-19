@@ -43,11 +43,12 @@ kubeconfig, cluster publication, Kind metadata, and JIT-compiled kernels.
 `./.data/` are in `.gitignore` and `.dockerignore`.
 
 The Sprint `2.3` cache support lives in `src/JitML/Cache/`: `Key` owns the
-placeholder cache-key ADTs and SHA-256 derivation, `Layout` owns typed path
+typed cache-key ADTs and SHA-256 derivation, `Layout` owns typed path
 resolution under `./.build/`, `Manifest` owns `manifest.json` round-trip and
 atomic writes, and `Symlink` owns atomic Apple stable-FFI symlink repointing.
-Sprint `7.1` replaces the placeholder `KernelSpec` payload with the numerical
-core's full kernel shape.
+Sprint `7.1` keeps `KernelSpec` as the current cache-key payload wrapper.
+Future model-schema work grows that payload from local text fixtures into the
+numerical core's full kernel shape.
 
 `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache —
 every cached kernel lives there, on every substrate.

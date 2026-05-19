@@ -100,7 +100,8 @@ The current body checks the local `Sobol`, `Random`, `GeneticAlgorithm`, and
 `EvolutionStrategies` samplers; `Fifo`, `SuccessiveHalving`, `Hyperband`, and
 `ASHA` schedulers; and `NoPruner`, `MedianPruner`, and `PercentilePruner`
 pruners. It verifies deterministic local trial values and the current Sobol/GA
-golden fixtures. Larger sampler families, live trial persistence, and
+golden fixtures. Larger sampler families, including the TPE sampler named by
+`experiments/mnist-tune.dhall`, live trial persistence, and
 resume-from-partial-sweep equality against MinIO remain target validation.
 
 ### `jitml-cross-backend` and the Tolerance Band

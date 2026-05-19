@@ -112,7 +112,8 @@ target work.
 - Current golden fixtures exist under `test/golden/cache/`,
   `test/golden/cli/`, and `test/golden/prerequisite/`.
 - Route-table, Grafana daemon-health, Sobol, GA, PPO/CartPole trajectory,
-  and AlphaZero Connect 4 transcript golden fixtures are present under
+  and AlphaZero Connect 4 / Othello / Hex / Gomoku transcript golden fixtures
+  are present under
   `test/golden/`. Richer transcript codecs and AlphaZero MCTS golden
   fixtures grow alongside Sprints `9.5` / `9.6` / `10.x` real bodies. The
   numerical and RL Dhall catalog mirrors are audited by the unit/lint

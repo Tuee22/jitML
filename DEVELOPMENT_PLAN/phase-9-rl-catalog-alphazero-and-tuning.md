@@ -35,12 +35,15 @@ substack lands as `JitML.RL.AlphaZero.{Mcts,SelfPlay,Arena}` with the
 typed `PerfectInformation` typeclass admitting Connect 4 / Othello /
 Hex / Gomoku via per-game `applyMove` rules and per-game two-headed
 network metadata. `experiments/mnist-tune.dhall` renders the canonical
-`Some Tuning::{ … }` worked example. **Unmet today**: real on-hardware
-training to canonical reward thresholds, real network forward / back
-passes through the JIT engine layer, live MinIO trial transcript
-persistence/resume, and live Pulsar handlers — all gated by the
-absent cluster infra. Detailed remaining work lives in each sprint's
-`### Remaining Work` block below.
+`Some Tuning::{ … }` worked example. The current Haskell tuning catalog is
+a four-sampler local subset (`Sobol`, `Random`, `GeneticAlgorithm`,
+`EvolutionStrategies`) and does not yet decode or execute that TPE worked
+example. **Unmet today**: real on-hardware training to canonical reward
+thresholds, real network forward / back passes through the JIT engine layer,
+target sampler coverage and Dhall decoding for the TPE worked example, live
+MinIO trial transcript persistence/resume, and live Pulsar handlers — all gated
+by the absent cluster infra or target tuner work. Detailed remaining work lives
+in each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
@@ -61,7 +64,10 @@ MinIO pointer; `Arena` decides `candidateShouldBePromoted` from the
 `arenaWinRate`. The `PerfectInformation` typeclass admits all four
 canonical games with per-game `applyMove` rules.
 `experiments/mnist-tune.dhall` renders the `Some Tuning::{ … }` worked
-example mirroring [../README.md → Concrete `Some Tuning::{ … }` example](../README.md).
+example mirroring [../README.md → Concrete `Some Tuning::{ … }` example](../README.md);
+it is currently a target-shape fixture, because `JitML.Tune.Catalog`
+does not include a TPE sampler and `jitml tune` prints deterministic Sobol
+samples.
 Live MinIO trial storage, live tuner resume, real network execution,
 and on-hardware reward thresholds remain in the per-sprint
 `### Remaining Work` blocks below.
@@ -377,11 +383,13 @@ summary.
   `jitml-integration`.
 - `jitml tune <tune-dhall>` is Plan/Apply-capable and currently prints four
   deterministic Sobol trial values.
-- `experiments/mnist-tune.dhall` renders the canonical `Some Tuning::{
-  … }` worked example from
+- `experiments/mnist-tune.dhall` is the checked-in target-shape `Some
+  Tuning::{ … }` worked example from
   [../README.md → Concrete `Some Tuning::{ … }` example](../README.md)
   with the TPE sampler / ASHA scheduler / MedianPruner triple and the
-  full search space.
+  full search space. The current Haskell `Sampler` catalog does not
+  include TPE yet, so this file is not decoded or executed by the local
+  tuning summary.
 - `proto/jitml/tune.proto` + `src/JitML/Proto/Tune.hs` declare the
   typed `TuneCommand` / `TuneEvent` surfaces for the substrate-scoped
   Pulsar topics.
@@ -404,6 +412,11 @@ summary.
 - Generate `proto-lens`-driven Haskell bindings for
   `proto/jitml/tune.proto` so the typed envelopes round-trip
   binary-equivalent with other-language clients.
+- Expand the current four-sampler local catalog and Dhall decoder to cover the
+  target sampler family required by the worked example, starting with `TPE`.
+  Closure validation: `experiments/mnist-tune.dhall` decodes to the Haskell
+  tuning ADT and `jitml tune experiments/mnist-tune.dhall` renders a plan whose
+  sampler is `TPE`, not the current hard-coded Sobol summary.
 - Implement the daemon-side tune handler that consumes
   `tune.command.<mode>` and persists trial transcripts to MinIO bucket
   `jitml-trials/<sha256(resolved-dhall || trial-seed)>/` — owned by
@@ -426,8 +439,8 @@ summary.
 - `documents/engineering/training_workloads.md` — current RL algorithm
   metadata catalog, Dhall mirror, PPO/CartPole golden trajectory fixture,
   Connect 4 transcript helper, and tuner catalog; target algorithm modules,
-  AlphaZero/MCTS runtime, adversarial games, and full tuner storage/resume
-  surface.
+  AlphaZero/MCTS runtime, adversarial games, target TPE sampler decode, and
+  full tuner storage/resume surface.
 - `documents/engineering/determinism_contract.md` — current deterministic
   local trajectory/transcript helpers and target AlphaZero
   deterministic-stochasticity narrative.

@@ -93,8 +93,14 @@ The SL/RL surfaces ship today as deterministic catalogs and summaries:
 canonical SL cells, RL algorithm rows, deterministic trajectory generation,
 AlphaZero Connect 4 helpers, and hyperparameter trial sequences. Real
 daemon-backed SL/RL/AlphaZero training loops, real env stepping, real
-checkpoint persistence, and Pulsar/MinIO-backed hyperparameter sweeps are
-owned by Phase `8` and Phase `9`'s Active sprints.
+checkpoint persistence, target sampler coverage, and Pulsar/MinIO-backed
+hyperparameter sweeps are owned by Phase `8` and Phase `9`'s Active sprints.
+The checked-in `experiments/mnist-tune.dhall` file is the target-shape
+`Some Tuning::{ ... }` fixture using a TPE sampler; the current Haskell
+catalog in `src/JitML/Tune/Catalog.hs` is a four-sampler local subset
+(`Sobol`, `Random`, `GeneticAlgorithm`, `EvolutionStrategies`) and current
+`jitml tune` renders deterministic Sobol samples rather than decoding that
+TPE fixture end to end.
 
 The checkpoint surface provides a typed manifest, split-blob object-key
 renderers, pointer-CAS decisions, the binary `.jmw1` encoder, manifest
@@ -644,10 +650,10 @@ each constraint.
 
 | Status | Meaning | Emoji |
 |--------|---------|-------|
-| **Done** | Every Exit-Definition obligation the sprint owns is met in the worktree, validated by the sprint's `### Validation` commands, and the listed docs are aligned. | ✅ |
-| **Active** | Work has started and at least one owned Exit-Definition obligation is unmet; the sprint body lists the gaps in `### Remaining Work`. | 🔄 |
-| **Planned** | All upstream sprint dependencies are Done; the sprint has not yet started. | 📋 |
-| **Blocked** | At least one upstream sprint or external prerequisite required for this sprint's owned obligations is not Done. | ⏸️ |
+| **Done** | Every Exit-Definition obligation the sprint owns is met in the worktree, validated by the sprint's `### Validation` commands, and the listed docs are aligned. A sprint whose entire obligation is documentation, typed scaffolding, schema/ADT, generated-section, or pure-Haskell catalog work is legitimately Done when that surface is in place and tested; a sprint whose obligation includes live runtime behaviour (cluster up, Helm apply, Pulsar subscribe, MinIO put, kernel compile-and-execute, browser interaction, etc.) is Done only after that live behaviour is exercised through the sprint's validation. | ✅ |
+| **Active** | Work has started and at least one owned Exit-Definition obligation is unmet. The sprint body lists those gaps in an explicit `### Remaining Work` block. | 🔄 |
+| **Planned** | All upstream sprint dependencies are Done. The sprint has not yet started. It must list no unmet blockers. | 📋 |
+| **Blocked** | At least one upstream sprint or external prerequisite required for this sprint's owned obligations is not Done. The sprint body lists the blockers in a `**Blocked by**:` line. | ⏸️ |
 
 See [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking)
 for the governing rule.

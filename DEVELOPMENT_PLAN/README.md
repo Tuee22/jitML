@@ -144,7 +144,9 @@ at-least-once redelivery, live training-to-convergence on real hardware,
 Docker-backed Harbor client revalidation against the fresh S3/external-Postgres
 rollout, and live TensorBoard service-client effects) remain
 gated by absent infrastructure per the per-sprint `### Remaining
-Work` blocks.
+Work` blocks. The target `Some Tuning::{ ... }` Dhall decode/execution path
+for the TPE worked example is a separate Sprint `9.7` gap: the checked-in
+Haskell tune catalog remains the current four-sampler local subset.
 
 Against the eighteen-item [Exit Definition](#exit-definition), the
 following items currently pass: 4 (stage-0 scripts + typed prerequisite
@@ -180,7 +182,7 @@ block, where the validation gate lives:
 4. **Real per-substrate JIT execution (Exit 1, 5, 12).** See
    [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md)
    Sprints `7.3` / `7.4` / `7.5` / `7.6` `Remaining Work`.
-5. **Real SL/RL/AlphaZero/tuning loops (Exit 6).** See
+5. **Real SL/RL/AlphaZero/tuning loops and target tuner Dhall decode (Exit 6).** See
    [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md)
    and [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md)
    sprint `Remaining Work` blocks.
@@ -224,10 +226,10 @@ block, where the validation gate lives:
 
 | Status | Meaning | Emoji |
 |--------|---------|-------|
-| **Done** | Every Exit-Definition obligation the sprint owns is met in the worktree and validated | ✅ |
-| **Active** | Work has started and remaining implementation or documentation work is explicitly listed | 🔄 |
-| **Planned** | Ready to start once execution reaches the sprint in sequence | 📋 |
-| **Blocked** | Closure depends on an unmet prerequisite or prior sprint closure | ⏸️ |
+| **Done** | Every Exit-Definition obligation the sprint owns is met in the worktree, validated by the sprint's `### Validation` commands, and the listed docs are aligned. A sprint whose entire obligation is documentation, typed scaffolding, schema/ADT, generated-section, or pure-Haskell catalog work is legitimately Done when that surface is in place and tested; a sprint whose obligation includes live runtime behaviour (cluster up, Helm apply, Pulsar subscribe, MinIO put, kernel compile-and-execute, browser interaction, etc.) is Done only after that live behaviour is exercised through the sprint's validation. | ✅ |
+| **Active** | Work has started and at least one owned Exit-Definition obligation is unmet. The sprint body lists those gaps in an explicit `### Remaining Work` block. | 🔄 |
+| **Planned** | All upstream sprint dependencies are Done. The sprint has not yet started. It must list no unmet blockers. | 📋 |
+| **Blocked** | At least one upstream sprint or external prerequisite required for this sprint's owned obligations is not Done. The sprint body lists the blockers in a `**Blocked by**:` line. | ⏸️ |
 
 ## Definition of Done
 
@@ -304,8 +306,10 @@ obligations are: daemon-acquired Pulsar/Harbor/kubectl clients, Pulsar
 at-least-once redelivery, and event flow (Exit 2, 7); real
 per-substrate kernel compile-and-execute beyond the Linux CPU identity
 fixture in `JitML.Engines.Local` (Exit 1, 5, 12); real SL / RL / AlphaZero
-training loops with golden convergence and reward fixtures (Exit 6); the
-live `jitml-e2e` Pulumi + Helm + Playwright path against an ephemeral Kind
+training loops with golden convergence and reward fixtures, plus the target
+`Some Tuning::{ ... }` Dhall decode/execution path for the TPE worked example
+that the current four-sampler Haskell catalog does not yet implement (Exit 6);
+the live `jitml-e2e` Pulumi + Helm + Playwright path against an ephemeral Kind
 stack (Exit 8, 9); and the empty legacy ledger that closes after items 1–9
 close (Exit 18). Each gap is logged in the owning sprint's `### Remaining
 Work` block; the dependency-ordered sequence is in

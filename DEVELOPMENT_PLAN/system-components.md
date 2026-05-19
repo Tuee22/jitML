@@ -64,13 +64,13 @@ is not in the current support matrix.
 | Cluster lifecycle | `jitml cluster up`, `jitml cluster down`, `jitml cluster status`, `jitml cluster reset` | `up` materializes substrate files and exits `3` on no-op materialization; `status` reads local publication JSON or defaults; `down` deletes the publication-named Kind cluster through a typed idempotent subprocess, preserves `./.build` and `./.data`, and marks preserved publication components `stopped`; `reset` remains the guarded destructive local-state summary | ✅ Done for Phase 3 lifecycle; live `cluster down` deleted `jitml-linux-cpu` and a second down run exited `3` | Sprint 3.5 |
 | Train | `jitml train` | Current command renders a deterministic local canonical-problem summary | 🔄 Active; missing: real Pulsar `training.command.<mode>` publish → daemon `TrainingHandler` → real loop → `training.event.<mode>` round-trip | Sprint 8.2 |
 | Eval | `jitml eval` | Current command accepts a checkpoint selector and prints a deterministic summary | 🔄 Active; missing: real checkpoint load + eval loop | Sprint 8.2 |
-| Tune | `jitml tune` | Current command renders deterministic local trial samples from `JitML.Tune.Catalog` | 🔄 Active; missing: live `tune.command.<mode>` / `tune.event.<mode>` Pulsar round-trip, live trial persistence in MinIO | Sprint 9.5 |
+| Tune | `jitml tune` | Current command renders deterministic local Sobol trial samples from the four-sampler local subset in `JitML.Tune.Catalog`; the checked-in `experiments/mnist-tune.dhall` TPE worked example is target-shape only today | 🔄 Active; missing: target sampler coverage and Dhall decode/execution for the TPE worked example, live `tune.command.<mode>` / `tune.event.<mode>` Pulsar round-trip, live trial persistence in MinIO | Sprint 9.7 |
 | RL lifecycle | `jitml rl train`, `jitml rl eval`, `jitml rl rollout` | Current commands render algorithm-count, checkpoint, and fixed-seed trajectory summaries | 🔄 Active; missing: real env step boundary, real RL loop, real `rl.command.<mode>` / `rl.event.<mode>` round-trip | Sprint 8.5 |
 | Verification | `jitml verify same-run`, `jitml verify cross-backend`, `jitml verify replay` | Registered command summaries | 🔄 Active; missing: real same-substrate byte equality, cross-backend tolerance, and checkpoint replay verification | Sprints 10.4, 12.2, 12.6 |
 | Inspection | `jitml inspect list`, `jitml inspect show`, `jitml inspect replay`, `jitml inspect trial`, `jitml inspect frontier` | Registered command summaries | 🔄 Active; missing: real cached-transcript / checkpoint / trial / hyperparameter-frontier inspection against live MinIO | Sprints 9.7, 10.4 |
 | Benchmarks | `jitml bench train`, `jitml bench inference`, `jitml bench env` | Registered command summaries | 🔄 Active; missing: reproducible benchmark harnesses with measured throughput/latency | Sprint 12.9 |
 | Inference | `jitml inference run` | Current command runs deterministic `inferFromManifest` summary against a local manifest value | 🔄 Active; missing: real MinIO manifest fetch, real weight-blob load, FFI kernel handle execution | Sprint 10.4 |
-| Test runner | `jitml test all` / `jitml test <stanza>` | `--dry-run` renders the aggregate plan; non-dry-run invokes `cabal test all` or `cabal test <stanza>` through typed `Subprocess`, then emits the report-card summary on success | ✅ Done | Sprint 12.9 |
+| Test runner | `jitml test all` / `jitml test <stanza>` | `--dry-run` renders the aggregate plan; non-dry-run invokes `cabal test all` or `cabal test <stanza>` through typed `Subprocess`, then emits the current placeholder-backed report-card summary on success | 🔄 Active; missing: live `jitml-e2e` scheduling and report-card values sourced from real SL/RL/AlphaZero/tuning/cross-substrate measurements | Sprint 12.9 |
 | Lint stack | `jitml lint files\|docs\|proto\|chart\|haskell\|purescript\|all` | In-repo hygiene, config, forbidden-path, generated-doc, chart-shape, forbidden-primitive, static-JIT-artifact, Fourmolu, HLint, and `cabal format` checks are implemented | ✅ Done | Sprint 1.4 |
 | Docs generation | `jitml docs check` / `jitml docs generate` | Paired generated-section check and write per the `GeneratedSectionRule` registry | ✅ Done | Sprint 1.3 |
 | Command introspection | `jitml commands [--tree\|--json]` | Flat list, tree rendering, or JSON command schema from the `CommandSpec` registry | ✅ Done | Sprint 1.2 |
@@ -147,7 +147,7 @@ fail fast with installation instructions, then delegate to the Haskell
 | `jitml-checkpoints` | Training checkpoints; one prefix per experiment hash; content-addressed blobs + manifests + ETag-guarded pointers | Sprint 10.1 |
 | `jitml-datasets` | Pinned source datasets (MNIST, Fashion-MNIST, CIFAR-10 binaries); SHA-256 verified against the experiment Dhall | Sprint 8.1 |
 | `jitml-transcripts` | RL trajectory transcripts | Sprint 8.4 |
-| `jitml-trials` | Hyperparameter trial transcripts; content-addressed by `sha256(resolved-dhall || trial-seed)` | Sprint 9.5 |
+| `jitml-trials` | Hyperparameter trial transcripts; content-addressed by `sha256(resolved-dhall || trial-seed)` | Sprint 9.7 |
 | `jitml-tensorboard` | TensorBoard event files; the TB pod is stateless | Sprint 4.6 |
 | `jitml-artifacts` | Large inference outputs when the demo is in inference mode | Sprint 11.4 |
 
@@ -160,8 +160,8 @@ internal-RPC pair.
 |-------|-----------|----------|---------------|
 | `training.command.<mode>` | control plane → daemon | `StartTraining`, `StopTraining`, `ResumeFromCheckpoint`, `AbortTraining` | Sprint 8.2 |
 | `training.event.<mode>` | daemon → control plane / frontend | `StepDone`, `EpochDone`, `EvalDone`, `CheckpointDone`, `MetricUpdate`, `TrainingFinished`, `TrainingFailed` | Sprint 8.2 |
-| `tune.command.<mode>` | control plane → daemon | `RunTrial`, `StopTrial` | Sprint 9.5 |
-| `tune.event.<mode>` | daemon → control plane / frontend | `TrialStarted`, `TrialMetricUpdate`, `TrialFinished`, `TrialFailed` | Sprint 9.5 |
+| `tune.command.<mode>` | control plane → daemon | `RunTrial`, `StopTrial` | Sprint 9.7 |
+| `tune.event.<mode>` | daemon → control plane / frontend | `TrialStarted`, `TrialMetricUpdate`, `TrialFinished`, `TrialFailed` | Sprint 9.7 |
 | `rl.command.<mode>` | control plane → daemon | `StartRLRun`, `StopRLRun` | Sprint 8.5 |
 | `rl.event.<mode>` | daemon → control plane / frontend | `EpisodeDone`, `EvalDone`, `CheckpointDone`, `MetricUpdate` | Sprint 8.5 |
 | `inference.request.<mode>` | demo frontend → daemon | inference requests (when demo is in inference mode) | Sprint 11.4 |
@@ -237,7 +237,7 @@ internal-RPC pair.
 | AlphaZero-style self-play and persistent MCTS state | `src/JitML/RL/AlphaZero.hs` provides game state/move helpers and deterministic transcript summaries; `src/JitML/RL/AlphaZero/{Mcts,SelfPlay,Arena}.hs` carry the typed persistent search tree (UCB + visit-count), self-play buffer with `bufferTranscriptHash`, and arena win-rate promotion gate | 🔄 Active; missing: real network evaluation through the JIT engine inside the prior function, live MinIO checkpoint round-trip of the self-play buffer | Sprint 9.5 |
 | Perfect-information game, two-headed network, and arena summary surface | `src/JitML/RL/AlphaZero.hs`; canonical game catalog, Connect 4 two-headed network metadata, and arena summary helpers | 🔄 Active; missing: real two-headed network training, real arena evaluation against measured win rates | Sprint 9.5 |
 | Canonical adversarial games (Connect 4, Othello, Hex, Gomoku) | `src/JitML/RL/AlphaZero.hs` `canonicalGames` lists all four; `initialConnect4`, `initialOthello`, `initialHex`, `initialGomoku` plus per-game `applyMove` rules + per-game two-headed network metadata (`connect4Network`, `othelloNetwork`, `hexNetwork`, `gomokuNetwork`); the typeclass `PerfectInformation` admits all four games; per-game transcript fixtures are committed under `test/golden/alphazero/` | 🔄 Active; missing: real position-evaluator network forward pass per game and rule-complete measured arena fixtures | Sprint 9.6 |
-| Hyperparameter tuning (sampler × scheduler × pruner) | `src/JitML/Tune/Catalog.hs` covers Sobol/random/GA/ES, Fifo/SuccessiveHalving/Hyperband/ASHA, and none/median/percentile catalogs | 🔄 Active; missing: real `Some Tuning::{ … }` Dhall flow end to end, real proto bindings, live tuner trial execution | Sprint 9.7 |
+| Hyperparameter tuning (sampler × scheduler × pruner) | `src/JitML/Tune/Catalog.hs` covers the current local subset: Sobol/random/GA/ES, Fifo/SuccessiveHalving/Hyperband/ASHA, and none/median/percentile catalogs; `experiments/mnist-tune.dhall` carries the target TPE / ASHA / MedianPruner worked example | 🔄 Active; missing: target sampler coverage and real `Some Tuning::{ ... }` Dhall flow end to end, real proto bindings, live tuner trial execution | Sprint 9.7 |
 | Trial storage and resume summary surface | `src/JitML/Tune/Catalog.hs` (key/summary helpers) + `src/JitML/Tune/Resume.hs` (`persistTrialTranscript`, `replaySweep` over `HasMinIO`) | 🔄 Active; resume round-trip validated by `jitml-integration` against filesystem-backed `HasMinIO`; missing: live MinIO persistence against a real cluster | Sprint 9.7 |
 
 ## Checkpoint and Inference Components
@@ -433,7 +433,7 @@ The current concrete worktree is summarized in
 | PureScript frontend | `web/package.json`, `web/src/`, `web/test/`, `playwright/` | Minimal PureScript shell, generated contract file, smoke tests, and Playwright scaffold |
 | Pulumi infrastructure | `infra/pulumi/` | Current TypeScript metadata scaffold; target ephemeral-Kind stack used by `jitml-e2e` |
 | Experiments | `experiments/` | Canonical experiment Dhall files (the "configuration is code" surface) |
-| Tests | `test/` | Per-stanza test trees (`test/unit/`, `test/integration/`, `test/sl-canonicals/`, `test/rl-canonicals/`, `test/hyperparameter/`, `test/cross-backend/`, `test/daemon-lifecycle/`, `test/e2e/`, `test/haskell-style/`, `test/purescript-style/`) and current golden fixtures under `test/golden/{cache,cli,prerequisite}/` |
+| Tests | `test/` | Per-stanza test trees (`test/unit/`, `test/integration/`, `test/sl-canonicals/`, `test/rl-canonicals/`, `test/hyperparameter/`, `test/cross-backend/`, `test/daemon-lifecycle/`, `test/e2e/`, `test/haskell-style/`, `test/purescript-style/`) and current golden fixtures under `test/golden/{alphazero,cache,cli,cluster,observability,prerequisite,rl,sl,tune}/` |
 | Development plan | `DEVELOPMENT_PLAN/` | This plan suite |
 | Doctrine | `HASKELL_CLI_TOOL.md` | Authoritative CLI doctrine at repo root |
 | Project README | `README.md` | Project intent, command surface, doctrine scope, build instructions |

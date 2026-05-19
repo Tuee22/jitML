@@ -233,6 +233,10 @@ trees remain target work.
 catalog lives in `src/JitML/Tune/Catalog.hs` and follows the sampler x
 scheduler x pruner shape from [../README.md → Hyperparameter tuning,
 first-class](../../README.md#hyperparameter-tuning-first-class).
+The checked-in `experiments/mnist-tune.dhall` file is the target-shape
+`Some Tuning::{ ... }` worked example with a TPE sampler. The current Haskell
+catalog below is a local subset and does not yet decode or execute that TPE
+fixture end to end.
 
 `TuneSweepLifecycle` GADT (`Sampled → Scheduled → Running → Pruned →
 Reported → Finished`) is the typed lifecycle.
