@@ -3,8 +3,9 @@ kind: ScrapeConfig
 metadata:
   name: jitml
   namespace: platform
+  labels:
+    release: kube-prometheus-stack
 spec:
   staticConfigs:
     - targets:
         - jitml-service.platform.svc.cluster.local:8080
-        - jitml-demo.platform.svc.cluster.local:80

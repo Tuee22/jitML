@@ -43,9 +43,9 @@ import JitML.CLI.Tree (renderCommandList, renderCommandTree)
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Cluster.Helm qualified as Helm
 import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
 import JitML.Cluster.Publication qualified as Publication
-import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.RuntimeSource
   ( materializeRuntimeSource
   , renderRuntimeSource

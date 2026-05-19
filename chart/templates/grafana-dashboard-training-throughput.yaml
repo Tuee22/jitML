@@ -6,7 +6,7 @@ metadata:
   labels:
     grafana_dashboard: "1"
 data:
-  dashboard.json: |
+  training-throughput.json: |
     {
       "title": "training-throughput",
       "panels": [{"type":"timeseries","targets":[{"expr":"jitml_training_examples_per_second"}]}]

@@ -6,7 +6,7 @@ metadata:
   labels:
     grafana_dashboard: "1"
 data:
-  dashboard.json: |
+  rl-episode-reward.json: |
     {
       "title": "rl-episode-reward",
       "panels": [{"type":"timeseries","targets":[{"expr":"jitml_rl_episode_reward"}]}]

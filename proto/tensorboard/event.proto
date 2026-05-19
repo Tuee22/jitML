@@ -5,6 +5,17 @@ package jitml.tensorboard;
 message Event {
   double wall_time = 1;
   int64 step = 2;
-  string tag = 3;
-  double value = 4;
+  oneof what {
+    string file_version = 3;
+    Summary summary = 5;
+  }
+}
+
+message Summary {
+  repeated Value value = 1;
+
+  message Value {
+    string tag = 1;
+    float simple_value = 2;
+  }
 }

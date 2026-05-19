@@ -75,6 +75,7 @@ library
         JitML.Plan.Plan
         JitML.Plan.Render
         JitML.Proto.Rl
+        JitML.Proto.TensorBoard
         JitML.Proto.Training
         JitML.Proto.Tune
         JitML.Prerequisite.Nodes.Cluster
@@ -128,6 +129,8 @@ library
         JitML.Service.Lifecycle
         JitML.Service.LiveConfig
         JitML.Service.Logger
+        JitML.Service.MinIOSubprocess
+        JitML.Service.PulsarWebSocketSubprocess
         JitML.Service.Retry
         JitML.Service.Runtime
         JitML.Service.Signal

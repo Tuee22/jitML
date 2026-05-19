@@ -41,7 +41,10 @@ the symmetric `kind delete cluster` rollback on destroy.
 `JitML.Test.LivePlan.livePhasedClusterPlan` enumerates the typed
 phased Helm rollout per substrate so the e2e body can verify the
 ordering before invoking the live path. **Unmet today**: Sprint
-`12.2` owes real-binary subprocess integration; Sprints `12.3`–`12.6`
+`12.2` still owes live checkpoint/Pulsar/cluster capability effects and
+real per-substrate determinism; its real-binary spawn matrix, live routed
+MinIO conditional-write validation, and Dhall
+numerics decode coverage are in place. Sprints `12.3`–`12.6`
 owe live SL convergence, live RL trajectory, live hyperparameter
 reproducibility, and live cross-substrate parity against committed
 fixtures; Sprint `12.8` owes the explicit live Pulumi + Helm + Playwright
@@ -131,9 +134,9 @@ target work.
 ### Objective
 
 Keep `jitml-integration` as the integration workload for the typed
-subprocess boundary and renderer surfaces; grow real-binary subprocess
-integration and same-substrate training determinism per `### Remaining
-Work` below.
+subprocess boundary, renderer surfaces, real-binary spawn matrix, and
+filesystem-backed capability coverage; grow live service effects and
+same-substrate training determinism per `### Remaining Work` below.
 
 ### Deliverables
 
@@ -146,14 +149,17 @@ Work` below.
 - It compares the rendered route table against
   `test/golden/cluster/route-table.md`.
 - Real `jitml` binary spawning is now exercised by the
-  `spawned ./.build/jitml binary --help against a real workdir` test —
+  `spawned ./.build/jitml binary matrix against a real workdir` test —
   it locates the dist-newstyle binary, spawns it through the typed
   `Subprocess` boundary in a temporary workdir, and asserts the
-  `Usage:` line appears in stdout. CpuFeatures CPUID detection, the
-  filesystem-backed `HasMinIO` round-trip, and the live
-  `KubectlSubprocess` against a Kind cluster all run here as well.
-- Real checkpoint round-trip against live MinIO, resume semantics, and
-  training transcript determinism are not present yet.
+  expected dry-run / help / no-op behaviours for `--help`, `bootstrap`,
+  `cluster up`, `internal gc`, `service --help`, and `train --dry-run`.
+- CpuFeatures CPUID detection, filesystem-backed `HasMinIO` checkpoint /
+  inference / resume round-trips, Dhall numerics decode coverage, and
+  `KubectlSubprocess` command-shape coverage against the repo-local
+  kubeconfig all run here.
+- Real checkpoint round-trip against live HTTP MinIO and training transcript
+  determinism are not present yet.
 
 ### Validation
 
@@ -166,24 +172,9 @@ Work` below.
 
 ### Remaining Work
 
-- The spawn matrix now covers `./.build/jitml --help`,
-  `./.build/jitml bootstrap --linux-cpu --dry-run`,
-  `./.build/jitml cluster up --substrate linux-cpu --dry-run`,
-  `./.build/jitml internal gc <hash>` (asserting `ExitFailure 3` on
-  no-op), `./.build/jitml service --help` (asserting the
-  `Run the jitML daemon` line), and
-  `./.build/jitml train --dry-run experiments/mnist.dhall`
-  (asserting the `decode-experiment` plan step). Each invocation
-  runs through the typed Subprocess in a temporary workdir.
-- Add real checkpoint round-trip coverage against the live `HasMinIO`
-  capability class from Sprint `5.4` (the filesystem-backed instance
-  is already covered).
-- Dhall-to-typed-record decode coverage now exists: the
-  `Dhall numerics schema decodes against the full Haskell catalog`
-  test in `jitml-integration` reads `dhall/numerics/Schema.dhall`
-  through `Dhall.inputFile` via
-  `JitML.Numerics.Schema.loadNumericsCatalog` and asserts
-  `validateNumericsCatalog` returns `Right ()`.
+- Add real checkpoint round-trip coverage against
+  `JitML.Service.MinIOSubprocess`, the live `HasMinIO` capability class from
+  Sprint `4.3` / `5.4`.
 - Add the per-substrate determinism assertion against a real generated
   kernel.
 
@@ -207,6 +198,8 @@ fixtures remain future runtime work.
   cells from `src/JitML/SL/Canonicals.hs`.
 - It asserts convergence curves are deterministic and contain five points.
 - It asserts each final synthetic loss is lower than the initial loss.
+- It compares every deterministic curve against the committed fixture under
+  `test/golden/sl/<problem-key>/curve.txt`.
 - It does not run live training or consume `sl_epochs` / `sl_batch` yet.
 
 ### Validation
@@ -224,14 +217,9 @@ fixtures remain future runtime work.
   fetched from MinIO bucket `jitml-datasets`.
 - Consume the `sl_epochs` / `sl_batch` report-card knobs from
   `cabal.project`.
-- Per-problem convergence goldens are committed under
-  `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
-  problems (`mnist-shallow-mlp` through `california-housing-mlp`).
-  Each file contains the deterministic `convergenceCurve` output
-  (5 (step, loss) pairs) for that problem, generated through the
-  `JitML.SL.Catalog` cohort surface. Validated by
-  `jitml-sl-canonicals` against the live `convergenceCurve` for each
-  cohort.
+- Replace or supplement the current deterministic synthetic fixtures with
+  live measured convergence fixtures once daemon-backed training runs on
+  real datasets.
 
 ## Sprint 12.4: `jitml-rl-canonicals` Stanza 🔄
 
@@ -253,8 +241,8 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 - It asserts `deterministicTrajectory` is deterministic for a fixed algorithm
   and seed and matches the current PPO/CartPole golden fixture.
 - It asserts `selfPlayTranscript` emits legal Connect 4 columns.
-- It compares the local Connect 4 transcript shape against
-  `test/golden/alphazero/connect4-transcript.txt`.
+- It compares the local Connect 4, Othello, Hex, and Gomoku transcript
+  shapes against `test/golden/alphazero/<game>-transcript.txt`.
 - It does not run RL environments, train policies, or consume
   `rl_steps`, `rl_eval_episodes`, `az_games`, or `az_sims` yet.
 
@@ -274,8 +262,8 @@ deterministic trajectory helper, and Connect 4 transcript checks.
   with real env simulators from Sprint `8.3`.
 - Consume the `rl_steps` / `rl_eval_episodes` / `az_games` / `az_sims`
   report-card knobs from `cabal.project`.
-- Commit per-cohort goldens (`test/golden/rl/<algo>/<env>/`) and per-game
-  AlphaZero arena fixtures.
+- Commit per-cohort reward / trajectory goldens
+  (`test/golden/rl/<algo>/<env>/`) and measured AlphaZero arena fixtures.
 - Add per-seed final-reward distribution assertion (RL target matrix
   form 3).
 
@@ -347,7 +335,8 @@ cross-substrate tolerance testing remains the overall handoff gate.
 - It verifies `inferFromManifest` returns the same deterministic summary for
   each substrate in the local substrate list.
 - It compiles the generated Linux CPU identity kernel, loads `jitml_kernel`
-  with `dlopen`, and asserts deterministic fixture output.
+  with `dlopen`, and asserts three successive FFI invocations produce
+  bit-identical fixture output.
 - It does not train SL canon cohorts or read `test/golden/cross-backend/`
   tolerance fixtures yet.
 

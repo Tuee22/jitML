@@ -24,7 +24,6 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, evalStateT, get)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
-import Data.Text qualified as Text
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Service.BootConfig (HttpListener (..))
@@ -154,6 +153,7 @@ main =
                   4
                   ( \domain _eventId payload ->
                       liftIO (modifyIORef' dispatchRef ((domain, payload) :))
+                        >> pure (Right ())
                   )
               )
               (SyntheticBrokerState pullRef ackRef)

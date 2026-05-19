@@ -33,10 +33,10 @@ cluster validation remains phase-gated:
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, TensorBoard sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers the typed subprocess boundary, bootstrap plan, Kind config renderer, route renderer, and route-table golden fixture | Integration | Sprint 12.2 |
-| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves | Integration (project-specific) | Sprint 12.3 |
-| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, PPO/CartPole golden trajectory, and AlphaZero self-play transcript fixture | Integration (project-specific) | Sprint 12.4 |
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
+| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table golden fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, routed MinIO subprocess command rendering, Dhall numerics decode, and typed service command shapes | Integration | Sprint 12.2 |
+| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves and the committed per-problem fixtures under `test/golden/sl/` | Integration (project-specific) | Sprint 12.3 |
+| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, PPO/CartPole golden trajectory, and AlphaZero transcript fixtures for Connect 4, Othello, Hex, and Gomoku | Integration (project-specific) | Sprint 12.4 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes, deterministic trial generation, and Sobol/GA golden fixtures | Integration (project-specific) | Sprint 12.5 |
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, and generated Linux CPU identity-kernel compile/load/run | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
@@ -80,18 +80,19 @@ through the same boundary.
 The current body exercises the eleven local canonical cells from
 `src/JitML/SL/Canonicals.hs`, verifies each synthetic convergence curve is
 deterministic, and asserts the final synthetic loss improves over the initial
-loss. Live training transcript byte equality and committed convergence fixtures
-remain target runtime validation.
+loss. It also checks every current deterministic curve against the committed
+fixture under `test/golden/sl/<problem-key>/curve.txt`. Live measured
+training transcript byte equality remains target runtime validation.
 
 ### `jitml-rl-canonicals` — RL canon coverage
 
 The current body checks representative entries in `algorithmCatalog`, verifies
 `deterministicTrajectory` is stable for a fixed algorithm and seed, compares the
 PPO/CartPole trajectory to `test/golden/rl/ppo/cartpole/trajectory.txt`, and
-checks the local Connect 4 transcript helper emits legal columns and matches
-`test/golden/alphazero/connect4-transcript.txt`. Environment rollouts, policy
-training, reward-distribution fixtures, and live AlphaZero self-play remain
-target validation.
+checks the local Connect 4, Othello, Hex, and Gomoku transcript helpers against
+`test/golden/alphazero/<game>-transcript.txt`. Environment rollouts, policy
+training, reward-distribution fixtures, and live AlphaZero arena measurements
+remain target validation.
 
 ### `jitml-hyperparameter` — sampler / scheduler / pruner reproducibility
 
@@ -107,8 +108,8 @@ resume-from-partial-sweep equality against MinIO remain target validation.
 The current body checks that every local substrate has deterministic engine
 flags and that the local `inferFromManifest` helper returns the same summary
 for every substrate. It also compiles the generated Linux CPU identity kernel,
-loads `jitml_kernel` with `dlopen`, and asserts fixture output. Live
-cross-substrate graph-kernel launches, same-substrate bit equality, and
+loads `jitml_kernel` with `dlopen`, and asserts three successive FFI runs return
+bit-identical fixture output. Live cross-substrate graph-kernel launches and
 cross-substrate tolerance fixtures under `test/golden/cross-backend/` remain the
 final handoff validation gate.
 

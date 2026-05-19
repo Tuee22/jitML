@@ -13,7 +13,31 @@ jitml:
 harbor:
   expose:
     type: clusterIP
+    tls:
+      enabled: false
+  externalURL: http://127.0.0.1:9090
+  database:
+    type: external
+    external:
+      host: harbor-pg-pgbouncer.platform.svc
+      port: "5432"
+      username: harbor
+      coreDatabase: harbor
+      existingSecret: harbor-pg-secrets
+      sslmode: require
   persistence:
+    imageChartStorage:
+      type: s3
+      disableredirect: true
+      s3:
+        region: us-east-1
+        bucket: harbor-registry
+        accesskey: minio
+        secretkey: minioadmin
+        regionendpoint: http://minio.platform.svc.cluster.local:9000
+        secure: false
+        v4auth: true
+        chunksize: "134217728"
     persistentVolumeClaim:
       registry:
         storageClass: jitml-manual
@@ -49,6 +73,8 @@ pulsar:
     replicaCount: 3
   broker:
     replicaCount: 3
+    configData:
+      webSocketServiceEnabled: "true"
   proxy:
     replicaCount: 3
 

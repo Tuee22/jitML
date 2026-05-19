@@ -1,3 +1,19 @@
 image:
-  repository: tensorflow/tensorflow
-  tag: 2.16.1
+  repository: python
+  tag: 3.11-slim
+
+tensorboard:
+  version: 2.16.2
+  setuptoolsVersion: 69.5.1
+  numpyConstraint: "numpy<2"
+
+minio:
+  endpoint: http://minio.platform.svc.cluster.local:9000
+  accessKey: minio
+  secretKey: minioadmin
+  bucket: jitml-tensorboard
+
+minioClient:
+  image:
+    repository: bitnamilegacy/minio-client
+    tag: 2024.10.29-debian-12-r1

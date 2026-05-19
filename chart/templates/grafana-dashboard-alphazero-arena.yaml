@@ -6,7 +6,7 @@ metadata:
   labels:
     grafana_dashboard: "1"
 data:
-  dashboard.json: |
+  alphazero-arena.json: |
     {
       "title": "alphazero-arena",
       "panels": [{"type":"timeseries","targets":[{"expr":"jitml_alphazero_arena_win_rate"}]}]

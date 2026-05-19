@@ -38,11 +38,13 @@ Current local helpers cover `deriveExperimentHash`, `blobKey`, `manifestKey`,
 `JitML.Checkpoint.Store` provides the local filesystem-backed interpreter for
 write-once object writes, manifest writes/reads, latest-pointer CAS, retention
 planning, GC execution through `HasMinIO`, and inference from the latest
-checkpoint. Live HTTP MinIO `If-None-Match` / `If-Match` effects remain in the
-runtime writer.
+checkpoint. `JitML.Service.MinIOSubprocess` provides the live HTTP MinIO
+`HasMinIO` interpreter; 2026-05-19 live Linux CPU validation confirms
+`If-None-Match: *` duplicate writes and stale `If-Match` pointer CAS surface as
+`SEConflict` through the routed `/minio/s3` edge.
 
-The live rollout proceeds storage-outward: implement MinIO conditional
-checkpoint writes/reads first, then inference from checkpoint, then training
+The live rollout proceeds storage-outward: wire checkpoint writes/reads through
+the live MinIO capability, then inference from checkpoint, then training
 persistence, then tuning/resume. Later workload layers should not invent
 parallel persistence paths around the checkpoint store.
 
@@ -184,8 +186,8 @@ hash, so flipping a metric's direction defines a *different experiment*.
 The current worktree has `AdvanceLatest`, `AdvanceBestMaximised`, and
 `AdvanceBestMinimised` constructors, pure `applyAdvancePredicate`, a pure
 `PointerWrite` / `applyPointerWrite` decision surface, and a local
-filesystem-backed checkpoint store. It does not perform live HTTP MinIO
-conditional writes yet.
+filesystem-backed checkpoint store. The live HTTP MinIO capability path for
+the same conditional-write protocol is `JitML.Service.MinIOSubprocess`.
 
 ## Sketch
 
@@ -227,9 +229,9 @@ The current store exposes `RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
 `applyRetentionPolicy`, `buildGcPlan`, and `executeGcPlan` over the typed
 `HasMinIO` boundary, with filesystem-backed coverage in tests. The current
 `jitml internal gc <experiment-hash>` prints `gc: <experiment-hash> kept=<n>
-reaped=<n>` and exits `3` when the local plan is a no-op. Live HTTP MinIO
-traversal/deletion and live `gc_reaped` Pulsar publication remain target
-runtime work.
+reaped=<n>` and exits `3` when the local plan is a no-op. Live GC traversal
+and deletion through `JitML.Service.MinIOSubprocess`, plus live `gc_reaped`
+Pulsar publication, remain target runtime work.
 
 ## Inference-Only Read Path
 
@@ -249,9 +251,10 @@ pointer, fetches the addressed manifest, and applies the same deterministic
 inference helper, and `inferWeightsOnlyFromLatestCheckpoint`, which clears
 optimizer/RNG parts before inference. `loadInferenceCheckpoint` already reads
 the latest pointer and manifest through `HasMinIO` and is covered by the
-filesystem-backed instance; live HTTP MinIO and real `KernelHandle` loading
-remain target work. The inference-only read path is the supported entrypoint
-for `jitml-demo` and the PureScript panels.
+filesystem-backed instance; validating that path through
+`JitML.Service.MinIOSubprocess` and real `KernelHandle` loading remain target
+work. The inference-only read path is the supported entrypoint for `jitml-demo`
+and the PureScript panels.
 
 ## TensorBoard Sidecar
 
@@ -278,10 +281,12 @@ opens the inference panel pre-loaded with that manifest SHA.
 The current local sidecar surface includes
 `JitML.Observability.TensorBoard.checkpointSidecarKey`,
 `TbCheckpointMarker`, `encodeTbCheckpointMarker`, and
-`JitML.Observability.TbSidecar.{writeCheckpointSidecar,dispatchCheckpointDone}`
-over `HasMinIO`, with filesystem-backed integration coverage. Live
-`CheckpointDone` dispatch from the daemon runtime and live MinIO writes remain
-target work.
+`JitML.Observability.TbSidecar.{writeCheckpointSidecar,dispatchCheckpointDone,dispatchCheckpointPayload}`
+over `HasMinIO`, with filesystem-backed integration coverage.
+`JitML.Service.Runtime.daemonTensorBoardDispatcher` wires rendered
+`CheckpointDone` payloads into that sidecar writer before ack. Live Linux CPU
+validation on 2026-05-19 also writes a marker through
+`JitML.Service.MinIOSubprocess` and confirms MinIO stores the CBOR object.
 
 ## Bit-Determinism
 

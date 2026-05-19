@@ -786,6 +786,47 @@ main =
       , testCase "TensorBoard checkpoint sidecar keys are stable" $
           TensorBoard.checkpointSidecarKey "exp-a" 12 "sha-m"
             @?= "jitml-tensorboard/exp-a/checkpoints/12-sha-m.cbor"
+      , testCase "TensorBoard shard keys include writer id and shard sequence" $
+          TensorBoard.shardKey "exp-a" "writer-1" 3
+            @?= "jitml-tensorboard/exp-a/shards/writer-1-3.tfevents"
+      , testCase "TensorBoard Event protobuf encoder matches the vendored schema" $ do
+          let encoded =
+                TensorBoard.encodeTensorBoardEventProto
+                  TensorBoard.TensorBoardEvent
+                    { TensorBoard.tbWallTime = 0
+                    , TensorBoard.tbStep = 7
+                    , TensorBoard.tbTag = "loss"
+                    , TensorBoard.tbValue = 1.5
+                    }
+          encoded
+            @?= StrictByteString.pack
+              [ 0x09
+              , 0x00
+              , 0x00
+              , 0x00
+              , 0x00
+              , 0x00
+              , 0x00
+              , 0x00
+              , 0x00
+              , 0x10
+              , 0x07
+              , 0x2a
+              , 0x0d
+              , 0x0a
+              , 0x0b
+              , 0x0a
+              , 0x04
+              , 0x6c
+              , 0x6f
+              , 0x73
+              , 0x73
+              , 0x15
+              , 0x00
+              , 0x00
+              , 0xc0
+              , 0x3f
+              ]
       , testCase "TensorBoard CRC32C-Castagnoli matches canonical vectors" $ do
           -- Canonical CRC32C test vectors from RFC 3720 Appendix B.4.
           TensorBoard.crc32cCastagnoli "" @?= 0x00000000

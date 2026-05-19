@@ -56,10 +56,13 @@ under `JitML.Proto.{Training,Rl,Tune}`, the typed daemon capability
 surface with full `HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl`
 methods + per-domain `HandlerRouter` + filesystem-backed `HasMinIO`
 instance (`JitML.Service.FilesystemMinIO`) + subprocess-backed
-`HasHarbor` / `HasKubectl` instances
-(`JitML.Service.HarborSubprocess`, `JitML.Service.KubectlSubprocess`) with
-explicit Harbor settings and
-stdin-piped YAML `kubectlApply` validated against a live Kind cluster,
+`HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl` instances
+(`JitML.Service.MinIOSubprocess`, `JitML.Service.HarborSubprocess`,
+`JitML.Service.PulsarWebSocketSubprocess`,
+`JitML.Service.KubectlSubprocess`) with explicit Harbor settings, live
+routed MinIO conditional-write validation, routed Pulsar WebSocket
+publish/consume validation, and stdin-piped YAML `kubectlApply` validated
+against a live Kind cluster,
 the typed Consumer IO loop
 (`JitML.Service.Consumer.{consumerStep,runConsumerLoop,ConsumerOutcome}`)
 exercising HasPulsar subscribe/consume/ack + per-domain dedup against
@@ -69,14 +72,27 @@ rollout (`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus
 `JitML.Bootstrap.liveExecutePhasedRollout` from
 `jitml bootstrap --<substrate>`,
 the service-Postgres registry lint wired into `JitML.Lint.Chart` plus the
-live-validated `harbor-pg` Percona cluster readiness path,
+live-validated `harbor-pg` Percona cluster readiness path and the checked-in
+Harbor direct values file that points at `harbor-pg-pgbouncer.platform.svc`
+plus the MinIO `harbor-registry` S3 backend after pre-Harbor readiness waits,
+with 2026-05-19 live validation proving Harbor starts against the external
+database and writes registry objects into that MinIO S3 backend, plus
+2026-05-19 live validation proving routed `HasMinIO` `If-None-Match` /
+`If-Match` conflicts map to `SEConflict` through `/minio/s3`, plus
+2026-05-19 live validation proving `/pulsar/ws` targets the broker-embedded
+WebSocket service and `JitML.Service.PulsarWebSocketSubprocess` publishes and
+consumes through the edge,
 the optimizer/RNG/metric/parent-lineage CheckpointManifest shape
 with typed `AdvancePredicate` and `RetentionPolicy` +
 `JitML.App.runInternalGc` reconciler exiting `3` on no-op +
 `JitML.App.runInspectReplay` for `jitml inspect replay
 <manifest-sha>`, the TFRecord wire format with Castagnoli CRC32C
 (`JitML.Observability.TensorBoard.{encodeTfRecord,crc32cCastagnoli,maskedCrc32c}`)
-validated against canonical CRC vectors, the AVX2 / AVX-512 CPU
+validated against canonical CRC vectors, the TensorBoard scalar-event codec
+(`JitML.Proto.TensorBoard.encodeTensorBoardEventProto`), the write-once shard
+writer (`JitML.Observability.TensorBoard.writeTensorBoardEvent`), and live
+routed TensorBoard scalar readback from a Haskell-written shard, the AVX2 /
+AVX-512 CPU
 detection (`JitML.Engines.CpuFeatures`) probing the host through the
 typed `Subprocess` boundary, the MCTS transposition table
 (`JitML.RL.AlphaZero.Mcts.{TranspositionTable,runSearchWithTable}`)
@@ -90,8 +106,8 @@ validated by `jitml-cross-backend`, the Dhall numerics schema decode
 that round-trips the full Haskell catalog
 (`JitML.Numerics.Schema.loadNumericsCatalog`), the generated
 TensorBoard Service renderer
-(`JitML.Observability.TensorBoard.renderTensorBoardService`, not yet
-materialized as `chart/templates/service-tensorboard.yaml`), the six
+(`JitML.Observability.TensorBoard.renderTensorBoardService`) plus the
+checked-in `chart/local/tensorboard/templates/service.yaml`, the six
 PureScript panel payload modules under `web/src/Panels/`, the seven-test
 Playwright matrix represented in `jitml-e2e` through the typed
 `Subprocess` boundary against inline DOM stubs, the `spago test` and
@@ -109,8 +125,9 @@ survive` assertion in `jitml-e2e`, the typed Pulumi ephemeral-Kind
 orchestrator under `infra/pulumi/index.ts`, the typed Tune resume
 surface (`JitML.Tune.Resume.{persistTrialTranscript,replaySweep}`)
 round-tripping through filesystem-backed `HasMinIO`, the TbSidecar
-writer (`JitML.Observability.TbSidecar.writeCheckpointSidecar`) plus the
-`renderTensorBoardService` renderer, the typed Docker
+writer and dispatcher
+(`JitML.Observability.TbSidecar.{writeCheckpointSidecar,dispatchCheckpointPayload}`)
+plus the `renderTensorBoardService` renderer, the typed Docker
 image-publication plans (`JitML.Cluster.DockerImage.{dockerBuildAndKindLoadPlan,kindLoadDockerImageSubprocess,dockerMirrorPlan,docker{Build,Tag,Push,Login}Subprocess}`)
 wired into `JitML.Bootstrap.livePhasedRolloutSubprocesses`, the
 edge-port lease (`JitML.Cluster.EdgePort.leaseEdgePort`) wired into the
@@ -122,9 +139,10 @@ serving the compiled Halogen `web/dist/Main/index.js` when
 present, and the per-problem SL convergence goldens under
 `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
 problems are all checked in. The remaining
-live runtime behaviours (NVIDIA GPU, Tart VM, live Pulsar HA, live
-training-to-convergence on real hardware, full Helm rollout of
-Harbor + Pulsar HA + Postgres + MinIO + Prometheus together) remain
+live runtime behaviours (NVIDIA GPU, Tart VM, live daemon Pulsar
+at-least-once redelivery, live training-to-convergence on real hardware,
+Docker-backed Harbor client revalidation against the fresh S3/external-Postgres
+rollout, and live TensorBoard service-client effects) remain
 gated by absent infrastructure per the per-sprint `### Remaining
 Work` blocks.
 
@@ -154,8 +172,8 @@ block, where the validation gate lives:
    [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
 2. **Live stateful platform services (Exit 3 cont.).** See
    [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md)
-   Sprints `4.1`–`4.7` `Remaining Work` blocks for Harbor, Postgres, MinIO,
-   Pulsar, Prometheus, TensorBoard, and NVIDIA RuntimeClass live readiness.
+   Sprints `4.1` and `4.7` `Remaining Work` blocks for Harbor and NVIDIA
+   RuntimeClass live readiness.
 3. **Real daemon runtime (Exit 2).** See
    [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md)
    Sprints `5.4` / `5.5` / `5.6` `Remaining Work`.
@@ -282,8 +300,8 @@ service daemon), `7` (JIT codegen and per-substrate execution), `8`
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
 runtime behaviour that the worktree does not exercise. The unmet runtime
-obligations are: live Pulsar / MinIO / Harbor / kubectl clients and event flow
-(Exit 2, 7); real
+obligations are: daemon-acquired Pulsar/Harbor/kubectl clients, Pulsar
+at-least-once redelivery, and event flow (Exit 2, 7); real
 per-substrate kernel compile-and-execute beyond the Linux CPU identity
 fixture in `JitML.Engines.Local` (Exit 1, 5, 12); real SL / RL / AlphaZero
 training loops with golden convergence and reward fixtures (Exit 6); the
@@ -303,9 +321,11 @@ MinIO, Percona Postgres, Envoy Gateway, and kube-prometheus-stack; typed
 chart/Kind renderers (including the typed `kindCreateSubprocess` /
 `helmInstallSubprocess` / `helmPhasedRolloutPlan` / typed
 service-Postgres registry plus the live Docker build / Kind image-load phase in
-`JitML.Bootstrap.livePhasedRolloutSubprocesses` and the in-pod MinIO bucket
-readiness check in `JitML.Cluster.Readiness`); `src/JitML/Routes.hs` as the HTTPRoute
-registry, including Harbor `/v2` and `/service` registry/token routes; the `jitml service` daemon's BootConfig / LiveConfig / endpoints
+`JitML.Bootstrap.livePhasedRolloutSubprocesses` and the retry-hardened in-pod
+MinIO bucket readiness check in `JitML.Cluster.Readiness`);
+`src/JitML/Routes.hs` as the HTTPRoute registry, including Harbor `/v2` and
+`/service` registry/token routes plus `/pulsar/ws` to `pulsar-broker:8080`;
+the `jitml service` daemon's BootConfig / LiveConfig / endpoints
 / structured log / retry / at-least-once helper / in-binary HTTP listener
 / POSIX signal wiring (with `HandlerRouter` + per-domain `DedupCache`);
 the full four-class capability surface

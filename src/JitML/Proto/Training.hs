@@ -8,6 +8,7 @@ module JitML.Proto.Training
   , TrainingCommand (..)
   , TrainingEvent (..)
   , TrainingFailed (..)
+  , parseTrainingCheckpointDone
   , renderTrainingCommand
   , renderTrainingEvent
   , trainingCommandTopic
@@ -15,9 +16,11 @@ module JitML.Proto.Training
   )
 where
 
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
+import Text.Read (readMaybe)
 
 import JitML.Substrate (Substrate, renderSubstrate)
 
@@ -51,6 +54,10 @@ data CheckpointDone = CheckpointDone
   , cdManifestSha :: Text
   , cdStep :: Word64
   , cdPointerKey :: Text
+  , cdEpoch :: Word32
+  , cdTrialSha :: Maybe Text
+  , cdRunUuid :: Text
+  , cdMetricsAtStep :: [(Text, Double)]
   }
   deriving stock (Eq, Show)
 
@@ -114,12 +121,17 @@ renderTrainingEvent envelope =
         ]
     TrainingCheckpoint c ->
       Text.unlines
-        [ "kind: CheckpointDone"
-        , "experiment-hash: " <> cdExperimentHash c
-        , "manifest-sha: " <> cdManifestSha c
-        , "step: " <> Text.pack (show (cdStep c))
-        , "pointer-key: " <> cdPointerKey c
-        ]
+        ( [ "kind: CheckpointDone"
+          , "experiment-hash: " <> cdExperimentHash c
+          , "manifest-sha: " <> cdManifestSha c
+          , "step: " <> Text.pack (show (cdStep c))
+          , "pointer-key: " <> cdPointerKey c
+          , "epoch: " <> Text.pack (show (cdEpoch c))
+          , "run-uuid: " <> cdRunUuid c
+          ]
+            <> maybe [] (\trialSha -> ["trial-sha: " <> trialSha]) (cdTrialSha c)
+            <> fmap renderMetric (cdMetricsAtStep c)
+        )
     TrainingFailure f ->
       Text.unlines
         [ "kind: TrainingFailed"
@@ -127,3 +139,52 @@ renderTrainingEvent envelope =
         , "error-code: " <> tfErrorCode f
         , "error-text: " <> tfErrorText f
         ]
+
+parseTrainingCheckpointDone :: Text -> Maybe CheckpointDone
+parseTrainingCheckpointDone payload = do
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+  "CheckpointDone" <- value "kind"
+  experimentHash <- value "experiment-hash"
+  manifestSha <- value "manifest-sha"
+  step <- value "step" >>= readText
+  pointerKey <- value "pointer-key"
+  let epoch = fromMaybe 0 (value "epoch" >>= readText)
+      runUuid = fromMaybe pointerKey (value "run-uuid")
+      trialSha = value "trial-sha"
+      metrics = mapMaybe parseMetric [metric | ("metric", metric) <- fields]
+  pure
+    CheckpointDone
+      { cdExperimentHash = experimentHash
+      , cdManifestSha = manifestSha
+      , cdStep = step
+      , cdPointerKey = pointerKey
+      , cdEpoch = epoch
+      , cdTrialSha = trialSha
+      , cdRunUuid = runUuid
+      , cdMetricsAtStep = metrics
+      }
+
+renderMetric :: (Text, Double) -> Text
+renderMetric (name, value) =
+  "metric: " <> name <> "=" <> Text.pack (show value)
+
+parseField :: Text -> Maybe (Text, Text)
+parseField line =
+  let (key, rest) = Text.breakOn ":" line
+   in if Text.null rest
+        then Nothing
+        else Just (Text.strip key, Text.strip (Text.drop 1 rest))
+
+parseMetric :: Text -> Maybe (Text, Double)
+parseMetric field = do
+  let (name, rest) = Text.breakOn "=" field
+  if Text.null rest
+    then Nothing
+    else do
+      value <- readText (Text.strip (Text.drop 1 rest))
+      pure (Text.strip name, value)
+
+readText :: (Read a) => Text -> Maybe a
+readText =
+  readMaybe . Text.unpack

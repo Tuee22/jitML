@@ -17,8 +17,8 @@
 > registered CLI entrypoint, Dhall `BootConfig` / `LiveConfig` renderers,
 > lifecycle, endpoint, logging, retry, payload-hash deduplication, SIGHUP
 > reload decisions, capability-class boundaries, and stateless `Deployment`
-> rendering — while keeping live Pulsar/MinIO/Harbor clients explicit as target
-> runtime validation.
+> rendering — while keeping live Pulsar/Harbor clients and daemon-acquired
+> MinIO wiring explicit as target runtime validation.
 
 ## Phase Status
 
@@ -42,11 +42,16 @@ capability classes now carry the full current method set
 `ETag` and `SubscriptionId` newtypes. The Consumer dispatcher
 (`EventDomain`, `HandlerRouter`, `routeByKind`) and the per-domain
 LRU `DedupCache` are checked in. **Unmet today**: Sprint `5.4` owes
-the live MinIO / Pulsar / Harbor instance methods against the running
-cluster; Sprint `5.5`
-owes the live Pulsar broker path using the typed router; Sprint `5.6`
-owes live Deployment readiness and validated pod anti-affinity across
-multiple replicas. Detailed remaining work lives in those sprints'
+daemon acquisition for the live Pulsar, Harbor, MinIO, and kubectl clients
+against the running cluster; the standalone live MinIO capability path is
+validated through `JitML.Service.MinIOSubprocess`, and the standalone routed
+Pulsar publish/consume path is validated through
+`JitML.Service.PulsarWebSocketSubprocess`. Sprint `5.5`
+owes the daemon's long-lived Pulsar redelivery/ack/seek path using the typed
+router; Sprint `5.6`
+owes validated pod anti-affinity across multiple replicas plus Apple host
+Dhall connectivity; single-replica deployment readiness is already covered
+by the live bootstrap validation. Detailed remaining work lives in those sprints'
 `### Remaining Work` blocks below.
 
 ### Current Implementation Scope
@@ -61,9 +66,11 @@ low-level in-binary HTTP runtime in
 `src/JitML/Service/{Http,Runtime}.hs` serving `/healthz`, `/readyz`, and
 `/metrics`. `SIGHUP` increments the reload generation; `SIGINT` and
 `SIGTERM` begin graceful drain and drop readiness. The filesystem-backed
-`HasMinIO` instance and subprocess-backed `HasKubectl` instance are checked
-in and covered locally / behind the live path; live HTTP-backed MinIO,
-Pulsar, and Harbor clients are owned by Sprints `5.4`–`5.6`.
+`HasMinIO` instance, live HTTP-backed `JitML.Service.MinIOSubprocess`
+instance, one-shot routed `JitML.Service.PulsarWebSocketSubprocess` instance,
+and subprocess-backed `HasKubectl` instance are checked in and covered locally /
+behind the live path; daemon-acquired Pulsar/Harbor/MinIO/kubectl clients are
+owned by Sprints `5.4`–`5.6`.
 
 ## Phase Summary
 
@@ -239,10 +246,15 @@ class surface per doctrine `Capability Classes and Service Errors`.
    doctrine-required classes.
 3. Live validation (target): integration coverage exercises
    `putBlobIfAbsent` against real MinIO and asserts `If-None-Match: *`
-   `412` is treated as `SEConflict`; `HasPulsar` subscribes, produces,
-   acks, and seeks against real Pulsar; `HasHarbor` pushes/pulls an image
-   against real Harbor; `HasKubectl` invokes `kubectl get pods` against
-   the cluster's kubeconfig.
+   `412` is treated as `SEConflict`; the MinIO portion is satisfied by
+   2026-05-19 live validation through `JitML.Service.MinIOSubprocess`, and
+   the standalone routed Pulsar publish/consume portion is satisfied by
+   2026-05-19 live validation through
+   `JitML.Service.PulsarWebSocketSubprocess`. Remaining live targets:
+   daemon-acquired `HasPulsar` uses a long-lived subscription with post-dispatch
+   ack/redelivery and seek semantics; daemon-acquired `HasHarbor` pushes/pulls
+   an image against real Harbor; `HasKubectl` invokes `kubectl get pods`
+   against the cluster's kubeconfig.
 
 ### Remaining Work
 
@@ -256,16 +268,26 @@ class surface per doctrine `Capability Classes and Service Errors`.
 - The filesystem-backed instance `JitML.Service.FilesystemMinIO`
   honours `putBlobIfAbsent` (412 → `SEConflict`) and `casPointer`
   (`If-Match: <etag>` → `SEConflict`); validated by `jitml-integration`.
-  Implement the live HTTP-backed `HasMinIO` instance against the
-  running MinIO StatefulSet (Sprint `4.3`).
-- Implement live `HasPulsar` instance against the running Pulsar HA
-  cluster (Sprint `4.4`).
+  `JitML.Service.MinIOSubprocess` is the live HTTP-backed `HasMinIO`
+  instance against the running MinIO service; 2026-05-19 live validation
+  covers write-once conflict, pointer CAS conflict, read, list, and delete
+  through the routed `/minio/s3` edge. Remaining daemon work is acquiring this
+  client from `BootConfig` / `LiveConfig` and using it inside the running
+  service.
+- `JitML.Service.PulsarWebSocketSubprocess` implements the routed one-shot
+  `HasPulsar` publish/consume path against the running Pulsar HA cluster.
+  Sprint `4.4` live validation covers broker WebSocket routing, topic creation,
+  producer ack, consume, and WebSocket ack-on-consume. Remaining daemon work is
+  acquiring this client or a long-lived replacement from `BootConfig` /
+  `LiveConfig`, then preserving explicit post-dispatch ack/redelivery and seek
+  semantics inside the service loop.
 - `JitML.Service.HarborSubprocess` implements the `HasHarbor` instance
   through typed Docker/curl subprocesses and explicit `HarborSettings`.
   Sprint `4.1` live Linux CPU validation pushes/promotes, pulls, lists, and
   checks artifact existence against the running Harbor portal+registry. The
   remaining daemon work is wiring that client into the long-running service
-  acquisition path.
+  acquisition path after Sprint `4.1`'s host Docker HTTP-registry blocker is
+  resolved.
 - `JitML.Service.KubectlSubprocess` implements the `HasKubectl`
   instance through the typed `Subprocess` boundary against
   `./.build/jitml.kubeconfig`. The typed `Subprocess` boundary now
@@ -334,13 +356,20 @@ deduplication key is the protobuf message hash and is opaque to the broker.
   envelope: computes the payload-hash `EventID`, routes by topic
   prefix to the per-domain `HandlerRouter` cache, dispatches when
   fresh (via a caller-supplied `EventDomain -> EventId -> Text -> m
-  ()` action), and acks every delivery (including dedup hits) through
+  (Either ServiceError ())` action), and acks only after successful dispatch;
+  dedup hits are acked as idempotent no-ops through
   `HasPulsar.pulsarAcknowledge`. `runConsumerLoop` drains the
   subscription cursor for a budgeted N envelopes. Validated by
   `jitml-daemon-lifecycle` against a synthetic `HasPulsar` instance:
   4 deliveries with one duplicate produce 3 `ConsumerDispatched` +
-  1 `ConsumerDeduplicated` outcomes and 4 acks; the live Pulsar
-  variant remains gated on Sprint 4.4.
+  1 `ConsumerDeduplicated` outcomes and 4 acks; the standalone one-shot live
+  Pulsar publish/consume path is validated by Sprint `4.4`, while this sprint
+  still owns the daemon's long-lived redelivery/dedup path.
+- `JitML.Service.Runtime.daemonTensorBoardDispatcher` is the first concrete
+  dispatcher side effect: it routes rendered `CheckpointDone` payloads through
+  `JitML.Observability.TbSidecar.dispatchCheckpointPayload` and returns a typed
+  `ServiceError` if the sidecar write fails before ack. Filesystem-backed
+  `jitml-integration` coverage validates this Phase `4.6` side effect.
 - Ack failure surfacing `AppError PulsarFailed` is now exposed via
   `JitML.Service.Consumer.consumerOutcomeError`, which maps a
   `ConsumerError serviceErr` through `serviceErrorToAppError`. A
@@ -401,16 +430,14 @@ kubernetes.io/hostname`, plus bootstrap-rendered per-substrate Dhall configs.
    Deployment surface.
 2. `jitml bootstrap --<substrate>` materializes the service ConfigMap and
    Dhall files.
-3. Live validation (target): `kubectl get deployment jitml-service` returns
-   Ready, scaling to multiple replicas honours pod anti-affinity by placing
-   each replica on a distinct hostname, and the Apple host daemon
-   subscribes to `inference.command.apple-silicon` after the edge port is
-   leased.
+3. Live validation (target): the single-replica Deployment remains Ready
+   through the live bootstrap path, scaling to multiple replicas honours pod
+   anti-affinity by placing each replica on a distinct hostname, and the Apple
+   host daemon subscribes to `inference.command.apple-silicon` after the edge
+   port is leased.
 
 ### Remaining Work
 
-- Apply `chart/templates/deployment-jitml-service.yaml` against a live
-  cluster and confirm it reaches Ready.
 - Validate the `topologyKey: kubernetes.io/hostname` anti-affinity by
   scaling to two replicas on a two-worker Kind cluster.
 - Validate that the Apple host Dhall patched by Sprint `3.5` after the

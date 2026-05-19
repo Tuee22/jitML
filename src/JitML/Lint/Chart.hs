@@ -120,8 +120,11 @@ checkPvFile path = do
 pvPinnedByRegisteredPerconaCluster :: Text.Text -> Bool
 pvPinnedByRegisteredPerconaCluster content =
   any
-    (\volumeName -> ("  name: " <> volumeName) `Text.isInfixOf` content)
-    (concatMap perconaPgVolumeNames postgresRegistry)
+    ( any
+        (\volumeName -> ("  name: " <> volumeName) `Text.isInfixOf` content)
+        . perconaPgVolumeNames
+    )
+    postgresRegistry
 
 checkForbiddenProvisioner :: FilePath -> IO [LintFinding]
 checkForbiddenProvisioner path = do

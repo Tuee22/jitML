@@ -10,7 +10,7 @@ module JitML.Bootstrap
   )
 where
 
-import Data.Aeson (FromJSON (..), encode, eitherDecode, withObject, (.:))
+import Data.Aeson (FromJSON (..), eitherDecode, encode, withObject, (.:))
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -30,18 +30,24 @@ import JitML.Cluster.Helm
   , helmInstallSubprocessForEdgePort
   , kindCreateSubprocess
   , phasedReleases
+  , releaseName
   , releasePhase
   , renderHelmDependencyBuildPlan
   )
 import JitML.Cluster.Kind (kindConfigFor, kindConfigForEdgePort, renderKindConfig)
+import JitML.Cluster.PostgresRegistry
+  ( PerconaPGCluster (..)
+  , postgresRegistry
+  , renderPerconaPGCluster
+  )
 import JitML.Cluster.Publication
   ( ClusterPublication (..)
   , defaultPublication
   , publicationWithLeasedPort
   )
 import JitML.Cluster.PulsarBootstrap (pulsarTopicCreateSubprocesses)
-import JitML.Cluster.PostgresRegistry (PerconaPGCluster, postgresRegistry, renderPerconaPGCluster)
 import JitML.Cluster.Readiness (platformReadinessSubprocesses)
+import JitML.Cluster.Readiness qualified as Readiness
 import JitML.Cluster.Storage
   ( ManualPV (..)
   , manualPVs
@@ -49,6 +55,7 @@ import JitML.Cluster.Storage
   , renderManualPV
   , renderStorageClass
   )
+import JitML.Observability.Grafana qualified as Grafana
 import JitML.Routes (Route (..), renderHTTPRoute, routeRegistry)
 import JitML.Service.BootConfig
   ( BootConfig (..)
@@ -70,9 +77,10 @@ bootstrapPlanSteps substrate =
   , "prepare Helm dependencies with " <> renderHelmDependencyBuildPlan "chart"
   , "create Kind cluster with ./.build/jitml.kubeconfig"
   , "apply jitml-manual StorageClass and manual PVs"
+  , "install MinIO and Percona storage for Harbor"
   , "install Harbor bootstrap phase"
   , "build jitml:local and jitml-demo:local and load them into Kind"
-  , "install MinIO, Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
+  , "install Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
   , "write ./.build/runtime/cluster-publication.json"
   ]
 
@@ -170,8 +178,8 @@ data LiveExecutionResult = LiveExecutionResult
   deriving stock (Eq, Show)
 
 livePhasedRolloutSubprocesses :: Substrate -> FilePath -> [Subprocess]
-livePhasedRolloutSubprocesses substrate chartPath =
-  livePhasedRolloutSubprocessesForPort substrate (substrateEdgePort substrate) chartPath
+livePhasedRolloutSubprocesses substrate =
+  livePhasedRolloutSubprocessesForPort substrate (substrateEdgePort substrate)
 
 livePhasedRolloutSubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
 livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
@@ -179,8 +187,15 @@ livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
   , helmDependencyBuildSubprocess chartPath
   ]
     <> foundationManifestApplySubprocesses chartPath
-    <> concatMap releaseSteps phasedReleases
+    <> concatMap releaseSteps minioBootstrapReleases
+    <> Readiness.minioBootstrapReadinessSubprocesses
+    <> concatMap releaseSteps postgresOperatorReleases
     <> postgresClusterApplySubprocesses
+    <> Readiness.postgresReadinessSubprocesses
+    <> postgresSchemaGrantSubprocesses
+    <> concatMap releaseSteps harborApplicationReleases
+    <> concatMap releaseSteps remainingReleases
+    <> observabilityManifestApplySubprocesses chartPath
     <> platformReadinessSubprocesses
     <> edgeManifestApplySubprocesses chartPath
     <> pulsarTopicCreateSubprocesses
@@ -190,6 +205,24 @@ livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
   releaseSteps release
     | releasePhase release == MirrorBuildPhase = mirrorBuildSteps substrate
     | otherwise = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
+
+  postgresOperatorReleases =
+    filter ((== "harbor-pg") . releaseName) phasedReleases
+
+  minioBootstrapReleases =
+    filter ((== "minio") . releaseName) phasedReleases
+
+  harborApplicationReleases =
+    filter ((== "harbor") . releaseName) phasedReleases
+
+  remainingReleases =
+    filter
+      ( \release ->
+          releaseName release /= "harbor-pg"
+            && releaseName release /= "harbor"
+            && releaseName release /= "minio"
+      )
+      phasedReleases
 
 mirrorBuildSteps :: Substrate -> [Subprocess]
 mirrorBuildSteps substrate =
@@ -219,6 +252,20 @@ edgeManifestApplySubprocesses chartPath =
  where
   templatePath fileName = chartPath </> "templates" </> fileName
 
+observabilityManifestApplySubprocesses :: FilePath -> [Subprocess]
+observabilityManifestApplySubprocesses chartPath =
+  fmap
+    (kubectlApplyFileSubprocess . templatePath)
+    ( fmap dashboardManifestName Grafana.dashboards
+        <> ["prometheus-scrapeconfig-jitml.yaml"]
+    )
+ where
+  templatePath fileName = chartPath </> "templates" </> fileName
+
+dashboardManifestName :: Grafana.Dashboard -> FilePath
+dashboardManifestName dashboard =
+  "grafana-dashboard-" <> Text.unpack (Grafana.dashboardName dashboard) <> ".yaml"
+
 kubectlApplyFileSubprocess :: FilePath -> Subprocess
 kubectlApplyFileSubprocess path =
   subprocess
@@ -234,6 +281,10 @@ postgresClusterApplySubprocesses :: [Subprocess]
 postgresClusterApplySubprocesses =
   fmap postgresClusterApplySubprocess postgresRegistry
 
+postgresSchemaGrantSubprocesses :: [Subprocess]
+postgresSchemaGrantSubprocesses =
+  fmap postgresSchemaGrantSubprocess postgresRegistry
+
 postgresClusterApplySubprocess :: PerconaPGCluster -> Subprocess
 postgresClusterApplySubprocess cluster =
   subprocessWithStdin
@@ -247,6 +298,29 @@ postgresClusterApplySubprocess cluster =
     , "-"
     ]
     (renderPerconaPGCluster cluster)
+
+postgresSchemaGrantSubprocess :: PerconaPGCluster -> Subprocess
+postgresSchemaGrantSubprocess cluster =
+  subprocess
+    "sh"
+    [ "-c"
+    , Text.concat
+        [ "primary=$(kubectl --kubeconfig ./.build/jitml.kubeconfig get pod -n "
+        , perconaNamespace cluster
+        , " -l postgres-operator.crunchydata.com/cluster="
+        , perconaClusterName cluster
+        , ",postgres-operator.crunchydata.com/role=master -o jsonpath='{.items[0].metadata.name}'); "
+        , "kubectl --kubeconfig ./.build/jitml.kubeconfig exec -n "
+        , perconaNamespace cluster
+        , " \"$primary\" -c database -- psql -d "
+        , perconaDatabase cluster
+        , " -c \"GRANT ALL ON SCHEMA public TO "
+        , perconaDatabase cluster
+        , "; ALTER SCHEMA public OWNER TO "
+        , perconaDatabase cluster
+        , ";\""
+        ]
+    ]
 
 pvManifestName :: ManualPV -> FilePath
 pvManifestName pv =
@@ -283,7 +357,11 @@ liveExecutePhasedRollout substrate chartPath = do
   lease <- selectLiveLease substrate
   let publication = publicationWithLeasedPort lease (defaultPublication substrate)
   patchLiveMaterialization substrate lease publication
-  runSteps publication [] [] (livePhasedRolloutSubprocessesForPort substrate (EdgePort.leasedPort lease) chartPath)
+  runSteps
+    publication
+    []
+    []
+    (livePhasedRolloutSubprocessesForPort substrate (EdgePort.leasedPort lease) chartPath)
  where
   runSteps :: ClusterPublication -> [Text] -> [(Text, Text)] -> [Subprocess] -> IO LiveExecutionResult
   runSteps publication executed failed [] = do
@@ -332,8 +410,12 @@ readExistingLivePublication root = do
   if exists
     then do
       bytes <- LazyByteString.readFile path
-      pure (either (const Nothing) Just (eitherDecode bytes))
+      pure (eitherToMaybe (eitherDecode bytes))
     else pure Nothing
+
+eitherToMaybe :: Either error value -> Maybe value
+eitherToMaybe (Right value) = Just value
+eitherToMaybe (Left _) = Nothing
 
 newtype HelmStatus = HelmStatus Text
   deriving stock (Eq, Show)
@@ -367,7 +449,8 @@ measureComponent (componentName, releases) = do
 
 measureHelmRelease :: Text -> IO (Text, Text)
 measureHelmRelease release = do
-  (exitCode, stdoutText, _stderrText) <- runStreaming defaultSubprocessEnv (helmStatusSubprocess release)
+  (exitCode, stdoutText, _stderrText) <-
+    runStreaming defaultSubprocessEnv (helmStatusSubprocess release)
   case exitCode of
     ExitSuccess -> pure (release, parseHelmStatus stdoutText)
     ExitFailure _ -> pure (release, "unavailable")

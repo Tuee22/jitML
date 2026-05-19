@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jitml-service
+  namespace: platform
+spec:
+  type: ClusterIP
+  selector:
+    app: jitml-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

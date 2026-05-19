@@ -108,7 +108,7 @@ generation.
 |----------|-----------|
 | `/healthz` | Target HTTP endpoint; current renderable response value |
 | `/readyz` | Target HTTP endpoint; current renderable response value |
-| `/metrics` | Target Prometheus endpoint; current renderable text |
+| `/metrics` | Target Prometheus endpoint; current renderable text, exposed in-cluster by the `jitml-service` local chart's ClusterIP Service on port `8080` |
 
 Current logging support is pure JSON rendering. Target logging writes
 structured JSON on stderr with fields `ts`, `level`, `msg`, `lifecyclePhase`,
@@ -125,16 +125,23 @@ structured JSON on stderr with fields `ts`, `level`, `msg`, `lifecyclePhase`,
 
 | Class | Operations | Owning module |
 |-------|-----------|---------------|
-| `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs` |
-| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge`, `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek` | `src/JitML/Service/Capabilities.hs` |
+| `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs`; local filesystem interpreter in `JitML.Service.FilesystemMinIO`; live HTTP S3 subprocess interpreter in `JitML.Service.MinIOSubprocess` |
+| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge`, `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek` | `src/JitML/Service/Capabilities.hs`; routed one-shot WebSocket subprocess interpreter in `JitML.Service.PulsarWebSocketSubprocess` |
 | `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs`; explicit Docker/curl subprocess instance in `src/JitML/Service/HarborSubprocess.hs` |
 | `HasKubectl` | `kubectlApply`, `kubectlStatus`, `kubectlGet`, `kubectlDelete` | `src/JitML/Service/Capabilities.hs` |
 
-`HasHarbor` and `HasKubectl` operations route through the typed `Subprocess`
-boundary. Harbor settings are passed as a value (`HarborSettings`) containing
-registry/API coordinates, credentials, optional Docker host socket, and the
-repo-local Docker config directory; the client does not read process
-environment variables or write to the user's global Docker config.
+`HasPulsar`, `HasHarbor`, and `HasKubectl` operations route through the typed
+`Subprocess` boundary where no native client is checked in. The current Pulsar
+WebSocket interpreter targets `ws://127.0.0.1:<edge-port>/pulsar/ws`, which
+Envoy rewrites to the broker-embedded `/ws` endpoint on `pulsar-broker:8080`.
+It is a one-shot validation/client surface: `pulsarConsume` opens a consumer,
+reads one message, acknowledges it on that same WebSocket session, and closes;
+the daemon's long-lived post-dispatch ack/redelivery and `pulsarSeek` semantics
+remain target work below. Harbor settings are passed as a value
+(`HarborSettings`) containing registry/API coordinates, credentials, optional
+Docker host socket, and the repo-local Docker config directory; the client does
+not read process environment variables or write to the user's global Docker
+config.
 
 ## RetryPolicy
 
@@ -155,6 +162,26 @@ Service-error kinds:
 - `SETimeout` (retryable per policy)
 - `SETransient` (retryable per policy)
 
+## TensorBoard Side Effects
+
+The TensorBoard pod is stateless. A MinIO-client sidecar mirrors bucket
+`jitml-tensorboard` into the pod's `/tensorboard/logs` `emptyDir`, and
+TensorBoard serves that logdir behind `/tensorboard`. Live Linux CPU validation
+on 2026-05-19 proves TFRecord shards written to MinIO appear in the scalars
+API, including a Haskell-written shard sent through routed
+`JitML.Service.MinIOSubprocess`. The daemon-side event writer owns the
+long-lived shard buffer: `TensorBoardWriterState` tracks writer id, shard
+sequence, file-version emission, buffered bytes, and start time;
+`shouldRotateShard` decides when to flush; `encodeTfRecord` writes the TFRecord
+frames; and `HasMinIO.putBlobBytesIfAbsent` performs write-once shard PUTs.
+
+`JitML.Observability.TbSidecar.dispatchCheckpointDone` writes
+`TbCheckpointMarker` CBOR sidecars through `HasMinIO`; filesystem-backed tests
+and 2026-05-19 live routed MinIO validation cover the writer.
+`dispatchCheckpointPayload` parses rendered `CheckpointDone` envelopes, and
+`JitML.Service.Runtime.daemonTensorBoardDispatcher` invokes the sidecar write
+from the daemon dispatcher contract before ack.
+
 ## At-Least-Once Pulsar Consumer
 
 Per doctrine `At-Least-Once Event Processing`. Idempotency is the consumer's
@@ -172,10 +199,13 @@ protobuf message hash and is opaque to the broker.
 The current consumer surface includes the payload-hash deduplication helper,
 `JitML.Service.Consumer.{consumerStep,runConsumerLoop,ConsumerOutcome}`, and
 per-domain `HandlerRouter` dispatch coverage against a synthetic broker in
-`jitml-daemon-lifecycle`. Target live consumer wiring subscribes to the
+`jitml-daemon-lifecycle`. Live Pulsar publish/consume through the routed broker
+WebSocket endpoint is validated by `JitML.Service.PulsarWebSocketSubprocess`,
+but target daemon consumer wiring still needs a long-lived subscription to the
 substrate-scoped command topics (training, tune, RL, inference, plus
-`inference.command.apple-silicon` on the host daemon) against a real Pulsar
-broker.
+`inference.command.apple-silicon` on the host daemon), explicit post-dispatch
+ack behavior, redelivery/dedup validation, and seek semantics against a real
+Pulsar broker.
 
 ## Apple Silicon Hybrid Pattern
 
@@ -202,7 +232,7 @@ cluster daemon.
 
 The current implementation renders the configs, topic names, lifecycle,
 deployment surfaces, and local HTTP endpoint server; live host daemon startup
-and Pulsar/MinIO flow remain target runtime validation.
+and daemon-acquired Pulsar/MinIO flow remain target runtime validation.
 
 The host daemon's startup path never touches tart. On a JIT cache miss the
 daemon first validates or installs the `tart` Homebrew package through typed

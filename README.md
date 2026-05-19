@@ -139,7 +139,7 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 > **Bootstrap verbs are not CLI verbs.** Historical script verbs such as `doctor`, `status`, `down`, and `purge` remain script conveniences, but the cluster bootstrap contract is the Haskell command `jitml bootstrap --apple-silicon | --linux-cpu | --linux-cuda`. Script `up` is a wrapper around that command.
 
-- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings Harbor up first, builds `jitml:local` / `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out MinIO, Pulsar, Prometheus/Grafana, Envoy Gateway, the Percona operator plus Patroni-managed Postgres for services that need Postgres, the `jitml-service` cluster daemon via Helm, and the demo app. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO and then starts the host daemon as the long-running Apple inference resident. The host does **not** install or start tart during bootstrap; tart is installed and started lazily on the first JIT that misses the cache.
+- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local` / `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO and then starts the host daemon as the long-running Apple inference resident. The host does **not** install or start tart during bootstrap; tart is installed and started lazily on the first JIT that misses the cache.
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically, the in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
 - `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast with installation instructions. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda`; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass and GPU worker labeling applied by bootstrap.
 
@@ -250,7 +250,7 @@ Routes published at the edge (all under one `127.0.0.1:<edge-port>`):
 | `/minio/console` | `minio:9001` | `/` |
 | `/minio/s3` | `minio:9000` | `/` |
 | `/pulsar/admin` | `pulsar-proxy:80` | `/admin` |
-| `/pulsar/ws` | `pulsar-proxy:80` WebSocket | `/ws` |
+| `/pulsar/ws` | `pulsar-broker:8080` WebSocket | `/ws` |
 
 TLS is off for the local demo. The production-deployment posture is intentionally not specified by this README; the route registry just declares the local-demo surfaces.
 
@@ -304,9 +304,9 @@ Namespace: `platform` (fixed). `jitml bootstrap --<substrate>` creates it idempo
 
 **Phased deploy** (verbatim from infernix's lessons):
 
-1. **Harbor phase**: Harbor plus the Percona operator / Patroni-managed Postgres required by packaged services comes up first, using only the public pulls needed to make Harbor available.
+1. **Harbor phase**: MinIO starts first so the `harbor-registry` bucket exists, the Percona operator applies and waits for the registered `harbor-pg` database, and Harbor then starts against those live dependencies.
 2. **Image build/load phase**: `jitml:local` and `jitml-demo:local` are built locally and loaded explicitly into the selected Kind cluster with `kind load docker-image`.
-3. **Final phase**: MinIO, Pulsar, Envoy Gateway, kube-prometheus-stack, TensorBoard, the jitML service workload (all substrates: Linux self-inference plus Apple forward-to-host), and the jitML-demo workload roll out after the local image tags are present in Kind. Bootstrap applies the repo-owned foundation manifests before Helm, waits on explicit platform rollout/readiness checks, and applies the repo-owned Gateway/HTTPRoute manifests after the controller is installed.
+3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack, TensorBoard, the jitML service workload (all substrates: Linux self-inference plus Apple forward-to-host), and the jitML-demo workload roll out after the local image tags are present in Kind. Bootstrap applies the repo-owned foundation manifests before Helm, waits on explicit platform rollout/readiness checks, and applies the repo-owned Gateway/HTTPRoute manifests after the controller is installed.
 
 This avoids a hidden DNS/trust assumption between the host Docker daemon, the Kind node runtime, and an in-cluster Harbor registry while still bringing Harbor up as the platform registry surface.
 
@@ -316,7 +316,7 @@ This avoids a hidden DNS/trust assumption between the host Docker daemon, the Ki
 
 Harbor is the platform registry surface. The local Kind bootstrap path is explicit: it builds `jitml:local` and `jitml-demo:local`, loads both into Kind with `kind load docker-image`, and sets the in-cluster workloads to `imagePullPolicy: IfNotPresent`. The Harbor Helm release receives an explicit localhost `externalURL` for the selected edge port, and the edge routes send Harbor's public portal/API/registry/token paths through the chart's public `harbor` nginx service. The `HasHarbor` subprocess client takes explicit registry/API settings, Docker host socket when the local daemon is not at Docker's default path, and a repo-local Docker config directory under `./.build/docker/harbor`; live Linux CPU validation has exercised push/promote, pull, artifact existence, and repository listing without environment variables or global Docker config writes.
 
-Harbor's own image-chart storage backend is **MinIO** (S3 API), so Harbor's blobs and MinIO's buckets share a durability story.
+Harbor's own image-chart storage backend is **MinIO** (S3 API), so Harbor's blobs and MinIO's buckets share a durability story. Live Linux CPU validation has pushed an OCI artifact through Harbor's registry HTTP API and confirmed the matching repository objects in the `harbor-registry` bucket. Docker-backed push/pull against the local HTTP edge still depends on host Docker accepting `127.0.0.1:<edge-port>` as an insecure registry, or on a future Harbor TLS edge; otherwise Docker retries HTTPS and rejects the HTTP response.
 
 Routed at `/harbor` (portal), `/harbor/api` (API), `/v2` (Docker registry), and `/service` (Harbor token service).
 
@@ -334,7 +334,7 @@ Buckets, provisioned by the Helm `provisioning.buckets` block:
 - `jitml-tensorboard` — TensorBoard event files so the TB pod is stateless and can reschedule freely (see [TensorBoard event storage](#tensorboard-event-storage)).
 - `jitml-artifacts` — large inference outputs (when the demo is in inference mode).
 
-Endpoints: `minio.platform.svc.cluster.local:9000` (in-cluster); `127.0.0.1:<edge-port>/minio/s3` (routed). Credentials pinned in values for the local demo; the production-deployment posture is intentionally not specified by this README. Bootstrap readiness checks every typed bucket through the Bitnami in-pod MinIO client (`mc`) before continuing to the topic bootstrap.
+Endpoints: `minio.platform.svc.cluster.local:9000` (in-cluster); `127.0.0.1:<edge-port>/minio/s3` (routed). Credentials pinned in values for the local demo; the production-deployment posture is intentionally not specified by this README. Bootstrap readiness checks every typed bucket through the Bitnami in-pod MinIO client (`mc`) before continuing to the topic bootstrap. `JitML.Service.MinIOSubprocess` is the subprocess-backed live HTTP S3 `HasMinIO` interpreter; it signs canonical path-style S3 URLs with `curl --aws-sigv4` and sends routed edge requests with `--request-target /minio/s3/...` so Envoy can rewrite to the upstream MinIO path without breaking SigV4.
 
 The MinIO server version is pinned to a release with S3 conditional-write support (`If-None-Match`, `If-Match`) — `RELEASE.2024-08-26T15-33-07Z` or later. The concurrency story below depends on it.
 
@@ -362,8 +362,10 @@ Three object classes, two write protocols:
 
 Current checked-in code implements the key renderers, manifest CBOR codec,
 pointer-CAS decision surface, and a filesystem-backed local checkpoint store in
-`JitML.Checkpoint.Store`. Live MinIO `If-None-Match` / `If-Match` effects remain
-the runtime writer path.
+`JitML.Checkpoint.Store`. The live HTTP MinIO capability path is implemented by
+`JitML.Service.MinIOSubprocess`; Linux CPU validation on 2026-05-19 confirms
+`If-None-Match: *` duplicate writes and stale `If-Match` pointer updates both
+surface as `SEConflict` through the routed `/minio/s3` edge.
 
 ## Concurrency model
 
@@ -405,11 +407,11 @@ Retention (`retain = Checkpoint.Retention.LastN k` in the experiment Dhall) is e
 
 # TensorBoard event storage
 
-TensorBoard renders scalars, histograms, distributions, and image summaries from the `jitml-tensorboard` MinIO bucket. The TB pod itself is stateless: it reads MinIO at panel-load time, and reschedules freely. Writers are the clustered `jitml-service` daemon, the host-native Apple daemon, and per-trial workers during hyperparameter sweeps — all writing into the same bucket without coordination.
+TensorBoard renders scalars, histograms, distributions, and image summaries from the `jitml-tensorboard` MinIO bucket. The TB pod itself is stateless: a MinIO-client sidecar mirrors the bucket into an `emptyDir` logdir that TensorBoard reads, and the pod reschedules freely. Writers are the clustered `jitml-service` daemon, the host-native Apple daemon, and per-trial workers during hyperparameter sweeps — all writing into the same bucket without coordination.
 
 ## Format
 
-The event-file format is **dictated by TensorBoard**, not by us: TFRecord framing wrapping a `tensorflow.Event` protobuf message. We vendor `proto/tensorboard/event.proto` from TensorFlow at a pinned commit and generate Haskell bindings via `proto-lens` (the same toolchain that produces the Pulsar protobuf bindings). The TFRecord frame is:
+The event-file format is **dictated by TensorBoard**, not by us: TFRecord framing wrapping a TensorFlow-compatible `Event` protobuf message. The checked-in `proto/tensorboard/event.proto` carries the minimal scalar path TensorBoard reads (`Event.summary.value.simple_value`), and `JitML.Proto.TensorBoard` provides the Haskell codec used by the daemon writer. The TFRecord frame is:
 
 ```
 uint64 LE   length
@@ -458,6 +460,14 @@ Each writer holds an in-memory `Shard` buffer of TFRecord-framed bytes. The buff
 
 Shards are write-once, never modified. PUTs use `If-None-Match: *` so retries are idempotent: the same `(writer-id, shard-seq)` key holds the same bytes; a second PUT returns `412` which the client treats as success. Shard-seq is a monotonic per-writer counter held in-memory by the writer; it is **not** the global training step.
 
+The checked-in writer is `JitML.Observability.TensorBoard.writeTensorBoardEvent`.
+It serializes TensorFlow-compatible scalar events via
+`JitML.Proto.TensorBoard.encodeTensorBoardEventProto`, prepends the
+`brain.Event:2` file-version record to the first shard, and flushes through
+`HasMinIO.putBlobBytesIfAbsent`. Live Linux CPU validation on 2026-05-19 wrote
+a Haskell-encoded shard through the routed `/minio/s3` edge and read the scalar
+back from the routed TensorBoard scalars API.
+
 ## Concurrency
 
 No CAS, no advisory locks, no leader election — namespacing alone is sufficient:
@@ -500,7 +510,7 @@ The **scalar values themselves** at each `(tag, step)` *are* deterministic under
 
 # Pulsar as the control-plane ↔ data-plane bus
 
-Apache Pulsar HA chart: 3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, WebSocket enabled. The Pulsar WebSocket proxy is routed at `/pulsar/ws` for operator diagnostics; the PureScript frontend subscribes to live events through the `jitml-demo` proxy at `/api/ws`.
+Apache Pulsar HA chart: 3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, with the admin API routed at `/pulsar/admin`. The Pulsar WebSocket route is `/pulsar/ws`; it rewrites to `/ws` and targets the broker HTTP service (`pulsar-broker:8080`) with `webSocketServiceEnabled=true`. Live validation on 2026-05-19 publishes and consumes through that route with `JitML.Service.PulsarWebSocketSubprocess`. The PureScript frontend subscribes to live events through the `jitml-demo` proxy at `/api/ws`.
 
 Topic family (substrate-scoped — `<mode>` ∈ `apple-silicon`, `linux-cpu`, `linux-cuda`):
 
@@ -536,7 +546,7 @@ Pulsar carries small envelopes only. Per-layer weight blobs, optimizer state, an
 
 **Stale-starting-snapshot pre-flight (training only).** When `kind == "training"`, the host daemon's first step on receipt is to read `pointers/latest` for the model and compare against `starting-snapshot`. If they disagree (another trainer committed first), the daemon publishes an error envelope on `inference.event.apple-silicon` with shape `{ "call-id": "<uuid>", "kind": "error", "code": "stale-starting-snapshot", "expected": "<latest>", "got": "<starting>" }` and aborts. This is a **recoverable** error per HASKELL_CLI_TOOL.md §Error Handling — the daemon stays healthy, the call is rejected, and the orchestrator either surfaces to the demo or rebases (rebase is a future enhancement; day 1 surfaces). Inference calls skip this check — running inference at any historical snapshot is a legitimate operation.
 
-**Protobuf contract.** Schemas in `./proto/jitml/`, with Haskell bindings via `proto-lens` and PureScript bindings via `purescript-bridge`.
+**Protobuf contract.** Schemas in `./proto/jitml/` define the Pulsar command/event envelopes, and `proto/tensorboard/event.proto` defines the minimal TensorBoard scalar event path. Current Haskell mirrors live under `src/JitML/Proto/`; PureScript browser contracts are generated separately via the in-repo bridge renderer.
 
 **Fallback when Pulsar is absent.** Unit tests that do not start a real Pulsar
 broker use the repo-local topic spool at `./.build/runtime/pulsar/`. Tests use
@@ -560,15 +570,13 @@ Percona Kubernetes Operator manages a Patroni-backed HA Postgres cluster. The lo
 
 # TensorBoard, Prometheus, Grafana as first-class
 
-**TensorBoard.** A `tensorboard` pod routed at `/tensorboard`, reading from the `jitml-tensorboard` MinIO bucket. The TB pod is stateless and reschedulable. See [TensorBoard event storage](#tensorboard-event-storage) for the event-file format, bucket layout, shard rotation, concurrency model, cross-link to checkpoint manifests, and determinism caveat. TensorBoard is the headline visualization for SL training; the PureScript frontend's training panel embeds the TB iframe and overlays clickable checkpoint markers.
+**TensorBoard.** A `tensorboard` pod routed at `/tensorboard`, with a MinIO-client sidecar mirroring the `jitml-tensorboard` bucket into the pod logdir. The TB pod is stateless and reschedulable. See [TensorBoard event storage](#tensorboard-event-storage) for the event-file format, bucket layout, shard rotation, concurrency model, cross-link to checkpoint manifests, and determinism caveat. TensorBoard is the headline visualization for SL training; the PureScript frontend's training panel embeds the TB iframe and overlays clickable checkpoint markers.
 
-**Prometheus.** Deployed via `kube-prometheus-stack`. Scrape targets, declared as a typed Haskell value in `src/JitML/Observability/Prometheus.hs`:
+**Prometheus.** Deployed via `kube-prometheus-stack`. The generated `ScrapeConfig`, declared as a typed Haskell value in `src/JitML/Observability/Prometheus.hs`, currently scrapes:
 
 - The `jitml-service` daemon (`/metrics` endpoint) — training-step latency, GPU utilization (Metal/CUDA queries), batch throughput, checkpoint write latency, MinIO call latency, Pulsar consume-lag.
-- Pulsar broker / proxy.
-- MinIO (S3 API metrics).
-- Harbor.
-- Kind nodes (kubelet + cAdvisor).
+
+The target observability stack also reserves dashboard panels for deeper Pulsar broker/proxy, MinIO S3 API metrics, Harbor, and Kind node metrics as those live service-client paths close.
 
 **Grafana.** Provisioned dashboards committed to the repo, **generated from typed Haskell datatypes** via a renderer in `src/JitML/Observability/Grafana.hs`. Dashboards rendered by the renderer:
 
@@ -2260,10 +2268,13 @@ jitML/
     Observability/
       Prometheus.hs             -- typed scrape-target list + /metrics endpoint
       Grafana.hs                -- typed dashboard renderer
-      TensorBoard.hs            -- event-file writer
+      TensorBoard.hs            -- TFRecord shard writer
+    Proto/
+      TensorBoard.hs            -- minimal TensorBoard scalar Event codec
     Web/
       Contracts.hs              -- browser-contract ADTs (source for purescript-bridge)
-  proto/jitml/                  -- protobuf contracts (training, tune, rl, inference)
+  proto/jitml/                  -- protobuf contracts (training, tune, rl)
+  proto/tensorboard/            -- TensorBoard scalar Event schema
   web/                          -- PureScript frontend
     spago.yaml
     src/                        -- handwritten PureScript (Halogen components)

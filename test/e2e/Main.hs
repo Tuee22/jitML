@@ -74,7 +74,9 @@ main =
           gatewayClass <- Text.IO.readFile "chart/templates/gatewayclass-jitml.yaml"
           assertBool "EnvoyProxy parametersRef kind" ("kind: EnvoyProxy" `Text.isInfixOf` gatewayClass)
           assertBool "EnvoyProxy parametersRef name" ("name: jitml-edge" `Text.isInfixOf` gatewayClass)
-          assertBool "EnvoyProxy parametersRef namespace" ("namespace: platform" `Text.isInfixOf` gatewayClass)
+          assertBool
+            "EnvoyProxy parametersRef namespace"
+            ("namespace: platform" `Text.isInfixOf` gatewayClass)
       , testCase "demo deployment starts the jitml-demo HTTP server" $ do
           deployment <- Text.IO.readFile "chart/templates/deployment-jitml-demo.yaml"
           assertBool "jitml-demo command" ("command: [\"jitml-demo\"]" `Text.isInfixOf` deployment)

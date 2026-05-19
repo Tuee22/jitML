@@ -74,9 +74,10 @@ This phase currently delivers the local checkpoint manifest, split-blob key,
 pointer-CAS, deterministic manifest CBOR, local write-once object store, latest
 pointer read path, and inference summary helpers. The target persistence layer
 still uses MinIO bucket `jitml-checkpoints`, write-once blobs, If-Match CAS
-pointers, and the split-blob `.jmw1` binary format; live MinIO effects are not
-implemented in the present codebase. The live implementation proceeds
-storage-outward: MinIO conditional checkpoint writes/reads first, then
+pointers, and the split-blob `.jmw1` binary format; the standalone live MinIO
+capability path is available through `JitML.Service.MinIOSubprocess`, while the
+checkpoint store still needs live wiring. The live implementation proceeds
+storage-outward: conditional checkpoint writes/reads first, then
 inference from checkpoint, then training persistence, then tuning/resume
 semantics.
 
@@ -127,12 +128,12 @@ split-blob object-key renderers used by the inference summary surface.
 
 ### Remaining Work
 
-- Validate the bucket layout against a live MinIO instance once Sprint
-  `4.3` brings up the conditional-write server. The typed split-blob
+- Validate the bucket layout against a live MinIO instance through
+  `JitML.Service.MinIOSubprocess`. The typed split-blob
   layout (`OptimizerBlob`, `RngBlob`, `manifestStep`,
   `manifestMetrics`, `manifestParentManifestSha`) and the experiment
-  hash derivation are in place; the gap is the live `HasMinIO`
-  client.
+  hash derivation are in place; the gap is checkpoint-store use of the
+  live `HasMinIO` client after a real training step.
 
 ## Sprint 10.2: `.jmw1` Wire Format and Manifest CBOR 🔄
 
@@ -185,9 +186,9 @@ remain target runtime validation.
 
 ### Remaining Work
 
-- Implement the live MinIO put-blob-if-absent and pointer-CAS effects
-  through the `HasMinIO` capability class from Sprint `5.4` (gated by
-  Sprint 4.3 live MinIO bring-up).
+- Wire the checkpoint-store put-blob-if-absent and pointer-CAS paths through
+  `JitML.Service.MinIOSubprocess`, the live HTTP-backed `HasMinIO`
+  capability from Sprint `4.3` / `5.4`.
 - Add integration coverage in `jitml-integration` (Sprint `12.2`) that
   exercises the CAS retry against a live MinIO instance.
 
@@ -238,17 +239,9 @@ per `### Remaining Work` below.
 
 ### Remaining Work
 
-- `JitML.App.runInternalGc` consumes `Store.buildGcPlan` and writes the
-  reconciler summary; second-invocation `gcNoOp` exits `3` via
-  `AppError ReconcilerNoop`. `JitML.Checkpoint.Store.executeGcPlan`
-  walks each `GcEvent` through `HasMinIO.deleteObject` (manifest +
-  per-blob deletes), recording per-class deletion tallies and a
-  `gcExecutedDeleteFailures` list. Validated via `jitml-integration`
-  end-to-end against the filesystem `HasMinIO` instance: seeding 3
-  manifests + 3 blobs with `LastN 1` produces 2 reap events that
-  delete 2 manifests + 2 blobs with no failures. The pending work
-  is emitting `gc_reaped` Pulsar events on each delete (gated on
-  Sprint 4.4 live broker).
+- Emit `gc_reaped` Pulsar events for each delete and validate the
+  deletion path against live HTTP MinIO once Sprint `4.3` / `5.4`
+  lands the real client.
 - Add the per-substrate ULP tolerance measurement to
   `documents/engineering/determinism_contract.md` based on real
   cross-substrate runs from Sprint `12.6`.
@@ -305,26 +298,15 @@ remain target runtime work.
 
 ### Remaining Work
 
-- `JitML.Checkpoint.Store.loadInferenceCheckpoint` is implemented
-  against the typed `HasMinIO` capability class — it reads the
-  `pointers/latest` object, strips the manifest SHA, fetches the
-  binary CBOR manifest via the new `minioReadBytes` method, decodes
-  it, and runs `inferFromManifest` on the weight-only manifest
-  subset (optimizer + RNG parts dropped). Validated via
-  `jitml-integration` against the filesystem `HasMinIO` instance:
-  a CBOR manifest written via `putBlobBytesIfAbsent` round-trips
-  through the loader producing the same inference output as the
-  in-memory `inferFromManifest` call. The live HTTP-backed MinIO
-  variant remains gated on Sprint 4.3.
+- Validate `JitML.Checkpoint.Store.loadInferenceCheckpoint` against
+  `JitML.Service.MinIOSubprocess`, the live HTTP-backed MinIO client from
+  Sprint `4.3` / `5.4`.
 - Wire FFI `KernelHandle` loading through `JitML.Engines.Local` (and
   the future per-substrate engines) so inference actually executes the
   generated kernel.
-- `jitml inspect replay <manifest-sha>` is implemented in
-  `JitML.App.runInspectReplay`: walks the local checkpoint store under
-  `.build/checkpoints/`, reads the manifest by content SHA via
-  `CheckpointStore.readCheckpointManifest`, and prints the
-  deterministic `inferFromManifest` summary. Surfaces
-  `AppError InvalidConfig` when the manifest is missing.
+- Extend `jitml inspect replay <manifest-sha>` from the current local
+  checkpoint store path to live MinIO manifests through
+  `JitML.Service.MinIOSubprocess`.
 
 ## Doctrine Sections Cited
 

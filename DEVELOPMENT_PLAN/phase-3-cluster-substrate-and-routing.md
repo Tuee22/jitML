@@ -230,7 +230,7 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
   - `/minio/console` → `minio:9001` (rewrite to `/`)
   - `/minio/s3` → `minio:9000` (rewrite to `/`)
   - `/pulsar/admin` → `pulsar-proxy:80` (rewrite to `/admin`)
-  - `/pulsar/ws` → `pulsar-proxy:80` (WebSocket; rewrite to `/ws`)
+  - `/pulsar/ws` → `pulsar-broker:8080` (WebSocket; rewrite to `/ws`)
 - `chart/templates/httproute-*.yaml` is rendered from the registry, tracked by
   `trackingGeneratedPaths`, and checked by `jitml lint chart`.
 - `documents/engineering/cluster_topology.md` carries the route table inside a
@@ -288,13 +288,13 @@ steady-state cluster is a no-op (exit code `3`).
      the phased rollout are already present, it exits without requiring global
      Helm repository definitions; otherwise it runs `helm dependency build
      chart`.
-  1. **Harbor phase**: bring up Harbor plus the Percona operator and
-     Patroni-managed Postgres required by packaged services, using only the
-     public pulls needed to make Harbor available.
+  1. **Harbor phase**: bring up MinIO for the `harbor-registry` bucket,
+     then the Percona operator plus registered `harbor-pg` database, then
+     Harbor against those live dependencies.
   2. **Image build/load phase**: build the `jitml:local` container and the
      `jitml-demo:local` container, then load both tags explicitly into the
      selected Kind cluster with `kind load docker-image`.
-  3. **Final phase**: MinIO, Pulsar, Envoy Gateway, kube-prometheus-stack,
+  3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
      TensorBoard, the `jitml-service` workload, and the `jitml-demo` workload
      roll out after the local image tags are present in Kind. Live Harbor
      registry push/pull remains Phase `4` / Phase `5` platform-service and

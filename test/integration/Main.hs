@@ -37,6 +37,7 @@ import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
 
 import JitML.Observability.TbSidecar qualified as TbSidecar
 import JitML.Observability.TensorBoard qualified as TensorBoard
+import JitML.Proto.Training qualified as Training
 import JitML.RL.AsyncBuffer qualified as AsyncBuffer
 import JitML.RL.Buffer qualified as Buffer
 import JitML.Routes (renderHTTPRoute, renderRouteTable, routeRegistry)
@@ -48,12 +49,18 @@ import JitML.Service.Capabilities
   , ImageRef (..)
   , ObjectKey (..)
   , ObjectRef (..)
+  , SubscriptionId (..)
+  , TopicName (..)
   )
+import JitML.Service.Consumer (EventDomain (..), eventIdFromPayload)
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
 import JitML.Service.HarborSubprocess qualified as HarborSubprocess
 import JitML.Service.KubectlSubprocess (KubectlSettings (..), defaultKubectlSettings)
-import JitML.Storage.Buckets (bucketNames)
+import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
+import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Service.Runtime qualified as Runtime
+import JitML.Storage.Buckets (bucketNames)
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
@@ -82,9 +89,10 @@ main =
                 , "prepare Helm dependencies with helm dependency build chart"
                 , "create Kind cluster with ./.build/jitml.kubeconfig"
                 , "apply jitml-manual StorageClass and manual PVs"
+                , "install MinIO and Percona storage for Harbor"
                 , "install Harbor bootstrap phase"
                 , "build jitml:local and jitml-demo:local and load them into Kind"
-                , "install MinIO, Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
+                , "install Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
                 , "write ./.build/runtime/cluster-publication.json"
                 ]
       , testCase "kind config render carries extraMounts" $
@@ -124,6 +132,84 @@ main =
                     _ -> liftIO (assertFailure "expected SEConflict on stale-ETag pointer CAS")
                 Left err ->
                   liftIO (assertFailure ("expected first casPointer OK, got: " <> show err))
+      , testCase "MinIOSubprocess renders signed S3 conditional-write commands" $ do
+          let settings = MinIOSubprocess.minioSettingsForLocalEdge 9091
+              ref = ObjectRef (BucketName "jitml-checkpoints") (ObjectKey "pointers/latest")
+              putCommand =
+                MinIOSubprocess.minioPutObjectSubprocess
+                  settings
+                  ref
+                  "/tmp/payload"
+                  "/tmp/body"
+                  "/tmp/etag"
+                  Nothing
+              listCommand =
+                MinIOSubprocess.minioListObjectsSubprocess
+                  settings
+                  (BucketName "jitml-checkpoints")
+                  "pointers/"
+                  "/tmp/body"
+          assertBool
+            "MinIO PUT uses curl AWS SigV4"
+            ("--aws-sigv4 aws:amz:us-east-1:s3" `Text.isInfixOf` renderSubprocess putCommand)
+          assertBool
+            "MinIO PUT uses local demo credentials explicitly"
+            ("--user minio:minioadmin" `Text.isInfixOf` renderSubprocess putCommand)
+          assertBool
+            "MinIO PUT enforces If-None-Match"
+            ("--header 'If-None-Match: *'" `Text.isInfixOf` renderSubprocess putCommand)
+          assertBool
+            "MinIO PUT signs the canonical S3 object URL"
+            ( "http://127.0.0.1:9091/jitml-checkpoints/pointers/latest"
+                `Text.isInfixOf` renderSubprocess putCommand
+            )
+          assertBool
+            "MinIO PUT sends the routed Envoy request target"
+            ( "--request-target /minio/s3/jitml-checkpoints/pointers/latest"
+                `Text.isInfixOf` renderSubprocess putCommand
+            )
+          assertBool
+            "MinIO list uses S3 list-type query"
+            ( "'http://127.0.0.1:9091/jitml-checkpoints?list-type=2&prefix=pointers%2F'"
+                `Text.isInfixOf` renderSubprocess listCommand
+            )
+          assertBool
+            "MinIO list sends the routed Envoy request target"
+            ( "'/minio/s3/jitml-checkpoints?list-type=2&prefix=pointers%2F'"
+                `Text.isInfixOf` renderSubprocess listCommand
+            )
+          MinIOSubprocess.parseListObjectsResponse
+            (BucketName "jitml-checkpoints")
+            "<ListBucketResult><Contents><Key>pointers/latest</Key></Contents></ListBucketResult>"
+            @?= [ObjectRef (BucketName "jitml-checkpoints") (ObjectKey "pointers/latest")]
+      , testCase "PulsarWebSocketSubprocess renders routed producer and consumer commands" $ do
+          let settings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge 9091
+              topic = TopicName "persistent://public/default/training.command.cluster"
+              subscription = SubscriptionId "persistent://public/default/training.command.cluster\njitml-live"
+              publishCommand =
+                PulsarWebSocketSubprocess.pulsarPublishSubprocess
+                  settings
+                  topic
+                  "/tmp/payload"
+                  "/tmp/out"
+              consumeCommand =
+                PulsarWebSocketSubprocess.pulsarConsumeSubprocess
+                  settings
+                  subscription
+                  "/tmp/out"
+          assertBool
+            "Pulsar producer targets the routed WebSocket endpoint"
+            ( "ws://127.0.0.1:9091/pulsar/ws/v2/producer/persistent/public/default/training.command.cluster"
+                `Text.isInfixOf` renderSubprocess publishCommand
+            )
+          assertBool
+            "Pulsar consumer targets the routed WebSocket endpoint"
+            ( "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.cluster/jitml-live"
+                `Text.isInfixOf` renderSubprocess consumeCommand
+            )
+          assertBool
+            "Pulsar WebSocket commands use Node's built-in client"
+            ("node --eval" `Text.isInfixOf` renderSubprocess publishCommand)
       , testCase "CpuFeatures detection picks the right oneDNN micro-kernel knob" $ do
           features <- detectCpuFeatures
           assertBool
@@ -398,6 +484,88 @@ main =
                       (Data.ByteString.length bytes > 0)
                 Left err ->
                   liftIO (assertFailure ("expected sidecar read OK: " <> show err))
+      , testCase "daemon TensorBoard dispatcher writes CheckpointDone sidecar (Sprint 4.6)" $
+          withSystemTempDirectory "jitml-daemon-tb-dispatch" $ \root -> do
+            let checkpoint =
+                  Training.CheckpointDone
+                    { Training.cdExperimentHash = "exp-daemon"
+                    , Training.cdManifestSha = "manifest-daemon"
+                    , Training.cdStep = 77
+                    , Training.cdPointerKey = "jitml-checkpoints/exp-daemon/latest"
+                    , Training.cdEpoch = 3
+                    , Training.cdTrialSha = Just "trial-1"
+                    , Training.cdRunUuid = "run-daemon"
+                    , Training.cdMetricsAtStep = [("loss", 0.125)]
+                    }
+                payload =
+                  Training.renderTrainingEvent
+                    (Training.TrainingCheckpoint checkpoint)
+                eventId = eventIdFromPayload (Text.Encoding.encodeUtf8 payload)
+                expectedKey =
+                  TensorBoard.checkpointSidecarKey
+                    "exp-daemon"
+                    77
+                    "manifest-daemon"
+                ref =
+                  ObjectRef
+                    (BucketName "jitml-tensorboard")
+                    (ObjectKey expectedKey)
+            (dispatchResult, readResult) <-
+              runFilesystemMinIO root $ do
+                result <-
+                  Runtime.daemonTensorBoardDispatcher
+                    TrainingDomain
+                    eventId
+                    payload
+                bytes <- minioReadBytes ref
+                pure (result, bytes)
+            dispatchResult @?= Right ()
+            case readResult of
+              Right bytes ->
+                assertBool
+                  "daemon dispatcher wrote a non-empty sidecar"
+                  (Data.ByteString.length bytes > 0)
+              Left err ->
+                assertFailure ("expected daemon sidecar read OK: " <> show err)
+      , testCase "TensorBoard writer flushes TFRecord shards through HasMinIO (Sprint 4.6)" $
+          withSystemTempDirectory "jitml-tb-writer" $ \root -> do
+            let state0 = TensorBoard.emptyTensorBoardWriterState "exp-writer" "writer-a" 0 10
+                event =
+                  TensorBoard.TensorBoardEvent
+                    { TensorBoard.tbWallTime = 10
+                    , TensorBoard.tbStep = 1
+                    , TensorBoard.tbTag = "loss"
+                    , TensorBoard.tbValue = 0.5
+                    }
+                limits =
+                  TensorBoard.defaultShardRotationLimits
+                    { TensorBoard.shardExplicitFlush = True
+                    }
+                ref = TensorBoard.tensorBoardShardObjectRef state0
+            (writeResult, readResult, duplicateResult) <-
+              runFilesystemMinIO root $ do
+                written <- TensorBoard.writeTensorBoardEvent 10 limits state0 event
+                bytes <- minioReadBytes ref
+                duplicate <- TensorBoard.writeTensorBoardEvent 10 limits state0 event
+                pure (written, bytes, duplicate)
+            case writeResult of
+              Right (Just (TensorBoard.TensorBoardFlushStored storedRef _), state1) -> do
+                storedRef @?= ref
+                TensorBoard.tbwsShardSeq state1 @?= 1
+              other ->
+                assertFailure ("expected stored shard, got: " <> show other)
+            case readResult of
+              Right bytes ->
+                assertBool
+                  "TFRecord shard includes TensorBoard file-version event"
+                  (Text.Encoding.encodeUtf8 "brain.Event:2" `Data.ByteString.isInfixOf` bytes)
+              Left err ->
+                assertFailure ("expected TensorBoard shard read OK: " <> show err)
+            case duplicateResult of
+              Right (Just (TensorBoard.TensorBoardFlushAlreadyPresent duplicateRef), _) ->
+                duplicateRef @?= ref
+              other ->
+                assertFailure ("expected duplicate shard to be idempotent, got: " <> show other)
       , testCase "dockerMirrorPlan emits build + tag + push subprocesses (Sprint 3.5)" $ do
           let localTag = "jitml:local"
               harborTag = "127.0.0.1:9091/library/jitml:dev"
@@ -429,6 +597,9 @@ main =
             "harbor install uses dependency archive"
             ("chart/charts/harbor-1.16.2.tgz" `Text.isInfixOf` rendered)
           assertBool
+            "Harbor install uses direct subchart values"
+            ("--values chart/values/harbor.yaml" `Text.isInfixOf` rendered)
+          assertBool
             "MinIO install uses direct subchart values"
             ("--values chart/values/minio.yaml" `Text.isInfixOf` rendered)
           assertBool
@@ -440,77 +611,144 @@ main =
           assertBool
             "jitml-service install uses checked-in local chart"
             ("chart/local/jitml-service" `Text.isInfixOf` rendered)
-      , testCase "live phased rollout wires the explicit Kind image load phase before final services (Sprint 3.5)" $ do
-          let rendered = fmap renderSubprocess (livePhasedRolloutSubprocesses LinuxCPU "chart")
-              commandText = Text.unlines rendered
-          assertBool
-            "live rollout creates Kind first"
-            ("kind create cluster --name jitml-linux-cpu" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout refreshes the repo kubeconfig when Kind already exists"
-            ("kind export kubeconfig --name jitml-linux-cpu --kubeconfig ./.build/jitml.kubeconfig" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout applies manual storage manifests"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout applies the GatewayClass before the Gateway"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/gatewayclass-jitml.yaml" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout applies the generated Gateway"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/gateway-jitml-edge.yaml" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout applies generated HTTPRoutes"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/httproute-demo-api.yaml" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout applies the Harbor registry route"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/httproute-harbor-registry.yaml" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout builds jitml image"
-            ("docker build -t jitml:local" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout loads jitml image into Kind"
-            ("kind load docker-image jitml:local --name jitml-linux-cpu" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout loads demo image into Kind"
-            ("kind load docker-image jitml-demo:local --name jitml-linux-cpu" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout threads substrate into local charts"
-            ("--set substrate=linux-cpu" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout gives Harbor an explicit localhost externalURL"
-            ("--set-string externalURL=http://127.0.0.1:9091" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout pins Pulsar topic creation to repo kubeconfig"
-            ( "kubectl --kubeconfig ./.build/jitml.kubeconfig exec -n platform pulsar-toolset-0"
-                `Text.isInfixOf` commandText
-            )
-          assertBool
-            "live rollout waits for MinIO readiness before topic bootstrap"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status deployment/minio --timeout=300s" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout verifies MinIO bucket readiness before topic bootstrap"
-            ("/opt/bitnami/minio-client/bin/mc ls jitml-minio/jitml-checkpoints >/dev/null" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout waits for Pulsar broker readiness before topic bootstrap"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status statefulset/pulsar-broker --timeout=300s" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout applies registered PerconaPGCluster manifests"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig apply -n platform -f -" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout waits for the registered service Postgres cluster"
-            ("kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready' --timeout=600s" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout uses the explicit Pulsar admin binary path"
-            ("/pulsar/bin/pulsar-admin topics create" `Text.isInfixOf` commandText)
-          assertBool
-            "live rollout makes Pulsar topic creation idempotent"
-            ("/pulsar/bin/pulsar-admin topics list" `Text.isInfixOf` commandText)
-          assertBool
-            "mirror placeholder chart is not executed by the live path"
-            (not ("helm upgrade --install jitml-mirror" `Text.isInfixOf` commandText))
-          assertBool
-            "live rollout does not rely on the in-cluster Harbor DNS name for local image publication"
-            (not ("docker push harbor.platform.svc.cluster.local" `Text.isInfixOf` commandText))
+      , testCase
+          "live phased rollout wires the explicit Kind image load phase before final services (Sprint 3.5)"
+          $ do
+            let rendered = fmap renderSubprocess (livePhasedRolloutSubprocesses LinuxCPU "chart")
+                commandText = Text.unlines rendered
+            assertBool
+              "live rollout creates Kind first"
+              ("kind create cluster --name jitml-linux-cpu" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout refreshes the repo kubeconfig when Kind already exists"
+              ( "kind export kubeconfig --name jitml-linux-cpu --kubeconfig ./.build/jitml.kubeconfig"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout applies manual storage manifests"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout applies the GatewayClass before the Gateway"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/gatewayclass-jitml.yaml"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout applies the generated Gateway"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/gateway-jitml-edge.yaml"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout applies generated HTTPRoutes"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/httproute-demo-api.yaml"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout applies the Harbor registry route"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/httproute-harbor-registry.yaml"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout builds jitml image"
+              ("docker build -t jitml:local" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout loads jitml image into Kind"
+              ("kind load docker-image jitml:local --name jitml-linux-cpu" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout loads demo image into Kind"
+              ("kind load docker-image jitml-demo:local --name jitml-linux-cpu" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout threads substrate into local charts"
+              ("--set substrate=linux-cpu" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout applies generated Grafana dashboards"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/grafana-dashboard-daemon-health.yaml"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout applies the generated Prometheus ScrapeConfig"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/prometheus-scrapeconfig-jitml.yaml"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout gives Harbor an explicit localhost externalURL"
+              ("--set-string externalURL=http://127.0.0.1:9091" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout passes Harbor's external database values"
+              ("--values chart/values/harbor.yaml" `Text.isInfixOf` commandText)
+            let (beforeHarbor, _fromHarbor) =
+                  Text.breakOn "helm upgrade --install harbor chart/charts/harbor-1.16.2.tgz" commandText
+            assertBool
+              "live rollout installs MinIO before Harbor so the registry bucket exists"
+              ("helm upgrade --install minio chart/charts/minio-14.8.5.tgz" `Text.isInfixOf` beforeHarbor)
+            assertBool
+              "live rollout checks the Harbor registry bucket before installing Harbor"
+              ( "/opt/bitnami/minio-client/bin/mc ls jitml-minio/harbor-registry >/dev/null"
+                  `Text.isInfixOf` beforeHarbor
+              )
+            assertBool
+              "live rollout waits for harbor-pg before installing Harbor"
+              ( "wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'"
+                  `Text.isInfixOf` beforeHarbor
+              )
+            assertBool
+              "live rollout grants Harbor ownership of the public schema before installing Harbor"
+              ("GRANT ALL ON SCHEMA public TO harbor" `Text.isInfixOf` beforeHarbor)
+            let (beforeObservabilityManifests, _fromObservabilityManifests) =
+                  Text.breakOn
+                    "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/grafana-dashboard-training-throughput.yaml"
+                    commandText
+            assertBool
+              "live rollout installs kube-prometheus-stack before applying dashboard ConfigMaps"
+              ( "helm upgrade --install kube-prometheus-stack"
+                  `Text.isInfixOf` beforeObservabilityManifests
+              )
+            assertBool
+              "live rollout installs jitml-service before applying Prometheus scrape config"
+              ( "helm upgrade --install jitml-service chart/local/jitml-service"
+                  `Text.isInfixOf` beforeObservabilityManifests
+              )
+            assertBool
+              "live rollout pins Pulsar topic creation to repo kubeconfig"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig exec -n platform pulsar-toolset-0"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout waits for MinIO readiness before topic bootstrap"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status deployment/minio --timeout=300s"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout verifies MinIO bucket readiness before topic bootstrap"
+              ( "/opt/bitnami/minio-client/bin/mc ls jitml-minio/jitml-checkpoints >/dev/null"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout waits for Pulsar broker readiness before topic bootstrap"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status statefulset/pulsar-broker --timeout=300s"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout applies registered PerconaPGCluster manifests"
+              ("kubectl --kubeconfig ./.build/jitml.kubeconfig apply -n platform -f -" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout waits for the registered service Postgres cluster"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready' --timeout=600s"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout uses the explicit Pulsar admin binary path"
+              ("/pulsar/bin/pulsar-admin topics create" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout makes Pulsar topic creation idempotent"
+              ("/pulsar/bin/pulsar-admin topics list" `Text.isInfixOf` commandText)
+            assertBool
+              "mirror placeholder chart is not executed by the live path"
+              (not ("helm upgrade --install jitml-mirror" `Text.isInfixOf` commandText))
+            assertBool
+              "live rollout does not rely on the in-cluster Harbor DNS name for local image publication"
+              (not ("docker push harbor.platform.svc.cluster.local" `Text.isInfixOf` commandText))
       , testCase "HarborSubprocess uses explicit local registry settings (Sprint 4.1)" $ do
           let settings =
                 (HarborSubprocess.harborSettingsForLocalEdge 9091)
@@ -520,16 +758,21 @@ main =
               loginCommand = HarborSubprocess.harborLoginSubprocess settings
               listCommand = HarborSubprocess.harborListRepositoriesSubprocess settings "library"
               artifactCommand = HarborSubprocess.harborArtifactStatusSubprocess settings "library" "jitml" "phase4"
-          renderSubprocess loginCommand @?= "docker --host unix:///explicit/docker.sock --config ./.build/docker/harbor login --username admin --password-stdin 127.0.0.1:9091"
+          renderSubprocess loginCommand
+            @?= "docker --host unix:///explicit/docker.sock --config ./.build/docker/harbor login --username admin --password-stdin 127.0.0.1:9091"
           JitML.Sub.Subprocess.subprocessStdin loginCommand @?= Just "Harbor12345"
           renderSubprocess (HarborSubprocess.harborManifestInspectSubprocess settings imageRef)
             @?= "docker --host unix:///explicit/docker.sock --config ./.build/docker/harbor manifest inspect 127.0.0.1:9091/library/jitml:phase4"
           assertBool
             "Harbor API base path is explicit"
-            ("http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories?page_size=100" `Text.isInfixOf` renderSubprocess listCommand)
+            ( "http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories?page_size=100"
+                `Text.isInfixOf` renderSubprocess listCommand
+            )
           assertBool
             "Harbor artifact existence uses the API, not docker manifest inspect"
-            ("http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories/jitml/artifacts/phase4" `Text.isInfixOf` renderSubprocess artifactCommand)
+            ( "http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories/jitml/artifacts/phase4"
+                `Text.isInfixOf` renderSubprocess artifactCommand
+            )
       , testCase "cluster down uses an idempotent Kind delete subprocess (Sprint 3.5)" $ do
           let rendered = renderSubprocess (Helm.kindDeleteSubprocess LinuxCPU)
           assertBool
@@ -546,14 +789,23 @@ main =
           assertBool "Harbor readiness" ("rollout status deployment/harbor-core" `Text.isInfixOf` rendered)
           assertBool "MinIO readiness" ("rollout status deployment/minio" `Text.isInfixOf` rendered)
           assertBool "Pulsar readiness" ("rollout status statefulset/pulsar-broker" `Text.isInfixOf` rendered)
-          assertBool "Prometheus readiness" ("rollout status statefulset/prometheus-kube-prometheus-stack-prometheus" `Text.isInfixOf` rendered)
-          assertBool "TensorBoard readiness" ("rollout status deployment/tensorboard" `Text.isInfixOf` rendered)
-          assertBool "PerconaPGCluster readiness" ("wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'" `Text.isInfixOf` rendered)
+          assertBool
+            "Prometheus readiness"
+            ("rollout status statefulset/prometheus-kube-prometheus-stack-prometheus" `Text.isInfixOf` rendered)
+          assertBool
+            "TensorBoard readiness"
+            ("rollout status deployment/tensorboard" `Text.isInfixOf` rendered)
+          assertBool
+            "PerconaPGCluster readiness"
+            ("wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'" `Text.isInfixOf` rendered)
           assertBool "NVIDIA RuntimeClass check" ("get runtimeclass nvidia" `Text.isInfixOf` rendered)
           assertBool "MinIO bucket readiness exec" ("exec -n platform deploy/minio" `Text.isInfixOf` rendered)
           assertBool
+            "MinIO bucket readiness retries transient service startup"
+            ("for attempt in 1 2 3 4 5 6 7 8 9 10" `Text.isInfixOf` Readiness.renderMinioBucketReadinessCommand)
+          assertBool
             "MinIO bucket readiness uses the in-pod client"
-            ( "/opt/bitnami/minio-client/bin/mc alias set jitml-minio http://127.0.0.1:9000 minio minioadmin >/dev/null"
+            ( "/opt/bitnami/minio-client/bin/mc alias set jitml-minio http://minio.platform.svc.cluster.local:9000 minio minioadmin >/dev/null"
                 `Text.isInfixOf` Readiness.renderMinioBucketReadinessCommand
             )
           mapM_
@@ -689,13 +941,27 @@ main =
             @?= "kubectl --kubeconfig ./.build/jitml.kubeconfig apply --dry-run=client --validate=false -f -"
           JitML.Sub.Subprocess.subprocessStdin cmd @?= Just yaml
           assertBool "rendered PerconaPGCluster names harbor-pg" ("harbor-pg" `Text.isInfixOf` yaml)
-          assertBool "rendered PerconaPGCluster includes required pgBackRest repo" ("    pgbackrest:" `Text.isInfixOf` yaml)
-          assertBool "rendered PerconaPGCluster pins the Postgres image" ("2.5.1-ppg16.8-postgres" `Text.isInfixOf` yaml)
-          assertBool "rendered PerconaPGCluster pins the PgBouncer image" ("2.5.1-ppg16.8-pgbouncer1.24.0" `Text.isInfixOf` yaml)
-          assertBool "rendered PerconaPGCluster pins the pgBackRest image" ("2.5.1-ppg16.8-pgbackrest2.54.2" `Text.isInfixOf` yaml)
-          assertBool "rendered PerconaPGCluster pins manual storage class" ("storageClassName: jitml-manual" `Text.isInfixOf` yaml)
-          assertBool "rendered PerconaPGCluster binds a manual PV by volumeName" ("volumeName: platform-harbor-pg-pv-0" `Text.isInfixOf` yaml)
-          assertBool "rendered PerconaPGCluster binds a manual backup PV by volumeName" ("volumeName: platform-harbor-pg-repo1-pv-0" `Text.isInfixOf` yaml)
+          assertBool
+            "rendered PerconaPGCluster includes required pgBackRest repo"
+            ("    pgbackrest:" `Text.isInfixOf` yaml)
+          assertBool
+            "rendered PerconaPGCluster pins the Postgres image"
+            ("2.5.1-ppg16.8-postgres" `Text.isInfixOf` yaml)
+          assertBool
+            "rendered PerconaPGCluster pins the PgBouncer image"
+            ("2.5.1-ppg16.8-pgbouncer1.24.0" `Text.isInfixOf` yaml)
+          assertBool
+            "rendered PerconaPGCluster pins the pgBackRest image"
+            ("2.5.1-ppg16.8-pgbackrest2.54.2" `Text.isInfixOf` yaml)
+          assertBool
+            "rendered PerconaPGCluster pins manual storage class"
+            ("storageClassName: jitml-manual" `Text.isInfixOf` yaml)
+          assertBool
+            "rendered PerconaPGCluster binds a manual PV by volumeName"
+            ("volumeName: platform-harbor-pg-pv-0" `Text.isInfixOf` yaml)
+          assertBool
+            "rendered PerconaPGCluster binds a manual backup PV by volumeName"
+            ("volumeName: platform-harbor-pg-repo1-pv-0" `Text.isInfixOf` yaml)
       , testCase "KubectlSubprocess settings pin the repo-local kubeconfig explicitly" $ do
           kubectlBinary defaultKubectlSettings @?= "kubectl"
           kubectlKubeconfig defaultKubectlSettings @?= "./.build/jitml.kubeconfig"

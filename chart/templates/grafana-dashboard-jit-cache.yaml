@@ -6,7 +6,7 @@ metadata:
   labels:
     grafana_dashboard: "1"
 data:
-  dashboard.json: |
+  jit-cache.json: |
     {
       "title": "jit-cache",
       "panels": [{"type":"timeseries","targets":[{"expr":"jitml_jit_cache_hits"}]}]

@@ -34,8 +34,8 @@ primitives (`src/JitML/RL/{Policy,VecEnv,Buffer,Loop}.hs`), the
 `training` / `rl` / `tune` proto files (`proto/jitml/*.proto`), and
 their typed Haskell envelopes (`src/JitML/Proto/{Training,Rl,Tune}.hs`)
 are checked in. **Unmet today**: Sprints `8.1`–`8.6` still owe the
-live MinIO dataset fetch, the live Pulsar publish/consume round-trip
-through real `HasMinIO`/`HasPulsar` clients, generated protobuf
+live MinIO dataset fetch through the available `HasMinIO` client, the live
+Pulsar publish/consume round-trip through a real `HasPulsar` client, generated protobuf
 serialization (proto-lens output), and the live convergence / reward
 golden fixtures against real hardware. Detailed remaining work lives in
 each sprint's `### Remaining Work` block below.
@@ -115,8 +115,9 @@ runtime work.
    summary from `src/JitML/App.hs`.
 3. Live validation (target): a real training run against MNIST hits the
    canonical convergence threshold, the trained checkpoint round-trips,
-   and the committed golden curve under `test/golden/sl/mnist/` matches
-   bit-for-bit on the determinism-contract substrate.
+   and the live measured golden curve under
+   `test/golden/sl/<problem-key>/` matches bit-for-bit on the
+   determinism-contract substrate.
 
 ### Remaining Work
 
@@ -124,13 +125,12 @@ runtime work.
   class so `jitml train` fetches real bytes from the
   `jitml-datasets` bucket and SHA-256-verifies against the experiment
   Dhall. The typed `Dataset.hs` surface and `datasetForProblem`
-  resolver are in place; the gap is the live MinIO client (owned by
-  Sprint 5.4 / 4.3).
-- Commit live golden convergence fixtures under
-  `test/golden/sl/<problem-key>/` once the daemon-backed training loop
-  runs on real hardware against real datasets. The deterministic
-  pipeline fixtures (`runDeterministicLoop`) already produce
-  bit-identical curves for the synthetic per-seed model.
+  resolver are in place; the gap is wiring this path to
+  `JitML.Service.MinIOSubprocess`, the live MinIO client from Sprint 4.3.
+- Replace or supplement the current deterministic synthetic fixtures under
+  `test/golden/sl/<problem-key>/` with live measured convergence fixtures
+  once the daemon-backed training loop runs on real hardware against real
+  datasets.
 - Add the live SL convergence assertion to `jitml-sl-canonicals` (Sprint
   `12.3`) once the live MinIO + live cluster path is up.
 
@@ -184,13 +184,10 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 - Generate wire-format protobuf bindings via `proto-lens-protoc` (or
   equivalent) so the typed envelopes in `src/JitML/Proto/Training.hs`
-  round-trip with binary equivalence. The typed surface and the
-  substrate-scoped topic name family already exist.
+  round-trip with binary equivalence.
 - Implement the daemon-side `TrainingHandler` that consumes
   `training.command.<mode>` and publishes `training.event.<mode>` through
-  the `RetryPolicy` boundary against a live Pulsar broker (owned by
-  Sprint 5.5; the at-least-once dedup helper already exists in
-  `JitML.Service.Consumer`).
+  the `RetryPolicy` boundary against a live Pulsar broker.
 - Add the integration test that exercises one real publish → consume
   round-trip on the explicit live validation path.
 
@@ -240,15 +237,11 @@ canonical RL stanza.
 
 - Implement real simulator bindings for cartpole, mountain-car,
   lunar-lander, and atari-subset (e.g., via `inline-c`, an embedded
-  Box2D, and ALE). The typed environment metadata and deterministic
-  per-seed step helper already produce reproducible transcripts the
-  real simulators can be validated against.
+  Box2D, and ALE).
 - Implement the typed env-step boundary (`step :: Env -> Action -> IO
   (Obs, Reward, Done)`) plus render-frame access.
 - Implement the daemon-backed environment loop driven by Sprint `5.5`'s
-  Pulsar consumer — the typed `RL.Loop.runRLLoop` and the `RlHandler`
-  envelope surface in `src/JitML/Proto/Rl.hs` are ready to be plumbed
-  together once the live broker is up.
+  Pulsar consumer.
 
 ## Sprint 8.4: RL Metadata Primitives 🔄
 
@@ -281,9 +274,12 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 - `src/JitML/RL/Buffer.hs` provides the `ReplayBuffer` with
   deterministic insertion + sample ordering, supporting both
   `OnPolicyRollout` and `OffPolicyReplay` modes.
-- `Async` write discipline that keeps MinIO transcript writes off the
-  env-loop hot path lands once the live `HasMinIO` client is wired
-  (Sprint 5.4).
+- `JitML.RL.AsyncBuffer` provides the typed `AsyncBuffer` /
+  `AsyncSink` wrapper around `ReplayBuffer`: `insertAsync` updates the
+  buffer in-place and spawns an async write through the sink, while
+  `drainAsync` waits for pending writes at episode-end / drain boundaries.
+  `jitml-unit` covers deterministic in-order drain behaviour and
+  `jitml-integration` covers a filesystem-backed `HasMinIO` sink.
 
 ### Validation
 
@@ -296,21 +292,9 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 
 ### Remaining Work
 
-- `JitML.RL.AsyncBuffer` provides the typed `AsyncBuffer` +
-  `AsyncSink` wrapper around `JitML.RL.Buffer`: `insertAsync` updates
-  the buffer in-place and spawns an `async` write through the sink so
-  the env loop doesn't block on I/O; `drainAsync` waits for all
-  pending writes at episode-end / drain boundaries. Validated via
-  `jitml-unit` against a deterministic IORef sink: 5 successive
-  inserts produce 5 in-order writes after `drainAsync`, with
-  `pendingAsyncCount = 0` afterwards. The sink interface
-  (`AsyncSink :: [Transition] -> IO AsyncWriteResult`) is the typed
-  contract a `HasMinIO`-backed sink satisfies, and the
-  `jitml-integration` stanza validates that contract end-to-end
-  against the filesystem-backed `HasMinIO` instance: an `AsyncSink`
-  whose closure serialises the transcript batch and writes through
-  `putBlobBytesIfAbsent` lands the bytes at the expected key, and
-  the round-trip read confirms byte-equality.
+- Wire the `AsyncSink` contract to the live HTTP-backed `HasMinIO`
+  client and the daemon-backed RL loop once Sprint `5.4` lands the live
+  object-store client.
 
 ## Sprint 8.5: RL CLI Summaries and Report Hooks 🔄
 
@@ -360,8 +344,7 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 ### Remaining Work
 
 - Generate `proto-lens` Haskell wire bindings to round-trip the
-  envelopes binary-equivalent to other-language clients. The typed
-  envelopes already exist.
+  envelopes binary-equivalent to other-language clients.
 - Implement the daemon-side `RlHandler` that consumes
   `rl.command.<mode>` and emits `rl.event.<mode>` through the
   `RetryPolicy` boundary against a live broker (owned by Sprint 5.5).

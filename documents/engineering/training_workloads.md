@@ -42,8 +42,9 @@ TrainResult` in `src/JitML/SL/Train.hs`.
 | `tiny-imagenet-resnet50` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
 | `california-housing-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
 
-Live convergence thresholds and committed golden curve fixtures remain runtime
-validation work.
+The current deterministic curve fixtures are committed under
+`test/golden/sl/<problem-key>/curve.txt`; live measured convergence thresholds
+remain runtime validation work.
 
 ### `jitml train` CLI
 
@@ -98,9 +99,9 @@ declarations.
 
 ### Policy and Environment
 
-- Current `Policy` carries the typed local policy metadata; target runtime work
-  adds parameter references and the substrate-bound `KernelHandle` for
-  inference.
+- Current `Policy` carries typed policy metadata, parameter references, the
+  substrate binding, and the substrate-bound `KernelHandle` model id; target
+  runtime work loads and executes the referenced kernel.
 - Current `RLEnvironment` metadata plus `VecEnv` combinator cover local
   deterministic stepping; live simulator bindings remain target work.
 - Current `src/JitML/RL/Environments.hs` provides local metadata and a

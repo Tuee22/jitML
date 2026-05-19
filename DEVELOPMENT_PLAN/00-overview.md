@@ -71,8 +71,9 @@ full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
 under `./.build/`, materializes the per-substrate Kind config from
 `./kind/cluster-<substrate>.yaml`, brings up Kind, writes
 `./.build/jitml.kubeconfig` (the user's `~/.kube/config` is never touched), brings
-Harbor up first, then builds `jitml:local` / `jitml-demo:local`, loads those
-tags explicitly into Kind, and rolls out the remaining services using the
+MinIO and the registered `harbor-pg` database up first, then brings Harbor up
+against those dependencies, builds `jitml:local` / `jitml-demo:local`, loads
+those tags explicitly into Kind, and rolls out the remaining services using the
 umbrella chart at `chart/`. The single exposed listener is one
 `127.0.0.1:<edge-port>` socket on the Envoy Gateway; every HTTPRoute in the
 cluster is rendered from the typed registry in `src/JitML/Routes.hs`.
@@ -98,13 +99,16 @@ owned by Phase `8` and Phase `9`'s Active sprints.
 The checkpoint surface provides a typed manifest, split-blob object-key
 renderers, pointer-CAS decisions, the binary `.jmw1` encoder, manifest
 pointer renderer, a filesystem-backed checkpoint store, and deterministic
-inference from the latest checkpoint. The frontend surface provides a
+inference from the latest checkpoint. The live HTTP MinIO capability path is
+implemented by `JitML.Service.MinIOSubprocess` and validated against the routed
+`/minio/s3` edge for write-once conflicts, pointer CAS conflicts, read, list,
+and delete. The frontend surface provides a
 minimal PureScript entrypoint, generated contract file from
 `src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route metadata from
 `src/JitML/Web/Bundle.hs`, and the `jitml-demo` HTTP server in
-`src/JitML/Web/Server.hs`. Live MinIO checkpoint writes, real
-kernel-handle loading, and the compiled Halogen bundle + live WebSocket
-proxy are owned by Phase `10` and Phase `11`'s Active sprints.
+`src/JitML/Web/Server.hs`. Checkpoint-store wiring through the live MinIO
+client, real kernel-handle loading, and the compiled Halogen bundle + live
+WebSocket proxy are owned by Phase `10` and Phase `11`'s Active sprints.
 
 `jitml test all --dry-run` renders the aggregate test plan and non-dry-run
 `jitml test all` invokes every Cabal test-suite stanza (`jitml-unit`,
@@ -181,26 +185,39 @@ moves to Done and the legacy ledger is empty.
   `jitml-checkpoints`, `jitml-datasets`, `jitml-transcripts`,
   `jitml-trials`, `jitml-tensorboard`, `jitml-artifacts` validated through
   the typed in-pod `mc` readiness subprocess; live `harbor-pg`
-  PerconaPGCluster readiness with manual `volumeName`-bound PVs; Apache Pulsar
+  PerconaPGCluster readiness with manual `volumeName`-bound PVs; 2026-05-19
+  live registry-API validation proving Harbor starts against that external
+  database and writes registry objects into MinIO's `harbor-registry` S3
+  bucket; 2026-05-19 live `JitML.Service.MinIOSubprocess` validation proving
+  routed MinIO `If-None-Match` / `If-Match` conflicts map to `SEConflict` and
+  read/list/delete works through `/minio/s3`; Apache Pulsar
   as the control-plane ↔ data-plane bus with topics
   `inference.command.apple-silicon` and `inference.event.apple-silicon`
   for the host↔cluster RPC plus `inference.request.<mode>` /
-  `inference.result.<mode>` for the demo-facing inference flow; Percona
+  `inference.result.<mode>` for the demo-facing inference flow; 2026-05-19
+  live validation proving `/pulsar/admin` works through the edge,
+  `/pulsar/ws` targets `pulsar-broker:8080` with
+  `webSocketServiceEnabled=true`, the full typed topic family exists, and
+  `JitML.Service.PulsarWebSocketSubprocess` publishes and consumes through the
+  routed WebSocket endpoint; Percona
   Operator-managed PostgreSQL for every packaged service that requires
   Postgres (jitML itself has no relational DB on its data path);
-  kube-prometheus-stack for metrics scraping and Grafana dashboard
-  rendering; TensorBoard deployment/event-key rendering. Live readiness
-  and object-store/event-bus effects are owned by Sprints `4.1`–`4.7`'s
-  Remaining Work. Phase:
+  kube-prometheus-stack with live-validated `/grafana` dashboard serving and
+  `/prometheus` scraping of `jitml-service` `/metrics`; TensorBoard
+  deployment/shard-key rendering, Haskell scalar-event writing, checkpoint
+  sidecar dispatch, and routed scalars API readback. Remaining live readiness
+  effects are owned by Sprints `4.1` and `4.7`'s Remaining Work, plus Phase
+  `5` daemon at-least-once Pulsar redelivery. Phase:
   [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md).
 - **`jitml service` daemon.** `BootConfig` / `LiveConfig` renderers,
   lifecycle phases, endpoint responses, structured JSON log rendering,
   service error/retry helpers, payload-hash deduplication, SIGHUP reload
   decisions, capability-class boundaries, stateless `Deployment`
   rendering, POSIX signal/control wiring, graceful-drain readiness, and
-  the in-binary HTTP listener. Live Pulsar/MinIO/Harbor/kubectl clients
-  and the live client flow are owned by Sprints `5.4` / `5.5` / `5.6`'s
-  Remaining Work. Phase:
+  the in-binary HTTP listener. The standalone live MinIO capability client and
+  one-shot Pulsar WebSocket client are validated; live Pulsar/Harbor/kubectl
+  daemon acquisition, long-lived Pulsar redelivery/seek, and live client flow
+  are owned by Sprints `5.4` / `5.5` / `5.6`'s Remaining Work. Phase:
   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md).
 - **Numerical core.** Haskell layer catalog (16 constructors: Dense,
   Embedding, Conv1D, Conv2D, Conv3D, ConvTranspose, ComplexDense,
@@ -260,7 +277,7 @@ moves to Done and the legacy ledger is empty.
   envelopes (`proto/jitml/{training,rl,tune}.proto` and
   `JitML.Proto.{Training,Rl,Tune}`) declare the substrate-scoped Pulsar
   topic family. Live MinIO dataset fetch, daemon-backed training loops,
-  and live Pulsar publish/consume are owned by Sprints `8.1`–`8.6`'s
+  and live Pulsar training/event flow are owned by Sprints `8.1`–`8.6`'s
   Remaining Work. Phase:
   [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md).
 - **RL algorithm catalog, AlphaZero, hyperparameter tuning.** Catalog
@@ -296,9 +313,9 @@ moves to Done and the legacy ledger is empty.
   path, and the GC reconciler surface
   (`RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
   `applyRetentionPolicy`, `buildGcPlan` with `gcReapEvents` and the
-  `gcNoOp` second-invocation detector). Live MinIO effects, live
-  `gc_reaped` Pulsar publish, and real kernel-handle loading are owned
-  by Sprints `10.1`–`10.4`'s Remaining Work. Phase:
+  `gcNoOp` second-invocation detector). Live checkpoint-store use of the
+  MinIO client, live `gc_reaped` Pulsar publish, and real kernel-handle
+  loading are owned by Sprints `10.1`–`10.4`'s Remaining Work. Phase:
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Minimal PureScript entrypoint,
   generated contract file from `src/JitML/Web/Contracts.hs`, typed

@@ -103,7 +103,12 @@ claimRefLines pv =
 
 statefulSetReplicas :: Text -> Text -> Int -> Text -> [ManualPV]
 statefulSetReplicas namespace statefulSet count size =
-  [ ManualPV namespace statefulSet replica size (Just ("data-" <> statefulSet <> "-" <> Text.pack (show replica)))
+  [ ManualPV
+      namespace
+      statefulSet
+      replica
+      size
+      (Just ("data-" <> statefulSet <> "-" <> Text.pack (show replica)))
   | replica <- [0 .. count - 1]
   ]
 

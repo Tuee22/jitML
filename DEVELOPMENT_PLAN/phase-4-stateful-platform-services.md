@@ -26,7 +26,7 @@ all installed and routable through the single Envoy Gateway socket).
 **Met today**: typed chart-values, manual-PV templates, route templates,
 deployment templates, the MinIO bucket registry, the Pulsar topic
 registry/command renderer, the Grafana dashboard renderer, the TensorBoard
-deployment/event-key renderer, and the NVIDIA RuntimeClass manifest are in
+deployment/shard-key renderer, and the NVIDIA RuntimeClass manifest are in
 place; MinIO subchart values live under `minio:` in `chart/values.yaml`;
 `jitml lint chart` rejects values files under `chart/templates/`. The
 typed service-Postgres registry (`JitML.Cluster.PostgresRegistry`) and
@@ -36,24 +36,51 @@ typed `pulsar-admin topics create` subprocess. The capability classes
 (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`) now expose the
 full doctrine-required method set, and `JitML.Service.HarborSubprocess`
 provides the explicit Docker/curl-backed Harbor client settings and command
-surface for push, pull, promote, existence, and repository listing. The route
-registry now targets the actual live Helm service names and includes Harbor's
-Docker registry/token paths (`/v2`, `/service`) alongside `/harbor` and
-`/harbor/api`. Live Linux CPU validation on 2026-05-18 also exercises
+surface for push, pull, promote, existence, and repository listing, while
+`JitML.Service.MinIOSubprocess` provides the subprocess-backed HTTP S3
+`HasMinIO` instance for write-once puts, pointer CAS, reads, listings, and
+deletes. The route registry now targets the actual live Helm service names and
+includes Harbor's Docker registry/token paths (`/v2`, `/service`) alongside
+`/harbor` and `/harbor/api`. Harbor's direct subchart values are now checked in at
+`chart/values/harbor.yaml`; both the umbrella values and live direct install
+set `database.type=external` against
+`harbor-pg-pgbouncer.platform.svc`, with credentials sourced from
+`harbor-pg-secrets`; they also set Harbor registry storage to the MinIO
+`harbor-registry` S3 backend with redirects disabled and 128 MiB chunks. The
+live rollout waits for MinIO bucket readiness and `harbor-pg` readiness, grants
+the `harbor` role ownership of schema `public`, and then installs Harbor. Live
+Linux CPU validation on 2026-05-19 confirms that Harbor starts against the
+external `harbor-pg-pgbouncer.platform.svc` database and stores registry objects
+in the MinIO S3 backend: an OCI artifact pushed through the registry HTTP API to
+`library/jitml-phase4-validate:phase4-20260519120542` returned manifest digest
+`sha256:e763d768dd2fdee99d168ba9a7b0dfe6f6f0ceaabaa417241b6d79e27a7aee4c` from
+both the registry and Harbor API, and MinIO contained the repository layer,
+manifest, and tag-link objects under bucket `harbor-registry`. Live Linux CPU
+validation on 2026-05-18 also exercises
 `JitML.Cluster.Readiness.platformReadinessSubprocesses` against the installed
 Harbor, MinIO, Pulsar, Envoy Gateway, observability, TensorBoard,
-`jitml-service`, and `jitml-demo` rollouts, plus MinIO bucket existence
-through the typed in-pod `mc` readiness subprocess. **Unmet today**: Phase `4` still
-owes the live service-client effects: Harbor S3-backend verification,
-MinIO conditional-write checks,
-`HasPulsar` subscription semantics, Grafana dashboard inspection, Prometheus
-scrape verification, TensorBoard event reads, and CUDA RuntimeClass binding on
-a real NVIDIA worker. Live Linux CPU validation on 2026-05-18 confirms Harbor
-push/promote, pull, repository listing, and artifact existence through
+`jitml-service`, and `jitml-demo` rollouts, plus MinIO bucket existence through
+the typed in-pod `mc` readiness subprocess. Live Linux CPU validation on
+2026-05-19 confirms the Pulsar broker-embedded WebSocket service is enabled,
+`/pulsar/ws` resolves to `pulsar-broker:8080`, the full typed topic family
+exists, and `JitML.Service.PulsarWebSocketSubprocess` publishes and consumes
+through the routed edge. Live Linux CPU validation on 2026-05-19 also confirms
+the Haskell TensorBoard writer serializes TensorFlow-compatible scalar events,
+writes a TFRecord shard through routed `JitML.Service.MinIOSubprocess`, and
+TensorBoard reports the scalar through the routed `/tensorboard` scalars API.
+**Unmet today**: Phase `4` still owes Docker-backed Harbor revalidation against
+the fresh S3/external-Postgres rollout after local HTTP registry handling is
+codified, and CUDA RuntimeClass binding on a real NVIDIA worker.
+Live Linux CPU validation on 2026-05-18 confirms Harbor push/promote, pull,
+repository listing, and artifact existence through
 `JitML.Service.HarborSubprocess` after routing Harbor public paths through the
 chart's `harbor` nginx service, and confirms all seven typed MinIO buckets
-exist through `JitML.Cluster.Readiness.minioBucketReadinessSubprocess`. The
-same live run family now confirms the registered `harbor-pg`
+exist through `JitML.Cluster.Readiness.minioBucketReadinessSubprocess`. Live
+Linux CPU validation on 2026-05-19 confirms
+`JitML.Service.MinIOSubprocess` against the routed
+`http://127.0.0.1:9091/minio/s3` surface: duplicate `If-None-Match: *` writes
+and stale `If-Match` pointer CAS both return `SEConflict`, while read, list,
+and delete succeed. The same live run family now confirms the registered `harbor-pg`
 `PerconaPGCluster` reaches `ready` with three Postgres instances, PgBouncer,
 and the pgBackRest repo backed by explicit manual PV `volumeName` bindings.
 Detailed remaining work lives in each sprint's `### Remaining Work` block
@@ -70,12 +97,15 @@ provisioned dashboards, the jitML-owned TensorBoard chart with MinIO event-
 storage backing, and the NVIDIA `RuntimeClass` that binds to nodes labelled
 `jitml.runtime/gpu=true`.
 
-## Sprint 4.1: Harbor Subchart and Bootstrap-Phase Install 🔄
+## Sprint 4.1: Harbor Subchart and Bootstrap-Phase Install ⏸️
 
-**Status**: Active
+**Status**: Blocked
 **Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
 `src/JitML/Cluster/Publication.hs`, `src/JitML/Bootstrap.hs`,
 `src/JitML/Service/HarborSubprocess.hs`
+**Blocked by**: host Docker daemon support for the local HTTP registry
+`127.0.0.1:9091` as an insecure registry, or a repo-owned Harbor TLS edge that
+Docker accepts without daemon-global configuration.
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -90,9 +120,10 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal),
   version.
 - Current `chart/values.yaml` provides the local Harbor values scaffold and uses
   the `jitml-manual` StorageClass for registry persistence.
-- Target live bootstrap deploys Harbor's portal, core, registry, and notary in
-  the bootstrap phase, then configures its S3 backend against MinIO bucket
-  `harbor-registry` (Sprint `4.3`).
+- Current direct Harbor values configure the registry storage backend as S3
+  against MinIO bucket `harbor-registry` with 128 MiB chunks and redirects
+  disabled for MinIO compatibility. The live rollout now installs MinIO and
+  checks the bucket before installing Harbor.
 - Current `jitml bootstrap --<substrate>` installs Harbor in the first live
   Helm phase, then uses explicit Kind-loaded `jitml:local` /
   `jitml-demo:local` tags for the Phase `3` local workload rollout. The Harbor
@@ -111,8 +142,10 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal),
 1. `chart/Chart.yaml` declares the Harbor subchart dependency.
 2. The local route registry renders `/harbor`, `/harbor/api`, `/v2`, and
    `/service` routes against the live Harbor service names.
-3. Live Linux CPU validation on 2026-05-18 confirms Harbor core, portal,
-   registry, jobservice, database, redis, and trivy rollouts reach Ready.
+3. Live Linux CPU validation on 2026-05-19 confirms Harbor core, portal,
+   registry, jobservice, redis, and trivy rollouts reach Ready against the
+   external Percona `harbor-pg` database and the MinIO-backed S3 registry
+   storage values.
 4. `cabal test jitml-integration` covers the typed `HarborSubprocess` login,
    artifact-existence, manifest-inspect, and repository-list command surface,
    including explicit optional Docker host flag, repo-local Docker config path,
@@ -122,36 +155,40 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal),
    with digest `sha256:ab610bc0672453ee42c1d4f6b052c36208c614ec7ff198eccf3f46ccf0e5710d`,
    lists `library/jitml` through `harborListImages`, and confirms
    `harborImageExists` via Harbor's artifact API.
-6. Live validation target: S3 backend is configured against MinIO bucket
-   `harbor-registry`.
+6. `cabal test jitml-integration` confirms the live rollout installs MinIO
+   and verifies bucket `harbor-registry` before installing Harbor, and that
+   Harbor uses `chart/values/harbor.yaml`.
+7. Live Linux CPU validation on 2026-05-19 pushes a tiny OCI artifact through
+   Harbor's registry HTTP API to
+   `library/jitml-phase4-validate:phase4-20260519120542`, reads it back from
+   `/v2`, confirms Harbor's artifact API reports manifest digest
+   `sha256:e763d768dd2fdee99d168ba9a7b0dfe6f6f0ceaabaa417241b6d79e27a7aee4c`,
+   and confirms MinIO contains the repository's layer, manifest, and tag-link
+   objects under `harbor-registry/docker/registry/v2/repositories/...`.
+8. Live Linux CPU validation on 2026-05-19 reconfirms Harbor readiness against
+   the fresh S3/external-Postgres rollout, but host Docker login still attempts
+   HTTPS for the HTTP registry:
+   `docker login 127.0.0.1:9091` fails with
+   `http: server gave HTTP response to HTTPS client`. The remaining
+   Docker-backed `HasHarbor` push/pull revalidation is blocked until local
+   insecure-registry handling or Harbor TLS is codified.
 
 ### Remaining Work
 
-- The typed `helm install` subprocess for Harbor lives in
-  `JitML.Cluster.Helm.helmInstallSubprocess` and is sequenced first
-  in `JitML.Cluster.Helm.phasedReleases` (HarborPhase). The live rollout
-  invokes it from `JitML.Bootstrap` against the repo-local kubeconfig and
-  passes an explicit `externalURL=http://127.0.0.1:<edge-port>` so Harbor's
-  registry auth challenge points at the selected localhost edge.
-  `JitML.Cluster.Readiness.platformReadinessSubprocesses` waits for the
-  Harbor rollouts before topic bootstrap.
-- `JitML.Service.HarborSubprocess` implements
-  `HasHarbor.{harborImageExists,harborPromoteImage,harborPushImage,
-  harborPullImage,harborListImages}` through typed Docker/curl subprocesses.
-  Existence checks use Harbor's `/api/v2.0/projects/.../artifacts/...`
-  endpoint because Docker `manifest inspect` does not reliably report local
-  HTTP Harbor registry artifacts. Live Linux CPU validation has exercised
-  image tag/push through `harborPromoteImage`, pull through
-  `harborPullImage`, project listing through `harborListImages`, and artifact
-  lookup through `harborImageExists`.
-- Verify Harbor's S3 backend against MinIO bucket `harbor-registry` once the
-  MinIO bucket-readiness check from Sprint `4.3` is live.
+- Revalidate `JitML.Service.HarborSubprocess` Docker login, push, pull, list,
+  and artifact-existence commands against the fresh S3/external-Postgres
+  rollout after one blocker is resolved: either the host Docker daemon treats
+  `127.0.0.1:9091` as an insecure registry, or the repo owns a Harbor TLS edge
+  that Docker accepts without daemon-global configuration. The 2026-05-19
+  registry-API push proves Harbor writes to the MinIO backend, but host Docker
+  login to the local HTTP edge still attempted HTTPS in this workstation
+  context.
 - Codify the live Harbor push/pull/list sequence in the future live e2e
   harness once Sprint `12.8` owns always-live cross-cluster execution.
 
-## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres 🔄
+## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
 `chart/templates/pv-platform-harbor-pg-*.yaml`,
 `chart/templates/pv-platform-harbor-pg-repo1-0.yaml`,
@@ -193,11 +230,18 @@ lives in MinIO and Pulsar exclusively.
    `harbor-pg` reaches `ready` in namespace `platform`, with
    `postgres=3/3`, `pgbouncer=1/1`, host
    `harbor-pg-pgbouncer.platform.svc`, and all four manual PVs bound.
-5. Live validation target: Harbor's database values point at the live
-   `harbor-pg` service, and `jitml lint chart` rejects any
-   `PerconaPGCluster` outside the typed service-Postgres registry.
+5. `cabal test jitml-integration` confirms the live rollout installs the
+   Percona operator, applies the registered `harbor-pg` CR, waits for
+   `perconapgcluster/harbor-pg` readiness, grants the `harbor` role schema
+   ownership on the current primary, and only then installs Harbor with
+   `--values chart/values/harbor.yaml`.
+6. `cabal run jitml -- lint chart` rejects any `PerconaPGCluster` outside
+   the typed service-Postgres registry.
+7. Live Linux CPU validation on 2026-05-19 confirms Harbor starts successfully
+   against the external `harbor-pg-pgbouncer.platform.svc` database endpoint
+   after the pre-Harbor schema ownership grant.
 
-### Remaining Work
+### Closure State
 
 - `JitML.Cluster.PostgresRegistry.postgresRegistry` is the typed
   service-Postgres registry with `harbor-pg` in namespace `platform` as
@@ -221,17 +265,24 @@ lives in MinIO and Pulsar exclusively.
 - `JitML.Cluster.Readiness.postgresReadinessSubprocesses` waits for
   `perconapgcluster/harbor-pg` to report `.status.state=ready` before
   Pulsar topic bootstrap.
-- Remaining work: wire Harbor's Helm values to use the live
-  `harbor-pg-pgbouncer.platform.svc` database endpoint instead of Harbor's
-  internal chart database, including the rollout ordering needed to make that
-  external database available before Harbor switches to it.
+- `chart/values/harbor.yaml` is the direct Harbor subchart values file, and
+  `chart/values.yaml` carries the matching umbrella-chart values. Both set
+  `database.type=external`, point at
+  `harbor-pg-pgbouncer.platform.svc:5432`, use database/user `harbor`, and
+  consume `harbor-pg-secrets` for the password with `sslmode=require`
+  because PgBouncer requires TLS. The live rollout installs the Percona
+  operator, applies the registered CR, waits for readiness, runs a typed
+  `kubectl exec ... psql` schema grant on the current primary so Harbor's
+  migration can create tables under `public`, and then installs Harbor with
+  that values file.
 
-## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server 🔄
+## Sprint 4.3: MinIO Subchart, Bucket Provisioning, Conditional-Write Server ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `chart/values.yaml`,
 `src/JitML/Storage/Buckets.hs`,
-`src/JitML/Cluster/Readiness.hs`
+`src/JitML/Cluster/Readiness.hs`,
+`src/JitML/Service/MinIOSubprocess.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
 `documents/engineering/checkpoint_format.md`
 
@@ -258,6 +309,11 @@ buckets, and pin the server to a release with S3 conditional-write support
   from `chart/templates/minio-values.yaml` and `chart/minio-values.yaml` so the
   chart has one values owner.
 - HTTPRoutes for `/minio/console` and `/minio/s3` (Sprint `3.4`).
+- `JitML.Service.MinIOSubprocess` is the live HTTP-backed `HasMinIO`
+  interpreter. It uses `curl --aws-sigv4`, signs the canonical path-style S3
+  object URL, sends routed edge requests with `--request-target /minio/s3/...`
+  so Envoy can rewrite to MinIO's upstream path, and maps MinIO `412` responses
+  to the doctrine's `SEConflict`.
 
 ### Validation
 
@@ -275,35 +331,50 @@ buckets, and pin the server to a release with S3 conditional-write support
    exist through `JitML.Cluster.Readiness.minioBucketReadinessSubprocess`,
    which runs the Bitnami in-pod MinIO client (`mc`) against the local service
    endpoint and checks every bucket from `JitML.Storage.Buckets.bucketNames`.
-7. Live validation target: the `HasMinIO` capability class exercises
-   `If-None-Match: *` PUT and `If-Match: <etag>` pointer CAS against the
-   running cluster.
+7. `cabal test jitml-integration` covers the rendered
+   `JitML.Service.MinIOSubprocess` command surface: explicit local demo
+   credentials, `curl --aws-sigv4`, `If-None-Match: *`, canonical signed S3
+   URLs, routed Envoy `--request-target /minio/s3/...`, and list-response XML
+   parsing.
+8. Live Linux CPU validation on 2026-05-19 exercises the `HasMinIO`
+   capability class against the running MinIO service, both through a direct
+   service port-forward and through the routed
+   `http://127.0.0.1:9091/minio/s3` edge surface: first write returns an
+   `ETag`, duplicate `If-None-Match: *` write returns `SEConflict`, pointer
+   CAS from the current ETag succeeds, stale-Etag CAS returns `SEConflict`,
+   `minioReadObject` returns the updated pointer body, `listObjects` returns
+   the written keys, and `deleteObject` removes them.
 
-### Remaining Work
+### Closure State
 
 - The typed `HasMinIO` capability class exposes the full conditional-write
   surface (`putBlobIfAbsent`, `casPointer`, `listObjects`,
-  `deleteObject`) with `ETag` newtype. A filesystem-backed instance
-  (`JitML.Service.FilesystemMinIO`) honours the same conditional
-  semantics — `putBlobIfAbsent` returns `Left (SEConflict ...)` on the
-  second PUT (the 412 → `SEConflict` mapping doctrine prescribes), and
-  `casPointer` returns `Left (SEConflict ...)` on a stale ETag.
-  Validated by `jitml-integration` against a real on-disk temporary
-  store. The pending work is the live HTTP-backed instance against the
-  running MinIO service.
+  `deleteObject`) with `ETag` newtype. `JitML.Service.FilesystemMinIO`
+  honours the same conditional semantics in local tests, and
+  `JitML.Service.MinIOSubprocess` is the subprocess-backed live HTTP S3
+  implementation for running MinIO.
+- `JitML.Service.MinIOSubprocess.minioSettingsForLocalEdge` models the routed
+  Envoy surface by signing the upstream path-style S3 URL and passing
+  `--request-target /minio/s3/...` to curl. This keeps SigV4 canonical paths
+  aligned with the path that MinIO sees after the HTTPRoute rewrite.
 - `JitML.Cluster.Readiness.minioBucketReadinessSubprocess` is wired into
   `platformReadinessSubprocesses` after the MinIO rollout check and before
   Pulsar topic bootstrap. It executes the Bitnami in-pod `mc` binary from
-  `deploy/minio`, aliases `http://127.0.0.1:9000` with the chart's explicit
-  local demo credentials, and checks every bucket from
-  `JitML.Storage.Buckets.bucketNames`. Live Linux CPU validation confirmed the
-  seven buckets on 2026-05-18.
+  `deploy/minio`, aliases `http://minio.platform.svc.cluster.local:9000` with
+  the chart's explicit local demo credentials, and checks every bucket from
+  `JitML.Storage.Buckets.bucketNames` with a bounded retry loop so the command
+  survives MinIO's setup-server to final-server transition. Live Linux CPU
+  validation confirmed the seven buckets on 2026-05-18, and the retry-hardened
+  command passed against the 2026-05-19 live cluster after an initial transient
+  `connection refused` during that transition.
 
-## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap 🔄
+## Sprint 4.4: Apache Pulsar HA and Topic Bootstrap ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `chart/values.yaml`,
-`src/JitML/Cluster/PulsarBootstrap.hs`
+`chart/values/pulsar.yaml`, `chart/templates/httproute-pulsar-ws.yaml`,
+`src/JitML/Cluster/PulsarBootstrap.hs`,
+`src/JitML/Service/PulsarWebSocketSubprocess.hs`, `src/JitML/Routes.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`
 
 ### Objective
@@ -314,13 +385,21 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 ### Deliverables
 
 - `pulsar` subchart at a pinned HA release.
-- 3 ZooKeepers, 3 BookKeepers, 3 Brokers, 3 Proxies, WebSocket enabled.
+- 3 ZooKeepers, 3 BookKeepers, 3 Brokers, 3 Proxies, WebSocket enabled through
+  broker config `webSocketServiceEnabled=true`.
 - `src/JitML/Cluster/PulsarBootstrap.hs` declares the typed topic family from
   [system-components.md → Pulsar Topic
   Family](system-components.md#pulsar-topic-family) and renders the
   idempotent `/pulsar/bin/pulsar-admin topics list` / `topics create`
   commands executed from `pulsar-toolset-0` after the phased bootstrap rollout.
 - HTTPRoutes for `/pulsar/admin` and `/pulsar/ws` (Sprint `3.4`).
+  `/pulsar/ws` rewrites to `/ws` and now targets `pulsar-broker:8080`, the
+  broker HTTP service that owns the embedded WebSocket endpoint.
+- `JitML.Service.PulsarWebSocketSubprocess` is the live one-shot WebSocket
+  `HasPulsar` interpreter for the routed local edge. It publishes with Node's
+  built-in WebSocket client, opens consumers at the broker WebSocket endpoint,
+  consumes one payload, and acknowledges on that same WebSocket session before
+  closing.
 
 ### Validation
 
@@ -330,32 +409,53 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 3. Live Linux CPU validation on 2026-05-18 reaches Ready Pulsar components and
    creates every topic in
    [system-components.md → Pulsar Topic Family](system-components.md#pulsar-topic-family).
-4. Live validation target: the `HasPulsar` capability class subscribes
-   successfully via the WebSocket proxy.
+4. Live Linux CPU validation on 2026-05-19 confirms
+   `pulsar-broker-0` carries `webSocketServiceEnabled=true`, HTTPRoute
+   `pulsar-ws` is `Accepted=True` / `ResolvedRefs=True` against
+   `pulsar-broker:8080`, and Gateway `jitml-edge` is `Programmed=True`.
+5. Live Linux CPU validation on 2026-05-19 confirms every registered topic in
+   [system-components.md → Pulsar Topic Family](system-components.md#pulsar-topic-family)
+   exists in `public/default`.
+6. Live Linux CPU validation on 2026-05-19 opens a routed WebSocket consumer at
+   `ws://127.0.0.1:9091/pulsar/ws/v2/consumer/...`, publishes through the
+   matching routed producer endpoint, receives the same payload, and sends the
+   WebSocket ack.
+7. Live Linux CPU validation on 2026-05-19 exercises
+   `JitML.Service.PulsarWebSocketSubprocess` through the same route:
+   `pulsarPublish` returns broker message id `CBQQAjAA`, and concurrent
+   `pulsarConsume` returns
+   `("persistent://public/default/training.command.cluster",
+   "phase4-haskell-pulsar-1779216327")`.
+8. `cabal test jitml-integration` covers the rendered
+   `JitML.Service.PulsarWebSocketSubprocess` command surface and asserts the
+   producer and consumer target `/pulsar/ws/v2/...` on the routed local edge.
 
-### Remaining Work
+### Closure State
 
-- `JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocesses` is now
-  appended to the typed `liveExecutePhasedRollout` step list in
-  `JitML.Bootstrap`, so `jitml bootstrap --<substrate>` invokes
-  `kubectl --kubeconfig
+- `JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocesses` is appended to
+  the typed `liveExecutePhasedRollout` step list in `JitML.Bootstrap`, so
+  `jitml bootstrap --<substrate>` invokes `kubectl --kubeconfig
   ./.build/jitml.kubeconfig exec -n platform pulsar-toolset-0 -- sh -c
-  '<list namespace>; <create if absent>' <topic>` for every registered topic after
-  the phased Helm rollout completes. The script uses the chart's explicit
+  '<list namespace>; <create if absent>' <topic>` for every registered topic
+  after the phased Helm rollout completes. The script uses the chart's explicit
   `/pulsar/bin/pulsar-admin` path and treats an already-created topic as
-  reconciled. Sprint `3.5` live validation confirmed the topic family exists
-  in `public/default`.
-- The typed `HasPulsar` capability class now exposes
-  `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek`,
-  `pulsarPublish`, `pulsarAcknowledge` with the `SubscriptionId`
-  newtype naming the broker cursor. The pending work is the live
-  instance against the running broker.
-- Integration coverage exercising at-least-once redelivery + payload-hash
-  dedup against a live broker.
+  reconciled.
+- `chart/values.yaml` and `chart/values/pulsar.yaml` set
+  `broker.configData.webSocketServiceEnabled: "true"`, enabling Pulsar's
+  broker-embedded WebSocket service on port `8080`.
+- The `/pulsar/ws` route no longer points at `pulsar-proxy`; it rewrites to
+  `/ws` and targets `pulsar-broker:8080`, which serves `/ws/v2/producer/...`
+  and `/ws/v2/consumer/...`.
+- `JitML.Service.PulsarWebSocketSubprocess` validates the routed
+  publish/consume path through the `HasPulsar` class. It is a one-shot
+  subprocess interpreter: `pulsarConsume` opens a consumer, reads one message,
+  acknowledges it on that same WebSocket session, and closes. The daemon's
+  long-lived at-least-once cursor, explicit post-dispatch ack/redelivery, and
+  seek behavior remain Sprint `5.5` / Sprint `12.7` work.
 
-## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards 🔄
+## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `chart/values.yaml`,
 `src/JitML/Observability/Grafana.hs`,
 `src/JitML/Observability/Prometheus.hs`
@@ -376,8 +476,12 @@ the daemon's `/metrics` endpoint.
   ConfigMaps under `chart/templates/grafana-dashboard-*.yaml`, and protects
   those YAML files through `trackingGeneratedPaths`.
 - `src/JitML/Observability/Prometheus.hs` declares the typed scrape-target
-  list, renders `chart/templates/prometheus-scrapeconfig-jitml.yaml`, and
-  protects it through `trackingGeneratedPaths`.
+  list for the `jitml-service` daemon's `/metrics` endpoint, renders
+  `chart/templates/prometheus-scrapeconfig-jitml.yaml` with the
+  `release=kube-prometheus-stack` selector label, and protects it through
+  `trackingGeneratedPaths`.
+- `chart/local/jitml-service/templates/service.yaml` exposes the daemon on
+  ClusterIP port `8080` so Prometheus has a stable in-cluster scrape target.
 - HTTPRoutes for `/grafana` and `/prometheus` (Sprint `3.4`).
 
 ### Validation
@@ -387,28 +491,39 @@ the daemon's `/metrics` endpoint.
    surface.
 3. Live Linux CPU validation on 2026-05-18 confirms the kube-prometheus-stack
    operator, Grafana, kube-state-metrics, and Prometheus rollouts reach Ready.
-4. Live validation target: Grafana serves the provisioned dashboards behind
-   `/grafana`, and Prometheus scrapes the `jitml service` `/metrics` endpoint
-   at the declared interval.
+4. Live Linux CPU validation on 2026-05-19 confirms Grafana serves all seven
+   generated jitML dashboards behind `/grafana` (`training-throughput`,
+   `rl-episode-reward`, `alphazero-arena`, `jit-cache`,
+   `pulsar-consumer-lag`, `minio-put-latency`, `daemon-health`), and
+   Prometheus reports
+   `http://jitml-service.platform.svc.cluster.local:8080/metrics` as `up`
+   through the routed `/prometheus` API.
 
-### Remaining Work
+### Closure State
 
-- Confirm Grafana dashboard ConfigMaps are picked up and rendered behind
-  `/grafana`.
-- Confirm Prometheus scrapes the daemon's `/metrics` endpoint successfully
-  through the Envoy listener.
+- The live rollout applies the generated Grafana dashboard ConfigMaps and the
+  generated Prometheus `ScrapeConfig` after the kube-prometheus-stack and
+  `jitml-service` local charts are installed. The dashboard ConfigMaps use
+  unique data keys (`<dashboard-name>.json`) so the Grafana sidecar writes
+  every dashboard to a distinct file under `/tmp/dashboards`.
+- The generated `ScrapeConfig` carries label
+  `release: kube-prometheus-stack`, matching the Prometheus CR's
+  `scrapeConfigSelector`, and targets only
+  `jitml-service.platform.svc.cluster.local:8080` because that daemon service
+  exposes the implemented `/metrics` endpoint.
 
-## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar 🔄
+## Sprint 4.6: TensorBoard with MinIO Event Storage and Checkpoint Sidecar ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Observability/TensorBoard.hs`,
-`proto/tensorboard/event.proto`
+`src/JitML/Proto/TensorBoard.hs`, `src/JitML/Observability/TbSidecar.hs`,
+`src/JitML/Service/Runtime.hs`, `proto/tensorboard/event.proto`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
 `documents/engineering/checkpoint_format.md`
 
 ### Objective
 
-Stand up the local TensorBoard event-key/projection/deployment renderer that the
+Stand up the local TensorBoard shard-key/projection/deployment renderer that the
 target TensorBoard chart will consume. The target chart points at MinIO bucket
 `jitml-tensorboard`, adds a typed event-file writer with shard rotation, and
 writes the CBOR checkpoint sidecar at
@@ -417,92 +532,82 @@ writes the CBOR checkpoint sidecar at
 ### Deliverables
 
 - Current `src/JitML/Observability/TensorBoard.hs` implements deterministic
-  event projection, shard-key rendering under `jitml-tensorboard/.../events/`,
-  and a TensorBoard Deployment renderer.
-- `proto/tensorboard/event.proto` is vendored from TensorFlow for the target
-  binding/codegen path; generated Haskell proto bindings are not present yet.
-- Target TFRecord framing follows [../README.md → TensorBoard event storage →
+  event projection, shard-key rendering under
+  `jitml-tensorboard/<experiment-hash>/shards/<writer-id>-<shard-seq>.tfevents`,
+  TensorBoard Deployment/Service renderers, the in-memory writer state, and
+  write-once shard flushing through `HasMinIO.putBlobBytesIfAbsent`.
+- `proto/tensorboard/event.proto` carries the TensorFlow-compatible minimal
+  `Event` / `Summary.Value.simple_value` schema used by
+  `JitML.Proto.TensorBoard.encodeTensorBoardEventProto`; the writer prepends
+  the `brain.Event:2` file-version event to the first shard.
+- TFRecord framing follows [../README.md → TensorBoard event storage →
   Format](../README.md#format) (uint64 LE length + masked-CRC32C + payload +
   masked-CRC32C). CRC32C is Castagnoli; the mask is TF's standard rotation
   `((crc >> 15) | (crc << 17)) + 0xa282ead8`.
-- Target bucket layout per [system-components.md → MinIO Bucket
+- Bucket layout follows [system-components.md → MinIO Bucket
   Layout](system-components.md#minio-bucket-layout) and [../README.md →
   Bucket layout](../README.md#bucket-layout): overlay mode default, isolated
   mode per Dhall knob, HPO trials always isolated by trial-hash.
-- Target shard rotation: flush at 4 MiB, 10 s, or explicit `flush` (e.g.
+- Shard rotation flushes at 4 MiB, 10 s, or explicit `flush` (e.g.
   `CheckpointDone`, graceful shutdown, SIGTERM drain). PUTs use `If-None-
   Match: *`; the same `(writer-id, shard-seq)` is idempotent.
-- Target `TbCheckpointMarker` CBOR sidecar (`tcmStep`, `tcmEpoch`, `tcmManifestSha`,
+- `TbCheckpointMarker` CBOR sidecar (`tcmStep`, `tcmEpoch`, `tcmManifestSha`,
   `tcmExperimentSha`, `tcmTrialSha`, `tcmRunUuid`, `tcmMetricsAtStep`)
   written on every `CheckpointDone`.
-- HTTPRoute for `/tensorboard` (Sprint `3.4`).
+- `JitML.Observability.TbSidecar.dispatchCheckpointPayload` parses rendered
+  `CheckpointDone` envelopes, converts them to `TbCheckpointMarker`, and
+  `JitML.Service.Runtime.daemonTensorBoardDispatcher` wires the side effect
+  into the daemon dispatcher contract before Pulsar ack.
+- HTTPRoute for `/tensorboard` routes the TensorBoard Service through the
+  single Envoy Gateway listener (Sprint `3.4`).
 
 ### Validation
 
-1. `src/JitML/Observability/TensorBoard.hs` renders deterministic event
+1. `src/JitML/Observability/TensorBoard.hs` renders deterministic shard
    keys and the TensorBoard deployment surface.
-2. `proto/tensorboard/event.proto` exists for the target binding path.
+2. `proto/tensorboard/event.proto` exists and is exercised by
+   `JitML.Proto.TensorBoard.encodeTensorBoardEventProto`.
 3. Live Linux CPU validation on 2026-05-18 confirms the TensorBoard rollout
    reaches Ready.
-4. Live validation target: TensorBoard serves behind `/tensorboard`, reads
-   TFRecord shards from MinIO bucket
-   `jitml-tensorboard`, and a `CheckpointDone` event causes the
-   `TbCheckpointMarker` CBOR sidecar to land under
-   `jitml-tensorboard/<experiment-hash>/checkpoints/`.
+4. Live Linux CPU validation on 2026-05-19 confirms the TensorBoard chart uses
+   a native `python:3.11-slim` TensorBoard container with
+   `tensorboard==2.16.2`, `setuptools==69.5.1`, and `numpy<2`, plus a
+   Bitnami MinIO client sidecar that mirrors bucket `jitml-tensorboard` into an
+   `emptyDir` mounted at `/tensorboard/logs`.
+5. Live Linux CPU validation on 2026-05-19 writes a valid TensorBoard event
+   file to MinIO at
+   `jitml-tensorboard/phase4-live/events/events.out.tfevents.phase4`; the
+   sidecar mirrors it into the pod, `/tensorboard/` returns HTML through Envoy,
+   and `/tensorboard/data/plugin/scalars/tags` reports
+   `phase4-live/events -> phase4/live_scalar`.
+6. Live Linux CPU validation on 2026-05-19 invokes
+   `JitML.Observability.TbSidecar.dispatchCheckpointDone` through
+   `JitML.Service.MinIOSubprocess` against the routed MinIO edge; the write
+   returns ETag `caf7dcd34a56656da5effd135ca931eb`, and MinIO reports the CBOR
+   sidecar object under
+   `jitml-tensorboard/jitml-tensorboard/phase4-live/checkpoints/7-manifest-phase4-live.cbor`.
+7. `jitml-unit` validates the Castagnoli CRC32C vectors, TFRecord frame layout,
+   TensorBoard shard keys, and the TensorFlow-compatible scalar `Event` protobuf
+   encoder against `proto/tensorboard/event.proto`.
+8. `jitml-integration` validates the filesystem-backed `HasMinIO` shard writer:
+   the writer prepends `brain.Event:2`, flushes a TFRecord shard through
+   `putBlobBytesIfAbsent`, increments `tbwsShardSeq`, and treats duplicate
+   `(writer-id, shard-seq)` writes as idempotent success.
+9. `jitml-integration` validates `Runtime.daemonTensorBoardDispatcher` from a
+   rendered `Training.CheckpointDone` payload through `TbSidecar` into the
+   canonical CBOR sidecar key before ack.
+10. Live Linux CPU validation on 2026-05-19 writes a Haskell-encoded scalar
+    shard through routed `JitML.Service.MinIOSubprocess` at
+    `http://127.0.0.1:9091/minio/s3`; TensorBoard's routed scalars API reports
+    `jitml-tensorboard/phase4-haskell-routed-20260519-1555/shards ->
+    phase4/haskell_routed`.
 
-### Remaining Work
+## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ⏸️
 
-- The TFRecord framing writer is implemented as
-  `JitML.Observability.TensorBoard.encodeTfRecord` (with batch helper
-  `encodeTfRecordBatch`); the Castagnoli `crc32cCastagnoli` and TF's
-  `maskedCrc32c` mask `((crc >> 15) | (crc << 17)) + 0xa282ead8` are
-  exposed and validated by `jitml-unit` against canonical CRC32C
-  vectors (empty / single byte / 32 zeros / "123456789") and against a
-  TFRecord round-trip that confirms the length / payload byte
-  positions.
-- Generate Haskell proto bindings from `proto/tensorboard/event.proto`
-  via `proto-lens-protoc` once the dep lands.
-- Shard rotation is implemented as the pure predicate
-  `JitML.Observability.TensorBoard.shouldRotateShard` with knobs
-  carried in `ShardRotationLimits` (4 MiB default byte cap, 10 s
-  default elapsed cap, `shardExplicitFlush` override). Validated by
-  `jitml-unit` against the four-branch decision matrix
-  (keep-open / byte-cap / elapsed-cap / explicit-flush). The pending
-  wiring is the live IO loop that maintains the running byte/elapsed
-  counters and issues `HasMinIO.putBlobBytesIfAbsent` writes keyed by
-  `(writer-id, shard-seq)`.
-- The typed `TbCheckpointMarker` CBOR sidecar
-  (`JitML.Observability.TensorBoard.TbCheckpointMarker` +
-  `encodeTbCheckpointMarker` via `Codec.Serialise`) is in place;
-  validated for deterministic encoding by `jitml-unit`. The writer
-  surface `JitML.Observability.TbSidecar.writeCheckpointSidecar`
-  consumes a `TbCheckpointMarker` and writes the CBOR bytes at
-  `checkpointSidecarKey` through `HasMinIO.putBlobBytesIfAbsent`,
-  validated by `jitml-integration` against the filesystem-backed
-  `HasMinIO` instance. The Consumer-domain entry point is
-  `JitML.Observability.TbSidecar.dispatchCheckpointDone ::
-  HasMinIO m => TbCheckpointMarker -> m (Either ServiceError ETag)`,
-  which derives the sidecar key from the marker's own
-  `tcmExperimentSha` / `tcmStep` / `tcmManifestSha` fields and writes
-  through `writeCheckpointSidecar`. Validated by `jitml-integration`
-  against the filesystem-backed instance: a marker round-trips
-  through the dispatcher and the resulting bytes land at the
-  canonical `checkpointSidecarKey` location. The pending wiring is
-  plugging the `inference.event.<substrate>` payload deserialiser
-  into the Consumer's per-domain dispatcher so it invokes
-  `dispatchCheckpointDone` on each `CheckpointDone` envelope.
-- `JitML.Observability.TensorBoard.renderTensorBoardService` now renders
-  the TensorBoard `Service` manifest alongside the existing Deployment
-  renderer. The checked-in `chart/local/tensorboard` chart now carries
-  both the Deployment and the Service for the live Phase `3` rollout and
-  uses `tensorflow/tensorflow:2.16.1` as a pullable TensorBoard image.
-  Live Linux CPU bootstrap reaches a Running TensorBoard pod. Remaining gap:
-  MinIO-backed event reads through the live rollout path.
-
-## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA 🔄
-
-**Status**: Active
+**Status**: Blocked
 **Implementation**: `chart/templates/runtimeclass-nvidia.yaml`
+**Blocked by**: a host with Docker's `nvidia` runtime installed and a
+qualifying `nvidia-smi` GPU visible to the Linux CUDA Kind worker.
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -530,6 +635,9 @@ activates them at runtime when the pod is scheduled with
    applies and `kubectl get runtimeclass nvidia` succeeds.
 4. Live validation target: a pod with `runtimeClassName: nvidia` lands on
    the labelled Kind worker and successfully runs an `nvidia-smi` probe.
+5. Live Linux CPU validation on 2026-05-19 reconfirms the `RuntimeClass`
+   manifest is present, but this host exposes only Docker `runc` runtimes and
+   no `nvidia-smi`; the GPU scheduling probe is therefore externally blocked.
 
 ### Remaining Work
 

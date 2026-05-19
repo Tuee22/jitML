@@ -6,7 +6,7 @@ metadata:
   labels:
     grafana_dashboard: "1"
 data:
-  dashboard.json: |
+  daemon-health.json: |
     {
       "title": "daemon-health",
       "panels": [{"type":"timeseries","targets":[{"expr":"jitml_daemon_ready"}]}]

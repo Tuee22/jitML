@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Observability.TbSidecar
-  ( dispatchCheckpointDone
+  ( checkpointDoneToMarker
+  , dispatchCheckpointDone
+  , dispatchCheckpointPayload
+  , dispatchTensorBoardSideEffect
   , writeCheckpointSidecar
   )
 where
@@ -15,6 +18,10 @@ import JitML.Observability.TensorBoard
   , checkpointSidecarKey
   , encodeTbCheckpointMarker
   )
+import JitML.Proto.Training
+  ( CheckpointDone (..)
+  , parseTrainingCheckpointDone
+  )
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ETag
@@ -22,6 +29,7 @@ import JitML.Service.Capabilities
   , ObjectKey (..)
   , ObjectRef (..)
   )
+import JitML.Service.Consumer (EventDomain (..))
 import JitML.Service.Retry (ServiceError)
 
 -- | Sprint 4.6 wiring: take a `CheckpointDone`-shaped record (step,
@@ -65,3 +73,36 @@ dispatchCheckpointDone marker =
     (tcmStep marker)
     (tcmManifestSha marker)
     marker
+
+checkpointDoneToMarker :: CheckpointDone -> TbCheckpointMarker
+checkpointDoneToMarker checkpoint =
+  TbCheckpointMarker
+    { tcmStep = cdStep checkpoint
+    , tcmEpoch = cdEpoch checkpoint
+    , tcmManifestSha = cdManifestSha checkpoint
+    , tcmExperimentSha = cdExperimentHash checkpoint
+    , tcmTrialSha = cdTrialSha checkpoint
+    , tcmRunUuid = cdRunUuid checkpoint
+    , tcmMetricsAtStep = cdMetricsAtStep checkpoint
+    }
+
+dispatchCheckpointPayload
+  :: (HasMinIO m)
+  => Text
+  -> m (Maybe (Either ServiceError ETag))
+dispatchCheckpointPayload payload =
+  case parseTrainingCheckpointDone payload of
+    Nothing -> pure Nothing
+    Just checkpoint -> Just <$> dispatchCheckpointDone (checkpointDoneToMarker checkpoint)
+
+dispatchTensorBoardSideEffect
+  :: (HasMinIO m)
+  => EventDomain
+  -> Text
+  -> m (Maybe (Either ServiceError ETag))
+dispatchTensorBoardSideEffect domain payload =
+  case domain of
+    TrainingDomain -> dispatchCheckpointPayload payload
+    InferenceDomain -> dispatchCheckpointPayload payload
+    TuneDomain -> pure Nothing
+    RlDomain -> pure Nothing

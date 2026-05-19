@@ -82,11 +82,11 @@ dependencies:
 |----------|---------|---------------|
 | `harbor` | Image registry | Sprint 4.1 |
 | `pg-operator` + `pg-db` | Percona Operator HA Postgres for packaged services that require Postgres (jitML itself never writes to it) | Sprint 4.2 |
-| `pulsar` | Apache Pulsar HA (3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, WebSocket) | Sprint 4.4 |
+| `pulsar` | Apache Pulsar HA (3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy; broker-embedded WebSocket enabled and routed through `/pulsar/ws`) | Sprint 4.4 |
 | `minio` | Distributed-mode object store (4 replicas) | Sprint 4.3 |
 | `gateway-helm` | Envoy Gateway controller | Sprint 3.3 |
 | `kube-prometheus-stack` | Prometheus operator + Grafana | Sprint 4.5 |
-| `tensorboard` | jitML-owned local chart with MinIO event-storage backing | Sprint 4.6 |
+| `tensorboard` | jitML-owned local chart with MinIO event-storage backing through a MinIO-client mirror sidecar | Sprint 4.6 |
 
 Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes rendered
 from the route registry, EnvoyProxy, manual PVs, `jitml-service` Deployment,
@@ -96,18 +96,24 @@ Prometheus scrape config. The current typed renderers live under
 `src/JitML/Observability/`.
 
 Checked-in jitML-owned local charts live under `chart/local/`:
-`tensorboard`, `jitml-service`, and `jitml-demo`. The typed live rollout
-installs those paths directly and leaves `chart/charts/` as Helm's generated
-dependency cache for third-party archives only.
+`tensorboard`, `jitml-service`, and `jitml-demo`. The `jitml-service` local
+chart includes a ClusterIP Service on port `8080` for the Prometheus scrape
+target. The typed live rollout installs those paths directly and leaves
+`chart/charts/` as Helm's generated dependency cache for third-party archives
+only.
 
 Typed direct-install values live under `chart/values/` and are passed only by
 the corresponding `JitML.Cluster.Helm` subprocess. Current files cover the
-local live footprints for MinIO, Pulsar, and kube-prometheus-stack; Harbor's
-direct install receives typed `--set` / `--set-string` flags for clusterIP
-exposure, disabled local TLS, and `externalURL=http://127.0.0.1:<edge-port>`.
-Those inputs keep the generated dependency archives installable when the live
-rollout installs a subchart `.tgz` directly instead of installing the umbrella
-chart.
+local live footprints for Harbor, MinIO, Pulsar, and kube-prometheus-stack.
+Harbor's direct file, `chart/values/harbor.yaml`, disables local TLS, keeps the
+ClusterIP exposure, and points `database.type=external` at
+`harbor-pg-pgbouncer.platform.svc:5432` with credentials from
+`harbor-pg-secrets` and `sslmode=require`; it also sets registry storage to the MinIO
+`harbor-registry` S3 backend with redirects disabled and a 128 MiB chunk size.
+The live install still receives a typed
+`externalURL=http://127.0.0.1:<edge-port>` override. These inputs keep the
+generated dependency archives installable when the live rollout installs a
+subchart `.tgz` directly instead of installing the umbrella chart.
 
 ## Helm Values Ownership
 
@@ -138,14 +144,17 @@ The target `jitml bootstrap --<substrate>` runs the phased rollout:
    `helm dependency build chart` before any live apply. `Chart.lock` is adopted
    only if reproducible dependency locking becomes part of the release surface;
    `chart/charts/` is not vendored by default.
-1. **Harbor phase**: Harbor plus Percona Operator / Patroni-managed Postgres
-   needed by packaged services comes up first, using only the public pulls
-   required to make Harbor available.
+1. **Harbor phase**: MinIO starts first and the `harbor-registry` bucket is
+   checked, the Percona Operator is installed next, the registered `harbor-pg`
+   cluster is applied and waited ready, a typed `kubectl exec ... psql` grant
+   gives the `harbor` role ownership of schema `public`, and Harbor then starts
+   against `harbor-pg-pgbouncer.platform.svc` and the MinIO S3 backend using
+   the direct subchart values file.
 2. **Image build/load phase**: the `jitml:local` image and the
    `jitml-demo:local` image are built locally, then loaded explicitly into the
    selected Kind cluster with `kind load docker-image`.
-3. **Final phase**: MinIO, Pulsar, Envoy Gateway, kube-prometheus-stack,
-   TensorBoard, the `jitml-service` workload (all substrates: Linux
+3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
+TensorBoard, the `jitml-service` workload (all substrates: Linux
    self-inference plus Apple forward-to-host), and the `jitml-demo` workload
    roll out after the local image tags are present in Kind.
 
@@ -159,7 +168,16 @@ rather than directly to the internal registry service, so Docker receives the
 Bearer-token challenge from Harbor's public auth flow. Live Harbor push/pull is
 validated through `JitML.Service.HarborSubprocess`, whose settings name the
 registry, API base URL, credentials, repo-local Docker config directory,
-optional Docker host socket, Docker binary, and curl binary explicitly.
+optional Docker host socket, Docker binary, and curl binary explicitly. Live
+Linux CPU validation on 2026-05-19 also pushed a tiny OCI artifact through the
+registry HTTP API, confirmed Harbor's artifact API reported the same digest,
+and confirmed MinIO stored the repository layer, manifest, and tag-link objects
+under bucket `harbor-registry`, proving the direct Harbor values use the
+external Postgres and S3 backend path. The remaining Docker-backed
+`HasHarbor` revalidation is blocked on this workstation because the host Docker
+daemon still attempts HTTPS against the local HTTP registry at
+`127.0.0.1:9091`; closure requires either daemon insecure-registry handling or
+a repo-owned Harbor TLS edge.
 
 `jitml cluster up` materializes local Kind, chart, Dhall, and publication inputs
 without mutating a live cluster. `jitml bootstrap --<substrate>` materializes
@@ -170,9 +188,14 @@ manifest apply, platform readiness, and Pulsar-topic subprocesses through the
 `Subprocess` boundary, rewrites the Kind/Gateway/EnvoyProxy inputs from the
 selected edge-port lease, writes `./.build/runtime/cluster-publication.json`
 with that lease and measured Helm release status, and patches the Apple host
-Dhall from the publication. Platform readiness includes rollout checks and an
-in-pod MinIO bucket check that aliases `http://127.0.0.1:9000` through the
-Bitnami `mc` client and lists every bucket from `JitML.Storage.Buckets`.
+Dhall from the publication. Platform readiness includes rollout checks and a
+retry-hardened in-pod MinIO bucket check that aliases
+`http://minio.platform.svc.cluster.local:9000` through the Bitnami `mc` client
+and lists every bucket from `JitML.Storage.Buckets`.
+The live HTTP S3 client is `JitML.Service.MinIOSubprocess`; for the routed
+edge it signs the canonical path-style S3 URL and passes
+`--request-target /minio/s3/...` to curl so Envoy can rewrite the request to
+MinIO's upstream path while SigV4 verification still uses the path MinIO sees.
 External Helm dependencies install from the `.tgz` archives produced by
 `helm dependency build`, using typed values files from `chart/values/` when
 direct subchart installs need values; jitML-owned workloads install from
@@ -180,7 +203,26 @@ direct subchart installs need values; jitML-owned workloads install from
 rollout plus readiness checks, served
 `http://127.0.0.1:9091/api` through Envoy, published the expected Pulsar
 topics, wrote ready publication health, and validated `jitml cluster down`
-teardown.
+teardown. The 2026-05-19 live run confirms `/pulsar/admin` works through the
+edge, `/pulsar/ws` resolves to `pulsar-broker:8080`, the broker config carries
+`webSocketServiceEnabled=true`, and routed WebSocket publish/consume succeeds
+through `JitML.Service.PulsarWebSocketSubprocess`. The 2026-05-19 live run
+revalidated Harbor's preconditions and
+backend wiring with MinIO bucket readiness, `harbor-pg` readiness, schema
+ownership grant, Harbor rollout readiness, and a registry-API artifact write
+that appeared in MinIO. The same 2026-05-19 validation confirms the generated
+Grafana dashboard ConfigMaps are served behind `/grafana` and Prometheus
+reports `jitml-service.platform.svc.cluster.local:8080/metrics` as an `up`
+target behind `/prometheus`. The same 2026-05-19 validation confirms routed
+MinIO `HasMinIO` operations through `http://127.0.0.1:9091/minio/s3`: duplicate
+`If-None-Match: *` writes and stale `If-Match` pointer CAS return `SEConflict`,
+and read, list, and delete succeed. The same 2026-05-19 validation confirms
+TensorBoard serves behind `/tensorboard`, reads a mirrored event shard from the
+`jitml-tensorboard` MinIO bucket via the scalars API, and the CBOR checkpoint
+sidecar writer can write to live routed MinIO. A second 2026-05-19 validation
+writes a Haskell-encoded TensorBoard scalar shard through routed
+`JitML.Service.MinIOSubprocess`; TensorBoard reports
+`phase4/haskell_routed` from the routed scalars API.
 
 ## `jitml-service` Deployment, Not StatefulSet
 
@@ -238,7 +280,7 @@ Hand-written HTTPRoute YAML is hlint-forbidden.
 | `/minio/console` | `minio` | 9001 | `/` | no |
 | `/minio/s3` | `minio` | 9000 | `/` | no |
 | `/pulsar/admin` | `pulsar-proxy` | 80 | `/admin` | no |
-| `/pulsar/ws` | `pulsar-proxy` | 80 | `/ws` | yes |
+| `/pulsar/ws` | `pulsar-broker` | 8080 | `/ws` | yes |
 <!-- jitml:cluster.routes:end -->
 
 This table is regenerated from the route registry (Sprint `3.4`) by
@@ -266,6 +308,10 @@ Missing stage-0 gates return exit code `2` with installation instructions. All
 broader package validation/remediation belongs to the Haskell typed
 prerequisite DAG. Homebrew packages may be installed lazily by `jitml` through
 Plan/Apply prerequisite remediation; shell scripts never install them.
+Live Linux CPU validation on 2026-05-19 confirms the `RuntimeClass nvidia`
+manifest is installed, but this workstation exposes only Docker `runc`
+runtimes and no `nvidia-smi`, so the live CUDA pod scheduling probe remains
+blocked until an NVIDIA-capable worker is available.
 
 ## No Kubeconfig Pollution
 

@@ -14,6 +14,7 @@ module JitML.Service.HarborSubprocess
   )
 where
 
+import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ReaderT, ask, runReaderT)
 import Data.Aeson (FromJSON (..), eitherDecode, withObject, (.:))
@@ -139,7 +140,7 @@ harborArtifactStatusSubprocess settings project repository tag =
         <> tag
     ]
 
-data HarborRepository = HarborRepository
+newtype HarborRepository = HarborRepository
   { repositoryName :: Text
   }
   deriving stock (Eq, Show)
@@ -299,7 +300,7 @@ digestFromDockerOutput =
 invokeUnit :: Text -> Subprocess -> HarborSubprocess (Either ServiceError ())
 invokeUnit tag command = do
   result <- invokeText tag command
-  pure (() <$ result)
+  pure (void result)
 
 invokeText :: Text -> Subprocess -> HarborSubprocess (Either ServiceError Text)
 invokeText tag command = do

@@ -30,6 +30,8 @@ bookkeeper:
 
 broker:
   replicaCount: 1
+  configData:
+    webSocketServiceEnabled: "true"
   podMonitor:
     enabled: false
   affinity:

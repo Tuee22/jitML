@@ -2,22 +2,30 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Observability.TensorBoard
-  ( ShardRotationDecision (..)
+  ( TensorBoardFlushResult (..)
+  , TensorBoardWriterState (..)
+  , ShardRotationDecision (..)
   , ShardRotationLimits (..)
   , TbCheckpointMarker (..)
   , TensorBoardEvent (..)
+  , appendTensorBoardEvent
   , canonicalProjection
   , checkpointSidecarKey
   , crc32cCastagnoli
   , defaultShardRotationLimits
+  , emptyTensorBoardWriterState
   , encodeTbCheckpointMarker
+  , encodeTensorBoardEventProto
   , encodeTfRecord
   , encodeTfRecordBatch
+  , flushTensorBoardWriter
   , maskedCrc32c
   , renderTensorBoardDeployment
   , renderTensorBoardService
   , shardKey
   , shouldRotateShard
+  , tensorBoardShardObjectRef
+  , writeTensorBoardEvent
   )
 where
 
@@ -32,22 +40,35 @@ import Data.Text qualified as Text
 import Data.Word (Word32, Word64, Word8)
 import GHC.Generics (Generic)
 
-data TensorBoardEvent = TensorBoardEvent
-  { tbTag :: Text
-  , tbStep :: Int
-  , tbValue :: Double
-  }
-  deriving stock (Eq, Show)
+import JitML.Proto.TensorBoard
+  ( TensorBoardEvent (..)
+  , encodeTensorBoardEventProto
+  , encodeTensorBoardFileVersionProto
+  )
+import JitML.Service.Capabilities
+  ( BucketName (..)
+  , ETag
+  , HasMinIO (..)
+  , ObjectKey (..)
+  , ObjectRef (..)
+  )
+import JitML.Service.Retry (ServiceError (..))
 
-canonicalProjection :: [TensorBoardEvent] -> [(Text, Int, Double)]
+canonicalProjection :: [TensorBoardEvent] -> [(Text, Word64, Double)]
 canonicalProjection =
   fmap project . sortOn (\event -> (tbTag event, tbStep event))
  where
   project event = (tbTag event, tbStep event, tbValue event)
 
-shardKey :: Text -> Int -> Text
-shardKey experimentHash shardSeq =
-  "jitml-tensorboard/" <> experimentHash <> "/events/" <> Text.pack (show shardSeq) <> ".tfevents"
+shardKey :: Text -> Text -> Word64 -> Text
+shardKey experimentHash writerId shardSeq =
+  "jitml-tensorboard/"
+    <> experimentHash
+    <> "/shards/"
+    <> writerId
+    <> "-"
+    <> Text.pack (show shardSeq)
+    <> ".tfevents"
 
 checkpointSidecarKey :: Text -> Int -> Text -> Text
 checkpointSidecarKey experimentHash step manifestSha =
@@ -79,11 +100,37 @@ renderTensorBoardDeployment =
     , "    spec:"
     , "      containers:"
     , "        - name: tensorboard"
-    , "          image: tensorboard:local"
-    , "          args: [\"--logdir\", \"s3://jitml-tensorboard\"]"
+    , "          image: python:3.11-slim"
+    , "          command: [\"sh\", \"-c\"]"
+    , "          args:"
+    , "            - >-"
+    , "              pip install --no-cache-dir setuptools==69.5.1 'numpy<2' tensorboard==2.16.2"
+    , "              >/tmp/tensorboard-pip.log 2>&1 &&"
+    , "              tensorboard --logdir /tensorboard/logs --bind_all --port 6006"
     , "          ports:"
     , "            - name: http"
     , "              containerPort: 6006"
+    , "          readinessProbe:"
+    , "            httpGet:"
+    , "              path: /"
+    , "              port: http"
+    , "            initialDelaySeconds: 5"
+    , "            periodSeconds: 5"
+    , "          volumeMounts:"
+    , "            - name: tensorboard-logs"
+    , "              mountPath: /tensorboard/logs"
+    , "        - name: minio-sync"
+    , "          image: bitnamilegacy/minio-client:2024.10.29-debian-12-r1"
+    , "          command: [\"sh\", \"-c\"]"
+    , "          args:"
+    , "            - >-"
+    , "              set -eu; /opt/bitnami/minio-client/bin/mc alias set jitml-minio http://minio.platform.svc.cluster.local:9000 minio minioadmin >/dev/null; while true; do /opt/bitnami/minio-client/bin/mc mirror --overwrite jitml-minio/jitml-tensorboard /tensorboard/logs >/dev/null || true; sleep 5; done"
+    , "          volumeMounts:"
+    , "            - name: tensorboard-logs"
+    , "              mountPath: /tensorboard/logs"
+    , "      volumes:"
+    , "        - name: tensorboard-logs"
+    , "          emptyDir: {}"
     ]
 
 -- | TensorBoard Service backing the `/tensorboard` HTTPRoute. Routes Envoy
@@ -125,6 +172,124 @@ encodeTfRecord payload =
 encodeTfRecordBatch :: [ByteString] -> LazyByteString.ByteString
 encodeTfRecordBatch =
   LazyByteString.concat . fmap encodeTfRecord
+
+data TensorBoardWriterState = TensorBoardWriterState
+  { tbwsExperimentHash :: Text
+  , tbwsWriterId :: Text
+  , tbwsShardSeq :: Word64
+  , tbwsStartedAtSeconds :: Int
+  , tbwsBufferedFramesNewestFirst :: [ByteString]
+  , tbwsBufferedBytes :: Word64
+  , tbwsNeedsFileVersion :: Bool
+  }
+  deriving stock (Eq, Show)
+
+data TensorBoardFlushResult
+  = TensorBoardFlushSkippedEmpty
+  | TensorBoardFlushStored ObjectRef ETag
+  | TensorBoardFlushAlreadyPresent ObjectRef
+  deriving stock (Eq, Show)
+
+emptyTensorBoardWriterState :: Text -> Text -> Word64 -> Int -> TensorBoardWriterState
+emptyTensorBoardWriterState experimentHash writerId shardSeq startedAtSeconds =
+  TensorBoardWriterState
+    { tbwsExperimentHash = experimentHash
+    , tbwsWriterId = writerId
+    , tbwsShardSeq = shardSeq
+    , tbwsStartedAtSeconds = startedAtSeconds
+    , tbwsBufferedFramesNewestFirst = []
+    , tbwsBufferedBytes = 0
+    , tbwsNeedsFileVersion = True
+    }
+
+appendTensorBoardEvent :: TensorBoardEvent -> TensorBoardWriterState -> TensorBoardWriterState
+appendTensorBoardEvent event state =
+  state
+    { tbwsBufferedFramesNewestFirst =
+        newFrames <> tbwsBufferedFramesNewestFirst state
+    , tbwsBufferedBytes =
+        tbwsBufferedBytes state + fromIntegral (sum (fmap ByteString.length newFrames))
+    , tbwsNeedsFileVersion = False
+    }
+ where
+  newFrames =
+    scalarFrame
+      : [fileVersionFrame | tbwsNeedsFileVersion state]
+
+  scalarFrame = tfRecordFrame (encodeTensorBoardEventProto event)
+
+  fileVersionFrame = tfRecordFrame (encodeTensorBoardFileVersionProto (tbWallTime event))
+
+tfRecordFrame :: ByteString -> ByteString
+tfRecordFrame =
+  LazyByteString.toStrict . encodeTfRecord
+
+tensorBoardShardObjectRef :: TensorBoardWriterState -> ObjectRef
+tensorBoardShardObjectRef state =
+  ObjectRef
+    (BucketName "jitml-tensorboard")
+    ( ObjectKey
+        ( shardKey
+            (tbwsExperimentHash state)
+            (tbwsWriterId state)
+            (tbwsShardSeq state)
+        )
+    )
+
+flushTensorBoardWriter
+  :: (HasMinIO m)
+  => Int
+  -> TensorBoardWriterState
+  -> m (Either ServiceError (TensorBoardFlushResult, TensorBoardWriterState))
+flushTensorBoardWriter nowSeconds state
+  | null (tbwsBufferedFramesNewestFirst state) =
+      pure
+        ( Right
+            ( TensorBoardFlushSkippedEmpty
+            , state {tbwsStartedAtSeconds = nowSeconds}
+            )
+        )
+  | otherwise = do
+      let ref = tensorBoardShardObjectRef state
+          payload = ByteString.concat (reverse (tbwsBufferedFramesNewestFirst state))
+          nextState = nextTensorBoardShard nowSeconds state
+      putResult <- putBlobBytesIfAbsent ref payload
+      pure $
+        case putResult of
+          Right etag -> Right (TensorBoardFlushStored ref etag, nextState)
+          Left (SEConflict _) -> Right (TensorBoardFlushAlreadyPresent ref, nextState)
+          Left err -> Left err
+
+writeTensorBoardEvent
+  :: (HasMinIO m)
+  => Int
+  -> ShardRotationLimits
+  -> TensorBoardWriterState
+  -> TensorBoardEvent
+  -> m (Either ServiceError (Maybe TensorBoardFlushResult, TensorBoardWriterState))
+writeTensorBoardEvent nowSeconds limits state event =
+  let state' = appendTensorBoardEvent event state
+      elapsedSeconds = max 0 (nowSeconds - tbwsStartedAtSeconds state')
+   in case shouldRotateShard (tbwsBufferedBytes state') elapsedSeconds limits of
+        ShardKeepOpen -> pure (Right (Nothing, state'))
+        _ -> do
+          flushResult <- flushTensorBoardWriter nowSeconds state'
+          pure (firstFlushResult <$> flushResult)
+
+firstFlushResult
+  :: (TensorBoardFlushResult, TensorBoardWriterState)
+  -> (Maybe TensorBoardFlushResult, TensorBoardWriterState)
+firstFlushResult (result, state) =
+  (Just result, state)
+
+nextTensorBoardShard :: Int -> TensorBoardWriterState -> TensorBoardWriterState
+nextTensorBoardShard nowSeconds state =
+  state
+    { tbwsShardSeq = tbwsShardSeq state + 1
+    , tbwsStartedAtSeconds = nowSeconds
+    , tbwsBufferedFramesNewestFirst = []
+    , tbwsBufferedBytes = 0
+    }
 
 -- | TF's standard masked CRC: `((crc >> 15) | (crc << 17)) + 0xa282ead8` mod 2^32.
 maskedCrc32c :: ByteString -> Word32

@@ -13,4 +13,4 @@
 | `/minio/console` | `minio` | 9001 | `/` | no |
 | `/minio/s3` | `minio` | 9000 | `/` | no |
 | `/pulsar/admin` | `pulsar-proxy` | 80 | `/admin` | no |
-| `/pulsar/ws` | `pulsar-proxy` | 80 | `/ws` | yes |
+| `/pulsar/ws` | `pulsar-broker` | 8080 | `/ws` | yes |

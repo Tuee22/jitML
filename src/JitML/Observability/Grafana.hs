@@ -38,7 +38,7 @@ renderDashboardConfigMap dashboard =
     , "  labels:"
     , "    grafana_dashboard: \"1\""
     , "data:"
-    , "  dashboard.json: |"
+    , "  " <> dashboardName dashboard <> ".json: |"
     , "    {"
     , "      \"title\": \"" <> dashboardName dashboard <> "\","
     , "      \"panels\": [{\"type\":\"timeseries\",\"targets\":[{\"expr\":\""

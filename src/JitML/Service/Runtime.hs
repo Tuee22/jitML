@@ -3,6 +3,7 @@
 module JitML.Service.Runtime
   ( DaemonRuntime (..)
   , consumerLoopExit
+  , daemonTensorBoardDispatcher
   , daemonHttpRoutes
   , defaultDaemonRuntime
   , renderDaemonRuntimeSummary
@@ -20,6 +21,7 @@ import Data.Text qualified as Text
 import Data.Foldable (asum)
 
 import JitML.AppError.AppError (AppError (..))
+import JitML.Observability.TbSidecar qualified as TbSidecar
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , HttpListener (..)
@@ -27,7 +29,13 @@ import JitML.Service.BootConfig
   , defaultBootConfig
   , renderBootConfigDhall
   )
-import JitML.Service.Consumer (ConsumerOutcome, consumerOutcomeError)
+import JitML.Service.Capabilities (ETag, HasMinIO)
+import JitML.Service.Consumer
+  ( ConsumerOutcome
+  , EventDomain
+  , EventId
+  , consumerOutcomeError
+  )
 import JitML.Service.Endpoints
   ( EndpointResponse (..)
   , MetricsSnapshot (..)
@@ -39,6 +47,7 @@ import JitML.Service.Endpoints
 import JitML.Service.Http (HttpRoute (..), serveHttpRoutes, serveHttpRoutesOnce)
 import JitML.Service.Lifecycle (lifecyclePlan, renderLifecyclePhase)
 import JitML.Service.LiveConfig (LiveConfig, defaultLiveConfig, renderLiveConfigDhall)
+import JitML.Service.Retry (ServiceError)
 import JitML.Service.Signal
   ( DaemonSignal
   , DaemonSignalAction (..)
@@ -169,3 +178,20 @@ indentText =
 -- §Capability Classes and Service Errors.
 consumerLoopExit :: [ConsumerOutcome] -> Maybe AppError
 consumerLoopExit = asum . fmap consumerOutcomeError
+
+daemonTensorBoardDispatcher
+  :: (HasMinIO m)
+  => EventDomain
+  -> EventId
+  -> Text
+  -> m (Either ServiceError ())
+daemonTensorBoardDispatcher domain _eventId payload = do
+  sideEffect <- TbSidecar.dispatchTensorBoardSideEffect domain payload
+  pure (sideEffectToUnit sideEffect)
+
+sideEffectToUnit :: Maybe (Either ServiceError ETag) -> Either ServiceError ()
+sideEffectToUnit result =
+  case result of
+    Nothing -> Right ()
+    Just (Right _) -> Right ()
+    Just (Left err) -> Left err

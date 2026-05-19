@@ -6,7 +6,7 @@ metadata:
   labels:
     grafana_dashboard: "1"
 data:
-  dashboard.json: |
+  minio-put-latency.json: |
     {
       "title": "minio-put-latency",
       "panels": [{"type":"timeseries","targets":[{"expr":"jitml_minio_put_latency_seconds"}]}]

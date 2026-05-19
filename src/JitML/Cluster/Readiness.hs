@@ -2,6 +2,7 @@
 
 module JitML.Cluster.Readiness
   ( minioBucketReadinessSubprocess
+  , minioBootstrapReadinessSubprocesses
   , platformReadinessSubprocesses
   , postgresReadinessSubprocesses
   , renderMinioBucketReadinessCommand
@@ -26,13 +27,18 @@ platformReadinessSubprocesses =
     <> postgresReadinessSubprocesses
     <> [minioBucketReadinessSubprocess, runtimeClassSubprocess]
 
+minioBootstrapReadinessSubprocesses :: [Subprocess]
+minioBootstrapReadinessSubprocesses =
+  [ rolloutStatusSubprocess "deployment/minio"
+  , minioBucketReadinessSubprocess
+  ]
+
 rolloutTargets :: [Text]
 rolloutTargets =
   [ "deployment/harbor-core"
   , "deployment/harbor-jobservice"
   , "deployment/harbor-portal"
   , "deployment/harbor-registry"
-  , "statefulset/harbor-database"
   , "statefulset/harbor-redis"
   , "statefulset/harbor-trivy"
   , "deployment/minio"
@@ -116,15 +122,20 @@ minioBucketReadinessSubprocess =
 
 renderMinioBucketReadinessCommand :: Text
 renderMinioBucketReadinessCommand =
-  Text.intercalate
-    " && "
-    ( [ minioClient
-          <> " alias set jitml-minio http://127.0.0.1:9000 minio minioadmin >/dev/null"
-      ]
-        <> fmap bucketCheck bucketNames
-    )
+  "for attempt in 1 2 3 4 5 6 7 8 9 10; do "
+    <> bucketReadinessAttempt
+    <> " && exit 0; sleep 2; done; "
+    <> bucketReadinessAttempt
  where
   minioClient = "/opt/bitnami/minio-client/bin/mc"
+  bucketReadinessAttempt =
+    Text.intercalate
+      " && "
+      ( [ minioClient
+            <> " alias set jitml-minio http://minio.platform.svc.cluster.local:9000 minio minioadmin >/dev/null"
+        ]
+          <> fmap bucketCheck bucketNames
+      )
   bucketCheck bucket =
     minioClient <> " ls jitml-minio/" <> bucket <> " >/dev/null"
 

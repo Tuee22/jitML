@@ -11,9 +11,7 @@ import Data.Text qualified as Text
 
 scrapeTargets :: [Text]
 scrapeTargets =
-  [ "jitml-service.platform.svc.cluster.local:8080"
-  , "jitml-demo.platform.svc.cluster.local:80"
-  ]
+  ["jitml-service.platform.svc.cluster.local:8080"]
 
 renderPrometheusScrapeConfig :: Text
 renderPrometheusScrapeConfig =
@@ -23,6 +21,8 @@ renderPrometheusScrapeConfig =
     , "metadata:"
     , "  name: jitml"
     , "  namespace: platform"
+    , "  labels:"
+    , "    release: kube-prometheus-stack"
     , "spec:"
     , "  staticConfigs:"
     , "    - targets:"

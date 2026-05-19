@@ -210,18 +210,20 @@ exactly this hostPath and rejects any other.
 
 ## Hardware Auto-Tuning
 
-`TuningChoice` enumerates per-substrate knob spaces (Metal: workgroup size,
-threadgroup memory; oneDNN: block size variants under the fixed block-
-reduction discipline; CUDA: tile size, warp-shuffle pattern, cuDNN algorithm
-id from the deterministic-only set).
+`JitML.Engines.Tuning` defines the current per-substrate knob spaces (Metal:
+threadgroup size, matmul tile, reduction strategy, single-stream queue
+discipline; oneDNN: micro-kernel, reduction block, thread count, fastmath off;
+CUDA: matmul tile, block dim, deterministic cuDNN algorithm id, reduction
+strategy, TF32 off, fast-math off). `selectDeterministic` picks the deterministic
+default for each axis and `tuningChoiceForResult` emits the cache-key payload.
 
-`AutoTune` runs at JIT time on a cache miss, picks a `TuningChoice` per
-`KernelSpec` based on a per-substrate strategy (latency-vs-throughput
-trade-off, with a default that prioritises bit-determinism). The chosen
-`TuningChoice` is a cache-key input; a knob change invalidates the cache key.
+Target auto-tuning runs at JIT time on a cache miss, benchmarks only
+deterministic choices, and records the selected `TuningChoice` per `KernelSpec`.
+The chosen `TuningChoice` is a cache-key input; a knob change invalidates the
+cache key.
 
-The cuDNN algorithm-id selection is restricted to the deterministic-only
-set. The `--use_fast_math=false` invariant is preserved.
+The cuDNN algorithm-id selection is restricted to the deterministic-only set.
+The `--use_fast_math=false` invariant is preserved.
 
 ## FFI Boundary
 

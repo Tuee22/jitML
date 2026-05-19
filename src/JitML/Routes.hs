@@ -36,7 +36,7 @@ routeRegistry =
   , Route "minio-console" "/minio/console" "minio" 9001 (Just "/") False
   , Route "minio-s3" "/minio/s3" "minio" 9000 (Just "/") False
   , Route "pulsar-admin" "/pulsar/admin" "pulsar-proxy" 80 (Just "/admin") False
-  , Route "pulsar-ws" "/pulsar/ws" "pulsar-proxy" 80 (Just "/ws") True
+  , Route "pulsar-ws" "/pulsar/ws" "pulsar-broker" 8080 (Just "/ws") True
   ]
 
 renderRouteTable :: Text

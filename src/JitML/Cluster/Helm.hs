@@ -16,6 +16,7 @@ module JitML.Cluster.Helm
   )
 where
 
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import System.FilePath ((</>))
@@ -64,9 +65,9 @@ data HelmRelease = HelmRelease
 
 phasedReleases :: [HelmRelease]
 phasedReleases =
-  [ HelmRelease "harbor" "harbor" HarborPhase (Just "harbor-1.16.2.tgz") Nothing
-  , HelmRelease "harbor-pg" "pg-operator" HarborPhase (Just "pg-operator-2.5.1.tgz") Nothing
-  , HelmRelease "minio" "minio" PlatformPhase (Just "minio-14.8.5.tgz") (Just "values/minio.yaml")
+  [ HelmRelease "harbor-pg" "pg-operator" HarborPhase (Just "pg-operator-2.5.1.tgz") Nothing
+  , HelmRelease "minio" "minio" HarborPhase (Just "minio-14.8.5.tgz") (Just "values/minio.yaml")
+  , HelmRelease "harbor" "harbor" HarborPhase (Just "harbor-1.16.2.tgz") (Just "values/harbor.yaml")
   , HelmRelease "pulsar" "pulsar" PlatformPhase (Just "pulsar-3.6.0.tgz") (Just "values/pulsar.yaml")
   , HelmRelease
       "kube-prometheus-stack"
@@ -83,7 +84,7 @@ phasedReleases =
 
 dependencyPackages :: [Text]
 dependencyPackages =
-  [package | Just package <- fmap releasePackage phasedReleases]
+  mapMaybe releasePackage phasedReleases
 
 packageExists :: FilePath -> Text -> Text
 packageExists chartPath package =

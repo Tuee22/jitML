@@ -33,6 +33,15 @@ message CheckpointDone {
   string manifest_sha = 2;
   uint64 step = 3;
   string pointer_key = 4;
+  uint32 epoch = 5;
+  string trial_sha = 6;
+  string run_uuid = 7;
+  repeated ScalarMetric metrics_at_step = 8;
+}
+
+message ScalarMetric {
+  string tag = 1;
+  double value = 2;
 }
 
 message TrainingFailed {

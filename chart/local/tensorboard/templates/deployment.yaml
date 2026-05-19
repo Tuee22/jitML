@@ -16,8 +16,36 @@ spec:
       containers:
         - name: tensorboard
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          command: ["tensorboard"]
-          args: ["--logdir", "s3://jitml-tensorboard"]
+          command: ["sh", "-c"]
+          args:
+            - >-
+              pip install --no-cache-dir
+              setuptools=={{ .Values.tensorboard.setuptoolsVersion }}
+              '{{ .Values.tensorboard.numpyConstraint }}'
+              tensorboard=={{ .Values.tensorboard.version }}
+              >/tmp/tensorboard-pip.log 2>&1 &&
+              tensorboard --logdir /tensorboard/logs --bind_all --port 6006
           ports:
             - name: http
               containerPort: 6006
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: tensorboard-logs
+              mountPath: /tensorboard/logs
+        - name: minio-sync
+          image: "{{ .Values.minioClient.image.repository }}:{{ .Values.minioClient.image.tag }}"
+          command: ["sh", "-c"]
+          args:
+            - >-
+              set -eu; /opt/bitnami/minio-client/bin/mc alias set jitml-minio {{ .Values.minio.endpoint }} {{ .Values.minio.accessKey }} {{ .Values.minio.secretKey }} >/dev/null; while true; do /opt/bitnami/minio-client/bin/mc mirror --overwrite jitml-minio/{{ .Values.minio.bucket }} /tensorboard/logs >/dev/null || true; sleep 5; done
+          volumeMounts:
+            - name: tensorboard-logs
+              mountPath: /tensorboard/logs
+      volumes:
+        - name: tensorboard-logs
+          emptyDir: {}
