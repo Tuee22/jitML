@@ -6,8 +6,8 @@ metadata:
 data:
   BootConfig.dhall: |
     { substrate = "linux-cpu"
-    , residency = Cluster
-    , inferenceMode = SelfInference
+    , residency = < Cluster | Host >.Cluster
+    , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
     , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
@@ -20,5 +20,7 @@ data:
     , tartIdleTimeout = Some 1800
     , inferenceBatchSize = 64
     , inferenceMaxLatencyMillis = 25
+    , dedupCacheSize = 4096
+    , dedupCacheTtlSeconds = 3600
     , drainDeadlineSeconds = 30
     }

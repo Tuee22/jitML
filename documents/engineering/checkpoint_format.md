@@ -37,8 +37,12 @@ Current local helpers cover `deriveExperimentHash`, `blobKey`, `manifestKey`,
 `AdvancePredicate`, and pure `applyPointerWrite` CAS decisions.
 `JitML.Checkpoint.Store` provides the local filesystem-backed interpreter for
 write-once object writes, manifest writes/reads, latest-pointer CAS, retention
-planning, GC execution through `HasMinIO`, and inference from the latest
-checkpoint. `JitML.Service.MinIOSubprocess` provides the live HTTP MinIO
+planning, local manifest discovery for `jitml internal gc`, GC execution
+through `HasMinIO`, and inference from the latest checkpoint. Store-level
+`checkpointObjectRef` adapts the bucket-prefixed key renderers to live
+`HasMinIO` calls by carrying bucket `jitml-checkpoints` separately and using
+keys relative to that bucket.
+`JitML.Service.MinIOSubprocess` provides the live HTTP MinIO
 `HasMinIO` interpreter; 2026-05-19 live Linux CPU validation confirms
 `If-None-Match: *` duplicate writes and stale `If-Match` pointer CAS surface as
 `SEConflict` through the routed `/minio/s3` edge.
@@ -226,12 +230,14 @@ re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
   SHA so the audit trail survives the deletion.
 
 The current store exposes `RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
-`applyRetentionPolicy`, `buildGcPlan`, and `executeGcPlan` over the typed
-`HasMinIO` boundary, with filesystem-backed coverage in tests. The current
-`jitml internal gc <experiment-hash>` prints `gc: <experiment-hash> kept=<n>
-reaped=<n>` and exits `3` when the local plan is a no-op. Live GC traversal
-and deletion through `JitML.Service.MinIOSubprocess`, plus live `gc_reaped`
-Pulsar publication, remain target runtime work.
+`applyRetentionPolicy`, `buildGcPlan`, `listCheckpointManifests`, and
+`executeGcPlan` over the typed `HasMinIO` boundary, with filesystem-backed
+coverage in tests. The current `jitml internal gc <experiment-hash>` scans
+`<cache-dir>/checkpoints/jitml-checkpoints/<experiment-hash>/manifests/`,
+prints `gc: <experiment-hash> kept=<n> reaped=<n>`, and exits `3` when the
+local plan is a no-op. Live GC traversal and deletion through
+`JitML.Service.MinIOSubprocess`, plus live `gc_reaped` Pulsar publication,
+remain target runtime work.
 
 ## Inference-Only Read Path
 
@@ -251,8 +257,12 @@ pointer, fetches the addressed manifest, and applies the same deterministic
 inference helper, and `inferWeightsOnlyFromLatestCheckpoint`, which clears
 optimizer/RNG parts before inference. `loadInferenceCheckpoint` already reads
 the latest pointer and manifest through `HasMinIO` and is covered by the
-filesystem-backed instance; validating that path through
-`JitML.Service.MinIOSubprocess` and real `KernelHandle` loading remain target
+filesystem-backed instance. `loadInferenceCheckpointWith` exposes the
+weight-only manifest to a caller-provided runner, and
+`JitML.Engines.Local.runLinuxCpuCheckpointInference` validates that the local
+Linux CPU path can compile, load, and execute a generated FFI kernel from that
+checkpoint read. Validating the same path through `JitML.Service.MinIOSubprocess`
+and loading real weight blobs into production `KernelHandle`s remain target
 work. The inference-only read path is the supported entrypoint for `jitml-demo`
 and the PureScript panels.
 

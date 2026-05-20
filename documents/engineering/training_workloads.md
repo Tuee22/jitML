@@ -22,8 +22,11 @@ TrainResult` in `src/JitML/SL/Train.hs`.
   canonical problem catalog.
 - Current `Loop.hs` is the typed pipeline backed by the `TrainingLifecycle`
   GADT phases and deterministic convergence curves.
-- Current `Dataset.hs` renders pinned dataset object keys and SHA-256 fixture
-  hashes; live MinIO dataset fetch and source binary validation remain target
+- Current `Dataset.hs` renders pinned dataset object keys, maps them to bucket
+  `jitml-datasets`, exposes `fetchDatasetRef` through the `HasMinIO`
+  capability, and verifies fetched bytes against the pinned SHA-256. The
+  filesystem-backed `HasMinIO` test covers the capability boundary; live
+  routed MinIO fetch from `jitml train` / `TrainingHandler` remains target
   runtime work.
 
 ### Canonical SL Problems
@@ -68,8 +71,9 @@ Machines`, the run lifecycle is the phase-indexed GADT
 `RLRunLifecycle` in `src/JitML/RL/Framework.hs`. Its current data-kind
 phases are `RLCollect → RLComputeAdvantages → RLOptimise → RLEvaluate →
 RLCheckpoint`; `src/JitML/RL/Loop.hs` provides the deterministic local
-`RLLoop` / `runRLLoop` surface. The daemon-backed runtime target additionally
-brackets this with live load/ready/serve/drain states.
+`RLLoop` / `runRLLoop` surface, including deterministic rollout transition
+capture into the local `ReplayBuffer`. The daemon-backed runtime target
+additionally brackets this with live load/ready/serve/drain states.
 
 Current local surfaces live in `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`, `src/JitML/RL/Framework.hs`, and
@@ -235,8 +239,12 @@ scheduler x pruner shape from [../README.md → Hyperparameter tuning,
 first-class](../../README.md#hyperparameter-tuning-first-class).
 The checked-in `experiments/mnist-tune.dhall` file is the target-shape
 `Some Tuning::{ ... }` worked example with a TPE sampler. The current Haskell
-catalog below is a local subset and does not yet decode or execute that TPE
-fixture end to end.
+catalog below covers the full target sampler set, decodes that fixture into
+the local tuning ADT, and renders a deterministic `jitml tune` plan; live
+daemon-backed trial execution remains target work.
+`jitml-hyperparameter` consumes the `tune_trials` and
+`tune_budget_per_trial` report-card knobs from `cabal.project` for the local
+TPE trial-budget assertion.
 
 `TuneSweepLifecycle` GADT (`Sampled → Scheduled → Running → Pruned →
 Reported → Finished`) is the typed lifecycle.
@@ -246,10 +254,17 @@ Reported → Finished`) is the typed lifecycle.
 <!-- jitml:training.tune.samplers:start -->
 | Constructor | Current scope |
 |-------------|---------------|
+| `Grid` | Generated from current Haskell catalog |
 | `Sobol` | Generated from current Haskell catalog |
 | `Random` | Generated from current Haskell catalog |
+| `TPE` | Generated from current Haskell catalog |
+| `GPBO` | Generated from current Haskell catalog |
 | `GeneticAlgorithm` | Generated from current Haskell catalog |
+| `NSGA2` | Generated from current Haskell catalog |
+| `MuLambdaES` | Generated from current Haskell catalog |
+| `CMAES` | Generated from current Haskell catalog |
 | `EvolutionStrategies` | Generated from current Haskell catalog |
+| `PBT` | Generated from current Haskell catalog |
 <!-- jitml:training.tune.samplers:end -->
 
 ### Schedulers (tuner-side)
@@ -296,9 +311,10 @@ jitml tune <tune-dhall>
            [--dry-run | --plan-file <path>]
 ```
 
-Current normal execution prints deterministic local trial values. Target
-runtime work publishes `tune.command.<mode>` for the daemon's at-least-once
-`TuneHandler`.
+Current normal execution decodes the tuning Dhall, renders the selected
+sampler/scheduler/pruner axes, and prints deterministic local trial values.
+Target runtime work publishes `tune.command.<mode>` for the daemon's
+at-least-once `TuneHandler`.
 
 ### Worked Example
 

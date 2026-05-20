@@ -20,6 +20,7 @@ import Network.Socket
   , withSocketsDo
   )
 import Network.Socket.ByteString (recv, sendAll)
+import System.Directory (doesPathExist, findExecutable)
 import System.Exit (ExitCode (..))
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -27,7 +28,7 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import JitML.Cluster.Publication (defaultPublication, publicationEdgePort)
 import JitML.Routes (routeRegistry, routeServiceName)
 import JitML.Service.BootConfig (HttpListener (..))
-import JitML.Service.Http (withHttpRoutesOnce)
+import JitML.Service.Http (HttpRoute (..), withHttpRoutesOnce)
 import JitML.Storage.Buckets (bucketNames)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
@@ -35,6 +36,8 @@ import JitML.Substrate (Substrate (..))
 import JitML.Test.LivePlan (liveE2EPlan, renderLivePlan)
 import JitML.Test.Report
   ( ReportCard (..)
+  , defaultReportCardKnobs
+  , parseReportCardKnobs
   , renderReportCard
   , reportStanzas
   )
@@ -70,6 +73,17 @@ main =
           length apiEndpoints @?= 7
       , testCase "demo route manifest covers edge listener paths" $
           fmap demoRoutePath demoRoutes @?= ["/", "/api", "/api/ws"]
+      , testCase "demo HTTP routes cover generated stream endpoints" $
+          fmap httpRoutePath demoHttpRoutes
+            @?= [ "/"
+                , "/api"
+                , "/api/inference"
+                , "/api/images"
+                , "/api/connect4/move"
+                , "/api/ws"
+                , "/api/ws/training"
+                , "/api/ws/tune"
+                ]
       , testCase "gateway class attaches the local EnvoyProxy service shape" $ do
           gatewayClass <- Text.IO.readFile "chart/templates/gatewayclass-jitml.yaml"
           assertBool "EnvoyProxy parametersRef kind" ("kind: EnvoyProxy" `Text.isInfixOf` gatewayClass)
@@ -95,6 +109,9 @@ main =
           assertBool "report card title" ("jitML POC report card" `isInfixOf` Text.unpack rendered)
           assertBool "report card passed count" ("passed: 10" `isInfixOf` Text.unpack rendered)
           assertBool "report card default knobs" ("rl_steps: 100000" `isInfixOf` Text.unpack rendered)
+      , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
+          cabalProject <- Text.IO.readFile "cabal.project"
+          parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs
       , testCase "live Kind/Helm validation is an explicit typed plan" $ do
           assertBool "live plan starts with helm dependency build" $
             "helm-dependency-build:" `Text.isInfixOf` renderLivePlan liveE2EPlan
@@ -131,14 +148,24 @@ main =
           -- clusters` MUST NOT name any `jitml-e2e-*` cluster. The host
           -- might have other Kind clusters (`jitml-linux-cpu`, etc.); we
           -- only assert the absence of `jitml-e2e-`-prefixed ones.
-          (exitCode, stdoutText, _stderr) <-
-            runStreaming defaultSubprocessEnv (subprocess "kind" ["get", "clusters"])
-          assertBool
-            "kind get clusters exits zero"
-            (case exitCode of ExitSuccess -> True; _ -> False)
-          assertBool
-            "no jitml-e2e-* clusters survive"
-            (not ("jitml-e2e-" `Text.isInfixOf` stdoutText))
+          kind <- findExecutable "kind"
+          case kind of
+            Nothing ->
+              assertBool "kind is absent; live no-leak check is skipped locally" True
+            Just _ -> do
+              hasDockerSocket <- doesPathExist "/var/run/docker.sock"
+              if hasDockerSocket
+                then do
+                  (exitCode, stdoutText, _stderr) <-
+                    runStreaming defaultSubprocessEnv (subprocess "kind" ["get", "clusters"])
+                  assertBool
+                    "kind get clusters exits zero"
+                    (case exitCode of ExitSuccess -> True; _ -> False)
+                  assertBool
+                    "no jitml-e2e-* clusters survive"
+                    (not ("jitml-e2e-" `Text.isInfixOf` stdoutText))
+                else
+                  assertBool "Docker socket is absent; live no-leak check is skipped locally" True
       ]
 
 httpGet :: Int -> String -> IO String

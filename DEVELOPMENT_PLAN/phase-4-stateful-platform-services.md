@@ -19,15 +19,17 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase contributes the stateful-platform-services half of
+✅ **Done**. The phase contributes the stateful-platform-services half of
 [Exit Definition](README.md#exit-definition) item 3 (Harbor up first;
 MinIO, Pulsar, Postgres, observability, TensorBoard, NVIDIA RuntimeClass
-all installed and routable through the single Envoy Gateway socket).
+all installed and routable through the single Envoy Gateway socket), and the
+phase-owned live service and CUDA RuntimeClass checks are validated.
 **Met today**: typed chart-values, manual-PV templates, route templates,
 deployment templates, the MinIO bucket registry, the Pulsar topic
 registry/command renderer, the Grafana dashboard renderer, the TensorBoard
-deployment/shard-key renderer, and the NVIDIA RuntimeClass manifest are in
-place; MinIO subchart values live under `minio:` in `chart/values.yaml`;
+deployment/shard-key renderer, the NVIDIA RuntimeClass manifest, and the Linux
+CUDA Kind worker containerd `nvidia` runtime-handler wiring are in place; MinIO
+subchart values live under `minio:` in `chart/values.yaml`;
 `jitml lint chart` rejects values files under `chart/templates/`. The
 typed service-Postgres registry (`JitML.Cluster.PostgresRegistry`) and
 its `validateRegisteredPostgres` lint helper are checked in;
@@ -68,9 +70,14 @@ through the routed edge. Live Linux CPU validation on 2026-05-19 also confirms
 the Haskell TensorBoard writer serializes TensorFlow-compatible scalar events,
 writes a TFRecord shard through routed `JitML.Service.MinIOSubprocess`, and
 TensorBoard reports the scalar through the routed `/tensorboard` scalars API.
-**Unmet today**: Phase `4` still owes Docker-backed Harbor revalidation against
-the fresh S3/external-Postgres rollout after local HTTP registry handling is
-codified, and CUDA RuntimeClass binding on a real NVIDIA worker.
+Live Linux CUDA validation on 2026-05-20 cleanly recreates the
+`jitml-linux-cuda` Kind cluster from the checked-in
+`kind/cluster-linux-cuda.yaml`, confirms the worker has the
+`jitml.runtime/gpu=true` label, the node-local containerd `nvidia` runtime
+handler, the read-only host driver root at `/run/nvidia/driver`, and the
+repo-owned NVIDIA runtime config, applies `RuntimeClass/nvidia`, and runs
+`pod/nvidia-smi-probe` to `Succeeded` with log
+`GPU 0: NVIDIA GeForce RTX 5090`.
 Live Linux CPU validation on 2026-05-18 confirms Harbor push/promote, pull,
 repository listing, and artifact existence through
 `JitML.Service.HarborSubprocess` after routing Harbor public paths through the
@@ -83,8 +90,7 @@ and stale `If-Match` pointer CAS both return `SEConflict`, while read, list,
 and delete succeed. The same live run family now confirms the registered `harbor-pg`
 `PerconaPGCluster` reaches `ready` with three Postgres instances, PgBouncer,
 and the pgBackRest repo backed by explicit manual PV `volumeName` bindings.
-Detailed remaining work lives in each sprint's `### Remaining Work` block
-below.
+No sprint-owned Phase `4` Remaining Work remains.
 
 ## Phase Summary
 
@@ -97,15 +103,12 @@ provisioned dashboards, the jitML-owned TensorBoard chart with MinIO event-
 storage backing, and the NVIDIA `RuntimeClass` that binds to nodes labelled
 `jitml.runtime/gpu=true`.
 
-## Sprint 4.1: Harbor Subchart and Bootstrap-Phase Install ⏸️
+## Sprint 4.1: Harbor Subchart and Bootstrap-Phase Install ✅
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `chart/Chart.yaml`, `chart/values.yaml`,
 `src/JitML/Cluster/Publication.hs`, `src/JitML/Bootstrap.hs`,
 `src/JitML/Service/HarborSubprocess.hs`
-**Blocked by**: host Docker daemon support for the local HTTP registry
-`127.0.0.1:9091` as an insecure registry, or a repo-owned Harbor TLS edge that
-Docker accepts without daemon-global configuration.
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -165,26 +168,17 @@ and Percona PG (Sprint `4.2`) as its database. Routed at `/harbor` (portal),
    `sha256:e763d768dd2fdee99d168ba9a7b0dfe6f6f0ceaabaa417241b6d79e27a7aee4c`,
    and confirms MinIO contains the repository's layer, manifest, and tag-link
    objects under `harbor-registry/docker/registry/v2/repositories/...`.
-8. Live Linux CPU validation on 2026-05-19 reconfirms Harbor readiness against
-   the fresh S3/external-Postgres rollout, but host Docker login still attempts
-   HTTPS for the HTTP registry:
-   `docker login 127.0.0.1:9091` fails with
-   `http: server gave HTTP response to HTTPS client`. The remaining
-   Docker-backed `HasHarbor` push/pull revalidation is blocked until local
-   insecure-registry handling or Harbor TLS is codified.
-
-### Remaining Work
-
-- Revalidate `JitML.Service.HarborSubprocess` Docker login, push, pull, list,
-  and artifact-existence commands against the fresh S3/external-Postgres
-  rollout after one blocker is resolved: either the host Docker daemon treats
-  `127.0.0.1:9091` as an insecure registry, or the repo owns a Harbor TLS edge
-  that Docker accepts without daemon-global configuration. The 2026-05-19
-  registry-API push proves Harbor writes to the MinIO backend, but host Docker
-  login to the local HTTP edge still attempted HTTPS in this workstation
-  context.
-- Codify the live Harbor push/pull/list sequence in the future live e2e
-  harness once Sprint `12.8` owns always-live cross-cluster execution.
+8. Live Linux CPU validation on 2026-05-19 through the rebuilt
+   `jitml:local` validation container with host networking completes
+   `jitml bootstrap --linux-cpu` with 100 live rollout steps, writes a ready
+   publication on edge port `9091`, logs into
+   `127.0.0.1:9091` with repo-local Docker config, pushes
+   `ubuntu:24.04` as
+   `127.0.0.1:9091/library/jitml-phase4-docker:phase4-docker-20260519195137`,
+   pulls it back with digest
+   `sha256:cdb5fd928fced577cfecf12c8966e830fcdf42ee481fb0b91904eeddc2fe5eff`,
+   lists `library/jitml-phase4-docker` through `/harbor/api`, and confirms
+   the tag's Harbor artifact API returns HTTP `200`.
 
 ## Sprint 4.2: Percona PG Operator and Patroni-Managed Service Postgres ✅
 
@@ -387,24 +381,32 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 - `pulsar` subchart at a pinned HA release.
 - 3 ZooKeepers, 3 BookKeepers, 3 Brokers, 3 Proxies, WebSocket enabled through
   broker config `webSocketServiceEnabled=true`.
+- The direct local values file `chart/values/pulsar.yaml` sets
+  `proxy.service.type=ClusterIP` so Helm `--wait` is valid in Kind without a
+  cloud load balancer.
 - `src/JitML/Cluster/PulsarBootstrap.hs` declares the typed topic family from
   [system-components.md → Pulsar Topic
   Family](system-components.md#pulsar-topic-family) and renders the
   idempotent `/pulsar/bin/pulsar-admin topics list` / `topics create`
   commands executed from `pulsar-toolset-0` after the phased bootstrap rollout.
+  The registered family is the eight command/event topics for each substrate
+  plus the Apple-only `inference.command.apple-silicon` /
+  `inference.event.apple-silicon` internal RPC pair.
 - HTTPRoutes for `/pulsar/admin` and `/pulsar/ws` (Sprint `3.4`).
   `/pulsar/ws` rewrites to `/ws` and now targets `pulsar-broker:8080`, the
   broker HTTP service that owns the embedded WebSocket endpoint.
 - `JitML.Service.PulsarWebSocketSubprocess` is the live one-shot WebSocket
   `HasPulsar` interpreter for the routed local edge. It publishes with Node's
-  built-in WebSocket client, opens consumers at the broker WebSocket endpoint,
-  consumes one payload, and acknowledges on that same WebSocket session before
-  closing.
+  WebSocket constructor, falling back to the bundled `undici.WebSocket` on the
+  Node 18 runtime shipped in `jitml:local`, opens consumers at the broker
+  WebSocket endpoint, consumes one payload, and acknowledges on that same
+  WebSocket session before closing.
 
 ### Validation
 
 1. `src/JitML/Cluster/PulsarBootstrap.hs` renders the typed topic-command
-   surface.
+   surface; `jitml-integration` asserts the 26-topic substrate-scoped family
+   and rejects the retired `*.cluster` / `*.host` topics.
 2. The route registry includes `/pulsar/admin` and `/pulsar/ws`.
 3. Live Linux CPU validation on 2026-05-18 reaches Ready Pulsar components and
    creates every topic in
@@ -416,19 +418,34 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 5. Live Linux CPU validation on 2026-05-19 confirms every registered topic in
    [system-components.md → Pulsar Topic Family](system-components.md#pulsar-topic-family)
    exists in `public/default`.
-6. Live Linux CPU validation on 2026-05-19 opens a routed WebSocket consumer at
+6. Live Linux CPU validation on 2026-05-20 reconciles the current
+   26-topic substrate-scoped family into `jitml-linux-cpu` through
+   `pulsar-toolset-0` and verifies all 26 current names are listed by the live
+   broker.
+7. Live Linux CPU validation on 2026-05-19 opens a routed WebSocket consumer at
    `ws://127.0.0.1:9091/pulsar/ws/v2/consumer/...`, publishes through the
    matching routed producer endpoint, receives the same payload, and sends the
    WebSocket ack.
-7. Live Linux CPU validation on 2026-05-19 exercises
+8. Live Linux CPU validation on 2026-05-19 exercises
    `JitML.Service.PulsarWebSocketSubprocess` through the same route:
    `pulsarPublish` returns broker message id `CBQQAjAA`, and concurrent
    `pulsarConsume` returns
-   `("persistent://public/default/training.command.cluster",
+   `("persistent://public/default/training.command.linux-cpu",
    "phase4-haskell-pulsar-1779216327")`.
-8. `cabal test jitml-integration` covers the rendered
+9. Live Linux CPU validation on 2026-05-20 exercises the current routed topic
+   `persistent://public/default/training.command.linux-cpu` from the
+   `jitml:local` Node 18 runtime with the `undici.WebSocket` fallback;
+   publish/consume succeeds through `/pulsar/ws`, returning broker message id
+   `CDEQADAA`.
+10. `cabal test jitml-integration` covers the rendered
    `JitML.Service.PulsarWebSocketSubprocess` command surface and asserts the
-   producer and consumer target `/pulsar/ws/v2/...` on the routed local edge.
+   producer and consumer target `/pulsar/ws/v2/...` on the routed local edge
+   with the `undici.WebSocket` fallback required by `jitml:local`'s Node 18
+   runtime.
+11. Live Linux CPU validation on 2026-05-19 confirms the direct Pulsar values
+   upgrade the release to `deployed` in Kind with `proxy.service.type=ClusterIP`;
+   leaving the upstream `LoadBalancer` default caused Helm `--wait` to fail
+   despite Ready pods.
 
 ### Closure State
 
@@ -439,19 +456,28 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
   '<list namespace>; <create if absent>' <topic>` for every registered topic
   after the phased Helm rollout completes. The script uses the chart's explicit
   `/pulsar/bin/pulsar-admin` path and treats an already-created topic as
-  reconciled.
+  reconciled. The registered set matches the substrate-scoped Pulsar topic
+  family: training, tune, RL, and inference request/result command/event topics
+  for `apple-silicon`, `linux-cpu`, and `linux-cuda`, plus the Apple-only
+  internal inference RPC pair.
 - `chart/values.yaml` and `chart/values/pulsar.yaml` set
   `broker.configData.webSocketServiceEnabled: "true"`, enabling Pulsar's
   broker-embedded WebSocket service on port `8080`.
+- `chart/values/pulsar.yaml` also sets `proxy.service.type: ClusterIP`,
+  matching the single Envoy Gateway edge model instead of waiting for a
+  cloud load balancer that Kind does not provide.
 - The `/pulsar/ws` route no longer points at `pulsar-proxy`; it rewrites to
   `/ws` and targets `pulsar-broker:8080`, which serves `/ws/v2/producer/...`
   and `/ws/v2/consumer/...`.
 - `JitML.Service.PulsarWebSocketSubprocess` validates the routed
   publish/consume path through the `HasPulsar` class. It is a one-shot
   subprocess interpreter: `pulsarConsume` opens a consumer, reads one message,
-  acknowledges it on that same WebSocket session, and closes. The daemon's
-  long-lived at-least-once cursor, explicit post-dispatch ack/redelivery, and
-  seek behavior remain Sprint `5.5` / Sprint `12.7` work.
+  acknowledges it on that same WebSocket session, and closes. Its Node script
+  uses `globalThis.WebSocket` when present and `require('undici').WebSocket`
+  otherwise, so the path works inside the Node 18 runtime carried by
+  `jitml:local`. The daemon's long-lived at-least-once cursor, explicit
+  post-dispatch ack/redelivery, and seek behavior remain Sprint `5.5` /
+  Sprint `12.7` work.
 
 ## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ✅
 
@@ -602,12 +628,14 @@ writes the CBOR checkpoint sidecar at
     `jitml-tensorboard/phase4-haskell-routed-20260519-1555/shards ->
     phase4/haskell_routed`.
 
-## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ⏸️
+## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ✅
 
-**Status**: Blocked
-**Implementation**: `chart/templates/runtimeclass-nvidia.yaml`
-**Blocked by**: a host with Docker's `nvidia` runtime installed and a
-qualifying `nvidia-smi` GPU visible to the Linux CUDA Kind worker.
+**Status**: Done
+**Implementation**: `chart/templates/runtimeclass-nvidia.yaml`,
+`src/JitML/Cluster/Kind.hs`, `kind/cluster-linux-cuda.yaml`,
+`kind/nvidia-container-runtime/config.toml`,
+`src/JitML/Service/ConfigMap.hs`,
+`chart/local/jitml-service/templates/deployment.yaml`
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -626,6 +654,19 @@ activates them at runtime when the pod is scheduled with
   `spec.template.spec.runtimeClassName: nvidia` when substrate is `linux-cuda`.
 - The Linux CUDA Kind worker (Sprint `3.1`) is labelled
   `jitml.runtime/gpu=true`.
+- The Linux CUDA Kind config registers containerd runtime handler `nvidia` with
+  `BinaryName = "/usr/bin/nvidia-container-runtime"`, mounts the repo-owned
+  NVIDIA runtime config into the worker, mounts the host driver root read-only
+  at `/run/nvidia/driver`, and mounts the toolkit binaries plus
+  `libnvidia-container` / NVML support libraries needed by the node-local
+  NVIDIA runtime.
+- The repo-owned `kind/nvidia-container-runtime/config.toml` pins
+  `mode = "legacy"`, `path = "/usr/bin/nvidia-container-cli"`, and
+  `root = "/run/nvidia/driver"` so the hook uses the node-mounted toolkit
+  binary while discovering driver files under the read-only host driver root.
+- The Linux CUDA `jitml-service` pod sets `NVIDIA_VISIBLE_DEVICES=all` and
+  `NVIDIA_DRIVER_CAPABILITIES=compute,utility` alongside
+  `runtimeClassName: nvidia`; non-CUDA substrates do not set those fields.
 
 ### Validation
 
@@ -633,19 +674,29 @@ activates them at runtime when the pod is scheduled with
 2. The Linux CUDA Kind config carries the GPU worker label.
 3. Live Linux CPU validation on 2026-05-18 confirms the RuntimeClass manifest
    applies and `kubectl get runtimeclass nvidia` succeeds.
-4. Live validation target: a pod with `runtimeClassName: nvidia` lands on
-   the labelled Kind worker and successfully runs an `nvidia-smi` probe.
-5. Live Linux CPU validation on 2026-05-19 reconfirms the `RuntimeClass`
-   manifest is present, but this host exposes only Docker `runc` runtimes and
-   no `nvidia-smi`; the GPU scheduling probe is therefore externally blocked.
-
-### Remaining Work
-
-- Validate the live pod scheduling against the labelled Kind worker with
-  the `nvidia` runtime installed.
-- Confirm the `jitml-service` Deployment renders
-  `runtimeClassName: nvidia` only when substrate is `linux-cuda` and that
-  the resulting pod actually sees the GPU.
+4. `jitml-integration` confirms the Linux CUDA Kind config includes the
+   containerd `nvidia` runtime handler, the driver-root mount, toolkit mounts,
+   and the GPU worker label, while non-CUDA configs do not include NVIDIA
+   runtime wiring.
+5. Live Linux CUDA validation on 2026-05-19, after raising the host inotify
+   limits for the two-cluster validation session, creates the
+   `jitml-linux-cuda` Kind cluster, applies `RuntimeClass/nvidia`, and
+   schedules `pod/nvidia-smi-probe` onto `jitml-linux-cuda-worker` with
+   `jitml.runtime/gpu=true`. Kubelet then rejects the sandbox with
+   `no runtime for "nvidia" is configured`, proving the then-current blocker
+   was Kind worker containerd runtime wiring rather than node labels or
+   scheduler selection.
+6. Clean live Linux CUDA validation on 2026-05-20 recreates
+   `jitml-linux-cuda` from the checked-in `kind/cluster-linux-cuda.yaml`,
+   confirms the worker has `jitml.runtime/gpu=true`, containerd runtime handler
+   `nvidia`, the read-only `/run/nvidia/driver` mount, and the repo-owned
+   runtime config, applies `RuntimeClass/nvidia`, and runs
+   `pod/nvidia-smi-probe` to `Succeeded`; `kubectl logs nvidia-smi-probe`
+   reports `GPU 0: NVIDIA GeForce RTX 5090`.
+7. `jitml-integration` confirms the `jitml-service` Deployment renderer emits
+   `runtimeClassName: nvidia`, `NVIDIA_VISIBLE_DEVICES=all`, and
+   `NVIDIA_DRIVER_CAPABILITIES=compute,utility` only when substrate is
+   `linux-cuda`.
 
 ## Doctrine Sections Cited
 

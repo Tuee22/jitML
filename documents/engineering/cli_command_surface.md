@@ -39,9 +39,12 @@ the `src/JitML/App.hs` composition root. Sprint `1.2` has landed the
 `CommandSpec` registry, generated parser, command tree, `commands --json`, and
 focused `help <subcommand>` surfaces. Sprint `1.3` has landed the generated CLI
 reference, help blocks, manpage, shell completions, and paired docs
-check/generate reconciler. Sprints `1.4` through `1.9` have landed the lint
-surface, Plan/Apply flags, typed subprocess boundary, prerequisite registry,
-`Env` runner, global output flags, and structured error rendering. Sprint `2.1`
+check/generate reconciler. Sprint `1.4` has landed the lint surface and the
+container-owned Haskell style-tool gate: runtime lint uses prebuilt
+`jitml:local` image tools instead of bootstrapping host `ghcup`. Sprints
+`1.5` through `1.9` have landed Plan/Apply flags, typed subprocess boundary,
+prerequisite registry, `Env` runner, global output flags, and structured error
+rendering. Sprint `2.1`
 has added `jitml bootstrap`, `jitml doctor`, `internal materialize-substrate`,
 generated CLI docs for the expanded command surface, and the stage-0 script
 handoff into `jitml bootstrap --<substrate>`. Sprint `2.2` has landed typed
@@ -235,6 +238,9 @@ jitml help <subcommand>
 Current code quality gate for in-repo hygiene, generated-doc drift,
 forbidden-path scans, chart checks, Haskell primitive checks, external
 Fourmolu / HLint / cabal-format checks, and the warning-clean build runner.
+The same Haskell style gate runs during `jitml:local` image construction with
+prebuilt style tools; the CLI command must not install a
+missing host style GHC.
 
 ### `jitml build`
 

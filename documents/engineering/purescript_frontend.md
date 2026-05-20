@@ -71,9 +71,10 @@ The current worktree contains a minimal `web/src/Main.purs`, generated
 six canonical panel surfaces, the `demoStatusLine`, and the local demo route
 manifest for `/`, `/api`, and `/api/ws`. `src/JitML/Web/Server.hs` serves the
 current local HTTP surface for `/`, `/api`, `/api/inference`, `/api/images`,
-`/api/connect4/move`, and `/api/ws`. A compiled `web/dist/` bundle, Halogen
-mount/rendering modules, and live WebSocket proxying remain target runtime
-work.
+`/api/connect4/move`, `/api/ws`, `/api/ws/training`, and `/api/ws/tune`.
+The three stream routes return deterministic local scaffold frames today. A
+compiled `web/dist/` bundle, Halogen mount/rendering modules, and live
+WebSocket proxying remain target runtime work.
 
 ## Browser-Contract ADTs
 

@@ -64,11 +64,11 @@ Linux substrates don't need this — the pod loads directly out of
 `jit/<substrate>/` because there is no host↔VM artifact-copy step.
 
 The first executable path is local `linux-cpu`. `JitML.Engines.Local`
-materializes the generated identity kernel, compiles it with `g++`, loads the
-shared object through `dlopen`, resolves `jitml_kernel`, and validates
-deterministic fixture output through the Haskell FFI. Production oneDNN graph
-kernels, Apple Metal loading, and Linux CUDA loading extend the same cache and
-kernel-handle contracts later.
+materializes generated identity and reduction smoke kernels, compiles them with
+`g++`, loads the shared objects through `dlopen`, resolves `jitml_kernel`, and
+validates deterministic fixture output through the Haskell FFI. Production
+oneDNN graph kernels, Apple Metal loading, and Linux CUDA loading extend the
+same cache and kernel-handle contracts later.
 
 ## Cache Key
 
@@ -122,15 +122,16 @@ see [determinism_contract.md → Engine Envelope](determinism_contract.md#engine
 - The build plan invokes the oneDNN C++ compiler path through the typed
   `Subprocess` boundary against the generated directory; the produced `.so` is
   written atomically to `./.build/jit/linux-cpu/<hash>.so`.
-- `src/JitML/Engines/Local.hs` currently compiles the generated identity source,
-  `dlopen`s the produced `.so`, resolves `jitml_kernel`, and executes a local
-  fixture through the Haskell FFI.
+- `src/JitML/Engines/Local.hs` currently compiles the generated identity source
+  and a reduction-family smoke source, `dlopen`s the produced `.so`, resolves
+  `jitml_kernel`, and executes local fixtures through the Haskell FFI.
 - AVX2 is the baseline; AVX-512 is detected at JIT time.
 - Block size for reductions is pinned per layer family so reductions are
   host-independent. The block size is part of `ToolchainFingerprint`.
 - The current local engine envelope names the `.so` artifact path and compile
   command. A production `LinuxCPU.HasEngine` instance for real oneDNN graph
-  kernels remains target runtime work.
+  kernels remains target runtime work; current workstation recheck has `g++`
+  available but no discoverable `libdnnl` runtime library.
 
 ### `linux-cuda` — CUDA + cuBLAS / cuDNN
 
@@ -145,7 +146,12 @@ see [determinism_contract.md → Engine Envelope](determinism_contract.md#engine
   `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning.
 - The current local engine envelope names the `.so` artifact path and compile
   command. A `LinuxCUDA.HasEngine` instance that loads the `.so` via the FFI
-  loader remains target runtime work.
+  loader remains target runtime work. Current workstation recheck sees an
+  NVIDIA GeForce RTX 5090 through `nvidia-smi -L`, but host `nvcc` and CUDA
+  library bindings are absent. Live CUDA Kind validation reaches the labelled
+  worker and schedules the `runtimeClassName: nvidia` probe pod, then kubelet
+  rejects the sandbox with `no runtime for "nvidia" is configured`; the
+  remaining cluster blocker is Kind worker containerd runtime-handler wiring.
 
 ### `apple-silicon` — Swift + Metal
 

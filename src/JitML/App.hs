@@ -6,6 +6,7 @@ module JitML.App
   )
 where
 
+import Control.Exception.Safe (displayException, tryAny)
 import Control.Monad (unless, void, when)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Data.Aeson (decode, encode)
@@ -83,6 +84,8 @@ import JitML.Prerequisite.Registry
   )
 import JitML.RL.Algorithms qualified as RL
 import JitML.SL.Canonicals qualified as SL
+import JitML.Service.BootConfig qualified as BootConfig
+import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.Runtime qualified as ServiceRuntime
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
@@ -92,7 +95,8 @@ import JitML.Tart.Exec (tartSshSubprocess)
 import JitML.Tart.Lifecycle (VmName (..), ensureVmUp)
 import JitML.Test.Report
   ( ReportCard (..)
-  , renderReportCard
+  , loadReportCardKnobs
+  , renderReportCardWithKnobs
   , reportStanzas
   )
 import JitML.Tune.Catalog qualified as Tune
@@ -470,14 +474,46 @@ bootstrapSubstrates parsedOptions =
 
 runService :: [ParsedOption] -> App ()
 runService parsedOptions = do
-  let configPath =
-        case optionValues "config" parsedOptions of
+  let configValues = optionValues "config" parsedOptions
+      explicitConfig = not (null configValues)
+      configPath =
+        case configValues of
           [] -> "./conf/cluster/linux-cpu.dhall"
           value : _ -> value
+  runtime <- loadDaemonRuntime configPath explicitConfig
+  acquiredRuntime <-
+    liftIO
+      ( ServiceClients.runDaemonServiceClient
+          (ServiceRuntime.daemonClientSettings runtime)
+          (ServiceRuntime.acquireDaemonSubscriptions runtime)
+      )
   writeLine ("service config: " <> configPath)
-  writeText (ServiceRuntime.renderDaemonRuntimeSummary ServiceRuntime.defaultDaemonRuntime)
+  writeText (ServiceRuntime.renderDaemonRuntimeSummary acquiredRuntime)
   writeLine "service: listening on 0.0.0.0:8080"
-  liftIO (ServiceRuntime.serveDaemon ServiceRuntime.defaultDaemonRuntime)
+  liftIO (ServiceRuntime.serveDaemon acquiredRuntime)
+
+loadDaemonRuntime :: Text -> Bool -> App ServiceRuntime.DaemonRuntime
+loadDaemonRuntime configPath explicitConfig = do
+  let path = Text.unpack configPath
+  exists <- liftIO (doesFileExist path)
+  if exists
+    then do
+      result <- liftIO (tryAny (BootConfig.loadBootConfig path))
+      case result of
+        Right bootConfig -> pure (ServiceRuntime.daemonRuntimeForBootConfig bootConfig)
+        Left err ->
+          exitWithError
+            ( InvalidConfig
+                ( "failed to load service config "
+                    <> configPath
+                    <> ": "
+                    <> Text.pack (displayException err)
+                )
+            )
+    else
+      if explicitConfig
+        then exitWithError (InvalidConfig ("service config does not exist: " <> configPath))
+        else pure ServiceRuntime.defaultDaemonRuntime
 
 runCluster :: [Text] -> [ParsedOption] -> App ()
 runCluster ["cluster", "up"] parsedOptions =
@@ -584,12 +620,18 @@ runEval parsedOptions =
   writeLine ("eval: checkpoint " <> selectedValue "checkpoint" "latest" parsedOptions <> " accepted")
 
 runTune :: [ParsedOption] -> App ()
-runTune parsedOptions =
-  writeText $
-    Text.unlines
-      [ "tune: " <> selectedValue "tune-dhall" "experiments/mnist-tune.dhall" parsedOptions
-      , "trials: " <> Text.pack (show (Tune.deterministicTrials Tune.Sobol 4))
-      ]
+runTune parsedOptions = do
+  let tunePath = Text.unpack (selectedValue "tune-dhall" "experiments/mnist-tune.dhall" parsedOptions)
+  loaded <- liftIO (Tune.loadTuningExperiment tunePath)
+  case loaded of
+    Left message ->
+      exitWithError (DhallTypeError message)
+    Right experiment -> do
+      let rendered = Tune.renderTuningPlan tunePath experiment
+      case optionValues "plan-file" parsedOptions of
+        [] -> pure ()
+        planPath : _ -> liftIO (writePlanFile (Text.unpack planPath) rendered)
+      writeText rendered
 
 runRl :: [Text] -> [ParsedOption] -> App ()
 runRl ["rl", "train"] parsedOptions =
@@ -643,7 +685,7 @@ runInspectReplay :: [ParsedOption] -> App ()
 runInspectReplay parsedOptions = do
   let manifestSha = selectedValue "manifest-sha" "missing" parsedOptions
       experimentHash = selectedValue "experiment-hash" "default" parsedOptions
-      checkpointRoot = ".build/checkpoints"
+  checkpointRoot <- localCheckpointRoot
   result <- liftIO (CheckpointStore.readCheckpointManifest checkpointRoot experimentHash manifestSha)
   case result of
     Left err -> exitWithError (InvalidConfig ("inspect replay: " <> err))
@@ -671,7 +713,11 @@ runCabalTest targets = do
   case exitCode of
     ExitSuccess -> do
       writeText stdoutText
-      writeText (renderReportCard (ReportCard (passedCount targets) 0 0))
+      loadedKnobs <- liftIO (loadReportCardKnobs "cabal.project")
+      case loadedKnobs of
+        Left err -> exitWithError (InvalidConfig err)
+        Right knobs ->
+          writeText (renderReportCardWithKnobs knobs (ReportCard (passedCount targets) 0 0))
     ExitFailure _ ->
       exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
 
@@ -697,7 +743,13 @@ runInternalGc :: [ParsedOption] -> App ()
 runInternalGc parsedOptions = do
   let experimentHash = selectedValue "experiment-hash" "default" parsedOptions
       retention = CheckpointStore.LastN 5
-      plan = CheckpointStore.buildGcPlan experimentHash retention [] []
+  checkpointRoot <- localCheckpointRoot
+  loadedManifests <- liftIO (CheckpointStore.listCheckpointManifests checkpointRoot experimentHash)
+  manifests <-
+    case loadedManifests of
+      Left err -> exitWithError (InvalidConfig ("gc manifest scan: " <> err))
+      Right found -> pure found
+  let plan = CheckpointStore.buildGcPlan experimentHash retention manifests []
   writeLine
     ( "gc: "
         <> experimentHash
@@ -708,6 +760,11 @@ runInternalGc parsedOptions = do
     )
   when (CheckpointStore.gcNoOp plan) $
     exitWithError (ReconcilerNoop ("gc: " <> experimentHash <> " already current"))
+
+localCheckpointRoot :: App FilePath
+localCheckpointRoot = do
+  cacheDir <- asks envCacheDir
+  pure (toFilePath cacheDir </> "checkpoints")
 
 runInternalCache :: [Text] -> [ParsedOption] -> App ()
 runInternalCache ["internal", "cache", "stat"] _ =

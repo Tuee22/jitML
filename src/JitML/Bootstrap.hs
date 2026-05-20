@@ -25,13 +25,11 @@ import JitML.Cluster.DockerImage (dockerBuildAndKindLoadPlan)
 import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Gateway (renderEnvoyProxy, renderGateway, renderGatewayClass)
 import JitML.Cluster.Helm
-  ( HelmPhase (..)
-  , helmDependencyBuildSubprocess
+  ( helmDependencyBuildSubprocess
   , helmInstallSubprocessForEdgePort
   , kindCreateSubprocess
   , phasedReleases
   , releaseName
-  , releasePhase
   , renderHelmDependencyBuildPlan
   )
 import JitML.Cluster.Kind (kindConfigFor, kindConfigForEdgePort, renderKindConfig)
@@ -194,6 +192,7 @@ livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
     <> Readiness.postgresReadinessSubprocesses
     <> postgresSchemaGrantSubprocesses
     <> concatMap releaseSteps harborApplicationReleases
+    <> mirrorBuildSteps substrate
     <> concatMap releaseSteps remainingReleases
     <> observabilityManifestApplySubprocesses chartPath
     <> platformReadinessSubprocesses
@@ -202,9 +201,8 @@ livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
  where
   kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
 
-  releaseSteps release
-    | releasePhase release == MirrorBuildPhase = mirrorBuildSteps substrate
-    | otherwise = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
+  releaseSteps release =
+    [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
 
   postgresOperatorReleases =
     filter ((== "harbor-pg") . releaseName) phasedReleases

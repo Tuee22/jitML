@@ -44,13 +44,12 @@ renderHelmDependencyBuildPlan :: FilePath -> Text
 renderHelmDependencyBuildPlan chartPath =
   "helm dependency build " <> Text.pack chartPath
 
--- | The phased rollout the cluster reconciler walks: Harbor first, then the
--- rest of the platform services, then the local jitML images, then the final
--- per-substrate services (jitml-service + jitml-demo + observability).
+-- | Helm releases in the cluster reconciler. `JitML.Bootstrap` inserts the
+-- non-Helm Docker build / Kind image-load phase between Harbor and the final
+-- workload releases.
 data HelmPhase
   = HarborPhase
   | PlatformPhase
-  | MirrorBuildPhase
   | FinalPhase
   deriving stock (Eq, Show)
 
@@ -76,7 +75,6 @@ phasedReleases =
       (Just "kube-prometheus-stack-70.4.2.tgz")
       (Just "values/kube-prometheus-stack.yaml")
   , HelmRelease "tensorboard" "tensorboard" PlatformPhase Nothing Nothing
-  , HelmRelease "jitml-mirror" "jitml-images" MirrorBuildPhase Nothing Nothing
   , HelmRelease "jitml-service" "jitml-service" FinalPhase Nothing Nothing
   , HelmRelease "jitml-demo" "jitml-demo" FinalPhase Nothing Nothing
   , HelmRelease "envoy-gateway" "gateway-helm" FinalPhase (Just "gateway-helm-1.2.6.tgz") Nothing

@@ -39,6 +39,8 @@ broker:
 
 proxy:
   replicaCount: 1
+  service:
+    type: ClusterIP
   podMonitor:
     enabled: false
   affinity:

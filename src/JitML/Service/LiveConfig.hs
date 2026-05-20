@@ -27,6 +27,8 @@ data LiveConfig = LiveConfig
   , liveTartIdleTimeoutSeconds :: Maybe Int
   , liveInferenceBatchSize :: Int
   , liveInferenceMaxLatencyMillis :: Int
+  , liveDedupCacheSize :: Int
+  , liveDedupCacheTtlSeconds :: Int
   , liveDrainDeadlineSeconds :: Int
   }
   deriving stock (Eq, Show)
@@ -39,6 +41,8 @@ defaultLiveConfig =
     , liveTartIdleTimeoutSeconds = Just 1800
     , liveInferenceBatchSize = 64
     , liveInferenceMaxLatencyMillis = 25
+    , liveDedupCacheSize = 4096
+    , liveDedupCacheTtlSeconds = 3600
     , liveDrainDeadlineSeconds = 30
     }
 
@@ -50,6 +54,8 @@ renderLiveConfigDhall config =
     , ", tartIdleTimeout = " <> renderOptionalNatural (liveTartIdleTimeoutSeconds config)
     , ", inferenceBatchSize = " <> Text.pack (show (liveInferenceBatchSize config))
     , ", inferenceMaxLatencyMillis = " <> Text.pack (show (liveInferenceMaxLatencyMillis config))
+    , ", dedupCacheSize = " <> Text.pack (show (liveDedupCacheSize config))
+    , ", dedupCacheTtlSeconds = " <> Text.pack (show (liveDedupCacheTtlSeconds config))
     , ", drainDeadlineSeconds = " <> Text.pack (show (liveDrainDeadlineSeconds config))
     , "}"
     ]

@@ -3,7 +3,7 @@
 module Main where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket_, try)
 import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObject, (.:))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
@@ -19,7 +19,9 @@ import Path.IO (resolveDir')
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
+  , getCurrentDirectory
   , getPermissions
+  , setCurrentDirectory
   , setOwnerExecutable
   , setPermissions
   )
@@ -64,6 +66,7 @@ import JitML.Generated.Registry
   ( GeneratedSectionRule (..)
   , generatedSectionRules
   )
+import JitML.Lint.Chart (checkChartFiles)
 import JitML.Lint.DhallNumerics (checkDhallNumerics)
 import JitML.Lint.DhallRL (checkDhallRL)
 import JitML.Numerics.Schema
@@ -549,6 +552,27 @@ main =
             second @?= False
             legacyExists @?= False
             standaloneExists @?= False
+      , testCase "chart lint skips Helm dependency archive cache" $
+          withSystemTempDirectory "jitml-chart-lint" $ \dir -> do
+            let archive = dir </> "chart" </> "charts" </> "gateway-helm-1.2.6.tgz"
+                storageClass = dir </> "chart" </> "templates" </> "storageclass-jitml-manual.yaml"
+            createDirectoryIfMissing True (takeDirectory archive)
+            createDirectoryIfMissing True (takeDirectory storageClass)
+            StrictByteString.writeFile archive (StrictByteString.pack [0x1f, 0x8b, 0x08, 0x00])
+            writeFile
+              storageClass
+              ( unlines
+                  [ "apiVersion: storage.k8s.io/v1"
+                  , "kind: StorageClass"
+                  , "metadata:"
+                  , "  name: jitml-manual"
+                  , "provisioner: kubernetes.io/no-provisioner"
+                  ]
+              )
+            cwd <- getCurrentDirectory
+            bracket_ (setCurrentDirectory dir) (setCurrentDirectory cwd) $ do
+              _ <- checkChartFiles
+              pure ()
       , testGroup
           "stage-0 bootstrap scripts"
           [ testCase "apple help names the Haskell bootstrap delegation" $ do
@@ -778,6 +802,8 @@ main =
                 "exp1"
                 (CheckpointStore.storedManifestSha firstWrite)
             decoded @?= Right manifest
+            listed <- CheckpointStore.listCheckpointManifests dir "exp1"
+            listed @?= Right [manifest]
             inferred <- CheckpointStore.inferFromLatestCheckpoint dir "exp1" [10, 20]
             inferred @?= Right (Checkpoint.inferFromManifest manifest [10, 20])
             conflict <- CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing

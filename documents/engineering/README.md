@@ -19,7 +19,7 @@ docs (which own their content outright with no doctrine overlap).
 | Doc | Defers to doctrine sections | Project-specific surface |
 |-----|------------------------------|--------------------------|
 | [cli_command_surface.md](cli_command_surface.md) | Command Topology; CommandSpec; Progressive Introspection; Output Rules; Standard Flag Families | jitML's command tree |
-| [code_quality.md](code_quality.md) | Lint, Format, and Code-Quality Stack; Forbidden Surfaces; Generated Artifacts | Chart-shape lint; route-registry drift |
+| [code_quality.md](code_quality.md) | Lint, Format, and Code-Quality Stack; Forbidden Surfaces; Generated Artifacts | Container-owned Haskell style-tool bootstrap; chart-shape lint; route-registry drift |
 | [unit_testing_policy.md](unit_testing_policy.md) | Testing Doctrine; Standard Testing Stack; Test Categories; Test Organization | Ten jitML stanzas including local SL/RL/HPO/cross-backend Integration extensions, Linux CPU identity-kernel execution, split haskell/purescript style stanzas, and the current `jitml-e2e` scaffold/live-plan surface |
 | [haskell_code_guide.md](haskell_code_guide.md) | GADT-Indexed State Machines; Subprocesses as Typed Values; Plan / Apply; Prerequisites as Typed Effects; Application Environment; Error Handling; Capability Classes; Retry Policy; Long-Running Daemons; At-Least-Once Event Processing; Reconcilers | jitML's lifecycle ADTs and capability classes; the 17-variant `AppError` enumeration |
 

@@ -1,6 +1,15 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: jitml-linux-cuda
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+      base_runtime_spec = "/etc/containerd/cri-base.json"
+      privileged_without_host_devices = false
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+      SystemdCgroup = true
 nodes:
   - role: control-plane
     image: kindest/node:v1.32.2
@@ -21,3 +30,39 @@ nodes:
       - hostPath: ./.build
         containerPath: /jitml/.build
         readOnly: false
+      - hostPath: ./.data
+        containerPath: /jitml/.data
+        readOnly: false
+      - hostPath: ./kind/nvidia-container-runtime
+        containerPath: /etc/nvidia-container-runtime
+        readOnly: true
+      - hostPath: /
+        containerPath: /run/nvidia/driver
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-container-runtime
+        containerPath: /usr/bin/nvidia-container-runtime
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-container-runtime-hook
+        containerPath: /usr/bin/nvidia-container-runtime-hook
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-container-toolkit
+        containerPath: /usr/bin/nvidia-container-toolkit
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-container-cli
+        containerPath: /usr/bin/nvidia-container-cli
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-cdi-hook
+        containerPath: /usr/bin/nvidia-cdi-hook
+        readOnly: true
+      - hostPath: /usr/bin/nvidia-ctk
+        containerPath: /usr/bin/nvidia-ctk
+        readOnly: true
+      - hostPath: /usr/lib/x86_64-linux-gnu/libnvidia-container.so.1
+        containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-container.so.1
+        readOnly: true
+      - hostPath: /usr/lib/x86_64-linux-gnu/libnvidia-container-go.so.1
+        containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-container-go.so.1
+        readOnly: true
+      - hostPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+        containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+        readOnly: true

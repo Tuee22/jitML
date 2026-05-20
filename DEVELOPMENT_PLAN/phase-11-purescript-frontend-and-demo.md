@@ -37,7 +37,10 @@ modules now live under `web/src/Panels/`:
 typed request/response payload shape for its endpoint. `web/test/Main.purs`
 smokes every panel name + the generated contracts surface.
 `playwright/jitml-demo.spec.ts` covers the seven-test canonical panel
-matrix. `JitML.Web.Bundle.panelSurfaces` lists all six panel names.
+matrix. `JitML.Web.Bundle.panelSurfaces` lists all six panel names, and
+`JitML.Web.Server.demoHttpRoutes` serves deterministic local responses for
+the generated `/api/ws`, `/api/ws/training`, and `/api/ws/tune` stream
+contracts.
 **Unmet today**: Sprint `11.3` still owes the default `purs format`
 round-trip and `purescript-spec` smoke suite; the `spago test` and
 `purs-tidy check` subprocess shapes are present as explicit typed values.
@@ -153,9 +156,10 @@ whitespace, and panel-contract smoke stanza. The target PureScript
   surface.
 - The stanza also checks `renderPureScriptContracts` emits the PureScript
   module header.
-- The stanza checks the current PureScript files for tab-free, final-newline
-  source shape and verifies each typed panel endpoint is covered by the
-  generated contract endpoint list.
+- The stanza recursively checks every checked-in `web/src/**/*.purs` and
+  `web/test/**/*.purs` source for tab-free, final-newline source shape and
+  verifies each typed panel endpoint is covered by the generated contract
+  endpoint list.
 - It validates the explicit `spago test` and `purs-tidy check` typed
   `Subprocess` values without invoking them through process-environment gates.
 - It does not currently run a default `purs format`
@@ -219,18 +223,19 @@ remains target runtime validation.
 - `test/e2e/Main.hs` checks the browser contract endpoint count.
 - `src/JitML/Web/Server.hs` exposes HTTP handlers for `/`,
   `/api`, `/api/inference`, `/api/images`, `/api/connect4/move`, and
-  `/api/ws`.
+  `/api/ws`, `/api/ws/training`, and `/api/ws/tune`.
 - `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` carry the
   typed per-panel request / response payload shapes and the panel
   `mount` entry point; the Haskell `JitML.Web.Bundle.panelSurfaces`
   catalog enumerates all six panel names.
 - The live WebSocket proxy that bridges `/api/ws` to real daemon Pulsar
-  topics remains target runtime validation.
+  topics remains target runtime validation; the current stream routes return
+  deterministic local scaffold frames.
 
 ### Validation
 
 1. `cabal test jitml-e2e` validates the browser contract endpoint
-   count.
+   count and the demo HTTP route table for generated stream endpoints.
 2. `cabal test jitml-purescript-style` validates the generated contract
    file exists.
 3. `jitml-unit` verifies the bundle, panel, and demo-route metadata.

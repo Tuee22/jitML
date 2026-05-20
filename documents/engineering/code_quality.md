@@ -7,8 +7,9 @@
 
 > **Purpose**: Project-specific code quality and lint stack for jitML. Defers
 > to the doctrine for the formatter / hlint / cabal-format triple, the
-> generated-section discipline, and the forbidden-path registry; adds the
-> chart-shape lint and the route-registry-drift check.
+> generated-section discipline, and the forbidden-path registry; records
+> jitML's container-owned style-tool bootstrap; adds the chart-shape lint and
+> the route-registry-drift check.
 
 ## Doctrine Deferrals
 
@@ -16,8 +17,8 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
 
 - **Lint, Format, and Code-Quality Stack** — `fourmolu` + `hlint` +
   `cabal format`; pinned `fourmolu.yaml` at repo root with the twelve
-  doctrine-mandated settings; `cabal format` temp-file round-trip
-  byte-equality compare.
+  doctrine-mandated settings; explicit style-tool bootstrap before lint
+  execution; `cabal format` temp-file round-trip byte-equality compare.
 - **Forbidden Surfaces** — the `forbiddenPathRegistry` refusing
   `.github/workflows/`, `.husky/`, `.githooks/`,
   `.pre-commit-config.yaml`, root `Makefile` / `justfile` / `Taskfile.yml`.
@@ -38,9 +39,13 @@ with parser/registry coverage. Sprint `1.3` has landed `jitml docs check`,
 `jitml docs generate`, and the active tracked-generated-path registry for CLI
 docs, the manpage, and shell completions. Sprint `1.4` has landed
 `fourmolu.yaml`, `.hlint.yaml`, `forbiddenPathRegistry`, `jitml lint`,
-`jitml check-code`, the isolated `.build/jitml-style-tools/` bootstrap,
-external `fourmolu`, `hlint`, `cabal format` round-trip checks, the
-warning-clean build runner, and the `jitml-haskell-style` stanza.
+`jitml check-code`, external `fourmolu`, `hlint`, `cabal format` round-trip
+checks, the warning-clean build runner, and the `jitml-haskell-style` stanza.
+Sprint `1.4` also owns the container style-tool bootstrap: `docker/Dockerfile`
+installs the separate style-tools GHC and pinned `fourmolu` / `hlint` binaries
+for `jitml:local`, runs Haskell style/code-quality checks during image
+construction, and runtime lint never bootstraps missing tools through host
+`ghcup`.
 `cabal.project` currently carries a scoped `allow-newer` block for
 Dhall / CBOR package bounds under GHC `9.14.1`; its removal is tracked in
 [../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
@@ -114,6 +119,22 @@ Sprint `1.3` also records future generated-path patterns for:
 
 - `share/man/man1/jitml-*.1`
 
+## Container-Owned Haskell Style Tools
+
+The mandatory `jitml:local` image is built on every substrate, including Apple
+Silicon for the cluster daemon. That image build is the canonical Haskell style
+bootstrap point:
+
+1. Install a separate style-tools GHC (`9.12.4`) that never becomes the project
+   compiler.
+2. Build pinned `fourmolu` / `hlint` binaries into a deterministic image-owned
+   tool location.
+3. Run Fourmolu, HLint, `cabal format`, generated-doc/lint checks, and the
+   warning-clean build gate during image construction.
+4. Make runtime `jitml lint haskell` and `jitml-haskell-style` use the prebuilt
+   tools. If the tools are absent, the diagnostic points to rebuilding or
+   entering the `jitml:local` image rather than installing a host GHC.
+
 ## `jitml check-code`
 
 Current `jitml check-code` delegates to the in-repo lint stack: whitespace and
@@ -122,9 +143,11 @@ drift checks, required lint config checks, optional-directory checks for
 `proto/` and `web/`, chart-shape checks, route-registry drift checks, and
 forbidden subprocess/terminal primitive scans. It also runs the external
 Haskell style stack through the typed `Subprocess` boundary and adds the
-warning-clean build gate.
+warning-clean build gate. The `jitml:local` image construction path runs this
+same gate with container-provisioned style tools.
 
-Sprint `1.4` closes with `jitml check-code` running the full target stack:
+Sprint `1.4` closes with `jitml check-code` and the Docker image build running
+the full target stack:
 
 1. `fourmolu --no-cabal --ghc-opt -XGHC2024 --mode check` over `src/`, `app/`,
    `test/`.
@@ -137,6 +160,8 @@ Sprint `1.4` closes with `jitml check-code` running the full target stack:
 7. `jitml lint chart`.
 8. `jitml lint haskell` (forbidden subprocess and IO primitives).
 9. `jitml docs check` (generated-section drift).
+10. `docker compose -f docker/compose.yaml build jitml` proves the same gate runs
+    as part of the mandatory image build.
 
 ## Cross-References
 

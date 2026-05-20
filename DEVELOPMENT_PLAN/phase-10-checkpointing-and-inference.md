@@ -44,12 +44,16 @@ typed CAS predicates from README → Concurrency model.
 reconciler surface (`RetentionPolicy`, `walkLiveSet`,
 `applyRetentionPolicy`, `buildGcPlan`, `GcEvent`) implements
 `LastN k` retention with always-live best/trial pointer targets,
-`gc_reaped` event materialisation, and a second-invocation no-op
+`gc_reaped` event materialisation, local filesystem manifest discovery
+through `listCheckpointManifests`, and a second-invocation no-op
 detection. **Unmet today**: Sprints `10.2`–`10.4` still owe live
 MinIO `If-None-Match` / `If-Match` effects through `HasMinIO`, the
-live `gc_reaped` Pulsar publish, the live `loadInferenceCheckpoint`
-KernelHandle FFI load, and the per-substrate ULP tolerance measured
-from real cross-substrate runs. Detailed remaining work lives in
+live `gc_reaped` Pulsar publish, production weight-blob loading into
+substrate-bound `KernelHandle`s, and the per-substrate ULP tolerance measured
+from real cross-substrate runs. The local Linux CPU inference runner hook
+(`loadInferenceCheckpointWith` + `JitML.Engines.Local.runLinuxCpuCheckpointInference`)
+now validates the latest-pointer → manifest → generated-kernel FFI path against
+the filesystem-backed `HasMinIO` instance. Detailed remaining work lives in
 each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
@@ -62,11 +66,14 @@ header length, and little-endian `F64` payload bytes, plus
 `inferFromManifest`. `src/JitML/Checkpoint/Store.hs` adds a local
 object-store interpreter for write-once payloads, manifest writes/reads,
 latest pointer CAS, inference from the latest checkpoint, retention planning,
-`HasMinIO`-backed GC execution, and `HasMinIO`-backed inference checkpoint
-loading covered by the filesystem-backed instance. Live HTTP MinIO effects,
-live `gc_reaped` Pulsar publishing, kernel-handle loading, and real
-demo/frontend checkpoint reads live in the sprints' `### Remaining Work`
-blocks below.
+local manifest discovery for `jitml internal gc`, `HasMinIO`-backed GC
+execution, `HasMinIO`-backed inference checkpoint loading, and
+`loadInferenceCheckpointWith`, which lets a caller run the loaded weight-only
+manifest through a concrete engine. The filesystem-backed instance now
+validates both the deterministic fallback and the local Linux CPU
+generated-kernel FFI runner. Live HTTP MinIO effects, live `gc_reaped` Pulsar
+publishing, production weight-blob loading, and real demo/frontend checkpoint
+reads live in the sprints' `### Remaining Work` blocks below.
 
 ## Phase Summary
 
@@ -163,6 +170,10 @@ remain target runtime validation.
 - `JitML.Checkpoint.Store` writes blob and manifest objects if absent, advances
   the latest pointer through `applyPointerWrite`, and reads manifests by content
   SHA from a local filesystem root.
+- `JitML.Checkpoint.Store.checkpointObjectRef` adapts the checked-in
+  bucket-prefixed split-key renderers to the live `HasMinIO` boundary by
+  carrying bucket `jitml-checkpoints` separately and stripping that prefix from
+  the object key.
 - The typed `AdvancePredicate` ADT (`AdvanceLatest`,
   `AdvanceBestMaximised "<metric>"`, `AdvanceBestMinimised
   "<metric>"`) plus `applyAdvancePredicate` evaluate the typed CAS
@@ -188,7 +199,8 @@ remain target runtime validation.
 
 - Wire the checkpoint-store put-blob-if-absent and pointer-CAS paths through
   `JitML.Service.MinIOSubprocess`, the live HTTP-backed `HasMinIO`
-  capability from Sprint `4.3` / `5.4`.
+  capability from Sprint `4.3` / `5.4`. The `HasMinIO` object references now
+  use bucket `jitml-checkpoints` with keys relative to that bucket.
 - Add integration coverage in `jitml-integration` (Sprint `12.2`) that
   exercises the CAS retry against a live MinIO instance.
 
@@ -211,18 +223,21 @@ per `### Remaining Work` below.
   same-substrate and cross-substrate tolerance methodology.
 - `jitml internal gc <experiment-hash> --dry-run` renders a generic
   Plan/Apply retention plan.
-- Normal `jitml internal gc <experiment-hash>` currently prints the local
-  retention summary (`gc: <experiment-hash> kept=<n> reaped=<n>`) and exits
-  `3` on a no-op plan through `AppError ReconcilerNoop`.
+- Normal `jitml internal gc <experiment-hash>` scans
+  `<cache-dir>/checkpoints/jitml-checkpoints/<experiment-hash>/manifests/`,
+  prints the local retention summary (`gc: <experiment-hash> kept=<n>
+  reaped=<n>`), and exits `3` on a no-op plan through
+  `AppError ReconcilerNoop`.
 - `JitML.Checkpoint.Store.{walkLiveSet,applyRetentionPolicy,buildGcPlan}`
   implement the pointer live-set traversal across the `latest` chain
   and `best/<m>` / `trial/<...>` always-live pointer targets,
   `LastN k` retention application, blob-reap event materialisation
   (`GcEvent` records the manifest SHA, blob SHAs, experiment hash,
   and step), and the steady-state no-op detection
-  (`gcNoOp` flag flips when there are no reap events). Live blob
-  deletion through MinIO + Pulsar `gc_reaped` publish remain target
-  runtime work.
+  (`gcNoOp` flag flips when there are no reap events).
+- `JitML.Checkpoint.Store.listCheckpointManifests` is the local manifest
+  discovery hook used by the CLI reconciler. Live blob deletion through
+  MinIO + Pulsar `gc_reaped` publish remain target runtime work.
 
 ### Validation
 
@@ -259,8 +274,8 @@ per `### Remaining Work` below.
 
 Land the current inference-only summary helper consumed by local command and
 test bodies, plus the local latest-pointer → manifest → inference read path.
-Live MinIO pointer reads, live manifest fetches, and kernel-handle loading
-remain target runtime work.
+Live MinIO pointer reads, live manifest fetches, and production
+weight-blob-to-kernel loading remain target runtime work.
 
 ### Deliverables
 
@@ -278,8 +293,12 @@ remain target runtime work.
   parts (the inference path doesn't need them), and runs
   `inferFromManifest`. The typed `weightOnlyTensors` predicate
   selects the inference subset of the manifest.
-- Live `loadInferenceCheckpoint` against MinIO + the FFI kernel
-  handle load through `JitML.Engines.Local` remain target runtime
+- `loadInferenceCheckpointWith` reads the latest pointer and manifest through
+  `HasMinIO`, reduces the manifest to weight-only parts, and delegates
+  execution to a caller-provided runner.
+- `JitML.Engines.Local.runLinuxCpuCheckpointInference` validates the local
+  Linux CPU generated-kernel FFI path from a loaded checkpoint manifest; live
+  MinIO and production per-substrate weight-blob loading remain target runtime
   work.
 
 ### Validation
@@ -288,9 +307,12 @@ remain target runtime work.
    the substrate list.
 2. `jitml-unit` exercises `inferFromLatestCheckpoint` against the
    checkpoint store.
-3. `jitml inference run experiments/mnist.dhall` prints the deterministic
-   inference summary.
-4. Live validation (target): `jitml inference run` reads the latest
+3. `jitml inference run experiments/mnist.dhall --checkpoint latest`
+   prints the deterministic inference summary.
+4. `jitml-integration` exercises `loadInferenceCheckpointWith` against the
+   filesystem-backed `HasMinIO` instance and runs the loaded manifest through
+   the local Linux CPU generated-kernel FFI path.
+5. Live validation (target): `jitml inference run` reads the latest
    pointer from MinIO bucket `jitml-checkpoints/<experiment-hash>/`,
    fetches the addressed manifest, loads weight-only blobs (no optimizer
    parts), loads the substrate-bound `KernelHandle` from the JIT cache,
@@ -301,9 +323,9 @@ remain target runtime work.
 - Validate `JitML.Checkpoint.Store.loadInferenceCheckpoint` against
   `JitML.Service.MinIOSubprocess`, the live HTTP-backed MinIO client from
   Sprint `4.3` / `5.4`.
-- Wire FFI `KernelHandle` loading through `JitML.Engines.Local` (and
-  the future per-substrate engines) so inference actually executes the
-  generated kernel.
+- Load real weight blobs into the local Linux CPU runner and the future
+  per-substrate engines, rather than applying the current deterministic
+  manifest-bias smoke summary around the generated kernel.
 - Extend `jitml inspect replay <manifest-sha>` from the current local
   checkpoint store path to live MinIO manifests through
   `JitML.Service.MinIOSubprocess`.

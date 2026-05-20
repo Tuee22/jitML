@@ -32,9 +32,10 @@ hand edits fail `jitml lint chart` (Sprints `3.1`–`3.4`). The typed
 `JitML.Cluster.Helm` module now exposes `kindCreateSubprocess` (the
 typed Kind create command bound to `./.build/jitml.kubeconfig`),
 `helmInstallSubprocess` (a per-release upgrade-install with `--wait`
-+ kubeconfig pinning), and `helmPhasedRolloutPlan` (the four-phase
-`HarborPhase → PlatformPhase → MirrorBuildPhase → FinalPhase`
-sequence backed by `phasedReleases`). Item 3's Phase `3` substrate/routing
+and kubeconfig pinning), and `helmPhasedRolloutPlan` (the Helm-release
+sequence backed by `phasedReleases`, with the non-Helm Docker build /
+explicit Kind image-load phase inserted directly by
+`JitML.Bootstrap.livePhasedRolloutSubprocesses`). Item 3's Phase `3` substrate/routing
 slice is met: the live Linux CPU bootstrap executes the typed Kind, Helm,
 Docker build / explicit Kind image-load, repo-owned manifest apply, and
 Pulsar-topic subprocesses against `./.build/jitml.kubeconfig`, writes measured
@@ -279,7 +280,8 @@ steady-state cluster is a no-op (exit code `3`).
      kubeconfig to `./.build/jitml.kubeconfig` (the CLI never touches
      `~/.kube/config`).
   5. Write the `jitml-manual` StorageClass and the manual PVs.
-  6. Run the phased Helm rollout (Sprint `3.5`).
+  6. Run the typed phased rollout, including Helm releases and the non-Helm
+     Docker build / explicit Kind image-load phase (Sprint `3.5`).
   7. Lease the edge port starting at `9090` and write
      `./.build/runtime/cluster-publication.json`.
 - Phased deploy:
@@ -324,8 +326,9 @@ steady-state cluster is a no-op (exit code `3`).
    contains `build-helm-dependencies`.
 6. `jitml-integration` covers the typed Docker build/load plan, idempotent
    Helm dependency-build wrapper, repo-local kubeconfig export, explicit
-   manifest apply steps, idempotent Pulsar topic creation, and idempotent Kind
-   delete subprocess.
+   manifest apply steps, the absence of the retired `jitml-mirror` Helm
+   placeholder, idempotent Pulsar topic creation, and idempotent Kind delete
+   subprocess.
 7. Live validation on 2026-05-18: `cabal run jitml -- bootstrap --linux-cpu`
    reconciles the two-node Kind cluster through `./.build/jitml.kubeconfig`,
    runs the 83-step phased rollout, loads `jitml:local` and `jitml-demo:local`

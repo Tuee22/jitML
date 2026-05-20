@@ -15,3 +15,6 @@ nodes:
       - hostPath: ./.build
         containerPath: /jitml/.build
         readOnly: false
+      - hostPath: ./.data
+        containerPath: /jitml/.data
+        readOnly: false

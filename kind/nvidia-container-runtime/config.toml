@@ -1,0 +1,31 @@
+disable-require = false
+supported-driver-capabilities = "compat32,compute,display,graphics,ngx,utility,video"
+
+[nvidia-container-cli]
+environment = []
+ldconfig = "@/sbin/ldconfig"
+load-kmods = true
+path = "/usr/bin/nvidia-container-cli"
+root = "/run/nvidia/driver"
+
+[nvidia-container-runtime]
+log-level = "info"
+mode = "legacy"
+runtimes = ["runc"]
+
+[nvidia-container-runtime.modes]
+
+[nvidia-container-runtime.modes.cdi]
+annotation-prefixes = ["cdi.k8s.io/"]
+default-kind = "nvidia.com/gpu"
+spec-dirs = ["/etc/cdi", "/var/run/cdi"]
+
+[nvidia-container-runtime.modes.csv]
+mount-spec-path = "/etc/nvidia-container-runtime/host-files-for-container.d"
+
+[nvidia-container-runtime-hook]
+path = "nvidia-container-runtime-hook"
+skip-mode-detection = false
+
+[nvidia-ctk]
+path = "nvidia-ctk"

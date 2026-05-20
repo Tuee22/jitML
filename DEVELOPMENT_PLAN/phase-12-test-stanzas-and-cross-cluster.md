@@ -30,10 +30,16 @@
 runs every Cabal test-suite stanza with the report-card knobs pinned in
 `cabal.project`; the `jitml-e2e` stanza orchestrates an ephemeral Kind
 stack via the `infra/pulumi/` TypeScript program) and item 18 (empty
-legacy ledger after items 1–9 close). **Met today**: Sprint `12.1`
+legacy ledger after the open Exit-Definition items, including item `15`, close).
+**Met today**: Sprint `12.1`
 (`jitml-unit` body) and Sprint `12.7` (`jitml-daemon-lifecycle` body)
 close their owned obligations because their entire body is pure-logic /
 parser / property / golden / lifecycle / signal coverage.
+The 2026-05-19 container validation also proves `jitml test all --dry-run`
+renders the aggregate Plan/Apply surface and non-dry-run `jitml test all`
+invokes all ten Cabal stanzas inside `jitml:local`, parses the
+`cabal.project` report-card knob block, and prints the current
+placeholder-backed report card after Cabal succeeds.
 `infra/pulumi/index.ts` now contains the typed ephemeral-Kind
 orchestrator that runs `kind create cluster` → `helm dependency
 build` → `jitml bootstrap --<substrate>` → publication-check, with
@@ -61,10 +67,16 @@ renderers, catalogs, checkpoint summaries, route/bucket registries,
 daemon lifecycle data, and frontend contract scaffolds. The
 `jitml-cross-backend` body also compiles, loads, and runs the generated
 Linux CPU identity kernel through `dlopen`; the `jitml-e2e` body
-verifies the typed live Helm/Pulumi/Playwright plan without executing
-it. `jitml test all` invokes Cabal through the typed `Subprocess`
-boundary after the Plan/Apply dry-run surface. Live execution paths live
-in the sprints' `### Remaining Work` blocks below.
+verifies the typed live Helm/Pulumi/Playwright plan and the deterministic
+demo stream routes without executing the live stack. Its local
+post-teardown check asserts no `jitml-e2e-*` Kind clusters survive when both
+`kind` and `/var/run/docker.sock` are available, and skips only the Docker
+query when the container cannot reach the Docker daemon. `jitml test all`
+invokes Cabal through the typed `Subprocess` boundary after the Plan/Apply
+dry-run surface. Because `jitml-haskell-style` uses container-provided style
+tools, the full local all-stanza validation runs inside `jitml:local` unless
+`JITML_STYLE_TOOLS_BIN` points at prebuilt host tools. Live execution paths
+live in the sprints' `### Remaining Work` blocks below.
 
 ## Phase Summary
 
@@ -154,11 +166,13 @@ same-substrate training determinism per `### Remaining Work` below.
   it locates the dist-newstyle binary, spawns it through the typed
   `Subprocess` boundary in a temporary workdir, and asserts the
   expected dry-run / help / no-op behaviours for `--help`, `bootstrap`,
-  `cluster up`, `internal gc`, `service --help`, and `train --dry-run`.
+  `cluster up`, `internal gc`, `service --help`, `train --dry-run`, and
+  the Sprint `9.7` TPE `jitml tune` render path.
 - CpuFeatures CPUID detection, filesystem-backed `HasMinIO` checkpoint /
-  inference / resume round-trips, Dhall numerics decode coverage, and
-  `KubectlSubprocess` command-shape coverage against the repo-local
-  kubeconfig all run here.
+  inference / resume round-trips, the local Linux CPU checkpoint inference
+  runner through a generated FFI kernel, Dhall numerics decode coverage, and
+  `KubectlSubprocess` command-shape coverage against the repo-local kubeconfig
+  all run here.
 - Real checkpoint round-trip against live HTTP MinIO and training transcript
   determinism are not present yet.
 
@@ -176,8 +190,8 @@ same-substrate training determinism per `### Remaining Work` below.
 - Add real checkpoint round-trip coverage against
   `JitML.Service.MinIOSubprocess`, the live `HasMinIO` capability class from
   Sprint `4.3` / `5.4`.
-- Add the per-substrate determinism assertion against a real generated
-  kernel.
+- Add the per-substrate determinism assertion against real production kernels
+  beyond the current local Linux CPU smoke paths.
 
 ## Sprint 12.3: `jitml-sl-canonicals` Stanza 🔄
 
@@ -284,16 +298,20 @@ and deterministic trial-value checks.
 ### Deliverables
 
 - `test/hyperparameter/Main.hs` verifies the current axes are populated:
-  four samplers, four schedulers, and three pruners.
+  eleven samplers, four schedulers, and three pruners.
 - It asserts `deterministicTrials sampler 8` is stable for every current
   sampler.
 - It asserts generated trial values are normalized into `[0, 1)`.
 - It compares Sobol and GeneticAlgorithm trial streams against the current
   fixtures under `test/golden/tune/`.
-- Full sampler set, scheduler/pruner event semantics, and resume
-  equality are owned by `### Remaining Work` below. Report-card knob
-  parsing is covered through `src/JitML/Test/Report.hs` and
-  `jitml-e2e`.
+- It decodes `experiments/mnist-tune.dhall` and asserts the local tuning ADT
+  carries the TPE / ASHA / MedianPruner worked-example axes.
+- It consumes `tune_trials` and `tune_budget_per_trial` from the
+  `cabal.project` report-card knob block for the local TPE trial-budget
+  assertion.
+- Scheduler/pruner event semantics and resume equality are owned by
+  `### Remaining Work` below. Report-card knob parsing is also covered through
+  `src/JitML/Test/Report.hs` and `jitml-e2e`.
 
 ### Validation
 
@@ -308,7 +326,9 @@ and deterministic trial-value checks.
 
 - Drive `jitml tune` against the full canonical sampler × scheduler ×
   pruner grid through the live tuner from Sprint `9.7`.
-- Consume the `tune_trials` / `tune_budget_per_trial` report-card knobs.
+- Extend the current `tune_trials` / `tune_budget_per_trial` consumption to
+  the full canonical sampler × scheduler × pruner grid once live tuner
+  execution lands.
 - Assert per-sampler / per-scheduler / per-pruner reproducibility
   against committed golden trial-key streams.
 - Implement resume-from-partial-sweep equality test that reads cached
@@ -427,9 +447,13 @@ container/runtime state, and validates teardown.
   test` invocation with the leased kubeconfig.
 - `test/e2e/Main.hs` currently validates the route registry, bucket registry,
   `chart/values.yaml` MinIO bucket coverage, publication defaults, browser
-  contract endpoint count, demo deployment command, one-shot demo HTTP server,
+  contract endpoint count, demo deployment command, demo HTTP route table
+  coverage for generated stream endpoints, one-shot demo HTTP server,
   report-card rendering, typed report-card defaults, typed live plan rendering,
-  and the absence of leaked `jitml-e2e-*` Kind clusters.
+  and, when the `kind` binary and `/var/run/docker.sock` are both available,
+  the absence of leaked `jitml-e2e-*` Kind clusters. When `kind` or the
+  Docker socket is absent, the no-leak query is skipped in the local scaffold
+  because live Kind orchestration is an explicit target gate.
 - `JitML.Test.LivePlan` sequences `helm dependency build chart`, `pulumi up`,
   `npx playwright test`, `pulumi destroy`, and `pulumi stack rm` through typed
   `Subprocess` values.
@@ -469,10 +493,10 @@ container/runtime state, and validates teardown.
   of memory).
 - The post-teardown assertion that no `jitml-e2e-*` Kind cluster
   survives is wired in `jitml-e2e` (`kind get clusters` through the
-  typed `Subprocess` boundary, asserting no `jitml-e2e-`-prefixed
-  cluster names appear). The Harbor project / MinIO bucket / Docker
-  volume grep paths remain to be added once the live e2e brings
-  those services up.
+  typed `Subprocess` boundary when the Docker socket is available,
+  asserting no `jitml-e2e-`-prefixed cluster names appear). The Harbor
+  project / MinIO bucket / Docker volume grep paths remain to be added
+  once the live e2e brings those services up.
 
 ## Sprint 12.9: `jitml test all` Orchestrator and Report Card 🔄
 
@@ -509,18 +533,27 @@ health, cross-substrate parity tolerance).
   `tune_trials`, `tune_budget_per_trial`, `xcluster_kind_nodes` (see
   [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs)).
-- `ReportCard.hs` renders the tidy summary block on stdout and consumes
-  the typed `defaultReportCardKnobs`.
+- `ReportCard.hs` renders the tidy summary block on stdout, exposes
+  `parseReportCardKnobs`, and `jitml test all` now reads the `cabal.project`
+  knob block before rendering the report card instead of relying only on the
+  in-code defaults.
 - `jitml test <stanza>` invokes that single Cabal stanza through the same typed
   `Subprocess` boundary.
+- 2026-05-19 container validation ran `jitml test all --dry-run` and
+  non-dry-run `jitml test all` inside `jitml:local`; the non-dry-run path
+  passed all ten stanzas and printed the report card with the
+  `cabal.project` knob values.
 
 ### Validation
 
 1. `jitml test all --dry-run` emits the typed plan enumerating all ten
    stanzas.
 2. `jitml test all` invokes `cabal test all`, exits `0` on the current
-   tree, and prints the report card.
-3. `cabal test jitml-e2e` verifies report-card default rendering.
+   tree when run inside `jitml:local` (or on a host with
+   `JITML_STYLE_TOOLS_BIN` set to prebuilt style tools), parses the
+   `cabal.project` report-card knob block, and prints the report card.
+3. `cabal test jitml-e2e` verifies report-card default rendering and that the
+   `cabal.project` knob block matches the typed defaults.
 4. Live validation (target): the explicit live `jitml test all` path schedules
    the live `jitml-e2e` body too; the rendered report card
    answers every canonical question (SL convergence, RL reward,

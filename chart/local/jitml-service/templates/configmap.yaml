@@ -6,8 +6,8 @@ metadata:
 data:
   BootConfig.dhall: |
     { substrate = "{{ .Values.substrate }}"
-    , residency = Cluster
-    , inferenceMode = {{ if eq .Values.substrate "apple-silicon" }}ForwardToHost{{ else }}SelfInference{{ end }}
+    , residency = < Cluster | Host >.Cluster
+    , inferenceMode = {{ if eq .Values.substrate "apple-silicon" }}< SelfInference | ForwardToHost >.ForwardToHost{{ else }}< SelfInference | ForwardToHost >.SelfInference{{ end }}
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
     , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
@@ -15,10 +15,12 @@ data:
     , httpListener = Some { host = "0.0.0.0", port = 8080 }
     }
   LiveConfig.dhall: |
-    { logLevel = "info"
-    , retry = { maxAttempts = 5, baseDelayMs = 100, maxDelayMs = 5000 }
-    , tartIdleTimeoutSeconds = 900
-    , inferenceBatchMax = 32
-    , inferenceSloMs = 100
+    { logLevel = Info
+    , retryPolicy = ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
+    , tartIdleTimeout = Some 1800
+    , inferenceBatchSize = 64
+    , inferenceMaxLatencyMillis = 25
+    , dedupCacheSize = 4096
+    , dedupCacheTtlSeconds = 3600
     , drainDeadlineSeconds = 30
     }

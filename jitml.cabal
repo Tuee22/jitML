@@ -118,6 +118,7 @@ library
         JitML.Routes
         JitML.Service.BootConfig
         JitML.Service.Capabilities
+        JitML.Service.Clients
         JitML.Service.ConfigMap
         JitML.Service.Consumer
         JitML.Service.Endpoints
@@ -252,8 +253,10 @@ test-suite jitml-sl-canonicals
     build-depends:
         base >=4.22 && <4.23,
         jitml,
+        mtl,
         tasty,
         tasty-hunit,
+        temporary,
         text
 
 test-suite jitml-rl-canonicals
@@ -319,6 +322,7 @@ test-suite jitml-e2e
     build-depends:
         base >=4.22 && <4.23,
         bytestring,
+        directory,
         jitml,
         network,
         tasty,

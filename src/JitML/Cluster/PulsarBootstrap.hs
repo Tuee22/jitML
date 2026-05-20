@@ -23,19 +23,7 @@ newtype Topic = Topic
 pulsarTopics :: [Topic]
 pulsarTopics =
   concatMap substrateTopics allSubstrates
-    <> fmap
-      Topic
-      [ "persistent://public/default/training.command.cluster"
-      , "persistent://public/default/training.event.cluster"
-      , "persistent://public/default/tune.command.cluster"
-      , "persistent://public/default/tune.event.cluster"
-      , "persistent://public/default/rl.command.cluster"
-      , "persistent://public/default/rl.event.cluster"
-      , "persistent://public/default/inference.request.cluster"
-      , "persistent://public/default/inference.result.cluster"
-      , "persistent://public/default/inference.request.host"
-      , "persistent://public/default/inference.result.host"
-      ]
+    <> appleSiliconInternalTopics
 
 renderPulsarAdminCommands :: [Text]
 renderPulsarAdminCommands =
@@ -76,6 +64,20 @@ substrateTopics :: Substrate -> [Topic]
 substrateTopics substrate =
   fmap
     (Topic . (<> "." <> renderSubstrate substrate))
-    [ "persistent://public/default/inference.command"
-    , "persistent://public/default/inference.event"
+    [ "persistent://public/default/training.command"
+    , "persistent://public/default/training.event"
+    , "persistent://public/default/tune.command"
+    , "persistent://public/default/tune.event"
+    , "persistent://public/default/rl.command"
+    , "persistent://public/default/rl.event"
+    , "persistent://public/default/inference.request"
+    , "persistent://public/default/inference.result"
+    ]
+
+appleSiliconInternalTopics :: [Topic]
+appleSiliconInternalTopics =
+  fmap
+    Topic
+    [ "persistent://public/default/inference.command.apple-silicon"
+    , "persistent://public/default/inference.event.apple-silicon"
     ]

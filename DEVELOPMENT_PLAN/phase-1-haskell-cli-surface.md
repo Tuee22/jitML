@@ -26,12 +26,12 @@
 `prerequisiteRegistry`), 14 (single `AppError` ADT and `renderError`), 15
 (`fourmolu.yaml` + style stanzas), 16 (`CommandSpec` as implementation
 source) and contributes to item 4 (stage-0 entrypoints + typed prerequisite
-DAG). Every owned obligation is met in the worktree and validated by
-Sprints `1.1`–`1.9`. Sprint `1.4` bootstraps the isolated
-`.build/jitml-style-tools/` tool directory with the doctrine's separate
-style-tools GHC, runs Fourmolu / HLint / `cabal format` through the typed
-`Subprocess` boundary, and includes the warning-clean
-`cabal build all --ghc-options=-Werror` gate in `jitml check-code`.
+DAG). Sprints `1.1`–`1.9` are closed. Sprint `1.4` includes the
+container-owned style-tool rule: `docker/Dockerfile` installs the separate
+style-tools GHC and pinned Fourmolu / HLint binaries for `jitml:local`, runs
+the Haskell style/code-quality gate during image construction, and runtime lint
+uses prebuilt tools or reports an image-rebuild remedy instead of bootstrapping
+missing style tools through host `ghcup`.
 
 ## Phase Summary
 
@@ -49,7 +49,8 @@ from the canonical `jitml` command surface.
 
 Phase `1` writes no daemon code, no cluster code, no ML code, no chart code, and
 no PureScript. Its sole job is the CLI scaffold and the doctrine boundaries that
-every subsequent phase plugs into.
+every subsequent phase plugs into, with the narrow Dockerfile touch required for
+the style-tool/code-quality image gate.
 
 ### Current Implementation Scope
 
@@ -65,7 +66,10 @@ YAML, and the Prometheus scrape config. The remaining future generated-path
 pattern is for per-command manpages (`share/man/man1/jitml-*.1`). The
 Plan/Apply `apply` interpreter is currently a no-op, and normal command
 execution enters the plan renderer only when `--dry-run` or `--plan-file` is
-requested on selected plan-capable leaves.
+requested on selected plan-capable leaves. Phase `1`'s Haskell lint and
+code-quality gate is container-owned: the mandatory `jitml:local` image build
+installs the style-tools GHC, builds pinned Fourmolu / HLint binaries, and runs
+`jitml check-code`.
 
 ## Sprint 1.1: Toolchain Pin and Library-First Cabal Project ✅
 
@@ -267,8 +271,11 @@ None.
 **Status**: Done
 **Implementation**: `fourmolu.yaml`, `.hlint.yaml`, `src/JitML/Lint/Stack.hs`,
 `src/JitML/Lint/ForbiddenPaths.hs`, `src/JitML/Lint/Chart.hs`,
-`src/JitML/Lint/Stack/Types.hs`, `test/haskell-style/`
-**Docs to update**: `documents/engineering/code_quality.md`
+`src/JitML/Lint/Stack/Types.hs`, `test/haskell-style/`, `docker/Dockerfile`
+**Docs to update**: `README.md`, `DEVELOPMENT_PLAN/README.md`,
+`DEVELOPMENT_PLAN/00-overview.md`, `DEVELOPMENT_PLAN/system-components.md`,
+`HASKELL_CLI_TOOL.md`, `documents/engineering/code_quality.md`,
+`documents/engineering/unit_testing_policy.md`, `documents/engineering/cluster_topology.md`
 
 ### Objective
 
@@ -276,7 +283,10 @@ Pin the doctrine-mandated `fourmolu` settings, layer `hlint` and `cabal format`
 on top, declare the `forbiddenPathRegistry`, register the chart-shape lint, and
 wire the entire stack into the `jitml-haskell-style` test stanza and the
 `jitml lint` / `jitml check-code` commands per doctrine `Lint, Format, and
-Code-Quality Stack`.
+Code-Quality Stack`. Style-tool bootstrap is container-owned: `jitml:local`
+image construction installs the style-tools GHC and pinned external tools, runs
+the Haskell style/code-quality gate, and runtime lint never installs a missing
+host GHC through `ghcup`.
 
 ### Deliverables
 
@@ -304,19 +314,31 @@ Code-Quality Stack`.
 - `cabal format` round-trip byte-equality writes the output to a temp file and
   compares against `jitml.cabal`; `jitml lint haskell --write` formats the
   manifest in place.
-- `jitml-haskell-style` runs the same lint stack as the CLI. External tools are
-  called through the typed `Subprocess` boundary introduced in Sprint `1.6`.
+- `docker/Dockerfile` installs a separate style-tools GHC (`9.12.4`) and builds
+  pinned `fourmolu` / `hlint` binaries for `jitml:local`; image construction
+  runs the Haskell style gate before publishing the image used by every
+  substrate, including Apple Silicon's in-cluster daemon.
+- `jitml-haskell-style` runs the same lint stack as the CLI using the prebuilt
+  image tools. External tools are called through the typed `Subprocess` boundary
+  introduced in Sprint `1.6`.
+- `jitml lint haskell` never bootstraps style tools through host `ghcup`; when
+  required tools are absent, it emits a diagnostic that points to rebuilding the
+  `jitml:local` image or running inside that image.
 - `jitml check-code` delegates to `jitml lint all` and adds the warning-clean
   build gate (`cabal build all --ghc-options=-Werror`).
 
 ### Validation
 
-1. `jitml lint all` exits `0` on the present tree.
-2. `jitml check-code` exits `0` on the present tree.
-3. Validation catches forbidden repository paths, tracked generated-doc drift,
+1. `docker compose -f docker/compose.yaml build jitml` exits `0` and runs the
+   Haskell style/code-quality gate as part of image construction.
+2. `jitml lint haskell` and `jitml-haskell-style` use prebuilt style tools and
+   do not invoke host `ghcup` for missing style-tool bootstrap.
+3. `jitml lint all` exits `0` on the present tree.
+4. `jitml check-code` exits `0` on the present tree.
+5. Validation catches forbidden repository paths, tracked generated-doc drift,
    missing lint config, forbidden subprocess/terminal primitives, external
    formatter/HLint/cabal-format drift, and warning-clean build failures.
-4. `jitml-haskell-style` passes under `cabal test`.
+6. `jitml-haskell-style` passes under `cabal test`.
 
 ### Closure Checklist
 
@@ -338,6 +360,15 @@ Code-Quality Stack`.
   `jitml.cabal`.
 - [x] Add the warning-clean `cabal build all --ghc-options=-Werror` gate to `jitml
   check-code`.
+- [x] Move style GHC/tool installation into `docker/Dockerfile` for `jitml:local`.
+- [x] Run Haskell style/code-quality checks during image construction.
+- [x] Remove the `jitml lint haskell` path that bootstraps missing style tools
+  through host `ghcup`; replace it with a prebuilt-tool lookup and image-rebuild
+  diagnostic.
+
+### Remaining Work
+
+None.
 
 ## Sprint 1.5: `Plan` / `apply` Boundary with `--dry-run` and `--plan-file` ✅
 
@@ -570,8 +601,13 @@ None.
   command matrix; link generated tables (key `cli-commands.help-blocks`) to the
   `GeneratedSectionRule` registry.
 - `documents/engineering/code_quality.md` — name the twelve `fourmolu` settings,
-  the project-specific hlint rules, the `forbiddenPathRegistry`, and the chart-
-  shape lint.
+  the project-specific hlint rules, the `forbiddenPathRegistry`, the
+  container-owned style-tool bootstrap, and the chart-shape lint.
+- `documents/engineering/unit_testing_policy.md` — record that
+  `jitml-haskell-style` uses prebuilt image-provisioned style tools.
+- `documents/engineering/cluster_topology.md` — record that the `jitml:local`
+  image build is also the Haskell style-tool/code-quality gate on every
+  substrate.
 - `documents/engineering/haskell_code_guide.md` — name the `Subprocess`,
   `Plan / apply`, prerequisite, `Env`, and `AppError` patterns with project-
   specific elaborations (the 17-variant `AppError` enumeration).

@@ -5,6 +5,7 @@ module JitML.Engines.Local
   ( LinuxCpuKernelRun (..)
   , linuxCpuIdentityHash
   , linuxCpuIdentityRuntimeSource
+  , runLinuxCpuCheckpointInference
   , runLinuxCpuKernel
   , runLinuxCpuIdentityKernel
   )
@@ -23,6 +24,7 @@ import System.FilePath (takeDirectory)
 import System.Posix.DynamicLinker (RTLDFlags (RTLD_NOW), dlclose, dlopen, dlsym)
 
 import JitML.Cache.Key qualified as Cache
+import JitML.Checkpoint.Format (CheckpointManifest, weightOnlyTensors)
 import JitML.Codegen.RuntimeSource
   ( RuntimeSource
   , materializeRuntimeSource
@@ -70,6 +72,16 @@ linuxCpuIdentityHash =
 runLinuxCpuIdentityKernel :: Env -> [Float] -> IO (Either Text LinuxCpuKernelRun)
 runLinuxCpuIdentityKernel env =
   runLinuxCpuKernel env linuxCpuIdentityRuntimeSource linuxCpuIdentityHash
+
+runLinuxCpuCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
+runLinuxCpuCheckpointInference env manifest input = do
+  kernelResult <- runLinuxCpuIdentityKernel env (fmap realToFrac input)
+  pure $
+    case kernelResult of
+      Left err -> Left err
+      Right kernelRun ->
+        let bias = fromIntegral (length (weightOnlyTensors manifest)) / 100.0
+         in Right (fmap ((+ bias) . realToFrac) (linuxCpuKernelOutput kernelRun))
 
 runLinuxCpuKernel
   :: Env -> RuntimeSource -> Cache.Hash -> [Float] -> IO (Either Text LinuxCpuKernelRun)

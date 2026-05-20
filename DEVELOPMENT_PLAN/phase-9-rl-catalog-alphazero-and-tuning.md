@@ -36,14 +36,16 @@ typed `PerfectInformation` typeclass admitting Connect 4 / Othello /
 Hex / Gomoku via per-game `applyMove` rules and per-game two-headed
 network metadata. `experiments/mnist-tune.dhall` renders the canonical
 `Some Tuning::{ … }` worked example. The current Haskell tuning catalog is
-a four-sampler local subset (`Sobol`, `Random`, `GeneticAlgorithm`,
-`EvolutionStrategies`) and does not yet decode or execute that TPE worked
-example. **Unmet today**: real on-hardware training to canonical reward
-thresholds, real network forward / back passes through the JIT engine layer,
-target sampler coverage and Dhall decoding for the TPE worked example, live
-MinIO trial transcript persistence/resume, and live Pulsar handlers — all gated
-by the absent cluster infra or target tuner work. Detailed remaining work lives
-in each sprint's `### Remaining Work` block below.
+a full target sampler catalog (`Grid`, `Sobol`, `Random`, `TPE`, `GPBO`,
+`GeneticAlgorithm`, `NSGA2`, `MuLambdaES`, `CMAES`, `EvolutionStrategies`,
+and `PBT`); `JitML.Tune.Catalog.loadTuningExperiment` decodes the worked
+example into the local tuning ADT and `jitml tune` renders a TPE plan.
+**Unmet today**: real on-hardware training to canonical reward thresholds,
+real network forward / back passes through the JIT engine layer, live MinIO
+trial transcript persistence/resume, proto-lens tune bindings, and live Pulsar
+handlers — all gated by the absent cluster infra or remaining tuner work.
+Detailed remaining work lives in each sprint's `### Remaining Work` block
+below.
 
 ### Current Implementation Scope
 
@@ -65,9 +67,9 @@ MinIO pointer; `Arena` decides `candidateShouldBePromoted` from the
 canonical games with per-game `applyMove` rules.
 `experiments/mnist-tune.dhall` renders the `Some Tuning::{ … }` worked
 example mirroring [../README.md → Concrete `Some Tuning::{ … }` example](../README.md);
-it is currently a target-shape fixture, because `JitML.Tune.Catalog`
-does not include a TPE sampler and `jitml tune` prints deterministic Sobol
-samples.
+it decodes through `JitML.Tune.Catalog.loadTuningExperiment` to the local
+TPE / ASHA / MedianPruner ADT, and `jitml tune` prints deterministic TPE trial
+samples for the local plan.
 Live MinIO trial storage, live tuner resume, real network execution,
 and on-hardware reward thresholds remain in the per-sprint
 `### Remaining Work` blocks below.
@@ -366,8 +368,9 @@ summary.
 
 ### Deliverables
 
-- `Sampler` enumerates `Sobol`, `Random`, `GeneticAlgorithm`, and
-  `EvolutionStrategies`.
+- `Sampler` enumerates `Grid`, `Sobol`, `Random`, `TPE`, `GPBO`,
+  `GeneticAlgorithm`, `NSGA2`, `MuLambdaES`, `CMAES`, `EvolutionStrategies`,
+  and `PBT`.
 - `Scheduler` enumerates `Fifo`, `SuccessiveHalving`, `Hyperband`, and `ASHA`.
 - `Pruner` enumerates `NoPruner`, `MedianPruner`, and `PercentilePruner`.
 - `deterministicTrials` emits normalized deterministic trial values for the
@@ -381,15 +384,18 @@ summary.
   `TrialTranscript` values through `HasMinIO.putBlobBytesIfAbsent` /
   `minioReadBytes`, validated against the filesystem-backed instance in
   `jitml-integration`.
-- `jitml tune <tune-dhall>` is Plan/Apply-capable and currently prints four
-  deterministic Sobol trial values.
-- `experiments/mnist-tune.dhall` is the checked-in target-shape `Some
+- `jitml tune <tune-dhall>` is Plan/Apply-capable and prints the decoded
+  sampler / scheduler / pruner axes plus four deterministic local trial values.
+- `experiments/mnist-tune.dhall` is the checked-in `Some
   Tuning::{ … }` worked example from
   [../README.md → Concrete `Some Tuning::{ … }` example](../README.md)
   with the TPE sampler / ASHA scheduler / MedianPruner triple and the
-  full search space. The current Haskell `Sampler` catalog does not
-  include TPE yet, so this file is not decoded or executed by the local
-  tuning summary.
+  full search space. `JitML.Tune.Catalog.loadTuningExperiment` decodes it
+  into the local Haskell tuning ADT, and the real-binary integration matrix
+  asserts `jitml tune experiments/mnist-tune.dhall` renders `sampler: TPE`.
+- `jitml-hyperparameter` consumes the `tune_trials` and
+  `tune_budget_per_trial` report-card knobs from `cabal.project` for the
+  local TPE trial-budget assertion.
 - `proto/jitml/tune.proto` + `src/JitML/Proto/Tune.hs` declare the
   typed `TuneCommand` / `TuneEvent` surfaces for the substrate-scoped
   Pulsar topics.
@@ -398,11 +404,16 @@ summary.
 
 ### Validation
 
-1. `jitml tune --dry-run experiments/mnist-tune.dhall` emits the typed plan.
+1. `jitml tune --dry-run experiments/mnist-tune.dhall` emits the typed
+   Plan/Apply command plan.
 2. `cabal test jitml-hyperparameter` verifies the sampler, scheduler, and
-   pruner axes are populated and deterministic.
+   pruner axes are populated, deterministic, the TPE worked example
+   decodes, and the local TPE trial budget consumes `cabal.project`
+   report-card knobs.
 3. `jitml-unit` verifies the trial key and resume-equality helpers.
-4. Live validation (target): a real `Some Tuning::{ … }`-shaped Dhall
+4. `jitml-integration` spawns the real binary and verifies normal
+   `jitml tune experiments/mnist-tune.dhall` execution renders `sampler: TPE`.
+5. Live validation (target): a real `Some Tuning::{ … }`-shaped Dhall
    drives `jitml tune` end-to-end through the daemon, trial transcripts
    persist to MinIO bucket `jitml-trials/`, and resume-from-partial-sweep
    reproduces the same trial outcome bit-for-bit.
@@ -412,19 +423,15 @@ summary.
 - Generate `proto-lens`-driven Haskell bindings for
   `proto/jitml/tune.proto` so the typed envelopes round-trip
   binary-equivalent with other-language clients.
-- Expand the current four-sampler local catalog and Dhall decoder to cover the
-  target sampler family required by the worked example, starting with `TPE`.
-  Closure validation: `experiments/mnist-tune.dhall` decodes to the Haskell
-  tuning ADT and `jitml tune experiments/mnist-tune.dhall` renders a plan whose
-  sampler is `TPE`, not the current hard-coded Sobol summary.
 - Implement the daemon-side tune handler that consumes
   `tune.command.<mode>` and persists trial transcripts to MinIO bucket
   `jitml-trials/<sha256(resolved-dhall || trial-seed)>/` — owned by
   Sprint 5.5 once the live broker + MinIO are reachable.
 - Validate `persistTrialTranscript` / `replaySweep` against live HTTP
   MinIO once Sprint `4.3` / `5.4` lands the real client.
-- Consume the `tune_trials` and `tune_budget_per_trial` report-card
-  knobs in the canonical stanza body (Sprint 12.5).
+- Extend the current `tune_trials` / `tune_budget_per_trial` knob consumption
+  from the local TPE trial-budget assertion to the full canonical sampler ×
+  scheduler × pruner grid once live tuner execution lands (Sprint 12.5).
 
 ## Doctrine Sections Cited
 
@@ -439,7 +446,7 @@ summary.
 - `documents/engineering/training_workloads.md` — current RL algorithm
   metadata catalog, Dhall mirror, PPO/CartPole golden trajectory fixture,
   Connect 4 transcript helper, and tuner catalog; target algorithm modules,
-  AlphaZero/MCTS runtime, adversarial games, target TPE sampler decode, and
+  AlphaZero/MCTS runtime, adversarial games, target sampler decode, and
   full tuner storage/resume surface.
 - `documents/engineering/determinism_contract.md` — current deterministic
   local trajectory/transcript helpers and target AlphaZero

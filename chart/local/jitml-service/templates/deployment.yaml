@@ -19,19 +19,24 @@ spec:
       {{- end }}
       affinity:
         podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                topologyKey: kubernetes.io/hostname
-                labelSelector:
-                  matchLabels:
-                    app: jitml-service
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: jitml-service
       containers:
         - name: jitml-service
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: IfNotPresent
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          {{- if eq .Values.substrate "linux-cuda" }}
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+          {{- end }}
           volumeMounts:
             - name: jit-cache
               mountPath: /opt/build

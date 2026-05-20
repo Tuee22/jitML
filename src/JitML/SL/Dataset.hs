@@ -1,13 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.SL.Dataset
-  ( DatasetRef (..)
+  ( DatasetFetchResult (..)
+  , DatasetRef (..)
   , DatasetSplit (..)
   , canonicalDatasets
   , datasetForProblem
+  , datasetFixtureBytes
   , datasetObjectKey
+  , datasetObjectRef
   , datasetRefHash
+  , fetchDatasetRef
   , renderDatasetCatalog
+  , verifyDatasetBytes
   )
 where
 
@@ -21,6 +26,13 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word8)
 
 import JitML.SL.Canonicals (CanonicalProblem (..))
+import JitML.Service.Capabilities
+  ( BucketName (..)
+  , HasMinIO (..)
+  , ObjectKey (..)
+  , ObjectRef (..)
+  )
+import JitML.Service.Retry (ServiceError (..))
 
 data DatasetSplit
   = TrainSplit
@@ -36,6 +48,13 @@ data DatasetRef = DatasetRef
   }
   deriving stock (Eq, Show)
 
+data DatasetFetchResult = DatasetFetchResult
+  { fetchedDataset :: DatasetRef
+  , fetchedBytes :: Int
+  , fetchedSha256 :: Text
+  }
+  deriving stock (Eq, Show)
+
 datasetSplitText :: DatasetSplit -> Text
 datasetSplitText TrainSplit = "train"
 datasetSplitText ValidationSplit = "validation"
@@ -48,6 +67,12 @@ datasetObjectKey ref =
     <> "/"
     <> datasetSplitText (datasetSplit ref)
     <> "/data.bin"
+
+datasetObjectRef :: DatasetRef -> ObjectRef
+datasetObjectRef ref =
+  ObjectRef
+    (BucketName "jitml-datasets")
+    (ObjectKey (datasetName ref <> "/" <> datasetSplitText (datasetSplit ref) <> "/data.bin"))
 
 canonicalDatasets :: [DatasetRef]
 canonicalDatasets =
@@ -81,6 +106,48 @@ datasetForProblem problem =
 
 datasetRefHash :: DatasetRef -> Text
 datasetRefHash = datasetExpectedSha256
+
+datasetFixtureBytes :: DatasetRef -> ByteString
+datasetFixtureBytes ref =
+  Text.Encoding.encodeUtf8
+    ( datasetName ref
+        <> "|"
+        <> datasetSplitText (datasetSplit ref)
+        <> "|"
+        <> Text.pack (show (datasetSizeBytes ref))
+    )
+
+verifyDatasetBytes :: DatasetRef -> ByteString -> Either Text DatasetFetchResult
+verifyDatasetBytes ref payload =
+  let actual = hashHex (SHA256.hash payload)
+   in if actual == datasetExpectedSha256 ref
+        then
+          Right
+            DatasetFetchResult
+              { fetchedDataset = ref
+              , fetchedBytes = ByteString.length payload
+              , fetchedSha256 = actual
+              }
+        else
+          Left
+            ( "dataset SHA mismatch for "
+                <> datasetName ref
+                <> "/"
+                <> datasetSplitText (datasetSplit ref)
+                <> ": expected "
+                <> datasetExpectedSha256 ref
+                <> ", got "
+                <> actual
+            )
+
+fetchDatasetRef :: (HasMinIO m) => DatasetRef -> m (Either ServiceError DatasetFetchResult)
+fetchDatasetRef ref = do
+  result <- minioReadBytes (datasetObjectRef ref)
+  pure $ do
+    payload <- result
+    case verifyDatasetBytes ref payload of
+      Right verified -> Right verified
+      Left message -> Left (SEConflict message)
 
 renderDatasetCatalog :: Text
 renderDatasetCatalog =

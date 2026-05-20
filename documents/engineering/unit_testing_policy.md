@@ -34,15 +34,15 @@ cluster validation remains phase-gated:
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
 | `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table golden fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, routed MinIO subprocess command rendering, Dhall numerics decode, and typed service command shapes | Integration | Sprint 12.2 |
+| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table golden fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated FFI kernel, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, two-worker Kind rendering, required `jitml-service` anti-affinity rendering, Dhall numerics decode, and typed service command shapes | Integration | Sprint 12.2 |
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves and the committed per-problem fixtures under `test/golden/sl/` | Integration (project-specific) | Sprint 12.3 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, PPO/CartPole golden trajectory, and AlphaZero transcript fixtures for Connect 4, Othello, Hex, and Gomoku | Integration (project-specific) | Sprint 12.4 |
-| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes, deterministic trial generation, and Sobol/GA golden fixtures | Integration (project-specific) | Sprint 12.5 |
-| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, and generated Linux CPU identity-kernel compile/load/run | Integration (project-specific) | Sprint 12.6 |
-| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP, deployment, report-card, no leaked `jitml-e2e-*` clusters, and typed live-plan surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
-| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack, including external formatter, HLint, cabal-format, and warning-clean build gates | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
-| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file, renderer, whitespace shape, panel-contract coverage, and explicit typed `spago test` / `purs-tidy check` command shapes | Lint (project-specific) | Sprint 11.3 |
+| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, deterministic trial generation, the TPE worked-example Dhall decode, and Sobol/GA golden fixtures | Integration (project-specific) | Sprint 12.5 |
+| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, and generated Linux CPU identity/reduction-smoke kernel compile/load/run | Integration (project-specific) | Sprint 12.6 |
+| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, and typed live-plan surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
+| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack, including external formatter, HLint, cabal-format, and warning-clean build gates; target style tools are supplied by the `jitml:local` image build rather than host lint-time bootstrap | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
+| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file, renderer, recursive checked-in PureScript whitespace shape, panel-contract coverage, and explicit typed `spago test` / `purs-tidy check` command shapes | Lint (project-specific) | Sprint 11.3 |
 
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
@@ -70,8 +70,13 @@ stanza under the same allowance.
 
 `jitml test all` (Sprint `12.9`) fans out to every stanza above by invoking
 `cabal test all` through the typed `Subprocess` boundary, then aggregates the
-report card after Cabal succeeds. `jitml test <stanza>` invokes one Cabal stanza
-through the same boundary.
+report card after Cabal succeeds. Because `jitml-haskell-style` uses
+container-provided style tools, the full all-stanza gate runs inside
+`jitml:local` unless `JITML_STYLE_TOOLS_BIN` points at prebuilt host tools.
+The 2026-05-19 `jitml:local` validation passed non-dry-run `jitml test all`
+across all ten stanzas and printed the report card with the `cabal.project`
+knob values.
+`jitml test <stanza>` invokes one Cabal stanza through the same boundary.
 
 ## Project-Specific Stanza Notes
 
@@ -96,13 +101,14 @@ remain target validation.
 
 ### `jitml-hyperparameter` — sampler / scheduler / pruner reproducibility
 
-The current body checks the local `Sobol`, `Random`, `GeneticAlgorithm`, and
-`EvolutionStrategies` samplers; `Fifo`, `SuccessiveHalving`, `Hyperband`, and
-`ASHA` schedulers; and `NoPruner`, `MedianPruner`, and `PercentilePruner`
-pruners. It verifies deterministic local trial values and the current Sobol/GA
-golden fixtures. Larger sampler families, including the TPE sampler named by
-`experiments/mnist-tune.dhall`, live trial persistence, and
-resume-from-partial-sweep equality against MinIO remain target validation.
+The current body checks the local `Grid`, `Sobol`, `Random`, `TPE`, `GPBO`,
+`GeneticAlgorithm`, `NSGA2`, `MuLambdaES`, `CMAES`, `EvolutionStrategies`,
+and `PBT` samplers; `Fifo`, `SuccessiveHalving`, `Hyperband`, and `ASHA`
+schedulers; and `NoPruner`, `MedianPruner`, and `PercentilePruner` pruners.
+It verifies deterministic local trial values, sampler-label parsing, the
+current Sobol/GA golden fixtures, and the `experiments/mnist-tune.dhall` TPE
+worked-example decode. Live trial persistence and resume-from-partial-sweep
+equality against MinIO remain target validation.
 
 ### `jitml-cross-backend` and the Tolerance Band
 
@@ -126,9 +132,13 @@ validation.
 ### `jitml-e2e` and Pulumi
 
 The current `jitml-e2e` body validates local route, bucket, `chart/values.yaml`
-MinIO coverage, publication, browser-contract, demo HTTP, deployment,
-report-card, typed live-plan surfaces, no leaked `jitml-e2e-*` Kind clusters,
-and the bundle-serving fallback. The Pulumi TypeScript program at
+MinIO coverage, publication, browser-contract, demo HTTP routes including the
+generated stream endpoints, deployment, report-card rendering plus the
+`cabal.project` knob-block parser, typed live-plan surfaces, no leaked
+`jitml-e2e-*` Kind clusters when `kind` and `/var/run/docker.sock` are both
+available, and the bundle-serving fallback. When the binary or Docker socket is
+absent, only the local Docker-backed Kind query is skipped. The Pulumi
+TypeScript program at
 `infra/pulumi/`
 contains a typed `@pulumi/command` resource graph for Kind creation, Helm
 dependency build, `jitml bootstrap`, publication checking, and symmetric Kind
@@ -159,12 +169,14 @@ Future Pulumi invocations flow through the typed `Subprocess` boundary.
 
 ### `jitml-haskell-style`
 
-Doctrine's Style stanza per §Style as a Cabal test-suite. The current body runs
-the lint stack, including route-registry / chart consistency lint,
-generated-section drift checks, `fourmolu --mode check`,
-`hlint --with-group=default --with-group=extra` plus `.hlint.yaml`,
-`cabal format` temp-file round-trip byte equality, and the warning-clean build
-gate.
+Doctrine's Style stanza per §Style as a Cabal test-suite. The target body runs
+the lint stack with style tools prebuilt by the mandatory `jitml:local` image,
+including route-registry / chart consistency lint, generated-section drift
+checks, `fourmolu --mode check`, `hlint --with-group=default
+--with-group=extra` plus `.hlint.yaml`, `cabal format` temp-file round-trip byte
+equality, and the warning-clean build gate. This stanza uses prebuilt
+container-owned style tools and does not bootstrap missing tools through host
+`ghcup`.
 
 ### `jitml-purescript-style`
 

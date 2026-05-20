@@ -42,10 +42,13 @@ deterministic-only cuDNN algorithm pin into the generated source payload.
 **Unmet today**: Sprint `7.3` owes the live oneDNN graph wiring through
 `HasEngine` production loading (needs `libdnnl` on the build host plus
 the runtime graph driver beyond the family source scaffold); Sprint `7.4`
-owes CUDA FFI loading + live `nvcc`/cuBLAS/cuDNN execution (gated by
-absent NVIDIA hardware); Sprint `7.5` owes real Tart spin-up + Metal FFI
-loading + live host↔cluster RPC (gated by absent Tart toolchain); Sprint
-`7.6` owes the benchmark driver against real hardware + the same-host
+owes CUDA FFI loading + live `nvcc`/cuBLAS/cuDNN execution (this
+workstation exposes an RTX 5090 through `nvidia-smi -L`, but lacks
+host `nvcc`; live CUDA Kind validation now reaches the labelled worker and
+then fails because the Kind worker containerd has no `nvidia` runtime
+handler); Sprint `7.5` owes real Tart spin-up
+and Metal FFI loading + live host↔cluster RPC (gated by absent Tart toolchain);
+Sprint `7.6` owes the benchmark driver against real hardware + the same-host
 equality assertion. Detailed remaining work lives in each sprint's
 `### Remaining Work` block below.
 
@@ -61,12 +64,13 @@ renders CUDA / oneDNN C++ / Metal-Swift compiler inputs under
 typed `Subprocess` values. `src/JitML/Engines/Local.hs` provides the first
 same-host execution loop for `linux-cpu`: generated source materialization,
 shared-object compilation, `dlopen`, symbol lookup, and deterministic fixture
-execution.
+execution for the identity kernel plus a reduction-family compile/load/run
+smoke.
 
-The implemented execution path is intentionally narrow: it validates the
-generated Linux CPU identity kernel through the real FFI boundary before the
-production `HasEngine` loaders grow real oneDNN graph kernels, Apple Metal, and
-Linux CUDA.
+The implemented execution path is intentionally narrow: it validates generated
+Linux CPU identity and reduction smoke kernels through the real FFI boundary
+before the production `HasEngine` loaders grow real oneDNN graph kernels, Apple
+Metal, and Linux CUDA.
 
 ## Sprint 7.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface ✅
 
@@ -178,8 +182,12 @@ identity kernel; grow real oneDNN graph wrappers and production
 1. `jitml build --dry-run --substrate linux-cpu` renders a
    generated-source directory and `g++` compile plan.
 2. `cabal test jitml-cross-backend` compiles, loads, and executes the
-   generated Linux CPU identity kernel.
-3. Live validation (target): real oneDNN graph wrappers execute
+   generated Linux CPU identity kernel; revalidated on 2026-05-19 in
+   `jitml:local`.
+3. `cabal test jitml-cross-backend` compiles, loads, and executes the
+   generated Linux CPU reduction-family smoke kernel through the same FFI path;
+   revalidated on 2026-05-19 in `jitml:local`.
+4. Live validation (target): real oneDNN graph wrappers execute
    representative reduction / convolution / matmul kernels and reproduce
    bit-deterministic results within the per-substrate ULP tolerance.
 
@@ -192,7 +200,8 @@ identity kernel; grow real oneDNN graph wrappers and production
   family-aware source renderer (`renderOneDnnFamilySource`) and
   deterministic-only primitive selection (`Engines.Tuning.linuxCpuKnobs`
   with `reduction-block`, `micro-kernel`, `thread-count`, and `fastmath
-  = off`) already exist.
+  = off`) already exist. `jitml-cross-backend` now also compiles, loads, and
+  runs the generated reduction-family smoke kernel through the local FFI path.
 - `JitML.Engines.CpuFeatures.detectCpuFeatures` now probes the host
   through the typed `Subprocess` boundary (Darwin `sysctl -a`
   parsing for `hw.optional.avx2_0` / `hw.optional.avx512f`; Linux
@@ -237,7 +246,11 @@ execution per `### Remaining Work` below.
   the cache key).
 - Live cuBLAS/cuDNN execution, FFI loading of the compiled `.so`,
   splitmix RNG path wiring, and the live transcript-determinism test
-  remain blocked by absent NVIDIA hardware on the development host.
+  remain blocked by missing host `nvcc` and cuBLAS/cuDNN binding work. The
+  current workstation exposes an NVIDIA GeForce RTX 5090 through
+  `nvidia-smi -L`, and 2026-05-20 live CUDA Kind validation proves the labelled
+  worker, containerd `nvidia` runtime handler, `RuntimeClass/nvidia` scheduler
+  path, and pod-visible GPU.
 
 ### Validation
 
@@ -251,8 +264,8 @@ execution per `### Remaining Work` below.
 ### Remaining Work
 
 - Wire the family-aware CUDA source renderer into `HasEngine`
-  production loading once NVIDIA hardware is reachable from the
-  bootstrap host. The deterministic algorithm-id capture
+  production loading once the host `nvcc` / cuBLAS / cuDNN toolchain is
+  reachable. The deterministic algorithm-id capture
   (`Engines.Tuning.cuDnnDeterministicAlgorithms`) and the
   no-`_FAST_MATH` / no-TF32 knob defaults are already in place.
 - Add real cuBLAS/cuDNN typed bindings under the engine surface (the
@@ -263,8 +276,9 @@ execution per `### Remaining Work` below.
 - Implement FFI loading of the compiled CUDA `.so` and plug it into
   `HasEngine` production loading.
 - Add the live CUDA transcript-determinism integration test on the explicit live
-  validation path (Sprint `12.6`) — blocked by absent NVIDIA
-  hardware.
+  validation path (Sprint `12.6`) — blocked here by missing `nvcc`, missing
+  CUDA runtime bindings, and CUDA `.so` FFI loading, not by GPU discovery,
+  scheduler labels, or the Kind worker containerd `nvidia` handler.
 
 ## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC 🔄
 
@@ -361,7 +375,8 @@ per `### Remaining Work` below.
 ### Validation
 
 1. `jitml-unit` verifies the rendered runtime-source payload participates
-   in the cache key.
+   in the cache key; `jitml-cross-backend` revalidated the local Linux CPU
+   three-run bit-equality fixture on 2026-05-19 in `jitml:local`.
 2. Live validation (target): per-substrate knob spaces drive
    benchmark-based selection on real hardware (matmul tile sizes,
    reduction strategies, cuDNN deterministic algorithm IDs) and the
@@ -380,8 +395,8 @@ per `### Remaining Work` below.
   the generated identity kernel through the live FFI boundary
   produce bit-identical output. The remaining open piece is the
   cross-substrate equality test (linux-cpu vs apple-silicon vs
-  linux-cuda), which is gated on the absent Tart VM + NVIDIA
-  hardware.
+  linux-cuda), which is gated on absent Tart tooling plus missing CUDA
+  compiler/runtime binding and Kind worker NVIDIA runtime-handler wiring.
 
 ## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation ✅
 

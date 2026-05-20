@@ -95,7 +95,9 @@ runtime work.
 - `src/JitML/SL/Dataset.hs` declares the typed `DatasetRef` / `DatasetSplit`
   surface, the `canonicalDatasets` registry covering MNIST,
   Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, and California
-  Housing, and the deterministic `expectedSha256` derivation.
+  Housing, the deterministic `expectedSha256` derivation,
+  `datasetObjectRef`, `verifyDatasetBytes`, and `fetchDatasetRef` through
+  the `HasMinIO` capability boundary.
 - `src/JitML/SL/Loop.hs` declares `LoopConfig`, `EpochOutcome`, and
   `TrainPipeline`, threading the deterministic convergence curve from
   Sprint 8.1 through the `TrainingLifecycle` GADT singletons.
@@ -110,7 +112,7 @@ runtime work.
 ### Validation
 
 1. `cabal test jitml-sl-canonicals` exercises the eleven-cell canonical
-   summary body.
+   summary body and the deterministic `TrainingConfig` convergence pipeline.
 2. `jitml train experiments/mnist.dhall` renders the deterministic
    summary from `src/JitML/App.hs`.
 3. Live validation (target): a real training run against MNIST hits the
@@ -121,12 +123,14 @@ runtime work.
 
 ### Remaining Work
 
-- Wire the typed `DatasetRef` surface into the live `HasMinIO` capability
-  class so `jitml train` fetches real bytes from the
-  `jitml-datasets` bucket and SHA-256-verifies against the experiment
-  Dhall. The typed `Dataset.hs` surface and `datasetForProblem`
-  resolver are in place; the gap is wiring this path to
-  `JitML.Service.MinIOSubprocess`, the live MinIO client from Sprint 4.3.
+- `JitML.SL.Dataset.fetchDatasetRef` now reads dataset bytes through
+  `HasMinIO`, maps the object to bucket `jitml-datasets`, and verifies the
+  SHA-256 before returning a typed `DatasetFetchResult`; `jitml-sl-canonicals`
+  validates the path against the filesystem-backed `HasMinIO` instance.
+  Remaining live work is wiring this function into `jitml train` /
+  `TrainingHandler` with `JitML.Service.MinIOSubprocess`, the routed live
+  MinIO client from Sprint 4.3, and replacing local fixture hashes with real
+  dataset object hashes from experiment Dhall.
 - Replace or supplement the current deterministic synthetic fixtures under
   `test/golden/sl/<problem-key>/` with live measured convergence fixtures
   once the daemon-backed training loop runs on real hardware against real
@@ -383,7 +387,9 @@ remain target runtime work.
    plan.
 2. `jitml rl train experiments/cartpole.dhall` prints the algorithm
    catalog summary.
-3. Live validation (target): a real `RLLoop` executes against the daemon
+3. `cabal test jitml-rl-canonicals` verifies the deterministic local
+   `RLLoop` records rollout transitions into its `ReplayBuffer`.
+4. Live validation (target): a real `RLLoop` executes against the daemon
    for one cartpole episode, reaches the reward threshold, and the
    resulting checkpoint resumes bit-deterministically to the same reward.
 

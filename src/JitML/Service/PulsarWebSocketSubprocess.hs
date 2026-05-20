@@ -7,6 +7,8 @@ module JitML.Service.PulsarWebSocketSubprocess
   , defaultPulsarWebSocketSettings
   , pulsarConsumeSubprocess
   , pulsarPublishSubprocess
+  , pulsarSubscribeSubprocess
+  , pulsarSettingsForEndpoint
   , pulsarSettingsForLocalEdge
   , runPulsarWebSocketSubprocess
   )
@@ -46,9 +48,13 @@ defaultPulsarWebSocketSettings =
 
 pulsarSettingsForLocalEdge :: Int -> PulsarWebSocketSettings
 pulsarSettingsForLocalEdge edgePort =
+  pulsarSettingsForEndpoint ("pulsar://127.0.0.1:" <> Text.pack (show edgePort) <> "/pulsar")
+
+pulsarSettingsForEndpoint :: Text -> PulsarWebSocketSettings
+pulsarSettingsForEndpoint endpoint =
   PulsarWebSocketSettings
     { pulsarNodeBinary = "node"
-    , pulsarWebSocketEndpoint = "ws://127.0.0.1:" <> Text.pack (show edgePort) <> "/pulsar/ws"
+    , pulsarWebSocketEndpoint = websocketEndpointFromServiceUrl endpoint
     }
 
 newtype PulsarWebSocketSubprocess a = PulsarWebSocketSubprocess
@@ -88,6 +94,18 @@ pulsarConsumeSubprocess settings subscription outputPath =
     , Text.pack outputPath
     ]
 
+pulsarSubscribeSubprocess :: PulsarWebSocketSettings -> TopicName -> Text -> FilePath -> Subprocess
+pulsarSubscribeSubprocess settings topic subscription outputPath =
+  subprocess
+    (pulsarNodeBinary settings)
+    [ "--eval"
+    , subscribeScript
+    , consumerUrl settings (renderSubscriptionId topic subscription)
+    , unTopicName topic
+    , subscription
+    , Text.pack outputPath
+    ]
+
 instance HasPulsar PulsarWebSocketSubprocess where
   pulsarPublish topic payload = do
     settings <- ask
@@ -104,8 +122,15 @@ instance HasPulsar PulsarWebSocketSubprocess where
   pulsarAcknowledge _topic _payload =
     pure (Right ())
 
-  pulsarSubscribe topic subscription =
-    pure (Right (renderSubscriptionId topic subscription))
+  pulsarSubscribe topic subscription = do
+    settings <- ask
+    withResponseFile $ \outputPath -> do
+      result <-
+        invokeNode
+          "pulsarSubscribe"
+          (pulsarSubscribeSubprocess settings topic subscription outputPath)
+          outputPath
+      pure (renderSubscriptionId topic subscription <$ result)
 
   pulsarConsume subscription = do
     settings <- ask
@@ -206,6 +231,23 @@ stripTrailingSlash value
   | "/" `Text.isSuffixOf` value = stripTrailingSlash (Text.dropEnd 1 value)
   | otherwise = value
 
+websocketEndpointFromServiceUrl :: Text -> Text
+websocketEndpointFromServiceUrl =
+  appendWebsocketPath . toWebsocketScheme . stripTrailingSlash
+
+toWebsocketScheme :: Text -> Text
+toWebsocketScheme endpoint
+  | Just rest <- Text.stripPrefix "pulsar://" endpoint = "ws://" <> rest
+  | Just rest <- Text.stripPrefix "http://" endpoint = "ws://" <> rest
+  | Just rest <- Text.stripPrefix "https://" endpoint = "wss://" <> rest
+  | otherwise = endpoint
+
+appendWebsocketPath :: Text -> Text
+appendWebsocketPath endpoint
+  | "/ws" `Text.isSuffixOf` endpoint = endpoint
+  | "/pulsar" `Text.isSuffixOf` endpoint = endpoint <> "/ws"
+  | otherwise = endpoint <> "/ws"
+
 withPayloadFile
   :: ByteString.ByteString -> (FilePath -> PulsarWebSocketSubprocess a) -> PulsarWebSocketSubprocess a
 withPayloadFile payload action =
@@ -239,9 +281,10 @@ producerScript :: Text
 producerScript =
   Text.unlines
     [ "const fs = require('fs');"
+    , "const WebSocketCtor = globalThis.WebSocket || require('undici').WebSocket;"
     , "const [url, payloadPath, outputPath] = process.argv.slice(1);"
     , "const payload = fs.readFileSync(payloadPath);"
-    , "const ws = new WebSocket(url);"
+    , "const ws = new WebSocketCtor(url);"
     , "let settled = false;"
     , "const timer = setTimeout(() => { console.error('timeout'); process.exit(2); }, 10000);"
     , "ws.addEventListener('open', () => {"
@@ -266,8 +309,9 @@ consumerScript :: Text
 consumerScript =
   Text.unlines
     [ "const fs = require('fs');"
+    , "const WebSocketCtor = globalThis.WebSocket || require('undici').WebSocket;"
     , "const [url, outputPath] = process.argv.slice(1);"
-    , "const ws = new WebSocket(url);"
+    , "const ws = new WebSocketCtor(url);"
     , "let settled = false;"
     , "const timer = setTimeout(() => { console.error('timeout'); process.exit(2); }, 15000);"
     , "ws.addEventListener('message', (event) => {"
@@ -283,5 +327,27 @@ consumerScript =
     , "ws.addEventListener('error', (event) => { clearTimeout(timer); console.error(event.message || 'websocket error'); process.exit(1); });"
     , "ws.addEventListener('close', (event) => {"
     , "  if (!settled) { clearTimeout(timer); console.error(`closed before message: ${event.code} ${event.reason || ''}`); process.exit(1); }"
+    , "});"
+    ]
+
+subscribeScript :: Text
+subscribeScript =
+  Text.unlines
+    [ "const fs = require('fs');"
+    , "const WebSocketCtor = globalThis.WebSocket || require('undici').WebSocket;"
+    , "const [url, topic, subscription, outputPath] = process.argv.slice(1);"
+    , "const ws = new WebSocketCtor(url);"
+    , "let opened = false;"
+    , "const timer = setTimeout(() => { console.error('timeout'); process.exit(2); }, 10000);"
+    , "ws.addEventListener('open', () => {"
+    , "  opened = true;"
+    , "  fs.writeFileSync(outputPath, `${topic}\\n${subscription}`);"
+    , "  clearTimeout(timer);"
+    , "  ws.close();"
+    , "  process.exit(0);"
+    , "});"
+    , "ws.addEventListener('error', (event) => { clearTimeout(timer); console.error(event.message || 'websocket error'); process.exit(1); });"
+    , "ws.addEventListener('close', (event) => {"
+    , "  if (!opened) { clearTimeout(timer); console.error(`closed before subscription open: ${event.code} ${event.reason || ''}`); process.exit(1); }"
     , "});"
     ]

@@ -2,6 +2,7 @@
 
 module JitML.Service.Consumer
   ( ConsumerOutcome (..)
+  , DaemonSubscription (..)
   , DedupCache (..)
   , EventDomain (..)
   , EventId (..)
@@ -11,6 +12,7 @@ module JitML.Service.Consumer
   , dedupCacheCapacity
   , dedupCacheInsert
   , dedupCacheKnown
+  , daemonSubscriptionsForBootConfig
   , domainFor
   , emptyHandlerRouter
   , eventIdFromPayload
@@ -18,6 +20,7 @@ module JitML.Service.Consumer
   , processAtLeastOnce
   , routeByKind
   , runConsumerLoop
+  , subscribeDaemonTopics
   )
 where
 
@@ -30,12 +33,17 @@ import Data.Text (Text)
 import Data.Text.Encoding qualified as Text.Encoding
 
 import JitML.AppError.AppError (AppError (..))
+import JitML.Service.BootConfig
+  ( BootConfig (..)
+  , Residency (..)
+  )
 import JitML.Service.Capabilities
   ( HasPulsar (..)
   , SubscriptionId
   , TopicName (..)
   )
 import JitML.Service.Retry (ServiceError, serviceErrorToAppError)
+import JitML.Substrate (Substrate (..), renderSubstrate)
 
 newtype EventId = EventId
   { unEventId :: Text
@@ -74,14 +82,66 @@ data EventDomain
 -- `"training.command.linux-cpu"`), return the per-domain handler bucket.
 domainFor :: Text -> Maybe EventDomain
 domainFor topic
-  | "training." `isPrefix` topic = Just TrainingDomain
-  | "tune." `isPrefix` topic = Just TuneDomain
-  | "rl." `isPrefix` topic = Just RlDomain
-  | "inference." `isPrefix` topic = Just InferenceDomain
+  | "training." `isPrefix` normalizedTopic = Just TrainingDomain
+  | "tune." `isPrefix` normalizedTopic = Just TuneDomain
+  | "rl." `isPrefix` normalizedTopic = Just RlDomain
+  | "inference." `isPrefix` normalizedTopic = Just InferenceDomain
   | otherwise = Nothing
  where
+  normalizedTopic = stripPulsarPrefix topic
   isPrefix prefix t =
     Text.Encoding.encodeUtf8 prefix `StrictByteString.isPrefixOf` Text.Encoding.encodeUtf8 t
+
+stripPulsarPrefix :: Text -> Text
+stripPulsarPrefix topic =
+  maybe
+    topic
+    Text.Encoding.decodeUtf8
+    (StrictByteString.stripPrefix prefix (Text.Encoding.encodeUtf8 topic))
+ where
+  prefix = Text.Encoding.encodeUtf8 ("persistent://public/default/" :: Text)
+
+data DaemonSubscription = DaemonSubscription
+  { daemonSubscriptionTopic :: TopicName
+  , daemonSubscriptionName :: Text
+  }
+  deriving stock (Eq, Show)
+
+daemonSubscriptionsForBootConfig :: BootConfig -> [DaemonSubscription]
+daemonSubscriptionsForBootConfig bootConfig =
+  case (bootSubstrate bootConfig, bootResidency bootConfig) of
+    (AppleSilicon, Host) ->
+      [daemonSubscription "inference.command" AppleSilicon "jitml-host"]
+    _ ->
+      fmap
+        (\prefix -> daemonSubscription prefix (bootSubstrate bootConfig) "jitml-service")
+        [ "training.command"
+        , "tune.command"
+        , "rl.command"
+        , "inference.request"
+        ]
+
+subscribeDaemonTopics
+  :: (HasPulsar m)
+  => [DaemonSubscription]
+  -> m [(DaemonSubscription, Either ServiceError SubscriptionId)]
+subscribeDaemonTopics =
+  traverse subscribeOne
+ where
+  subscribeOne subscription = do
+    result <-
+      pulsarSubscribe
+        (daemonSubscriptionTopic subscription)
+        (daemonSubscriptionName subscription)
+    pure (subscription, result)
+
+daemonSubscription :: Text -> Substrate -> Text -> DaemonSubscription
+daemonSubscription prefix substrate subscriptionName =
+  DaemonSubscription
+    { daemonSubscriptionTopic =
+        TopicName ("persistent://public/default/" <> prefix <> "." <> renderSubstrate substrate)
+    , daemonSubscriptionName = subscriptionName
+    }
 
 -- | Per-handler LRU dedup cache. The capacity + TTL come from the LiveConfig.
 -- The implementation is a bounded list of recently-seen `EventId` values; an

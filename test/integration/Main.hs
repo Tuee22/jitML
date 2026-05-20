@@ -13,6 +13,7 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Data.ByteString.Lazy qualified as ByteString.Lazy
+import Data.Foldable (traverse_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text.Encoding qualified as Text.Encoding
 
@@ -27,11 +28,14 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.DockerImage qualified as DockerImage
 import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Helm qualified as Helm
-import JitML.Cluster.Kind (kindConfigFor, renderKindConfig)
+import JitML.Cluster.Kind (kindConfigFor, kindConfigWithWorkerCount, renderKindConfig)
 import JitML.Cluster.PostgresRegistry qualified as PostgresRegistry
 import JitML.Cluster.Publication qualified as Publication
+import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Cluster.Readiness qualified as Readiness
 import JitML.Engines.CpuFeatures (CpuFeatures (..), detectCpuFeatures, microKernelChoice)
+import JitML.Engines.Local qualified as Local
+import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.Schema qualified as Numerics
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
 
@@ -52,6 +56,8 @@ import JitML.Service.Capabilities
   , SubscriptionId (..)
   , TopicName (..)
   )
+import JitML.Service.Clients qualified as ServiceClients
+import JitML.Service.ConfigMap qualified as ServiceConfigMap
 import JitML.Service.Consumer (EventDomain (..), eventIdFromPayload)
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
 import JitML.Service.HarborSubprocess qualified as HarborSubprocess
@@ -95,9 +101,58 @@ main =
                 , "install Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
                 , "write ./.build/runtime/cluster-publication.json"
                 ]
-      , testCase "kind config render carries extraMounts" $
-          renderKindConfig (kindConfigFor AppleSilicon)
-            @?= renderKindConfig (kindConfigFor AppleSilicon)
+      , testCase "kind config render carries repo mounts for non-CUDA substrates" $ do
+          let appleConfig = renderKindConfig (kindConfigFor AppleSilicon)
+              cpuConfig = renderKindConfig (kindConfigFor LinuxCPU)
+          assertBool
+            "apple-silicon mounts build cache"
+            ("containerPath: /jitml/.build" `Text.isInfixOf` appleConfig)
+          assertBool "linux-cpu mounts data root" ("containerPath: /jitml/.data" `Text.isInfixOf` cpuConfig)
+          assertBool
+            "apple-silicon does not configure NVIDIA containerd"
+            (not ("runtimes.nvidia" `Text.isInfixOf` appleConfig))
+          assertBool
+            "linux-cpu does not mount NVIDIA toolkit"
+            (not ("nvidia-container-runtime" `Text.isInfixOf` cpuConfig))
+      , testCase "kind config can render two workers for anti-affinity validation (Sprint 5.6)" $ do
+          let twoWorkerConfig =
+                renderKindConfig (kindConfigWithWorkerCount 2 (kindConfigFor LinuxCPU))
+              workerCount =
+                length (Text.breakOnAll "  - role: worker" twoWorkerConfig)
+          workerCount @?= 2
+          assertBool
+            "each worker has the repo build mount"
+            (length (Text.breakOnAll "containerPath: /jitml/.build" twoWorkerConfig) == 2)
+      , testCase "linux-cuda Kind config wires NVIDIA runtime handler (Sprint 4.7)" $ do
+          let cudaConfig = renderKindConfig (kindConfigFor LinuxCUDA)
+          assertBool
+            "linux-cuda carries the GPU worker label"
+            ("node-labels: jitml.runtime/gpu=true,jitml.substrate/linux-cuda=true" `Text.isInfixOf` cudaConfig)
+          assertBool
+            "linux-cuda configures containerd patches"
+            ("containerdConfigPatches:" `Text.isInfixOf` cudaConfig)
+          assertBool "linux-cuda registers the nvidia runtime" ("runtimes.nvidia" `Text.isInfixOf` cudaConfig)
+          assertBool
+            "linux-cuda runtime uses the NVIDIA binary"
+            ("BinaryName = \"/usr/bin/nvidia-container-runtime\"" `Text.isInfixOf` cudaConfig)
+          assertBool
+            "linux-cuda mounts the repo-owned runtime config"
+            ("containerPath: /etc/nvidia-container-runtime" `Text.isInfixOf` cudaConfig)
+          assertBool
+            "linux-cuda mounts the runtime binary"
+            ("containerPath: /usr/bin/nvidia-container-runtime" `Text.isInfixOf` cudaConfig)
+          assertBool
+            "linux-cuda mounts the host driver root"
+            ("containerPath: /run/nvidia/driver" `Text.isInfixOf` cudaConfig)
+          assertBool
+            "linux-cuda mounts the container CLI library"
+            ("containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-container.so.1" `Text.isInfixOf` cudaConfig)
+          assertBool
+            "linux-cuda mounts the container CLI Go support library"
+            ("containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-container-go.so.1" `Text.isInfixOf` cudaConfig)
+          assertBool
+            "linux-cuda mounts NVML for the NVIDIA container CLI"
+            ("containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1" `Text.isInfixOf` cudaConfig)
       , testCase "route registry renders HTTPRoute manifests" $
           length (fmap renderHTTPRoute routeRegistry) @?= length routeRegistry
       , testCase "route table matches golden fixture" $ do
@@ -184,8 +239,8 @@ main =
             @?= [ObjectRef (BucketName "jitml-checkpoints") (ObjectKey "pointers/latest")]
       , testCase "PulsarWebSocketSubprocess renders routed producer and consumer commands" $ do
           let settings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge 9091
-              topic = TopicName "persistent://public/default/training.command.cluster"
-              subscription = SubscriptionId "persistent://public/default/training.command.cluster\njitml-live"
+              topic = TopicName "persistent://public/default/training.command.linux-cpu"
+              subscription = SubscriptionId "persistent://public/default/training.command.linux-cpu\njitml-live"
               publishCommand =
                 PulsarWebSocketSubprocess.pulsarPublishSubprocess
                   settings
@@ -197,19 +252,116 @@ main =
                   settings
                   subscription
                   "/tmp/out"
+              subscribeCommand =
+                PulsarWebSocketSubprocess.pulsarSubscribeSubprocess
+                  settings
+                  topic
+                  "jitml-live"
+                  "/tmp/out"
           assertBool
             "Pulsar producer targets the routed WebSocket endpoint"
-            ( "ws://127.0.0.1:9091/pulsar/ws/v2/producer/persistent/public/default/training.command.cluster"
+            ( "ws://127.0.0.1:9091/pulsar/ws/v2/producer/persistent/public/default/training.command.linux-cpu"
                 `Text.isInfixOf` renderSubprocess publishCommand
             )
           assertBool
             "Pulsar consumer targets the routed WebSocket endpoint"
-            ( "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.cluster/jitml-live"
+            ( "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.linux-cpu/jitml-live"
                 `Text.isInfixOf` renderSubprocess consumeCommand
             )
           assertBool
-            "Pulsar WebSocket commands use Node's built-in client"
+            "Pulsar subscribe probe targets the routed WebSocket endpoint"
+            ( "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.linux-cpu/jitml-live"
+                `Text.isInfixOf` renderSubprocess subscribeCommand
+            )
+          assertBool
+            "Pulsar WebSocket commands use Node"
             ("node --eval" `Text.isInfixOf` renderSubprocess publishCommand)
+          assertBool
+            "Pulsar WebSocket scripts fall back to Node's bundled undici client"
+            ( any
+                ("require('undici').WebSocket" `Text.isInfixOf`)
+                (JitML.Sub.Subprocess.subprocessArguments publishCommand)
+            )
+          assertBool
+            "Pulsar subscribe script records the broker-opened subscription"
+            ( any
+                ("closed before subscription open" `Text.isInfixOf`)
+                (JitML.Sub.Subprocess.subprocessArguments subscribeCommand)
+            )
+      , testCase "Pulsar bootstrap registers the substrate-scoped topic family (Sprint 5.5)" $ do
+          let topics = fmap PulsarBootstrap.topicName PulsarBootstrap.pulsarTopics
+          length topics @?= 26
+          traverse_
+            ( \topic ->
+                assertBool
+                  ("registered topic " <> Text.unpack topic)
+                  (topic `elem` topics)
+            )
+            [ "persistent://public/default/training.command.apple-silicon"
+            , "persistent://public/default/training.event.apple-silicon"
+            , "persistent://public/default/tune.command.apple-silicon"
+            , "persistent://public/default/tune.event.apple-silicon"
+            , "persistent://public/default/rl.command.apple-silicon"
+            , "persistent://public/default/rl.event.apple-silicon"
+            , "persistent://public/default/inference.request.apple-silicon"
+            , "persistent://public/default/inference.result.apple-silicon"
+            , "persistent://public/default/training.command.linux-cpu"
+            , "persistent://public/default/tune.command.linux-cpu"
+            , "persistent://public/default/rl.command.linux-cpu"
+            , "persistent://public/default/inference.request.linux-cpu"
+            , "persistent://public/default/training.command.linux-cuda"
+            , "persistent://public/default/tune.command.linux-cuda"
+            , "persistent://public/default/rl.command.linux-cuda"
+            , "persistent://public/default/inference.request.linux-cuda"
+            , "persistent://public/default/inference.command.apple-silicon"
+            , "persistent://public/default/inference.event.apple-silicon"
+            ]
+          assertBool
+            "no retired cluster topic"
+            ("persistent://public/default/training.command.cluster" `notElem` topics)
+          assertBool
+            "no retired host topic"
+            ("persistent://public/default/inference.request.host" `notElem` topics)
+      , testCase "BootConfig Dhall loader round-trips the rendered cluster config" $
+          withSystemTempDirectory "jitml-boot-config" $ \root -> do
+            let bootConfig = BootConfig.defaultBootConfig LinuxCUDA BootConfig.Cluster
+                bootConfigPath = root </> "BootConfig.dhall"
+            Text.IO.writeFile bootConfigPath (BootConfig.renderBootConfigDhall bootConfig)
+            loadedConfig <- BootConfig.loadBootConfig bootConfigPath
+            loadedConfig @?= bootConfig
+      , testCase "daemon client settings derive in-cluster endpoints from BootConfig (Sprint 5.4)" $ do
+          let settings =
+                ServiceClients.daemonClientSettingsForBootConfig
+                  (BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster)
+              minioSettings = ServiceClients.daemonMinIOSettings settings
+              pulsarSettings = ServiceClients.daemonPulsarSettings settings
+              harborSettings = ServiceClients.daemonHarborSettings settings
+              kubectlSettings = ServiceClients.daemonKubectlSettings settings
+          MinIOSubprocess.minioEndpoint minioSettings
+            @?= "http://minio.platform.svc.cluster.local:9000"
+          MinIOSubprocess.minioRequestPathPrefix minioSettings @?= ""
+          PulsarWebSocketSubprocess.pulsarWebSocketEndpoint pulsarSettings
+            @?= "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
+          HarborSubprocess.harborRegistry harborSettings
+            @?= "harbor-registry.platform.svc.cluster.local:5000"
+          HarborSubprocess.harborApiBaseUrl harborSettings
+            @?= "http://harbor.platform.svc.cluster.local/api"
+          kubectlKubeconfig kubectlSettings @?= "./.build/jitml.kubeconfig"
+      , testCase "daemon client settings derive Apple host edge endpoints from BootConfig (Sprint 5.4)" $ do
+          let lease = EdgePort.EdgePortLease {EdgePort.leasedPort = 9092, EdgePort.leasedHost = "127.0.0.1"}
+              publication = Publication.publicationWithLeasedPort lease (Publication.defaultPublication AppleSilicon)
+              hostConfig = hostBootConfigForPublication publication
+              settings = ServiceClients.daemonClientSettingsForBootConfig hostConfig
+              minioSettings = ServiceClients.daemonMinIOSettings settings
+              pulsarSettings = ServiceClients.daemonPulsarSettings settings
+              harborSettings = ServiceClients.daemonHarborSettings settings
+          MinIOSubprocess.minioEndpoint minioSettings @?= "http://127.0.0.1:9092"
+          MinIOSubprocess.minioRequestPathPrefix minioSettings @?= "/minio/s3"
+          PulsarWebSocketSubprocess.pulsarWebSocketEndpoint pulsarSettings
+            @?= "ws://127.0.0.1:9092/pulsar/ws"
+          HarborSubprocess.harborRegistry harborSettings @?= "127.0.0.1:9092"
+          HarborSubprocess.harborApiBaseUrl harborSettings
+            @?= "http://127.0.0.1:9092/harbor/api"
       , testCase "CpuFeatures detection picks the right oneDNN micro-kernel knob" $ do
           features <- detectCpuFeatures
           assertBool
@@ -224,7 +376,8 @@ main =
           -- typed Subprocess boundary against the actual executable (not the
           -- library API). Covers the canonical Sprint 12.2 matrix: --help,
           -- bootstrap --dry-run, cluster up --dry-run, service --help,
-          -- and train --dry-run experiments/mnist.dhall.
+          -- train --dry-run experiments/mnist.dhall, and the Sprint 9.7
+          -- TPE tuning Dhall render path.
           withSystemTempDirectory "jitml-spawned-bin" $ \workdir -> do
             jitmlBinary <- locateJitmlBinary
             case jitmlBinary of
@@ -273,6 +426,13 @@ main =
                 assertBool
                   "train --dry-run emits the decode-experiment step"
                   ("decode-experiment" `Text.isInfixOf` trainStdout)
+                tunePath <- makeAbsolute "experiments/mnist-tune.dhall"
+                (tuneExit, tuneStdout, _) <-
+                  runJitml ["tune", Text.pack tunePath]
+                tuneExit @?= ExitSuccess
+                assertBool
+                  "tune renders the TPE sampler from Dhall"
+                  ("sampler: TPE" `Text.isInfixOf` tuneStdout)
       , testCase "SelfPlayBuffer round-trips through filesystem HasMinIO (Sprint 9.5)" $
           -- Writes a deterministic SelfPlayBuffer to the typed `HasMinIO`
           -- filesystem instance, reads it back, and asserts the
@@ -327,24 +487,27 @@ main =
                     , mkManifest "old2" 2
                     , mkManifest "fresh" 3
                     ]
-                  bucket = BucketName "jitml-checkpoints"
               -- Seed manifest + blob objects in MinIO.
               mapM_
                 ( \m -> do
                     let manifestSha = Checkpoint.manifestContentSha m
                         manifestObjRef =
-                          ObjectRef bucket (ObjectKey (Checkpoint.manifestKey experimentHash manifestSha))
+                          CheckpointStore.checkpointObjectRef (Checkpoint.manifestKey experimentHash manifestSha)
                     _ <-
                       putBlobIfAbsent
                         manifestObjRef
                         (Text.pack (show m))
-                    let [tensor] = Checkpoint.manifestTensors m
-                        blobObjRef =
-                          ObjectRef
-                            bucket
-                            (ObjectKey (Checkpoint.blobKey experimentHash (Checkpoint.tensorBlobKey tensor)))
-                    _ <- putBlobIfAbsent blobObjRef "weights"
-                    pure ()
+                    case Checkpoint.manifestTensors m of
+                      [tensor] -> do
+                        let blobObjRef =
+                              CheckpointStore.checkpointObjectRef
+                                (Checkpoint.blobKey experimentHash (Checkpoint.tensorBlobKey tensor))
+                        _ <- putBlobIfAbsent blobObjRef "weights"
+                        pure ()
+                      tensors ->
+                        liftIO $
+                          assertFailure
+                            ("expected one tensor in seeded GC manifest, got: " <> show (length tensors))
                 )
                 manifests
               let plan = CheckpointStore.buildGcPlan experimentHash (CheckpointStore.LastN 1) manifests []
@@ -355,7 +518,8 @@ main =
                 CheckpointStore.gcExecutedReapedBlobs result @?= 2
                 CheckpointStore.gcExecutedDeleteFailures result @?= []
       , testCase "loadInferenceCheckpoint via HasMinIO round-trips (Sprint 10.4)" $
-          withSystemTempDirectory "jitml-inference-load" $ \root ->
+          withSystemTempDirectory "jitml-inference-load" $ \root -> do
+            env <- buildEnv defaultGlobalFlags
             runFilesystemMinIO root $ do
               let experimentHash = "exp-inf"
                   manifest =
@@ -363,16 +527,26 @@ main =
                   manifestSha = Checkpoint.manifestContentSha manifest
                   bucket = BucketName "jitml-checkpoints"
                   manifestRef =
-                    ObjectRef bucket (ObjectKey (Checkpoint.manifestKey experimentHash manifestSha))
+                    CheckpointStore.checkpointObjectRef (Checkpoint.manifestKey experimentHash manifestSha)
                   pointerRef =
-                    ObjectRef bucket (ObjectKey (Checkpoint.latestPointerKey experimentHash))
+                    CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experimentHash)
                   manifestBytes =
                     ByteString.Lazy.toStrict (Checkpoint.encodeManifestCbor manifest)
+              liftIO $
+                CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experimentHash)
+                  @?= ObjectRef bucket (ObjectKey (experimentHash <> "/pointers/latest"))
               _ <- putBlobBytesIfAbsent manifestRef manifestBytes
               _ <- casPointer pointerRef Nothing manifestSha
               inferred <- CheckpointStore.loadInferenceCheckpoint experimentHash [1.0, 2.0, 3.0]
               liftIO $
                 inferred @?= Right (Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0])
+              ffiInferred <-
+                CheckpointStore.loadInferenceCheckpointWith
+                  (\loadedManifest values -> liftIO (Local.runLinuxCpuCheckpointInference env loadedManifest values))
+                  experimentHash
+                  [1.0, 2.0, 3.0]
+              liftIO $
+                ffiInferred @?= Right (Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0])
       , testCase "Dhall numerics schema decodes against the full Haskell catalog" $ do
           -- Decodes dhall/numerics/Schema.dhall through `Dhall.inputFile`
           -- and asserts the resulting NumericsCatalog matches the
@@ -611,6 +785,47 @@ main =
           assertBool
             "jitml-service install uses checked-in local chart"
             ("chart/local/jitml-service" `Text.isInfixOf` rendered)
+          assertBool
+            "retired mirror placeholder is absent from the Helm release plan"
+            (not ("jitml-mirror" `Text.isInfixOf` rendered))
+      , testCase "jitml-service local chart carries current Dhall config surface" $ do
+          configMap <- Text.IO.readFile "chart/local/jitml-service/templates/configmap.yaml"
+          assertBool
+            "local chart renders typed Residency constructors"
+            ("residency = < Cluster | Host >.Cluster" `Text.isInfixOf` configMap)
+          assertBool
+            "local chart renders typed InferenceMode constructors"
+            ("< SelfInference | ForwardToHost >.SelfInference" `Text.isInfixOf` configMap)
+          assertBool
+            "local chart uses current retryPolicy field"
+            ("retryPolicy = ExponentialN" `Text.isInfixOf` configMap)
+          assertBool
+            "local chart uses current inference latency field"
+            ("inferenceMaxLatencyMillis = 25" `Text.isInfixOf` configMap)
+          assertBool
+            "local chart uses current dedup cache size field"
+            ("dedupCacheSize = 4096" `Text.isInfixOf` configMap)
+          assertBool
+            "local chart uses current dedup cache ttl field"
+            ("dedupCacheTtlSeconds = 3600" `Text.isInfixOf` configMap)
+          assertBool
+            "old unqualified Residency value is absent"
+            (not ("residency = Cluster" `Text.isInfixOf` configMap))
+          assertBool
+            "old LiveConfig retry field is absent"
+            (not ("retry = { maxAttempts" `Text.isInfixOf` configMap))
+      , testCase "Pulsar direct values are wait-safe for local Kind" $ do
+          directValues <- Text.IO.readFile "chart/values/pulsar.yaml"
+          umbrellaValues <- Text.IO.readFile "chart/values.yaml"
+          assertBool
+            "direct Pulsar values avoid LoadBalancer waits"
+            ("type: ClusterIP" `Text.isInfixOf` directValues)
+          assertBool
+            "umbrella Pulsar values avoid LoadBalancer waits"
+            ("type: ClusterIP" `Text.isInfixOf` umbrellaValues)
+          assertBool
+            "direct Pulsar values do not request a LoadBalancer"
+            (not ("type: LoadBalancer" `Text.isInfixOf` directValues))
       , testCase
           "live phased rollout wires the explicit Kind image load phase before final services (Sprint 3.5)"
           $ do
@@ -695,6 +910,11 @@ main =
             assertBool
               "live rollout grants Harbor ownership of the public schema before installing Harbor"
               ("GRANT ALL ON SCHEMA public TO harbor" `Text.isInfixOf` beforeHarbor)
+            let (beforeFinalService, _fromFinalService) =
+                  Text.breakOn "helm upgrade --install jitml-service chart/local/jitml-service" commandText
+            assertBool
+              "live rollout loads local images before installing final workloads"
+              ("kind load docker-image jitml-demo:local --name jitml-linux-cpu" `Text.isInfixOf` beforeFinalService)
             let (beforeObservabilityManifests, _fromObservabilityManifests) =
                   Text.breakOn
                     "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/grafana-dashboard-training-throughput.yaml"
@@ -744,7 +964,7 @@ main =
               "live rollout makes Pulsar topic creation idempotent"
               ("/pulsar/bin/pulsar-admin topics list" `Text.isInfixOf` commandText)
             assertBool
-              "mirror placeholder chart is not executed by the live path"
+              "retired mirror placeholder chart is not executed by the live path"
               (not ("helm upgrade --install jitml-mirror" `Text.isInfixOf` commandText))
             assertBool
               "live rollout does not rely on the in-cluster Harbor DNS name for local image publication"
@@ -817,6 +1037,37 @@ main =
                   )
             )
             bucketNames
+      , testCase "jitml-service runtimeClassName is linux-cuda only (Sprints 4.7/5.6)" $ do
+          let appleDeployment = ServiceConfigMap.renderServiceDeployment AppleSilicon
+              cpuDeployment = ServiceConfigMap.renderServiceDeployment LinuxCPU
+              cudaDeployment = ServiceConfigMap.renderServiceDeployment LinuxCUDA
+          assertBool
+            "apple-silicon does not request the NVIDIA RuntimeClass"
+            (not ("runtimeClassName: nvidia" `Text.isInfixOf` appleDeployment))
+          assertBool
+            "linux-cpu does not request the NVIDIA RuntimeClass"
+            (not ("runtimeClassName: nvidia" `Text.isInfixOf` cpuDeployment))
+          assertBool
+            "linux-cuda requests the NVIDIA RuntimeClass"
+            ("runtimeClassName: nvidia" `Text.isInfixOf` cudaDeployment)
+          assertBool
+            "linux-cuda asks the NVIDIA runtime for visible devices"
+            ("NVIDIA_VISIBLE_DEVICES" `Text.isInfixOf` cudaDeployment)
+          assertBool
+            "linux-cuda restricts NVIDIA driver capabilities to compute and utility"
+            ("NVIDIA_DRIVER_CAPABILITIES" `Text.isInfixOf` cudaDeployment)
+          assertBool
+            "linux-cpu does not set NVIDIA runtime environment"
+            (not ("NVIDIA_VISIBLE_DEVICES" `Text.isInfixOf` cpuDeployment))
+          assertBool
+            "jitml-service uses required pod anti-affinity for one pod per node"
+            ("requiredDuringSchedulingIgnoredDuringExecution" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "jitml-service anti-affinity is keyed by hostname"
+            ("topologyKey: kubernetes.io/hostname" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "jitml-service does not rely on advisory anti-affinity"
+            (not ("preferredDuringSchedulingIgnoredDuringExecution" `Text.isInfixOf` cpuDeployment))
       , testCase "Apple host BootConfig is patched from cluster publication (Sprint 3.5)" $ do
           let lease = EdgePort.EdgePortLease {EdgePort.leasedPort = 9092, EdgePort.leasedHost = "127.0.0.1"}
               publication = Publication.publicationWithLeasedPort lease (Publication.defaultPublication AppleSilicon)
@@ -923,8 +1174,13 @@ main =
               Left err ->
                 assertFailure ("expected MinIO read OK, got: " <> show err)
       , testCase "kubectlApply carries PerconaPGCluster YAML through explicit stdin command" $ do
-          let [cluster] = PostgresRegistry.postgresRegistry
-              yaml = PostgresRegistry.renderPerconaPGCluster cluster
+          cluster <-
+            case PostgresRegistry.postgresRegistry of
+              [value] -> pure value
+              values ->
+                assertFailure
+                  ("expected exactly one PerconaPGCluster registry entry, got: " <> show (length values))
+          let yaml = PostgresRegistry.renderPerconaPGCluster cluster
               cmd =
                 JitML.Sub.Subprocess.subprocessWithStdin
                   "kubectl"

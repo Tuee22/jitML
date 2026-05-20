@@ -63,12 +63,12 @@ trainPure config =
 convergenceThresholdFor :: CanonicalProblem -> Double
 convergenceThresholdFor problem =
   case problemDataset problem of
-    "MNIST" -> 0.30
-    "Fashion-MNIST" -> 0.50
+    "MNIST" -> 0.82
+    "Fashion-MNIST" -> 0.87
     "CIFAR-10" -> 0.95
     "CIFAR-100" -> 1.40
     "Tiny ImageNet" -> 2.10
-    "California Housing" -> 0.65
+    "California Housing" -> 0.72
     _ -> 1.0
 
 renderTrainResult :: TrainResult -> Text

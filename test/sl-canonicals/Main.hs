@@ -2,12 +2,26 @@
 
 module Main where
 
+import Control.Monad.Reader (runReaderT)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
+import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.SL.Canonicals (canonicalProblems, convergenceCurve, finalLoss, problemName)
+import JitML.SL.Dataset
+  ( datasetFixtureBytes
+  , datasetForProblem
+  , datasetObjectRef
+  , datasetRefHash
+  , fetchDatasetRef
+  , fetchedSha256
+  )
+import JitML.SL.Train (defaultTrainingConfig, resultConverged, train)
+import JitML.Service.Capabilities (HasMinIO (..))
+import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
 
 main :: IO ()
 main =
@@ -41,6 +55,16 @@ main =
                   [] -> assertBool "empty curve" False
             )
             canonicalProblems
+      , testCase "deterministic training pipeline marks canonical problems converged" $ do
+          env <- buildEnv defaultGlobalFlags
+          mapM_
+            ( \problem -> do
+                result <- runReaderT (train (defaultTrainingConfig problem)) env
+                assertBool
+                  ("expected convergence for " <> Text.unpack (problemName problem))
+                  (resultConverged result)
+            )
+            canonicalProblems
       , testCase "convergence curves match per-problem golden fixtures (Sprint 12.3)" $
           mapM_
             ( \problem -> do
@@ -53,4 +77,23 @@ main =
                   @?= fmap (Text.pack . show) (convergenceCurve problem)
             )
             canonicalProblems
+      , testCase "dataset refs fetch and SHA-verify through HasMinIO" $
+          withSystemTempDirectory "jitml-sl-dataset" $ \dir ->
+            case canonicalProblems of
+              problem : _ ->
+                case datasetForProblem problem of
+                  Nothing -> assertFailure "expected canonical dataset ref"
+                  Just ref -> do
+                    writeResult <-
+                      runFilesystemMinIO dir $
+                        putBlobBytesIfAbsent (datasetObjectRef ref) (datasetFixtureBytes ref)
+                    case writeResult of
+                      Left err -> assertFailure ("dataset fixture write failed: " <> show err)
+                      Right _ -> pure ()
+                    fetchResult <- runFilesystemMinIO dir (fetchDatasetRef ref)
+                    case fetchResult of
+                      Left err -> assertFailure ("dataset fetch failed: " <> show err)
+                      Right fetched ->
+                        fetchedSha256 fetched @?= datasetRefHash ref
+              [] -> assertFailure "missing canonical problems"
       ]

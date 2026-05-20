@@ -46,6 +46,8 @@ familyImpl Identity =
 familyImpl Reduction =
   Text.unlines
     [ "// Deterministic block-stride reduction over n floats."
+    , "extern \"C\" int jitml_fixed_reduction_block_size(void) { return 256; }"
+    , ""
     , "extern \"C\" void jitml_kernel(float *out, const float *input, std::size_t n) {"
     , "  const std::size_t block = static_cast<std::size_t>(jitml_fixed_reduction_block_size());"
     , "  double accumulator = 0.0;"
@@ -59,8 +61,6 @@ familyImpl Reduction =
     , "  }"
     , "  out[0] = static_cast<float>(accumulator);"
     , "}"
-    , ""
-    , "extern \"C\" int jitml_fixed_reduction_block_size(void) { return 256; }"
     ]
 familyImpl Dense2D =
   Text.unlines

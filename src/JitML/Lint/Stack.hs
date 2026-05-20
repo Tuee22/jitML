@@ -13,6 +13,7 @@ where
 import Control.Monad (filterM)
 import Data.ByteString qualified as ByteString
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -23,6 +24,7 @@ import System.Directory
   , listDirectory
   , renameFile
   )
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath qualified as FilePath
 import System.IO.Temp (withSystemTempDirectory)
@@ -396,55 +398,66 @@ staticJitExtensions =
 
 checkExternalHaskellStyle :: LintMode -> IO [LintFinding]
 checkExternalHaskellStyle mode = do
-  bootstrapFindings <- ensureStyleTools
-  if null bootstrapFindings
-    then do
-      fourmoluFindings <- runFourmolu mode
-      hlintFindings <- runHlint
+  styleTools <- resolveStyleTools
+  case styleTools of
+    Left missingFindings -> pure missingFindings
+    Right tools -> do
+      fourmoluFindings <- runFourmolu tools mode
+      hlintFindings <- runHlint tools
       cabalFormatFindings <- runCabalFormat mode
       pure (fourmoluFindings <> hlintFindings <> cabalFormatFindings)
-    else pure bootstrapFindings
 
-ensureStyleTools :: IO [LintFinding]
-ensureStyleTools = do
-  createDirectoryIfMissing True styleToolsBin
-  fourmoluExists <- doesFileExist fourmoluPath
-  hlintExists <- doesFileExist hlintPath
-  if fourmoluExists && hlintExists
-    then pure []
-    else
-      runCommandFinding
-        ".build/jitml-style-tools"
-        "haskell.style-tools.bootstrap"
-        "style-tool bootstrap failed"
-        installStyleToolsSubprocess
+data StyleTools = StyleTools
+  { styleFourmoluPath :: !FilePath
+  , styleHlintPath :: !FilePath
+  }
 
-installStyleToolsSubprocess :: Subprocess
-installStyleToolsSubprocess =
-  subprocess
-    "ghcup"
-    [ "run"
-    , "--ghc"
-    , styleToolsGhc
-    , "--"
-    , "cabal"
-    , "install"
-    , "--ignore-project"
-    , "--installdir"
-    , Text.pack styleToolsBin
-    , "--install-method=copy"
-    , "fourmolu-0.19.0.1"
-    , "hlint"
-    ]
+resolveStyleTools :: IO (Either [LintFinding] StyleTools)
+resolveStyleTools = do
+  envBin <- lookupEnv styleToolsEnv
+  let bins = maybe id (:) envBin defaultStyleToolBins
+  candidates <- traverse styleToolsAt bins
+  case catMaybes candidates of
+    tools : _ -> pure (Right tools)
+    [] -> pure (Left [missingStyleToolsFinding bins])
 
-runFourmolu :: LintMode -> IO [LintFinding]
-runFourmolu mode =
+styleToolsAt :: FilePath -> IO (Maybe StyleTools)
+styleToolsAt bin = do
+  let tools =
+        StyleTools
+          { styleFourmoluPath = bin FilePath.</> "fourmolu"
+          , styleHlintPath = bin FilePath.</> "hlint"
+          }
+  fourmoluExists <- doesFileExist (styleFourmoluPath tools)
+  hlintExists <- doesFileExist (styleHlintPath tools)
+  pure
+    ( if fourmoluExists && hlintExists
+        then Just tools
+        else Nothing
+    )
+
+missingStyleToolsFinding :: [FilePath] -> LintFinding
+missingStyleToolsFinding bins =
+  LintFinding
+    ".build/jitml-style-tools"
+    "haskell.style-tools.missing"
+    "Haskell style tools are not available"
+    ( Text.unlines
+        [ "rebuild the jitML container image with `docker compose -f docker/compose.yaml build jitml`"
+        , "or run the lint command inside the `jitml:local` container"
+        , "expected `fourmolu` and `hlint` in one of: " <> Text.intercalate ", " (Text.pack <$> bins)
+        , "set " <> Text.pack styleToolsEnv <> " to override the prebuilt style-tool directory"
+        ]
+    )
+
+runFourmolu :: StyleTools -> LintMode -> IO [LintFinding]
+runFourmolu tools mode =
   runCommandFinding
     "src"
     "haskell.fourmolu"
     "fourmolu reported formatting drift"
     ( subprocess
-        fourmoluPath
+        (styleFourmoluPath tools)
         ( case mode of
             LintCheck -> fourmoluMode "check"
             LintWrite -> fourmoluMode "inplace"
@@ -455,14 +468,14 @@ fourmoluMode :: Text -> [Text]
 fourmoluMode mode =
   ["--no-cabal", "--ghc-opt", "-XGHC2024", "--mode", mode, "src", "app", "test"]
 
-runHlint :: IO [LintFinding]
-runHlint =
+runHlint :: StyleTools -> IO [LintFinding]
+runHlint tools =
   runCommandFinding
     "src"
     "haskell.hlint"
     "hlint reported hints"
     ( subprocess
-        hlintPath
+        (styleHlintPath tools)
         [ "--with-group=default"
         , "--with-group=extra"
         , "--hint"
@@ -541,14 +554,11 @@ clipped value =
         then value
         else Text.take limit value <> "\n... truncated ..."
 
-styleToolsBin :: FilePath
-styleToolsBin = ".build" FilePath.</> "jitml-style-tools" FilePath.</> "bin"
+styleToolsEnv :: String
+styleToolsEnv = "JITML_STYLE_TOOLS_BIN"
 
-styleToolsGhc :: Text
-styleToolsGhc = "9.12.4"
-
-fourmoluPath :: FilePath
-fourmoluPath = styleToolsBin FilePath.</> "fourmolu"
-
-hlintPath :: FilePath
-hlintPath = styleToolsBin FilePath.</> "hlint"
+defaultStyleToolBins :: [FilePath]
+defaultStyleToolBins =
+  [ ".build" FilePath.</> "jitml-style-tools" FilePath.</> "bin"
+  , "/opt/jitml-style-tools/bin"
+  ]

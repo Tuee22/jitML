@@ -21,6 +21,9 @@
 Per-substrate Kind configs at `kind/cluster-<substrate>.yaml`. The `kindest/
 node` pin is the single source of toolchain truth; it is mirrored as a
 comment in `cabal.project`. `jitml lint chart` rejects drift between the two.
+`JitML.Cluster.Kind.kindConfigWithWorkerCount` renders the same node surface
+with more than one worker for live placement validation; the checked-in
+per-substrate configs remain the default one-worker topology.
 
 The host `./.build/` directory is bind-mounted into the Kind worker via the
 `extraMounts` block in the Kind config. This is what lets the in-cluster
@@ -100,7 +103,8 @@ Checked-in jitML-owned local charts live under `chart/local/`:
 chart includes a ClusterIP Service on port `8080` for the Prometheus scrape
 target. The typed live rollout installs those paths directly and leaves
 `chart/charts/` as Helm's generated dependency cache for third-party archives
-only.
+only. `jitml lint chart` treats that cache as binary Helm output and limits
+text manifest checks to YAML files.
 
 Typed direct-install values live under `chart/values/` and are passed only by
 the corresponding `JitML.Cluster.Helm` subprocess. Current files cover the
@@ -152,7 +156,10 @@ The target `jitml bootstrap --<substrate>` runs the phased rollout:
    the direct subchart values file.
 2. **Image build/load phase**: the `jitml:local` image and the
    `jitml-demo:local` image are built locally, then loaded explicitly into the
-   selected Kind cluster with `kind load docker-image`.
+   selected Kind cluster with `kind load docker-image`. The `jitml:local` build
+   also owns the Haskell style-tool bootstrap and code-quality gate: it installs
+   the separate style-tools GHC plus pinned Fourmolu / HLint binaries and fails
+   the image build on Haskell style or warning-clean build drift.
 3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
 TensorBoard, the `jitml-service` workload (all substrates: Linux
    self-inference plus Apple forward-to-host), and the `jitml-demo` workload
@@ -173,11 +180,11 @@ Linux CPU validation on 2026-05-19 also pushed a tiny OCI artifact through the
 registry HTTP API, confirmed Harbor's artifact API reported the same digest,
 and confirmed MinIO stored the repository layer, manifest, and tag-link objects
 under bucket `harbor-registry`, proving the direct Harbor values use the
-external Postgres and S3 backend path. The remaining Docker-backed
-`HasHarbor` revalidation is blocked on this workstation because the host Docker
-daemon still attempts HTTPS against the local HTTP registry at
-`127.0.0.1:9091`; closure requires either daemon insecure-registry handling or
-a repo-owned Harbor TLS edge.
+external Postgres and S3 backend path. The same live-validation family runs the
+cluster toolchain from `jitml:local` with host networking and a repo-local
+Docker config, logs Docker into `127.0.0.1:9091`, pushes and pulls
+`library/jitml-phase4-docker`, lists the repository through `/harbor/api`, and
+confirms the pushed tag's artifact API returns HTTP `200`.
 
 `jitml cluster up` materializes local Kind, chart, Dhall, and publication inputs
 without mutating a live cluster. `jitml bootstrap --<substrate>` materializes
@@ -185,10 +192,13 @@ those inputs and then calls `JitML.Bootstrap.liveExecutePhasedRollout` directly;
 there is no process-environment safety gate for local Kind/Helm work. The live
 path runs the typed `kind`, Helm, Docker build / Kind image-load, repo-owned
 manifest apply, platform readiness, and Pulsar-topic subprocesses through the
-`Subprocess` boundary, rewrites the Kind/Gateway/EnvoyProxy inputs from the
-selected edge-port lease, writes `./.build/runtime/cluster-publication.json`
-with that lease and measured Helm release status, and patches the Apple host
-Dhall from the publication. Platform readiness includes rollout checks and a
+`Subprocess` boundary. The topic subprocesses register the substrate-scoped
+family consumed by `jitml service`: eight command/event topics for each
+substrate plus the Apple-only inference RPC pair. The live path rewrites the
+Kind/Gateway/EnvoyProxy inputs from the selected edge-port lease, writes
+`./.build/runtime/cluster-publication.json` with that lease and measured Helm
+release status, and patches the Apple host Dhall from the publication.
+Platform readiness includes rollout checks and a
 retry-hardened in-pod MinIO bucket check that aliases
 `http://minio.platform.svc.cluster.local:9000` through the Bitnami `mc` client
 and lists every bucket from `JitML.Storage.Buckets`.
@@ -202,11 +212,14 @@ direct subchart installs need values; jitML-owned workloads install from
 `chart/local/`. Live Linux CPU validation on 2026-05-18 completed the phased
 rollout plus readiness checks, served
 `http://127.0.0.1:9091/api` through Envoy, published the expected Pulsar
-topics, wrote ready publication health, and validated `jitml cluster down`
-teardown. The 2026-05-19 live run confirms `/pulsar/admin` works through the
+topic family, wrote ready publication health, and validated `jitml cluster
+down` teardown. The 2026-05-19 live run confirms `/pulsar/admin` works through the
 edge, `/pulsar/ws` resolves to `pulsar-broker:8080`, the broker config carries
 `webSocketServiceEnabled=true`, and routed WebSocket publish/consume succeeds
-through `JitML.Service.PulsarWebSocketSubprocess`. The 2026-05-19 live run
+through `JitML.Service.PulsarWebSocketSubprocess`. The 2026-05-20 live run
+reconciles all 26 current substrate-scoped Pulsar topics and publishes/consumes
+on `persistent://public/default/training.command.linux-cpu` through the
+`jitml:local` Node 18 `undici.WebSocket` fallback. The 2026-05-19 live run
 revalidated Harbor's preconditions and
 backend wiring with MinIO bucket readiness, `harbor-pg` readiness, schema
 ownership grant, Harbor rollout readiness, and a registry-API artifact write
@@ -227,28 +240,39 @@ writes a Haskell-encoded TensorBoard scalar shard through routed
 ## `jitml-service` Deployment, Not StatefulSet
 
 The orchestrator is a stateless **Deployment** with `replicas: 1` by default
-and pod **anti-affinity** at `topologyKey: kubernetes.io/hostname`, which
-lets the cluster scale to N replicas (one per node) when throughput requires
-it without ever placing two on the same node. The daemon owns no PVC of its
-own — durable state lives entirely in MinIO and Pulsar — so a StatefulSet
-would be the wrong shape.
+and required pod **anti-affinity** at `topologyKey:
+kubernetes.io/hostname`, which lets the cluster scale to N replicas (one per
+node) when throughput requires it without ever placing two on the same node.
+The daemon owns no PVC of its own — durable state lives entirely in MinIO and
+Pulsar — so a StatefulSet would be the wrong shape.
+
+Live validation on 2026-05-20 created a temporary `jitml-phase5-affinity`
+two-worker Kind cluster with `kindConfigWithWorkerCount 2`, loaded
+`jitml:local`, applied the real `jitml-service` ConfigMap and Deployment,
+scaled to two replicas, and observed the pods on distinct nodes:
+`jitml-phase5-affinity-worker` and `jitml-phase5-affinity-worker2`.
 
 Each node maintains its own JIT cache under that node's
 `./.build/jit/<substrate>/` hostPath. JIT artifacts are deterministic
 functions of `(model-shape, kind, substrate, toolchain)`, so the worst case
 is that the same model gets JITted once per node on first use.
 
-Namespace: `platform` (fixed) in the target chart. Current local bootstrap
-materializes chart inputs only; live namespace creation remains target apply
-behavior.
+Namespace: `platform` (fixed). The live local chart rollout creates or reuses
+that namespace, mounts the current typed Dhall ConfigMap, and exposes the
+daemon HTTP surface on a ClusterIP Service at port `8080`; 2026-05-19 live
+validation port-forwarded that Service and verified `/healthz`, `/readyz`, and
+`/metrics`.
 
 ## Envoy Gateway: A Single Localhost Socket
 
 There is **one user-facing socket**: `127.0.0.1:<edge-port>`. Selected by
 `jitml bootstrap --<substrate>` starting at `9090` and incremented until
 available. Recorded as the `edge_port` field of
-`./.build/runtime/cluster-publication.json` alongside `pulsar_ws_url`,
-`pulsar_admin_url`, `minio_s3_url`. `jitml cluster status` reads this file.
+`./.build/runtime/cluster-publication.json` alongside `pulsar_url`,
+`minio_url`, and component health. `jitml cluster status` reads this file, and
+the Apple host `BootConfig` turns those publication fields into
+`pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, and `harborRegistry`
+before `JitML.Service.Clients` derives the concrete subprocess endpoints.
 
 The shape:
 
@@ -297,21 +321,33 @@ Sprint `2.1` owns and has closed the stage-0 bootstrap scripts under
 
 - `apple-silicon.sh` verifies macOS on Apple Silicon, Xcode Command Line Tools,
   and Homebrew; then it builds `./.build/jitml` and calls
-  `./.build/jitml bootstrap --apple-silicon`.
+  `./.build/jitml bootstrap --apple-silicon`. The delegated bootstrap still
+  builds `jitml:local` for the in-cluster daemon, so Apple Silicon receives the
+  same container-owned Haskell style gate as Linux.
 - `linux-cpu.sh` verifies Docker is usable without `sudo`; then it calls
   `docker compose run --rm jitml jitml bootstrap --linux-cpu`.
 - `linux-cuda.sh` adds NVIDIA container-runtime and `nvidia-smi` compute
   capability checks; then it calls
-  `docker compose run --rm jitml jitml bootstrap --linux-cuda`.
+  `docker compose run --rm jitml jitml bootstrap --linux-cuda`. The Linux CUDA
+  Kind config registers the worker containerd `nvidia` runtime handler, mounts
+  the repo-owned NVIDIA runtime config, mounts the host driver root read-only at
+  `/run/nvidia/driver`, and mounts the node-local NVIDIA toolkit support needed
+  by the runtime hook.
 
 Missing stage-0 gates return exit code `2` with installation instructions. All
 broader package validation/remediation belongs to the Haskell typed
 prerequisite DAG. Homebrew packages may be installed lazily by `jitml` through
 Plan/Apply prerequisite remediation; shell scripts never install them.
-Live Linux CPU validation on 2026-05-19 confirms the `RuntimeClass nvidia`
-manifest is installed, but this workstation exposes only Docker `runc`
-runtimes and no `nvidia-smi`, so the live CUDA pod scheduling probe remains
-blocked until an NVIDIA-capable worker is available.
+Current validation on 2026-05-19 runs the live cluster toolchain from the
+`jitml:local` image with the repository mounted at the same absolute host path
+and `--network host` so Kind kubeconfig loopback endpoints are reachable. The
+Linux CPU bootstrap completes 100 live rollout steps and publishes all platform
+components as ready on edge port `9091`.
+
+Clean Linux CUDA validation on 2026-05-20 recreates `jitml-linux-cuda` from the
+checked-in Kind config, confirms the worker carries `jitml.runtime/gpu=true`,
+applies `RuntimeClass/nvidia`, and runs `pod/nvidia-smi-probe` to `Succeeded`;
+the probe logs `GPU 0: NVIDIA GeForce RTX 5090`.
 
 ## No Kubeconfig Pollution
 

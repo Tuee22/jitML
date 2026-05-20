@@ -8,5 +8,7 @@
 , tartIdleTimeout : Optional Natural
 , inferenceBatchSize : Natural
 , inferenceMaxLatencyMillis : Natural
+, dedupCacheSize : Natural
+, dedupCacheTtlSeconds : Natural
 , drainDeadlineSeconds : Natural
 }

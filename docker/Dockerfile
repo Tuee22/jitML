@@ -1,11 +1,16 @@
 FROM ubuntu:24.04
 
 ARG GHC_VERSION=9.14.1
+ARG STYLE_GHC_VERSION=9.12.4
 ARG CABAL_VERSION=3.16.1.0
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 ENV PATH=/root/.ghcup/bin:/root/.cabal/bin:/usr/local/bin:$PATH
+ENV JITML_STYLE_TOOLS_ROOT=/opt/jitml-style-tools
+ENV JITML_STYLE_TOOLS_BIN=/opt/jitml-style-tools/bin
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -34,6 +39,17 @@ RUN apt-get update \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
     | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_GHC_VERSION=${GHC_VERSION} BOOTSTRAP_HASKELL_CABAL_VERSION=${CABAL_VERSION} sh
 
+RUN ghcup install ghc "${STYLE_GHC_VERSION}" \
+    && mkdir -p "${JITML_STYLE_TOOLS_BIN}" \
+    && cabal update \
+    && ghcup run --ghc "${STYLE_GHC_VERSION}" -- cabal install \
+        --ignore-project \
+        --installdir "${JITML_STYLE_TOOLS_BIN}" \
+        --install-method=copy \
+        fourmolu-0.19.0.1 \
+        hlint-3.10 \
+    && chmod 0755 "${JITML_STYLE_TOOLS_BIN}/fourmolu" "${JITML_STYLE_TOOLS_BIN}/hlint"
+
 RUN npm install -g purescript spago \
     && case "${TARGETARCH:-amd64}" in \
         amd64) tool_arch=amd64 ;; \
@@ -48,14 +64,12 @@ RUN npm install -g purescript spago \
 
 WORKDIR /jitml
 
-COPY cabal.project jitml.cabal LICENSE ./
-COPY app ./app
-COPY src ./src
+COPY . .
 
-RUN cabal update \
-    && cabal build exe:jitml exe:jitml-demo \
+RUN cabal build exe:jitml exe:jitml-demo \
     && cp "$(cabal list-bin exe:jitml)" /usr/local/bin/jitml \
     && cp "$(cabal list-bin exe:jitml-demo)" /usr/local/bin/jitml-demo \
-    && chmod 0755 /usr/local/bin/jitml /usr/local/bin/jitml-demo
+    && chmod 0755 /usr/local/bin/jitml /usr/local/bin/jitml-demo \
+    && jitml check-code
 
 CMD ["jitml", "--help"]

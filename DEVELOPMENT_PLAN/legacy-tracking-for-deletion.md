@@ -34,13 +34,16 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-Two cleanup rows are currently active. The scoped `allow-newer` block in
+One cleanup row is currently active. The scoped `allow-newer` block in
 `cabal.project` keeps Dhall's transitive CBOR stack building under pinned
-GHC `9.14.1` while upstream package bounds catch up. The remaining
-`jitml-mirror` Helm placeholder stays only as a stand-in in the rendered
-phased-release list now that Sprint `3.5`'s live executor uses typed Docker
-build / Kind image-load subprocesses for that phase. Three doctrine-deviation rows have
-closed and live in the `Completed` table: Sprint `4.3` folded the
+GHC `9.14.1` while upstream package bounds catch up. Five
+doctrine-deviation rows have closed and live in the `Completed` table:
+Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
+style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
+construction;
+Sprint `3.5` removed the
+`jitml-mirror` Helm placeholder and inserts the Docker build / explicit Kind
+image-load phase directly in the live typed rollout; Sprint `4.3` folded the
 standalone MinIO values fragment into `chart/values.yaml`; Sprint `7.7`
 removed the static checked-in JIT source/build scaffold (JIT compiler inputs
 are generated on demand by the Haskell binary); Sprint `8.7` replaced the
@@ -68,7 +71,6 @@ opening event itself enqueues a row here naming the originating sprint.
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
 | Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 1.1 / final handoff toolchain refresh |
-| `jitml-mirror` Helm release placeholder | `src/JitML/Cluster/Helm.hs` (`HelmRelease "jitml-mirror" "jitml-images" MirrorBuildPhase Nothing Nothing`) | The live Sprint `3.5` rollout now replaces the mirror phase with typed Docker build plus explicit Kind image-load subprocesses via `JitML.Bootstrap.livePhasedRolloutSubprocesses`; remove the placeholder once the rendered phased-release list models non-Helm phases directly | Sprint 3.5 / live rollout final cleanup |
 
 ## Pending Removal Notes
 
@@ -78,10 +80,11 @@ upstream release still name the originating sprint, but resolve at the final
 handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
-Current validation: a temporary project file with the scoped `allow-newer`
-block removed still fails dependency solving under pinned GHC `9.14.1`,
-because `serialise-0.2.6.1` excludes the installed `base-4.22`. The row
-remains pending.
+Current validation: after `cabal update` set Hackage index-state
+`2026-05-19T21:30:51Z`, a temporary project file with the scoped
+`allow-newer` block removed still fails dependency solving under pinned GHC
+`9.14.1`, because `serialise-0.2.6.1` excludes the installed `base-4.22`.
+The row remains pending.
 
 This ledger never holds primary unmet Exit-Definition obligations. Live
 Kind/Helm rollout, real Pulsar/MinIO/Harbor clients, real per-substrate
@@ -97,6 +100,8 @@ real implementation lands (with the retiring sprint named on the row).
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Lint-time host `ghcup` style-tool bootstrap | Sprint 1.4 | Removed runtime `ensureStyleTools` / `installStyleToolsSubprocess` bootstrap from `src/JitML/Lint/Stack.hs`; `docker/Dockerfile` now installs the style-tools GHC plus pinned `fourmolu` / `hlint`, runs `jitml check-code` during `jitml:local` image construction, and runtime lint reports an image-rebuild remedy when prebuilt tools are absent. |
+| `jitml-mirror` Helm release placeholder | Sprint 3.5 | Removed the stand-in `HelmRelease "jitml-mirror" "jitml-images"` row from `JitML.Cluster.Helm.phasedReleases`; `JitML.Bootstrap.livePhasedRolloutSubprocesses` now inserts the Docker build / explicit Kind image-load subprocesses directly before final services. |
 | Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
 | Standalone MinIO values fragment | Sprint 4.3 | Folded MinIO subchart values into `chart/values.yaml`, removed `chart/minio-values.yaml`, and made bootstrap delete legacy standalone values files during materialization. |
 | RL run sequencing as a `RunPhase` enum instead of an `RLRunLifecycle` GADT | Sprint 8.7 | Replaced the flat `RunPhase` enum with the `RLRunPhase` data kind plus the phase-indexed singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`; updated `rlRunPlan`, `renderRLRunPhase`, and the `jitml-unit` consumer; `cabal test jitml-unit` keeps 57/57 passing. |

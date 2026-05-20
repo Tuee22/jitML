@@ -5,9 +5,16 @@ module Main where
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (TensorBlob (..), emptyManifest, inferFromManifest)
+import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
+import JitML.Codegen.OneDnn (renderOneDnnFamilySource)
+import JitML.Codegen.RuntimeSource
+  ( RuntimeSource (..)
+  , runtimeSourcePayload
+  )
 import JitML.Engines.Engine (deterministicFlags, engineForSubstrate)
-import JitML.Engines.Local (linuxCpuKernelOutput, runLinuxCpuIdentityKernel)
+import JitML.Engines.Local (linuxCpuKernelOutput, runLinuxCpuIdentityKernel, runLinuxCpuKernel)
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Substrate (Substrate (..), allSubstrates)
 
@@ -33,6 +40,15 @@ main =
             Left message -> assertBool ("linux-cpu JIT run failed: " <> show message) False
             Right kernelRun ->
               linuxCpuKernelOutput kernelRun @?= [1.25, 2.5, -3.75]
+      , testCase "linux-cpu reduction family compiles through the generated FFI path" $ do
+          env <- buildEnv defaultGlobalFlags
+          let source = oneDnnFamilyRuntimeSource Reduction
+              hash = oneDnnFamilyHash source Reduction
+          result <- runLinuxCpuKernel env source hash [4.5]
+          case result of
+            Left message -> assertBool ("linux-cpu reduction JIT run failed: " <> show message) False
+            Right kernelRun ->
+              take 1 (linuxCpuKernelOutput kernelRun) @?= [4.5]
       , testCase "linux-cpu kernel output is bit-equal across repeated runs (Sprint 7.6)" $ do
           -- Sprint 7.6 same-host kernel-output equality test: two
           -- successive invocations against the same input through the
@@ -52,3 +68,27 @@ main =
             _ ->
               assertBool "all three linux-cpu kernel runs succeed" False
       ]
+
+oneDnnFamilyRuntimeSource :: KernelFamily -> RuntimeSource
+oneDnnFamilyRuntimeSource family =
+  GeneratedOneDnnSource
+    { runtimeSourceKernel = kernelFamilyKernelSpec family
+    , runtimeSourceKind = Cache.Inference
+    , runtimeSourceTuning = Cache.defaultTuningChoice
+    , runtimeSourceFiles =
+        renderOneDnnFamilySource
+          family
+          (kernelFamilyKernelSpec family)
+          Cache.Inference
+          Cache.defaultTuningChoice
+    }
+
+oneDnnFamilyHash :: RuntimeSource -> KernelFamily -> Cache.Hash
+oneDnnFamilyHash source family =
+  Cache.cacheKey
+    (kernelFamilyKernelSpec family)
+    Cache.Inference
+    Cache.LinuxCPU
+    (Cache.ToolchainFingerprint "g++-shared;abi=extern-c;jitml_kernel(float*,const float*,size_t)")
+    (runtimeSourcePayload source)
+    Cache.defaultTuningChoice

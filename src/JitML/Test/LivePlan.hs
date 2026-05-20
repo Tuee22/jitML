@@ -11,16 +11,13 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Bootstrap (livePhasedRolloutSubprocesses)
 import JitML.Cluster.Helm
   ( helmDependencyBuildSubprocess
-  , helmInstallSubprocess
-  , kindCreateSubprocess
-  , phasedReleases
-  , releaseName
   )
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (Substrate)
 
 data LivePlanStep = LivePlanStep
   { livePlanStepName :: Text
@@ -43,23 +40,16 @@ liveE2EPlan =
       (subprocess "pulumi" ["stack", "rm", "--yes", "--cwd", "infra/pulumi"])
   ]
 
--- | The phased cluster plan emitted by `JitML.Cluster.Helm.phasedReleases`.
--- The Pulumi orchestrator runs this end-to-end during the `jitml bootstrap`
--- step of `pulumi up`.
+-- | The phased cluster plan emitted by the same typed subprocess list used by
+-- `jitml bootstrap`, including Helm releases and the Docker build / explicit
+-- Kind image-load phase.
 livePhasedClusterPlan :: Substrate -> FilePath -> [LivePlanStep]
 livePhasedClusterPlan substrate chartPath =
-  LivePlanStep "kind-create-cluster" (kindCreateSubprocess substrate kindConfigPath)
-    : LivePlanStep "helm-dependency-build" (helmDependencyBuildSubprocess chartPath)
-    : [ LivePlanStep
-          ("helm-install-" <> releaseName release)
-          (helmInstallSubprocess release chartPath)
-      | release <- phasedReleases
-      ]
- where
-  kindConfigPath = "kind/cluster-" <> substratePath substrate <> ".yaml"
-  substratePath AppleSilicon = "apple-silicon"
-  substratePath LinuxCPU = "linux-cpu"
-  substratePath LinuxCUDA = "linux-cuda"
+  fmap
+    ( \(index, command) ->
+        LivePlanStep ("cluster-step-" <> Text.pack (show index)) command
+    )
+    (zip [(1 :: Int) ..] (livePhasedRolloutSubprocesses substrate chartPath))
 
 renderLivePlan :: [LivePlanStep] -> Text
 renderLivePlan =

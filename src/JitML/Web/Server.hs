@@ -26,6 +26,7 @@ import JitML.SL.Canonicals qualified as SL
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Endpoints (EndpointResponse (..))
 import JitML.Service.Http (HttpRoute (..), serveHttpRoutes, serveHttpRoutesOnce)
+import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.Bundle qualified as Bundle
 import JitML.Web.Contracts qualified as Contracts
 
@@ -78,6 +79,8 @@ demoHttpRoutesWithBundle bundle =
   , textRoute "POST" "/api/images" (EndpointResponse 200 "accepted image upload contract\n")
   , textRoute "POST" "/api/connect4/move" (EndpointResponse 200 renderConnect4Response)
   , textRoute "GET" "/api/ws" (EndpointResponse 200 renderMetricsStream)
+  , textRoute "GET" "/api/ws/training" (EndpointResponse 200 renderTrainingStream)
+  , textRoute "GET" "/api/ws/tune" (EndpointResponse 200 renderTuneStream)
   ]
     <> case bundle of
       Just js ->
@@ -158,6 +161,28 @@ renderMetricsStream =
     [ "event: metrics"
     , "data: algorithms=" <> Text.pack (show (length RL.algorithmCatalog))
     , "data: canonicalProblems=" <> Text.pack (show (length SL.canonicalProblems))
+    ]
+
+renderTrainingStream :: Text
+renderTrainingStream =
+  Text.unlines
+    [ "event: training"
+    , "data: problem=" <> problemName
+    , "data: finalLoss=" <> Text.pack (show finalLoss)
+    ]
+ where
+  (problemName, finalLoss) =
+    case SL.canonicalProblems of
+      problem : _ -> (SL.problemName problem, SL.finalLoss problem)
+      [] -> ("empty", 0.0)
+
+renderTuneStream :: Text
+renderTuneStream =
+  Text.unlines
+    [ "event: tune"
+    , "data: samplers=" <> Text.pack (show (length Tune.samplerCatalog))
+    , "data: schedulers=" <> Text.pack (show (length Tune.schedulerCatalog))
+    , "data: pruners=" <> Text.pack (show (length Tune.prunerCatalog))
     ]
 
 textRoute :: Text -> Text -> EndpointResponse -> HttpRoute

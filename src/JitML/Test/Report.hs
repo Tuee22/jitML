@@ -4,6 +4,8 @@ module JitML.Test.Report
   ( ReportCard (..)
   , ReportCardKnobs (..)
   , defaultReportCardKnobs
+  , loadReportCardKnobs
+  , parseReportCardKnobs
   , renderReportCardWithKnobs
   , reportStanzas
   , renderReportCard
@@ -12,6 +14,7 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.IO qualified as Text.IO
 
 data ReportCard = ReportCard
   { reportPassed :: Int
@@ -64,6 +67,41 @@ reportStanzas =
 renderReportCard :: ReportCard -> Text
 renderReportCard =
   renderReportCardWithKnobs defaultReportCardKnobs
+
+loadReportCardKnobs :: FilePath -> IO (Either Text ReportCardKnobs)
+loadReportCardKnobs path =
+  parseReportCardKnobs <$> Text.IO.readFile path
+
+parseReportCardKnobs :: Text -> Either Text ReportCardKnobs
+parseReportCardKnobs content =
+  ReportCardKnobs
+    <$> lookupInt "sl_epochs"
+    <*> lookupInt "sl_batch"
+    <*> lookupInt "rl_steps"
+    <*> lookupInt "rl_eval_episodes"
+    <*> lookupInt "az_games"
+    <*> lookupInt "az_sims"
+    <*> lookupInt "tune_trials"
+    <*> lookupInt "tune_budget_per_trial"
+    <*> lookupInt "xcluster_kind_nodes"
+ where
+  entries =
+    [ (Text.strip key, Text.strip (Text.drop 1 rest))
+    | line <- Text.lines content
+    , Just comment <- [Text.stripPrefix "-- " (Text.strip line)]
+    , let (key, rest) = Text.breakOn ":" comment
+    , not (Text.null rest)
+    ]
+
+  lookupInt key =
+    case lookup key entries of
+      Nothing -> Left ("missing report-card knob: " <> key)
+      Just value -> parseInt key value
+
+  parseInt key value =
+    case reads (Text.unpack (Text.filter (/= '_') value)) of
+      [(parsed, "")] -> Right parsed
+      _ -> Left ("invalid report-card knob " <> key <> ": " <> value)
 
 renderReportCardWithKnobs :: ReportCardKnobs -> ReportCard -> Text
 renderReportCardWithKnobs knobs report =

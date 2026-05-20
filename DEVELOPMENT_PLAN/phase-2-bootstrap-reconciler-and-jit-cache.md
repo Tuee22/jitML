@@ -318,11 +318,11 @@ the current command materializes bootstrap inputs only.
 
 - `docker/Dockerfile` currently builds on `ubuntu:24.04` with pinned GHC
   `9.14.1`, Cabal `3.16.1.0`, GCC/G++, LLVM, Docker CLI, Node.js/npm, Python,
-  PureScript, spago, architecture-aware `kubectl` / `kind`, and `helm`, then
-  installs the `jitml` and `jitml-demo` executables into `/usr/local/bin`.
-  The full target image still needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, Poetry,
-  and Pulumi hardening before it can serve as the complete Linux CPU / CUDA
-  runtime image.
+  PureScript, spago, architecture-aware `kubectl` / `kind`, `helm`, and the
+  Sprint `1.4` style-tools/code-quality image gate, then installs the `jitml`
+  and `jitml-demo` executables into `/usr/local/bin`. The full target image still
+  needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, Poetry, and Pulumi hardening before it
+  can serve as the complete Linux CPU / CUDA runtime image.
 - `docker/compose.yaml` declares one service `jitml` with image `jitml:local`,
   bind-mounts `./` to `/jitml`, working dir `/jitml`, no entrypoint default.
 - `linux-cpu.sh` and `linux-cuda.sh` enter the image through
@@ -351,6 +351,9 @@ the current command materializes bootstrap inputs only.
 
 - Full live `jitml bootstrap --linux-cpu` Harbor tagging/push and cluster-daemon
   rollout remain target apply behavior owned by the cluster/service phases.
+- The container-owned style-tools bootstrap and image-build Haskell style gate
+  are closed by Sprint `1.4`; Sprint `2.4` owns only the one-Dockerfile /
+  one-compose-service image shape.
 - Container-internal `jitml build` producing `/opt/build/jitml` remains target
   runtime work; the current implementation renders the build destination and
   engine metadata only.

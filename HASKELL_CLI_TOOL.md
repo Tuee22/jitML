@@ -86,8 +86,8 @@ Cabal 3.16.1.0
 These are not floors or recommendations. The `.cabal` file declares
 `tested-with: ghc ==9.14.1`. A `cabal.project` (or equivalent) pins
 `with-compiler: ghc-9.14.1`. CI uses the same versions. The pinned formatter-tools
-GHC under `.build/<project>-style-tools/` is a separate isolated install and is
-managed by the lint stack; the project's main compiler is the version named here.
+GHC is a separate isolated install managed before lint execution; the project's
+main compiler is the version named here.
 
 ---
 
@@ -1895,12 +1895,21 @@ formatting, linting, and per-artifact code-quality enforcement are structured.
 
 ### Tool bootstrap
 
-`fourmolu` and `hlint` are installed by the lint pass itself to a pinned-GHC build
-directory under `.build/<project>-style-tools/bin/`, via `ghcup run` + `cabal install`.
-The pinned GHC version is declared in source (single constant) and isolated from the
-project's main compiler so formatting is reproducible across contributors and CI. The
-`.cabal` file is round-tripped through `cabal format` via a temp file and compared for
-byte-equality (no in-place rewrite during check).
+`fourmolu` and `hlint` are provisioned before the lint pass runs. Projects that
+already require a repository container image should build a pinned style-tools GHC and
+the pinned formatter/linter binaries during image construction, then run the Haskell
+style gate in that image build. Projects without a container bootstrap may provide an
+explicit style-tool bootstrap command, but `tool lint haskell` must not silently
+install a missing host GHC as a side effect.
+
+The formatter/linter binaries live under a deterministic project-owned tool directory
+such as `.build/<project>-style-tools/bin/`, or an image-local equivalent when bind
+mounts would hide image-built worktree paths. The pinned style-tools GHC version is
+declared in source or the image definition and isolated from the project's main
+compiler so formatting is reproducible across contributors and CI. If a runtime lint
+command cannot find the style tools, it reports the explicit bootstrap or image-rebuild
+remedy. The `.cabal` file is round-tripped through `cabal format` via a temp file and
+compared for byte-equality (no in-place rewrite during check).
 
 ### Pinned `fourmolu.yaml`
 
@@ -2001,8 +2010,9 @@ what can be auto-fixed:
 The Haskell-style check is exposed both as the CLI command above and as a separate
 `test-suite <project>-haskell-style` with `type: exitcode-stdio-1.0`. `cabal test`
 runs it as part of the normal test surface, so style enforcement does not require a
-separate developer workflow, a Makefile, or a pre-commit hook. The CLI command and
-the test-suite call the same Haskell function.
+separate developer workflow, a Makefile, or a pre-commit hook once the explicit
+style-tool bootstrap or project image build has completed. The CLI command and the
+test-suite call the same Haskell function.
 
 ### Aggregate dispatch
 
@@ -2118,8 +2128,8 @@ The full test suite is the canonical validation path.
 
 Lint and style checks are part of the canonical test suite rather than a parallel
 CI-only workflow. The `<project>-haskell-style` `test-suite` stanza makes `cabal test`
-self-sufficient for style enforcement, so contributors and CI run the same command and
-fail in the same way.
+self-sufficient for style enforcement inside the supported tool environment, so
+contributors and CI run the same command and fail in the same way.
 
 ---
 

@@ -2,9 +2,15 @@
 
 module JitML.Service.Runtime
   ( DaemonRuntime (..)
+  , DaemonSubscriptionState (..)
+  , DaemonSubscriptionStatus (..)
+  , acquireDaemonSubscriptions
+  , daemonConsumerBatch
   , consumerLoopExit
+  , daemonHandlerRouter
   , daemonTensorBoardDispatcher
   , daemonHttpRoutes
+  , daemonRuntimeForBootConfig
   , defaultDaemonRuntime
   , renderDaemonRuntimeSummary
   , runtimeAfterSignal
@@ -15,6 +21,7 @@ where
 
 import Control.Concurrent (myThreadId, throwTo)
 import Control.Exception (AsyncException (..), catch, throwIO)
+import Control.Monad.IO.Class (MonadIO)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
@@ -29,12 +36,29 @@ import JitML.Service.BootConfig
   , defaultBootConfig
   , renderBootConfigDhall
   )
-import JitML.Service.Capabilities (ETag, HasMinIO)
+import JitML.Service.Capabilities
+  ( ETag
+  , HasMinIO
+  , HasPulsar
+  , SubscriptionId (..)
+  , TopicName (..)
+  )
+import JitML.Service.Clients
+  ( DaemonClientSettings
+  , daemonClientSettingsForBootConfig
+  , renderDaemonClientSettings
+  )
 import JitML.Service.Consumer
   ( ConsumerOutcome
+  , DaemonSubscription (..)
   , EventDomain
   , EventId
+  , HandlerRouter
   , consumerOutcomeError
+  , daemonSubscriptionsForBootConfig
+  , emptyHandlerRouter
+  , runConsumerLoop
+  , subscribeDaemonTopics
   )
 import JitML.Service.Endpoints
   ( EndpointResponse (..)
@@ -46,8 +70,13 @@ import JitML.Service.Endpoints
   )
 import JitML.Service.Http (HttpRoute (..), serveHttpRoutes, serveHttpRoutesOnce)
 import JitML.Service.Lifecycle (lifecyclePlan, renderLifecyclePhase)
-import JitML.Service.LiveConfig (LiveConfig, defaultLiveConfig, renderLiveConfigDhall)
-import JitML.Service.Retry (ServiceError)
+import JitML.Service.LiveConfig
+  ( LiveConfig
+  , defaultLiveConfig
+  , liveDedupCacheSize
+  , renderLiveConfigDhall
+  )
+import JitML.Service.Retry (ServiceError (..))
 import JitML.Service.Signal
   ( DaemonSignal
   , DaemonSignalAction (..)
@@ -64,19 +93,73 @@ import JitML.Substrate (Substrate (..))
 data DaemonRuntime = DaemonRuntime
   { daemonBootConfig :: BootConfig
   , daemonLiveConfig :: LiveConfig
+  , daemonClientSettings :: DaemonClientSettings
+  , daemonSubscriptions :: [DaemonSubscription]
+  , daemonSubscriptionStatuses :: [DaemonSubscriptionStatus]
   , daemonMetrics :: MetricsSnapshot
   , daemonReady :: Bool
   }
   deriving stock (Eq, Show)
 
+data DaemonSubscriptionState
+  = DaemonSubscriptionPending
+  | DaemonSubscriptionAcquired SubscriptionId
+  | DaemonSubscriptionFailed ServiceError
+  deriving stock (Eq, Show)
+
+data DaemonSubscriptionStatus = DaemonSubscriptionStatus
+  { daemonSubscriptionStatusSubscription :: DaemonSubscription
+  , daemonSubscriptionStatusState :: DaemonSubscriptionState
+  }
+  deriving stock (Eq, Show)
+
 defaultDaemonRuntime :: DaemonRuntime
 defaultDaemonRuntime =
-  DaemonRuntime
-    { daemonBootConfig = defaultBootConfig LinuxCPU Cluster
-    , daemonLiveConfig = defaultLiveConfig
-    , daemonMetrics = MetricsSnapshot 0 1 0
-    , daemonReady = True
+  daemonRuntimeForBootConfig (defaultBootConfig LinuxCPU Cluster)
+
+daemonRuntimeForBootConfig :: BootConfig -> DaemonRuntime
+daemonRuntimeForBootConfig bootConfig =
+  let subscriptions = daemonSubscriptionsForBootConfig bootConfig
+   in DaemonRuntime
+        { daemonBootConfig = bootConfig
+        , daemonLiveConfig = defaultLiveConfig
+        , daemonClientSettings = daemonClientSettingsForBootConfig bootConfig
+        , daemonSubscriptions = subscriptions
+        , daemonSubscriptionStatuses = pendingSubscriptionStatuses subscriptions
+        , daemonMetrics = MetricsSnapshot 0 1 0
+        , daemonReady = True
+        }
+
+acquireDaemonSubscriptions :: (HasPulsar m) => DaemonRuntime -> m DaemonRuntime
+acquireDaemonSubscriptions runtime = do
+  results <- subscribeDaemonTopics (daemonSubscriptions runtime)
+  let statuses = fmap subscriptionResultStatus results
+  pure
+    runtime
+      { daemonSubscriptionStatuses = statuses
+      , daemonReady = all subscriptionAcquired statuses
+      }
+
+pendingSubscriptionStatuses :: [DaemonSubscription] -> [DaemonSubscriptionStatus]
+pendingSubscriptionStatuses =
+  fmap (`DaemonSubscriptionStatus` DaemonSubscriptionPending)
+
+subscriptionResultStatus
+  :: (DaemonSubscription, Either ServiceError SubscriptionId) -> DaemonSubscriptionStatus
+subscriptionResultStatus (subscription, result) =
+  DaemonSubscriptionStatus
+    { daemonSubscriptionStatusSubscription = subscription
+    , daemonSubscriptionStatusState =
+        case result of
+          Right subscriptionId -> DaemonSubscriptionAcquired subscriptionId
+          Left err -> DaemonSubscriptionFailed err
     }
+
+subscriptionAcquired :: DaemonSubscriptionStatus -> Bool
+subscriptionAcquired status =
+  case daemonSubscriptionStatusState status of
+    DaemonSubscriptionAcquired _ -> True
+    _ -> False
 
 daemonHttpRoutes :: DaemonRuntime -> [HttpRoute]
 daemonHttpRoutes runtime =
@@ -119,6 +202,12 @@ renderDaemonRuntimeSummary runtime =
     , indentText (renderBootConfigDhall (daemonBootConfig runtime))
     , "live_config:"
     , indentText (renderLiveConfigDhall (daemonLiveConfig runtime))
+    , "client_acquisition:"
+    , indentText (renderDaemonClientSettings (daemonClientSettings runtime))
+    , "pulsar_subscriptions:"
+    , indentText (renderDaemonSubscriptions (daemonSubscriptions runtime))
+    , "pulsar_subscription_status:"
+    , indentText (renderDaemonSubscriptionStatuses (daemonSubscriptionStatuses runtime))
     , "http_listener:"
     , indentText (renderListener (runtimeListener runtime))
     , "routes:"
@@ -162,6 +251,51 @@ renderRoute :: HttpRoute -> Text
 renderRoute route =
   httpRouteMethod route <> " " <> httpRoutePath route
 
+renderDaemonSubscriptions :: [DaemonSubscription] -> Text
+renderDaemonSubscriptions [] = "(none)\n"
+renderDaemonSubscriptions subscriptions =
+  Text.unlines (fmap renderDaemonSubscription subscriptions)
+
+renderDaemonSubscription :: DaemonSubscription -> Text
+renderDaemonSubscription subscription =
+  "- "
+    <> unTopicName (daemonSubscriptionTopic subscription)
+    <> " as "
+    <> daemonSubscriptionName subscription
+
+renderDaemonSubscriptionStatuses :: [DaemonSubscriptionStatus] -> Text
+renderDaemonSubscriptionStatuses [] = "(none)\n"
+renderDaemonSubscriptionStatuses statuses =
+  Text.unlines (fmap renderDaemonSubscriptionStatus statuses)
+
+renderDaemonSubscriptionStatus :: DaemonSubscriptionStatus -> Text
+renderDaemonSubscriptionStatus status =
+  "- "
+    <> unTopicName (daemonSubscriptionTopic subscription)
+    <> " as "
+    <> daemonSubscriptionName subscription
+    <> ": "
+    <> renderDaemonSubscriptionState (daemonSubscriptionStatusState status)
+ where
+  subscription = daemonSubscriptionStatusSubscription status
+
+renderDaemonSubscriptionState :: DaemonSubscriptionState -> Text
+renderDaemonSubscriptionState DaemonSubscriptionPending = "pending"
+renderDaemonSubscriptionState (DaemonSubscriptionAcquired subscriptionId) =
+  "acquired " <> renderSubscriptionId subscriptionId
+renderDaemonSubscriptionState (DaemonSubscriptionFailed err) =
+  "failed " <> renderServiceError err
+
+renderSubscriptionId :: SubscriptionId -> Text
+renderSubscriptionId (SubscriptionId value) =
+  Text.replace "\n" " " value
+
+renderServiceError :: ServiceError -> Text
+renderServiceError (SEConflict message) = "conflict: " <> message
+renderServiceError (SEUnauthorized message) = "unauthorized: " <> message
+renderServiceError (SETimeout message) = "timeout: " <> message
+renderServiceError (SETransient message) = "transient: " <> message
+
 renderSignalPlan :: (DaemonSignal, DaemonSignalAction) -> Text
 renderSignalPlan (signal, action) =
   renderDaemonSignal signal <> ": " <> renderDaemonSignalAction action
@@ -178,6 +312,39 @@ indentText =
 -- §Capability Classes and Service Errors.
 consumerLoopExit :: [ConsumerOutcome] -> Maybe AppError
 consumerLoopExit = asum . fmap consumerOutcomeError
+
+daemonHandlerRouter :: DaemonRuntime -> HandlerRouter
+daemonHandlerRouter runtime =
+  emptyHandlerRouter (liveDedupCacheSize (daemonLiveConfig runtime))
+
+daemonConsumerBatch
+  :: (HasPulsar m, MonadIO m)
+  => DaemonRuntime
+  -> Int
+  -- ^ Number of envelopes to pull per acquired subscription.
+  -> (EventDomain -> EventId -> Text -> m (Either ServiceError ()))
+  -> m (HandlerRouter, [ConsumerOutcome])
+daemonConsumerBatch runtime budget dispatch =
+  go (daemonHandlerRouter runtime) [] acquiredSubscriptions
+ where
+  acquiredSubscriptions =
+    foldMap acquiredSubscriptionId (daemonSubscriptionStatuses runtime)
+
+  go router outcomes [] =
+    pure (router, outcomes)
+  go router outcomes (subscription : rest)
+    | budget <= 0 =
+        go router outcomes rest
+    | otherwise = do
+        (router', batchOutcomes) <-
+          runConsumerLoop subscription router budget dispatch
+        go router' (outcomes <> batchOutcomes) rest
+
+acquiredSubscriptionId :: DaemonSubscriptionStatus -> [SubscriptionId]
+acquiredSubscriptionId status =
+  case daemonSubscriptionStatusState status of
+    DaemonSubscriptionAcquired subscriptionId -> [subscriptionId]
+    _ -> []
 
 daemonTensorBoardDispatcher
   :: (HasMinIO m)

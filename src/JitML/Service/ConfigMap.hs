@@ -51,20 +51,20 @@ renderServiceDeployment substrate =
       <> runtimeClassLines
       <> [ "      affinity:"
          , "        podAntiAffinity:"
-         , "          preferredDuringSchedulingIgnoredDuringExecution:"
-         , "            - weight: 100"
-         , "              podAffinityTerm:"
-         , "                topologyKey: kubernetes.io/hostname"
-         , "                labelSelector:"
-         , "                  matchLabels:"
-         , "                    app: jitml-service"
+         , "          requiredDuringSchedulingIgnoredDuringExecution:"
+         , "            - topologyKey: kubernetes.io/hostname"
+         , "              labelSelector:"
+         , "                matchLabels:"
+         , "                  app: jitml-service"
          , "      containers:"
          , "        - name: jitml-service"
          , "          image: jitml:local"
          , "          imagePullPolicy: IfNotPresent"
          , "          command: [\"jitml\"]"
          , "          args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]"
-         , "          volumeMounts:"
+         ]
+      <> nvidiaEnvLines
+      <> [ "          volumeMounts:"
          , "            - name: jit-cache"
          , "              mountPath: /opt/build"
          , "            - name: service-config"
@@ -83,6 +83,17 @@ renderServiceDeployment substrate =
       Nothing -> []
       Just runtimeClass ->
         ["      runtimeClassName: " <> runtimeClass]
+
+  nvidiaEnvLines =
+    case substrateRuntimeClass substrate of
+      Nothing -> []
+      Just _ ->
+        [ "          env:"
+        , "            - name: NVIDIA_VISIBLE_DEVICES"
+        , "              value: all"
+        , "            - name: NVIDIA_DRIVER_CAPABILITIES"
+        , "              value: compute,utility"
+        ]
 
 indentBlock :: Text -> Text
 indentBlock =

@@ -316,7 +316,8 @@ per standards rule L.
     (`indentation`, `column-limit`, `function-arrows`, `comma-style`,
     `import-export-style`, `indent-wheres`, `record-brace-space`,
     `newlines-between-decls`, `haddock-style`, `let-style`, `in-style`,
-    `unicode`), `hlint`, `cabal format` temp-file round-trip byte-equality,
+    `unicode`), container-owned style-tools bootstrap for the mandatory
+    `jitml:local` image, `hlint`, `cabal format` temp-file round-trip byte-equality,
     `forbiddenPathRegistry` refusing `.github/workflows/`, `.husky/`,
     `.githooks/`, root `Makefile` / `justfile` / `Taskfile.yml`. Plus chart
     lint refusing freestanding PVCs, non-`kubernetes.io/no-provisioner`

@@ -4,7 +4,7 @@ module Main where
 
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
-import System.Directory (doesFileExist)
+import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
@@ -28,12 +28,15 @@ main =
             "module header"
             ("module Generated.Contracts where" `Text.isInfixOf` renderPureScriptContracts)
       , testCase "PureScript sources are whitespace-normalized" $ do
-          mainSource <- Text.IO.readFile "web/src/Main.purs"
-          testSource <- Text.IO.readFile "web/test/Main.purs"
-          assertBool "no tabs in Main.purs" (not ("\t" `Text.isInfixOf` mainSource))
-          assertBool "no tabs in test/Main.purs" (not ("\t" `Text.isInfixOf` testSource))
-          assertBool "Main.purs final newline" ("\n" `Text.isSuffixOf` mainSource)
-          assertBool "test/Main.purs final newline" ("\n" `Text.isSuffixOf` testSource)
+          sources <- purescriptSources
+          assertBool "PureScript source set is non-empty" (not (null sources))
+          mapM_
+            ( \path -> do
+                source <- Text.IO.readFile path
+                assertBool (path <> " has no tabs") (not ("\t" `Text.isInfixOf` source))
+                assertBool (path <> " has a final newline") ("\n" `Text.isSuffixOf` source)
+            )
+            sources
       , testCase "frontend panel endpoints are covered by generated contracts" $
           fmap panelEndpoint panelSurfaces
             @?= fmap Contracts.endpointPath panelContractEndpoints
@@ -59,3 +62,25 @@ panelContractEndpoints =
   case Contracts.apiEndpoints of
     _runCommandEndpoint : rest -> rest
     [] -> []
+
+purescriptSources :: IO [FilePath]
+purescriptSources =
+  concat <$> traverse listPursFiles ["web/src", "web/test"]
+
+listPursFiles :: FilePath -> IO [FilePath]
+listPursFiles root = do
+  exists <- doesDirectoryExist root
+  if exists
+    then do
+      entries <- listDirectory root
+      concat
+        <$> traverse
+          ( \entry -> do
+              let path = root <> "/" <> entry
+              isDirectory <- doesDirectoryExist path
+              if isDirectory
+                then listPursFiles path
+                else pure [path | ".purs" `Text.isSuffixOf` Text.pack path]
+          )
+          entries
+    else pure []

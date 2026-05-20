@@ -1,5 +1,6 @@
 .build/
 .data/
+.git/
 dist-newstyle/
 .hlint-output
 chart/charts/

@@ -144,7 +144,7 @@ renderDaemonSurface =
     , "| `/readyz` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime with ready/not-ready status |"
     , "| `/metrics` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime as Prometheus text |"
     , "| `BootConfig` | `JitML.Service.BootConfig` and `dhall/service/BootConfig.dhall` | Cluster/host residency, inference mode, Pulsar, MinIO, Harbor, HTTP listener fields |"
-    , "| `LiveConfig` | `JitML.Service.LiveConfig` and `dhall/service/LiveConfig.dhall` | Log level, retry policy, tart idle timeout, inference batching/SLO, drain deadline fields |"
+    , "| `LiveConfig` | `JitML.Service.LiveConfig` and `dhall/service/LiveConfig.dhall` | Log level, retry policy, tart idle timeout, inference batching/SLO, dedup cache size/TTL, drain deadline fields |"
     , "| SIGHUP reload decision | `JitML.Service.HotReload` | Pure reload/ignore/restart-required decision surface |"
     , "| POSIX signal wiring | `JitML.Service.Signal` and `JitML.Service.Runtime` | SIGHUP increments reload generation; SIGINT/SIGTERM begin graceful drain and drop readiness |"
     , "| Consumer idempotency | `JitML.Service.Consumer` | Pure payload-hash deduplication surface |"

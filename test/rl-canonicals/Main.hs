@@ -10,6 +10,22 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import JitML.RL.Algorithms (algorithmCatalog, algorithmName, deterministicTrajectory)
 import JitML.RL.AlphaZero (gameMoves, selfPlayTranscript, selfPlayTranscriptFor)
+import JitML.RL.Buffer (bufferSize)
+import JitML.RL.Environments
+  ( canonicalEnvironments
+  , environmentActionCount
+  , environmentObservationSize
+  )
+import JitML.RL.Loop
+  ( RLConfig (..)
+  , RLLoop (..)
+  , defaultRLConfig
+  , resultBuffer
+  , resultEpisodes
+  , runRLLoop
+  )
+import JitML.RL.Policy (defaultPolicy)
+import JitML.Substrate (Substrate (..))
 
 main :: IO ()
 main =
@@ -27,6 +43,27 @@ main =
       , testCase "PPO CartPole trajectory matches the golden fixture" $ do
           fixture <- Text.IO.readFile "test/golden/rl/ppo/cartpole/trajectory.txt"
           Text.lines fixture @?= fmap (Text.pack . show) (deterministicTrajectory "PPO" 42)
+      , testCase "deterministic RL loop records rollout transitions in the replay buffer" $
+          case (algorithmCatalog, canonicalEnvironments) of
+            (algorithm : _, environment : _) -> do
+              let policy =
+                    defaultPolicy
+                      "ppo-cartpole"
+                      (environmentObservationSize environment)
+                      (environmentActionCount environment)
+                      LinuxCPU
+                  config =
+                    defaultRLConfig
+                      { rlMaxEpisodes = 2
+                      , rlMaxStepsPerEpisode = 8
+                      , rlBufferCapacity = 32
+                      }
+                  loop = RLLoop algorithm policy environment config
+                  first = runRLLoop loop
+                  second = runRLLoop loop
+              resultEpisodes first @?= resultEpisodes second
+              assertBool "rollout transitions are recorded" (bufferSize (resultBuffer first) > 0)
+            _ -> assertBool "missing RL catalog/environment fixture" False
       , testCase "AlphaZero self-play records legal Connect 4 columns" $
           mapM_
             (assertBool "column is legal" . all (\column -> column >= 0 && column < 7) . gameMoves)

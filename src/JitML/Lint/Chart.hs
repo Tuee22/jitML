@@ -31,7 +31,7 @@ checkChartWhenPresent = do
   chartFiles <- repoFiles "chart"
   storageFindings <- checkStorageClass
   pvFindings <- concat <$> traverse checkPvFile (filter isPvFile chartFiles)
-  forbiddenFindings <- concat <$> traverse checkForbiddenProvisioner chartFiles
+  forbiddenFindings <- concat <$> traverse checkForbiddenProvisioner (filter isYamlFile chartFiles)
   routeFindings <- checkRouteFiles chartFiles
   pgFindings <- concat <$> traverse checkPerconaCluster chartFiles
   let templateValueFindings = fmap templateValuesFinding (filter isTemplateValuesFile chartFiles)
@@ -198,6 +198,10 @@ isPvFile path =
 isRouteFile :: FilePath -> Bool
 isRouteFile path =
   "chart/templates/httproute-" `isPrefixOf` path && ".yaml" `isSuffixOf` path
+
+isYamlFile :: FilePath -> Bool
+isYamlFile path =
+  ".yaml" `isSuffixOf` path || ".yml" `isSuffixOf` path
 
 isTemplateValuesFile :: FilePath -> Bool
 isTemplateValuesFile path =

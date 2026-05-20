@@ -77,6 +77,8 @@ pulsar:
       webSocketServiceEnabled: "true"
   proxy:
     replicaCount: 3
+    service:
+      type: ClusterIP
 
 kube-prometheus-stack:
   grafana:

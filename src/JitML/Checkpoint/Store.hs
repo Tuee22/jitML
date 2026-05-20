@@ -9,10 +9,14 @@ module JitML.Checkpoint.Store
   , StoredCheckpoint (..)
   , applyRetentionPolicy
   , buildGcPlan
+  , checkpointObjectKey
+  , checkpointObjectRef
   , executeGcPlan
   , inferFromLatestCheckpoint
   , inferWeightsOnlyFromLatestCheckpoint
+  , listCheckpointManifests
   , loadInferenceCheckpoint
+  , loadInferenceCheckpointWith
   , objectPathForKey
   , readCheckpointManifest
   , readCheckpointPointer
@@ -25,12 +29,19 @@ where
 
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (nub, sortOn)
+import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word64)
-import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
+import System.Directory
+  ( createDirectoryIfMissing
+  , doesDirectoryExist
+  , doesFileExist
+  , listDirectory
+  , renameFile
+  )
 import System.FilePath (isRelative, normalise, takeDirectory, (</>))
 
 import JitML.Checkpoint.Format
@@ -113,6 +124,24 @@ readCheckpointPointer root pointerKey = do
       Left _ -> Nothing
       Right payload ->
         Just (Text.strip (Text.Encoding.decodeUtf8 (LazyByteString.toStrict payload)))
+
+listCheckpointManifests :: FilePath -> Text -> IO (Either Text [CheckpointManifest])
+listCheckpointManifests root experimentHash = do
+  let manifestDirKey = "jitml-checkpoints/" <> experimentHash <> "/manifests"
+      manifestDir = objectPathForKey root manifestDirKey
+  exists <- doesDirectoryExist manifestDir
+  if not exists
+    then pure (Right [])
+    else do
+      entries <- listDirectory manifestDir
+      decoded <- traverse (readManifestEntry manifestDir) (filter isManifestFile entries)
+      pure (sequence decoded)
+ where
+  isManifestFile path = ".cbor" `Text.isSuffixOf` Text.pack path
+
+  readManifestEntry manifestDir entry = do
+    payload <- LazyByteString.readFile (manifestDir </> entry)
+    pure (decodeManifestCbor payload)
 
 inferFromLatestCheckpoint :: FilePath -> Text -> [Double] -> IO (Either Text [Double])
 inferFromLatestCheckpoint root experimentHash input = do
@@ -261,17 +290,14 @@ executeGcPlan plan =
         , gcExecutedDeleteFailures = reverse failures
         }
   go reapedManifests reapedBlobs failures (event : rest) = do
-    let bucket = BucketName "jitml-checkpoints"
-        manifestRef =
-          ObjectRef
-            bucket
-            (ObjectKey (manifestKey (gcExperimentHash event) (gcReapedManifestSha event)))
+    let manifestRef =
+          checkpointObjectRef (manifestKey (gcExperimentHash event) (gcReapedManifestSha event))
     manifestResult <- deleteObject manifestRef
     let failuresAfterManifest =
           case manifestResult of
             Left err -> (manifestKey (gcExperimentHash event) (gcReapedManifestSha event), err) : failures
             Right () -> failures
-    blobOutcomes <- traverse (deleteBlob bucket (gcExperimentHash event)) (gcReapedBlobShas event)
+    blobOutcomes <- traverse (deleteBlob (gcExperimentHash event)) (gcReapedBlobShas event)
     let blobFailures = [(k, err) | Left (k, err) <- blobOutcomes]
         deletedBlobCount = length [() | Right () <- blobOutcomes]
     go
@@ -280,8 +306,8 @@ executeGcPlan plan =
       (reverse blobFailures <> failuresAfterManifest)
       rest
 
-  deleteBlob bucket experimentHash blobSha = do
-    let ref = ObjectRef bucket (ObjectKey (blobKey experimentHash blobSha))
+  deleteBlob experimentHash blobSha = do
+    let ref = checkpointObjectRef (blobKey experimentHash blobSha)
     outcome <- deleteObject ref
     case outcome of
       Left err -> pure (Left (blobKey experimentHash blobSha, err))
@@ -299,16 +325,30 @@ loadInferenceCheckpoint
   -> [Double]
   -- ^ inference input
   -> m (Either Text [Double])
-loadInferenceCheckpoint experimentHash input = do
-  let bucket = BucketName "jitml-checkpoints"
-      pointerRef = ObjectRef bucket (ObjectKey (latestPointerKey experimentHash))
+loadInferenceCheckpoint =
+  loadInferenceCheckpointWith $ \manifest input ->
+    pure (Right (inferFromManifest manifest input))
+
+-- | Variant of `loadInferenceCheckpoint` that lets callers provide the actual
+-- inference runner after the latest pointer and weight-only manifest have been
+-- loaded. The local Linux CPU tests use this to execute a generated FFI kernel;
+-- the default path above keeps the deterministic pure summary.
+loadInferenceCheckpointWith
+  :: (HasMinIO m)
+  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  -> Text
+  -- ^ experiment hash
+  -> [Double]
+  -- ^ inference input
+  -> m (Either Text [Double])
+loadInferenceCheckpointWith runInference experimentHash input = do
+  let pointerRef = checkpointObjectRef (latestPointerKey experimentHash)
   pointerResult <- minioReadObject pointerRef
   case pointerResult of
     Left err -> pure (Left ("pointer read failed: " <> Text.pack (show err)))
     Right rawPointer -> do
       let manifestSha = Text.strip rawPointer
-          manifestRef =
-            ObjectRef bucket (ObjectKey (manifestKey experimentHash manifestSha))
+          manifestRef = checkpointObjectRef (manifestKey experimentHash manifestSha)
       manifestPayload <- minioReadBytes manifestRef
       case manifestPayload of
         Left err -> pure (Left ("manifest read failed: " <> Text.pack (show err)))
@@ -320,7 +360,15 @@ loadInferenceCheckpoint experimentHash input = do
                 Right manifest ->
                   let weightOnly = manifest {manifestOptimizer = [], manifestRng = []}
                       _ = weightOnlyTensors manifest
-                   in pure (Right (inferFromManifest weightOnly input))
+                   in runInference weightOnly input
+
+checkpointObjectRef :: Text -> ObjectRef
+checkpointObjectRef objectKey =
+  ObjectRef (BucketName "jitml-checkpoints") (ObjectKey (checkpointObjectKey objectKey))
+
+checkpointObjectKey :: Text -> Text
+checkpointObjectKey objectKey =
+  fromMaybe objectKey (Text.stripPrefix "jitml-checkpoints/" objectKey)
 
 writeObjectIfAbsent :: FilePath -> Text -> LazyByteString.ByteString -> IO ObjectWriteResult
 writeObjectIfAbsent root objectKey payload = do
