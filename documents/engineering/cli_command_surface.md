@@ -860,7 +860,7 @@ jitml test all
 
 Run all test stanzas.
 
-Runs all Cabal test stanzas and report-card workloads through the test orchestrator.
+Runs all Cabal test stanzas and renders the target-stanza report card.
 
 Usage:
   jitml test all [--dry-run] [--plan-file <path>]

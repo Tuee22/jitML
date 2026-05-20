@@ -106,8 +106,14 @@ lists `jitml-checkpoints` with the `daemon-health/` prefix, Harbor lists the
 `library` project, and kubectl runs `get pods`; those results are rendered
 under `client_probe_status` and failed probes drop readiness. Live Linux CPU
 validation on 2026-05-20 confirms those daemon-acquired read-only probes pass
-from the running pod; long-lived consume/redelivery/seek and effectful workload
-use of the non-Pulsar clients remain target work.
+from the running pod. `JitML.Service.Workload` provides the local mutating
+non-Pulsar workload-effect runner over the same capability classes for
+checkpoint blob writes, checkpoint pointer CAS, Harbor image promotion, and
+kubectl apply/status/delete. `JitML.Service.Runtime.daemonWorkloadDispatcher`
+parses rendered byte-faithful `WorkloadEffect` payloads and routes them
+through that runner from the consumer dispatcher contract. Long-lived
+consume/redelivery/seek, live running-daemon invocation of that dispatcher, and
+real training/inference handler integration remain target work.
 
 The live `chart/local/jitml-service` ConfigMap carries the same current Dhall
 surface: residency and inference mode use typed union constructors, and
@@ -205,8 +211,16 @@ before serving, and drops readiness when acquisition or probe fails. 2026-05-20
 live validation of the Linux CPU chart confirms `/healthz`, `/readyz`,
 `/metrics`, MinIO `jitml-checkpoints` listing, Harbor `library` listing, and
 in-pod `kubectl get pods -n platform` through the `jitml-service` service
-account. Effectful workload use of the non-Pulsar clients from the long-lived
-service remains target work below. Harbor
+account. `JitML.Service.Workload` is the current typed workload-effect runner
+for mutating non-Pulsar daemon effects: it maps checkpoint blob writes to
+`HasMinIO.putBlobBytesIfAbsent`, checkpoint pointer updates to
+`HasMinIO.casPointer`, image promotion to `HasHarbor.harborPromoteImage`, and
+resource apply/status/delete to `HasKubectl`. It also renders/parses
+byte-faithful `WorkloadEffect` payloads, and `daemonWorkloadDispatcher` routes
+parsed payloads through those calls before ack. The daemon lifecycle suite
+validates those calls against the synthetic daemon client instance; live
+service-pod handler routing through that dispatcher remains target work below.
+Harbor
 settings are passed as a value
 (`HarborSettings`) containing registry/API coordinates, credentials, optional
 Docker host socket, and the repo-local Docker config directory; the client does
@@ -265,6 +279,11 @@ protobuf message hash and is opaque to the broker.
   `training.command.<mode>`, `tune.command.<mode>`, `rl.command.<mode>`, and
   `inference.request.<mode>`; the Apple host daemon subscribes only to
   `inference.command.apple-silicon`.
+- `JitML.Proto.Training.parseTrainingCommand`,
+  `JitML.Proto.Rl.parseRlCommand`, and
+  `JitML.Proto.Tune.parseTuneCommand` parse the deterministic local text
+  command envelopes that the current renderers emit. They are handler
+  scaffolding, not replacements for the target binary proto-lens wire codecs.
 - Per-handler `dedupCache :: TVar (LRUSet EventID)` provides at-least-once
   → effectively-once for the duration the entry stays cached. Cache size
   and TTL are `LiveConfig` knobs; the current runtime uses both when
@@ -273,6 +292,9 @@ protobuf message hash and is opaque to the broker.
   redelivery is fresh.
 - Acks are explicit; failure to ack within the `RetryPolicy` budget surfaces
   `AppError PulsarFailed`.
+- A failed handler dispatch does not mark the event id as seen. The local
+  consumer calls `HasPulsar.pulsarSeek` on that subscription cursor and keeps
+  the dedup cache unchanged so broker redelivery can run the handler again.
 
 The current consumer surface includes the payload-hash deduplication helper,
 `JitML.Service.Consumer.{consumerStep,runConsumerLoop,ConsumerOutcome}`,
@@ -287,7 +309,9 @@ subscribe probe in `JitML.Service.PulsarWebSocketSubprocess`, and per-domain
 acquired subscription statuses through the `LiveConfig`-sized router for a
 bounded local batch, dispatching fresh events, deduplicating duplicate payload
 hashes, skipping unroutable topics, and acking every delivery in the synthetic
-broker test. Pulsar bootstrap registers the matching
+broker test. The same lifecycle suite verifies a failed dispatch calls
+`pulsarSeek`, does not poison the dedup cache, and allows the redelivery to
+dispatch successfully. Pulsar bootstrap registers the matching
 substrate-scoped 26-topic family before daemon
 subscription, and 2026-05-20 live Linux CPU validation confirms all 26 current
 topics exist in the broker. Live Pulsar publish/consume through the routed

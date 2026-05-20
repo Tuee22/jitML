@@ -2188,46 +2188,37 @@ Every entry has a paired `--write` mode per doctrine §Paired check and write se
 
 # `jitml test all`
 
-The doctrine-mandatory canonical test command. `cabal test` is the real test runner; `jitml test all` is a thin wrapper that runs `cabal test` and then layers a report-card workload and a summary block on top. Three phases:
+The doctrine-mandatory canonical test command. `cabal test` is the real test runner; `jitml test all` is a thin wrapper that runs `cabal test` and then prints a typed report-card summary. Three phases:
 
 1. **Delegates to `cabal test`.** Runs every `test-suite` stanza above — including `jitml-haskell-style`, which is how lint and style enforcement participate in the canonical suite (not as a separate phase).
-2. **Executes a fixed report-card workload.** A deterministic battery of `bench` and `verify` runs, pinned in `cabal.project`, so the headline numbers are reproducible across hosts.
+2. **Reads the report-card knobs.** The local wrapper parses the pinned knob block in `cabal.project` and records the target stanza list that actually ran.
 3. **Prints a single tidy summary block** on stdout.
 
-Literal example (sentinel placeholders in the golden file; live runs render real values):
+Current local example:
 
 ```
-jitML POC report card — seed=42, host=<uname -m>, ghc=9.14.1, substrate=<mode>
-─────────────────────────────────────────────────────────────────
-SL  MNIST         shallow MLP    <acc>%   (target ≥ <T>%)
-SL  MNIST         deep CNN       <acc>%   (target ≥ <T>%)
-SL  Fashion-MNIST shallow MLP    <acc>%   (target ≥ <T>%)
-SL  Fashion-MNIST deep CNN       <acc>%   (target ≥ <T>%)
-SL  CIFAR-10      ResNet-20      <acc>%   (target ≥ <T>%)
-RL  CartPole-v1   PPO            <r>      (median k=5)   (target ≥ <T>)
-RL  LunarLander-v2 SAC           <r>      (median k=5)   (target ≥ <T>)
-Determinism  same-substrate      PASS     (3 substrates × 3 seeds)
-Determinism  cross-substrate     PASS     (cpu↔cuda, tolerance <ε>)
-Tuning       Sobol resume        PASS     (N-trial run resumed at trial M)
-Cluster      bring-up time       <s>s
-Cluster      route table         PASS     (12 routes published at /:<edge-port>)
-Bench        MNIST/CUDA          <k> samples/s
-Bench        LunarLander/CPU     <k> env-steps/s
-
-cabal test                       PASS     (jitml-unit, jitml-integration,
-                                           jitml-sl-canonicals, jitml-rl-canonicals,
-                                           jitml-hyperparameter, jitml-cross-backend,
-                                           jitml-daemon-lifecycle,
-                                           jitml-haskell-style, jitml-purescript-style,
-                                           jitml-e2e)
+jitML POC report card
+knobs:
+  sl_epochs: 5
+  sl_batch: 64
+  rl_steps: 100000
+  ...
+stanzas:
+  jitml-unit: PASS
+  ...
+  jitml-purescript-style: PASS
+cabal_test:
+  passed: 10
+  failed: 0
+  duration_seconds: 0
 ```
 
-`jitml test all` is a Plan/Apply command per doctrine §Plan / Apply. `--dry-run` prints the rendered plan and exits 0. The summary block is rendered by a pure function over a typed `ReportCard` value, golden-testable with sentinel placeholders.
+`jitml test all` is a Plan/Apply command per doctrine §Plan / Apply. `--dry-run` prints the rendered plan and exits 0. The summary block is rendered by a pure function over a typed `ReportCard` value and the target stanza names.
 The current non-dry-run wrapper invokes `cabal test all`, parses the
-`cabal.project` report-card knob block, and prints the placeholder-backed
-report card after Cabal succeeds.
+`cabal.project` report-card knob block, and prints the target-stanza report
+card after Cabal succeeds.
 
-The report-card surfaces a representative subset of the SL and RL canonical pairs (chosen to fit one screen). The full matrices are exercised by `cabal test jitml-sl-canonicals` and `cabal test jitml-rl-canonicals` — see [Canonical supervised learning problems](#canonical-supervised-learning-problems) and [Golden tests for RL](#golden-tests-for-rl).
+The live report-card extension will add measured SL/RL/AlphaZero/tuning/daemon/cross-substrate values once the live e2e path produces them. The full local matrices are exercised by `cabal test jitml-sl-canonicals` and `cabal test jitml-rl-canonicals` — see [Canonical supervised learning problems](#canonical-supervised-learning-problems) and [Golden tests for RL](#golden-tests-for-rl).
 
 ---
 

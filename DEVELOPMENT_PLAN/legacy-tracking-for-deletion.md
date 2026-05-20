@@ -34,9 +34,11 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-One cleanup row is currently active. The scoped `allow-newer` block in
+Six cleanup rows are currently active. The scoped `allow-newer` block in
 `cabal.project` keeps Dhall's transitive CBOR stack building under pinned
-GHC `9.14.1` while upstream package bounds catch up. Five
+GHC `9.14.1` while upstream package bounds catch up; the other pending rows
+record checked-in stand-ins that are deliberately keeping local test coverage
+green until their owning live-runtime surfaces land. Five
 doctrine-deviation rows have closed and live in the `Completed` table:
 Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
 style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
@@ -71,6 +73,11 @@ opening event itself enqueues a row here naming the originating sprint.
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
 | Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 1.1 / final handoff toolchain refresh |
+| Default runtime-source placeholder | `src/JitML/Cache/Key.hs`, `test/unit/Main.hs` | `defaultRuntimeSourcePayload` still carries the `runtime-source:phase-2-placeholder` marker for cache-key fixtures; replace fixture users with payloads from rendered runtime source once every cache path supplies a concrete `RuntimeSourcePayload` | Sprint 7.7 / cache-fixture cleanup gate |
+| Non-production kernel-family scaffolds | `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Codegen/Cuda.hs`, `src/JitML/Codegen/Metal.hs` | Several non-smoke kernel families intentionally render identity/scaffold bodies while the source payload, cache key, and local FFI smoke path are validated; replace with real oneDNN graph, cuBLAS/cuDNN, and Metal kernels when production `HasEngine` loading lands | Sprints 7.3, 7.4, 7.5 |
+| Deterministic MCTS prior stub | `src/JitML/RL/AlphaZero/Mcts.hs` | `priorFor` stands in for the real policy/value network call so MCTS and transposition-table tests are deterministic before AlphaZero uses JIT-backed network inference | Sprint 9.5 |
+| Demo placeholder shell, local stream frames, and inline DOM stubs | `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs` | The demo server falls back to a placeholder shell and deterministic local stream frames, while Playwright uses inline DOM stubs until the compiled Halogen bundle and live edge route are wired | Sprints 11.5, 11.6, 12.8 |
+| Target-stanza-only report card | `src/JitML/Test/Report.hs`, `src/JitML/App.hs` | `jitml test all` now renders the actual target stanza names after Cabal succeeds, but live SL/RL/AlphaZero/tuning/daemon/cross-substrate measurements are still absent; extend the report with measured values from the live e2e path | Sprint 12.9 |
 
 ## Pending Removal Notes
 
@@ -80,7 +87,7 @@ upstream release still name the originating sprint, but resolve at the final
 handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
-Current validation: after `cabal update` set Hackage index-state
+Current `allow-newer` validation: after `cabal update` set Hackage index-state
 `2026-05-19T21:30:51Z`, a temporary project file with the scoped
 `allow-newer` block removed still fails dependency solving under pinned GHC
 `9.14.1`, because `serialise-0.2.6.1` excludes the installed `base-4.22`.
@@ -95,6 +102,9 @@ not yet honour an in-scope doctrine section (enqueued by the owning sprint
 per standards rule L), or a temporary scaffold (placeholder kernel, smoke
 subprocess, in-memory client stub) introduced to keep CI green while the
 real implementation lands (with the retiring sprint named on the row).
+Filesystem-backed `HasMinIO` interpreters and synthetic broker/client states
+used as durable test harnesses are not pending-removal rows unless a sprint
+explicitly schedules their deletion.
 
 ## Completed
 

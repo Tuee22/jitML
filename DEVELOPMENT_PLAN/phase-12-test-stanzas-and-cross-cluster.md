@@ -38,8 +38,10 @@ parser / property / golden / lifecycle / signal coverage.
 The 2026-05-19 container validation also proves `jitml test all --dry-run`
 renders the aggregate Plan/Apply surface and non-dry-run `jitml test all`
 invokes all ten Cabal stanzas inside `jitml:local`, parses the
-`cabal.project` report-card knob block, and prints the current
-placeholder-backed report card after Cabal succeeds.
+`cabal.project` report-card knob block, and prints the current target-stanza
+report card after Cabal succeeds. `renderReportCardForTargets` renders the
+actual Cabal stanza targets that were run instead of fixed placeholder
+workload PASS rows.
 `infra/pulumi/index.ts` now contains the typed ephemeral-Kind
 orchestrator that runs `kind create cluster` → `helm dependency
 build` → `jitml bootstrap --<substrate>` → publication-check, with
@@ -95,7 +97,7 @@ work. The two style stanzas — `jitml-haskell-style` (owned by Sprint `1.4`) an
 `jitml-purescript-style` (owned by Sprint `11.3`) — are declared and have local
 bodies, but their ownership remains with their source phases. Current
 `jitml test all` delegates to Cabal for those stanzas and then renders the
-report-card summary. The ten-stanza coverage
+target-stanza report-card summary. The ten-stanza coverage
 maps every doctrine test category
 to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 → Stanza)](system-components.md#test-categories-mapping-doctrine--stanza).
@@ -527,7 +529,8 @@ health, cross-substrate parity tolerance).
 - Current `jitml test all --dry-run` renders the aggregate plan from
   `src/JitML/Plan/Plan.hs`; current non-dry-run `jitml test all` invokes
   `cabal test all` through `JitML.Sub.Stream.runStreaming` and then renders
-  a typed `ReportCard` with `ReportCardKnobs` after Cabal succeeds.
+  a typed `ReportCard` with `ReportCardKnobs` and the actual target stanza
+  list after Cabal succeeds.
 - The report-card knob block in `cabal.project` carries `sl_epochs`,
   `sl_batch`, `rl_steps`, `rl_eval_episodes`, `az_games`, `az_sims`,
   `tune_trials`, `tune_budget_per_trial`, `xcluster_kind_nodes` (see
@@ -536,7 +539,9 @@ health, cross-substrate parity tolerance).
 - `ReportCard.hs` renders the tidy summary block on stdout, exposes
   `parseReportCardKnobs`, and `jitml test all` now reads the `cabal.project`
   knob block before rendering the report card instead of relying only on the
-  in-code defaults.
+  in-code defaults. `renderReportCardForTargets` renders the expanded
+  ten-stanza list for `jitml test all` and the selected stanza for
+  `jitml test <stanza>`.
 - `jitml test <stanza>` invokes that single Cabal stanza through the same typed
   `Subprocess` boundary.
 - 2026-05-19 container validation ran `jitml test all --dry-run` and
@@ -551,25 +556,25 @@ health, cross-substrate parity tolerance).
 2. `jitml test all` invokes `cabal test all`, exits `0` on the current
    tree when run inside `jitml:local` (or on a host with
    `JITML_STYLE_TOOLS_BIN` set to prebuilt style tools), parses the
-   `cabal.project` report-card knob block, and prints the report card.
+   `cabal.project` report-card knob block, and prints the target-stanza
+   report card.
 3. `cabal test jitml-e2e` verifies report-card default rendering and that the
    `cabal.project` knob block matches the typed defaults.
 4. Live validation (target): the explicit live `jitml test all` path schedules
-   the live `jitml-e2e` body too; the rendered report card
-   answers every canonical question (SL convergence, RL reward,
-   AlphaZero arena win rate, JIT cache hit rate, daemon health,
-   cross-substrate parity tolerance) from real measurements rather than
-   placeholder summaries.
+   the live `jitml-e2e` body too; the rendered report card adds live
+   measurements (SL convergence, RL reward, AlphaZero arena win rate,
+   JIT cache hit rate, daemon health, cross-substrate parity tolerance)
+   on top of the target-stanza summary.
 
 ### Remaining Work
 
 - Drive the live `jitml-e2e` body from an explicit `jitml test all` live mode,
   threading the resulting live measurements back into the report card.
-- Populate every canonical report-card question with real data once
+- Populate every canonical report-card metric with real data once
   Sprints `8.x`, `9.x`, `10.x`, and `12.x` start emitting live results.
 - Add the live integration test that confirms the report card
-  surfaces real SL/RL/AlphaZero/tuning/cross-substrate numbers and not
-  placeholder text.
+  surfaces real SL/RL/AlphaZero/tuning/cross-substrate numbers in addition
+  to the target-stanza summary.
 
 ## Doctrine Sections Cited
 

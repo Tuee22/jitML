@@ -8,6 +8,7 @@ module JitML.Proto.Tune
   , TrialStarted (..)
   , TuneCommand (..)
   , TuneEvent (..)
+  , parseTuneCommand
   , renderTuneCommand
   , renderTuneEvent
   , tuneCommandTopic
@@ -15,11 +16,13 @@ module JitML.Proto.Tune
   )
 where
 
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
+import Text.Read (readMaybe)
 
-import JitML.Substrate (Substrate, renderSubstrate)
+import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 data StartSweep = StartSweep
   { ssExperimentHash :: Text
@@ -105,6 +108,31 @@ renderTuneCommand command =
         , "experiment-hash: " <> ssStopExperimentHash e
         ]
 
+parseTuneCommand :: Text -> Maybe TuneCommand
+parseTuneCommand payload =
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+   in case value "kind" of
+        Just "StartSweep" ->
+          TuneStart
+            <$> ( StartSweep
+                    <$> value "experiment-hash"
+                    <*> value "dhall-object-key"
+                    <*> (value "substrate" >>= parseSubstrate)
+                    <*> (value "sweep-seed" >>= readText)
+                    <*> (value "trial-budget" >>= readText)
+                    <*> (value "budget-per-trial" >>= readText)
+                    <*> value "sampler"
+                    <*> value "scheduler"
+                    <*> value "pruner"
+                )
+        Just "StopSweep" ->
+          TuneStop
+            <$> ( StopSweep
+                    <$> value "experiment-hash"
+                )
+        _ -> Nothing
+
 renderTuneEvent :: TuneEvent -> Text
 renderTuneEvent envelope =
   case envelope of
@@ -133,3 +161,14 @@ renderTuneEvent envelope =
         , "trials-pruned: " <> Text.pack (show (sdTrialsPruned d))
         , "best-objective: " <> Text.pack (show (sdBestObjective d))
         ]
+
+parseField :: Text -> Maybe (Text, Text)
+parseField line =
+  let (key, rest) = Text.breakOn ":" line
+   in if Text.null rest
+        then Nothing
+        else Just (Text.strip key, Text.strip (Text.drop 1 rest))
+
+readText :: (Read a) => Text -> Maybe a
+readText =
+  readMaybe . Text.unpack

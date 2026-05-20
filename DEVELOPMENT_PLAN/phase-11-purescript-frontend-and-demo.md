@@ -38,9 +38,11 @@ typed request/response payload shape for its endpoint. `web/test/Main.purs`
 smokes every panel name + the generated contracts surface.
 `playwright/jitml-demo.spec.ts` covers the seven-test canonical panel
 matrix. `JitML.Web.Bundle.panelSurfaces` lists all six panel names, and
-`JitML.Web.Server.demoHttpRoutes` serves deterministic local responses for
-the generated `/api/ws`, `/api/ws/training`, and `/api/ws/tune` stream
-contracts.
+`JitML.Web.Bundle.demoRoutes` now names the full local demo HTTP surface
+(`/`, `/api`, `/api/inference`, `/api/images`, `/api/connect4/move`,
+`/api/ws`, `/api/ws/training`, `/api/ws/tune`). `JitML.Web.Server.demoHttpRoutes`
+serves the same route family, including deterministic local responses for
+the generated stream contracts.
 **Unmet today**: Sprint `11.3` still owes the default `purs format`
 round-trip and `purescript-spec` smoke suite; the `spago test` and
 `purs-tidy check` subprocess shapes are present as explicit typed values.
@@ -217,7 +219,9 @@ remains target runtime validation.
 - `src/JitML/Web/Bundle.hs` declares the local bundle asset manifest, panel
   surfaces for MNIST inference, image upload, Connect 4, RL trajectory,
   training progress, and hyperparameter sweep rendering, and the demo route
-  manifest for `/`, `/api`, and `/api/ws`.
+  manifest for the full current local HTTP surface:
+  `/`, `/api`, `/api/inference`, `/api/images`, `/api/connect4/move`,
+  `/api/ws`, `/api/ws/training`, and `/api/ws/tune`.
 - `web/src/Generated/Contracts.purs` contains the generated local PureScript
   contract output.
 - `test/e2e/Main.hs` checks the browser contract endpoint count.
@@ -235,7 +239,8 @@ remains target runtime validation.
 ### Validation
 
 1. `cabal test jitml-e2e` validates the browser contract endpoint
-   count and the demo HTTP route table for generated stream endpoints.
+   count, the typed demo route manifest, and the demo HTTP route table
+   for generated stream endpoints.
 2. `cabal test jitml-purescript-style` validates the generated contract
    file exists.
 3. `jitml-unit` verifies the bundle, panel, and demo-route metadata.
@@ -279,8 +284,9 @@ HTTP server, and chart deployment surface.
   from `src/JitML/Web/Bundle.hs` and then starts `WebServer.serveDemo`.
 - `src/JitML/Web/Server.hs` serves the frontend/API route
   surface.
-- `src/JitML/Web/Bundle.hs` declares `demoRoutes` for `/`, `/api`, and
-  `/api/ws`.
+- `src/JitML/Web/Bundle.hs` declares `demoRoutes` for the full current
+  local HTTP surface: `/`, `/api`, `/api/inference`, `/api/images`,
+  `/api/connect4/move`, `/api/ws`, `/api/ws/training`, and `/api/ws/tune`.
 - The `Deployment/jitml-demo` template is populated with the demo image,
   `jitml-demo` command, and explicit `--host 0.0.0.0 --port 80` arguments so
   Envoy can reach the pod IP.
@@ -296,7 +302,8 @@ HTTP server, and chart deployment surface.
 3. `jitml-e2e` verifies the demo route manifest covers `/`, `/api`, and
    `/api/ws`, that the deployment starts `jitml-demo` with explicit host/port
    listener arguments, and that a
-   one-shot demo HTTP server serves the API index.
+   one-shot demo HTTP server serves the API index. The same stanza verifies
+   the typed demo route manifest covers the current local API surface.
 4. Live validation (target): `jitml-demo` serves the compiled Halogen
    bundle from `web/dist/`, the live `/api/ws` proxy is connected to the
    daemon's metric/event Pulsar topics, and each panel renders against

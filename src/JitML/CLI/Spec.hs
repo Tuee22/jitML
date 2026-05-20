@@ -602,7 +602,7 @@ allTestCommand =
   leaf
     "all"
     "Run all test stanzas."
-    "Runs all Cabal test stanzas and report-card workloads through the test orchestrator."
+    "Runs all Cabal test stanzas and renders the target-stanza report card."
     [dryRunOption, planFileOption]
     [Example "jitml test all --dry-run" "Print the aggregate test plan."]
 

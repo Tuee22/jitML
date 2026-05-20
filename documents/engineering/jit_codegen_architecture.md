@@ -223,11 +223,17 @@ discipline; oneDNN: micro-kernel, reduction block, thread count, fastmath off;
 CUDA: matmul tile, block dim, deterministic cuDNN algorithm id, reduction
 strategy, TF32 off, fast-math off). `selectDeterministic` picks the deterministic
 default for each axis and `tuningChoiceForResult` emits the cache-key payload.
+`benchmarkPlan` enumerates the deterministic-only candidate `TuningResult`s for
+each knob space in stable order, and `renderBenchmarkPlan` prints the
+corresponding cache-key `TuningChoice` payloads. The current local test asserts
+the CUDA plan has 72 deterministic candidates and includes the deterministic
+default.
 
 Target auto-tuning runs at JIT time on a cache miss, benchmarks only
 deterministic choices, and records the selected `TuningChoice` per `KernelSpec`.
 The chosen `TuningChoice` is a cache-key input; a knob change invalidates the
-cache key.
+cache key. The live hardware work that remains is the timing/ranking loop and
+the persistence of the selected result, not the candidate enumeration.
 
 The cuDNN algorithm-id selection is restricted to the deterministic-only set.
 The `--use_fast_math=false` invariant is preserved.

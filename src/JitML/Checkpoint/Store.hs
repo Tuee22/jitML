@@ -23,10 +23,12 @@ module JitML.Checkpoint.Store
   , readObject
   , walkLiveSet
   , writeCheckpointSnapshot
+  , writeCheckpointSnapshotWithMinIO
   , writeObjectIfAbsent
   )
 where
 
+import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (nub, sortOn)
 import Data.Maybe (fromMaybe)
@@ -61,11 +63,12 @@ import JitML.Checkpoint.Format
   )
 import JitML.Service.Capabilities
   ( BucketName (..)
+  , ETag
   , HasMinIO (..)
   , ObjectKey (..)
   , ObjectRef (..)
   )
-import JitML.Service.Retry (ServiceError)
+import JitML.Service.Retry (ServiceError (..))
 
 data ObjectWriteResult
   = ObjectCreated Text
@@ -110,6 +113,83 @@ writeCheckpointSnapshot root manifest tensorPayloads expectedPointerETag = do
       , storedManifestObjectKey = manifestObjectKey
       , storedPointerResult = pointerResult
       }
+
+-- | Checkpoint snapshot writer over the production `HasMinIO` capability
+-- boundary. Split blobs and manifests are byte-faithful write-once objects;
+-- the latest pointer advances through `casPointer`.
+writeCheckpointSnapshotWithMinIO
+  :: (HasMinIO m)
+  => CheckpointManifest
+  -> [(Text, LazyByteString.ByteString)]
+  -> Maybe ETag
+  -> m (Either ServiceError StoredCheckpoint)
+writeCheckpointSnapshotWithMinIO manifest tensorPayloads expectedPointerETag = do
+  blobWrites <-
+    traverse
+      ( \(objectKey, payload) ->
+          putObjectBytesIfAbsentOrSame
+            (checkpointObjectRef objectKey)
+            (LazyByteString.toStrict payload)
+      )
+      tensorPayloads
+  case sequence blobWrites of
+    Left err ->
+      pure (Left err)
+    Right _ -> do
+      let manifestSha = manifestContentSha manifest
+          manifestObjectKey = manifestKey (checkpointExperiment manifest) manifestSha
+          pointerKey = latestPointerKey (checkpointExperiment manifest)
+      manifestWrite <-
+        putObjectBytesIfAbsentOrSame
+          (checkpointObjectRef manifestObjectKey)
+          (LazyByteString.toStrict (encodeManifestCbor manifest))
+      case manifestWrite of
+        Left err ->
+          pure (Left err)
+        Right () -> do
+          pointerWrite <- casPointer (checkpointObjectRef pointerKey) expectedPointerETag manifestSha
+          case pointerWrite of
+            Right _ ->
+              pure $
+                Right
+                  StoredCheckpoint
+                    { storedManifestSha = manifestSha
+                    , storedManifestObjectKey = manifestObjectKey
+                    , storedPointerResult = PointerWritten manifestSha
+                    }
+            Left (SEConflict _) ->
+              pure $
+                Right
+                  StoredCheckpoint
+                    { storedManifestSha = manifestSha
+                    , storedManifestObjectKey = manifestObjectKey
+                    , storedPointerResult = PointerConflict pointerKey
+                    }
+            Left err ->
+              pure (Left err)
+
+putObjectBytesIfAbsentOrSame
+  :: (HasMinIO m)
+  => ObjectRef
+  -> StrictByteString.ByteString
+  -> m (Either ServiceError ())
+putObjectBytesIfAbsentOrSame ref payload = do
+  write <- putBlobBytesIfAbsent ref payload
+  case write of
+    Right _ ->
+      pure (Right ())
+    Left (SEConflict _) -> do
+      existing <- minioReadBytes ref
+      case existing of
+        Right bytes
+          | bytes == payload ->
+              pure (Right ())
+          | otherwise ->
+              pure (Left (SEConflict "object exists with different bytes"))
+        Left err ->
+          pure (Left err)
+    Left err ->
+      pure (Left err)
 
 readCheckpointManifest :: FilePath -> Text -> Text -> IO (Either Text CheckpointManifest)
 readCheckpointManifest root experimentHash manifestSha = do

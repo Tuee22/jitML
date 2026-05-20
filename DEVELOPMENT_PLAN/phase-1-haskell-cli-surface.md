@@ -290,10 +290,11 @@ host GHC through `ghcup`.
 
 ### Deliverables
 
-- `fourmolu.yaml` at repo root pins the twelve doctrine-mandated settings
+- `fourmolu.yaml` at repo root pins the thirteen doctrine-mandated settings
   (`indentation`, `column-limit`, `function-arrows`, `comma-style`,
   `import-export-style`, `indent-wheres`, `record-brace-space`,
-  `newlines-between-decls`, `haddock-style`, `let-style`, `in-style`, `unicode`).
+  `newlines-between-decls`, `haddock-style`, `let-style`, `in-style`, `unicode`,
+  `respectful`).
 - `.hlint.yaml` declares project hints for `print`, `putStrLn`, `hPutStrLn
   stdout`, `exitFailure`, `callProcess`, `readCreateProcess`, and
   `System.Process.Typed.proc`. The in-repo scan also rejects direct terminal
@@ -600,7 +601,7 @@ None.
 - `documents/engineering/cli_command_surface.md` — populate the project-specific
   command matrix; link generated tables (key `cli-commands.help-blocks`) to the
   `GeneratedSectionRule` registry.
-- `documents/engineering/code_quality.md` — name the twelve `fourmolu` settings,
+- `documents/engineering/code_quality.md` — name the thirteen `fourmolu` settings,
   the project-specific hlint rules, the `forbiddenPathRegistry`, the
   container-owned style-tool bootstrap, and the chart-shape lint.
 - `documents/engineering/unit_testing_policy.md` — record that

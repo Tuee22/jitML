@@ -1,14 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Engines.Tuning
-  ( KnobAxis (..)
+  ( BenchmarkPlan (..)
+  , KnobAxis (..)
   , KnobSpace (..)
   , TuningResult (..)
   , appleSiliconKnobs
+  , benchmarkPlan
   , cuDnnDeterministicAlgorithms
   , knobSpace
   , linuxCpuKnobs
   , linuxCudaKnobs
+  , renderBenchmarkPlan
   , renderKnobAxis
   , renderKnobSpace
   , renderTuningResult
@@ -39,6 +42,12 @@ data KnobSpace = KnobSpace
 data TuningResult = TuningResult
   { tuningSubstrate :: Substrate
   , tuningSelections :: [(Text, Text)]
+  }
+  deriving stock (Eq, Show)
+
+data BenchmarkPlan = BenchmarkPlan
+  { benchmarkPlanSubstrate :: Substrate
+  , benchmarkPlanResults :: [TuningResult]
   }
   deriving stock (Eq, Show)
 
@@ -144,6 +153,12 @@ tuningChoiceForResult result =
       | (name, value) <- tuningSelections result
       ]
 
+benchmarkPlan :: KnobSpace -> BenchmarkPlan
+benchmarkPlan space =
+  BenchmarkPlan
+    (knobSpaceSubstrate space)
+    (fmap (TuningResult (knobSpaceSubstrate space)) (selectionGrid (knobSpaceAxes space)))
+
 renderKnobAxis :: KnobAxis -> Text
 renderKnobAxis axis =
   knobName axis
@@ -166,6 +181,22 @@ renderTuningResult result =
       : [ "  - " <> name <> " = " <> value
         | (name, value) <- tuningSelections result
         ]
+
+renderBenchmarkPlan :: BenchmarkPlan -> Text
+renderBenchmarkPlan plan =
+  Text.unlines $
+    ("benchmark-plan[" <> Text.pack (showSubstrate (benchmarkPlanSubstrate plan)) <> "]:")
+      : [ "  - " <> unTuningChoice (tuningChoiceForResult result)
+        | result <- benchmarkPlanResults plan
+        ]
+
+selectionGrid :: [KnobAxis] -> [[(Text, Text)]]
+selectionGrid [] = [[]]
+selectionGrid (axis : rest) =
+  [ (knobName axis, choice) : suffix
+  | choice <- knobChoices axis
+  , suffix <- selectionGrid rest
+  ]
 
 showSubstrate :: Substrate -> String
 showSubstrate AppleSilicon = "apple-silicon"

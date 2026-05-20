@@ -60,7 +60,12 @@ demoRoutes :: [DemoRoute]
 demoRoutes =
   [ DemoRoute "/" "static-shell" "web/src/Main.purs"
   , DemoRoute "/api" "contract-index" "src/JitML/Web/Contracts.hs"
-  , DemoRoute "/api/ws" "websocket-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/inference" "inference-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/images" "image-upload-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/connect4/move" "connect4-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/ws" "metrics-stream-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/ws/training" "training-stream-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/ws/tune" "tune-stream-contract" "src/JitML/Web/Contracts.hs"
   ]
 
 renderBundleManifest :: Text

@@ -54,10 +54,12 @@ checkpoint storage, browser flow, cross-substrate parity) which the worktree
 does not yet exercise. The active phases have all materially advanced
 their typed scaffolds: the family-aware JIT codegen surface
 (`JitML.Codegen.KernelFamily`), the per-substrate knob spaces
-(`JitML.Engines.Tuning`), the 14 RL algorithm modules under
-`JitML.RL.Algorithms.*`, the AlphaZero MCTS / SelfPlay / Arena substack,
-the four-game `PerfectInformation` typeclass, the typed proto envelopes
-under `JitML.Proto.{Training,Rl,Tune}`, the typed daemon capability
+and deterministic benchmark candidate plans (`JitML.Engines.Tuning`), the
+14 RL algorithm modules under `JitML.RL.Algorithms.*`, the AlphaZero MCTS /
+SelfPlay / Arena substack, the four-game `PerfectInformation` typeclass, the
+typed proto envelopes
+under `JitML.Proto.{Training,Rl,Tune}` with deterministic text command
+parsers for the training, RL, and tuning command envelopes, the typed daemon capability
 surface with full `HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl`
 methods + per-domain `HandlerRouter` + filesystem-backed `HasMinIO`
 instance (`JitML.Service.FilesystemMinIO`) + subprocess-backed
@@ -166,6 +168,9 @@ serving the compiled Halogen `web/dist/Main/index.js` when
 present, the `loadInferenceCheckpointWith` hook plus
 `JitML.Engines.Local.runLinuxCpuCheckpointInference` validating the local
 latest-pointer → manifest → generated-kernel FFI path, the
+`JitML.Checkpoint.Store.writeCheckpointSnapshotWithMinIO` writer validating
+checkpoint blob/manifest writes plus latest-pointer CAS through the
+filesystem-backed `HasMinIO` instance, the
 `JitML.Test.Report.parseReportCardKnobs` cabal.project knob parser consumed by
 `jitml test all`, and the per-problem SL convergence goldens under
 `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
@@ -335,7 +340,8 @@ Phases `5` (jitml service daemon), `7` (JIT codegen and per-substrate execution)
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
 runtime behaviour that the worktree does not exercise. The unmet runtime
-obligations are: live validation and effectful workload use of the
+obligations are: live invocation of the daemon workload dispatcher from the
+running service pod, real training/inference handler integration with the
 daemon-acquired MinIO/Harbor/kubectl clients, Pulsar at-least-once redelivery,
 and event flow from the running service (Exit
 2, 7); real
@@ -373,7 +379,9 @@ the full four-class capability surface
 `HasPulsar.{pulsarPublish,pulsarAcknowledge,pulsarSubscribe,pulsarConsume,pulsarSeek}`,
 `HasHarbor.{harborImageExists,harborPromoteImage,harborPushImage,harborPullImage,harborListImages}`,
 `HasKubectl.{kubectlApply,kubectlStatus,kubectlGet,kubectlDelete}`) plus `ETag` / `SubscriptionId`
-newtypes; the numerical-core Haskell catalog and Dhall mirror; per-substrate
+newtypes and `JitML.Service.Workload` parsed byte-faithful mutating non-Pulsar
+workload effects;
+the numerical-core Haskell catalog and Dhall mirror; per-substrate
 JIT source renderers under `src/JitML/Codegen/` with the
 `KernelFamily`-aware variants and the per-substrate `KnobSpace` from
 `JitML.Engines.Tuning`; the Linux CPU identity-kernel compile/load/run
@@ -388,14 +396,16 @@ typeclass admitting Connect 4 / Othello / Hex / Gomoku; the tuning
 catalog, trial-key surface, and the canonical
 `experiments/mnist-tune.dhall` worked example; the typed proto
 envelopes under `proto/jitml/{training,rl,tune}.proto` mirrored by
-`JitML.Proto.{Training,Rl,Tune}`; the extended checkpoint
+`JitML.Proto.{Training,Rl,Tune}` with current text render/parse coverage for
+training, RL, and tuning command envelopes; the extended checkpoint
 manifest (optimizer state, RNG streams, monotonic step, metrics,
 parent lineage), the typed `AdvancePredicate` ADT, the
 `deriveExperimentHash` function, the `RetentionPolicy` + `walkLiveSet`
 + `buildGcPlan` GC reconciler surface, and the
-`inferWeightsOnlyFromLatestCheckpoint` inference path; the PureScript
-scaffold with six panel payload modules under `web/src/Panels/` and the
-generated contracts; the `jitml-demo` HTTP server; the Playwright
+`writeCheckpointSnapshotWithMinIO` / `inferWeightsOnlyFromLatestCheckpoint`
+checkpoint write/read paths; the PureScript
+scaffold with six panel payload modules under `web/src/Panels/`, the
+generated contracts, and the full typed local demo route manifest; the `jitml-demo` HTTP server; the Playwright
 canonical panel matrix at `playwright/jitml-demo.spec.ts`; the typed
 ephemeral-Kind Pulumi orchestrator at `infra/pulumi/index.ts`; and the
 ten Cabal test-suite stanzas with deterministic bodies that
@@ -511,7 +521,7 @@ This plan is complete only when all of the following are true:
     in [system-components.md → CLI Doctrine
     Components](system-components.md#cli-doctrine-components) and instantiated by
     Sprint `1.9`.
-15. `fourmolu.yaml` at repo root pins the twelve doctrine-mandated settings;
+15. `fourmolu.yaml` at repo root pins the thirteen doctrine-mandated settings;
     `docker/Dockerfile` installs the separate style-tools GHC and pinned
     `fourmolu` / `hlint` binaries for `jitml:local`; the image build runs the
     Haskell style/code-quality gate; `jitml-haskell-style` uses the prebuilt tools

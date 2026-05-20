@@ -39,6 +39,10 @@ emit substrate-specific source for `identity`, `reduction`, `dense`,
 `conv2d`, `conv3d`, `batchnorm`, `layernorm`, `mha`, and `embedding`
 families, embedding the kernel family, deterministic flags, and
 deterministic-only cuDNN algorithm pin into the generated source payload.
+Sprint `7.6` now also has a deterministic benchmark-plan surface:
+`JitML.Engines.Tuning.benchmarkPlan` enumerates the per-substrate
+deterministic-only candidate `TuningResult`s that a future on-hardware
+micro-benchmark loop will rank on first cache miss.
 **Unmet today**: Sprint `7.3` owes the live oneDNN graph wiring through
 `HasEngine` production loading (needs `libdnnl` on the build host plus
 the runtime graph driver beyond the family source scaffold); Sprint `7.4`
@@ -217,7 +221,8 @@ identity kernel; grow real oneDNN graph wrappers and production
 ## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver 🔄
 
 **Status**: Active
-**Implementation**: `src/JitML/Engines/Engine.hs`
+**Implementation**: `src/JitML/Engines/Engine.hs`,
+`src/JitML/Engines/Tuning.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
@@ -369,6 +374,9 @@ per `### Remaining Work` below.
   reduction-strategy, no-TF32, no-fast-math). `selectDeterministic`
   picks the deterministic default per axis; `tuningChoiceForResult`
   emits the cache-key payload string.
+- `benchmarkPlan` enumerates the deterministic-only candidate
+  `TuningResult`s for a `KnobSpace`, and `renderBenchmarkPlan` renders their
+  cache-key `TuningChoice` payloads in stable order.
 - Benchmark-driven selection on real hardware and the same-host
   equality assertion against repeated runs remain open.
 
@@ -377,6 +385,9 @@ per `### Remaining Work` below.
 1. `jitml-unit` verifies the rendered runtime-source payload participates
    in the cache key; `jitml-cross-backend` revalidated the local Linux CPU
    three-run bit-equality fixture on 2026-05-19 in `jitml:local`.
+   `jitml-unit` also verifies the CUDA benchmark plan enumerates 72
+   deterministic candidates and includes the deterministic default
+   `TuningChoice`.
 2. Live validation (target): per-substrate knob spaces drive
    benchmark-based selection on real hardware (matmul tile sizes,
    reduction strategies, cuDNN deterministic algorithm IDs) and the
@@ -387,8 +398,10 @@ per `### Remaining Work` below.
 - Implement a benchmark driver that picks the chosen knob set on first
   cache miss and records it for cache-key derivation. The
   deterministic default selection (`Engines.Tuning.selectDeterministic`)
-  is in place; the missing piece is the on-hardware micro-benchmark
-  loop that ranks the deterministic-only choices.
+  and deterministic candidate enumeration (`Engines.Tuning.benchmarkPlan`)
+  are in place; the missing piece is the on-hardware micro-benchmark loop
+  that ranks those deterministic-only choices and persists the selected
+  result for the cache key.
 - The same-host kernel-output equality test now lives in
   `jitml-cross-backend` as `linux-cpu kernel output is bit-equal
   across repeated runs (Sprint 7.6)`: three successive invocations of

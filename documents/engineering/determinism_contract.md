@@ -190,7 +190,10 @@ The tolerance methodology:
   message ids). Determinism applies to the durable message **body** only.
 - **Wall-clock benchmark numbers are not reproducible.** The bit-determinism
   contract is on visit counts, model parameters, training transcripts, and
-  inference outputs — not throughput.
+  inference outputs — not throughput. `JitML.Engines.Tuning.benchmarkPlan`
+  makes the candidate knob list deterministic; the eventual hardware timing
+  loop may rank those candidates differently across machines, and that selected
+  `TuningChoice` becomes an explicit cache-key input.
 
 ## Cross-References
 

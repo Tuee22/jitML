@@ -59,9 +59,12 @@ jitml train <experiment-dhall>
 
 Current `jitml train` supports the Plan/Apply dry-run surface and, on normal
 execution, prints the selected experiment path plus a deterministic local
-canonical-problem summary. Target runtime work resolves and SHA-hashes the
-experiment Dhall, reconciles prerequisites, materializes the dataset, publishes
-`StartTraining` on `training.command.<mode>`, and consumes
+canonical-problem summary. `src/JitML/Proto/Training.hs` defines the typed
+`TrainingCommand` envelopes and deterministic text render/parse round-trips
+for `StartTraining` and `StopTraining`; binary proto-lens serialization remains
+target work. Target runtime work resolves and SHA-hashes the experiment Dhall,
+reconciles prerequisites, materializes the dataset, publishes `StartTraining`
+on `training.command.<mode>`, and consumes
 `training.event.<mode>` through the daemon.
 
 ## RL Framework Primitives
@@ -146,8 +149,10 @@ jitml rl train <rl-experiment-dhall>
 ```
 
 Current normal execution prints the selected RL experiment and local algorithm
-count. Target runtime work publishes `rl.command.<mode>` for the daemon's
-at-least-once `RlHandler`.
+count. `src/JitML/Proto/Rl.hs` defines the typed `RlCommand` envelopes and
+deterministic text render/parse round-trips for `StartRLRun` and `StopRLRun`;
+binary proto-lens serialization remains target work. Target runtime work
+publishes `rl.command.<mode>` for the daemon's at-least-once `RlHandler`.
 
 ## RL Algorithm Catalog
 
@@ -245,6 +250,9 @@ daemon-backed trial execution remains target work.
 `jitml-hyperparameter` consumes the `tune_trials` and
 `tune_budget_per_trial` report-card knobs from `cabal.project` for the local
 TPE trial-budget assertion.
+`src/JitML/Proto/Tune.hs` defines the typed `TuneCommand` envelopes and
+deterministic text render/parse round-trips for `StartSweep` and `StopSweep`;
+binary proto-lens serialization remains target work.
 
 `TuneSweepLifecycle` GADT (`Sampled → Scheduled → Running → Pruned →
 Reported → Finished`) is the typed lifecycle.
@@ -314,7 +322,8 @@ jitml tune <tune-dhall>
 Current normal execution decodes the tuning Dhall, renders the selected
 sampler/scheduler/pruner axes, and prints deterministic local trial values.
 Target runtime work publishes `tune.command.<mode>` for the daemon's
-at-least-once `TuneHandler`.
+at-least-once `TuneHandler`; the current command parser only covers the local
+text envelope emitted by `renderTuneCommand`.
 
 ### Worked Example
 

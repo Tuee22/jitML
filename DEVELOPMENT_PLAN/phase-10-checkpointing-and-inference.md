@@ -46,9 +46,12 @@ reconciler surface (`RetentionPolicy`, `walkLiveSet`,
 `LastN k` retention with always-live best/trial pointer targets,
 `gc_reaped` event materialisation, local filesystem manifest discovery
 through `listCheckpointManifests`, and a second-invocation no-op
-detection. **Unmet today**: Sprints `10.2`–`10.4` still owe live
-MinIO `If-None-Match` / `If-Match` effects through `HasMinIO`, the
-live `gc_reaped` Pulsar publish, production weight-blob loading into
+detection. `writeCheckpointSnapshotWithMinIO` now writes checkpoint blobs and
+manifests through `HasMinIO.putBlobBytesIfAbsent` and advances the latest
+pointer through `HasMinIO.casPointer`, with filesystem-backed integration
+coverage. **Unmet today**: Sprints `10.2`–`10.4` still owe checkpoint-store
+validation against the live HTTP MinIO interpreter after a real training step,
+the live `gc_reaped` Pulsar publish, production weight-blob loading into
 substrate-bound `KernelHandle`s, and the per-substrate ULP tolerance measured
 from real cross-substrate runs. The local Linux CPU inference runner hook
 (`loadInferenceCheckpointWith` + `JitML.Engines.Local.runLinuxCpuCheckpointInference`)
@@ -69,7 +72,9 @@ latest pointer CAS, inference from the latest checkpoint, retention planning,
 local manifest discovery for `jitml internal gc`, `HasMinIO`-backed GC
 execution, `HasMinIO`-backed inference checkpoint loading, and
 `loadInferenceCheckpointWith`, which lets a caller run the loaded weight-only
-manifest through a concrete engine. The filesystem-backed instance now
+manifest through a concrete engine. The same module also provides
+`writeCheckpointSnapshotWithMinIO` for the checkpoint write path over the
+`HasMinIO` conditional-write/CAS boundary. The filesystem-backed instance now
 validates both the deterministic fallback and the local Linux CPU
 generated-kernel FFI runner. Live HTTP MinIO effects, live `gc_reaped` Pulsar
 publishing, production weight-blob loading, and real demo/frontend checkpoint
@@ -174,6 +179,10 @@ remain target runtime validation.
   bucket-prefixed split-key renderers to the live `HasMinIO` boundary by
   carrying bucket `jitml-checkpoints` separately and stripping that prefix from
   the object key.
+- `JitML.Checkpoint.Store.writeCheckpointSnapshotWithMinIO` writes tensor
+  blobs and manifest CBOR through `HasMinIO.putBlobBytesIfAbsent` and advances
+  the latest pointer through `HasMinIO.casPointer`; existing identical objects
+  are treated idempotently before the pointer CAS decision.
 - The typed `AdvancePredicate` ADT (`AdvanceLatest`,
   `AdvanceBestMaximised "<metric>"`, `AdvanceBestMinimised
   "<metric>"`) plus `applyAdvancePredicate` evaluate the typed CAS
@@ -189,7 +198,9 @@ remain target runtime validation.
 3. `jitml-unit` verifies successful and conflicting pointer-CAS decisions.
 4. `jitml-unit` verifies the checkpoint store writes objects/manifests
    and reads the latest inference path.
-5. Live validation (target): `putBlobIfAbsent` against MinIO returns the
+5. `jitml-integration` verifies the `HasMinIO` snapshot writer against the
+   filesystem-backed MinIO instance, including latest-pointer CAS conflict.
+6. Live validation (target): `putBlobIfAbsent` against MinIO returns the
    blob's ETag on first write and `SEConflict` on subsequent identical
    PUTs through `If-None-Match: *`; `applyPointerWrite` against MinIO
    honours `If-Match: <etag>` and surfaces `412` as `SEConflict`; the
@@ -197,10 +208,11 @@ remain target runtime validation.
 
 ### Remaining Work
 
-- Wire the checkpoint-store put-blob-if-absent and pointer-CAS paths through
+- Validate `writeCheckpointSnapshotWithMinIO` through
   `JitML.Service.MinIOSubprocess`, the live HTTP-backed `HasMinIO`
-  capability from Sprint `4.3` / `5.4`. The `HasMinIO` object references now
-  use bucket `jitml-checkpoints` with keys relative to that bucket.
+  capability from Sprint `4.3` / `5.4`, after a real training step. The
+  `HasMinIO` object references now use bucket `jitml-checkpoints` with keys
+  relative to that bucket.
 - Add integration coverage in `jitml-integration` (Sprint `12.2`) that
   exercises the CAS retry against a live MinIO instance.
 
@@ -342,10 +354,10 @@ weight-blob-to-kernel loading remain target runtime work.
 
 - `documents/engineering/checkpoint_format.md` — current local
   `CheckpointManifest`, manifest CBOR codec/content hash, binary `.jmw1`
-  encoder, manifest pointer, local checkpoint object store, latest-pointer
-  inference helper, and inference summary helper; target split-blob layout,
-  live MinIO write protocols, typed advance predicates, retention reconciler,
-  and real inference-only read path.
+  encoder, manifest pointer, local checkpoint object store, `HasMinIO`
+  snapshot writer, latest-pointer inference helper, and inference summary
+  helper; target split-blob layout, live MinIO write protocols, typed advance
+  predicates, retention reconciler, and real inference-only read path.
 - `documents/engineering/determinism_contract.md` — same-substrate bit-
   equality contract, cross-substrate tolerance methodology, GC determinism.
 - `documents/engineering/daemon_architecture.md` — `InferenceHandler`

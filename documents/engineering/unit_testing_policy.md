@@ -69,13 +69,16 @@ test systems. `jitml-purescript-style` is a **project-specific Lint**
 stanza under the same allowance.
 
 `jitml test all` (Sprint `12.9`) fans out to every stanza above by invoking
-`cabal test all` through the typed `Subprocess` boundary, then aggregates the
-report card after Cabal succeeds. Because `jitml-haskell-style` uses
+`cabal test all` through the typed `Subprocess` boundary, then renders a
+target-stanza report card after Cabal succeeds. `jitml test <stanza>` renders
+the same report shape for the selected stanza only. Because
+`jitml-haskell-style` uses
 container-provided style tools, the full all-stanza gate runs inside
 `jitml:local` unless `JITML_STYLE_TOOLS_BIN` points at prebuilt host tools.
 The 2026-05-19 `jitml:local` validation passed non-dry-run `jitml test all`
 across all ten stanzas and printed the report card with the `cabal.project`
-knob values.
+knob values; the current local renderer names the target stanzas rather than
+fixed placeholder workload PASS rows.
 `jitml test <stanza>` invokes one Cabal stanza through the same boundary.
 
 ## Project-Specific Stanza Notes

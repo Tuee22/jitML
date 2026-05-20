@@ -16,7 +16,7 @@
 This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
 
 - **Lint, Format, and Code-Quality Stack** — `fourmolu` + `hlint` +
-  `cabal format`; pinned `fourmolu.yaml` at repo root with the twelve
+  `cabal format`; pinned `fourmolu.yaml` at repo root with the thirteen
   doctrine-mandated settings; explicit style-tool bootstrap before lint
   execution; `cabal format` temp-file round-trip byte-equality compare.
 - **Forbidden Surfaces** — the `forbiddenPathRegistry` refusing

@@ -11,6 +11,7 @@ module JitML.Service.Runtime
   , consumerLoopExit
   , daemonHandlerRouter
   , daemonTensorBoardDispatcher
+  , daemonWorkloadDispatcher
   , daemonHttpRoutes
   , daemonRuntimeForBootConfig
   , defaultDaemonRuntime
@@ -101,6 +102,7 @@ import JitML.Service.Signal
   , signalPlan
   , withDaemonSignalHandlers
   )
+import JitML.Service.Workload qualified as Workload
 import JitML.Substrate (Substrate (..))
 
 data DaemonRuntime = DaemonRuntime
@@ -481,6 +483,25 @@ daemonTensorBoardDispatcher domain _eventId payload = do
 
 sideEffectToUnit :: Maybe (Either ServiceError ETag) -> Either ServiceError ()
 sideEffectToUnit result =
+  case result of
+    Nothing -> Right ()
+    Just (Right _) -> Right ()
+    Just (Left err) -> Left err
+
+daemonWorkloadDispatcher
+  :: (HasHarbor m, HasKubectl m, HasMinIO m)
+  => EventDomain
+  -> EventId
+  -> Text
+  -> m (Either ServiceError ())
+daemonWorkloadDispatcher _domain _eventId payload = do
+  effectResult <- Workload.dispatchWorkloadPayload payload
+  pure (workloadEffectToUnit effectResult)
+
+workloadEffectToUnit
+  :: Maybe (Either ServiceError Workload.WorkloadEffectResult)
+  -> Either ServiceError ()
+workloadEffectToUnit result =
   case result of
     Nothing -> Right ()
     Just (Right _) -> Right ()

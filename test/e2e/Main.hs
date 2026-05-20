@@ -72,7 +72,16 @@ main =
       , testCase "browser contracts expose interactive surfaces" $
           length apiEndpoints @?= 7
       , testCase "demo route manifest covers edge listener paths" $
-          fmap demoRoutePath demoRoutes @?= ["/", "/api", "/api/ws"]
+          fmap demoRoutePath demoRoutes
+            @?= [ "/"
+                , "/api"
+                , "/api/inference"
+                , "/api/images"
+                , "/api/connect4/move"
+                , "/api/ws"
+                , "/api/ws/training"
+                , "/api/ws/tune"
+                ]
       , testCase "demo HTTP routes cover generated stream endpoints" $
           fmap httpRoutePath demoHttpRoutes
             @?= [ "/"
@@ -109,6 +118,8 @@ main =
           assertBool "report card title" ("jitML POC report card" `isInfixOf` Text.unpack rendered)
           assertBool "report card passed count" ("passed: 10" `isInfixOf` Text.unpack rendered)
           assertBool "report card default knobs" ("rl_steps: 100000" `isInfixOf` Text.unpack rendered)
+          assertBool "report card lists actual stanzas" ("jitml-unit: PASS" `isInfixOf` Text.unpack rendered)
+          assertBool "report card lists style stanza" ("jitml-purescript-style: PASS" `isInfixOf` Text.unpack rendered)
       , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
           cabalProject <- Text.IO.readFile "cabal.project"
           parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs

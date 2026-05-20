@@ -135,6 +135,7 @@ library
         JitML.Service.Retry
         JitML.Service.Runtime
         JitML.Service.Signal
+        JitML.Service.Workload
         JitML.SL.Canonicals
         JitML.SL.Dataset
         JitML.SL.Loop

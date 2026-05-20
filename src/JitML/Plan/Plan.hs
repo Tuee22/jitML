@@ -99,7 +99,7 @@ commandPlanSteps ["rl", "train"] =
   ]
 commandPlanSteps ["test", "all"] =
   [ PlanStep "run-cabal-tests" "Run every Cabal test stanza."
-  , PlanStep "run-report-card" "Run the pinned report-card workloads."
+  , PlanStep "run-report-card" "Collect target stanza results and report-card knobs."
   , PlanStep "render-summary" "Render the typed report card."
   ]
 commandPlanSteps ["internal", "gc"] =

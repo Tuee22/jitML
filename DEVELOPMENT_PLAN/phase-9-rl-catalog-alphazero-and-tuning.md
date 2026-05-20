@@ -39,8 +39,10 @@ network metadata. `experiments/mnist-tune.dhall` renders the canonical
 a full target sampler catalog (`Grid`, `Sobol`, `Random`, `TPE`, `GPBO`,
 `GeneticAlgorithm`, `NSGA2`, `MuLambdaES`, `CMAES`, `EvolutionStrategies`,
 and `PBT`); `JitML.Tune.Catalog.loadTuningExperiment` decodes the worked
-example into the local tuning ADT and `jitml tune` renders a TPE plan.
-**Unmet today**: real on-hardware training to canonical reward thresholds,
+example into the local tuning ADT, `jitml tune` renders a TPE plan, and
+`JitML.Proto.Tune.parseTuneCommand` round-trips the current deterministic
+text `StartSweep` / `StopSweep` command envelope. **Unmet today**:
+real on-hardware training to canonical reward thresholds,
 real network forward / back passes through the JIT engine layer, live MinIO
 trial transcript persistence/resume, proto-lens tune bindings, and live Pulsar
 handlers — all gated by the absent cluster infra or remaining tuner work.
@@ -69,7 +71,9 @@ canonical games with per-game `applyMove` rules.
 example mirroring [../README.md → Concrete `Some Tuning::{ … }` example](../README.md);
 it decodes through `JitML.Tune.Catalog.loadTuningExperiment` to the local
 TPE / ASHA / MedianPruner ADT, and `jitml tune` prints deterministic TPE trial
-samples for the local plan.
+samples for the local plan. The tune proto mirror declares typed
+command/event envelopes and parses the deterministic local text command
+envelope emitted by `renderTuneCommand`.
 Live MinIO trial storage, live tuner resume, real network execution,
 and on-hardware reward thresholds remain in the per-sprint
 `### Remaining Work` blocks below.
@@ -357,7 +361,8 @@ catalog, and corresponding browser-contract endpoint metadata.
 
 **Status**: Active
 **Implementation**: `src/JitML/Tune/Catalog.hs`,
-`src/JitML/App.hs`, `test/hyperparameter/Main.hs`
+`src/JitML/App.hs`, `src/JitML/Proto/Tune.hs`,
+`test/hyperparameter/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -398,7 +403,8 @@ summary.
   local TPE trial-budget assertion.
 - `proto/jitml/tune.proto` + `src/JitML/Proto/Tune.hs` declare the
   typed `TuneCommand` / `TuneEvent` surfaces for the substrate-scoped
-  Pulsar topics.
+  Pulsar topics, and `parseTuneCommand` covers the current text
+  `StartSweep` / `StopSweep` command envelopes.
 - Wire-format protobuf bindings (proto-lens) and live MinIO persistence
   remain target runtime work.
 
@@ -409,7 +415,8 @@ summary.
 2. `cabal test jitml-hyperparameter` verifies the sampler, scheduler, and
    pruner axes are populated, deterministic, the TPE worked example
    decodes, and the local TPE trial budget consumes `cabal.project`
-   report-card knobs.
+   report-card knobs. It also covers text render/parse round-trips for
+   `StartSweep` and `StopSweep`.
 3. `jitml-unit` verifies the trial key and resume-equality helpers.
 4. `jitml-integration` spawns the real binary and verifies normal
    `jitml tune experiments/mnist-tune.dhall` execution renders `sampler: TPE`.
@@ -422,7 +429,9 @@ summary.
 
 - Generate `proto-lens`-driven Haskell bindings for
   `proto/jitml/tune.proto` so the typed envelopes round-trip
-  binary-equivalent with other-language clients.
+  binary-equivalent with other-language clients. The current
+  `parseTuneCommand` implementation is only the deterministic local text
+  envelope parser.
 - Implement the daemon-side tune handler that consumes
   `tune.command.<mode>` and persists trial transcripts to MinIO bucket
   `jitml-trials/<sha256(resolved-dhall || trial-seed)>/` — owned by
@@ -447,7 +456,9 @@ summary.
   metadata catalog, Dhall mirror, PPO/CartPole golden trajectory fixture,
   Connect 4 transcript helper, and tuner catalog; target algorithm modules,
   AlphaZero/MCTS runtime, adversarial games, target sampler decode, and
-  full tuner storage/resume surface.
+  full tuner storage/resume surface. The doc also distinguishes the
+  current tune text command-envelope parser from target binary proto-lens
+  codecs.
 - `documents/engineering/determinism_contract.md` — current deterministic
   local trajectory/transcript helpers and target AlphaZero
   deterministic-stochasticity narrative.

@@ -10,6 +10,13 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Proto.Training
+  ( StartTraining (..)
+  , StopTraining (..)
+  , TrainingCommand (..)
+  , parseTrainingCommand
+  , renderTrainingCommand
+  )
 import JitML.SL.Canonicals (canonicalProblems, convergenceCurve, finalLoss, problemName)
 import JitML.SL.Dataset
   ( datasetFixtureBytes
@@ -22,6 +29,7 @@ import JitML.SL.Dataset
 import JitML.SL.Train (defaultTrainingConfig, resultConverged, train)
 import JitML.Service.Capabilities (HasMinIO (..))
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
+import JitML.Substrate (Substrate (..))
 
 main :: IO ()
 main =
@@ -96,4 +104,24 @@ main =
                       Right fetched ->
                         fetchedSha256 fetched @?= datasetRefHash ref
               [] -> assertFailure "missing canonical problems"
+      , testCase "training command envelopes parse after render" $ do
+          let start =
+                TrainingStart
+                  StartTraining
+                    { stExperimentHash = "sha256:mnist"
+                    , stDhallObjectKey = "experiments/mnist.dhall"
+                    , stSubstrate = LinuxCPU
+                    , stSeed = 42
+                    , stEpochs = 5
+                    , stBatchSize = 64
+                    }
+              stop =
+                TrainingStop
+                  StopTraining
+                    { stopExperimentHash = "sha256:mnist"
+                    , stopDrain = True
+                    }
+          parseTrainingCommand (renderTrainingCommand start) @?= Just start
+          parseTrainingCommand (renderTrainingCommand stop) @?= Just stop
+          parseTrainingCommand "kind: UnknownTrainingCommand\n" @?= Nothing
       ]

@@ -56,6 +56,7 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Engines.Engine qualified as Engine
+import JitML.Engines.Tuning qualified as Tuning
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env (..), OutputFormat (..))
 import JitML.Generated.Paths
@@ -458,6 +459,20 @@ main =
           assertBool
             "engine envelope names deterministic reduction mode"
             ("onednn-fixed-block-reduction" `Text.isInfixOf` Engine.renderEngineEnvelope envelope)
+      , testCase "hardware auto-tuning benchmark plan enumerates deterministic candidates" $ do
+          let plan = Tuning.benchmarkPlan Tuning.linuxCudaKnobs
+              deterministicDefault = Tuning.selectDeterministic Tuning.linuxCudaKnobs
+              rendered = Tuning.renderBenchmarkPlan plan
+          Tuning.benchmarkPlanSubstrate plan @?= Substrate.LinuxCUDA
+          length (Tuning.benchmarkPlanResults plan) @?= 72
+          assertBool
+            "deterministic default is included"
+            (deterministicDefault `elem` Tuning.benchmarkPlanResults plan)
+          assertBool
+            "benchmark plan renders cache-key tuning choices"
+            ( Cache.unTuningChoice (Tuning.tuningChoiceForResult deterministicDefault)
+                `Text.isInfixOf` rendered
+            )
       , testCase "cachePath resolves under the substrate cache root" $
           withSystemTempDirectory "jitml-cache-layout" $ \dir -> do
             root <- resolveDir' (dir </> ".build")
@@ -907,9 +922,28 @@ main =
                 , "training-progress"
                 , "hyperparameter-sweep"
                 ]
-          fmap WebBundle.demoRoutePath WebBundle.demoRoutes @?= ["/", "/api", "/api/ws"]
+          fmap WebBundle.demoRoutePath WebBundle.demoRoutes
+            @?= [ "/"
+                , "/api"
+                , "/api/inference"
+                , "/api/images"
+                , "/api/connect4/move"
+                , "/api/ws"
+                , "/api/ws/training"
+                , "/api/ws/tune"
+                ]
           WebBundle.renderDemoRouteManifest
-            @?= "demo-routes:\n- / static-shell <- web/src/Main.purs\n- /api contract-index <- src/JitML/Web/Contracts.hs\n- /api/ws websocket-contract <- src/JitML/Web/Contracts.hs\n"
+            @?= Text.unlines
+              [ "demo-routes:"
+              , "- / static-shell <- web/src/Main.purs"
+              , "- /api contract-index <- src/JitML/Web/Contracts.hs"
+              , "- /api/inference inference-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/images image-upload-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/connect4/move connect4-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/ws metrics-stream-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/ws/training training-stream-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/ws/tune tune-stream-contract <- src/JitML/Web/Contracts.hs"
+              ]
           WebContracts.contractGeneratorName @?= "local-purescript-bridge-compatible-renderer"
       ]
 

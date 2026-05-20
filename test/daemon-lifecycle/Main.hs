@@ -37,7 +37,10 @@ import JitML.Service.Capabilities
   , HasKubectl (..)
   , HasMinIO (..)
   , HasPulsar (..)
+  , ImageRef (..)
   , KubeResource (..)
+  , ObjectKey (..)
+  , ObjectRef (..)
   , SubscriptionId (..)
   , TopicName (..)
   )
@@ -46,10 +49,13 @@ import JitML.Service.Consumer
   ( ConsumerOutcome (..)
   , DaemonSubscription (..)
   , EventDomain (..)
+  , EventId (..)
   , HandlerRouter (..)
   , consumerOutcomeError
+  , consumerStep
   , daemonSubscriptionsForBootConfig
   , dedupCacheCapacity
+  , dedupCacheKnown
   , dedupCacheTtlSeconds
   , domainFor
   , emptyHandlerRouter
@@ -79,6 +85,13 @@ import JitML.Service.Signal
   , daemonSignalAction
   , newDaemonControl
   , renderDaemonSignalAction
+  )
+import JitML.Service.Workload
+  ( WorkloadEffect (..)
+  , WorkloadEffectResult (..)
+  , parseWorkloadEffectPayload
+  , renderWorkloadEffectPayload
+  , runWorkloadEffects
   )
 import JitML.Substrate (Substrate (..))
 
@@ -208,14 +221,96 @@ main =
           assertBool
             "successful kubectl probe in summary"
             ("- kubectl:get pods: ok received 1 lines" `Text.isInfixOf` summary)
+      , testCase "daemon workload effects invoke non-Pulsar clients (Sprint 5.4)" $ do
+          clientLogRef <- newIORef []
+          let checkpointBlob =
+                ObjectRef
+                  (BucketName "jitml-checkpoints")
+                  (ObjectKey "experiments/demo/blobs/blob-a")
+              latestPointer =
+                ObjectRef
+                  (BucketName "jitml-checkpoints")
+                  (ObjectKey "experiments/demo/pointers/latest")
+              effects =
+                [ WriteCheckpointBlob checkpointBlob (ByteString.pack "checkpoint-bytes")
+                , UpdateCheckpointPointer latestPointer Nothing "manifest-a"
+                , PromoteWorkloadImage
+                    (ImageRef "library/jitml:build")
+                    (ImageRef "library/jitml:ready")
+                , ApplyWorkloadResource (KubeResource "job/jitml-train") "kind: Job\n"
+                , ReadWorkloadResourceStatus (KubeResource "job/jitml-train")
+                , DeleteWorkloadResource (KubeResource "job/jitml-train")
+                ]
+          results <-
+            evalStateT
+              (runWorkloadEffects effects)
+              (SyntheticClientState clientLogRef)
+          results
+            @?= [ Right (CheckpointBlobWritten (ETag "synthetic-etag"))
+                , Right (CheckpointPointerUpdated (ETag "synthetic-etag"))
+                , Right (WorkloadImagePromoted (ImageRef "library/jitml:ready"))
+                , Right WorkloadResourceApplied
+                , Right (WorkloadResourceStatus "items: []")
+                , Right WorkloadResourceDeleted
+                ]
+          clientLog <- readIORef clientLogRef
+          clientLog
+            @?= [ "minio:put-blob-bytes-if-absent"
+                , "minio:cas-pointer"
+                , "harbor:promote"
+                , "kubectl:apply"
+                , "kubectl:status:job/jitml-train"
+                , "kubectl:delete:job/jitml-train"
+                ]
+      , testCase "daemon workload dispatcher routes parsed payloads before ack (Sprint 5.4)" $ do
+          clientLogRef <- newIORef []
+          let checkpointBlob =
+                ObjectRef
+                  (BucketName "jitml-checkpoints")
+                  (ObjectKey "experiments/demo/blobs/blob-a")
+              imageEffect =
+                PromoteWorkloadImage
+                  (ImageRef "library/jitml:build")
+                  (ImageRef "library/jitml:ready")
+              effects =
+                [ WriteCheckpointBlob checkpointBlob (ByteString.pack "checkpoint-bytes")
+                , imageEffect
+                , ApplyWorkloadResource (KubeResource "job/jitml-train") "kind: Job\n"
+                ]
+              renderedPayloads = fmap renderWorkloadEffectPayload effects
+          fmap parseWorkloadEffectPayload renderedPayloads @?= fmap Just effects
+          dispatchResults <-
+            evalStateT
+              ( traverse
+                  (Runtime.daemonWorkloadDispatcher TrainingDomain (eventIdFromPayload "workload"))
+                  renderedPayloads
+              )
+              (SyntheticClientState clientLogRef)
+          dispatchResults @?= [Right (), Right (), Right ()]
+          ignored <-
+            evalStateT
+              ( Runtime.daemonWorkloadDispatcher
+                  TrainingDomain
+                  (eventIdFromPayload "not-workload")
+                  "kind: StartTraining\n"
+              )
+              (SyntheticClientState clientLogRef)
+          ignored @?= Right ()
+          clientLog <- readIORef clientLogRef
+          clientLog
+            @?= [ "minio:put-blob-bytes-if-absent"
+                , "harbor:promote"
+                , "kubectl:apply"
+                ]
       , testCase "daemon acquisition records Pulsar subscription success (Sprint 5.5)" $ do
           pullRef <- newIORef []
           ackRef <- newIORef []
           subscribeRef <- newIORef ([] :: [(Text, Text)])
+          seekRef <- newIORef ([] :: [(Text, Text)])
           acquiredRuntime <-
             evalStateT
               (Runtime.acquireDaemonSubscriptions defaultDaemonRuntime)
-              (SyntheticBrokerState pullRef ackRef subscribeRef)
+              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
           daemonReady acquiredRuntime @?= True
           fmap Runtime.daemonSubscriptionStatusState (Runtime.daemonSubscriptionStatuses acquiredRuntime)
             @?= [ Runtime.DaemonSubscriptionAcquired
@@ -239,10 +334,11 @@ main =
           pullRef <- newIORef []
           ackRef <- newIORef []
           subscribeRef <- newIORef ([] :: [(Text, Text)])
+          seekRef <- newIORef ([] :: [(Text, Text)])
           acquiredRuntime <-
             evalStateT
               (Runtime.acquireDaemonSubscriptions defaultDaemonRuntime)
-              (SyntheticBrokerState pullRef ackRef subscribeRef)
+              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
           modifyIORef'
             pullRef
             ( const
@@ -263,7 +359,7 @@ main =
                         >> pure (Right ())
                   )
               )
-              (SyntheticBrokerState pullRef ackRef subscribeRef)
+              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
           length outcomes @?= 4
           dispatchedCount outcomes @?= 2
           dedupCount outcomes @?= 1
@@ -301,6 +397,46 @@ main =
             @?= Just (PulsarFailed "transient: broker hiccup")
           consumerOutcomeError cleanOutcome @?= Nothing
           consumerOutcomeError dedupOutcome @?= Nothing
+      , testCase "Consumer dispatch failure does not poison dedup cache and seeks cursor (Sprint 5.5)" $ do
+          pullRef <- newIORef []
+          ackRef <- newIORef []
+          subscribeRef <- newIORef ([] :: [(Text, Text)])
+          seekRef <- newIORef ([] :: [(Text, Text)])
+          let subscription = SubscriptionId "test-sub"
+              topic = TopicName "training.command.linux-cpu"
+              payload = "payload-fail"
+              eventId = eventIdFromPayload (ByteString.pack "payload-fail")
+              brokerState = SyntheticBrokerState pullRef ackRef subscribeRef seekRef
+          (routerAfterFailure, firstOutcome) <-
+            evalStateT
+              ( consumerStep
+                  subscription
+                  (emptyHandlerRouter 16)
+                  topic
+                  payload
+                  (\_domain _eventId _payload -> pure (Left (SETransient "handler failed")))
+              )
+              brokerState
+          firstOutcome @?= ConsumerError (SETransient "handler failed")
+          dedupCacheKnown eventId (trainingCache routerAfterFailure) @?= False
+          seekLog <- readIORef seekRef
+          seekLog @?= [("test-sub", unEventId eventId)]
+          ackedAfterFailure <- readIORef ackRef
+          ackedAfterFailure @?= []
+          (routerAfterSuccess, secondOutcome) <-
+            evalStateT
+              ( consumerStep
+                  subscription
+                  routerAfterFailure
+                  topic
+                  payload
+                  (\_domain _eventId _payload -> pure (Right ()))
+              )
+              brokerState
+          secondOutcome @?= ConsumerDispatched TrainingDomain eventId
+          dedupCacheKnown eventId (trainingCache routerAfterSuccess) @?= True
+          ackedAfterSuccess <- readIORef ackRef
+          ackedAfterSuccess @?= ["payload-fail"]
       , testCase "Consumer loop dispatches, dedups, and acks against a synthetic broker" $ do
           -- Synthetic HasPulsar instance backed by an IORef pull queue +
           -- an IORef ack log. The Consumer loop reads N events, dedups the
@@ -315,6 +451,7 @@ main =
               ]
           ackRef <- newIORef ([] :: [Text])
           subscribeRef <- newIORef ([] :: [(Text, Text)])
+          seekRef <- newIORef ([] :: [(Text, Text)])
           dispatchRef <- newIORef ([] :: [(EventDomain, Text)])
           let router0 = emptyHandlerRouter 16
           (_, outcomes) <-
@@ -328,7 +465,7 @@ main =
                         >> pure (Right ())
                   )
               )
-              (SyntheticBrokerState pullRef ackRef subscribeRef)
+              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
           length outcomes @?= 4
           dispatchedCount outcomes @?= 3
           dedupCount outcomes @?= 1
@@ -359,6 +496,7 @@ main =
           pullRef <- newIORef []
           ackRef <- newIORef []
           subscribeRef <- newIORef ([] :: [(Text, Text)])
+          seekRef <- newIORef ([] :: [(Text, Text)])
           let subscriptions =
                 take 2 $
                   daemonSubscriptionsForBootConfig
@@ -366,7 +504,7 @@ main =
           results <-
             evalStateT
               (subscribeDaemonTopics subscriptions)
-              (SyntheticBrokerState pullRef ackRef subscribeRef)
+              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
           length results @?= 2
           traverse_
             ( either
@@ -389,6 +527,7 @@ data SyntheticBrokerState = SyntheticBrokerState
   { syntheticPullQueue :: IORef [(Text, Text)]
   , syntheticAckLog :: IORef [Text]
   , syntheticSubscribeLog :: IORef [(Text, Text)]
+  , syntheticSeekLog :: IORef [(Text, Text)]
   }
 
 newtype SyntheticClientState = SyntheticClientState
@@ -472,7 +611,10 @@ instance HasPulsar (StateT SyntheticBrokerState IO) where
     state <- get
     liftIO (modifyIORef' (syntheticSubscribeLog state) (++ [(topic, subscriptionName)]))
     pure (Right (SubscriptionId (topic <> "\n" <> subscriptionName)))
-  pulsarSeek _ _ = pure (Right ())
+  pulsarSeek (SubscriptionId subscription) eventId = do
+    state <- get
+    liftIO (modifyIORef' (syntheticSeekLog state) (++ [(subscription, eventId)]))
+    pure (Right ())
   pulsarConsume _ = do
     state <- get
     pending <- liftIO (readIORef (syntheticPullQueue state))

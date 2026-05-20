@@ -187,6 +187,44 @@ main =
                     _ -> liftIO (assertFailure "expected SEConflict on stale-ETag pointer CAS")
                 Left err ->
                   liftIO (assertFailure ("expected first casPointer OK, got: " <> show err))
+      , testCase "checkpoint snapshot writes through HasMinIO conditional boundaries (Sprint 10.2)" $
+          withSystemTempDirectory "jitml-checkpoint-hasminio" $ \root ->
+            runFilesystemMinIO root $ do
+              let experimentHash = "exp-write-minio"
+                  blobObjectKey = Checkpoint.blobKey experimentHash "blob-weights"
+                  manifest =
+                    Checkpoint.emptyManifest
+                      "m1"
+                      experimentHash
+                      [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+                  payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
+              firstWrite <-
+                CheckpointStore.writeCheckpointSnapshotWithMinIO
+                  manifest
+                  [(blobObjectKey, payload)]
+                  Nothing
+              case firstWrite of
+                Left err ->
+                  liftIO (assertFailure ("expected checkpoint write OK, got: " <> show err))
+                Right stored -> do
+                  liftIO $
+                    CheckpointStore.storedPointerResult stored
+                      @?= Checkpoint.PointerWritten (CheckpointStore.storedManifestSha stored)
+                  inferred <- CheckpointStore.loadInferenceCheckpoint experimentHash [10.0]
+                  liftIO $
+                    inferred @?= Right (Checkpoint.inferFromManifest manifest [10.0])
+              secondWrite <-
+                CheckpointStore.writeCheckpointSnapshotWithMinIO
+                  manifest
+                  [(blobObjectKey, payload)]
+                  Nothing
+              case secondWrite of
+                Left err ->
+                  liftIO (assertFailure ("expected idempotent object writes, got: " <> show err))
+                Right stored ->
+                  liftIO $
+                    CheckpointStore.storedPointerResult stored
+                      @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey experimentHash)
       , testCase "MinIOSubprocess renders signed S3 conditional-write commands" $ do
           let settings = MinIOSubprocess.minioSettingsForLocalEdge 9091
               ref = ObjectRef (BucketName "jitml-checkpoints") (ObjectKey "pointers/latest")

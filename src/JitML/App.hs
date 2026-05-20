@@ -96,7 +96,7 @@ import JitML.Tart.Lifecycle (VmName (..), ensureVmUp)
 import JitML.Test.Report
   ( ReportCard (..)
   , loadReportCardKnobs
-  , renderReportCardWithKnobs
+  , renderReportCardForTargets
   , reportStanzas
   )
 import JitML.Tune.Catalog qualified as Tune
@@ -723,13 +723,22 @@ runCabalTest targets = do
       case loadedKnobs of
         Left err -> exitWithError (InvalidConfig err)
         Right knobs ->
-          writeText (renderReportCardWithKnobs knobs (ReportCard (passedCount targets) 0 0))
+          writeText
+            ( renderReportCardForTargets
+                knobs
+                (targetStanzas targets)
+                (ReportCard (passedCount targets) 0 0)
+            )
     ExitFailure _ ->
       exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
 
 passedCount :: [Text] -> Int
 passedCount ["all"] = length reportStanzas
 passedCount _ = 1
+
+targetStanzas :: [Text] -> [Text]
+targetStanzas ["all"] = reportStanzas
+targetStanzas targets = targets
 
 runInternalVmExec :: [ParsedOption] -> App ()
 runInternalVmExec parsedOptions =

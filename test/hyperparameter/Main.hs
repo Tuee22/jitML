@@ -7,6 +7,14 @@ import Data.Text.IO qualified as Text.IO
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import JitML.Proto.Tune
+  ( StartSweep (..)
+  , StopSweep (..)
+  , TuneCommand (..)
+  , parseTuneCommand
+  , renderTuneCommand
+  )
+import JitML.Substrate (Substrate (..))
 import JitML.Test.Report
   ( ReportCardKnobs (..)
   , parseReportCardKnobs
@@ -99,4 +107,26 @@ main =
             Right knobs -> do
               length (deterministicTrials TPE (knobTuneTrials knobs)) @?= knobTuneTrials knobs
               assertBool "budget per trial is positive" (knobTuneBudgetPerTrial knobs > 0)
+      , testCase "tune command envelopes parse after render" $ do
+          let start =
+                TuneStart
+                  StartSweep
+                    { ssExperimentHash = "sha256:mnist-tune"
+                    , ssDhallObjectKey = "experiments/mnist-tune.dhall"
+                    , ssSubstrate = LinuxCUDA
+                    , ssSweepSeed = 42
+                    , ssTrialBudget = 64
+                    , ssBudgetPerTrial = 1000
+                    , ssSampler = "TPE"
+                    , ssScheduler = "ASHA"
+                    , ssPruner = "MedianPruner"
+                    }
+              stop =
+                TuneStop
+                  StopSweep
+                    { ssStopExperimentHash = "sha256:mnist-tune"
+                    }
+          parseTuneCommand (renderTuneCommand start) @?= Just start
+          parseTuneCommand (renderTuneCommand stop) @?= Just stop
+          parseTuneCommand "kind: UnknownTuneCommand\n" @?= Nothing
       ]

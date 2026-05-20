@@ -8,6 +8,13 @@ import Data.Text.IO qualified as Text.IO
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import JitML.Proto.Rl
+  ( RlCommand (..)
+  , StartRLRun (..)
+  , StopRLRun (..)
+  , parseRlCommand
+  , renderRlCommand
+  )
 import JitML.RL.Algorithms (algorithmCatalog, algorithmName, deterministicTrajectory)
 import JitML.RL.AlphaZero (gameMoves, selfPlayTranscript, selfPlayTranscriptFor)
 import JitML.RL.Buffer (bufferSize)
@@ -83,6 +90,27 @@ main =
           fixture <- Text.IO.readFile "test/golden/alphazero/gomoku-transcript.txt"
           Text.lines fixture
             @?= fmap (Text.pack . show . gameMoves) (selfPlayTranscriptFor "gomoku" 3)
+      , testCase "RL command envelopes parse after render" $ do
+          let start =
+                RlStart
+                  StartRLRun
+                    { srlExperimentHash = "sha256:cartpole"
+                    , srlAlgorithm = "PPO"
+                    , srlEnvironment = "cartpole"
+                    , srlSubstrate = LinuxCUDA
+                    , srlSeed = 42
+                    , srlMaxSteps = 1024
+                    , srlEvalEpisodes = 8
+                    }
+              stop =
+                RlStop
+                  StopRLRun
+                    { srStopExperimentHash = "sha256:cartpole"
+                    , srStopDrain = False
+                    }
+          parseRlCommand (renderRlCommand start) @?= Just start
+          parseRlCommand (renderRlCommand stop) @?= Just stop
+          parseRlCommand "kind: UnknownRlCommand\n" @?= Nothing
       ]
 
 assertContains :: Text -> [Text] -> IO ()

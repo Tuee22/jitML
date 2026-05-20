@@ -9,6 +9,7 @@ module JitML.Proto.Rl
   , RlEvent (..)
   , StartRLRun (..)
   , StopRLRun (..)
+  , parseRlCommand
   , renderRlCommand
   , renderRlEvent
   , rlCommandTopic
@@ -16,11 +17,13 @@ module JitML.Proto.Rl
   )
 where
 
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
+import Text.Read (readMaybe)
 
-import JitML.Substrate (Substrate, renderSubstrate)
+import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 data StartRLRun = StartRLRun
   { srlExperimentHash :: Text
@@ -112,6 +115,30 @@ renderRlCommand command =
         , "drain: " <> Text.pack (show (srStopDrain e))
         ]
 
+parseRlCommand :: Text -> Maybe RlCommand
+parseRlCommand payload =
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+   in case value "kind" of
+        Just "StartRLRun" ->
+          RlStart
+            <$> ( StartRLRun
+                    <$> value "experiment-hash"
+                    <*> value "algorithm"
+                    <*> value "environment"
+                    <*> (value "substrate" >>= parseSubstrate)
+                    <*> (value "seed" >>= readText)
+                    <*> (value "max-steps" >>= readText)
+                    <*> (value "eval-episodes" >>= readText)
+                )
+        Just "StopRLRun" ->
+          RlStop
+            <$> ( StopRLRun
+                    <$> value "experiment-hash"
+                    <*> (value "drain" >>= readText)
+                )
+        _ -> Nothing
+
 renderRlEvent :: RlEvent -> Text
 renderRlEvent envelope =
   case envelope of
@@ -146,3 +173,14 @@ renderRlEvent envelope =
         , "name: " <> muName m
         , "value: " <> Text.pack (show (muValue m))
         ]
+
+parseField :: Text -> Maybe (Text, Text)
+parseField line =
+  let (key, rest) = Text.breakOn ":" line
+   in if Text.null rest
+        then Nothing
+        else Just (Text.strip key, Text.strip (Text.drop 1 rest))
+
+readText :: (Read a) => Text -> Maybe a
+readText =
+  readMaybe . Text.unpack

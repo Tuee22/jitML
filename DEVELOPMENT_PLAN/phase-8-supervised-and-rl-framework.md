@@ -33,7 +33,9 @@ SL training pipeline (`src/JitML/SL/{Loop,Train}.hs`), the runtime RL
 primitives (`src/JitML/RL/{Policy,VecEnv,Buffer,Loop}.hs`), the
 `training` / `rl` / `tune` proto files (`proto/jitml/*.proto`), and
 their typed Haskell envelopes (`src/JitML/Proto/{Training,Rl,Tune}.hs`)
-are checked in. **Unmet today**: Sprints `8.1`–`8.6` still owe the
+are checked in; `TrainingCommand` and `RlCommand` now have deterministic
+text render/parse round-trips for the current command envelopes. **Unmet
+today**: Sprints `8.1`–`8.6` still owe the
 live MinIO dataset fetch through the available `HasMinIO` client, the live
 Pulsar publish/consume round-trip through a real `HasPulsar` client, generated protobuf
 serialization (proto-lens output), and the live convergence / reward
@@ -54,7 +56,9 @@ carrying the substrate-bound `KernelHandle` model id, and a `VecEnv`
 that parallel-steps the existing canonical environments. The proto
 surfaces (`proto/jitml/{training,rl,tune}.proto` + typed envelopes in
 `src/JitML/Proto/{Training,Rl,Tune}.hs`) define the substrate-scoped
-Pulsar command / event topic family. Live MinIO dataset fetch, live
+Pulsar command / event topic family; the training and RL command modules
+also parse the deterministic local text envelope emitted by their renderers.
+Live MinIO dataset fetch, live
 Pulsar publish/consume, and real-hardware convergence assertions are
 the open work in the per-sprint `### Remaining Work` blocks below.
 
@@ -141,7 +145,8 @@ runtime work.
 ## Sprint 8.2: `jitml train` Local CLI Summary 🔄
 
 **Status**: Active
-**Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
+**Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`,
+`src/JitML/Proto/Training.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/daemon_architecture.md`
 
@@ -163,7 +168,8 @@ local summary body. Pulsar command/event publication remains target daemon work.
   `EpochCompleted`, `CheckpointDone`, `TrainingFailed` plus
   discriminated `TrainingCommand` / `TrainingEvent` unions for the
   substrate-scoped Pulsar topics. `src/JitML/Proto/Training.hs` mirrors
-  the proto into typed Haskell envelopes with deterministic renderers.
+  the proto into typed Haskell envelopes with deterministic renderers and
+  `parseTrainingCommand` for the current text command envelopes.
   `trainingCommandTopic` / `trainingEventTopic` resolve the
   substrate-scoped topic names.
 - The GADT-indexed `TrainingLifecycle` already lives in
@@ -178,7 +184,9 @@ local summary body. Pulsar command/event publication remains target daemon work.
    and exits `0`.
 2. `jitml train experiments/mnist.dhall` prints the deterministic
    canonical-problem summary.
-3. Live validation (target): `jitml train` resolves and SHA-hashes the
+3. `cabal test jitml-sl-canonicals` covers render/parse round-trips for
+   `StartTraining` and `StopTraining` text command envelopes.
+4. Live validation (target): `jitml train` resolves and SHA-hashes the
    experiment Dhall, reconciles prerequisites, materializes the dataset,
    publishes `StartTraining` on `training.command.<mode>`, the daemon's
    `TrainingHandler` consumes it, and the resulting
@@ -188,7 +196,9 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 - Generate wire-format protobuf bindings via `proto-lens-protoc` (or
   equivalent) so the typed envelopes in `src/JitML/Proto/Training.hs`
-  round-trip with binary equivalence.
+  round-trip with binary equivalence. The current parser is only for the
+  local deterministic text envelope used by tests and future daemon-handler
+  scaffolding.
 - Implement the daemon-side `TrainingHandler` that consumes
   `training.command.<mode>` and publishes `training.event.<mode>` through
   the `RetryPolicy` boundary against a live Pulsar broker.
@@ -304,7 +314,7 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 
 **Status**: Active
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
-`src/JitML/RL/Framework.hs`,
+`src/JitML/RL/Framework.hs`, `src/JitML/Proto/Rl.hs`,
 `src/JitML/Test/Report.hs`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
@@ -328,8 +338,9 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
   `EpisodeDone`, `EvalDone`, `CheckpointDoneRL`, `MetricUpdate` plus
   the discriminated `RlCommand` / `RlEvent` unions for the
   substrate-scoped topics. `src/JitML/Proto/Rl.hs` mirrors the proto
-  into typed envelopes; `rlCommandTopic` / `rlEventTopic` resolve the
-  topic names per substrate.
+  into typed envelopes, including `parseRlCommand` for the current text
+  command envelope; `rlCommandTopic` / `rlEventTopic` resolve the topic
+  names per substrate.
 - Live Pulsar codecs that serialize the typed envelopes to wire format
   remain to be added when proto-lens-protoc lands.
 
@@ -339,7 +350,9 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
    plan.
 2. `jitml rl rollout --seed 42` prints a deterministic trajectory.
 3. `jitml-unit` verifies the framework catalog and run-plan surface.
-4. Live validation (target): `jitml rl train` publishes `StartRLRun` on
+4. `cabal test jitml-rl-canonicals` covers render/parse round-trips for
+   `StartRLRun` and `StopRLRun` text command envelopes.
+5. Live validation (target): `jitml rl train` publishes `StartRLRun` on
    `rl.command.<mode>`; the daemon's `RlHandler` consumes it, runs the
    real RL loop, and publishes `rl.event.<mode>` envelopes
    (`EpisodeDone`, `EvalDone`, `CheckpointDone`, `MetricUpdate`) that
@@ -348,7 +361,9 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 ### Remaining Work
 
 - Generate `proto-lens` Haskell wire bindings to round-trip the
-  envelopes binary-equivalent to other-language clients.
+  envelopes binary-equivalent to other-language clients. The current
+  `parseRlCommand` implementation is only the deterministic local text
+  envelope parser.
 - Implement the daemon-side `RlHandler` that consumes
   `rl.command.<mode>` and emits `rl.event.<mode>` through the
   `RetryPolicy` boundary against a live broker (owned by Sprint 5.5).
@@ -464,9 +479,10 @@ None.
 - `documents/engineering/training_workloads.md` — SL canonical
   summaries, RL algorithm metadata hooks, deterministic trajectory
   helper, `jitml train` / `jitml rl train` summary surfaces, and the
-  `RLRunLifecycle` GADT bound to `src/JitML/RL/Framework.hs` after
-  Sprint 8.7; target training loops and environment runtime work owned
-  by per-sprint `### Remaining Work` blocks.
+  command-envelope render/parse surfaces plus the `RLRunLifecycle` GADT
+  bound to `src/JitML/RL/Framework.hs` after Sprint 8.7; target training
+  loops and environment runtime work owned by per-sprint `### Remaining
+  Work` blocks.
 - `documents/engineering/daemon_architecture.md` — payload-hash
   deduplication helper; target at-least-once `TrainingHandler` and
   `RlHandler` owned by Sprints `5.5` / `8.2` / `8.6` Remaining Work.

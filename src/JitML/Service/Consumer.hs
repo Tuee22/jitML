@@ -316,7 +316,9 @@ data ConsumerOutcome
 -- per-domain cache, (3) on first-seen dispatch the handler (caller-supplied,
 -- IO action), (4) ack the envelope through `HasPulsar.pulsarAcknowledge`
 -- only after dispatch succeeds. On dedup-hit, skip dispatch but still ack
--- (Pulsar redelivery semantics).
+-- (Pulsar redelivery semantics). A failed dispatch leaves the dedup cache
+-- unchanged and seeks the subscription cursor back to the computed event id,
+-- so redelivery cannot be mistaken for an already-applied side effect.
 consumerStep
   :: (HasPulsar m, MonadIO m)
   => SubscriptionId
@@ -327,7 +329,7 @@ consumerStep
   -> (EventDomain -> EventId -> Text -> m (Either ServiceError ()))
   -- ^ per-domain dispatcher
   -> m (HandlerRouter, ConsumerOutcome)
-consumerStep _subscription router topic payload dispatch = do
+consumerStep subscription router topic payload dispatch = do
   let eventId = eventIdFromPayload (Text.Encoding.encodeUtf8 payload)
   case domainFor (unTopicName topic) of
     Nothing -> do
@@ -337,22 +339,26 @@ consumerStep _subscription router topic payload dispatch = do
         Right () -> pure (router, ConsumerSkippedUnroutable (unTopicName topic))
     Just domain -> do
       nowSeconds <- liftIO currentEpochSeconds
-      let (router', isFresh) = routeByKindAt nowSeconds router domain eventId
+      let (routerAfterInsert, isFresh) = routeByKindAt nowSeconds router domain eventId
       if isFresh
         then do
           dispatchResult <- dispatch domain eventId payload
           case dispatchResult of
-            Left err -> pure (router', ConsumerError err)
+            Left err -> do
+              seekResult <- pulsarSeek subscription (unEventId eventId)
+              case seekResult of
+                Left seekErr -> pure (router, ConsumerError seekErr)
+                Right () -> pure (router, ConsumerError err)
             Right () -> do
               ackResult <- pulsarAcknowledge topic payload
               case ackResult of
-                Left err -> pure (router', ConsumerError err)
-                Right () -> pure (router', ConsumerDispatched domain eventId)
+                Left err -> pure (routerAfterInsert, ConsumerError err)
+                Right () -> pure (routerAfterInsert, ConsumerDispatched domain eventId)
         else do
           ackResult <- pulsarAcknowledge topic payload
           case ackResult of
-            Left err -> pure (router', ConsumerError err)
-            Right () -> pure (router', ConsumerDeduplicated domain eventId)
+            Left err -> pure (routerAfterInsert, ConsumerError err)
+            Right () -> pure (routerAfterInsert, ConsumerDeduplicated domain eventId)
 
 -- | Map a `ConsumerOutcome` to an `AppError` for the daemon's exit path.
 -- A dispatch/ack failure beyond the `RetryPolicy` budget surfaces `PulsarFailed`

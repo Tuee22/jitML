@@ -38,7 +38,8 @@ Current local helpers cover `deriveExperimentHash`, `blobKey`, `manifestKey`,
 `JitML.Checkpoint.Store` provides the local filesystem-backed interpreter for
 write-once object writes, manifest writes/reads, latest-pointer CAS, retention
 planning, local manifest discovery for `jitml internal gc`, GC execution
-through `HasMinIO`, and inference from the latest checkpoint. Store-level
+through `HasMinIO`, checkpoint snapshot writes through `HasMinIO`, and
+inference from the latest checkpoint. Store-level
 `checkpointObjectRef` adapts the bucket-prefixed key renderers to live
 `HasMinIO` calls by carrying bucket `jitml-checkpoints` separately and using
 keys relative to that bucket.
@@ -47,10 +48,12 @@ keys relative to that bucket.
 `If-None-Match: *` duplicate writes and stale `If-Match` pointer CAS surface as
 `SEConflict` through the routed `/minio/s3` edge.
 
-The live rollout proceeds storage-outward: wire checkpoint writes/reads through
-the live MinIO capability, then inference from checkpoint, then training
-persistence, then tuning/resume. Later workload layers should not invent
-parallel persistence paths around the checkpoint store.
+The local checkpoint write/read paths now both cross the `HasMinIO` capability
+boundary through `writeCheckpointSnapshotWithMinIO` and
+`loadInferenceCheckpoint`. The live rollout proceeds storage-outward: validate
+those checkpoint writes/reads through the live MinIO capability, then inference
+from checkpoint, then training persistence, then tuning/resume. Later workload
+layers should not invent parallel persistence paths around the checkpoint store.
 
 ## Three Object Classes, Two Write Protocols
 
@@ -190,8 +193,11 @@ hash, so flipping a metric's direction defines a *different experiment*.
 The current worktree has `AdvanceLatest`, `AdvanceBestMaximised`, and
 `AdvanceBestMinimised` constructors, pure `applyAdvancePredicate`, a pure
 `PointerWrite` / `applyPointerWrite` decision surface, and a local
-filesystem-backed checkpoint store. The live HTTP MinIO capability path for
-the same conditional-write protocol is `JitML.Service.MinIOSubprocess`.
+filesystem-backed checkpoint store. `writeCheckpointSnapshotWithMinIO` applies
+the same protocol through `HasMinIO.putBlobBytesIfAbsent` and
+`HasMinIO.casPointer`, treating existing identical blob/manifest payloads as
+idempotent before the pointer CAS decision. The live HTTP MinIO capability path
+for the same conditional-write protocol is `JitML.Service.MinIOSubprocess`.
 
 ## Sketch
 

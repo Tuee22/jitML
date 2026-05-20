@@ -69,9 +69,9 @@ The current worktree contains a minimal `web/src/Main.purs`, generated
 `web/src/Panels/`, `web/test/Main.purs`, `src/JitML/Web/Contracts.hs`, and
 `src/JitML/Web/Bundle.hs`. `Web.Bundle` records the bundle output paths, the
 six canonical panel surfaces, the `demoStatusLine`, and the local demo route
-manifest for `/`, `/api`, and `/api/ws`. `src/JitML/Web/Server.hs` serves the
-current local HTTP surface for `/`, `/api`, `/api/inference`, `/api/images`,
+manifest for `/`, `/api`, `/api/inference`, `/api/images`,
 `/api/connect4/move`, `/api/ws`, `/api/ws/training`, and `/api/ws/tune`.
+`src/JitML/Web/Server.hs` serves the same current local HTTP surface.
 The three stream routes return deterministic local scaffold frames today. A
 compiled `web/dist/` bundle, Halogen mount/rendering modules, and live
 WebSocket proxying remain target runtime work.
@@ -130,7 +130,8 @@ from Pulsar event topics remains target runtime validation.
 prints `demoStatusLine` from `src/JitML/Web/Bundle.hs`:
 `jitml-demo: serving generated frontend contract surface`, then starts the
 low-level HTTP listener from `src/JitML/Web/Server.hs`. It serves the current
-local route/API surface; target work swaps in the compiled bundle from
+local route/API surface, and `Web.Bundle.demoRoutes` names the same local
+routes for tests and docs. Target work swaps in the compiled bundle from
 `web/dist/` and a live WebSocket proxy at `/api/ws`.
 
 The `Deployment/jitml-demo` template (Sprint `4.1`) is populated with the

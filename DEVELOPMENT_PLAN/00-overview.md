@@ -91,7 +91,8 @@ loading, and Linux CUDA loading are owned by Phase `7`'s Active sprints.
 
 The SL/RL surfaces ship today as deterministic catalogs and summaries:
 canonical SL cells, RL algorithm rows, deterministic trajectory generation,
-AlphaZero Connect 4 helpers, and hyperparameter trial sequences. Real
+AlphaZero Connect 4 helpers, text command-envelope parsers for the current
+training/RL/tuning proto mirrors, and hyperparameter trial sequences. Real
 daemon-backed SL/RL/AlphaZero training loops, real env stepping, real
 checkpoint persistence, and Pulsar/MinIO-backed hyperparameter sweeps are
 owned by Phase `8` and Phase `9`'s Active sprints.
@@ -104,15 +105,17 @@ fixture into the local tuning ADT before rendering its deterministic plan.
 
 The checkpoint surface provides a typed manifest, split-blob object-key
 renderers, pointer-CAS decisions, the binary `.jmw1` encoder, manifest
-pointer renderer, a filesystem-backed checkpoint store, and deterministic
-inference from the latest checkpoint. The live HTTP MinIO capability path is
-implemented by `JitML.Service.MinIOSubprocess` and validated against the routed
-`/minio/s3` edge for write-once conflicts, pointer CAS conflicts, read, list,
-and delete. The frontend surface provides a
+pointer renderer, a filesystem-backed checkpoint store,
+`writeCheckpointSnapshotWithMinIO` over the `HasMinIO` conditional-write/CAS
+boundary, and deterministic inference from the latest checkpoint. The live HTTP
+MinIO capability path is implemented by `JitML.Service.MinIOSubprocess` and
+validated against the routed `/minio/s3` edge for write-once conflicts, pointer
+CAS conflicts, read, list, and delete. The frontend surface provides a
 minimal PureScript entrypoint, generated contract file from
 `src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route metadata from
 `src/JitML/Web/Bundle.hs`, and the `jitml-demo` HTTP server in
-`src/JitML/Web/Server.hs`. Checkpoint-store wiring through the live MinIO
+`src/JitML/Web/Server.hs`; the typed demo route manifest covers the full
+current local API route family. Checkpoint-store validation through the live MinIO
 client, real kernel-handle loading, and the compiled Halogen bundle + live
 WebSocket proxy are owned by Phase `10` and Phase `11`'s Active sprints.
 
@@ -236,15 +239,19 @@ moves to Done and the legacy ledger is empty.
   `pulsar_subscriptions`, startup subscription acquisition rendered under
   `pulsar_subscription_status` after the routed WebSocket subscribe probe,
   read-only daemon client probes rendered under `client_probe_status`,
+  typed mutating non-Pulsar workload effects for MinIO write/CAS, Harbor
+  promotion, and kubectl apply/status/delete plus byte-faithful parsed daemon
+  dispatcher routing,
   bounded acquired-subscription consumer batching, LiveConfig-derived dedup
   cache sizing for the handler router,
   fully-qualified broker topic routing, required
   anti-affinity validated on a two-worker Kind cluster, and the in-binary HTTP
   listener. The standalone live MinIO
   capability client and one-shot Pulsar WebSocket client are validated; live
-  validation and effectful workload use of the acquired non-Pulsar clients,
-  long-lived Pulsar redelivery/seek, Apple host connectivity, and live client
-  flow are owned by Sprints `5.4` / `5.5` / `5.6`'s Remaining Work. Phase:
+  invocation of that dispatcher from the running service pod, real
+  training/inference handler integration with those effects, long-lived Pulsar
+  redelivery/seek, Apple host connectivity, and live client flow are owned by
+  Sprints `5.4` / `5.5` / `5.6`'s Remaining Work. Phase:
   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md).
 - **Numerical core.** Haskell layer catalog (16 constructors: Dense,
   Embedding, Conv1D, Conv2D, Conv3D, ConvTranspose, ComplexDense,
@@ -278,7 +285,9 @@ moves to Done and the legacy ledger is empty.
   deterministic algorithm pin / threadgroup size / micro-kernel /
   reduction strategy / no-TF32 / no-fast-math) with
   `selectDeterministic` choosing the deterministic default and
-  `tuningChoiceForResult` emitting the cache-key payload.
+  `tuningChoiceForResult` emitting the cache-key payload; `benchmarkPlan`
+  enumerates deterministic-only candidates in stable order for the future
+  first-cache-miss hardware benchmark loop.
   `JitML.Engines.Local` compiles, loads, and runs the generated Linux
   CPU identity kernel through the Haskell FFI. Real oneDNN graph
   kernels, Apple Metal loading + Tart spin-up, Linux CUDA loading, and
@@ -303,7 +312,10 @@ moves to Done and the legacy ledger is empty.
   and a PPO/CartPole golden trajectory fixture. The typed proto
   envelopes (`proto/jitml/{training,rl,tune}.proto` and
   `JitML.Proto.{Training,Rl,Tune}`) declare the substrate-scoped Pulsar
-  topic family. Live MinIO dataset fetch, daemon-backed training loops,
+  topic family; the training and RL mirrors also parse the deterministic
+  text command envelopes emitted by their renderers, and the tuning mirror
+  does the same for `StartSweep` / `StopSweep`. Live MinIO dataset fetch,
+  daemon-backed training loops,
   and live Pulsar training/event flow are owned by Sprints `8.1`–`8.6`'s
   Remaining Work. Phase:
   [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md).
@@ -335,19 +347,20 @@ moves to Done and the legacy ledger is empty.
   `deriveExperimentHash` computing
   `sha256(resolved-dhall || substrate-fingerprint)`, the
   binary `.jmw1` encoder, manifest pointer, filesystem-backed
-  checkpoint store, latest-pointer read path,
+  checkpoint store, `writeCheckpointSnapshotWithMinIO` over the
+  `HasMinIO` conditional-write/CAS boundary, latest-pointer read path,
   `inferWeightsOnlyFromLatestCheckpoint` for the weight-only inference
   path, and the GC reconciler surface
   (`RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
   `applyRetentionPolicy`, `buildGcPlan` with `gcReapEvents` and the
-  `gcNoOp` second-invocation detector). Live checkpoint-store use of the
-  MinIO client, live `gc_reaped` Pulsar publish, and real kernel-handle
+  `gcNoOp` second-invocation detector). Live checkpoint-store validation
+  through the HTTP MinIO client, live `gc_reaped` Pulsar publish, and real kernel-handle
   loading are owned by Sprints `10.1`–`10.4`'s Remaining Work. Phase:
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Minimal PureScript entrypoint,
   generated contract file from `src/JitML/Web/Contracts.hs`, typed
   bundle/panel/demo-route metadata from `src/JitML/Web/Bundle.hs` (six
-  canonical panel surfaces), the six panel modules under
+  canonical panel surfaces plus the full local API route family), the six panel modules under
   `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` with
   typed request/response payload shapes, `web/test/Main.purs` smoke
   suite, the canonical seven-test Playwright matrix at
@@ -450,7 +463,7 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
   `jitml cluster up`, `jitml docs generate`, `jitml lint --write`,
   `jitml internal gc`.
 - Lint, Format, and Code-Quality Stack — `fourmolu` + `hlint` + `cabal format`;
-  pinned `fourmolu.yaml` at repo root with the twelve doctrine-mandated settings;
+  pinned `fourmolu.yaml` at repo root with the thirteen doctrine-mandated settings;
   jitML adopts the doctrine with a container-owned style-tool bootstrap: the
   `jitml:local` Docker image installs the separate style-tools GHC and pinned
   `fourmolu` / `hlint` binaries, image construction runs the Haskell style gate,
@@ -589,8 +602,11 @@ each constraint.
     path remains Phase `5` work. The retry policy is a typed value with named
     retry strategies.
 24. Capability classes `HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl` are the
-    only allowed entry into external services from the daemon. The runner is
-    `ReaderT Env IO`.
+    only allowed entry into external services from the daemon. Local workload
+    effects route MinIO write/CAS, Harbor promotion, and kubectl
+    apply/status/delete through those classes via byte-faithful parsed
+    dispatcher payloads; live running-daemon handler routing remains Phase `5`
+    work. The runner is `ReaderT Env IO`.
 25. The Apple Silicon hybrid pattern: clustered Deployment (`Cluster +
     ForwardToHost`) plus host-native binary (`Host + SelfInference`). The
     cluster daemon publishes inference RPC envelopes on
@@ -633,7 +649,7 @@ each constraint.
     `web/src/Generated/Contracts.purs` and `src/JitML/Web/Bundle.hs` records
     the bundle/panel/demo-route metadata. The generated contract file is
     protected by the active `trackingGeneratedPaths` registry.
-32. `fourmolu.yaml` at repo root pins the twelve doctrine-mandated settings.
+32. `fourmolu.yaml` at repo root pins the thirteen doctrine-mandated settings.
     `docker/Dockerfile` installs the separate style-tools GHC and pinned
     `fourmolu` / `hlint` binaries for `jitml:local`; the image build runs the
     Haskell style/code-quality gate; `jitml-haskell-style` uses those prebuilt

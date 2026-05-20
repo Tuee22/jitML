@@ -9,6 +9,7 @@ module JitML.Proto.Training
   , TrainingEvent (..)
   , TrainingFailed (..)
   , parseTrainingCheckpointDone
+  , parseTrainingCommand
   , renderTrainingCommand
   , renderTrainingEvent
   , trainingCommandTopic
@@ -22,7 +23,7 @@ import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 
-import JitML.Substrate (Substrate, renderSubstrate)
+import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 data StartTraining = StartTraining
   { stExperimentHash :: Text
@@ -107,6 +108,29 @@ renderTrainingCommand command =
         , "experiment-hash: " <> stopExperimentHash envelope
         , "drain: " <> Text.pack (show (stopDrain envelope))
         ]
+
+parseTrainingCommand :: Text -> Maybe TrainingCommand
+parseTrainingCommand payload =
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+   in case value "kind" of
+        Just "StartTraining" ->
+          TrainingStart
+            <$> ( StartTraining
+                    <$> value "experiment-hash"
+                    <*> value "dhall-object-key"
+                    <*> (value "substrate" >>= parseSubstrate)
+                    <*> (value "seed" >>= readText)
+                    <*> (value "epochs" >>= readText)
+                    <*> (value "batch-size" >>= readText)
+                )
+        Just "StopTraining" ->
+          TrainingStop
+            <$> ( StopTraining
+                    <$> value "experiment-hash"
+                    <*> (value "drain" >>= readText)
+                )
+        _ -> Nothing
 
 renderTrainingEvent :: TrainingEvent -> Text
 renderTrainingEvent envelope =

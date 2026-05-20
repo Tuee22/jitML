@@ -312,7 +312,7 @@ per standards rule L.
   - **Reconcilers: Idempotent Mutation as a Single Command**: `jitml bootstrap`,
     `jitml cluster up`, `jitml docs generate`, `jitml lint --write`, `jitml internal gc
     <experiment-hash>`. Exit code `3` on no-op.
-  - **Lint, Format, Code-Quality Stack**: `fourmolu.yaml`, the twelve settings
+  - **Lint, Format, Code-Quality Stack**: `fourmolu.yaml`, the thirteen settings
     (`indentation`, `column-limit`, `function-arrows`, `comma-style`,
     `import-export-style`, `indent-wheres`, `record-brace-space`,
     `newlines-between-decls`, `haddock-style`, `let-style`, `in-style`,

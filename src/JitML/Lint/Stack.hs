@@ -304,6 +304,7 @@ requiredFourmoluKeys =
   , "let-style:"
   , "in-style:"
   , "unicode:"
+  , "respectful:"
   ]
 
 forbiddenPrimitiveFindings :: IO [LintFinding]
