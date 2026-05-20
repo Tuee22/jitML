@@ -487,10 +487,16 @@ runService parsedOptions = do
           (ServiceRuntime.daemonClientSettings runtime)
           (ServiceRuntime.acquireDaemonSubscriptions runtime)
       )
+  probedRuntime <-
+    liftIO
+      ( ServiceClients.runDaemonServiceClient
+          (ServiceRuntime.daemonClientSettings acquiredRuntime)
+          (ServiceRuntime.probeDaemonServiceClients acquiredRuntime)
+      )
   writeLine ("service config: " <> configPath)
-  writeText (ServiceRuntime.renderDaemonRuntimeSummary acquiredRuntime)
+  writeText (ServiceRuntime.renderDaemonRuntimeSummary probedRuntime)
   writeLine "service: listening on 0.0.0.0:8080"
-  liftIO (ServiceRuntime.serveDaemon acquiredRuntime)
+  liftIO (ServiceRuntime.serveDaemon probedRuntime)
 
 loadDaemonRuntime :: Text -> Bool -> App ServiceRuntime.DaemonRuntime
 loadDaemonRuntime configPath explicitConfig = do

@@ -4,6 +4,7 @@ module JitML.Service.KubectlSubprocess
   ( KubectlSubprocess (..)
   , KubectlSettings (..)
   , defaultKubectlSettings
+  , inClusterKubectlSettings
   , runKubectlSubprocess
   )
 where
@@ -22,9 +23,10 @@ import JitML.Service.Retry (ServiceError (..))
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
 
--- | Pinned `kubectl` invocation knobs. The kubeconfig path is the
--- isolated `./.build/jitml.kubeconfig` produced by `jitml bootstrap`, never
--- the host's `~/.kube/config`.
+-- | Pinned `kubectl` invocation knobs. Host-side settings use the isolated
+-- `./.build/jitml.kubeconfig` produced by `jitml bootstrap`, never the host's
+-- `~/.kube/config`; in-cluster settings omit `--kubeconfig` and use the pod
+-- service-account environment.
 data KubectlSettings = KubectlSettings
   { kubectlBinary :: FilePath
   , kubectlKubeconfig :: FilePath
@@ -39,6 +41,10 @@ defaultKubectlSettings =
     , kubectlKubeconfig = "./.build/jitml.kubeconfig"
     , kubectlNamespace = "platform"
     }
+
+inClusterKubectlSettings :: KubectlSettings
+inClusterKubectlSettings =
+  defaultKubectlSettings {kubectlKubeconfig = ""}
 
 -- | `HasKubectl` instance backed by the real `kubectl` binary through the
 -- typed `Subprocess` boundary. Used by `jitml-integration` against the live
@@ -62,7 +68,7 @@ kubectlCmd :: KubectlSettings -> [Text] -> Subprocess
 kubectlCmd settings args =
   subprocess
     (kubectlBinary settings)
-    ( ["--kubeconfig", Text.pack (kubectlKubeconfig settings)]
+    ( kubectlKubeconfigArgs settings
         <> args
     )
 
@@ -70,14 +76,20 @@ kubectlApplyCmd :: KubectlSettings -> Text -> Subprocess
 kubectlApplyCmd settings =
   subprocessWithStdin
     (kubectlBinary settings)
-    [ "--kubeconfig"
-    , Text.pack (kubectlKubeconfig settings)
-    , "apply"
-    , "-f"
-    , "-"
-    , "-n"
-    , kubectlNamespace settings
-    ]
+    ( kubectlKubeconfigArgs settings
+        <> [ "apply"
+           , "-f"
+           , "-"
+           , "-n"
+           , kubectlNamespace settings
+           ]
+    )
+
+kubectlKubeconfigArgs :: KubectlSettings -> [Text]
+kubectlKubeconfigArgs settings =
+  case kubectlKubeconfig settings of
+    "" -> []
+    kubeconfig -> ["--kubeconfig", Text.pack kubeconfig]
 
 instance HasKubectl KubectlSubprocess where
   kubectlApply (KubeResource _resource) yaml = do

@@ -25,10 +25,12 @@ info when `residency = Host`.
 
 The clustered `jitml-service` Deployment is **stateless** — durable state
 lives in MinIO and Pulsar exclusively. Required pod anti-affinity at
-`topologyKey: kubernetes.io/hostname` enforces at most one replica per node.
-Live validation on 2026-05-20 scaled the real `jitml-service` Deployment to
-two replicas on a temporary two-worker Kind cluster and observed one running
-pod per worker.
+`topologyKey: kubernetes.io/hostname` enforces at most one replica per node;
+`maxSurge: 0` / `maxUnavailable: 1` keeps replacement rollouts valid on the
+default single-worker Kind cluster. Live validation on 2026-05-20 scaled the
+real `jitml-service` Deployment to two replicas on a temporary two-worker Kind
+cluster and observed one running pod per worker; the same date validated a
+single-worker replacement rollout and the service-account kubectl probe.
 See [cluster_topology.md → `jitml-service` Deployment, Not StatefulSet](cluster_topology.md#jitml-service-deployment-not-statefulset).
 
 ## Lifecycle
@@ -98,8 +100,14 @@ unknown substrate text before building the daemon runtime.
 exposes the MinIO, Pulsar, Harbor, and `kubectl` capability classes from that
 one settings record. The current service startup already opens the derived
 Pulsar WebSocket consumer endpoint through `DaemonServiceClient` as a
-subscription probe and records `pulsar_subscription_status`; long-lived
-consume/redelivery/seek remains target work.
+subscription probe and records `pulsar_subscription_status`. It also invokes a
+read-only non-Pulsar client probe through the same daemon interpreter: MinIO
+lists `jitml-checkpoints` with the `daemon-health/` prefix, Harbor lists the
+`library` project, and kubectl runs `get pods`; those results are rendered
+under `client_probe_status` and failed probes drop readiness. Live Linux CPU
+validation on 2026-05-20 confirms those daemon-acquired read-only probes pass
+from the running pod; long-lived consume/redelivery/seek and effectful workload
+use of the non-Pulsar clients remain target work.
 
 The live `chart/local/jitml-service` ConfigMap carries the same current Dhall
 surface: residency and inference mode use typed union constructors, and
@@ -157,18 +165,24 @@ structured JSON on stderr with fields `ts`, `level`, `msg`, `lifecyclePhase`,
 topic plan under
 `pulsar_subscriptions` and per-topic startup acquisition state under
 `pulsar_subscription_status`; the acquisition state comes from a one-shot
-WebSocket consumer-open probe through the daemon's derived Pulsar settings.
+WebSocket consumer-open probe through the daemon's derived Pulsar settings. The
+summary also prints `client_probe_status` for the read-only MinIO list, Harbor
+list, and kubectl get probes that run through the acquired non-Pulsar clients.
 Cluster daemons target direct in-cluster endpoints: MinIO at
 `http://minio.platform.svc.cluster.local:9000`, Pulsar WebSocket at
 `ws://pulsar-broker.platform.svc.cluster.local:8080/ws`, Harbor API at
 `http://harbor.platform.svc.cluster.local/api`, Harbor registry at
-`harbor-registry.platform.svc.cluster.local:5000`, and kubectl through
-`./.build/jitml.kubeconfig`. Apple host daemons derive the same settings from
-the patched host Dhall: routed MinIO URLs are split into the root endpoint plus
-the `/minio/s3` request-target prefix, `pulsar://127.0.0.1:<edge>/pulsar`
-becomes `ws://127.0.0.1:<edge>/pulsar/ws`, and
-`127.0.0.1:<edge>/library` is split into Docker registry root plus the routed
-`/harbor/api` base.
+`harbor-registry.platform.svc.cluster.local:5000`, and kubectl through the
+in-cluster service-account environment. The local chart creates
+`ServiceAccount/jitml-service` plus namespace-scoped Role/RoleBinding so the
+daemon can execute the current workload operations without mounting the host
+kubeconfig into the pod. Apple host daemons derive the same settings from the
+patched host Dhall: routed MinIO URLs are split into the root endpoint plus the
+`/minio/s3` request-target prefix,
+`pulsar://127.0.0.1:<edge>/pulsar` becomes
+`ws://127.0.0.1:<edge>/pulsar/ws`, `127.0.0.1:<edge>/library` is split into
+Docker registry root plus the routed `/harbor/api` base, and kubectl uses the
+repo-local `./.build/jitml.kubeconfig`.
 
 `HasPulsar`, `HasHarbor`, and `HasKubectl` operations route through the typed
 `Subprocess` boundary where no native client is checked in. The current Pulsar
@@ -177,17 +191,22 @@ Envoy rewrites to the broker-embedded `/ws` endpoint on `pulsar-broker:8080`.
 It is a one-shot validation/client surface: `pulsarConsume` opens a consumer,
 reads one message, acknowledges it on that same WebSocket session, and closes;
 the Node script uses `globalThis.WebSocket` when present and falls back to
-Node's bundled `undici.WebSocket` in the `jitml:local` Node 18 runtime. Live
+Node's bundled `undici.WebSocket` for older runtimes. Current `jitml:local`
+carries Node.js `22.16.0`. Live
 validation on 2026-05-20 publishes and consumes on
 `persistent://public/default/training.command.linux-cpu`, matching the current
 daemon subscription topic family. The daemon's long-lived post-dispatch
 ack/redelivery and `pulsarSeek` semantics remain target work below. The daemon
 now loads `BootConfig` from Dhall before starting the runtime and derives
-concrete subprocess settings from those loaded coordinates; invoking the
-non-Pulsar clients from the long-lived service loop remains target work below,
-except that `jitml service` now crosses the derived Pulsar `pulsarSubscribe`
-acquisition boundary through `DaemonServiceClient` before serving and drops
-readiness when acquisition fails. Harbor
+concrete subprocess settings from those loaded coordinates. `jitml service`
+crosses the derived Pulsar `pulsarSubscribe` acquisition boundary and the
+read-only MinIO/Harbor/kubectl probe boundaries through `DaemonServiceClient`
+before serving, and drops readiness when acquisition or probe fails. 2026-05-20
+live validation of the Linux CPU chart confirms `/healthz`, `/readyz`,
+`/metrics`, MinIO `jitml-checkpoints` listing, Harbor `library` listing, and
+in-pod `kubectl get pods -n platform` through the `jitml-service` service
+account. Effectful workload use of the non-Pulsar clients from the long-lived
+service remains target work below. Harbor
 settings are passed as a value
 (`HarborSettings`) containing registry/API coordinates, credentials, optional
 Docker host socket, and the repo-local Docker config directory; the client does
@@ -248,9 +267,10 @@ protobuf message hash and is opaque to the broker.
   `inference.command.apple-silicon`.
 - Per-handler `dedupCache :: TVar (LRUSet EventID)` provides at-least-once
   → effectively-once for the duration the entry stays cached. Cache size
-  and TTL are `LiveConfig` knobs; the current runtime uses
-  `dedupCacheSize` when constructing the per-domain handler router, while
-  wall-clock TTL expiry remains part of the long-lived live consumer work.
+  and TTL are `LiveConfig` knobs; the current runtime uses both when
+  constructing the per-domain handler router, and the local consumer expires
+  dedup entries at the configured TTL boundary before deciding whether a
+  redelivery is fresh.
 - Acks are explicit; failure to ack within the `RetryPolicy` budget surfaces
   `AppError PulsarFailed`.
 

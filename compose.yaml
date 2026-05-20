@@ -2,9 +2,10 @@ services:
   jitml:
     image: jitml:local
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile
-    working_dir: /jitml
+    network_mode: host
+    working_dir: ${PWD}
     volumes:
-      - ..:/jitml
+      - .:${PWD}
       - /var/run/docker.sock:/var/run/docker.sock

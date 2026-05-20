@@ -18,8 +18,8 @@
 > lifecycle, endpoint, logging, retry, payload-hash deduplication, SIGHUP
 > reload decisions, capability-class boundaries, and stateless `Deployment`
 > rendering — while deriving daemon client acquisition settings from
-> `BootConfig` and keeping live service-loop use of those Pulsar, Harbor,
-> MinIO, and kubectl clients explicit as target runtime validation.
+> `BootConfig` and keeping the remaining live long-lived Pulsar, Harbor,
+> MinIO, and kubectl runtime effects explicit as target validation.
 
 ## Phase Status
 
@@ -53,11 +53,18 @@ endpoint for each planned startup subscription through `DaemonServiceClient`
 before serving and records whether each subscription was acquired.
 `JitML.Service.Runtime.daemonConsumerBatch` threads acquired subscription
 statuses through the LiveConfig-sized handler router in a bounded local batch.
+`JitML.Service.Runtime.probeDaemonServiceClients` crosses the acquired
+non-Pulsar capability boundaries with read-only MinIO list, Harbor list, and
+kubectl get probes before the daemon serves, records `client_probe_status`, and
+drops readiness on probe failure.
 **Unmet today**:
-Sprint `5.4` still owes running acquired MinIO, Harbor, and kubectl clients
-inside the long-lived daemon against the live cluster for end-to-end
-service-client effects; the standalone live MinIO capability path is validated
-through `JitML.Service.MinIOSubprocess`, and the standalone routed Pulsar
+Sprint `5.4` still owes effectful workload uses of the acquired non-Pulsar
+clients (MinIO checkpoint writes, Harbor image operations, kubectl workload
+operations); the daemon-acquired read-only MinIO / Harbor / kubectl probes are
+live-validated from the running Linux CPU `jitml-service` pod on 2026-05-20,
+including in-cluster service-account `kubectl get pods` RBAC. The standalone
+live MinIO capability path is validated through
+`JitML.Service.MinIOSubprocess`, and the standalone routed Pulsar
 publish/consume path is validated through
 `JitML.Service.PulsarWebSocketSubprocess`. Sprint `5.5` owes the daemon's
 long-lived Pulsar redelivery/ack/seek path using the typed router; its local
@@ -81,15 +88,17 @@ renderers, the `BootConfig` Dhall loader consumed by `jitml service --config`,
 lifecycle phase data, hot-reload decision data, pure endpoint-response
 rendering, pure JSON log rendering, service error/retry helpers, payload-hash
 deduplication, capability-class definitions, and chart ConfigMap/Deployment
-rendering, the POSIX
+rendering, including the service account/RBAC and single-worker-safe rolling
+update strategy, the POSIX
 signal/control surface in `src/JitML/Service/Signal.hs`, and the
 low-level in-binary HTTP runtime in
 `src/JitML/Service/{Http,Runtime}.hs` serving `/healthz`, `/readyz`, and
 `/metrics`. `src/JitML/Service/Clients.hs` derives daemon client settings
 from the loaded `BootConfig`: in-cluster daemons use the internal MinIO,
-Harbor API, broker WebSocket, and repo-local kubeconfig coordinates, while
-the Apple host daemon splits the routed edge URLs into the root endpoint plus
-the `/minio/s3` and `/pulsar/ws` request paths. `SIGHUP` increments the reload
+Harbor API, broker WebSocket, and in-cluster service-account kubectl
+credentials, while the Apple host daemon splits the routed edge URLs into the
+root endpoint plus the `/minio/s3` and `/pulsar/ws` request paths and uses the
+repo-local kubeconfig. `SIGHUP` increments the reload
 generation; `SIGINT` and
 `SIGTERM` begin graceful drain and drop readiness. The filesystem-backed
 `HasMinIO` instance, live HTTP-backed `JitML.Service.MinIOSubprocess`
@@ -98,8 +107,12 @@ Docker/curl-backed `JitML.Service.HarborSubprocess` instance, and
 subprocess-backed `HasKubectl` instance are checked in and covered locally /
 behind the live path. `JitML.Service.Clients.DaemonServiceClient` is the
 daemon-owned interpreter that delegates all four capability classes to those
-subprocess settings; running real MinIO/Harbor/kubectl side effects from the
-long-lived service loop remains owned by Sprints `5.4`–`5.6`. The Consumer
+subprocess settings. `JitML.Service.Runtime.probeDaemonServiceClients` invokes
+the acquired MinIO, Harbor, and kubectl clients through read-only list/get
+operations and records their status in the daemon runtime summary before
+serving; 2026-05-20 live Linux CPU validation confirms those probes pass from
+the running pod. Effectful workload operations remain owned by
+Sprints `5.4`–`5.6`. The Consumer
 surface also derives the daemon subscription set from `BootConfig`: clustered
 daemons subscribe to the substrate-scoped training, tune, RL, and inference
 request command topics, while the Apple host daemon subscribes only to
@@ -112,7 +125,7 @@ WebSocket-backed instance opens the routed consumer endpoint as a startup
 subscription probe, records per-topic `DaemonSubscriptionStatus` values, and
 makes `/readyz` false if any startup subscription acquisition fails.
 `JitML.Service.Runtime.daemonConsumerBatch` uses acquired subscription IDs and
-the `LiveConfig` dedup cache size to run a bounded `runConsumerLoop` batch
+the `LiveConfig` dedup cache size/TTL to run a bounded `runConsumerLoop` batch
 against the typed dispatcher surface; the forever-running live broker loop is
 still target work.
 
@@ -308,14 +321,15 @@ class surface per doctrine `Capability Classes and Service Errors`.
    `JitML.Service.PulsarWebSocketSubprocess`. Remaining live targets:
    daemon-acquired `HasPulsar` uses a long-lived subscription with post-dispatch
    ack/redelivery and seek semantics; daemon-acquired `HasHarbor` pushes/pulls
-   an image against real Harbor; `HasKubectl` invokes `kubectl get pods`
-   against the cluster's kubeconfig.
+   an image against real Harbor; workload handlers invoke effectful
+   `HasKubectl` apply/status/delete operations.
 4. `jitml-integration` verifies `JitML.Service.Clients` derives in-cluster
    daemon endpoints from the cluster `BootConfig`, derives Apple host edge
    endpoints from the patched host `BootConfig`, splits routed MinIO URLs into
    root endpoint plus `/minio/s3` request-target prefix, maps host Pulsar
    service URLs to `/pulsar/ws`, strips the Harbor project suffix for Docker
-   registry calls, and pins kubectl to `./.build/jitml.kubeconfig`.
+   registry calls, uses in-cluster kubectl credentials for cluster daemons, and
+   pins Apple host kubectl to `./.build/jitml.kubeconfig`.
 5. `jitml-daemon-lifecycle` verifies the daemon runtime summary exposes the
    `client_acquisition` section with the derived MinIO and Pulsar endpoints and
    the `pulsar_subscriptions` section with the BootConfig-derived topic plan.
@@ -328,6 +342,15 @@ class surface per doctrine `Capability Classes and Service Errors`.
 7. `jitml-daemon-lifecycle` verifies `DaemonServiceClient` satisfies all four
    capability-class constraints, and `jitml service` uses that combined
    interpreter for startup subscription acquisition.
+8. `jitml-daemon-lifecycle` verifies
+   `JitML.Service.Runtime.probeDaemonServiceClients` invokes the acquired
+   non-Pulsar clients through MinIO list, Harbor list, and `kubectl get pods`
+   boundaries and records `client_probe_status` in the daemon summary.
+9. Live Linux CPU validation on 2026-05-20 rolls the real `jitml-service` pod
+   with service account/RBAC, confirms `client_probe_status` reports MinIO
+   `jitml-checkpoints`, Harbor `library`, and in-cluster `kubectl get pods` as
+   `ok`, verifies `/healthz`, `/readyz`, and `/metrics`, and confirms direct
+   in-pod `kubectl get pods -n platform` succeeds.
 
 ### Remaining Work
 
@@ -340,10 +363,14 @@ class surface per doctrine `Capability Classes and Service Errors`.
   the broker / store cursor identities through the capability boundary.
   `JitML.Service.Clients.DaemonServiceClient` now delegates all four
   classes from one `DaemonClientSettings` record, and `jitml service`
-  performs startup subscription acquisition through that combined daemon
-  interpreter. Remaining live daemon work is invoking the non-Pulsar clients
-  from the running service loop and replacing the one-shot Pulsar interpreter
-  with a long-lived broker client.
+  performs startup subscription acquisition and a read-only non-Pulsar
+  startup probe through that combined daemon interpreter. The probe records
+  MinIO list, Harbor list, and `kubectl get pods` status under
+  `client_probe_status` and drops readiness on failure. 2026-05-20 live Linux
+  CPU validation confirms those probes pass from the running pod with
+  in-cluster service-account RBAC. Remaining live daemon work is invoking
+  effectful MinIO/Harbor/kubectl operations from workload handlers and
+  replacing the one-shot Pulsar interpreter with a long-lived broker client.
 - The filesystem-backed instance `JitML.Service.FilesystemMinIO`
   honours `putBlobIfAbsent` (412 → `SEConflict`) and `casPointer`
   (`If-Match: <etag>` → `SEConflict`); validated by `jitml-integration`.
@@ -353,14 +380,16 @@ class surface per doctrine `Capability Classes and Service Errors`.
   through the routed `/minio/s3` edge. `JitML.Service.Clients` now turns the
   loaded `BootConfig.minioEndpoint` into the daemon's MinIO subprocess settings:
   in-cluster endpoints stay direct, while Apple-host routed endpoints split the
-  root URL from the `/minio/s3` request-target prefix. Remaining daemon work is
-  invoking that acquired MinIO client from the running service loop for live
-  training/inference/checkpoint effects.
+  root URL from the `/minio/s3` request-target prefix. The daemon startup probe
+  invokes `listObjects jitml-checkpoints daemon-health/` through the acquired
+  client; 2026-05-20 live Linux CPU validation confirms that probe returns `ok`
+  from the running service pod. Remaining daemon work is invoking
+  write/CAS/read operations from live training/inference/checkpoint handlers.
 - `JitML.Service.PulsarWebSocketSubprocess` implements the routed one-shot
   `HasPulsar` publish/consume path against the running Pulsar HA cluster.
   Sprint `4.4` live validation covers broker WebSocket routing, topic creation,
-  producer ack, consume, WebSocket ack-on-consume, and the Node 18
-  `undici.WebSocket` fallback used inside `jitml:local`.
+  producer ack, consume, WebSocket ack-on-consume, and the Node.js 22 runtime
+  used inside `jitml:local`.
   `JitML.Service.Clients` now derives the daemon's WebSocket endpoint from
   `BootConfig`: in-cluster daemons target
   `ws://pulsar-broker.platform.svc.cluster.local:8080/ws`, while Apple-host
@@ -382,21 +411,27 @@ class surface per doctrine `Capability Classes and Service Errors`.
   through `127.0.0.1:9091`. `JitML.Service.Clients` now strips the
   `BootConfig.harborRegistry` project suffix for Docker registry operations
   and derives the matching Harbor API base (`/harbor/api` on the host edge,
-  `http://harbor.platform.svc.cluster.local/api` in-cluster). Remaining daemon
-  work is invoking that client from the long-running service and validating
-  image operations there.
+  `http://harbor.platform.svc.cluster.local/api` in-cluster). The daemon
+  startup probe invokes `harborListImages "library"` through the acquired
+  client; 2026-05-20 live Linux CPU validation confirms that probe returns `ok`
+  from the running service pod. Remaining daemon work is invoking
+  push/pull/promote operations from live workload handlers.
 - `JitML.Service.KubectlSubprocess` implements the `HasKubectl`
-  instance through the typed `Subprocess` boundary against
-  `./.build/jitml.kubeconfig`. The typed `Subprocess` boundary now
+  instance through the typed `Subprocess` boundary. Cluster daemons omit
+  `--kubeconfig` and use the in-cluster service-account environment; host-side
+  clients use `./.build/jitml.kubeconfig`. The typed `Subprocess` boundary now
   carries an optional `subprocessStdin :: Maybe Text` payload
   (`subprocessWithStdin` smart constructor) that `kubectlApply` uses
   to pipe YAML into `kubectl apply -f -` without shelling out.
   Validated by `jitml-integration` with an explicit repo-local kubeconfig
   setting and stdin command-shape assertions. The stdin path is independently
   validated by a `cat`-based fixture in `jitml-integration`. The daemon client
-  settings record now carries that repo-local kubeconfig setting; remaining
-  daemon work is invoking `kubectl get pods` through the acquired client
-  against the live cluster.
+  settings record now carries in-cluster kubectl settings for cluster
+  residency and the repo-local kubeconfig for host residency. The daemon
+  startup probe invokes `kubectl get pods` through the acquired client;
+  2026-05-20 live Linux CPU validation confirms the pod's `jitml-service`
+  service account can list platform pods. Remaining daemon work is invoking
+  apply/status/delete operations from workload handlers.
 - Add integration coverage in `jitml-integration` (Sprint `12.2`) that
   exercises each capability class against the explicit live cluster path.
 
@@ -518,9 +553,10 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 - `JitML.Service.LiveConfig` now carries `dedupCacheSize` and
   `dedupCacheTtlSeconds`, renders them into `LiveConfig.dhall`, and the
   service ConfigMap carries the same fields. `JitML.Service.Runtime.daemonHandlerRouter`
-  uses `dedupCacheSize` to construct the per-domain `HandlerRouter`. Validated
-  by `jitml-daemon-lifecycle` and `jitml-integration`; wall-clock TTL expiry
-  remains part of the daemon's live long-lived consumer work.
+  uses both values to construct the per-domain `HandlerRouter`, and
+  `JitML.Service.Consumer.routeByKindAt` expires dedup entries at the TTL
+  boundary before deciding whether a redelivery is fresh. Validated by
+  `jitml-daemon-lifecycle` and `jitml-integration`.
 - `JitML.Service.Runtime.daemonTensorBoardDispatcher` is the first concrete
   dispatcher side effect: it routes rendered `CheckpointDone` payloads through
   `JitML.Observability.TbSidecar.dispatchCheckpointPayload` and returns a typed
@@ -542,7 +578,8 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 - Remaining live daemon work: replace the startup acquisition boundary with a
   real long-lived Pulsar client, hold subscriptions open for the daemon
   lifetime, validate broker redelivery of duplicate payload hashes as
-  idempotent no-ops, and exercise `pulsarSeek` against the live broker.
+  idempotent no-ops, populate the LRU/TTL dedup cache from live messages, and
+  exercise `pulsarSeek` against the live broker.
 - Add integration coverage in `jitml-daemon-lifecycle` (Sprint `12.7`)
   exercising real redelivery + dedup against live Pulsar through the explicit
   live validation path.
@@ -567,6 +604,9 @@ Dhall configs.
   anti-affinity at hostname topology so the cluster can scale to N replicas
   without colliding per node. **Not** a `StatefulSet` — durable state lives
   entirely in MinIO and Pulsar.
+- Rolling updates use `maxSurge: 0` and `maxUnavailable: 1` so the required
+  anti-affinity does not deadlock a single-worker development cluster during a
+  replacement rollout.
 - `JitML.Cluster.Kind.kindConfigWithWorkerCount` renders the same Kind node
   surface with more than one worker when a live validation needs to prove
   multi-replica placement; the normal per-substrate checked-in configs still
@@ -612,7 +652,11 @@ Dhall configs.
    `jitml-service` ConfigMap/Deployment, scales to two replicas, and confirms
    the pods run on distinct nodes:
    `jitml-phase5-affinity-worker` and `jitml-phase5-affinity-worker2`.
-6. Live validation target: the Apple host daemon subscribes to
+6. Live validation on 2026-05-20 upgrades the existing single-worker
+   `jitml-linux-cpu` cluster with `maxSurge: 0` / `maxUnavailable: 1`, and the
+   required anti-affinity rollout replaces the single service pod without a
+   pending surge pod.
+7. Live validation target: the Apple host daemon subscribes to
    `inference.command.apple-silicon` after the edge port is leased.
 
 ### Remaining Work

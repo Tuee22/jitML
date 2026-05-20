@@ -3,6 +3,7 @@
 module JitML.Service.ConfigMap
   ( renderServiceConfigMap
   , renderServiceDeployment
+  , renderServiceRBAC
   )
 where
 
@@ -38,6 +39,11 @@ renderServiceDeployment substrate =
     , "  namespace: platform"
     , "spec:"
     , "  replicas: 1"
+    , "  strategy:"
+    , "    type: RollingUpdate"
+    , "    rollingUpdate:"
+    , "      maxSurge: 0"
+    , "      maxUnavailable: 1"
     , "  selector:"
     , "    matchLabels:"
     , "      app: jitml-service"
@@ -47,6 +53,7 @@ renderServiceDeployment substrate =
     , "        app: jitml-service"
     , "        jitml.substrate: " <> renderSubstrate substrate
     , "    spec:"
+    , "      serviceAccountName: jitml-service"
     ]
       <> runtimeClassLines
       <> [ "      affinity:"
@@ -101,3 +108,37 @@ indentBlock =
 
 _bootConfigSubstrate :: BootConfig -> Substrate
 _bootConfigSubstrate = bootSubstrate
+
+renderServiceRBAC :: Text
+renderServiceRBAC =
+  Text.unlines
+    [ "apiVersion: v1"
+    , "kind: ServiceAccount"
+    , "metadata:"
+    , "  name: jitml-service"
+    , "  namespace: platform"
+    , "---"
+    , "apiVersion: rbac.authorization.k8s.io/v1"
+    , "kind: Role"
+    , "metadata:"
+    , "  name: jitml-service"
+    , "  namespace: platform"
+    , "rules:"
+    , "  - apiGroups: [\"*\"]"
+    , "    resources: [\"*\"]"
+    , "    verbs: [\"get\", \"list\", \"watch\", \"create\", \"update\", \"patch\", \"delete\"]"
+    , "---"
+    , "apiVersion: rbac.authorization.k8s.io/v1"
+    , "kind: RoleBinding"
+    , "metadata:"
+    , "  name: jitml-service"
+    , "  namespace: platform"
+    , "subjects:"
+    , "  - kind: ServiceAccount"
+    , "    name: jitml-service"
+    , "    namespace: platform"
+    , "roleRef:"
+    , "  apiGroup: rbac.authorization.k8s.io"
+    , "  kind: Role"
+    , "  name: jitml-service"
+    ]

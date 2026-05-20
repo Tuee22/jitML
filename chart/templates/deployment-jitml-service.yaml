@@ -5,6 +5,11 @@ metadata:
   namespace: platform
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: jitml-service
@@ -14,6 +19,7 @@ spec:
         app: jitml-service
         jitml.substrate: linux-cpu
     spec:
+      serviceAccountName: jitml-service
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

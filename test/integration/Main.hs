@@ -346,7 +346,7 @@ main =
             @?= "harbor-registry.platform.svc.cluster.local:5000"
           HarborSubprocess.harborApiBaseUrl harborSettings
             @?= "http://harbor.platform.svc.cluster.local/api"
-          kubectlKubeconfig kubectlSettings @?= "./.build/jitml.kubeconfig"
+          kubectlKubeconfig kubectlSettings @?= ""
       , testCase "daemon client settings derive Apple host edge endpoints from BootConfig (Sprint 5.4)" $ do
           let lease = EdgePort.EdgePortLease {EdgePort.leasedPort = 9092, EdgePort.leasedHost = "127.0.0.1"}
               publication = Publication.publicationWithLeasedPort lease (Publication.defaultPublication AppleSilicon)
@@ -355,6 +355,7 @@ main =
               minioSettings = ServiceClients.daemonMinIOSettings settings
               pulsarSettings = ServiceClients.daemonPulsarSettings settings
               harborSettings = ServiceClients.daemonHarborSettings settings
+              kubectlSettings = ServiceClients.daemonKubectlSettings settings
           MinIOSubprocess.minioEndpoint minioSettings @?= "http://127.0.0.1:9092"
           MinIOSubprocess.minioRequestPathPrefix minioSettings @?= "/minio/s3"
           PulsarWebSocketSubprocess.pulsarWebSocketEndpoint pulsarSettings
@@ -362,6 +363,7 @@ main =
           HarborSubprocess.harborRegistry harborSettings @?= "127.0.0.1:9092"
           HarborSubprocess.harborApiBaseUrl harborSettings
             @?= "http://127.0.0.1:9092/harbor/api"
+          kubectlKubeconfig kubectlSettings @?= "./.build/jitml.kubeconfig"
       , testCase "CpuFeatures detection picks the right oneDNN micro-kernel knob" $ do
           features <- detectCpuFeatures
           assertBool
@@ -790,9 +792,17 @@ main =
             (not ("jitml-mirror" `Text.isInfixOf` rendered))
       , testCase "jitml-service local chart carries current Dhall config surface" $ do
           configMap <- Text.IO.readFile "chart/local/jitml-service/templates/configmap.yaml"
+          deployment <- Text.IO.readFile "chart/local/jitml-service/templates/deployment.yaml"
+          rbac <- Text.IO.readFile "chart/local/jitml-service/templates/rbac.yaml"
           assertBool
             "local chart renders typed Residency constructors"
             ("residency = < Cluster | Host >.Cluster" `Text.isInfixOf` configMap)
+          assertBool
+            "local chart uses the daemon service account"
+            ("serviceAccountName: jitml-service" `Text.isInfixOf` deployment)
+          assertBool
+            "local chart grants namespace-scoped daemon kubectl access"
+            ("kind: RoleBinding" `Text.isInfixOf` rbac)
           assertBool
             "local chart renders typed InferenceMode constructors"
             ("< SelfInference | ForwardToHost >.SelfInference" `Text.isInfixOf` configMap)
@@ -1062,6 +1072,12 @@ main =
           assertBool
             "jitml-service uses required pod anti-affinity for one pod per node"
             ("requiredDuringSchedulingIgnoredDuringExecution" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "jitml-service rolls on single-node clusters without anti-affinity deadlock"
+            ("maxSurge: 0" `Text.isInfixOf` cpuDeployment && "maxUnavailable: 1" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "jitml-service pins its service account"
+            ("serviceAccountName: jitml-service" `Text.isInfixOf` cpuDeployment)
           assertBool
             "jitml-service anti-affinity is keyed by hostname"
             ("topologyKey: kubernetes.io/hostname" `Text.isInfixOf` cpuDeployment)

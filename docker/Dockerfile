@@ -3,6 +3,7 @@ FROM ubuntu:24.04
 ARG GHC_VERSION=9.14.1
 ARG STYLE_GHC_VERSION=9.12.4
 ARG CABAL_VERSION=3.16.1.0
+ARG NODE_VERSION=22.16.0
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -50,17 +51,23 @@ RUN ghcup install ghc "${STYLE_GHC_VERSION}" \
         hlint-3.10 \
     && chmod 0755 "${JITML_STYLE_TOOLS_BIN}/fourmolu" "${JITML_STYLE_TOOLS_BIN}/hlint"
 
-RUN npm install -g purescript spago \
-    && case "${TARGETARCH:-amd64}" in \
-        amd64) tool_arch=amd64 ;; \
-        arm64) tool_arch=arm64 ;; \
+RUN case "${TARGETARCH:-amd64}" in \
+        amd64) tool_arch=amd64; node_arch=x64 ;; \
+        arm64) tool_arch=arm64; node_arch=arm64 ;; \
         *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
       esac \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends xz-utils \
+    && curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
+    && rm -f /tmp/node.tar.xz \
+    && npm install -g purescript spago \
     && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.2/bin/linux/${tool_arch}/kubectl" \
     && chmod 0755 /usr/local/bin/kubectl \
     && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
     && curl -fsSL -o /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-${tool_arch}" \
-    && chmod 0755 /usr/local/bin/kind
+    && chmod 0755 /usr/local/bin/kind \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /jitml
 

@@ -213,7 +213,7 @@ moves to Done and the legacy ledger is empty.
   `webSocketServiceEnabled=true`, the full typed substrate-scoped topic family
   exists, 2026-05-20 live validation proving the current 26-topic family is
   registered and `training.command.linux-cpu` publishes/consumes through the
-  `jitml:local` Node 18 WebSocket path, and
+  `jitml:local` WebSocket path, and
   `JitML.Service.PulsarWebSocketSubprocess` publishes and consumes through the
   routed WebSocket endpoint; Percona
   Operator-managed PostgreSQL for every packaged service that requires
@@ -235,15 +235,16 @@ moves to Done and the legacy ledger is empty.
   BootConfig-derived daemon Pulsar subscription planning rendered under
   `pulsar_subscriptions`, startup subscription acquisition rendered under
   `pulsar_subscription_status` after the routed WebSocket subscribe probe,
+  read-only daemon client probes rendered under `client_probe_status`,
   bounded acquired-subscription consumer batching, LiveConfig-derived dedup
   cache sizing for the handler router,
   fully-qualified broker topic routing, required
   anti-affinity validated on a two-worker Kind cluster, and the in-binary HTTP
   listener. The standalone live MinIO
   capability client and one-shot Pulsar WebSocket client are validated; live
-  use of the acquired clients from the long-lived service loop, long-lived
-  Pulsar redelivery/seek, Apple host connectivity, and live client flow are
-  owned by Sprints `5.4` / `5.5` / `5.6`'s Remaining Work. Phase:
+  validation and effectful workload use of the acquired non-Pulsar clients,
+  long-lived Pulsar redelivery/seek, Apple host connectivity, and live client
+  flow are owned by Sprints `5.4` / `5.5` / `5.6`'s Remaining Work. Phase:
   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md).
 - **Numerical core.** Haskell layer catalog (16 constructors: Dense,
   Embedding, Conv1D, Conv2D, Conv3D, ConvTranspose, ComplexDense,
@@ -509,8 +510,10 @@ each constraint.
    ForwardToHost`, and host-side connection info when `residency = Host`.
 5. On every substrate the in-cluster `jitml-service` is a stateless `Deployment`,
    not a `StatefulSet`. Required pod anti-affinity at `topologyKey:
-   kubernetes.io/hostname` enforces at most one replica per node. Durable state
-   lives in MinIO and Pulsar exclusively (no relational DB on jitML's data path).
+   kubernetes.io/hostname` enforces at most one replica per node, and
+   `maxSurge: 0` / `maxUnavailable: 1` keeps replacement rollouts valid on the
+   default single-worker Kind cluster. Durable state lives in MinIO and Pulsar
+   exclusively (no relational DB on jitML's data path).
 6. The CLI never touches `~/.kube/config`. Cluster kubeconfig lives at
    `./.build/jitml.kubeconfig`. Stage-0 bootstrap scripts never write
    `~/.kube/config`, `~/.docker/config.json`, the user's Homebrew prefix, or any
@@ -688,12 +691,14 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0`, `1`, `2`, `3`, and `6` are `✅ Done` — every Exit-Definition
+Phases `0`, `1`, `2`, `3`, `4`, and `6` are `✅ Done` — every Exit-Definition
 obligation those phases own is met. Sprint `1.4` closes the container-owned
 Haskell style-tool rule: the mandatory `jitml:local` image build installs the
 separate style-tools GHC, builds pinned Fourmolu / HLint binaries, runs
 `jitml check-code`, and runtime lint never performs host `ghcup` bootstrap.
-Phases `4`, `5`, `7`, `8`, `9`, `10`, `11`, and `12` are `🔄 Active` because at least one owned
+Phase `4` owns the validated stateful platform services and Linux CUDA
+RuntimeClass surface. Phases `5`, `7`, `8`, `9`, `10`, `11`, and `12` are
+`🔄 Active` because at least one owned
 Exit-Definition obligation requires live runtime behaviour (real service
 clients, real kernel execution, checkpoint storage, browser flow,
 cross-substrate parity) that the worktree does not yet
@@ -703,7 +708,7 @@ dependency-ordered sequence lives in
 
 | Surface | Current Repo State | Intended End State |
 |---------|--------------------|--------------------|
-| Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, Tart, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
+| Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, Tart, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `compose.yaml`, `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
 | Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; `jitml-cross-backend` validates the generated Linux CPU identity kernel compile/load/run path | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
 | CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup, train/eval/tune/RL/inference deterministic summaries, test report rendering, internal substrate materialization, VM subprocess rendering, generated-source build-plan rendering, and cache stubs. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution; the `jitml:local` image build installs the style GHC/tools and runs `jitml check-code`, while runtime lint uses prebuilt tools and never bootstraps host `ghcup`. | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
 | Test stanzas | Ten Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, and local checkpoint inference through a Linux CPU generated kernel, `jitml-cross-backend` includes generated Linux CPU identity/reduction-smoke compile/load/run, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. Live integration / SL convergence / RL trajectory / hyperparameter / cross-substrate parity / Pulumi+Playwright execution is owned by Sprints `12.2`–`12.6` / `12.8` / `12.9`'s Remaining Work | Ten Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style` |

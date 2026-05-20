@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Tune.Catalog
@@ -24,10 +26,12 @@ module JitML.Tune.Catalog
   )
 where
 
+import Codec.Serialise (Serialise)
 import Control.Exception.Safe (displayException, tryAny)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Dhall qualified
+import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
 data Sampler
@@ -109,7 +113,8 @@ data TrialTranscript = TrialTranscript
   , transcriptTrialSeed :: Int
   , transcriptValues :: [Double]
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 samplerCatalog :: [Sampler]
 samplerCatalog =

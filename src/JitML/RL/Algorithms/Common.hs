@@ -106,7 +106,7 @@ trajectoryRollout algoName envName seed horizon =
     , rolloutSeed = seed
     , rolloutActions = take horizon (iterate stepAction seed)
     , rolloutRewards =
-        take horizon (zipWith rewardFor (iterate stepAction seed) [0 ..])
+        take horizon (zipWith rewardFor (iterate stepAction seed) [0 :: Int ..])
     }
  where
   stepAction value = (value * 1103515245 + 12345 + Text.length algoName) `mod` 9973

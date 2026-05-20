@@ -38,6 +38,7 @@ import JitML.Service.KubectlSubprocess
   ( KubectlSettings (..)
   , KubectlSubprocess
   , defaultKubectlSettings
+  , inClusterKubectlSettings
   , runKubectlSubprocess
   )
 import JitML.Service.MinIOSubprocess
@@ -78,8 +79,14 @@ daemonClientSettingsForBootConfig bootConfig =
     { daemonMinIOSettings = minioSettingsForBootConfig bootConfig
     , daemonPulsarSettings = pulsarSettingsForBootConfig bootConfig
     , daemonHarborSettings = harborSettingsForBootConfig bootConfig
-    , daemonKubectlSettings = defaultKubectlSettings
+    , daemonKubectlSettings = kubectlSettingsForBootConfig bootConfig
     }
+
+kubectlSettingsForBootConfig :: BootConfig -> KubectlSettings
+kubectlSettingsForBootConfig bootConfig =
+  case bootResidency bootConfig of
+    Cluster -> inClusterKubectlSettings
+    Host -> defaultKubectlSettings
 
 runDaemonServiceClient :: DaemonClientSettings -> DaemonServiceClient a -> IO a
 runDaemonServiceClient settings action =
@@ -181,7 +188,7 @@ renderDaemonClientSettings settings =
     , "pulsar_websocket_endpoint: " <> pulsarWebSocketEndpoint pulsarSettings
     , "harbor_registry: " <> harborRegistry harborSettings
     , "harbor_api_base_url: " <> harborApiBaseUrl harborSettings
-    , "kubectl_kubeconfig: " <> Text.pack (kubectlKubeconfig kubectlSettings)
+    , "kubectl_kubeconfig: " <> renderKubectlKubeconfig kubectlSettings
     , "kubectl_namespace: " <> kubectlNamespace kubectlSettings
     ]
  where
@@ -189,6 +196,12 @@ renderDaemonClientSettings settings =
   pulsarSettings = daemonPulsarSettings settings
   harborSettings = daemonHarborSettings settings
   kubectlSettings = daemonKubectlSettings settings
+
+renderKubectlKubeconfig :: KubectlSettings -> Text
+renderKubectlKubeconfig settings =
+  case kubectlKubeconfig settings of
+    "" -> "(in-cluster)"
+    kubeconfig -> Text.pack kubeconfig
 
 minioSettingsForBootConfig :: BootConfig -> MinIOSettings
 minioSettingsForBootConfig bootConfig =

@@ -1,8 +1,4 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE StandaloneDeriving #-}
 
 module JitML.Tune.Resume
   ( ResumeOutcome (..)
@@ -11,12 +7,11 @@ module JitML.Tune.Resume
   )
 where
 
-import Codec.Serialise (Serialise, deserialiseOrFail, serialise)
+import Codec.Serialise (deserialiseOrFail, serialise)
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (rights)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import GHC.Generics (Generic)
 
 import JitML.Service.Capabilities
   ( BucketName (..)
@@ -27,12 +22,6 @@ import JitML.Service.Capabilities
   )
 import JitML.Service.Retry (ServiceError)
 import JitML.Tune.Catalog (TrialTranscript (..), trialStorageKey)
-
--- The transcript is serialised through Codec.Serialise so the bytes
--- round-trip bit-equal across read/write, matching the production MinIO
--- semantics.
-deriving stock instance Generic TrialTranscript
-deriving anyclass instance Serialise TrialTranscript
 
 data ResumeOutcome = ResumeOutcome
   { resumedSeeds :: [Int]

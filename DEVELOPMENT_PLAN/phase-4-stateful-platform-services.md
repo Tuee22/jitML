@@ -397,8 +397,9 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
   broker HTTP service that owns the embedded WebSocket endpoint.
 - `JitML.Service.PulsarWebSocketSubprocess` is the live one-shot WebSocket
   `HasPulsar` interpreter for the routed local edge. It publishes with Node's
-  WebSocket constructor, falling back to the bundled `undici.WebSocket` on the
-  Node 18 runtime shipped in `jitml:local`, opens consumers at the broker
+  WebSocket constructor, with an `undici.WebSocket` fallback for older Node
+  runtimes. The current `jitml:local` image carries Node.js `22.16.0`,
+  opens consumers at the broker
   WebSocket endpoint, consumes one payload, and acknowledges on that same
   WebSocket session before closing.
 
@@ -433,15 +434,13 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
    `("persistent://public/default/training.command.linux-cpu",
    "phase4-haskell-pulsar-1779216327")`.
 9. Live Linux CPU validation on 2026-05-20 exercises the current routed topic
-   `persistent://public/default/training.command.linux-cpu` from the
-   `jitml:local` Node 18 runtime with the `undici.WebSocket` fallback;
+   `persistent://public/default/training.command.linux-cpu` from
+   `jitml:local` through the WebSocket subprocess path;
    publish/consume succeeds through `/pulsar/ws`, returning broker message id
    `CDEQADAA`.
 10. `cabal test jitml-integration` covers the rendered
    `JitML.Service.PulsarWebSocketSubprocess` command surface and asserts the
-   producer and consumer target `/pulsar/ws/v2/...` on the routed local edge
-   with the `undici.WebSocket` fallback required by `jitml:local`'s Node 18
-   runtime.
+   producer and consumer target `/pulsar/ws/v2/...` on the routed local edge.
 11. Live Linux CPU validation on 2026-05-19 confirms the direct Pulsar values
    upgrade the release to `deployed` in Kind with `proxy.service.type=ClusterIP`;
    leaving the upstream `LoadBalancer` default caused Helm `--wait` to fail
@@ -474,8 +473,9 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
   subprocess interpreter: `pulsarConsume` opens a consumer, reads one message,
   acknowledges it on that same WebSocket session, and closes. Its Node script
   uses `globalThis.WebSocket` when present and `require('undici').WebSocket`
-  otherwise, so the path works inside the Node 18 runtime carried by
-  `jitml:local`. The daemon's long-lived at-least-once cursor, explicit
+  otherwise, so the path remains compatible with older Node runtimes while
+  current `jitml:local` carries Node.js `22.16.0`. The daemon's long-lived
+  at-least-once cursor, explicit
   post-dispatch ack/redelivery, and seek behavior remain Sprint `5.5` /
   Sprint `12.7` work.
 

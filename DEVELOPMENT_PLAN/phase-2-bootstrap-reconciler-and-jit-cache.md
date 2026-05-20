@@ -30,7 +30,7 @@ the stage-0 scripts fail fast on host gates and delegate to
 `jitml bootstrap --<substrate>`, the typed prerequisite DAG performs
 renderable/applicable Homebrew remediation with postcondition validation,
 the typed JIT cache key/layout/manifest/symlink layer is in place, the
-one-service `docker/compose.yaml` and `jitml:local` image definition exist,
+one-service `compose.yaml` and `jitml:local` image definition exist,
 the Tart command surface is typed, and the script-side `status`, `test`,
 `down`, `purge`, and `purge --full` wrappers are wired without
 intentionally touching global user state.
@@ -118,7 +118,7 @@ cluster, package, image, Dhall, and daemon action.
 - Linux `up` calls the intended outer-container handoff:
   `docker compose run --rm jitml jitml bootstrap --linux-cpu` or
   `docker compose run --rm jitml jitml bootstrap --linux-cuda`; Sprint `2.4`
-  owns the actual `docker/compose.yaml` and image build target that make this
+  owns the actual `compose.yaml` and image build target that make this
   handoff runnable from a clean checkout.
 - `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is registered in
   `CommandSpec` as the Haskell bootstrap command to be implemented by Sprint
@@ -300,7 +300,7 @@ at `./.build/host/apple-silicon/<model-id>.<ext>`.
 ## Sprint 2.4: Outer-Container Linux Builds and `jitml:local` Image ✅
 
 **Status**: Done
-**Implementation**: `docker/Dockerfile`, `docker/compose.yaml`,
+**Implementation**: `docker/Dockerfile`, `compose.yaml`,
 `bootstrap/linux-cpu.sh`, `bootstrap/linux-cuda.sh`,
 `src/JitML/App.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
@@ -323,8 +323,11 @@ the current command materializes bootstrap inputs only.
   and `jitml-demo` executables into `/usr/local/bin`. The full target image still
   needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, Poetry, and Pulumi hardening before it
   can serve as the complete Linux CPU / CUDA runtime image.
-- `docker/compose.yaml` declares one service `jitml` with image `jitml:local`,
-  bind-mounts `./` to `/jitml`, working dir `/jitml`, no entrypoint default.
+- `compose.yaml` declares one service `jitml` with image `jitml:local`,
+  bind-mounts the repository at the same absolute path inside the container that
+  it has on the host, runs with host networking so the outer-container Kind
+  kubeconfig loopback endpoint is reachable, and sets the same path as its
+  working directory with no entrypoint default.
 - `linux-cpu.sh` and `linux-cuda.sh` enter the image through
   `docker compose run --rm jitml ...`; Compose builds `jitml:local`
   automatically when needed.
@@ -341,7 +344,7 @@ the current command materializes bootstrap inputs only.
 
 ### Validation
 
-- `docker compose -f docker/compose.yaml config` validates the single `jitml`
+- `docker compose config` validates the single `jitml`
   service, image tag `jitml:local`, source bind mount, and working directory.
 - `jitml bootstrap --linux-cpu --dry-run` renders the typed bootstrap plan.
 - Cabal test stanzas cover the bootstrap plan and script handoff surfaces with

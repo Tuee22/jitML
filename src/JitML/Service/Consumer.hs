@@ -10,27 +10,34 @@ module JitML.Service.Consumer
   , consumerOutcomeError
   , consumerStep
   , dedupCacheCapacity
+  , dedupCacheExpireAt
   , dedupCacheInsert
+  , dedupCacheInsertAt
   , dedupCacheKnown
+  , dedupCacheKnownAt
   , daemonSubscriptionsForBootConfig
   , domainFor
   , emptyHandlerRouter
+  , emptyHandlerRouterWithTtl
   , eventIdFromPayload
   , emptyDedupCache
+  , emptyDedupCacheWithTtl
   , processAtLeastOnce
   , routeByKind
+  , routeByKindAt
   , runConsumerLoop
   , subscribeDaemonTopics
   )
 where
 
-import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Crypto.Hash.SHA256 qualified as SHA256
 import Data.ByteString qualified as ByteString
 import Data.ByteString qualified as StrictByteString
 import Data.Char (intToDigit)
 import Data.Text (Text)
 import Data.Text.Encoding qualified as Text.Encoding
+import System.Posix.Time (epochTime)
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Service.BootConfig
@@ -144,31 +151,73 @@ daemonSubscription prefix substrate subscriptionName =
     }
 
 -- | Per-handler LRU dedup cache. The capacity + TTL come from the LiveConfig.
--- The implementation is a bounded list of recently-seen `EventId` values; an
--- insert evicts the oldest entry past the capacity.
+-- The implementation is a bounded list of recently-seen `EventId` values with
+-- their wall-clock insertion time in seconds.
 data DedupCache = DedupCache
-  { dedupCacheEntries :: [EventId]
+  { dedupCacheEntries :: [(EventId, Int)]
   , dedupCacheLimit :: Int
+  , dedupCacheTtlSeconds :: Int
   }
   deriving stock (Eq, Show)
 
 emptyDedupCache :: Int -> DedupCache
-emptyDedupCache limit = DedupCache {dedupCacheEntries = [], dedupCacheLimit = limit}
+emptyDedupCache limit = emptyDedupCacheWithTtl limit maxBound
+
+emptyDedupCacheWithTtl :: Int -> Int -> DedupCache
+emptyDedupCacheWithTtl limit ttlSeconds =
+  DedupCache
+    { dedupCacheEntries = []
+    , dedupCacheLimit = max 0 limit
+    , dedupCacheTtlSeconds = max 0 ttlSeconds
+    }
 
 dedupCacheCapacity :: DedupCache -> Int
 dedupCacheCapacity = dedupCacheLimit
 
 dedupCacheKnown :: EventId -> DedupCache -> Bool
-dedupCacheKnown eventId cache = eventId `elem` dedupCacheEntries cache
+dedupCacheKnown eventId cache =
+  eventId `elem` fmap fst (dedupCacheEntries cache)
+
+dedupCacheKnownAt :: Int -> EventId -> DedupCache -> Bool
+dedupCacheKnownAt nowSeconds eventId cache =
+  dedupCacheKnown eventId (dedupCacheExpireAt nowSeconds cache)
 
 dedupCacheInsert :: EventId -> DedupCache -> DedupCache
 dedupCacheInsert eventId cache
   | dedupCacheKnown eventId cache = cache
+  | dedupCacheLimit cache <= 0 = cache {dedupCacheEntries = []}
   | otherwise =
       cache
         { dedupCacheEntries =
-            take (dedupCacheLimit cache) (eventId : dedupCacheEntries cache)
+            take (dedupCacheLimit cache) ((eventId, 0) : dedupCacheEntries cache)
         }
+
+dedupCacheInsertAt :: Int -> EventId -> DedupCache -> DedupCache
+dedupCacheInsertAt nowSeconds eventId cache
+  | dedupCacheKnown eventId freshCache = freshCache
+  | dedupCacheLimit freshCache <= 0 = freshCache {dedupCacheEntries = []}
+  | otherwise =
+      freshCache
+        { dedupCacheEntries =
+            take
+              (dedupCacheLimit freshCache)
+              ((eventId, nowSeconds) : dedupCacheEntries freshCache)
+        }
+ where
+  freshCache = dedupCacheExpireAt nowSeconds cache
+
+dedupCacheExpireAt :: Int -> DedupCache -> DedupCache
+dedupCacheExpireAt nowSeconds cache =
+  cache
+    { dedupCacheEntries =
+        filter (entryIsLive nowSeconds (dedupCacheTtlSeconds cache)) (dedupCacheEntries cache)
+    }
+
+entryIsLive :: Int -> Int -> (EventId, Int) -> Bool
+entryIsLive _nowSeconds ttlSeconds _entry
+  | ttlSeconds <= 0 = False
+entryIsLive nowSeconds ttlSeconds (_eventId, insertedAtSeconds) =
+  nowSeconds - insertedAtSeconds < ttlSeconds
 
 -- | The handler router carries one dedup cache per domain. The daemon's
 -- consumer threads each event through the router, which checks the per-domain
@@ -182,36 +231,67 @@ data HandlerRouter = HandlerRouter
   deriving stock (Eq, Show)
 
 routeByKind :: HandlerRouter -> EventDomain -> EventId -> (HandlerRouter, Bool)
-routeByKind router domain eventId =
+routeByKind =
+  routeByKindWith
+    dedupCacheKnown
+    dedupCacheInsert
+
+routeByKindAt :: Int -> HandlerRouter -> EventDomain -> EventId -> (HandlerRouter, Bool)
+routeByKindAt nowSeconds router =
+  routeByKindWith
+    (dedupCacheKnownAt nowSeconds)
+    (dedupCacheInsertAt nowSeconds)
+    (expireRouterAt nowSeconds router)
+
+routeByKindWith
+  :: (EventId -> DedupCache -> Bool)
+  -> (EventId -> DedupCache -> DedupCache)
+  -> HandlerRouter
+  -> EventDomain
+  -> EventId
+  -> (HandlerRouter, Bool)
+routeByKindWith known insert router domain eventId =
   case domain of
     TrainingDomain ->
       let cache = trainingCache router
-       in if dedupCacheKnown eventId cache
+       in if known eventId cache
             then (router, False)
-            else (router {trainingCache = dedupCacheInsert eventId cache}, True)
+            else (router {trainingCache = insert eventId cache}, True)
     TuneDomain ->
       let cache = tuneCache router
-       in if dedupCacheKnown eventId cache
+       in if known eventId cache
             then (router, False)
-            else (router {tuneCache = dedupCacheInsert eventId cache}, True)
+            else (router {tuneCache = insert eventId cache}, True)
     RlDomain ->
       let cache = rlCache router
-       in if dedupCacheKnown eventId cache
+       in if known eventId cache
             then (router, False)
-            else (router {rlCache = dedupCacheInsert eventId cache}, True)
+            else (router {rlCache = insert eventId cache}, True)
     InferenceDomain ->
       let cache = inferenceCache router
-       in if dedupCacheKnown eventId cache
+       in if known eventId cache
             then (router, False)
-            else (router {inferenceCache = dedupCacheInsert eventId cache}, True)
+            else (router {inferenceCache = insert eventId cache}, True)
 
 emptyHandlerRouter :: Int -> HandlerRouter
-emptyHandlerRouter limit =
+emptyHandlerRouter limit = emptyHandlerRouterWithTtl limit maxBound
+
+emptyHandlerRouterWithTtl :: Int -> Int -> HandlerRouter
+emptyHandlerRouterWithTtl limit ttlSeconds =
   HandlerRouter
-    { trainingCache = emptyDedupCache limit
-    , tuneCache = emptyDedupCache limit
-    , rlCache = emptyDedupCache limit
-    , inferenceCache = emptyDedupCache limit
+    { trainingCache = emptyDedupCacheWithTtl limit ttlSeconds
+    , tuneCache = emptyDedupCacheWithTtl limit ttlSeconds
+    , rlCache = emptyDedupCacheWithTtl limit ttlSeconds
+    , inferenceCache = emptyDedupCacheWithTtl limit ttlSeconds
+    }
+
+expireRouterAt :: Int -> HandlerRouter -> HandlerRouter
+expireRouterAt nowSeconds router =
+  HandlerRouter
+    { trainingCache = dedupCacheExpireAt nowSeconds (trainingCache router)
+    , tuneCache = dedupCacheExpireAt nowSeconds (tuneCache router)
+    , rlCache = dedupCacheExpireAt nowSeconds (rlCache router)
+    , inferenceCache = dedupCacheExpireAt nowSeconds (inferenceCache router)
     }
 
 -- | The outcome of a single consumer step. The daemon's `Consumer` IO loop
@@ -256,7 +336,8 @@ consumerStep _subscription router topic payload dispatch = do
         Left err -> pure (router, ConsumerError err)
         Right () -> pure (router, ConsumerSkippedUnroutable (unTopicName topic))
     Just domain -> do
-      let (router', isFresh) = routeByKind router domain eventId
+      nowSeconds <- liftIO currentEpochSeconds
+      let (router', isFresh) = routeByKindAt nowSeconds router domain eventId
       if isFresh
         then do
           dispatchResult <- dispatch domain eventId payload
@@ -308,3 +389,8 @@ runConsumerLoop subscription router0 budget dispatch =
         (router', outcome) <-
           consumerStep subscription router (TopicName topicText) payload dispatch
         go router' (outcome : outcomes) (remaining - 1)
+
+currentEpochSeconds :: IO Int
+currentEpochSeconds = do
+  now <- epochTime
+  pure (floor (realToFrac now :: Double))

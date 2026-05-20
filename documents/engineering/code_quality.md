@@ -160,7 +160,7 @@ the full target stack:
 7. `jitml lint chart`.
 8. `jitml lint haskell` (forbidden subprocess and IO primitives).
 9. `jitml docs check` (generated-section drift).
-10. `docker compose -f docker/compose.yaml build jitml` proves the same gate runs
+10. `docker compose build jitml` proves the same gate runs
     as part of the mandatory image build.
 
 ## Cross-References

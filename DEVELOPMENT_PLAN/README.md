@@ -314,7 +314,7 @@ prebuilt image tools or reports an image-rebuild remedy instead of bootstrapping
 style tools through host `ghcup`. Phase `2` owns the stage-0 scripts, the typed
 prerequisite DAG (with effectful remediation), the content-addressed JIT
 cache key/layout/manifest/symlink layer, the one-service
-`docker/compose.yaml`, the baseline `jitml:local` image, the Tart command
+`compose.yaml`, the baseline `jitml:local` image, the Tart command
 scaffold, and the script-side `status` / `test` / `down` / `purge` /
 `purge --full` wrappers. Phase `3` owns the per-substrate Kind configs,
 repo-local kubeconfig discipline, manual PV/storage-class surface, Envoy
@@ -335,8 +335,9 @@ Phases `5` (jitml service daemon), `7` (JIT codegen and per-substrate execution)
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
 runtime behaviour that the worktree does not exercise. The unmet runtime
-obligations are: live use of the daemon-acquired MinIO/Harbor/kubectl clients,
-Pulsar at-least-once redelivery, and event flow from the running service (Exit
+obligations are: live validation and effectful workload use of the
+daemon-acquired MinIO/Harbor/kubectl clients, Pulsar at-least-once redelivery,
+and event flow from the running service (Exit
 2, 7); real
 per-substrate kernel compile-and-execute beyond the Linux CPU identity
 fixture in `JitML.Engines.Local` (Exit 1, 5, 12); real SL / RL / AlphaZero
@@ -353,7 +354,8 @@ scaffolding inside the seven Active phases
 comprises: `app/Main.hs` and
 `app/Demo.hs` (six-line shims into the library-first `src/JitML/` tree);
 three stage-0 bootstrap scripts that delegate to `jitml bootstrap
---<substrate>`; one Dockerfile and one Compose service (`jitml:local`); the
+--<substrate>`; one Dockerfile and one root `compose.yaml` service (`jitml`)
+producing image `jitml:local`; the
 umbrella Helm chart at `chart/` with subchart deps for Harbor, Pulsar,
 MinIO, Percona Postgres, Envoy Gateway, and kube-prometheus-stack; typed
 chart/Kind renderers (including the typed `kindCreateSubprocess` /

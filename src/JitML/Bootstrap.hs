@@ -61,7 +61,7 @@ import JitML.Service.BootConfig
   , defaultBootConfig
   , renderBootConfigDhall
   )
-import JitML.Service.ConfigMap (renderServiceConfigMap, renderServiceDeployment)
+import JitML.Service.ConfigMap (renderServiceConfigMap, renderServiceDeployment, renderServiceRBAC)
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
@@ -127,6 +127,7 @@ materializeBootstrapFiles root substrate = do
           renderServiceConfigMap clusterBoot defaultLiveConfig
       , writeTextFileIfChanged (chartTemplatesRoot </> "deployment-jitml-service.yaml") $
           renderServiceDeployment substrate
+      , writeTextFileIfChanged (chartTemplatesRoot </> "rbac-jitml-service.yaml") renderServiceRBAC
       ]
   hostResults <- case substrate of
     AppleSilicon ->

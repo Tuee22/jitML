@@ -219,7 +219,7 @@ edge, `/pulsar/ws` resolves to `pulsar-broker:8080`, the broker config carries
 through `JitML.Service.PulsarWebSocketSubprocess`. The 2026-05-20 live run
 reconciles all 26 current substrate-scoped Pulsar topics and publishes/consumes
 on `persistent://public/default/training.command.linux-cpu` through the
-`jitml:local` Node 18 `undici.WebSocket` fallback. The 2026-05-19 live run
+`jitml:local` WebSocket subprocess path. The 2026-05-19 live run
 revalidated Harbor's preconditions and
 backend wiring with MinIO bucket readiness, `harbor-pg` readiness, schema
 ownership grant, Harbor rollout readiness, and a registry-API artifact write
@@ -243,6 +243,8 @@ The orchestrator is a stateless **Deployment** with `replicas: 1` by default
 and required pod **anti-affinity** at `topologyKey:
 kubernetes.io/hostname`, which lets the cluster scale to N replicas (one per
 node) when throughput requires it without ever placing two on the same node.
+Rolling updates use `maxSurge: 0` and `maxUnavailable: 1` so this required
+anti-affinity also works on the default single-worker development Kind cluster.
 The daemon owns no PVC of its own — durable state lives entirely in MinIO and
 Pulsar — so a StatefulSet would be the wrong shape.
 
@@ -261,7 +263,9 @@ Namespace: `platform` (fixed). The live local chart rollout creates or reuses
 that namespace, mounts the current typed Dhall ConfigMap, and exposes the
 daemon HTTP surface on a ClusterIP Service at port `8080`; 2026-05-19 live
 validation port-forwarded that Service and verified `/healthz`, `/readyz`, and
-`/metrics`.
+`/metrics`. 2026-05-20 live validation rolled the service with the
+single-worker-safe update strategy and confirmed service-account kubectl access
+from inside the pod.
 
 ## Envoy Gateway: A Single Localhost Socket
 
@@ -339,9 +343,10 @@ broader package validation/remediation belongs to the Haskell typed
 prerequisite DAG. Homebrew packages may be installed lazily by `jitml` through
 Plan/Apply prerequisite remediation; shell scripts never install them.
 Current validation on 2026-05-19 runs the live cluster toolchain from the
-`jitml:local` image with the repository mounted at the same absolute host path
-and `--network host` so Kind kubeconfig loopback endpoints are reachable. The
-Linux CPU bootstrap completes 100 live rollout steps and publishes all platform
+`jitml:local` image with the repository mounted at the same absolute host path;
+the root `compose.yaml` pins the `jitml` service to host networking so Kind
+kubeconfig loopback endpoints are reachable from the outer container. The Linux
+CPU bootstrap completes 100 live rollout steps and publishes all platform
 components as ready on edge port `9091`.
 
 Clean Linux CUDA validation on 2026-05-20 recreates `jitml-linux-cuda` from the

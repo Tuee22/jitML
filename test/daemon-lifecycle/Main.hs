@@ -31,10 +31,13 @@ import JitML.AppError.AppError (AppError (..))
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities
-  ( HasHarbor
-  , HasKubectl
-  , HasMinIO
+  ( BucketName (..)
+  , ETag (..)
+  , HasHarbor (..)
+  , HasKubectl (..)
+  , HasMinIO (..)
   , HasPulsar (..)
+  , KubeResource (..)
   , SubscriptionId (..)
   , TopicName (..)
   )
@@ -47,10 +50,13 @@ import JitML.Service.Consumer
   , consumerOutcomeError
   , daemonSubscriptionsForBootConfig
   , dedupCacheCapacity
+  , dedupCacheTtlSeconds
   , domainFor
   , emptyHandlerRouter
+  , emptyHandlerRouterWithTtl
   , eventIdFromPayload
   , processAtLeastOnce
+  , routeByKindAt
   , runConsumerLoop
   , subscribeDaemonTopics
   )
@@ -169,6 +175,10 @@ main =
               ( "- persistent://public/default/training.command.linux-cpu as jitml-service: pending"
                   `Text.isInfixOf` summary
               )
+            assertBool "client probe section" ("client_probe_status:" `Text.isInfixOf` summary)
+            assertBool
+              "pending MinIO client probe"
+              ("- minio:list jitml-checkpoints: pending" `Text.isInfixOf` summary)
       , testCase "daemon service client interpreter exposes all capability classes (Sprint 5.4)" $ do
           let action :: ServiceClients.DaemonServiceClient ()
               action = requiresDaemonCapabilities
@@ -176,6 +186,28 @@ main =
                 ServiceClients.daemonClientSettingsForBootConfig
                   (BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster)
           ServiceClients.runDaemonServiceClient settings action
+      , testCase "daemon client probe invokes non-Pulsar capability clients (Sprint 5.4)" $ do
+          clientLogRef <- newIORef []
+          probedRuntime <-
+            evalStateT
+              (Runtime.probeDaemonServiceClients defaultDaemonRuntime)
+              (SyntheticClientState clientLogRef)
+          daemonReady probedRuntime @?= True
+          fmap Runtime.daemonClientProbeStatusState (Runtime.daemonClientProbeStatuses probedRuntime)
+            @?= [ Runtime.DaemonClientProbeSucceeded "listed 0 objects"
+                , Runtime.DaemonClientProbeSucceeded "listed 0 images"
+                , Runtime.DaemonClientProbeSucceeded "received 1 lines"
+                ]
+          clientLog <- readIORef clientLogRef
+          clientLog
+            @?= [ "minio:list:jitml-checkpoints:daemon-health/"
+                , "harbor:list:library"
+                , "kubectl:get:pods"
+                ]
+          let summary = Runtime.renderDaemonRuntimeSummary probedRuntime
+          assertBool
+            "successful kubectl probe in summary"
+            ("- kubectl:get pods: ok received 1 lines" `Text.isInfixOf` summary)
       , testCase "daemon acquisition records Pulsar subscription success (Sprint 5.5)" $ do
           pullRef <- newIORef []
           ackRef <- newIORef []
@@ -307,9 +339,22 @@ main =
       , testCase "daemon handler router uses LiveConfig dedup cache size (Sprint 5.5)" $ do
           let router = Runtime.daemonHandlerRouter defaultDaemonRuntime
           dedupCacheCapacity (trainingCache router) @?= 4096
+          dedupCacheTtlSeconds (trainingCache router) @?= 3600
           dedupCacheCapacity (tuneCache router) @?= 4096
+          dedupCacheTtlSeconds (tuneCache router) @?= 3600
           dedupCacheCapacity (rlCache router) @?= 4096
+          dedupCacheTtlSeconds (rlCache router) @?= 3600
           dedupCacheCapacity (inferenceCache router) @?= 4096
+          dedupCacheTtlSeconds (inferenceCache router) @?= 3600
+      , testCase "dedup cache expires entries at LiveConfig TTL boundary (Sprint 5.5)" $ do
+          let eventId = eventIdFromPayload "payload-a"
+              router0 = emptyHandlerRouterWithTtl 16 5
+              (router1, firstSeen) = routeByKindAt 100 router0 TrainingDomain eventId
+              (router2, redeliveryBeforeTtl) = routeByKindAt 104 router1 TrainingDomain eventId
+              (_router3, redeliveryAtTtl) = routeByKindAt 105 router2 TrainingDomain eventId
+          firstSeen @?= True
+          redeliveryBeforeTtl @?= False
+          redeliveryAtTtl @?= True
       , testCase "subscribeDaemonTopics calls the typed HasPulsar boundary (Sprint 5.5)" $ do
           pullRef <- newIORef []
           ackRef <- newIORef []
@@ -346,10 +391,76 @@ data SyntheticBrokerState = SyntheticBrokerState
   , syntheticSubscribeLog :: IORef [(Text, Text)]
   }
 
+newtype SyntheticClientState = SyntheticClientState
+  { syntheticClientLog :: IORef [Text]
+  }
+
 requiresDaemonCapabilities
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m) => m ()
 requiresDaemonCapabilities =
   pure ()
+
+recordClientCall :: Text -> StateT SyntheticClientState IO ()
+recordClientCall entry = do
+  state <- get
+  liftIO (modifyIORef' (syntheticClientLog state) (++ [entry]))
+
+instance HasMinIO (StateT SyntheticClientState IO) where
+  minioPutIfAbsent ref _payload = do
+    recordClientCall "minio:put-if-absent"
+    pure (Right ref)
+  minioReadObject _ref = do
+    recordClientCall "minio:read-object"
+    pure (Right "")
+  minioReadBytes _ref = do
+    recordClientCall "minio:read-bytes"
+    pure (Right "")
+  putBlobIfAbsent _ref _payload = do
+    recordClientCall "minio:put-blob-if-absent"
+    pure (Right (ETag "synthetic-etag"))
+  putBlobBytesIfAbsent _ref _payload = do
+    recordClientCall "minio:put-blob-bytes-if-absent"
+    pure (Right (ETag "synthetic-etag"))
+  casPointer _ref _expected _payload = do
+    recordClientCall "minio:cas-pointer"
+    pure (Right (ETag "synthetic-etag"))
+  listObjects (BucketName bucket) prefix = do
+    recordClientCall ("minio:list:" <> bucket <> ":" <> prefix)
+    pure (Right [])
+  deleteObject _ref = do
+    recordClientCall "minio:delete-object"
+    pure (Right ())
+
+instance HasHarbor (StateT SyntheticClientState IO) where
+  harborImageExists _image = do
+    recordClientCall "harbor:exists"
+    pure (Right False)
+  harborPromoteImage _source target = do
+    recordClientCall "harbor:promote"
+    pure (Right target)
+  harborPushImage _image = do
+    recordClientCall "harbor:push"
+    pure (Right (ETag "synthetic-digest"))
+  harborPullImage _image = do
+    recordClientCall "harbor:pull"
+    pure (Right (ETag "synthetic-digest"))
+  harborListImages project = do
+    recordClientCall ("harbor:list:" <> project)
+    pure (Right [])
+
+instance HasKubectl (StateT SyntheticClientState IO) where
+  kubectlApply _resource _yaml = do
+    recordClientCall "kubectl:apply"
+    pure (Right ())
+  kubectlStatus (KubeResource resource) = do
+    recordClientCall ("kubectl:status:" <> resource)
+    pure (Right "items: []")
+  kubectlGet (KubeResource resource) = do
+    recordClientCall ("kubectl:get:" <> resource)
+    pure (Right "items: []")
+  kubectlDelete (KubeResource resource) = do
+    recordClientCall ("kubectl:delete:" <> resource)
+    pure (Right ())
 
 instance HasPulsar (StateT SyntheticBrokerState IO) where
   pulsarPublish _ _ = pure (Right "synthetic-message-id")

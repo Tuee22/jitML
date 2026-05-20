@@ -329,7 +329,7 @@ host GHC through `ghcup`.
 
 ### Validation
 
-1. `docker compose -f docker/compose.yaml build jitml` exits `0` and runs the
+1. `docker compose build jitml` exits `0` and runs the
    Haskell style/code-quality gate as part of image construction.
 2. `jitml lint haskell` and `jitml-haskell-style` use prebuilt style tools and
    do not invoke host `ghcup` for missing style-tool bootstrap.

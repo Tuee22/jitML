@@ -443,7 +443,7 @@ missingStyleToolsFinding bins =
     "haskell.style-tools.missing"
     "Haskell style tools are not available"
     ( Text.unlines
-        [ "rebuild the jitML container image with `docker compose -f docker/compose.yaml build jitml`"
+        [ "rebuild the jitML container image with `docker compose build jitml`"
         , "or run the lint command inside the `jitml:local` container"
         , "expected `fourmolu` and `hlint` in one of: " <> Text.intercalate ", " (Text.pack <$> bins)
         , "set " <> Text.pack styleToolsEnv <> " to override the prebuilt style-tool directory"

@@ -2,6 +2,8 @@
 
 module JitML.Service.Runtime
   ( DaemonRuntime (..)
+  , DaemonClientProbeState (..)
+  , DaemonClientProbeStatus (..)
   , DaemonSubscriptionState (..)
   , DaemonSubscriptionStatus (..)
   , acquireDaemonSubscriptions
@@ -12,6 +14,7 @@ module JitML.Service.Runtime
   , daemonHttpRoutes
   , daemonRuntimeForBootConfig
   , defaultDaemonRuntime
+  , probeDaemonServiceClients
   , renderDaemonRuntimeSummary
   , runtimeAfterSignal
   , serveDaemon
@@ -37,11 +40,20 @@ import JitML.Service.BootConfig
   , renderBootConfigDhall
   )
 import JitML.Service.Capabilities
-  ( ETag
+  ( BucketName (..)
+  , ETag
+  , HasHarbor
+  , HasKubectl
   , HasMinIO
   , HasPulsar
+  , ImageRef
+  , KubeResource (..)
+  , ObjectRef
   , SubscriptionId (..)
   , TopicName (..)
+  , harborListImages
+  , kubectlGet
+  , listObjects
   )
 import JitML.Service.Clients
   ( DaemonClientSettings
@@ -56,7 +68,7 @@ import JitML.Service.Consumer
   , HandlerRouter
   , consumerOutcomeError
   , daemonSubscriptionsForBootConfig
-  , emptyHandlerRouter
+  , emptyHandlerRouterWithTtl
   , runConsumerLoop
   , subscribeDaemonTopics
   )
@@ -74,6 +86,7 @@ import JitML.Service.LiveConfig
   ( LiveConfig
   , defaultLiveConfig
   , liveDedupCacheSize
+  , liveDedupCacheTtlSeconds
   , renderLiveConfigDhall
   )
 import JitML.Service.Retry (ServiceError (..))
@@ -94,10 +107,23 @@ data DaemonRuntime = DaemonRuntime
   { daemonBootConfig :: BootConfig
   , daemonLiveConfig :: LiveConfig
   , daemonClientSettings :: DaemonClientSettings
+  , daemonClientProbeStatuses :: [DaemonClientProbeStatus]
   , daemonSubscriptions :: [DaemonSubscription]
   , daemonSubscriptionStatuses :: [DaemonSubscriptionStatus]
   , daemonMetrics :: MetricsSnapshot
   , daemonReady :: Bool
+  }
+  deriving stock (Eq, Show)
+
+data DaemonClientProbeState
+  = DaemonClientProbePending
+  | DaemonClientProbeSucceeded Text
+  | DaemonClientProbeFailed ServiceError
+  deriving stock (Eq, Show)
+
+data DaemonClientProbeStatus = DaemonClientProbeStatus
+  { daemonClientProbeStatusName :: Text
+  , daemonClientProbeStatusState :: DaemonClientProbeState
   }
   deriving stock (Eq, Show)
 
@@ -124,6 +150,7 @@ daemonRuntimeForBootConfig bootConfig =
         { daemonBootConfig = bootConfig
         , daemonLiveConfig = defaultLiveConfig
         , daemonClientSettings = daemonClientSettingsForBootConfig bootConfig
+        , daemonClientProbeStatuses = pendingClientProbeStatuses
         , daemonSubscriptions = subscriptions
         , daemonSubscriptionStatuses = pendingSubscriptionStatuses subscriptions
         , daemonMetrics = MetricsSnapshot 0 1 0
@@ -140,9 +167,76 @@ acquireDaemonSubscriptions runtime = do
       , daemonReady = all subscriptionAcquired statuses
       }
 
+probeDaemonServiceClients
+  :: (HasHarbor m, HasKubectl m, HasMinIO m)
+  => DaemonRuntime
+  -> m DaemonRuntime
+probeDaemonServiceClients runtime = do
+  minioResult <- listObjects daemonProbeBucket daemonProbePrefix
+  harborResult <- harborListImages daemonProbeHarborProject
+  kubectlResult <- kubectlGet daemonProbeKubeResource
+  let statuses =
+        [ minioProbeStatus minioResult
+        , harborProbeStatus harborResult
+        , kubectlProbeStatus kubectlResult
+        ]
+  pure
+    runtime
+      { daemonClientProbeStatuses = statuses
+      , daemonReady = daemonReady runtime && all clientProbeSucceeded statuses
+      }
+
 pendingSubscriptionStatuses :: [DaemonSubscription] -> [DaemonSubscriptionStatus]
 pendingSubscriptionStatuses =
   fmap (`DaemonSubscriptionStatus` DaemonSubscriptionPending)
+
+pendingClientProbeStatuses :: [DaemonClientProbeStatus]
+pendingClientProbeStatuses =
+  fmap (`DaemonClientProbeStatus` DaemonClientProbePending) daemonClientProbeNames
+
+daemonClientProbeNames :: [Text]
+daemonClientProbeNames =
+  [ "minio:list jitml-checkpoints"
+  , "harbor:list library"
+  , "kubectl:get pods"
+  ]
+
+daemonProbeBucket :: BucketName
+daemonProbeBucket = BucketName "jitml-checkpoints"
+
+daemonProbePrefix :: Text
+daemonProbePrefix = "daemon-health/"
+
+daemonProbeHarborProject :: Text
+daemonProbeHarborProject = "library"
+
+daemonProbeKubeResource :: KubeResource
+daemonProbeKubeResource = KubeResource "pods"
+
+minioProbeStatus :: Either ServiceError [ObjectRef] -> DaemonClientProbeStatus
+minioProbeStatus result =
+  DaemonClientProbeStatus "minio:list jitml-checkpoints" $
+    case result of
+      Right refs ->
+        DaemonClientProbeSucceeded ("listed " <> Text.pack (show (length refs)) <> " objects")
+      Left err -> DaemonClientProbeFailed err
+
+harborProbeStatus :: Either ServiceError [ImageRef] -> DaemonClientProbeStatus
+harborProbeStatus result =
+  DaemonClientProbeStatus "harbor:list library" $
+    case result of
+      Right images ->
+        DaemonClientProbeSucceeded ("listed " <> Text.pack (show (length images)) <> " images")
+      Left err -> DaemonClientProbeFailed err
+
+kubectlProbeStatus :: Either ServiceError Text -> DaemonClientProbeStatus
+kubectlProbeStatus result =
+  DaemonClientProbeStatus "kubectl:get pods" $
+    case result of
+      Right output ->
+        DaemonClientProbeSucceeded
+          ("received " <> Text.pack (show (length (Text.lines output))) <> " lines")
+      Left err -> DaemonClientProbeFailed err
 
 subscriptionResultStatus
   :: (DaemonSubscription, Either ServiceError SubscriptionId) -> DaemonSubscriptionStatus
@@ -159,6 +253,12 @@ subscriptionAcquired :: DaemonSubscriptionStatus -> Bool
 subscriptionAcquired status =
   case daemonSubscriptionStatusState status of
     DaemonSubscriptionAcquired _ -> True
+    _ -> False
+
+clientProbeSucceeded :: DaemonClientProbeStatus -> Bool
+clientProbeSucceeded status =
+  case daemonClientProbeStatusState status of
+    DaemonClientProbeSucceeded _ -> True
     _ -> False
 
 daemonHttpRoutes :: DaemonRuntime -> [HttpRoute]
@@ -204,6 +304,8 @@ renderDaemonRuntimeSummary runtime =
     , indentText (renderLiveConfigDhall (daemonLiveConfig runtime))
     , "client_acquisition:"
     , indentText (renderDaemonClientSettings (daemonClientSettings runtime))
+    , "client_probe_status:"
+    , indentText (renderDaemonClientProbeStatuses (daemonClientProbeStatuses runtime))
     , "pulsar_subscriptions:"
     , indentText (renderDaemonSubscriptions (daemonSubscriptions runtime))
     , "pulsar_subscription_status:"
@@ -296,6 +398,25 @@ renderServiceError (SEUnauthorized message) = "unauthorized: " <> message
 renderServiceError (SETimeout message) = "timeout: " <> message
 renderServiceError (SETransient message) = "transient: " <> message
 
+renderDaemonClientProbeStatuses :: [DaemonClientProbeStatus] -> Text
+renderDaemonClientProbeStatuses [] = "(none)\n"
+renderDaemonClientProbeStatuses statuses =
+  Text.unlines (fmap renderDaemonClientProbeStatus statuses)
+
+renderDaemonClientProbeStatus :: DaemonClientProbeStatus -> Text
+renderDaemonClientProbeStatus status =
+  "- "
+    <> daemonClientProbeStatusName status
+    <> ": "
+    <> renderDaemonClientProbeState (daemonClientProbeStatusState status)
+
+renderDaemonClientProbeState :: DaemonClientProbeState -> Text
+renderDaemonClientProbeState DaemonClientProbePending = "pending"
+renderDaemonClientProbeState (DaemonClientProbeSucceeded summary) =
+  "ok " <> Text.replace "\n" " " summary
+renderDaemonClientProbeState (DaemonClientProbeFailed err) =
+  "failed " <> renderServiceError err
+
 renderSignalPlan :: (DaemonSignal, DaemonSignalAction) -> Text
 renderSignalPlan (signal, action) =
   renderDaemonSignal signal <> ": " <> renderDaemonSignalAction action
@@ -315,7 +436,9 @@ consumerLoopExit = asum . fmap consumerOutcomeError
 
 daemonHandlerRouter :: DaemonRuntime -> HandlerRouter
 daemonHandlerRouter runtime =
-  emptyHandlerRouter (liveDedupCacheSize (daemonLiveConfig runtime))
+  emptyHandlerRouterWithTtl
+    (liveDedupCacheSize (daemonLiveConfig runtime))
+    (liveDedupCacheTtlSeconds (daemonLiveConfig runtime))
 
 daemonConsumerBatch
   :: (HasPulsar m, MonadIO m)
