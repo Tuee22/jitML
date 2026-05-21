@@ -23,11 +23,17 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.State.Strict (StateT, evalStateT, get)
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
 import JitML.AppError.AppError (AppError (..))
+import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Proto.Inference qualified as Inference
+import JitML.Proto.Rl qualified as Rl
+import JitML.Proto.Training qualified as Training
+import JitML.Proto.Tune qualified as Tune
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities
@@ -237,6 +243,13 @@ main =
                 , PromoteWorkloadImage
                     (ImageRef "library/jitml:build")
                     (ImageRef "library/jitml:ready")
+                , RunInference
+                    Inference.InferenceRequest
+                      { Inference.irCallId = "call-1"
+                      , Inference.irExperimentHash = "inference-exp"
+                      , Inference.irReplyTopic = "inference.result.linux-cpu"
+                      , Inference.irInput = [1.0, 2.0]
+                      }
                 , ApplyWorkloadResource (KubeResource "job/jitml-train") "kind: Job\n"
                 , ReadWorkloadResourceStatus (KubeResource "job/jitml-train")
                 , DeleteWorkloadResource (KubeResource "job/jitml-train")
@@ -249,6 +262,7 @@ main =
             @?= [ Right (CheckpointBlobWritten (ETag "synthetic-etag"))
                 , Right (CheckpointPointerUpdated (ETag "synthetic-etag"))
                 , Right (WorkloadImagePromoted (ImageRef "library/jitml:ready"))
+                , Right (InferenceResultPublished "synthetic-message-id")
                 , Right WorkloadResourceApplied
                 , Right (WorkloadResourceStatus "items: []")
                 , Right WorkloadResourceDeleted
@@ -258,7 +272,10 @@ main =
             @?= [ "minio:put-blob-bytes-if-absent"
                 , "minio:cas-pointer"
                 , "harbor:promote"
-                , "kubectl:apply"
+                , "minio:read-object"
+                , "minio:read-bytes"
+                , "pulsar:publish:inference.result.linux-cpu"
+                , "kubectl:apply:job/jitml-train"
                 , "kubectl:status:job/jitml-train"
                 , "kubectl:delete:job/jitml-train"
                 ]
@@ -272,9 +289,18 @@ main =
                 PromoteWorkloadImage
                   (ImageRef "library/jitml:build")
                   (ImageRef "library/jitml:ready")
+              inferenceEffect =
+                RunInference
+                  Inference.InferenceRequest
+                    { Inference.irCallId = "call-2"
+                    , Inference.irExperimentHash = "inference-exp"
+                    , Inference.irReplyTopic = "inference.result.linux-cpu"
+                    , Inference.irInput = [3.0]
+                    }
               effects =
                 [ WriteCheckpointBlob checkpointBlob (ByteString.pack "checkpoint-bytes")
                 , imageEffect
+                , inferenceEffect
                 , ApplyWorkloadResource (KubeResource "job/jitml-train") "kind: Job\n"
                 ]
               renderedPayloads = fmap renderWorkloadEffectPayload effects
@@ -286,13 +312,13 @@ main =
                   renderedPayloads
               )
               (SyntheticClientState clientLogRef)
-          dispatchResults @?= [Right (), Right (), Right ()]
+          dispatchResults @?= [Right (), Right (), Right (), Right ()]
           ignored <-
             evalStateT
               ( Runtime.daemonWorkloadDispatcher
                   TrainingDomain
                   (eventIdFromPayload "not-workload")
-                  "kind: StartTraining\n"
+                  "kind: UnknownTrainingCommand\n"
               )
               (SyntheticClientState clientLogRef)
           ignored @?= Right ()
@@ -300,7 +326,95 @@ main =
           clientLog
             @?= [ "minio:put-blob-bytes-if-absent"
                 , "harbor:promote"
-                , "kubectl:apply"
+                , "minio:read-object"
+                , "minio:read-bytes"
+                , "pulsar:publish:inference.result.linux-cpu"
+                , "kubectl:apply:job/jitml-train"
+                ]
+      , testCase "daemon workload dispatcher maps command envelopes to workload effects (Sprint 5.4)" $ do
+          clientLogRef <- newIORef []
+          let trainingStart =
+                Training.renderTrainingCommand $
+                  Training.TrainingStart $
+                    Training.StartTraining
+                      "exp-123"
+                      "experiments/mnist.dhall"
+                      LinuxCPU
+                      11
+                      2
+                      32
+              trainingStop =
+                Training.renderTrainingCommand $
+                  Training.TrainingStop $
+                    Training.StopTraining "exp-123" True
+              rlStart =
+                Rl.renderRlCommand $
+                  Rl.RlStart $
+                    Rl.StartRLRun
+                      "rl-exp"
+                      "ppo"
+                      "cartpole"
+                      LinuxCPU
+                      7
+                      128
+                      4
+              tuneStart =
+                Tune.renderTuneCommand $
+                  Tune.TuneStart $
+                    Tune.StartSweep
+                      "tune-exp"
+                      "experiments/mnist-tune.dhall"
+                      LinuxCPU
+                      99
+                      3
+                      100
+                      "TPE"
+                      "ASHA"
+                      "Median"
+              inferenceRequest =
+                Inference.renderInferenceRequest
+                  Inference.InferenceRequest
+                    { Inference.irCallId = "call-3"
+                    , Inference.irExperimentHash = "inference-exp"
+                    , Inference.irReplyTopic = "inference.result.linux-cpu"
+                    , Inference.irInput = [4.0, 5.0]
+                    }
+          results <-
+            evalStateT
+              ( sequence
+                  [ Runtime.daemonWorkloadDispatcher
+                      TrainingDomain
+                      (eventIdFromPayload "training-start")
+                      trainingStart
+                  , Runtime.daemonWorkloadDispatcher
+                      TrainingDomain
+                      (eventIdFromPayload "training-stop")
+                      trainingStop
+                  , Runtime.daemonWorkloadDispatcher
+                      RlDomain
+                      (eventIdFromPayload "rl-start")
+                      rlStart
+                  , Runtime.daemonWorkloadDispatcher
+                      TuneDomain
+                      (eventIdFromPayload "tune-start")
+                      tuneStart
+                  , Runtime.daemonWorkloadDispatcher
+                      InferenceDomain
+                      (eventIdFromPayload "inference-request")
+                      inferenceRequest
+                  ]
+              )
+              (SyntheticClientState clientLogRef)
+          results @?= replicate 5 (Right ())
+          clientLog <- readIORef clientLogRef
+          clientLog
+            @?= [ "kubectl:apply:job/jitml-train-exp-123"
+                , "kubectl:delete:job/jitml-train-exp-123"
+                , "kubectl:apply:job/jitml-rl-rl-exp"
+                , "kubectl:apply:job/jitml-tune-tune-exp"
+                , "minio:read-object"
+                , "minio:read-bytes"
+                , "pulsar:publish:inference.result.linux-cpu"
                 ]
       , testCase "daemon acquisition records Pulsar subscription success (Sprint 5.5)" $ do
           pullRef <- newIORef []
@@ -550,10 +664,10 @@ instance HasMinIO (StateT SyntheticClientState IO) where
     pure (Right ref)
   minioReadObject _ref = do
     recordClientCall "minio:read-object"
-    pure (Right "")
+    pure (Right (Checkpoint.manifestContentSha syntheticInferenceManifest))
   minioReadBytes _ref = do
     recordClientCall "minio:read-bytes"
-    pure (Right "")
+    pure (Right (LazyByteString.toStrict (Checkpoint.encodeManifestCbor syntheticInferenceManifest)))
   putBlobIfAbsent _ref _payload = do
     recordClientCall "minio:put-blob-if-absent"
     pure (Right (ETag "synthetic-etag"))
@@ -588,8 +702,8 @@ instance HasHarbor (StateT SyntheticClientState IO) where
     pure (Right [])
 
 instance HasKubectl (StateT SyntheticClientState IO) where
-  kubectlApply _resource _yaml = do
-    recordClientCall "kubectl:apply"
+  kubectlApply (KubeResource resource) _yaml = do
+    recordClientCall ("kubectl:apply:" <> resource)
     pure (Right ())
   kubectlStatus (KubeResource resource) = do
     recordClientCall ("kubectl:status:" <> resource)
@@ -600,6 +714,29 @@ instance HasKubectl (StateT SyntheticClientState IO) where
   kubectlDelete (KubeResource resource) = do
     recordClientCall ("kubectl:delete:" <> resource)
     pure (Right ())
+
+instance HasPulsar (StateT SyntheticClientState IO) where
+  pulsarPublish (TopicName topic) _payload = do
+    recordClientCall ("pulsar:publish:" <> topic)
+    pure (Right "synthetic-message-id")
+  pulsarAcknowledge _topic _payload = do
+    recordClientCall "pulsar:ack"
+    pure (Right ())
+  pulsarSubscribe (TopicName topic) subscriptionName = do
+    recordClientCall ("pulsar:subscribe:" <> topic <> ":" <> subscriptionName)
+    pure (Right (SubscriptionId (topic <> "\n" <> subscriptionName)))
+  pulsarSeek (SubscriptionId subscription) eventId = do
+    recordClientCall ("pulsar:seek:" <> subscription <> ":" <> eventId)
+    pure (Right ())
+  pulsarConsume _subscription =
+    pure (Left (SETransient "synthetic client has no pull queue"))
+
+syntheticInferenceManifest :: Checkpoint.CheckpointManifest
+syntheticInferenceManifest =
+  Checkpoint.emptyManifest
+    "inference-exp"
+    "latest"
+    [Checkpoint.TensorBlob "dense.weight" [2] "blob-a"]
 
 instance HasPulsar (StateT SyntheticBrokerState IO) where
   pulsarPublish _ _ = pure (Right "synthetic-message-id")

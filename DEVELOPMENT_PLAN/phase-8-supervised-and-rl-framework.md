@@ -485,7 +485,8 @@ None.
   Work` blocks.
 - `documents/engineering/daemon_architecture.md` — payload-hash
   deduplication helper; target at-least-once `TrainingHandler` and
-  `RlHandler` owned by Sprints `5.5` / `8.2` / `8.6` Remaining Work.
+  `RlHandler` owned by Sprints `8.2` / `8.6` Remaining Work after Sprint
+  `5.5` closes the daemon consumer redelivery/dedup substrate.
 - `documents/engineering/haskell_code_guide.md` — lifecycle GADT table
   reflects the current `TrainingPhase` / `RLRunPhase` / `TuneSweepPhase`
   data-kind indices co-located in `src/JitML/RL/Framework.hs` after Sprint

@@ -79,12 +79,13 @@ Run the jitML daemon.
 Runs the long-lived daemon using Dhall boot and live configuration.
 
 ```text
-jitml service [--config <path>] [--dry-run] [--plan-file <path>]
+jitml service [--config <path>] [--consume-once <n>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `--config <path>` | value | no | Path to the daemon Dhall config. |
+| `--consume-once <n>` | value | no | Acquire daemon subscriptions, drain n messages per subscription, dispatch them, and exit. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -95,6 +96,12 @@ jitml service --config ./.build/conf/host/apple-silicon.dhall
 ```
 
 Run the host daemon using the Apple Silicon host config.
+
+```text
+jitml service --config /etc/jitml/BootConfig.dhall --consume-once 1
+```
+
+Run one bounded daemon consumer batch from a service pod.
 
 
 ## `jitml cluster up`

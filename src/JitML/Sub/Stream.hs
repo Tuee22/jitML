@@ -3,6 +3,7 @@ module JitML.Sub.Stream
   , capture
   , defaultSubprocessEnv
   , runStreaming
+  , withPipedProcess
   )
 where
 
@@ -13,6 +14,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.Encoding.Error (lenientDecode)
 import System.Exit (ExitCode)
+import System.IO (Handle)
 import System.Process.Typed qualified as Typed
 
 import JitML.Sub.Subprocess (Subprocess (..))
@@ -43,6 +45,20 @@ capture _env subprocessValue =
             (Typed.byteStringInput (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 payload)))
             (baseProcessConfig subprocessValue)
         )
+
+withPipedProcess :: Subprocess -> (Handle -> Handle -> IO a) -> IO a
+withPipedProcess subprocessValue action =
+  Typed.withProcessWait
+    ( Typed.setStdin Typed.createPipe $
+        Typed.setStdout Typed.createPipe $
+          Typed.setStderr Typed.nullStream $
+            baseProcessConfig subprocessValue
+    )
+    ( \processHandle ->
+        action
+          (Typed.getStdin processHandle)
+          (Typed.getStdout processHandle)
+    )
 
 baseProcessConfig :: Subprocess -> Typed.ProcessConfig () () ()
 baseProcessConfig subprocessValue =

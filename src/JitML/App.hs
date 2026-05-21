@@ -6,11 +6,14 @@ module JitML.App
   )
 where
 
-import Control.Exception.Safe (displayException, tryAny)
-import Control.Monad (unless, void, when)
+import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
+import Control.Exception.Safe (displayException, finally, tryAny)
+import Control.Monad (forever, unless, void, when)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy qualified as LazyByteString
+import Data.Foldable (for_, traverse_)
 import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -33,6 +36,7 @@ import JitML.CLI.Json (renderCommandJson)
 import JitML.CLI.Output
   ( exitWithError
   , exitWithErrorIO
+  , renderError
   , writeLazyByteString
   , writeLine
   , writeLineIO
@@ -85,7 +89,15 @@ import JitML.Prerequisite.Registry
 import JitML.RL.Algorithms qualified as RL
 import JitML.SL.Canonicals qualified as SL
 import JitML.Service.BootConfig qualified as BootConfig
+import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Clients qualified as ServiceClients
+import JitML.Service.Consumer
+  ( ConsumerOutcome (..)
+  , HandlerRouter
+  , consumerStepWithActions
+  )
+import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
+import JitML.Service.Retry (ServiceError)
 import JitML.Service.Runtime qualified as ServiceRuntime
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
@@ -476,6 +488,7 @@ runService :: [ParsedOption] -> App ()
 runService parsedOptions = do
   let configValues = optionValues "config" parsedOptions
       explicitConfig = not (null configValues)
+      consumeOnceBudget = max 0 (readInt (selectedValue "consume-once" "0" parsedOptions))
       configPath =
         case configValues of
           [] -> "./conf/cluster/linux-cpu.dhall"
@@ -495,8 +508,107 @@ runService parsedOptions = do
       )
   writeLine ("service config: " <> configPath)
   writeText (ServiceRuntime.renderDaemonRuntimeSummary probedRuntime)
-  writeLine "service: listening on 0.0.0.0:8080"
-  liftIO (ServiceRuntime.serveDaemon probedRuntime)
+  if consumeOnceBudget > 0
+    then do
+      (_, outcomes) <-
+        liftIO
+          ( ServiceClients.runDaemonServiceClient
+              (ServiceRuntime.daemonClientSettings probedRuntime)
+              ( ServiceRuntime.daemonConsumerBatch
+                  probedRuntime
+                  consumeOnceBudget
+                  ServiceRuntime.daemonWorkloadDispatcher
+              )
+          )
+      writeLine
+        ( "service: consume-once drained "
+            <> Text.pack (show consumeOnceBudget)
+            <> " message(s) per acquired subscription"
+        )
+      writeText (ServiceRuntime.renderConsumerOutcomes outcomes)
+      for_ (ServiceRuntime.consumerLoopExit outcomes) exitWithError
+    else do
+      writeLine "service: listening on 0.0.0.0:8080"
+      consumerThreads <- liftIO (startDaemonConsumerWorkers probedRuntime)
+      liftIO
+        ( ServiceRuntime.serveDaemon probedRuntime
+            `finally` stopDaemonConsumerWorkers consumerThreads
+        )
+
+startDaemonConsumerWorkers :: ServiceRuntime.DaemonRuntime -> IO [ThreadId]
+startDaemonConsumerWorkers runtime = do
+  routerRef <- newMVar (ServiceRuntime.daemonHandlerRouter runtime)
+  traverse (forkIO . daemonConsumerWorkerLoop runtime routerRef) (acquiredSubscriptionIds runtime)
+
+stopDaemonConsumerWorkers :: [ThreadId] -> IO ()
+stopDaemonConsumerWorkers =
+  traverse_ killThread
+
+acquiredSubscriptionIds :: ServiceRuntime.DaemonRuntime -> [SubscriptionId]
+acquiredSubscriptionIds runtime =
+  foldMap acquired (ServiceRuntime.daemonSubscriptionStatuses runtime)
+ where
+  acquired status =
+    case ServiceRuntime.daemonSubscriptionStatusState status of
+      ServiceRuntime.DaemonSubscriptionAcquired subscriptionId -> [subscriptionId]
+      _ -> []
+
+daemonConsumerWorkerLoop
+  :: ServiceRuntime.DaemonRuntime -> MVar HandlerRouter -> SubscriptionId -> IO ()
+daemonConsumerWorkerLoop runtime routerRef subscription =
+  forever $ do
+    workerResult <-
+      PulsarWebSocketSubprocess.runPulsarConsumerWorker
+        (ServiceClients.daemonPulsarSettings (ServiceRuntime.daemonClientSettings runtime))
+        subscription
+        (handleDaemonConsumerDelivery runtime routerRef subscription)
+    case workerResult of
+      Right () -> pure ()
+      Left err -> do
+        writeLineIO
+          ( "service: consumer worker error: "
+              <> Text.strip (ServiceRuntime.renderConsumerOutcomes [ConsumerError err])
+          )
+        threadDelay daemonConsumerErrorDelayMicros
+
+handleDaemonConsumerDelivery
+  :: ServiceRuntime.DaemonRuntime
+  -> MVar HandlerRouter
+  -> SubscriptionId
+  -> PulsarWebSocketSubprocess.PulsarWorkerDelivery
+  -> IO (Either ServiceError ())
+  -> IO (Either ServiceError ())
+  -> IO ()
+handleDaemonConsumerDelivery runtime routerRef subscription delivery ackDelivery nackDelivery = do
+  outcomeResult <-
+    tryAny $
+      modifyMVar routerRef $ \router -> do
+        (router', outcome) <-
+          consumerStepWithActions
+            subscription
+            router
+            (PulsarWebSocketSubprocess.pulsarWorkerDeliveryTopic delivery)
+            (PulsarWebSocketSubprocess.pulsarWorkerDeliveryPayload delivery)
+            ackDelivery
+            (const nackDelivery)
+            ( \domain eventId payload ->
+                ServiceClients.runDaemonServiceClient
+                  (ServiceRuntime.daemonClientSettings runtime)
+                  (ServiceRuntime.daemonWorkloadDispatcher domain eventId payload)
+            )
+        pure (router', outcome)
+  case outcomeResult of
+    Left err -> do
+      writeLineIO ("service: consumer worker failed: " <> Text.pack (displayException err))
+      threadDelay daemonConsumerErrorDelayMicros
+    Right outcome -> do
+      writeLineIO
+        ("service: " <> Text.strip (ServiceRuntime.renderConsumerOutcomes [outcome]))
+      for_ (ServiceRuntime.consumerLoopExit [outcome]) $ \appError ->
+        writeLineIO ("service: consumer outcome error: " <> renderError appError)
+
+daemonConsumerErrorDelayMicros :: Int
+daemonConsumerErrorDelayMicros = 1000000
 
 loadDaemonRuntime :: Text -> Bool -> App ServiceRuntime.DaemonRuntime
 loadDaemonRuntime configPath explicitConfig = do

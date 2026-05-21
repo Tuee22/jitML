@@ -3,6 +3,7 @@
 module JitML.Service.Workload
   ( WorkloadEffect (..)
   , WorkloadEffectResult (..)
+  , dispatchDomainPayload
   , dispatchWorkloadPayload
   , parseWorkloadEffectPayload
   , renderWorkloadEffect
@@ -15,28 +16,68 @@ where
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
-import Data.Char (digitToInt, intToDigit, isHexDigit)
+import Data.Char
+  ( digitToInt
+  , intToDigit
+  , isAsciiLower
+  , isAsciiUpper
+  , isDigit
+  , isHexDigit
+  , toLower
+  )
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Proto.Inference
+  ( InferenceRequest (..)
+  , InferenceResult (..)
+  , parseInferenceInput
+  , parseInferenceRequest
+  , renderInferenceRequest
+  , renderInferenceResult
+  )
+import JitML.Proto.Rl
+  ( RlCommand (..)
+  , StartRLRun (..)
+  , StopRLRun (..)
+  , parseRlCommand
+  )
+import JitML.Proto.Training
+  ( StartTraining (..)
+  , StopTraining (..)
+  , TrainingCommand (..)
+  , parseTrainingCommand
+  )
+import JitML.Proto.Tune
+  ( StartSweep (..)
+  , StopSweep (..)
+  , TuneCommand (..)
+  , parseTuneCommand
+  )
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ETag (..)
   , HasHarbor (..)
   , HasKubectl (..)
   , HasMinIO (..)
+  , HasPulsar (..)
   , ImageRef (..)
   , KubeResource (..)
   , ObjectKey (..)
   , ObjectRef (..)
+  , TopicName (..)
   )
-import JitML.Service.Retry (ServiceError)
+import JitML.Service.Consumer (EventDomain (..))
+import JitML.Service.Retry (ServiceError (..))
+import JitML.Substrate (Substrate, renderSubstrate)
 
 data WorkloadEffect
   = WriteCheckpointBlob ObjectRef ByteString
   | UpdateCheckpointPointer ObjectRef (Maybe ETag) Text
   | PromoteWorkloadImage ImageRef ImageRef
+  | RunInference InferenceRequest
   | ApplyWorkloadResource KubeResource Text
   | ReadWorkloadResourceStatus KubeResource
   | DeleteWorkloadResource KubeResource
@@ -46,13 +87,14 @@ data WorkloadEffectResult
   = CheckpointBlobWritten ETag
   | CheckpointPointerUpdated ETag
   | WorkloadImagePromoted ImageRef
+  | InferenceResultPublished Text
   | WorkloadResourceApplied
   | WorkloadResourceStatus Text
   | WorkloadResourceDeleted
   deriving stock (Eq, Show)
 
 runWorkloadEffect
-  :: (HasHarbor m, HasKubectl m, HasMinIO m)
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WorkloadEffect
   -> m (Either ServiceError WorkloadEffectResult)
 runWorkloadEffect effect =
@@ -63,6 +105,8 @@ runWorkloadEffect effect =
       fmap CheckpointPointerUpdated <$> casPointer ref expected payload
     PromoteWorkloadImage source target ->
       fmap WorkloadImagePromoted <$> harborPromoteImage source target
+    RunInference request ->
+      fmap InferenceResultPublished <$> runInferenceRequest request
     ApplyWorkloadResource resource manifest ->
       fmap (const WorkloadResourceApplied) <$> kubectlApply resource manifest
     ReadWorkloadResourceStatus resource ->
@@ -71,20 +115,195 @@ runWorkloadEffect effect =
       fmap (const WorkloadResourceDeleted) <$> kubectlDelete resource
 
 runWorkloadEffects
-  :: (HasHarbor m, HasKubectl m, HasMinIO m)
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => [WorkloadEffect]
   -> m [Either ServiceError WorkloadEffectResult]
 runWorkloadEffects =
   traverse runWorkloadEffect
 
 dispatchWorkloadPayload
-  :: (HasHarbor m, HasKubectl m, HasMinIO m)
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Text
   -> m (Maybe (Either ServiceError WorkloadEffectResult))
 dispatchWorkloadPayload payload =
   case parseWorkloadEffectPayload payload of
     Nothing -> pure Nothing
     Just effect -> Just <$> runWorkloadEffect effect
+
+dispatchDomainPayload
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => EventDomain
+  -> Text
+  -> m [Either ServiceError WorkloadEffectResult]
+dispatchDomainPayload domain payload =
+  runWorkloadEffects (workloadEffectsForDomainPayload domain payload)
+
+workloadEffectsForDomainPayload :: EventDomain -> Text -> [WorkloadEffect]
+workloadEffectsForDomainPayload domain payload =
+  case domain of
+    TrainingDomain ->
+      maybe [] trainingCommandEffects (parseTrainingCommand payload)
+    TuneDomain ->
+      maybe [] tuneCommandEffects (parseTuneCommand payload)
+    RlDomain ->
+      maybe [] rlCommandEffects (parseRlCommand payload)
+    InferenceDomain ->
+      maybe [] (pure . RunInference) (parseInferenceRequest payload)
+
+trainingCommandEffects :: TrainingCommand -> [WorkloadEffect]
+trainingCommandEffects command =
+  case command of
+    TrainingStart start ->
+      let resource = KubeResource ("job/" <> workloadName "jitml-train" (stExperimentHash start))
+       in [ApplyWorkloadResource resource (renderTrainingJob start)]
+    TrainingStop stop ->
+      [ DeleteWorkloadResource
+          (KubeResource ("job/" <> workloadName "jitml-train" (stopExperimentHash stop)))
+      ]
+
+tuneCommandEffects :: TuneCommand -> [WorkloadEffect]
+tuneCommandEffects command =
+  case command of
+    TuneStart start ->
+      let resource = KubeResource ("job/" <> workloadName "jitml-tune" (ssExperimentHash start))
+       in [ApplyWorkloadResource resource (renderTuneJob start)]
+    TuneStop stop ->
+      [ DeleteWorkloadResource
+          (KubeResource ("job/" <> workloadName "jitml-tune" (ssStopExperimentHash stop)))
+      ]
+
+rlCommandEffects :: RlCommand -> [WorkloadEffect]
+rlCommandEffects command =
+  case command of
+    RlStart start ->
+      let resource = KubeResource ("job/" <> workloadName "jitml-rl" (srlExperimentHash start))
+       in [ApplyWorkloadResource resource (renderRlJob start)]
+    RlStop stop ->
+      [ DeleteWorkloadResource
+          (KubeResource ("job/" <> workloadName "jitml-rl" (srStopExperimentHash stop)))
+      ]
+
+runInferenceRequest
+  :: (HasMinIO m, HasPulsar m)
+  => InferenceRequest
+  -> m (Either ServiceError Text)
+runInferenceRequest request = do
+  result <- CheckpointStore.loadInferenceCheckpoint (irExperimentHash request) (irInput request)
+  case result of
+    Left err ->
+      pure (Left (SETransient ("inference: " <> err)))
+    Right output ->
+      pulsarPublish
+        (TopicName (irReplyTopic request))
+        ( renderInferenceResult
+            InferenceResult
+              { iresCallId = irCallId request
+              , iresExperimentHash = irExperimentHash request
+              , iresOutput = output
+              }
+        )
+
+renderTrainingJob :: StartTraining -> Text
+renderTrainingJob start =
+  renderJob
+    "training"
+    (workloadName "jitml-train" (stExperimentHash start))
+    ["train", stDhallObjectKey start]
+    [ ("JITML_EXPERIMENT_HASH", stExperimentHash start)
+    , ("JITML_SUBSTRATE", renderSubstrateText (stSubstrate start))
+    , ("JITML_SEED", Text.pack (show (stSeed start)))
+    , ("JITML_EPOCHS", Text.pack (show (stEpochs start)))
+    , ("JITML_BATCH_SIZE", Text.pack (show (stBatchSize start)))
+    ]
+
+renderTuneJob :: StartSweep -> Text
+renderTuneJob start =
+  renderJob
+    "tune"
+    (workloadName "jitml-tune" (ssExperimentHash start))
+    ["tune", ssDhallObjectKey start]
+    [ ("JITML_EXPERIMENT_HASH", ssExperimentHash start)
+    , ("JITML_SUBSTRATE", renderSubstrateText (ssSubstrate start))
+    , ("JITML_SWEEP_SEED", Text.pack (show (ssSweepSeed start)))
+    , ("JITML_TRIAL_BUDGET", Text.pack (show (ssTrialBudget start)))
+    , ("JITML_BUDGET_PER_TRIAL", Text.pack (show (ssBudgetPerTrial start)))
+    , ("JITML_SAMPLER", ssSampler start)
+    , ("JITML_SCHEDULER", ssScheduler start)
+    , ("JITML_PRUNER", ssPruner start)
+    ]
+
+renderRlJob :: StartRLRun -> Text
+renderRlJob start =
+  renderJob
+    "rl"
+    (workloadName "jitml-rl" (srlExperimentHash start))
+    ["rl", "train", srlExperimentHash start]
+    [ ("JITML_EXPERIMENT_HASH", srlExperimentHash start)
+    , ("JITML_ALGORITHM", srlAlgorithm start)
+    , ("JITML_ENVIRONMENT", srlEnvironment start)
+    , ("JITML_SUBSTRATE", renderSubstrateText (srlSubstrate start))
+    , ("JITML_SEED", Text.pack (show (srlSeed start)))
+    , ("JITML_MAX_STEPS", Text.pack (show (srlMaxSteps start)))
+    , ("JITML_EVAL_EPISODES", Text.pack (show (srlEvalEpisodes start)))
+    ]
+
+renderJob :: Text -> Text -> [Text] -> [(Text, Text)] -> Text
+renderJob component name args envVars =
+  Text.unlines $
+    [ "apiVersion: batch/v1"
+    , "kind: Job"
+    , "metadata:"
+    , "  name: " <> name
+    , "  labels:"
+    , "    app.kubernetes.io/name: jitml"
+    , "    app.kubernetes.io/component: " <> component
+    , "spec:"
+    , "  template:"
+    , "    spec:"
+    , "      restartPolicy: Never"
+    , "      containers:"
+    , "        - name: " <> component
+    , "          image: jitml:local"
+    , "          command:"
+    , "            - " <> yamlString "jitml"
+    , "          args:"
+    ]
+      <> fmap (("            - " <>) . yamlString) args
+      <> [ "          env:"
+         ]
+      <> concatMap renderEnvVar envVars
+
+renderEnvVar :: (Text, Text) -> [Text]
+renderEnvVar (name, value) =
+  [ "            - name: " <> name
+  , "              value: " <> yamlString value
+  ]
+
+workloadName :: Text -> Text -> Text
+workloadName prefix experimentHash =
+  let suffix = kubeSafeName experimentHash
+      base = prefix <> "-" <> suffix
+   in Text.take 63 (Text.dropWhileEnd (== '-') base)
+
+kubeSafeName :: Text -> Text
+kubeSafeName value =
+  case Text.dropWhileEnd (== '-') (Text.dropWhile (== '-') (Text.map kubeChar value)) of
+    "" -> "unknown"
+    safe -> safe
+
+kubeChar :: Char -> Char
+kubeChar char
+  | isAsciiLower char || isDigit char = char
+  | isAsciiUpper char = toLower char
+  | otherwise = '-'
+
+yamlString :: Text -> Text
+yamlString value =
+  "\"" <> Text.replace "\"" "\\\"" value <> "\""
+
+renderSubstrateText :: Substrate -> Text
+renderSubstrateText =
+  renderSubstrate
 
 renderWorkloadEffectPayload :: WorkloadEffect -> Text
 renderWorkloadEffectPayload effect =
@@ -114,6 +333,20 @@ parseWorkloadEffectPayload payload = do
       source <- ImageRef <$> value "source-image"
       target <- ImageRef <$> value "target-image"
       pure (PromoteWorkloadImage source target)
+    "RunInference" -> do
+      callId <- value "call-id"
+      experimentHash <- value "experiment-hash"
+      replyTopic <- value "reply-topic"
+      input <- value "input" >>= parseInferenceInput
+      pure
+        ( RunInference
+            InferenceRequest
+              { irCallId = callId
+              , irExperimentHash = experimentHash
+              , irReplyTopic = replyTopic
+              , irInput = input
+              }
+        )
     "ApplyWorkloadResource" -> do
       resource <- KubeResource <$> value "resource"
       manifest <- value "manifest"
@@ -138,6 +371,8 @@ renderWorkloadEffect effect =
         <> maybe "(none)" unETag expected
     PromoteWorkloadImage source target ->
       "harbor:promote-image " <> unImageRef source <> " -> " <> unImageRef target
+    RunInference request ->
+      "inference:run " <> irCallId request <> " -> " <> irReplyTopic request
     ApplyWorkloadResource resource _ ->
       "kubectl:apply " <> unKubeResource resource
     ReadWorkloadResourceStatus resource ->
@@ -154,6 +389,8 @@ renderWorkloadEffectResult result =
       "checkpoint-pointer-updated " <> unETag etag
     WorkloadImagePromoted image ->
       "workload-image-promoted " <> unImageRef image
+    InferenceResultPublished messageId ->
+      "inference-result-published " <> messageId
     WorkloadResourceApplied ->
       "workload-resource-applied"
     WorkloadResourceStatus status ->
@@ -173,6 +410,7 @@ workloadEffectTag effect =
     WriteCheckpointBlob _ _ -> "WriteCheckpointBlob"
     UpdateCheckpointPointer {} -> "UpdateCheckpointPointer"
     PromoteWorkloadImage _ _ -> "PromoteWorkloadImage"
+    RunInference _ -> "RunInference"
     ApplyWorkloadResource _ _ -> "ApplyWorkloadResource"
     ReadWorkloadResourceStatus _ -> "ReadWorkloadResourceStatus"
     DeleteWorkloadResource _ -> "DeleteWorkloadResource"
@@ -191,6 +429,8 @@ workloadEffectFields effect =
       [ "source-image: " <> unImageRef source
       , "target-image: " <> unImageRef target
       ]
+    RunInference request ->
+      dropKindLine (renderInferenceRequest request)
     ApplyWorkloadResource resource manifest ->
       [ "resource: " <> unKubeResource resource
       , "manifest: " <> Text.replace "\n" "\\n" manifest
@@ -199,6 +439,12 @@ workloadEffectFields effect =
       ["resource: " <> unKubeResource resource]
     DeleteWorkloadResource resource ->
       ["resource: " <> unKubeResource resource]
+
+dropKindLine :: Text -> [Text]
+dropKindLine value =
+  case Text.lines value of
+    [] -> []
+    _kindLine : rest -> rest
 
 objectRefFields :: ObjectRef -> [Text]
 objectRefFields ref =

@@ -475,9 +475,8 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
   uses `globalThis.WebSocket` when present and `require('undici').WebSocket`
   otherwise, so the path remains compatible with older Node runtimes while
   current `jitml:local` carries Node.js `22.16.0`. The daemon's long-lived
-  at-least-once cursor, explicit
-  post-dispatch ack/redelivery, and seek behavior remain Sprint `5.5` /
-  Sprint `12.7` work.
+  at-least-once cursor, explicit post-dispatch ack, duplicate-payload dedup,
+  and dispatch-failure negative-ack redelivery are validated by Sprint `5.5`.
 
 ## Sprint 4.5: kube-prometheus-stack and Provisioned Dashboards ✅
 

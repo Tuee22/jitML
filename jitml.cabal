@@ -74,6 +74,7 @@ library
         JitML.Plan.Apply
         JitML.Plan.Plan
         JitML.Plan.Render
+        JitML.Proto.Inference
         JitML.Proto.Rl
         JitML.Proto.TensorBoard
         JitML.Proto.Training

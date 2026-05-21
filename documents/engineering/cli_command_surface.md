@@ -363,10 +363,11 @@ Run the jitML daemon.
 Runs the long-lived daemon using Dhall boot and live configuration.
 
 Usage:
-  jitml service [--config <path>] [--dry-run] [--plan-file <path>]
+  jitml service [--config <path>] [--consume-once <n>] [--dry-run] [--plan-file <path>]
 
 Options:
   -c, --config <path>  Path to the daemon Dhall config.
+  --consume-once <n>   Acquire daemon subscriptions, drain n messages per subscription, dispatch them, and exit.
   --dry-run            Print the plan without applying it.
   --plan-file <path>   Write the plan to a file.
 
@@ -374,6 +375,8 @@ Options:
 Examples:
   jitml service --config ./.build/conf/host/apple-silicon.dhall
       Run the host daemon using the Apple Silicon host config.
+  jitml service --config /etc/jitml/BootConfig.dhall --consume-once 1
+      Run one bounded daemon consumer batch from a service pod.
 ```
 
 ### `jitml cluster up`

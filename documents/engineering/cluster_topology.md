@@ -276,7 +276,9 @@ available. Recorded as the `edge_port` field of
 `minio_url`, and component health. `jitml cluster status` reads this file, and
 the Apple host `BootConfig` turns those publication fields into
 `pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, and `harborRegistry`
-before `JitML.Service.Clients` derives the concrete subprocess endpoints.
+before `JitML.Service.Clients` derives the concrete subprocess endpoints. Live
+validation of that host-native Apple daemon remains blocked until an Apple
+Silicon host can run the patched Dhall config against the leased edge route.
 
 The shape:
 
@@ -353,6 +355,14 @@ Clean Linux CUDA validation on 2026-05-20 recreates `jitml-linux-cuda` from the
 checked-in Kind config, confirms the worker carries `jitml.runtime/gpu=true`,
 applies `RuntimeClass/nvidia`, and runs `pod/nvidia-smi-probe` to `Succeeded`;
 the probe logs `GPU 0: NVIDIA GeForce RTX 5090`.
+Live Linux CUDA service validation on 2026-05-21 recreates the same
+`jitml-linux-cuda` substrate, loads `jitml:local`, applies
+`RuntimeClass/nvidia`, renders `chart/local/jitml-service` with
+`substrate=linux-cuda`, rolls out `Deployment/jitml-service`, confirms the pod
+runs on `jitml-linux-cuda-worker` with `runtimeClassName: nvidia`,
+`NVIDIA_VISIBLE_DEVICES=all`, and
+`NVIDIA_DRIVER_CAPABILITIES=compute,utility`, then executes `nvidia-smi -L`
+inside the service container and sees the RTX 5090.
 
 ## No Kubeconfig Pollution
 

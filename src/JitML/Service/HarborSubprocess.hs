@@ -5,6 +5,7 @@ module JitML.Service.HarborSubprocess
   , HarborSubprocess (..)
   , defaultHarborSettings
   , harborArtifactStatusSubprocess
+  , harborCreateTagSubprocess
   , harborImageDigestSubprocess
   , harborListRepositoriesSubprocess
   , harborLoginSubprocess
@@ -140,6 +141,34 @@ harborArtifactStatusSubprocess settings project repository tag =
         <> tag
     ]
 
+harborCreateTagSubprocess :: HarborSettings -> Text -> Text -> Text -> Text -> Subprocess
+harborCreateTagSubprocess settings project repository sourceTag targetTag =
+  subprocess
+    (harborCurlBinary settings)
+    [ "--silent"
+    , "--show-error"
+    , "--user"
+    , harborUsername settings <> ":" <> harborPassword settings
+    , "--output"
+    , "/dev/null"
+    , "--write-out"
+    , "%{http_code}"
+    , "--header"
+    , "Content-Type: application/json"
+    , "--request"
+    , "POST"
+    , "--data"
+    , "{\"name\":" <> jsonString targetTag <> "}"
+    , harborApiBaseUrl settings
+        <> "/v2.0/projects/"
+        <> project
+        <> "/repositories/"
+        <> encodeRepository repository
+        <> "/artifacts/"
+        <> sourceTag
+        <> "/tags"
+    ]
+
 newtype HarborRepository = HarborRepository
   { repositoryName :: Text
   }
@@ -170,18 +199,26 @@ instance HasHarbor HarborSubprocess where
 
   harborPromoteImage source target = do
     settings <- ask
-    tagResult <-
-      invokeUnit
-        "harborPromoteImage.tag"
-        ( subprocess
-            (harborDockerBinary settings)
-            (dockerArgs settings ["tag", unImageRef source, unImageRef target])
-        )
-    case tagResult of
-      Left err -> pure (Left err)
-      Right () -> do
-        pushResult <- harborPushImage target
-        pure (target <$ pushResult)
+    case sameRepositoryPromotion settings source target of
+      Just (project, repository, sourceTag, targetTag) -> do
+        statusResult <-
+          invokeText
+            "harborPromoteImage.tagApi"
+            (harborCreateTagSubprocess settings project repository sourceTag targetTag)
+        pure (promoteStatusToResult target (Text.strip <$> statusResult))
+      Nothing -> do
+        tagResult <-
+          invokeUnit
+            "harborPromoteImage.tag"
+            ( subprocess
+                (harborDockerBinary settings)
+                (dockerArgs settings ["tag", unImageRef source, unImageRef target])
+            )
+        case tagResult of
+          Left err -> pure (Left err)
+          Right () -> do
+            pushResult <- harborPushImage target
+            pure (target <$ pushResult)
 
   harborPushImage imageRef = do
     loginResult <- harborLogin
@@ -275,6 +312,41 @@ splitTag imagePath =
 encodeRepository :: Text -> Text
 encodeRepository =
   Text.replace "/" "%252F"
+
+sameRepositoryPromotion :: HarborSettings -> ImageRef -> ImageRef -> Maybe (Text, Text, Text, Text)
+sameRepositoryPromotion settings source target =
+  case (parseHarborImageRef settings source, parseHarborImageRef settings target) of
+    ( Right (sourceProject, sourceRepository, sourceTag)
+      , Right (targetProject, targetRepository, targetTag)
+      )
+        | sourceProject == targetProject && sourceRepository == targetRepository ->
+            Just (sourceProject, sourceRepository, sourceTag, targetTag)
+    _ -> Nothing
+
+promoteStatusToResult :: ImageRef -> Either ServiceError Text -> Either ServiceError ImageRef
+promoteStatusToResult target result =
+  case result of
+    Left err -> Left err
+    Right status
+      | status == "200" || status == "201" || status == "409" -> Right target
+      | status == "401" || status == "403" ->
+          Left (SEUnauthorized ("harborPromoteImage.tagApi: HTTP " <> status))
+      | status == "404" ->
+          Left (SETransient "harborPromoteImage.tagApi: source artifact missing")
+      | otherwise ->
+          Left (SETransient ("harborPromoteImage.tagApi: HTTP " <> status))
+
+jsonString :: Text -> Text
+jsonString value =
+  "\"" <> Text.concatMap escapeJsonChar value <> "\""
+
+escapeJsonChar :: Char -> Text
+escapeJsonChar '"' = "\\\""
+escapeJsonChar '\\' = "\\\\"
+escapeJsonChar '\n' = "\\n"
+escapeJsonChar '\r' = "\\r"
+escapeJsonChar '\t' = "\\t"
+escapeJsonChar char = Text.singleton char
 
 imageDigest :: ImageRef -> Text -> HarborSubprocess (Either ServiceError ETag)
 imageDigest imageRef stdoutText =

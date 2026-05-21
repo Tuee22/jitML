@@ -56,9 +56,9 @@ their typed scaffolds: the family-aware JIT codegen surface
 and deterministic benchmark candidate plans (`JitML.Engines.Tuning`), the
 14 RL algorithm modules under `JitML.RL.Algorithms.*`, the AlphaZero MCTS /
 SelfPlay / Arena substack, the four-game `PerfectInformation` typeclass, the
-typed proto envelopes
-under `JitML.Proto.{Training,Rl,Tune}` with deterministic text command
-parsers for the training, RL, and tuning command envelopes, the typed daemon capability
+typed proto envelopes under `JitML.Proto.{Training,Rl,Tune}` with deterministic
+text command parsers for the training, RL, and tuning command envelopes plus
+`JitML.Proto.Inference` for `RunInference` / `InferenceResult`, the typed daemon capability
 surface with full `HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl`
 methods + per-domain `HandlerRouter` + filesystem-backed `HasMinIO`
 instance (`JitML.Service.FilesystemMinIO`) + subprocess-backed
@@ -69,6 +69,10 @@ instance (`JitML.Service.FilesystemMinIO`) + subprocess-backed
 `JitML.Service.Clients` deriving daemon-owned MinIO, Pulsar WebSocket,
 Harbor, and kubectl settings from the loaded `BootConfig` and exposing the
 combined `DaemonServiceClient` interpreter for those four capability classes,
+`JitML.Service.Runtime.daemonWorkloadDispatcher` mapping parsed
+Training/RL/Tune command envelopes into Kubernetes Job apply/delete workload
+effects before ack, `jitml service --consume-once <n>` draining a bounded
+daemon consumer batch through those same BootConfig-derived client settings,
 with explicit Harbor settings, live routed MinIO conditional-write validation,
 routed Pulsar WebSocket publish/consume validation, and stdin-piped YAML
 `kubectlApply` validated against a live Kind cluster,
@@ -82,8 +86,25 @@ cluster and Apple-host subscription plan from `BootConfig` and accepting live
 rendering that plan under `pulsar_subscriptions` and startup acquisition under
 `pulsar_subscription_status` after the routed WebSocket subscribe probe,
 bounded acquired-subscription batching via
-`JitML.Service.Runtime.daemonConsumerBatch`, the LiveConfig-derived dedup cache
-size used by the handler router, the
+`JitML.Service.Runtime.daemonConsumerBatch`, post-dispatch WebSocket ack
+command rendering plus the held-open worker surface in
+`JitML.Service.PulsarWebSocketSubprocess`, normal `jitml service` startup
+creating per-acquired-subscription held-open workers with one shared
+process-lifetime handler router, 2026-05-21 live
+service-pod `--consume-once` validation dispatching Training/RL/Tune/Inference
+messages before ack, applying Training/RL/Tune Jobs, routing
+`WriteCheckpointBlob` workload effects into MinIO,
+`PromoteWorkloadImage` workload effects into Harbor same-repository tag
+promotion, and handling `RunInference` through MinIO checkpoint reads plus
+Pulsar `InferenceResult` publication, 2026-05-21 live normal-service
+held-open-worker validation handling `RunInference` and publishing
+`InferenceResult` without `--consume-once`, 2026-05-21 live duplicate-payload
+validation through that held-open worker path producing exactly one matching
+`InferenceResult`, 2026-05-21 live dispatch-failure validation publishing a
+`RunInference` request before its checkpoint exists, observing zero results
+before seeding, then receiving the redelivered `InferenceResult` after the
+daemon negative-acks the failed delivery, the
+LiveConfig-derived dedup cache size used by the handler router, the
 typed phased Helm rollout
 (`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus
 `pulsarTopicCreateSubprocesses` registering the same 26-topic
@@ -105,7 +126,10 @@ consumes through the edge, plus 2026-05-20 live validation proving the current
 works on `training.command.linux-cpu` from `jitml:local`, plus 2026-05-20 live
 Linux CUDA validation proving the checked-in Kind config wires the worker
 containerd `nvidia` runtime handler and runs an `nvidia-smi -L` probe through
-`RuntimeClass/nvidia`,
+`RuntimeClass/nvidia`, plus 2026-05-21 live Linux CUDA validation scheduling
+the actual `jitml-service` Deployment with `runtimeClassName: nvidia` onto the
+GPU-labelled worker and confirming `nvidia-smi -L` reports the RTX 5090 inside
+that service container,
 the optimizer/RNG/metric/parent-lineage CheckpointManifest shape
 with typed `AdvancePredicate` and `RetentionPolicy` +
 `JitML.App.runInternalGc` reconciler exiting `3` on no-op +
@@ -174,9 +198,10 @@ filesystem-backed `HasMinIO` instance, the
 `jitml test all`, and the per-problem SL convergence goldens under
 `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
 problems are all checked in. The remaining
-live runtime behaviours (CUDA JIT execution, Tart VM, live daemon Pulsar
-at-least-once redelivery, live training-to-convergence on real hardware,
-and live training/inference service-client effects) remain
+live runtime behaviours (CUDA JIT execution, Tart VM,
+live training-to-convergence on real hardware, and live
+training/inference service-client effects beyond the validated Linux CPU daemon
+paths) remain
 gated by absent infrastructure per the per-sprint `### Remaining
 Work` blocks. The `Some Tuning::{ ... }` Dhall worked example now decodes
 through the local tuning ADT and `jitml tune experiments/mnist-tune.dhall`
@@ -208,9 +233,10 @@ block, where the validation gate lives:
    block in `cabal.project` survives only while upstream Dhall/CBOR releases
    reject GHC `9.14.1`'s `base-4.22`. See
    [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
-2. **Real daemon runtime (Exit 2).** See
+2. **Real daemon runtime (Exit 2).** Blocked until an Apple Silicon host is
+   available for the host-native daemon subscription validation. See
    [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md)
-   Sprints `5.4` / `5.5` / `5.6` `Remaining Work`.
+   Sprint `5.6` `Remaining Work`.
 3. **Real per-substrate JIT execution (Exit 1, 5, 12).** See
    [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md)
    Sprints `7.3` / `7.4` / `7.5` / `7.6` `Remaining Work`.
@@ -339,12 +365,9 @@ Phases `5` (jitml service daemon), `7` (JIT codegen and per-substrate execution)
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
 runtime behaviour that the worktree does not exercise. The unmet runtime
-obligations are: live invocation of the daemon workload dispatcher from the
-running service pod, real training/inference handler integration with the
-daemon-acquired MinIO/Harbor/kubectl clients, Pulsar at-least-once redelivery,
-and event flow from the running service (Exit
-2, 7); real
-per-substrate kernel compile-and-execute beyond the Linux CPU identity
+obligations are: Apple host daemon validation (Exit 2), blocked until an Apple
+Silicon host is available;
+real per-substrate kernel compile-and-execute beyond the Linux CPU identity
 fixture in `JitML.Engines.Local` (Exit 1, 5, 12); real SL / RL / AlphaZero
 training loops with golden convergence and reward fixtures, plus live tuner
 trial execution / persistence beyond the local TPE Dhall render path (Exit 6);
@@ -378,8 +401,8 @@ the full four-class capability surface
 `HasPulsar.{pulsarPublish,pulsarAcknowledge,pulsarSubscribe,pulsarConsume,pulsarSeek}`,
 `HasHarbor.{harborImageExists,harborPromoteImage,harborPushImage,harborPullImage,harborListImages}`,
 `HasKubectl.{kubectlApply,kubectlStatus,kubectlGet,kubectlDelete}`) plus `ETag` / `SubscriptionId`
-newtypes and `JitML.Service.Workload` parsed byte-faithful mutating non-Pulsar
-workload effects;
+newtypes and `JitML.Service.Workload` parsed byte-faithful mutating workload
+effects including RunInference;
 the numerical-core Haskell catalog and Dhall mirror; per-substrate
 JIT source renderers under `src/JitML/Codegen/` with the
 `KernelFamily`-aware variants and the per-substrate `KnobSpace` from
@@ -396,7 +419,8 @@ catalog, trial-key surface, and the canonical
 `experiments/mnist-tune.dhall` worked example; the typed proto
 envelopes under `proto/jitml/{training,rl,tune}.proto` mirrored by
 `JitML.Proto.{Training,Rl,Tune}` with current text render/parse coverage for
-training, RL, and tuning command envelopes; the extended checkpoint
+training, RL, and tuning command envelopes, plus `JitML.Proto.Inference` for
+the current `RunInference` / `InferenceResult` text envelopes; the extended checkpoint
 manifest (optimizer state, RNG streams, monotonic step, metrics,
 parent lineage), the typed `AdvancePredicate` ADT, the
 `deriveExperimentHash` function, the `RetentionPolicy` + `walkLiveSet`

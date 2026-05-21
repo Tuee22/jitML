@@ -140,12 +140,21 @@ serviceCommand =
     "Run the jitML daemon."
     "Runs the long-lived daemon using Dhall boot and live configuration."
     [ value "config" (Just 'c') "path" False "Path to the daemon Dhall config."
+    , value
+        "consume-once"
+        Nothing
+        "n"
+        False
+        "Acquire daemon subscriptions, drain n messages per subscription, dispatch them, and exit."
     , dryRunOption
     , planFileOption
     ]
     [ Example
         "jitml service --config ./.build/conf/host/apple-silicon.dhall"
         "Run the host daemon using the Apple Silicon host config."
+    , Example
+        "jitml service --config /etc/jitml/BootConfig.dhall --consume-once 1"
+        "Run one bounded daemon consumer batch from a service pod."
     ]
 
 doctorCommand :: CommandSpec

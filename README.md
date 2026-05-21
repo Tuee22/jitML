@@ -396,7 +396,7 @@ writeCheckpoint payload = do
   pure (CheckpointId manifest)
 ```
 
-Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook already validates the manifest-to-engine boundary against the Linux CPU generated-kernel FFI runner; production work remains to load real weight blobs into every substrate engine. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
+Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook already validates the manifest-to-engine boundary against the Linux CPU generated-kernel FFI runner, and the daemon `RunInference` path validates the default latest-checkpoint read against live MinIO before publishing `InferenceResult` on Pulsar. Production work remains to load real weight blobs into every substrate engine. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
 
 ## Retention and GC
 
@@ -570,19 +570,28 @@ expected and benign. Handlers classify transient failures using the shared
 [Retry policy](#retry-policy); a `Fatal` classification negatively-acks the
 message and lets the broker redeliver after backoff. Idempotency keys derive
 from the protobuf message hash; the daemon does not trust client-supplied IDs.
-	The current Haskell surface derives the daemon subscription plan from
-	`BootConfig`, routes both bare and `persistent://public/default/...` broker
-	topic names to handler domains, registers the matching substrate-scoped topic
-	family during bootstrap, renders the planned daemon topics under
-	`pulsar_subscriptions` in the service startup summary, records startup
-	acquisition results under `pulsar_subscription_status`, opens the routed
-	WebSocket consumer endpoint for startup subscription probes, sizes the
-	per-domain dedup caches from `LiveConfig.dedupCacheSize`, exposes the
-	combined `DaemonServiceClient` interpreter for all four daemon capability
-	classes, and exercises `pulsarSubscribe` plus a bounded acquired-subscription
-	consumer batch through the typed boundary in `jitml-daemon-lifecycle`; the
-	remaining Phase 5 work is the real long-lived subscription/redelivery/seek
-	path inside the running daemon.
+The current Haskell surface derives the daemon subscription plan from
+`BootConfig`, routes both bare and `persistent://public/default/...` broker
+topic names to handler domains, registers the matching substrate-scoped topic
+family during bootstrap, renders the planned daemon topics under
+`pulsar_subscriptions` in the service startup summary, records startup
+acquisition results under `pulsar_subscription_status`, opens the routed
+WebSocket consumer endpoint for startup subscription probes, sizes the
+per-domain dedup caches from `LiveConfig.dedupCacheSize`, exposes the combined
+`DaemonServiceClient` interpreter for all four daemon capability classes,
+exercises `pulsarSubscribe` plus a bounded acquired-subscription consumer batch
+through the typed boundary in `jitml-daemon-lifecycle`, and starts held-open
+workers in the normal `jitml service` serve path with one shared process-lifetime
+dedup router. Live Linux CPU validation on 2026-05-21 proves that normal
+service path handles `RunInference` through that held-open worker path and
+publishes the expected `InferenceResult` without `--consume-once`, proves
+duplicate payloads produce exactly one matching `InferenceResult`, and proves a
+missing-checkpoint dispatch failure is negative-acked until broker redelivery
+publishes the result after the checkpoint is seeded. The remaining Phase 5 work
+is blocked on Apple host live validation; CUDA service-pod runtimeClass
+validation now runs the actual `jitml-service` pod on
+`jitml-linux-cuda-worker` and confirms `nvidia-smi -L` reports the RTX 5090
+inside that container.
 
 ---
 
@@ -725,7 +734,7 @@ mindmap
 |---------|---------|-------|
 | `jitml bootstrap` | Bootstrap a substrate stack. | `jitml bootstrap [--apple-silicon] [--linux-cpu] [--linux-cuda] [--dry-run] [--plan-file <path>]` |
 | `jitml doctor` | Check host prerequisites. | `jitml doctor [--scope <toolchain\|container\|cluster>] [--remediate]` |
-| `jitml service` | Run the jitML daemon. | `jitml service [--config <path>] [--dry-run] [--plan-file <path>]` |
+| `jitml service` | Run the jitML daemon. | `jitml service [--config <path>] [--consume-once <n>] [--dry-run] [--plan-file <path>]` |
 | `jitml cluster up` | Bring the cluster up. | `jitml cluster up [--substrate <substrate>] [--dry-run] [--plan-file <path>]` |
 | `jitml cluster down` | Bring the cluster down. | `jitml cluster down` |
 | `jitml cluster status` | Report cluster status. | `jitml cluster status` |

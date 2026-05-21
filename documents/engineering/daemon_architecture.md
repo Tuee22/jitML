@@ -31,6 +31,10 @@ default single-worker Kind cluster. Live validation on 2026-05-20 scaled the
 real `jitml-service` Deployment to two replicas on a temporary two-worker Kind
 cluster and observed one running pod per worker; the same date validated a
 single-worker replacement rollout and the service-account kubectl probe.
+Live Linux CUDA validation on 2026-05-21 schedules the actual
+`jitml-service` Deployment with `runtimeClassName: nvidia` onto
+`jitml-linux-cuda-worker`, confirms the CUDA env vars, and runs
+`nvidia-smi -L` inside the service container, which reports the RTX 5090.
 See [cluster_topology.md → `jitml-service` Deployment, Not StatefulSet](cluster_topology.md#jitml-service-deployment-not-statefulset).
 
 ## Lifecycle
@@ -100,20 +104,44 @@ unknown substrate text before building the daemon runtime.
 exposes the MinIO, Pulsar, Harbor, and `kubectl` capability classes from that
 one settings record. The current service startup already opens the derived
 Pulsar WebSocket consumer endpoint through `DaemonServiceClient` as a
-subscription probe and records `pulsar_subscription_status`. It also invokes a
+zero-queue subscription probe and records `pulsar_subscription_status`. It also invokes a
 read-only non-Pulsar client probe through the same daemon interpreter: MinIO
 lists `jitml-checkpoints` with the `daemon-health/` prefix, Harbor lists the
 `library` project, and kubectl runs `get pods`; those results are rendered
 under `client_probe_status` and failed probes drop readiness. Live Linux CPU
 validation on 2026-05-20 confirms those daemon-acquired read-only probes pass
 from the running pod. `JitML.Service.Workload` provides the local mutating
-non-Pulsar workload-effect runner over the same capability classes for
-checkpoint blob writes, checkpoint pointer CAS, Harbor image promotion, and
-kubectl apply/status/delete. `JitML.Service.Runtime.daemonWorkloadDispatcher`
+workload-effect runner over the same capability classes for checkpoint blob
+writes, checkpoint pointer CAS, Harbor image promotion, kubectl
+apply/status/delete, and RunInference result publication.
+`JitML.Service.Runtime.daemonWorkloadDispatcher`
 parses rendered byte-faithful `WorkloadEffect` payloads and routes them
-through that runner from the consumer dispatcher contract. Long-lived
-consume/redelivery/seek, live running-daemon invocation of that dispatcher, and
-real training/inference handler integration remain target work.
+through that runner from the consumer dispatcher contract; it also maps parsed
+Training/RL/Tune start/stop command envelopes into Kubernetes Job apply/delete
+workload effects. `jitml service --consume-once <n>` runs a bounded daemon
+consumer batch through the same BootConfig-derived `DaemonServiceClient`
+settings and renders dispatch / dedup / ack outcomes before exiting.
+2026-05-21 live Linux CPU validation runs that mode from the
+`jitml-service` pod, consumes one Training, Tune, RL, and Inference command
+message, dispatches each domain before ack, and applies the Training, Tune, and
+RL Jobs through the service account. A second 2026-05-21 live run routes
+`WriteCheckpointBlob` workload-effect payloads through the same service-pod
+consumer path and reads the written objects back from MinIO. A third 2026-05-21
+live run routes `PromoteWorkloadImage` workload-effect payloads through Harbor
+same-repository tag promotion and verifies the promoted artifact through the
+in-cluster Harbor API. The same service-pod path now routes `RunInference`
+through MinIO latest-checkpoint reads and publishes `InferenceResult` through
+Pulsar. The normal `jitml service` serve path starts held-open WebSocket
+workers for acquired subscriptions, shares one process-lifetime `HandlerRouter`
+across those workers, acks each broker message after dispatcher success, and
+negative-acks dispatch failures so the broker can redeliver without poisoning
+the dedup cache. It keeps the HTTP listener active while the workers drain
+messages. 2026-05-21 live Linux CPU validation proves this normal path handles
+`RunInference` and publishes the expected `InferenceResult` without
+`--consume-once`, proves duplicate payloads produce exactly one matching
+`InferenceResult`, and proves a missing-checkpoint dispatch failure is
+negative-acked until broker redelivery publishes the result after the checkpoint
+is seeded.
 
 The live `chart/local/jitml-service` ConfigMap carries the same current Dhall
 surface: residency and inference mode use typed union constructors, and
@@ -159,7 +187,7 @@ structured JSON on stderr with fields `ts`, `level`, `msg`, `lifecyclePhase`,
 | Class | Operations | Owning module |
 |-------|-----------|---------------|
 | `HasMinIO` | `minioPutIfAbsent`, `minioReadObject`, `minioReadBytes`, `putBlobIfAbsent`, `putBlobBytesIfAbsent`, `casPointer`, `listObjects`, `deleteObject` | `src/JitML/Service/Capabilities.hs`; local filesystem interpreter in `JitML.Service.FilesystemMinIO`; live HTTP S3 subprocess interpreter in `JitML.Service.MinIOSubprocess` |
-| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge`, `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek` | `src/JitML/Service/Capabilities.hs`; routed one-shot WebSocket subprocess interpreter in `JitML.Service.PulsarWebSocketSubprocess` |
+| `HasPulsar` | `pulsarPublish`, `pulsarAcknowledge`, `pulsarSubscribe`, `pulsarConsume`, `pulsarSeek` | `src/JitML/Service/Capabilities.hs`; routed one-shot WebSocket subprocess interpreter and held-open worker surface in `JitML.Service.PulsarWebSocketSubprocess` |
 | `HasHarbor` | `harborImageExists`, `harborPromoteImage`, `harborPushImage`, `harborPullImage`, `harborListImages` | `src/JitML/Service/Capabilities.hs`; explicit Docker/curl subprocess instance in `src/JitML/Service/HarborSubprocess.hs` |
 | `HasKubectl` | `kubectlApply`, `kubectlStatus`, `kubectlGet`, `kubectlDelete` | `src/JitML/Service/Capabilities.hs` |
 
@@ -171,7 +199,8 @@ structured JSON on stderr with fields `ts`, `level`, `msg`, `lifecyclePhase`,
 topic plan under
 `pulsar_subscriptions` and per-topic startup acquisition state under
 `pulsar_subscription_status`; the acquisition state comes from a one-shot
-WebSocket consumer-open probe through the daemon's derived Pulsar settings. The
+WebSocket consumer-open probe through the daemon's derived Pulsar settings with
+`receiverQueueSize=0`, so acquisition does not prefetch pending work. The
 summary also prints `client_probe_status` for the read-only MinIO list, Harbor
 list, and kubectl get probes that run through the acquired non-Pulsar clients.
 Cluster daemons target direct in-cluster endpoints: MinIO at
@@ -188,21 +217,48 @@ patched host Dhall: routed MinIO URLs are split into the root endpoint plus the
 `pulsar://127.0.0.1:<edge>/pulsar` becomes
 `ws://127.0.0.1:<edge>/pulsar/ws`, `127.0.0.1:<edge>/library` is split into
 Docker registry root plus the routed `/harbor/api` base, and kubectl uses the
-repo-local `./.build/jitml.kubeconfig`.
+repo-local `./.build/jitml.kubeconfig`. The host-native Apple daemon
+subscription validation is blocked until an Apple Silicon host is available to
+run `jitml service --config ./.build/conf/host/apple-silicon.dhall` against the
+leased edge route.
 
 `HasPulsar`, `HasHarbor`, and `HasKubectl` operations route through the typed
 `Subprocess` boundary where no native client is checked in. The current Pulsar
 WebSocket interpreter targets `ws://127.0.0.1:<edge-port>/pulsar/ws`, which
 Envoy rewrites to the broker-embedded `/ws` endpoint on `pulsar-broker:8080`.
-It is a one-shot validation/client surface: `pulsarConsume` opens a consumer,
-reads one message, acknowledges it on that same WebSocket session, and closes;
-the Node script uses `globalThis.WebSocket` when present and falls back to
-Node's bundled `undici.WebSocket` for older runtimes. Current `jitml:local`
-carries Node.js `22.16.0`. Live
+It provides both one-shot validation surfaces and the normal daemon worker:
+`pulsarSubscribe` opens the consumer endpoint with `receiverQueueSize=0` for
+startup acquisition, `pulsarConsume` opens a consumer with a bounded receiver
+queue, reads one message, stores the broker message id for the payload, and
+closes; `pulsarAcknowledge` reopens the routed consumer endpoint and sends that
+message id only after the Haskell dispatcher returns success.
+`runPulsarConsumerWorker` starts a held-open consumer WebSocket for the normal
+serve path, streams decoded deliveries to Haskell over stdout, and acks by
+writing broker message ids back to the worker over stdin after dispatcher
+success. Dispatch failures write a `negativeAcknowledge` command to the same
+worker so Pulsar redelivers the broker message after the configured delay. The
+Node scripts use `globalThis.WebSocket` when present and fall back to Node's
+bundled `undici.WebSocket` for older runtimes. Current `jitml:local` carries
+Node.js `22.16.0`. Live
 validation on 2026-05-20 publishes and consumes on
 `persistent://public/default/training.command.linux-cpu`, matching the current
-daemon subscription topic family. The daemon's long-lived post-dispatch
-ack/redelivery and `pulsarSeek` semantics remain target work below. The daemon
+daemon subscription topic family. 2026-05-21 live service-pod validation
+publishes command messages on the daemon topics, runs
+`jitml service --consume-once 1`, dispatches Training, Tune, RL, and Inference
+before ack, applies the Training/Tune/RL Jobs, and separately dispatches
+`WriteCheckpointBlob` workload-effect payloads into MinIO and
+`PromoteWorkloadImage` payloads into Harbor same-repository tag promotion.
+`jitml-integration`
+validates that consume records broker message ids, that the explicit
+acknowledge command sends the id after dispatch, and that the held-open worker
+command streams payloads to Haskell, only acks after Haskell writes a broker
+message id, and renders the negative-ack command used for dispatch failures.
+Normal service startup now runs that dispatcher from held-open
+workers with retained dedup state for the process lifetime, and 2026-05-21 live
+Linux CPU validation proves that path for `RunInference` without
+`--consume-once`; the same date validates duplicate-payload dedup and
+dispatch-failure negative-ack redelivery against the running broker.
+The daemon
 now loads `BootConfig` from Dhall before starting the runtime and derives
 concrete subprocess settings from those loaded coordinates. `jitml service`
 crosses the derived Pulsar `pulsarSubscribe` acquisition boundary and the
@@ -211,15 +267,25 @@ before serving, and drops readiness when acquisition or probe fails. 2026-05-20
 live validation of the Linux CPU chart confirms `/healthz`, `/readyz`,
 `/metrics`, MinIO `jitml-checkpoints` listing, Harbor `library` listing, and
 in-pod `kubectl get pods -n platform` through the `jitml-service` service
-account. `JitML.Service.Workload` is the current typed workload-effect runner
-for mutating non-Pulsar daemon effects: it maps checkpoint blob writes to
+account. The same live path applies, reads, and deletes the current
+Training/RL/Tune Job manifest shapes through that service account from inside
+the running pod. `JitML.Service.Workload` is the current typed workload-effect runner
+for mutating daemon effects: it maps checkpoint blob writes to
 `HasMinIO.putBlobBytesIfAbsent`, checkpoint pointer updates to
 `HasMinIO.casPointer`, image promotion to `HasHarbor.harborPromoteImage`, and
-resource apply/status/delete to `HasKubectl`. It also renders/parses
+resource apply/status/delete to `HasKubectl`; `RunInference` loads the latest
+checkpoint manifest through `HasMinIO` and publishes `InferenceResult` through
+`HasPulsar`. It also renders/parses
 byte-faithful `WorkloadEffect` payloads, and `daemonWorkloadDispatcher` routes
-parsed payloads through those calls before ack. The daemon lifecycle suite
-validates those calls against the synthetic daemon client instance; live
-service-pod handler routing through that dispatcher remains target work below.
+parsed payloads through those calls before ack. The same dispatcher maps parsed
+Training/RL/Tune start/stop command envelopes into Kubernetes Job apply/delete
+workload effects and maps `RunInference` request envelopes into the inference
+effect before ack. The daemon lifecycle suite validates those calls
+against the synthetic daemon client instance, and
+`jitml service --consume-once <n>` is the bounded service-pod validation surface
+for the same dispatcher; 2026-05-21 live Linux CPU validation exercises that
+surface against the running service pod for the command-envelope path and for
+`WriteCheckpointBlob`, `PromoteWorkloadImage`, and `RunInference` payloads.
 Harbor
 settings are passed as a value
 (`HarborSettings`) containing registry/API coordinates, credentials, optional
@@ -316,19 +382,38 @@ substrate-scoped 26-topic family before daemon
 subscription, and 2026-05-20 live Linux CPU validation confirms all 26 current
 topics exist in the broker. Live Pulsar publish/consume through the routed
 broker WebSocket endpoint is validated by
-`JitML.Service.PulsarWebSocketSubprocess`, but target daemon consumer wiring
-still needs a long-lived subscription using that plan, explicit post-dispatch
-ack behavior, redelivery/dedup validation, and seek semantics against a real
-Pulsar broker.
+`JitML.Service.PulsarWebSocketSubprocess`, and 2026-05-21 live service-pod
+`--consume-once` validation covers bounded post-dispatch ack on the daemon
+topics. Normal `jitml service` startup now creates per-acquired-subscription
+held-open workers that share a process-lifetime `HandlerRouter`. 2026-05-21
+live Linux CPU validation proves the held-open-worker path for a
+`RunInference` request and reply without using `--consume-once`, then publishes
+the same `RunInference` payload twice and observes exactly one matching
+`InferenceResult`, and finally validates a missing-checkpoint dispatch failure
+by observing zero results before seed and receiving the redelivered
+`InferenceResult` after the checkpoint is seeded.
+
+The current dispatcher has local command-handler coverage for the parsed text
+envelopes that exist today: `StartTraining` / `StopTraining`,
+`StartRLRun` / `StopRLRun`, and `StartSweep` / `StopSweep` map to
+kubectl-backed Job apply/delete workload effects. Live service-pod validation
+has proved those generated Job manifest shapes through the in-cluster service
+account, and 2026-05-21 live `--consume-once` validation invokes the dispatcher
+itself from the running service pod for those command envelopes and for MinIO
+checkpoint writes plus Harbor same-repository image promotion. The same live
+path seeds a latest checkpoint in MinIO, dispatches a bare-reply-topic
+`RunInference` request, and consumes `InferenceResult` with output `1.01,2.01`
+from `inference.result.linux-cpu`.
 
 Checkpoint-backed inference uses the Phase 10 read path:
 `JitML.Checkpoint.Store.loadInferenceCheckpointWith` loads the latest pointer
 and manifest through `HasMinIO`, strips optimizer/RNG parts, and hands the
 weight-only manifest to the active engine. The local Linux CPU validation path
 uses `JitML.Engines.Local.runLinuxCpuCheckpointInference` to compile, load, and
-execute a generated FFI kernel from that manifest. Live daemon work remains to
-connect the same hook to routed MinIO objects, real weight blobs, and the
-substrate-specific production engines.
+execute a generated FFI kernel from that manifest. The live daemon path now
+connects the default deterministic inference hook to routed MinIO objects and
+Pulsar result publication; production weight-blob loading into
+substrate-specific engines remains Phase 10 / Phase 7 work.
 
 ## Apple Silicon Hybrid Pattern
 

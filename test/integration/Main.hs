@@ -285,10 +285,26 @@ main =
                   topic
                   "/tmp/payload"
                   "/tmp/out"
+              barePublishCommand =
+                PulsarWebSocketSubprocess.pulsarPublishSubprocess
+                  settings
+                  (TopicName "inference.result.linux-cpu")
+                  "/tmp/payload"
+                  "/tmp/out"
               consumeCommand =
                 PulsarWebSocketSubprocess.pulsarConsumeSubprocess
                   settings
                   subscription
+                  "/tmp/out"
+              workerCommand =
+                PulsarWebSocketSubprocess.pulsarConsumerWorkerSubprocess
+                  settings
+                  subscription
+              acknowledgeCommand =
+                PulsarWebSocketSubprocess.pulsarAcknowledgeSubprocess
+                  settings
+                  "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.linux-cpu/jitml-live?subscriptionType=Exclusive&receiverQueueSize=1&ackTimeoutMillis=30000"
+                  "message-id"
                   "/tmp/out"
               subscribeCommand =
                 PulsarWebSocketSubprocess.pulsarSubscribeSubprocess
@@ -302,15 +318,36 @@ main =
                 `Text.isInfixOf` renderSubprocess publishCommand
             )
           assertBool
+            "Pulsar producer resolves bare public/default topic names"
+            ( "ws://127.0.0.1:9091/pulsar/ws/v2/producer/persistent/public/default/inference.result.linux-cpu"
+                `Text.isInfixOf` renderSubprocess barePublishCommand
+            )
+          assertBool
             "Pulsar consumer targets the routed WebSocket endpoint"
             ( "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.linux-cpu/jitml-live"
                 `Text.isInfixOf` renderSubprocess consumeCommand
+            )
+          assertBool
+            "Pulsar acknowledge targets the routed WebSocket endpoint"
+            ( "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.linux-cpu/jitml-live"
+                `Text.isInfixOf` renderSubprocess acknowledgeCommand
             )
           assertBool
             "Pulsar subscribe probe targets the routed WebSocket endpoint"
             ( "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.linux-cpu/jitml-live"
                 `Text.isInfixOf` renderSubprocess subscribeCommand
             )
+          assertBool
+            "Pulsar subscribe probe does not prefetch broker messages"
+            ("receiverQueueSize=0" `Text.isInfixOf` renderSubprocess subscribeCommand)
+          assertBool
+            "Pulsar worker targets the routed WebSocket endpoint"
+            ( "ws://127.0.0.1:9091/pulsar/ws/v2/consumer/persistent/public/default/training.command.linux-cpu/jitml-live"
+                `Text.isInfixOf` renderSubprocess workerCommand
+            )
+          assertBool
+            "Pulsar worker keeps broker delivery enabled"
+            ("receiverQueueSize=1" `Text.isInfixOf` renderSubprocess workerCommand)
           assertBool
             "Pulsar WebSocket commands use Node"
             ("node --eval" `Text.isInfixOf` renderSubprocess publishCommand)
@@ -319,6 +356,50 @@ main =
             ( any
                 ("require('undici').WebSocket" `Text.isInfixOf`)
                 (JitML.Sub.Subprocess.subprocessArguments publishCommand)
+            )
+          assertBool
+            "Pulsar consume records broker message ids for post-dispatch ack"
+            ( any
+                ("message-id:" `Text.isInfixOf`)
+                (JitML.Sub.Subprocess.subprocessArguments consumeCommand)
+            )
+          assertBool
+            "Pulsar consume no longer acks before dispatcher completion"
+            ( not
+                ( any
+                    ("ws.send(JSON.stringify({ messageId: message.messageId }))" `Text.isInfixOf`)
+                    (JitML.Sub.Subprocess.subprocessArguments consumeCommand)
+                )
+            )
+          assertBool
+            "Pulsar acknowledge sends the broker message id after dispatch"
+            ( any
+                ("ws.send(JSON.stringify({ messageId }))" `Text.isInfixOf`)
+                (JitML.Sub.Subprocess.subprocessArguments acknowledgeCommand)
+            )
+          assertBool
+            "Pulsar worker accepts message ids from the parent process"
+            ( any
+                ("process.stdin.on('data'" `Text.isInfixOf`)
+                (JitML.Sub.Subprocess.subprocessArguments workerCommand)
+            )
+          assertBool
+            "Pulsar worker streams decoded payloads to the parent process"
+            ( any
+                ("process.stdout.write" `Text.isInfixOf`)
+                (JitML.Sub.Subprocess.subprocessArguments workerCommand)
+            )
+          assertBool
+            "Pulsar worker acks only when the parent writes a message id"
+            ( any
+                ("ws.send(JSON.stringify({ messageId }))" `Text.isInfixOf`)
+                (JitML.Sub.Subprocess.subprocessArguments workerCommand)
+            )
+          assertBool
+            "Pulsar worker can negatively acknowledge failed deliveries"
+            ( any
+                ("negativeAcknowledge" `Text.isInfixOf`)
+                (JitML.Sub.Subprocess.subprocessArguments workerCommand)
             )
           assertBool
             "Pulsar subscribe script records the broker-opened subscription"
@@ -457,6 +538,9 @@ main =
                 assertBool
                   "service --help mentions the daemon"
                   ("Run the jitML daemon" `Text.isInfixOf` serviceStdout)
+                assertBool
+                  "service --help exposes the bounded consumer validation mode"
+                  ("--consume-once" `Text.isInfixOf` serviceStdout)
                 -- train --dry-run experiments/mnist.dhall emits the typed Plan
                 -- (resolve the path against the repo root, not the temp workdir).
                 experimentPath <- makeAbsolute "experiments/mnist.dhall"
@@ -1026,6 +1110,7 @@ main =
               loginCommand = HarborSubprocess.harborLoginSubprocess settings
               listCommand = HarborSubprocess.harborListRepositoriesSubprocess settings "library"
               artifactCommand = HarborSubprocess.harborArtifactStatusSubprocess settings "library" "jitml" "phase4"
+              tagCommand = HarborSubprocess.harborCreateTagSubprocess settings "library" "jitml" "phase4" "ready"
           renderSubprocess loginCommand
             @?= "docker --host unix:///explicit/docker.sock --config ./.build/docker/harbor login --username admin --password-stdin 127.0.0.1:9091"
           JitML.Sub.Subprocess.subprocessStdin loginCommand @?= Just "Harbor12345"
@@ -1041,6 +1126,14 @@ main =
             ( "http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories/jitml/artifacts/phase4"
                 `Text.isInfixOf` renderSubprocess artifactCommand
             )
+          assertBool
+            "Harbor same-repository promotion uses the API tag endpoint"
+            ( "http://127.0.0.1:9091/harbor/api/v2.0/projects/library/repositories/jitml/artifacts/phase4/tags"
+                `Text.isInfixOf` renderSubprocess tagCommand
+            )
+          assertBool
+            "Harbor tag promotion sends the target tag as JSON"
+            ("{\"name\":\"ready\"}" `Text.isInfixOf` renderSubprocess tagCommand)
       , testCase "cluster down uses an idempotent Kind delete subprocess (Sprint 3.5)" $ do
           let rendered = renderSubprocess (Helm.kindDeleteSubprocess LinuxCPU)
           assertBool

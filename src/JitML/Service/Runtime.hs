@@ -16,6 +16,7 @@ module JitML.Service.Runtime
   , daemonRuntimeForBootConfig
   , defaultDaemonRuntime
   , probeDaemonServiceClients
+  , renderConsumerOutcomes
   , renderDaemonRuntimeSummary
   , runtimeAfterSignal
   , serveDaemon
@@ -62,10 +63,10 @@ import JitML.Service.Clients
   , renderDaemonClientSettings
   )
 import JitML.Service.Consumer
-  ( ConsumerOutcome
+  ( ConsumerOutcome (..)
   , DaemonSubscription (..)
-  , EventDomain
-  , EventId
+  , EventDomain (..)
+  , EventId (..)
   , HandlerRouter
   , consumerOutcomeError
   , daemonSubscriptionsForBootConfig
@@ -436,6 +437,31 @@ indentText =
 consumerLoopExit :: [ConsumerOutcome] -> Maybe AppError
 consumerLoopExit = asum . fmap consumerOutcomeError
 
+renderConsumerOutcomes :: [ConsumerOutcome] -> Text
+renderConsumerOutcomes [] = "(none)\n"
+renderConsumerOutcomes outcomes =
+  Text.unlines (fmap renderConsumerOutcome outcomes)
+
+renderConsumerOutcome :: ConsumerOutcome -> Text
+renderConsumerOutcome outcome =
+  case outcome of
+    ConsumerDispatched domain eventId ->
+      "dispatched " <> renderEventDomain domain <> " " <> unEventId eventId
+    ConsumerDeduplicated domain eventId ->
+      "deduplicated " <> renderEventDomain domain <> " " <> unEventId eventId
+    ConsumerSkippedUnroutable topic ->
+      "skipped-unroutable " <> topic
+    ConsumerError err ->
+      "error " <> renderServiceError err
+
+renderEventDomain :: EventDomain -> Text
+renderEventDomain domain =
+  case domain of
+    TrainingDomain -> "training"
+    TuneDomain -> "tune"
+    RlDomain -> "rl"
+    InferenceDomain -> "inference"
+
 daemonHandlerRouter :: DaemonRuntime -> HandlerRouter
 daemonHandlerRouter runtime =
   emptyHandlerRouterWithTtl
@@ -489,14 +515,18 @@ sideEffectToUnit result =
     Just (Left err) -> Left err
 
 daemonWorkloadDispatcher
-  :: (HasHarbor m, HasKubectl m, HasMinIO m)
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => EventDomain
   -> EventId
   -> Text
   -> m (Either ServiceError ())
-daemonWorkloadDispatcher _domain _eventId payload = do
+daemonWorkloadDispatcher domain _eventId payload = do
   effectResult <- Workload.dispatchWorkloadPayload payload
-  pure (workloadEffectToUnit effectResult)
+  case effectResult of
+    Just result ->
+      pure (workloadEffectToUnit (Just result))
+    Nothing ->
+      workloadEffectsToUnit <$> Workload.dispatchDomainPayload domain payload
 
 workloadEffectToUnit
   :: Maybe (Either ServiceError Workload.WorkloadEffectResult)
@@ -506,3 +536,11 @@ workloadEffectToUnit result =
     Nothing -> Right ()
     Just (Right _) -> Right ()
     Just (Left err) -> Left err
+
+workloadEffectsToUnit
+  :: [Either ServiceError Workload.WorkloadEffectResult] -> Either ServiceError ()
+workloadEffectsToUnit [] = Right ()
+workloadEffectsToUnit (result : rest) =
+  case result of
+    Left err -> Left err
+    Right _ -> workloadEffectsToUnit rest

@@ -9,6 +9,7 @@ module JitML.Service.Consumer
   , HandlerRouter (..)
   , consumerOutcomeError
   , consumerStep
+  , consumerStepWithActions
   , dedupCacheCapacity
   , dedupCacheExpireAt
   , dedupCacheInsert
@@ -330,10 +331,34 @@ consumerStep
   -- ^ per-domain dispatcher
   -> m (HandlerRouter, ConsumerOutcome)
 consumerStep subscription router topic payload dispatch = do
+  consumerStepWithActions
+    subscription
+    router
+    topic
+    payload
+    (pulsarAcknowledge topic payload)
+    (pulsarSeek subscription)
+    dispatch
+
+consumerStepWithActions
+  :: (MonadIO m)
+  => SubscriptionId
+  -> HandlerRouter
+  -> TopicName
+  -> Text
+  -- ^ payload bytes (Pulsar message body)
+  -> m (Either ServiceError ())
+  -- ^ explicit ack action for the concrete delivery
+  -> (Text -> m (Either ServiceError ()))
+  -- ^ cursor redelivery / seek action, called with the computed event id
+  -> (EventDomain -> EventId -> Text -> m (Either ServiceError ()))
+  -- ^ per-domain dispatcher
+  -> m (HandlerRouter, ConsumerOutcome)
+consumerStepWithActions _subscription router topic payload ackDelivery seekDelivery dispatch = do
   let eventId = eventIdFromPayload (Text.Encoding.encodeUtf8 payload)
   case domainFor (unTopicName topic) of
     Nothing -> do
-      ackResult <- pulsarAcknowledge topic payload
+      ackResult <- ackDelivery
       case ackResult of
         Left err -> pure (router, ConsumerError err)
         Right () -> pure (router, ConsumerSkippedUnroutable (unTopicName topic))
@@ -345,17 +370,17 @@ consumerStep subscription router topic payload dispatch = do
           dispatchResult <- dispatch domain eventId payload
           case dispatchResult of
             Left err -> do
-              seekResult <- pulsarSeek subscription (unEventId eventId)
+              seekResult <- seekDelivery (unEventId eventId)
               case seekResult of
                 Left seekErr -> pure (router, ConsumerError seekErr)
                 Right () -> pure (router, ConsumerError err)
             Right () -> do
-              ackResult <- pulsarAcknowledge topic payload
+              ackResult <- ackDelivery
               case ackResult of
                 Left err -> pure (routerAfterInsert, ConsumerError err)
                 Right () -> pure (routerAfterInsert, ConsumerDispatched domain eventId)
         else do
-          ackResult <- pulsarAcknowledge topic payload
+          ackResult <- ackDelivery
           case ackResult of
             Left err -> pure (routerAfterInsert, ConsumerError err)
             Right () -> pure (routerAfterInsert, ConsumerDeduplicated domain eventId)

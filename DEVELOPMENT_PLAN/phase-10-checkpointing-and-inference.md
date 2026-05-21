@@ -51,13 +51,16 @@ manifests through `HasMinIO.putBlobBytesIfAbsent` and advances the latest
 pointer through `HasMinIO.casPointer`, with filesystem-backed integration
 coverage. **Unmet today**: Sprints `10.2`–`10.4` still owe checkpoint-store
 validation against the live HTTP MinIO interpreter after a real training step,
-the live `gc_reaped` Pulsar publish, production weight-blob loading into
-substrate-bound `KernelHandle`s, and the per-substrate ULP tolerance measured
-from real cross-substrate runs. The local Linux CPU inference runner hook
+the user-facing live `jitml inference run` path, the live `gc_reaped` Pulsar
+publish, production weight-blob loading into substrate-bound `KernelHandle`s,
+and the per-substrate ULP tolerance measured from real cross-substrate runs.
+The local Linux CPU inference runner hook
 (`loadInferenceCheckpointWith` + `JitML.Engines.Local.runLinuxCpuCheckpointInference`)
 now validates the latest-pointer → manifest → generated-kernel FFI path against
-the filesystem-backed `HasMinIO` instance. Detailed remaining work lives in
-each sprint's `### Remaining Work` block below.
+the filesystem-backed `HasMinIO` instance, and 2026-05-21 Phase `5.4` live
+daemon validation exercises the default `loadInferenceCheckpoint` path against
+in-cluster MinIO through `JitML.Service.MinIOSubprocess`. Detailed remaining
+work lives in each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
@@ -76,9 +79,11 @@ manifest through a concrete engine. The same module also provides
 `writeCheckpointSnapshotWithMinIO` for the checkpoint write path over the
 `HasMinIO` conditional-write/CAS boundary. The filesystem-backed instance now
 validates both the deterministic fallback and the local Linux CPU
-generated-kernel FFI runner. Live HTTP MinIO effects, live `gc_reaped` Pulsar
-publishing, production weight-blob loading, and real demo/frontend checkpoint
-reads live in the sprints' `### Remaining Work` blocks below.
+generated-kernel FFI runner, and the Phase `5.4` live daemon validation covers
+the default latest-checkpoint read against in-cluster MinIO. Live checkpoint
+writes after a real training step, live `gc_reaped` Pulsar publishing,
+production weight-blob loading, and real demo/frontend checkpoint reads live in
+the sprints' `### Remaining Work` blocks below.
 
 ## Phase Summary
 
@@ -332,9 +337,11 @@ weight-blob-to-kernel loading remain target runtime work.
 
 ### Remaining Work
 
-- Validate `JitML.Checkpoint.Store.loadInferenceCheckpoint` against
-  `JitML.Service.MinIOSubprocess`, the live HTTP-backed MinIO client from
-  Sprint `4.3` / `5.4`.
+- 2026-05-21 live Phase `5.4` daemon validation exercises
+  `JitML.Checkpoint.Store.loadInferenceCheckpoint` through the
+  BootConfig-derived `JitML.Service.MinIOSubprocess` client from the running
+  `jitml-service` pod. Remaining inference-read-path work is the user-facing
+  `jitml inference run` live path plus real production weight loading below.
 - Load real weight blobs into the local Linux CPU runner and the future
   per-substrate engines, rather than applying the current deterministic
   manifest-bias smoke summary around the generated kernel.
