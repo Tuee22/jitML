@@ -166,7 +166,7 @@ end-to-end run; Playwright belongs to the doctrine's Pulumi-Orchestrated
 Infrastructure test category and does not have its own Cabal stanza.
 Playwright execution waits until panels consume fixture-backed or live-backed
 state through `jitml-demo`; static route/API scaffold checks stay in the local
-Haskell e2e and PureScript-style stanzas.
+Haskell e2e and PureScript lint targets.
 
 ## Cross-References
 

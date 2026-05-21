@@ -19,7 +19,7 @@
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md), [../README.md](../README.md)
+[../README.md](../README.md), [../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Authoritative target component inventory for the jitML Haskell CLI, the
@@ -30,9 +30,9 @@
 
 The inventory documents the authoritative target end state and the present
 checked-in implementation. Phases `0`, `1`, `2`, `3`, `4`, and `6` are `✅ Done`.
-Sprint `1.4` closes the container-owned Haskell style-tool gate: `jitml:local`
-image construction installs the separate style GHC/tools, runs
-`jitml check-code`, and runtime lint never bootstraps host `ghcup`.
+Sprint `1.4` closes the container-exclusive Haskell style/code-quality gate:
+`jitml:local` image construction installs the separate style GHC/tools and runs
+`jitml check-code`; host lint/check-code execution is unsupported.
 Phase `4` owns the stateful platform services and Linux CUDA RuntimeClass
 surface. Phases `5`, `7`, `8`, `9`, `10`, `11`, and `12` are
 `🔄 Active` because at least one owned Exit-Definition obligation requires live
@@ -74,12 +74,12 @@ is not in the current support matrix.
 | Inspection | `jitml inspect list`, `jitml inspect show`, `jitml inspect replay`, `jitml inspect trial`, `jitml inspect frontier` | Registered command summaries | 🔄 Active; missing: real cached-transcript / checkpoint / trial / hyperparameter-frontier inspection against live MinIO | Sprints 9.7, 10.4 |
 | Benchmarks | `jitml bench train`, `jitml bench inference`, `jitml bench env` | Registered command summaries | 🔄 Active; missing: reproducible benchmark harnesses with measured throughput/latency | Sprint 12.9 |
 | Inference | `jitml inference run` | Current command runs deterministic `inferFromManifest` summary against a local manifest value; `jitml-integration` validates a filesystem-backed latest-pointer read through `loadInferenceCheckpointWith` and the local Linux CPU generated-kernel FFI runner | 🔄 Active; missing: live MinIO manifest fetch and real weight-blob loading into production kernel handles | Sprint 10.4 |
-| Test runner | `jitml test all` / `jitml test <stanza>` | `--dry-run` renders the aggregate plan; non-dry-run invokes `cabal test all` or `cabal test <stanza>` through typed `Subprocess`, parses the `cabal.project` report-card knob block, then emits a target-stanza report card naming the actual stanzas that ran | 🔄 Active; 2026-05-19 `jitml:local` validation passed non-dry-run `jitml test all` across all ten stanzas; local selected-stanza report rendering is validated by `jitml test jitml-e2e`; missing: live `jitml-e2e` scheduling and report-card values sourced from real SL/RL/AlphaZero/tuning/cross-substrate measurements | Sprint 12.9 |
-| Lint stack | `jitml lint files\|docs\|proto\|chart\|haskell\|purescript\|all` | In-repo hygiene, config, forbidden-path, generated-doc, chart-shape, forbidden-primitive, static-JIT-artifact, Fourmolu, HLint, and `cabal format` checks are implemented; Haskell external style tools are prebuilt by `jitml:local` image construction, and missing tools produce an image-rebuild diagnostic rather than host `ghcup` bootstrap | ✅ Done | Sprint 1.4 |
+| Test runner | `jitml test all` / `jitml test <stanza>` | `--dry-run` renders the aggregate plan; non-dry-run invokes `cabal test` with the explicit eight test-only stanza names or a selected test stanza through typed `Subprocess`, parses the `cabal.project` report-card knob block, then emits a target-stanza report card naming the actual stanzas that ran. Lint/style/code-quality commands are separate. | 🔄 Active; local selected-stanza report rendering is validated by `jitml test jitml-e2e`; missing: live `jitml-e2e` scheduling and report-card values sourced from real SL/RL/AlphaZero/tuning/cross-substrate measurements | Sprint 12.9 |
+| Lint stack | `jitml lint files\|docs\|proto\|chart\|haskell\|purescript\|all` | In-repo hygiene, config, forbidden-path, generated-doc, chart-shape, forbidden-primitive, static-JIT-artifact, Fourmolu, HLint, and `cabal format` checks are implemented and execute only inside `jitml:local`; host lint execution fails before linting rather than discovering or bootstrapping style tools | ✅ Done | Sprint 1.4 |
 | Docs generation | `jitml docs check` / `jitml docs generate` | Paired generated-section check and write per the `GeneratedSectionRule` registry | ✅ Done | Sprint 1.3 |
 | Command introspection | `jitml commands [--tree\|--json]` | Flat list, tree rendering, or JSON command schema from the `CommandSpec` registry | ✅ Done | Sprint 1.2 |
 | Focused help | `jitml help <subcommand>` | Equivalent to `<subcommand> --help`; same renderer | ✅ Done | Sprint 1.2 |
-| Code quality gate | `jitml check-code` | Delegates to `jitml lint all` and adds the warning-clean `cabal build all --ghc-options=-Werror` gate; `docker/Dockerfile` runs it during `jitml:local` image construction with prebuilt style tools | ✅ Done | Sprint 1.4 |
+| Code quality gate | `jitml check-code` | Delegates to `jitml lint all` and adds the warning-clean `cabal build all --ghc-options=-Werror` gate; `docker/Dockerfile` runs it during `jitml:local` image construction, and runtime use is supported only inside `jitml:local` | ✅ Done | Sprint 1.4 |
 | Build | `jitml build` | Build-plan surface for the inner Haskell binary inside the substrate container; mirrors `bootstrap/<substrate>.sh build` semantics from inside the daemon | ✅ Done | Sprint 2.4 |
 | Prerequisite doctor | `jitml doctor [--scope toolchain\|container\|cluster] [--remediate]` | In-process prerequisite registry reconciliation and typed remediation apply/postcondition validation | ✅ Done | Sprint 2.2 |
 | Kubectl passthrough | `jitml kubectl` | Current command renders the intended kubeconfig-bound invocation | 🔄 Active; missing: live `kubectl` execution against the per-substrate kubeconfig through the typed `Subprocess` boundary | Sprint 3.5 |
@@ -264,8 +264,8 @@ internal-RPC pair.
 |-----------|----------------|--------|---------------|
 | Minimal PureScript application | `web/src/Main.purs` | ✅ Done | Sprint 11.1 |
 | Browser-contract source ADTs | `src/JitML/Web/Contracts.hs` renders `web/src/Generated/Contracts.purs` through the local bridge-compatible renderer | ✅ Done | Sprint 11.2 |
-| Generated PureScript contracts | `web/src/Generated/Contracts.purs`; the contract renderer is covered by the PureScript-style stanza | ✅ Done | Sprint 11.2 |
-| PureScript style smoke tests | `web/test/`, `test/purescript-style/`; current Cabal stanza checks generated-contract presence, recursive checked-in source whitespace shape, panel-contract coverage, and explicit typed `spago test` + `purs-tidy check` command shapes | 🔄 Active; missing: default `purs format` round-trip and `purescript-spec` invocation from inside the stanza | Sprint 11.3 |
+| Generated PureScript contracts | `web/src/Generated/Contracts.purs`; the contract renderer is covered by the PureScript lint target | ✅ Done | Sprint 11.2 |
+| PureScript lint checks | `web/test/`, `src/JitML/Lint/Stack.hs`; current lint target checks generated-contract presence, recursive checked-in source whitespace shape, panel-contract coverage, and explicit typed `spago test` + `purs-tidy check` command shapes | 🔄 Active; missing: default `purs format` round-trip and `purescript-spec` invocation from inside `jitml lint purescript` | Sprint 11.3 |
 | Playwright scaffold | `playwright/jitml-demo.spec.ts`; `jitml-e2e` validates the typed Playwright plan and inline DOM scaffold | 🔄 Active; missing: Playwright validation against the live edge route and real panel state | Sprint 11.6 |
 | Bundle output | `src/JitML/Web/Bundle.hs`; typed bundle asset manifest and full local demo route manifest for the generated PureScript bundle output paths; `src/JitML/Web/Server.hs` serves `web/dist/Main/index.js` as `/bundle/main.js` when the file exists and exposes deterministic local stream routes matching the generated contracts | 🔄 Active; missing: demo image `spago` bundle build and live `/api/ws` proxy | Sprint 11.4 |
 | MNIST live inference panel | `src/JitML/Web/Bundle.hs`; panel metadata bound to `InferenceRun`; `web/src/Panels/Mnist.purs` carries the typed request/response payload shape | 🔄 Active; missing: Halogen mount/rendering and real inference round-trip against the daemon | Sprint 11.4 |
@@ -303,7 +303,7 @@ standards rule L.
 | `--format json\|table\|plain` (default `table` on TTY else `plain`) | Output Rules | ✅ Done | Sprint 1.9 |
 | `--color auto\|always\|never` plus `--no-color` | Output Rules | ✅ Done | Sprint 1.9 |
 | `fourmolu.yaml` 13-setting list at repo root | Lint, Format, and Code-Quality Stack → Pinned fourmolu.yaml | ✅ Done | Sprint 1.4 |
-| Container-owned style-tools bootstrap and image-build Haskell style gate | Lint, Format, and Code-Quality Stack → Tool bootstrap | ✅ Done; `docker/Dockerfile` installs the style GHC/tools, runs `jitml check-code`, and runtime lint reports an image-rebuild remedy when prebuilt tools are absent | Sprint 1.4 |
+| Container-exclusive style-tools bootstrap and Haskell code-quality gate | Lint, Format, and Code-Quality Stack → Tool bootstrap | ✅ Done; `docker/Dockerfile` installs the style GHC/tools, stamps the `jitml:local` code-quality domain, and runs `jitml check-code`; host lint/check-code execution is rejected before linting | Sprint 1.4 |
 | `cabal format` temp-file round-trip byte-equality check | Lint, Format, and Code-Quality Stack | ✅ Done | Sprint 1.4 |
 | `forbiddenPathRegistry` (`.github/workflows/`, `.husky/`, `.githooks/`, `.pre-commit-config.yaml`, root `Makefile`/`justfile`/`Taskfile.yml`) | Lint, Format, and Code-Quality Stack → Forbidden Surfaces | ✅ Done | Sprint 1.4 |
 | `GeneratedSectionRule` registry for marker-delimited generated regions | Generated Artifacts → The generated-section registry | ✅ Done | Sprint 1.3 |
@@ -338,9 +338,6 @@ and each non-style phase stanza now has a dedicated local deterministic body.
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers engine determinism flags, checkpoint inference summaries, and generated Linux CPU identity/reduction-smoke kernel compile/load/run | Cross-substrate cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon; per-tensor drift fits the committed tolerance band per [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) | 🔄 Active; missing: live cross-substrate runs against committed `test/golden/cross-backend/` tolerance fixtures | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle / retry / signal-control tests, fully-qualified Pulsar topic routing, BootConfig-derived subscription planning, synthetic subscribe/consume/ack/dedup behavior, plus one-shot daemon HTTP `/healthz` | Real Pulsar idempotency assertion against a live consumer | ✅ Done | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` plus `src/JitML/Test/LivePlan.hs` covers route/bucket/chart-values/publication/contract/demo HTTP including generated stream routes/report/no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, and typed Helm/Pulumi/Playwright plan tests | Explicit live e2e path brings up an ephemeral Kind stack via Pulumi, Helm dependency build, Playwright against real Envoy, deterministic teardown | 🔄 Active; missing: live Pulumi + Helm + Playwright execution path against an ephemeral Kind stack, deterministic teardown with no leaked PVs / Harbor projects / Docker volumes | Sprint 12.8 |
-| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack | Formatter, hlint/config, forbidden-path, chart, generated-section, external formatter/hlint/cabal-format/build gates, and optional future lints as they land; target style tools are supplied by `jitml:local` image construction, not host lint-time bootstrap | ✅ Done | Sprint 1.4 |
-| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks generated-contract presence/header, recursive checked-in PureScript whitespace, panel-contract smoke, and explicit typed `spago test` / `purs-tidy check` command shapes | PureScript `purs format` round-trip and `purescript-spec` smoke tests run from inside the stanza | 🔄 Active; missing: default `purs format` and `purescript-spec` invocations | Sprint 11.3 |
-
 ## Test Categories Mapping (Doctrine → Stanza)
 
 | Doctrine Test Category | Owning Stanza |
@@ -352,8 +349,6 @@ and each non-style phase stanza now has a dedicated local deterministic body.
 | Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` (the four canonicals/HPO/cross-backend rows are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
 | Pulumi-Orchestrated Infrastructure | `jitml-e2e` |
-| Style (§Style as a Cabal test-suite) | `jitml-haskell-style` |
-| Lint (project-specific) | `jitml-purescript-style` |
 
 ## POC Report-Card Knobs
 
@@ -390,7 +385,7 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 | `docker` | stage-0 Linux gate plus Haskell prerequisite DAG | Container runtime; the only host runtime touched on Linux | ✅ Done | Sprint 2.2 |
 | Node.js | Haskell prerequisite DAG | Required by the PureScript toolchain (`spago`, `purescript`) and Pulumi | ✅ Done | Sprint 2.2 |
 | Poetry | Haskell prerequisite DAG | Required for ancillary Python tooling (none on the supported runtime path; only present for codegen support tools) | ✅ Done | Sprint 2.2 |
-| Formatter GHC | separate isolated `9.12.4` install built by `docker/Dockerfile` for `jitml:local` | Lint stack only; never affects the project compiler; runtime lint uses prebuilt style tools and reports an image-rebuild remedy when absent | ✅ Done | Sprint 1.4 |
+| Formatter GHC | separate isolated `9.12.4` install built by `docker/Dockerfile` for `jitml:local` | Container-exclusive lint stack only; never affects the project compiler; host lint/check-code execution is unsupported | ✅ Done | Sprint 1.4 |
 | PureScript contract generator | local renderer in `src/JitML/Web/Contracts.hs` | Bridge-compatible endpoint renderer for `web/src/Generated/Contracts.purs`; no external `purescript-bridge` package is required for the current implementation | ✅ Done | Sprint 11.2 |
 | Pulumi (TypeScript) | `infra/pulumi/package.json` plus `infra/pulumi/index.ts` `@pulumi/command` resource graph | Typed ephemeral-Kind orchestrator scaffold for the explicit live `jitml-e2e` path | 🔄 Active; missing: live Pulumi execution in the e2e stanza | Sprint 12.8 |
 | Target platforms | `arm64` macOS (Apple Silicon), `amd64` Linux, optional `arm64` Linux | Three substrates × supported host arches | ✅ Done | Phases 3, 7 |
@@ -411,7 +406,7 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 | TensorBoard events | `jitml service` writers | MinIO `jitml-tensorboard/<experiment-hash>/shards/*.tfevents` plus checkpoint sidecars | Stateless TB pod reads from MinIO |
 | RL transcripts | `jitml rl train` / `jitml rl rollout` | MinIO `jitml-transcripts/` | Analog of MCTS's `.mcts-cache/transcripts/` |
 | Plan suite | repository worktree | `DEVELOPMENT_PLAN/` | This document set |
-| Doctrine | repository worktree | `HASKELL_CLI_TOOL.md` (root) | Authoritative CLI doctrine |
+| Doctrine | repository worktree | `README.md` (root) | Authoritative CLI doctrine |
 | Governed engineering docs | repository worktree | `documents/engineering/` | Project-specific elaborations of the doctrine and project-owned content |
 | Generated-section registry | code | `src/JitML/Generated/Registry.hs` | Authoritative for `jitml docs check` and `jitml docs generate` |
 | Tracking-generated-paths registry | code | `src/JitML/Generated/Paths.hs` | Authoritative for `jitml lint files` drift detection |
@@ -426,7 +421,7 @@ The current concrete worktree is summarized in
 |------|----------|---------|
 | Haskell application entrypoints | `app/Main.hs`, `app/Demo.hs` | Six-line shims into `App.main` per the library-first layout |
 | Haskell source modules | `src/JitML/` | CLI, cluster, daemon, runtime, SL/RL/AlphaZero/tuning, proto, engines, codegen, numerics, storage, inference, web, observability, generated-artifact tracking, checkpointing, `Test.{LivePlan,Report}`, bootstrap live rollout, and typed `Subprocess` support |
-| Cabal package definition | `jitml.cabal` | Build, test, and dependency definition with `tested-with: ghc ==9.14.1`; declares both `jitml` and `jitml-demo` executables and the ten test-suite stanzas |
+| Cabal package definition | `jitml.cabal` | Build, test, and dependency definition with `tested-with: ghc ==9.14.1`; declares both `jitml` and `jitml-demo` executables and the eight test-suite stanzas |
 | Cabal project definition | `cabal.project` | Repository-wide Cabal package-set definition with `with-compiler: ghc-9.14.1`, the codegen-toolchain pins, and the report-card knobs |
 | Formatter config | `fourmolu.yaml` | Pinned 13 doctrine-mandated settings at repo root |
 | Per-substrate Kind configs | `./kind/cluster-{apple-silicon,linux-cpu,linux-cuda}.yaml` rendered by `JitML.Cluster.Kind` | Default checked-in configs use one control-plane + one worker; `kindConfigWithWorkerCount` renders additional workers for live placement validation; workers bind-mount `./.build/` and `./.data/` via `extraMounts`; Linux CUDA also wires the worker containerd `nvidia` runtime handler and read-only host driver-root mount for `RuntimeClass/nvidia` |
@@ -438,9 +433,9 @@ The current concrete worktree is summarized in
 | PureScript frontend | `web/package.json`, `web/src/`, `web/test/`, `playwright/` | Minimal PureScript shell, generated contract file, smoke tests, and Playwright scaffold |
 | Pulumi infrastructure | `infra/pulumi/` | Current TypeScript metadata scaffold; target ephemeral-Kind stack used by `jitml-e2e` |
 | Experiments | `experiments/` | Canonical experiment Dhall files (the "configuration is code" surface) |
-| Tests | `test/` | Per-stanza test trees (`test/unit/`, `test/integration/`, `test/sl-canonicals/`, `test/rl-canonicals/`, `test/hyperparameter/`, `test/cross-backend/`, `test/daemon-lifecycle/`, `test/e2e/`, `test/haskell-style/`, `test/purescript-style/`) and current golden fixtures under `test/golden/{alphazero,cache,cli,cluster,observability,prerequisite,rl,sl,tune}/` |
+| Tests | `test/` | Per-stanza test trees (`test/unit/`, `test/integration/`, `test/sl-canonicals/`, `test/rl-canonicals/`, `test/hyperparameter/`, `test/cross-backend/`, `test/daemon-lifecycle/`, `test/e2e/`) and current golden fixtures under `test/golden/{alphazero,cache,cli,cluster,observability,prerequisite,rl,sl,tune}/` |
 | Development plan | `DEVELOPMENT_PLAN/` | This plan suite |
-| Doctrine | `HASKELL_CLI_TOOL.md` | Authoritative CLI doctrine at repo root |
+| Doctrine | `README.md` | Authoritative CLI doctrine at repo root |
 | Project README | `README.md` | Project intent, command surface, doctrine scope, build instructions |
 | Agent guardrails | `AGENTS.md`, `CLAUDE.md` | Git-command restrictions and doctrine pointers for LLM agents |
 | Generated CLI artefacts | `documents/cli/commands.md`, `share/man/man1/jitml*.1`, `share/completion/{bash,zsh,fish}/` | Fully-generated; tracked by `trackingGeneratedPaths`; hand edits fail `jitml lint files` |
@@ -451,4 +446,4 @@ The current concrete worktree is summarized in
 - [00-overview.md](00-overview.md)
 - [development_plan_standards.md](development_plan_standards.md)
 - [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

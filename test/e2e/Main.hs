@@ -113,13 +113,15 @@ main =
             "explicit service config arg"
             ("args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]" `Text.isInfixOf` deployment)
       , testCase "report card renders aggregate suite summary" $ do
-          length reportStanzas @?= 10
-          let rendered = renderReportCard (ReportCard 10 0 0)
+          length reportStanzas @?= 8
+          let rendered = renderReportCard (ReportCard 8 0 0)
           assertBool "report card title" ("jitML POC report card" `isInfixOf` Text.unpack rendered)
-          assertBool "report card passed count" ("passed: 10" `isInfixOf` Text.unpack rendered)
+          assertBool "report card passed count" ("passed: 8" `isInfixOf` Text.unpack rendered)
           assertBool "report card default knobs" ("rl_steps: 100000" `isInfixOf` Text.unpack rendered)
           assertBool "report card lists actual stanzas" ("jitml-unit: PASS" `isInfixOf` Text.unpack rendered)
-          assertBool "report card lists style stanza" ("jitml-purescript-style: PASS" `isInfixOf` Text.unpack rendered)
+          assertBool
+            "report card lists e2e stanza"
+            ("jitml-e2e: PASS" `isInfixOf` Text.unpack rendered)
       , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
           cabalProject <- Text.IO.readFile "cabal.project"
           parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs

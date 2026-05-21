@@ -3,7 +3,7 @@
 **Status**: Authoritative source
 **Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md), [../AGENTS.md](../AGENTS.md),
-[../CLAUDE.md](../CLAUDE.md), [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md),
+[../CLAUDE.md](../CLAUDE.md), [../README.md](../README.md),
 [development_plan_standards.md](development_plan_standards.md),
 [00-overview.md](00-overview.md), [system-components.md](system-components.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
@@ -43,10 +43,9 @@ reconciler, prerequisite DAG, JIT cache, outer-container builds), `3`
 (numerical core) are `✅ Done` — every Exit Definition obligation those phases
 own is met in the worktree and validated
 by their sprints' `### Validation` blocks. Sprint `1.4` now owns the
-container-owned style-tool rule: `jitml:local` image construction installs the
-separate style GHC/tools, runs `jitml check-code`, and runtime lint reports an
-image-rebuild remedy instead of installing missing style tools through host
-`ghcup`.
+container-exclusive code-quality rule: `jitml:local` image construction
+installs the separate style GHC/tools and runs `jitml check-code`; host
+lint/check-code execution is unsupported and no host style-tool override exists.
 Phases `5`, `7`, `8`, `9`, `10`, `11`, and `12` are `🔄 Active`:
 each owns at least one Exit Definition obligation that requires live runtime
 behaviour (cluster apply, real service clients, real kernel execution,
@@ -137,7 +136,7 @@ checked-in `chart/local/tensorboard/templates/service.yaml`, the six
 PureScript panel payload modules under `web/src/Panels/`, the seven-test
 Playwright matrix represented in `jitml-e2e` through the typed
 `Subprocess` boundary against inline DOM stubs, the `spago test` and
-`purs-tidy check` command shapes represented from `jitml-purescript-style`
+`purs-tidy check` command shapes represented from `jitml lint purescript`
 through typed `Subprocess` values, the demo route logic that serves
 `web/dist/Main/index.js` when a local `spago build --output web/dist`
 has produced it, the real-binary `./.build/jitml` spawn matrix
@@ -252,7 +251,7 @@ block, where the validation gate lives:
 | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) | Phase 9: RL algorithm catalog, AlphaZero self-play, hyperparameter tuning |
 | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) | Phase 10: Split-blob checkpoint format, manifest, inference-only read path |
 | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) | Phase 11: PureScript shell, generated browser contracts, demo shim, Playwright scaffold |
-| [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Ten Cabal test stanzas, lint matrix, Pulumi metadata scaffold, report-card knobs |
+| [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Eight Cabal test stanzas, lint matrix, Pulumi metadata scaffold, report-card knobs |
 | [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) | Cleanup ledger |
 
 ## Status Vocabulary
@@ -314,9 +313,9 @@ Phases `0`, `1`, `2`, `3`, `4`, and `6` are `✅ Done`. Phase `0` owns the plan
 suite, the governed `documents/` doctrine suite, and the doctrine envelope.
 Phase `1` owns the `CommandSpec` registry, typed `Subprocess` / `Plan` /
 `apply` / `Env` / `AppError` boundaries, lint surfaces, warning-clean build
-gate, and the container-owned Haskell style-tool gate; runtime Haskell lint uses
-prebuilt image tools or reports an image-rebuild remedy instead of bootstrapping
-style tools through host `ghcup`. Phase `2` owns the stage-0 scripts, the typed
+gate, and the container-exclusive Haskell style/code-quality gate; runtime
+lint/check-code executes inside `jitml:local` or fails before linting. Phase
+`2` owns the stage-0 scripts, the typed
 prerequisite DAG (with effectful remediation), the content-addressed JIT
 cache key/layout/manifest/symlink layer, the one-service
 `compose.yaml`, the baseline `jitml:local` image, the Tart command
@@ -408,7 +407,7 @@ scaffold with six panel payload modules under `web/src/Panels/`, the
 generated contracts, and the full typed local demo route manifest; the `jitml-demo` HTTP server; the Playwright
 canonical panel matrix at `playwright/jitml-demo.spec.ts`; the typed
 ephemeral-Kind Pulumi orchestrator at `infra/pulumi/index.ts`; and the
-ten Cabal test-suite stanzas with deterministic bodies that
+eight Cabal test-suite stanzas with deterministic bodies that
 `jitml test all` invokes through the typed `Subprocess` boundary.
 
 ## Sprint Dependencies
@@ -497,13 +496,13 @@ This plan is complete only when all of the following are true:
    `src/JitML/Web/Contracts.hs` via `purescript-bridge`, the live MNIST handwriting
    panel, CIFAR/ImageNet upload panel, and the AlphaZero-vs-human Connect 4 panel
    are exercised end-to-end by Playwright, and `jitml-demo` serves the bundle.
-9. `jitml test all` runs every Cabal test-suite stanza (`jitml-unit`,
+9. `jitml test all` runs every test-only Cabal test-suite stanza (`jitml-unit`,
    `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
    `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
-   `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style`) with the
-   report-card knobs pinned in `cabal.project`; the `jitml-e2e` stanza
-   orchestrates an ephemeral Kind stack via the `infra/pulumi/` TypeScript
-   program.
+   `jitml-e2e`) with the report-card knobs pinned in `cabal.project`; style and
+   code-quality are separate `jitml lint *` / `jitml check-code` commands; the
+   `jitml-e2e` stanza orchestrates an ephemeral Kind stack via the
+   `infra/pulumi/` TypeScript program.
 10. The toolchain is pinned at GHC `9.14.1` and Cabal `3.16.1.0`. `jitml.cabal`
     declares `tested-with: ghc ==9.14.1` and `cabal.project` declares
     `with-compiler: ghc-9.14.1`.
@@ -524,10 +523,10 @@ This plan is complete only when all of the following are true:
 15. `fourmolu.yaml` at repo root pins the thirteen doctrine-mandated settings;
     `docker/Dockerfile` installs the separate style-tools GHC and pinned
     `fourmolu` / `hlint` binaries for `jitml:local`; the image build runs the
-    Haskell style/code-quality gate; `jitml-haskell-style` uses the prebuilt tools
-    without host `ghcup` bootstrap; and `jitml-purescript-style` extends the lint
-    surface to PureScript `purs format` round-trip and `purescript-spec` smoke
-    tests.
+    Haskell style/code-quality gate; `jitml lint haskell` runs only inside the
+    container-owned gate; and `jitml lint purescript` extends the lint surface
+    to PureScript generated-contract, whitespace, panel-contract, and typed
+    frontend-tool command checks.
 16. `CommandSpec` is the implementation source for the parser, the command tree
     (`jitml commands --tree`), the JSON command schema (`jitml commands --json`),
     the markdown command reference, the manpages, and the shell completion scripts.
@@ -542,5 +541,5 @@ This plan is complete only when all of the following are true:
 - [development_plan_standards.md](development_plan_standards.md)
 - [system-components.md](system-components.md)
 - [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)
 - [../documents/documentation_standards.md](../documents/documentation_standards.md)

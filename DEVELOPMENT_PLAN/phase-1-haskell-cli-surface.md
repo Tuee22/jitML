@@ -10,7 +10,7 @@
 [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md),
 [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Stand up the `jitml` Haskell binary, the `CommandSpec`-driven CLI
@@ -24,14 +24,13 @@
 [Exit Definition](README.md#exit-definition) items 11 (Plan/Apply
 `--dry-run` / `--plan-file`), 12 (typed `Subprocess` boundary), 13 (one
 `prerequisiteRegistry`), 14 (single `AppError` ADT and `renderError`), 15
-(`fourmolu.yaml` + style stanzas), 16 (`CommandSpec` as implementation
+(`fourmolu.yaml` + lint targets), 16 (`CommandSpec` as implementation
 source) and contributes to item 4 (stage-0 entrypoints + typed prerequisite
 DAG). Sprints `1.1`–`1.9` are closed. Sprint `1.4` includes the
-container-owned style-tool rule: `docker/Dockerfile` installs the separate
-style-tools GHC and pinned Fourmolu / HLint binaries for `jitml:local`, runs
-the Haskell style/code-quality gate during image construction, and runtime lint
-uses prebuilt tools or reports an image-rebuild remedy instead of bootstrapping
-missing style tools through host `ghcup`.
+container-exclusive style/code-quality rule: `docker/Dockerfile` installs the
+separate style-tools GHC and pinned Fourmolu / HLint binaries for `jitml:local`,
+runs the Haskell style/code-quality gate during image construction, and rejects
+host lint/check-code execution before linting.
 
 ## Phase Summary
 
@@ -41,7 +40,7 @@ shims, `src/JitML/`), the `CommandSpec` registry as the code source for the
 parser and every generated artefact (markdown command reference, manpages, shell
 completions, JSON command schema, tree output), the typed `Subprocess` / `Plan` /
 `apply` / `prerequisiteRegistry` / `Env` / `AppError` patterns from
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md), the
+[../README.md](../README.md), the
 `forbiddenPathRegistry`, and the `GeneratedSectionRule` /
 `trackingGeneratedPaths` registries. The Phase `1` lint stack runs the
 doctrine's `fourmolu` + `hlint` + `cabal format` + warning-clean build gate
@@ -67,9 +66,9 @@ pattern is for per-command manpages (`share/man/man1/jitml-*.1`). The
 Plan/Apply `apply` interpreter is currently a no-op, and normal command
 execution enters the plan renderer only when `--dry-run` or `--plan-file` is
 requested on selected plan-capable leaves. Phase `1`'s Haskell lint and
-code-quality gate is container-owned: the mandatory `jitml:local` image build
-installs the style-tools GHC, builds pinned Fourmolu / HLint binaries, and runs
-`jitml check-code`.
+code-quality gate is container-exclusive: the mandatory `jitml:local` image
+build installs the style-tools GHC, builds pinned Fourmolu / HLint binaries,
+and runs `jitml check-code`.
 
 ## Sprint 1.1: Toolchain Pin and Library-First Cabal Project ✅
 
@@ -106,7 +105,7 @@ library set per doctrine `Overview → standardized stack`.
   `App.demoMain`. No business logic in `app/`.
 - `src/JitML/App.hs` exports `main` and `demoMain` and is the single composition
   root for the CLI runner per doctrine
-  [§Project Structure](../HASKELL_CLI_TOOL.md).
+  [§Project Structure](../README.md).
 - The standardized library set is declared in `jitml.cabal`'s
   `library.build-depends`: `optparse-applicative`, `text`, `bytestring`, `aeson`,
   `prettyprinter`, `prettyprinter-ansi-terminal`, `ansi-terminal`, `path`,
@@ -122,7 +121,7 @@ library set per doctrine `Overview → standardized stack`.
 
 1. `cabal build all` builds the `jitml` and `jitml-demo` shells under GHC
    `9.14.1`.
-2. `cabal test all` runs the ten declared stanzas; Phase `12` now supplies the
+2. `cabal test all` runs the eight declared test stanzas; Phase `12` now supplies the
    dedicated deterministic bodies.
 3. `grep '^tested-with' jitml.cabal` returns `tested-with: ghc ==9.14.1`.
 4. `grep '^with-compiler' cabal.project` returns `with-compiler: ghc-9.14.1`.
@@ -271,22 +270,22 @@ None.
 **Status**: Done
 **Implementation**: `fourmolu.yaml`, `.hlint.yaml`, `src/JitML/Lint/Stack.hs`,
 `src/JitML/Lint/ForbiddenPaths.hs`, `src/JitML/Lint/Chart.hs`,
-`src/JitML/Lint/Stack/Types.hs`, `test/haskell-style/`, `docker/Dockerfile`
+`src/JitML/Lint/Stack/Types.hs`, `src/JitML/Lint/Stack.hs`, `docker/Dockerfile`
 **Docs to update**: `README.md`, `DEVELOPMENT_PLAN/README.md`,
 `DEVELOPMENT_PLAN/00-overview.md`, `DEVELOPMENT_PLAN/system-components.md`,
-`HASKELL_CLI_TOOL.md`, `documents/engineering/code_quality.md`,
+`README.md`, `documents/engineering/code_quality.md`,
 `documents/engineering/unit_testing_policy.md`, `documents/engineering/cluster_topology.md`
 
 ### Objective
 
 Pin the doctrine-mandated `fourmolu` settings, layer `hlint` and `cabal format`
 on top, declare the `forbiddenPathRegistry`, register the chart-shape lint, and
-wire the entire stack into the `jitml-haskell-style` test stanza and the
-`jitml lint` / `jitml check-code` commands per doctrine `Lint, Format, and
-Code-Quality Stack`. Style-tool bootstrap is container-owned: `jitml:local`
-image construction installs the style-tools GHC and pinned external tools, runs
-the Haskell style/code-quality gate, and runtime lint never installs a missing
-host GHC through `ghcup`.
+wire the entire stack into the `jitml lint` / `jitml check-code` commands per
+doctrine `Lint, Format, and Code-Quality Stack`. Style and code-quality
+execution is container-exclusive and separate from `jitml test`:
+`jitml:local` image construction installs the style-tools GHC and pinned
+external tools, runs the Haskell style/code-quality gate, and runtime
+lint/check-code rejects host execution before linting.
 
 ### Deliverables
 
@@ -319,12 +318,12 @@ host GHC through `ghcup`.
   pinned `fourmolu` / `hlint` binaries for `jitml:local`; image construction
   runs the Haskell style gate before publishing the image used by every
   substrate, including Apple Silicon's in-cluster daemon.
-- `jitml-haskell-style` runs the same lint stack as the CLI using the prebuilt
-  image tools. External tools are called through the typed `Subprocess` boundary
-  introduced in Sprint `1.6`.
-- `jitml lint haskell` never bootstraps style tools through host `ghcup`; when
-  required tools are absent, it emits a diagnostic that points to rebuilding the
-  `jitml:local` image or running inside that image.
+- `jitml lint haskell` runs the same lint stack inside `jitml:local`.
+  External tools are called through the typed `Subprocess`
+  boundary introduced in Sprint `1.6`.
+- `jitml lint *` and `jitml check-code` reject host execution before linting;
+  missing container markers or tools produce diagnostics that point to
+  rebuilding and entering `jitml:local`.
 - `jitml check-code` delegates to `jitml lint all` and adds the warning-clean
   build gate (`cabal build all --ghc-options=-Werror`).
 
@@ -332,19 +331,18 @@ host GHC through `ghcup`.
 
 1. `docker compose build jitml` exits `0` and runs the
    Haskell style/code-quality gate as part of image construction.
-2. `jitml lint haskell` and `jitml-haskell-style` use prebuilt style tools and
-   do not invoke host `ghcup` for missing style-tool bootstrap.
-3. `jitml lint all` exits `0` on the present tree.
-4. `jitml check-code` exits `0` on the present tree.
+2. `jitml lint haskell` runs inside `jitml:local` and host execution is
+   rejected before linting.
+3. `jitml lint all` exits `0` on the present tree inside `jitml:local`.
+4. `jitml check-code` exits `0` on the present tree inside `jitml:local`.
 5. Validation catches forbidden repository paths, tracked generated-doc drift,
    missing lint config, forbidden subprocess/terminal primitives, external
    formatter/HLint/cabal-format drift, and warning-clean build failures.
-6. `jitml-haskell-style` passes under `cabal test`.
 
 ### Closure Checklist
 
 - [x] Add `fourmolu.yaml`, `.hlint.yaml`, `forbiddenPathRegistry`,
-  `jitml lint`, `jitml check-code`, and the `jitml-haskell-style` Cabal stanza.
+  `jitml lint`, and `jitml check-code`.
 - [x] Enforce tracked generated-section drift, forbidden repository paths, and
   forbidden subprocess primitives through the in-repo lint stack.
 - [x] Replace the initial `JitML.Lint.Chart` body with chart-shape checks
@@ -364,8 +362,8 @@ host GHC through `ghcup`.
 - [x] Move style GHC/tool installation into `docker/Dockerfile` for `jitml:local`.
 - [x] Run Haskell style/code-quality checks during image construction.
 - [x] Remove the `jitml lint haskell` path that bootstraps missing style tools
-  through host `ghcup`; replace it with a prebuilt-tool lookup and image-rebuild
-  diagnostic.
+  through host `ghcup`; replace it with a container-domain check and
+  image-rebuild diagnostic.
 
 ### Remaining Work
 
@@ -514,7 +512,7 @@ runners thread through, per doctrine `Application Environment`.
   - `envLogger :: Subprocess -> ExitCode -> Text -> IO ()` (defaults to
     structured JSON on stderr; daemon overrides),
   - `envClock :: IO MonotonicTime` (test-hook seam per doctrine
-    [§Test hooks in Env](../HASKELL_CLI_TOOL.md)).
+    [§Test hooks in Env](../README.md)).
 - `buildEnv :: GlobalFlags -> IO Env` is the single entry point used by
   `App.main`.
 - All command runners are `ReaderT Env IO` actions; raw `IO` is hlint-forbidden
@@ -579,20 +577,20 @@ None.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Toolchain pinning](../HASKELL_CLI_TOOL.md) (Sprint 1.1)
-- [../HASKELL_CLI_TOOL.md → Project Structure](../HASKELL_CLI_TOOL.md) (Sprint 1.1)
-- [../HASKELL_CLI_TOOL.md → Command Topology](../HASKELL_CLI_TOOL.md) (Sprint 1.2)
-- [../HASKELL_CLI_TOOL.md → Automatically Generated Documentation](../HASKELL_CLI_TOOL.md) (Sprints 1.2, 1.3)
-- [../HASKELL_CLI_TOOL.md → Progressive Introspection](../HASKELL_CLI_TOOL.md) (Sprint 1.2)
-- [../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) (Sprint 1.3)
-- [../HASKELL_CLI_TOOL.md → Lint, Format, and Code-Quality Stack](../HASKELL_CLI_TOOL.md) (Sprint 1.4)
-- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprint 1.5)
-- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (Sprint 1.6)
-- [../HASKELL_CLI_TOOL.md → Prerequisites as Typed Effects](../HASKELL_CLI_TOOL.md) (Sprint 1.7)
-- [../HASKELL_CLI_TOOL.md → Application Environment](../HASKELL_CLI_TOOL.md) (Sprint 1.8)
-- [../HASKELL_CLI_TOOL.md → Error Handling](../HASKELL_CLI_TOOL.md) (Sprint 1.9)
-- [../HASKELL_CLI_TOOL.md → Output Rules](../HASKELL_CLI_TOOL.md) (Sprint 1.9)
-- [../HASKELL_CLI_TOOL.md → Reconcilers: Idempotent Mutation as a Single Command](../HASKELL_CLI_TOOL.md) (Sprint 1.3, 1.9)
+- [../README.md → Toolchain pinning](../README.md#toolchain-pinning) (Sprint 1.1)
+- [../README.md → Repository layout (target)](../README.md#repository-layout-target) (Sprint 1.1)
+- [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (Sprint 1.2)
+- [../README.md → Generated documentation flow](../README.md#generated-documentation-flow) (Sprints 1.2, 1.3)
+- [../README.md → Command introspection](../README.md#cli-command-topology-typed) (Sprint 1.2)
+- [../README.md → Generated artifacts](../README.md#generated-documentation-flow) (Sprint 1.3)
+- [../README.md → Lint matrix](../README.md#lint-matrix) (Sprint 1.4)
+- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprint 1.5)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprint 1.6)
+- [../README.md → Prerequisites as typed effects](../README.md#prerequisites-as-typed-effects) (Sprint 1.7)
+- [../README.md → Application Environment](../README.md#doctrine-scope) (Sprint 1.8)
+- [../README.md → Error Handling](../README.md#exit-codes-and-error-rendering) (Sprint 1.9)
+- [../README.md → Output Rules](../README.md#doctrine-scope) (Sprint 1.9)
+- [../README.md → Reconcilers](../README.md#doctrine-scope) (Sprint 1.3, 1.9)
 
 ## Documentation Requirements
 
@@ -603,9 +601,9 @@ None.
   `GeneratedSectionRule` registry.
 - `documents/engineering/code_quality.md` — name the thirteen `fourmolu` settings,
   the project-specific hlint rules, the `forbiddenPathRegistry`, the
-  container-owned style-tool bootstrap, and the chart-shape lint.
+  container-exclusive style/code-quality gate, and the chart-shape lint.
 - `documents/engineering/unit_testing_policy.md` — record that
-  `jitml-haskell-style` uses prebuilt image-provisioned style tools.
+  `jitml lint haskell` runs inside `jitml:local`.
 - `documents/engineering/cluster_topology.md` — record that the `jitml:local`
   image build is also the Haskell style-tool/code-quality gate on every
   substrate.
@@ -631,4 +629,4 @@ None.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

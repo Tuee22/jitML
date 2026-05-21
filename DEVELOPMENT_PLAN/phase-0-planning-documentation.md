@@ -6,7 +6,7 @@
 [development_plan_standards.md](development_plan_standards.md),
 [system-components.md](system-components.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Define the plan-ownership baseline for the jitML Haskell CLI so phase
@@ -25,7 +25,7 @@ identifier is bound to an owned deliverable in Phases `1`–`12`.
 
 This phase establishes the development plan as the canonical execution-ordered
 record for the jitML repository, the governed `documents/` doctrine suite, the root-
-file pointers that name [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) as the
+file pointers that name [../README.md](../README.md) as the
 authoritative CLI doctrine, and the in-scope vs out-of-scope doctrine envelope
 inherited verbatim from the project [../README.md → Doctrine
 scope](../README.md#doctrine-scope). It owns the phase model, the top-level control
@@ -73,7 +73,7 @@ and the test stanzas — is scheduled by this phase but executed by Phases `1`�
 `documents/engineering/training_workloads.md`,
 `documents/engineering/checkpoint_format.md`,
 `documents/engineering/purescript_frontend.md`,
-`HASKELL_CLI_TOOL.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`
+`README.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`
 **Docs to update**: every file listed above.
 
 ### Objective
@@ -103,7 +103,7 @@ ambiguity about where the source of truth lives.
   Pulumi cross-cluster.
 - [development_plan_standards.md](development_plan_standards.md) declares rules
   A–L, including the CLI Doctrine Alignment rule L that requires phase docs to
-  cite [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) sections by name on
+  cite [../README.md](../README.md) sections by name on
   doctrine-adoption deliverables.
 - [00-overview.md](00-overview.md) inherits the project README's `Doctrine scope`
   in-scope and out-of-scope splits verbatim. The in-scope set covers Toolchain
@@ -131,8 +131,7 @@ ambiguity about where the source of truth lives.
   doctrine-deviation-residue and stand-in-residue classes named for later
   population.
 - `documents/documentation_standards.md` carries the six doctrine-mandated
-  Generated Sections elements per [../HASKELL_CLI_TOOL.md → Project-level
-  documentation standards](../HASKELL_CLI_TOOL.md): marker convention with
+  Generated Sections elements per [../README.md](../README.md): marker convention with
   literal `<!-- jitml:<key>:start -->` / `<!-- jitml:<key>:end -->` examples per
   file type, an authoritative pointer to the `GeneratedSectionRule` registry, a
   "How to regenerate" instruction naming `jitml docs generate` literally, a per-
@@ -155,16 +154,16 @@ ambiguity about where the source of truth lives.
   a documented typed Helm `--values` invocation or become cleanup candidates.
   `documents/engineering/code_quality.md` mirrors the enforcement direction for
   the chart lint surface.
-- `HASKELL_CLI_TOOL.md` carries the standard `**Status**` / `**Supersedes**` /
-  `**Referenced by**` metadata block plus a `> **Purpose**:` line. The doctrine
-  body is verbatim authoritative; no other edits.
-- `README.md` (project root) carries one added pointer paragraph linking to
-  [README.md](README.md) and [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) as
-  the authoritative plan and doctrine entrypoints. No other content changes.
+- `../README.md` carries the standard `**Status**` / `**Supersedes**` /
+  `**Referenced by**` metadata block plus a `> **Purpose**:` line and owns the
+  project/CLI doctrine.
+- `README.md` carries the execution-ordered development plan, and the
+  project-root README links back to it as the authoritative sprint-status
+  entrypoint.
 - `AGENTS.md` and `CLAUDE.md` (project root) carry two appended pointer lines
   below the existing git-restriction block: one to
   [`DEVELOPMENT_PLAN/README.md`](README.md) and one to
-  [`HASKELL_CLI_TOOL.md`](../HASKELL_CLI_TOOL.md). Existing content unchanged.
+  [../README.md](../README.md). Existing content unchanged.
 
 ### Validation
 
@@ -192,7 +191,7 @@ ambiguity about where the source of truth lives.
    `documents/engineering/cluster_topology.md`, and any chart-lint enforcement
    direction is cross-referenced from `documents/engineering/code_quality.md`.
 10. Root `README.md`, `AGENTS.md`, and `CLAUDE.md` link to both
-   `DEVELOPMENT_PLAN/README.md` and `HASKELL_CLI_TOOL.md`.
+   `DEVELOPMENT_PLAN/README.md` and `README.md`.
 11. Mermaid render pass per standards rule K: `README.md`'s Sprint Dependencies
     flowchart is the only Mermaid block in `DEVELOPMENT_PLAN/` at Sprint `0.1`
     closure; it renders successfully.
@@ -225,7 +224,7 @@ None.
 ### Objective
 
 Confirm that every in-scope identifier from
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) is owned by an explicit sprint
+[../README.md](../README.md) is owned by an explicit sprint
 deliverable in Phases `1`–`12`. Any unowned identifier is scheduled by extending an
 existing sprint's `Deliverables` block (or, if no existing sprint is a natural
 home, adding a new sprint). The audit's purpose is to ensure no in-scope doctrine
@@ -234,7 +233,7 @@ per standards rule L.
 
 ### Deliverables
 
-- A grep audit of [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) enumerates
+- A grep audit of [../README.md](../README.md) enumerates
   every prescriptive identifier from the in-scope sections. The expected
   identifier list (non-exhaustive) is:
   - **Toolchain pinning**: `GHC 9.14.1`, `Cabal 3.16.1.0`,
@@ -316,7 +315,7 @@ per standards rule L.
     (`indentation`, `column-limit`, `function-arrows`, `comma-style`,
     `import-export-style`, `indent-wheres`, `record-brace-space`,
     `newlines-between-decls`, `haddock-style`, `let-style`, `in-style`,
-    `unicode`), container-owned style-tools bootstrap for the mandatory
+    `unicode`), container-exclusive style/code-quality gate for the mandatory
     `jitml:local` image, `hlint`, `cabal format` temp-file round-trip byte-equality,
     `forbiddenPathRegistry` refusing `.github/workflows/`, `.husky/`,
     `.githooks/`, root `Makefile` / `justfile` / `Taskfile.yml`. Plus chart
@@ -331,8 +330,8 @@ per standards rule L.
     tests, Pulumi-orchestrated infrastructure tests. Ten `jitml-*` stanzas:
     `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
     `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`,
-    `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`,
-    `jitml-purescript-style`.
+    `jitml-daemon-lifecycle`, `jitml-e2e`, `jitml lint haskell`,
+    `jitml lint purescript`.
   - **Project-level documentation standards**: the six elements (marker
     convention; authoritative list/pointer of generated-region files;
     `jitml docs generate`; per-file `**Generated sections**:`; five-step
@@ -463,7 +462,7 @@ blocks, or cleanup-ledger rows are required.
   lines `88`-`148` and `218`-`240`; [system-components.md](system-components.md)
   lines `162`-`178` and `298`-`300`.
 - Lint stack and test organization:
-  `grep -RInE 'fourmolu\.yaml|indentation|column-limit|function-arrows|comma-style|import-export-style|indent-wheres|record-brace-space|newlines-between-decls|haddock-style|let-style|in-style|unicode|hlint|cabal format|forbiddenPathRegistry|\.github/workflows/|\.husky/|\.githooks/|Makefile|justfile|Taskfile\.yml|freestanding PVCs|kubernetes\.io/no-provisioner|claimRef|exitcode-stdio-1\.0|tasty|execParserPure|decode \. encode == id|render is deterministic|parser roundtrips|golden tests|sentinel placeholders|daemon-lifecycle|Pulumi-orchestrated|jitml-unit|jitml-integration|jitml-sl-canonicals|jitml-rl-canonicals|jitml-hyperparameter|jitml-cross-backend|jitml-daemon-lifecycle|jitml-e2e|jitml-haskell-style|jitml-purescript-style' DEVELOPMENT_PLAN documents/engineering`
+  `grep -RInE 'fourmolu\.yaml|indentation|column-limit|function-arrows|comma-style|import-export-style|indent-wheres|record-brace-space|newlines-between-decls|haddock-style|let-style|in-style|unicode|hlint|cabal format|forbiddenPathRegistry|\.github/workflows/|\.husky/|\.githooks/|Makefile|justfile|Taskfile\.yml|freestanding PVCs|kubernetes\.io/no-provisioner|claimRef|exitcode-stdio-1\.0|tasty|execParserPure|decode \. encode == id|render is deterministic|parser roundtrips|golden tests|sentinel placeholders|daemon-lifecycle|Pulumi-orchestrated|jitml-unit|jitml-integration|jitml-sl-canonicals|jitml-rl-canonicals|jitml-hyperparameter|jitml-cross-backend|jitml-daemon-lifecycle|jitml-e2e|jitml lint haskell|jitml lint purescript' DEVELOPMENT_PLAN documents/engineering`
   Evidence: [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md)
   lines `235`-`267`; [system-components.md](system-components.md) lines `308`-`336`.
 - Project-level documentation standards:
@@ -532,7 +531,7 @@ blocks, or cleanup-ledger rows are required.
 3. Each new sprint block introduced by Sprint `0.2` (if any) follows the rule H
    sprint format (Status / Implementation / Docs to update / Objective /
    Deliverables / Validation / Remaining Work).
-4. Each new deliverable cites the [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+4. Each new deliverable cites the [../README.md](../README.md)
    section it implements by section heading per standards rule L.
 5. Mermaid render pass (standards rule K) is a no-op — Sprint `0.2` introduces
    no diagrams.
@@ -556,12 +555,11 @@ doctrine sections at the deliverable level.
 The Phase `0`-owned doctrine sections — the meta-rules under which later phases
 adopt doctrine — are:
 
-- [../HASKELL_CLI_TOOL.md → Project-level documentation
-  standards](../HASKELL_CLI_TOOL.md) — instantiated by
+- [../README.md → Documentation metadata contract](../README.md) — instantiated by
   `documents/documentation_standards.md` (Sprint `0.1`).
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) header — instantiated by the
+- [../README.md → README metadata header](../README.md) — instantiated by the
   `**Status**` / `**Supersedes**` / `**Referenced by**` block added to
-  `HASKELL_CLI_TOOL.md` itself (Sprint `0.1`).
+  `README.md` itself (Sprint `0.1`).
 - Standards rule L of [development_plan_standards.md](development_plan_standards.md)
   is the project-internal CLI doctrine alignment contract that every later phase
   follows.
@@ -628,10 +626,10 @@ adopt doctrine — are:
 **Cross-references to add:**
 
 - Root guidance docs (`README.md`, `AGENTS.md`, `CLAUDE.md`) link to
-  [README.md](README.md) and [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
-  as the authoritative plan and CLI doctrine entrypoints (Sprint `0.1`).
-- The doctrine itself lists every governed-doc and plan-file consumer in its
-  `**Referenced by**` line (Sprint `0.1`).
+  [README.md](README.md) and [../README.md](../README.md)
+  as the authoritative plan and project/CLI doctrine entrypoints (Sprint `0.1`).
+- The project-root README lists every governed-doc and plan-file consumer in
+  its `**Referenced by**` line (Sprint `0.1`).
 
 ## Related Documents
 
@@ -640,5 +638,5 @@ adopt doctrine — are:
 - [development_plan_standards.md](development_plan_standards.md)
 - [system-components.md](system-components.md)
 - [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)
 - [../documents/documentation_standards.md](../documents/documentation_standards.md)

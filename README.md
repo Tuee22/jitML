@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: HASKELL_CLI_TOOL.md, DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/numerical_core.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
+**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/numerical_core.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
 **Generated sections**: command-tree, command-registry
 
 > **Purpose**: Operator-facing project intent and authoritative high-level architecture for jitML.
@@ -27,7 +27,7 @@ The result is:
 - hardware-native performance
 - fully declarative experiment definitions
 
-> **Doctrine and siblings:** The authoritative CLI doctrine lives at [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md). jitML borrows its testing-and-determinism arc from a sibling deterministic Monte Carlo Tree Search runtime and its infrastructure layout from a sibling k8s-first inference control plane; the scopes of those projects are not combined with jitML's.
+> **Doctrine and siblings:** This README is the authoritative project and CLI doctrine. jitML borrows its testing-and-determinism arc from a sibling deterministic Monte Carlo Tree Search runtime and its infrastructure layout from a sibling k8s-first inference control plane; the scopes of those projects are not combined with jitML's.
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
@@ -75,7 +75,7 @@ Per doctrine §Overview → Toolchain pinning, these versions are normative, not
 | oneDNN | pinned | `cabal.project` (AVX2 baseline, AVX-512 detected at JIT time) |
 | `kindest/node` | pinned | `./kind/cluster-<substrate>.yaml` (canonical); mirrored as a comment in `cabal.project` for the toolchain-truth record |
 | Node.js, Poetry | pinned | Haskell prerequisite DAG |
-| Formatter GHC | `9.12.4`, separate from project GHC | `docker/Dockerfile` style-tool build stage for `jitml:local`; lint stack only, never the project compiler |
+| Formatter GHC | `9.12.4`, separate from project GHC | `docker/Dockerfile` style-tool build stage for `jitml:local`; container-exclusive code-quality stack only, never the project compiler |
 
 The full per-target codegen detail (build flags, RTS options, fast-math discipline) lives under [Compiler, runtime, and backend tuning](#compiler-runtime-and-backend-tuning).
 
@@ -139,7 +139,7 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 > **Bootstrap verbs are not CLI verbs.** Historical script verbs such as `doctor`, `status`, `down`, and `purge` remain script conveniences, but the cluster bootstrap contract is the Haskell command `jitml bootstrap --apple-silicon | --linux-cpu | --linux-cuda`. Script `up` is a wrapper around that command.
 
-- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local` / `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the canonical Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO and then starts the host daemon as the long-running Apple inference resident. The host does **not** install or start tart during bootstrap; tart is installed and started lazily on the first JIT that misses the cache.
+- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local` / `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO and then starts the host daemon as the long-running Apple inference resident. The host does **not** install or start tart, style tools, or code-quality tooling during bootstrap; tart is installed and started lazily on the first JIT that misses the cache.
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically and the root `compose.yaml` runs that service with host networking so the outer-container Kind kubeconfig loopback endpoint is reachable. The in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
 - `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast with installation instructions. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU worker label, worker containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap.
 
@@ -552,7 +552,7 @@ The `inference.command.apple-silicon` / `inference.event.apple-silicon` pair onl
 
 Pulsar carries small envelopes only. Per-layer weight blobs, optimizer state, and inference outputs travel through MinIO via the same protocol the orchestrator uses; the host daemon writes large artifacts to MinIO directly and the ACK envelope just references the resulting manifest SHAs.
 
-**Stale-starting-snapshot pre-flight (training only).** When `kind == "training"`, the host daemon's first step on receipt is to read `pointers/latest` for the model and compare against `starting-snapshot`. If they disagree (another trainer committed first), the daemon publishes an error envelope on `inference.event.apple-silicon` with shape `{ "call-id": "<uuid>", "kind": "error", "code": "stale-starting-snapshot", "expected": "<latest>", "got": "<starting>" }` and aborts. This is a **recoverable** error per HASKELL_CLI_TOOL.md §Error Handling — the daemon stays healthy, the call is rejected, and the orchestrator either surfaces to the demo or rebases (rebase is a future enhancement; day 1 surfaces). Inference calls skip this check — running inference at any historical snapshot is a legitimate operation.
+**Stale-starting-snapshot pre-flight (training only).** When `kind == "training"`, the host daemon's first step on receipt is to read `pointers/latest` for the model and compare against `starting-snapshot`. If they disagree (another trainer committed first), the daemon publishes an error envelope on `inference.event.apple-silicon` with shape `{ "call-id": "<uuid>", "kind": "error", "code": "stale-starting-snapshot", "expected": "<latest>", "got": "<starting>" }` and aborts. This is a **recoverable** error per README.md §Error Handling — the daemon stays healthy, the call is rejected, and the orchestrator either surfaces to the demo or rebases (rebase is a future enhancement; day 1 surfaces). Inference calls skip this check — running inference at any historical snapshot is a legitimate operation.
 
 **Protobuf contract.** Schemas in `./proto/jitml/` define the Pulsar command/event envelopes, and `proto/tensorboard/event.proto` defines the minimal TensorBoard scalar event path. Current Haskell mirrors live under `src/JitML/Proto/`; PureScript browser contracts are generated separately via the in-repo bridge renderer.
 
@@ -624,12 +624,13 @@ On Linux substrates, *all* builds happen inside `docker compose run --rm jitml j
 
 On Apple Silicon, `cabal install` runs directly on the host because the host is the GPU. The asymmetry is intentional: the inner container ensures the Linux build is bit-reproducible across hosts; the Apple host build is reproducible because the host GHC and Cabal versions are pinned by the bootstrap script.
 
-The style-tool rule is intentionally symmetric despite the Apple runtime split:
+The code-quality rule is intentionally symmetric despite the Apple runtime split:
 `jitml:local` is mandatory on every substrate because it runs the in-cluster daemon.
 `docker/Dockerfile` therefore installs the separate style-tools GHC, builds pinned
 `fourmolu` / `hlint` binaries, and runs the Haskell lint/style/code-quality gate during
-image construction. `jitml lint haskell` and `jitml-haskell-style` use those prebuilt
-tools; they do not bootstrap style tooling through host `ghcup`.
+image construction. All `jitml lint *` and `jitml check-code` executions are
+supported only inside `jitml:local`; the host has no style-tool override or
+code-quality execution path.
 
 ---
 
@@ -686,8 +687,6 @@ mindmap
       jitml-cross-backend
       jitml-daemon-lifecycle
       jitml-e2e
-      jitml-haskell-style
-      jitml-purescript-style
     lint
       files
       docs
@@ -758,8 +757,6 @@ mindmap
 | `jitml test jitml-cross-backend` | Run jitml-cross-backend. | `jitml test jitml-cross-backend` |
 | `jitml test jitml-daemon-lifecycle` | Run jitml-daemon-lifecycle. | `jitml test jitml-daemon-lifecycle` |
 | `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e` |
-| `jitml test jitml-haskell-style` | Run jitml-haskell-style. | `jitml test jitml-haskell-style` |
-| `jitml test jitml-purescript-style` | Run jitml-purescript-style. | `jitml test jitml-purescript-style` |
 | `jitml lint files` | Run file hygiene checks. | `jitml lint files [--write]` |
 | `jitml lint docs` | Run generated documentation checks. | `jitml lint docs [--write]` |
 | `jitml lint proto` | Run protobuf schema lint checks. | `jitml lint proto [--write]` |
@@ -2067,13 +2064,14 @@ Every interactive panel maps to a small REST + WebSocket pair, all under `/api` 
 
 ## Tests
 
-Current local frontend checks live in the Haskell `jitml-purescript-style` and
-`jitml-e2e` stanzas. They validate generated contracts, whitespace, panel
-coverage, demo HTTP routing, report-card output, and the explicit typed
-Subprocess shapes for `spago test`, `purs-tidy check`, and Playwright without
-using process-environment gates. Target `purescript-spec` unit tests live in
-`./web/test/`, and target Playwright E2E runs through the explicit live
-`jitml-e2e` orchestration path against the real Envoy route surface.
+Current local frontend checks are split by purpose. `jitml lint purescript`
+validates generated contracts, whitespace, panel coverage, and the explicit
+typed Subprocess shapes for `spago test` and `purs-tidy check`. The
+`jitml-e2e` test stanza validates demo HTTP routing, report-card output,
+Playwright plan shape, and the local browser scaffold. Target
+`purescript-spec` unit tests live in `./web/test/`, and target Playwright E2E
+runs through the explicit live `jitml-e2e` orchestration path against the real
+Envoy route surface.
 
 ## Deployment
 
@@ -2084,7 +2082,9 @@ using process-environment gates. Target `purescript-spec` unit tests live in
 
 # Test-suite stanzas
 
-**Doctrine coverage.** Every one of the seven test categories in [`HASKELL_CLI_TOOL.md` §Test Categories](HASKELL_CLI_TOOL.md#test-categories) is exercised by a jitML stanza — no category omitted, no parallel test surface outside this list:
+**Test coverage.** Every one of the seven test categories is exercised by a
+jitML test stanza. Code style and quality are intentionally separate and live
+under `jitml lint *` / `jitml check-code`.
 
 | Doctrine category | jitML stanzas |
 |---|---|
@@ -2095,8 +2095,6 @@ using process-environment gates. Target `purescript-spec` unit tests live in
 | Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` (the four `*-canonicals` and the HPO stanza are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
 | Pulumi-Orchestrated Infrastructure | `jitml-e2e` |
-
-Plus the doctrine-mandated style stanza (per §Style as a Cabal test-suite): `jitml-haskell-style`, with `jitml-purescript-style` as the project-specific Lint extension.
 
 Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **Doctrine category** column below mirrors the matrix above per stanza. The **Delegated by** column names the `TestCommand` constructor that targets the stanza. Per doctrine, the first four categories (Pure / Parser / Property / Golden) share the single `jitml-unit` stanza.
 
@@ -2110,19 +2108,18 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, and Linux CPU identity-kernel compile/load/run; target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from measured float-accumulation drift |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path uses Pulumi-orchestrated ephemeral Kind + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
-| `jitml-haskell-style` | doctrine-mandated style stanza (§Style as a Cabal test-suite) | `TestHaskellStyle` | container-provisioned `fourmolu --mode check`, `hlint`, `cabal format` round-trip |
-| `jitml-purescript-style` | Lint (project-specific) | `TestPureScriptStyle` | Current generated-contract / whitespace / panel-contract checks plus explicit live `spago test` and `purs-tidy check`; target default `purs format` round-trip + `purescript-spec` smoke tests |
 
-`TestAll` fans out to every stanza above (via phase 1 of `jitml test all`). Lint runs inside `cabal test` via the `jitml-haskell-style` stanza, not as a separate `test` subcommand — `jitml lint all --check` is the lint surface.
+`TestAll` fans out to every stanza above. It does not run lint, style, or
+code-quality gates; `jitml lint all` and `jitml check-code` are the separate
+code-quality surfaces.
 
-The canonical local gate runs inside `jitml:local`, where the image already
-contains the style-tool GHC/tools; the 2026-05-19 validation passed
-non-dry-run `jitml test all` across all ten stanzas and printed the typed
-report-card block.
+The canonical local test gate runs the eight test-only stanzas and prints the
+typed report-card block. The canonical code-quality gate runs separately inside
+`jitml:local`, where the image contains the style-tool GHC/tools.
 
 Notes on the mapping:
 
-- jitML's project-specific stanzas (`sl-canonicals`, `rl-canonicals`, `hyperparameter`, `cross-backend`, `purescript-style`) are **extensions of the Integration / Lint categories under §Test Organization's project-specific allowance**, not parallel test systems.
+- jitML's project-specific stanzas (`sl-canonicals`, `rl-canonicals`, `hyperparameter`, `cross-backend`) are **Integration extensions**, not parallel test systems.
 - Every stanza uses `type: exitcode-stdio-1.0` (doctrine §Standard Testing Stack): the test binary signals pass/fail by exit code, which is the only contract Cabal needs to schedule and aggregate stanzas in parallel. Each stanza's `main-is` is a thin `Main.hs` calling into a library module where the tests live.
 - Single `tasty` trees across stanzas are forbidden (doctrine §Test Organization): separate stanzas give Cabal-native parallelism, let CI and developers target one tier (`cabal test jitml-unit`), and isolate dependency creep so heavy integration deps do not leak into the unit suite.
 
@@ -2170,7 +2167,14 @@ cabal test                          # every stanza — equivalent to phase 1 of 
 
 ### Lint matrix
 
-Per doctrine §Lint, Format, and Code-Quality Stack and §Standard Testing Stack, `lint *` is the surface for hand-written sources (paired with `docs *` for generated artifacts; see [Generated documentation flow](#generated-documentation-flow)). Each row below maps a `LintCommand` constructor to the tool family it gates. Execution lives inside the `jitml:local` image build and inside `cabal test` via the `jitml-haskell-style` and `jitml-purescript-style` stanzas per doctrine §Style as a Cabal test-suite. Haskell style tooling is container-provisioned; lint commands never install a missing host GHC.
+Per doctrine §Lint, Format, and Code-Quality Stack, `lint *` is the surface for
+hand-written sources (paired with `docs *` for generated artifacts; see
+[Generated documentation flow](#generated-documentation-flow)). Each row below
+maps a `LintCommand` constructor to the tool family it gates. The entire
+lint/check-code surface is container-exclusive and separate from test
+execution: run it through `docker compose run --rm jitml ...`; host execution
+fails before linting instead of installing, discovering, or overriding style
+tools.
 
 | Target | Tools | Covered scope |
 |---|---|---|
@@ -2178,9 +2182,9 @@ Per doctrine §Lint, Format, and Code-Quality Stack and §Standard Testing Stack
 | `lint docs` | repo-internal | documentation metadata, relative links, forbidden stale commands, and hand-written documentation hygiene |
 | `lint proto` | `protoc` round-trip | wire schemas in `proto/jitml/` |
 | `lint chart` | repo-internal | Helm structural invariants (no dynamic provisioning, every PV with explicit `claimRef` or registered Percona `volumeName`, no freestanding PVCs) |
-| `lint haskell` | container-provisioned `fourmolu --mode check` + `hlint` + `cabal format` round-trip | per doctrine §Lint stack |
-| `lint purescript` | `purs format` round-trip + `purescript-spec` smoke | PureScript sources |
-| `lint all` | aggregate | every row above, then `cabal build all` |
+| `lint haskell` | container-exclusive `fourmolu --mode check` + `hlint` + `cabal format` round-trip | per doctrine §Lint stack |
+| `lint purescript` | repo-internal | generated contract presence/header, PureScript whitespace, panel-contract coverage, and typed frontend-tool subprocess shapes |
+| `lint all` | aggregate | every row above |
 
 Every entry has a paired `--write` mode per doctrine §Paired check and write semantics; `--write` fixes what is auto-fixable and exits `3` when there is nothing to do.
 
@@ -2188,9 +2192,11 @@ Every entry has a paired `--write` mode per doctrine §Paired check and write se
 
 # `jitml test all`
 
-The doctrine-mandatory canonical test command. `cabal test` is the real test runner; `jitml test all` is a thin wrapper that runs `cabal test` and then prints a typed report-card summary. Three phases:
+The canonical test command. `cabal test` is the real test runner; `jitml test
+all` is a thin wrapper that runs the explicit test-only stanza list and then
+prints a typed report-card summary. Three phases:
 
-1. **Delegates to `cabal test`.** Runs every `test-suite` stanza above — including `jitml-haskell-style`, which is how lint and style enforcement participate in the canonical suite (not as a separate phase).
+1. **Delegates to `cabal test`.** Runs every test-only `test-suite` stanza above.
 2. **Reads the report-card knobs.** The local wrapper parses the pinned knob block in `cabal.project` and records the target stanza list that actually ran.
 3. **Prints a single tidy summary block** on stdout.
 
@@ -2206,17 +2212,19 @@ knobs:
 stanzas:
   jitml-unit: PASS
   ...
-  jitml-purescript-style: PASS
+  jitml-e2e: PASS
 cabal_test:
-  passed: 10
+  passed: 8
   failed: 0
   duration_seconds: 0
 ```
 
-`jitml test all` is a Plan/Apply command per doctrine §Plan / Apply. `--dry-run` prints the rendered plan and exits 0. The summary block is rendered by a pure function over a typed `ReportCard` value and the target stanza names.
-The current non-dry-run wrapper invokes `cabal test all`, parses the
-`cabal.project` report-card knob block, and prints the target-stanza report
-card after Cabal succeeds.
+`jitml test all` is a Plan/Apply command per doctrine §Plan / Apply.
+`--dry-run` prints the rendered plan and exits 0. The summary block is rendered
+by a pure function over a typed `ReportCard` value and the target stanza names.
+The current non-dry-run wrapper invokes `cabal test` with the explicit eight
+test-only stanza names, parses the `cabal.project` report-card knob block, and
+prints the target-stanza report card after Cabal succeeds.
 
 The live report-card extension will add measured SL/RL/AlphaZero/tuning/daemon/cross-substrate values once the live e2e path produces them. The full local matrices are exercised by `cabal test jitml-sl-canonicals` and `cabal test jitml-rl-canonicals` — see [Canonical supervised learning problems](#canonical-supervised-learning-problems) and [Golden tests for RL](#golden-tests-for-rl).
 
@@ -2339,7 +2347,6 @@ jitML/
   cabal.project                 -- toolchain pin, report-card knobs
   fourmolu.yaml                 -- formatter config
   README.md
-  HASKELL_CLI_TOOL.md
   AGENTS.md / CLAUDE.md
   LICENSE
   .build/                       -- gitignored: outputs, kubeconfig, generated Dhall, runtime/kind metadata, JIT cache
@@ -2350,7 +2357,7 @@ jitML/
 
 # Doctrine scope
 
-In-scope (binding) from [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md), in doctrine order:
+Binding project doctrine, in order:
 
 - Overview (toolchain pinning — instantiated by [Toolchain pinning](#toolchain-pinning))
 - Project Structure (library-first; instantiated by [Repository layout (target)](#repository-layout-target))
@@ -2371,9 +2378,9 @@ In-scope (binding) from [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md), in doctrin
 - **Long-Running Daemons in the Same Binary** — `jitml service` is a real daemon with `BootConfig`/`LiveConfig` Dhall, SIGHUP hot reload, `/healthz`/`/readyz`/`/metrics`, structured JSON logging on stderr, recoverable-vs-fatal error kinds. (Contrast: sibling projects may opt out; jitML opts in.)
 - At-Least-Once Event Processing (Pulsar consumer semantics)
 - Reconcilers: Idempotent Mutation as a Single Command (`bootstrap`, `cluster up`, `docs generate`, `lint --write`)
-- Lint, Format, and Code-Quality Stack — adopted with jitML's container-owned style-tool bootstrap: the mandatory `jitml:local` image build installs the style GHC/tools and runs the Haskell style gate; host lint commands do not bootstrap missing style GHCs.
+- Lint, Format, and Code-Quality Stack — adopted with jitML's container-exclusive code-quality domain: the mandatory `jitml:local` image build installs the style GHC/tools and runs the Haskell style gate; host lint/check-code commands are unsupported and do not discover or bootstrap style tools; test commands do not run style or code-quality gates.
 - Testing Doctrine
-- Standard Testing Stack (Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit + tasty-quickcheck + tasty-golden + typed-process + temporary + Pulumi + fourmolu + hlint + cabal format)
+- Standard Testing Stack (Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit + tasty-quickcheck + tasty-golden + typed-process + temporary + Pulumi)
 - Test Categories (each of the seven mapped to a `jitml-*` stanza in [Test-suite stanzas](#test-suite-stanzas), including Daemon Lifecycle and Pulumi-Orchestrated Infrastructure)
 - Test Organization (one `test-suite` stanza per tier; project-specific stanzas under §Test Organization → project-specific stanzas)
 
@@ -2406,7 +2413,7 @@ jitML's long-term goal is a fully declarative, reproducible, deterministic ML ru
 - offers hyperparameter optimisation across the sampler × scheduler × pruner axes — Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT × Fifo, SuccessiveHalving, Hyperband, ASHA × {none, median, percentile} pruners;
 - treats complex-valued networks as first-class citizens throughout the stack;
 - ships an interactive demo app that lets users start, pause, and stop training runs from the browser, draw handwritten digits on a touchpad for live MNIST inference, upload images for CIFAR/ImageNet recognition, and play Connect 4 (and the rest of the canonical adversarial games) against the AlphaZero policy at any committed checkpoint;
-- exercises every test category in [`HASKELL_CLI_TOOL.md` §Test Categories](HASKELL_CLI_TOOL.md#test-categories) — Pure Logic, Parser, Property, Golden, Integration, Daemon Lifecycle, Pulumi-Orchestrated Infrastructure — with target Playwright e2e covering every interactive panel above once live panel state exists.
+- exercises every test category in [Test-suite stanzas](#test-suite-stanzas) — Pure Logic, Parser, Property, Golden, Integration, Daemon Lifecycle, Pulumi-Orchestrated Infrastructure — with target Playwright e2e covering every interactive panel above once live panel state exists.
 
 ---
 

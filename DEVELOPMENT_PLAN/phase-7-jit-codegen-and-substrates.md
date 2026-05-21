@@ -9,7 +9,7 @@
 [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md),
 [phase-6-numerical-core.md](phase-6-numerical-core.md),
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Stand up the per-substrate Haskell JIT source renderers (Metal,
@@ -475,10 +475,10 @@ Metal / Swift package source participates in a JIT build.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (Sprints 7.3, 7.4, 7.5)
-- [../HASKELL_CLI_TOOL.md → Long-Running Daemons in the Same Binary](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — target host/cluster split represented by local config/topic surfaces)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprint 7.5 — host↔cluster RPC topics documented; live consumer owned by Sprint 7.5's Remaining Work)
-- [../HASKELL_CLI_TOOL.md → Toolchain pinning](../HASKELL_CLI_TOOL.md) (Sprints 7.3, 7.4, 7.5)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 7.3, 7.4, 7.5)
+- [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (Sprint 7.5 — target host/cluster split represented by local config/topic surfaces)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 7.5 — host↔cluster RPC topics documented; live consumer owned by Sprint 7.5's Remaining Work)
+- [../README.md → Toolchain pinning](../README.md#toolchain-pinning) (Sprints 7.3, 7.4, 7.5)
 
 ## Documentation Requirements
 
@@ -513,4 +513,4 @@ Metal / Swift package source participates in a JIT build.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

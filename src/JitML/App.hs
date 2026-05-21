@@ -706,9 +706,12 @@ runInspectReplay parsedOptions = do
 
 runTest :: [Text] -> App ()
 runTest ["test", "all"] =
-  runCabalTest ["all"]
-runTest ["test", stanza] =
-  runCabalTest [stanza]
+  runCabalTest reportStanzas
+runTest ["test", stanza]
+  | stanza `elem` reportStanzas =
+      runCabalTest [stanza]
+  | otherwise =
+      exitWithError (UnknownCommand ("unknown test stanza: " <> stanza))
 runTest path =
   exitWithError (UnknownCommand ("unknown test command: " <> commandPathText path))
 
@@ -733,11 +736,9 @@ runCabalTest targets = do
       exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
 
 passedCount :: [Text] -> Int
-passedCount ["all"] = length reportStanzas
-passedCount _ = 1
+passedCount = length
 
 targetStanzas :: [Text] -> [Text]
-targetStanzas ["all"] = reportStanzas
 targetStanzas targets = targets
 
 runInternalVmExec :: [ParsedOption] -> App ()

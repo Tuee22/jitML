@@ -9,7 +9,7 @@
 [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md),
 [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Stand up the checkpoint and inference surface:
@@ -344,9 +344,9 @@ weight-blob-to-kernel loading remain target runtime work.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprints 10.3, 10.4)
-- [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprint 10.4 — local `jitml-cross-backend` body consumes `inferFromManifest`)
-- [../HASKELL_CLI_TOOL.md → Reconcilers: Idempotent Mutation as a Single Command](../HASKELL_CLI_TOOL.md) (Sprint 10.3 — `jitml internal gc` command summary and local no-op exit `3`; live MinIO deletion / Pulsar `gc_reaped` events remain Sprint 10.3 Remaining Work)
+- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprints 10.3, 10.4)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 10.4 — local `jitml-cross-backend` body consumes `inferFromManifest`)
+- [../README.md → Reconcilers and No-Op Exit](../README.md#doctrine-scope) (Sprint 10.3 — `jitml internal gc` command summary and local no-op exit `3`; live MinIO deletion / Pulsar `gc_reaped` events remain Sprint 10.3 Remaining Work)
 
 ## Documentation Requirements
 
@@ -379,4 +379,4 @@ weight-blob-to-kernel loading remain target runtime work.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

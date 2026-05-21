@@ -11,7 +11,7 @@
 
 ## Doctrine Deferrals
 
-This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
+This doc defers to [../../README.md](../../README.md) for:
 
 - **Command Topology** — commands as ordinary Haskell ADTs.
 - **CommandSpec** — record fields (`name`, `summary`, `description`,
@@ -40,8 +40,8 @@ the `src/JitML/App.hs` composition root. Sprint `1.2` has landed the
 focused `help <subcommand>` surfaces. Sprint `1.3` has landed the generated CLI
 reference, help blocks, manpage, shell completions, and paired docs
 check/generate reconciler. Sprint `1.4` has landed the lint surface and the
-container-owned Haskell style-tool gate: runtime lint uses prebuilt
-`jitml:local` image tools instead of bootstrapping host `ghcup`. Sprints
+container-exclusive Haskell style/code-quality gate: runtime lint and
+`check-code` execute only inside `jitml:local`. Sprints
 `1.5` through `1.9` have landed Plan/Apply flags, typed subprocess boundary,
 prerequisite registry, `Env` runner, global output flags, and structured error
 rendering. Sprint `2.1`
@@ -238,9 +238,9 @@ jitml help <subcommand>
 Current code quality gate for in-repo hygiene, generated-doc drift,
 forbidden-path scans, chart checks, Haskell primitive checks, external
 Fourmolu / HLint / cabal-format checks, and the warning-clean build runner.
-The same Haskell style gate runs during `jitml:local` image construction with
-prebuilt style tools; the CLI command must not install a
-missing host style GHC.
+The same Haskell style gate runs during `jitml:local` image construction; the
+CLI command rejects host execution before linting and must not install,
+discover, or override host style tools.
 
 ### `jitml build`
 
@@ -860,7 +860,7 @@ jitml test all
 
 Run all test stanzas.
 
-Runs all Cabal test stanzas and renders the target-stanza report card.
+Runs every test-only Cabal stanza and renders the target-stanza report card.
 
 Usage:
   jitml test all [--dry-run] [--plan-file <path>]
@@ -1025,44 +1025,6 @@ Usage:
 Examples:
   jitml test jitml-e2e
       Run jitml-e2e.
-```
-
-### `jitml test jitml-haskell-style`
-
-```text
-jitml test jitml-haskell-style
-
-Run jitml-haskell-style.
-
-Runs the jitml-haskell-style Cabal test stanza.
-
-Usage:
-  jitml test jitml-haskell-style
-
-
-
-Examples:
-  jitml test jitml-haskell-style
-      Run jitml-haskell-style.
-```
-
-### `jitml test jitml-purescript-style`
-
-```text
-jitml test jitml-purescript-style
-
-Run jitml-purescript-style.
-
-Runs the jitml-purescript-style Cabal test stanza.
-
-Usage:
-  jitml test jitml-purescript-style
-
-
-
-Examples:
-  jitml test jitml-purescript-style
-      Run jitml-purescript-style.
 ```
 
 ### `jitml lint files`
@@ -1580,6 +1542,6 @@ Examples:
 
 ## Cross-References
 
-- [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md)
+- [../../README.md](../../README.md)
 - [../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md](../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md)
 - [../../DEVELOPMENT_PLAN/system-components.md](../../DEVELOPMENT_PLAN/system-components.md)

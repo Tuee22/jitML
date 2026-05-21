@@ -28,4 +28,4 @@ If the user explicitly asks you to commit or push, decline and remind them of th
 ## Authoritative entrypoints
 
 - Development plan: [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md) — single execution-ordered plan and sprint status.
-- CLI doctrine: [`HASKELL_CLI_TOOL.md`](HASKELL_CLI_TOOL.md) — binding contract for the CLI surface.
+- CLI doctrine: [README.md](README.md) — binding contract for the CLI surface.

@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../README.md, ../HASKELL_CLI_TOOL.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/numerical_core.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
+**Referenced by**: ../README.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/numerical_core.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
 **Generated sections**: documentation-standards.generated-section-index
 
 > **Purpose**: Single Source of Truth (SSoT) for writing and maintaining
@@ -17,7 +17,7 @@
 Every concept has exactly one canonical document. Other documents may reference
 but never duplicate.
 
-The CLI doctrine lives at [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md). The
+The project and CLI doctrine live at [../README.md](../README.md). The
 development plan lives at [../DEVELOPMENT_PLAN/README.md](../DEVELOPMENT_PLAN/README.md).
 Project-specific engineering doctrine lives under [engineering/](./engineering/).
 Operator-facing project intent lives at [../README.md](../README.md).
@@ -62,11 +62,10 @@ All documentation files under `documents/` use `snake_case.md`:
 
 ### Allowed Exceptions (ALL-CAPS)
 
-- `README.md`
 - `CLAUDE.md`
 - `AGENTS.md`
 - `LICENSE`
-- `HASKELL_CLI_TOOL.md`
+- `README.md`
 
 ### Development Plan Suite
 
@@ -114,8 +113,7 @@ region markers physically present in the file agree: declaring `none` when
 generated-region markers are present is a lint failure, and declaring a key
 whose markers are missing is a lint failure. The reference list of generated
 sections per file is the `GeneratedSectionRule` registry described in
-[../HASKELL_CLI_TOOL.md → Generated
-Artifacts](../HASKELL_CLI_TOOL.md).
+[../README.md](../README.md).
 
 ---
 
@@ -148,7 +146,7 @@ include A.
 ```markdown
 For sprint status and cleanup ownership, see
 [Development Plan](../DEVELOPMENT_PLAN/README.md).
-For CLI patterns, see [Haskell CLI doctrine](../HASKELL_CLI_TOOL.md).
+For CLI patterns, see [project doctrine](../README.md#cli-command-topology-typed).
 ```
 
 ---
@@ -241,8 +239,7 @@ flowchart TB
 
 - BAD: Duplicating the doctrine's `Subprocess` ADT definition.
 - GOOD: Linking to
-  [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed
-  Values](../HASKELL_CLI_TOOL.md).
+  [../README.md](../README.md).
 
 ### Examples Pointing at Removed Paths
 
@@ -265,13 +262,11 @@ This SSoT co-owns documentation-topology doctrine intention.
 
 ## 11. Generated Sections
 
-This section documents the generated-sections discipline mandated by
-[../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) and
-[../HASKELL_CLI_TOOL.md → Project-level documentation
-standards](../HASKELL_CLI_TOOL.md). The doctrine is the authoritative source
-for the underlying registry shape, marker conventions, paired check/write
-commands, and drift enforcement; this section restates the contract for
-documentation contributors who do not need to read the full doctrine.
+This section documents the generated-sections discipline owned by
+[../README.md](../README.md) and implemented by the Haskell generated-section
+registry. The README is the authoritative source for the generated artifact
+surface; this section records the local marker conventions, paired check/write
+commands, and drift enforcement for documentation contributors.
 
 ### Marker Conventions
 
@@ -349,7 +344,9 @@ The doctrine's five-step extension protocol:
    the in-code registry at `src/JitML/Generated/Registry.hs` or
    `src/JitML/Generated/Paths.hs`.
 4. Run `jitml docs generate` to populate the section.
-5. Confirm `jitml docs check` and `cabal test` pass.
+5. Confirm `jitml docs check` passes. Run tests with `cabal test` or
+   `jitml test`; run style and code-quality separately with container-only
+   `jitml lint *` / `jitml check-code`.
 
 ### Fully Generated, Do-Not-Hand-Edit Paths
 
@@ -373,8 +370,8 @@ adding file-hygiene enforcement in Sprint `1.4`:
 `futureTrackingGeneratedPathPatterns` currently records
 `share/man/man1/jitml-*.1` for later per-command manpages. The current registry
 contents are the authoritative source; future fully-generated paths must be
-added there in the same change that introduces them. The `jitml-haskell-style`
-suite also checks the renderer-source modules named by the registry for
+added there in the same change that introduces them. The `jitml lint haskell`
+target also checks the renderer-source modules named by the registry for
 forbidden non-deterministic inputs such as timestamps, random IDs,
 locale-dependent ordering, terminal-width state, and environment-derived paths.
 
@@ -384,7 +381,6 @@ locale-dependent ordering, terminal-width state, and environment-derived paths.
 
 - [Engineering docs index](./engineering/README.md)
 - [Development Plan](../DEVELOPMENT_PLAN/README.md)
-- [HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) — canonical CLI doctrine
+- [README.md](../README.md) — project intent and CLI doctrine
 - [CLAUDE.md](../CLAUDE.md) — AI assistant guidelines
 - [AGENTS.md](../AGENTS.md) — agent guidelines
-- [README.md](../README.md) — project intent and command surface

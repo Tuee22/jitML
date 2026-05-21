@@ -157,9 +157,9 @@ The target `jitml bootstrap --<substrate>` runs the phased rollout:
 2. **Image build/load phase**: the `jitml:local` image and the
    `jitml-demo:local` image are built locally, then loaded explicitly into the
    selected Kind cluster with `kind load docker-image`. The `jitml:local` build
-   also owns the Haskell style-tool bootstrap and code-quality gate: it installs
-   the separate style-tools GHC plus pinned Fourmolu / HLint binaries and fails
-   the image build on Haskell style or warning-clean build drift.
+   is also the exclusive Haskell style/code-quality gate: it installs the
+   separate style-tools GHC plus pinned Fourmolu / HLint binaries and fails the
+   image build on Haskell style or warning-clean build drift.
 3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
 TensorBoard, the `jitml-service` workload (all substrates: Linux
    self-inference plus Apple forward-to-host), and the `jitml-demo` workload
@@ -327,7 +327,7 @@ Sprint `2.1` owns and has closed the stage-0 bootstrap scripts under
   and Homebrew; then it builds `./.build/jitml` and calls
   `./.build/jitml bootstrap --apple-silicon`. The delegated bootstrap still
   builds `jitml:local` for the in-cluster daemon, so Apple Silicon receives the
-  same container-owned Haskell style gate as Linux.
+  same container-exclusive Haskell style gate as Linux.
 - `linux-cpu.sh` verifies Docker is usable without `sudo`; then it calls
   `docker compose run --rm jitml jitml bootstrap --linux-cpu`.
 - `linux-cuda.sh` adds NVIDIA container-runtime and `nvidia-smi` compute

@@ -11,7 +11,6 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PATH=/root/.ghcup/bin:/root/.cabal/bin:/usr/local/bin:$PATH
 ENV JITML_STYLE_TOOLS_ROOT=/opt/jitml-style-tools
-ENV JITML_STYLE_TOOLS_BIN=/opt/jitml-style-tools/bin
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -41,15 +40,16 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
     | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_GHC_VERSION=${GHC_VERSION} BOOTSTRAP_HASKELL_CABAL_VERSION=${CABAL_VERSION} sh
 
 RUN ghcup install ghc "${STYLE_GHC_VERSION}" \
-    && mkdir -p "${JITML_STYLE_TOOLS_BIN}" \
+    && mkdir -p "${JITML_STYLE_TOOLS_ROOT}/bin" \
+    && printf 'jitml:local\n' > /opt/jitml-code-quality-domain \
     && cabal update \
     && ghcup run --ghc "${STYLE_GHC_VERSION}" -- cabal install \
         --ignore-project \
-        --installdir "${JITML_STYLE_TOOLS_BIN}" \
+        --installdir "${JITML_STYLE_TOOLS_ROOT}/bin" \
         --install-method=copy \
         fourmolu-0.19.0.1 \
         hlint-3.10 \
-    && chmod 0755 "${JITML_STYLE_TOOLS_BIN}/fourmolu" "${JITML_STYLE_TOOLS_BIN}/hlint"
+    && chmod 0755 "${JITML_STYLE_TOOLS_ROOT}/bin/fourmolu" "${JITML_STYLE_TOOLS_ROOT}/bin/hlint"
 
 RUN case "${TARGETARCH:-amd64}" in \
         amd64) tool_arch=amd64; node_arch=x64 ;; \

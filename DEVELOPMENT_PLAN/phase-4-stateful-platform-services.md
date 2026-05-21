@@ -9,7 +9,7 @@
 [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md),
 [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Install and configure the in-cluster stateful platform services —
@@ -700,10 +700,10 @@ activates them at runtime when the pod is scheduled with
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Reconcilers: Idempotent Mutation as a Single Command](../HASKELL_CLI_TOOL.md) (every sprint)
-- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (every sprint)
-- [../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) (Sprints 4.4, 4.5, 4.6)
-- [../HASKELL_CLI_TOOL.md → Capability Classes and Service Errors](../HASKELL_CLI_TOOL.md) (Sprint 4.3 — `If-None-Match` / `If-Match` translation to `SEConflict`)
+- [../README.md → Reconcilers and No-Op Exit](../README.md#doctrine-scope) (every sprint)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (every sprint)
+- [../README.md → Generated Artifacts](../README.md#generated-documentation-flow) (Sprints 4.4, 4.5, 4.6)
+- [../README.md → Capability classes and the service-error union](../README.md#capability-classes-and-the-service-error-union) (Sprint 4.3 — `If-None-Match` / `If-Match` translation to `SEConflict`)
 
 ## Documentation Requirements
 
@@ -732,4 +732,4 @@ activates them at runtime when the pod is scheduled with
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

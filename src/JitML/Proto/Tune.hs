@@ -127,10 +127,8 @@ parseTuneCommand payload =
                     <*> value "pruner"
                 )
         Just "StopSweep" ->
-          TuneStop
-            <$> ( StopSweep
-                    <$> value "experiment-hash"
-                )
+          TuneStop . StopSweep
+            <$> value "experiment-hash"
         _ -> Nothing
 
 renderTuneEvent :: TuneEvent -> Text

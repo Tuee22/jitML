@@ -8,17 +8,17 @@
 > **Purpose**: Project-specific testing policy for jitML. Defers to the
 > doctrine for the per-tier stanza model, the standard testing stack, the
 > seven test categories, and the test-organization invariants; names the
-> ten jitML stanzas and the doctrine-category mapping.
+> eight jitML test stanzas and the doctrine-category mapping.
 
 ## Doctrine Deferrals
 
-This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
+This doc defers to [../../README.md](../../README.md) for:
 
 - **Testing Doctrine** — every behavioural surface gated by a stanza; no
   spanning `tasty` tree.
 - **Standard Testing Stack** — Cabal + `exitcode-stdio-1.0` + `tasty` +
   `tasty-hunit` + `tasty-quickcheck` + `tasty-golden` + `typed-process` +
-  `temporary` + Pulumi + `fourmolu` + `hlint` + `cabal format`.
+  `temporary` + Pulumi.
 - **Test Categories** — Pure Logic, Parser, Property, Golden, Integration,
   Daemon Lifecycle, Pulumi-Orchestrated Infrastructure.
 - **Test Organization** — one `test-suite` stanza per tier with `type:
@@ -27,7 +27,7 @@ This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
 
 ## jitML Stanzas
 
-The ten Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
+The eight Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
 exercise the local deterministic contracts for their owning surfaces while live
 cluster validation remains phase-gated:
 
@@ -41,9 +41,6 @@ cluster validation remains phase-gated:
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, and generated Linux CPU identity/reduction-smoke kernel compile/load/run | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, and typed live-plan surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
-| `jitml-haskell-style` | `test/haskell-style/Main.hs` runs the lint stack, including external formatter, HLint, cabal-format, and warning-clean build gates; target style tools are supplied by the `jitml:local` image build rather than host lint-time bootstrap | Style (§Style as a Cabal test-suite) | Sprint 1.4 |
-| `jitml-purescript-style` | `test/purescript-style/Main.hs` checks the generated PureScript contract file, renderer, recursive checked-in PureScript whitespace shape, panel-contract coverage, and explicit typed `spago test` / `purs-tidy check` command shapes | Lint (project-specific) | Sprint 11.3 |
-
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 `Test Organization`.
@@ -59,26 +56,18 @@ runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 | Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
 | Pulumi-Orchestrated Infrastructure | `jitml-e2e` |
-| Style (§Style as a Cabal test-suite) | `jitml-haskell-style` |
-| Lint (project-specific) | `jitml-purescript-style` |
 
 The four `*-canonicals`/HPO/cross-backend rows are **project-specific
 Integration** stanzas under doctrine §Test Organization's project-specific
 stanzas allowance — extensions of the Integration category, not parallel
-test systems. `jitml-purescript-style` is a **project-specific Lint**
-stanza under the same allowance.
+test systems.
 
-`jitml test all` (Sprint `12.9`) fans out to every stanza above by invoking
-`cabal test all` through the typed `Subprocess` boundary, then renders a
-target-stanza report card after Cabal succeeds. `jitml test <stanza>` renders
-the same report shape for the selected stanza only. Because
-`jitml-haskell-style` uses
-container-provided style tools, the full all-stanza gate runs inside
-`jitml:local` unless `JITML_STYLE_TOOLS_BIN` points at prebuilt host tools.
-The 2026-05-19 `jitml:local` validation passed non-dry-run `jitml test all`
-across all ten stanzas and printed the report card with the `cabal.project`
-knob values; the current local renderer names the target stanzas rather than
-fixed placeholder workload PASS rows.
+`jitml test all` (Sprint `12.9`) fans out to every test stanza above by
+invoking `cabal test` with the explicit eight test-only stanza names through
+the typed `Subprocess` boundary, then renders a target-stanza report card after
+Cabal succeeds. `jitml test <stanza>` renders the same report shape for the
+selected stanza only. Style and code-quality commands are deliberately
+separate; use `jitml lint *` and `jitml check-code` inside `jitml:local`.
 `jitml test <stanza>` invokes one Cabal stanza through the same boundary.
 
 ## Project-Specific Stanza Notes
@@ -170,28 +159,6 @@ Future live test driver:
 
 Future Pulumi invocations flow through the typed `Subprocess` boundary.
 
-### `jitml-haskell-style`
-
-Doctrine's Style stanza per §Style as a Cabal test-suite. The target body runs
-the lint stack with style tools prebuilt by the mandatory `jitml:local` image,
-including route-registry / chart consistency lint, generated-section drift
-checks, `fourmolu --mode check`, `hlint --with-group=default
---with-group=extra` plus `.hlint.yaml`, `cabal format` temp-file round-trip byte
-equality, and the warning-clean build gate. This stanza uses prebuilt
-container-owned style tools and does not bootstrap missing tools through host
-`ghcup`.
-
-### `jitml-purescript-style`
-
-Project-specific Lint extension under doctrine §Test Organization's
-project-specific stanzas allowance. The current body checks that
-`web/src/Generated/Contracts.purs` exists and names the expected endpoint
-surface, that the local Haskell renderer emits the module header, that panel
-metadata is covered by generated contracts, and that the explicit
-`spago test` and `purs-tidy check "src/**/*.purs"` commands are represented as
-typed `Subprocess` values. Default `purs format` round-trip and
-`purescript-spec` smoke tests remain target work.
-
 ### Playwright
 
 Playwright belongs to the doctrine's target Pulumi-Orchestrated Infrastructure
@@ -227,7 +194,7 @@ per doctrine `Test Categories → Golden Tests`.
 
 ## Cross-References
 
-- [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md)
+- [../../README.md](../../README.md)
 - [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
 - [determinism_contract.md](determinism_contract.md)
 - [../documentation_standards.md](../documentation_standards.md)

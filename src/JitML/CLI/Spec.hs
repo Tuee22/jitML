@@ -402,7 +402,7 @@ testCommand =
   group
     "test"
     "Run test suites."
-    "Runs all or selected Cabal test stanzas through the jitML test orchestrator."
+    "Runs all or selected Cabal test stanzas through the jitML test orchestrator; code style and quality gates live under lint/check-code."
     (allTestCommand : fmap testStanzaCommand testStanzas)
 
 lintCommand :: CommandSpec
@@ -602,7 +602,7 @@ allTestCommand =
   leaf
     "all"
     "Run all test stanzas."
-    "Runs all Cabal test stanzas and renders the target-stanza report card."
+    "Runs every test-only Cabal stanza and renders the target-stanza report card."
     [dryRunOption, planFileOption]
     [Example "jitml test all --dry-run" "Print the aggregate test plan."]
 
@@ -625,8 +625,6 @@ testStanzas =
   , "jitml-cross-backend"
   , "jitml-daemon-lifecycle"
   , "jitml-e2e"
-  , "jitml-haskell-style"
-  , "jitml-purescript-style"
   ]
 
 lintLeaf :: Text -> Text -> CommandSpec

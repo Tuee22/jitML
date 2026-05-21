@@ -8,7 +8,7 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Stand up the RL algorithm metadata catalog, Connect
@@ -444,9 +444,9 @@ summary.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Command Topology](../HASKELL_CLI_TOOL.md) (Sprint 9.7 — `jitml tune` command leaf)
-- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprint 9.7 — current dry-run / plan-file surface)
-- [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprints 9.4, 9.7 — dedicated local RL and hyperparameter stanzas)
+- [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (Sprint 9.7 — `jitml tune` command leaf)
+- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprint 9.7 — current dry-run / plan-file surface)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 9.4, 9.7 — dedicated local RL and hyperparameter stanzas)
 
 ## Documentation Requirements
 
@@ -479,4 +479,4 @@ summary.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

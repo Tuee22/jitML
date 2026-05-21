@@ -616,7 +616,7 @@ Run inference using the latest checkpoint.
 
 Run all test stanzas.
 
-Runs all Cabal test stanzas and renders the target-stanza report card.
+Runs every test-only Cabal stanza and renders the target-stanza report card.
 
 ```text
 jitml test all [--dry-run] [--plan-file <path>]
@@ -786,44 +786,6 @@ jitml test jitml-e2e
 ```
 
 Run jitml-e2e.
-
-
-## `jitml test jitml-haskell-style`
-
-Run jitml-haskell-style.
-
-Runs the jitml-haskell-style Cabal test stanza.
-
-```text
-jitml test jitml-haskell-style
-```
-
-Examples:
-
-```text
-jitml test jitml-haskell-style
-```
-
-Run jitml-haskell-style.
-
-
-## `jitml test jitml-purescript-style`
-
-Run jitml-purescript-style.
-
-Runs the jitml-purescript-style Cabal test stanza.
-
-```text
-jitml test jitml-purescript-style
-```
-
-Examples:
-
-```text
-jitml test jitml-purescript-style
-```
-
-Run jitml-purescript-style.
 
 
 ## `jitml lint files`

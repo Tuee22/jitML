@@ -10,7 +10,7 @@
 [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md),
 [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Stand up the current `jitml service` daemon surface — the
@@ -733,14 +733,14 @@ Dhall configs.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Long-Running Daemons in the Same Binary](../HASKELL_CLI_TOOL.md) (every sprint)
-- [../HASKELL_CLI_TOOL.md → Application Environment](../HASKELL_CLI_TOOL.md) (Sprints 5.1, 5.4)
-- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprint 5.1)
-- [../HASKELL_CLI_TOOL.md → Capability Classes and Service Errors](../HASKELL_CLI_TOOL.md) (Sprint 5.4 — current service-error mapping and capability-class boundaries)
-- [../HASKELL_CLI_TOOL.md → Retry Policy as First-Class Values](../HASKELL_CLI_TOOL.md) (Sprint 5.4)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprint 5.5)
-- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (Sprint 5.4)
-- [../HASKELL_CLI_TOOL.md → Error Handling](../HASKELL_CLI_TOOL.md) (Sprint 5.3)
+- [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (every sprint)
+- [../README.md → Application Environment](../README.md#doctrine-scope) (Sprints 5.1, 5.4)
+- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprint 5.1)
+- [../README.md → Capability classes and the service-error union](../README.md#capability-classes-and-the-service-error-union) (Sprint 5.4 — current service-error mapping and capability-class boundaries)
+- [../README.md → Retry policy](../README.md#retry-policy) (Sprint 5.4)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 5.5)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprint 5.4)
+- [../README.md → Error Handling](../README.md#exit-codes-and-error-rendering) (Sprint 5.3)
 
 ## Documentation Requirements
 
@@ -769,4 +769,4 @@ Dhall configs.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

@@ -8,7 +8,7 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Own the numerical-core catalog — layer names,
@@ -220,9 +220,9 @@ the current catalog surface.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Architecture](../HASKELL_CLI_TOOL.md) (every sprint — typed values for the model graph)
-- [../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) (Sprint 6.6 — the catalog tables under `numerics.*` keys)
-- [../HASKELL_CLI_TOOL.md → Lint, Format, and Code-Quality Stack](../HASKELL_CLI_TOOL.md) (Sprint 6.6 — the cross-type audit)
+- [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (every sprint — typed values for the model graph)
+- [../README.md → Generated Artifacts](../README.md#generated-documentation-flow) (Sprint 6.6 — the catalog tables under `numerics.*` keys)
+- [../README.md → Lint matrix](../README.md#lint-matrix) (Sprint 6.6 — the cross-type audit)
 
 ## Documentation Requirements
 
@@ -250,4 +250,4 @@ the current catalog surface.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

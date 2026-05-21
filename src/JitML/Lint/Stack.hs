@@ -13,7 +13,6 @@ where
 import Control.Monad (filterM)
 import Data.ByteString qualified as ByteString
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf)
-import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -24,7 +23,6 @@ import System.Directory
   , listDirectory
   , renameFile
   )
-import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath qualified as FilePath
 import System.IO.Temp (withSystemTempDirectory)
@@ -38,23 +36,37 @@ import JitML.Lint.ForbiddenPaths (ForbiddenPathRule (..), matchForbiddenPath)
 import JitML.Lint.Stack.Types (LintFinding (..), LintMode (..), LintTarget (..))
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
-import JitML.Sub.Subprocess (Subprocess, subprocess)
+import JitML.Sub.Subprocess (Subprocess (..), subprocess)
+import JitML.Web.Bundle (panelEndpoint, panelSurfaces)
+import JitML.Web.Contracts (renderPureScriptContracts)
+import JitML.Web.Contracts qualified as Contracts
 
 runCheckCode :: IO [LintFinding]
 runCheckCode = do
-  lintFindings <- runLint LintAll LintCheck
-  buildFindings <- checkWarningCleanBuild
-  pure (lintFindings <> buildFindings)
+  domainFindings <- checkCodeQualityDomain
+  if not (null domainFindings)
+    then pure domainFindings
+    else do
+      lintFindings <- runLintUnchecked LintAll LintCheck
+      buildFindings <- checkWarningCleanBuild
+      pure (lintFindings <> buildFindings)
 
 runLint :: LintTarget -> LintMode -> IO [LintFinding]
-runLint target mode =
+runLint target mode = do
+  domainFindings <- checkCodeQualityDomain
+  if not (null domainFindings)
+    then pure domainFindings
+    else runLintUnchecked target mode
+
+runLintUnchecked :: LintTarget -> LintMode -> IO [LintFinding]
+runLintUnchecked target mode =
   case target of
     LintFiles -> checkFiles mode
     LintDocs -> checkDocsLint
     LintProto -> checkOptionalDirectory "proto" "proto.absent"
     LintChart -> checkChartFiles
     LintHaskell -> checkHaskellLint mode
-    LintPurescript -> checkOptionalDirectory "web" "purescript.absent"
+    LintPurescript -> checkPureScriptLint
     LintAll ->
       concat
         <$> sequence
@@ -63,7 +75,7 @@ runLint target mode =
           , checkOptionalDirectory "proto" "proto.absent"
           , checkChartFiles
           , checkHaskellLint mode
-          , checkOptionalDirectory "web" "purescript.absent"
+          , checkPureScriptLint
           ]
 
 renderLintFinding :: LintFinding -> Text
@@ -92,6 +104,152 @@ checkOptionalDirectory :: FilePath -> Text -> IO [LintFinding]
 checkOptionalDirectory path _key = do
   _exists <- doesDirectoryExist path
   pure []
+
+checkPureScriptLint :: IO [LintFinding]
+checkPureScriptLint = do
+  contractFindings <- checkPureScriptContractsFile
+  sources <- purescriptSources
+  sourceFindings <- concat <$> traverse checkPureScriptSource sources
+  pure
+    ( contractFindings
+        <> checkPureScriptRenderer
+        <> checkPureScriptSourceSet sources
+        <> sourceFindings
+        <> checkPureScriptPanelCoverage
+        <> checkPureScriptToolSubprocesses
+    )
+
+checkPureScriptContractsFile :: IO [LintFinding]
+checkPureScriptContractsFile = do
+  let path = "web/src/Generated/Contracts.purs"
+  exists <- doesFileExist path
+  if exists
+    then do
+      content <- Text.IO.readFile path
+      pure
+        [ LintFinding
+            path
+            "purescript.contracts.missing-endpoint"
+            "generated PureScript contracts do not name InferenceRun"
+            "run `jitml docs generate` to refresh generated contracts"
+        | not ("InferenceRun" `Text.isInfixOf` content)
+        ]
+    else
+      pure
+        [ LintFinding
+            path
+            "purescript.contracts.missing"
+            "generated PureScript contracts file is missing"
+            "run `jitml docs generate` to create web/src/Generated/Contracts.purs"
+        ]
+
+checkPureScriptRenderer :: [LintFinding]
+checkPureScriptRenderer =
+  [ LintFinding
+      "src/JitML/Web/Contracts.hs"
+      "purescript.contracts.module-header"
+      "PureScript contract renderer does not emit the Generated.Contracts module header"
+      "keep renderPureScriptContracts aligned with web/src/Generated/Contracts.purs"
+  | not ("module Generated.Contracts where" `Text.isInfixOf` renderPureScriptContracts)
+  ]
+
+checkPureScriptSourceSet :: [FilePath] -> [LintFinding]
+checkPureScriptSourceSet sources =
+  [ LintFinding
+      "web"
+      "purescript.sources.empty"
+      "PureScript source set is empty"
+      "add checked-in PureScript sources under web/src or web/test"
+  | null sources
+  ]
+
+checkPureScriptSource :: FilePath -> IO [LintFinding]
+checkPureScriptSource path = do
+  source <- Text.IO.readFile path
+  pure
+    ( [ LintFinding
+          path
+          "purescript.whitespace.tabs"
+          "PureScript source contains tab characters"
+          "replace tabs with spaces"
+      | "\t" `Text.isInfixOf` source
+      ]
+        <> [ LintFinding
+               path
+               "purescript.whitespace.final-newline"
+               "PureScript source is missing a final newline"
+               "end the file with a newline"
+           | not ("\n" `Text.isSuffixOf` source)
+           ]
+    )
+
+checkPureScriptPanelCoverage :: [LintFinding]
+checkPureScriptPanelCoverage =
+  [ LintFinding
+      "src/JitML/Web/Contracts.hs"
+      "purescript.contracts.panel-coverage"
+      "frontend panel endpoints do not match generated API contract endpoints"
+      "update panelSurfaces and apiEndpoints together"
+  | fmap panelEndpoint panelSurfaces /= fmap Contracts.endpointPath panelContractEndpoints
+  ]
+
+panelContractEndpoints :: [Contracts.ApiEndpoint]
+panelContractEndpoints =
+  case Contracts.apiEndpoints of
+    _runCommandEndpoint : rest -> rest
+    [] -> []
+
+checkPureScriptToolSubprocesses :: [LintFinding]
+checkPureScriptToolSubprocesses =
+  expectSubprocess "purescript.spago-test" spagoCmd "node_modules/.bin/spago" ["test"] (Just "web")
+    <> expectSubprocess
+      "purescript.purs-tidy"
+      tidyCmd
+      "node_modules/.bin/purs-tidy"
+      ["check", "src/**/*.purs"]
+      (Just "web")
+ where
+  spagoCmd =
+    (subprocess "node_modules/.bin/spago" ["test"])
+      { subprocessWorkingDirectory = Just "web"
+      }
+  tidyCmd =
+    (subprocess "node_modules/.bin/purs-tidy" ["check", "src/**/*.purs"])
+      { subprocessWorkingDirectory = Just "web"
+      }
+
+expectSubprocess :: Text -> Subprocess -> FilePath -> [Text] -> Maybe FilePath -> [LintFinding]
+expectSubprocess key command expectedPath expectedArgs expectedDirectory =
+  [ LintFinding
+      "src/JitML/Lint/Stack.hs"
+      key
+      "PureScript tool command is not represented by the expected typed Subprocess"
+      "keep the PureScript lint tool subprocess definition explicit and deterministic"
+  | subprocessPath command /= expectedPath
+      || subprocessArguments command /= expectedArgs
+      || subprocessWorkingDirectory command /= expectedDirectory
+  ]
+
+purescriptSources :: IO [FilePath]
+purescriptSources =
+  concat <$> traverse listPursFiles ["web/src", "web/test"]
+
+listPursFiles :: FilePath -> IO [FilePath]
+listPursFiles root = do
+  exists <- doesDirectoryExist root
+  if exists
+    then do
+      entries <- listDirectory root
+      concat <$> traverse (listPursEntry root) entries
+    else pure []
+
+listPursEntry :: FilePath -> FilePath -> IO [FilePath]
+listPursEntry root entry = do
+  let path = root FilePath.</> entry
+  isDirectory <- doesDirectoryExist path
+  if isDirectory
+    then listPursFiles path
+    else pure [path | FilePath.takeExtension path == ".purs"]
 
 checkHaskellLint :: LintMode -> IO [LintFinding]
 checkHaskellLint mode = do
@@ -415,12 +573,10 @@ data StyleTools = StyleTools
 
 resolveStyleTools :: IO (Either [LintFinding] StyleTools)
 resolveStyleTools = do
-  envBin <- lookupEnv styleToolsEnv
-  let bins = maybe id (:) envBin defaultStyleToolBins
-  candidates <- traverse styleToolsAt bins
-  case catMaybes candidates of
-    tools : _ -> pure (Right tools)
-    [] -> pure (Left [missingStyleToolsFinding bins])
+  tools <- styleToolsAt containerStyleToolBin
+  case tools of
+    Just resolvedTools -> pure (Right resolvedTools)
+    Nothing -> pure (Left [missingStyleToolsFinding])
 
 styleToolsAt :: FilePath -> IO (Maybe StyleTools)
 styleToolsAt bin = do
@@ -437,17 +593,16 @@ styleToolsAt bin = do
         else Nothing
     )
 
-missingStyleToolsFinding :: [FilePath] -> LintFinding
-missingStyleToolsFinding bins =
+missingStyleToolsFinding :: LintFinding
+missingStyleToolsFinding =
   LintFinding
-    ".build/jitml-style-tools"
+    containerStyleToolBin
     "haskell.style-tools.missing"
-    "Haskell style tools are not available"
+    "Container Haskell style tools are not available"
     ( Text.unlines
         [ "rebuild the jitML container image with `docker compose build jitml`"
-        , "or run the lint command inside the `jitml:local` container"
-        , "expected `fourmolu` and `hlint` in one of: " <> Text.intercalate ", " (Text.pack <$> bins)
-        , "set " <> Text.pack styleToolsEnv <> " to override the prebuilt style-tool directory"
+        , "then run code-quality commands inside `jitml:local`"
+        , "expected `fourmolu` and `hlint` in: " <> Text.pack containerStyleToolBin
         ]
     )
 
@@ -555,11 +710,25 @@ clipped value =
         then value
         else Text.take limit value <> "\n... truncated ..."
 
-styleToolsEnv :: String
-styleToolsEnv = "JITML_STYLE_TOOLS_BIN"
+checkCodeQualityDomain :: IO [LintFinding]
+checkCodeQualityDomain = do
+  markerExists <- doesFileExist codeQualityContainerMarker
+  pure
+    [ LintFinding
+        codeQualityContainerMarker
+        "code-quality.container.required"
+        "Code quality commands must run inside the jitML container"
+        ( Text.unlines
+            [ "run `docker compose run --rm jitml jitml <lint-or-check-code-command>`"
+            , "style and code-quality commands are not Cabal test stanzas"
+            , "rebuild the container with `docker compose build jitml` if the marker is absent"
+            ]
+        )
+    | not markerExists
+    ]
 
-defaultStyleToolBins :: [FilePath]
-defaultStyleToolBins =
-  [ ".build" FilePath.</> "jitml-style-tools" FilePath.</> "bin"
-  , "/opt/jitml-style-tools/bin"
-  ]
+codeQualityContainerMarker :: FilePath
+codeQualityContainerMarker = "/opt/jitml-code-quality-domain"
+
+containerStyleToolBin :: FilePath
+containerStyleToolBin = "/opt/jitml-style-tools/bin"

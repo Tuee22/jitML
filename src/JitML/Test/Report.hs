@@ -61,8 +61,6 @@ reportStanzas =
   , "jitml-cross-backend"
   , "jitml-daemon-lifecycle"
   , "jitml-e2e"
-  , "jitml-haskell-style"
-  , "jitml-purescript-style"
   ]
 
 renderReportCard :: ReportCard -> Text

@@ -19,7 +19,7 @@
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Define the maintenance rules for the jitML development plan so the
@@ -267,8 +267,9 @@ The plan and governed documents must agree.
   statuses, substrate identifiers, and dependency model.
 - Governed docs under `documents/engineering/` must match the current architecture
   described by the plan.
-- Root guidance docs `README.md`, `AGENTS.md`, and `CLAUDE.md` must point to both
-  [README.md](README.md) and [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md).
+- Root guidance docs `README.md`, `AGENTS.md`, and `CLAUDE.md` must point to the
+  project [../README.md](../README.md) and
+  [DEVELOPMENT_PLAN/README.md](README.md).
 
 ### K. Mermaid Rendering Contract
 
@@ -282,16 +283,17 @@ If a change adds or edits a Mermaid block in this directory, closure requires:
    renderer.
 2. Failing the change on any render error.
 3. Verifying the edited diagram in the repository's target Markdown viewer.
-4. Running `jitml check-code` after the documentation change (once Phase 1 lands the
-   command; until then, the lint stack is run manually through `fourmolu --mode
-   check`, `hlint`, and `cabal format`).
+4. Running `jitml check-code` inside `jitml:local` after the documentation change
+   (once Phase 1 lands the command; until then, the lint stack is run manually
+   inside the container through `fourmolu --mode check`, `hlint`, and
+   `cabal format`).
 
 This standards document describes Mermaid rules with prose, inline code, or
 `markdown` examples only. Do not add live Mermaid blocks here.
 
-### L. CLI Doctrine Alignment
+### L. Project Doctrine Alignment
 
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md) is the authoritative CLI doctrine.
+[../README.md](../README.md) is the authoritative project and CLI doctrine.
 Phase documents and sprint blocks that schedule adoption work must cite the doctrine
 sections they implement by name (for example, `CommandSpec`, `Plan / Apply`,
 `Subprocesses as Typed Values`, `Prerequisites as Typed Effects`, `Application
@@ -303,7 +305,7 @@ Code-Quality Stack`, `Generated Artifacts → The generated-section registry`,
 Structure`).
 
 - Governed engineering docs under `documents/engineering/` referenced from the
-  doctrine's `Referenced by` line must defer to the doctrine for the patterns it owns
+  README's `Referenced by` line must defer to the README for the patterns it owns
   and retain only project-specific elaborations such as substrate identifiers,
   Pulsar topic names, the Envoy Gateway socket convention, JIT-cache content-
   addressing, RL-algorithm identifiers, AlphaZero loop, or the checkpoint wire
@@ -329,7 +331,7 @@ Structure`).
 - [README.md](README.md)
 - [00-overview.md](00-overview.md)
 - [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)
 - [../documents/documentation_standards.md](../documents/documentation_standards.md)
 
 ## Cross-Reference Conventions
@@ -337,7 +339,7 @@ Structure`).
 - Links inside `DEVELOPMENT_PLAN/` use relative paths.
 - Links to governed docs under `documents/` use repository-relative paths
   (`../documents/...`).
-- Links to the doctrine use `../HASKELL_CLI_TOOL.md`.
+- Links to project doctrine use `../README.md`.
 - File renames require same-change link updates everywhere the file is referenced.
 
 ## Maintenance Guidelines
@@ -348,7 +350,8 @@ Structure`).
 3. Update the governed engineering docs listed in `Docs to update`.
 4. Update [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) whenever
    cleanup scope changes.
-5. Run `jitml check-code` before closing the work (once Phase 1 lands the command;
-   until then, run `fourmolu --mode check`, `hlint`, and `cabal format` manually).
+5. Run `jitml check-code` inside `jitml:local` before closing the work (once Phase
+   1 lands the command; until then, run `fourmolu --mode check`, `hlint`, and
+   `cabal format` manually inside the container).
 6. If the change touched Mermaid, render every Mermaid block in `DEVELOPMENT_PLAN/`
    and verify the edited diagram in the target viewer before closing the work.

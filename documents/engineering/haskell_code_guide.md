@@ -13,7 +13,7 @@
 
 ## Doctrine Deferrals
 
-This doc defers to [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md) for:
+This doc defers to [../../README.md](../../README.md) for:
 
 - **GADT-Indexed State Machines** — phantom-type indices, singleton
   witnesses, the forbidden runtime-status-enum-with-manual-validation
@@ -176,7 +176,7 @@ Per doctrine `Long-Running Daemons in the Same Binary`, `jitml service`:
 
 ## Cross-References
 
-- [../../HASKELL_CLI_TOOL.md](../../HASKELL_CLI_TOOL.md)
+- [../../README.md](../../README.md)
 - [../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md](../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md)
 - [../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md](../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md)
 - [daemon_architecture.md](daemon_architecture.md)

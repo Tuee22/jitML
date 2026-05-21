@@ -9,7 +9,7 @@
 [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Stand up the PureScript frontend surface under `web/`, the
@@ -27,8 +27,9 @@ under `web/` generated from `src/JitML/Web/Contracts.hs` via
 `purescript-bridge`; live MNIST handwriting panel, CIFAR/ImageNet upload
 panel, and AlphaZero-vs-human Connect 4 panel exercised end-to-end by
 Playwright; `jitml-demo` serves the bundle) and contributes the
-PureScript-style half of item 15 (the `jitml-purescript-style` stanza
-running `purs format` round-trip and `purescript-spec` smoke tests).
+PureScript lint half of item 15 (the `jitml lint purescript` target
+currently covering generated-contract, whitespace, panel-contract, and typed
+frontend-tool command checks).
 **Met today**: Sprints `11.1` and `11.2` close the minimal PureScript
 scaffold and the typed contract renderer that produces
 `web/src/Generated/Contracts.purs`. The six canonical panel payload
@@ -133,32 +134,31 @@ local renderer that produces `web/src/Generated/Contracts.purs`. The external
 ### Validation
 
 1. The renderer produces the same contract text byte-for-byte across runs.
-2. `jitml-purescript-style` verifies the generated contract file exists and
+2. `jitml lint purescript` verifies the generated contract file exists and
    names the expected endpoint surface.
 
-## Sprint 11.3: `jitml-purescript-style` Generated-Contract Smoke Stanza 🔄
+## Sprint 11.3: `jitml lint purescript` Generated-Contract Smoke Target 🔄
 
 **Status**: Active
-**Implementation**: `web/test/Main.purs`, `test/purescript-style/`,
-`jitml.cabal` (the `jitml-purescript-style` stanza)
+**Implementation**: `web/test/Main.purs`, `src/JitML/Lint/Stack.hs`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/unit_testing_policy.md`
 
 ### Objective
 
-Keep `jitml-purescript-style` as the generated-contract,
-whitespace, and panel-contract smoke stanza. The target PureScript
+Keep `jitml lint purescript` as the generated-contract,
+whitespace, and panel-contract smoke target. The target PureScript
 `purs format` round-trip and `purescript-spec` panel tests remain future work.
 
 ### Deliverables
 
 - `web/test/Main.purs` is present as a minimal PureScript test entrypoint.
-- `test/purescript-style/Main.hs` verifies
+- `src/JitML/Lint/Stack.hs` verifies
   `web/src/Generated/Contracts.purs` exists and names the expected endpoint
   surface.
-- The stanza also checks `renderPureScriptContracts` emits the PureScript
+- The lint target also checks `renderPureScriptContracts` emits the PureScript
   module header.
-- The stanza recursively checks every checked-in `web/src/**/*.purs` and
+- The lint target recursively checks every checked-in `web/src/**/*.purs` and
   `web/test/**/*.purs` source for tab-free, final-newline source shape and
   verifies each typed panel endpoint is covered by the generated contract
   endpoint list.
@@ -169,10 +169,10 @@ whitespace, and panel-contract smoke stanza. The target PureScript
 
 ### Validation
 
-1. `cabal test jitml-purescript-style` exits `0` for the smoke body.
-2. Missing generated-contract output fails the stanza.
-3. PureScript whitespace and panel-contract validation run in the stanza.
-4. The stanza validates `spago test` and `purs-tidy check` as explicit typed
+1. `docker compose run --rm jitml jitml lint purescript` exits `0` for the smoke body.
+2. Missing generated-contract output fails the lint target.
+3. PureScript whitespace and panel-contract validation run in the lint target.
+4. The lint target validates `spago test` and `purs-tidy check` as explicit typed
    `Subprocess` values with no process-environment gate.
 5. Target validation: the default style path adds a `purs format`
    round-trip byte-equality check and a `purescript-spec` smoke suite
@@ -185,11 +185,11 @@ whitespace, and panel-contract smoke stanza. The target PureScript
   installed as part of the normal developer/test environment.
 - The smoke `web/test/Main.purs` exists and exercises all six typed
   panel names + the generated contracts surface.
-- The stanza represents `./node_modules/.bin/spago test` as an explicit typed
+- The lint target represents `./node_modules/.bin/spago test` as an explicit typed
   `Subprocess` value in the `web/` working directory; actual invocation remains
   target work once the frontend toolchain is installed as part of the normal
   developer/test environment.
-- The stanza represents `./node_modules/.bin/purs-tidy check 'src/**/*.purs'`
+- The lint target represents `./node_modules/.bin/purs-tidy check 'src/**/*.purs'`
   as an explicit typed `Subprocess` value in the `web/` working directory; actual
   invocation remains target work for the default style path. The Haskell-side
   `renderPureScriptContracts` now produces purs-tidy-clean output so
@@ -241,8 +241,8 @@ remains target runtime validation.
 1. `cabal test jitml-e2e` validates the browser contract endpoint
    count, the typed demo route manifest, and the demo HTTP route table
    for generated stream endpoints.
-2. `cabal test jitml-purescript-style` validates the generated contract
-   file exists.
+2. `docker compose run --rm jitml jitml lint purescript` validates the
+   generated contract file exists.
 3. `jitml-unit` verifies the bundle, panel, and demo-route metadata.
 4. Live validation (target): each Halogen panel module renders against
    live daemon state, the `/api/ws` WebSocket proxy streams real metric
@@ -350,7 +350,7 @@ Land the Playwright scaffold for the future interactive panel suite.
 - Playwright execution stays out of the default local Cabal matrix until the
   panels consume fixture-backed or live-backed state through `jitml-demo`;
   static scaffold assertions remain covered by the current Haskell e2e and
-  PureScript-style stanzas.
+  PureScript lint targets.
 
 ### Validation
 
@@ -382,12 +382,12 @@ Land the Playwright scaffold for the future interactive panel suite.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (target frontend tool invocations flow through `Subprocess`; current checked-in bodies are local smoke tests)
-- [../HASKELL_CLI_TOOL.md → Generated Artifacts](../HASKELL_CLI_TOOL.md) (Sprint 11.2 — generated PureScript contracts)
-- [../HASKELL_CLI_TOOL.md → Project Structure](../HASKELL_CLI_TOOL.md) (Sprint 11.5 — six-line `app/Demo.hs` shim)
-- [../HASKELL_CLI_TOOL.md → Application Environment](../HASKELL_CLI_TOOL.md) (target demo server uses the full `Env`; current `demoMain` reads explicit `--port`, prints `demoStatusLine`, and starts the local HTTP server)
-- [../HASKELL_CLI_TOOL.md → Test Categories](../HASKELL_CLI_TOOL.md) (Sprint 11.3 — local project-specific smoke stanza via `jitml-purescript-style`; Sprint 11.6 — Playwright scaffold belongs to the target Pulumi-Orchestrated Infrastructure category via `jitml-e2e`)
-- [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (Sprint 11.3 — project-specific stanza under §Test Organization → project-specific stanzas)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (target frontend tool invocations flow through `Subprocess`; current checked-in bodies are local smoke tests)
+- [../README.md → Generated Artifacts](../README.md#generated-documentation-flow) (Sprint 11.2 — generated PureScript contracts)
+- [../README.md → Repository layout (target)](../README.md#repository-layout-target) (Sprint 11.5 — six-line `app/Demo.hs` shim)
+- [../README.md → Application Environment](../README.md#doctrine-scope) (target demo server uses the full `Env`; current `demoMain` reads explicit `--port`, prints `demoStatusLine`, and starts the local HTTP server)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 11.6 — Playwright scaffold belongs to the target Pulumi-Orchestrated Infrastructure category via `jitml-e2e`)
+- [../README.md → Lint matrix](../README.md#lint-matrix) (Sprint 11.3 — local project-specific lint target via `jitml lint purescript`)
 
 ## Documentation Requirements
 
@@ -404,7 +404,7 @@ Land the Playwright scaffold for the future interactive panel suite.
 - `documents/engineering/unit_testing_policy.md` — Playwright belongs to
   the doctrine's target Pulumi-Orchestrated Infrastructure test category and
   is scaffolded for `jitml-e2e`; the current PureScript generated-contract
-  smoke checks are owned by the `jitml-purescript-style` stanza (Sprint
+  smoke checks are owned by the `jitml lint purescript` target (Sprint
   `11.3`).
 
 **Product docs to create/update:**
@@ -422,4 +422,4 @@ Land the Playwright scaffold for the future interactive panel suite.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

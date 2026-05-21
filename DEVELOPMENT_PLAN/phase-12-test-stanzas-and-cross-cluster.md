@@ -8,26 +8,26 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
-> **Purpose**: Fill out the ten Cabal test-suite surface (`jitml-unit`,
+> **Purpose**: Fill out the eight Cabal test-suite surface (`jitml-unit`,
 > `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
 > `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
-> `jitml-e2e`, `jitml-haskell-style`, `jitml-purescript-style`), the
-> `jitml test all` Plan/Apply orchestrator, the report-card knob plumbing,
+> `jitml-e2e`), the `jitml test all` Plan/Apply orchestrator, the
+> report-card knob plumbing,
 > the current Pulumi metadata scaffold at `infra/pulumi/` for the target
 > ephemeral-Kind orchestrator, and the cross-substrate parity gate that closes
 > the final handoff. Phase 12 owns the
 > integration / canonicals / cross-backend / daemon-lifecycle / e2e stanzas
-> and the orchestrator; `jitml-haskell-style` is owned by Sprint `1.4`;
-> `jitml-purescript-style` is owned by Sprint `11.3`.
+> and the orchestrator. Lint and code-quality targets are owned outside this
+> phase and are not Cabal test stanzas.
 
 ## Phase Status
 
 🔄 **Active**. The phase owns
 [Exit Definition](README.md#exit-definition) item 9 (`jitml test all`
-runs every Cabal test-suite stanza with the report-card knobs pinned in
+runs every test-only Cabal test-suite stanza with the report-card knobs pinned in
 `cabal.project`; the `jitml-e2e` stanza orchestrates an ephemeral Kind
 stack via the `infra/pulumi/` TypeScript program) and item 18 (empty
 legacy ledger after the open Exit-Definition items, including item `15`, close).
@@ -37,7 +37,7 @@ close their owned obligations because their entire body is pure-logic /
 parser / property / golden / lifecycle / signal coverage.
 The 2026-05-19 container validation also proves `jitml test all --dry-run`
 renders the aggregate Plan/Apply surface and non-dry-run `jitml test all`
-invokes all ten Cabal stanzas inside `jitml:local`, parses the
+invokes the eight test-only Cabal stanzas inside `jitml:local`, parses the
 `cabal.project` report-card knob block, and prints the current target-stanza
 report card after Cabal succeeds. `renderReportCardForTargets` renders the
 actual Cabal stanza targets that were run instead of fixed placeholder
@@ -63,7 +63,7 @@ Sprint `12.9` owes the report card consuming live results from Sprint
 
 ### Current Implementation Scope
 
-All ten Cabal test stanzas are declared and each has a deterministic
+All eight Cabal test stanzas are declared and each has a deterministic
 `tasty` body. These tests exercise parser/docs/cache/bootstrap helpers,
 renderers, catalogs, checkpoint summaries, route/bucket registries,
 daemon lifecycle data, and frontend contract scaffolds. The
@@ -75,29 +75,24 @@ post-teardown check asserts no `jitml-e2e-*` Kind clusters survive when both
 `kind` and `/var/run/docker.sock` are available, and skips only the Docker
 query when the container cannot reach the Docker daemon. `jitml test all`
 invokes Cabal through the typed `Subprocess` boundary after the Plan/Apply
-dry-run surface. Because `jitml-haskell-style` uses container-provided style
-tools, the full local all-stanza validation runs inside `jitml:local` unless
-`JITML_STYLE_TOOLS_BIN` points at prebuilt host tools. Live execution paths
-live in the sprints' `### Remaining Work` blocks below.
+dry-run surface. Lint and code-quality commands run separately inside
+`jitml:local`.
+Live execution paths live in the sprints' `### Remaining Work` blocks below.
 
 ## Phase Summary
 
-All ten Cabal stanza declarations already exist from Sprint `1.1`. The current
+All eight Cabal stanza declarations already exist from Sprint `1.1`. The current
 tree uses dedicated local deterministic bodies for every stanza:
 `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
 `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`,
-`jitml-daemon-lifecycle`, `jitml-e2e`, `jitml-haskell-style`, and
-`jitml-purescript-style`. This phase expands the original minimal bodies
+`jitml-daemon-lifecycle`, and `jitml-e2e`. This phase expands the original minimal bodies
 with Phase-12-owned workloads per doctrine `Test Organization` (each
 `type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner; a single `tasty`
 tree spanning all tiers is forbidden). It also lands the current `jitml test
 all` Plan/Apply report-card surface and the Pulumi TypeScript metadata scaffold
 at `infra/pulumi/`; the live ephemeral-Kind orchestration remains target e2e
-work. The two style stanzas — `jitml-haskell-style` (owned by Sprint `1.4`) and
-`jitml-purescript-style` (owned by Sprint `11.3`) — are declared and have local
-bodies, but their ownership remains with their source phases. Current
-`jitml test all` delegates to Cabal for those stanzas and then renders the
-target-stanza report-card summary. The ten-stanza coverage
+work. Current `jitml test all` delegates to Cabal for the eight test-only
+stanzas and then renders the target-stanza report-card summary. The eight-stanza coverage
 maps every doctrine test category
 to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 → Stanza)](system-components.md#test-categories-mapping-doctrine--stanza).
@@ -522,15 +517,15 @@ health, cross-substrate parity tolerance).
   1. Resolve prerequisites.
   2. Schedule each stanza (`jitml-unit`, `jitml-integration`,
      `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
-     `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`,
-     `jitml-haskell-style`, `jitml-purescript-style`) under `cabal test`
+     `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e`) under `cabal test`
      through the typed `Subprocess` boundary.
   3. Aggregate results into the report card.
 - Current `jitml test all --dry-run` renders the aggregate plan from
   `src/JitML/Plan/Plan.hs`; current non-dry-run `jitml test all` invokes
-  `cabal test all` through `JitML.Sub.Stream.runStreaming` and then renders
-  a typed `ReportCard` with `ReportCardKnobs` and the actual target stanza
-  list after Cabal succeeds.
+  `cabal test` with the explicit eight test-only stanza names through
+  `JitML.Sub.Stream.runStreaming` and then renders a typed `ReportCard`
+  with `ReportCardKnobs` and the actual target stanza list after Cabal
+  succeeds.
 - The report-card knob block in `cabal.project` carries `sl_epochs`,
   `sl_batch`, `rl_steps`, `rl_eval_episodes`, `az_games`, `az_sims`,
   `tune_trials`, `tune_budget_per_trial`, `xcluster_kind_nodes` (see
@@ -540,24 +535,22 @@ health, cross-substrate parity tolerance).
   `parseReportCardKnobs`, and `jitml test all` now reads the `cabal.project`
   knob block before rendering the report card instead of relying only on the
   in-code defaults. `renderReportCardForTargets` renders the expanded
-  ten-stanza list for `jitml test all` and the selected stanza for
+  eight-stanza list for `jitml test all` and the selected stanza for
   `jitml test <stanza>`.
 - `jitml test <stanza>` invokes that single Cabal stanza through the same typed
   `Subprocess` boundary.
 - 2026-05-19 container validation ran `jitml test all --dry-run` and
   non-dry-run `jitml test all` inside `jitml:local`; the non-dry-run path
-  passed all ten stanzas and printed the report card with the
+  passed all eight test stanzas and printed the report card with the
   `cabal.project` knob values.
 
 ### Validation
 
-1. `jitml test all --dry-run` emits the typed plan enumerating all ten
-   stanzas.
-2. `jitml test all` invokes `cabal test all`, exits `0` on the current
-   tree when run inside `jitml:local` (or on a host with
-   `JITML_STYLE_TOOLS_BIN` set to prebuilt style tools), parses the
-   `cabal.project` report-card knob block, and prints the target-stanza
-   report card.
+1. `jitml test all --dry-run` emits the typed plan enumerating all eight
+   test stanzas.
+2. `jitml test all` invokes `cabal test` with the explicit eight test-only
+   stanza names, exits `0` on the current tree, parses the `cabal.project`
+   report-card knob block, and prints the target-stanza report card.
 3. `cabal test jitml-e2e` verifies report-card default rendering and that the
    `cabal.project` knob block matches the typed defaults.
 4. Live validation (target): the explicit live `jitml test all` path schedules
@@ -578,22 +571,22 @@ health, cross-substrate parity tolerance).
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Testing Doctrine](../HASKELL_CLI_TOOL.md) (every sprint)
-- [../HASKELL_CLI_TOOL.md → Standard Testing Stack](../HASKELL_CLI_TOOL.md) (every sprint)
-- [../HASKELL_CLI_TOOL.md → Test Categories](../HASKELL_CLI_TOOL.md) (every sprint — ten stanzas cover all seven doctrine categories plus the project-specific Integration / Lint extensions)
-- [../HASKELL_CLI_TOOL.md → Test Organization](../HASKELL_CLI_TOOL.md) (every sprint — `type: exitcode-stdio-1.0`, `tasty` per stanza, no spanning tree; project-specific stanzas under §Test Organization → project-specific stanzas)
-- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprint 12.9)
-- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (every sprint)
-- [../HASKELL_CLI_TOOL.md → Long-Running Daemons in the Same Binary](../HASKELL_CLI_TOOL.md) (Sprint 12.7)
-- [../HASKELL_CLI_TOOL.md → At-Least-Once Event Processing](../HASKELL_CLI_TOOL.md) (Sprint 12.7)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (every sprint)
+- [../README.md → Standard Testing Stack](../README.md#doctrine-scope) (every sprint)
+- [../README.md → Test Categories](../README.md#test-suite-stanzas) (every sprint — eight stanzas cover all seven doctrine categories plus the project-specific Integration extensions)
+- [../README.md → Test Organization](../README.md#test-suite-stanzas) (every sprint — `type: exitcode-stdio-1.0`, `tasty` per stanza, no spanning tree; project-specific stanzas under the Integration category)
+- [../README.md → Plan / Apply](../README.md#doctrine-scope) (Sprint 12.9)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (every sprint)
+- [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (Sprint 12.7)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 12.7)
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/unit_testing_policy.md` — populate the ten-stanza
+- `documents/engineering/unit_testing_policy.md` — populate the eight-stanza
   surface, the doctrine-category mapping (including the project-specific
-  Integration extensions and the split style stanzas), the
+  Integration extensions), the
   Pulumi-Orchestrated Infrastructure test pattern, the report-card
   narrative, and the per-stanza notes for canonicals / hyperparameter /
   cross-backend / daemon-lifecycle / e2e.
@@ -613,7 +606,7 @@ health, cross-substrate parity tolerance).
 **Cross-references to add:**
 
 - `system-components.md → Test Stanzas`, `Test Categories Mapping`, and
-  `POC Report-Card Knobs` rows remain aligned with the ten Cabal stanzas and
+  `POC Report-Card Knobs` rows remain aligned with the eight Cabal stanzas and
   `src/JitML/Test/Report.hs`.
 
 ## Related Documents
@@ -622,4 +615,4 @@ health, cross-substrate parity tolerance).
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

@@ -9,7 +9,7 @@
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md),
 [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
-[../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+[../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Stand up the three stage-0 substrate bootstrap entrypoints, the
@@ -354,9 +354,9 @@ the current command materializes bootstrap inputs only.
 
 - Full live `jitml bootstrap --linux-cpu` Harbor tagging/push and cluster-daemon
   rollout remain target apply behavior owned by the cluster/service phases.
-- The container-owned style-tools bootstrap and image-build Haskell style gate
-  are closed by Sprint `1.4`; Sprint `2.4` owns only the one-Dockerfile /
-  one-compose-service image shape.
+- The container-exclusive style-tools bootstrap and image-build Haskell
+  code-quality gate are closed by Sprint `1.4`; Sprint `2.4` owns only the
+  one-Dockerfile / one-compose-service image shape.
 - Container-internal `jitml build` producing `/opt/build/jitml` remains target
   runtime work; the current implementation renders the build destination and
   engine metadata only.
@@ -509,11 +509,11 @@ None.
 
 ## Doctrine Sections Cited
 
-- [../HASKELL_CLI_TOOL.md → Prerequisites as Typed Effects](../HASKELL_CLI_TOOL.md) (Sprints 2.1, 2.2)
-- [../HASKELL_CLI_TOOL.md → Architecture → Subprocesses as Typed Values](../HASKELL_CLI_TOOL.md) (Sprints 2.4, 2.5)
-- [../HASKELL_CLI_TOOL.md → Plan / Apply](../HASKELL_CLI_TOOL.md) (Sprint 2.4)
-- [../HASKELL_CLI_TOOL.md → Reconcilers: Idempotent Mutation as a Single Command](../HASKELL_CLI_TOOL.md) (every sprint)
-- [../HASKELL_CLI_TOOL.md → Application Environment](../HASKELL_CLI_TOOL.md) (Sprint 2.5)
+- [../README.md → Prerequisites as typed effects](../README.md#prerequisites-as-typed-effects) (Sprints 2.1, 2.2)
+- [../README.md → Outer-container Linux builds](../README.md#outer-container-linux-builds) (Sprints 2.4, 2.5)
+- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprint 2.4)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (every sprint)
+- [../README.md → Built-artifact and JIT-cache discipline](../README.md#built-artifact-and-jit-cache-discipline) (Sprint 2.5)
 
 ## Documentation Requirements
 
@@ -541,4 +541,4 @@ None.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [../HASKELL_CLI_TOOL.md](../HASKELL_CLI_TOOL.md)
+- [../README.md](../README.md)

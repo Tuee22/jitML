@@ -171,7 +171,7 @@ workloadEffectTag :: WorkloadEffect -> Text
 workloadEffectTag effect =
   case effect of
     WriteCheckpointBlob _ _ -> "WriteCheckpointBlob"
-    UpdateCheckpointPointer _ _ _ -> "UpdateCheckpointPointer"
+    UpdateCheckpointPointer {} -> "UpdateCheckpointPointer"
     PromoteWorkloadImage _ _ -> "PromoteWorkloadImage"
     ApplyWorkloadResource _ _ -> "ApplyWorkloadResource"
     ReadWorkloadResourceStatus _ -> "ReadWorkloadResourceStatus"

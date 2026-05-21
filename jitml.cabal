@@ -329,30 +329,3 @@ test-suite jitml-e2e
         tasty,
         tasty-hunit,
         text
-
-test-suite jitml-haskell-style
-    type:             exitcode-stdio-1.0
-    main-is:          Main.hs
-    hs-source-dirs:   test/haskell-style
-    default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
-    build-depends:
-        base >=4.22 && <4.23,
-        jitml,
-        tasty,
-        tasty-hunit,
-        text
-
-test-suite jitml-purescript-style
-    type:             exitcode-stdio-1.0
-    main-is:          Main.hs
-    hs-source-dirs:   test/purescript-style
-    default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
-    build-depends:
-        base >=4.22 && <4.23,
-        directory,
-        jitml,
-        tasty,
-        tasty-hunit,
-        text

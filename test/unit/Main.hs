@@ -1209,8 +1209,6 @@ canonicalLeafPaths =
   , ["test", "jitml-cross-backend"]
   , ["test", "jitml-daemon-lifecycle"]
   , ["test", "jitml-e2e"]
-  , ["test", "jitml-haskell-style"]
-  , ["test", "jitml-purescript-style"]
   , ["lint", "files"]
   , ["lint", "docs"]
   , ["lint", "proto"]
