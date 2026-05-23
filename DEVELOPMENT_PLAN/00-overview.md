@@ -70,7 +70,8 @@ Metal cannot be containerized.
 `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is the canonical
 full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
 under `./.build/`, materializes the per-substrate Kind config from
-`./kind/cluster-<substrate>.yaml`, brings up Kind, writes
+`./kind/cluster-<substrate>.yaml`, brings up Kind, writes/exports Kind's
+kubeconfig through an in-container temporary file, copies it to
 `./.build/jitml.kubeconfig` (the user's `~/.kube/config` is never touched), brings
 MinIO and the registered `harbor-pg` database up first, then brings Harbor up
 against those dependencies, builds `jitml:local` / `jitml-demo:local`, loads
@@ -188,9 +189,9 @@ moves to Done and the legacy ledger is empty.
   and the cluster daemon owns subsequent work. Owned by
   [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md).
 - **Cluster substrate and routing.** Per-substrate Kind configs at
-  `./kind/cluster-<substrate>.yaml` (single control-plane + one worker,
-  NodePort 30090 backing the edge listener, host `./.build/`
-  bind-mounted into the Kind worker via `extraMounts`); storage uses
+  `./kind/cluster-<substrate>.yaml` (single-node `control-plane` topology with
+  no separate worker, NodePort 30090 backing the edge listener, host
+  `./.build/` bind-mounted into the Kind node via `extraMounts`); storage uses
   `kubernetes.io/no-provisioner` only — manual PVs against a
   `jitml-manual` StorageClass backed by hostPath under
   `./.data/<namespace>/<StatefulSet>/pv_<integer>`. The umbrella Helm
@@ -205,8 +206,10 @@ moves to Done and the legacy ledger is empty.
   subprocesses, writes the leased-port publication with Helm-status-derived
   component health, patches Apple host Dhall, serves `/api` through the single
   Envoy localhost socket, and tears the Kind cluster down through
-  `jitml cluster down`. Phase `3` is closed; deeper live service-client
-  readiness belongs to Phase `4` and Phase `5`.
+  `jitml cluster down`. The renderer targets the single-node Kind shape, and
+  2026-05-23 live Linux CPU validation proves bootstrap, Docker build / Kind
+  image-load, ready publication health, `/api` through Envoy, and teardown on
+  that topology.
   Phase: [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md).
 - **Stateful platform services.** Harbor as the in-cluster registry
   against dedicated PostgreSQL storage, with explicit Harbor registry/token
@@ -263,7 +266,7 @@ moves to Done and the legacy ledger is empty.
   sharing one process-lifetime handler router, LiveConfig-derived dedup
   cache sizing for the handler router,
   fully-qualified broker topic routing, required
-  anti-affinity validated on a two-worker Kind cluster, and the in-binary HTTP
+  anti-affinity rendered for one service pod per node, and the in-binary HTTP
   listener. The standalone live MinIO
   capability client and one-shot plus held-open Pulsar WebSocket paths are validated;
   2026-05-21 live Linux CPU service-pod validation runs
@@ -277,9 +280,8 @@ moves to Done and the legacy ledger is empty.
   `--consume-once`; 2026-05-21 live Linux CPU validation proves duplicate
   payload dedup through the held-open worker path and dispatch-failure
   negative-ack redelivery after a checkpoint is seeded; 2026-05-21 live Linux
-  CUDA validation runs the actual `jitml-service` pod with
-  `runtimeClassName: nvidia` on the GPU-labelled worker and confirms
-  `nvidia-smi -L` reports the RTX 5090 inside the service container; 2026-05-21
+  CUDA service-pod validation now targets the actual `jitml-service` pod with
+  `runtimeClassName: nvidia` on the GPU-labelled single Kind node; 2026-05-21
   live Apple Silicon host validation runs the generated
   `./.build/conf/host/apple-silicon.dhall` through
   `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
@@ -593,10 +595,11 @@ each constraint.
    ForwardToHost`, and host-side connection info when `residency = Host`.
 5. On every substrate the in-cluster `jitml-service` is a stateless `Deployment`,
    not a `StatefulSet`. Required pod anti-affinity at `topologyKey:
-   kubernetes.io/hostname` enforces at most one replica per node, and
-   `maxSurge: 0` / `maxUnavailable: 1` keeps replacement rollouts valid on the
-   default single-worker Kind cluster. Durable state lives in MinIO and Pulsar
-   exclusively (no relational DB on jitML's data path).
+   kubernetes.io/hostname` enforces at most one replica per node. The local
+   Kind topology is single-node, so the supported local service replica count
+   is one; `maxSurge: 0` / `maxUnavailable: 1` keeps replacement rollouts valid
+   on that node. Durable state lives in MinIO and Pulsar exclusively (no
+   relational DB on jitML's data path).
 6. The CLI never touches `~/.kube/config`. Cluster kubeconfig lives at
    `./.build/jitml.kubeconfig`. Stage-0 bootstrap scripts never write
    `~/.kube/config`, `~/.docker/config.json`, the user's Homebrew prefix, or any
@@ -783,23 +786,27 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0`, `1`, `2`, `3`, `4`, `5`, and `6` are `✅ Done` — every Exit-Definition
+Phases `0`, `1`, `2`, `3`, and `6` are `✅ Done` — every Exit-Definition
 obligation those phases own is met. Sprint `1.4` closes the
 container-exclusive Haskell style/code-quality rule: the mandatory
 `jitml:local` image build installs the separate style-tools GHC, builds pinned
 Fourmolu / HLint binaries, runs `jitml check-code`, and host lint/check-code
 execution is unsupported.
-Phase `4` owns the validated stateful platform services and Linux CUDA
-RuntimeClass surface. Phase `5` owns the validated `jitml service` daemon,
-including the Linux CPU running-daemon paths, Linux CUDA service-pod
-RuntimeClass validation, and Apple Silicon host Dhall subscription validation.
+Phase `4` remains reopened and is `⏸️ Blocked` after the supported local Kind
+topology moved to a single-node cluster for every substrate: its remaining live
+Linux CUDA `RuntimeClass/nvidia` probe needs a Linux CUDA validation host with
+Docker's NVIDIA runtime and `nvidia-smi`. Phase `5` remains `🔄 Active` for
+daemon service-pod validation on that topology. Phase `3` reclosed on
+2026-05-23 after live Linux CPU bootstrap and teardown validated the
+single-node topology.
 Phases `7`, `8`, `9`, `10`, `11`, and `12` are
 `🔄 Active` because at least one owned
-Exit-Definition obligation remains unmet: the explicit Pulumi / Kind / Helm
-live bootstrap path for Exit `3`, real kernel execution, checkpoint storage,
-the PureScript default lint/spec path for Exit `15`, browser flow, and
-cross-substrate parity. Per-sprint Remaining Work blocks list the open work; the
-dependency-ordered sequence lives in
+Exit-Definition obligation remains unmet: single-node Linux CUDA runtime and
+daemon validation, the explicit Pulumi-orchestrated ephemeral Kind e2e path for
+Exit `3`, real kernel execution, checkpoint storage, the PureScript default
+lint/spec path for Exit `15`, browser flow, and cross-substrate parity.
+Per-sprint Remaining Work blocks list the open work; the dependency-ordered
+sequence lives in
 [README.md → Execution Roadmap](README.md#execution-roadmap).
 
 | Surface | Current Repo State | Intended End State |

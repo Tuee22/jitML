@@ -24,7 +24,7 @@
 
 ## Phase Status
 
-✅ **Done**. The phase owns
+🔄 **Active**. The phase owns
 [Exit Definition](README.md#exit-definition) item 2 (`jitml service` is
 the canonical long-running daemon, parameterised by Dhall `BootConfig` /
 `LiveConfig`, hot-reloadable via SIGHUP, exposing `/healthz` / `/readyz` /
@@ -137,9 +137,15 @@ Pulsar boundary, accepts fully-qualified Pulsar topic routing, is exercised by
 `daemonConsumerBatch` against the synthetic broker and live Linux CPU pod
 through `--consume-once`, runs the same dispatcher in held-open WebSocket worker
 threads with one shared router, and is live-validated for duplicate payload
-dedup plus dispatch-failure negative-ack redelivery. Sprint `5.6` is closed:
-CUDA service-pod runtime is live-validated, and 2026-05-21 Apple Silicon live
-validation runs `jitml bootstrap --apple-silicon`, materializes the patched host
+dedup plus dispatch-failure negative-ack redelivery. Sprint `5.6` is reopened
+for the single-node Kind topology: the Deployment renderer and Dhall surfaces
+are still in place, but the live CUDA service-pod runtime and local rollout
+validations need to be repeated on the single-node topology. The CUDA
+service-pod validation depends on Phase `4` Sprint `4.7`'s live
+`RuntimeClass/nvidia` probe, which is currently blocked by the lack of a Linux
+CUDA validation host with Docker's NVIDIA runtime.
+2026-05-21 Apple Silicon live validation runs `jitml bootstrap --apple-silicon`,
+materializes the patched host
 Dhall with routed edge coordinates on `127.0.0.1:9090`, builds `jitml:local`
 inside Docker with `jitml check-code`, loads the final image into Kind, and runs
 `jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
@@ -148,11 +154,10 @@ host-native. That bounded host run loads the generated Dhall, derives
 passes read-only MinIO / Harbor / kubectl probes, subscribes live to
 `persistent://public/default/inference.command.apple-silicon` as `jitml-host`,
 and exits after draining zero messages.
-Required pod anti-affinity across multiple replicas is live-validated, and
-single-replica deployment readiness is already covered by the live bootstrap
-validation. `JitML.Cluster.PulsarBootstrap` now registers the same
+Single-replica deployment readiness is covered locally and remains the live
+single-node target. `JitML.Cluster.PulsarBootstrap` now registers the same
 substrate-scoped topic family that the daemon subscription plan consumes.
-No Phase `5` Remaining Work remains.
+Detailed remaining work lives in Sprint `5.6`.
 
 ### Current Implementation Scope
 
@@ -161,7 +166,7 @@ renderers, the `BootConfig` Dhall loader consumed by `jitml service --config`,
 lifecycle phase data, hot-reload decision data, pure endpoint-response
 rendering, pure JSON log rendering, service error/retry helpers, payload-hash
 deduplication, capability-class definitions, and chart ConfigMap/Deployment
-rendering, including the service account/RBAC and single-worker-safe rolling
+rendering, including the service account/RBAC and single-node-safe rolling
 update strategy, the POSIX
 signal/control surface in `src/JitML/Service/Signal.hs`, and the
 low-level in-binary HTTP runtime in
@@ -231,12 +236,12 @@ the same worker pipe while the HTTP listener remains active.
 2026-05-21 live Linux CPU validation proves that normal service path consumes a
 `RunInference` request and publishes the expected `InferenceResult`. The same
 date validates duplicate payload deduplication and dispatch-failure
-negative-ack redelivery against that held-open client. A 2026-05-21 live Linux
-CUDA validation creates `jitml-linux-cuda`, schedules the actual
-`jitml-service` Deployment with `runtimeClassName: nvidia` onto
-`jitml-linux-cuda-worker`, confirms `NVIDIA_VISIBLE_DEVICES=all` and
-`NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and runs `nvidia-smi -L` inside
-the service container, which reports `GPU 0: NVIDIA GeForce RTX 5090`. The
+negative-ack redelivery against that held-open client. The live Linux CUDA
+validation target creates `jitml-linux-cuda`, schedules the actual
+`jitml-service` Deployment with `runtimeClassName: nvidia` onto the single
+`jitml-linux-cuda-control-plane` node, confirms `NVIDIA_VISIBLE_DEVICES=all`
+and `NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and runs `nvidia-smi -L`
+inside the service container. The
 Apple host live validation now runs the generated host Dhall through the routed
 edge and acquires the `inference.command.apple-silicon` subscription.
 
@@ -641,9 +646,9 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 No sprint-owned Phase `5.5` Remaining Work remains. Apple host Dhall
 connectivity is closed by Sprint `5.6`.
 
-## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall ✅
+## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall 🔄
 
-**Status**: Done
+**Status**: Active
 **Implementation**: `chart/templates/deployment-jitml-service.yaml`,
 `src/JitML/Service/ConfigMap.hs`, `src/JitML/Service/BootConfig.hs`,
 `src/JitML/App.hs`
@@ -659,16 +664,13 @@ Dhall configs.
 ### Deliverables
 
 - `Deployment/jitml-service` with `replicas: 1` default, required pod
-  anti-affinity at hostname topology so the cluster can scale to N replicas
-  without colliding per node. **Not** a `StatefulSet` — durable state lives
-  entirely in MinIO and Pulsar.
+  anti-affinity at hostname topology. The local Kind topology is single-node,
+  so the supported local replica count is one; the anti-affinity rule remains
+  in the chart for non-local multi-node environments. **Not** a `StatefulSet` —
+  durable state lives entirely in MinIO and Pulsar.
 - Rolling updates use `maxSurge: 0` and `maxUnavailable: 1` so the required
-  anti-affinity does not deadlock a single-worker development cluster during a
+  anti-affinity does not deadlock a single-node development cluster during a
   replacement rollout.
-- `JitML.Cluster.Kind.kindConfigWithWorkerCount` renders the same Kind node
-  surface with more than one worker when a live validation needs to prove
-  multi-replica placement; the normal per-substrate checked-in configs still
-  use one worker by default.
 - `runtimeClassName: nvidia` only when substrate is `linux-cuda`.
 - `jitml bootstrap --<substrate>` renders
   `./.build/conf/cluster/<substrate>.dhall` and
@@ -686,7 +688,7 @@ Dhall configs.
   so the standalone file loads without an out-of-scope type alias.
 - Linux substrates do not render a host-level Dhall file; all JIT operations
   happen in the cluster and the daemon knows that from its ConfigMap Dhall.
-- Deployment template mounts `./.build/` from the worker hostPath into the
+- Deployment template mounts `./.build/` from the single-node hostPath into the
   pod at `/opt/build/` so the JIT cache is shared.
 - `chart/templates/deployment-jitml-demo.yaml` is the sibling Deployment for
   the demo executable shim; Phase `11` owns the current frontend/demo scaffold
@@ -702,45 +704,38 @@ Dhall configs.
    `requiredDuringSchedulingIgnoredDuringExecution` with
    `topologyKey: kubernetes.io/hostname`, not advisory preferred
    anti-affinity.
-4. Live Linux CPU validation on 2026-05-19 completes
-   `jitml bootstrap --linux-cpu`, upgrades the local Helm chart with the
-   current typed Dhall ConfigMap, rolls out a single `jitml-service` pod, and
-   verifies `/healthz`, `/readyz`, and `/metrics` through a port-forward.
-5. Live validation on 2026-05-20 creates a temporary
-   `jitml-phase5-affinity` two-worker Kind cluster with
-   `kindConfigWithWorkerCount 2`, loads `jitml:local`, applies the real
-   `jitml-service` ConfigMap/Deployment, scales to two replicas, and confirms
-   the pods run on distinct nodes:
-   `jitml-phase5-affinity-worker` and `jitml-phase5-affinity-worker2`.
-6. Live validation on 2026-05-20 upgrades the existing single-worker
-   `jitml-linux-cpu` cluster with `maxSurge: 0` / `maxUnavailable: 1`, and the
-   required anti-affinity rollout replaces the single service pod without a
-   pending surge pod.
-7. Live Linux CUDA validation on 2026-05-21 creates a separate
-   `jitml-linux-cuda` Kind cluster from the checked-in config, exports
-   `./.build/jitml-linux-cuda.kubeconfig`, applies `RuntimeClass/nvidia`, renders
-   `chart/local/jitml-service` with `substrate=linux-cuda`, rolls out the actual
-   `Deployment/jitml-service`, confirms the pod runs on
-   `jitml-linux-cuda-worker` with `runtimeClassName: nvidia`, confirms
-   `NVIDIA_VISIBLE_DEVICES=all` and
-   `NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and executes
-   `nvidia-smi -L` inside the service container:
-   `GPU 0: NVIDIA GeForce RTX 5090`.
-8. `cabal test jitml-integration` verifies both cluster and Apple host rendered
+4. Historical Linux CPU validation on 2026-05-19 completed
+   `jitml bootstrap --linux-cpu`, upgraded the local Helm chart with the typed
+   Dhall ConfigMap, rolled out a single `jitml-service` pod, and verified
+   `/healthz`, `/readyz`, and `/metrics` through a port-forward. That run does
+   not close Sprint `5.6` after the single-node topology change.
+5. Live validation (target): upgrade the single-node `jitml-linux-cpu` cluster
+   with `maxSurge: 0` / `maxUnavailable: 1`, and confirm the required
+   anti-affinity rollout replaces the single service pod without a pending
+   surge pod.
+6. Live Linux CUDA validation (target): create `jitml-linux-cuda` from the
+   checked-in single-node config, export `./.build/jitml-linux-cuda.kubeconfig`,
+   apply `RuntimeClass/nvidia`, render `chart/local/jitml-service` with
+   `substrate=linux-cuda`, roll out the actual `Deployment/jitml-service`,
+   confirm the pod runs on `jitml-linux-cuda-control-plane` with
+   `runtimeClassName: nvidia`, confirm `NVIDIA_VISIBLE_DEVICES=all` and
+   `NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and execute `nvidia-smi -L`
+   inside the service container.
+7. `cabal test jitml-integration` verifies both cluster and Apple host rendered
    `BootConfig` files round-trip through the Dhall loader, including the
    host-resident `None { host : Text, port : Natural }` listener form.
-9. `cabal test jitml-daemon-lifecycle` verifies a zero-budget bounded daemon
+8. `cabal test jitml-daemon-lifecycle` verifies a zero-budget bounded daemon
    batch exits without consuming broker messages, supporting
    `jitml service --consume-once 0` as an acquisition-only validation run.
-10. Live Apple Silicon validation on 2026-05-21 runs
+9. Live Apple Silicon validation (target): run
     `jitml bootstrap --apple-silicon` against the local Kind cluster, builds
     `jitml:local` in Docker with the in-container `jitml check-code` gate,
-    loads `jitml:local` / `jitml-demo:local` into Kind, and completes the
-    110-step live phased rollout. The regenerated
+    load `jitml:local` / `jitml-demo:local` into Kind, and complete the live
+    phased rollout against the single-node topology. The regenerated
     `./.build/conf/host/apple-silicon.dhall` contains routed edge coordinates
     on `127.0.0.1:9090` and the self-contained `httpListener = None { host :
     Text, port : Natural }` value.
-11. Live Apple Silicon host validation on 2026-05-21 runs
+10. Live Apple Silicon host validation (target): run
     `jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
     host-native. The run derives `ws://127.0.0.1:9090/pulsar/ws`, `/minio/s3`,
     Harbor, and repo-local kubeconfig settings from the patched Dhall, passes
@@ -751,7 +746,12 @@ Dhall configs.
 
 ### Remaining Work
 
-No sprint-owned Phase `5.6` Remaining Work remains.
+- Re-run the live single-node `jitml-service` rollout validation for Linux CPU,
+  Linux CUDA, and Apple Silicon. The chart, service ConfigMap/Dhall renderers,
+  single-node Kind configs, local integration checks, and CUDA RuntimeClass
+  request are updated; the live service-pod runtime validation still needs to
+  be repeated on the current single-node topology. The Linux CUDA service-pod
+  portion waits on Phase `4` Sprint `4.7`'s blocked live RuntimeClass probe.
 
 ## Doctrine Sections Cited
 

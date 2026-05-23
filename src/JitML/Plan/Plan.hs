@@ -74,7 +74,9 @@ commandPlanSteps ["bootstrap"] =
 commandPlanSteps ["cluster", "up"] =
   [ PlanStep "materialize-substrate" "Render the selected substrate's Kind and chart inputs."
   , PlanStep "build-helm-dependencies" "Prepare subchart dependencies with helm dependency build chart."
-  , PlanStep "create-kind-cluster" "Create the Kind cluster with ./.build/jitml.kubeconfig."
+  , PlanStep
+      "create-kind-cluster"
+      "Create/export the Kind cluster kubeconfig, then copy it to ./.build/jitml.kubeconfig."
   , PlanStep "apply-chart" "Apply the umbrella Helm chart in phased order."
   ]
 commandPlanSteps ["service"] =

@@ -166,18 +166,25 @@ kindCreateSubprocess substrate kindConfigPath =
     "sh"
     [ "-c"
     , Text.unwords
-        [ "if kind get clusters | grep -Fx"
+        [ "tmpKubeconfig=/tmp/"
+            <> clusterName
+            <> ".kubeconfig;"
+        , "rm -f \"$tmpKubeconfig\" \"$tmpKubeconfig.lock\";"
+        , "if kind get clusters | grep -Fx"
         , clusterName
         , ">/dev/null;"
         , "then kind export kubeconfig --name"
         , clusterName
-        , "--kubeconfig ./.build/jitml.kubeconfig;"
+        , "--kubeconfig \"$tmpKubeconfig\";"
         , "else kind create cluster --name"
         , clusterName
         , "--config"
         , Text.pack kindConfigPath
-        , "--kubeconfig ./.build/jitml.kubeconfig;"
-        , "fi"
+        , "--kubeconfig \"$tmpKubeconfig\";"
+        , "fi;"
+        , "mkdir -p ./.build;"
+        , "cp \"$tmpKubeconfig\" ./.build/jitml.kubeconfig;"
+        , "rm -f \"$tmpKubeconfig\" \"$tmpKubeconfig.lock\""
         ]
     ]
  where

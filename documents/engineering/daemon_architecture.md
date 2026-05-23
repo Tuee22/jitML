@@ -25,16 +25,14 @@ info when `residency = Host`.
 
 The clustered `jitml-service` Deployment is **stateless** — durable state
 lives in MinIO and Pulsar exclusively. Required pod anti-affinity at
-`topologyKey: kubernetes.io/hostname` enforces at most one replica per node;
-`maxSurge: 0` / `maxUnavailable: 1` keeps replacement rollouts valid on the
-default single-worker Kind cluster. Live validation on 2026-05-20 scaled the
-real `jitml-service` Deployment to two replicas on a temporary two-worker Kind
-cluster and observed one running pod per worker; the same date validated a
-single-worker replacement rollout and the service-account kubectl probe.
-Live Linux CUDA validation on 2026-05-21 schedules the actual
-`jitml-service` Deployment with `runtimeClassName: nvidia` onto
-`jitml-linux-cuda-worker`, confirms the CUDA env vars, and runs
-`nvidia-smi -L` inside the service container, which reports the RTX 5090.
+`topologyKey: kubernetes.io/hostname` enforces at most one replica per node.
+The local Kind topology is single-node for every substrate, so local bootstrap
+runs one `jitml-service` replica. `maxSurge: 0` / `maxUnavailable: 1` keeps
+replacement rollouts valid on that single node. Linux CUDA validation targets
+the actual `jitml-service` Deployment with `runtimeClassName: nvidia` on the
+single `jitml-linux-cuda-control-plane` node, confirms the CUDA env vars, and
+runs `nvidia-smi -L` inside the service container after the Phase `4` live
+RuntimeClass probe passes on a Linux CUDA host with Docker's NVIDIA runtime.
 Live Apple Silicon validation on 2026-05-21 runs the generated host Dhall
 through `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
 probes, and acquires the `inference.command.apple-silicon` subscription as

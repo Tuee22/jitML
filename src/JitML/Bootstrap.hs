@@ -73,7 +73,7 @@ bootstrapPlanSteps substrate =
   [ "reconcile prerequisite graph for cluster"
   , "render kind/cluster-" <> renderSubstrate substrate <> ".yaml"
   , "prepare Helm dependencies with " <> renderHelmDependencyBuildPlan "chart"
-  , "create Kind cluster with ./.build/jitml.kubeconfig"
+  , "create/export Kind kubeconfig and copy it to ./.build/jitml.kubeconfig"
   , "apply jitml-manual StorageClass and manual PVs"
   , "install MinIO and Percona storage for Harbor"
   , "install Harbor bootstrap phase"

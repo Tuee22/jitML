@@ -28,19 +28,24 @@ image rollouts, exactly one `127.0.0.1:<edge-port>` Envoy Gateway socket)
 and 17 (`src/JitML/Routes.hs` is the source of truth for every HTTPRoute
 resource). Item 17 is met: the Routes registry is the sole
 HTTPRoute source, every chart-rendered HTTPRoute is generated from it,
-hand edits fail `jitml lint chart` (Sprints `3.1`–`3.4`). The typed
+hand edits fail `jitml lint chart` (Sprints `3.1`–`3.4`). Sprint `3.1` now
+uses the single-node Kind shape for every substrate: one `control-plane` node,
+no separate `worker`, repo `./.build/` and `./.data/` mounted into that single
+node, and the Linux CUDA GPU label/runtime material on that node. The typed
 `JitML.Cluster.Helm` module now exposes `kindCreateSubprocess` (the
-typed Kind create command bound to `./.build/jitml.kubeconfig`),
+typed Kind create/export command that uses an in-container temporary
+kubeconfig and copies the finished file to `./.build/jitml.kubeconfig`),
 `helmInstallSubprocess` (a per-release upgrade-install with `--wait`
 and kubeconfig pinning), and `helmPhasedRolloutPlan` (the Helm-release
 sequence backed by `phasedReleases`, with the non-Helm Docker build /
 explicit Kind image-load phase inserted directly by
-`JitML.Bootstrap.livePhasedRolloutSubprocesses`). Item 3's Phase `3` substrate/routing
-slice is met: the live Linux CPU bootstrap executes the typed Kind, Helm,
-Docker build / explicit Kind image-load, repo-owned manifest apply, and
-Pulsar-topic subprocesses against `./.build/jitml.kubeconfig`, writes measured
-component health to `cluster-publication.json`, serves `/api` through the
-single Envoy localhost socket, and tears the Kind cluster down through
+`JitML.Bootstrap.livePhasedRolloutSubprocesses`). Item 3's Phase `3`
+substrate/routing slice is met: 2026-05-23 live Linux CPU bootstrap executed
+the typed Kind create/export, Helm, Docker build / explicit Kind image-load,
+repo-owned manifest apply, and Pulsar-topic subprocesses against the
+single-node Kind topology through `./.build/jitml.kubeconfig`, wrote measured
+ready component health to `cluster-publication.json`, served `/api` through
+the single Envoy localhost socket, and tore the Kind cluster down through
 `jitml cluster down` without touching `~/.kube/config`.
 
 ### Current Implementation Scope
@@ -84,21 +89,21 @@ build/load → final rollout) and write
 
 ### Objective
 
-Lay down the per-substrate Kind configs (single control-plane + one worker), the
-`kindest/node` pin (mirrored into a `cabal.project` comment), the `extraMounts`
-binding host `./.build/` into the worker, and the Linux CUDA worker label
-`jitml.runtime/gpu=true`.
+Lay down the per-substrate Kind configs (single-node control-plane topology),
+the `kindest/node` pin (mirrored into a `cabal.project` comment), the
+`extraMounts` binding host `./.build/` and `./.data/` into the Kind node, and
+the Linux CUDA node label `jitml.runtime/gpu=true`.
 
 ### Deliverables
 
 - Each Kind config carries `name: jitml-<substrate>`, one control-plane node,
-  one worker node, the pinned `kindest/node` image, and `extraMounts:
+  no worker node, the pinned `kindest/node` image, and `extraMounts:
   - hostPath: ./.build, containerPath: /jitml/.build`.
-- Linux CUDA worker carries `kubeadmConfigPatches` adding the
+- Linux CUDA's single Kind node carries `kubeadmConfigPatches` adding the
   `node-labels: jitml.runtime/gpu=true` line so the NVIDIA `RuntimeClass`
   binds.
 - The edge port mapping (`extraPortMappings`) maps host
-  `127.0.0.1:<edge-port>` → worker `30090` (NodePort).
+  `127.0.0.1:<edge-port>` → the single Kind node's `30090` NodePort.
 - `src/JitML/Cluster/Kind.hs` renders the Kind config from the typed
   `KindConfig` ADT (substrate, kindest pin, edge-port lease, GPU label flag);
   the checked-in `kind/cluster-*.yaml` files are local materialized fixtures,
@@ -112,8 +117,8 @@ binding host `./.build/` into the worker, and the Linux CUDA worker label
    three substrates.
 2. The checked-in Linux CUDA Kind config contains
    `jitml.runtime/gpu=true`.
-3. Live `kind create cluster` execution is owned by Sprint `3.5`'s
-   Remaining Work; this sprint owns only the typed renderer.
+3. Live `kind create cluster` / kubeconfig export execution is validated by
+   Sprint `3.5`; this sprint owns the typed renderer.
 
 ## Sprint 3.2: `kubernetes.io/no-provisioner` Storage and Manual PVs ✅
 
@@ -144,7 +149,7 @@ that enforces the discipline.
   PVC names carry an operator suffix, so the typed `PerconaPGCluster` pins
   those PVs from the PVC side with explicit `volumeName` fields. Each host
   directory is `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/`, mounted
-  into the Kind worker at `/jitml/.data/...`.
+  into the Kind node at `/jitml/.data/...`.
 - DNS-1123-compatible PV resource names:
   `<namespace>-<statefulset>-pv-<int>`.
 - `src/JitML/Cluster/Storage.hs` is the typed source for the PV layout; the
@@ -247,8 +252,8 @@ resource. Hand-edited HTTPRoute YAML in the chart is hlint-forbidden.
    `src/JitML/Routes.hs`.
 2. `test/integration/Main.hs` verifies route registry rendering covers
    the registered routes.
-3. Live route reachability through the Envoy listener is owned by Sprint
-   `3.5`'s Remaining Work.
+3. Live route reachability through the Envoy listener is validated by Sprint
+   `3.5`.
 
 ## Sprint 3.5: Cluster Lifecycle Reconciler and Phased Deploy ✅
 
@@ -277,9 +282,9 @@ steady-state cluster is a no-op (exit code `3`).
   3. Render the typed Helm dependency-build subprocess before any live
      apply gate; live execution skips the build when every expected packaged
      dependency archive already exists under `chart/charts/`.
-  4. Ensure the `jitml-<substrate>` Kind cluster exists and export its
-     kubeconfig to `./.build/jitml.kubeconfig` (the CLI never touches
-     `~/.kube/config`).
+  4. Ensure the `jitml-<substrate>` Kind cluster exists, write/export Kind's
+     kubeconfig to an in-container temporary file, then copy it to
+     `./.build/jitml.kubeconfig` (the CLI never touches `~/.kube/config`).
   5. Write the `jitml-manual` StorageClass and the manual PVs.
   6. Run the typed phased rollout, including Helm releases and the non-Helm
      Docker build / explicit Kind image-load phase (Sprint `3.5`).
@@ -330,16 +335,20 @@ steady-state cluster is a no-op (exit code `3`).
    manifest apply steps, the absence of the retired `jitml-mirror` Helm
    placeholder, idempotent Pulsar topic creation, and idempotent Kind delete
    subprocess.
-7. Live validation on 2026-05-18: `cabal run jitml -- bootstrap --linux-cpu`
-   reconciles the two-node Kind cluster through `./.build/jitml.kubeconfig`,
-   runs the 83-step phased rollout, loads `jitml:local` and `jitml-demo:local`
-   into Kind, publishes all 16 Pulsar topics, writes ready component health to
-   `./.build/runtime/cluster-publication.json`, and serves
-   `http://127.0.0.1:9091/api` through Envoy.
-8. Teardown validation on 2026-05-18: `cabal run jitml -- cluster down` deletes
-   `jitml-linux-cpu`, `kind get clusters` reports no Kind clusters, and a second
-   `jitml cluster down` exits through the reconciler no-op path while preserving
-   the publication with all components marked `stopped`.
+7. Live validation on 2026-05-23: `docker compose run --rm jitml jitml
+   bootstrap --linux-cpu` reconciled the single-node Kind cluster through
+   `./.build/jitml.kubeconfig`, ran the 110-step phased rollout, built and
+   loaded `jitml:local` and `jitml-demo:local` into Kind, published the
+   substrate-scoped Pulsar topics, wrote ready component health to
+   `./.build/runtime/cluster-publication.json`, and served
+   `http://127.0.0.1:9091/api` through Envoy. The live Docker build also
+   validated the Dockerfile fallback that derives `TARGETARCH` from the Debian
+   architecture when the legacy Docker builder does not inject it.
+8. Live teardown validation on 2026-05-23: `docker compose run --rm jitml jitml
+   cluster down` deleted `jitml-linux-cpu`, `kind get clusters` reported no
+   Kind clusters, and a second `jitml cluster down` exited through the
+   reconciler no-op path with code `3` while preserving the publication with
+   all components marked `stopped`.
 
 ## Doctrine Sections Cited
 

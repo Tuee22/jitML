@@ -28,7 +28,7 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.DockerImage qualified as DockerImage
 import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Helm qualified as Helm
-import JitML.Cluster.Kind (kindConfigFor, kindConfigWithWorkerCount, renderKindConfig)
+import JitML.Cluster.Kind (kindConfigFor, renderKindConfig)
 import JitML.Cluster.PostgresRegistry qualified as PostgresRegistry
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
@@ -96,7 +96,7 @@ main =
             @?= [ "reconcile prerequisite graph for cluster"
                 , "render kind/cluster-linux-cpu.yaml"
                 , "prepare Helm dependencies with helm dependency build chart"
-                , "create Kind cluster with ./.build/jitml.kubeconfig"
+                , "create/export Kind kubeconfig and copy it to ./.build/jitml.kubeconfig"
                 , "apply jitml-manual StorageClass and manual PVs"
                 , "install MinIO and Percona storage for Harbor"
                 , "install Harbor bootstrap phase"
@@ -117,19 +117,21 @@ main =
           assertBool
             "linux-cpu does not mount NVIDIA toolkit"
             (not ("nvidia-container-runtime" `Text.isInfixOf` cpuConfig))
-      , testCase "kind config can render two workers for anti-affinity validation (Sprint 5.6)" $ do
-          let twoWorkerConfig =
-                renderKindConfig (kindConfigWithWorkerCount 2 (kindConfigFor LinuxCPU))
-              workerCount =
-                length (Text.breakOnAll "  - role: worker" twoWorkerConfig)
-          workerCount @?= 2
+      , testCase "kind config renders a single mounted node for every substrate (Sprint 3.1)" $ do
+          let cpuConfig = renderKindConfig (kindConfigFor LinuxCPU)
+              controlPlaneCount =
+                length (Text.breakOnAll "  - role: control-plane" cpuConfig)
+          controlPlaneCount @?= 1
           assertBool
-            "each worker has the repo build mount"
-            (length (Text.breakOnAll "containerPath: /jitml/.build" twoWorkerConfig) == 2)
+            "single-node kind config has no separate worker"
+            (not ("  - role: worker" `Text.isInfixOf` cpuConfig))
+          assertBool
+            "the single node has the repo build mount"
+            (length (Text.breakOnAll "containerPath: /jitml/.build" cpuConfig) == 1)
       , testCase "linux-cuda Kind config wires NVIDIA runtime handler (Sprint 4.7)" $ do
           let cudaConfig = renderKindConfig (kindConfigFor LinuxCUDA)
           assertBool
-            "linux-cuda carries the GPU worker label"
+            "linux-cuda carries the GPU node label"
             ("node-labels: jitml.runtime/gpu=true,jitml.substrate/linux-cuda=true" `Text.isInfixOf` cudaConfig)
           assertBool
             "linux-cuda configures containerd patches"
@@ -1052,9 +1054,12 @@ main =
               ("kind create cluster --name jitml-linux-cpu" `Text.isInfixOf` commandText)
             assertBool
               "live rollout refreshes the repo kubeconfig when Kind already exists"
-              ( "kind export kubeconfig --name jitml-linux-cpu --kubeconfig ./.build/jitml.kubeconfig"
+              ( "kind export kubeconfig --name jitml-linux-cpu --kubeconfig \"$tmpKubeconfig\""
                   `Text.isInfixOf` commandText
               )
+            assertBool
+              "live rollout copies Kind's temp kubeconfig into the repo-local kubeconfig"
+              ("cp \"$tmpKubeconfig\" ./.build/jitml.kubeconfig" `Text.isInfixOf` commandText)
             assertBool
               "live rollout applies manual storage manifests"
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml"

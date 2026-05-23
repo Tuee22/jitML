@@ -9,8 +9,6 @@ nodes:
         hostPort: 9090
         listenAddress: 127.0.0.1
         protocol: TCP
-  - role: worker
-    image: kindest/node:v1.32.2
     extraMounts:
       - hostPath: ./.build
         containerPath: /jitml/.build

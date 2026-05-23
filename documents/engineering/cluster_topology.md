@@ -12,20 +12,19 @@
 
 ## Substrates and Cluster Shapes
 
-| Substrate | Kind shape | Worker labels | Daemon residency |
+| Substrate | Kind shape | Node labels | Daemon residency |
 |-----------|------------|---------------|------------------|
-| `apple-silicon` | 1 control-plane + 1 worker | none | clustered (`Cluster + ForwardToHost`) + host-native (`Host + SelfInference`) |
-| `linux-cpu` | 1 control-plane + 1 worker | none | clustered only (`Cluster + SelfInference`) |
-| `linux-cuda` | 1 control-plane + 1 worker | `jitml.runtime/gpu=true` | clustered only (`Cluster + SelfInference`) |
+| `apple-silicon` | 1 control-plane node, no worker node | none | clustered (`Cluster + ForwardToHost`) + host-native (`Host + SelfInference`) |
+| `linux-cpu` | 1 control-plane node, no worker node | none | clustered only (`Cluster + SelfInference`) |
+| `linux-cuda` | 1 control-plane node, no worker node | `jitml.runtime/gpu=true` | clustered only (`Cluster + SelfInference`) |
 
 Per-substrate Kind configs at `kind/cluster-<substrate>.yaml`. The `kindest/
 node` pin is the single source of toolchain truth; it is mirrored as a
 comment in `cabal.project`. `jitml lint chart` rejects drift between the two.
-`JitML.Cluster.Kind.kindConfigWithWorkerCount` renders the same node surface
-with more than one worker for live placement validation; the checked-in
-per-substrate configs remain the default one-worker topology.
+The checked-in configs and `JitML.Cluster.Kind.renderKindConfig` use one Kind
+node for every substrate. There is no local control-plane/worker split.
 
-The host `./.build/` directory is bind-mounted into the Kind worker via the
+The host `./.build/` directory is bind-mounted into the single Kind node via the
 `extraMounts` block in the Kind config. This is what lets the in-cluster
 `jitml-service` pod see the same JIT artefacts the host built. This is the
 **one** exception to the "no freestanding host paths in pod specs"
@@ -39,9 +38,9 @@ dynamic provisioning anywhere in the chart. Every PV is **manually defined**
 in `chart/templates/pv-<statefulset>.yaml` against the `jitml-manual`
 StorageClass and backed by a `hostPath` under
 `/jitml/.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/` inside the
-Kind worker. The host directory is repo-local
+Kind node. The host directory is repo-local
 `./.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/`, mounted into the
-worker at `/jitml/.data`; `.data` is strictly for these manual PV bind mounts.
+node at `/jitml/.data`; `.data` is strictly for these manual PV bind mounts.
 Kind metadata, runtime coordinates, kubeconfig, generated Dhall, and JIT
 artifacts live under `./.build/`.
 
@@ -211,11 +210,13 @@ MinIO's upstream path while SigV4 verification still uses the path MinIO sees.
 External Helm dependencies install from the `.tgz` archives produced by
 `helm dependency build`, using typed values files from `chart/values/` when
 direct subchart installs need values; jitML-owned workloads install from
-`chart/local/`. Live Linux CPU validation on 2026-05-18 completed the phased
-rollout plus readiness checks, served
-`http://127.0.0.1:9091/api` through Envoy, published the expected Pulsar
-topic family, wrote ready publication health, and validated `jitml cluster
-down` teardown. The 2026-05-19 live run confirms `/pulsar/admin` works through the
+`chart/local/`. Live Linux CPU validation on 2026-05-23 completed the
+single-node 110-step phased rollout plus readiness checks, built and loaded
+`jitml:local` and `jitml-demo:local` into Kind, served
+`http://127.0.0.1:9091/api` through Envoy, published the expected Pulsar topic
+family, wrote ready publication health, and validated `jitml cluster down`
+teardown plus the second-run no-op exit `3`. The 2026-05-19 live run confirms
+`/pulsar/admin` works through the
 edge, `/pulsar/ws` resolves to `pulsar-broker:8080`, the broker config carries
 `webSocketServiceEnabled=true`, and routed WebSocket publish/consume succeeds
 through `JitML.Service.PulsarWebSocketSubprocess`. The 2026-05-20 live run
@@ -243,31 +244,24 @@ writes a Haskell-encoded TensorBoard scalar shard through routed
 
 The orchestrator is a stateless **Deployment** with `replicas: 1` by default
 and required pod **anti-affinity** at `topologyKey:
-kubernetes.io/hostname`, which lets the cluster scale to N replicas (one per
-node) when throughput requires it without ever placing two on the same node.
-Rolling updates use `maxSurge: 0` and `maxUnavailable: 1` so this required
-anti-affinity also works on the default single-worker development Kind cluster.
+kubernetes.io/hostname`. The local Kind topology has one node, so the supported
+local `jitml-service` replica count is one. The anti-affinity remains in the
+chart to keep the one-service-pod-per-node rule when the chart is applied to a
+non-local multi-node environment. Rolling updates use `maxSurge: 0` and
+`maxUnavailable: 1` so replacement works on the single-node Kind cluster.
 The daemon owns no PVC of its own — durable state lives entirely in MinIO and
 Pulsar — so a StatefulSet would be the wrong shape.
 
-Live validation on 2026-05-20 created a temporary `jitml-phase5-affinity`
-two-worker Kind cluster with `kindConfigWithWorkerCount 2`, loaded
-`jitml:local`, applied the real `jitml-service` ConfigMap and Deployment,
-scaled to two replicas, and observed the pods on distinct nodes:
-`jitml-phase5-affinity-worker` and `jitml-phase5-affinity-worker2`.
-
-Each node maintains its own JIT cache under that node's
-`./.build/jit/<substrate>/` hostPath. JIT artifacts are deterministic
-functions of `(model-shape, kind, substrate, toolchain)`, so the worst case
-is that the same model gets JITted once per node on first use.
+The Kind node maintains its JIT cache under the mounted
+`./.build/jit/<substrate>/` hostPath. JIT artifacts are deterministic functions
+of `(model-shape, kind, substrate, toolchain)`.
 
 Namespace: `platform` (fixed). The live local chart rollout creates or reuses
 that namespace, mounts the current typed Dhall ConfigMap, and exposes the
 daemon HTTP surface on a ClusterIP Service at port `8080`; 2026-05-19 live
 validation port-forwarded that Service and verified `/healthz`, `/readyz`, and
-`/metrics`. 2026-05-20 live validation rolled the service with the
-single-worker-safe update strategy and confirmed service-account kubectl access
-from inside the pod.
+`/metrics`. Current single-node validation targets the same replacement update
+strategy and service-account kubectl access from inside the pod.
 
 ## Envoy Gateway: A Single Localhost Socket
 
@@ -341,7 +335,7 @@ Sprint `2.1` owns and has closed the stage-0 bootstrap scripts under
 - `linux-cuda.sh` adds NVIDIA container-runtime and `nvidia-smi` compute
   capability checks; then it calls
   `docker compose run --rm jitml jitml bootstrap --linux-cuda`. The Linux CUDA
-  Kind config registers the worker containerd `nvidia` runtime handler, mounts
+  Kind config registers the single node's containerd `nvidia` runtime handler, mounts
   the repo-owned NVIDIA runtime config, mounts the host driver root read-only at
   `/run/nvidia/driver`, and mounts the node-local NVIDIA toolkit support needed
   by the runtime hook.
@@ -350,30 +344,29 @@ Missing stage-0 gates return exit code `2` with installation instructions. All
 broader package validation/remediation belongs to the Haskell typed
 prerequisite DAG. Homebrew packages may be installed lazily by `jitml` through
 Plan/Apply prerequisite remediation; shell scripts never install them.
-Current validation on 2026-05-19 runs the live cluster toolchain from the
+Current validation on 2026-05-23 runs the live cluster toolchain from the
 `jitml:local` image with the repository mounted at the same absolute host path;
 the root `compose.yaml` pins the `jitml` service to host networking so Kind
 kubeconfig loopback endpoints are reachable from the outer container. The Linux
-CPU bootstrap completes 100 live rollout steps and publishes all platform
+CPU bootstrap completes the 110-step live rollout and publishes all platform
 components as ready on edge port `9091`.
 
-Clean Linux CUDA validation on 2026-05-20 recreates `jitml-linux-cuda` from the
-checked-in Kind config, confirms the worker carries `jitml.runtime/gpu=true`,
-applies `RuntimeClass/nvidia`, and runs `pod/nvidia-smi-probe` to `Succeeded`;
-the probe logs `GPU 0: NVIDIA GeForce RTX 5090`.
-Live Linux CUDA service validation on 2026-05-21 recreates the same
-`jitml-linux-cuda` substrate, loads `jitml:local`, applies
-`RuntimeClass/nvidia`, renders `chart/local/jitml-service` with
-`substrate=linux-cuda`, rolls out `Deployment/jitml-service`, confirms the pod
-runs on `jitml-linux-cuda-worker` with `runtimeClassName: nvidia`,
-`NVIDIA_VISIBLE_DEVICES=all`, and
-`NVIDIA_DRIVER_CAPABILITIES=compute,utility`, then executes `nvidia-smi -L`
-inside the service container and sees the RTX 5090.
+Linux CUDA live validation now targets the single-node `jitml-linux-cuda`
+shape: the one Kind node must carry `jitml.runtime/gpu=true`, register the
+containerd `nvidia` handler, expose the read-only `/run/nvidia/driver` mount,
+apply `RuntimeClass/nvidia`, and run both the probe pod and
+`Deployment/jitml-service` with `runtimeClassName: nvidia`. The 2026-05-23
+attempt cannot execute that live CUDA probe on the current host because
+Docker's `nvidia` runtime is not registered and `nvidia-smi` is absent; the
+target validation requires a Linux CUDA host satisfying those stage-0 gates.
 
 ## No Kubeconfig Pollution
 
 The CLI never touches `~/.kube/config`. Cluster kubeconfig lives at
-`./.build/jitml.kubeconfig`. Stage-0 scripts forbid touches to
+`./.build/jitml.kubeconfig`; the live Kind subprocess may write/export to an
+in-container temporary kubeconfig first, then copy the completed file to that
+repo-local path so Kind's lock file never lives on the Docker bind mount.
+Stage-0 scripts forbid touches to
 `~/.kube/config`, `~/.docker/config.json`, the user's Homebrew prefix, or any
 global state outside the repo. Haskell `jitml` may install Homebrew packages
 only through typed lazy prerequisite remediation. `./.build/` holds build

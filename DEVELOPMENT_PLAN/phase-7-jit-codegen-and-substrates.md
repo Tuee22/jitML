@@ -87,8 +87,8 @@ artifact materialization/compile-on-miss now lives in
 owes CUDA FFI loading + live `nvcc`/cuBLAS/cuDNN execution
 (`JitML.Engines.CudaRuntime` now probes `nvcc`, `nvidia-smi -L`, and
 dynamic-linker visibility for `libcuda` / `libcublas` / `libcudnn`; the
-2026-05-21 local recheck has no host `nvcc` and no `nvidia-smi`; earlier live
-CUDA validation proved the GPU-labelled worker and pod-visible GPU path);
+    2026-05-21 local recheck has no host `nvcc` and no `nvidia-smi`; earlier live
+    CUDA validation proved the GPU-labelled node and pod-visible GPU path);
 Sprint `7.5` owes Metal FFI loading + live host↔cluster RPC
 (`JitML.Tart.Build` now renders and executes the ordered Apple cache-miss
 plan from VM ensure/postcondition validation through Swift build, cache
@@ -417,9 +417,9 @@ execution per `### Remaining Work` below.
 - Live cuBLAS/cuDNN execution, FFI loading of the compiled `.so`,
   stochastic-kernel RNG ABI consumption, and the live transcript-determinism
   test remain blocked by missing host `nvcc` and cuBLAS/cuDNN binding work. The
-  2026-05-21 local recheck has no `nvcc` and no `nvidia-smi`; earlier live CUDA
-  validation proved the labelled worker, containerd `nvidia` runtime handler,
-  `RuntimeClass/nvidia` scheduler path, and pod-visible GPU.
+  2026-05-21 local recheck has no `nvcc` and no `nvidia-smi`; refreshed
+  single-node live CUDA `RuntimeClass/nvidia` and pod-visible GPU validation
+  remains owned by Phase `4` / Phase `5`.
 
 ### Validation
 
@@ -436,8 +436,8 @@ execution per `### Remaining Work` below.
    --test-options='-p CUDA'` validates the live typed subprocess
    probe logs CUDA toolchain, device, and dynamic-linker attempts even when the
    local validation environment lacks the runtime.
-4. Live validation (target): generated `.cu` compiles via real `nvcc` on a
-   GPU-backed Kind worker, the resulting `.so` loads through the Haskell
+4. Live validation (target): generated `.cu` compiles via real `nvcc` on the
+   GPU-backed Kind node, the resulting `.so` loads through the Haskell
    FFI, cuBLAS/cuDNN-backed kernels execute, and a same-seed run produces
    a bit-identical transcript when deterministic algorithm IDs are pinned.
 
@@ -469,7 +469,7 @@ execution per `### Remaining Work` below.
 - Add the live CUDA transcript-determinism integration test on the explicit live
   validation path (Sprint `12.6`) — blocked here by missing `nvcc`, missing
   CUDA runtime bindings, and CUDA `.so` FFI loading, not by GPU discovery,
-  scheduler labels, or the Kind worker containerd `nvidia` handler.
+  scheduler labels, or the Kind node containerd `nvidia` handler.
 
 ## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC 🔄
 

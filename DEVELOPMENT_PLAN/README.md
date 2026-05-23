@@ -39,15 +39,19 @@ maintenance rules that govern this plan suite.
 The plan is mid-build. Phases `0` (planning and documentation topology), `1`
 (Haskell CLI surface, lint stack, and code-quality gate), `2` (bootstrap
 reconciler, prerequisite DAG, JIT cache, outer-container builds), `3`
-(cluster substrate and routing), `4` (stateful platform services), `5`
-(`jitml service` daemon), and `6`
+(cluster substrate and routing), and `6`
 (numerical core) are `✅ Done` — every Exit Definition obligation those phases
 own is met in the worktree and validated
 by their sprints' `### Validation` blocks. Sprint `1.4` now owns the
 container-exclusive code-quality rule: `jitml:local` image construction
 installs the separate style GHC/tools and runs `jitml check-code`; host
 lint/check-code execution is unsupported and no host style-tool override exists.
-Phases `7`, `8`, `9`, `10`, `11`, and `12` are `🔄 Active`:
+Phase `4` is `⏸️ Blocked` pending a Linux CUDA validation host for the live
+`RuntimeClass/nvidia` probe on the single-node Kind topology. Phase `5`
+remains reopened for live daemon service-pod validation on that same topology,
+and its CUDA service-pod check cannot close until the Phase `4` runtime-class
+probe runs. Phases `7`, `8`, `9`, `10`, `11`, and `12`
+are `🔄 Active`:
 each owns at least one Exit Definition obligation that requires live runtime
 behaviour (cluster apply, real service clients, real kernel execution,
 checkpoint storage, browser flow, cross-substrate parity) which the worktree
@@ -134,13 +138,12 @@ database and writes registry objects into that MinIO S3 backend, plus
 WebSocket service and `JitML.Service.PulsarWebSocketSubprocess` publishes and
 consumes through the edge, plus 2026-05-20 live validation proving the current
 26-topic substrate-scoped Pulsar family is registered and routed publish/consume
-works on `training.command.linux-cpu` from `jitml:local`, plus 2026-05-20 live
-Linux CUDA validation proving the checked-in Kind config wires the worker
-containerd `nvidia` runtime handler and runs an `nvidia-smi -L` probe through
-`RuntimeClass/nvidia`, plus 2026-05-21 live Linux CUDA validation scheduling
-the actual `jitml-service` Deployment with `runtimeClassName: nvidia` onto the
-GPU-labelled worker and confirming `nvidia-smi -L` reports the RTX 5090 inside
-that service container,
+works on `training.command.linux-cpu` from `jitml:local`, plus the current
+single-node Linux CUDA Kind config wiring the node-local containerd `nvidia`
+runtime handler and `RuntimeClass/nvidia` selector; the live CUDA
+`nvidia-smi -L` probe is blocked until a Linux CUDA validation host provides
+Docker's NVIDIA runtime and `nvidia-smi`, and CUDA service-pod validation must
+then be repeated on the single-node topology, plus
 the optimizer/RNG/metric/parent-lineage CheckpointManifest shape
 with typed `AdvancePredicate` and `RetentionPolicy` +
 `JitML.App.runInternalGc` reconciler exiting `3` on no-op +
@@ -188,7 +191,8 @@ has produced it, the real-binary `./.build/jitml` spawn matrix
 (`--help`, `bootstrap --linux-cpu --dry-run`, `cluster up --substrate
 linux-cpu --dry-run`, `internal gc <hash>` exiting `3`) through the
 typed boundary in a temp workdir covered by `jitml-integration`, the
-spin-up path through `kindCreateSubprocess` that writes
+spin-up path through `kindCreateSubprocess` that creates/exports Kind's
+kubeconfig through an in-container temporary file before copying it to
 `./.build/jitml.kubeconfig` without polluting `~/.kube/config`, the
 post-teardown `no jitml-e2e-* Kind clusters survive` assertion in
 `jitml-e2e` when `kind` is installed, the typed Pulumi ephemeral-Kind
@@ -204,9 +208,8 @@ edge-port lease (`JitML.Cluster.EdgePort.leaseEdgePort`) wired into the
 live publication writer and Apple host Dhall patch, the lifecycle-exit
 wiring (`JitML.Service.Runtime.consumerLoopExit`)
 surfacing typed `AppError` from the consumer outcome batch, the
-two-worker Kind renderer (`JitML.Cluster.Kind.kindConfigWithWorkerCount`) and
-2026-05-20 live `jitml-service` anti-affinity validation placing two replicas
-on distinct Kind workers, the
+single-node Kind renderer (`JitML.Cluster.Kind.renderKindConfig`) that emits
+one control-plane node with no worker node for every substrate, the
 demo bundle-serving path (`JitML.Web.Server.{loadBundleEntry,demoHttpRoutesWithBundle}`)
 serving the compiled Halogen `web/dist/Main/index.js` when
 present, the `loadInferenceCheckpointWith` hook plus
@@ -225,7 +228,7 @@ filesystem-backed `HasMinIO` instance, the
 `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
 problems are all checked in. The remaining
 open obligations (CUDA JIT execution, provisioned Apple Tart VM validation,
-Metal FFI loading, live bootstrap orchestration,
+Metal FFI loading,
 live training-to-convergence on real hardware, live training/inference
 service-client effects beyond the validated daemon paths, and the default
 PureScript lint/spec path) remain gated by the per-sprint `### Remaining Work`
@@ -260,31 +263,38 @@ block, where the validation gate lives:
    block in `cabal.project` survives only while upstream Dhall/CBOR releases
    reject GHC `9.14.1`'s `base-4.22`. See
    [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
-2. **Full live bootstrap orchestration (Exit 3).** See
+2. **Single-node Linux CUDA runtime validation (Exit 2, 3).** See
+   [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md)
+   Sprint `4.7` and
+   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md)
+   Sprint `5.6`. Sprint `4.7` is blocked until a Linux CUDA validation host has
+   Docker's `nvidia` runtime registered, `nvidia-smi` on `PATH`, and a GPU with
+   compute capability `>= 7.0`.
+3. **Pulumi-orchestrated e2e bootstrap (Exit 3).** See
    [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
    Sprint `12.8` `Remaining Work` for the explicit Pulumi/Kind/Helm live
    orchestration path that exercises `jitml bootstrap` as part of the e2e stack.
-3. **Real per-substrate JIT execution (Exit 1, 5, 12).** See
+4. **Real per-substrate JIT execution (Exit 1, 5, 12).** See
    [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md)
    Sprints `7.3` / `7.4` / `7.5` / `7.6` `Remaining Work`.
-4. **Real SL/RL/AlphaZero/tuning loops and live tuner execution (Exit 6).** See
+5. **Real SL/RL/AlphaZero/tuning loops and live tuner execution (Exit 6).** See
    [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md)
    and [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md)
    sprint `Remaining Work` blocks.
-5. **Live MinIO checkpoint storage and inference (Exit 7).** See
+6. **Live MinIO checkpoint storage and inference (Exit 7).** See
    [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md)
    Sprints `10.1`–`10.4` `Remaining Work`.
-6. **PureScript lint/spec default path (Exit 15).** See
+7. **PureScript lint/spec default path (Exit 15).** See
    [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md)
    Sprint `11.3` `Remaining Work` for the still-open default `purs format`
    round-trip and PureScript spec execution path.
-7. **Stateful frontend E2E and Playwright (Exit 8).** See
+8. **Stateful frontend E2E and Playwright (Exit 8).** See
    [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md)
    Sprints `11.3` / `11.4` / `11.5` / `11.6` `Remaining Work`.
-8. **`jitml-e2e` live Pulumi-orchestrated cross-cluster validation (Exit 9).** See
+9. **`jitml-e2e` live Pulumi-orchestrated cross-cluster validation (Exit 9).** See
    [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
    Sprints `12.2`–`12.6` and `12.8` / `12.9` `Remaining Work`.
-9. **Empty legacy ledger (Exit 18).** Closes after the preceding roadmap items
+10. **Empty legacy ledger (Exit 18).** Closes after the preceding roadmap items
    close and the remaining cleanup rows in
    [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal)
    are moved to `Completed`.
@@ -354,8 +364,8 @@ obligation exists.
 | 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
-| 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
-| 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
+| 4 | Stateful Platform Services | ⏸️ Blocked | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
+| 5 | `jitml service` Daemon | 🔄 Active | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | 🔄 Active | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | 🔄 Active | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
@@ -366,7 +376,18 @@ obligation exists.
 
 ## Current Plan Status
 
-Phases `0`, `1`, `2`, `3`, `4`, `5`, and `6` are `✅ Done`. Phase `0` owns the plan
+Phases `0`, `1`, `2`, `3`, and `6` are `✅ Done`. Phase `4` remains reopened and is
+`⏸️ Blocked` on a Linux CUDA validation host after the supported local Kind
+topology changed to a single-node cluster for all substrates. Phase `5` remains
+`🔄 Active` for daemon service-pod validation on that topology. Phase `3`
+reclosed on 2026-05-23 after live Linux CPU bootstrap and
+teardown validated the single-node Kind topology, repo-local kubeconfig
+discipline, Docker build / explicit Kind image-load, ready publication health,
+the `/api` Envoy edge route, and the `cluster down` no-op path. The remaining
+single-node repeats are Linux CUDA `RuntimeClass/nvidia` and daemon service-pod
+validation in Phases `4` and `5`; the 2026-05-23 Phase `4` attempt stopped at
+the stage-0 CUDA gate because Docker did not report an `nvidia` runtime and
+`nvidia-smi` was absent. Phase `0` owns the plan
 suite, the governed `documents/` doctrine suite, and the doctrine envelope.
 Phase `1` owns the `CommandSpec` registry, typed `Subprocess` / `Plan` /
 `apply` / `Env` / `AppError` boundaries, lint surfaces, warning-clean build
@@ -381,17 +402,16 @@ scaffold, and the script-side `status` / `test` / `down` / `purge` /
 repo-local kubeconfig discipline, manual PV/storage-class surface, Envoy
 Gateway listener, typed route registry, live phased bootstrap, and typed
 cluster teardown path. Phase `4` owns Harbor, MinIO, Pulsar, service Postgres,
-observability, TensorBoard, and the Linux CUDA NVIDIA RuntimeClass wiring,
-including the clean 2026-05-20 `nvidia-smi` pod probe through
-`RuntimeClass/nvidia`. Phase `5` owns the daemon surface, BootConfig /
+observability, TensorBoard, and the Linux CUDA NVIDIA RuntimeClass wiring.
+Phase `5` owns the daemon surface, BootConfig /
 LiveConfig, acquired capability clients, at-least-once Pulsar consumer,
-stateless Deployment, Linux CUDA service-pod RuntimeClass validation, and
-2026-05-21 Apple Silicon host validation of the generated host Dhall against the
-routed edge. Phase `6` owns the numerical-core catalog
+stateless Deployment, Linux CUDA service-pod RuntimeClass path, and Apple
+Silicon host Dhall generation. Phase `6` owns the numerical-core catalog
 (`src/JitML/Numerics/Catalog.hs`), its Dhall mirror, and the cross-type lint
-audit. These Done phases cover [Exit Definition](#exit-definition)
-items 2, 4, 10, 11, 12, 13, 14, 16, and 17 plus Phase `4`'s owned platform
-service portion of item 3.
+audit. The currently closed phases cover [Exit Definition](#exit-definition)
+items 2, 4, 10, 11, 12, 13, 14, 16, and 17 plus Phase `3`'s owned
+cluster-substrate/routing slice of item 3. Phase `4` stays Blocked and Phase `5`
+stays Active until their remaining single-node live validations close.
 
 Phases `7` (JIT codegen and per-substrate execution), `8`
 (supervised and RL framework), `9` (RL catalog, AlphaZero, tuning), `10`
@@ -400,8 +420,8 @@ Phases `7` (JIT codegen and per-substrate execution), `8`
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
 runtime behaviour or default tool execution that the worktree does not
-exercise. The unmet obligations are: the explicit live Pulumi / Kind / Helm
-bootstrap path for Exit 3; real per-substrate kernel compile-and-execute beyond
+exercise. The unmet obligations are: the explicit Pulumi-orchestrated
+ephemeral Kind e2e path for Exit 3; real per-substrate kernel compile-and-execute beyond
 the Linux CPU identity, reduction-smoke, and family-scaffold fixtures in
 `JitML.Engines.Loader` / `JitML.Engines.Local` and the local Linux CPU
 `HasEngine` interpreter with host/container artifact ABI separation (Exit 1, 5,
@@ -415,8 +435,8 @@ Each gap is logged in the
 owning sprint's `### Remaining Work` block; the dependency-ordered sequence is
 in [Execution Roadmap](#execution-roadmap) above.
 
-The local worktree implementation that backs the seven Done phases and the typed
-scaffolding inside the six Active phases
+The local worktree implementation that backs the five Done phases and the typed
+scaffolding inside the Active phases
 comprises: `app/Main.hs` and
 `app/Demo.hs` (six-line shims into the library-first `src/JitML/` tree);
 three stage-0 bootstrap scripts that delegate to `jitml bootstrap

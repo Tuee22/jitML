@@ -51,9 +51,9 @@ RUN ghcup install ghc "${STYLE_GHC_VERSION}" \
         hlint-3.10 \
     && chmod 0755 "${JITML_STYLE_TOOLS_ROOT}/bin/fourmolu" "${JITML_STYLE_TOOLS_ROOT}/bin/hlint"
 
-RUN case "${TARGETARCH:-amd64}" in \
+RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
         amd64) tool_arch=amd64; node_arch=x64 ;; \
-        arm64) tool_arch=arm64; node_arch=arm64 ;; \
+        arm64 | aarch64) tool_arch=arm64; node_arch=arm64 ;; \
         *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
       esac \
     && apt-get update \

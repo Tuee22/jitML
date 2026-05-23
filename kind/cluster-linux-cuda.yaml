@@ -18,11 +18,9 @@ nodes:
         hostPort: 9092
         listenAddress: 127.0.0.1
         protocol: TCP
-  - role: worker
-    image: kindest/node:v1.32.2
     kubeadmConfigPatches:
       - |
-        kind: JoinConfiguration
+        kind: InitConfiguration
         nodeRegistration:
           kubeletExtraArgs:
             node-labels: jitml.runtime/gpu=true,jitml.substrate/linux-cuda=true

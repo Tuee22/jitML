@@ -222,9 +222,9 @@ reproducibility witness surface; see
 - The current local engine envelope names the `.so` artifact path and compile
   command. A `LinuxCUDA.HasEngine` instance that loads the `.so` via the FFI
   loader remains target runtime work. The 2026-05-21 local recheck has no host
-  `nvcc` and no `nvidia-smi`; earlier live CUDA validation proved the labelled
-  worker, containerd `nvidia` runtime handler, `RuntimeClass/nvidia` scheduler
-  path, and pod-visible GPU.
+  `nvcc` and no `nvidia-smi`; the refreshed single-node live CUDA
+  `RuntimeClass/nvidia` and pod-visible GPU probe remains owned by
+  Phase `4` / Phase `5`.
 
 ### `apple-silicon` — Swift + Metal
 
@@ -309,7 +309,7 @@ Use only for fresh-start debugging.
 
 ## Linux Substrates Share the Cache via Kind `extraMounts`
 
-The Kind cluster config bind-mounts host `./.build/` into the worker node,
+The Kind cluster config bind-mounts host `./.build/` into the single Kind node,
 and the `jitml-service` Deployment mounts that path into the pod at
 `/opt/build`. Cache hits / misses behave identically to Apple Silicon — the
 only difference is that on a Linux miss the compile runs in-process inside
