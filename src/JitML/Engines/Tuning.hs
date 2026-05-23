@@ -2,6 +2,7 @@
 
 module JitML.Engines.Tuning
   ( BenchmarkPlan (..)
+  , BenchmarkMeasurement (..)
   , KnobAxis (..)
   , KnobSpace (..)
   , TuningResult (..)
@@ -12,14 +13,19 @@ module JitML.Engines.Tuning
   , linuxCpuKnobs
   , linuxCudaKnobs
   , renderBenchmarkPlan
+  , renderBenchmarkMeasurement
   , renderKnobAxis
   , renderKnobSpace
   , renderTuningResult
+  , selectBenchmarkMeasurement
   , selectDeterministic
+  , selectMeasuredTuning
   , tuningChoiceForResult
   )
 where
 
+import Data.List (elemIndex)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
@@ -48,6 +54,13 @@ data TuningResult = TuningResult
 data BenchmarkPlan = BenchmarkPlan
   { benchmarkPlanSubstrate :: Substrate
   , benchmarkPlanResults :: [TuningResult]
+  }
+  deriving stock (Eq, Show)
+
+data BenchmarkMeasurement = BenchmarkMeasurement
+  { benchmarkMeasurementResult :: TuningResult
+  , benchmarkMeasurementLatencyMicros :: Int
+  , benchmarkMeasurementOutputDigest :: Text
   }
   deriving stock (Eq, Show)
 
@@ -159,6 +172,51 @@ benchmarkPlan space =
     (knobSpaceSubstrate space)
     (fmap (TuningResult (knobSpaceSubstrate space)) (selectionGrid (knobSpaceAxes space)))
 
+selectMeasuredTuning :: BenchmarkPlan -> [BenchmarkMeasurement] -> Either Text TuningResult
+selectMeasuredTuning plan measurements =
+  benchmarkMeasurementResult <$> selectBenchmarkMeasurement plan measurements
+
+selectBenchmarkMeasurement
+  :: BenchmarkPlan -> [BenchmarkMeasurement] -> Either Text BenchmarkMeasurement
+selectBenchmarkMeasurement plan measurements
+  | null measurements =
+      Left "benchmark plan has no measurements"
+  | Just invalid <- firstInvalid measurements =
+      Left
+        ( "benchmark measurement is outside the plan: "
+            <> unTuningChoice (tuningChoiceForResult (benchmarkMeasurementResult invalid))
+        )
+  | Just negative <- firstNegative measurements =
+      Left
+        ( "benchmark measurement has negative latency: "
+            <> unTuningChoice (tuningChoiceForResult (benchmarkMeasurementResult negative))
+        )
+  | otherwise =
+      maybe
+        (Left "benchmark plan has no selectable measurements")
+        Right
+        (foldl' choose Nothing measurements)
+ where
+  firstInvalid =
+    firstWhere
+      (\measurement -> benchmarkMeasurementResult measurement `notElem` benchmarkPlanResults plan)
+
+  firstNegative =
+    firstWhere ((< 0) . benchmarkMeasurementLatencyMicros)
+
+  choose Nothing measurement = Just measurement
+  choose (Just current) measurement
+    | benchmarkMeasurementLatencyMicros measurement < benchmarkMeasurementLatencyMicros current =
+        Just measurement
+    | benchmarkMeasurementLatencyMicros measurement == benchmarkMeasurementLatencyMicros current
+        && planIndex (benchmarkMeasurementResult measurement) < planIndex (benchmarkMeasurementResult current) =
+        Just measurement
+    | otherwise =
+        Just current
+
+  planIndex result =
+    fromMaybe maxBound (elemIndex result (benchmarkPlanResults plan))
+
 renderKnobAxis :: KnobAxis -> Text
 renderKnobAxis axis =
   knobName axis
@@ -190,6 +248,14 @@ renderBenchmarkPlan plan =
         | result <- benchmarkPlanResults plan
         ]
 
+renderBenchmarkMeasurement :: BenchmarkMeasurement -> Text
+renderBenchmarkMeasurement measurement =
+  unTuningChoice (tuningChoiceForResult (benchmarkMeasurementResult measurement))
+    <> " latency_micros="
+    <> Text.pack (show (benchmarkMeasurementLatencyMicros measurement))
+    <> " output_digest="
+    <> benchmarkMeasurementOutputDigest measurement
+
 selectionGrid :: [KnobAxis] -> [[(Text, Text)]]
 selectionGrid [] = [[]]
 selectionGrid (axis : rest) =
@@ -197,6 +263,12 @@ selectionGrid (axis : rest) =
   | choice <- knobChoices axis
   , suffix <- selectionGrid rest
   ]
+
+firstWhere :: (a -> Bool) -> [a] -> Maybe a
+firstWhere _ [] = Nothing
+firstWhere predicate (value : rest)
+  | predicate value = Just value
+  | otherwise = firstWhere predicate rest
 
 showSubstrate :: Substrate -> String
 showSubstrate AppleSilicon = "apple-silicon"

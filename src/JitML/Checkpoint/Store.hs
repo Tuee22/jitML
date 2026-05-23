@@ -4,6 +4,7 @@ module JitML.Checkpoint.Store
   ( GcEvent (..)
   , GcExecutionResult (..)
   , GcPlan (..)
+  , LoadedWeightTensor (..)
   , ObjectWriteResult (..)
   , RetentionPolicy (..)
   , StoredCheckpoint (..)
@@ -17,6 +18,8 @@ module JitML.Checkpoint.Store
   , listCheckpointManifests
   , loadInferenceCheckpoint
   , loadInferenceCheckpointWith
+  , loadInferenceCheckpointWithWeights
+  , loadWeightTensors
   , objectPathForKey
   , readCheckpointManifest
   , readCheckpointPointer
@@ -53,6 +56,7 @@ import JitML.Checkpoint.Format
   , TensorBlob (..)
   , applyPointerWrite
   , blobKey
+  , decodeJmw1
   , decodeManifestCbor
   , encodeManifestCbor
   , inferFromManifest
@@ -79,6 +83,12 @@ data StoredCheckpoint = StoredCheckpoint
   { storedManifestSha :: Text
   , storedManifestObjectKey :: Text
   , storedPointerResult :: PointerWriteResult
+  }
+  deriving stock (Eq, Show)
+
+data LoadedWeightTensor = LoadedWeightTensor
+  { loadedWeightTensor :: TensorBlob
+  , loadedWeightValues :: [Double]
   }
   deriving stock (Eq, Show)
 
@@ -441,6 +451,60 @@ loadInferenceCheckpointWith runInference experimentHash input = do
                   let weightOnly = manifest {manifestOptimizer = [], manifestRng = []}
                       _ = weightOnlyTensors manifest
                    in runInference weightOnly input
+
+-- | Variant of `loadInferenceCheckpointWith` that also reads and decodes
+-- weight-only `.jmw1` tensor blobs before invoking the supplied runner.
+loadInferenceCheckpointWithWeights
+  :: (HasMinIO m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> Text
+  -- ^ experiment hash
+  -> [Double]
+  -- ^ inference input
+  -> m (Either Text [Double])
+loadInferenceCheckpointWithWeights runInference experimentHash input = do
+  let pointerRef = checkpointObjectRef (latestPointerKey experimentHash)
+  pointerResult <- minioReadObject pointerRef
+  case pointerResult of
+    Left err -> pure (Left ("pointer read failed: " <> Text.pack (show err)))
+    Right rawPointer -> do
+      let manifestSha = Text.strip rawPointer
+          manifestRef = checkpointObjectRef (manifestKey experimentHash manifestSha)
+      manifestPayload <- minioReadBytes manifestRef
+      case manifestPayload of
+        Left err -> pure (Left ("manifest read failed: " <> Text.pack (show err)))
+        Right rawManifest ->
+          case decodeManifestCbor (LazyByteString.fromStrict rawManifest) of
+            Left err -> pure (Left ("manifest decode failed: " <> err))
+            Right manifest -> do
+              let weightOnly = manifest {manifestOptimizer = [], manifestRng = []}
+              loadedWeights <- loadWeightTensors weightOnly
+              case loadedWeights of
+                Left err -> pure (Left err)
+                Right weights -> runInference weightOnly weights input
+
+loadWeightTensors
+  :: (HasMinIO m)
+  => CheckpointManifest
+  -> m (Either Text [LoadedWeightTensor])
+loadWeightTensors manifest = do
+  loaded <- traverse loadOne (weightOnlyTensors manifest)
+  pure (sequence loaded)
+ where
+  loadOne tensor = do
+    payload <- minioReadBytes (checkpointObjectRef (tensorBlobKey tensor))
+    pure $
+      case payload of
+        Left err ->
+          Left
+            ( "weight blob read failed for "
+                <> tensorName tensor
+                <> ": "
+                <> Text.pack (show err)
+            )
+        Right bytes ->
+          LoadedWeightTensor tensor
+            <$> decodeJmw1 (LazyByteString.fromStrict bytes)
 
 checkpointObjectRef :: Text -> ObjectRef
 checkpointObjectRef objectKey =

@@ -24,12 +24,12 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns
+✅ **Done**. The phase owns
 [Exit Definition](README.md#exit-definition) item 2 (`jitml service` is
 the canonical long-running daemon, parameterised by Dhall `BootConfig` /
 `LiveConfig`, hot-reloadable via SIGHUP, exposing `/healthz` / `/readyz` /
 `/metrics`, emitting structured JSON logs on stderr, processing Pulsar
-events at-least-once with the typed retry policy). **Met today**:
+events at-least-once with the typed retry policy). **Implemented and validated**:
 Sprints `5.1`, `5.2`, `5.3`, `5.4`, and `5.5` close the daemon entry point, the
 BootConfig / LiveConfig ADTs and Dhall renderers, the in-binary HTTP listener
 serving the three endpoints, the structured JSON logger wired through the
@@ -93,10 +93,11 @@ verifies the promoted artifact through the in-cluster Harbor API.
 `jitml-daemon-lifecycle` validates that runner and dispatcher against the
 synthetic daemon client instance.
 `RunInference` handler coverage is now routed through `JitML.Proto.Inference`:
-the inference domain parses the request envelope, loads the latest checkpoint
-manifest through the daemon-owned MinIO client, runs the deterministic
-inference read helper, and publishes `InferenceResult` on the requested reply
-topic through the daemon-owned Pulsar client. 2026-05-21 live Linux CPU
+the inference domain parses the request envelope, the request/result envelopes
+also have proto3-compatible byte codecs, the handler loads the latest
+checkpoint manifest through the daemon-owned MinIO client, runs the
+deterministic inference read helper, and publishes `InferenceResult` on the
+requested reply topic through the daemon-owned Pulsar client. 2026-05-21 live Linux CPU
 validation seeds a latest checkpoint pointer and CBOR manifest in MinIO,
 publishes a bare-reply-topic `RunInference` request to the live daemon topics,
 drains the running pod with `--consume-once 1`, and consumes
@@ -117,7 +118,7 @@ results before seeding the checkpoint, seeds the latest pointer and manifest in
 MinIO, receives the redelivered `InferenceResult` with output `1.01,2.01`, and
 confirms the broker cursor reaches `markDeletePosition` `5:15` on
 `inference.request.linux-cpu`.
-**Unmet today**:
+**Closure evidence**:
 The daemon-acquired read-only MinIO / Harbor / kubectl probes are live-validated
 from the running Linux CPU `jitml-service` pod on 2026-05-20, including
 in-cluster service-account `kubectl get pods` RBAC, and the 2026-05-21 bounded
@@ -136,16 +137,22 @@ Pulsar boundary, accepts fully-qualified Pulsar topic routing, is exercised by
 `daemonConsumerBatch` against the synthetic broker and live Linux CPU pod
 through `--consume-once`, runs the same dispatcher in held-open WebSocket worker
 threads with one shared router, and is live-validated for duplicate payload
-dedup plus dispatch-failure negative-ack redelivery. Sprint `5.6`'s remaining
-Apple host Dhall connectivity gate is blocked by the absence of an Apple
-Silicon host in the current validation environment; its CUDA service-pod runtime
-gate is live-validated.
+dedup plus dispatch-failure negative-ack redelivery. Sprint `5.6` is closed:
+CUDA service-pod runtime is live-validated, and 2026-05-21 Apple Silicon live
+validation runs `jitml bootstrap --apple-silicon`, materializes the patched host
+Dhall with routed edge coordinates on `127.0.0.1:9090`, builds `jitml:local`
+inside Docker with `jitml check-code`, loads the final image into Kind, and runs
+`jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
+host-native. That bounded host run loads the generated Dhall, derives
+`ws://127.0.0.1:9090/pulsar/ws` plus `/minio/s3` and Harbor routed settings,
+passes read-only MinIO / Harbor / kubectl probes, subscribes live to
+`persistent://public/default/inference.command.apple-silicon` as `jitml-host`,
+and exits after draining zero messages.
 Required pod anti-affinity across multiple replicas is live-validated, and
 single-replica deployment readiness is already covered by the live bootstrap
 validation. `JitML.Cluster.PulsarBootstrap` now registers the same
 substrate-scoped topic family that the daemon subscription plan consumes.
-Detailed remaining work lives in those sprints' `### Remaining Work` blocks
-below.
+No Phase `5` Remaining Work remains.
 
 ### Current Implementation Scope
 
@@ -230,7 +237,8 @@ CUDA validation creates `jitml-linux-cuda`, schedules the actual
 `jitml-linux-cuda-worker`, confirms `NVIDIA_VISIBLE_DEVICES=all` and
 `NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and runs `nvidia-smi -L` inside
 the service container, which reports `GPU 0: NVIDIA GeForce RTX 5090`. The
-remaining target work is blocked on Sprint `5.6`'s Apple host live validation.
+Apple host live validation now runs the generated host Dhall through the routed
+edge and acquires the `inference.command.apple-silicon` subscription.
 
 ## Phase Summary
 
@@ -418,11 +426,11 @@ class surface per doctrine `Capability Classes and Service Errors`.
 - The same dispatcher maps the current text `StartTraining` / `StopTraining`,
   `StartRLRun` / `StopRLRun`, and `StartSweep` / `StopSweep` command envelopes
   into typed Kubernetes Job apply/delete workload effects before ack.
-- `JitML.Proto.Inference` renders and parses the current `RunInference` /
-  `InferenceResult` text envelopes. `daemonWorkloadDispatcher` maps
-  `InferenceDomain` `RunInference` payloads into the daemon-owned MinIO latest
-  checkpoint read path and publishes `InferenceResult` through the daemon-owned
-  Pulsar client before ack.
+- `JitML.Proto.Inference` renders/parses and proto3-byte-round-trips the
+  current `RunInference` / `InferenceResult` envelopes.
+  `daemonWorkloadDispatcher` maps `InferenceDomain` `RunInference` payloads
+  into the daemon-owned MinIO latest checkpoint read path and publishes
+  `InferenceResult` through the daemon-owned Pulsar client before ack.
 - `JitML.Service.PulsarWebSocketSubprocess` resolves bare public/default topic
   names for producer URLs, so inference request `reply-topic` values can use the
   same doctrine topic names that the dispatcher accepts.
@@ -521,8 +529,8 @@ class surface per doctrine `Capability Classes and Service Errors`.
 
 No sprint-owned Phase `5.4` Remaining Work remains. The long-lived broker loop
 and live redelivery / negative-ack validation are closed by Sprint `5.5`; CUDA
-service-pod runtime validation is closed by Sprint `5.6`; Apple host live
-validation remains owned by Sprint `5.6`.
+service-pod runtime validation and Apple host live validation are closed by
+Sprint `5.6`.
 
 ## Sprint 5.5: At-Least-Once Pulsar Consumer with Message-Hash Deduplication ✅
 
@@ -631,17 +639,14 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 ### Remaining Work
 
 No sprint-owned Phase `5.5` Remaining Work remains. Apple host Dhall
-connectivity is blocked by Sprint `5.6`'s external Apple Silicon host
-prerequisite.
+connectivity is closed by Sprint `5.6`.
 
-## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall ⏸️
+## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall ✅
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `chart/templates/deployment-jitml-service.yaml`,
-`src/JitML/Service/ConfigMap.hs`
-**Blocked by**: Apple Silicon host with the leased edge route available for
-live `jitml service --config ./.build/conf/host/apple-silicon.dhall`
-subscription validation.
+`src/JitML/Service/ConfigMap.hs`, `src/JitML/Service/BootConfig.hs`,
+`src/JitML/App.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
 `documents/engineering/cluster_topology.md`
 
@@ -675,8 +680,10 @@ Dhall configs.
   Linux substrates, and
   `< SelfInference | ForwardToHost >.ForwardToHost` for Apple.
 - `jitml bootstrap --apple-silicon` also renders
-  `./.build/conf/host/apple-silicon.dhall`; target live bootstrap patches the
-  chosen edge port so the host daemon can reach Pulsar and MinIO.
+  `./.build/conf/host/apple-silicon.dhall`; live bootstrap patches the chosen
+  edge port so the host daemon can reach Pulsar and MinIO. Generated
+  host-resident Dhall renders `httpListener = None { host : Text, port : Natural }`
+  so the standalone file loads without an out-of-scope type alias.
 - Linux substrates do not render a host-level Dhall file; all JIT operations
   happen in the cluster and the daemon knows that from its ConfigMap Dhall.
 - Deployment template mounts `./.build/` from the worker hostPath into the
@@ -719,15 +726,32 @@ Dhall configs.
    `NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and executes
    `nvidia-smi -L` inside the service container:
    `GPU 0: NVIDIA GeForce RTX 5090`.
-8. Live validation target: the Apple host daemon subscribes to
-   `inference.command.apple-silicon` after the edge port is leased.
+8. `cabal test jitml-integration` verifies both cluster and Apple host rendered
+   `BootConfig` files round-trip through the Dhall loader, including the
+   host-resident `None { host : Text, port : Natural }` listener form.
+9. `cabal test jitml-daemon-lifecycle` verifies a zero-budget bounded daemon
+   batch exits without consuming broker messages, supporting
+   `jitml service --consume-once 0` as an acquisition-only validation run.
+10. Live Apple Silicon validation on 2026-05-21 runs
+    `jitml bootstrap --apple-silicon` against the local Kind cluster, builds
+    `jitml:local` in Docker with the in-container `jitml check-code` gate,
+    loads `jitml:local` / `jitml-demo:local` into Kind, and completes the
+    110-step live phased rollout. The regenerated
+    `./.build/conf/host/apple-silicon.dhall` contains routed edge coordinates
+    on `127.0.0.1:9090` and the self-contained `httpListener = None { host :
+    Text, port : Natural }` value.
+11. Live Apple Silicon host validation on 2026-05-21 runs
+    `jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
+    host-native. The run derives `ws://127.0.0.1:9090/pulsar/ws`, `/minio/s3`,
+    Harbor, and repo-local kubeconfig settings from the patched Dhall, passes
+    MinIO / Harbor / kubectl read-only probes, subscribes to
+    `persistent://public/default/inference.command.apple-silicon` as
+    `jitml-host`, reports `/healthz`, `/readyz`, and `/metrics`, and exits after
+    draining zero messages.
 
 ### Remaining Work
 
-- Validate that the Apple host Dhall patched by Sprint `3.5` after the
-  edge-port lease lets the host daemon connect to Pulsar and MinIO and
-  subscribe live. This is blocked until an Apple Silicon host is available; the
-  current Linux host cannot exercise that live gate.
+No sprint-owned Phase `5.6` Remaining Work remains.
 
 ## Doctrine Sections Cited
 

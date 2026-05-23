@@ -11,9 +11,17 @@ import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Proto.Training
-  ( StartTraining (..)
+  ( CheckpointDone (..)
+  , EpochCompleted (..)
+  , StartTraining (..)
   , StopTraining (..)
   , TrainingCommand (..)
+  , TrainingEvent (..)
+  , TrainingFailed (..)
+  , decodeTrainingCommandProto
+  , decodeTrainingEventProto
+  , encodeTrainingCommandProto
+  , encodeTrainingEventProto
   , parseTrainingCommand
   , renderTrainingCommand
   )
@@ -124,4 +132,39 @@ main =
           parseTrainingCommand (renderTrainingCommand start) @?= Just start
           parseTrainingCommand (renderTrainingCommand stop) @?= Just stop
           parseTrainingCommand "kind: UnknownTrainingCommand\n" @?= Nothing
+          decodeTrainingCommandProto (encodeTrainingCommandProto start) @?= Right start
+          decodeTrainingCommandProto (encodeTrainingCommandProto stop) @?= Right stop
+      , testCase "training event envelopes round-trip through proto3-compatible bytes" $ do
+          let epoch =
+                TrainingEpoch
+                  EpochCompleted
+                    { ecExperimentHash = "sha256:mnist"
+                    , ecEpoch = 4
+                    , ecLoss = 0.125
+                    , ecValidationLoss = 0.25
+                    , ecTimestampNs = 123456789
+                    }
+              checkpoint =
+                TrainingCheckpoint
+                  CheckpointDone
+                    { cdExperimentHash = "sha256:mnist"
+                    , cdManifestSha = "sha256:manifest"
+                    , cdStep = 4096
+                    , cdPointerKey = "checkpoints/mnist/latest"
+                    , cdEpoch = 4
+                    , cdTrialSha = Just "sha256:trial"
+                    , cdRunUuid = "run-0001"
+                    , cdMetricsAtStep = [("loss", 0.125), ("accuracy", 0.875)]
+                    }
+              failure =
+                TrainingFailure
+                  TrainingFailed
+                    { tfExperimentHash = "sha256:mnist"
+                    , tfErrorCode = "DatasetUnavailable"
+                    , tfErrorText = "missing fixture"
+                    , tfTimestampNs = 987654321
+                    }
+          decodeTrainingEventProto (encodeTrainingEventProto epoch) @?= Right epoch
+          decodeTrainingEventProto (encodeTrainingEventProto checkpoint) @?= Right checkpoint
+          decodeTrainingEventProto (encodeTrainingEventProto failure) @?= Right failure
       ]

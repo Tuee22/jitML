@@ -34,7 +34,10 @@ import JitML.Cluster.Publication qualified as Publication
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Cluster.Readiness qualified as Readiness
 import JitML.Engines.CpuFeatures (CpuFeatures (..), detectCpuFeatures, microKernelChoice)
+import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Local qualified as Local
+import JitML.Engines.MetalRuntime qualified as MetalRuntime
+import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.Schema qualified as Numerics
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
@@ -448,6 +451,19 @@ main =
             Text.IO.writeFile bootConfigPath (BootConfig.renderBootConfigDhall bootConfig)
             loadedConfig <- BootConfig.loadBootConfig bootConfigPath
             loadedConfig @?= bootConfig
+      , testCase "BootConfig Dhall loader round-trips the rendered Apple host config" $
+          withSystemTempDirectory "jitml-host-boot-config" $ \root -> do
+            let bootConfig =
+                  (BootConfig.defaultBootConfig AppleSilicon BootConfig.Host)
+                    { BootConfig.bootPulsarServiceUrl = "pulsar://127.0.0.1:9090/pulsar"
+                    , BootConfig.bootPulsarAdminUrl = "http://127.0.0.1:9090/pulsar/admin"
+                    , BootConfig.bootMinioEndpoint = "http://127.0.0.1:9090/minio/s3"
+                    , BootConfig.bootHarborRegistry = "127.0.0.1:9090/library"
+                    }
+                bootConfigPath = root </> "BootConfig.dhall"
+            Text.IO.writeFile bootConfigPath (BootConfig.renderBootConfigDhall bootConfig)
+            loadedConfig <- BootConfig.loadBootConfig bootConfigPath
+            loadedConfig @?= bootConfig
       , testCase "daemon client settings derive in-cluster endpoints from BootConfig (Sprint 5.4)" $ do
           let settings =
                 ServiceClients.daemonClientSettingsForBootConfig
@@ -492,6 +508,51 @@ main =
           assertBool
             "selected knob is one of the linuxCpuKnobs micro-kernel axis choices"
             (knob `elem` ["onednn-jit-avx512", "onednn-jit-avx2", "onednn-reference"])
+      , testCase "oneDNN runtime probe reports pkg-config and link visibility" $ do
+          probe <- OneDnnRuntime.probeOneDnnRuntime
+          let rendered = OneDnnRuntime.renderOneDnnRuntimeProbe probe
+          assertBool
+            "probe render includes oneDNN runtime section"
+            ("onednn_runtime:" `Text.isInfixOf` rendered)
+          assertBool
+            "probe records pkg-config attempts"
+            (any ("pkg-config --modversion" `Text.isInfixOf`) (OneDnnRuntime.oneDnnRuntimeProbeLog probe))
+          assertBool
+            "probe records dynamic-linker visibility"
+            (any ("ldconfig -p:" `Text.isInfixOf`) (OneDnnRuntime.oneDnnRuntimeProbeLog probe))
+      , testCase "CUDA runtime probe reports toolchain, device, and link visibility attempts" $ do
+          probe <- CudaRuntime.probeCudaRuntime
+          let rendered = CudaRuntime.renderCudaRuntimeProbe probe
+          assertBool
+            "probe render includes CUDA runtime section"
+            ("cuda_runtime:" `Text.isInfixOf` rendered)
+          assertBool
+            "probe records nvcc attempt"
+            (any ("nvcc --version:" `Text.isInfixOf`) (CudaRuntime.cudaRuntimeProbeLog probe))
+          assertBool
+            "probe records nvidia-smi attempt"
+            (any ("nvidia-smi -L:" `Text.isInfixOf`) (CudaRuntime.cudaRuntimeProbeLog probe))
+          assertBool
+            "probe records dynamic-linker visibility"
+            (any ("ldconfig -p:" `Text.isInfixOf`) (CudaRuntime.cudaRuntimeProbeLog probe))
+      , testCase "Metal runtime probe reports Swift, xcrun, and device attempts" $ do
+          probe <- MetalRuntime.probeMetalRuntime
+          let rendered = MetalRuntime.renderMetalRuntimeProbe probe
+          assertBool
+            "probe render includes Metal runtime section"
+            ("metal_runtime:" `Text.isInfixOf` rendered)
+          assertBool
+            "probe records swift attempt"
+            (any ("swift --version:" `Text.isInfixOf`) (MetalRuntime.metalRuntimeProbeLog probe))
+          assertBool
+            "probe records metal compiler lookup"
+            (any ("xcrun -find metal:" `Text.isInfixOf`) (MetalRuntime.metalRuntimeProbeLog probe))
+          assertBool
+            "probe records Metal device visibility attempt"
+            ( any
+                ("system_profiler SPDisplaysDataType:" `Text.isInfixOf`)
+                (MetalRuntime.metalRuntimeProbeLog probe)
+            )
       , testCase "spawned ./.build/jitml binary matrix against a real workdir" $
           -- Spawns the real `jitml` binary in a temp workdir, exercising the
           -- typed Subprocess boundary against the actual executable (not the
@@ -646,19 +707,27 @@ main =
             env <- buildEnv defaultGlobalFlags
             runFilesystemMinIO root $ do
               let experimentHash = "exp-inf"
+                  blobObjectKey = Checkpoint.blobKey experimentHash "blob-weights"
                   manifest =
-                    Checkpoint.emptyManifest "m1" experimentHash [Checkpoint.TensorBlob "dense" [2, 2] "blob-1"]
+                    Checkpoint.emptyManifest
+                      "m1"
+                      experimentHash
+                      [Checkpoint.TensorBlob "dense" [2, 2] blobObjectKey]
                   manifestSha = Checkpoint.manifestContentSha manifest
                   bucket = BucketName "jitml-checkpoints"
                   manifestRef =
                     CheckpointStore.checkpointObjectRef (Checkpoint.manifestKey experimentHash manifestSha)
                   pointerRef =
                     CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experimentHash)
+                  blobRef = CheckpointStore.checkpointObjectRef blobObjectKey
                   manifestBytes =
                     ByteString.Lazy.toStrict (Checkpoint.encodeManifestCbor manifest)
+                  weightBytes =
+                    ByteString.Lazy.toStrict (Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0])
               liftIO $
                 CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experimentHash)
                   @?= ObjectRef bucket (ObjectKey (experimentHash <> "/pointers/latest"))
+              _ <- putBlobBytesIfAbsent blobRef weightBytes
               _ <- putBlobBytesIfAbsent manifestRef manifestBytes
               _ <- casPointer pointerRef Nothing manifestSha
               inferred <- CheckpointStore.loadInferenceCheckpoint experimentHash [1.0, 2.0, 3.0]
@@ -671,6 +740,21 @@ main =
                   [1.0, 2.0, 3.0]
               liftIO $
                 ffiInferred @?= Right (Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0])
+              weightedInferred <-
+                CheckpointStore.loadInferenceCheckpointWithWeights
+                  ( \loadedManifest loadedWeights values ->
+                      liftIO
+                        ( Local.runLinuxCpuWeightedCheckpointInference
+                            env
+                            loadedManifest
+                            loadedWeights
+                            values
+                        )
+                  )
+                  experimentHash
+                  [1.0, 2.0, 3.0]
+              liftIO $
+                weightedInferred @?= Right [1.025, 2.025, 3.025]
       , testCase "Dhall numerics schema decodes against the full Haskell catalog" $ do
           -- Decodes dhall/numerics/Schema.dhall through `Dhall.inputFile`
           -- and asserts the resulting NumericsCatalog matches the

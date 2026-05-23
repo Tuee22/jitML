@@ -63,12 +63,18 @@ changes).
 Linux substrates don't need this — the pod loads directly out of
 `jit/<substrate>/` because there is no host↔VM artifact-copy step.
 
-The first executable path is local `linux-cpu`. `JitML.Engines.Local`
-materializes generated identity and reduction smoke kernels, compiles them with
-`g++`, loads the shared objects through `dlopen`, resolves `jitml_kernel`, and
-validates deterministic fixture output through the Haskell FFI. Production
-oneDNN graph kernels, Apple Metal loading, and Linux CUDA loading extend the
-same cache and kernel-handle contracts later.
+The first executable path is local `linux-cpu`. `JitML.Engines.Loader`
+materializes generated identity, reduction smoke, and family-scaffold kernels
+and fills cache misses with `g++`; `JitML.Engines.Local` loads the shared
+objects through `dlopen`, resolves `jitml_kernel` plus
+`jitml_kernel_family_name` plus `jitml_kernel_output_count`, and validates
+deterministic fixture output, loaded family metadata, and artifact-reported
+output length through the Haskell FFI. `JitML.Engines.HasEngine` exposes that
+generated-family path through the current local `HasEngine` interpreter, and
+`jitml service` uses `runLinuxCpuCheckpointInference` for `linux-cpu` +
+`SelfInference` routed checkpoint inference after MinIO manifest loading.
+Production oneDNN graph kernels, Apple Metal loading, and Linux CUDA loading
+extend the same cache and kernel-handle contracts later.
 
 ## Cache Key
 
@@ -83,10 +89,15 @@ where:
 - `kind ∈ Training | Inference`.
 - `substrate ∈ apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN).
+  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN) plus loader-relevant ABI
+  facts for local FFI paths.
 - `rendered-source-payload` is the canonical payload emitted by
   `renderRuntimeSource`.
 - `tuning-choice` is the selected `TuningChoice`.
+
+The cache-key golden fixtures use the same rendered `RuntimeSourcePayload` that
+runtime compilation consumes; there is no separate default placeholder payload
+for tests.
 
 Training and inference kernels are **separate artifacts** because they have
 different compute graphs — training carries the backward pass and optimizer-
@@ -107,11 +118,29 @@ It provides:
 - `EngineEnvelope`, carrying the handle, input/output metadata, per-substrate
   determinism witnesses, and compile command text.
 
+`src/JitML/Engines/Loader.hs` is the shared artifact boundary. It materializes
+generated runtime source, detects whether the content-addressed cache artifact
+already exists, fills cache misses through the typed compile `Subprocess`, and
+returns a `KernelArtifact` that records the `KernelHandle`, cache status, compile
+command, and whether compilation happened in this call. The same module owns the
+reusable `dlopen`/`dlsym` helper used by local FFI runners.
+
 `src/JitML/Engines/Local.hs` is the narrow local execution interpreter for the
-Linux CPU identity fixture. The target live daemon grows the general surface
-into a `HasEngine` capability with real graph-kernel launch and parameter-commit
-effects. `EngineEnvelope` is already the local reproducibility witness surface;
-see [determinism_contract.md → Engine Envelope](determinism_contract.md#engine-envelope).
+Linux CPU identity fixture plus generated oneDNN family scaffolds on top of
+that loader. It records the family name reported by the loaded shared object's
+`jitml_kernel_family_name` symbol and sizes the output buffer from the loaded
+`jitml_kernel_output_count` symbol.
+
+`src/JitML/Engines/HasEngine.hs` defines the current engine capability:
+`EngineRequest` carries the requested `KernelFamily` and input vector,
+`EngineRun` carries the loaded `KernelHandle`, output vector, reported family,
+compile command, and cache-miss flag, and `LocalLinuxCpuEngine` dispatches the
+request through the generated-family Linux CPU FFI path. It rejects artifacts
+whose exported family metadata does not match the requested family. The target
+live daemon extends that capability with real graph-kernel launch and
+parameter-commit effects. `EngineEnvelope` is already the local
+reproducibility witness surface; see
+[determinism_contract.md → Engine Envelope](determinism_contract.md#engine-envelope).
 
 ## Per-Substrate Codegen Drivers
 
@@ -122,16 +151,46 @@ see [determinism_contract.md → Engine Envelope](determinism_contract.md#engine
 - The build plan invokes the oneDNN C++ compiler path through the typed
   `Subprocess` boundary against the generated directory; the produced `.so` is
   written atomically to `./.build/jit/linux-cpu/<hash>.so`.
-- `src/JitML/Engines/Local.hs` currently compiles the generated identity source
-  and a reduction-family smoke source, `dlopen`s the produced `.so`, resolves
-  `jitml_kernel`, and executes local fixtures through the Haskell FFI.
+- `src/JitML/Engines/Local.hs` routes the generated identity source,
+  reduction-family smoke source, and all generated oneDNN family scaffolds
+  through `JitML.Engines.Loader`, `dlopen`s the produced `.so`, resolves
+  `jitml_kernel`, `jitml_kernel_family_name`, and
+  `jitml_kernel_output_count`, and executes local fixtures through the Haskell
+  FFI while checking that the loaded artifact reports the expected family and
+  output length. Its local toolchain fingerprint includes
+  `artifact-abi=<os>-<arch>` and `reduction-block=256` so host-native Darwin
+  builds, Linux container builds, and fixed reduction-block changes do not
+  collide in the shared `.build/jit/linux-cpu/` cache.
+- `src/JitML/Engines/HasEngine.hs` wraps the generated-family Linux CPU runner
+  in the local `HasEngine` capability, preserving the family metadata check at
+  the engine boundary.
+- `src/JitML/Service/Runtime.hs` exposes
+  `daemonWorkloadDispatcherWithInference`; the `jitml service` entrypoint
+  selects the Linux CPU generated-kernel checkpoint runner for
+  `linux-cpu` + `SelfInference` configs.
+- `src/JitML/Engines/CpuFeatures.hs` detects AVX2 / AVX-512 through typed
+  subprocess probes (`sysctl -a` on Darwin, `cat /proc/cpuinfo` on Linux) and
+  maps the result to the `linuxCpuKnobs` `micro-kernel` axis.
+- `src/JitML/Engines/OneDnnRuntime.hs` probes the future production oneDNN
+  link/runtime surface through typed subprocesses: `pkg-config --modversion
+  dnnl`, `pkg-config --modversion onednn`, and `ldconfig -p`. The rendered
+  probe reports the selected package/version and whether `libdnnl` is visible
+  to the dynamic linker.
 - AVX2 is the baseline; AVX-512 is detected at JIT time.
 - Block size for reductions is pinned per layer family so reductions are
   host-independent. The block size is part of `ToolchainFingerprint`.
+- The local Linux CPU `ToolchainFingerprint` includes the host artifact ABI
+  (`artifact-abi=<os>-<arch>`) and fixed reduction block
+  (`reduction-block=256`) because the same repository `.build/` tree can be
+  mounted by both the host and `jitml:local`, and reduction-block changes alter
+  deterministic kernel semantics.
 - The current local engine envelope names the `.so` artifact path and compile
-  command. A production `LinuxCPU.HasEngine` instance for real oneDNN graph
-  kernels remains target runtime work; current workstation recheck has `g++`
-  available but no discoverable `libdnnl` runtime library.
+  command. The local Linux CPU ABI includes
+  `jitml_kernel(float*, const float*, size_t)` and
+  `jitml_kernel_family_name(void)` plus
+  `jitml_kernel_output_count(size_t)`. Production service loading for real
+  oneDNN graph kernels remains target runtime work; current workstation recheck
+  has `g++` available but no discoverable `libdnnl` runtime library.
 
 ### `linux-cuda` — CUDA + cuBLAS / cuDNN
 
@@ -142,29 +201,67 @@ see [determinism_contract.md → Engine Envelope](determinism_contract.md#engine
   `sm_70`.
 - The produced `.so` is written atomically to
   `./.build/jit/linux-cuda/<hash>.so`.
+- The generated reduction kernel uses warp-shuffle reduction and writes one
+  deterministic partial per warp; it does not use device-side `atomicAdd`.
+  `src/JitML/Engines/CudaRuntime.hs` mirrors the generated block/warp geometry,
+  computes the expected partial count, validates the partial vector length, and
+  folds those partials in canonical index order. The future CUDA FFI launcher
+  still needs to read the device partial buffer back before calling that helper.
 - cuBLAS / cuDNN are pinned to deterministic algorithm selections via
   `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning.
+- `src/JitML/Engines/Rng.hs` implements the host SplitMix64 stream. Generated
+  CUDA source records `host-splitmix64-no-curand`, so the no-curand RNG policy
+  is part of the rendered source payload and cache key.
+- `src/JitML/Engines/CudaRuntime.hs` also owns the typed CUDA runtime probe:
+  it checks `nvcc --version`, `nvidia-smi -L`, and `ldconfig -p` through the
+  typed subprocess boundary, parses the compiler version and visible GPU
+  devices, and reports `libcuda` / `libcublas` / `libcudnn` dynamic-linker
+  visibility for the future production launcher.
+- Generated CUDA source exports `jitml_kernel_family_name` and
+  `jitml_kernel_output_count` metadata symbols for the future CUDA FFI loader.
 - The current local engine envelope names the `.so` artifact path and compile
   command. A `LinuxCUDA.HasEngine` instance that loads the `.so` via the FFI
-  loader remains target runtime work. Current workstation recheck sees an
-  NVIDIA GeForce RTX 5090 through `nvidia-smi -L`, but host `nvcc` and CUDA
-  library bindings are absent. Live CUDA Kind validation reaches the labelled
-  worker and schedules the `runtimeClassName: nvidia` probe pod, then kubelet
-  rejects the sandbox with `no runtime for "nvidia" is configured`; the
-  remaining cluster blocker is Kind worker containerd runtime-handler wiring.
+  loader remains target runtime work. The 2026-05-21 local recheck has no host
+  `nvcc` and no `nvidia-smi`; earlier live CUDA validation proved the labelled
+  worker, containerd `nvidia` runtime handler, `RuntimeClass/nvidia` scheduler
+  path, and pod-visible GPU.
 
 ### `apple-silicon` — Swift + Metal
 
 - `src/JitML/Codegen/Metal.hs` renders the generated Swift package and Metal
   kernel input under `./.build/jit-src/apple-silicon/<hash>/`.
+- Generated Swift source exports `jitml_kernel_family_name` and
+  `jitml_kernel_output_count` metadata symbols for the future Metal FFI
+  loader. The generated reduction metadata reports `ceil(n / 32)` outputs,
+  matching the current `simd_sum` simdgroup partial-output kernel shape.
 - The build plan runs `swift build` inside the `jitml-build` tart VM via
-  `tart ssh`, against the generated package directory.
+  `tart exec`, against the generated package directory.
 - The produced `.dylib` is copied atomically to
   `./.build/jit/apple-silicon/<hash>.dylib` and the stable-FFI symlink at
   `./.build/host/apple-silicon/<model-id>.dylib` is repointed.
+- `src/JitML/Engines/MetalRuntime.hs` owns the typed host Metal runtime probe:
+  it checks `swift --version`, `xcrun -find metal`, `xcrun -find swiftc`, and
+  `system_profiler SPDisplaysDataType` through the typed subprocess boundary,
+  parses Swift version/tool paths and Metal device visibility, and renders the
+  availability summary for the future host FFI launcher.
 - The current local engine envelope names the `.dylib` artifact path and Tart
-  `swift build` command. An `AppleSilicon.HasEngine` instance that loads the
-  `.dylib` via the FFI loader remains target runtime work.
+  `swift build` command through `tart exec`. `JitML.Engines.Loader` now routes
+  Apple cache misses through the concrete `JitML.Tart.Build`
+  first-cache-miss executor. An `AppleSilicon.HasEngine` instance that loads
+  the `.dylib` via the FFI loader remains target runtime work. The current
+  local recheck has Tart `2.31.0`, but no `jitml-build` VM is present.
+- `JitML.Tart.Build` renders the current first-cache-miss plan for Apple:
+  ensure `jitml-build`, validate `swift --version` inside the VM, run
+  `swift build` against the generated package, copy
+  `libJitMLMetal.dylib` into `./.build/jit/apple-silicon/<hash>.dylib`, and
+  repoint the stable host FFI symlink through
+  `JitML.Cache.Symlink.repointSymlink`. The same module exposes
+  `executeTartCacheMissBuildPlan`, which performs real `tart list`,
+  `tart run --no-graphics`, readiness probing through `tart exec <vm> true`,
+  Swift validation/build commands, cache publication, and symlink repointing.
+  `executeTartCacheMissBuildPlanWith` remains the typed host-action/subprocess
+  boundary that unit tests validate with synthetic ordered-success and
+  failure-short-circuit executors.
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
 
@@ -173,22 +270,30 @@ see [determinism_contract.md → Engine Envelope](determinism_contract.md#engine
 Bootstrap and the host daemon's startup path never touch tart. On a JIT cache
 miss, the host daemon first validates or installs the `tart` Homebrew package
 through typed lazy prerequisite remediation, then calls
-`JitML.Tart.ensureVmUp jitml-build`:
+`JitML.Tart.ensureVmUpLive jitml-build`:
 
 - If the VM is up, no-op.
-- If down, `tart run jitml-build --no-graphics &` and poll until reachable.
+- If down, start `tart run --no-graphics jitml-build` through the typed
+  detached subprocess boundary and poll until reachable.
 
-The daemon then dispatches the Swift build inside the VM via `tart ssh`,
+The daemon then dispatches the Swift build inside the VM via `tart exec`,
 writes the artifact into `./.build/jit/apple-silicon/<hash>.dylib`
 atomically (`tmp + rename`), repoints the stable-named symlink under
-`./.build/host/apple-silicon/`, and loads via FFI.
+`./.build/host/apple-silicon/`, and loads via FFI. The checked-in
+`JitML.Tart.Build` executor now performs the real Tart status/run/readiness
+steps and cache publication. The user-facing lifecycle commands call the same
+Tart boundary: `jitml internal vm bootstrap` clones the default source image
+into `jitml-build` when missing, `status` reports the parsed Tart state, and
+`down` stops a running VM through `tart stop`. Provisioning/bootstrapping the
+`jitml-build` VM on Apple hardware and performing the Metal FFI launch remain
+target runtime work.
 
 The VM stays up for the daemon's lifetime once spun up; an idle timeout
 (default `30 min`, configurable in `LiveConfig.tartIdleTimeout`) brings it
 down again. Subsequent cache hits skip the spin-up entirely.
 
-Manual VM access is available via `jitml internal vm exec -- <cmd>` (Apple
-only; rejected on Linux substrates with `AppError UnknownCommand`).
+Manual VM access is available via `jitml internal vm bootstrap|up|down|status`
+and `jitml internal vm exec -- <cmd>` (Apple-only Tart operations).
 
 ## Cache Survives VM Teardown
 
@@ -229,11 +334,49 @@ corresponding cache-key `TuningChoice` payloads. The current local test asserts
 the CUDA plan has 72 deterministic candidates and includes the deterministic
 default.
 
+The pure measured-result boundary is also implemented:
+`BenchmarkMeasurement` records a candidate, latency in microseconds, and output
+digest; `selectMeasuredTuning` rejects measurements outside the benchmark plan
+or with negative latency, then selects the lowest-latency candidate with stable
+plan-order tie-breaking. `renderBenchmarkMeasurement` prints the cache-key
+tuning choice, latency, and digest for audit logs.
+
+`JitML.Engines.TuningStore` persists a supplied selected measurement under
+`jit/tuning/<substrate>/<base-hash>.json`. The JSON record stores the substrate,
+base hash, selected `TuningChoice`, measured latency, and output digest, and the
+reader rejects records whose substrate or hash do not match the requested cache
+base.
+
+`JitML.Engines.TuningBenchmark` is the measurement collection boundary. It runs
+candidates in benchmark-plan order through a typed candidate runner, records
+latency and output digest as `BenchmarkMeasurement`s, provides SHA-256 digest
+helpers for float and double output vectors, and can persist the selected
+lowest-latency measurement by base hash through `TuningStore`.
+
+`JitML.Engines.TuningCache` is the cache-key selection boundary. It derives the
+default-tuning base hash, reads the persisted selection for that base hash when
+present, renders the runtime source with the selected `TuningChoice`, and derives
+the final cache key from that selected runtime-source payload and tuning choice.
+`jitml build --dry-run` reports the base hash, selected tuning choice, and
+whether the selection came from the default or persisted path before the compile
+plan.
+`JitML.Engines.TuningBenchmark.linuxCpuBenchmarkCandidateRunner` is the first
+concrete candidate runner: it renders the tuned Linux CPU source, computes the
+candidate cache key, compiles/loads through the existing generated-kernel FFI
+path, measures elapsed time, and records the output digest.
+`cudaBenchmarkCandidateRunner` and `metalBenchmarkCandidateRunner` are guarded
+preflight boundaries for the non-local substrates: they reject wrong-substrate
+candidates, summarize CUDA/Metal runtime availability from the typed runtime
+probes, and fail closed until the live FFI candidate execution paths are
+implemented.
+
 Target auto-tuning runs at JIT time on a cache miss, benchmarks only
 deterministic choices, and records the selected `TuningChoice` per `KernelSpec`.
 The chosen `TuningChoice` is a cache-key input; a knob change invalidates the
-cache key. The live hardware work that remains is the timing/ranking loop and
-the persistence of the selected result, not the candidate enumeration.
+cache key. The live hardware work that remains is adding actual CUDA/Metal
+measurement behind those preflight runners, wiring benchmark selection into
+first-cache-miss execution, replacing the Linux CPU smoke runner with real
+oneDNN graph measurements, and validating those runners on real hardware.
 
 The cuDNN algorithm-id selection is restricted to the deterministic-only set.
 The `--use_fast_math=false` invariant is preserved.
@@ -241,19 +384,30 @@ The `--use_fast_math=false` invariant is preserved.
 ## FFI Boundary
 
 The current worktree has typed cache decisions and `KernelHandle` construction
-in `src/JitML/Engines/Engine.hs`, plus a local Linux CPU identity `dlopen`
-runner in `src/JitML/Engines/Local.hs`. Target `src/JitML/FFI/Loader.hs`
-exposes
-`loadKernel :: HasJitCache env => ModelId -> Kind -> Substrate -> IO (Either
-AppError KernelHandle)`:
+in `src/JitML/Engines/Engine.hs`, a shared cache artifact loader in
+`src/JitML/Engines/Loader.hs`, and local Linux CPU identity and family-scaffold
+`dlopen` runners in `src/JitML/Engines/Local.hs`. `JitML.Engines.HasEngine`
+wraps the generated-family Linux CPU runner in the local engine capability and
+checks the requested family against the loaded artifact metadata. The local
+runner resolves
+the executable `jitml_kernel` symbol, the `jitml_kernel_family_name` metadata
+symbol, and the `jitml_kernel_output_count` shape symbol.
+`ensureKernelArtifact` now owns the local
+compile-on-miss path:
 
-- On cache hit, `dlopen`s the cached artefact and returns a typed
-  `KernelHandle`.
-- On cache miss, returns `AppError JitCacheMiss` — caught by the substrate-
-  specific compile path which produces the artefact and retries.
+- On cache hit, returns a `KernelArtifact` with the existing `KernelHandle` and
+  `kernelArtifactCompiled = False`.
+- On cache miss, materializes generated source, runs the typed substrate compile
+  subprocess, and returns the new `KernelArtifact` with
+  `kernelArtifactCompiled = True`.
+- `withKernelSymbol` wraps `dlopen` / `dlsym` for FFI runners that need a symbol
+  from the cached artifact.
 
-Apple Silicon FFI loader uses `dlopen` against the stable-named symlink;
-Linux loaders use `dlopen` directly against the cache file.
+The production engine interpreters still need to grow real graph-kernel launch.
+Apple Silicon FFI uses `dlopen` against the stable-named symlink; generated
+Swift already exposes the family/output-count metadata symbols for that loader,
+but the `MTLDevice`/pipeline/command-buffer launch path is still target runtime
+work. Linux loaders use `dlopen` directly against the cache file.
 
 ## Cross-References
 

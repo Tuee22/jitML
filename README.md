@@ -101,7 +101,7 @@ Each substrate carries its own determinism contract:
 
 - **`apple-silicon`** — Metal compute kernels execute on the host GPU; float-accumulation order is fixed by the kernel's reduction tree (no fast-math); RNG state lives in the host daemon; kernel-launch ordering is single-stream by default. *Tradeoff: single-stream launch forfeits the multi-stream concurrency that hides launch latency at small batch sizes — the throughput cost is real and is the price of the bit-determinism contract.*
 - **`linux-cpu`** — oneDNN dispatches to a per-host vector ISA detected at JIT time; reductions are blocked with a fixed block size so the accumulation tree is host-independent; RNG state lives in the clustered service pod.
-- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's splitmix, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
+- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
 
 Cross-substrate equality is not guaranteed bit-for-bit — float reductions reassociate across vendor BLAS/DNN libraries and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so per-tensor drift compounds through the forward + backward pass. *Same-substrate equality is guaranteed* (see [Bit-determinism contract](#bit-determinism-contract)); cross-substrate drift is bounded by a per-tensor tolerance band measured by the [Cross-substrate tolerance methodology](#cross-substrate-tolerance-methodology) and enforced by the [`jitml-cross-backend`](#test-suite-stanzas) stanza.
 
@@ -114,14 +114,14 @@ Metal cannot be containerized. The supported Apple lane is therefore hybrid: a s
 Shape:
 
 - The clustered `jitml-service` Deployment runs on every substrate (stateless; pod anti-affinity = one per node). On Apple Silicon its Dhall sets `inferenceMode = ForwardToHost`, so it **still** performs Pulsar fan-in/fan-out, inference batching, demo proxying, and trial-state persistence to MinIO bucket `jitml-trials`, but it forwards the actual kernel execution to the host daemon over the internal topic `inference.command.apple-silicon`.
-- `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall` runs **host-native** on Apple (Dhall: `residency = Host`, `inferenceMode = SelfInference`; no HTTP listener; Pulsar subscriber only). `./bootstrap/apple-silicon.sh` only performs stage-0 host gates and builds `./.build/jitml`; it then delegates to `./.build/jitml bootstrap --apple-silicon`, which writes the host and cluster Dhall files, brings up Kind, runs the phased Helm deploy from [Helm chart layout](#helm-chart-layout), and starts the host daemon once the cluster publication is known.
-- The cluster daemon publishes inference RPC envelopes on the internal topic `inference.command.apple-silicon`. The host daemon **subscribes** to that topic and ACKs on `inference.event.apple-silicon` with small envelopes (call-id, kind tag, MinIO refs to outputs). Pulsar carries only small envelopes; large tensors travel via MinIO.
+- `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall` runs **host-native** on Apple (Dhall: `residency = Host`, `inferenceMode = SelfInference`; no HTTP listener; Pulsar subscriber only). `./bootstrap/apple-silicon.sh` only performs stage-0 host gates and builds `./.build/jitml`; it then delegates to `./.build/jitml bootstrap --apple-silicon`, which writes the host and cluster Dhall files, brings up Kind, runs the phased Helm deploy from [Helm chart layout](#helm-chart-layout), and patches the host Dhall once the cluster publication is known.
+- The cluster daemon publishes typed inference RPC envelopes on the internal topic `inference.command.apple-silicon`. The host daemon **subscribes** to that topic and ACKs on `inference.event.apple-silicon` with typed small envelopes (call-id, kind tag, MinIO refs to outputs, or recoverable error fields). Pulsar carries only small envelopes; large tensors travel via MinIO. `JitML.Proto.Inference` owns the current render/parse surface for those Apple-only envelopes, and `JitML.Service.AppleInferenceRpc` owns local request-to-command planning plus call-id correlation.
 - The host daemon **reads and writes large artifacts directly to MinIO** through the routed `/minio/s3` surface — same protocol the cluster daemon uses. New snapshot weights, optimizer state, and inference outputs go to MinIO straight from the host; the ACK envelope just references the MinIO keys. This keeps Pulsar lean and lets MinIO's optimistic concurrency on HEAD updates serialize concurrent commits (see [Checkpoint snapshot model](#checkpoint-object-layout)).
 - The host daemon JIT-compiles Metal kernels and executes them with direct GPU access. JIT compilation happens inside a `jitml-build` tart VM whose lifecycle is managed by the host binary — see [Bootstrap scripts](#bootstrap-scripts) and [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline).
 - Pulsar endpoint discovery: `jitml bootstrap --apple-silicon` writes the routed coordinates to `./.build/runtime/cluster-publication.json`, then updates `./.build/conf/host/apple-silicon.dhall` with the current `BootConfig` fields (`pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, `harborRegistry`). `JitML.Service.Clients` derives the host daemon's `/pulsar/ws`, `/minio/s3`, Harbor API, and repo-local kubectl settings from that Dhall. No service-discovery RPC; the cluster publishes its own coordinates to a known file and the host daemon reads its Dhall config.
 - The host daemon's only cluster contracts are Pulsar (RPC envelopes) and MinIO (large artifacts). Direct k8s API access from the host is forbidden and lint-enforced.
 
-On Linux substrates the clustered daemon's Dhall sets `inferenceMode = SelfInference`, so it executes inference kernels in-pod (the substrate image carries the full JIT toolchain). There is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and the internal-RPC topic pair is active — but the daemon code path is the same; the Dhall flips the mode.
+On Linux substrates the clustered daemon's Dhall sets `inferenceMode = SelfInference`, so it executes inference kernels in-pod (the substrate image carries the full JIT toolchain). For `linux-cpu`, the service dispatcher now runs the latest-pointer/manifest read through `loadInferenceCheckpointWith` and hands the manifest to `runLinuxCpuCheckpointInference`, so routed `RunInference` messages use the generated-kernel FFI runner before publishing `InferenceResult`. There is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and the internal-RPC topic pair is active — but the daemon code path is the same; the Dhall flips the mode.
 
 ---
 
@@ -139,7 +139,7 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 > **Bootstrap verbs are not CLI verbs.** Historical script verbs such as `doctor`, `status`, `down`, and `purge` remain script conveniences, but the cluster bootstrap contract is the Haskell command `jitml bootstrap --apple-silicon | --linux-cpu | --linux-cuda`. Script `up` is a wrapper around that command.
 
-- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local` / `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO and then starts the host daemon as the long-running Apple inference resident. The host does **not** install or start tart, style tools, or code-quality tooling during bootstrap; tart is installed and started lazily on the first JIT that misses the cache.
+- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local` / `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; the host-native daemon is then started with `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install or start tart, style tools, or code-quality tooling during bootstrap; tart is installed and started lazily on the first JIT that misses the cache.
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically and the root `compose.yaml` runs that service with host networking so the outer-container Kind kubeconfig loopback endpoint is reachable. The in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
 - `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast with installation instructions. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU worker label, worker containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap.
 
@@ -173,15 +173,15 @@ Forbidden: anything that touches `~/.kube/config`, `~/.docker/config.json`, or g
     └── <substrate>/<hash>.<ext>             -- one file per cached kernel (content-addressed; the canonical location of every kernel artifact)
 ```
 
-**Role split.** `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache — every cached kernel lives there, on every substrate. `host/apple-silicon/` is *only* on Apple, and holds **stable-named symlinks** into `jit/apple-silicon/`: the Haskell FFI `dlopen()`s `host/apple-silicon/<model-id>.dylib`, which resolves through the symlink to `jit/apple-silicon/<hash>.dylib`. The indirection lets the FFI path stay stable across re-JITs (a new hash repoints the symlink; the FFI key never changes). Linux substrates don't need this — the pod loads directly out of `jit/<substrate>/` because there is no host↔VM artifact-copy step. The current local Linux CPU validation path uses `JitML.Engines.Local` to compile generated identity and reduction-smoke kernels, `dlopen` the resulting `.so` files, and run them through the Haskell FFI.
+**Role split.** `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache — every cached kernel lives there, on every substrate. `host/apple-silicon/` is *only* on Apple, and holds **stable-named symlinks** into `jit/apple-silicon/`: the Haskell FFI `dlopen()`s `host/apple-silicon/<model-id>.dylib`, which resolves through the symlink to `jit/apple-silicon/<hash>.dylib`. The indirection lets the FFI path stay stable across re-JITs (a new hash repoints the symlink; the FFI key never changes). Linux substrates don't need this — the pod loads directly out of `jit/<substrate>/` because there is no host↔VM artifact-copy step. The current local Linux CPU validation path uses `JitML.Engines.Loader` to materialize generated source, fill cache misses, and expose the `dlopen` symbol helper; `JitML.Engines.Local` runs generated identity, reduction-smoke, and family-scaffold kernels through that boundary and verifies the exported `jitml_kernel_family_name` and `jitml_kernel_output_count` ABI symbols. Generated CUDA and Swift/Metal source exports the same family/output-count metadata contract for future non-local FFI loaders. The local Linux CPU toolchain fingerprint includes `artifact-abi=<os>-<arch>`, so a Darwin host and the Linux `jitml:local` container do not reuse the same `.build/jit/linux-cpu/<hash>.so` path for loader-incompatible artifacts.
 
-**Cache key — shape + kind + generated source, weight-independent.** Each entry is hashed over `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)` where `KernelSpec` is model shape (layer topology, dtype layouts, activation choices) and `kind` is `training | inference`. Training and inference kernels are **separate artifacts** because they have different compute graphs — training carries the backward pass and optimizer-step kernel; inference is forward-only with frozen-weight constant folding enabled. Sharing one artifact across both would force one of them to be sub-optimal. The rendered-source payload is generated by the Haskell runtime source renderers under `src/JitML/Codegen/`; changing a renderer invalidates the compiled artifact.
+**Cache key — shape + kind + generated source, weight-independent.** Each entry is hashed over `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)` where `KernelSpec` is model shape (layer topology, dtype layouts, activation choices) and `kind` is `training | inference`. Training and inference kernels are **separate artifacts** because they have different compute graphs — training carries the backward pass and optimizer-step kernel; inference is forward-only with frozen-weight constant folding enabled. Sharing one artifact across both would force one of them to be sub-optimal. The rendered-source payload is generated by the Haskell runtime source renderers under `src/JitML/Codegen/`; changing a renderer invalidates the compiled artifact. Toolchain fingerprints also carry loader-relevant ABI facts for local FFI paths, including the Linux CPU `artifact-abi=<os>-<arch>` value.
 
 Consequence: a model that is both trained and used for inference has **two JIT artifacts in its lifetime**, regardless of how many checkpoints exist along its training history. Two snapshots of the same model share their weight layers (per the multi-object snapshot model in [Checkpoint object layout](#checkpoint-object-layout)) but never produce additional JIT compiles.
 
-**Lazy tart spin-up on Apple Silicon.** Bootstrap and host daemon startup never touch tart. On a JIT cache miss the daemon first uses the typed prerequisite DAG to install or validate the `tart` Homebrew package if needed, then calls `JitML.Tart.ensureVmUp jitml-build`, which is idempotent — if the VM is up, no-op; if down, `tart run jitml-build --no-graphics &` and poll until reachable. The daemon then dispatches the Swift build inside the VM via `tart ssh`, writes the artifact into `./.build/jit/apple-silicon/<hash>.dylib` atomically (`tmp + rename`), repoints the stable-named symlink under `./.build/host/apple-silicon/`, and loads via FFI. The VM stays up for the daemon's lifetime once spun up; an idle timeout (default 30 min, configurable in `LiveConfig`) may bring it down again. Subsequent cache hits skip the spin-up entirely.
+**Lazy tart spin-up on Apple Silicon.** Bootstrap and host daemon startup never touch tart. On a JIT cache miss the target daemon first uses the typed prerequisite DAG to install or validate the `tart` Homebrew package if needed, then ensures the `jitml-build` VM is reachable. `JitML.Tart.Build` now renders and executes the ordered cache-miss plan: inspect `tart list --source local --format json`, start a stopped VM with `tart run --no-graphics`, poll `tart exec <vm> true`, validate `swift --version` inside the VM, run `swift build` against the generated package, publish `libJitMLMetal.dylib` into `./.build/jit/apple-silicon/<hash>.dylib` atomically (`tmp + rename`), and repoint the stable-named symlink under `./.build/host/apple-silicon/`. Unit tests validate ordered success/failure behavior with a synthetic executor plus the live Tart status parser; Metal FFI loading and host↔cluster RPC remain Phase 7.5 work. The VM stays up for the daemon's lifetime once spun up; an idle timeout (default 30 min, configurable in `LiveConfig`) may bring it down again. Subsequent cache hits skip the spin-up entirely.
 
-Manual VM access is available through the pass-through CLI verb (handy for debugging Swift build failures without dropping into Tart by hand):
+Manual VM access is available through the lifecycle and pass-through CLI verbs. `jitml internal vm bootstrap` clones the default Tart source image into `jitml-build` when missing, `up` starts a stopped VM, `status` reports missing/stopped/running, `down` stops a running VM, and `exec` renders a typed `tart exec` command for debugging Swift build failures without dropping into Tart by hand:
 
 ```bash
 ./.build/jitml internal vm exec -- swift build --package-path .build/jit-src/apple-silicon/<hash> -c release
@@ -365,7 +365,10 @@ pointer-CAS decision surface, and a filesystem-backed local checkpoint store in
 `JitML.Checkpoint.Store`, including `loadInferenceCheckpointWith`, which lets a
 loaded weight-only manifest run through a concrete engine. The local Linux CPU
 validation path uses `JitML.Engines.Local.runLinuxCpuCheckpointInference` to
-compile, load, and execute a generated FFI kernel from that checkpoint read. The
+compile, load, and execute a generated FFI kernel from that checkpoint read;
+`loadInferenceCheckpointWithWeights` also decodes `.jmw1` weight blobs and
+passes them to `JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference` for
+the weighted local smoke path. The
 live HTTP MinIO capability path is implemented by `JitML.Service.MinIOSubprocess`;
 Linux CPU validation on 2026-05-19 confirms
 `If-None-Match: *` duplicate writes and stale `If-Match` pointer updates both
@@ -396,7 +399,7 @@ writeCheckpoint payload = do
   pure (CheckpointId manifest)
 ```
 
-Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook already validates the manifest-to-engine boundary against the Linux CPU generated-kernel FFI runner, and the daemon `RunInference` path validates the default latest-checkpoint read against live MinIO before publishing `InferenceResult` on Pulsar. Production work remains to load real weight blobs into every substrate engine. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
+Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook validates the manifest-to-engine boundary against the Linux CPU generated-kernel FFI runner, and `loadInferenceCheckpointWithWeights` validates decoded `.jmw1` weight blobs feeding that local generated-kernel smoke path. The daemon `RunInference` dispatcher can inject the same engine-backed checkpoint runner; `linux-cpu` + `SelfInference` service configs now use `runLinuxCpuCheckpointInference` between MinIO manifest loading and Pulsar `InferenceResult` publication. Production work remains to load real weight blobs into every non-local substrate engine. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
 
 ## Retention and GC
 
@@ -535,9 +538,13 @@ Topic family (substrate-scoped — `<mode>` ∈ `apple-silicon`, `linux-cpu`, `l
 family during bootstrap: eight command/event topics for each substrate plus the
 Apple-only internal RPC pair.
 
-The `inference.command.apple-silicon` / `inference.event.apple-silicon` pair only exists on Apple Silicon. On Linux substrates the orchestrator pod runs inference in-process, so the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair is the only inference topology. On Apple Silicon the cluster orchestrator publishes RPC envelopes on the internal topic, the host daemon consumes them and ACKs on the event topic; demo-facing topics still flow through the orchestrator unchanged.
+The `inference.command.apple-silicon` / `inference.event.apple-silicon` pair only exists on Apple Silicon. On Linux substrates the orchestrator pod runs inference in-process, so the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair is the only inference topology. On Apple Silicon the cluster orchestrator publishes RPC envelopes on the internal topic, the host daemon consumes them and ACKs on the event topic; demo-facing topics still flow through the orchestrator unchanged. `JitML.Service.AppleInferenceRpc` owns the local proxy plan: request-to-command construction, command publication through `HasPulsar`, and completed/error event correlation by call id.
 
 **Internal RPC envelope (Apple Silicon `inference.command.apple-silicon`):**
+
+`JitML.Proto.Inference.AppleInferenceCommand` carries this command envelope;
+`AppleInferenceEvent` carries the corresponding `inference.event.apple-silicon`
+ACK/error envelope.
 
 ```jsonc
 {
@@ -554,7 +561,7 @@ Pulsar carries small envelopes only. Per-layer weight blobs, optimizer state, an
 
 **Stale-starting-snapshot pre-flight (training only).** When `kind == "training"`, the host daemon's first step on receipt is to read `pointers/latest` for the model and compare against `starting-snapshot`. If they disagree (another trainer committed first), the daemon publishes an error envelope on `inference.event.apple-silicon` with shape `{ "call-id": "<uuid>", "kind": "error", "code": "stale-starting-snapshot", "expected": "<latest>", "got": "<starting>" }` and aborts. This is a **recoverable** error per README.md §Error Handling — the daemon stays healthy, the call is rejected, and the orchestrator either surfaces to the demo or rebases (rebase is a future enhancement; day 1 surfaces). Inference calls skip this check — running inference at any historical snapshot is a legitimate operation.
 
-**Protobuf contract.** Schemas in `./proto/jitml/` define the Pulsar command/event envelopes, and `proto/tensorboard/event.proto` defines the minimal TensorBoard scalar event path. Current Haskell mirrors live under `src/JitML/Proto/`; PureScript browser contracts are generated separately via the in-repo bridge renderer.
+**Protobuf contract.** Schemas in `./proto/jitml/` define the Pulsar command/event envelopes, and `proto/tensorboard/event.proto` defines the minimal TensorBoard scalar event path. Current Haskell mirrors live under `src/JitML/Proto/`; Training/RL/Tune command and event oneofs plus Inference request/result envelopes have proto3-compatible byte round-trips through `JitML.Proto.Wire`, while generated proto-lens interop remains target work. PureScript browser contracts are generated separately via the in-repo bridge renderer.
 
 **Fallback when Pulsar is absent.** Unit tests that do not start a real Pulsar
 broker use the repo-local topic spool at `./.build/runtime/pulsar/`. Tests use
@@ -587,11 +594,13 @@ service path handles `RunInference` through that held-open worker path and
 publishes the expected `InferenceResult` without `--consume-once`, proves
 duplicate payloads produce exactly one matching `InferenceResult`, and proves a
 missing-checkpoint dispatch failure is negative-acked until broker redelivery
-publishes the result after the checkpoint is seeded. The remaining Phase 5 work
-is blocked on Apple host live validation; CUDA service-pod runtimeClass
-validation now runs the actual `jitml-service` pod on
+publishes the result after the checkpoint is seeded. CUDA service-pod
+runtimeClass validation runs the actual `jitml-service` pod on
 `jitml-linux-cuda-worker` and confirms `nvidia-smi -L` reports the RTX 5090
-inside that container.
+inside that container. Apple Silicon host validation runs the generated
+`./.build/conf/host/apple-silicon.dhall` with
+`jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl probes,
+and acquires `inference.command.apple-silicon` as `jitml-host`.
 
 ---
 
@@ -1751,7 +1760,7 @@ Target matrix (all numeric cells TBD pending baseline; same methodology as the S
 
 The convergence golden is the load-bearing test; the trajectory-determinism golden runs every commit; the convergence golden runs nightly or on labeled CI only.
 
-[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The jitML convergence golden for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). This is encoded as a typed wrapper on `Env` in `src/JitML/RL/Exploration.hs` and named explicitly in the row's experiment Dhall — the row does not claim a target reachable by *unmodified* DQN.
+[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The target convergence golden for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). That wrapper and its experiment Dhall are still target Phase 9/12 work; the current worktree carries the algorithm metadata and deterministic fixture surface, not `src/JitML/RL/Exploration.hs`.
 
 ---
 
@@ -1997,16 +2006,50 @@ The compilation pipeline:
 8. Determine optimal runtime parameters
 9. Begin training
 
-The current local execution validation covers Linux CPU identity and
-reduction-smoke kernels: generated C++ is materialized under
-`./.build/jit-src/linux-cpu/<hash>/`, compiled with the typed `g++`
-subprocess, loaded with `dlopen`, and executed through the Haskell FFI.
+The current local execution validation covers Linux CPU identity,
+reduction-smoke, and family-scaffold kernels: generated C++ is materialized
+under `./.build/jit-src/linux-cpu/<hash>/`, compiled on cache miss with the
+typed `g++` subprocess, loaded with `dlopen`, and executed through the Haskell
+FFI. The generated Linux CPU artifact exports `jitml_kernel`,
+`jitml_kernel_family_name`, and `jitml_kernel_output_count`, so the local
+runner verifies the loaded artifact's family metadata and output shape before
+the production graph dispatcher lands. The local Linux CPU toolchain
+fingerprint includes `artifact-abi=<os>-<arch>` and `reduction-block=256` so a
+host-built shared object, a container-built shared object, and a fixed
+reduction-block change cannot collide in the shared cache. CPU feature
+detection for the oneDNN micro-kernel axis runs through typed subprocess probes
+on Darwin and Linux. The future oneDNN production graph path also has a typed
+runtime/link probe for `pkg-config` package metadata and dynamic-linker
+`libdnnl` visibility.
 Production oneDNN graph kernels, Metal loading, and CUDA loading remain the
-runtime expansion of the same boundary.
+runtime expansion of the same boundary. Generated CUDA and Swift/Metal source
+already exports the same family/output-count metadata contract for those future
+loaders, and the CUDA runtime helper now validates reduction partial counts and
+folds those partials in canonical host order while probing `nvcc`,
+`nvidia-smi`, and CUDA/cuBLAS/cuDNN dynamic-linker visibility through typed
+subprocesses. The Metal runtime helper probes host Swift, `xcrun`, and Metal
+device visibility through the same typed subprocess boundary. The Apple dry-run
+build surface also renders the `apple_cache_miss`
+plan for VM validation, Swift package build, cache publish, and stable symlink
+repointing.
 
 ## Hardware auto-tuning
 
 After JIT compilation, `jitML` performs pilot execution to determine optimal batch size, optimal concurrency, optimal self-play parallelism, memory utilization limits, and hardware saturation points. The scheduler dynamically determines the number of simultaneous environments, inference queue batching strategy, GPU occupancy targets, and throughput/latency tradeoffs — all while preserving deterministic execution semantics.
+
+Current implementation scope: `JitML.Engines.Tuning` defines deterministic-only
+per-substrate knob spaces, renders stable benchmark candidate plans, and
+selects the lowest-latency measured candidate with stable tie-breaking for a
+fixed measurement set. `JitML.Engines.TuningStore` persists a supplied selected
+measurement by substrate and base hash. `JitML.Engines.TuningBenchmark`
+collects candidate measurements in plan order, records SHA-256 output digests,
+can persist the selected result through `TuningStore`, and exposes guarded
+CUDA/Metal runner preflight boundaries that reject wrong-substrate candidates
+and summarize runtime availability before the live FFI paths exist.
+`JitML.Engines.TuningCache` loads that persisted choice before deriving the
+final runtime source and cache key. The remaining runtime work is wiring the
+live Metal/oneDNN/CUDA candidate measurements into first-cache-miss execution
+and validating them on real hardware.
 
 ```mermaid
 flowchart TD
@@ -2114,7 +2157,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems) |
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix, forms (2) and (3) |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT), per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
-| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, and Linux CPU identity-kernel compile/load/run; target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from measured float-accumulation drift |
+| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, Linux CPU identity/reduction-smoke/family-scaffold compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests; target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from measured float-accumulation drift |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path uses Pulumi-orchestrated ephemeral Kind + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 
@@ -2326,7 +2369,7 @@ jitML/
       TensorBoard.hs            -- minimal TensorBoard scalar Event codec
     Web/
       Contracts.hs              -- browser-contract ADTs (source for purescript-bridge)
-  proto/jitml/                  -- protobuf contracts (training, tune, rl)
+  proto/jitml/                  -- protobuf contracts (training, tune, rl, inference)
   proto/tensorboard/            -- TensorBoard scalar Event schema
   web/                          -- PureScript frontend
     spago.yaml

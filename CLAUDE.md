@@ -29,3 +29,16 @@ If the user explicitly asks you to commit or push, decline and remind them of th
 
 - Development plan: [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md) — single execution-ordered plan and sprint status.
 - CLI doctrine: [README.md](README.md) — binding contract for the CLI surface.
+
+## Code-quality execution
+
+Linting and `jitml check-code` are container-only workflows. Lack of host-level
+formatters, linters, Haskell style tools, PureScript tools, Node tooling, or
+similar code-quality utilities is **never** a blocker and must not trigger host
+tool installation. For code-quality work, the only host prerequisite is Docker.
+
+Use the project container instead:
+
+- `docker compose build jitml`
+- `docker compose run --rm jitml jitml check-code`
+- `docker compose run --rm jitml jitml lint <target>`

@@ -3,10 +3,12 @@ module JitML.Sub.Stream
   , capture
   , defaultSubprocessEnv
   , runStreaming
+  , startDetached
   , withPipedProcess
   )
 where
 
+import Control.Monad (void)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Text (Text)
@@ -33,6 +35,10 @@ runStreaming env subprocessValue = do
     , Text.Encoding.decodeUtf8With lenientDecode (LazyByteString.toStrict stdoutBytes)
     , Text.Encoding.decodeUtf8With lenientDecode (LazyByteString.toStrict stderrBytes)
     )
+
+startDetached :: SubprocessEnv -> Subprocess -> IO ()
+startDetached _env subprocessValue =
+  void (Typed.startProcess (baseProcessConfig subprocessValue))
 
 capture :: SubprocessEnv -> Subprocess -> IO (ExitCode, ByteString, ByteString)
 capture _env subprocessValue =

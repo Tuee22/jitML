@@ -34,6 +34,7 @@ import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
 import JitML.Proto.Tune qualified as Tune
+import JitML.Service.AppleInferenceRpc qualified as AppleRpc
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities
@@ -136,6 +137,119 @@ main =
               second = eventIdFromPayload (ByteString.pack "payload")
           first @?= second
           assertBool "one side effect" (length (processAtLeastOnce [first, second]) == 1)
+      , testCase "inference request and result protobuf envelopes round-trip" $ do
+          let request =
+                Inference.InferenceRequest
+                  { Inference.irCallId = "call-proto"
+                  , Inference.irExperimentHash = "exp-proto"
+                  , Inference.irReplyTopic = "inference.result.linux-cpu"
+                  , Inference.irInput = [1.0, 2.5, -3.25]
+                  }
+              result =
+                Inference.InferenceResult
+                  { Inference.iresCallId = "call-proto"
+                  , Inference.iresExperimentHash = "exp-proto"
+                  , Inference.iresOutput = [0.25, 0.75]
+                  }
+          Inference.decodeInferenceRequestProto (Inference.encodeInferenceRequestProto request)
+            @?= Right request
+          Inference.decodeInferenceResultProto (Inference.encodeInferenceResultProto result)
+            @?= Right result
+      , testCase "Apple host inference RPC envelopes render and parse (Sprint 7.5)" $ do
+          let command =
+                Inference.AppleInferenceCommand
+                  { Inference.appleCommandCallId = "call-apple"
+                  , Inference.appleCommandKind = Inference.AppleCommandInference
+                  , Inference.appleCommandModelId = "jitml-build"
+                  , Inference.appleCommandStartingSnapshot = "manifest-sha"
+                  , Inference.appleCommandReplyTopic = Inference.appleInferenceEventTopic
+                  , Inference.appleCommandInputs = "minio://jitml-checkpoints/input-a"
+                  }
+              event =
+                Inference.AppleInferenceEvent
+                  { Inference.appleEventCallId = "call-apple"
+                  , Inference.appleEventKind = Inference.AppleEventCompleted
+                  , Inference.appleEventOutputRefs =
+                      ["minio://jitml-checkpoints/output-a"]
+                  , Inference.appleEventErrorCode = Nothing
+                  , Inference.appleEventMessage = Nothing
+                  }
+              staleEvent =
+                Inference.AppleInferenceEvent
+                  { Inference.appleEventCallId = "call-apple"
+                  , Inference.appleEventKind = Inference.AppleEventError
+                  , Inference.appleEventOutputRefs = []
+                  , Inference.appleEventErrorCode = Just "stale-starting-snapshot"
+                  , Inference.appleEventMessage = Just "latest pointer advanced"
+                  }
+          Inference.appleInferenceCommandTopic @?= "inference.command.apple-silicon"
+          Inference.appleInferenceEventTopic @?= "inference.event.apple-silicon"
+          Inference.parseAppleInferenceCommand (Inference.renderAppleInferenceCommand command)
+            @?= Just command
+          Inference.parseAppleInferenceEvent (Inference.renderAppleInferenceEvent event)
+            @?= Just event
+          Inference.parseAppleInferenceEvent (Inference.renderAppleInferenceEvent staleEvent)
+            @?= Just staleEvent
+      , testCase "Apple host inference RPC plan publishes and correlates events (Sprint 7.5)" $ do
+          clientLogRef <- newIORef []
+          let request =
+                Inference.InferenceRequest
+                  { Inference.irCallId = "call-apple-rpc"
+                  , Inference.irExperimentHash = "manifest-sha"
+                  , Inference.irReplyTopic = "inference.result.apple-silicon"
+                  , Inference.irInput = [1.0, -2.5]
+                  }
+              plan = AppleRpc.appleInferenceRpcPlan "snapshot-sha" request
+              command = AppleRpc.appleRpcCommand plan
+              completedEvent =
+                Inference.AppleInferenceEvent
+                  { Inference.appleEventCallId = "call-apple-rpc"
+                  , Inference.appleEventKind = Inference.AppleEventCompleted
+                  , Inference.appleEventOutputRefs =
+                      ["minio://jitml-checkpoints/apple-output"]
+                  , Inference.appleEventErrorCode = Nothing
+                  , Inference.appleEventMessage = Nothing
+                  }
+              mismatchedEvent =
+                completedEvent {Inference.appleEventCallId = "different-call"}
+              errorEvent =
+                Inference.AppleInferenceEvent
+                  { Inference.appleEventCallId = "call-apple-rpc"
+                  , Inference.appleEventKind = Inference.AppleEventError
+                  , Inference.appleEventOutputRefs = []
+                  , Inference.appleEventErrorCode = Just "stale-starting-snapshot"
+                  , Inference.appleEventMessage = Just "latest pointer advanced"
+                  }
+              renderedPlan = AppleRpc.renderAppleInferenceRpcPlan plan
+          AppleRpc.appleRpcCommandTopic plan
+            @?= TopicName Inference.appleInferenceCommandTopic
+          AppleRpc.appleRpcEventTopic plan
+            @?= TopicName Inference.appleInferenceEventTopic
+          AppleRpc.appleRpcClientReplyTopic plan
+            @?= TopicName "inference.result.apple-silicon"
+          Inference.appleCommandCallId command @?= "call-apple-rpc"
+          Inference.appleCommandModelId command @?= "manifest-sha"
+          Inference.appleCommandStartingSnapshot command @?= "snapshot-sha"
+          Inference.appleCommandReplyTopic command @?= Inference.appleInferenceEventTopic
+          Inference.appleCommandInputs command @?= "1.0,-2.5"
+          Inference.parseAppleInferenceCommand (AppleRpc.appleRpcCommandPayload plan)
+            @?= Just command
+          assertBool
+            "rendered plan names Apple command topic"
+            (Inference.appleInferenceCommandTopic `Text.isInfixOf` renderedPlan)
+          published <-
+            evalStateT
+              (AppleRpc.publishAppleInferenceRpcCommand plan)
+              (SyntheticClientState clientLogRef)
+          published @?= Right "synthetic-message-id"
+          clientLog <- readIORef clientLogRef
+          clientLog @?= ["pulsar:publish:inference.command.apple-silicon"]
+          AppleRpc.correlateAppleInferenceEvent command completedEvent
+            @?= Right ["minio://jitml-checkpoints/apple-output"]
+          AppleRpc.correlateAppleInferenceEvent command mismatchedEvent
+            @?= Left "apple inference event call-id mismatch: expected call-apple-rpc, got different-call"
+          AppleRpc.correlateAppleInferenceEvent command errorEvent
+            @?= Left "apple inference event error stale-starting-snapshot: latest pointer advanced"
       , testCase "domainFor accepts fully-qualified Pulsar topics (Sprint 5.5)" $ do
           domainFor "persistent://public/default/training.command.linux-cpu" @?= Just TrainingDomain
           domainFor "persistent://public/default/tune.command.linux-cuda" @?= Just TuneDomain
@@ -331,6 +445,36 @@ main =
                 , "pulsar:publish:inference.result.linux-cpu"
                 , "kubectl:apply:job/jitml-train"
                 ]
+      , testCase "daemon workload dispatcher can inject Linux CPU engine inference (Sprint 7.3)" $ do
+          clientLogRef <- newIORef []
+          let inferenceRequest =
+                Inference.renderInferenceRequest
+                  Inference.InferenceRequest
+                    { Inference.irCallId = "call-engine"
+                    , Inference.irExperimentHash = "inference-exp"
+                    , Inference.irReplyTopic = "inference.result.linux-cpu"
+                    , Inference.irInput = [4.0, 5.0]
+                    }
+              injectedRunner manifest input = do
+                recordClientCall ("engine:linux-cpu:" <> Checkpoint.manifestId manifest)
+                pure (Right (fmap (+ 10.0) input))
+          result <-
+            evalStateT
+              ( Runtime.daemonWorkloadDispatcherWithInference
+                  injectedRunner
+                  InferenceDomain
+                  (eventIdFromPayload "inference-request")
+                  inferenceRequest
+              )
+              (SyntheticClientState clientLogRef)
+          result @?= Right ()
+          clientLog <- readIORef clientLogRef
+          clientLog
+            @?= [ "minio:read-object"
+                , "minio:read-bytes"
+                , "engine:linux-cpu:inference-exp"
+                , "pulsar:publish:inference.result.linux-cpu"
+                ]
       , testCase "daemon workload dispatcher maps command envelopes to workload effects (Sprint 5.4)" $ do
           clientLogRef <- newIORef []
           let trainingStart =
@@ -482,6 +626,31 @@ main =
           length ackedPayloads @?= 4
           dispatched <- readIORef dispatchRef
           length dispatched @?= 2
+      , testCase "daemon consumer batch with zero budget exits without consuming" $ do
+          pullRef <- newIORef []
+          ackRef <- newIORef []
+          subscribeRef <- newIORef ([] :: [(Text, Text)])
+          seekRef <- newIORef ([] :: [(Text, Text)])
+          acquiredRuntime <-
+            evalStateT
+              (Runtime.acquireDaemonSubscriptions defaultDaemonRuntime)
+              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
+          modifyIORef'
+            pullRef
+            (const [("training.command.linux-cpu", "payload-a")])
+          (_, outcomes) <-
+            evalStateT
+              ( Runtime.daemonConsumerBatch
+                  acquiredRuntime
+                  0
+                  (\_domain _eventId _payload -> pure (Right ()))
+              )
+              (SyntheticBrokerState pullRef ackRef subscribeRef seekRef)
+          outcomes @?= []
+          pendingPayloads <- readIORef pullRef
+          pendingPayloads @?= [("training.command.linux-cpu", "payload-a")]
+          ackedPayloads <- readIORef ackRef
+          ackedPayloads @?= []
       , testCase "consumerLoopExit short-circuits on first PulsarFailed (Sprint 5.5)" $ do
           -- The lifecycle exit helper walks the outcome list and surfaces
           -- the first AppError. A clean batch returns Nothing.

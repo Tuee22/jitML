@@ -266,7 +266,7 @@ jitml internal vm status
 jitml internal vm exec -- <cmd>
 ```
 
-Pass-through to `tart ssh`. Apple-only escape hatch for debugging Swift build
+Pass-through to `tart exec`. Apple-only escape hatch for debugging Swift build
 failures. Rejected on Linux substrates with `AppError UnknownCommand`.
 
 ### `jitml internal cache`

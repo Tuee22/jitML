@@ -8,6 +8,10 @@ module JitML.Proto.Tune
   , TrialStarted (..)
   , TuneCommand (..)
   , TuneEvent (..)
+  , decodeTuneCommandProto
+  , decodeTuneEventProto
+  , encodeTuneCommandProto
+  , encodeTuneEventProto
   , parseTuneCommand
   , renderTuneCommand
   , renderTuneEvent
@@ -16,12 +20,29 @@ module JitML.Proto.Tune
   )
 where
 
+import Data.ByteString (ByteString)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word32, Word64)
 import Text.Read (readMaybe)
 
+import JitML.Proto.Wire
+  ( boolField
+  , decodeMessage
+  , doubleField
+  , encodeMessage
+  , fieldBool
+  , fieldDouble
+  , fieldMessage
+  , fieldString
+  , fieldWord32
+  , fieldWord64
+  , messageField
+  , stringField
+  , uint32Field
+  , uint64Field
+  )
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
 data StartSweep = StartSweep
@@ -131,6 +152,51 @@ parseTuneCommand payload =
             <$> value "experiment-hash"
         _ -> Nothing
 
+encodeTuneCommandProto :: TuneCommand -> ByteString
+encodeTuneCommandProto command =
+  case command of
+    TuneStart start ->
+      encodeMessage [messageField 1 (encodeStartSweepProto start)]
+    TuneStop stop ->
+      encodeMessage [messageField 2 (encodeStopSweepProto stop)]
+
+decodeTuneCommandProto :: ByteString -> Either Text TuneCommand
+decodeTuneCommandProto bytes = do
+  fields <- decodeMessage bytes
+  case (fieldMessage 1 fields, fieldMessage 2 fields) of
+    (Just startBytes, Nothing) ->
+      TuneStart <$> decodeStartSweepProto startBytes
+    (Nothing, Just stopBytes) ->
+      TuneStop <$> decodeStopSweepProto stopBytes
+    _ -> Left "expected exactly one TuneCommand oneof field"
+
+encodeTuneEventProto :: TuneEvent -> ByteString
+encodeTuneEventProto event =
+  case event of
+    TuneTrialStarted started ->
+      encodeMessage [messageField 1 (encodeTrialStartedProto started)]
+    TuneTrialFinished finished ->
+      encodeMessage [messageField 2 (encodeTrialFinishedProto finished)]
+    TuneSweepDone done ->
+      encodeMessage [messageField 3 (encodeSweepDoneProto done)]
+
+decodeTuneEventProto :: ByteString -> Either Text TuneEvent
+decodeTuneEventProto bytes = do
+  fields <- decodeMessage bytes
+  let body =
+        ( fieldMessage 1 fields
+        , fieldMessage 2 fields
+        , fieldMessage 3 fields
+        )
+  case body of
+    (Just startedBytes, Nothing, Nothing) ->
+      TuneTrialStarted <$> decodeTrialStartedProto startedBytes
+    (Nothing, Just finishedBytes, Nothing) ->
+      TuneTrialFinished <$> decodeTrialFinishedProto finishedBytes
+    (Nothing, Nothing, Just doneBytes) ->
+      TuneSweepDone <$> decodeSweepDoneProto doneBytes
+    _ -> Left "expected exactly one TuneEvent oneof field"
+
 renderTuneEvent :: TuneEvent -> Text
 renderTuneEvent envelope =
   case envelope of
@@ -170,3 +236,113 @@ parseField line =
 readText :: (Read a) => Text -> Maybe a
 readText =
   readMaybe . Text.unpack
+
+encodeStartSweepProto :: StartSweep -> ByteString
+encodeStartSweepProto start =
+  encodeMessage
+    [ stringField 1 (ssExperimentHash start)
+    , stringField 2 (ssDhallObjectKey start)
+    , stringField 3 (renderSubstrate (ssSubstrate start))
+    , uint64Field 4 (ssSweepSeed start)
+    , uint32Field 5 (ssTrialBudget start)
+    , uint32Field 6 (ssBudgetPerTrial start)
+    , stringField 7 (ssSampler start)
+    , stringField 8 (ssScheduler start)
+    , stringField 9 (ssPruner start)
+    ]
+
+decodeStartSweepProto :: ByteString -> Either Text StartSweep
+decodeStartSweepProto bytes = do
+  fields <- decodeMessage bytes
+  StartSweep
+    <$> require "experiment_hash" (fieldString 1 fields)
+    <*> require "dhall_object_key" (fieldString 2 fields)
+    <*> ( require "substrate" (fieldString 3 fields)
+            >>= requireParsed "substrate" parseSubstrate
+        )
+    <*> require "sweep_seed" (fieldWord64 4 fields)
+    <*> require "trial_budget" (fieldWord32 5 fields)
+    <*> require "budget_per_trial" (fieldWord32 6 fields)
+    <*> require "sampler" (fieldString 7 fields)
+    <*> require "scheduler" (fieldString 8 fields)
+    <*> require "pruner" (fieldString 9 fields)
+
+encodeStopSweepProto :: StopSweep -> ByteString
+encodeStopSweepProto stop =
+  encodeMessage
+    [ stringField 1 (ssStopExperimentHash stop)
+    ]
+
+decodeStopSweepProto :: ByteString -> Either Text StopSweep
+decodeStopSweepProto bytes = do
+  fields <- decodeMessage bytes
+  StopSweep
+    <$> require "experiment_hash" (fieldString 1 fields)
+
+encodeTrialStartedProto :: TrialStarted -> ByteString
+encodeTrialStartedProto started =
+  encodeMessage
+    [ stringField 1 (tsExperimentHash started)
+    , uint32Field 2 (tsTrial started)
+    , uint64Field 3 (tsTrialSeed started)
+    , stringField 4 (tsParametersJson started)
+    , uint64Field 5 (tsTimestampNs started)
+    ]
+
+decodeTrialStartedProto :: ByteString -> Either Text TrialStarted
+decodeTrialStartedProto bytes = do
+  fields <- decodeMessage bytes
+  TrialStarted
+    <$> require "experiment_hash" (fieldString 1 fields)
+    <*> require "trial" (fieldWord32 2 fields)
+    <*> require "trial_seed" (fieldWord64 3 fields)
+    <*> require "parameters_json" (fieldString 4 fields)
+    <*> require "timestamp_ns" (fieldWord64 5 fields)
+
+encodeTrialFinishedProto :: TrialFinished -> ByteString
+encodeTrialFinishedProto finished =
+  encodeMessage
+    [ stringField 1 (tfTuneExperimentHash finished)
+    , uint32Field 2 (tfTuneTrial finished)
+    , doubleField 3 (tfTuneObjective finished)
+    , boolField 4 (tfTunePruned finished)
+    , stringField 5 (tfTuneTranscriptObjectKey finished)
+    , uint64Field 6 (tfTuneTimestampNs finished)
+    ]
+
+decodeTrialFinishedProto :: ByteString -> Either Text TrialFinished
+decodeTrialFinishedProto bytes = do
+  fields <- decodeMessage bytes
+  TrialFinished
+    <$> require "experiment_hash" (fieldString 1 fields)
+    <*> require "trial" (fieldWord32 2 fields)
+    <*> require "objective" (fieldDouble 3 fields)
+    <*> require "pruned" (fieldBool 4 fields)
+    <*> require "transcript_object_key" (fieldString 5 fields)
+    <*> require "timestamp_ns" (fieldWord64 6 fields)
+
+encodeSweepDoneProto :: SweepDone -> ByteString
+encodeSweepDoneProto done =
+  encodeMessage
+    [ stringField 1 (sdExperimentHash done)
+    , uint32Field 2 (sdTrialsCompleted done)
+    , uint32Field 3 (sdTrialsPruned done)
+    , doubleField 4 (sdBestObjective done)
+    ]
+
+decodeSweepDoneProto :: ByteString -> Either Text SweepDone
+decodeSweepDoneProto bytes = do
+  fields <- decodeMessage bytes
+  SweepDone
+    <$> require "experiment_hash" (fieldString 1 fields)
+    <*> require "trials_completed" (fieldWord32 2 fields)
+    <*> require "trials_pruned" (fieldWord32 3 fields)
+    <*> require "best_objective" (fieldDouble 4 fields)
+
+require :: Text -> Maybe a -> Either Text a
+require fieldName =
+  maybe (Left ("missing protobuf field: " <> fieldName)) Right
+
+requireParsed :: Text -> (a -> Maybe b) -> a -> Either Text b
+requireParsed fieldName parseValue value =
+  maybe (Left ("invalid protobuf field: " <> fieldName)) Right (parseValue value)

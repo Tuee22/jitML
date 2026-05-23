@@ -2,6 +2,8 @@
 
 module JitML.Engines.CpuFeatures
   ( CpuFeatures (..)
+  , cpuFeaturesFromDarwinSysctl
+  , cpuFeaturesFromLinuxCpuinfo
   , detectCpuFeatures
   , microKernelChoice
   )
@@ -10,7 +12,6 @@ where
 import Control.Exception qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.IO qualified as Text.IO
 import System.Exit (ExitCode (..))
 
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
@@ -67,14 +68,7 @@ tryDarwinSysctl =
       ExitFailure _ ->
         Control.Exception.throwIO (userError "sysctl probe failed")
       ExitSuccess ->
-        let avx2 = "hw.optional.avx2_0: 1" `Text.isInfixOf` stdoutText
-            avx512 = "hw.optional.avx512f: 1" `Text.isInfixOf` stdoutText
-            vendor =
-              if "machdep.cpu.brand_string" `Text.isInfixOf` stdoutText
-                && ("Apple" `Text.isInfixOf` stdoutText)
-                then "apple-silicon"
-                else "intel-or-amd"
-         in pure CpuFeatures {cpuHasAvx2 = avx2, cpuHasAvx512 = avx512, cpuVendor = vendor}
+        pure (cpuFeaturesFromDarwinSysctl stdoutText)
 
 tryLinuxCpuinfo :: IO (Maybe CpuFeatures)
 tryLinuxCpuinfo =
@@ -82,16 +76,40 @@ tryLinuxCpuinfo =
     `Control.Exception.catch` \(_ :: Control.Exception.SomeException) -> pure Nothing
  where
   probeLinux = do
-    text <- Text.IO.readFile "/proc/cpuinfo"
-    pure
-      CpuFeatures
-        { cpuHasAvx2 = " avx2" `Text.isInfixOf` text
-        , cpuHasAvx512 = " avx512f" `Text.isInfixOf` text
-        , cpuVendor =
-            if "GenuineIntel" `Text.isInfixOf` text
-              then "intel"
-              else
-                if "AuthenticAMD" `Text.isInfixOf` text
-                  then "amd"
-                  else "unknown"
-        }
+    (exitCode, stdoutText, _) <-
+      runStreaming defaultSubprocessEnv (subprocess "cat" ["/proc/cpuinfo"])
+    case exitCode of
+      ExitFailure _ ->
+        Control.Exception.throwIO (userError "cpuinfo probe failed")
+      ExitSuccess ->
+        pure (cpuFeaturesFromLinuxCpuinfo stdoutText)
+
+cpuFeaturesFromDarwinSysctl :: Text -> CpuFeatures
+cpuFeaturesFromDarwinSysctl sysctlText =
+  CpuFeatures
+    { cpuHasAvx2 = "hw.optional.avx2_0: 1" `Text.isInfixOf` sysctlText
+    , cpuHasAvx512 = "hw.optional.avx512f: 1" `Text.isInfixOf` sysctlText
+    , cpuVendor =
+        if "machdep.cpu.brand_string" `Text.isInfixOf` sysctlText
+          && "Apple" `Text.isInfixOf` sysctlText
+          then "apple-silicon"
+          else "intel-or-amd"
+    }
+
+cpuFeaturesFromLinuxCpuinfo :: Text -> CpuFeatures
+cpuFeaturesFromLinuxCpuinfo cpuinfoText =
+  CpuFeatures
+    { cpuHasAvx2 = hasCpuFlag "avx2" cpuinfoText
+    , cpuHasAvx512 = hasCpuFlag "avx512f" cpuinfoText
+    , cpuVendor = linuxCpuVendor cpuinfoText
+    }
+
+hasCpuFlag :: Text -> Text -> Bool
+hasCpuFlag flag cpuinfoText =
+  flag `elem` concatMap Text.words (Text.lines cpuinfoText)
+
+linuxCpuVendor :: Text -> Text
+linuxCpuVendor cpuinfoText
+  | "GenuineIntel" `Text.isInfixOf` cpuinfoText = "intel"
+  | "AuthenticAMD" `Text.isInfixOf` cpuinfoText = "amd"
+  | otherwise = "unknown"

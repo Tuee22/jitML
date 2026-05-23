@@ -120,8 +120,8 @@ program invocation flows through the typed `Subprocess` boundary
 
 - `kubectl`, `helm`, `kind`, `docker`, `tart`, `cabal`, `pulumi`,
   `npx playwright`, `spago`, `pulsar-admin`, `mc` (MinIO CLI), `metal`,
-  `nvcc`, `g++` (over oneDNN), `swift build` (inside the tart VM via `tart
-  ssh`), `dhall freeze`, `proto-lens-protoc`.
+  `nvcc`, `g++` (over oneDNN), `swift build` (inside the tart VM via
+  `tart exec`), `dhall freeze`, `proto-lens-protoc`.
 
 `callProcess`, `readCreateProcess`, `System.Process.*`, `typed-process`
 smart constructors are hlint-forbidden outside the interpreter module.

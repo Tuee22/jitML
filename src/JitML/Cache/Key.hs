@@ -14,7 +14,6 @@ module JitML.Cache.Key
   , TuningChoice (..)
   , cacheKey
   , cacheKeyMaterial
-  , defaultRuntimeSourcePayload
   , defaultTuningChoice
   , extensionFileSuffix
   , hashBytes
@@ -122,10 +121,6 @@ cacheKeyMaterial kernelSpec kind substrate fingerprint sourcePayload tuningChoic
     , LazyByteString.toStrict (serialise tuningChoice)
     ]
 
-defaultRuntimeSourcePayload :: RuntimeSourcePayload
-defaultRuntimeSourcePayload =
-  RuntimeSourcePayload "runtime-source:phase-2-placeholder"
-
 defaultTuningChoice :: TuningChoice
 defaultTuningChoice =
   TuningChoice "default"
@@ -208,6 +203,12 @@ instance ToJSON Extension where
 
 instance FromJSON Extension where
   parseJSON = withText "Extension" (pure . Extension)
+
+instance ToJSON TuningChoice where
+  toJSON = String . unTuningChoice
+
+instance FromJSON TuningChoice where
+  parseJSON = withText "TuningChoice" (pure . TuningChoice)
 
 instance ToJSON Hash where
   toJSON = String . hashHex

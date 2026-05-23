@@ -61,8 +61,13 @@ Current `jitml train` supports the Plan/Apply dry-run surface and, on normal
 execution, prints the selected experiment path plus a deterministic local
 canonical-problem summary. `src/JitML/Proto/Training.hs` defines the typed
 `TrainingCommand` envelopes and deterministic text render/parse round-trips
-for `StartTraining` and `StopTraining`; binary proto-lens serialization remains
-target work. Target runtime work resolves and SHA-hashes the experiment Dhall,
+for `StartTraining` and `StopTraining`; `encodeTrainingCommandProto` and
+`decodeTrainingCommandProto` round-trip the current command oneof through
+proto3-compatible bytes via `JitML.Proto.Wire`. `encodeTrainingEventProto`
+and `decodeTrainingEventProto` round-trip the current `TrainingEvent` oneof,
+including checkpoint metric entries, through the same local wire helper.
+Generated cross-language proto-lens output remains target work. Target runtime work
+resolves and SHA-hashes the experiment Dhall,
 reconciles prerequisites, materializes the dataset, publishes `StartTraining`
 on `training.command.<mode>`, and consumes
 `training.event.<mode>` through the daemon.
@@ -151,8 +156,12 @@ jitml rl train <rl-experiment-dhall>
 Current normal execution prints the selected RL experiment and local algorithm
 count. `src/JitML/Proto/Rl.hs` defines the typed `RlCommand` envelopes and
 deterministic text render/parse round-trips for `StartRLRun` and `StopRLRun`;
-binary proto-lens serialization remains target work. Target runtime work
-publishes `rl.command.<mode>` for the daemon's at-least-once `RlHandler`.
+`encodeRlCommandProto` and `decodeRlCommandProto` round-trip the current
+command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
+`encodeRlEventProto` and `decodeRlEventProto` round-trip the current
+`RlEvent` oneof through the same local wire helper. Generated cross-language
+proto-lens output remains target work. Target runtime work publishes
+`rl.command.<mode>` for the daemon's at-least-once `RlHandler`.
 
 ## RL Algorithm Catalog
 
@@ -252,7 +261,11 @@ daemon-backed trial execution remains target work.
 TPE trial-budget assertion.
 `src/JitML/Proto/Tune.hs` defines the typed `TuneCommand` envelopes and
 deterministic text render/parse round-trips for `StartSweep` and `StopSweep`;
-binary proto-lens serialization remains target work.
+`encodeTuneCommandProto` and `decodeTuneCommandProto` round-trip the current
+command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
+`encodeTuneEventProto` and `decodeTuneEventProto` round-trip the current
+`TuneEvent` oneof through the same local wire helper. Generated cross-language
+proto-lens output remains target work.
 
 `TuneSweepLifecycle` GADT (`Sampled → Scheduled → Running → Pruned →
 Reported → Finished`) is the typed lifecycle.
@@ -322,8 +335,9 @@ jitml tune <tune-dhall>
 Current normal execution decodes the tuning Dhall, renders the selected
 sampler/scheduler/pruner axes, and prints deterministic local trial values.
 Target runtime work publishes `tune.command.<mode>` for the daemon's
-at-least-once `TuneHandler`; the current command parser only covers the local
-text envelope emitted by `renderTuneCommand`.
+at-least-once `TuneHandler`; the current proto mirror covers local text command
+envelopes plus proto3-compatible byte envelopes for the command and event
+oneofs.
 
 ### Worked Example
 

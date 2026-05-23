@@ -18,6 +18,7 @@ module JitML.Checkpoint.Format
   , applyPointerWrite
   , bestPointerKey
   , blobKey
+  , decodeJmw1
   , decodeManifestCbor
   , deriveExperimentHash
   , emptyManifest
@@ -35,7 +36,7 @@ where
 
 import Codec.Serialise (Serialise, deserialiseOrFail, serialise)
 import Crypto.Hash.SHA256 qualified as SHA256
-import Data.Bits (Bits, shiftR, (.&.))
+import Data.Bits (Bits, shiftL, shiftR, (.&.))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (intToDigit)
@@ -44,7 +45,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word32, Word64, Word8)
-import GHC.Float (castDoubleToWord64)
+import GHC.Float (castDoubleToWord64, castWord64ToDouble)
 import GHC.Generics (Generic)
 
 data CheckpointPartKind
@@ -197,6 +198,46 @@ encodeJmw1 values =
         , jmw1TensorCount = length values
         }
 
+decodeJmw1 :: LazyByteString.ByteString -> Either Text [Double]
+decodeJmw1 payload = do
+  let strict = LazyByteString.toStrict payload
+      (magic, afterMagic) = StrictByteString.splitAt 4 strict
+      (headerLengthBytes, afterHeaderLength) = StrictByteString.splitAt 4 afterMagic
+  if magic /= Text.Encoding.encodeUtf8 "JMW1"
+    then Left "unsupported .jmw1 magic"
+    else do
+      headerLength <- maybeToEither "truncated .jmw1 header length" (word32FromLe headerLengthBytes)
+      let requestedHeaderLength = fromIntegral headerLength
+          (headerBytes, tensorBytes) =
+            StrictByteString.splitAt requestedHeaderLength afterHeaderLength
+      if StrictByteString.length headerBytes /= requestedHeaderLength
+        then Left "truncated .jmw1 header"
+        else do
+          header <- decodeJmw1Header (LazyByteString.fromStrict headerBytes)
+          if jmw1Dtype header /= "F64"
+            then Left ("unsupported .jmw1 dtype: " <> jmw1Dtype header)
+            else decodeJmw1Doubles (jmw1TensorCount header) tensorBytes
+
+decodeJmw1Header :: LazyByteString.ByteString -> Either Text Jmw1Header
+decodeJmw1Header bytes =
+  case deserialiseOrFail bytes of
+    Left failure -> Left ("invalid .jmw1 header: " <> Text.pack (show failure))
+    Right header -> Right header
+
+decodeJmw1Doubles :: Int -> StrictByteString.ByteString -> Either Text [Double]
+decodeJmw1Doubles count bytes
+  | count < 0 = Left "invalid .jmw1 tensor count"
+  | StrictByteString.length bytes /= count * 8 =
+      Left "unexpected .jmw1 tensor payload length"
+  | otherwise =
+      traverse decodeDoubleAt [0 .. count - 1]
+ where
+  decodeDoubleAt index =
+    castWord64ToDouble
+      <$> maybeToEither
+        "truncated .jmw1 double payload"
+        (word64FromLe (StrictByteString.take 8 (StrictByteString.drop (index * 8) bytes)))
+
 encodeManifestCbor :: CheckpointManifest -> LazyByteString.ByteString
 encodeManifestCbor =
   serialise . canonicalManifest
@@ -299,6 +340,38 @@ word64Le word =
 byteAt :: (Integral a, Bits a) => Int -> a -> Word8
 byteAt offset word =
   fromIntegral ((word `shiftR` offset) .&. 0xff)
+
+word32FromLe :: StrictByteString.ByteString -> Maybe Word32
+word32FromLe bytes =
+  case StrictByteString.unpack bytes of
+    [b0, b1, b2, b3] ->
+      Just
+        ( fromIntegral b0
+            + (fromIntegral b1 `shiftL` 8)
+            + (fromIntegral b2 `shiftL` 16)
+            + (fromIntegral b3 `shiftL` 24)
+        )
+    _ -> Nothing
+
+word64FromLe :: StrictByteString.ByteString -> Maybe Word64
+word64FromLe bytes =
+  case StrictByteString.unpack bytes of
+    [b0, b1, b2, b3, b4, b5, b6, b7] ->
+      Just
+        ( fromIntegral b0
+            + (fromIntegral b1 `shiftL` 8)
+            + (fromIntegral b2 `shiftL` 16)
+            + (fromIntegral b3 `shiftL` 24)
+            + (fromIntegral b4 `shiftL` 32)
+            + (fromIntegral b5 `shiftL` 40)
+            + (fromIntegral b6 `shiftL` 48)
+            + (fromIntegral b7 `shiftL` 56)
+        )
+    _ -> Nothing
+
+maybeToEither :: Text -> Maybe a -> Either Text a
+maybeToEither message =
+  maybe (Left message) Right
 
 hexWord8 :: Word8 -> String
 hexWord8 byte =

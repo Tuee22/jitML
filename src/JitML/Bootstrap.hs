@@ -347,10 +347,11 @@ hostBootConfigForPublication publication =
   portText = Text.pack (show (publicationEdgePort publication))
 
 -- | Live phased rollout executor. Runs the typed
--- `kindCreateSubprocess` + Helm phases + Docker build / Kind image-load phase through the typed
--- `runStreaming` boundary and returns the per-step rendered command + any
--- failures. The App tier invokes this directly for a substrate bootstrap
--- command after handling explicit plan/dry-run output.
+-- `kindCreateSubprocess` + Helm phases + Docker build / Kind image-load phase
+-- through the typed `runStreaming` boundary. The rollout stops at the first
+-- failed step so later phases cannot mask a missing image or broken prerequisite.
+-- The App tier invokes this directly for a substrate bootstrap command after
+-- handling explicit plan/dry-run output.
 liveExecutePhasedRollout :: Substrate -> FilePath -> IO LiveExecutionResult
 liveExecutePhasedRollout substrate chartPath = do
   lease <- selectLiveLease substrate
@@ -378,7 +379,12 @@ liveExecutePhasedRollout substrate chartPath = do
     case exitCode of
       ExitSuccess -> runSteps publication (rendered : executed) failed rest
       ExitFailure _ ->
-        runSteps publication (rendered : executed) ((rendered, stderrText) : failed) rest
+        pure
+          LiveExecutionResult
+            { liveStepsExecuted = reverse (rendered : executed)
+            , liveStepsFailed = reverse ((rendered, stderrText) : failed)
+            , livePublication = publication
+            }
 
 selectLiveLease :: Substrate -> IO EdgePort.EdgePortLease
 selectLiveLease substrate = do

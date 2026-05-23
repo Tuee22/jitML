@@ -48,7 +48,10 @@ build` → `jitml bootstrap --<substrate>` → publication-check, with
 the symmetric `kind delete cluster` rollback on destroy.
 `JitML.Test.LivePlan.livePhasedClusterPlan` enumerates the typed
 phased Helm rollout per substrate so the e2e body can verify the
-ordering before invoking the live path. **Unmet today**: Sprint
+ordering before invoking the live path. 2026-05-21 local validation re-ran
+`jitml test all --dry-run` and non-dry-run `jitml test all`; all eight test
+stanzas passed and the report card rendered `passed: 8`, `failed: 0`.
+**Unmet today**: Sprint
 `12.2` still owes live checkpoint/Pulsar/cluster capability effects and
 real per-substrate determinism; its real-binary spawn matrix, live routed
 MinIO conditional-write validation, and Dhall
@@ -68,7 +71,8 @@ All eight Cabal test stanzas are declared and each has a deterministic
 renderers, catalogs, checkpoint summaries, route/bucket registries,
 daemon lifecycle data, and frontend contract scaffolds. The
 `jitml-cross-backend` body also compiles, loads, and runs the generated
-Linux CPU identity kernel through `dlopen`; the `jitml-e2e` body
+Linux CPU identity, reduction-smoke, and family-scaffold kernels through
+`dlopen` and checks the exported family and output-count symbols; the `jitml-e2e` body
 verifies the typed live Helm/Pulumi/Playwright plan and the deterministic
 demo stream routes without executing the live stack. Its local
 post-teardown check asserts no `jitml-e2e-*` Kind clusters survive when both
@@ -167,7 +171,8 @@ same-substrate training determinism per `### Remaining Work` below.
   the Sprint `9.7` TPE `jitml tune` render path.
 - CpuFeatures CPUID detection, filesystem-backed `HasMinIO` checkpoint /
   inference / resume round-trips, the local Linux CPU checkpoint inference
-  runner through a generated FFI kernel, Dhall numerics decode coverage, and
+  runner through a generated FFI kernel, decoded `.jmw1` weights passed into
+  the weighted local inference runner, Dhall numerics decode coverage, and
   `KubectlSubprocess` command-shape coverage against the repo-local kubeconfig
   all run here.
 - Real checkpoint round-trip against live HTTP MinIO and training transcript
@@ -212,6 +217,8 @@ fixtures remain future runtime work.
 - It asserts each final synthetic loss is lower than the initial loss.
 - It compares every deterministic curve against the committed fixture under
   `test/golden/sl/<problem-key>/curve.txt`.
+- It covers `TrainingCommand` text render/parse round-trips plus
+  `TrainingCommand` / `TrainingEvent` proto3-compatible byte round-trips.
 - It does not run live training or consume `sl_epochs` / `sl_batch` yet.
 
 ### Validation
@@ -255,6 +262,8 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 - It asserts `selfPlayTranscript` emits legal Connect 4 columns.
 - It compares the local Connect 4, Othello, Hex, and Gomoku transcript
   shapes against `test/golden/alphazero/<game>-transcript.txt`.
+- It covers `RlCommand` text render/parse round-trips plus `RlCommand` /
+  `RlEvent` proto3-compatible byte round-trips.
 - It does not run RL environments, train policies, or consume
   `rl_steps`, `rl_eval_episodes`, `az_games`, or `az_sims` yet.
 
@@ -306,6 +315,8 @@ and deterministic trial-value checks.
 - It consumes `tune_trials` and `tune_budget_per_trial` from the
   `cabal.project` report-card knob block for the local TPE trial-budget
   assertion.
+- It covers `TuneCommand` text render/parse round-trips plus `TuneCommand` /
+  `TuneEvent` proto3-compatible byte round-trips.
 - Scheduler/pruner event semantics and resume equality are owned by
   `### Remaining Work` below. Report-card knob parsing is also covered through
   `src/JitML/Test/Report.hs` and `jitml-e2e`.
@@ -343,7 +354,8 @@ and deterministic trial-value checks.
 ### Objective
 
 Use `jitml-cross-backend` for the engine-flag, checkpoint
-inference summary, and Linux CPU generated-kernel execution checks. Live
+inference summary, Linux CPU generated-kernel execution checks, and local Linux
+CPU `HasEngine` smoke dispatch. Live
 cross-substrate tolerance testing remains the overall handoff gate.
 
 ### Deliverables
@@ -352,9 +364,13 @@ cross-substrate tolerance testing remains the overall handoff gate.
   deterministic engine flags.
 - It verifies `inferFromManifest` returns the same deterministic summary for
   each substrate in the local substrate list.
-- It compiles the generated Linux CPU identity kernel, loads `jitml_kernel`
-  with `dlopen`, and asserts three successive FFI invocations produce
-  bit-identical fixture output.
+- It compiles generated Linux CPU identity, reduction-smoke, and
+  family-scaffold kernels, loads `jitml_kernel` and
+  `jitml_kernel_family_name` / `jitml_kernel_output_count` with `dlopen`,
+  verifies the reported family and output length, and asserts three successive
+  FFI invocations produce bit-identical fixture output.
+- It dispatches a generated family kernel through the local Linux CPU
+  `HasEngine` interpreter and verifies the loaded family metadata.
 - It does not train SL canon cohorts or read `test/golden/cross-backend/`
   tolerance fixtures yet.
 
@@ -362,8 +378,12 @@ cross-substrate tolerance testing remains the overall handoff gate.
 
 1. `cabal test jitml-cross-backend` exits `0` for the body.
 2. `cabal test jitml-cross-backend` validates the generated Linux CPU
-   identity kernel compile/load/run path.
-3. Live validation (target): the stanza runs the canonical SL cohorts
+   identity, reduction-smoke, and family-scaffold compile/load/run paths plus
+   exported family/output-count symbol metadata.
+3. `docker compose run --rm jitml cabal test jitml-cross-backend` on
+   2026-05-22 validates the local Linux CPU `HasEngine` dispatch over the
+   generated-family FFI path in `jitml:local`.
+4. Live validation (target): the stanza runs the canonical SL cohorts
    on the `(linux-cpu, linux-cuda)` and `(linux-cpu, apple-silicon)`
    substrate pairs, asserts per-tensor drift fits the committed
    tolerance band per
@@ -401,6 +421,8 @@ the current boot → ready → serve → SIGHUP reload → drain → exit contro
 - The test exercises signal mapping (`SIGHUP` reload generation and
   `SIGINT`/`SIGTERM` graceful drain) and asserts readiness drops during drain.
 - The test exercises the one-shot daemon HTTP listener against `/healthz`.
+- The test covers proto3-compatible byte round-trips for the current
+  `JitML.Proto.Inference` request/result envelopes.
 - Live Pulsar idempotency remains target runtime validation.
 
 ### Validation
@@ -410,6 +432,8 @@ the current boot → ready → serve → SIGHUP reload → drain → exit contro
    drain → exit`.
 3. Retry helpers map synthetic service errors to the expected `AppError`.
 4. The one-shot daemon HTTP listener returns `200 OK` for `/healthz`.
+5. Inference request/result protobuf envelopes round-trip through the local
+   codec.
 
 ## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator 🔄
 
@@ -531,7 +555,7 @@ health, cross-substrate parity tolerance).
   `tune_trials`, `tune_budget_per_trial`, `xcluster_kind_nodes` (see
   [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs)).
-- `ReportCard.hs` renders the tidy summary block on stdout, exposes
+- `src/JitML/Test/Report.hs` renders the tidy summary block on stdout, exposes
   `parseReportCardKnobs`, and `jitml test all` now reads the `cabal.project`
   knob block before rendering the report card instead of relying only on the
   in-code defaults. `renderReportCardForTargets` renders the expanded
@@ -543,6 +567,9 @@ health, cross-substrate parity tolerance).
   non-dry-run `jitml test all` inside `jitml:local`; the non-dry-run path
   passed all eight test stanzas and printed the report card with the
   `cabal.project` knob values.
+- 2026-05-21 local validation re-ran `jitml test all --dry-run` and
+  non-dry-run `jitml test all`; all eight test stanzas passed and the
+  report-card summary printed the current knob block plus target stanza list.
 
 ### Validation
 

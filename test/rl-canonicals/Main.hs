@@ -9,9 +9,18 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import JitML.Proto.Rl
-  ( RlCommand (..)
+  ( CheckpointDoneRL (..)
+  , EpisodeDone (..)
+  , EvalDone (..)
+  , MetricUpdate (..)
+  , RlCommand (..)
+  , RlEvent (..)
   , StartRLRun (..)
   , StopRLRun (..)
+  , decodeRlCommandProto
+  , decodeRlEventProto
+  , encodeRlCommandProto
+  , encodeRlEventProto
   , parseRlCommand
   , renderRlCommand
   )
@@ -111,6 +120,47 @@ main =
           parseRlCommand (renderRlCommand start) @?= Just start
           parseRlCommand (renderRlCommand stop) @?= Just stop
           parseRlCommand "kind: UnknownRlCommand\n" @?= Nothing
+          decodeRlCommandProto (encodeRlCommandProto start) @?= Right start
+          decodeRlCommandProto (encodeRlCommandProto stop) @?= Right stop
+      , testCase "RL event envelopes round-trip through proto3-compatible bytes" $ do
+          let episode =
+                RlEpisode
+                  EpisodeDone
+                    { edExperimentHash = "sha256:cartpole"
+                    , edEpisode = 7
+                    , edReward = 1.5
+                    , edSteps = 32
+                    , edTimestampNs = 123456789
+                    }
+              eval =
+                RlEval
+                  EvalDone
+                    { evExperimentHash = "sha256:cartpole"
+                    , evEpoch = 3
+                    , evAvgReward = 0.75
+                    , evStdReward = 0.125
+                    , evTimestampNs = 223456789
+                    }
+              checkpoint =
+                RlCheckpoint
+                  CheckpointDoneRL
+                    { cdrlExperimentHash = "sha256:cartpole"
+                    , cdrlManifestSha = "sha256:manifest"
+                    , cdrlStep = 2048
+                    , cdrlPointerKey = "checkpoints/cartpole/latest"
+                    }
+              metric =
+                RlMetric
+                  MetricUpdate
+                    { muExperimentHash = "sha256:cartpole"
+                    , muName = "entropy"
+                    , muValue = 0.0625
+                    , muTimestampNs = 323456789
+                    }
+          decodeRlEventProto (encodeRlEventProto episode) @?= Right episode
+          decodeRlEventProto (encodeRlEventProto eval) @?= Right eval
+          decodeRlEventProto (encodeRlEventProto checkpoint) @?= Right checkpoint
+          decodeRlEventProto (encodeRlEventProto metric) @?= Right metric
       ]
 
 assertContains :: Text -> [Text] -> IO ()

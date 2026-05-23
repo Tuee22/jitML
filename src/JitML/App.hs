@@ -9,7 +9,7 @@ where
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception.Safe (displayException, finally, tryAny)
-import Control.Monad (forever, unless, void, when)
+import Control.Monad (forever, unless, when)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy qualified as LazyByteString
@@ -51,15 +51,22 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
 import JitML.Cluster.Publication qualified as Publication
-import JitML.Codegen.RuntimeSource
-  ( materializeRuntimeSource
-  , renderRuntimeSource
-  , runtimeSourcePayload
-  )
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
-import JitML.Engines.Engine (engineForSubstrate, renderBuildPlan)
-import JitML.Engines.Local (linuxCpuKernelOutput, runLinuxCpuKernel)
+import JitML.Engines.Engine
+  ( compileSubprocess
+  , engineForSubstrate
+  , kernelHandleArtifactPath
+  , renderBuildPlan
+  )
+import JitML.Engines.Loader qualified as EngineLoader
+import JitML.Engines.Local
+  ( linuxCpuKernelOutput
+  , linuxCpuToolchainFingerprint
+  , runLinuxCpuCheckpointInference
+  , runLinuxCpuKernel
+  )
+import JitML.Engines.TuningCache qualified as TuningCache
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (App, ColorMode (..), Env (..), OutputFormat (..))
 import JitML.Lint.Stack
@@ -93,6 +100,8 @@ import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.Consumer
   ( ConsumerOutcome (..)
+  , EventDomain
+  , EventId
   , HandlerRouter
   , consumerStepWithActions
   )
@@ -103,8 +112,10 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
-import JitML.Tart.Exec (tartSshSubprocess)
-import JitML.Tart.Lifecycle (VmName (..), ensureVmUp)
+import JitML.Tart.Build qualified as TartBuild
+import JitML.Tart.Exec (tartExecSubprocess)
+import JitML.Tart.Lifecycle (VmName (..))
+import JitML.Tart.Lifecycle qualified as TartLifecycle
 import JitML.Test.Report
   ( ReportCard (..)
   , loadReportCardKnobs
@@ -488,11 +499,13 @@ runService :: [ParsedOption] -> App ()
 runService parsedOptions = do
   let configValues = optionValues "config" parsedOptions
       explicitConfig = not (null configValues)
+      consumeOnceRequested = hasOption "consume-once" parsedOptions
       consumeOnceBudget = max 0 (readInt (selectedValue "consume-once" "0" parsedOptions))
       configPath =
         case configValues of
           [] -> "./conf/cluster/linux-cpu.dhall"
           value : _ -> value
+  env <- ask
   runtime <- loadDaemonRuntime configPath explicitConfig
   acquiredRuntime <-
     liftIO
@@ -508,7 +521,7 @@ runService parsedOptions = do
       )
   writeLine ("service config: " <> configPath)
   writeText (ServiceRuntime.renderDaemonRuntimeSummary probedRuntime)
-  if consumeOnceBudget > 0
+  if consumeOnceRequested
     then do
       (_, outcomes) <-
         liftIO
@@ -517,7 +530,7 @@ runService parsedOptions = do
               ( ServiceRuntime.daemonConsumerBatch
                   probedRuntime
                   consumeOnceBudget
-                  ServiceRuntime.daemonWorkloadDispatcher
+                  (daemonWorkloadDispatcherForRuntime env probedRuntime)
               )
           )
       writeLine
@@ -529,16 +542,16 @@ runService parsedOptions = do
       for_ (ServiceRuntime.consumerLoopExit outcomes) exitWithError
     else do
       writeLine "service: listening on 0.0.0.0:8080"
-      consumerThreads <- liftIO (startDaemonConsumerWorkers probedRuntime)
+      consumerThreads <- liftIO (startDaemonConsumerWorkers env probedRuntime)
       liftIO
         ( ServiceRuntime.serveDaemon probedRuntime
             `finally` stopDaemonConsumerWorkers consumerThreads
         )
 
-startDaemonConsumerWorkers :: ServiceRuntime.DaemonRuntime -> IO [ThreadId]
-startDaemonConsumerWorkers runtime = do
+startDaemonConsumerWorkers :: Env -> ServiceRuntime.DaemonRuntime -> IO [ThreadId]
+startDaemonConsumerWorkers env runtime = do
   routerRef <- newMVar (ServiceRuntime.daemonHandlerRouter runtime)
-  traverse (forkIO . daemonConsumerWorkerLoop runtime routerRef) (acquiredSubscriptionIds runtime)
+  traverse (forkIO . daemonConsumerWorkerLoop env runtime routerRef) (acquiredSubscriptionIds runtime)
 
 stopDaemonConsumerWorkers :: [ThreadId] -> IO ()
 stopDaemonConsumerWorkers =
@@ -554,14 +567,14 @@ acquiredSubscriptionIds runtime =
       _ -> []
 
 daemonConsumerWorkerLoop
-  :: ServiceRuntime.DaemonRuntime -> MVar HandlerRouter -> SubscriptionId -> IO ()
-daemonConsumerWorkerLoop runtime routerRef subscription =
+  :: Env -> ServiceRuntime.DaemonRuntime -> MVar HandlerRouter -> SubscriptionId -> IO ()
+daemonConsumerWorkerLoop env runtime routerRef subscription =
   forever $ do
     workerResult <-
       PulsarWebSocketSubprocess.runPulsarConsumerWorker
         (ServiceClients.daemonPulsarSettings (ServiceRuntime.daemonClientSettings runtime))
         subscription
-        (handleDaemonConsumerDelivery runtime routerRef subscription)
+        (handleDaemonConsumerDelivery env runtime routerRef subscription)
     case workerResult of
       Right () -> pure ()
       Left err -> do
@@ -572,14 +585,15 @@ daemonConsumerWorkerLoop runtime routerRef subscription =
         threadDelay daemonConsumerErrorDelayMicros
 
 handleDaemonConsumerDelivery
-  :: ServiceRuntime.DaemonRuntime
+  :: Env
+  -> ServiceRuntime.DaemonRuntime
   -> MVar HandlerRouter
   -> SubscriptionId
   -> PulsarWebSocketSubprocess.PulsarWorkerDelivery
   -> IO (Either ServiceError ())
   -> IO (Either ServiceError ())
   -> IO ()
-handleDaemonConsumerDelivery runtime routerRef subscription delivery ackDelivery nackDelivery = do
+handleDaemonConsumerDelivery env runtime routerRef subscription delivery ackDelivery nackDelivery = do
   outcomeResult <-
     tryAny $
       modifyMVar routerRef $ \router -> do
@@ -594,7 +608,7 @@ handleDaemonConsumerDelivery runtime routerRef subscription delivery ackDelivery
             ( \domain eventId payload ->
                 ServiceClients.runDaemonServiceClient
                   (ServiceRuntime.daemonClientSettings runtime)
-                  (ServiceRuntime.daemonWorkloadDispatcher domain eventId payload)
+                  (daemonWorkloadDispatcherForRuntime env runtime domain eventId payload)
             )
         pure (router', outcome)
   case outcomeResult of
@@ -609,6 +623,23 @@ handleDaemonConsumerDelivery runtime routerRef subscription delivery ackDelivery
 
 daemonConsumerErrorDelayMicros :: Int
 daemonConsumerErrorDelayMicros = 1000000
+
+daemonWorkloadDispatcherForRuntime
+  :: Env
+  -> ServiceRuntime.DaemonRuntime
+  -> EventDomain
+  -> EventId
+  -> Text
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+daemonWorkloadDispatcherForRuntime env runtime =
+  case ( BootConfig.bootSubstrate (ServiceRuntime.daemonBootConfig runtime)
+       , BootConfig.bootInferenceMode (ServiceRuntime.daemonBootConfig runtime)
+       ) of
+    (LinuxCPU, BootConfig.SelfInference) ->
+      ServiceRuntime.daemonWorkloadDispatcherWithInference $ \manifest input ->
+        liftIO (runLinuxCpuCheckpointInference env manifest input)
+    _ ->
+      ServiceRuntime.daemonWorkloadDispatcher
 
 loadDaemonRuntime :: Text -> Bool -> App ServiceRuntime.DaemonRuntime
 loadDaemonRuntime configPath explicitConfig = do
@@ -678,23 +709,40 @@ runBuild parsedOptions =
       let engine = engineForSubstrate substrate
           kernelSpec = Cache.KernelSpec "jitml-build:identity"
           kind = Cache.Training
-          tuningChoice = Cache.defaultTuningChoice
-          cacheSubstrate = cacheSubstrateFromCli substrate
-          runtimeSource = renderRuntimeSource kernelSpec kind cacheSubstrate tuningChoice
-          fingerprint = Cache.ToolchainFingerprint "jitml-build;compiler-pins=cabal.project"
-          hash =
-            Cache.cacheKey
-              kernelSpec
-              kind
-              cacheSubstrate
-              fingerprint
-              (runtimeSourcePayload runtimeSource)
-              tuningChoice
-          rendered =
-            Text.unlines
-              [ "build: /opt/build/jitml"
-              , renderBuildPlan engine runtimeSource hash
-              ]
+          fingerprint = buildToolchainFingerprint substrate
+      tuningPlanResult <-
+        liftIO $
+          TuningCache.selectTuningCachePlan
+            (toFilePath (envCacheDir env))
+            kernelSpec
+            kind
+            substrate
+            fingerprint
+      tuningPlan <-
+        case tuningPlanResult of
+          Left err -> exitWithError (InvalidConfig err)
+          Right plan -> pure plan
+      let runtimeSource = TuningCache.tuningCacheRuntimeSource tuningPlan
+          hash = TuningCache.tuningCacheHash tuningPlan
+          buildPlanSections =
+            [ "build: /opt/build/jitml"
+            , "tuning_base_hash: " <> Cache.hashHex (TuningCache.tuningCacheBaseHash tuningPlan)
+            , "tuning_choice: " <> Cache.unTuningChoice (TuningCache.tuningCacheTuningChoice tuningPlan)
+            , "tuning_selection: " <> TuningCache.tuningCacheSelectionSource tuningPlan
+            , renderBuildPlan engine runtimeSource hash
+            ]
+              <> case substrate of
+                AppleSilicon ->
+                  [ TartBuild.renderTartCacheMissBuildPlan
+                      ( TartBuild.tartCacheMissBuildPlan
+                          (VmName "jitml-build")
+                          (Cache.ModelId "jitml-build")
+                          runtimeSource
+                          hash
+                      )
+                  ]
+                _ -> []
+          rendered = Text.unlines buildPlanSections
       case optionValues "plan-file" parsedOptions of
         [] -> pure ()
         planPath : _ -> liftIO (writePlanFile (Text.unpack planPath) rendered)
@@ -710,9 +758,29 @@ runBuild parsedOptions =
                 Right kernelRun ->
                   pure ["linux_cpu_run: " <> Text.pack (show (linuxCpuKernelOutput kernelRun))]
             _ -> do
-              void (liftIO (materializeRuntimeSource env runtimeSource hash))
-              pure []
+              artifactResult <- liftIO (EngineLoader.ensureKernelArtifact env engine runtimeSource hash)
+              case artifactResult of
+                Left message ->
+                  exitWithError
+                    ( SubprocessFailed
+                        (renderSubprocess (compileSubprocess engine runtimeSource hash))
+                        (ExitFailure 1)
+                        message
+                    )
+                Right artifact ->
+                  pure
+                    [ "cache_artifact_ready: "
+                        <> kernelHandleArtifactPath (EngineLoader.kernelArtifactHandle artifact)
+                    , "cache_artifact_compiled: "
+                        <> if EngineLoader.kernelArtifactCompiled artifact then "yes" else "no"
+                    ]
       writeText (Text.unlines (rendered : runOutput))
+
+buildToolchainFingerprint :: Substrate -> Cache.ToolchainFingerprint
+buildToolchainFingerprint LinuxCPU =
+  linuxCpuToolchainFingerprint
+buildToolchainFingerprint _ =
+  Cache.ToolchainFingerprint "jitml-build;compiler-pins=cabal.project"
 
 runKubectl :: [ParsedOption] -> App ()
 runKubectl parsedOptions =
@@ -856,12 +924,46 @@ targetStanzas targets = targets
 runInternalVmExec :: [ParsedOption] -> App ()
 runInternalVmExec parsedOptions =
   writeLine
-    (renderSubprocess (tartSshSubprocess (VmName "jitml-build") (optionValues "cmd" parsedOptions)))
+    (renderSubprocess (tartExecSubprocess jitmlBuildVm (optionValues "cmd" parsedOptions)))
 
 runInternalVmLifecycle :: Text -> App ()
-runInternalVmLifecycle action = do
-  liftIO (ensureVmUp "." (VmName "jitml-build"))
-  writeLine ("vm " <> action <> ": jitml-build")
+runInternalVmLifecycle "bootstrap" = do
+  result <-
+    liftIO
+      ( TartLifecycle.bootstrapTartVmLive
+          TartLifecycle.defaultTartBaseImage
+          jitmlBuildVm
+      )
+  reportInternalVmLifecycleResult "bootstrap" result
+runInternalVmLifecycle "up" = do
+  result <- liftIO (TartLifecycle.ensureVmUpLive jitmlBuildVm)
+  reportInternalVmLifecycleResult "up" result
+runInternalVmLifecycle "down" = do
+  result <- liftIO (TartLifecycle.stopTartVmLive jitmlBuildVm)
+  reportInternalVmLifecycleResult "down" result
+runInternalVmLifecycle "status" = do
+  result <- liftIO (TartLifecycle.queryTartVmStatus jitmlBuildVm)
+  reportInternalVmLifecycleResult "status" result
+runInternalVmLifecycle action =
+  exitWithError (UnknownCommand ("unknown vm lifecycle action: " <> action))
+
+reportInternalVmLifecycleResult :: Text -> Either Text TartLifecycle.TartVmStatus -> App ()
+reportInternalVmLifecycleResult action result =
+  case result of
+    Left err ->
+      exitWithError (InvalidConfig ("internal vm " <> action <> ": " <> err))
+    Right status ->
+      writeLine
+        ( "vm "
+            <> action
+            <> ": "
+            <> unVmName jitmlBuildVm
+            <> " "
+            <> TartLifecycle.renderTartVmStatus status
+        )
+
+jitmlBuildVm :: VmName
+jitmlBuildVm = VmName "jitml-build"
 
 -- | `jitml internal gc <experiment-hash>` reconciler. Walks the local
 -- on-disk manifests under the supplied experiment hash, applies
@@ -917,11 +1019,6 @@ selectedSubstrateWithDefault defaultSubstrate parsedOptions =
         Right
         (parseSubstrate value)
     [] -> Right defaultSubstrate
-
-cacheSubstrateFromCli :: Substrate -> Cache.Substrate
-cacheSubstrateFromCli AppleSilicon = Cache.AppleSilicon
-cacheSubstrateFromCli LinuxCPU = Cache.LinuxCPU
-cacheSubstrateFromCli LinuxCUDA = Cache.LinuxCUDA
 
 selectedValue :: Text -> Text -> [ParsedOption] -> Text
 selectedValue optionName fallback parsedOptions =

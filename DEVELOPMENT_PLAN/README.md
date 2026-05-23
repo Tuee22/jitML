@@ -39,26 +39,37 @@ maintenance rules that govern this plan suite.
 The plan is mid-build. Phases `0` (planning and documentation topology), `1`
 (Haskell CLI surface, lint stack, and code-quality gate), `2` (bootstrap
 reconciler, prerequisite DAG, JIT cache, outer-container builds), `3`
-(cluster substrate and routing), `4` (stateful platform services), and `6`
+(cluster substrate and routing), `4` (stateful platform services), `5`
+(`jitml service` daemon), and `6`
 (numerical core) are `✅ Done` — every Exit Definition obligation those phases
 own is met in the worktree and validated
 by their sprints' `### Validation` blocks. Sprint `1.4` now owns the
 container-exclusive code-quality rule: `jitml:local` image construction
 installs the separate style GHC/tools and runs `jitml check-code`; host
 lint/check-code execution is unsupported and no host style-tool override exists.
-Phases `5`, `7`, `8`, `9`, `10`, `11`, and `12` are `🔄 Active`:
+Phases `7`, `8`, `9`, `10`, `11`, and `12` are `🔄 Active`:
 each owns at least one Exit Definition obligation that requires live runtime
 behaviour (cluster apply, real service clients, real kernel execution,
 checkpoint storage, browser flow, cross-substrate parity) which the worktree
-does not yet exercise. The active phases have all materially advanced
-their typed scaffolds: the family-aware JIT codegen surface
+does not yet exercise. The current baseline also includes the family-aware JIT
+codegen surface
 (`JitML.Codegen.KernelFamily`), the per-substrate knob spaces
-and deterministic benchmark candidate plans (`JitML.Engines.Tuning`), the
+and deterministic benchmark candidate plans plus measured-result selection,
+generic measurement collection, guarded CUDA/Metal benchmark runner preflight
+boundaries, selected-choice persistence, and persisted-choice cache-key
+derivation
+(`JitML.Engines.{Tuning,TuningBenchmark,TuningStore,TuningCache}`), the
 14 RL algorithm modules under `JitML.RL.Algorithms.*`, the AlphaZero MCTS /
 SelfPlay / Arena substack, the four-game `PerfectInformation` typeclass, the
 typed proto envelopes under `JitML.Proto.{Training,Rl,Tune}` with deterministic
-text command parsers for the training, RL, and tuning command envelopes plus
-`JitML.Proto.Inference` for `RunInference` / `InferenceResult`, the typed daemon capability
+text command parsers for the training, RL, and tuning command envelopes,
+proto3-compatible byte codecs for the current Training/RL/Tune command and
+event envelopes via `JitML.Proto.Wire`, plus
+`proto/jitml/inference.proto` and
+`JitML.Proto.Inference` byte codecs for `RunInference` / `InferenceResult`,
+`JitML.Service.AppleInferenceRpc` planning and correlating Apple-only
+host↔cluster command/event envelopes,
+the typed daemon capability
 surface with full `HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl`
 methods + per-domain `HandlerRouter` + filesystem-backed `HasMinIO`
 instance (`JitML.Service.FilesystemMinIO`) + subprocess-backed
@@ -142,16 +153,26 @@ writer (`JitML.Observability.TensorBoard.writeTensorBoardEvent`), and live
 routed TensorBoard scalar readback from a Haskell-written shard, the AVX2 /
 AVX-512 CPU
 detection (`JitML.Engines.CpuFeatures`) probing the host through the
-typed `Subprocess` boundary, the MCTS transposition table
+typed `Subprocess` boundary, the typed oneDNN runtime/link probe
+(`JitML.Engines.OneDnnRuntime`) for `pkg-config` metadata and dynamic-linker
+`libdnnl` visibility, the typed CUDA runtime/link probe and host reduction
+partial finalizer (`JitML.Engines.CudaRuntime`) for `nvcc`, `nvidia-smi`,
+`libcuda`, `libcublas`, `libcudnn`, and canonical reduction partial
+accumulation, the typed Metal runtime probe (`JitML.Engines.MetalRuntime`) for
+Swift, `xcrun`, and Metal device visibility, the MCTS transposition table
 (`JitML.RL.AlphaZero.Mcts.{TranspositionTable,runSearchWithTable}`)
 deduplicating equivalent search subtrees, per-game AlphaZero golden
 replays (`test/golden/alphazero/{connect4,othello,hex,gomoku}-transcript.txt`)
 bound by `JitML.RL.AlphaZero.selfPlayTranscriptFor` and validated by
 `jitml-rl-canonicals`, the SelfPlayBuffer round-trip through the
-filesystem-backed `HasMinIO` instance, the same-host bit-equality of
-the linux-cpu identity kernel across three successive FFI runs plus the
-linux-cpu reduction-smoke generated FFI path validated by
-`jitml-cross-backend`, the Dhall numerics schema decode
+filesystem-backed `HasMinIO` instance, the shared `JitML.Engines.Loader`
+cache artifact boundary used by the local Linux CPU runner, the same-host
+bit-equality of the linux-cpu identity kernel across three successive FFI runs
+plus the linux-cpu reduction-smoke, all-family generated FFI scaffold paths,
+and local Linux CPU `HasEngine` dispatch validated by `jitml-cross-backend`
+including exported `jitml_kernel_family_name` and
+`jitml_kernel_output_count` metadata, the Dhall
+numerics schema decode
 that round-trips the full Haskell catalog
 (`JitML.Numerics.Schema.loadNumericsCatalog`), the generated
 TensorBoard Service renderer
@@ -191,6 +212,11 @@ serving the compiled Halogen `web/dist/Main/index.js` when
 present, the `loadInferenceCheckpointWith` hook plus
 `JitML.Engines.Local.runLinuxCpuCheckpointInference` validating the local
 latest-pointer → manifest → generated-kernel FFI path, the
+`JitML.Service.Runtime.daemonWorkloadDispatcherWithInference` hook wiring
+`linux-cpu` + `SelfInference` daemon inference dispatch to that generated-kernel
+runner,
+`loadInferenceCheckpointWithWeights` hook validating decoded `.jmw1` weights
+through the weighted local Linux CPU runner, the
 `JitML.Checkpoint.Store.writeCheckpointSnapshotWithMinIO` writer validating
 checkpoint blob/manifest writes plus latest-pointer CAS through the
 filesystem-backed `HasMinIO` instance, the
@@ -198,26 +224,27 @@ filesystem-backed `HasMinIO` instance, the
 `jitml test all`, and the per-problem SL convergence goldens under
 `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
 problems are all checked in. The remaining
-live runtime behaviours (CUDA JIT execution, Tart VM,
-live training-to-convergence on real hardware, and live
-training/inference service-client effects beyond the validated Linux CPU daemon
-paths) remain
-gated by absent infrastructure per the per-sprint `### Remaining
-Work` blocks. The `Some Tuning::{ ... }` Dhall worked example now decodes
+open obligations (CUDA JIT execution, provisioned Apple Tart VM validation,
+Metal FFI loading, live bootstrap orchestration,
+live training-to-convergence on real hardware, live training/inference
+service-client effects beyond the validated daemon paths, and the default
+PureScript lint/spec path) remain gated by the per-sprint `### Remaining Work`
+blocks. The `Some Tuning::{ ... }` Dhall worked example now decodes
 through the local tuning ADT and `jitml tune experiments/mnist-tune.dhall`
-renders `sampler: TPE`; Sprint `9.7` remains Active for proto-lens bindings,
-daemon-side tune handling, live trial persistence, and report-card knob
-consumption.
+renders `sampler: TPE`; `JitML.Proto.Tune` also round-trips the current
+command and event oneofs through proto3-compatible bytes. Sprint `9.7` remains
+Active for generated proto-lens bindings, daemon-side tune handling, live trial
+persistence, and report-card knob consumption.
 
 Against the eighteen-item [Exit Definition](#exit-definition), the
-following items currently pass: 4 (stage-0 scripts + typed prerequisite
+following items currently pass: 2 (`jitml service` daemon), 4 (stage-0 scripts + typed prerequisite
 DAG), 10 (toolchain pin), 11 (every enumerated Plan/Apply command —
 `jitml bootstrap`, `jitml train`, `jitml tune`, `jitml rl train`,
 `jitml cluster up`, `jitml test all`, `jitml service`, `jitml internal
 gc` — supports `--dry-run` and `--plan-file <path>`), 12 (typed
 `Subprocess` boundary), 13 (one `prerequisiteRegistry`), 14 (single
 `AppError` ADT and `renderError`), 16 (`CommandSpec` as implementation source),
-17 (`src/JitML/Routes.hs` registry). Items 1, 2, 3, 5, 6, 7, 8, 9, 15, 18 are
+17 (`src/JitML/Routes.hs` registry). Items 1, 3, 5, 6, 7, 8, 9, 15, 18 are
 partial or unmet; the
 owning sprints list the open work in their `### Remaining Work` blocks
 per
@@ -233,10 +260,10 @@ block, where the validation gate lives:
    block in `cabal.project` survives only while upstream Dhall/CBOR releases
    reject GHC `9.14.1`'s `base-4.22`. See
    [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
-2. **Real daemon runtime (Exit 2).** Blocked until an Apple Silicon host is
-   available for the host-native daemon subscription validation. See
-   [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md)
-   Sprint `5.6` `Remaining Work`.
+2. **Full live bootstrap orchestration (Exit 3).** See
+   [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
+   Sprint `12.8` `Remaining Work` for the explicit Pulumi/Kind/Helm live
+   orchestration path that exercises `jitml bootstrap` as part of the e2e stack.
 3. **Real per-substrate JIT execution (Exit 1, 5, 12).** See
    [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md)
    Sprints `7.3` / `7.4` / `7.5` / `7.6` `Remaining Work`.
@@ -247,16 +274,20 @@ block, where the validation gate lives:
 5. **Live MinIO checkpoint storage and inference (Exit 7).** See
    [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md)
    Sprints `10.1`–`10.4` `Remaining Work`.
-6. **Stateful frontend E2E and Playwright (Exit 8).** See
+6. **PureScript lint/spec default path (Exit 15).** See
+   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md)
+   Sprint `11.3` `Remaining Work` for the still-open default `purs format`
+   round-trip and PureScript spec execution path.
+7. **Stateful frontend E2E and Playwright (Exit 8).** See
    [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md)
    Sprints `11.3` / `11.4` / `11.5` / `11.6` `Remaining Work`.
-7. **`jitml-e2e` live Pulumi-orchestrated cross-cluster validation (Exit 9).** See
+8. **`jitml-e2e` live Pulumi-orchestrated cross-cluster validation (Exit 9).** See
    [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
    Sprints `12.2`–`12.6` and `12.8` / `12.9` `Remaining Work`.
-8. **Empty legacy ledger (Exit 18).** Closes after items 1–7 close and
-    the remaining cleanup rows in
-    [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal)
-    are moved to `Completed`.
+9. **Empty legacy ledger (Exit 18).** Closes after the preceding roadmap items
+   close and the remaining cleanup rows in
+   [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal)
+   are moved to `Completed`.
 
 ## Document Index
 
@@ -324,7 +355,7 @@ obligation exists.
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
-| 5 | `jitml service` Daemon | 🔄 Active | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
+| 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | 🔄 Active | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | 🔄 Active | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
@@ -335,7 +366,7 @@ obligation exists.
 
 ## Current Plan Status
 
-Phases `0`, `1`, `2`, `3`, `4`, and `6` are `✅ Done`. Phase `0` owns the plan
+Phases `0`, `1`, `2`, `3`, `4`, `5`, and `6` are `✅ Done`. Phase `0` owns the plan
 suite, the governed `documents/` doctrine suite, and the doctrine envelope.
 Phase `1` owns the `CommandSpec` registry, typed `Subprocess` / `Plan` /
 `apply` / `Env` / `AppError` boundaries, lint surfaces, warning-clean build
@@ -352,33 +383,40 @@ Gateway listener, typed route registry, live phased bootstrap, and typed
 cluster teardown path. Phase `4` owns Harbor, MinIO, Pulsar, service Postgres,
 observability, TensorBoard, and the Linux CUDA NVIDIA RuntimeClass wiring,
 including the clean 2026-05-20 `nvidia-smi` pod probe through
-`RuntimeClass/nvidia`. Phase `6` owns the numerical-core catalog
+`RuntimeClass/nvidia`. Phase `5` owns the daemon surface, BootConfig /
+LiveConfig, acquired capability clients, at-least-once Pulsar consumer,
+stateless Deployment, Linux CUDA service-pod RuntimeClass validation, and
+2026-05-21 Apple Silicon host validation of the generated host Dhall against the
+routed edge. Phase `6` owns the numerical-core catalog
 (`src/JitML/Numerics/Catalog.hs`), its Dhall mirror, and the cross-type lint
 audit. These Done phases cover [Exit Definition](#exit-definition)
-items 4, 10, 11, 12, 13, 14, 16, and 17 plus Phase `4`'s owned platform
+items 2, 4, 10, 11, 12, 13, 14, 16, and 17 plus Phase `4`'s owned platform
 service portion of item 3.
 
-Phases `5` (jitml service daemon), `7` (JIT codegen and per-substrate execution), `8`
+Phases `7` (JIT codegen and per-substrate execution), `8`
 (supervised and RL framework), `9` (RL catalog, AlphaZero, tuning), `10`
 (checkpointing and inference), `11` (PureScript frontend and demo), and `12`
 (test stanzas and cross-cluster) are `🔄 Active`. Each has materialized its
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
-runtime behaviour that the worktree does not exercise. The unmet runtime
-obligations are: Apple host daemon validation (Exit 2), blocked until an Apple
-Silicon host is available;
-real per-substrate kernel compile-and-execute beyond the Linux CPU identity
-fixture in `JitML.Engines.Local` (Exit 1, 5, 12); real SL / RL / AlphaZero
-training loops with golden convergence and reward fixtures, plus live tuner
-trial execution / persistence beyond the local TPE Dhall render path (Exit 6);
-the live `jitml-e2e` Pulumi + Helm + Playwright path against an ephemeral Kind
-stack (Exit 8, 9); and the empty legacy ledger that closes after the remaining
-runtime gates and toolchain cleanup close (Exit 18). Each gap is logged in the
+runtime behaviour or default tool execution that the worktree does not
+exercise. The unmet obligations are: the explicit live Pulumi / Kind / Helm
+bootstrap path for Exit 3; real per-substrate kernel compile-and-execute beyond
+the Linux CPU identity, reduction-smoke, and family-scaffold fixtures in
+`JitML.Engines.Loader` / `JitML.Engines.Local` and the local Linux CPU
+`HasEngine` interpreter with host/container artifact ABI separation (Exit 1, 5,
+12); real SL / RL / AlphaZero training loops with golden convergence and reward
+fixtures, plus live tuner trial execution / persistence beyond the local TPE Dhall render path
+(Exit 6); the PureScript default `purs format` / spec path still open under
+Sprint `11.3` (Exit 15); the live `jitml-e2e` Pulumi + Helm + Playwright path
+against an ephemeral Kind stack (Exit 8, 9); and the empty legacy ledger that
+closes after the remaining runtime gates and toolchain cleanup close (Exit 18).
+Each gap is logged in the
 owning sprint's `### Remaining Work` block; the dependency-ordered sequence is
 in [Execution Roadmap](#execution-roadmap) above.
 
-The local worktree implementation that backs the six Done phases and the typed
-scaffolding inside the seven Active phases
+The local worktree implementation that backs the seven Done phases and the typed
+scaffolding inside the six Active phases
 comprises: `app/Main.hs` and
 `app/Demo.hs` (six-line shims into the library-first `src/JitML/` tree);
 three stage-0 bootstrap scripts that delegate to `jitml bootstrap
@@ -406,8 +444,13 @@ effects including RunInference;
 the numerical-core Haskell catalog and Dhall mirror; per-substrate
 JIT source renderers under `src/JitML/Codegen/` with the
 `KernelFamily`-aware variants and the per-substrate `KnobSpace` from
-`JitML.Engines.Tuning`; the Linux CPU identity-kernel compile/load/run
-path in `JitML.Engines.Local`; the deterministic SL canonical summaries
+`JitML.Engines.Tuning`; the Linux CPU identity, reduction-smoke, and
+family-scaffold compile/load/run paths plus exported family/output-count symbol
+validation in `JitML.Engines.Loader` / `JitML.Engines.Local` and local Linux CPU
+`HasEngine` dispatch in `JitML.Engines.HasEngine`, plus daemon
+`linux-cpu` + `SelfInference` routing through the same checkpoint FFI runner, with
+`artifact-abi=<os>-<arch>` in the local Linux CPU toolchain fingerprint; the deterministic SL canonical
+summaries
 plus the typed pipeline (`JitML.SL.{Dataset,Loop,Train}`); the RL
 algorithm catalog with one module per algorithm
 (`JitML.RL.Algorithms.{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}`)
@@ -419,8 +462,13 @@ catalog, trial-key surface, and the canonical
 `experiments/mnist-tune.dhall` worked example; the typed proto
 envelopes under `proto/jitml/{training,rl,tune}.proto` mirrored by
 `JitML.Proto.{Training,Rl,Tune}` with current text render/parse coverage for
-training, RL, and tuning command envelopes, plus `JitML.Proto.Inference` for
-the current `RunInference` / `InferenceResult` text envelopes; the extended checkpoint
+training, RL, and tuning command envelopes plus proto3-compatible byte codecs
+for current Training/RL/Tune command and event envelopes, plus
+`proto/jitml/inference.proto` mirrored by `JitML.Proto.Inference` with current
+text and proto3-compatible byte codecs for `RunInference` / `InferenceResult`;
+`JitML.Service.AppleInferenceRpc` owns the local Apple command publication plan
+and event call-id correlation;
+the extended checkpoint
 manifest (optimizer state, RNG streams, monotonic step, metrics,
 parent lineage), the typed `AdvancePredicate` ADT, the
 `deriveExperimentHash` function, the `RetentionPolicy` + `walkLiveSet`

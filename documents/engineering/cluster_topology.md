@@ -192,7 +192,9 @@ those inputs and then calls `JitML.Bootstrap.liveExecutePhasedRollout` directly;
 there is no process-environment safety gate for local Kind/Helm work. The live
 path runs the typed `kind`, Helm, Docker build / Kind image-load, repo-owned
 manifest apply, platform readiness, and Pulsar-topic subprocesses through the
-`Subprocess` boundary. The topic subprocesses register the substrate-scoped
+`Subprocess` boundary and stops at the first failed subprocess so a failed image
+build or image load cannot be masked by later Helm rollout failures. The topic
+subprocesses register the substrate-scoped
 family consumed by `jitml service`: eight command/event topics for each
 substrate plus the Apple-only inference RPC pair. The live path rewrites the
 Kind/Gateway/EnvoyProxy inputs from the selected edge-port lease, writes
@@ -277,8 +279,12 @@ available. Recorded as the `edge_port` field of
 the Apple host `BootConfig` turns those publication fields into
 `pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, and `harborRegistry`
 before `JitML.Service.Clients` derives the concrete subprocess endpoints. Live
-validation of that host-native Apple daemon remains blocked until an Apple
-Silicon host can run the patched Dhall config against the leased edge route.
+Apple Silicon validation on 2026-05-21 runs the patched
+`./.build/conf/host/apple-silicon.dhall` against the leased
+`127.0.0.1:9090` edge route with
+`jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`;
+that host-native run passes routed client probes and acquires
+`persistent://public/default/inference.command.apple-silicon` as `jitml-host`.
 
 The shape:
 

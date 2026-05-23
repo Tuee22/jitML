@@ -43,6 +43,13 @@ own floating-point determinism contract.
 - Metal compute kernels execute on the host GPU.
 - Float-accumulation order is fixed by the kernel's reduction tree (no
   `-ffast-math`).
+- Generated reduction metadata reports one output per simdgroup partial
+  (`ceil(n / 32)`), so future Metal FFI loading can size host buffers from the
+  generated `jitml_kernel_output_count` symbol instead of duplicating shape
+  logic outside the renderer.
+- `JitML.Engines.MetalRuntime` probes the host Swift/Xcode tool paths and Metal
+  device visibility through typed subprocesses before the future host FFI
+  launcher consumes that runtime surface.
 - RNG state lives in the host daemon (`Host + SelfInference`).
 - Kernel-launch ordering is single-stream by default. Single MTLCommandQueue
   with FIFO ordering; explicit barriers prevent kernel reordering.
@@ -52,8 +59,12 @@ own floating-point determinism contract.
 
 ### `linux-cpu` (oneDNN)
 
-- oneDNN dispatches to a per-host vector ISA detected at JIT time
-  (AVX2 baseline, AVX-512 detected and used when available).
+- oneDNN dispatches to a per-host vector ISA detected at JIT time through
+  typed subprocess probes (AVX2 baseline, AVX-512 detected and used when
+  available).
+- The production oneDNN graph path uses a typed runtime/link availability
+  probe for `pkg-config` package metadata and dynamic-linker `libdnnl`
+  visibility before live graph bindings are wired.
 - Reductions are blocked with a fixed block size so the accumulation tree is
   host-independent. The block size is part of `ToolchainFingerprint`; a
   block-size change invalidates the cache key.
@@ -62,11 +73,16 @@ own floating-point determinism contract.
 ### `linux-cuda` (CUDA C + cuBLAS / cuDNN)
 
 - CUDA kernels disable `--use_fast_math`.
-- Per-block reductions use a deterministic warp-shuffle pattern.
+- Per-block reductions use a deterministic warp-shuffle pattern. Generated CUDA
+  reduction source emits one partial per warp and avoids device-side atomics;
+  `JitML.Engines.CudaRuntime` validates the expected partial count and
+  accumulates partials on the host in canonical index order.
 - cuBLAS and cuDNN are pinned to deterministic algorithm selections via
   `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning. The
   cuDNN algorithm-id selection is restricted to the deterministic-only set.
-- RNG is the host's splitmix, never the GPU's curand.
+- RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's
+  curand. Generated CUDA source records the `host-splitmix64-no-curand` policy
+  in the rendered source payload.
 - **Tradeoff**: cuDNN's deterministic convolution algorithms are typically
   20–50% slower than the non-deterministic defaults on training workloads;
   this is the price of the bit-determinism contract.
@@ -74,7 +90,7 @@ own floating-point determinism contract.
 ## RNG Split and Per-Experiment Seed Derivation
 
 The master seed is declared in the experiment Dhall. Per-experiment seeds are
-derived deterministically:
+derived deterministically by `JitML.Engines.Rng.deriveSplitMixSeed`:
 
 ```
 experimentSeed = splitmix64(masterSeed, experimentIndex)
@@ -109,7 +125,10 @@ where:
   enabled.
 - `substrate` ∈ `apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN).
+  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN) plus loader-relevant ABI
+  facts for local FFI artifacts. The current Linux CPU local fingerprint carries
+  `artifact-abi=<os>-<arch>` so Darwin host artifacts and Linux container
+  artifacts do not share a cache key.
 - `rendered-source-payload` is the canonical Haskell-rendered source bundle
   produced by `renderRuntimeSource`.
 - `tuning-choice` is the selected auto-tuning choice.
@@ -121,9 +140,11 @@ substrate-explicit and toolchain-explicit.
 
 The current local `EngineEnvelope` in `src/JitML/Engines/Engine.hs` captures
 the kernel handle, input/output shape metadata, deterministic flag list, and
-compile command for deterministic inspection. Target checkpoint manifests carry
-a richer typed `EngineEnvelope` block with substrate-specific reproducibility
-witnesses:
+compile command for deterministic inspection. `JitML.Engines.Loader` records
+whether that compile command was actually executed for the current cache lookup
+or whether an existing content-addressed artifact was reused. Target checkpoint
+manifests carry a richer typed `EngineEnvelope` block with substrate-specific
+reproducibility witnesses:
 
 | Substrate | Envelope fields |
 |-----------|-----------------|
@@ -155,6 +176,19 @@ For SL training, full-run bit-equality holds.
 
 For AlphaZero self-play, per-game bit-equality holds (deterministic
 stochasticity).
+
+The current local Phase 7 executable anchor is narrower than the full training
+contract: `jitml-cross-backend` runs the Linux CPU identity, reduction-smoke,
+and family-scaffold kernels through `JitML.Engines.Local`, verifies the loaded
+artifact reports the expected `jitml_kernel_family_name` and
+`jitml_kernel_output_count`, and asserts repeated identity-kernel output is
+bit-identical. It also exercises the local Linux CPU `HasEngine` interpreter
+over the generated-family FFI path and measures the Linux CPU benchmark
+candidate runner against generated FFI output while recording a deterministic
+output digest. The generated CUDA and Swift/Metal source
+bundles also export the same family/output-count metadata contract for their
+future FFI loaders. The remaining same-substrate runtime proof is the
+production oneDNN/CUDA/Metal graph-kernel path.
 
 ## Cross-Substrate Tolerance Methodology
 
@@ -191,9 +225,17 @@ The tolerance methodology:
 - **Wall-clock benchmark numbers are not reproducible.** The bit-determinism
   contract is on visit counts, model parameters, training transcripts, and
   inference outputs — not throughput. `JitML.Engines.Tuning.benchmarkPlan`
-  makes the candidate knob list deterministic; the eventual hardware timing
-  loop may rank those candidates differently across machines, and that selected
-  `TuningChoice` becomes an explicit cache-key input.
+  makes the candidate knob list deterministic, and `selectMeasuredTuning`
+  makes selection deterministic for a fixed measurement set.
+  `TuningBenchmark` collects candidate measurements in plan order and records
+  output digests alongside latency before `TuningStore` persists the selected
+  `TuningChoice` by substrate and base hash. Its CUDA/Metal runner entrypoints
+  currently preflight runtime availability and fail closed before live FFI
+  measurement, so no unavailable hardware path fabricates a timing result.
+  `TuningCache` loads the persisted choice before deriving the final runtime
+  source and cache key. The eventual hardware timing loop may produce different
+  measurements across machines, and that selected `TuningChoice` becomes an
+  explicit cache-key input.
 
 ## Cross-References
 

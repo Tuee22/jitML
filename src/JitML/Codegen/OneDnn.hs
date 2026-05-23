@@ -38,6 +38,9 @@ oneDnnSource family kernelSpec kind tuningChoice =
     , "static const char *jitml_tuning_choice = " <> cString (unTuningChoice tuningChoice) <> ";"
     , "static const char *jitml_kernel_family = " <> cString (familyName family) <> ";"
     , "static const int jitml_fixed_reduction_block = 256;"
+    , ""
+    , "extern \"C\" const char *jitml_kernel_family_name(void) { return jitml_kernel_family; }"
+    , kernelOutputCountFunction family
     ]
 
 familyImpl :: KernelFamily -> Text
@@ -71,8 +74,6 @@ familyImpl Dense2D =
     , "    out[i] = input[i];"
     , "  }"
     , "}"
-    , ""
-    , "extern \"C\" const char *jitml_kernel_family_name(void) { return \"dense\"; }"
     ]
 familyImpl Conv2DKernel =
   Text.unlines
@@ -83,8 +84,6 @@ familyImpl Conv2DKernel =
     , "    out[i] = input[i];"
     , "  }"
     , "}"
-    , ""
-    , "extern \"C\" const char *jitml_kernel_family_name(void) { return \"conv2d\"; }"
     ]
 familyImpl Conv3DKernel =
   Text.unlines
@@ -93,8 +92,6 @@ familyImpl Conv3DKernel =
     , "    out[i] = input[i];"
     , "  }"
     , "}"
-    , ""
-    , "extern \"C\" const char *jitml_kernel_family_name(void) { return \"conv3d\"; }"
     ]
 familyImpl BatchNormKernel =
   Text.unlines
@@ -105,8 +102,6 @@ familyImpl BatchNormKernel =
     , "    out[i] = input[i] / std::sqrt(input[i] * input[i] + eps);"
     , "  }"
     , "}"
-    , ""
-    , "extern \"C\" const char *jitml_kernel_family_name(void) { return \"batchnorm\"; }"
     ]
 familyImpl LayerNormKernel =
   Text.unlines
@@ -126,8 +121,6 @@ familyImpl LayerNormKernel =
     , "    out[i] = (input[i] - static_cast<float>(mean)) * invstd;"
     , "  }"
     , "}"
-    , ""
-    , "extern \"C\" const char *jitml_kernel_family_name(void) { return \"layernorm\"; }"
     ]
 familyImpl MultiHeadAttentionKernel =
   Text.unlines
@@ -138,8 +131,6 @@ familyImpl MultiHeadAttentionKernel =
     , "    out[i] = input[i];"
     , "  }"
     , "}"
-    , ""
-    , "extern \"C\" const char *jitml_kernel_family_name(void) { return \"mha\"; }"
     ]
 familyImpl EmbeddingKernel =
   Text.unlines
@@ -149,8 +140,6 @@ familyImpl EmbeddingKernel =
     , "    out[i] = input[i];"
     , "  }"
     , "}"
-    , ""
-    , "extern \"C\" const char *jitml_kernel_family_name(void) { return \"embedding\"; }"
     ]
 
 identityImpl :: Text
@@ -162,6 +151,12 @@ identityImpl =
     , "  }"
     , "}"
     ]
+
+kernelOutputCountFunction :: KernelFamily -> Text
+kernelOutputCountFunction Reduction =
+  "extern \"C\" std::size_t jitml_kernel_output_count(std::size_t n) { (void)n; return 1; }"
+kernelOutputCountFunction _ =
+  "extern \"C\" std::size_t jitml_kernel_output_count(std::size_t n) { return n; }"
 
 cString :: Text -> Text
 cString value =

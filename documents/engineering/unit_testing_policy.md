@@ -33,13 +33,13 @@ cluster validation remains phase-gated:
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table golden fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated FFI kernel, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, two-worker Kind rendering, required `jitml-service` anti-affinity plus single-worker rollout strategy/RBAC rendering, Dhall numerics decode, and typed service command shapes | Integration | Sprint 12.2 |
-| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves and the committed per-problem fixtures under `test/golden/sl/` | Integration (project-specific) | Sprint 12.3 |
-| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, PPO/CartPole golden trajectory, and AlphaZero transcript fixtures for Connect 4, Othello, Hex, and Gomoku | Integration (project-specific) | Sprint 12.4 |
-| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, deterministic trial generation, the TPE worked-example Dhall decode, and Sobol/GA golden fixtures | Integration (project-specific) | Sprint 12.5 |
-| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, and generated Linux CPU identity/reduction-smoke kernel compile/load/run | Integration (project-specific) | Sprint 12.6 |
-| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Golden | Sprint 12.1 |
+| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table golden fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated FFI kernel with decoded `.jmw1` weights, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, two-worker Kind rendering, required `jitml-service` anti-affinity plus single-worker rollout strategy/RBAC rendering, Dhall numerics decode, and typed service command shapes | Integration | Sprint 12.2 |
+| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers deterministic supervised canonical curves, the committed per-problem fixtures under `test/golden/sl/`, dataset fetch verification, and Training command/event envelope round-trips | Integration (project-specific) | Sprint 12.3 |
+| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, deterministic trajectories, PPO/CartPole golden trajectory, AlphaZero transcript fixtures for Connect 4, Othello, Hex, and Gomoku, and RL command/event envelope round-trips | Integration (project-specific) | Sprint 12.4 |
+| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, deterministic trial generation, the TPE worked-example Dhall decode, Sobol/GA golden fixtures, and Tune command/event envelope round-trips | Integration (project-specific) | Sprint 12.5 |
+| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, generated Linux CPU identity/reduction-smoke/family-scaffold kernel compile/load/run, exported family/output-count symbol verification, and local Linux CPU `HasEngine` dispatch | Integration (project-specific) | Sprint 12.6 |
+| `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, inference request/result protobuf byte round-trips, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, and typed live-plan surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
@@ -78,8 +78,10 @@ The current body exercises the eleven local canonical cells from
 `src/JitML/SL/Canonicals.hs`, verifies each synthetic convergence curve is
 deterministic, and asserts the final synthetic loss improves over the initial
 loss. It also checks every current deterministic curve against the committed
-fixture under `test/golden/sl/<problem-key>/curve.txt`. Live measured
-training transcript byte equality remains target runtime validation.
+fixture under `test/golden/sl/<problem-key>/curve.txt`, verifies dataset fetch
+and SHA validation through `HasMinIO`, and round-trips Training command/event
+envelopes. Live measured training transcript byte equality remains target
+runtime validation.
 
 ### `jitml-rl-canonicals` — RL canon coverage
 
@@ -87,9 +89,10 @@ The current body checks representative entries in `algorithmCatalog`, verifies
 `deterministicTrajectory` is stable for a fixed algorithm and seed, compares the
 PPO/CartPole trajectory to `test/golden/rl/ppo/cartpole/trajectory.txt`, and
 checks the local Connect 4, Othello, Hex, and Gomoku transcript helpers against
-`test/golden/alphazero/<game>-transcript.txt`. Environment rollouts, policy
-training, reward-distribution fixtures, and live AlphaZero arena measurements
-remain target validation.
+`test/golden/alphazero/<game>-transcript.txt`. It also round-trips RL
+command/event envelopes. Environment rollouts, policy training,
+reward-distribution fixtures, and live AlphaZero arena measurements remain
+target validation.
 
 ### `jitml-hyperparameter` — sampler / scheduler / pruner reproducibility
 
@@ -99,23 +102,39 @@ and `PBT` samplers; `Fifo`, `SuccessiveHalving`, `Hyperband`, and `ASHA`
 schedulers; and `NoPruner`, `MedianPruner`, and `PercentilePruner` pruners.
 It verifies deterministic local trial values, sampler-label parsing, the
 current Sobol/GA golden fixtures, and the `experiments/mnist-tune.dhall` TPE
-worked-example decode. Live trial persistence and resume-from-partial-sweep
+worked-example decode, and round-trips Tune command/event envelopes. Live trial
+persistence and resume-from-partial-sweep
 equality against MinIO remain target validation.
 
 ### `jitml-cross-backend` and the Tolerance Band
 
 The current body checks that every local substrate has deterministic engine
 flags and that the local `inferFromManifest` helper returns the same summary
-for every substrate. It also compiles the generated Linux CPU identity kernel,
-loads `jitml_kernel` with `dlopen`, and asserts three successive FFI runs return
-bit-identical fixture output. Live cross-substrate graph-kernel launches and
-cross-substrate tolerance fixtures under `test/golden/cross-backend/` remain the
-final handoff validation gate.
+for every substrate. It also routes the generated Linux CPU identity kernel
+plus the generated reduction-smoke and family-scaffold kernels through the
+shared cache artifact loader, loads `jitml_kernel` and
+`jitml_kernel_family_name` / `jitml_kernel_output_count` with `dlopen`,
+verifies the reported family and output length, and asserts three successive
+FFI runs return bit-identical fixture output. It also dispatches a generated
+family kernel through the local Linux CPU `HasEngine` interpreter and checks
+the loaded family metadata at that boundary, and measures the Linux CPU
+benchmark candidate runner against generated FFI output with digest capture.
+`jitml-unit` owns the CUDA runtime-probe parser fixtures for `nvcc`,
+`nvidia-smi`, and `ldconfig`, plus the guarded CUDA benchmark-runner preflight
+fixtures for wrong-substrate rejection, unavailable runtime summaries, and
+available-runtime fail-closed behavior; `jitml-integration` owns the live probe
+attempt through typed subprocesses.
+The same split covers the Metal runtime probe fixtures for Swift, `xcrun`, and
+`system_profiler` and the guarded Metal benchmark-runner preflight fixtures.
+Live
+cross-substrate graph-kernel launches and cross-substrate tolerance fixtures
+under `test/golden/cross-backend/` remain the final handoff validation gate.
 
 ### `jitml-daemon-lifecycle`
 
 The current body exercises local lifecycle ordering, renderable endpoint
-responses, retry policy behavior, payload-hash deduplication, and one-shot
+responses, retry policy behavior, payload-hash deduplication,
+Inference request/result protobuf byte round-trips, and one-shot
 HTTP serving for `/healthz`. It also covers the `JitML.Service.Signal` mapping:
 `SIGHUP` increments reload generation, while `SIGINT` / `SIGTERM` begin drain
 and make readiness false. Real Pulsar redelivery remains target runtime

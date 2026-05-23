@@ -34,12 +34,12 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-Six cleanup rows are currently active. The scoped `allow-newer` block in
+Five cleanup rows are currently active. The scoped `allow-newer` block in
 `cabal.project` keeps Dhall's transitive CBOR stack building under pinned
 GHC `9.14.1` while upstream package bounds catch up; the other pending rows
 record checked-in stand-ins that are deliberately keeping local test coverage
-green until their owning live-runtime surfaces land. Five
-doctrine-deviation rows have closed and live in the `Completed` table:
+green until their owning live-runtime surfaces land. Six cleanup rows have
+closed and live in the `Completed` table:
 Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
 style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
 construction and made lint/check-code execution container-only;
@@ -48,9 +48,10 @@ Sprint `3.5` removed the
 image-load phase directly in the live typed rollout; Sprint `4.3` folded the
 standalone MinIO values fragment into `chart/values.yaml`; Sprint `7.7`
 removed the static checked-in JIT source/build scaffold (JIT compiler inputs
-are generated on demand by the Haskell binary); Sprint `8.7` replaced the
-flat `RunPhase` enum with the phase-indexed `RLRunLifecycle` GADT so all
-three jitML lifecycles share doctrine-aligned shape.
+are generated on demand by the Haskell binary) and removed the default
+runtime-source placeholder fixture; Sprint `8.7` replaced the flat `RunPhase`
+enum with the phase-indexed `RLRunLifecycle` GADT so all three jitML
+lifecycles share doctrine-aligned shape.
 
 Two classes of entries populate this ledger over time:
 
@@ -73,7 +74,6 @@ opening event itself enqueues a row here naming the originating sprint.
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
 | Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 1.1 / final handoff toolchain refresh |
-| Default runtime-source placeholder | `src/JitML/Cache/Key.hs`, `test/unit/Main.hs` | `defaultRuntimeSourcePayload` still carries the `runtime-source:phase-2-placeholder` marker for cache-key fixtures; replace fixture users with payloads from rendered runtime source once every cache path supplies a concrete `RuntimeSourcePayload` | Sprint 7.7 / cache-fixture cleanup gate |
 | Non-production kernel-family scaffolds | `src/JitML/Codegen/OneDnn.hs`, `src/JitML/Codegen/Cuda.hs`, `src/JitML/Codegen/Metal.hs` | Several non-smoke kernel families intentionally render identity/scaffold bodies while the source payload, cache key, and local FFI smoke path are validated; replace with real oneDNN graph, cuBLAS/cuDNN, and Metal kernels when production `HasEngine` loading lands | Sprints 7.3, 7.4, 7.5 |
 | Deterministic MCTS prior stub | `src/JitML/RL/AlphaZero/Mcts.hs` | `priorFor` stands in for the real policy/value network call so MCTS and transposition-table tests are deterministic before AlphaZero uses JIT-backed network inference | Sprint 9.5 |
 | Demo placeholder shell, local stream frames, and inline DOM stubs | `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs` | The demo server falls back to a placeholder shell and deterministic local stream frames, while Playwright uses inline DOM stubs until the compiled Halogen bundle and live edge route are wired | Sprints 11.5, 11.6, 12.8 |
@@ -88,7 +88,7 @@ handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
 Current `allow-newer` validation: after `cabal update` set Hackage index-state
-`2026-05-19T21:30:51Z`, a temporary project file with the scoped
+`2026-05-21T09:04:39Z`, a temporary project file with the scoped
 `allow-newer` block removed still fails dependency solving under pinned GHC
 `9.14.1`, because `serialise-0.2.6.1` excludes the installed `base-4.22`.
 The row remains pending.
@@ -113,6 +113,7 @@ explicitly schedules their deletion.
 | Lint-time host `ghcup` style-tool bootstrap | Sprint 1.4 | Removed runtime `ensureStyleTools` / `installStyleToolsSubprocess` bootstrap from `src/JitML/Lint/Stack.hs`; `docker/Dockerfile` now installs the style-tools GHC plus pinned `fourmolu` / `hlint`, stamps the `jitml:local` code-quality domain, and runs `jitml check-code` during image construction. |
 | `jitml-mirror` Helm release placeholder | Sprint 3.5 | Removed the stand-in `HelmRelease "jitml-mirror" "jitml-images"` row from `JitML.Cluster.Helm.phasedReleases`; `JitML.Bootstrap.livePhasedRolloutSubprocesses` now inserts the Docker build / explicit Kind image-load subprocesses directly before final services. |
 | Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
+| Default runtime-source placeholder | Sprint 7.7 | Removed `defaultRuntimeSourcePayload` and the `runtime-source:phase-2-placeholder` marker from `src/JitML/Cache/Key.hs`; cache-key fixtures now derive their `RuntimeSourcePayload` from `renderRuntimeSource`, and `test/golden/cache/kernel-key.txt` was refreshed to the rendered-source-backed hash. |
 | Standalone MinIO values fragment | Sprint 4.3 | Folded MinIO subchart values into `chart/values.yaml`, removed `chart/minio-values.yaml`, and made bootstrap delete legacy standalone values files during materialization. |
 | RL run sequencing as a `RunPhase` enum instead of an `RLRunLifecycle` GADT | Sprint 8.7 | Replaced the flat `RunPhase` enum with the `RLRunPhase` data kind plus the phase-indexed singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`; updated `rlRunPlan`, `renderRLRunPhase`, and the `jitml-unit` consumer; `cabal test jitml-unit` keeps 57/57 passing. |
 

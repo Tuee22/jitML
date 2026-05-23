@@ -10,7 +10,15 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import JitML.Proto.Tune
   ( StartSweep (..)
   , StopSweep (..)
+  , SweepDone (..)
+  , TrialFinished (..)
+  , TrialStarted (..)
   , TuneCommand (..)
+  , TuneEvent (..)
+  , decodeTuneCommandProto
+  , decodeTuneEventProto
+  , encodeTuneCommandProto
+  , encodeTuneEventProto
   , parseTuneCommand
   , renderTuneCommand
   )
@@ -128,5 +136,38 @@ main =
                     }
           parseTuneCommand (renderTuneCommand start) @?= Just start
           parseTuneCommand (renderTuneCommand stop) @?= Just stop
+          decodeTuneCommandProto (encodeTuneCommandProto start) @?= Right start
+          decodeTuneCommandProto (encodeTuneCommandProto stop) @?= Right stop
           parseTuneCommand "kind: UnknownTuneCommand\n" @?= Nothing
+      , testCase "tune event envelopes round-trip through proto3-compatible bytes" $ do
+          let started =
+                TuneTrialStarted
+                  TrialStarted
+                    { tsExperimentHash = "sha256:mnist-tune"
+                    , tsTrial = 7
+                    , tsTrialSeed = 4242
+                    , tsParametersJson = "{\"lr\":0.001}"
+                    , tsTimestampNs = 123456789
+                    }
+              finished =
+                TuneTrialFinished
+                  TrialFinished
+                    { tfTuneExperimentHash = "sha256:mnist-tune"
+                    , tfTuneTrial = 7
+                    , tfTuneObjective = 0.875
+                    , tfTunePruned = False
+                    , tfTuneTranscriptObjectKey = "trials/mnist-tune/7/transcript"
+                    , tfTuneTimestampNs = 223456789
+                    }
+              done =
+                TuneSweepDone
+                  SweepDone
+                    { sdExperimentHash = "sha256:mnist-tune"
+                    , sdTrialsCompleted = 8
+                    , sdTrialsPruned = 1
+                    , sdBestObjective = 0.9375
+                    }
+          decodeTuneEventProto (encodeTuneEventProto started) @?= Right started
+          decodeTuneEventProto (encodeTuneEventProto finished) @?= Right finished
+          decodeTuneEventProto (encodeTuneEventProto done) @?= Right done
       ]

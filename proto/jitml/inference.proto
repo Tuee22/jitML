@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package jitml.inference;
+
+// Envelope sent on `inference.request.<mode>` to run inference against a
+// checkpoint selected by the request's experiment hash.
+message InferenceRequest {
+  string call_id = 1;
+  string experiment_hash = 2;
+  string reply_topic = 3;
+  repeated double input = 4;
+}
+
+// Envelope published on `inference.result.<mode>` after the daemon finishes
+// the checkpoint read and inference run.
+message InferenceResult {
+  string call_id = 1;
+  string experiment_hash = 2;
+  repeated double output = 3;
+}
+
+// Apple-only internal RPC envelope sent on `inference.command.apple-silicon`.
+// Pulsar carries this small envelope; large tensors stay in MinIO.
+message AppleInferenceCommand {
+  string call_id = 1;
+  string kind = 2; // "training" or "inference"
+  string model_id = 3;
+  string starting_snapshot = 4;
+  string reply_topic = 5;
+  string inputs = 6;
+}
+
+// Apple-only ACK/error envelope sent on `inference.event.apple-silicon`.
+message AppleInferenceEvent {
+  string call_id = 1;
+  string kind = 2; // "completed" or "error"
+  repeated string output_refs = 3;
+  string error_code = 4;
+  string message = 5;
+}

@@ -3,55 +3,75 @@
 
 module JitML.Engines.Local
   ( LinuxCpuKernelRun (..)
+  , linuxCpuFamilyHash
+  , linuxCpuFamilyRuntimeSource
   , linuxCpuIdentityHash
   , linuxCpuIdentityRuntimeSource
+  , linuxCpuToolchainFingerprint
   , runLinuxCpuCheckpointInference
+  , runLinuxCpuFamilyKernel
+  , runLinuxCpuWeightedCheckpointInference
   , runLinuxCpuKernel
   , runLinuxCpuIdentityKernel
   )
 where
 
-import Control.Exception (bracket)
-import Control.Monad (void)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Foreign.C.String (CString, peekCString)
 import Foreign.C.Types (CFloat (..), CSize (..))
 import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
 import Foreign.Ptr (FunPtr, Ptr)
-import System.Directory (createDirectoryIfMissing)
-import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory)
-import System.Posix.DynamicLinker (RTLDFlags (RTLD_NOW), dlclose, dlopen, dlsym)
+import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (CheckpointManifest, weightOnlyTensors)
+import JitML.Checkpoint.Store (LoadedWeightTensor (..))
+import JitML.Codegen.KernelFamily (KernelFamily, kernelFamilyKernelSpec)
+import JitML.Codegen.OneDnn (renderOneDnnFamilySource)
 import JitML.Codegen.RuntimeSource
-  ( RuntimeSource
-  , materializeRuntimeSource
+  ( RuntimeSource (..)
   , renderRuntimeSource
   , runtimeSourcePayload
   )
 import JitML.Engines.Engine
   ( KernelHandle (..)
-  , compileSubprocess
   , engineForSubstrate
-  , kernelHandleFor
+  )
+import JitML.Engines.Loader
+  ( ensureKernelArtifact
+  , kernelArtifactCompileCommand
+  , kernelArtifactCompiled
+  , kernelArtifactHandle
+  , withKernelSymbol
   )
 import JitML.Env.Env (Env)
-import JitML.Sub.Render (renderSubprocess)
-import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Substrate (Substrate (..))
 
 type KernelFunction =
   Ptr CFloat -> Ptr CFloat -> CSize -> IO ()
 
+type KernelFamilyFunction =
+  IO CString
+
+type KernelOutputCountFunction =
+  CSize -> IO CSize
+
 foreign import ccall "dynamic" mkKernelFunction :: FunPtr KernelFunction -> KernelFunction
+
+foreign import ccall "dynamic"
+  mkKernelFamilyFunction :: FunPtr KernelFamilyFunction -> KernelFamilyFunction
+
+foreign import ccall "dynamic"
+  mkKernelOutputCountFunction :: FunPtr KernelOutputCountFunction -> KernelOutputCountFunction
 
 data LinuxCpuKernelRun = LinuxCpuKernelRun
   { linuxCpuKernelHandle :: KernelHandle
   , linuxCpuKernelInput :: [Float]
   , linuxCpuKernelOutput :: [Float]
+  , linuxCpuKernelReportedFamily :: Text
   , linuxCpuKernelCompileCommand :: Text
+  , linuxCpuKernelCompiled :: Bool
   }
   deriving stock (Eq, Show)
 
@@ -65,13 +85,41 @@ linuxCpuIdentityHash =
     linuxCpuIdentityKernel
     Cache.Inference
     Cache.LinuxCPU
-    linuxCpuFingerprint
+    linuxCpuToolchainFingerprint
     (runtimeSourcePayload linuxCpuIdentityRuntimeSource)
     Cache.defaultTuningChoice
 
 runLinuxCpuIdentityKernel :: Env -> [Float] -> IO (Either Text LinuxCpuKernelRun)
 runLinuxCpuIdentityKernel env =
   runLinuxCpuKernel env linuxCpuIdentityRuntimeSource linuxCpuIdentityHash
+
+linuxCpuFamilyRuntimeSource :: KernelFamily -> RuntimeSource
+linuxCpuFamilyRuntimeSource family =
+  GeneratedOneDnnSource
+    { runtimeSourceKernel = kernelFamilyKernelSpec family
+    , runtimeSourceKind = Cache.Inference
+    , runtimeSourceTuning = Cache.defaultTuningChoice
+    , runtimeSourceFiles =
+        renderOneDnnFamilySource
+          family
+          (kernelFamilyKernelSpec family)
+          Cache.Inference
+          Cache.defaultTuningChoice
+    }
+
+linuxCpuFamilyHash :: KernelFamily -> Cache.Hash
+linuxCpuFamilyHash family =
+  Cache.cacheKey
+    (kernelFamilyKernelSpec family)
+    Cache.Inference
+    Cache.LinuxCPU
+    linuxCpuToolchainFingerprint
+    (runtimeSourcePayload (linuxCpuFamilyRuntimeSource family))
+    Cache.defaultTuningChoice
+
+runLinuxCpuFamilyKernel :: Env -> KernelFamily -> [Float] -> IO (Either Text LinuxCpuKernelRun)
+runLinuxCpuFamilyKernel env family =
+  runLinuxCpuKernel env (linuxCpuFamilyRuntimeSource family) (linuxCpuFamilyHash family)
 
 runLinuxCpuCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
 runLinuxCpuCheckpointInference env manifest input = do
@@ -83,48 +131,85 @@ runLinuxCpuCheckpointInference env manifest input = do
         let bias = fromIntegral (length (weightOnlyTensors manifest)) / 100.0
          in Right (fmap ((+ bias) . realToFrac) (linuxCpuKernelOutput kernelRun))
 
+runLinuxCpuWeightedCheckpointInference
+  :: Env
+  -> CheckpointManifest
+  -> [LoadedWeightTensor]
+  -> [Double]
+  -> IO (Either Text [Double])
+runLinuxCpuWeightedCheckpointInference env _manifest weights input = do
+  kernelResult <- runLinuxCpuIdentityKernel env (fmap realToFrac input)
+  pure $
+    case kernelResult of
+      Left err -> Left err
+      Right kernelRun ->
+        Right (fmap ((+ weightBias weights) . realToFrac) (linuxCpuKernelOutput kernelRun))
+
+weightBias :: [LoadedWeightTensor] -> Double
+weightBias loadedWeights =
+  let values = concatMap loadedWeightValues loadedWeights
+   in case values of
+        [] -> 0
+        _ -> sum values / fromIntegral (length values) / 100.0
+
 runLinuxCpuKernel
   :: Env -> RuntimeSource -> Cache.Hash -> [Float] -> IO (Either Text LinuxCpuKernelRun)
 runLinuxCpuKernel env source hash input = do
-  void (materializeRuntimeSource env source hash)
-  createDirectoryIfMissing True (takeDirectory artifactPath)
-  (exitCode, _stdoutText, stderrText) <- runStreaming defaultSubprocessEnv compileCommand
-  case exitCode of
-    ExitFailure _ ->
-      pure (Left ("linux-cpu compile failed: " <> stderrText))
-    ExitSuccess -> do
-      output <- loadAndRun artifactPath input
+  artifactResult <- ensureKernelArtifact env engine source hash
+  case artifactResult of
+    Left err ->
+      pure (Left ("linux-cpu compile failed: " <> err))
+    Right artifact -> do
+      let handle = kernelArtifactHandle artifact
+          artifactPath = Text.unpack (kernelHandleArtifactPath handle)
+      (reportedFamily, output) <- loadAndRun artifactPath input
       pure
         ( Right
             LinuxCpuKernelRun
               { linuxCpuKernelHandle = handle
               , linuxCpuKernelInput = input
               , linuxCpuKernelOutput = output
-              , linuxCpuKernelCompileCommand = renderSubprocess compileCommand
+              , linuxCpuKernelReportedFamily = reportedFamily
+              , linuxCpuKernelCompileCommand = kernelArtifactCompileCommand artifact
+              , linuxCpuKernelCompiled = kernelArtifactCompiled artifact
               }
         )
  where
   engine = engineForSubstrate LinuxCPU
-  handle = kernelHandleFor engine hash
-  artifactPath = Text.unpack (kernelHandleArtifactPath handle)
-  compileCommand = compileSubprocess engine source hash
 
-loadAndRun :: FilePath -> [Float] -> IO [Float]
+loadAndRun :: FilePath -> [Float] -> IO (Text, [Float])
 loadAndRun artifactPath input =
-  bracket (dlopen artifactPath [RTLD_NOW]) dlclose $ \dynamicLibrary -> do
-    symbol <- dlsym dynamicLibrary "jitml_kernel"
-    let kernel = mkKernelFunction symbol
-        cInput = fmap CFloat input
-        count = length input
-    withArray cInput $ \inputPtr ->
-      allocaArray count $ \outputPtr -> do
-        kernel outputPtr inputPtr (fromIntegral count)
-        fmap (\(CFloat value) -> value) <$> peekArray count outputPtr
+  withKernelSymbol artifactPath "jitml_kernel_family_name" $ \familySymbol ->
+    withKernelSymbol artifactPath "jitml_kernel_output_count" $ \outputCountSymbol ->
+      withKernelSymbol artifactPath "jitml_kernel" $ \kernelSymbol -> do
+        reportedFamily <- Text.pack <$> (mkKernelFamilyFunction familySymbol >>= peekCString)
+        let kernel = mkKernelFunction kernelSymbol
+            outputCount = mkKernelOutputCountFunction outputCountSymbol
+            cInput = fmap CFloat input
+            inputCount = length input
+        outputLength <- fromIntegral <$> outputCount (fromIntegral inputCount)
+        output <-
+          withArray cInput $ \inputPtr ->
+            allocaArray outputLength $ \outputPtr -> do
+              kernel outputPtr inputPtr (fromIntegral inputCount)
+              fmap (\(CFloat value) -> value) <$> peekArray outputLength outputPtr
+        pure (reportedFamily, output)
 
 linuxCpuIdentityKernel :: Cache.KernelSpec
 linuxCpuIdentityKernel =
   Cache.KernelSpec "jitml-linux-cpu:identity"
 
-linuxCpuFingerprint :: Cache.ToolchainFingerprint
-linuxCpuFingerprint =
-  Cache.ToolchainFingerprint "g++-shared;abi=extern-c;jitml_kernel(float*,const float*,size_t)"
+linuxCpuToolchainFingerprint :: Cache.ToolchainFingerprint
+linuxCpuToolchainFingerprint =
+  Cache.ToolchainFingerprint
+    ( Text.intercalate
+        ";"
+        [ "g++-shared"
+        , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
+        , "reduction-block=256"
+        , "abi=extern-c"
+        , "jitml_kernel(float*,const float*,size_t)"
+        , "jitml_kernel_family_name(void)"
+        , "jitml_kernel_output_count(size_t)"
+        ]
+    )

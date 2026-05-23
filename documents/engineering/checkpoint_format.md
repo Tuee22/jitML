@@ -8,7 +8,7 @@
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob
 > layout, `.jmw1` dense weight blob wire format, typed CBOR manifest, write-
 > once + If-Match CAS protocol, retention reconciler, inference-only read
-> path.
+> path, and inference request/result protobuf envelopes.
 
 ## Storage Layout
 
@@ -125,8 +125,10 @@ Payload bytes are contiguous, little-endian, dtype-native, and unpadded.
 
 The current local `encodeJmw1` helper in `src/JitML/Checkpoint/Format.hs`
 emits the `JMW1` magic, a little-endian 32-bit CBOR header length, a compact
-CBOR header, and little-endian `F64` payload bytes. The richer target header
-shape above remains the durable contract for full runtime checkpoints.
+CBOR header, and little-endian `F64` payload bytes. `decodeJmw1` validates the
+same local `F64` payload shape and returns decoded weight values for the local
+inference loader. The richer target header shape above remains the durable
+contract for full runtime checkpoints.
 
 ## CBOR Manifest
 
@@ -267,10 +269,23 @@ filesystem-backed instance. `loadInferenceCheckpointWith` exposes the
 weight-only manifest to a caller-provided runner, and
 `JitML.Engines.Local.runLinuxCpuCheckpointInference` validates that the local
 Linux CPU path can compile, load, and execute a generated FFI kernel from that
-checkpoint read. Validating the same path through `JitML.Service.MinIOSubprocess`
-and loading real weight blobs into production `KernelHandle`s remain target
-work. The inference-only read path is the supported entrypoint for `jitml-demo`
-and the PureScript panels.
+checkpoint read. `JitML.Service.Runtime.daemonWorkloadDispatcherWithInference`
+threads the same runner hook through daemon `RunInference` dispatch, and
+`jitml service` selects the Linux CPU generated-kernel checkpoint runner for
+`linux-cpu` + `SelfInference` configs. `loadInferenceCheckpointWithWeights`
+additionally loads the
+weight-only `.jmw1` blobs through `HasMinIO`, decodes them, and passes them to
+`JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference`, which validates a
+local generated-kernel inference smoke path that consumes decoded weight
+values. Validating the same weighted path through `JitML.Service.MinIOSubprocess`
+and loading real weight blobs into non-local production `KernelHandle`s remain
+target work. The inference-only read path is the supported entrypoint for
+`jitml-demo` and the PureScript panels.
+
+The inference topic contract is declared in `proto/jitml/inference.proto`.
+`JitML.Proto.Inference` mirrors the `InferenceRequest` and `InferenceResult`
+messages with text render/parse helpers plus proto3-compatible byte codecs;
+the input/output vectors are encoded as packed repeated doubles.
 
 ## TensorBoard Sidecar
 

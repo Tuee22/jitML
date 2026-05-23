@@ -110,7 +110,7 @@ defaultInferenceMode AppleSilicon Cluster = ForwardToHost
 defaultInferenceMode _ _ = SelfInference
 
 renderListener :: Maybe HttpListener -> Text
-renderListener Nothing = "None HttpListener"
+renderListener Nothing = "None { host : Text, port : Natural }"
 renderListener (Just listener) =
   "Some { host = \""
     <> listenerHost listener

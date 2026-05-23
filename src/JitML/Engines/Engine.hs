@@ -30,7 +30,7 @@ import JitML.Codegen.RuntimeSource
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 import JitML.Substrate (Substrate (..), renderSubstrate)
-import JitML.Tart.Exec (tartSshSubprocess)
+import JitML.Tart.Exec (tartExecSubprocess)
 import JitML.Tart.Lifecycle (VmName (..))
 
 data Engine = Engine
@@ -151,7 +151,7 @@ compileSubprocess :: Engine -> RuntimeSource -> Cache.Hash -> Subprocess
 compileSubprocess engine source hash =
   case engineSubstrate engine of
     AppleSilicon ->
-      tartSshSubprocess
+      tartExecSubprocess
         (VmName "jitml-build")
         ["swift", "build", "--package-path", sourceDir, "-c", "release"]
     LinuxCPU ->

@@ -4,13 +4,19 @@ module JitML.Service.Workload
   ( WorkloadEffect (..)
   , WorkloadEffectResult (..)
   , dispatchDomainPayload
+  , dispatchDomainPayloadWithInference
   , dispatchWorkloadPayload
+  , dispatchWorkloadPayloadWithInference
   , parseWorkloadEffectPayload
   , renderWorkloadEffect
   , renderWorkloadEffectPayload
   , renderWorkloadEffectResult
+  , runInferenceRequest
+  , runInferenceRequestWith
   , runWorkloadEffect
+  , runWorkloadEffectWithInference
   , runWorkloadEffects
+  , runWorkloadEffectsWithInference
   )
 where
 
@@ -29,6 +35,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Checkpoint.Format (CheckpointManifest, inferFromManifest)
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Proto.Inference
   ( InferenceRequest (..)
@@ -97,7 +104,15 @@ runWorkloadEffect
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => WorkloadEffect
   -> m (Either ServiceError WorkloadEffectResult)
-runWorkloadEffect effect =
+runWorkloadEffect =
+  runWorkloadEffectWithInference defaultCheckpointInference
+
+runWorkloadEffectWithInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  -> WorkloadEffect
+  -> m (Either ServiceError WorkloadEffectResult)
+runWorkloadEffectWithInference runInference effect =
   case effect of
     WriteCheckpointBlob ref payload ->
       fmap CheckpointBlobWritten <$> putBlobBytesIfAbsent ref payload
@@ -106,7 +121,7 @@ runWorkloadEffect effect =
     PromoteWorkloadImage source target ->
       fmap WorkloadImagePromoted <$> harborPromoteImage source target
     RunInference request ->
-      fmap InferenceResultPublished <$> runInferenceRequest request
+      fmap InferenceResultPublished <$> runInferenceRequestWith runInference request
     ApplyWorkloadResource resource manifest ->
       fmap (const WorkloadResourceApplied) <$> kubectlApply resource manifest
     ReadWorkloadResourceStatus resource ->
@@ -119,24 +134,56 @@ runWorkloadEffects
   => [WorkloadEffect]
   -> m [Either ServiceError WorkloadEffectResult]
 runWorkloadEffects =
-  traverse runWorkloadEffect
+  runWorkloadEffectsWithInference defaultCheckpointInference
+
+runWorkloadEffectsWithInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  -> [WorkloadEffect]
+  -> m [Either ServiceError WorkloadEffectResult]
+runWorkloadEffectsWithInference runInference =
+  traverse (runWorkloadEffectWithInference runInference)
 
 dispatchWorkloadPayload
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => Text
   -> m (Maybe (Either ServiceError WorkloadEffectResult))
-dispatchWorkloadPayload payload =
+dispatchWorkloadPayload =
+  dispatchWorkloadPayloadWithInference defaultCheckpointInference
+
+dispatchWorkloadPayloadWithInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  -> Text
+  -> m (Maybe (Either ServiceError WorkloadEffectResult))
+dispatchWorkloadPayloadWithInference runInference payload =
   case parseWorkloadEffectPayload payload of
     Nothing -> pure Nothing
-    Just effect -> Just <$> runWorkloadEffect effect
+    Just effect -> Just <$> runWorkloadEffectWithInference runInference effect
 
 dispatchDomainPayload
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => EventDomain
   -> Text
   -> m [Either ServiceError WorkloadEffectResult]
-dispatchDomainPayload domain payload =
-  runWorkloadEffects (workloadEffectsForDomainPayload domain payload)
+dispatchDomainPayload =
+  dispatchDomainPayloadWithInference defaultCheckpointInference
+
+dispatchDomainPayloadWithInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  -> EventDomain
+  -> Text
+  -> m [Either ServiceError WorkloadEffectResult]
+dispatchDomainPayloadWithInference runInference domain payload =
+  case domain of
+    InferenceDomain ->
+      case parseInferenceRequest payload of
+        Nothing -> pure []
+        Just request ->
+          fmap (pure . fmap InferenceResultPublished) (runInferenceRequestWith runInference request)
+    _ ->
+      runWorkloadEffectsWithInference runInference (workloadEffectsForDomainPayload domain payload)
 
 workloadEffectsForDomainPayload :: EventDomain -> Text -> [WorkloadEffect]
 workloadEffectsForDomainPayload domain payload =
@@ -187,8 +234,20 @@ runInferenceRequest
   :: (HasMinIO m, HasPulsar m)
   => InferenceRequest
   -> m (Either ServiceError Text)
-runInferenceRequest request = do
-  result <- CheckpointStore.loadInferenceCheckpoint (irExperimentHash request) (irInput request)
+runInferenceRequest =
+  runInferenceRequestWith defaultCheckpointInference
+
+runInferenceRequestWith
+  :: (HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  -> InferenceRequest
+  -> m (Either ServiceError Text)
+runInferenceRequestWith runInference request = do
+  result <-
+    CheckpointStore.loadInferenceCheckpointWith
+      runInference
+      (irExperimentHash request)
+      (irInput request)
   case result of
     Left err ->
       pure (Left (SETransient ("inference: " <> err)))
@@ -202,6 +261,14 @@ runInferenceRequest request = do
               , iresOutput = output
               }
         )
+
+defaultCheckpointInference
+  :: (Applicative m)
+  => CheckpointManifest
+  -> [Double]
+  -> m (Either Text [Double])
+defaultCheckpointInference manifest input =
+  pure (Right (inferFromManifest manifest input))
 
 renderTrainingJob :: StartTraining -> Text
 renderTrainingJob start =

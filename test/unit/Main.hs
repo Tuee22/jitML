@@ -28,6 +28,7 @@ import System.Directory
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Info qualified as SystemInfo
 import System.Posix.Files (readSymbolicLink)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
@@ -54,9 +55,23 @@ import JitML.Cache.Symlink qualified as CacheSymlink
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
+import JitML.Codegen.Cuda qualified as Cuda
+import JitML.Codegen.KernelFamily (KernelFamily (..))
+import JitML.Codegen.Metal qualified as Metal
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
+import JitML.Codegen.SourceFile (SourceFile (..))
+import JitML.Engines.CpuFeatures qualified as CpuFeatures
+import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Engine qualified as Engine
+import JitML.Engines.Loader qualified as Loader
+import JitML.Engines.Local qualified as LocalEngine
+import JitML.Engines.MetalRuntime qualified as MetalRuntime
+import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
+import JitML.Engines.Rng qualified as Rng
 import JitML.Engines.Tuning qualified as Tuning
+import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
+import JitML.Engines.TuningCache qualified as TuningCache
+import JitML.Engines.TuningStore qualified as TuningStore
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env (..), OutputFormat (..))
 import JitML.Generated.Paths
@@ -111,6 +126,9 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
+import JitML.Tart.Build qualified as TartBuild
+import JitML.Tart.Lifecycle (VmName (..))
+import JitML.Tart.Lifecycle qualified as TartLifecycle
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.Bundle qualified as WebBundle
 import JitML.Web.Contracts qualified as WebContracts
@@ -382,7 +400,7 @@ main =
                   Cache.Training
                   Cache.AppleSilicon
                   (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")
-                  Cache.defaultRuntimeSourcePayload
+                  sampleRuntimeSourcePayload
                   Cache.defaultTuningChoice
           first @?= second
           Cache.hashHex first <> "\n" @?= expected
@@ -411,6 +429,155 @@ main =
                   (Cache.RuntimeSourcePayload "changed-runtime-source")
                   Cache.defaultTuningChoice
           assertBool "runtime source participates in cache key" (first /= second)
+      , testCase "linux-cpu local fingerprint includes host artifact ABI" $ do
+          let expectedAbi =
+                "artifact-abi="
+                  <> Text.pack SystemInfo.os
+                  <> "-"
+                  <> Text.pack SystemInfo.arch
+          assertBool
+            "linux-cpu local fingerprint separates host/container artifact ABIs"
+            (expectedAbi `Text.isInfixOf` Cache.unToolchainFingerprint LocalEngine.linuxCpuToolchainFingerprint)
+          assertBool
+            "linux-cpu local fingerprint records the deterministic reduction block"
+            ( "reduction-block=256"
+                `Text.isInfixOf` Cache.unToolchainFingerprint LocalEngine.linuxCpuToolchainFingerprint
+            )
+      , testCase "CpuFeatures parsers select deterministic oneDNN micro-kernel knobs" $ do
+          let linuxAvx512 =
+                CpuFeatures.cpuFeaturesFromLinuxCpuinfo
+                  ( Text.unlines
+                      [ "vendor_id\t: GenuineIntel"
+                      , "flags\t: fpu sse4_2 avx2 avx512f"
+                      ]
+                  )
+              linuxAvx2 =
+                CpuFeatures.cpuFeaturesFromLinuxCpuinfo
+                  ( Text.unlines
+                      [ "vendor_id\t: AuthenticAMD"
+                      , "flags\t: fpu sse4_2 avx2"
+                      ]
+                  )
+              linuxReference =
+                CpuFeatures.cpuFeaturesFromLinuxCpuinfo
+                  ( Text.unlines
+                      [ "vendor_id\t: other"
+                      , "flags\t: fpu sse4_2"
+                      ]
+                  )
+              darwinApple =
+                CpuFeatures.cpuFeaturesFromDarwinSysctl
+                  ( Text.unlines
+                      [ "machdep.cpu.brand_string: Apple M3"
+                      , "hw.optional.avx2_0: 0"
+                      , "hw.optional.avx512f: 0"
+                      ]
+                  )
+              darwinIntel =
+                CpuFeatures.cpuFeaturesFromDarwinSysctl
+                  ( Text.unlines
+                      [ "machdep.cpu.brand_string: Intel"
+                      , "hw.optional.avx2_0: 1"
+                      , "hw.optional.avx512f: 0"
+                      ]
+                  )
+          linuxAvx512
+            @?= CpuFeatures.CpuFeatures
+              { CpuFeatures.cpuHasAvx2 = True
+              , CpuFeatures.cpuHasAvx512 = True
+              , CpuFeatures.cpuVendor = "intel"
+              }
+          CpuFeatures.microKernelChoice linuxAvx512 @?= "onednn-jit-avx512"
+          CpuFeatures.microKernelChoice linuxAvx2 @?= "onednn-jit-avx2"
+          CpuFeatures.microKernelChoice linuxReference @?= "onednn-reference"
+          darwinApple
+            @?= CpuFeatures.CpuFeatures
+              { CpuFeatures.cpuHasAvx2 = False
+              , CpuFeatures.cpuHasAvx512 = False
+              , CpuFeatures.cpuVendor = "apple-silicon"
+              }
+          CpuFeatures.microKernelChoice darwinApple @?= "onednn-reference"
+          CpuFeatures.microKernelChoice darwinIntel @?= "onednn-jit-avx2"
+      , testCase "oneDNN runtime probe parser reports pkg-config and link visibility" $ do
+          OneDnnRuntime.parsePkgConfigVersion "3.5.3\n" @?= Just "3.5.3"
+          OneDnnRuntime.parsePkgConfigVersion "\n" @?= Nothing
+          OneDnnRuntime.oneDnnLibraryVisibleFromLdconfig
+            "libdnnl.so.3 (libc6,AArch64) => /usr/lib/libdnnl.so.3\n"
+            @?= True
+          OneDnnRuntime.oneDnnLibraryVisibleFromLdconfig
+            "libblas.so.3 (libc6,AArch64) => /usr/lib/libblas.so.3\n"
+            @?= False
+          let availableProbe =
+                OneDnnRuntime.OneDnnRuntimeProbe
+                  { OneDnnRuntime.oneDnnRuntimePkgConfigName = Just "dnnl"
+                  , OneDnnRuntime.oneDnnRuntimePkgConfigVersion = Just "3.5.3"
+                  , OneDnnRuntime.oneDnnRuntimeLibraryVisible = True
+                  , OneDnnRuntime.oneDnnRuntimeProbeLog =
+                      [ "pkg-config --modversion dnnl: 3.5.3"
+                      , "ldconfig -p: libdnnl visible=yes"
+                      ]
+                  }
+              missingLibraryProbe =
+                availableProbe {OneDnnRuntime.oneDnnRuntimeLibraryVisible = False}
+              rendered = OneDnnRuntime.renderOneDnnRuntimeProbe availableProbe
+          OneDnnRuntime.oneDnnRuntimeAvailable availableProbe @?= True
+          OneDnnRuntime.oneDnnRuntimeAvailable missingLibraryProbe @?= False
+          assertBool
+            "rendered probe records availability"
+            ("available: yes" `Text.isInfixOf` rendered)
+          assertBool
+            "rendered probe records selected pkg-config module"
+            ("pkg_config_name: dnnl" `Text.isInfixOf` rendered)
+      , testCase "CUDA runtime probe parser reports nvcc, devices, and libraries" $ do
+          let nvccOutput =
+                Text.unlines
+                  [ "nvcc: NVIDIA (R) Cuda compiler driver"
+                  , "Cuda compilation tools, release 12.4, V12.4.99"
+                  ]
+              smiOutput =
+                Text.unlines
+                  [ "GPU 0: NVIDIA GeForce RTX 5090 (UUID: GPU-123)"
+                  , "GPU 1: NVIDIA GeForce RTX 4090 (UUID: GPU-456)"
+                  ]
+              ldconfigOutput =
+                Text.unlines
+                  [ "libcuda.so.1 (libc6,x86-64) => /usr/lib/libcuda.so.1"
+                  , "libcublas.so.12 (libc6,x86-64) => /usr/lib/libcublas.so.12"
+                  , "libcudnn.so.9 (libc6,x86-64) => /usr/lib/libcudnn.so.9"
+                  ]
+              visibility = CudaRuntime.cudaLibrariesVisibleFromLdconfig ldconfigOutput
+              availableProbe =
+                CudaRuntime.CudaRuntimeProbe
+                  { CudaRuntime.cudaRuntimeNvccVersion = Just "12.4"
+                  , CudaRuntime.cudaRuntimeGpuDevices = CudaRuntime.parseNvidiaSmiDevices smiOutput
+                  , CudaRuntime.cudaRuntimeLibraryVisibility = visibility
+                  , CudaRuntime.cudaRuntimeProbeLog =
+                      [ "nvcc --version: 12.4"
+                      , "nvidia-smi -L: 2 device(s)"
+                      , "ldconfig -p: libcuda=yes libcublas=yes libcudnn=yes"
+                      ]
+                  }
+              missingCudnnProbe =
+                availableProbe
+                  { CudaRuntime.cudaRuntimeLibraryVisibility =
+                      visibility {CudaRuntime.cudaDnnLibraryVisible = False}
+                  }
+              rendered = CudaRuntime.renderCudaRuntimeProbe availableProbe
+          CudaRuntime.parseNvccVersion nvccOutput @?= Just "12.4"
+          CudaRuntime.parseNvccVersion "\n" @?= Nothing
+          CudaRuntime.parseNvidiaSmiDevices smiOutput
+            @?= [ "GPU 0: NVIDIA GeForce RTX 5090 (UUID: GPU-123)"
+                , "GPU 1: NVIDIA GeForce RTX 4090 (UUID: GPU-456)"
+                ]
+          CudaRuntime.cudaLibrariesAvailable visibility @?= True
+          CudaRuntime.cudaRuntimeAvailable availableProbe @?= True
+          CudaRuntime.cudaRuntimeAvailable missingCudnnProbe @?= False
+          assertBool
+            "rendered CUDA probe records availability"
+            ("available: yes" `Text.isInfixOf` rendered)
+          assertBool
+            "rendered CUDA probe records cuDNN visibility"
+            ("libcudnn: yes" `Text.isInfixOf` rendered)
       , testCase "renderRuntimeSource is deterministic" $ do
           let kernelSpec = Cache.KernelSpec "phase-7-kernel:deterministic"
               first =
@@ -459,6 +626,322 @@ main =
           assertBool
             "engine envelope names deterministic reduction mode"
             ("onednn-fixed-block-reduction" `Text.isInfixOf` Engine.renderEngineEnvelope envelope)
+      , testCase "kernel loader resolves cache hits without recompiling" $
+          withSystemTempDirectory "jitml-kernel-loader" $ \dir -> do
+            cwd <- getCurrentDirectory
+            bracket_ (setCurrentDirectory dir) (setCurrentDirectory cwd) $ do
+              env <- buildEnv defaultGlobalFlags
+              let kernelSpec = Cache.KernelSpec "phase-7-kernel:loader"
+                  engine = Engine.engineForSubstrate Substrate.LinuxCPU
+                  source =
+                    renderRuntimeSource
+                      kernelSpec
+                      Cache.Inference
+                      Cache.LinuxCPU
+                      Cache.defaultTuningChoice
+                  handle = Engine.kernelHandleFor engine sampleCacheHash
+                  artifactPath = Text.unpack (Engine.kernelHandleArtifactPath handle)
+              createDirectoryIfMissing True (takeDirectory artifactPath)
+              StrictByteString.writeFile artifactPath (StrictByteString.pack [0x7f, 0x45, 0x4c, 0x46])
+              loaded <- Loader.ensureKernelArtifact env engine source sampleCacheHash
+              case loaded of
+                Left err -> assertFailure (Text.unpack err)
+                Right artifact -> do
+                  Loader.kernelArtifactHandle artifact @?= handle
+                  Loader.kernelArtifactCompiled artifact @?= False
+                  case Loader.kernelArtifactStatus artifact of
+                    Engine.JitCacheHit loadedHandle ->
+                      loadedHandle @?= handle
+                    Engine.JitCacheMiss _ _ ->
+                      assertFailure "expected loader cache hit"
+                  assertBool
+                    "loader keeps the typed compile command for diagnostics"
+                    ("g++ -std=c++20" `Text.isInfixOf` Loader.kernelArtifactCompileCommand artifact)
+      , testCase "splitmix RNG path is deterministic and CUDA codegen forbids curand" $ do
+          Rng.splitMixWords 5 (Rng.SplitMixSeed 0)
+            @?= [ 0xe220a8397b1dcdaf
+                , 0x6e789e6aa1b965f4
+                , 0x06c45d188009454f
+                , 0xf88bb8a8724c81ec
+                , 0x1b39896a51a8749b
+                ]
+          Rng.deriveSplitMixSeed (Rng.SplitMixSeed 42) 0
+            @?= Rng.deriveSplitMixSeed (Rng.SplitMixSeed 42) 0
+          assertBool
+            "different splitmix streams derive different seeds"
+            (Rng.deriveSplitMixSeed (Rng.SplitMixSeed 42) 0 /= Rng.deriveSplitMixSeed (Rng.SplitMixSeed 42) 1)
+          assertBool
+            "splitmix unit double stays in [0,1)"
+            (let value = Rng.splitMixUnitDouble 0xe220a8397b1dcdaf in value >= 0 && value < 1)
+          case Cuda.renderCudaFamilySource
+            Dense2D
+            (Cache.KernelSpec "phase-7-kernel:rng")
+            Cache.Training
+            Cache.defaultTuningChoice of
+            [SourceFile _ contents] -> do
+              assertBool
+                "CUDA source records the host splitmix RNG policy"
+                ("host-splitmix64-no-curand" `Text.isInfixOf` contents)
+              assertBool
+                "CUDA source does not include curand runtime headers"
+                (not ("#include <curand" `Text.isInfixOf` contents))
+            _ ->
+              assertFailure "expected one generated CUDA source file"
+          case Cuda.renderCudaFamilySource
+            Reduction
+            (Cache.KernelSpec "phase-7-kernel:cuda-reduction")
+            Cache.Training
+            Cache.defaultTuningChoice of
+            [SourceFile _ contents] -> do
+              assertBool
+                "CUDA reduction emits no nondeterministic atomics"
+                (not ("atomicAdd" `Text.isInfixOf` contents))
+              assertBool
+                "CUDA reduction writes one partial per warp"
+                ("partials[blockIdx.x * warpsPerBlock + warp] = v;" `Text.isInfixOf` contents)
+              assertBool
+                "CUDA source exports family metadata for future FFI loading"
+                ("jitml_kernel_family_name" `Text.isInfixOf` contents)
+              assertBool
+                "CUDA source exports output-count metadata for future FFI loading"
+                ("jitml_kernel_output_count" `Text.isInfixOf` contents)
+            _ ->
+              assertFailure "expected one generated CUDA reduction source file"
+      , testCase "CUDA reduction host partials finalize in canonical order" $ do
+          CudaRuntime.cudaReductionPartialCount 0 @?= Right 0
+          CudaRuntime.cudaReductionPartialCount 1 @?= Right 8
+          CudaRuntime.cudaReductionPartialCount 256 @?= Right 8
+          CudaRuntime.cudaReductionPartialCount 257 @?= Right 16
+          CudaRuntime.cudaReductionPartialCount (-1)
+            @?= Left "cuda reduction input count cannot be negative: -1"
+          CudaRuntime.accumulateCudaReductionPartials [1.0, 2.0, 3.0]
+            @?= 6.0
+          CudaRuntime.finalizeCudaReductionPartials 257 [1.0 .. 16.0]
+            @?= Right 136.0
+          CudaRuntime.finalizeCudaReductionPartials 257 [1.0, 2.0]
+            @?= Left "cuda reduction partial count mismatch: expected 16, got 2"
+      , testCase "Metal package exports family and output-count metadata" $ do
+          let reductionPackage =
+                Metal.renderMetalFamilyPackage
+                  Reduction
+                  (Cache.KernelSpec "phase-7-kernel:metal-reduction")
+                  Cache.Inference
+                  Cache.defaultTuningChoice
+          case find ((== "Sources/JitMLMetal/JitMLMetal.swift") . sourceRelativePath) reductionPackage of
+            Nothing ->
+              assertFailure "missing generated Swift source"
+            Just (SourceFile _ contents) -> do
+              assertBool
+                "Swift source exports family metadata for future FFI loading"
+                ("@_cdecl(\"jitml_kernel_family_name\")" `Text.isInfixOf` contents)
+              assertBool
+                "Swift source exports output-count metadata for future FFI loading"
+                ("@_cdecl(\"jitml_kernel_output_count\")" `Text.isInfixOf` contents)
+              assertBool
+                "Metal reduction metadata reports one output per simdgroup partial"
+                ("return n == 0 ? 0 : ((n - 1) / 32 + 1)" `Text.isInfixOf` contents)
+              assertBool
+                "Swift source records the generated family name"
+                ( "private let jitmlKernelFamilyCString: UnsafeMutablePointer<CChar> = strdup(\"reduction\")!"
+                    `Text.isInfixOf` contents
+                )
+          Metal.threadgroupSizeFor Reduction @?= 64
+      , testCase "Metal runtime probe parser reports Swift, xcrun, and device visibility" $ do
+          let swiftOutput =
+                "swift-driver version: 1.115 Apple Swift version 6.0 (swiftlang-6.0.0 clang-1600.0.26.3)\n"
+              xcrunOutput = "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal\n"
+              systemProfilerOutput =
+                Text.unlines
+                  [ "Graphics/Displays:"
+                  , "    Apple M3 Max:"
+                  , "      Metal Support: Metal 3"
+                  ]
+              availableProbe =
+                MetalRuntime.MetalRuntimeProbe
+                  { MetalRuntime.metalRuntimeSwiftVersion = MetalRuntime.parseSwiftVersion swiftOutput
+                  , MetalRuntime.metalRuntimeMetalCompilerPath =
+                      MetalRuntime.parseXcrunFindOutput xcrunOutput
+                  , MetalRuntime.metalRuntimeSwiftCompilerPath =
+                      Just "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+                  , MetalRuntime.metalRuntimeDeviceVisible =
+                      MetalRuntime.metalDeviceVisibleFromSystemProfiler systemProfilerOutput
+                  , MetalRuntime.metalRuntimeProbeLog =
+                      [ "swift --version: 6.0"
+                      , "xcrun -find metal: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal"
+                      , "xcrun -find swiftc: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+                      , "system_profiler SPDisplaysDataType: metal_device_visible=yes"
+                      ]
+                  }
+              missingDeviceProbe =
+                availableProbe {MetalRuntime.metalRuntimeDeviceVisible = False}
+              rendered = MetalRuntime.renderMetalRuntimeProbe availableProbe
+          MetalRuntime.parseSwiftVersion swiftOutput @?= Just "6.0"
+          MetalRuntime.parseSwiftVersion "Swift version 5.9.2\n" @?= Just "5.9.2"
+          MetalRuntime.parseSwiftVersion "\n" @?= Nothing
+          MetalRuntime.parseXcrunFindOutput xcrunOutput
+            @?= Just "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal"
+          MetalRuntime.parseXcrunFindOutput "\n" @?= Nothing
+          MetalRuntime.metalDeviceVisibleFromSystemProfiler systemProfilerOutput @?= True
+          MetalRuntime.metalDeviceVisibleFromSystemProfiler "Metal: Unsupported\n" @?= False
+          MetalRuntime.metalRuntimeAvailable availableProbe @?= True
+          MetalRuntime.metalRuntimeAvailable missingDeviceProbe @?= False
+          assertBool
+            "rendered Metal probe records availability"
+            ("available: yes" `Text.isInfixOf` rendered)
+          assertBool
+            "rendered Metal probe records compiler path"
+            ("metal_compiler: /Applications/Xcode.app" `Text.isInfixOf` rendered)
+      , testCase "Apple Tart cache-miss build plan orders VM, Swift build, cache publish, and symlink" $ do
+          let source =
+                renderRuntimeSource
+                  (Cache.KernelSpec "phase-7-kernel:metal-cache-miss")
+                  Cache.Inference
+                  Cache.AppleSilicon
+                  Cache.defaultTuningChoice
+              plan =
+                TartBuild.tartCacheMissBuildPlan
+                  (VmName "jitml-build")
+                  (Cache.ModelId "mnist-linear")
+                  source
+                  sampleCacheHash
+              rendered = TartBuild.renderTartCacheMissBuildPlan plan
+              expectedSourceDir =
+                ".build/jit-src/apple-silicon/" <> Cache.hashHex sampleCacheHash
+              expectedArtifact =
+                ".build/jit/apple-silicon/" <> Cache.hashHex sampleCacheHash <> ".dylib"
+          TartBuild.tartCacheMissSourceDir plan @?= expectedSourceDir
+          TartBuild.tartCacheMissBuildProduct plan
+            @?= expectedSourceDir
+            <> "/.build/release/libJitMLMetal.dylib"
+          TartBuild.tartCacheMissArtifactPath plan @?= expectedArtifact
+          TartBuild.tartCacheMissStableSymlinkPath plan
+            @?= ".build/host/apple-silicon/mnist-linear.dylib"
+          assertBool
+            "plan validates the Swift toolchain inside the VM"
+            ("validate-swift-toolchain: tart exec jitml-build swift --version" `Text.isInfixOf` rendered)
+          assertBool
+            "plan builds the generated Swift package inside the VM"
+            ( ( "build-metal-package: tart exec jitml-build swift build --package-path "
+                  <> expectedSourceDir
+                  <> " -c release"
+              )
+                `Text.isInfixOf` rendered
+            )
+          assertBool
+            "plan publishes the dynamic library into the content-addressed cache"
+            ( ("publish-cache-artifact: mv " <> expectedArtifact <> ".tmp " <> expectedArtifact)
+                `Text.isInfixOf` rendered
+            )
+          assertBool
+            "plan repoints the host-stable FFI symlink through the Haskell helper"
+            ( "repoint-stable-ffi-symlink: host-action JitML.Cache.Symlink.repointSymlink .build mnist-linear "
+                `Text.isInfixOf` rendered
+            )
+          observedSteps <- newIORef []
+          let record stepName detail =
+                modifyIORef' observedSteps (<> [stepName <> ": " <> detail])
+              executor =
+                TartBuild.TartCacheMissBuildExecutor
+                  { TartBuild.executeTartHostAction = \stepName action -> do
+                      record stepName (TartBuild.renderTartHostAction action)
+                      pure (Right ())
+                  , TartBuild.executeTartCommand = \stepName command -> do
+                      record stepName (renderSubprocess command)
+                      pure (Right ())
+                  }
+              expectedStepNames =
+                [ "ensure-vm-up"
+                , "validate-swift-toolchain"
+                , "build-metal-package"
+                , "prepare-cache-dirs"
+                , "copy-build-product"
+                , "publish-cache-artifact"
+                , "repoint-stable-ffi-symlink"
+                ]
+          executionResult <- TartBuild.executeTartCacheMissBuildPlanWith executor plan
+          executionResult @?= Right (TartBuild.TartCacheMissBuildResult expectedStepNames)
+          observedExecution <- readIORef observedSteps
+          observedExecution
+            @?= [ "ensure-vm-up: JitML.Tart.ensureVmUpLive jitml-build"
+                , "validate-swift-toolchain: tart exec jitml-build swift --version"
+                , "build-metal-package: tart exec jitml-build swift build --package-path "
+                    <> expectedSourceDir
+                    <> " -c release"
+                , "prepare-cache-dirs: mkdir -p .build/jit/apple-silicon .build/host/apple-silicon"
+                , "copy-build-product: cp "
+                    <> expectedSourceDir
+                    <> "/.build/release/libJitMLMetal.dylib "
+                    <> expectedArtifact
+                    <> ".tmp"
+                , "publish-cache-artifact: mv "
+                    <> expectedArtifact
+                    <> ".tmp "
+                    <> expectedArtifact
+                , "repoint-stable-ffi-symlink: JitML.Cache.Symlink.repointSymlink .build mnist-linear "
+                    <> Cache.hashHex sampleCacheHash
+                    <> " dylib"
+                ]
+          failedSteps <- newIORef []
+          let failingExecutor =
+                TartBuild.TartCacheMissBuildExecutor
+                  { TartBuild.executeTartHostAction = \stepName _action -> do
+                      modifyIORef' failedSteps (<> [stepName])
+                      pure (Right ())
+                  , TartBuild.executeTartCommand = \stepName _command -> do
+                      modifyIORef' failedSteps (<> [stepName])
+                      pure $
+                        if stepName == "copy-build-product"
+                          then Left "missing dylib"
+                          else Right ()
+                  }
+          failureResult <- TartBuild.executeTartCacheMissBuildPlanWith failingExecutor plan
+          failureResult @?= Left "copy-build-product: missing dylib"
+          observedFailure <- readIORef failedSteps
+          observedFailure
+            @?= [ "ensure-vm-up"
+                , "validate-swift-toolchain"
+                , "build-metal-package"
+                , "prepare-cache-dirs"
+                , "copy-build-product"
+                ]
+      , testCase "Tart VM status parser recognizes missing, stopped, and running VMs" $ do
+          let stoppedJson =
+                Text.unlines
+                  [ "["
+                  , "  {"
+                  , "    \"Name\": \"jitml-build\","
+                  , "    \"Running\": false,"
+                  , "    \"State\": \"stopped\""
+                  , "  }"
+                  , "]"
+                  ]
+              runningJson =
+                Text.unlines
+                  [ "["
+                  , "  {"
+                  , "    \"Name\": \"jitml-build\","
+                  , "    \"Running\": true,"
+                  , "    \"State\": \"running\""
+                  , "  }"
+                  , "]"
+                  ]
+          TartLifecycle.parseTartListStatus (VmName "jitml-build") "[]" @?= Right TartLifecycle.TartVmMissing
+          TartLifecycle.parseTartListStatus (VmName "jitml-build") stoppedJson
+            @?= Right TartLifecycle.TartVmStopped
+          TartLifecycle.parseTartListStatus (VmName "jitml-build") runningJson
+            @?= Right TartLifecycle.TartVmRunning
+          TartLifecycle.renderTartVmStatus TartLifecycle.TartVmMissing @?= "missing"
+          TartLifecycle.renderTartVmStatus TartLifecycle.TartVmStopped @?= "stopped"
+          TartLifecycle.renderTartVmStatus TartLifecycle.TartVmRunning @?= "running"
+          renderSubprocess
+            (TartLifecycle.tartCloneSubprocess TartLifecycle.defaultTartBaseImage (VmName "jitml-build"))
+            @?= "tart clone ghcr.io/cirruslabs/macos-sequoia-xcode:16 jitml-build"
+          renderSubprocess TartLifecycle.tartListSubprocess
+            @?= "tart list --source local --format json"
+          renderSubprocess (TartLifecycle.tartRunSubprocess (VmName "jitml-build"))
+            @?= "tart run --no-graphics jitml-build"
+          renderSubprocess (TartLifecycle.tartStopSubprocess (VmName "jitml-build"))
+            @?= "tart stop jitml-build"
       , testCase "hardware auto-tuning benchmark plan enumerates deterministic candidates" $ do
           let plan = Tuning.benchmarkPlan Tuning.linuxCudaKnobs
               deterministicDefault = Tuning.selectDeterministic Tuning.linuxCudaKnobs
@@ -473,6 +956,271 @@ main =
             ( Cache.unTuningChoice (Tuning.tuningChoiceForResult deterministicDefault)
                 `Text.isInfixOf` rendered
             )
+      , testCase "hardware auto-tuning selects fastest measured deterministic candidate" $ do
+          let plan = Tuning.benchmarkPlan Tuning.linuxCudaKnobs
+          case Tuning.benchmarkPlanResults plan of
+            first : second : third : _ -> do
+              let firstMeasurement =
+                    Tuning.BenchmarkMeasurement first 40 "sha-first"
+                  measurements =
+                    [ firstMeasurement
+                    , Tuning.BenchmarkMeasurement second 25 "sha-second"
+                    , Tuning.BenchmarkMeasurement third 35 "sha-third"
+                    ]
+                  tieMeasurements =
+                    [ Tuning.BenchmarkMeasurement second 10 "sha-second"
+                    , Tuning.BenchmarkMeasurement first 10 "sha-first"
+                    ]
+              Tuning.selectMeasuredTuning plan measurements @?= Right second
+              Tuning.selectMeasuredTuning plan tieMeasurements @?= Right first
+              Tuning.selectBenchmarkMeasurement plan measurements
+                @?= Right (Tuning.BenchmarkMeasurement second 25 "sha-second")
+              Tuning.renderBenchmarkMeasurement firstMeasurement
+                @?= Cache.unTuningChoice (Tuning.tuningChoiceForResult first)
+                <> " latency_micros=40 output_digest=sha-first"
+              Tuning.selectMeasuredTuning plan [] @?= Left "benchmark plan has no measurements"
+            _ ->
+              assertFailure "expected at least three benchmark candidates"
+      , testCase "hardware auto-tuning persists selected measured choice by base hash" $
+          withSystemTempDirectory "jitml-tuning-store" $ \dir -> do
+            let plan = Tuning.benchmarkPlan Tuning.linuxCudaKnobs
+            case Tuning.benchmarkPlanResults plan of
+              first : second : _ -> do
+                let baseHash = sampleCacheHash
+                    measurements =
+                      [ Tuning.BenchmarkMeasurement first 40 "sha-first"
+                      , Tuning.BenchmarkMeasurement second 25 "sha-second"
+                      ]
+                persisted <-
+                  TuningStore.persistSelectedMeasuredTuning
+                    dir
+                    baseHash
+                    plan
+                    measurements
+                let expected =
+                      TuningStore.PersistedTuningSelection
+                        { TuningStore.persistedTuningSubstrate = Substrate.LinuxCUDA
+                        , TuningStore.persistedTuningBaseHash = baseHash
+                        , TuningStore.persistedTuningChoice = Tuning.tuningChoiceForResult second
+                        , TuningStore.persistedTuningLatencyMicros = 25
+                        , TuningStore.persistedTuningOutputDigest = "sha-second"
+                        }
+                    path =
+                      TuningStore.tuningSelectionPath
+                        dir
+                        Substrate.LinuxCUDA
+                        baseHash
+                persisted @?= Right expected
+                doesFileExist path >>= (@?= True)
+                loaded <- TuningStore.readTuningSelection dir Substrate.LinuxCUDA baseHash
+                loaded @?= Right (Just expected)
+              _ ->
+                assertFailure "expected at least two benchmark candidates"
+      , testCase "hardware auto-tuning loads persisted choice for cache-key derivation" $
+          withSystemTempDirectory "jitml-tuning-cache" $ \dir -> do
+            let kernelSpec = Cache.KernelSpec "phase-7-kernel:tuned-cache"
+                kind = Cache.Training
+                fingerprint = Cache.ToolchainFingerprint "nvcc=sm_70"
+                benchmarkPlan = Tuning.benchmarkPlan Tuning.linuxCudaKnobs
+                basePlan =
+                  TuningCache.defaultTuningCachePlan
+                    kernelSpec
+                    kind
+                    Substrate.LinuxCUDA
+                    fingerprint
+            TuningCache.tuningCacheHash basePlan @?= TuningCache.tuningCacheBaseHash basePlan
+            TuningCache.tuningCacheTuningChoice basePlan @?= Cache.defaultTuningChoice
+            TuningCache.tuningCacheSelectionSource basePlan @?= "default"
+            case Tuning.benchmarkPlanResults benchmarkPlan of
+              first : second : _ -> do
+                let measurements =
+                      [ Tuning.BenchmarkMeasurement first 40 "sha-first"
+                      , Tuning.BenchmarkMeasurement second 25 "sha-second"
+                      ]
+                persisted <-
+                  TuningStore.persistSelectedMeasuredTuning
+                    dir
+                    (TuningCache.tuningCacheBaseHash basePlan)
+                    benchmarkPlan
+                    measurements
+                case persisted of
+                  Left err -> assertFailure (Text.unpack err)
+                  Right selection -> do
+                    selectedPlanResult <-
+                      TuningCache.selectTuningCachePlan
+                        dir
+                        kernelSpec
+                        kind
+                        Substrate.LinuxCUDA
+                        fingerprint
+                    case selectedPlanResult of
+                      Left err -> assertFailure (Text.unpack err)
+                      Right selectedPlan -> do
+                        TuningCache.tuningCacheBaseHash selectedPlan
+                          @?= TuningCache.tuningCacheBaseHash basePlan
+                        TuningCache.tuningCacheTuningChoice selectedPlan
+                          @?= Tuning.tuningChoiceForResult second
+                        TuningCache.tuningCachePersistedSelection selectedPlan
+                          @?= Just selection
+                        TuningCache.tuningCacheSelectionSource selectedPlan @?= "persisted"
+                        assertBool
+                          "persisted tuning choice changes final cache hash"
+                          (TuningCache.tuningCacheHash selectedPlan /= TuningCache.tuningCacheBaseHash selectedPlan)
+              _ ->
+                assertFailure "expected at least two benchmark candidates"
+      , testCase "hardware auto-tuning benchmark driver collects digests and persists the winner" $
+          withSystemTempDirectory "jitml-tuning-benchmark" $ \dir -> do
+            let plan = Tuning.benchmarkPlan Tuning.linuxCpuKnobs
+            case Tuning.benchmarkPlanResults plan of
+              first : second : _ -> do
+                let boundedPlan =
+                      Tuning.BenchmarkPlan
+                        (Tuning.benchmarkPlanSubstrate plan)
+                        [first, second]
+                    firstDigest = TuningBenchmark.digestFloatOutput [1.0, 2.0]
+                    secondDigest = TuningBenchmark.digestFloatOutput [1.0, 3.0]
+                    observed candidate
+                      | candidate == first =
+                          pure (Right (TuningBenchmark.BenchmarkObservation 30 firstDigest))
+                      | candidate == second =
+                          pure (Right (TuningBenchmark.BenchmarkObservation 20 secondDigest))
+                      | otherwise =
+                          pure (Left "unexpected candidate")
+                assertBool "float output digest is content-sensitive" (firstDigest /= secondDigest)
+                measured <-
+                  TuningBenchmark.collectBenchmarkMeasurements boundedPlan observed
+                measured
+                  @?= Right
+                    [ Tuning.BenchmarkMeasurement first 30 firstDigest
+                    , Tuning.BenchmarkMeasurement second 20 secondDigest
+                    ]
+                timed <-
+                  TuningBenchmark.measureBenchmarkObservation
+                    TuningBenchmark.digestFloatOutput
+                    (pure [1.0, 2.0])
+                TuningBenchmark.benchmarkObservationOutputDigest timed @?= firstDigest
+                assertBool
+                  "benchmark timing is non-negative"
+                  (TuningBenchmark.benchmarkObservationLatencyMicros timed >= 0)
+                persisted <-
+                  TuningBenchmark.collectAndPersistBenchmarkSelection
+                    dir
+                    sampleCacheHash
+                    boundedPlan
+                    observed
+                persisted
+                  @?= Right
+                    ( TuningStore.PersistedTuningSelection
+                        { TuningStore.persistedTuningSubstrate = Substrate.LinuxCPU
+                        , TuningStore.persistedTuningBaseHash = sampleCacheHash
+                        , TuningStore.persistedTuningChoice = Tuning.tuningChoiceForResult second
+                        , TuningStore.persistedTuningLatencyMicros = 20
+                        , TuningStore.persistedTuningOutputDigest = secondDigest
+                        }
+                    )
+              _ ->
+                assertFailure "expected at least two benchmark candidates"
+      , testCase "hardware auto-tuning CUDA and Metal runners preflight runtime availability" $ do
+          let kernelSpec = Cache.KernelSpec "phase-7-kernel:preflight-runner"
+              cudaCandidate = Tuning.selectDeterministic Tuning.linuxCudaKnobs
+              appleCandidate = Tuning.selectDeterministic Tuning.appleSiliconKnobs
+              linuxCandidate = Tuning.selectDeterministic Tuning.linuxCpuKnobs
+              availableCudaProbe =
+                CudaRuntime.CudaRuntimeProbe
+                  { CudaRuntime.cudaRuntimeNvccVersion = Just "12.4"
+                  , CudaRuntime.cudaRuntimeGpuDevices =
+                      ["GPU 0: NVIDIA GeForce RTX 5090 (UUID: GPU-123)"]
+                  , CudaRuntime.cudaRuntimeLibraryVisibility =
+                      CudaRuntime.CudaLibraryVisibility
+                        { CudaRuntime.cudaDriverLibraryVisible = True
+                        , CudaRuntime.cudaBlasLibraryVisible = True
+                        , CudaRuntime.cudaDnnLibraryVisible = True
+                        }
+                  , CudaRuntime.cudaRuntimeProbeLog = []
+                  }
+              unavailableCudaProbe =
+                availableCudaProbe
+                  { CudaRuntime.cudaRuntimeNvccVersion = Nothing
+                  , CudaRuntime.cudaRuntimeGpuDevices = []
+                  , CudaRuntime.cudaRuntimeLibraryVisibility =
+                      CudaRuntime.CudaLibraryVisibility
+                        { CudaRuntime.cudaDriverLibraryVisible = True
+                        , CudaRuntime.cudaBlasLibraryVisible = True
+                        , CudaRuntime.cudaDnnLibraryVisible = False
+                        }
+                  }
+              availableMetalProbe =
+                MetalRuntime.MetalRuntimeProbe
+                  { MetalRuntime.metalRuntimeSwiftVersion = Just "6.0"
+                  , MetalRuntime.metalRuntimeMetalCompilerPath = Just "/usr/bin/metal"
+                  , MetalRuntime.metalRuntimeSwiftCompilerPath = Just "/usr/bin/swiftc"
+                  , MetalRuntime.metalRuntimeDeviceVisible = True
+                  , MetalRuntime.metalRuntimeProbeLog = []
+                  }
+              unavailableMetalProbe =
+                availableMetalProbe
+                  { MetalRuntime.metalRuntimeSwiftVersion = Nothing
+                  , MetalRuntime.metalRuntimeMetalCompilerPath = Nothing
+                  , MetalRuntime.metalRuntimeDeviceVisible = False
+                  }
+          cudaWrong <-
+            TuningBenchmark.cudaBenchmarkCandidateRunnerWithProbe
+              (pure unavailableCudaProbe)
+              kernelSpec
+              Cache.Training
+              []
+              appleCandidate
+          cudaWrong
+            @?= Left "linux-cuda benchmark runner cannot execute apple-silicon candidate"
+          cudaUnavailable <-
+            TuningBenchmark.cudaBenchmarkCandidateRunnerWithProbe
+              (pure unavailableCudaProbe)
+              kernelSpec
+              Cache.Training
+              []
+              cudaCandidate
+          cudaUnavailable
+            @?= Left
+              "linux-cuda benchmark runner unavailable: nvcc=missing gpu_devices=0 libcuda=yes libcublas=yes libcudnn=no"
+          cudaAvailable <-
+            TuningBenchmark.cudaBenchmarkCandidateRunnerWithProbe
+              (pure availableCudaProbe)
+              kernelSpec
+              Cache.Training
+              []
+              cudaCandidate
+          cudaAvailable
+            @?= Left
+              "linux-cuda benchmark runner reached an available runtime, but CUDA FFI candidate execution is not implemented yet"
+          metalWrong <-
+            TuningBenchmark.metalBenchmarkCandidateRunnerWithProbe
+              (pure unavailableMetalProbe)
+              kernelSpec
+              Cache.Training
+              []
+              linuxCandidate
+          metalWrong
+            @?= Left "apple-silicon benchmark runner cannot execute linux-cpu candidate"
+          metalUnavailable <-
+            TuningBenchmark.metalBenchmarkCandidateRunnerWithProbe
+              (pure unavailableMetalProbe)
+              kernelSpec
+              Cache.Training
+              []
+              appleCandidate
+          metalUnavailable
+            @?= Left
+              "apple-silicon benchmark runner unavailable: swift=missing metal=missing swiftc=present device=no"
+          metalAvailable <-
+            TuningBenchmark.metalBenchmarkCandidateRunnerWithProbe
+              (pure availableMetalProbe)
+              kernelSpec
+              Cache.Training
+              []
+              appleCandidate
+          metalAvailable
+            @?= Left
+              "apple-silicon benchmark runner reached an available runtime, but Metal FFI candidate execution is not implemented yet"
       , testCase "cachePath resolves under the substrate cache root" $
           withSystemTempDirectory "jitml-cache-layout" $ \dir -> do
             root <- resolveDir' (dir </> ".build")
@@ -512,7 +1260,11 @@ main =
                     Cache.Inference
                     Cache.AppleSilicon
                     (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")
-                    Cache.defaultRuntimeSourcePayload
+                    ( renderedRuntimeSourcePayload
+                        (Cache.KernelSpec "phase-2-kernel:conv")
+                        Cache.Inference
+                        Cache.AppleSilicon
+                    )
                     Cache.defaultTuningChoice
             firstTarget <- CacheLayout.cachePath root Cache.AppleSilicon sampleCacheHash extension
             secondTarget <- CacheLayout.cachePath root Cache.AppleSilicon nextHash extension
@@ -777,6 +1529,7 @@ main =
           assertBool "binary header is present" (ByteString.length payload > 16)
           ByteString.drop (ByteString.length payload - 8) payload
             @?= ByteString.pack [0, 0, 0, 0, 0, 0, 240, 63]
+          Checkpoint.decodeJmw1 payload @?= Right [1.0]
       , testCase "checkpoint manifest CBOR codec is deterministic and canonical ordered" $ do
           let manifest =
                 Checkpoint.emptyManifest
@@ -958,8 +1711,25 @@ sampleCacheHash =
     Cache.Training
     Cache.AppleSilicon
     (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")
-    Cache.defaultRuntimeSourcePayload
+    sampleRuntimeSourcePayload
     Cache.defaultTuningChoice
+
+sampleRuntimeSourcePayload :: Cache.RuntimeSourcePayload
+sampleRuntimeSourcePayload =
+  renderedRuntimeSourcePayload
+    (Cache.KernelSpec "phase-2-kernel:linear")
+    Cache.Training
+    Cache.AppleSilicon
+
+renderedRuntimeSourcePayload
+  :: Cache.KernelSpec -> Cache.Kind -> Cache.Substrate -> Cache.RuntimeSourcePayload
+renderedRuntimeSourcePayload kernelSpec kind substrate =
+  runtimeSourcePayload $
+    renderRuntimeSource
+      kernelSpec
+      kind
+      substrate
+      Cache.defaultTuningChoice
 
 canonicalErrors :: [AppError]
 canonicalErrors =

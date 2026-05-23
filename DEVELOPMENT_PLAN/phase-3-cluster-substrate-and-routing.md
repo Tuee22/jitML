@@ -61,7 +61,8 @@ foundation and edge manifests through explicit `kubectl apply -f` subprocesses.
 `jitml cluster down` deletes the Kind cluster named by the publication file and
 marks the preserved publication components `stopped`; a second down run exits
 through the reconciler no-op path. Live step failures surface as `AppError
-SubprocessFailed`.
+SubprocessFailed`, and the live rollout stops at the first failed subprocess so
+later Helm phases cannot mask an earlier image-build or image-load failure.
 
 ## Phase Summary
 

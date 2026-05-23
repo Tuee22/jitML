@@ -51,8 +51,11 @@ Sprint `11.4` owes Halogen render wiring and the
 live `/api/ws` proxy against real daemon Pulsar topics; Sprint `11.5`
 owes building the compiled bundle as part of the demo image and serving
 it against real daemon state; Sprint `11.6` owes Playwright against the
-live `jitml-demo` edge route rather than inline DOM stubs. Detailed
-remaining work lives in each sprint's
+live `jitml-demo` edge route rather than inline DOM stubs. 2026-05-21
+local validation re-ran `cabal test jitml-e2e` and `cabal test jitml-unit`;
+`jitml lint purescript` remains container-gated by the code-quality domain and
+the frontend `node_modules` install is absent on this host. Detailed remaining
+work lives in each sprint's
 `### Remaining Work` block below.
 
 ### Current Implementation Scope

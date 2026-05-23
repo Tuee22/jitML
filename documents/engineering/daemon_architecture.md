@@ -35,6 +35,10 @@ Live Linux CUDA validation on 2026-05-21 schedules the actual
 `jitml-service` Deployment with `runtimeClassName: nvidia` onto
 `jitml-linux-cuda-worker`, confirms the CUDA env vars, and runs
 `nvidia-smi -L` inside the service container, which reports the RTX 5090.
+Live Apple Silicon validation on 2026-05-21 runs the generated host Dhall
+through `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
+probes, and acquires the `inference.command.apple-silicon` subscription as
+`jitml-host`.
 See [cluster_topology.md → `jitml-service` Deployment, Not StatefulSet](cluster_topology.md#jitml-service-deployment-not-statefulset).
 
 ## Lifecycle
@@ -120,7 +124,9 @@ through that runner from the consumer dispatcher contract; it also maps parsed
 Training/RL/Tune start/stop command envelopes into Kubernetes Job apply/delete
 workload effects. `jitml service --consume-once <n>` runs a bounded daemon
 consumer batch through the same BootConfig-derived `DaemonServiceClient`
-settings and renders dispatch / dedup / ack outcomes before exiting.
+settings and renders dispatch / dedup / ack outcomes before exiting; an
+explicit `--consume-once 0` performs acquisition and probes, then exits without
+pulling broker messages.
 2026-05-21 live Linux CPU validation runs that mode from the
 `jitml-service` pod, consumes one Training, Tune, RL, and Inference command
 message, dispatches each domain before ack, and applies the Training, Tune, and
@@ -218,9 +224,11 @@ patched host Dhall: routed MinIO URLs are split into the root endpoint plus the
 `ws://127.0.0.1:<edge>/pulsar/ws`, `127.0.0.1:<edge>/library` is split into
 Docker registry root plus the routed `/harbor/api` base, and kubectl uses the
 repo-local `./.build/jitml.kubeconfig`. The host-native Apple daemon
-subscription validation is blocked until an Apple Silicon host is available to
-run `jitml service --config ./.build/conf/host/apple-silicon.dhall` against the
-leased edge route.
+subscription path is live-validated on 2026-05-21 with
+`jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
+against the leased `127.0.0.1:9090` edge route; that run loads the patched Dhall,
+passes MinIO / Harbor / kubectl probes, and acquires
+`persistent://public/default/inference.command.apple-silicon` as `jitml-host`.
 
 `HasPulsar`, `HasHarbor`, and `HasKubectl` operations route through the typed
 `Subprocess` boundary where no native client is checked in. The current Pulsar
@@ -348,8 +356,13 @@ protobuf message hash and is opaque to the broker.
 - `JitML.Proto.Training.parseTrainingCommand`,
   `JitML.Proto.Rl.parseRlCommand`, and
   `JitML.Proto.Tune.parseTuneCommand` parse the deterministic local text
-  command envelopes that the current renderers emit. They are handler
-  scaffolding, not replacements for the target binary proto-lens wire codecs.
+  command envelopes that the current renderers emit. Training, RL, and Tune
+  command envelopes also have strict proto3-compatible byte codecs via
+  `JitML.Proto.Wire`; Training, RL, and Tune event envelopes use the same
+  local wire helper; `JitML.Proto.Inference` does the same for the
+  `InferenceRequest` / `InferenceResult` topic envelopes declared in
+  `proto/jitml/inference.proto`. Cross-language generated proto-lens bindings
+  remain target work.
 - Per-handler `dedupCache :: TVar (LRUSet EventID)` provides at-least-once
   → effectively-once for the duration the entry stays cached. Cache size
   and TTL are `LiveConfig` knobs; the current runtime uses both when
@@ -410,10 +423,13 @@ Checkpoint-backed inference uses the Phase 10 read path:
 and manifest through `HasMinIO`, strips optimizer/RNG parts, and hands the
 weight-only manifest to the active engine. The local Linux CPU validation path
 uses `JitML.Engines.Local.runLinuxCpuCheckpointInference` to compile, load, and
-execute a generated FFI kernel from that manifest. The live daemon path now
-connects the default deterministic inference hook to routed MinIO objects and
-Pulsar result publication; production weight-blob loading into
-substrate-specific engines remains Phase 10 / Phase 7 work.
+execute a generated FFI kernel from that manifest. The daemon workload
+dispatcher exposes the same hook through
+`daemonWorkloadDispatcherWithInference`; `jitml service` selects the Linux CPU
+generated-kernel runner for `linux-cpu` + `SelfInference` configs, so routed
+`RunInference` messages invoke the FFI-backed checkpoint path before Pulsar
+result publication. Production weight-blob loading into substrate-specific
+engines remains Phase 10 / Phase 7 work.
 
 ## Apple Silicon Hybrid Pattern
 
@@ -430,6 +446,15 @@ The host daemon (Dhall: `Host + SelfInference`) subscribes to
 `inference.command.apple-silicon`, executes the kernel via Metal, writes
 large outputs directly to MinIO, and ACKs on `inference.event.apple-silicon`
 with the small envelope (call-id, kind tag, MinIO refs).
+`JitML.Proto.Inference` owns the typed Apple-only command/event envelope
+render/parse surface for those two topics. `JitML.Service.AppleInferenceRpc`
+owns the local proxy plan: it converts a demo-facing `InferenceRequest` plus
+starting snapshot into an Apple command envelope, publishes that command through
+`HasPulsar`, records the client reply topic, and correlates completed/error
+events by call id. The command envelope carries the call id,
+training/inference kind, model id, starting snapshot, reply topic, and small
+input descriptor; the event envelope carries completion/error kind, output
+refs, and recoverable error fields.
 
 `jitml bootstrap --apple-silicon` writes the cluster publication to
 `./.build/runtime/cluster-publication.json` and the explicit live rollout patches
@@ -445,8 +470,20 @@ startup and service-loop Pulsar/MinIO flow remain target runtime validation.
 
 The host daemon's startup path never touches tart. On a JIT cache miss the
 daemon first validates or installs the `tart` Homebrew package through typed
-lazy prerequisite remediation, then calls `JitML.Tart.ensureVmUp jitml-build`,
-which is idempotent.
+lazy prerequisite remediation, then calls
+`JitML.Tart.ensureVmUpLive jitml-build`, which is idempotent.
+`JitML.Tart.Build` now renders the ordered cache-miss
+plan that follows that handoff and the concrete executor behind it: inspect
+`tart list --source local --format json`, start a stopped VM with
+`tart run --no-graphics`, poll `tart exec <vm> true`, validate
+`swift --version` in the VM, run `swift build` against the generated package,
+publish `libJitMLMetal.dylib` into the content-addressed Apple cache, and
+repoint the stable host FFI symlink. The same module exposes a typed executor
+boundary whose unit tests validate ordered success and failure short-circuiting
+with a synthetic executor. The user-facing `jitml internal vm
+bootstrap|up|down|status` commands now dispatch to the same live Tart lifecycle
+module for clone/status/start/stop operations. The live host daemon still needs
+a provisioned or bootstrapped `jitml-build` VM and the Metal launch path.
 
 Direct k8s API access from the host is hlint-forbidden.
 

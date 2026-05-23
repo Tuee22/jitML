@@ -15,8 +15,9 @@
 > **Purpose**: Stand up the checkpoint and inference surface:
 > split-blob object-key renderers, a small typed manifest, pure pointer-CAS
 > decisions, a local deterministic CBOR manifest codec/content hash, a
-> binary `.jmw1` encoder, a filesystem-backed local checkpoint store,
-> `jitml internal gc` summary output, and deterministic inference summaries.
+> binary `.jmw1` encoder/decoder, a filesystem-backed local checkpoint store,
+> `jitml internal gc` summary output, deterministic inference summaries,
+> and the inference request/result protobuf byte contract.
 > Live MinIO effects, retention traversal, and
 > kernel-handle loading remain target runtime work.
 
@@ -35,7 +36,10 @@ ordering across tensors / optimizer parts / RNG parts / metrics),
 `manifestContentSha`, `.jmw1` encoder, pointer-CAS decision surface,
 and the filesystem-backed local checkpoint store with
 `inferFromManifest` / `inferFromLatestCheckpoint` /
-`inferWeightsOnlyFromLatestCheckpoint` are all in place. The typed
+`inferWeightsOnlyFromLatestCheckpoint` are all in place.
+`proto/jitml/inference.proto` declares the current request/result envelope
+schema, and `JitML.Proto.Inference` round-trips `InferenceRequest` /
+`InferenceResult` through proto3-compatible bytes. The typed
 `AdvancePredicate` ADT (`AdvanceLatest`, `AdvanceBestMaximised`,
 `AdvanceBestMinimised`) and `applyAdvancePredicate` evaluate the
 typed CAS predicates from README → Concurrency model.
@@ -52,15 +56,20 @@ pointer through `HasMinIO.casPointer`, with filesystem-backed integration
 coverage. **Unmet today**: Sprints `10.2`–`10.4` still owe checkpoint-store
 validation against the live HTTP MinIO interpreter after a real training step,
 the user-facing live `jitml inference run` path, the live `gc_reaped` Pulsar
-publish, production weight-blob loading into substrate-bound `KernelHandle`s,
-and the per-substrate ULP tolerance measured from real cross-substrate runs.
+publish, production weight-blob loading into the non-local substrate-bound
+`KernelHandle`s, and the per-substrate ULP tolerance measured from real
+cross-substrate runs.
 The local Linux CPU inference runner hook
 (`loadInferenceCheckpointWith` + `JitML.Engines.Local.runLinuxCpuCheckpointInference`)
-now validates the latest-pointer → manifest → generated-kernel FFI path against
-the filesystem-backed `HasMinIO` instance, and 2026-05-21 Phase `5.4` live
-daemon validation exercises the default `loadInferenceCheckpoint` path against
-in-cluster MinIO through `JitML.Service.MinIOSubprocess`. Detailed remaining
-work lives in each sprint's `### Remaining Work` block below.
+now validates the latest-pointer → manifest → generated-kernel FFI path
+against the filesystem-backed `HasMinIO` instance. The weighted local hook
+(`loadInferenceCheckpointWithWeights` +
+`JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference`) also decodes
+weight-only `.jmw1` blobs through `HasMinIO` before running the generated
+Linux CPU identity kernel. 2026-05-21 Phase `5.4` live daemon validation
+exercises the default `loadInferenceCheckpoint` path against in-cluster MinIO
+through `JitML.Service.MinIOSubprocess`. Detailed remaining work lives in each
+sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
@@ -69,21 +78,26 @@ blob metadata, split-blob object-key renderers, pointer-CAS decisions,
 `manifestPointer`, deterministic `encodeManifestCbor` / `decodeManifestCbor`
 / `manifestContentSha`, binary `encodeJmw1` encoder with `JMW1` magic, CBOR
 header length, and little-endian `F64` payload bytes, plus
-`inferFromManifest`. `src/JitML/Checkpoint/Store.hs` adds a local
+`inferFromManifest`. `src/JitML/Proto/Inference.hs` mirrors
+`proto/jitml/inference.proto` with text render/parse helpers plus
+proto3-compatible byte codecs for `InferenceRequest` and `InferenceResult`.
+`src/JitML/Checkpoint/Store.hs` adds a local
 object-store interpreter for write-once payloads, manifest writes/reads,
 latest pointer CAS, inference from the latest checkpoint, retention planning,
 local manifest discovery for `jitml internal gc`, `HasMinIO`-backed GC
 execution, `HasMinIO`-backed inference checkpoint loading, and
 `loadInferenceCheckpointWith`, which lets a caller run the loaded weight-only
-manifest through a concrete engine. The same module also provides
+manifest through a concrete engine, and `loadInferenceCheckpointWithWeights`,
+which loads decoded `.jmw1` weights before invoking the runner. The same module also provides
 `writeCheckpointSnapshotWithMinIO` for the checkpoint write path over the
 `HasMinIO` conditional-write/CAS boundary. The filesystem-backed instance now
-validates both the deterministic fallback and the local Linux CPU
-generated-kernel FFI runner, and the Phase `5.4` live daemon validation covers
-the default latest-checkpoint read against in-cluster MinIO. Live checkpoint
-writes after a real training step, live `gc_reaped` Pulsar publishing,
-production weight-blob loading, and real demo/frontend checkpoint reads live in
-the sprints' `### Remaining Work` blocks below.
+validates the deterministic fallback, the local Linux CPU generated-kernel FFI
+runner, and the weighted local runner that consumes decoded `.jmw1` values.
+The Phase `5.4` live daemon validation covers the default latest-checkpoint
+read against in-cluster MinIO. Live checkpoint writes after a real training
+step, live `gc_reaped` Pulsar publishing, production non-local weight-blob
+loading, and real demo/frontend checkpoint reads live in the sprints'
+`### Remaining Work` blocks below.
 
 ## Phase Summary
 
@@ -170,7 +184,8 @@ remain target runtime validation.
 
 - `encodeJmw1` emits a lazy bytestring beginning with `JMW1`, followed by a
   little-endian 32-bit CBOR header length, a CBOR header, and little-endian
-  `Double` payload bytes.
+  `Double` payload bytes. `decodeJmw1` validates the same local payload shape
+  and returns the decoded `Double` values.
 - `encodeManifestCbor` canonicalizes tensor order by name and serializes the
   current `CheckpointManifest`.
 - `decodeManifestCbor` round-trips the manifest representation.
@@ -197,7 +212,8 @@ remain target runtime validation.
 ### Validation
 
 1. `encodeJmw1` emits the expected `JMW1` marker, CBOR header length, and
-   little-endian `Double` payload bytes.
+   little-endian `Double` payload bytes; `decodeJmw1` round-trips that local
+   `F64` payload.
 2. `jitml-unit` verifies deterministic manifest CBOR encoding/decoding and
    content hashing.
 3. `jitml-unit` verifies successful and conflicting pointer-CAS decisions.
@@ -313,10 +329,18 @@ weight-blob-to-kernel loading remain target runtime work.
 - `loadInferenceCheckpointWith` reads the latest pointer and manifest through
   `HasMinIO`, reduces the manifest to weight-only parts, and delegates
   execution to a caller-provided runner.
+- `loadInferenceCheckpointWithWeights` extends that hook by loading and
+  decoding weight-only `.jmw1` tensor blobs through `HasMinIO` before invoking
+  the caller-provided runner.
 - `JitML.Engines.Local.runLinuxCpuCheckpointInference` validates the local
-  Linux CPU generated-kernel FFI path from a loaded checkpoint manifest; live
-  MinIO and production per-substrate weight-blob loading remain target runtime
+  Linux CPU generated-kernel FFI path from a loaded checkpoint manifest.
+  `runLinuxCpuWeightedCheckpointInference` validates the same generated-kernel
+  path while consuming decoded weight values from `loadInferenceCheckpointWithWeights`;
+  production non-local per-substrate weight-blob loading remains target runtime
   work.
+- `proto/jitml/inference.proto` declares `InferenceRequest` and
+  `InferenceResult`, and `JitML.Proto.Inference` round-trips both through
+  proto3-compatible bytes using packed repeated doubles for input/output.
 
 ### Validation
 
@@ -326,10 +350,13 @@ weight-blob-to-kernel loading remain target runtime work.
    checkpoint store.
 3. `jitml inference run experiments/mnist.dhall --checkpoint latest`
    prints the deterministic inference summary.
-4. `jitml-integration` exercises `loadInferenceCheckpointWith` against the
-   filesystem-backed `HasMinIO` instance and runs the loaded manifest through
-   the local Linux CPU generated-kernel FFI path.
-5. Live validation (target): `jitml inference run` reads the latest
+4. `jitml-integration` exercises `loadInferenceCheckpointWith` and
+   `loadInferenceCheckpointWithWeights` against the filesystem-backed
+   `HasMinIO` instance, then runs the loaded manifest through the local Linux
+   CPU generated-kernel FFI path.
+5. `jitml-daemon-lifecycle` verifies inference request/result protobuf byte
+   round-trips.
+6. Live validation (target): `jitml inference run` reads the latest
    pointer from MinIO bucket `jitml-checkpoints/<experiment-hash>/`,
    fetches the addressed manifest, loads weight-only blobs (no optimizer
    parts), loads the substrate-bound `KernelHandle` from the JIT cache,
@@ -340,11 +367,17 @@ weight-blob-to-kernel loading remain target runtime work.
 - 2026-05-21 live Phase `5.4` daemon validation exercises
   `JitML.Checkpoint.Store.loadInferenceCheckpoint` through the
   BootConfig-derived `JitML.Service.MinIOSubprocess` client from the running
-  `jitml-service` pod. Remaining inference-read-path work is the user-facing
-  `jitml inference run` live path plus real production weight loading below.
-- Load real weight blobs into the local Linux CPU runner and the future
-  per-substrate engines, rather than applying the current deterministic
-  manifest-bias smoke summary around the generated kernel.
+  `jitml-service` pod, and Phase `7.3` now wires
+  `linux-cpu` + `SelfInference` daemon dispatch through
+  `loadInferenceCheckpointWith` plus `runLinuxCpuCheckpointInference`.
+  Remaining inference-read-path work is the user-facing `jitml inference run`
+  live path plus real production weight loading below.
+- Extend the production per-substrate engines beyond the local Linux CPU
+  weighted smoke path so real weight blobs load into substrate-bound
+  `KernelHandle`s on Linux CPU oneDNN, Linux CUDA, and Apple Metal.
+- Generate cross-language bindings from `proto/jitml/inference.proto` once the
+  project moves from local proto3-compatible codecs to generated proto-lens /
+  browser interop for all daemon envelopes.
 - Extend `jitml inspect replay <manifest-sha>` from the current local
   checkpoint store path to live MinIO manifests through
   `JitML.Service.MinIOSubprocess`.
@@ -364,7 +397,8 @@ weight-blob-to-kernel loading remain target runtime work.
   encoder, manifest pointer, local checkpoint object store, `HasMinIO`
   snapshot writer, latest-pointer inference helper, and inference summary
   helper; target split-blob layout, live MinIO write protocols, typed advance
-  predicates, retention reconciler, and real inference-only read path.
+  predicates, retention reconciler, inference protobuf byte contract, and real
+  inference-only read path.
 - `documents/engineering/determinism_contract.md` — same-substrate bit-
   equality contract, cross-substrate tolerance methodology, GC determinism.
 - `documents/engineering/daemon_architecture.md` — `InferenceHandler`

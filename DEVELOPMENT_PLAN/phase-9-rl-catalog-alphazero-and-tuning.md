@@ -40,12 +40,14 @@ a full target sampler catalog (`Grid`, `Sobol`, `Random`, `TPE`, `GPBO`,
 `GeneticAlgorithm`, `NSGA2`, `MuLambdaES`, `CMAES`, `EvolutionStrategies`,
 and `PBT`); `JitML.Tune.Catalog.loadTuningExperiment` decodes the worked
 example into the local tuning ADT, `jitml tune` renders a TPE plan, and
-`JitML.Proto.Tune.parseTuneCommand` round-trips the current deterministic
-text `StartSweep` / `StopSweep` command envelope. **Unmet today**:
+`JitML.Proto.Tune` round-trips the current deterministic text and
+proto3-compatible byte command and event envelopes.
+**Unmet today**:
 real on-hardware training to canonical reward thresholds,
 real network forward / back passes through the JIT engine layer, live MinIO
-trial transcript persistence/resume, proto-lens tune bindings, and live Pulsar
-handlers — all gated by the absent cluster infra or remaining tuner work.
+trial transcript persistence/resume, generated proto-lens tune bindings /
+cross-language interop, and live Pulsar handlers — all gated by the absent
+cluster infra or remaining tuner work.
 Detailed remaining work lives in each sprint's `### Remaining Work` block
 below.
 
@@ -72,8 +74,9 @@ example mirroring [../README.md → Concrete `Some Tuning::{ … }` example](../
 it decodes through `JitML.Tune.Catalog.loadTuningExperiment` to the local
 TPE / ASHA / MedianPruner ADT, and `jitml tune` prints deterministic TPE trial
 samples for the local plan. The tune proto mirror declares typed
-command/event envelopes and parses the deterministic local text command
-envelope emitted by `renderTuneCommand`.
+command/event envelopes, parses the deterministic local text command envelope,
+and round-trips the current command and event oneofs through proto3-compatible
+bytes via `JitML.Proto.Wire`.
 Live MinIO trial storage, live tuner resume, real network execution,
 and on-hardware reward thresholds remain in the per-sprint
 `### Remaining Work` blocks below.
@@ -403,10 +406,14 @@ summary.
   local TPE trial-budget assertion.
 - `proto/jitml/tune.proto` + `src/JitML/Proto/Tune.hs` declare the
   typed `TuneCommand` / `TuneEvent` surfaces for the substrate-scoped
-  Pulsar topics, and `parseTuneCommand` covers the current text
-  `StartSweep` / `StopSweep` command envelopes.
-- Wire-format protobuf bindings (proto-lens) and live MinIO persistence
-  remain target runtime work.
+  Pulsar topics. `parseTuneCommand` covers the current text
+  `StartSweep` / `StopSweep` command envelopes, and
+  `encodeTuneCommandProto` / `decodeTuneCommandProto` round-trip the current
+  `TuneCommand` oneof through proto3-compatible bytes.
+  `encodeTuneEventProto` / `decodeTuneEventProto` round-trip the current
+  `TuneEvent` oneof through proto3-compatible bytes.
+- Generated wire-format protobuf bindings (proto-lens) and live MinIO
+  persistence remain target runtime work.
 
 ### Validation
 
@@ -416,7 +423,8 @@ summary.
    pruner axes are populated, deterministic, the TPE worked example
    decodes, and the local TPE trial budget consumes `cabal.project`
    report-card knobs. It also covers text render/parse round-trips for
-   `StartSweep` and `StopSweep`.
+   `StartSweep` and `StopSweep`, plus proto3-compatible byte round-trips for
+   the current `TuneCommand` / `TuneEvent` oneofs.
 3. `jitml-unit` verifies the trial key and resume-equality helpers.
 4. `jitml-integration` spawns the real binary and verifies normal
    `jitml tune experiments/mnist-tune.dhall` execution renders `sampler: TPE`.
@@ -428,10 +436,10 @@ summary.
 ### Remaining Work
 
 - Generate `proto-lens`-driven Haskell bindings for
-  `proto/jitml/tune.proto` so the typed envelopes round-trip
-  binary-equivalent with other-language clients. The current
-  `parseTuneCommand` implementation is only the deterministic local text
-  envelope parser.
+  `proto/jitml/tune.proto` so the command/event envelopes round-trip
+  binary-equivalent with other-language clients. The current command and event
+  oneofs have strict local proto3-compatible byte codecs via
+  `JitML.Proto.Wire`; generated cross-language bindings remain target work.
 - Implement the daemon-side tune handler that consumes
   `tune.command.<mode>` and persists trial transcripts to MinIO bucket
   `jitml-trials/<sha256(resolved-dhall || trial-seed)>/` — owned by
@@ -457,8 +465,8 @@ summary.
   Connect 4 transcript helper, and tuner catalog; target algorithm modules,
   AlphaZero/MCTS runtime, adversarial games, target sampler decode, and
   full tuner storage/resume surface. The doc also distinguishes the
-  current tune text command-envelope parser from target binary proto-lens
-  codecs.
+  current tune text/proto3-compatible command and event envelope codecs from
+  target generated proto-lens bindings.
 - `documents/engineering/determinism_contract.md` — current deterministic
   local trajectory/transcript helpers and target AlphaZero
   deterministic-stochasticity narrative.

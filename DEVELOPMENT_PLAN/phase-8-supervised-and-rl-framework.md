@@ -33,12 +33,13 @@ SL training pipeline (`src/JitML/SL/{Loop,Train}.hs`), the runtime RL
 primitives (`src/JitML/RL/{Policy,VecEnv,Buffer,Loop}.hs`), the
 `training` / `rl` / `tune` proto files (`proto/jitml/*.proto`), and
 their typed Haskell envelopes (`src/JitML/Proto/{Training,Rl,Tune}.hs`)
-are checked in; `TrainingCommand` and `RlCommand` now have deterministic
-text render/parse round-trips for the current command envelopes. **Unmet
-today**: Sprints `8.1`–`8.6` still owe the
+are checked in; `TrainingCommand` / `TrainingEvent` and `RlCommand` /
+`RlEvent` now have deterministic text render/parse round-trips where
+applicable plus strict proto3-compatible binary encode/decode round-trips for
+the current command and event envelopes through `JitML.Proto.Wire`. **Unmet today**: Sprints `8.1`–`8.6` still owe the
 live MinIO dataset fetch through the available `HasMinIO` client, the live
-Pulsar publish/consume round-trip through a real `HasPulsar` client, generated protobuf
-serialization (proto-lens output), and the live convergence / reward
+Pulsar publish/consume round-trip through a real `HasPulsar` client, generated
+cross-language proto-lens output, and the live convergence / reward
 golden fixtures against real hardware. Detailed remaining work lives in
 each sprint's `### Remaining Work` block below.
 
@@ -56,8 +57,10 @@ carrying the substrate-bound `KernelHandle` model id, and a `VecEnv`
 that parallel-steps the existing canonical environments. The proto
 surfaces (`proto/jitml/{training,rl,tune}.proto` + typed envelopes in
 `src/JitML/Proto/{Training,Rl,Tune}.hs`) define the substrate-scoped
-Pulsar command / event topic family; the training and RL command modules
-also parse the deterministic local text envelope emitted by their renderers.
+Pulsar command / event topic family; the training and RL modules also parse the
+deterministic local text command envelope emitted by their renderers and
+round-trip the current command and event envelopes through proto3-compatible
+bytes.
 Live MinIO dataset fetch, live
 Pulsar publish/consume, and real-hardware convergence assertions are
 the open work in the per-sprint `### Remaining Work` blocks below.
@@ -175,8 +178,14 @@ local summary body. Pulsar command/event publication remains target daemon work.
 - The GADT-indexed `TrainingLifecycle` already lives in
   `src/JitML/RL/Framework.hs` (Sprint 8.4 / 8.7); the pipeline in
   `src/JitML/SL/Loop.hs` walks the singleton lifecycle.
-- `proto-lens`-generated Haskell bindings for wire-format serialization
-  remain to be added when the `proto-lens-protoc` dependency lands.
+- `encodeTrainingCommandProto` / `decodeTrainingCommandProto` use
+  `JitML.Proto.Wire` to round-trip the current `TrainingCommand`
+  oneof envelope through strict proto3-compatible bytes.
+- `encodeTrainingEventProto` / `decodeTrainingEventProto` round-trip the
+  current `TrainingEvent` oneof envelope, including repeated checkpoint
+  metrics, through strict proto3-compatible bytes.
+- Generated cross-language `proto-lens` output remains to be added when the
+  `proto-lens-protoc` dependency lands.
 
 ### Validation
 
@@ -185,7 +194,8 @@ local summary body. Pulsar command/event publication remains target daemon work.
 2. `jitml train experiments/mnist.dhall` prints the deterministic
    canonical-problem summary.
 3. `cabal test jitml-sl-canonicals` covers render/parse round-trips for
-   `StartTraining` and `StopTraining` text command envelopes.
+   `StartTraining` and `StopTraining` text command envelopes and
+   proto3-compatible binary command/event envelopes.
 4. Live validation (target): `jitml train` resolves and SHA-hashes the
    experiment Dhall, reconciles prerequisites, materializes the dataset,
    publishes `StartTraining` on `training.command.<mode>`, the daemon's
@@ -194,11 +204,9 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 ### Remaining Work
 
-- Generate wire-format protobuf bindings via `proto-lens-protoc` (or
-  equivalent) so the typed envelopes in `src/JitML/Proto/Training.hs`
-  round-trip with binary equivalence. The current parser is only for the
-  local deterministic text envelope used by tests and future daemon-handler
-  scaffolding.
+- Generate `proto-lens-protoc` bindings once that dependency lands so the
+  current local `TrainingCommand` / `TrainingEvent` byte codecs are checked
+  against generated cross-language bindings.
 - Implement the daemon-side `TrainingHandler` that consumes
   `training.command.<mode>` and publishes `training.event.<mode>` through
   the `RetryPolicy` boundary against a live Pulsar broker.
@@ -341,8 +349,11 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
   into typed envelopes, including `parseRlCommand` for the current text
   command envelope; `rlCommandTopic` / `rlEventTopic` resolve the topic
   names per substrate.
-- Live Pulsar codecs that serialize the typed envelopes to wire format
-  remain to be added when proto-lens-protoc lands.
+- `encodeRlCommandProto` / `decodeRlCommandProto` and
+  `encodeRlEventProto` / `decodeRlEventProto` round-trip the current
+  `RlCommand` and `RlEvent` oneofs through strict proto3-compatible bytes.
+  Generated cross-language bindings remain target work when
+  `proto-lens-protoc` lands.
 
 ### Validation
 
@@ -351,7 +362,8 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 2. `jitml rl rollout --seed 42` prints a deterministic trajectory.
 3. `jitml-unit` verifies the framework catalog and run-plan surface.
 4. `cabal test jitml-rl-canonicals` covers render/parse round-trips for
-   `StartRLRun` and `StopRLRun` text command envelopes.
+   `StartRLRun` and `StopRLRun` text command envelopes and
+   proto3-compatible binary command/event envelopes.
 5. Live validation (target): `jitml rl train` publishes `StartRLRun` on
    `rl.command.<mode>`; the daemon's `RlHandler` consumes it, runs the
    real RL loop, and publishes `rl.event.<mode>` envelopes
@@ -360,10 +372,10 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 
 ### Remaining Work
 
-- Generate `proto-lens` Haskell wire bindings to round-trip the
-  envelopes binary-equivalent to other-language clients. The current
-  `parseRlCommand` implementation is only the deterministic local text
-  envelope parser.
+- Generate `proto-lens` Haskell wire bindings once the dependency lands so the
+  current local `RlCommand` / `RlEvent` byte codecs are checked against
+  generated cross-language bindings. `parseRlCommand` remains the
+  deterministic local text-envelope parser.
 - Implement the daemon-side `RlHandler` that consumes
   `rl.command.<mode>` and emits `rl.event.<mode>` through the
   `RetryPolicy` boundary against a live broker (owned by Sprint 5.5).

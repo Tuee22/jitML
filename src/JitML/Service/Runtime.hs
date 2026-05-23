@@ -12,6 +12,7 @@ module JitML.Service.Runtime
   , daemonHandlerRouter
   , daemonTensorBoardDispatcher
   , daemonWorkloadDispatcher
+  , daemonWorkloadDispatcherWithInference
   , daemonHttpRoutes
   , daemonRuntimeForBootConfig
   , defaultDaemonRuntime
@@ -33,6 +34,7 @@ import Data.Text qualified as Text
 import Data.Foldable (asum)
 
 import JitML.AppError.AppError (AppError (..))
+import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Observability.TbSidecar qualified as TbSidecar
 import JitML.Service.BootConfig
   ( BootConfig (..)
@@ -527,6 +529,21 @@ daemonWorkloadDispatcher domain _eventId payload = do
       pure (workloadEffectToUnit (Just result))
     Nothing ->
       workloadEffectsToUnit <$> Workload.dispatchDomainPayload domain payload
+
+daemonWorkloadDispatcherWithInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [Double] -> m (Either Text [Double]))
+  -> EventDomain
+  -> EventId
+  -> Text
+  -> m (Either ServiceError ())
+daemonWorkloadDispatcherWithInference runInference domain _eventId payload = do
+  effectResult <- Workload.dispatchWorkloadPayloadWithInference runInference payload
+  case effectResult of
+    Just result ->
+      pure (workloadEffectToUnit (Just result))
+    Nothing ->
+      workloadEffectsToUnit <$> Workload.dispatchDomainPayloadWithInference runInference domain payload
 
 workloadEffectToUnit
   :: Maybe (Either ServiceError Workload.WorkloadEffectResult)

@@ -336,9 +336,12 @@ the current command materializes bootstrap inputs only.
   apply path builds `jitml:local` / `jitml-demo:local` and loads those tags
   explicitly into Kind; live Harbor image push/pull is owned by the Phase `4`
   platform-service and Phase `5` daemon capability work.
-- Current `jitml build` renders `/opt/build/jitml` plus engine metadata. The
-  target in-CLI build operation will build the inner Haskell binary at
-  `/opt/build/jitml` from inside the container.
+- Current `jitml build --dry-run` renders `/opt/build/jitml`, selected tuning
+  metadata, engine metadata, generated-source locations, and the typed compile
+  subprocess for the selected substrate. Non-dry-run `jitml build` now routes
+  selected JIT artifacts through the shared Phase `7` cache artifact loader;
+  the Docker image build remains the path that installs the inner Haskell binary
+  at `/usr/local/bin/jitml` inside `jitml:local`.
 - The bind chain host `./.build/` ⇄ Kind container `/jitml/.build/` ⇄ pod
   `/opt/build/` keeps artefacts coherent across duty cycles.
 
@@ -357,9 +360,9 @@ the current command materializes bootstrap inputs only.
 - The container-exclusive style-tools bootstrap and image-build Haskell
   code-quality gate are closed by Sprint `1.4`; Sprint `2.4` owns only the
   one-Dockerfile / one-compose-service image shape.
-- Container-internal `jitml build` producing `/opt/build/jitml` remains target
-  runtime work; the current implementation renders the build destination and
-  engine metadata only.
+- Container-internal `jitml build` now owns the selected JIT artifact build
+  path. Building and installing the `jitml` binary itself remains the Docker
+  image build's responsibility.
 
 ### Remaining Work
 
@@ -383,9 +386,14 @@ VM stays up for the daemon's lifetime once spun up; an idle timeout (default
 ### Deliverables
 
 - Current `ensureVmUp :: FilePath -> VmName -> IO ()` materializes
-  `./.build/runtime/<vm>.state` with `up`; it does not start or poll a real Tart
-  VM yet.
-- Current `tartSshSubprocess` renders the typed `tart ssh <vm> -- <cmd>`
+  `./.build/runtime/<vm>.state` with `up` for the original scaffold. Sprint
+  `7.5` has since added the live Tart lifecycle path:
+  `bootstrapTartVmLive` clones the default source image into `jitml-build` when
+  missing, `queryTartVmStatus` parses `tart list --source local --format json`,
+  `ensureVmUpLive` starts stopped VMs with `tart run --no-graphics` and polls
+  `tart exec <vm> true`, and `stopTartVmLive` stops running VMs with
+  `tart stop`.
+- Current `tartExecSubprocess` renders the typed `tart exec <vm> <cmd>`
   command used by `jitml internal vm exec -- <cmd>`.
 - Target Swift-build dispatch will render the Swift / Metal package under
   `./.build/jit-src/apple-silicon/<hash>/`, run `swift build` through the typed
@@ -398,15 +406,17 @@ VM stays up for the daemon's lifetime once spun up; an idle timeout (default
 
 - `JitML.Tart.Lifecycle.ensureVmUp` materializes repo-local VM state under
   `./.build/runtime/` without touching global state.
-- `jitml internal vm exec -- <cmd>` renders the typed `tart ssh` subprocess.
+- `jitml internal vm bootstrap|up|down|status` now dispatch to the live Tart
+  lifecycle helpers and report missing/stopped/running status.
+- `jitml internal vm exec -- <cmd>` renders the typed `tart exec` subprocess.
 - Cabal test stanzas exercise the local daemon lifecycle and subprocess
   boundaries.
 
 ### Target Integration Notes
 
-- Real first-cache-miss Tart startup, reuse timing, idle shutdown, and
-  `swift --version` execution through `jitml internal vm exec` remain target
-  Apple runtime work.
+- First-cache-miss Tart startup and `swift --version` validation are wired in
+  Sprint `7.5`; provisioned-VM validation, reuse timing, idle shutdown, and
+  live Apple hardware execution remain target runtime work.
 - Cache-preserving `purge` plus subsequent inference cache resolution depends on
   the future inference/JIT runtime path, not the local state scaffold.
 
@@ -448,8 +458,8 @@ status presentation.
 
 - End-to-end `bootstrap/<substrate>.sh up` followed by a populated live
   cluster-publication status depends on the target live cluster apply path.
-- Starting a host-native `jitml service` after Apple bootstrap remains Phase `5`
-  daemon runtime work.
+- Starting a host-native `jitml service` after Apple bootstrap is closed by
+  Phase `5` daemon runtime validation.
 
 ### Remaining Work
 

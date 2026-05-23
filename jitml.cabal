@@ -52,9 +52,18 @@ library
         JitML.Docs.Generate
         JitML.Docs.Render
         JitML.Engines.CpuFeatures
+        JitML.Engines.CudaRuntime
         JitML.Engines.Engine
+        JitML.Engines.HasEngine
+        JitML.Engines.Loader
         JitML.Engines.Local
+        JitML.Engines.MetalRuntime
+        JitML.Engines.OneDnnRuntime
+        JitML.Engines.Rng
         JitML.Engines.Tuning
+        JitML.Engines.TuningBenchmark
+        JitML.Engines.TuningCache
+        JitML.Engines.TuningStore
         JitML.Env.Build
         JitML.Env.Env
         JitML.Generated.Paths
@@ -79,6 +88,7 @@ library
         JitML.Proto.TensorBoard
         JitML.Proto.Training
         JitML.Proto.Tune
+        JitML.Proto.Wire
         JitML.Prerequisite.Nodes.Cluster
         JitML.Prerequisite.Nodes.Common
         JitML.Prerequisite.Nodes.Container
@@ -118,6 +128,7 @@ library
         JitML.RL.VecEnv
         JitML.Routes
         JitML.Service.BootConfig
+        JitML.Service.AppleInferenceRpc
         JitML.Service.Capabilities
         JitML.Service.Clients
         JitML.Service.ConfigMap
@@ -146,6 +157,7 @@ library
         JitML.Sub.Stream
         JitML.Sub.Subprocess
         JitML.Substrate
+        JitML.Tart.Build
         JitML.Tart.Exec
         JitML.Tart.Lifecycle
         JitML.Test.LivePlan
