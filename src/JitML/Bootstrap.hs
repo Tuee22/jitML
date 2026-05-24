@@ -21,7 +21,11 @@ import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, re
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
-import JitML.Cluster.DockerImage (dockerBuildAndKindLoadPlan)
+import JitML.Cluster.DockerImage
+  ( dockerBuildAndKindLoadPlan
+  , dockerTagSubprocess
+  , kindLoadDockerImageSubprocess
+  )
 import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Gateway (renderEnvoyProxy, renderGateway, renderGatewayClass)
 import JitML.Cluster.Helm
@@ -223,10 +227,17 @@ livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
       )
       phasedReleases
 
+-- | The same Dockerfile produces both `jitml` and `jitml-demo`
+-- binaries inside a single image, so build `jitml:local` once and
+-- retag it as `jitml-demo:local` instead of running a second full
+-- `docker build`. Both tags are then loaded into Kind so the local
+-- charts can pull them by their distinct names.
 mirrorBuildSteps :: Substrate -> [Subprocess]
 mirrorBuildSteps substrate =
   dockerBuildAndKindLoadPlan substrate "jitml:local" "."
-    ++ dockerBuildAndKindLoadPlan substrate "jitml-demo:local" "."
+    ++ [ dockerTagSubprocess "jitml:local" "jitml-demo:local"
+       , kindLoadDockerImageSubprocess substrate "jitml-demo:local"
+       ]
 
 foundationManifestApplySubprocesses :: FilePath -> [Subprocess]
 foundationManifestApplySubprocesses chartPath =

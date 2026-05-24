@@ -149,9 +149,9 @@ local renderer that produces `web/src/Generated/Contracts.purs`. The external
 
 ### Objective
 
-Keep `jitml lint purescript` as the generated-contract,
-whitespace, and panel-contract smoke target. The target PureScript
-`purs format` round-trip and `purescript-spec` panel tests remain future work.
+Keep `jitml lint purescript` as the generated-contract, whitespace,
+panel-contract, and `purs-tidy`-formatting smoke target. The target
+`purescript-spec` panel tests remain future work.
 
 ### Deliverables
 
@@ -167,8 +167,12 @@ whitespace, and panel-contract smoke target. The target PureScript
   endpoint list.
 - It validates the explicit `spago test` and `purs-tidy check` typed
   `Subprocess` values without invoking them through process-environment gates.
-- It does not currently run a default `purs format`
-  round-trip or `purescript-spec` smoke suite.
+- The default lint path now invokes `purs-tidy check 'src/**/*.purs'` against
+  the container-installed `/usr/local/bin/purs-tidy` (added to the
+  `npm install -g` line in `docker/Dockerfile`). When the binary is missing
+  (host invocation or a partial image), `runPureScriptTidyCheck` reports a
+  `purescript.tools.missing` finding instead of silently skipping.
+- It does not currently run a `purescript-spec` smoke suite.
 
 ### Validation
 
@@ -177,27 +181,33 @@ whitespace, and panel-contract smoke target. The target PureScript
 3. PureScript whitespace and panel-contract validation run in the lint target.
 4. The lint target validates `spago test` and `purs-tidy check` as explicit typed
    `Subprocess` values with no process-environment gate.
-5. Target validation: the default style path adds a `purs format`
-   round-trip byte-equality check and a `purescript-spec` smoke suite
-   that touches every typed panel contract.
+5. The default lint path invokes `/usr/local/bin/purs-tidy check 'src/**/*.purs'`
+   in `web/` through the typed `Subprocess` and surfaces formatting drift as a
+   `purescript.purs-tidy.drift` finding. 2026-05-23 validation in `jitml:local`
+   confirms `purs-tidy check` reports no drift on the checked-in
+   `web/src/**/*.purs` set, and a deliberately mis-formatted source produces
+   the expected `Some files are not formatted` finding.
+6. Target validation: the default style path adds a `purescript-spec` smoke
+   suite that touches every typed panel contract through
+   `/usr/local/bin/spago test` in `web/`.
 
 ### Remaining Work
 
-- Add the default `purs format` round-trip byte-equality
-  check and `purescript-spec` smoke suite once the frontend toolchain is
-  installed as part of the normal developer/test environment.
+- Add the `purescript-spec` smoke suite that touches every typed panel
+  contract; this requires writing actual PureScript spec bodies and invoking
+  `/usr/local/bin/spago test` from the default lint path. The typed
+  `Subprocess` value is in place and `purs-tidy check` is now invoked, but
+  the spec invocation is still gated on the PureScript test bodies landing.
 - The smoke `web/test/Main.purs` exists and exercises all six typed
   panel names + the generated contracts surface.
-- The lint target represents `./node_modules/.bin/spago test` as an explicit typed
-  `Subprocess` value in the `web/` working directory; actual invocation remains
-  target work once the frontend toolchain is installed as part of the normal
-  developer/test environment.
-- The lint target represents `./node_modules/.bin/purs-tidy check 'src/**/*.purs'`
-  as an explicit typed `Subprocess` value in the `web/` working directory; actual
-  invocation remains target work for the default style path. The Haskell-side
-  `renderPureScriptContracts` now produces purs-tidy-clean output so
-  the generated contract file no longer needs an external format
-  step.
+- The lint target represents `/usr/local/bin/spago test` as an explicit
+  typed `Subprocess` value in the `web/` working directory; actual invocation
+  remains target work pending the `purescript-spec` smoke bodies above.
+- The lint target invokes `/usr/local/bin/purs-tidy check 'src/**/*.purs'`
+  against the checked-in PureScript sources through the typed `Subprocess`
+  in the `web/` working directory. The Haskell-side
+  `renderPureScriptContracts` produces purs-tidy-clean output so the
+  generated contract file does not need an external format step.
 
 ## Sprint 11.4: Interactive Endpoint Contract Surface 🔄
 
@@ -307,27 +317,33 @@ HTTP server, and chart deployment surface.
    listener arguments, and that a
    one-shot demo HTTP server serves the API index. The same stanza verifies
    the typed demo route manifest covers the current local API surface.
-4. Live validation (target): `jitml-demo` serves the compiled Halogen
-   bundle from `web/dist/`, the live `/api/ws` proxy is connected to the
+4. 2026-05-23 validation: `docker run --rm jitml:local jitml-demo --host
+   0.0.0.0 --port 8080` serves `/` with the bundle-script-tagged shell and
+   `/bundle/main.js` with `web/dist/Main/index.js` from the baked image.
+5. Live validation (target): the live `/api/ws` proxy is connected to the
    daemon's metric/event Pulsar topics, and each panel renders against
    real daemon state.
 
 ### Remaining Work
 
-- Build the compiled Halogen bundle (`spago build --output web/dist/`)
-  as part of the demo image build.
-- The demo server now serves the compiled Halogen bundle from
-  `web/dist/Main/index.js` when present:
-  `JitML.Web.Server.loadBundleEntry` reads the file from the
-  canonical path (`bundleEntryPath`), and
+- The compiled Halogen bundle now bakes into the `jitml:local` image:
+  `docker/Dockerfile` runs `RUN cd /jitml/web && spago build --output dist`
+  after `cabal build` + `jitml check-code`, driven by the checked-in
+  `web/spago.yaml` (registry package set `77.3.1`, deps `console` /
+  `effect` / `prelude`). 2026-05-23 validation in the rebuilt image: `docker
+  run --rm jitml:local jitml-demo --host 0.0.0.0 --port 8080` serves `/`
+  with the `<script type="module" src="/bundle/main.js">` shell and
+  `/bundle/main.js` with the compiled `web/dist/Main/index.js` payload, so
+  the Kind-deployed `jitml-demo` container (no host bind mount) serves the
+  bundle without any host-side build step.
+- `JitML.Web.Server.loadBundleEntry` reads the file from the canonical path
+  (`bundleEntryPath = "web/dist/Main/index.js"`), and
   `demoHttpRoutesWithBundle :: Maybe Text -> [HttpRoute]` appends a
-  `/bundle/main.js` route serving the JS bytes whenever the bundle
-  is on disk; without it, the routes fall back to the placeholder
-  shim. Validated by `jitml-e2e`: when the bundle is present, the
-  route table is one entry larger than `demoHttpRoutes`; when
-  absent, it matches the placeholder length. The `spago`-driven
-  bundle build itself stays gated on the `web/node_modules` install
-  step.
+  `/bundle/main.js` route serving the JS bytes whenever the bundle is on
+  disk; without it, the routes fall back to the placeholder shim.
+  Validated by `jitml-e2e`: when the bundle is present, the route table is
+  one entry larger than `demoHttpRoutes`; when absent, it matches the
+  placeholder length.
 - Implement the live `/api/ws` proxy that bridges browser WebSocket
   clients to Pulsar event topics.
 

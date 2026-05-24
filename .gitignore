@@ -12,6 +12,5 @@ chart/charts/
 /web/output/
 /web/dist/
 /web/.spago/
-/web/spago.yaml
 /web/spago.lock
 /web/package-lock.json

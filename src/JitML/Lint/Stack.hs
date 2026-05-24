@@ -110,6 +110,7 @@ checkPureScriptLint = do
   contractFindings <- checkPureScriptContractsFile
   sources <- purescriptSources
   sourceFindings <- concat <$> traverse checkPureScriptSource sources
+  tidyFindings <- runPureScriptTidyCheck
   pure
     ( contractFindings
         <> checkPureScriptRenderer
@@ -117,6 +118,43 @@ checkPureScriptLint = do
         <> sourceFindings
         <> checkPureScriptPanelCoverage
         <> checkPureScriptToolSubprocesses
+        <> tidyFindings
+    )
+
+-- | Invoke the container-installed `purs-tidy check` to enforce
+-- PureScript formatting drift on the default lint path. The lint
+-- target runs inside `jitml:local`, where `npm install -g purs-tidy`
+-- has produced the binary at `/usr/local/bin/purs-tidy`. When the
+-- binary is not present (host invocation, half-built image), the
+-- check reports a missing-tools finding instead of silently
+-- skipping.
+runPureScriptTidyCheck :: IO [LintFinding]
+runPureScriptTidyCheck = do
+  webExists <- doesDirectoryExist "web"
+  if not webExists
+    then pure []
+    else do
+      tidyAvailable <- doesFileExist containerPureScriptTidyPath
+      if not tidyAvailable
+        then pure [missingPureScriptToolsFinding]
+        else
+          runCommandFinding
+            "web/src"
+            "purescript.purs-tidy.drift"
+            "purs-tidy reported PureScript formatting drift"
+            pureScriptTidyCmd
+
+missingPureScriptToolsFinding :: LintFinding
+missingPureScriptToolsFinding =
+  LintFinding
+    containerPureScriptTidyPath
+    "purescript.tools.missing"
+    "container PureScript tools are not available"
+    ( Text.unlines
+        [ "rebuild the jitML container image with `docker compose build jitml`"
+        , "then run `docker compose run --rm jitml jitml lint purescript`"
+        , "expected `purs-tidy` and `spago` in: /usr/local/bin"
+        ]
     )
 
 checkPureScriptContractsFile :: IO [LintFinding]
@@ -201,22 +239,40 @@ panelContractEndpoints =
 
 checkPureScriptToolSubprocesses :: [LintFinding]
 checkPureScriptToolSubprocesses =
-  expectSubprocess "purescript.spago-test" spagoCmd "node_modules/.bin/spago" ["test"] (Just "web")
+  expectSubprocess
+    "purescript.spago-test"
+    pureScriptSpagoCmd
+    containerPureScriptSpagoPath
+    ["test"]
+    (Just "web")
     <> expectSubprocess
       "purescript.purs-tidy"
-      tidyCmd
-      "node_modules/.bin/purs-tidy"
+      pureScriptTidyCmd
+      containerPureScriptTidyPath
       ["check", "src/**/*.purs"]
       (Just "web")
- where
-  spagoCmd =
-    (subprocess "node_modules/.bin/spago" ["test"])
-      { subprocessWorkingDirectory = Just "web"
-      }
-  tidyCmd =
-    (subprocess "node_modules/.bin/purs-tidy" ["check", "src/**/*.purs"])
-      { subprocessWorkingDirectory = Just "web"
-      }
+
+pureScriptSpagoCmd :: Subprocess
+pureScriptSpagoCmd =
+  (subprocess containerPureScriptSpagoPath ["test"])
+    { subprocessWorkingDirectory = Just "web"
+    }
+
+pureScriptTidyCmd :: Subprocess
+pureScriptTidyCmd =
+  (subprocess containerPureScriptTidyPath ["check", "src/**/*.purs"])
+    { subprocessWorkingDirectory = Just "web"
+    }
+
+-- | The Dockerfile installs the PureScript toolchain via
+-- `npm install -g purescript spago purs-tidy`, which lands the
+-- executables at `/usr/local/bin/`. The lint stack runs only inside
+-- `jitml:local`, so the absolute path is a deterministic typed value.
+containerPureScriptSpagoPath :: FilePath
+containerPureScriptSpagoPath = "/usr/local/bin/spago"
+
+containerPureScriptTidyPath :: FilePath
+containerPureScriptTidyPath = "/usr/local/bin/purs-tidy"
 
 expectSubprocess :: Text -> Subprocess -> FilePath -> [Text] -> Maybe FilePath -> [LintFinding]
 expectSubprocess key command expectedPath expectedArgs expectedDirectory =

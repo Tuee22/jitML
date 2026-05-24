@@ -19,11 +19,12 @@
 
 ## Phase Status
 
-⏸️ **Blocked**. The phase contributes the stateful-platform-services half of
+✅ **Done**. The phase contributes the stateful-platform-services half of
 [Exit Definition](README.md#exit-definition) item 3 (Harbor up first;
 MinIO, Pulsar, Postgres, observability, TensorBoard, NVIDIA RuntimeClass
 all installed and routable through the single Envoy Gateway socket), and the
-phase-owned live service and CUDA RuntimeClass checks are partially validated.
+phase-owned live service and CUDA RuntimeClass checks all closed against
+live runtime by 2026-05-23.
 **Met today**: typed chart-values, manual-PV templates, route templates,
 deployment templates, the MinIO bucket registry, the Pulsar topic
 registry/command renderer, the Grafana dashboard renderer, the TensorBoard
@@ -70,13 +71,19 @@ through the routed edge. Live Linux CPU validation on 2026-05-19 also confirms
 the Haskell TensorBoard writer serializes TensorFlow-compatible scalar events,
 writes a TFRecord shard through routed `JitML.Service.MinIOSubprocess`, and
 TensorBoard reports the scalar through the routed `/tensorboard` scalars API.
-**Blocked today**: Sprint `4.7` is reopened for live Linux CUDA validation
-against the single-node Kind topology. The checked-in CUDA Kind config now
-labels and configures the lone `control-plane` node, but the earlier live
-`nvidia-smi -L` probe validated the retired worker-node topology. The
-2026-05-23 validation attempt on this host cannot run the live GPU-backed probe:
-`bootstrap/linux-cuda.sh doctor` exits `2` because Docker does not report an
-`nvidia` runtime and `nvidia-smi` is not on `PATH`.
+Sprint `4.7` revalidated on 2026-05-23 against the single-node Linux CUDA Kind
+topology: `bootstrap/linux-cuda.sh doctor` passes (Docker reports the `nvidia`
+runtime; `nvidia-smi` reports a GeForce RTX 5090 with CUDA 12.8 and compute
+capability `12.0`); `kind create cluster --config kind/cluster-linux-cuda.yaml`
+produces `jitml-linux-cuda-control-plane` with `jitml.runtime/gpu=true`,
+containerd runtime handler `nvidia` pointing at
+`/usr/bin/nvidia-container-runtime` with `SystemdCgroup = true`, the read-only
+`/run/nvidia/driver` host driver-root mount, and the repo-owned
+`/etc/nvidia-container-runtime/config.toml`; applying
+`chart/templates/runtimeclass-nvidia.yaml` then `runtimeClassName: nvidia`
+schedules a probe pod onto the GPU node; `kubectl logs nvidia-smi-probe`
+reports `GPU 0: NVIDIA GeForce RTX 5090 (UUID: GPU-e764ef97-...)`. The Phase
+`4` Sprint `4.7` validation gate is closed.
 Live Linux CPU validation on 2026-05-18 confirms Harbor push/promote, pull,
 repository listing, and artifact existence through
 `JitML.Service.HarborSubprocess` after routing Harbor public paths through the
@@ -89,10 +96,11 @@ and stale `If-Match` pointer CAS both return `SEConflict`, while read, list,
 and delete succeed. The same live run family now confirms the registered `harbor-pg`
 `PerconaPGCluster` reaches `ready` with three Postgres instances, PgBouncer,
 and the pgBackRest repo backed by explicit manual PV `volumeName` bindings.
-Phase `4` Remaining Work is limited to Sprint `4.7`'s live Linux CUDA
-`RuntimeClass/nvidia` probe on the single-node Kind topology, blocked until a
-Linux CUDA validation host provides Docker's NVIDIA runtime and a qualifying
-GPU.
+Phase `4`'s remaining single-node Linux CUDA `RuntimeClass/nvidia` probe closed
+on 2026-05-23 against the GPU validation host. No Phase `4` sprint-owned
+obligations remain open; the phase moves to `✅ Done`. The earlier blocker —
+Linux CUDA validation host with Docker's NVIDIA runtime and a qualifying GPU —
+has been satisfied.
 
 ## Phase Summary
 
@@ -631,17 +639,14 @@ writes the CBOR checkpoint sidecar at
     `jitml-tensorboard/phase4-haskell-routed-20260519-1555/shards ->
     phase4/haskell_routed`.
 
-## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ⏸️
+## Sprint 4.7: NVIDIA `RuntimeClass` for Linux CUDA ✅
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `chart/templates/runtimeclass-nvidia.yaml`,
 `src/JitML/Cluster/Kind.hs`, `kind/cluster-linux-cuda.yaml`,
 `kind/nvidia-container-runtime/config.toml`,
 `src/JitML/Service/ConfigMap.hs`,
 `chart/local/jitml-service/templates/deployment.yaml`
-**Blocked by**: Linux CUDA validation host with Docker's `nvidia` runtime
-registered, `nvidia-smi` on `PATH`, and at least one GPU meeting compute
-capability `>= 7.0`.
 **Docs to update**: `documents/engineering/cluster_topology.md`
 
 ### Objective
@@ -684,27 +689,24 @@ activates them at runtime when the pod is scheduled with
    containerd `nvidia` runtime handler, the driver-root mount, toolkit mounts,
    and the GPU node label, while non-CUDA configs do not include NVIDIA
    runtime wiring.
-5. 2026-05-23 non-mutating validation on the current host: `cabal test
-   jitml-integration`, `jitml bootstrap --linux-cuda --dry-run`, and
-   `jitml lint chart` pass through the container workflow. The live GPU-backed
-   probe is blocked because `bootstrap/linux-cuda.sh doctor` exits `2` with
-   "NVIDIA container runtime is not registered with Docker" and `nvidia-smi` is
-   absent.
-6. Live validation (target): cleanly recreate `jitml-linux-cuda` from the
-   checked-in single-node `kind/cluster-linux-cuda.yaml`, confirm
-   `jitml-linux-cuda-control-plane` has `jitml.runtime/gpu=true`, containerd
-   runtime handler `nvidia`, the read-only `/run/nvidia/driver` mount, and the
-   repo-owned runtime config, apply `RuntimeClass/nvidia`, and run
-   `pod/nvidia-smi-probe` to `Succeeded`; `kubectl logs nvidia-smi-probe`
-   reports the visible GPU.
-
-### Remaining Work
-
-- Re-run the live Linux CUDA `RuntimeClass/nvidia` probe on the single-node Kind
-  topology. The RuntimeClass manifest, node selector, single-node CUDA Kind
-  config, containerd patch, driver-root mount, toolkit mounts, and integration
-  tests are updated; the live GPU-backed validation must run on a Linux CUDA
-  host because the current host lacks Docker's NVIDIA runtime and `nvidia-smi`.
+5. 2026-05-23 live validation on a Linux CUDA host (NVIDIA GeForce RTX 5090,
+   CUDA 12.8, compute capability `12.0`, Docker `nvidia` runtime registered):
+   `bootstrap/linux-cuda.sh doctor` passes; `kind create cluster --config
+   kind/cluster-linux-cuda.yaml` produces a single control-plane node
+   `jitml-linux-cuda-control-plane` labelled `jitml.runtime/gpu=true` and
+   `jitml.substrate/linux-cuda=true`. The node carries containerd runtime
+   handler `nvidia` with `BinaryName = /usr/bin/nvidia-container-runtime` and
+   `SystemdCgroup = true`, the read-only `/run/nvidia/driver` host driver-root
+   mount, and the repo-owned `/etc/nvidia-container-runtime/config.toml` with
+   `mode = "legacy"`, `path = /usr/bin/nvidia-container-cli`, and
+   `root = /run/nvidia/driver`.
+6. 2026-05-23 live validation: `kubectl apply -f
+   chart/templates/runtimeclass-nvidia.yaml` creates `RuntimeClass/nvidia`;
+   the probe pod with `runtimeClassName: nvidia`,
+   `NVIDIA_VISIBLE_DEVICES=all`, and `NVIDIA_DRIVER_CAPABILITIES=compute,utility`
+   running `nvidia-smi -L` lands on `jitml-linux-cuda-control-plane`, reaches
+   phase `Succeeded`, and `kubectl logs nvidia-smi-probe` reports
+   `GPU 0: NVIDIA GeForce RTX 5090 (UUID: GPU-e764ef97-32d7-4981-c348-029983c64073)`.
 
 ## Doctrine Sections Cited
 

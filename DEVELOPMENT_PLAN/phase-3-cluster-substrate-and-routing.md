@@ -299,9 +299,11 @@ steady-state cluster is a no-op (exit code `3`).
   1. **Harbor phase**: bring up MinIO for the `harbor-registry` bucket,
      then the Percona operator plus registered `harbor-pg` database, then
      Harbor against those live dependencies.
-  2. **Image build/load phase**: build the `jitml:local` container and the
-     `jitml-demo:local` container, then load both tags explicitly into the
-     selected Kind cluster with `kind load docker-image`.
+  2. **Image build/load phase**: build the `jitml:local` container once,
+     `docker tag jitml:local jitml-demo:local` (same Dockerfile produces both
+     `jitml` and `jitml-demo` binaries inside a single image), then load both
+     tags explicitly into the selected Kind cluster with `kind load
+     docker-image`.
   3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
      TensorBoard, the `jitml-service` workload, and the `jitml-demo` workload
      roll out after the local image tags are present in Kind. Live Harbor

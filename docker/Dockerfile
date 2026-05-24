@@ -61,7 +61,7 @@ RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
     && curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
     && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
     && rm -f /tmp/node.tar.xz \
-    && npm install -g purescript spago \
+    && npm install -g purescript spago purs-tidy \
     && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.2/bin/linux/${tool_arch}/kubectl" \
     && chmod 0755 /usr/local/bin/kubectl \
     && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
@@ -78,5 +78,12 @@ RUN cabal build exe:jitml exe:jitml-demo \
     && cp "$(cabal list-bin exe:jitml-demo)" /usr/local/bin/jitml-demo \
     && chmod 0755 /usr/local/bin/jitml /usr/local/bin/jitml-demo \
     && jitml check-code
+
+# Bake the compiled PureScript bundle into the image at the canonical
+# path `web/dist/<Module>/index.js`. The demo container (no bind mount
+# in Kind) serves `/jitml/web/dist/Main/index.js` from
+# `JitML.Web.Server.loadBundleEntry`, switching the demo `/` route from
+# the placeholder shell to the script-tagged Halogen entry point.
+RUN cd /jitml/web && spago build --output dist
 
 CMD ["jitml", "--help"]

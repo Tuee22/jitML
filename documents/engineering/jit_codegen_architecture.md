@@ -221,10 +221,12 @@ reproducibility witness surface; see
   `jitml_kernel_output_count` metadata symbols for the future CUDA FFI loader.
 - The current local engine envelope names the `.so` artifact path and compile
   command. A `LinuxCUDA.HasEngine` instance that loads the `.so` via the FFI
-  loader remains target runtime work. The 2026-05-21 local recheck has no host
-  `nvcc` and no `nvidia-smi`; the refreshed single-node live CUDA
-  `RuntimeClass/nvidia` and pod-visible GPU probe remains owned by
-  Phase `4` / Phase `5`.
+  loader remains target runtime work. The 2026-05-23 live single-node CUDA
+  `RuntimeClass/nvidia` and pod-visible GPU probe closed on a Linux CUDA host
+  (NVIDIA GeForce RTX 5090, CUDA 12.8) — Phase `4` Sprint `4.7` complete, and
+  Phase `5` Sprint `5.6`'s CUDA service-pod portion complete on the same date.
+  Real `nvcc` compile + cuBLAS/cuDNN execution still remains target work
+  inside Phase `7`.
 
 ### `apple-silicon` — Swift + Metal
 

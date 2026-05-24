@@ -137,13 +137,17 @@ Pulsar boundary, accepts fully-qualified Pulsar topic routing, is exercised by
 `daemonConsumerBatch` against the synthetic broker and live Linux CPU pod
 through `--consume-once`, runs the same dispatcher in held-open WebSocket worker
 threads with one shared router, and is live-validated for duplicate payload
-dedup plus dispatch-failure negative-ack redelivery. Sprint `5.6` is reopened
-for the single-node Kind topology: the Deployment renderer and Dhall surfaces
-are still in place, but the live CUDA service-pod runtime and local rollout
-validations need to be repeated on the single-node topology. The CUDA
-service-pod validation depends on Phase `4` Sprint `4.7`'s live
-`RuntimeClass/nvidia` probe, which is currently blocked by the lack of a Linux
-CUDA validation host with Docker's NVIDIA runtime.
+dedup plus dispatch-failure negative-ack redelivery. Sprint `5.6`'s Linux CPU and Linux CUDA service-pod portions closed on
+2026-05-23 against the single-node Kind topology: the live full
+`jitml bootstrap --linux-cpu` rollout completes all seven platform components
+ready, the `jitml-service` Deployment ships with `maxSurge: 0` /
+`maxUnavailable: 1` plus required hostname pod anti-affinity, and
+`kubectl rollout restart deployment/jitml-service` replaces the pod without
+ever holding two concurrent replicas; the Linux CUDA service-pod path on a
+GPU host (NVIDIA GeForce RTX 5090, CUDA 12.8) rolls out
+`Deployment/jitml-service` with `runtimeClassName: nvidia` and runs
+`nvidia-smi -L` inside the service container. The remaining Sprint `5.6`
+work is the live Apple Silicon host-Dhall subscription path.
 2026-05-21 Apple Silicon live validation runs `jitml bootstrap --apple-silicon`,
 materializes the patched host
 Dhall with routed edge coordinates on `127.0.0.1:9090`, builds `jitml:local`
@@ -236,12 +240,16 @@ the same worker pipe while the HTTP listener remains active.
 2026-05-21 live Linux CPU validation proves that normal service path consumes a
 `RunInference` request and publishes the expected `InferenceResult`. The same
 date validates duplicate payload deduplication and dispatch-failure
-negative-ack redelivery against that held-open client. The live Linux CUDA
-validation target creates `jitml-linux-cuda`, schedules the actual
-`jitml-service` Deployment with `runtimeClassName: nvidia` onto the single
-`jitml-linux-cuda-control-plane` node, confirms `NVIDIA_VISIBLE_DEVICES=all`
-and `NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and runs `nvidia-smi -L`
-inside the service container. The
+negative-ack redelivery against that held-open client. 2026-05-23 live Linux CUDA
+validation on a GPU host (NVIDIA GeForce RTX 5090, CUDA 12.8) creates
+`jitml-linux-cuda`, loads `jitml:local`, applies `RuntimeClass/nvidia`,
+renders the local jitml-service chart with `substrate=linux-cuda`, rolls out
+the actual `Deployment/jitml-service` to `Running` on
+`jitml-linux-cuda-control-plane` with `runtimeClassName: nvidia`,
+`NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES=compute,utility`,
+and required pod anti-affinity; `nvidia-smi -L` inside the service container
+reports the RTX 5090, `/healthz` returns `ok`, and `/metrics` serves the
+Prometheus surface. The
 Apple host live validation now runs the generated host Dhall through the routed
 edge and acquires the `inference.command.apple-silicon` subscription.
 
@@ -707,20 +715,41 @@ Dhall configs.
 4. Historical Linux CPU validation on 2026-05-19 completed
    `jitml bootstrap --linux-cpu`, upgraded the local Helm chart with the typed
    Dhall ConfigMap, rolled out a single `jitml-service` pod, and verified
-   `/healthz`, `/readyz`, and `/metrics` through a port-forward. That run does
-   not close Sprint `5.6` after the single-node topology change.
-5. Live validation (target): upgrade the single-node `jitml-linux-cpu` cluster
-   with `maxSurge: 0` / `maxUnavailable: 1`, and confirm the required
-   anti-affinity rollout replaces the single service pod without a pending
-   surge pod.
-6. Live Linux CUDA validation (target): create `jitml-linux-cuda` from the
-   checked-in single-node config, export `./.build/jitml-linux-cuda.kubeconfig`,
-   apply `RuntimeClass/nvidia`, render `chart/local/jitml-service` with
-   `substrate=linux-cuda`, roll out the actual `Deployment/jitml-service`,
-   confirm the pod runs on `jitml-linux-cuda-control-plane` with
-   `runtimeClassName: nvidia`, confirm `NVIDIA_VISIBLE_DEVICES=all` and
-   `NVIDIA_DRIVER_CAPABILITIES=compute,utility`, and execute `nvidia-smi -L`
-   inside the service container.
+   `/healthz`, `/readyz`, and `/metrics` through a port-forward.
+5. 2026-05-23 live Linux CPU validation on the single-node topology: `jitml
+   bootstrap --linux-cpu` completes a full live phased rollout (Postgres
+   operator + `harbor-pg` ready, Harbor up against the external Postgres,
+   MinIO, Pulsar with broker-embedded WebSocket, kube-prometheus-stack,
+   TensorBoard, `jitml-service`, `jitml-demo`) and writes
+   `./.build/runtime/cluster-publication.json` with all seven components
+   `ready` on `edge_port: 9091`. The `jitml-service` Deployment renders with
+   `strategy.rollingUpdate.maxSurge: 0` / `maxUnavailable: 1` and required
+   `podAntiAffinity` at `topologyKey: kubernetes.io/hostname`. `kubectl
+   rollout restart deployment/jitml-service` triggers a replacement rollout:
+   the old `jitml-service-75969d8755-n8tnw` pod terminates before the new
+   ReplicaSet's `jitml-service-68d5759bc6-z2vb6` pod schedules — the cluster
+   never holds two pods concurrently (no surge pod), and the new pod reaches
+   `Running` on `jitml-linux-cpu-control-plane`. `/healthz` returns `ok`,
+   `/readyz` returns `ready`, `/metrics` serves the Prometheus surface, and
+   the daemon logs `acquired persistent://public/default/training.command.linux-cpu`
+   along with the rest of the substrate-scoped subscription plan.
+6. 2026-05-23 live Linux CUDA validation on a GPU host (NVIDIA GeForce RTX
+   5090, CUDA 12.8): `kind create cluster --config kind/cluster-linux-cuda.yaml`
+   produces `jitml-linux-cuda-control-plane`; the repo-local kubeconfig lands
+   at `./.build/jitml-linux-cuda.kubeconfig`; `kind load docker-image
+   jitml:local` registers the substrate image on the node; `kubectl apply`
+   materializes `RuntimeClass/nvidia`; `helm template chart/local/jitml-service
+   --set substrate=linux-cuda` renders the service `Deployment`, ConfigMap,
+   ServiceAccount/Role/RoleBinding, and Service; `kubectl apply` rolls them
+   out into namespace `platform`; the `jitml-service-*` pod reaches `Running`
+   on `jitml-linux-cuda-control-plane` with `runtimeClassName: nvidia`,
+   `NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES=compute,utility`,
+   and required pod anti-affinity at `topologyKey: kubernetes.io/hostname`;
+   `kubectl exec` inside the service container reports
+   `GPU 0: NVIDIA GeForce RTX 5090` via `nvidia-smi -L`; `/healthz` returns
+   `ok` and `/metrics` serves the Prometheus surface (`/readyz` returns 503
+   without Pulsar/MinIO behind the daemon, which is expected in this
+   focused RuntimeClass-path validation).
 7. `cabal test jitml-integration` verifies both cluster and Apple host rendered
    `BootConfig` files round-trip through the Dhall loader, including the
    host-resident `None { host : Text, port : Natural }` listener form.
@@ -746,12 +775,12 @@ Dhall configs.
 
 ### Remaining Work
 
-- Re-run the live single-node `jitml-service` rollout validation for Linux CPU,
-  Linux CUDA, and Apple Silicon. The chart, service ConfigMap/Dhall renderers,
-  single-node Kind configs, local integration checks, and CUDA RuntimeClass
-  request are updated; the live service-pod runtime validation still needs to
-  be repeated on the current single-node topology. The Linux CUDA service-pod
-  portion waits on Phase `4` Sprint `4.7`'s blocked live RuntimeClass probe.
+- The Linux CPU replacement-rollout (validation item `5`) and the Linux CUDA
+  service-pod RuntimeClass/GPU-visibility path (validation item `6`) both
+  closed on 2026-05-23 against the single-node topology. The remaining
+  Sprint `5.6` work is the live Apple Silicon host-Dhall subscription path
+  (validation items `9`/`10`), which requires an Apple Silicon host with
+  the Tart VM substrate available.
 
 ## Doctrine Sections Cited
 

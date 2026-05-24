@@ -416,10 +416,11 @@ execution per `### Remaining Work` below.
   stable probe summary.
 - Live cuBLAS/cuDNN execution, FFI loading of the compiled `.so`,
   stochastic-kernel RNG ABI consumption, and the live transcript-determinism
-  test remain blocked by missing host `nvcc` and cuBLAS/cuDNN binding work. The
-  2026-05-21 local recheck has no `nvcc` and no `nvidia-smi`; refreshed
-  single-node live CUDA `RuntimeClass/nvidia` and pod-visible GPU validation
-  remains owned by Phase `4` / Phase `5`.
+  test remain blocked by missing host `nvcc` and cuBLAS/cuDNN binding work
+  inside Phase `7`. The single-node live CUDA `RuntimeClass/nvidia` and
+  pod-visible GPU validation closed on 2026-05-23 in Phase `4` Sprint `4.7`
+  and Phase `5` Sprint `5.6` against a Linux CUDA host (NVIDIA GeForce RTX
+  5090, CUDA 12.8), so Phase `7` no longer waits on GPU scheduler discovery.
 
 ### Validation
 

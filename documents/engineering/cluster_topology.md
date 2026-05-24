@@ -351,14 +351,18 @@ kubeconfig loopback endpoints are reachable from the outer container. The Linux
 CPU bootstrap completes the 110-step live rollout and publishes all platform
 components as ready on edge port `9091`.
 
-Linux CUDA live validation now targets the single-node `jitml-linux-cuda`
-shape: the one Kind node must carry `jitml.runtime/gpu=true`, register the
-containerd `nvidia` handler, expose the read-only `/run/nvidia/driver` mount,
-apply `RuntimeClass/nvidia`, and run both the probe pod and
-`Deployment/jitml-service` with `runtimeClassName: nvidia`. The 2026-05-23
-attempt cannot execute that live CUDA probe on the current host because
-Docker's `nvidia` runtime is not registered and `nvidia-smi` is absent; the
-target validation requires a Linux CUDA host satisfying those stage-0 gates.
+2026-05-23 Linux CUDA live validation on a GPU host (NVIDIA GeForce RTX 5090,
+CUDA 12.8) closes both Phase `4` Sprint `4.7` and the CUDA portion of Phase
+`5` Sprint `5.6` against the single-node `jitml-linux-cuda` shape: the lone
+Kind node carries `jitml.runtime/gpu=true`, registers the containerd `nvidia`
+handler, exposes the read-only `/run/nvidia/driver` mount, mounts the
+repo-owned `/etc/nvidia-container-runtime/config.toml`; `RuntimeClass/nvidia`
+applies; the `nvidia-smi-probe` pod reaches `Succeeded` and reports the RTX
+5090; and the actual `Deployment/jitml-service` rendered with
+`substrate=linux-cuda` runs with `runtimeClassName: nvidia`,
+`NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES=compute,utility`,
+and required pod anti-affinity, with `nvidia-smi -L` inside the service
+container reporting the RTX 5090.
 
 ## No Kubeconfig Pollution
 

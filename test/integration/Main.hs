@@ -1092,6 +1092,12 @@ main =
               "live rollout loads jitml image into Kind"
               ("kind load docker-image jitml:local --name jitml-linux-cpu" `Text.isInfixOf` commandText)
             assertBool
+              "live rollout retags jitml:local as jitml-demo:local instead of rebuilding"
+              ("docker tag jitml:local jitml-demo:local" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout does not run a second docker build for jitml-demo:local"
+              (not ("docker build -t jitml-demo:local" `Text.isInfixOf` commandText))
+            assertBool
               "live rollout loads demo image into Kind"
               ("kind load docker-image jitml-demo:local --name jitml-linux-cpu" `Text.isInfixOf` commandText)
             assertBool

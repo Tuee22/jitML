@@ -441,10 +441,11 @@ moves to Done and the legacy ledger is empty.
   `playwright/jitml-demo.spec.ts`, `jitml-demo` executable shim,
   `src/JitML/Web/Server.hs` HTTP serving, and demo deployment template.
   The Halogen mount machinery, compiled bundle output, live REST/WS
-  proxying against real daemon Pulsar topics, default `purs format` /
-  `purescript-spec` execution, and Playwright against the live edge route
-  rather than inline DOM stubs are owned by Sprints `11.3` / `11.4` /
-  `11.5` / `11.6`'s Remaining Work. Phase:
+  proxying against real daemon Pulsar topics, `purescript-spec` execution,
+  and Playwright against the live edge route rather than inline DOM stubs
+  are owned by Sprints `11.3` / `11.4` / `11.5` / `11.6`'s Remaining Work.
+  The default `purs-tidy check 'src/**/*.purs'` invocation in `web/` lands
+  through `jitml lint purescript` (Sprint `11.3`). Phase:
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
 - **Test stanzas, lint matrix, cross-cluster parity.** Eight Cabal
   test-suite stanzas, each `type: exitcode-stdio-1.0` with `tasty` as
@@ -792,19 +793,29 @@ container-exclusive Haskell style/code-quality rule: the mandatory
 `jitml:local` image build installs the separate style-tools GHC, builds pinned
 Fourmolu / HLint binaries, runs `jitml check-code`, and host lint/check-code
 execution is unsupported.
-Phase `4` remains reopened and is `⏸️ Blocked` after the supported local Kind
-topology moved to a single-node cluster for every substrate: its remaining live
-Linux CUDA `RuntimeClass/nvidia` probe needs a Linux CUDA validation host with
-Docker's NVIDIA runtime and `nvidia-smi`. Phase `5` remains `🔄 Active` for
-daemon service-pod validation on that topology. Phase `3` reclosed on
-2026-05-23 after live Linux CPU bootstrap and teardown validated the
-single-node topology.
+Phase `4` reclosed on 2026-05-23 against a Linux CUDA validation host
+(NVIDIA GeForce RTX 5090, CUDA 12.8, compute capability `12.0`): the
+single-node CUDA Kind cluster brings up `jitml-linux-cuda-control-plane` with
+the GPU node label, the containerd `nvidia` runtime handler, the read-only
+`/run/nvidia/driver` mount, and the repo-owned NVIDIA runtime config;
+`RuntimeClass/nvidia` applies; the `nvidia-smi-probe` pod reaches `Succeeded`
+and `kubectl logs nvidia-smi-probe` reports the RTX 5090. Phase `5` Sprint
+`5.6`'s Linux CPU and Linux CUDA service-pod validations both closed the
+same date: the live `jitml bootstrap --linux-cpu` rollout completes all seven
+platform components ready and `kubectl rollout restart deployment/jitml-service`
+cleanly replaces the pod without surge under `maxSurge: 0` /
+`maxUnavailable: 1` with required hostname anti-affinity; the CUDA service-pod
+variant runs `nvidia-smi -L` inside the service container. Phase `5` remains
+`🔄 Active` for the Apple Silicon host-Dhall service-pod validation.
+Phase `3` reclosed on 2026-05-23 after live Linux CPU bootstrap and teardown
+validated the single-node topology.
 Phases `7`, `8`, `9`, `10`, `11`, and `12` are
 `🔄 Active` because at least one owned
-Exit-Definition obligation remains unmet: single-node Linux CUDA runtime and
-daemon validation, the explicit Pulumi-orchestrated ephemeral Kind e2e path for
-Exit `3`, real kernel execution, checkpoint storage, the PureScript default
-lint/spec path for Exit `15`, browser flow, and cross-substrate parity.
+Exit-Definition obligation remains unmet: single-node daemon validation
+(Linux CPU, Linux CUDA, Apple Silicon), the explicit Pulumi-orchestrated
+ephemeral Kind e2e path for Exit `3`, real kernel execution, checkpoint
+storage, the PureScript default lint/spec path for Exit `15`, browser flow,
+and cross-substrate parity.
 Per-sprint Remaining Work blocks list the open work; the dependency-ordered
 sequence lives in
 [README.md → Execution Roadmap](README.md#execution-roadmap).
