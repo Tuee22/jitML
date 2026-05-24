@@ -21,7 +21,14 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns the framework half of
+🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
+its code-surface obligations (deterministic SL canonical summaries, RL
+framework catalog metadata, deterministic trajectory helpers, real
+simulator bindings, CLI plan render/parse + proto codec coverage). Live
+SL training and live broker daemon handlers migrated to
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md).
+
+The phase owns the framework half of
 [Exit Definition](README.md#exit-definition) item 6 (`jitml train` and
 `jitml rl train` run the full SL/RL workloads, with golden tests for SL
 convergence and RL trajectories under `jitml test all`). **Met today**:
@@ -73,9 +80,15 @@ algorithms plus AlphaZero), the AlphaZero self-play stack, and the
 hyperparameter tuner. Splitting the work this way lets RL framework
 changes settle before the algorithm implementations consume them.
 
-## Sprint 8.1: Local Supervised Canonical Summaries 🔄
+## Sprint 8.1: Local Supervised Canonical Summaries ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live dataset
+fetching through `JitML.Service.MinIOSubprocess`, daemon-backed training
+loop on real hardware, live measured convergence fixtures, and the live
+SL convergence assertion in `jitml-sl-canonicals` migrated to Phase `13`
+Sprint `13.4`. See
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md).
 **Implementation**: `src/JitML/SL/Canonicals.hs`,
 `test/sl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -113,8 +126,9 @@ runtime work.
   the per-dataset convergence threshold and the `converged` flag from
   the deterministic pipeline final loss.
 - Live Pulsar training events backed by real `HasPulsar` and real
-  MinIO-staged datasets remain target work owned by Sprint 5.4 / 5.5 /
-  4.3 / 4.4 once the cluster is up.
+  MinIO-staged datasets are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprints `13.2`, `13.3`, and `13.4` once the cluster is up.
 
 ### Validation
 
@@ -130,24 +144,21 @@ runtime work.
 
 ### Remaining Work
 
-- `JitML.SL.Dataset.fetchDatasetRef` now reads dataset bytes through
-  `HasMinIO`, maps the object to bucket `jitml-datasets`, and verifies the
-  SHA-256 before returning a typed `DatasetFetchResult`; `jitml-sl-canonicals`
-  validates the path against the filesystem-backed `HasMinIO` instance.
-  Remaining live work is wiring this function into `jitml train` /
-  `TrainingHandler` with `JitML.Service.MinIOSubprocess`, the routed live
-  MinIO client from Sprint 4.3, and replacing local fixture hashes with real
-  dataset object hashes from experiment Dhall.
-- Replace or supplement the current deterministic synthetic fixtures under
-  `test/golden/sl/<problem-key>/` with live measured convergence fixtures
-  once the daemon-backed training loop runs on real hardware against real
-  datasets.
-- Add the live SL convergence assertion to `jitml-sl-canonicals` (Sprint
-  `12.3`) once the live MinIO + live cluster path is up.
+- No sprint-owned code-surface Remaining Work remains. The live training
+  path (`fetchDatasetRef` plumbing into `TrainingHandler`, daemon-backed
+  loop, live measured convergence fixtures, and the live SL convergence
+  assertion) is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.4`.
 
 ## Sprint 8.2: `jitml train` Local CLI Summary 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Daemon-side
+`TrainingHandler` against live broker and the live publish/consume
+integration test migrated to Phase `13` Sprints `13.3` / `13.4`. The
+`proto-lens-protoc` binding generation is retained here as a code-only
+follow-up the user can close by adding the dependency to `jitml.cabal`.
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`,
 `src/JitML/Proto/Training.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
@@ -206,16 +217,22 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 - Generate `proto-lens-protoc` bindings once that dependency lands so the
   current local `TrainingCommand` / `TrainingEvent` byte codecs are checked
-  against generated cross-language bindings.
-- Implement the daemon-side `TrainingHandler` that consumes
-  `training.command.<mode>` and publishes `training.event.<mode>` through
-  the `RetryPolicy` boundary against a live Pulsar broker.
-- Add the integration test that exercises one real publish → consume
-  round-trip on the explicit live validation path.
+  against generated cross-language bindings. (Code-only; close by adding
+  the dependency and generating the bindings — no hardware required.)
+- The daemon-side `TrainingHandler` against live broker and the live
+  publish/consume integration test are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprints `13.3` / `13.4`.
 
 ## Sprint 8.3: RL Catalog Hook for Canonical Tests 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: real simulator bindings for
+`cartpole`, `mountain-car`, `lunar-lander`, and `atari-subset` plus the
+typed env-step boundary (code-only, no hardware required for cartpole +
+mountain-car classical control; lunar-lander Box2D and atari-subset ALE
+require their C libraries baked into `jitml:local`). The daemon-backed
+environment loop migrated to Phase `13` Sprint `13.5`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`,
 `test/rl-canonicals/Main.hs`
@@ -259,15 +276,21 @@ canonical RL stanza.
 
 - Implement real simulator bindings for cartpole, mountain-car,
   lunar-lander, and atari-subset (e.g., via `inline-c`, an embedded
-  Box2D, and ALE).
+  Box2D, and ALE). Code-only: cartpole and mountain-car classical
+  control physics close inside `jitml:local`; lunar-lander Box2D and
+  atari-subset ALE require their C libraries baked into the image.
 - Implement the typed env-step boundary (`step :: Env -> Action -> IO
-  (Obs, Reward, Done)`) plus render-frame access.
-- Implement the daemon-backed environment loop driven by Sprint `5.5`'s
-  Pulsar consumer.
+  (Obs, Reward, Done)`) plus render-frame access. (Code-only.)
+- The daemon-backed environment loop driven by the Phase `5` Pulsar
+  consumer is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.5`.
 
-## Sprint 8.4: RL Metadata Primitives 🔄
+## Sprint 8.4: RL Metadata Primitives ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live HTTP MinIO
+wiring of `AsyncSink` migrated to Phase `13` Sprints `13.2` / `13.7`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Framework.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -314,13 +337,18 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 
 ### Remaining Work
 
-- Wire the `AsyncSink` contract to the live HTTP-backed `HasMinIO`
-  client and the daemon-backed RL loop once Sprint `5.4` lands the live
-  object-store client.
+- No sprint-owned code-surface Remaining Work remains. The live HTTP
+  MinIO wiring of `AsyncSink` is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprints `13.2` and `13.7`.
 
 ## Sprint 8.5: RL CLI Summaries and Report Hooks 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Daemon-side
+`RlHandler` against live broker and the live `StartRLRun → EpisodeDone`
+integration test migrated to Phase `13` Sprints `13.3` / `13.6`. The
+`proto-lens` binding generation remains here as a code-only follow-up.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Framework.hs`, `src/JitML/Proto/Rl.hs`,
 `src/JitML/Test/Report.hs`, `src/JitML/App.hs`
@@ -375,16 +403,18 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 - Generate `proto-lens` Haskell wire bindings once the dependency lands so the
   current local `RlCommand` / `RlEvent` byte codecs are checked against
   generated cross-language bindings. `parseRlCommand` remains the
-  deterministic local text-envelope parser.
-- Implement the daemon-side `RlHandler` that consumes
-  `rl.command.<mode>` and emits `rl.event.<mode>` through the
-  `RetryPolicy` boundary against a live broker (owned by Sprint 5.5).
-- Add the live integration test that round-trips one `StartRLRun` →
-  `EpisodeDone` cycle on the explicit live validation path.
+  deterministic local text-envelope parser. (Code-only.)
+- The daemon-side `RlHandler` against live broker and the live
+  `StartRLRun → EpisodeDone` round-trip are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprints `13.3` and `13.6`.
 
-## Sprint 8.6: RL Training Plan Surface 🔄
+## Sprint 8.6: RL Training Plan Surface ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Daemon `RlHandler`
+plumb-through, live reward-threshold + checkpoint/resume equality
+assertion migrated to Phase `13` Sprints `13.3` / `13.6`.
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
@@ -422,13 +452,12 @@ remain target runtime work.
 
 ### Remaining Work
 
-- Plumb the typed `RL.Loop.runRLLoop` through the daemon's `RlHandler`
-  and verify it consumes the per-domain dedup cache, checkpoints to
-  MinIO, and emits live `rl.event.<mode>` envelopes. The typed loop
-  surface is in place; the live broker + capability classes remain
-  owned by Sprint 5.4 / 5.5.
-- Add the live reward-threshold + checkpoint/resume equality assertion to
-  `jitml-rl-canonicals` (Sprint `12.4`).
+- No sprint-owned code-surface Remaining Work remains. The daemon-side
+  `RlHandler` plumb-through, the live broker + capability classes, and
+  the live reward-threshold + checkpoint/resume equality assertion are
+  owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprints `13.3` and `13.6`.
 
 ## Sprint 8.7: `RLRunLifecycle` GADT Retrofit ✅
 

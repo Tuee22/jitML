@@ -21,7 +21,22 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns
+🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
+the code-surface portion of its owned obligations: the per-substrate
+source renderers, content-addressed cache key + storage, the typed
+Subprocess plans for `metal` / `nvcc` / `g++`, the typed runtime
+probes, and the typed candidate-runner scaffold. The live Apple Metal
+execution path migrated to
+[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md);
+the live Linux CPU full-tensor benchmark payload + first-cache-miss
+execution path migrated to
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+Sprint `13.15`; cross-substrate equality / per-substrate ULP tolerance
+migrated to
+[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+Sprint `15.1`.
+
+The phase owns
 [Exit Definition](README.md#exit-definition) item 1 (three substrate JIT
 source renderers behind one `jitml` binary: `apple-silicon` via generated
 Metal/Swift, `linux-cpu` via generated oneDNN C++, `linux-cuda` via
@@ -536,9 +551,14 @@ sections from [../README.md](../README.md).
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
   not by Sprint `7.4`.
 
-## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC 🔄
+## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC Scaffolding ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Every live
+Apple-Silicon obligation (Tart VM provisioning, Metal FFI loading,
+host↔cluster Pulsar RPC, Apple Metal candidate runner, Apple Metal
+production weight loading) migrated to Phase `14`. See
+[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md).
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalRuntime.hs`,
 `src/JitML/Service/AppleInferenceRpc.hs`,
@@ -615,8 +635,11 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
   reply topics, publishes the command through `HasPulsar.pulsarPublish`, and
   correlates completed/error `AppleInferenceEvent` envelopes back to the
   original call id.
-- Metal FFI loading, MinIO tensor handoff, and live Pulsar RPC are not
-  implemented yet.
+- Metal FFI loading, MinIO tensor handoff, and live Pulsar RPC are owned
+  by [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
+  Sprints `14.2` and `14.4` after the refactor; this sprint's code-surface
+  obligations (Swift package renderer, Tart command plan, lifecycle helpers,
+  Metal probe, RPC planning surface) are met.
 
 ### Validation
 
@@ -664,31 +687,24 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
 
 ### Remaining Work
 
-- Provision or bootstrap the default `jitml-build` Tart VM image and run the
-  first-cache-miss live validation on Apple Silicon. The concrete executor now
-  drives real Tart status/run/poll effects and is wired into
-  `JitML.Engines.Loader.ensureKernelArtifact`, but the current validation
-  host still has no `jitml-build` VM to execute the Swift package build.
-- Implement Metal FFI loading of the compiled `.dylib` through the
-  symlinked `./.build/host/apple-silicon/<model-id>.dylib`. The generated
-  Swift package now exports the family/output-count metadata needed by that
-  loader, and `JitML.Engines.MetalRuntime.probeMetalRuntime` now reports the
-  typed host availability boundary for Swift/Xcode Metal tools and Metal device
-  visibility, but the compiled `.dylib` still needs the actual `MTLDevice`,
-  pipeline, command-buffer launch, and output-buffer readback path.
-- Implement the live host↔cluster RPC flow with real Pulsar produce/consume on
-  the `inference.command.apple-silicon` and `inference.event.apple-silicon`
-  topics plus MinIO-staged tensor payloads. The typed command/event envelope
-  surface, topic constants, local `AppleInferenceRpc` command publication plan,
-  and event correlation are in place; the running cluster and host daemons still
-  need to consume those envelopes on both sides and move the large tensor
-  payloads through MinIO.
-- Add the live test that exercises the full host-resident inference path on the
-  explicit live validation path (Sprint `12.6`).
+- No sprint-owned code-surface Remaining Work remains for Sprint `7.5`.
+  Apple Silicon live validation (Tart VM provisioning + first-cache-miss
+  build, Metal FFI loading, host↔cluster Pulsar RPC, full host-resident
+  inference) is owned by
+  [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
+  Sprints `14.1`, `14.2`, `14.4`.
 
 ## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. The Metal
+candidate runner live execution migrated to Phase `14` Sprint `14.3`.
+The Linux CPU full-tensor benchmark payload migration and live
+first-cache-miss measurement migrated to Phase `13` Sprint `13.15`.
+The cross-substrate equality test migrated to Phase `15` Sprint `15.1`.
+This sprint retains the code-only obligation of wiring the benchmark
+runner into `ensureKernelArtifact`'s first-cache-miss path; the live
+runtime validation of that wiring is owned by Phase `13` Sprint `13.15`.
 **Implementation**: `src/JitML/Cache/Key.hs`,
 `src/JitML/Engines/Tuning.hs`, `src/JitML/Engines/TuningBenchmark.hs`,
 `src/JitML/Engines/TuningStore.hs`,
@@ -804,35 +820,19 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Wire the benchmark driver into first-cache-miss execution. The
-  deterministic default selection (`Engines.Tuning.selectDeterministic`),
-  deterministic candidate enumeration (`Engines.Tuning.benchmarkPlan`),
-  pure measured-result ranking (`Engines.Tuning.selectMeasuredTuning`),
-  and selected-choice persistence
-  (`Engines.TuningStore.persistSelectedMeasuredTuning`) are in place. The
-  generic collection/persistence boundary
-  (`Engines.TuningBenchmark.collectAndPersistBenchmarkSelection`) and the
-  persisted-choice cache-key path (`Engines.TuningCache.selectTuningCachePlan`)
-  are also in place. The Linux CPU runner now measures generated FFI output
-  for concrete `linux-cpu` candidates, and
-  `cudaBenchmarkCandidateRunner` now drives the real CUDA FFI candidate
-  path through `JitML.Engines.CudaLocal.runCudaKernel` when
-  `probeCudaRuntime` reports the runtime is available. The remaining work
-  is: (1) the Metal candidate runner implementation, blocked on Sprint
-  `7.5` Metal FFI loading; (2) replacing the Linux CPU oneDNN primitive
-  runner with full tensor-parameter benchmark payloads once the later
-  model/checkpoint ABI supplies those payloads; and (3) actually wiring
-  the runner into `ensureKernelArtifact`'s first-cache-miss path so
-  hardware-tuned choices get selected during real compilation.
-- The same-host kernel-output equality test now lives in
-  `jitml-cross-backend` as `linux-cpu kernel output is bit-equal
-  across repeated runs (Sprint 7.6)`: three successive invocations of
-  the generated identity kernel through the live FFI boundary
-  produce bit-identical output. The remaining open piece is the
-  cross-substrate equality test (linux-cpu vs apple-silicon vs
-  linux-cuda), which is gated on the absent `jitml-build` Tart VM plus missing
-  CUDA compiler/runtime binding and live CUDA runtime access in the current
-  validation environment.
+- Wire `Engines.TuningBenchmark.collectAndPersistBenchmarkSelection` into
+  `JitML.Engines.Loader.ensureKernelArtifact`'s first-cache-miss path so
+  the typed runner is invoked during real compilation. Pure Haskell IO
+  wiring: select the candidate runner per substrate
+  (`linuxCpuBenchmarkCandidateRunner`, `cudaBenchmarkCandidateRunner`,
+  `metalBenchmarkCandidateRunner`), thread it through the cache-miss
+  branch, and persist the selection via `TuningStore`. The live runtime
+  validation that hardware-tuned choices get selected during real
+  compilation is owned by Phase `13` Sprint `13.15` (Linux CPU) and Phase
+  `14` Sprint `14.3` (Metal). The cross-substrate equality test (linux-cpu
+  vs apple-silicon vs linux-cuda) and the full-tensor benchmark payload
+  migration moved to Phase `15` Sprint `15.1` and Phase `13` Sprint
+  `13.15` respectively.
 
 ## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation ✅
 
@@ -915,7 +915,7 @@ Metal / Swift package source participates in a JIT build.
 
 - [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 7.3, 7.4, 7.5)
 - [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (Sprint 7.5 — target host/cluster split represented by local config/topic surfaces)
-- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 7.5 — host↔cluster RPC topics documented; live consumer owned by Sprint 7.5's Remaining Work)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 7.5 — host↔cluster RPC topics documented; live consumer owned by [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) Sprint `14.4`)
 - [../README.md → Toolchain pinning](../README.md#toolchain-pinning) (Sprints 7.3, 7.4, 7.5)
 
 ## Documentation Requirements

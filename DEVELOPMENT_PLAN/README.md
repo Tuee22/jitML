@@ -20,6 +20,9 @@
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
+[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
+[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md)
 **Generated sections**: none
 
@@ -35,6 +38,18 @@ See [development_plan_standards.md](development_plan_standards.md) for the
 maintenance rules that govern this plan suite.
 
 ## Closure Status
+
+**Refactor note (2026-05-24)**: The plan now batches every live-runtime
+obligation by machine-affinity into Phases `13` (Linux/CUDA + Kind
+cluster + broker + browser), `14` (Apple Silicon + Tart + Metal), and
+`15` (cross-substrate parity + populated report card + empty legacy
+ledger). Phases `7`–`12` keep their original topical ownership but are
+now scoped to code-surface obligations only; every live-runtime bullet
+in each of their `### Remaining Work` blocks names the new owning sprint
+in Phase `13`/`14`/`15`. The intent is strict ordered closure: each
+phase closes on its own machine session before the next one begins. No
+obligation was dropped; the mapping is enumerated in each sprint's
+re-scoped `### Remaining Work` block.
 
 The plan is mid-build. Phases `0` (planning and documentation topology), `1`
 (Haskell CLI surface, lint stack, and code-quality gate), `2` (bootstrap
@@ -270,18 +285,23 @@ the identity and warp-shuffle reduction kernels, validates bit-identical
 output across three repeated runs, and round-trips both binding handles.
 Sprint `7.6`'s `linux-cuda benchmark candidate runner` half closed on the
 same date through `JitML.Engines.TuningBenchmark.cudaBenchmarkCandidateRunner`
-routing through `JitML.Engines.CudaLocal.runCudaKernel`. The remaining
-open obligations (provisioned Apple Tart VM validation, Metal FFI loading,
-Metal candidate runner, first-cache-miss benchmark invocation,
-live training-to-convergence on real hardware, live training/inference
-service-client effects beyond the validated daemon paths, and the default
-PureScript lint/spec path) remain gated by the per-sprint `### Remaining Work`
-blocks. The `Some Tuning::{ ... }` Dhall worked example now decodes
-through the local tuning ADT and `jitml tune experiments/mnist-tune.dhall`
-renders `sampler: TPE`; `JitML.Proto.Tune` also round-trips the current
-command and event oneofs through proto3-compatible bytes. Sprint `9.7` remains
-Active for generated proto-lens bindings, daemon-side tune handling, live trial
-persistence, and report-card knob consumption.
+routing through `JitML.Engines.CudaLocal.runCudaKernel`. After the 2026-05-24 refactor, every remaining live-runtime obligation
+(provisioned Apple Tart VM validation, Metal FFI loading, Metal candidate
+runner, first-cache-miss benchmark invocation, live training-to-convergence
+on real hardware, live training/inference service-client effects, Pulumi/
+Helm/Playwright e2e, populated live report card) is owned by Phases
+`13` (Linux CUDA + Kind cluster + browser session), `14` (Apple Silicon),
+or `15` (cross-substrate parity + handoff). The code-only remaining work
+in Phases `7`–`12` (`proto-lens` binding generation, real Othello/Hex/
+Gomoku rule engines, cartpole/mountain-car/lunar-lander/atari-subset
+simulator bindings, deterministic-stub goldens, knob-block parsing,
+Halogen render machinery, `purescript-spec` smoke bodies, benchmark-driver
+wiring into `ensureKernelArtifact`) closes on a single laptop with
+container builds and no hardware. The `Some Tuning::{ ... }` Dhall worked
+example decodes through the local tuning ADT and `jitml tune
+experiments/mnist-tune.dhall` renders `sampler: TPE`; `JitML.Proto.Tune`
+also round-trips the current command and event oneofs through
+proto3-compatible bytes.
 
 Against the eighteen-item [Exit Definition](#exit-definition), the
 following items currently pass: 2 (`jitml service` daemon), 4 (stage-0 scripts + typed prerequisite
@@ -299,49 +319,35 @@ per
 
 ## Execution Roadmap
 
-The remaining Exit-Definition obligations are ordered by dependency, not by
-phase number. Each item links to the owning sprint's `### Remaining Work`
-block, where the validation gate lives:
+After the 2026-05-24 refactor, the roadmap is strictly phase-ordered:
+each phase closes on a single machine session before the next phase
+begins.
 
-1. **Toolchain bounds refresh (Exit 10 follow-up).** The scoped `allow-newer`
-   block in `cabal.project` survives only while upstream Dhall/CBOR releases
-   reject GHC `9.14.1`'s `base-4.22`. See
-   [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
-2. **Pulumi-orchestrated e2e bootstrap (Exit 3).** See
-   [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
-   Sprint `12.8` `Remaining Work` for the explicit Pulumi/Kind/Helm live
-   orchestration path that exercises `jitml bootstrap` as part of the e2e stack.
-3. **Real per-substrate JIT execution (Exit 1, 5, 12).** Sprint `7.4`
-   closed on 2026-05-24 (live `nvcc` compile/load/run plus
-   cuBLAS/cuDNN typed bindings on RTX 3090). The remaining work is
-   Sprint `7.5` (Apple Silicon Metal FFI + Tart VM) and the
-   Metal-specific half of Sprint `7.6`. See
-   [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md)
-   Sprints `7.5` / `7.6` `Remaining Work`.
-4. **Real SL/RL/AlphaZero/tuning loops and live tuner execution (Exit 6).** See
-   [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md)
-   and [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md)
-   sprint `Remaining Work` blocks.
-5. **Live MinIO checkpoint storage and inference (Exit 7).** See
-   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md)
-   Sprints `10.1`–`10.4` `Remaining Work`.
-6. **PureScript `purescript-spec` smoke suite (Exit 15).** See
-   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md)
-   Sprint `11.3` `Remaining Work`. The default `purs-tidy check` invocation
-   closed on 2026-05-23 (the Dockerfile installs `purs-tidy` globally and
-   `jitml lint purescript` runs `/usr/local/bin/purs-tidy check
-   'src/**/*.purs'` in `web/`); the remaining work is the `purescript-spec`
-   smoke suite bodies + `/usr/local/bin/spago test` invocation.
-7. **Stateful frontend E2E and Playwright (Exit 8).** See
-   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md)
-   Sprints `11.3` / `11.4` / `11.5` / `11.6` `Remaining Work`.
-8. **`jitml-e2e` live Pulumi-orchestrated cross-cluster validation (Exit 9).** See
-   [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
-   Sprints `12.2`–`12.6` and `12.8` / `12.9` `Remaining Work`.
-9. **Empty legacy ledger (Exit 18).** Closes after the preceding roadmap items
-   close and the remaining cleanup rows in
-   [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal)
-   are moved to `Completed`.
+1. **Finish the code-only Remaining Work in Phases `7`–`12`.** Each
+   Active sprint in those phases now lists only code-surface obligations
+   (deterministic-stub goldens, knob-block parsers, proto-lens bindings,
+   real Othello/Hex/Gomoku rules, simulator math, Halogen render
+   machinery, `purescript-spec` bodies, benchmark-driver wiring). None
+   require hardware; container build alone validates them.
+2. **Phase `13` — Linux CUDA and Cluster Closure (Exit 1 CUDA half, 3, 6
+   live, 7 Linux halves, 8 live panels/browser, 9 live).** Bring up the
+   Kind cluster, run live Helm + Pulsar + MinIO + Harbor, exercise the
+   daemon handlers, train SL/RL/AlphaZero/tune end-to-end on real CUDA,
+   serve the live demo behind Playwright. One Linux/NVIDIA session.
+3. **Phase `14` — Apple Silicon Closure (Exit 1 Metal half, 5 Apple, 7
+   Apple Metal, 8 Apple Playwright).** Provision the Tart VM, load the
+   Metal dylib, run the candidate runner, exercise host↔cluster RPC,
+   load Apple Metal production weights. One Apple session.
+4. **Phase `15` — Cross-Substrate Parity and Final Handoff (Exit 5
+   cross, 9 live report card, 18).** Capture per-substrate tensor
+   outputs from Phases `13` and `14`, commit tolerance fixtures, drive
+   `jitml test all --live`, populate the report card, and walk every
+   legacy-ledger Pending Removal row to Completed.
+
+The full machine-affinity mapping of each historical live-runtime
+Remaining-Work bullet to its new owner is enumerated in each
+re-scoped sprint's `### Remaining Work` block per
+[development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
 ## Document Index
 
@@ -363,6 +369,9 @@ block, where the validation gate lives:
 | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) | Phase 10: Split-blob checkpoint format, manifest, inference-only read path |
 | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) | Phase 11: PureScript shell, generated browser contracts, demo shim, Playwright scaffold |
 | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Eight Cabal test stanzas, lint matrix, Pulumi metadata scaffold, report-card knobs |
+| [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) | Phase 13: Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure (one Linux/NVIDIA session) |
+| [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) | Phase 14: Apple Silicon Tart VM, Metal FFI, host↔cluster RPC, Metal candidate runner, Apple Metal production weight loading (one Apple session) |
+| [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Cross-substrate parity fixtures, populated live `jitml test all` report card, empty legacy ledger |
 | [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) | Cleanup ledger |
 
 ## Status Vocabulary
@@ -417,6 +426,9 @@ obligation exists.
 | 10 | Checkpointing and Inference-Only Read Path | 🔄 Active | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | 🔄 Active | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | 🔄 Active | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 13 | Linux CUDA and Cluster Closure | 🔄 Active | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 14 | Apple Silicon Closure | 🔄 Active | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 15 | Cross-Substrate Parity and Final Handoff | 🔄 Active | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Current Plan Status
 
@@ -577,12 +589,15 @@ flowchart TB
     P4[Phase 4: Stateful Platform Services]
     P5[Phase 5: jitml service Daemon]
     P6[Phase 6: Numerical Core]
-    P7[Phase 7: JIT Codegen & Substrates]
-    P8[Phase 8: SL & RL Framework]
-    P9[Phase 9: RL Catalog, AlphaZero, Tuning]
-    P10[Phase 10: Checkpointing & Inference]
-    P11[Phase 11: PureScript Frontend & Demo]
-    P12[Phase 12: Test Stanzas & Cross-Cluster]
+    P7[Phase 7: JIT Codegen Code Surface]
+    P8[Phase 8: SL & RL Framework Code Surface]
+    P9[Phase 9: RL Catalog Code Surface]
+    P10[Phase 10: Checkpoint Code Surface]
+    P11[Phase 11: PureScript Frontend Code Surface]
+    P12[Phase 12: Test Stanzas Code Surface]
+    P13[Phase 13: Linux CUDA + Cluster Live Closure]
+    P14[Phase 14: Apple Silicon Live Closure]
+    P15[Phase 15: Cross-Substrate + Handoff]
     P0 --> P1
     P1 --> P2
     P2 --> P3
@@ -595,6 +610,9 @@ flowchart TB
     P9 --> P10
     P10 --> P11
     P11 --> P12
+    P12 --> P13
+    P13 --> P14
+    P14 --> P15
 ```
 
 The substrate buildout (Phases `1`–`5`) precedes any ML code so that the typed
@@ -605,8 +623,13 @@ optimizer catalogs are fixed before per-substrate compilers consume them. Phase 
 owns the SL stack and the RL *framework*; Phase `9` builds on those primitives to
 deliver the algorithm catalog, AlphaZero, and tuning. Phase `10` (checkpoints +
 inference-only read path) precedes Phase `11` (frontend) because the frontend's REST
-surfaces consume the inference-only path. Phase `12` owns testing horizontally,
-gating the overall closure on the cross-substrate `jitml-cross-backend` stanza.
+surfaces consume the inference-only path. Phase `12` owns the test-stanza
+code surface. After the 2026-05-24 refactor, Phases `7`–`12` each carry only
+their code-surface obligations; every live-runtime obligation migrated to
+Phase `13` (Linux CUDA + Kind cluster + browser session), Phase `14` (Apple
+Silicon session), or Phase `15` (cross-substrate parity + populated report
+card + empty legacy ledger). Phases `13` and `14` are independent and may
+close in either order; Phase `15` requires both.
 
 ## Exit Definition
 

@@ -23,7 +23,21 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns
+🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
+its code-surface obligations (split-blob layout, manifest CBOR, `.jmw1`
+wire format, local CAS decision surface, retention reconciler
+scaffolding, deterministic inference helpers, cross-language proto-lens
+follow-up). Live MinIO conditional writes + checkpoint round-trip + GC
+publish migrated to
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+Sprint `13.7`. Production weight loading (CUDA + Linux CPU) migrated to
+Phase `13` Sprint `13.11`; Apple Metal weight loading migrated to
+[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
+Sprint `14.5`. Per-substrate ULP tolerance documentation migrated to
+[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+Sprint `15.1`.
+
+The phase owns
 [Exit Definition](README.md#exit-definition) item 7 (split-blob `.jmw1`
 format with the typed manifest, inference-only read path, bit-determinism
 contract holding within the per-substrate ULP tolerance methodology).
@@ -112,9 +126,11 @@ storage-outward: conditional checkpoint writes/reads first, then
 inference from checkpoint, then training persistence, then tuning/resume
 semantics.
 
-## Sprint 10.1: Storage Layout and Split-Blob Schema 🔄
+## Sprint 10.1: Storage Layout and Split-Blob Schema ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live MinIO
+bucket layout validation migrated to Phase `13` Sprint `13.7`.
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Storage/Buckets.hs`
 **Docs to update**: `documents/engineering/checkpoint_format.md`
@@ -159,16 +175,18 @@ split-blob object-key renderers used by the inference summary surface.
 
 ### Remaining Work
 
-- Validate the bucket layout against a live MinIO instance through
-  `JitML.Service.MinIOSubprocess`. The typed split-blob
-  layout (`OptimizerBlob`, `RngBlob`, `manifestStep`,
-  `manifestMetrics`, `manifestParentManifestSha`) and the experiment
-  hash derivation are in place; the gap is checkpoint-store use of the
-  live `HasMinIO` client after a real training step.
+- No sprint-owned code-surface Remaining Work remains. Live MinIO bucket
+  layout validation through `JitML.Service.MinIOSubprocess` after a real
+  training step is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.7`.
 
-## Sprint 10.2: `.jmw1` Wire Format and Manifest CBOR 🔄
+## Sprint 10.2: `.jmw1` Wire Format and Manifest CBOR ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live MinIO
+conditional-write validation and CAS retry coverage migrated to Phase
+`13` Sprint `13.7`.
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Checkpoint/Store.hs`
 **Docs to update**: `documents/engineering/checkpoint_format.md`
@@ -229,17 +247,19 @@ remain target runtime validation.
 
 ### Remaining Work
 
-- Validate `writeCheckpointSnapshotWithMinIO` through
-  `JitML.Service.MinIOSubprocess`, the live HTTP-backed `HasMinIO`
-  capability from Sprint `4.3` / `5.4`, after a real training step. The
-  `HasMinIO` object references now use bucket `jitml-checkpoints` with keys
-  relative to that bucket.
-- Add integration coverage in `jitml-integration` (Sprint `12.2`) that
-  exercises the CAS retry against a live MinIO instance.
+- No sprint-owned code-surface Remaining Work remains. Live MinIO
+  conditional-write validation and CAS retry integration coverage are
+  owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.7`.
 
-## Sprint 10.3: Bit-Determinism Contract and Retention Reconciler 🔄
+## Sprint 10.3: Bit-Determinism Contract and Retention Reconciler ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live MinIO blob
+deletion plus `gc_reaped` Pulsar event publication migrated to Phase `13`
+Sprint `13.7`. The per-substrate ULP tolerance measurement migrated to
+Phase `15` Sprint `15.1`.
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/determinism_contract.md`,
 `documents/engineering/checkpoint_format.md`
@@ -287,16 +307,24 @@ per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Emit `gc_reaped` Pulsar events for each delete and validate the
-  deletion path against live HTTP MinIO once Sprint `4.3` / `5.4`
-  lands the real client.
-- Add the per-substrate ULP tolerance measurement to
-  `documents/engineering/determinism_contract.md` based on real
-  cross-substrate runs from Sprint `12.6`.
+- No sprint-owned code-surface Remaining Work remains. `gc_reaped`
+  Pulsar event publication and live HTTP MinIO deletion validation are
+  owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.7`. The per-substrate ULP tolerance measurement is owned by
+  [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+  Sprint `15.1`.
 
 ## Sprint 10.4: Inference-Only Read Path 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. The
+user-facing live `jitml inference run` MinIO path, `jitml inspect replay`
+live MinIO manifest read, and per-substrate production weight loading
+(Linux CPU + CUDA) migrated to Phase `13` Sprints `13.11` / `13.12`.
+Apple Metal production weight loading migrated to Phase `14` Sprint
+`14.5`. Cross-language proto-lens bindings for `inference.proto` remain
+a code-only follow-up here.
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/App.hs`
@@ -364,23 +392,18 @@ weight-blob-to-kernel loading remain target runtime work.
 
 ### Remaining Work
 
-- 2026-05-21 live Phase `5.4` daemon validation exercises
-  `JitML.Checkpoint.Store.loadInferenceCheckpoint` through the
-  BootConfig-derived `JitML.Service.MinIOSubprocess` client from the running
-  `jitml-service` pod, and Phase `7.3` now wires
-  `linux-cpu` + `SelfInference` daemon dispatch through
-  `loadInferenceCheckpointWith` plus `runLinuxCpuCheckpointInference`.
-  Remaining inference-read-path work is the user-facing `jitml inference run`
-  live path plus real production weight loading below.
-- Extend the production per-substrate engines beyond the local Linux CPU
-  weighted smoke path so real weight blobs load into substrate-bound
-  `KernelHandle`s on Linux CPU oneDNN, Linux CUDA, and Apple Metal.
-- Generate cross-language bindings from `proto/jitml/inference.proto` once the
-  project moves from local proto3-compatible codecs to generated proto-lens /
-  browser interop for all daemon envelopes.
-- Extend `jitml inspect replay <manifest-sha>` from the current local
-  checkpoint store path to live MinIO manifests through
-  `JitML.Service.MinIOSubprocess`.
+- Generate cross-language bindings from `proto/jitml/inference.proto`
+  once the project moves from local proto3-compatible codecs to
+  generated proto-lens / browser interop for all daemon envelopes.
+  (Code-only.)
+- The user-facing `jitml inference run` live MinIO path and `jitml
+  inspect replay` live MinIO manifest read are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.12`.
+- Per-substrate production weight loading: Linux CPU oneDNN and Linux
+  CUDA are owned by Phase `13` Sprint `13.11`; Apple Metal is owned by
+  [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
+  Sprint `14.5`.
 
 ## Doctrine Sections Cited
 

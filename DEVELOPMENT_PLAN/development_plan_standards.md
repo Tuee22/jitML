@@ -18,6 +18,9 @@
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
+[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
+[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md),
 [../README.md](../README.md)
 **Generated sections**: none
@@ -153,15 +156,22 @@ DEVELOPMENT_PLAN/
 ├── phase-9-rl-catalog-alphazero-and-tuning.md
 ├── phase-10-checkpointing-and-inference.md
 ├── phase-11-purescript-frontend-and-demo.md
-└── phase-12-test-stanzas-and-cross-cluster.md
+├── phase-12-test-stanzas-and-cross-cluster.md
+├── phase-13-linux-cuda-and-cluster-closure.md
+├── phase-14-apple-silicon-closure.md
+└── phase-15-cross-substrate-and-handoff.md
 ```
 
 No phase may be skipped. No sprint may exist in two phases. CLI-surface ownership,
 bootstrap-reconciler ownership, cluster-substrate ownership, platform-services
 ownership, daemon ownership, numerical-core ownership, per-substrate JIT-codegen
 ownership, SL/RL-framework ownership, RL-algorithm/AlphaZero/tuning ownership,
-checkpointing ownership, frontend ownership, and test-stanza ownership each live in
-one place only.
+checkpointing ownership, frontend ownership, test-stanza ownership,
+Linux-CUDA/cluster-closure ownership, Apple-Silicon-closure ownership, and
+cross-substrate-handoff ownership each live in one place only. Phases `13`–`15`
+extract every live-runtime obligation from Phases `7`–`12` and consolidate them by
+machine-affinity (Linux/NVIDIA, Apple Silicon, then cross-substrate) so each phase
+remains independently closeable on a single machine session.
 
 ### F. System Component Inventory
 

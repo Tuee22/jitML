@@ -21,7 +21,17 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns
+🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
+its code-surface obligations (PureScript scaffold, generated browser
+contracts, panel modules with typed payload shapes, Halogen dependency +
+render machinery, `purescript-spec` smoke suite, demo HTTP server with
+deterministic local stream frames, Playwright spec scaffold). Live
+`/api/ws` WebSocket proxy + Halogen render against live daemon state
++ Playwright on the live edge route migrated to
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+Sprints `13.13` and `13.14`.
+
+The phase owns
 [Exit Definition](README.md#exit-definition) item 8 (PureScript frontend
 under `web/` generated from `src/JitML/Web/Contracts.hs` via
 `purescript-bridge`; live MNIST handwriting panel, CIFAR/ImageNet upload
@@ -143,6 +153,10 @@ local renderer that produces `web/src/Generated/Contracts.purs`. The external
 ## Sprint 11.3: `jitml lint purescript` Generated-Contract Smoke Target 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface — the
+`purescript-spec` smoke suite bodies and the `/usr/local/bin/spago test`
+invocation from the default lint path are code-only deliverables in this
+sprint.
 **Implementation**: `web/test/Main.purs`, `src/JitML/Lint/Stack.hs`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/unit_testing_policy.md`
@@ -212,6 +226,10 @@ panel-contract, and `purs-tidy`-formatting smoke target. The target
 ## Sprint 11.4: Interactive Endpoint Contract Surface 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface — Halogen dependency
++ render machinery (slot + state + DOM diff) on each `Panels.*` module
+plus the normal `spago build --output web/dist` path. The live `/api/ws`
+WebSocket proxy migrated to Phase `13` Sprint `13.13`.
 **Implementation**: `src/JitML/Web/Contracts.hs`,
 `src/JitML/Web/Bundle.hs`,
 `web/src/Main.purs`, `web/src/Generated/Contracts.purs`
@@ -264,22 +282,21 @@ remains target runtime validation.
 
 ### Remaining Work
 
-- All six `web/src/Panels/*.purs` modules are checked in with typed
-  request/response or stream payload shapes and an Effectful `mount`
-  placeholder. The pending work is adding the Halogen dependency and
-  render machinery (slot + state + DOM diff), then wiring the normal
-  `spago build --output web/dist` path so the demo image gets a compiled
-  browser bundle rather than relying on a locally present `web/dist/`
-  file.
-- Implement the live `/api/ws` WebSocket proxy that bridges the demo
-  server to the daemon's metric/event Pulsar topics. The typed
-  panel frame shapes (`Panels.Rl.RlStreamFrame`,
-  `Panels.Training.TrainingFrame`, `Panels.Tune.TuneTrialFrame`)
-  describe the on-wire payloads.
+- Add the Halogen dependency to `web/spago.yaml` and the render
+  machinery (slot + state + DOM diff) to each `web/src/Panels/*.purs`
+  module. Wire `spago build --output web/dist` so the demo image gets
+  a compiled browser bundle. (Code-only.)
+- The live `/api/ws` WebSocket proxy that bridges the demo server to
+  the daemon's metric/event Pulsar topics is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.13`.
 
-## Sprint 11.5: `jitml-demo` Executable Shim 🔄
+## Sprint 11.5: `jitml-demo` Executable Shim ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. The live
+`/api/ws` proxy bridging browser clients to Pulsar event topics
+migrated to Phase `13` Sprint `13.13`.
 **Implementation**: `app/Demo.hs`, `src/JitML/App.hs`,
 `chart/templates/deployment-jitml-demo.yaml`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
@@ -344,12 +361,17 @@ HTTP server, and chart deployment surface.
   Validated by `jitml-e2e`: when the bundle is present, the route table is
   one entry larger than `demoHttpRoutes`; when absent, it matches the
   placeholder length.
-- Implement the live `/api/ws` proxy that bridges browser WebSocket
-  clients to Pulsar event topics.
+- The live `/api/ws` proxy bridging browser WebSocket clients to Pulsar
+  event topics is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.13`.
 
-## Sprint 11.6: Playwright E2E Suite 🔄
+## Sprint 11.6: Playwright E2E Suite ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live edge-route
+Playwright execution against the running cluster (replacing the inline
+`page.setContent` DOM stubs) migrated to Phase `13` Sprint `13.14`.
 **Implementation**: `playwright/jitml-demo.spec.ts`,
 `infra/pulumi/`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
@@ -392,10 +414,11 @@ Land the Playwright scaffold for the future interactive panel suite.
   stanza validates the typed `npx playwright test` plan; the checked-in spec
   still drives inline `page.setContent` DOM stubs rather than the live edge
   route.
-- The pending wiring is feeding Playwright the live edge port from
-  `cluster-publication.json` so the panels load against
-  `jitml-demo` rather than inline `page.setContent` stubs (gated on
-  Sprint 11.5 compiled bundle).
+- Feeding Playwright the live edge port from `cluster-publication.json`
+  so the panels load against `jitml-demo` rather than inline
+  `page.setContent` stubs is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.14`.
 - Playwright stays out of the default `cabal test all` matrix (the
   live invocation is explicit).
 

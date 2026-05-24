@@ -25,7 +25,19 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns
+🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
+its code-surface obligations (eight Cabal test-suite stanzas with
+deterministic-stub bodies, real-binary spawn matrix through the typed
+`Subprocess` boundary, report-card knob parsing, plan/apply rendering
+for `jitml test all`). Live execution of the `jitml-e2e` Pulumi
+orchestrator + Helm rollout + Playwright on the edge route migrated to
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+Sprints `13.1` and `13.14`. Cross-substrate cohort fixtures + ULP
+tolerance + populated live report card migrated to
+[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+Sprints `15.1` and `15.2`.
+
+The phase owns
 [Exit Definition](README.md#exit-definition) item 9 (`jitml test all`
 runs every test-only Cabal test-suite stanza with the report-card knobs pinned in
 `cabal.project`; the `jitml-e2e` stanza orchestrates an ephemeral Kind
@@ -138,9 +150,13 @@ target work.
 2. Existing golden fixtures are deterministic and contain no timestamps or
    random identifiers.
 
-## Sprint 12.2: `jitml-integration` Stanza (Subprocess Boundary + Determinism) 🔄
+## Sprint 12.2: `jitml-integration` Stanza (Subprocess Boundary + Determinism) ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live HTTP MinIO
+checkpoint round-trip migrated to Phase `13` Sprint `13.7`. The
+per-substrate determinism assertion against real CUDA and Metal
+production kernels migrated to Phase `15` Sprint `15.1`.
 **Implementation**: `test/integration/`,
 `jitml.cabal` (the `jitml-integration` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`
@@ -189,15 +205,23 @@ same-substrate training determinism per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Add real checkpoint round-trip coverage against
-  `JitML.Service.MinIOSubprocess`, the live `HasMinIO` capability class from
-  Sprint `4.3` / `5.4`.
-- Add the per-substrate determinism assertion against real CUDA and Metal
-  production kernels beyond the current local Linux CPU oneDNN path.
+- No sprint-owned code-surface Remaining Work remains. Real checkpoint
+  round-trip against `JitML.Service.MinIOSubprocess` and the live
+  `HasMinIO` capability class is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.7`. The per-substrate determinism assertion against real
+  CUDA and Metal production kernels is owned by
+  [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+  Sprint `15.1`.
 
 ## Sprint 12.3: `jitml-sl-canonicals` Stanza 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Live `jitml
+train` against canonical SL cells with real MinIO datasets and live
+measured convergence fixtures migrated to Phase `13` Sprint `13.4`. The
+`sl_epochs` / `sl_batch` report-card knob consumption remains a
+code-only deliverable here.
 **Implementation**: `test/sl-canonicals/`,
 `jitml.cabal` (the `jitml-sl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -232,17 +256,22 @@ fixtures remain future runtime work.
 
 ### Remaining Work
 
-- Drive `jitml train` against every canonical SL cell with real datasets
-  fetched from MinIO bucket `jitml-datasets`.
 - Consume the `sl_epochs` / `sl_batch` report-card knobs from
-  `cabal.project`.
-- Replace or supplement the current deterministic synthetic fixtures with
-  live measured convergence fixtures once daemon-backed training runs on
-  real datasets.
+  `cabal.project` in the local convergence assertion. (Code-only.)
+- Driving `jitml train` against every canonical SL cell with real
+  datasets and supplementing deterministic synthetic fixtures with live
+  measured convergence fixtures are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.4`.
 
 ## Sprint 12.4: `jitml-rl-canonicals` Stanza 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Live `jitml
+rl train` against algorithm × environment cohorts with real env
+simulators and live measured fixtures migrated to Phase `13` Sprint
+`13.6`. The `rl_steps` / `rl_eval_episodes` / `az_games` / `az_sims`
+knob consumption remains a code-only deliverable here.
 **Implementation**: `test/rl-canonicals/`,
 `jitml.cabal` (the `jitml-rl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -279,18 +308,26 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 
 ### Remaining Work
 
-- Drive `jitml rl train` against every algorithm × environment cohort
-  with real env simulators from Sprint `8.3`.
 - Consume the `rl_steps` / `rl_eval_episodes` / `az_games` / `az_sims`
-  report-card knobs from `cabal.project`.
-- Commit per-cohort reward / trajectory goldens
-  (`test/golden/rl/<algo>/<env>/`) and measured AlphaZero arena fixtures.
-- Add per-seed final-reward distribution assertion (RL target matrix
-  form 3).
+  report-card knobs from `cabal.project`. (Code-only.)
+- Commit deterministic-stub per-cohort goldens under
+  `test/golden/rl/<algo>/<env>/`. (Code-only; live measured goldens
+  replace these once Phase `13` Sprint `13.6` produces them.)
+- Driving `jitml rl train` against every cohort with real env
+  simulators, measured AlphaZero arena fixtures, and the per-seed
+  final-reward distribution assertion are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.6`.
 
 ## Sprint 12.5: `jitml-hyperparameter` Stanza 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Live `jitml
+tune` against the full canonical sampler × scheduler × pruner grid
+through the live tuner and resume-from-partial-sweep equality test
+migrated to Phase `13` Sprint `13.10`. The per-sampler / per-scheduler /
+per-pruner reproducibility assertion against committed deterministic
+golden trial-key streams remains a code-only deliverable here.
 **Implementation**: `test/hyperparameter/`,
 `jitml.cabal` (the `jitml-hyperparameter` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -332,19 +369,22 @@ and deterministic trial-value checks.
 
 ### Remaining Work
 
-- Drive `jitml tune` against the full canonical sampler × scheduler ×
-  pruner grid through the live tuner from Sprint `9.7`.
-- Extend the current `tune_trials` / `tune_budget_per_trial` consumption to
-  the full canonical sampler × scheduler × pruner grid once live tuner
-  execution lands.
-- Assert per-sampler / per-scheduler / per-pruner reproducibility
-  against committed golden trial-key streams.
-- Implement resume-from-partial-sweep equality test that reads cached
-  trial transcripts from live MinIO.
+- Assert per-sampler / per-scheduler / per-pruner reproducibility against
+  committed deterministic golden trial-key streams under
+  `test/golden/tune/`. (Code-only.)
+- Driving `jitml tune` against the full canonical sampler × scheduler ×
+  pruner grid through the live tuner, extending knob consumption to the
+  full grid, and the resume-from-partial-sweep equality test against
+  live MinIO are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.10`.
 
-## Sprint 12.6: `jitml-cross-backend` Stanza 🔄
+## Sprint 12.6: `jitml-cross-backend` Stanza ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Cross-substrate
+cohort runs, per-cohort tolerance fixtures, and per-tensor drift
+assertion migrated to Phase `15` Sprint `15.1`.
 **Implementation**: `test/cross-backend/`,
 `jitml.cabal` (the `jitml-cross-backend` stanza),
 `src/JitML/Test/Report.hs`
@@ -391,12 +431,12 @@ cross-substrate tolerance testing remains the overall handoff gate.
 
 ### Remaining Work
 
-- Drive the cross-substrate cohorts through real per-substrate engines from
-  Sprints `7.4` / `7.5`, using the closed Sprint `7.3` Linux CPU engine as the
-  CPU side of the cohort.
-- Commit `test/golden/cross-backend/` tolerance fixtures per cohort.
-- Add the per-tensor drift assertion against the committed ULP
-  tolerance band.
+- No sprint-owned code-surface Remaining Work remains. The
+  cross-substrate cohort runs, per-cohort tolerance fixtures, and the
+  per-tensor drift assertion against the committed ULP tolerance band
+  are owned by
+  [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+  Sprint `15.1`.
 
 ## Sprint 12.7: `jitml-daemon-lifecycle` Stanza ✅
 
@@ -435,9 +475,13 @@ the current boot → ready → serve → SIGHUP reload → drain → exit contro
 5. Inference request/result protobuf envelopes round-trip through the local
    codec.
 
-## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator 🔄
+## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live phased
+Helm + Pulsar rollout against a real Kind cluster, live Playwright
+against the edge route, and full live teardown leak-detection migrated
+to Phase `13` Sprints `13.1` and `13.14`.
 **Implementation**: `infra/pulumi/`,
 `infra/pulumi/package.json`, `infra/pulumi/Pulumi.yaml`,
 `infra/pulumi/index.ts`,
@@ -503,25 +547,20 @@ container/runtime state, and validates teardown.
 
 ### Remaining Work
 
-- The ephemeral-Kind orchestrator (`infra/pulumi/index.ts`) and the
-  typed phased rollout (`JitML.Test.LivePlan.livePhasedClusterPlan`)
-  are in place. The `jitml-e2e` stanza validates the typed `npx playwright test`
-  `Subprocess` boundary against the current inline DOM stub spec. Still open:
-  actually executing the typed phased Helm + Pulsar topic creation rollout
-  against a real Kind cluster and then driving
-  Playwright against the live edge route (heavy subcharts Harbor +
-  Pulsar HA + Postgres + MinIO + Prometheus together require multi-GB
-  of memory).
-- The post-teardown assertion that no `jitml-e2e-*` Kind cluster
-  survives is wired in `jitml-e2e` (`kind get clusters` through the
-  typed `Subprocess` boundary when the Docker socket is available,
-  asserting no `jitml-e2e-`-prefixed cluster names appear). The Harbor
-  project / MinIO bucket / Docker volume grep paths remain to be added
-  once the live e2e brings those services up.
+- No sprint-owned code-surface Remaining Work remains. Live phased Helm
+  + Pulsar topic creation rollout against a real Kind cluster is owned
+  by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.1`; live Playwright against the edge route and full live
+  teardown leak-detection are owned by Phase `13` Sprint `13.14`.
 
-## Sprint 12.9: `jitml test all` Orchestrator and Report Card 🔄
+## Sprint 12.9: `jitml test all` Orchestrator and Report Card ✅
 
-**Status**: Active
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Live `jitml
+test all` mode threading live measurements into the report card and the
+live integration test that surfaces real metrics migrated to Phase `15`
+Sprint `15.2`.
 **Implementation**: `src/JitML/App.hs`,
 `src/JitML/Test/Report.hs`,
 `cabal.project` (report-card knob block)
@@ -588,13 +627,13 @@ health, cross-substrate parity tolerance).
 
 ### Remaining Work
 
-- Drive the live `jitml-e2e` body from an explicit `jitml test all` live mode,
-  threading the resulting live measurements back into the report card.
-- Populate every canonical report-card metric with real data once
-  Sprints `8.x`, `9.x`, `10.x`, and `12.x` start emitting live results.
-- Add the live integration test that confirms the report card
-  surfaces real SL/RL/AlphaZero/tuning/cross-substrate numbers in addition
-  to the target-stanza summary.
+- No sprint-owned code-surface Remaining Work remains. The live `jitml
+  test all` mode threading live measurements into the report card, the
+  population of canonical report-card metrics with real data, and the
+  live integration test that confirms the populated report card are
+  owned by
+  [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+  Sprint `15.2`.
 
 ## Doctrine Sections Cited
 

@@ -20,7 +20,17 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns the catalog/AlphaZero/tuning half of
+🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
+its code-surface obligations (RL algorithm module metadata + deterministic
+rollouts, real Othello/Hex/Gomoku rule engines, deterministic-stub
+goldens, sampler implementations, AlphaZero MCTS framework with
+deterministic prior). Real CUDA RL loss execution and AlphaZero with
+real network priors migrated to
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+Sprints `13.8` and `13.9`. Live tuner execution migrated to Phase `13`
+Sprint `13.10`.
+
+The phase owns the catalog/AlphaZero/tuning half of
 [Exit Definition](README.md#exit-definition) item 6 (`jitml rl train`
 runs the full RL workloads, AlphaZero self-play executes, and `jitml
 tune` consumes `Some Tuning::{ … }`-shaped Dhall per the worked example
@@ -93,6 +103,11 @@ AlphaZero training under a sampler × scheduler × pruner Dhall.
 ## Sprint 9.1: On-Policy Algorithm Metadata 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Real
+clipped-surrogate-loss / GAE / KL-trigger update code through the live
+CUDA JIT engine migrated to Phase `13` Sprint `13.8`. The per-algorithm
+per-environment goldens for the deterministic-stub rollout remain a
+code-only deliverable here.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo}.hs`,
 `test/rl-canonicals/Main.hs`
@@ -124,18 +139,23 @@ below.
 
 ### Remaining Work
 
-- Replace the deterministic-fixture rollout in the five on-policy modules
-  with real clipped-surrogate-loss / GAE / KL-trigger update code once the
-  JIT engine layer can execute the network — gated by Phase 7 production
-  loaders against real hardware.
 - Commit per-algorithm + per-environment goldens under
-  `test/golden/rl/<algo>/<env>/trajectory.txt` once the deterministic
-  `AlgorithmModule.moduleRolloutGenerator` is wired into the canonical
-  stanza body (Sprint 12.4 owns the stanza wiring).
+  `test/golden/rl/<algo>/<env>/trajectory.txt` from the deterministic
+  `AlgorithmModule.moduleRolloutGenerator`. (Code-only; close by running
+  the deterministic generator and committing the output. Live measured
+  fixtures from real CUDA training are owned by Phase `13` Sprint `13.8`.)
+- Replacement of the deterministic-fixture rollout with real
+  clipped-surrogate-loss / GAE / KL-trigger update code through the live
+  CUDA JIT engine is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.8`.
 
 ## Sprint 9.2: Off-Policy Algorithm Metadata 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Real cuDNN
+deterministic algorithm pin executed against off-policy network forward /
+target-network update migrated to Phase `13` Sprint `13.8`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{Dqn,QrDqn,Ddpg,Td3,Sac}.hs`,
 `test/rl-canonicals/Main.hs`
@@ -165,15 +185,19 @@ Land the current off-policy algorithm metadata rows.
 
 ### Remaining Work
 
-- Wire the deterministic-cuDNN algorithm pin into the real off-policy
-  network forward / target-network update path (gated by Phase 7.4 real
-  cuDNN execution).
-- Commit per-algorithm goldens under `test/golden/rl/<algo>/<env>/`
-  through the stanza body in Sprint 12.4.
+- Commit per-algorithm goldens under `test/golden/rl/<algo>/<env>/` from
+  the deterministic-stub rollout. (Code-only.)
+- Wiring the deterministic-cuDNN algorithm pin into the real off-policy
+  network forward / target-network update path is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.8`.
 
 ## Sprint 9.3: Specialised Algorithm Metadata 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Real specialised
+algorithm execution through live CUDA migrated to Phase `13` Sprint
+`13.8`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{CrossQ,Tqc,Ars,Her}.hs`,
 `test/rl-canonicals/Main.hs`
@@ -202,15 +226,22 @@ Land the current specialised algorithm metadata rows.
 
 ### Remaining Work
 
-- `jitml docs generate` regeneration check stays target work until the
-  generated catalog table grows the per-module hyperparameter
-  surface; the module-aggregating registry
-  (`JitML.RL.Algorithms.Registry`) is ready to feed it.
-- Per-algorithm goldens land through the stanza body in Sprint 12.4.
+- Extend `jitml docs generate` so the generated catalog table renders the
+  per-module hyperparameter surface from `JitML.RL.Algorithms.Registry`.
+  (Code-only.)
+- Per-algorithm deterministic-stub goldens land through the stanza body
+  in Sprint `12.4` (code-only).
+- Real CUDA specialised-update execution (CrossQ multi-critic, TQC
+  quantile TD, ARS evolution strategy, HER hindsight relabel) is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.8`.
 
 ## Sprint 9.4: Local RL Canonical Tests 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Per-seed
+final-reward distribution check consuming live training output migrated
+to Phase `13` Sprint `13.6`.
 **Implementation**: `test/unit/Main.hs`, `test/integration/Main.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -242,15 +273,22 @@ dedicated local RL canonical stanza.
 
 ### Remaining Work
 
-- Grow `test/golden/rl/<algo>/<env>/` into a fixture tree per algorithm.
+- Grow `test/golden/rl/<algo>/<env>/` into a fixture tree per algorithm
+  from the deterministic-stub generator. (Code-only.)
 - Consume the `rl_steps` and `rl_eval_episodes` report-card knobs from
-  `cabal.project`.
-- Implement the per-seed final-reward distribution check (form 3) that
-  consumes live training output.
+  `cabal.project`. (Code-only.)
+- The per-seed final-reward distribution check (form 3) consuming live
+  training output is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.6`.
 
 ## Sprint 9.5: AlphaZero Connect 4 Transcript Surface 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Real network
+evaluation via the JIT engine for `runSearch` prior, live MinIO
+self-play buffer round-trip, and live arena promotion migrated to Phase
+`13` Sprint `13.9`.
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
@@ -310,16 +348,22 @@ AlphaZero summary.
 
 ### Remaining Work
 
-- Wire the `runSearch` prior into a real network evaluation via the
-  JIT engine (gated by Phase 7 production loaders).
-- Validate the self-play buffer round-trip against live HTTP MinIO once
-  Sprint `4.3` / `5.4` lands the real client.
 - Wire the `az_games` and `az_sims` report-card knobs into the canonical
-  stanza body in Sprint 12.4.
+  stanza body. (Code-only.)
+- Wiring the `runSearch` prior into a real network evaluation via the JIT
+  engine and validating the SelfPlayBuffer round-trip against live HTTP
+  MinIO are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.9`.
 
 ## Sprint 9.6: Connect 4 Local Game Surface 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface — the real rule
+engines for Othello (8-direction capture-flip), Hex (border-to-border
+connectivity), and Gomoku (line-of-five) are pure Haskell deliverables
+in this sprint. The JIT-backed network position evaluation that consumes
+these rules is owned by Phase `13` Sprint `13.9`.
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
 `src/JitML/Web/Contracts.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -355,14 +399,26 @@ catalog, and corresponding browser-contract endpoint metadata.
 
 ### Remaining Work
 
-- The full real-rules engine for Othello (capture flip), Hex
-  (connectivity), and Gomoku (line-of-five) lands when the game
-  position evaluator graduates from the deterministic shim — gated by
-  the JIT engine's ability to evaluate game-specific feature tensors.
+- Implement the real rule engines in `src/JitML/RL/AlphaZero.hs`:
+  Othello 8-direction capture-flip (legal-move generation + opponent-disc
+  flipping until same-colour anchor), Hex border-to-border DFS
+  connectivity, Gomoku linear five-in-a-row detection. Update
+  `selfPlayTranscriptFor` so the deterministic seeded selection advances
+  past illegal moves; regenerate the affected goldens under
+  `test/golden/alphazero/{othello,hex,gomoku}-transcript.txt`. (Code-only;
+  no hardware required.)
+- JIT-backed network position evaluation that consumes these rule
+  engines is owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.9`.
 
 ## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) 🔄
 
 **Status**: Active
+**Owned obligations after refactor**: code-surface only. Daemon-side
+tune handler against live broker, live MinIO trial persistence, and
+the full canonical sampler × scheduler × pruner grid against live
+tuner execution migrated to Phase `13` Sprint `13.10`.
 **Implementation**: `src/JitML/Tune/Catalog.hs`,
 `src/JitML/App.hs`, `src/JitML/Proto/Tune.hs`,
 `test/hyperparameter/Main.hs`
@@ -437,18 +493,13 @@ summary.
 
 - Generate `proto-lens`-driven Haskell bindings for
   `proto/jitml/tune.proto` so the command/event envelopes round-trip
-  binary-equivalent with other-language clients. The current command and event
-  oneofs have strict local proto3-compatible byte codecs via
-  `JitML.Proto.Wire`; generated cross-language bindings remain target work.
-- Implement the daemon-side tune handler that consumes
-  `tune.command.<mode>` and persists trial transcripts to MinIO bucket
-  `jitml-trials/<sha256(resolved-dhall || trial-seed)>/` — owned by
-  Sprint 5.5 once the live broker + MinIO are reachable.
-- Validate `persistTrialTranscript` / `replaySweep` against live HTTP
-  MinIO once Sprint `4.3` / `5.4` lands the real client.
-- Extend the current `tune_trials` / `tune_budget_per_trial` knob consumption
-  from the local TPE trial-budget assertion to the full canonical sampler ×
-  scheduler × pruner grid once live tuner execution lands (Sprint 12.5).
+  binary-equivalent with other-language clients. (Code-only.)
+- Daemon-side tune handler against live broker, `persistTrialTranscript`
+  / `replaySweep` validation against live HTTP MinIO, and the full
+  canonical sampler × scheduler × pruner grid against live tuner
+  execution are owned by
+  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
+  Sprint `13.10`.
 
 ## Doctrine Sections Cited
 

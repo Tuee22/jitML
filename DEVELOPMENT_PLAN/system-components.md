@@ -19,6 +19,9 @@
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
+[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
+[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
 [../README.md](../README.md), [../README.md](../README.md)
 **Generated sections**: none
 

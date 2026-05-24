@@ -18,6 +18,9 @@
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
+[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
+[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -73,11 +76,11 @@ opening event itself enqueues a row here naming the originating sprint.
 
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
-| Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Sprint 1.1 / final handoff toolchain refresh |
-| Non-production CUDA/Metal kernel-family scaffolds | `src/JitML/Codegen/Cuda.hs`, `src/JitML/Codegen/Metal.hs` | Several non-CPU kernel families intentionally render identity/scaffold bodies while the source payload, cache key, metadata ABI, guarded CUDA loader boundary, and typed cuBLAS/cuDNN Haskell binding initialization (validated in Sprint 7.4) hold; replace with real cuBLAS/cuDNN GEMM/conv calls and Metal kernels when production non-CPU execution with full tensor-parameter weights ABI lands | Sprint 7.5 / future production-kernel sprint |
-| Deterministic MCTS prior stub | `src/JitML/RL/AlphaZero/Mcts.hs` | `priorFor` stands in for the real policy/value network call so MCTS and transposition-table tests are deterministic before AlphaZero uses JIT-backed network inference | Sprint 9.5 |
-| Demo placeholder shell, local stream frames, and inline DOM stubs | `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs` | The demo server falls back to a placeholder shell and deterministic local stream frames, while Playwright uses inline DOM stubs until the compiled Halogen bundle and live edge route are wired | Sprints 11.5, 11.6, 12.8 |
-| Target-stanza-only report card | `src/JitML/Test/Report.hs`, `src/JitML/App.hs` | `jitml test all` now renders the actual target stanza names after Cabal succeeds, but live SL/RL/AlphaZero/tuning/daemon/cross-substrate measurements are still absent; extend the report with measured values from the live e2e path | Sprint 12.9 |
+| Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Phase 15 Sprint `15.3` (final handoff toolchain refresh) |
+| Non-production CUDA/Metal kernel-family scaffolds | `src/JitML/Codegen/Cuda.hs`, `src/JitML/Codegen/Metal.hs` | Several non-CPU kernel families intentionally render identity/scaffold bodies while the source payload, cache key, metadata ABI, guarded CUDA loader boundary, and typed cuBLAS/cuDNN Haskell binding initialization (validated in Sprint 7.4) hold; replace with real cuBLAS/cuDNN GEMM/conv calls and Metal kernels when production non-CPU execution with full tensor-parameter weights ABI lands | Phase 13 Sprint `13.11` (CUDA) + Phase 14 Sprint `14.5` (Metal) |
+| Deterministic MCTS prior stub | `src/JitML/RL/AlphaZero/Mcts.hs` | `priorFor` stands in for the real policy/value network call so MCTS and transposition-table tests are deterministic before AlphaZero uses JIT-backed network inference | Phase 13 Sprint `13.9` |
+| Demo placeholder shell, local stream frames, and inline DOM stubs | `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs` | The demo server falls back to a placeholder shell and deterministic local stream frames, while Playwright uses inline DOM stubs until the compiled Halogen bundle and live edge route are wired | Phase 13 Sprints `13.13`, `13.14` |
+| Target-stanza-only report card | `src/JitML/Test/Report.hs`, `src/JitML/App.hs` | `jitml test all` now renders the actual target stanza names after Cabal succeeds, but live SL/RL/AlphaZero/tuning/daemon/cross-substrate measurements are still absent; extend the report with measured values from the live e2e path | Phase 15 Sprint `15.2` |
 
 ## Pending Removal Notes
 
