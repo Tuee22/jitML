@@ -64,17 +64,18 @@ Linux substrates don't need this — the pod loads directly out of
 `jit/<substrate>/` because there is no host↔VM artifact-copy step.
 
 The first executable path is local `linux-cpu`. `JitML.Engines.Loader`
-materializes generated identity, reduction smoke, and family-scaffold kernels
-and fills cache misses with `g++`; `JitML.Engines.Local` loads the shared
-objects through `dlopen`, resolves `jitml_kernel` plus
-`jitml_kernel_family_name` plus `jitml_kernel_output_count`, and validates
-deterministic fixture output, loaded family metadata, and artifact-reported
-output length through the Haskell FFI. `JitML.Engines.HasEngine` exposes that
-generated-family path through the current local `HasEngine` interpreter, and
-`jitml service` uses `runLinuxCpuCheckpointInference` for `linux-cpu` +
-`SelfInference` routed checkpoint inference after MinIO manifest loading.
-Production oneDNN graph kernels, Apple Metal loading, and Linux CUDA loading
-extend the same cache and kernel-handle contracts later.
+materializes generated libdnnl-linked oneDNN kernels and fills cache misses
+with `g++ ... -ldnnl`; `JitML.Engines.Local` loads the shared objects through
+`dlopen`, resolves `jitml_kernel` plus `jitml_kernel_family_name` plus
+`jitml_kernel_output_count`, and validates deterministic fixture output,
+loaded family metadata, and artifact-reported output length through the Haskell
+FFI. `JitML.Engines.HasEngine` exposes that generated-family path through the
+current local `HasEngine` interpreter, and `jitml service` uses
+`runLinuxCpuCheckpointInference` for `linux-cpu` + `SelfInference` routed
+checkpoint inference after MinIO manifest loading. `JitML.Engines.CudaLocal`
+and `LocalCudaEngine` extend the same cache and kernel-handle contracts behind
+a positive CUDA runtime probe; live CUDA GPU-host execution and Apple Metal
+loading remain the open runtime validations.
 
 ## Cache Key
 
@@ -125,11 +126,10 @@ returns a `KernelArtifact` that records the `KernelHandle`, cache status, compil
 command, and whether compilation happened in this call. The same module owns the
 reusable `dlopen`/`dlsym` helper used by local FFI runners.
 
-`src/JitML/Engines/Local.hs` is the narrow local execution interpreter for the
-Linux CPU identity fixture plus generated oneDNN family scaffolds on top of
-that loader. It records the family name reported by the loaded shared object's
-`jitml_kernel_family_name` symbol and sizes the output buffer from the loaded
-`jitml_kernel_output_count` symbol.
+`src/JitML/Engines/Local.hs` is the local execution interpreter for the Linux
+CPU oneDNN primitive kernels on top of that loader. It records the family name
+reported by the loaded shared object's `jitml_kernel_family_name` symbol and
+sizes the output buffer from the loaded `jitml_kernel_output_count` symbol.
 
 `src/JitML/Engines/HasEngine.hs` defines the current engine capability:
 `EngineRequest` carries the requested `KernelFamily` and input vector,
@@ -148,16 +148,18 @@ reproducibility witness surface; see
 
 - `src/JitML/Codegen/OneDnn.hs` renders the generated C++ compiler input under
   `./.build/jit-src/linux-cpu/<hash>/`.
-- The build plan invokes the oneDNN C++ compiler path through the typed
-  `Subprocess` boundary against the generated directory; the produced `.so` is
-  written atomically to `./.build/jit/linux-cpu/<hash>.so`.
+- `docker/Dockerfile` installs `libdnnl-dev`. The build plan invokes the
+  oneDNN C++ compiler path through the typed `Subprocess` boundary against the
+  generated directory as `g++ ... -ldnnl`; the produced `.so` is written
+  atomically to `./.build/jit/linux-cpu/<hash>.so`.
 - `src/JitML/Engines/Local.hs` routes the generated identity source,
-  reduction-family smoke source, and all generated oneDNN family scaffolds
-  through `JitML.Engines.Loader`, `dlopen`s the produced `.so`, resolves
+  reduction source, and all generated oneDNN family kernels through
+  `JitML.Engines.Loader`, `dlopen`s the produced `.so`, resolves
   `jitml_kernel`, `jitml_kernel_family_name`, and
-  `jitml_kernel_output_count`, and executes local fixtures through the Haskell
-  FFI while checking that the loaded artifact reports the expected family and
-  output length. Its local toolchain fingerprint includes
+  `jitml_kernel_output_count`, and executes local oneDNN reorder, reduction,
+  matmul, convolution, normalization, attention, and embedding primitives
+  through the Haskell FFI while checking that the loaded artifact reports the
+  expected family and output length. Its local toolchain fingerprint includes
   `artifact-abi=<os>-<arch>` and `reduction-block=256` so host-native Darwin
   builds, Linux container builds, and fixed reduction-block changes do not
   collide in the shared `.build/jit/linux-cpu/` cache.
@@ -171,11 +173,12 @@ reproducibility witness surface; see
 - `src/JitML/Engines/CpuFeatures.hs` detects AVX2 / AVX-512 through typed
   subprocess probes (`sysctl -a` on Darwin, `cat /proc/cpuinfo` on Linux) and
   maps the result to the `linuxCpuKnobs` `micro-kernel` axis.
-- `src/JitML/Engines/OneDnnRuntime.hs` probes the future production oneDNN
-  link/runtime surface through typed subprocesses: `pkg-config --modversion
-  dnnl`, `pkg-config --modversion onednn`, and `ldconfig -p`. The rendered
-  probe reports the selected package/version and whether `libdnnl` is visible
-  to the dynamic linker.
+- `src/JitML/Engines/OneDnnRuntime.hs` probes the production oneDNN link/runtime
+  surface through typed subprocesses: `pkg-config --modversion dnnl`,
+  `pkg-config --modversion onednn`, readable oneDNN headers under
+  `/usr/include/oneapi/dnnl/dnnl.hpp` / `/usr/include/dnnl.hpp`, and
+  `ldconfig -p`. The rendered probe reports the selected package/header path
+  and whether `libdnnl` is visible to the dynamic linker.
 - AVX2 is the baseline; AVX-512 is detected at JIT time.
 - Block size for reductions is pinned per layer family so reductions are
   host-independent. The block size is part of `ToolchainFingerprint`.
@@ -188,9 +191,8 @@ reproducibility witness surface; see
   command. The local Linux CPU ABI includes
   `jitml_kernel(float*, const float*, size_t)` and
   `jitml_kernel_family_name(void)` plus
-  `jitml_kernel_output_count(size_t)`. Production service loading for real
-  oneDNN graph kernels remains target runtime work; current workstation recheck
-  has `g++` available but no discoverable `libdnnl` runtime library.
+  `jitml_kernel_output_count(size_t)`. Current Linux CPU service loading routes
+  checkpoint inference through this oneDNN-backed FFI path.
 
 ### `linux-cuda` — CUDA + cuBLAS / cuDNN
 
@@ -205,8 +207,7 @@ reproducibility witness surface; see
   deterministic partial per warp; it does not use device-side `atomicAdd`.
   `src/JitML/Engines/CudaRuntime.hs` mirrors the generated block/warp geometry,
   computes the expected partial count, validates the partial vector length, and
-  folds those partials in canonical index order. The future CUDA FFI launcher
-  still needs to read the device partial buffer back before calling that helper.
+  folds those partials in canonical index order.
 - cuBLAS / cuDNN are pinned to deterministic algorithm selections via
   `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning.
 - `src/JitML/Engines/Rng.hs` implements the host SplitMix64 stream. Generated
@@ -217,16 +218,25 @@ reproducibility witness surface; see
   typed subprocess boundary, parses the compiler version and visible GPU
   devices, and reports `libcuda` / `libcublas` / `libcudnn` dynamic-linker
   visibility for the future production launcher.
-- Generated CUDA source exports `jitml_kernel_family_name` and
-  `jitml_kernel_output_count` metadata symbols for the future CUDA FFI loader.
+- Generated CUDA source exports `jitml_kernel(float*, const float*, size_t)`,
+  `jitml_kernel_family_name`, and `jitml_kernel_output_count`. The
+  host-callable wrapper owns CUDA device allocation, host-to-device input copy,
+  deterministic device-kernel launch, `cudaDeviceSynchronize`, and
+  device-to-host output copyback.
+- `src/JitML/Engines/CudaLocal.hs` is the guarded CUDA local runner. It
+  consumes a positive `probeCudaRuntime` before materializing and compiling the
+  generated source, then loads the `.so` through the shared
+  `JitML.Engines.Loader` / `dlopen` boundary and resolves the same
+  family/output-count symbols as the Linux CPU local runner. It fails closed
+  before compile when the CUDA runtime probe is unavailable.
 - The current local engine envelope names the `.so` artifact path and compile
-  command. A `LinuxCUDA.HasEngine` instance that loads the `.so` via the FFI
-  loader remains target runtime work. The 2026-05-23 live single-node CUDA
+  command. `JitML.Engines.HasEngine.LocalCudaEngine` wraps the guarded runner
+  and rejects loaded-family metadata mismatches. The 2026-05-23 live single-node CUDA
   `RuntimeClass/nvidia` and pod-visible GPU probe closed on a Linux CUDA host
   (NVIDIA GeForce RTX 5090, CUDA 12.8) — Phase `4` Sprint `4.7` complete, and
   Phase `5` Sprint `5.6`'s CUDA service-pod portion complete on the same date.
-  Real `nvcc` compile + cuBLAS/cuDNN execution still remains target work
-  inside Phase `7`.
+  Live `nvcc` compile/load/run validation plus real cuBLAS/cuDNN execution
+  still remains target work inside Phase `7`.
 
 ### `apple-silicon` — Swift + Metal
 
@@ -377,8 +387,9 @@ deterministic choices, and records the selected `TuningChoice` per `KernelSpec`.
 The chosen `TuningChoice` is a cache-key input; a knob change invalidates the
 cache key. The live hardware work that remains is adding actual CUDA/Metal
 measurement behind those preflight runners, wiring benchmark selection into
-first-cache-miss execution, replacing the Linux CPU smoke runner with real
-oneDNN graph measurements, and validating those runners on real hardware.
+first-cache-miss execution, expanding the Linux CPU benchmark payloads beyond
+the current flat oneDNN primitive fixtures, and validating those runners on
+real hardware.
 
 The cuDNN algorithm-id selection is restricted to the deterministic-only set.
 The `--use_fast_math=false` invariant is preserved.
@@ -387,8 +398,8 @@ The `--use_fast_math=false` invariant is preserved.
 
 The current worktree has typed cache decisions and `KernelHandle` construction
 in `src/JitML/Engines/Engine.hs`, a shared cache artifact loader in
-`src/JitML/Engines/Loader.hs`, and local Linux CPU identity and family-scaffold
-`dlopen` runners in `src/JitML/Engines/Local.hs`. `JitML.Engines.HasEngine`
+`src/JitML/Engines/Loader.hs`, and local Linux CPU oneDNN primitive `dlopen`
+runners in `src/JitML/Engines/Local.hs`. `JitML.Engines.HasEngine`
 wraps the generated-family Linux CPU runner in the local engine capability and
 checks the requested family against the loaded artifact metadata. The local
 runner resolves

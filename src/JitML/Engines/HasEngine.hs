@@ -5,7 +5,10 @@ module JitML.Engines.HasEngine
   ( EngineRequest (..)
   , EngineRun (..)
   , HasEngine (..)
+  , LocalCudaEngine (..)
   , LocalLinuxCpuEngine (..)
+  , runCudaEngine
+  , runLocalCudaEngine
   , runLinuxCpuEngine
   , runLocalLinuxCpuEngine
   )
@@ -16,6 +19,7 @@ import Control.Monad.Reader (MonadReader, ReaderT, ask, runReaderT)
 import Data.Text (Text)
 
 import JitML.Codegen.KernelFamily (KernelFamily, familyName)
+import JitML.Engines.CudaLocal qualified as CudaLocal
 import JitML.Engines.Engine (KernelHandle)
 import JitML.Engines.Local qualified as Local
 import JitML.Env.Env (Env)
@@ -44,13 +48,26 @@ newtype LocalLinuxCpuEngine a = LocalLinuxCpuEngine
   }
   deriving newtype (Functor, Applicative, Monad, MonadIO, MonadReader Env)
 
+newtype LocalCudaEngine a = LocalCudaEngine
+  { unLocalCudaEngine :: ReaderT Env IO a
+  }
+  deriving newtype (Functor, Applicative, Monad, MonadIO, MonadReader Env)
+
 runLocalLinuxCpuEngine :: Env -> LocalLinuxCpuEngine a -> IO a
 runLocalLinuxCpuEngine env action =
   runReaderT (unLocalLinuxCpuEngine action) env
 
+runLocalCudaEngine :: Env -> LocalCudaEngine a -> IO a
+runLocalCudaEngine env action =
+  runReaderT (unLocalCudaEngine action) env
+
 runLinuxCpuEngine :: Env -> EngineRequest -> IO (Either Text EngineRun)
 runLinuxCpuEngine env request =
   runLocalLinuxCpuEngine env (runEngine request)
+
+runCudaEngine :: Env -> EngineRequest -> IO (Either Text EngineRun)
+runCudaEngine env request =
+  runLocalCudaEngine env (runEngine request)
 
 instance HasEngine LocalLinuxCpuEngine where
   runEngine request = do
@@ -63,6 +80,18 @@ instance HasEngine LocalLinuxCpuEngine where
             (engineRequestInput request)
         )
     pure (kernelResult >>= toEngineRun (engineRequestFamily request))
+
+instance HasEngine LocalCudaEngine where
+  runEngine request = do
+    env <- ask
+    kernelResult <-
+      liftIO
+        ( CudaLocal.runCudaFamilyKernel
+            env
+            (engineRequestFamily request)
+            (engineRequestInput request)
+        )
+    pure (kernelResult >>= toCudaEngineRun (engineRequestFamily request))
 
 toEngineRun :: KernelFamily -> Local.LinuxCpuKernelRun -> Either Text EngineRun
 toEngineRun family kernelRun =
@@ -87,3 +116,27 @@ toEngineRun family kernelRun =
  where
   expectedFamily = familyName family
   reportedFamily = Local.linuxCpuKernelReportedFamily kernelRun
+
+toCudaEngineRun :: KernelFamily -> CudaLocal.CudaKernelRun -> Either Text EngineRun
+toCudaEngineRun family kernelRun =
+  if reportedFamily == expectedFamily
+    then
+      Right
+        EngineRun
+          { engineRunHandle = CudaLocal.cudaKernelHandle kernelRun
+          , engineRunFamily = family
+          , engineRunOutput = CudaLocal.cudaKernelOutput kernelRun
+          , engineRunReportedFamily = reportedFamily
+          , engineRunCompileCommand = CudaLocal.cudaKernelCompileCommand kernelRun
+          , engineRunCompiled = CudaLocal.cudaKernelCompiled kernelRun
+          }
+    else
+      Left
+        ( "linux-cuda engine loaded family "
+            <> reportedFamily
+            <> " for requested family "
+            <> expectedFamily
+        )
+ where
+  expectedFamily = familyName family
+  reportedFamily = CudaLocal.cudaKernelReportedFamily kernelRun

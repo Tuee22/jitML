@@ -24,7 +24,7 @@
 
 ## Phase Status
 
-🔄 **Active**. The phase owns
+✅ **Done**. The phase owns
 [Exit Definition](README.md#exit-definition) item 2 (`jitml service` is
 the canonical long-running daemon, parameterised by Dhall `BootConfig` /
 `LiveConfig`, hot-reloadable via SIGHUP, exposing `/healthz` / `/readyz` /
@@ -146,22 +146,22 @@ ready, the `jitml-service` Deployment ships with `maxSurge: 0` /
 ever holding two concurrent replicas; the Linux CUDA service-pod path on a
 GPU host (NVIDIA GeForce RTX 5090, CUDA 12.8) rolls out
 `Deployment/jitml-service` with `runtimeClassName: nvidia` and runs
-`nvidia-smi -L` inside the service container. The remaining Sprint `5.6`
-work is the live Apple Silicon host-Dhall subscription path.
-2026-05-21 Apple Silicon live validation runs `jitml bootstrap --apple-silicon`,
-materializes the patched host
+`nvidia-smi -L` inside the service container. 2026-05-23 Apple Silicon live
+validation runs `jitml bootstrap --apple-silicon`, materializes the patched host
 Dhall with routed edge coordinates on `127.0.0.1:9090`, builds `jitml:local`
-inside Docker with `jitml check-code`, loads the final image into Kind, and runs
+inside Docker with `jitml check-code`, loads `jitml:local` and
+`jitml-demo:local` into Kind, completes the 110-step live phased rollout with
+all seven publication components ready, and runs
 `jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
 host-native. That bounded host run loads the generated Dhall, derives
 `ws://127.0.0.1:9090/pulsar/ws` plus `/minio/s3` and Harbor routed settings,
 passes read-only MinIO / Harbor / kubectl probes, subscribes live to
 `persistent://public/default/inference.command.apple-silicon` as `jitml-host`,
 and exits after draining zero messages.
-Single-replica deployment readiness is covered locally and remains the live
-single-node target. `JitML.Cluster.PulsarBootstrap` now registers the same
+Single-replica deployment readiness is covered by the Linux CPU, Linux CUDA,
+and Apple Silicon single-node validations. `JitML.Cluster.PulsarBootstrap` now registers the same
 substrate-scoped topic family that the daemon subscription plan consumes.
-Detailed remaining work lives in Sprint `5.6`.
+No sprint-owned Phase `5` Remaining Work remains.
 
 ### Current Implementation Scope
 
@@ -654,9 +654,9 @@ deduplication key is the protobuf message hash and is opaque to the broker.
 No sprint-owned Phase `5.5` Remaining Work remains. Apple host Dhall
 connectivity is closed by Sprint `5.6`.
 
-## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall 🔄
+## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `chart/templates/deployment-jitml-service.yaml`,
 `src/JitML/Service/ConfigMap.hs`, `src/JitML/Service/BootConfig.hs`,
 `src/JitML/App.hs`
@@ -756,16 +756,19 @@ Dhall configs.
 8. `cabal test jitml-daemon-lifecycle` verifies a zero-budget bounded daemon
    batch exits without consuming broker messages, supporting
    `jitml service --consume-once 0` as an acquisition-only validation run.
-9. Live Apple Silicon validation (target): run
-    `jitml bootstrap --apple-silicon` against the local Kind cluster, builds
-    `jitml:local` in Docker with the in-container `jitml check-code` gate,
-    load `jitml:local` / `jitml-demo:local` into Kind, and complete the live
-    phased rollout against the single-node topology. The regenerated
-    `./.build/conf/host/apple-silicon.dhall` contains routed edge coordinates
-    on `127.0.0.1:9090` and the self-contained `httpListener = None { host :
-    Text, port : Natural }` value.
-10. Live Apple Silicon host validation (target): run
-    `jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
+9. 2026-05-23 live Apple Silicon validation runs
+   `./bootstrap/apple-silicon.sh up` against the local single-node Kind
+   topology. The stage-0 gates pass on macOS arm64, `./.build/jitml` is built
+   host-native, Docker builds `jitml:local` with the in-container
+   `jitml check-code` gate, `jitml:local` and `jitml-demo:local` are loaded
+   into Kind, the live phased rollout executes 110 steps, and
+   `./.build/runtime/cluster-publication.json` records all seven components
+   `ready` on `edge_port: 9090`. The regenerated
+   `./.build/conf/host/apple-silicon.dhall` contains routed edge coordinates
+   on `127.0.0.1:9090` and the self-contained
+   `httpListener = None { host : Text, port : Natural }` value.
+10. 2026-05-23 live Apple Silicon host validation runs
+    `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
     host-native. The run derives `ws://127.0.0.1:9090/pulsar/ws`, `/minio/s3`,
     Harbor, and repo-local kubeconfig settings from the patched Dhall, passes
     MinIO / Harbor / kubectl read-only probes, subscribes to
@@ -775,12 +778,7 @@ Dhall configs.
 
 ### Remaining Work
 
-- The Linux CPU replacement-rollout (validation item `5`) and the Linux CUDA
-  service-pod RuntimeClass/GPU-visibility path (validation item `6`) both
-  closed on 2026-05-23 against the single-node topology. The remaining
-  Sprint `5.6` work is the live Apple Silicon host-Dhall subscription path
-  (validation items `9`/`10`), which requires an Apple Silicon host with
-  the Tart VM substrate available.
+No sprint-owned Phase `5.6` Remaining Work remains.
 
 ## Doctrine Sections Cited
 

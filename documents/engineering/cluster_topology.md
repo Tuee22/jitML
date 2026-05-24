@@ -260,8 +260,10 @@ Namespace: `platform` (fixed). The live local chart rollout creates or reuses
 that namespace, mounts the current typed Dhall ConfigMap, and exposes the
 daemon HTTP surface on a ClusterIP Service at port `8080`; 2026-05-19 live
 validation port-forwarded that Service and verified `/healthz`, `/readyz`, and
-`/metrics`. Current single-node validation targets the same replacement update
-strategy and service-account kubectl access from inside the pod.
+`/metrics`. 2026-05-23 single-node validation covers the replacement update
+strategy, service-account kubectl access from inside the pod, the Linux CUDA
+service pod under `runtimeClassName: nvidia`, and the Apple Silicon host-Dhall
+subscription path.
 
 ## Envoy Gateway: A Single Localhost Socket
 
@@ -363,6 +365,14 @@ applies; the `nvidia-smi-probe` pod reaches `Succeeded` and reports the RTX
 `NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES=compute,utility`,
 and required pod anti-affinity, with `nvidia-smi -L` inside the service
 container reporting the RTX 5090.
+
+2026-05-23 Apple Silicon live validation completes `./bootstrap/apple-silicon.sh
+up` on the same single-node topology, publishes all seven components ready on
+edge port `9090`, patches `./.build/conf/host/apple-silicon.dhall` with routed
+edge coordinates, and runs the host-native
+`jitml service --consume-once 0` acquisition check. The host daemon derives
+`/pulsar/ws`, `/minio/s3`, Harbor, and repo-local kubeconfig settings from that
+Dhall and acquires `inference.command.apple-silicon` as `jitml-host`.
 
 ## No Kubeconfig Pollution
 

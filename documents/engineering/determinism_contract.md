@@ -62,9 +62,11 @@ own floating-point determinism contract.
 - oneDNN dispatches to a per-host vector ISA detected at JIT time through
   typed subprocess probes (AVX2 baseline, AVX-512 detected and used when
   available).
-- The production oneDNN graph path uses a typed runtime/link availability
-  probe for `pkg-config` package metadata and dynamic-linker `libdnnl`
-  visibility before live graph bindings are wired.
+- The production Linux CPU path uses generated C++ that includes oneDNN
+  headers, links `-ldnnl`, and launches oneDNN primitives through the stable
+  `jitml_kernel` FFI ABI.
+- The oneDNN runtime/link availability probe checks `pkg-config` package
+  metadata, readable oneDNN headers, and dynamic-linker `libdnnl` visibility.
 - Reductions are blocked with a fixed block size so the accumulation tree is
   host-independent. The block size is part of `ToolchainFingerprint`; a
   block-size change invalidates the cache key.
@@ -77,6 +79,11 @@ own floating-point determinism contract.
   reduction source emits one partial per warp and avoids device-side atomics;
   `JitML.Engines.CudaRuntime` validates the expected partial count and
   accumulates partials on the host in canonical index order.
+- Generated CUDA artifacts expose a host-callable
+  `jitml_kernel(float*, const float*, size_t)` FFI wrapper. The wrapper owns
+  device-buffer allocation, input copy, deterministic device-kernel launch,
+  synchronization, and output copyback before the Haskell side observes the
+  result.
 - cuBLAS and cuDNN are pinned to deterministic algorithm selections via
   `cudnnSetConvolutionMathType` plus explicit algorithm-id pinning. The
   cuDNN algorithm-id selection is restricted to the deterministic-only set.
@@ -177,18 +184,22 @@ For SL training, full-run bit-equality holds.
 For AlphaZero self-play, per-game bit-equality holds (deterministic
 stochasticity).
 
-The current local Phase 7 executable anchor is narrower than the full training
-contract: `jitml-cross-backend` runs the Linux CPU identity, reduction-smoke,
-and family-scaffold kernels through `JitML.Engines.Local`, verifies the loaded
-artifact reports the expected `jitml_kernel_family_name` and
-`jitml_kernel_output_count`, and asserts repeated identity-kernel output is
-bit-identical. It also exercises the local Linux CPU `HasEngine` interpreter
-over the generated-family FFI path and measures the Linux CPU benchmark
-candidate runner against generated FFI output while recording a deterministic
-output digest. The generated CUDA and Swift/Metal source
-bundles also export the same family/output-count metadata contract for their
-future FFI loaders. The remaining same-substrate runtime proof is the
-production oneDNN/CUDA/Metal graph-kernel path.
+The current local Phase 7 executable anchor proves the Linux CPU side of the
+runtime contract: `jitml-cross-backend` runs the Linux CPU oneDNN reorder,
+reduction, matmul, convolution, normalization, attention, and embedding kernels
+through `JitML.Engines.Local`, verifies the loaded artifact reports the expected
+`jitml_kernel_family_name` and `jitml_kernel_output_count`, and asserts
+repeated identity-kernel output is bit-identical. It also exercises the local
+Linux CPU `HasEngine` interpreter over the generated-family FFI path and
+measures the Linux CPU benchmark candidate runner against generated FFI output
+while recording a deterministic output digest. The generated CUDA source bundle
+now exports the same `jitml_kernel` / family / output-count ABI and the guarded
+`JitML.Engines.CudaLocal` runner consumes a positive CUDA runtime probe before
+compile/load/launch; in unavailable environments it fails closed before compile.
+Swift/Metal source bundles export the same family/output-count metadata
+contract for their future FFI loaders. The remaining same-substrate runtime
+proof is live CUDA and Metal graph-kernel execution plus cross-substrate
+tolerance.
 
 ## Cross-Substrate Tolerance Methodology
 

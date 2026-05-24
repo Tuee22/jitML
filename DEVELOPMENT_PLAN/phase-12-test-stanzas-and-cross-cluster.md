@@ -71,7 +71,7 @@ All eight Cabal test stanzas are declared and each has a deterministic
 renderers, catalogs, checkpoint summaries, route/bucket registries,
 daemon lifecycle data, and frontend contract scaffolds. The
 `jitml-cross-backend` body also compiles, loads, and runs the generated
-Linux CPU identity, reduction-smoke, and family-scaffold kernels through
+Linux CPU oneDNN primitive kernels through
 `dlopen` and checks the exported family and output-count symbols; the `jitml-e2e` body
 verifies the typed live Helm/Pulumi/Playwright plan and the deterministic
 demo stream routes without executing the live stack. Its local
@@ -192,8 +192,8 @@ same-substrate training determinism per `### Remaining Work` below.
 - Add real checkpoint round-trip coverage against
   `JitML.Service.MinIOSubprocess`, the live `HasMinIO` capability class from
   Sprint `4.3` / `5.4`.
-- Add the per-substrate determinism assertion against real production kernels
-  beyond the current local Linux CPU smoke paths.
+- Add the per-substrate determinism assertion against real CUDA and Metal
+  production kernels beyond the current local Linux CPU oneDNN path.
 
 ## Sprint 12.3: `jitml-sl-canonicals` Stanza 🔄
 
@@ -364,8 +364,7 @@ cross-substrate tolerance testing remains the overall handoff gate.
   deterministic engine flags.
 - It verifies `inferFromManifest` returns the same deterministic summary for
   each substrate in the local substrate list.
-- It compiles generated Linux CPU identity, reduction-smoke, and
-  family-scaffold kernels, loads `jitml_kernel` and
+- It compiles generated Linux CPU oneDNN primitive kernels, loads `jitml_kernel` and
   `jitml_kernel_family_name` / `jitml_kernel_output_count` with `dlopen`,
   verifies the reported family and output length, and asserts three successive
   FFI invocations produce bit-identical fixture output.
@@ -377,12 +376,12 @@ cross-substrate tolerance testing remains the overall handoff gate.
 ### Validation
 
 1. `cabal test jitml-cross-backend` exits `0` for the body.
-2. `cabal test jitml-cross-backend` validates the generated Linux CPU
-   identity, reduction-smoke, and family-scaffold compile/load/run paths plus
-   exported family/output-count symbol metadata.
+2. `cabal test jitml-cross-backend` validates the generated Linux CPU oneDNN
+   primitive compile/load/run paths plus exported family/output-count symbol
+   metadata.
 3. `docker compose run --rm jitml cabal test jitml-cross-backend` on
-   2026-05-22 validates the local Linux CPU `HasEngine` dispatch over the
-   generated-family FFI path in `jitml:local`.
+   2026-05-24 validates the local Linux CPU `HasEngine` dispatch over the
+   generated oneDNN family FFI path in `jitml:local`.
 4. Live validation (target): the stanza runs the canonical SL cohorts
    on the `(linux-cpu, linux-cuda)` and `(linux-cpu, apple-silicon)`
    substrate pairs, asserts per-tensor drift fits the committed
@@ -392,8 +391,9 @@ cross-substrate tolerance testing remains the overall handoff gate.
 
 ### Remaining Work
 
-- Drive the cross-substrate cohorts through real per-substrate engines
-  from Sprints `7.3` / `7.4` / `7.5`.
+- Drive the cross-substrate cohorts through real per-substrate engines from
+  Sprints `7.4` / `7.5`, using the closed Sprint `7.3` Linux CPU engine as the
+  CPU side of the cohort.
 - Commit `test/golden/cross-backend/` tolerance fixtures per cohort.
 - Add the per-tensor drift assertion against the committed ULP
   tolerance band.

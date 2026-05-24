@@ -34,8 +34,9 @@ Deployment with `runtimeClassName: nvidia` on the single
 `nvidia-smi -L` inside the service container; the Phase `4` Sprint `4.7` live
 `RuntimeClass/nvidia` probe passed on the same date against a Linux CUDA host
 (NVIDIA GeForce RTX 5090, CUDA 12.8) with Docker's NVIDIA runtime.
-Live Apple Silicon validation on 2026-05-21 runs the generated host Dhall
-through `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
+Live Apple Silicon validation on 2026-05-23 completes
+`./bootstrap/apple-silicon.sh up`, then runs the generated host Dhall through
+`jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
 probes, and acquires the `inference.command.apple-silicon` subscription as
 `jitml-host`.
 See [cluster_topology.md → `jitml-service` Deployment, Not StatefulSet](cluster_topology.md#jitml-service-deployment-not-statefulset).

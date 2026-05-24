@@ -69,6 +69,12 @@ main =
             Right engineRun -> do
               engineRunReportedFamily engineRun @?= "dense"
               engineRunOutput engineRun @?= [4.0, -2.0, 1.0, 3.0]
+      , testCase "linux-cpu runs representative oneDNN reduction, matmul, and convolution primitives" $ do
+          env <- buildEnv defaultGlobalFlags
+          assertOneDnnOutput env Reduction [4.0, -2.0, 1.0, 3.0] [6.0]
+          assertOneDnnOutput env Dense2D [4.0, -2.0, 1.0, 3.0] [4.0, -2.0, 1.0, 3.0]
+          assertOneDnnOutput env Conv2DKernel [4.0, -2.0, 1.0, 3.0] [4.0, -2.0, 1.0, 3.0]
+          assertOneDnnOutput env Conv3DKernel [4.0, -2.0, 1.0, 3.0] [4.0, -2.0, 1.0, 3.0]
       , testCase "linux-cpu kernel output is bit-equal across repeated runs (Sprint 7.6)" $ do
           -- Sprint 7.6 same-host kernel-output equality test: two
           -- successive invocations against the same input through the
@@ -140,3 +146,15 @@ assertFamilySmoke env family = do
 finiteFloat :: Float -> Bool
 finiteFloat value =
   not (isNaN value) && not (isInfinite value)
+
+assertOneDnnOutput :: Env -> KernelFamily -> [Float] -> [Float] -> IO ()
+assertOneDnnOutput env family input expected = do
+  result <- runLinuxCpuFamilyKernel env family input
+  case result of
+    Left message ->
+      assertBool
+        ("oneDNN primitive run failed for " <> show (familyName family) <> ": " <> show message)
+        False
+    Right kernelRun -> do
+      linuxCpuKernelReportedFamily kernelRun @?= familyName family
+      linuxCpuKernelOutput kernelRun @?= expected

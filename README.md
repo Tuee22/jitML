@@ -101,7 +101,7 @@ Each substrate carries its own determinism contract:
 
 - **`apple-silicon`** — Metal compute kernels execute on the host GPU; float-accumulation order is fixed by the kernel's reduction tree (no fast-math); RNG state lives in the host daemon; kernel-launch ordering is single-stream by default. *Tradeoff: single-stream launch forfeits the multi-stream concurrency that hides launch latency at small batch sizes — the throughput cost is real and is the price of the bit-determinism contract.*
 - **`linux-cpu`** — oneDNN dispatches to a per-host vector ISA detected at JIT time; reductions are blocked with a fixed block size so the accumulation tree is host-independent; RNG state lives in the clustered service pod.
-- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
+- **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; generated artifacts expose a host-callable `jitml_kernel` wrapper that owns device-buffer allocation, deterministic launch, synchronization, and output copyback; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
 
 Cross-substrate equality is not guaranteed bit-for-bit — float reductions reassociate across vendor BLAS/DNN libraries and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so per-tensor drift compounds through the forward + backward pass. *Same-substrate equality is guaranteed* (see [Bit-determinism contract](#bit-determinism-contract)); cross-substrate drift is bounded by a per-tensor tolerance band measured by the [Cross-substrate tolerance methodology](#cross-substrate-tolerance-methodology) and enforced by the [`jitml-cross-backend`](#test-suite-stanzas) stanza.
 
@@ -121,7 +121,7 @@ Shape:
 - Pulsar endpoint discovery: `jitml bootstrap --apple-silicon` writes the routed coordinates to `./.build/runtime/cluster-publication.json`, then updates `./.build/conf/host/apple-silicon.dhall` with the current `BootConfig` fields (`pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, `harborRegistry`). `JitML.Service.Clients` derives the host daemon's `/pulsar/ws`, `/minio/s3`, Harbor API, and repo-local kubectl settings from that Dhall. No service-discovery RPC; the cluster publishes its own coordinates to a known file and the host daemon reads its Dhall config.
 - The host daemon's only cluster contracts are Pulsar (RPC envelopes) and MinIO (large artifacts). Direct k8s API access from the host is forbidden and lint-enforced.
 
-On Linux substrates the clustered daemon's Dhall sets `inferenceMode = SelfInference`, so it executes inference kernels in-pod (the substrate image carries the full JIT toolchain). For `linux-cpu`, the service dispatcher now runs the latest-pointer/manifest read through `loadInferenceCheckpointWith` and hands the manifest to `runLinuxCpuCheckpointInference`, so routed `RunInference` messages use the generated-kernel FFI runner before publishing `InferenceResult`. There is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and the internal-RPC topic pair is active — but the daemon code path is the same; the Dhall flips the mode.
+On Linux substrates the clustered daemon's Dhall sets `inferenceMode = SelfInference`, so it executes inference kernels in-pod (the substrate image carries the full JIT toolchain). For `linux-cpu`, the service dispatcher runs the latest-pointer/manifest read through `loadInferenceCheckpointWith` and hands the manifest to `runLinuxCpuCheckpointInference`, so routed `RunInference` messages use the generated-kernel FFI runner before publishing `InferenceResult`. For `linux-cuda`, the same dispatcher shape calls the guarded CUDA checkpoint runner, which requires a positive CUDA runtime probe before compile/load/launch and otherwise returns a transient inference error before compilation. There is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and the internal-RPC topic pair is active — but the daemon code path is the same; the Dhall flips the mode.
 
 ---
 
@@ -173,7 +173,7 @@ Forbidden: anything that touches `~/.kube/config`, `~/.docker/config.json`, or g
     └── <substrate>/<hash>.<ext>             -- one file per cached kernel (content-addressed; the canonical location of every kernel artifact)
 ```
 
-**Role split.** `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache — every cached kernel lives there, on every substrate. `host/apple-silicon/` is *only* on Apple, and holds **stable-named symlinks** into `jit/apple-silicon/`: the Haskell FFI `dlopen()`s `host/apple-silicon/<model-id>.dylib`, which resolves through the symlink to `jit/apple-silicon/<hash>.dylib`. The indirection lets the FFI path stay stable across re-JITs (a new hash repoints the symlink; the FFI key never changes). Linux substrates don't need this — the pod loads directly out of `jit/<substrate>/` because there is no host↔VM artifact-copy step. The current local Linux CPU validation path uses `JitML.Engines.Loader` to materialize generated source, fill cache misses, and expose the `dlopen` symbol helper; `JitML.Engines.Local` runs generated identity, reduction-smoke, and family-scaffold kernels through that boundary and verifies the exported `jitml_kernel_family_name` and `jitml_kernel_output_count` ABI symbols. Generated CUDA and Swift/Metal source exports the same family/output-count metadata contract for future non-local FFI loaders. The local Linux CPU toolchain fingerprint includes `artifact-abi=<os>-<arch>`, so a Darwin host and the Linux `jitml:local` container do not reuse the same `.build/jit/linux-cpu/<hash>.so` path for loader-incompatible artifacts.
+**Role split.** `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache — every cached kernel lives there, on every substrate. `host/apple-silicon/` is *only* on Apple, and holds **stable-named symlinks** into `jit/apple-silicon/`: the Haskell FFI `dlopen()`s `host/apple-silicon/<model-id>.dylib`, which resolves through the symlink to `jit/apple-silicon/<hash>.dylib`. The indirection lets the FFI path stay stable across re-JITs (a new hash repoints the symlink; the FFI key never changes). Linux substrates don't need this — the pod loads directly out of `jit/<substrate>/` because there is no host↔VM artifact-copy step. The current local Linux CPU validation path uses `JitML.Engines.Loader` to materialize generated source, fill cache misses with `g++ ... -ldnnl`, and expose the `dlopen` symbol helper; `JitML.Engines.Local` runs generated oneDNN reorder, reduction, matmul, convolution, normalization, attention, and embedding primitives through that boundary and verifies the exported `jitml_kernel_family_name` and `jitml_kernel_output_count` ABI symbols. Generated CUDA now exports a host-callable `jitml_kernel` wrapper plus the same family/output-count metadata ABI; `JitML.Engines.CudaLocal` consumes a positive CUDA runtime probe before compile/load/launch and fails closed before compile when `nvcc`/GPU runtime is unavailable. Swift/Metal source exports the same family/output-count metadata contract for its future host FFI loader. The local Linux CPU toolchain fingerprint includes `artifact-abi=<os>-<arch>`, so a Darwin host and the Linux `jitml:local` container do not reuse the same `.build/jit/linux-cpu/<hash>.so` path for loader-incompatible artifacts.
 
 **Cache key — shape + kind + generated source, weight-independent.** Each entry is hashed over `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)` where `KernelSpec` is model shape (layer topology, dtype layouts, activation choices) and `kind` is `training | inference`. Training and inference kernels are **separate artifacts** because they have different compute graphs — training carries the backward pass and optimizer-step kernel; inference is forward-only with frozen-weight constant folding enabled. Sharing one artifact across both would force one of them to be sub-optimal. The rendered-source payload is generated by the Haskell runtime source renderers under `src/JitML/Codegen/`; changing a renderer invalidates the compiled artifact. Toolchain fingerprints also carry loader-relevant ABI facts for local FFI paths, including the Linux CPU `artifact-abi=<os>-<arch>` value.
 
@@ -368,7 +368,7 @@ validation path uses `JitML.Engines.Local.runLinuxCpuCheckpointInference` to
 compile, load, and execute a generated FFI kernel from that checkpoint read;
 `loadInferenceCheckpointWithWeights` also decodes `.jmw1` weight blobs and
 passes them to `JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference` for
-the weighted local smoke path. The
+the weighted local oneDNN path. The
 live HTTP MinIO capability path is implemented by `JitML.Service.MinIOSubprocess`;
 Linux CPU validation on 2026-05-19 confirms
 `If-None-Match: *` duplicate writes and stale `If-Match` pointer updates both
@@ -399,7 +399,7 @@ writeCheckpoint payload = do
   pure (CheckpointId manifest)
 ```
 
-Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook validates the manifest-to-engine boundary against the Linux CPU generated-kernel FFI runner, and `loadInferenceCheckpointWithWeights` validates decoded `.jmw1` weight blobs feeding that local generated-kernel smoke path. The daemon `RunInference` dispatcher can inject the same engine-backed checkpoint runner; `linux-cpu` + `SelfInference` service configs now use `runLinuxCpuCheckpointInference` between MinIO manifest loading and Pulsar `InferenceResult` publication. Production work remains to load real weight blobs into every non-local substrate engine. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
+Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook validates the manifest-to-engine boundary against the Linux CPU generated oneDNN FFI runner, and `loadInferenceCheckpointWithWeights` validates decoded `.jmw1` weight blobs feeding that local generated-kernel path. The daemon `RunInference` dispatcher can inject the same engine-backed checkpoint runner; `linux-cpu` + `SelfInference` service configs now use `runLinuxCpuCheckpointInference` between MinIO manifest loading and Pulsar `InferenceResult` publication. Production work remains to load real weight blobs into every non-local substrate engine. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
 
 ## Retention and GC
 
@@ -594,13 +594,13 @@ service path handles `RunInference` through that held-open worker path and
 publishes the expected `InferenceResult` without `--consume-once`, proves
 duplicate payloads produce exactly one matching `InferenceResult`, and proves a
 missing-checkpoint dispatch failure is negative-acked until broker redelivery
-publishes the result after the checkpoint is seeded. CUDA service-pod
-RuntimeClass validation now targets the actual `jitml-service` pod on the single
-`jitml-linux-cuda-control-plane` node and must confirm `nvidia-smi -L` inside
-that container. Apple Silicon host validation targets the generated
+publishes the result after the checkpoint is seeded. 2026-05-23 CUDA
+service-pod RuntimeClass validation runs the actual `jitml-service` pod on the
+single `jitml-linux-cuda-control-plane` node and confirms `nvidia-smi -L` inside
+that container. 2026-05-23 Apple Silicon host validation runs the generated
 `./.build/conf/host/apple-silicon.dhall` with
-`jitml service --consume-once 0`, routed MinIO / Harbor / kubectl probes, and
-subscription acquisition for `inference.command.apple-silicon` as `jitml-host`.
+`jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
+probes, and acquires `inference.command.apple-silicon` as `jitml-host`.
 
 ---
 
@@ -2006,29 +2006,33 @@ The compilation pipeline:
 8. Determine optimal runtime parameters
 9. Begin training
 
-The current local execution validation covers Linux CPU identity,
-reduction-smoke, and family-scaffold kernels: generated C++ is materialized
-under `./.build/jit-src/linux-cpu/<hash>/`, compiled on cache miss with the
-typed `g++` subprocess, loaded with `dlopen`, and executed through the Haskell
-FFI. The generated Linux CPU artifact exports `jitml_kernel`,
+The current local execution validation covers Linux CPU oneDNN reorder,
+reduction, matmul, convolution, normalization, attention, and embedding
+primitive kernels: generated C++ is materialized under
+`./.build/jit-src/linux-cpu/<hash>/`, compiled on cache miss with the typed
+`g++ ... -ldnnl` subprocess, loaded with `dlopen`, and executed through the
+Haskell FFI. The generated Linux CPU artifact exports `jitml_kernel`,
 `jitml_kernel_family_name`, and `jitml_kernel_output_count`, so the local
-runner verifies the loaded artifact's family metadata and output shape before
-the production graph dispatcher lands. The local Linux CPU toolchain
+runner verifies the loaded artifact's family metadata and output shape. The
+local Linux CPU toolchain
 fingerprint includes `artifact-abi=<os>-<arch>` and `reduction-block=256` so a
 host-built shared object, a container-built shared object, and a fixed
 reduction-block change cannot collide in the shared cache. CPU feature
 detection for the oneDNN micro-kernel axis runs through typed subprocess probes
-on Darwin and Linux. The future oneDNN production graph path also has a typed
-runtime/link probe for `pkg-config` package metadata and dynamic-linker
-`libdnnl` visibility.
-Production oneDNN graph kernels, Metal loading, and CUDA loading remain the
-runtime expansion of the same boundary. Generated CUDA and Swift/Metal source
-already exports the same family/output-count metadata contract for those future
-loaders, and the CUDA runtime helper now validates reduction partial counts and
-folds those partials in canonical host order while probing `nvcc`,
-`nvidia-smi`, and CUDA/cuBLAS/cuDNN dynamic-linker visibility through typed
-subprocesses. The Metal runtime helper probes host Swift, `xcrun`, and Metal
-device visibility through the same typed subprocess boundary. The Apple dry-run
+on Darwin and Linux. The oneDNN production path also has a typed runtime/link
+probe for `pkg-config` package metadata, readable oneDNN headers, and
+dynamic-linker `libdnnl` visibility.
+Metal loading and live CUDA GPU-host validation remain runtime expansions of
+the same boundary. Generated CUDA source already exports the same
+`jitml_kernel` / family / output-count ABI and its host wrapper owns
+device-buffer allocation, launch, synchronization, and output copyback;
+`JitML.Engines.CudaLocal` guards compile/load/launch behind a positive
+`nvcc`/GPU/link probe. Swift/Metal source exports the same family/output-count
+metadata contract for its future loader. The CUDA runtime helper also validates
+reduction partial counts and folds those partials in canonical host order while
+probing `nvcc`, `nvidia-smi`, and CUDA/cuBLAS/cuDNN dynamic-linker visibility
+through typed subprocesses. The Metal runtime helper probes host Swift, `xcrun`,
+and Metal device visibility through the same typed subprocess boundary. The Apple dry-run
 build surface also renders the `apple_cache_miss`
 plan for VM validation, Swift package build, cache publish, and stable symlink
 repointing.
@@ -2157,7 +2161,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems) |
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix, forms (2) and (3) |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT), per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
-| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, Linux CPU identity/reduction-smoke/family-scaffold compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests; target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from measured float-accumulation drift |
+| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, Linux CPU oneDNN primitive compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests; target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from measured float-accumulation drift |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path uses Pulumi-orchestrated ephemeral Kind + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 

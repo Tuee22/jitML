@@ -52,6 +52,7 @@ library
         JitML.Docs.Generate
         JitML.Docs.Render
         JitML.Engines.CpuFeatures
+        JitML.Engines.CudaLocal
         JitML.Engines.CudaRuntime
         JitML.Engines.Engine
         JitML.Engines.HasEngine

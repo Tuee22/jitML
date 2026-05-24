@@ -520,8 +520,14 @@ main =
             "probe records pkg-config attempts"
             (any ("pkg-config --modversion" `Text.isInfixOf`) (OneDnnRuntime.oneDnnRuntimeProbeLog probe))
           assertBool
+            "probe records header visibility attempts"
+            (any ("test -r /usr/include" `Text.isInfixOf`) (OneDnnRuntime.oneDnnRuntimeProbeLog probe))
+          assertBool
             "probe records dynamic-linker visibility"
             (any ("ldconfig -p:" `Text.isInfixOf`) (OneDnnRuntime.oneDnnRuntimeProbeLog probe))
+          assertBool
+            "jitml:local provides linkable oneDNN"
+            (OneDnnRuntime.oneDnnRuntimeAvailable probe)
       , testCase "CUDA runtime probe reports toolchain, device, and link visibility attempts" $ do
           probe <- CudaRuntime.probeCudaRuntime
           let rendered = CudaRuntime.renderCudaRuntimeProbe probe

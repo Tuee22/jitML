@@ -53,6 +53,7 @@ import JitML.Cluster.Publication (ClusterPublication, defaultPublication, render
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
+import JitML.Engines.CudaLocal (runCudaCheckpointInference)
 import JitML.Engines.Engine
   ( compileSubprocess
   , engineForSubstrate
@@ -638,6 +639,9 @@ daemonWorkloadDispatcherForRuntime env runtime =
     (LinuxCPU, BootConfig.SelfInference) ->
       ServiceRuntime.daemonWorkloadDispatcherWithInference $ \manifest input ->
         liftIO (runLinuxCpuCheckpointInference env manifest input)
+    (LinuxCUDA, BootConfig.SelfInference) ->
+      ServiceRuntime.daemonWorkloadDispatcherWithInference $ \manifest input ->
+        liftIO (runCudaCheckpointInference env manifest input)
     _ ->
       ServiceRuntime.daemonWorkloadDispatcher
 

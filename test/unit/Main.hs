@@ -61,6 +61,7 @@ import JitML.Codegen.Metal qualified as Metal
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Engines.CpuFeatures qualified as CpuFeatures
+import JitML.Engines.CudaLocal qualified as CudaLocal
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Engine qualified as Engine
 import JitML.Engines.Loader qualified as Loader
@@ -511,6 +512,7 @@ main =
                 OneDnnRuntime.OneDnnRuntimeProbe
                   { OneDnnRuntime.oneDnnRuntimePkgConfigName = Just "dnnl"
                   , OneDnnRuntime.oneDnnRuntimePkgConfigVersion = Just "3.5.3"
+                  , OneDnnRuntime.oneDnnRuntimeHeaderPath = Nothing
                   , OneDnnRuntime.oneDnnRuntimeLibraryVisible = True
                   , OneDnnRuntime.oneDnnRuntimeProbeLog =
                       [ "pkg-config --modversion dnnl: 3.5.3"
@@ -519,8 +521,15 @@ main =
                   }
               missingLibraryProbe =
                 availableProbe {OneDnnRuntime.oneDnnRuntimeLibraryVisible = False}
+              headerOnlyProbe =
+                availableProbe
+                  { OneDnnRuntime.oneDnnRuntimePkgConfigName = Nothing
+                  , OneDnnRuntime.oneDnnRuntimePkgConfigVersion = Nothing
+                  , OneDnnRuntime.oneDnnRuntimeHeaderPath = Just "/usr/include/oneapi/dnnl/dnnl.hpp"
+                  }
               rendered = OneDnnRuntime.renderOneDnnRuntimeProbe availableProbe
           OneDnnRuntime.oneDnnRuntimeAvailable availableProbe @?= True
+          OneDnnRuntime.oneDnnRuntimeAvailable headerOnlyProbe @?= True
           OneDnnRuntime.oneDnnRuntimeAvailable missingLibraryProbe @?= False
           assertBool
             "rendered probe records availability"
@@ -528,6 +537,9 @@ main =
           assertBool
             "rendered probe records selected pkg-config module"
             ("pkg_config_name: dnnl" `Text.isInfixOf` rendered)
+          assertBool
+            "rendered probe records header path"
+            ("header_path:" `Text.isInfixOf` rendered)
       , testCase "CUDA runtime probe parser reports nvcc, devices, and libraries" $ do
           let nvccOutput =
                 Text.unlines
@@ -697,6 +709,20 @@ main =
                 "CUDA reduction emits no nondeterministic atomics"
                 (not ("atomicAdd" `Text.isInfixOf` contents))
               assertBool
+                "CUDA source exports a host-callable FFI wrapper"
+                ( "extern \"C\" void jitml_kernel(float *out, const float *input, std::size_t n)"
+                    `Text.isInfixOf` contents
+                )
+              assertBool
+                "CUDA device kernel is not exported as the FFI symbol"
+                (not ("__global__ void jitml_kernel" `Text.isInfixOf` contents))
+              assertBool
+                "CUDA FFI wrapper allocates device output"
+                ("cudaMalloc(reinterpret_cast<void **>(&deviceOutput)" `Text.isInfixOf` contents)
+              assertBool
+                "CUDA FFI wrapper copies device output back to the host"
+                ("cudaMemcpyDeviceToHost" `Text.isInfixOf` contents)
+              assertBool
                 "CUDA reduction writes one partial per warp"
                 ("partials[blockIdx.x * warpsPerBlock + warp] = v;" `Text.isInfixOf` contents)
               assertBool
@@ -720,6 +746,35 @@ main =
             @?= Right 136.0
           CudaRuntime.finalizeCudaReductionPartials 257 [1.0, 2.0]
             @?= Left "cuda reduction partial count mismatch: expected 16, got 2"
+      , testCase "CUDA local runner fails closed before compile when runtime is unavailable" $
+          withSystemTempDirectory "jitml-cuda-local" $ \dir -> do
+            env <-
+              buildEnv
+                defaultGlobalFlags
+                  { globalCacheDir = Just (dir </> ".build")
+                  , globalDataDir = Just (dir </> ".data")
+                  }
+            let unavailableProbe =
+                  CudaRuntime.CudaRuntimeProbe
+                    { CudaRuntime.cudaRuntimeNvccVersion = Nothing
+                    , CudaRuntime.cudaRuntimeGpuDevices = []
+                    , CudaRuntime.cudaRuntimeLibraryVisibility =
+                        CudaRuntime.CudaLibraryVisibility
+                          { CudaRuntime.cudaDriverLibraryVisible = True
+                          , CudaRuntime.cudaBlasLibraryVisible = True
+                          , CudaRuntime.cudaDnnLibraryVisible = False
+                          }
+                    , CudaRuntime.cudaRuntimeProbeLog = []
+                    }
+            result <-
+              CudaLocal.runCudaFamilyKernelWithProbe
+                (pure unavailableProbe)
+                env
+                Identity
+                [1.0, 2.0]
+            result
+              @?= Left
+                "linux-cuda runtime unavailable: nvcc=missing gpu_devices=0 libcuda=yes libcublas=yes libcudnn=no"
       , testCase "Metal package exports family and output-count metadata" $ do
           let reductionPackage =
                 Metal.renderMetalFamilyPackage

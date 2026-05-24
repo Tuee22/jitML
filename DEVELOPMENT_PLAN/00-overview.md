@@ -87,16 +87,16 @@ that generate compiler input source on demand under
 `./.build/jit-src/<substrate>/<hash>/` and write compiled artefacts into the
 content-addressed cache at `./.build/jit/<substrate>/<hash>.<ext>`, with
 stable host-side symlinks at `./.build/host/apple-silicon/` for FFI dlopen
-stability. The Linux CPU identity, reduction-smoke, and family-scaffold paths
-compile, load, execute, and report their exported `jitml_kernel_family_name`
-and `jitml_kernel_output_count` through the Haskell FFI today; their local
-toolchain fingerprint includes `artifact-abi=<os>-<arch>` and
-`reduction-block=256` so host/container artifacts and fixed reduction-block
-changes do not collide in the shared cache. `JitML.Engines.OneDnnRuntime`
-probes `pkg-config` package metadata and dynamic-linker `libdnnl` visibility
-through typed subprocesses for the future production graph path. Real oneDNN graph
-kernels, Apple Metal loading, and Linux CUDA loading are owned by Phase `7`'s
-Active sprints.
+stability. The Linux CPU libdnnl-linked oneDNN primitive paths compile, load,
+execute, and report their exported `jitml_kernel_family_name` and
+`jitml_kernel_output_count` through the Haskell FFI today; their local toolchain
+fingerprint includes `artifact-abi=<os>-<arch>` and `reduction-block=256` so
+host/container artifacts and fixed reduction-block changes do not collide in
+the shared cache. `JitML.Engines.OneDnnRuntime` probes `pkg-config` package
+metadata, readable oneDNN headers, and dynamic-linker `libdnnl` visibility
+through typed subprocesses for the production Linux CPU path. CUDA generated
+source and guarded local loader plumbing are present, while live Linux CUDA
+GPU-host execution remains Phase `7` Active work alongside Apple Metal loading.
 
 The SL/RL surfaces ship today as deterministic catalogs and summaries:
 canonical SL cells, RL algorithm rows, deterministic trajectory generation,
@@ -280,9 +280,10 @@ moves to Done and the legacy ledger is empty.
   `--consume-once`; 2026-05-21 live Linux CPU validation proves duplicate
   payload dedup through the held-open worker path and dispatch-failure
   negative-ack redelivery after a checkpoint is seeded; 2026-05-21 live Linux
-  CUDA service-pod validation now targets the actual `jitml-service` pod with
-  `runtimeClassName: nvidia` on the GPU-labelled single Kind node; 2026-05-21
-  live Apple Silicon host validation runs the generated
+  2026-05-23 CUDA service-pod validation runs the actual `jitml-service` pod
+  with `runtimeClassName: nvidia` on the GPU-labelled single Kind node and
+  confirms `nvidia-smi -L` inside the service container; 2026-05-23 live Apple
+  Silicon host validation runs the generated
   `./.build/conf/host/apple-silicon.dhall` through
   `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
   probes, and acquires `inference.command.apple-silicon` as `jitml-host`.
@@ -327,21 +328,26 @@ moves to Done and the legacy ledger is empty.
   selected measured `TuningChoice` under `jit/tuning/<substrate>/<base-hash>.json`
   and `JitML.Engines.TuningBenchmark` collects candidate measurements in plan
   order with SHA-256 output digests for the future first-cache-miss hardware
-  benchmark loop, while its CUDA/Metal runner entrypoints preflight runtime
-  availability and fail closed before live FFI execution exists.
+  benchmark loop, while its CUDA/Metal benchmark-runner entrypoints preflight
+  runtime availability and fail closed before live benchmark FFI execution
+  exists.
   `JitML.Engines.TuningCache` loads that persisted choice to
   derive the final
   runtime source and cache key.
   `JitML.Engines.Loader` owns cache-hit/cache-miss artifact materialization and
   compile-on-miss for the local Linux CPU FFI path, while
-  `JitML.Engines.Local` loads and runs the generated Linux CPU identity kernel,
-  reduction smoke kernel, and every family scaffold through the Haskell FFI,
-  validating the exported family-name and output-count symbols from each loaded
-  artifact, while `JitML.Engines.OneDnnRuntime` owns the typed `libdnnl`
-  package/link visibility probe for future graph bindings. Generated CUDA and
-  Swift/Metal source now exports the same family/output-count metadata contract
-  for future non-local FFI loaders, and `JitML.Engines.CudaRuntime` owns the
-  host-side CUDA reduction partial-count/finalization helper plus the typed
+  `JitML.Engines.Local` loads and runs the generated Linux CPU oneDNN reorder,
+  reduction, matmul, convolution, normalization, attention, and embedding
+  primitive paths through the Haskell FFI, validating the exported family-name
+  and output-count symbols from each loaded artifact, while
+  `JitML.Engines.OneDnnRuntime` owns the typed `libdnnl` package/header/link
+  visibility probe for that production Linux CPU path. Generated CUDA source
+  now exports the same `jitml_kernel` / family / output-count ABI, and
+  `JitML.Engines.CudaLocal` consumes a positive CUDA runtime probe before
+  compile/load/launch while failing closed before compile when no CUDA runtime
+  is visible. Swift/Metal source exports the same family/output-count metadata
+  contract for its future host FFI loader, and `JitML.Engines.CudaRuntime` owns
+  the host-side CUDA reduction partial-count/finalization helper plus the typed
   `nvcc` / `nvidia-smi` / `ldconfig` CUDA runtime probe.
   `JitML.Engines.MetalRuntime` owns the corresponding host Metal runtime probe
   for Swift, `xcrun`, and Metal device visibility before the future host FFI
@@ -353,11 +359,10 @@ moves to Done and the legacy ledger is empty.
   short-circuiting with a synthetic executor, and `jitml internal vm
   bootstrap|up|down|status` now dispatches through live Tart lifecycle helpers
   for clone/status/start/stop operations.
-  Real oneDNN graph
-  kernels, provisioned Apple `jitml-build` VM live validation + Metal loading,
-  Linux CUDA loading, and live benchmark-driven hardware auto-tuning are owned
-  by Sprints `7.3` /
-  `7.4` / `7.5` / `7.6`'s Remaining Work, preserving the determinism
+  Provisioned Apple `jitml-build` VM live validation + Metal loading, live
+  CUDA GPU-host compile/load/run validation plus cuBLAS/cuDNN bindings, and
+  live benchmark-driven hardware auto-tuning are owned by
+  Sprints `7.4` / `7.5` / `7.6`'s Remaining Work, preserving the determinism
   contract per
   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md):
   Metal single-stream launch order, oneDNN blocked reduction with fixed
@@ -418,7 +423,7 @@ moves to Done and the legacy ledger is empty.
   `HasMinIO` conditional-write/CAS boundary, latest-pointer read path,
   `inferWeightsOnlyFromLatestCheckpoint` for the weight-only inference
   path, `loadInferenceCheckpointWithWeights` for decoded `.jmw1` weights in
-  the local Linux CPU generated-kernel smoke path,
+  the local Linux CPU generated oneDNN path,
   `daemonWorkloadDispatcherWithInference` for routing `linux-cpu` +
   `SelfInference` daemon inference through the generated-kernel checkpoint
   runner, and the GC reconciler surface
@@ -787,7 +792,7 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0`, `1`, `2`, `3`, and `6` are `✅ Done` — every Exit-Definition
+Phases `0`, `1`, `2`, `3`, `4`, `5`, and `6` are `✅ Done` — every Exit-Definition
 obligation those phases own is met. Sprint `1.4` closes the
 container-exclusive Haskell style/code-quality rule: the mandatory
 `jitml:local` image build installs the separate style-tools GHC, builds pinned
@@ -805,14 +810,16 @@ same date: the live `jitml bootstrap --linux-cpu` rollout completes all seven
 platform components ready and `kubectl rollout restart deployment/jitml-service`
 cleanly replaces the pod without surge under `maxSurge: 0` /
 `maxUnavailable: 1` with required hostname anti-affinity; the CUDA service-pod
-variant runs `nvidia-smi -L` inside the service container. Phase `5` remains
-`🔄 Active` for the Apple Silicon host-Dhall service-pod validation.
+variant runs `nvidia-smi -L` inside the service container, and the Apple
+Silicon host-Dhall path completes `./bootstrap/apple-silicon.sh up` on
+`edge_port: 9090` before the host-native
+`jitml service --consume-once 0` run acquires
+`inference.command.apple-silicon` as `jitml-host`.
 Phase `3` reclosed on 2026-05-23 after live Linux CPU bootstrap and teardown
 validated the single-node topology.
 Phases `7`, `8`, `9`, `10`, `11`, and `12` are
 `🔄 Active` because at least one owned
-Exit-Definition obligation remains unmet: single-node daemon validation
-(Linux CPU, Linux CUDA, Apple Silicon), the explicit Pulumi-orchestrated
+Exit-Definition obligation remains unmet: the explicit Pulumi-orchestrated
 ephemeral Kind e2e path for Exit `3`, real kernel execution, checkpoint
 storage, the PureScript default lint/spec path for Exit `15`, browser flow,
 and cross-substrate parity.
@@ -823,11 +830,11 @@ sequence lives in
 | Surface | Current Repo State | Intended End State |
 |---------|--------------------|--------------------|
 | Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, Tart, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `compose.yaml`, `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
-| Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; non-dry-run `jitml build` routes the selected JIT artifact through `JitML.Engines.Loader`; `jitml-cross-backend` validates generated Linux CPU identity, reduction-smoke, and family-scaffold compile/load/run paths plus exported family/output-count metadata, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
+| Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; non-dry-run `jitml build` routes the selected JIT artifact through `JitML.Engines.Loader`; `jitml-cross-backend` validates generated Linux CPU libdnnl-linked oneDNN primitive compile/load/run paths plus exported family/output-count metadata, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests; `jitml-unit` validates the CUDA host-callable wrapper/source ABI and guarded local CUDA runner fail-closed path | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
 | CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference deterministic summaries, test report rendering, internal substrate materialization, VM subprocess rendering, generated-source build-plan rendering, and cache stubs. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
-| Test stanzas | Eight Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, and local checkpoint inference through a Linux CPU generated kernel, `jitml-cross-backend` includes generated Linux CPU identity, reduction-smoke, family-scaffold compile/load/run, family/output-count symbol checks, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement, `jitml-daemon-lifecycle` covers injected engine-backed daemon inference dispatch, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. Live integration / SL convergence / RL trajectory / hyperparameter / cross-substrate parity / Pulumi+Playwright execution is owned by Sprints `12.2`–`12.6` / `12.8` / `12.9`'s Remaining Work | Eight Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e` |
+| Test stanzas | Eight Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, linkable oneDNN probing, and local checkpoint inference through a Linux CPU generated oneDNN kernel, `jitml-cross-backend` includes generated Linux CPU oneDNN primitive compile/load/run, family/output-count symbol checks, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement, `jitml-daemon-lifecycle` covers injected engine-backed daemon inference dispatch, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. Live integration / SL convergence / RL trajectory / hyperparameter / cross-substrate parity / Pulumi+Playwright execution is owned by Sprints `12.2`–`12.6` / `12.8` / `12.9`'s Remaining Work | Eight Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e` |
 | Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`, records the codegen-toolchain comments and report-card knobs, carries a ledger-tracked scoped `allow-newer` for Dhall/CBOR package bounds under GHC `9.14.1`, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, Xcode/Metal pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml` |
-| Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU identity/reduction-smoke/family-scaffold execution, and local Linux CPU `HasEngine` dispatch are covered by dedicated Cabal stanzas; live cross-substrate equality is owned by Sprint `12.6`'s Remaining Work | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
+| Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU oneDNN primitive execution, local Linux CPU `HasEngine` dispatch, CUDA host-wrapper source ABI, and guarded CUDA runtime preflight are covered by dedicated Cabal stanzas; live cross-substrate equality is owned by Sprint `12.6`'s Remaining Work | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
 | Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, and six panel payload modules under `web/src/Panels/`; `src/JitML/Web/Server.hs` serves the demo/API surface; Playwright and Pulumi scaffolds are present. Halogen mount machinery, compiled bundle, live WebSocket proxy, and Playwright against the live edge route are owned by Sprints `11.3`–`11.6`'s Remaining Work | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel payload modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
 
 ## Related Documents

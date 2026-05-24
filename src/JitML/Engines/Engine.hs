@@ -165,6 +165,7 @@ compileSubprocess engine source hash =
         , "-o"
         , artifactPathText engine hash
         , sourceDir <> "/kernel.cc"
+        , "-ldnnl"
         ]
     LinuxCUDA ->
       subprocess

@@ -23,6 +23,7 @@ import JitML.Sub.Subprocess (Subprocess, subprocess)
 data OneDnnRuntimeProbe = OneDnnRuntimeProbe
   { oneDnnRuntimePkgConfigName :: Maybe Text
   , oneDnnRuntimePkgConfigVersion :: Maybe Text
+  , oneDnnRuntimeHeaderPath :: Maybe Text
   , oneDnnRuntimeLibraryVisible :: Bool
   , oneDnnRuntimeProbeLog :: [Text]
   }
@@ -30,19 +31,24 @@ data OneDnnRuntimeProbe = OneDnnRuntimeProbe
 
 oneDnnRuntimeAvailable :: OneDnnRuntimeProbe -> Bool
 oneDnnRuntimeAvailable probe =
-  isJust (oneDnnRuntimePkgConfigName probe) && oneDnnRuntimeLibraryVisible probe
+  (isJust (oneDnnRuntimePkgConfigName probe) || isJust (oneDnnRuntimeHeaderPath probe))
+    && oneDnnRuntimeLibraryVisible probe
 
 probeOneDnnRuntime :: IO OneDnnRuntimeProbe
 probeOneDnnRuntime = do
   pkgConfigResults <- traverse probePkgConfig ["dnnl", "onednn"]
+  headerResults <- traverse probeHeader ["/usr/include/oneapi/dnnl/dnnl.hpp", "/usr/include/dnnl.hpp"]
   ldconfigResult <- probeLdconfig
   let selected = firstPkgConfigHit pkgConfigResults
+      selectedHeader = firstHeaderHit headerResults
       libraryVisible =
         case ldconfigResult of
           Right output -> oneDnnLibraryVisibleFromLdconfig output
           Left _ -> False
       pkgConfigLog =
         fmap renderPkgConfigProbeResult pkgConfigResults
+      headerLog =
+        fmap renderHeaderProbeResult headerResults
       libraryLog =
         case ldconfigResult of
           Right output ->
@@ -54,8 +60,9 @@ probeOneDnnRuntime = do
     OneDnnRuntimeProbe
       { oneDnnRuntimePkgConfigName = fmap fst selected
       , oneDnnRuntimePkgConfigVersion = fmap snd selected
+      , oneDnnRuntimeHeaderPath = selectedHeader
       , oneDnnRuntimeLibraryVisible = libraryVisible
-      , oneDnnRuntimeProbeLog = pkgConfigLog <> libraryLog
+      , oneDnnRuntimeProbeLog = pkgConfigLog <> headerLog <> libraryLog
       }
 
 parsePkgConfigVersion :: Text -> Maybe Text
@@ -78,6 +85,7 @@ renderOneDnnRuntimeProbe probe =
     , "  available: " <> renderBool (oneDnnRuntimeAvailable probe)
     , "  pkg_config_name: " <> fromMaybe "none" (oneDnnRuntimePkgConfigName probe)
     , "  pkg_config_version: " <> fromMaybe "none" (oneDnnRuntimePkgConfigVersion probe)
+    , "  header_path: " <> fromMaybe "none" (oneDnnRuntimeHeaderPath probe)
     , "  library_visible: " <> renderBool (oneDnnRuntimeLibraryVisible probe)
     , "  probes:"
     ]
@@ -107,6 +115,26 @@ probePkgConfig packageName = do
  where
   command = subprocess "pkg-config" ["--modversion", packageName]
 
+probeHeader :: Text -> IO (Text, Bool, Text)
+probeHeader headerPath = do
+  result <- runSubprocessSafely command
+  pure $
+    case result of
+      Right (ExitSuccess, _stdoutText, _stderrText) ->
+        (headerPath, True, renderSubprocess command <> ": readable")
+      Right (ExitFailure code, _stdoutText, stderrText) ->
+        ( headerPath
+        , False
+        , renderSubprocess command
+            <> ": exit "
+            <> Text.pack (show code)
+            <> renderStderr stderrText
+        )
+      Left err ->
+        (headerPath, False, renderSubprocess command <> ": " <> err)
+ where
+  command = subprocess "test" ["-r", headerPath]
+
 probeLdconfig :: IO (Either Text Text)
 probeLdconfig = do
   result <- runSubprocessSafely command
@@ -130,8 +158,17 @@ firstPkgConfigHit [] = Nothing
 firstPkgConfigHit ((packageName, Just version, _message) : _rest) = Just (packageName, version)
 firstPkgConfigHit (_miss : rest) = firstPkgConfigHit rest
 
+firstHeaderHit :: [(Text, Bool, Text)] -> Maybe Text
+firstHeaderHit [] = Nothing
+firstHeaderHit ((headerPath, True, _message) : _rest) = Just headerPath
+firstHeaderHit (_miss : rest) = firstHeaderHit rest
+
 renderPkgConfigProbeResult :: (Text, Maybe Text, Text) -> Text
 renderPkgConfigProbeResult (_packageName, _version, message) =
+  message
+
+renderHeaderProbeResult :: (Text, Bool, Text) -> Text
+renderHeaderProbeResult (_headerPath, _visible, message) =
   message
 
 renderStderr :: Text -> Text

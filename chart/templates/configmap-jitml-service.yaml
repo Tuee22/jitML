@@ -5,9 +5,9 @@ metadata:
   namespace: platform
 data:
   BootConfig.dhall: |
-    { substrate = "linux-cpu"
+    { substrate = "apple-silicon"
     , residency = < Cluster | Host >.Cluster
-    , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
+    , inferenceMode = < SelfInference | ForwardToHost >.ForwardToHost
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
     , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"

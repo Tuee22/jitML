@@ -22,6 +22,7 @@ RUN apt-get update \
         git \
         gnupg \
         libffi-dev \
+        libdnnl-dev \
         libgmp-dev \
         libncurses-dev \
         libnuma-dev \
