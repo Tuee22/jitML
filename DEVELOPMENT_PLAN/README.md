@@ -255,9 +255,24 @@ filesystem-backed `HasMinIO` instance, the
 `JitML.Test.Report.parseReportCardKnobs` cabal.project knob parser consumed by
 `jitml test all`, and the per-problem SL convergence goldens under
 `test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
-problems are all checked in. The remaining
-open obligations (live CUDA GPU-host JIT execution and cuBLAS/cuDNN bindings,
-provisioned Apple Tart VM validation, Metal FFI loading,
+problems are all checked in. Sprint `7.4` closed on 2026-05-24 against a Linux CUDA validation
+host (NVIDIA GeForce RTX 3090, CUDA 12.8 driver, `cuda-toolkit-12-8` plus
+`libcudnn9-dev-cuda-12` baked into `jitml:local`): `compose.yaml` exposes
+every host NVIDIA GPU through `gpus: all`, the CUDA compile plan links the
+produced `.so` against `libcudart` / `libcublas` / `libcudnn`, the typed
+Haskell binding surface
+(`JitML.Engines.{CublasBindings,CudnnBindings}`) wraps `cublasCreate_v2` /
+`cublasGetVersion_v2` / `cublasDestroy_v2` and the cuDNN equivalents behind
+the `cuda` cabal flag, and the in-container
+`cabal test -fcuda jitml-cross-backend` run drives the full
+nvcc → `.so` → `dlopen` → device kernel launch → host copy-back path for
+the identity and warp-shuffle reduction kernels, validates bit-identical
+output across three repeated runs, and round-trips both binding handles.
+Sprint `7.6`'s `linux-cuda benchmark candidate runner` half closed on the
+same date through `JitML.Engines.TuningBenchmark.cudaBenchmarkCandidateRunner`
+routing through `JitML.Engines.CudaLocal.runCudaKernel`. The remaining
+open obligations (provisioned Apple Tart VM validation, Metal FFI loading,
+Metal candidate runner, first-cache-miss benchmark invocation,
 live training-to-convergence on real hardware, live training/inference
 service-client effects beyond the validated daemon paths, and the default
 PureScript lint/spec path) remain gated by the per-sprint `### Remaining Work`
@@ -296,9 +311,13 @@ block, where the validation gate lives:
    [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
    Sprint `12.8` `Remaining Work` for the explicit Pulumi/Kind/Helm live
    orchestration path that exercises `jitml bootstrap` as part of the e2e stack.
-3. **Real per-substrate JIT execution (Exit 1, 5, 12).** See
+3. **Real per-substrate JIT execution (Exit 1, 5, 12).** Sprint `7.4`
+   closed on 2026-05-24 (live `nvcc` compile/load/run plus
+   cuBLAS/cuDNN typed bindings on RTX 3090). The remaining work is
+   Sprint `7.5` (Apple Silicon Metal FFI + Tart VM) and the
+   Metal-specific half of Sprint `7.6`. See
    [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md)
-   Sprints `7.4` / `7.5` / `7.6` `Remaining Work`.
+   Sprints `7.5` / `7.6` `Remaining Work`.
 4. **Real SL/RL/AlphaZero/tuning loops and live tuner execution (Exit 6).** See
    [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md)
    and [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md)
@@ -457,12 +476,16 @@ Phases `7` (JIT codegen and per-substrate execution), `8`
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
 runtime behaviour or default tool execution that the worktree does not
-exercise. The unmet obligations are: the explicit Pulumi-orchestrated
-ephemeral Kind e2e path for Exit 3; real CUDA and Apple Silicon kernel
-compile/load/execute beyond the closed Linux CPU oneDNN primitive path in
-`JitML.Engines.Loader` / `JitML.Engines.Local` and the local Linux CPU
-`HasEngine` interpreter with host/container artifact ABI separation (Exit 1, 5,
-12); real SL / RL / AlphaZero training loops with golden convergence and reward
+exercise. Phase `7` Sprint `7.4` closed on 2026-05-24 against an RTX 3090
++ CUDA 12.8 validation host (live `nvcc` compile, link against
+`libcudart` / `libcublas` / `libcudnn`, `dlopen`, real device kernel launch,
+bit-identical output across three runs, and round-trip of the typed Haskell
+cuBLAS / cuDNN binding handles), and the live CUDA portion of Sprint `7.6`
+closed on the same date through `cudaBenchmarkCandidateRunner`. The unmet
+obligations are: the explicit Pulumi-orchestrated ephemeral Kind e2e path
+for Exit 3; Apple Silicon Metal kernel compile/load/execute and the live
+Metal candidate measurement runner plus first-cache-miss benchmark
+invocation in Sprints `7.5` / `7.6` (Exit 1, 5, 12); real SL / RL / AlphaZero training loops with golden convergence and reward
 fixtures, plus live tuner trial execution / persistence beyond the local TPE Dhall render path
 (Exit 6); the PureScript `purescript-spec` smoke suite still open under
 Sprint `11.3` (Exit 15) — the default `purs-tidy check` invocation closed on

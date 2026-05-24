@@ -229,14 +229,39 @@ reproducibility witness surface; see
   `JitML.Engines.Loader` / `dlopen` boundary and resolves the same
   family/output-count symbols as the Linux CPU local runner. It fails closed
   before compile when the CUDA runtime probe is unavailable.
+- The CUDA compile plan renders the typed
+  `nvcc --shared --compiler-options=-fPIC --use_fast_math=false -arch=sm_70
+  -DJITML_USE_CUBLAS=1 -DJITML_USE_CUDNN=1 -o <artifact> <generated>/kernel.cu
+  -lcudart -lcublas -lcudnn` command so the produced `.so` carries DT_NEEDED
+  entries for the CUDA runtime, cuBLAS, and cuDNN; the dynamic linker
+  resolves the three libraries at `dlopen` time and the CUDA toolchain
+  fingerprint records the new link line so the JIT cache key reflects the
+  artifact ABI change.
+- `src/JitML/Engines/CublasBindings.hs` and
+  `src/JitML/Engines/CudnnBindings.hs` are the typed Haskell binding surface
+  for libcublas / libcudnn. They expose `withCublasHandle`,
+  `verifyCublasRuntime`, `withCudnnHandle`, `verifyCudnnRuntime`, and the
+  `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn` switches behind the
+  `cuda` cabal flag. With `-fcuda` enabled (the canonical
+  `jitml:local` build), `verifyCublasRuntime` / `verifyCudnnRuntime` create
+  a handle, query the runtime version, and destroy the handle. With
+  `-f-cuda`, every entrypoint returns a typed
+  `CublasStatus (-2)` / `CudnnStatus (-2)` so non-CUDA hosts cannot silently
+  no-op the cuBLAS / cuDNN path.
 - The current local engine envelope names the `.so` artifact path and compile
   command. `JitML.Engines.HasEngine.LocalCudaEngine` wraps the guarded runner
   and rejects loaded-family metadata mismatches. The 2026-05-23 live single-node CUDA
   `RuntimeClass/nvidia` and pod-visible GPU probe closed on a Linux CUDA host
   (NVIDIA GeForce RTX 5090, CUDA 12.8) — Phase `4` Sprint `4.7` complete, and
   Phase `5` Sprint `5.6`'s CUDA service-pod portion complete on the same date.
-  Live `nvcc` compile/load/run validation plus real cuBLAS/cuDNN execution
-  still remains target work inside Phase `7`.
+- `jitml:local` (`docker/Dockerfile`) installs the CUDA 12.8 toolkit
+  (`cuda-toolkit-12-8`) and matching cuDNN 9 dev headers
+  (`libcudnn9-dev-cuda-12`), exposes `/usr/local/cuda/bin` on `PATH` and
+  `/usr/local/cuda/lib64` on `LD_LIBRARY_PATH`, and runs
+  `cabal build -fcuda exe:jitml exe:jitml-demo` so the installed
+  `/usr/local/bin/jitml` binary links against libcublas / libcudnn.
+  `compose.yaml` exposes every host NVIDIA GPU to the `jitml` service via
+  the modern `gpus: all` shorthand for live in-container validation.
 
 ### `apple-silicon` — Swift + Metal
 

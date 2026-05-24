@@ -4,12 +4,15 @@ ARG GHC_VERSION=9.14.1
 ARG STYLE_GHC_VERSION=9.12.4
 ARG CABAL_VERSION=3.16.1.0
 ARG NODE_VERSION=22.16.0
+ARG CUDA_TOOLKIT_PACKAGE=cuda-toolkit-12-8
+ARG CUDNN_PACKAGE=libcudnn9-dev-cuda-12
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-ENV PATH=/root/.ghcup/bin:/root/.cabal/bin:/usr/local/bin:$PATH
+ENV PATH=/root/.ghcup/bin:/root/.cabal/bin:/usr/local/cuda/bin:/usr/local/bin:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/lib64/stubs:$LD_LIBRARY_PATH
 ENV JITML_STYLE_TOOLS_ROOT=/opt/jitml-style-tools
 
 RUN apt-get update \
@@ -34,8 +37,33 @@ RUN apt-get update \
         python3-pip \
         pkg-config \
         unzip \
+        wget \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install the CUDA 12.8 toolkit + matching cuDNN 9 dev headers so the
+# Haskell-rendered `kernel.cu` from `JitML.Codegen.Cuda` can compile and link
+# against `-lcudart -lcublas -lcudnn`. Source-level scaffolding for cuBLAS GEMM
+# / cuDNN convolution becomes real at compile time once these headers and
+# stubs are present; the runtime driver still needs the host GPU at execution
+# time (wire that through compose `deploy.resources.devices`).
+RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+        amd64) cuda_arch=x86_64 ;; \
+        arm64 | aarch64) cuda_arch=sbsa ;; \
+        *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+      esac \
+    && wget -qO /tmp/cuda-keyring.deb \
+        "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${cuda_arch}/cuda-keyring_1.1-1_all.deb" \
+    && dpkg -i /tmp/cuda-keyring.deb \
+    && rm -f /tmp/cuda-keyring.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ${CUDA_TOOLKIT_PACKAGE} \
+        ${CUDNN_PACKAGE} \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/local/cuda-12.8 /usr/local/cuda \
+    && printf '/usr/local/cuda/lib64\n/usr/local/cuda/lib64/stubs\n' > /etc/ld.so.conf.d/cuda.conf \
+    && ldconfig
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
     | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_GHC_VERSION=${GHC_VERSION} BOOTSTRAP_HASKELL_CABAL_VERSION=${CABAL_VERSION} sh
@@ -74,9 +102,9 @@ WORKDIR /jitml
 
 COPY . .
 
-RUN cabal build exe:jitml exe:jitml-demo \
-    && cp "$(cabal list-bin exe:jitml)" /usr/local/bin/jitml \
-    && cp "$(cabal list-bin exe:jitml-demo)" /usr/local/bin/jitml-demo \
+RUN cabal build -fcuda exe:jitml exe:jitml-demo \
+    && cp "$(cabal list-bin -fcuda exe:jitml)" /usr/local/bin/jitml \
+    && cp "$(cabal list-bin -fcuda exe:jitml-demo)" /usr/local/bin/jitml-demo \
     && chmod 0755 /usr/local/bin/jitml /usr/local/bin/jitml-demo \
     && jitml check-code
 

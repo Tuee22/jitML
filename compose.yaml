@@ -9,3 +9,8 @@ services:
     volumes:
       - .:${PWD}
       - /var/run/docker.sock:/var/run/docker.sock
+    # Expose every NVIDIA GPU on the host through the NVIDIA Container
+    # Runtime so the CUDA path validated by Sprint 7.4 can launch real
+    # kernels (`jitml service`, `cabal test jitml-cross-backend`'s CUDA
+    # cases). Hosts without an NVIDIA GPU simply ignore this stanza.
+    gpus: all

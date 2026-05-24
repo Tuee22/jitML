@@ -2,12 +2,21 @@
 
 module Main where
 
+import Data.Text qualified as Text
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (TensorBlob (..), emptyManifest, inferFromManifest)
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
+import JitML.Engines.CublasBindings qualified as Cublas
+import JitML.Engines.CudaLocal
+  ( cudaKernelOutput
+  , cudaKernelReportedFamily
+  , runCudaFamilyKernel
+  )
+import JitML.Engines.CudaRuntime qualified as CudaRuntime
+import JitML.Engines.CudnnBindings qualified as Cudnn
 import JitML.Engines.Engine (deterministicFlags, engineForSubstrate)
 import JitML.Engines.HasEngine
   ( EngineRequest (..)
@@ -93,6 +102,193 @@ main =
               linuxCpuKernelOutput a @?= payload
             _ ->
               assertBool "all three linux-cpu kernel runs succeed" False
+      , testCase "linux-cuda generated kernel compiles and runs through nvcc + FFI (Sprint 7.4)" $ do
+          -- Live CUDA validation: Sprint 7.4 closure. When the host
+          -- has nvcc + libcublas + libcudnn visible and an NVIDIA GPU
+          -- attached, compile the generated `kernel.cu` through nvcc,
+          -- dlopen the resulting `.so`, launch the identity kernel,
+          -- and verify the copied-back output matches the input
+          -- bit-equally. On hosts without a positive CUDA runtime
+          -- probe the test logs a skip and passes.
+          probe <- CudaRuntime.probeCudaRuntime
+          if not (CudaRuntime.cudaRuntimeAvailable probe)
+            then
+              assertBool
+                "CUDA runtime unavailable on this host; live CUDA path skipped"
+                True
+            else do
+              env <- buildEnv defaultGlobalFlags
+              let payload = [1.25, -2.5, 0.0, 3.5]
+              result <- runCudaFamilyKernel env Identity payload
+              case result of
+                Left message ->
+                  assertBool ("linux-cuda Identity JIT run failed: " <> show message) False
+                Right kernelRun -> do
+                  cudaKernelReportedFamily kernelRun @?= "identity"
+                  cudaKernelOutput kernelRun @?= payload
+      , testCase "linux-cuda reduction kernel sums through warp-shuffle path (Sprint 7.4)" $ do
+          probe <- CudaRuntime.probeCudaRuntime
+          if not (CudaRuntime.cudaRuntimeAvailable probe)
+            then
+              assertBool
+                "CUDA runtime unavailable on this host; live CUDA path skipped"
+                True
+            else do
+              env <- buildEnv defaultGlobalFlags
+              let payload = [4.0, -2.0, 1.0, 3.0]
+              result <- runCudaFamilyKernel env Reduction payload
+              case result of
+                Left message ->
+                  assertBool ("linux-cuda Reduction JIT run failed: " <> show message) False
+                Right kernelRun -> do
+                  cudaKernelReportedFamily kernelRun @?= "reduction"
+                  -- Reduction emits one partial per warp; sum of all
+                  -- partials must equal the host-canonical sum.
+                  case CudaRuntime.finalizeCudaReductionPartials
+                    (length payload)
+                    (cudaKernelOutput kernelRun) of
+                    Left message ->
+                      assertBool ("reduction finalize failed: " <> show message) False
+                    Right total ->
+                      total @?= 6.0
+      , testCase "linux-cuda kernel output is bit-equal across repeated runs (Sprint 7.4)" $ do
+          -- Same-host bit-equality test for the CUDA path. Mirrors the
+          -- linux-cpu sibling that lives next to this case. Three
+          -- successive invocations of the generated identity kernel
+          -- through the live FFI boundary must produce bit-identical
+          -- output. Validates the determinism contract for linux-cuda
+          -- per documents/engineering/determinism_contract.md.
+          probe <- CudaRuntime.probeCudaRuntime
+          if not (CudaRuntime.cudaRuntimeAvailable probe)
+            then
+              assertBool
+                "CUDA runtime unavailable on this host; live CUDA determinism check skipped"
+                True
+            else do
+              env <- buildEnv defaultGlobalFlags
+              let payload = [0.0, 1.5, -2.25, 3.875, -4.125]
+              first <- runCudaFamilyKernel env Identity payload
+              second <- runCudaFamilyKernel env Identity payload
+              third <- runCudaFamilyKernel env Identity payload
+              case (first, second, third) of
+                (Right a, Right b, Right c) -> do
+                  cudaKernelOutput a @?= cudaKernelOutput b
+                  cudaKernelOutput b @?= cudaKernelOutput c
+                  cudaKernelOutput a @?= payload
+                _ ->
+                  assertBool "all three linux-cuda kernel runs succeed" False
+      , testCase "cuBLAS bindings initialize and report a version (Sprint 7.4)" $ do
+          probe <- CudaRuntime.probeCudaRuntime
+          if not (CudaRuntime.cudaRuntimeAvailable probe)
+            then
+              assertBool
+                "CUDA runtime unavailable on this host; cuBLAS bindings test skipped"
+                True
+            else
+              if not Cublas.cublasBindingsCompiledIn
+                then
+                  assertBool
+                    "jitml built without -fcuda; cuBLAS bindings test skipped"
+                    True
+                else do
+                  versionResult <- Cublas.verifyCublasRuntime
+                  case versionResult of
+                    Left status ->
+                      assertBool
+                        ( "cuBLAS verifyCublasRuntime failed: "
+                            <> show (Cublas.cublasStatusCode status)
+                        )
+                        False
+                    Right version -> do
+                      assertBool
+                        ( "cuBLAS major version is positive: "
+                            <> show (Cublas.cublasVersionMajor version)
+                        )
+                        (Cublas.cublasVersionMajor version > 0)
+                      assertBool
+                        ( "cuBLAS raw version is positive: "
+                            <> show (Cublas.cublasVersionRaw version)
+                        )
+                        (Cublas.cublasVersionRaw version > 0)
+      , testCase "cuDNN bindings initialize and report a version (Sprint 7.4)" $ do
+          probe <- CudaRuntime.probeCudaRuntime
+          if not (CudaRuntime.cudaRuntimeAvailable probe)
+            then
+              assertBool
+                "CUDA runtime unavailable on this host; cuDNN bindings test skipped"
+                True
+            else
+              if not Cudnn.cudnnBindingsCompiledIn
+                then
+                  assertBool
+                    "jitml built without -fcuda; cuDNN bindings test skipped"
+                    True
+                else do
+                  versionResult <- Cudnn.verifyCudnnRuntime
+                  case versionResult of
+                    Left status ->
+                      assertBool
+                        ( "cuDNN verifyCudnnRuntime failed: "
+                            <> show (Cudnn.cudnnStatusCode status)
+                        )
+                        False
+                    Right version -> do
+                      assertBool
+                        ( "cuDNN major version is positive: "
+                            <> show (Cudnn.cudnnVersionMajor version)
+                        )
+                        (Cudnn.cudnnVersionMajor version > 0)
+                      assertBool
+                        ( "cuDNN raw version is positive: "
+                            <> show (Cudnn.cudnnVersionRaw version)
+                        )
+                        (Cudnn.cudnnVersionRaw version > 0)
+      , testCase "linux-cuda benchmark candidate runner measures generated FFI output (Sprint 7.6)" $ do
+          -- Sprint 7.6 live CUDA candidate runner: mirrors the
+          -- linux-cpu sibling above. On a host with `probeCudaRuntime`
+          -- available the runner renders the tuned CUDA source,
+          -- compiles via real nvcc, loads through the FFI, and reports
+          -- a measured latency plus content-sensitive float digest.
+          -- On a host without CUDA the runner returns a typed
+          -- unavailable error.
+          probe <- CudaRuntime.probeCudaRuntime
+          env <- buildEnv defaultGlobalFlags
+          let cudaCandidate = Tuning.selectDeterministic Tuning.linuxCudaKnobs
+              input = [1.0, 2.0, -3.5]
+          observation <-
+            TuningBenchmark.cudaBenchmarkCandidateRunner
+              env
+              (Cache.KernelSpec "jitml-linux-cuda:benchmark")
+              Cache.Inference
+              input
+              cudaCandidate
+          if not (CudaRuntime.cudaRuntimeAvailable probe)
+            then case observation of
+              Left message ->
+                assertBool
+                  ("expected unavailable summary, got: " <> show message)
+                  ("linux-cuda benchmark runner unavailable:" `Text.isPrefixOf` message)
+              Right _ ->
+                assertBool
+                  "unavailable probe but live benchmark returned a measurement"
+                  False
+            else case observation of
+              Left message ->
+                assertBool ("linux-cuda benchmark candidate failed: " <> show message) False
+              Right measured -> do
+                TuningBenchmark.benchmarkObservationOutputDigest measured
+                  @?= TuningBenchmark.digestFloatOutput input
+                assertBool
+                  "linux-cuda benchmark latency is non-negative"
+                  (TuningBenchmark.benchmarkObservationLatencyMicros measured >= 0)
+          rejected <-
+            TuningBenchmark.cudaBenchmarkCandidateRunner
+              env
+              (Cache.KernelSpec "jitml-linux-cuda:benchmark")
+              Cache.Inference
+              input
+              (Tuning.selectDeterministic Tuning.linuxCpuKnobs)
+          rejected @?= Left "linux-cuda benchmark runner cannot execute linux-cpu candidate"
       , testCase "linux-cpu benchmark candidate runner measures generated FFI output (Sprint 7.6)" $ do
           env <- buildEnv defaultGlobalFlags
           let candidate = Tuning.selectDeterministic Tuning.linuxCpuKnobs

@@ -174,9 +174,14 @@ compileSubprocess engine source hash =
         , "--compiler-options=-fPIC"
         , "--use_fast_math=false"
         , "-arch=sm_70"
+        , "-DJITML_USE_CUBLAS=1"
+        , "-DJITML_USE_CUDNN=1"
         , "-o"
         , artifactPathText engine hash
         , sourceDir <> "/kernel.cu"
+        , "-lcudart"
+        , "-lcublas"
+        , "-lcudnn"
         ]
  where
   sourceDir = Text.pack (runtimeSourceRelativeDirectory source hash)

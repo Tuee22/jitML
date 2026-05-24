@@ -14,6 +14,19 @@ description:
 
 build-type:    Simple
 
+flag cuda
+    description:
+        Compile against the host CUDA toolkit so the typed cuBLAS/cuDNN
+        bindings under `JitML.Engines.CublasBindings` /
+        `JitML.Engines.CudnnBindings` link against `libcublas` and
+        `libcudnn`. Used by `jitml:local` and any Linux CUDA validation
+        host. Off by default so the warning-clean baseline build still
+        succeeds on hosts without `nvcc`, `libcublas-dev`, or
+        `libcudnn-dev` installed.
+
+    default:     False
+    manual:      True
+
 library
     exposed-modules:
         JitML.App
@@ -52,8 +65,10 @@ library
         JitML.Docs.Generate
         JitML.Docs.Render
         JitML.Engines.CpuFeatures
+        JitML.Engines.CublasBindings
         JitML.Engines.CudaLocal
         JitML.Engines.CudaRuntime
+        JitML.Engines.CudnnBindings
         JitML.Engines.Engine
         JitML.Engines.HasEngine
         JitML.Engines.Loader
@@ -201,6 +216,15 @@ library
         temporary,
         unix
 
+    if flag(cuda)
+        cpp-options:     -DJITML_CUDA_BINDINGS=1
+        extra-libraries:
+            cudart
+            cublas
+            cudnn
+
+        extra-lib-dirs:  /usr/local/cuda/lib64
+
 executable jitml
     main-is:          Main.hs
     hs-source-dirs:   app
@@ -310,7 +334,8 @@ test-suite jitml-cross-backend
         base >=4.22 && <4.23,
         jitml,
         tasty,
-        tasty-hunit
+        tasty-hunit,
+        text
 
 test-suite jitml-daemon-lifecycle
     type:             exitcode-stdio-1.0

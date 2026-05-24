@@ -27,6 +27,7 @@ import GHC.Float (castDoubleToWord64, castFloatToWord32)
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
+import JitML.Engines.CudaLocal qualified as CudaLocal
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Local qualified as Local
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
@@ -82,7 +83,8 @@ collectBenchmarkMeasurements plan runCandidate =
             <$> restMeasurements
 
 cudaBenchmarkCandidateRunner
-  :: Cache.KernelSpec
+  :: Env
+  -> Cache.KernelSpec
   -> Cache.Kind
   -> [Float]
   -> TuningResult
@@ -92,12 +94,13 @@ cudaBenchmarkCandidateRunner =
 
 cudaBenchmarkCandidateRunnerWithProbe
   :: IO CudaRuntime.CudaRuntimeProbe
+  -> Env
   -> Cache.KernelSpec
   -> Cache.Kind
   -> [Float]
   -> TuningResult
   -> IO (Either Text BenchmarkObservation)
-cudaBenchmarkCandidateRunnerWithProbe probeRuntime _kernelSpec _kind _input candidate
+cudaBenchmarkCandidateRunnerWithProbe probeRuntime env kernelSpec kind input candidate
   | tuningSubstrate candidate /= LinuxCUDA =
       pure $
         Left
@@ -107,16 +110,43 @@ cudaBenchmarkCandidateRunnerWithProbe probeRuntime _kernelSpec _kind _input cand
           )
   | otherwise = do
       probe <- probeRuntime
-      pure $
-        if CudaRuntime.cudaRuntimeAvailable probe
-          then
-            Left
-              "linux-cuda benchmark runner reached an available runtime, but CUDA FFI candidate execution is not implemented yet"
-          else
+      if not (CudaRuntime.cudaRuntimeAvailable probe)
+        then
+          pure $
             Left
               ( "linux-cuda benchmark runner unavailable: "
                   <> renderCudaBenchmarkProbeSummary probe
               )
+        else do
+          start <- getMonotonicTimeNSec
+          kernelResult <- CudaLocal.runCudaKernel env source hash input
+          end <- getMonotonicTimeNSec
+          pure $
+            case kernelResult of
+              Left err -> Left err
+              Right kernelRun ->
+                Right
+                  BenchmarkObservation
+                    { benchmarkObservationLatencyMicros = elapsedMicros start end
+                    , benchmarkObservationOutputDigest =
+                        digestFloatOutput (CudaLocal.cudaKernelOutput kernelRun)
+                    }
+ where
+  tuningChoice = tuningChoiceForResult candidate
+  source =
+    renderRuntimeSource
+      kernelSpec
+      kind
+      Cache.LinuxCUDA
+      tuningChoice
+  hash =
+    Cache.cacheKey
+      kernelSpec
+      kind
+      Cache.LinuxCUDA
+      CudaLocal.cudaToolchainFingerprint
+      (runtimeSourcePayload source)
+      tuningChoice
 
 metalBenchmarkCandidateRunner
   :: Cache.KernelSpec

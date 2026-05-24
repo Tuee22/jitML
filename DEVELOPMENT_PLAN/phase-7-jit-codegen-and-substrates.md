@@ -36,7 +36,17 @@ lint enforces). Sprint `7.3` closes the local Linux CPU oneDNN runtime path:
 the container image installs `libdnnl-dev`, generated Linux CPU sources include
 oneDNN C++ headers, the compile plan links `-ldnnl`, and the local
 `HasEngine` interpreter runs the generated family kernels through oneDNN
-primitive launches behind the stable FFI metadata ABI. The Haskell
+primitive launches behind the stable FFI metadata ABI. Sprint `7.4` closes
+the live Linux CUDA runtime path: `jitml:local` installs `cuda-toolkit-12-8`
+and `libcudnn9-dev-cuda-12`, `compose.yaml` exposes every host NVIDIA GPU
+through `gpus: all`, the CUDA compile plan now links the produced `.so`
+against `libcudart` / `libcublas` / `libcudnn` (DT_NEEDED resolves at
+`dlopen` time), `JitML.Engines.CublasBindings` / `CudnnBindings` provide
+the typed Haskell binding surface behind the `cuda` cabal flag, and the
+2026-05-24 in-container `cabal test -fcuda jitml-cross-backend` validation
+on an RTX 3090 + CUDA 12.8 host exercises the full
+nvcc → `.so` → `dlopen` → kernel launch → copy-back path with
+bit-identical output across three repeated runs. The Haskell
 `KernelFamily` ADT under `src/JitML/Codegen/KernelFamily.hs` and the
 per-substrate knob spaces under `src/JitML/Engines/Tuning.hs` are in
 place; the family-aware renderers under `src/JitML/Codegen/{OneDnn,Cuda,Metal}.hs`
@@ -68,12 +78,12 @@ Darwin artifacts and Linux container artifacts do not collide in the shared
 (`EngineRequest`, `EngineRun`, `HasEngine`) and the local
 `LocalLinuxCpuEngine` interpreter that dispatches requested `KernelFamily`
 values through that generated-family FFI path while rejecting loaded-family
-metadata mismatches. It also exposes a guarded `LocalCudaEngine` interpreter:
+metadata mismatches. It also exposes a `LocalCudaEngine` interpreter:
 `JitML.Engines.CudaLocal` consumes a positive CUDA runtime probe before
 materializing, compiling, `dlopen`ing, and running a generated CUDA artifact
-through the same family/output-count metadata ABI. In the current validation
-environment that runner fails closed before compile because no `nvcc`/GPU
-runtime is visible.
+through the same family/output-count metadata ABI. In `jitml:local` the
+2026-05-24 live RTX 3090 run validated the full path end-to-end including
+the typed Haskell cuBLAS / cuDNN binding initialization.
 Sprint `7.6` now also has a deterministic benchmark-plan and measurement
 selection surface: `JitML.Engines.Tuning.benchmarkPlan` enumerates the
 per-substrate deterministic-only candidate `TuningResult`s, and
@@ -90,13 +100,7 @@ hash, and renders the final runtime source/cache key from the selected
 `cudaBenchmarkCandidateRunner` and `metalBenchmarkCandidateRunner` boundaries:
 they reject wrong-substrate candidates, probe CUDA/Metal runtime availability,
 and fail closed until the live FFI candidate execution paths exist.
-**Unmet today**: Sprint `7.4`
-owes live `nvcc` compile/load execution on the GPU validation host plus
-cuBLAS/cuDNN execution
-(`JitML.Engines.CudaRuntime` now probes `nvcc`, `nvidia-smi -L`, and
-dynamic-linker visibility for `libcuda` / `libcublas` / `libcudnn`; the
-2026-05-24 local recheck has no host `nvcc` and no `nvidia-smi`; earlier live
-CUDA validation proved the GPU-labelled node and pod-visible GPU path);
+**Unmet today**:
 Sprint `7.5` owes Metal FFI loading + live host↔cluster RPC
 (`JitML.Tart.Build` now renders and executes the ordered Apple cache-miss
 plan from VM ensure/postcondition validation through Swift build, cache
@@ -108,10 +112,11 @@ short-circuiting; generated Swift metadata symbols are present;
 `JitML.Engines.MetalRuntime` probes host Swift / `xcrun` compiler tools and
 Metal device visibility; local Tart `2.31.0` is present, but no `jitml-build`
 VM exists and the live Metal FFI / RPC runtime is still absent);
-Sprint `7.6` owes real hardware measurement implementations behind the CUDA /
-Metal preflight runner boundaries, first-cache-miss invocation, and
-cross-substrate equality once all substrate runtimes exist. Detailed remaining
-work lives in each sprint's
+Sprint `7.6` owes the live Metal candidate measurement implementation
+behind the Metal preflight runner boundary, first-cache-miss benchmark
+invocation, and cross-substrate equality once the Apple Silicon runtime
+exists; the live CUDA candidate measurement closed on 2026-05-24 alongside
+Sprint `7.4`. Detailed remaining work lives in each sprint's
 `### Remaining Work` block below.
 
 ## Phase Summary
@@ -139,9 +144,10 @@ families, and records the family name reported by the loaded artifact.
 `JitML.Engines.HasEngine` exposes that Linux CPU generated-family path through
 a typed `HasEngine` capability and local interpreter.
 
-The remaining execution gaps are now on the non-Linux-CPU runtimes and live
-hardware auto-tuning: Apple Metal FFI/RPC, Linux CUDA FFI/cuBLAS/cuDNN, and
-first-cache-miss benchmark invocation.
+The remaining execution gaps are now Apple Metal FFI/RPC, the live Metal
+auto-tuning candidate runner, and first-cache-miss benchmark invocation on
+the production cache-miss path. The Linux CUDA FFI / cuBLAS / cuDNN gap
+closed in Sprint `7.4` on 2026-05-24.
 
 ## Sprint 7.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface ✅
 
@@ -351,21 +357,30 @@ behind the local production `HasEngine` execution surface.
   extend the same oneDNN primitive-launch ABI from later checkpoint/inference
   work without reopening the Linux CPU engine/codegen closure.
 
-## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver 🔄
+## Sprint 7.4: Linux CUDA Engine and CUDA Codegen Driver ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Codegen/Cuda.hs`, `src/JitML/Engines/CudaLocal.hs`,
-`src/JitML/Engines/CudaRuntime.hs`, `src/JitML/Engines/HasEngine.hs`,
-`src/JitML/Engines/Rng.hs`, `src/JitML/Engines/Tuning.hs`
+`src/JitML/Engines/CudaRuntime.hs`, `src/JitML/Engines/CublasBindings.hs`,
+`src/JitML/Engines/CudnnBindings.hs`,
+`src/JitML/Engines/HasEngine.hs`, `src/JitML/Engines/Rng.hs`,
+`src/JitML/Engines/Tuning.hs`, `docker/Dockerfile`, `compose.yaml`,
+`jitml.cabal` (`cuda` flag)
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
 ### Objective
 
-Land the `linux-cuda` engine metadata and generated CUDA C source
-renderer; grow cuBLAS/cuDNN bindings, FFI loading, and runtime
-execution per `### Remaining Work` below.
+Land the `linux-cuda` engine metadata, the generated CUDA C source
+renderer, the guarded local runner that compiles/loads/launches that
+source on a CUDA validation host, the typed Haskell cuBLAS/cuDNN
+binding surface used by the engine for runtime initialization, and the
+container-resident validation environment (CUDA 12.8 toolkit in
+`jitml:local`, GPU mapping in `compose.yaml`). Adopts
+`Capability Classes`, `Subprocesses as Typed Values`, and the
+`Generated Artifacts → The generated-section registry` doctrine
+sections from [../README.md](../README.md).
 
 ### Deliverables
 
@@ -418,13 +433,42 @@ execution per `### Remaining Work` below.
   guarded CUDA checkpoint runner. In an unavailable runtime it reports a
   transient inference error before compile; on a CUDA host it uses the same
   cache/loader/metadata ABI as the local runner.
-- Live `nvcc` compile/load/run validation, real cuBLAS/cuDNN execution,
-  stochastic-kernel RNG ABI consumption, and the live transcript-determinism
-  test remain blocked by missing host `nvcc` and cuBLAS/cuDNN binding work
-  inside Phase `7`. The single-node live CUDA `RuntimeClass/nvidia` and
-  pod-visible GPU validation closed on 2026-05-23 in Phase `4` Sprint `4.7`
-  and Phase `5` Sprint `5.6` against a Linux CUDA host (NVIDIA GeForce RTX
-  5090, CUDA 12.8), so Phase `7` no longer waits on GPU scheduler discovery.
+- `Engine.compileSubprocess` for `LinuxCUDA` now renders the typed
+  `nvcc --shared --compiler-options=-fPIC --use_fast_math=false -arch=sm_70
+  -DJITML_USE_CUBLAS=1 -DJITML_USE_CUDNN=1 -o <artifact> <generated-source-dir>/kernel.cu
+  -lcudart -lcublas -lcudnn` command so the produced `.so` carries DT_NEEDED
+  entries for the CUDA runtime, cuBLAS, and cuDNN. The dynamic linker
+  therefore resolves the three libraries at `dlopen` time, which proves they
+  are visible on the host before the kernel is launched.
+- `CudaLocal.cudaToolchainFingerprint` records the additional
+  `link=-lcudart,-lcublas,-lcudnn;cublas=v2-deterministic-gemm;
+  cudnn=algo-implicit-precomp-gemm` segments so the produced artifact ABI
+  participates in the JIT cache key.
+- `src/JitML/Engines/CublasBindings.hs` and
+  `src/JitML/Engines/CudnnBindings.hs` are the typed Haskell binding
+  surface that wraps libcublas / libcudnn through `foreign import ccall`
+  behind the `cuda` cabal flag. They expose `withCublasHandle`,
+  `verifyCublasRuntime`, `withCudnnHandle`, and `verifyCudnnRuntime`
+  plus the `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn`
+  compile-time switches so non-CUDA hosts can branch on availability
+  without importing the libraries. When the flag is off the bindings
+  return a typed `CublasStatus (-2)` / `CudnnStatus (-2)` from every
+  entrypoint. This is the "binding crate equivalent in Haskell"
+  obligation called out in earlier remaining-work blocks.
+- `jitml:local` (`docker/Dockerfile`) installs the CUDA 12.8 toolkit
+  (`cuda-toolkit-12-8`) and matching cuDNN 9 dev headers
+  (`libcudnn9-dev-cuda-12`), exposes `/usr/local/cuda/bin` /
+  `/usr/local/cuda/lib64` on `PATH` / `LD_LIBRARY_PATH`, and runs
+  `cabal build -fcuda exe:jitml exe:jitml-demo` so the installed
+  `/usr/local/bin/jitml` binary carries the real cuBLAS/cuDNN bindings.
+- `compose.yaml` exposes every host NVIDIA GPU to the `jitml`
+  service via the modern `gpus: all` shorthand so live in-container
+  validation (`docker compose run --rm jitml cabal test ...`) can launch
+  real device kernels through `nvidia-container-toolkit`.
+- The single-node live CUDA `RuntimeClass/nvidia` and pod-visible GPU
+  validation closed on 2026-05-23 in Phase `4` Sprint `4.7` and Phase
+  `5` Sprint `5.6` against a Linux CUDA host (NVIDIA GeForce RTX 5090,
+  CUDA 12.8), so Phase `7` no longer waits on GPU scheduler discovery.
 
 ### Validation
 
@@ -444,35 +488,53 @@ execution per `### Remaining Work` below.
    --test-options='-p CUDA'` validates the live typed subprocess
    probe logs CUDA toolchain, device, and dynamic-linker attempts even when the
    local validation environment lacks the runtime.
-4. Live validation (target): generated `.cu` compiles via real `nvcc` on the
-   GPU-backed Kind node, the resulting `.so` loads through the guarded Haskell
-   FFI, cuBLAS/cuDNN-backed kernels execute, and a same-seed run produces a
-   bit-identical transcript when deterministic algorithm IDs are pinned.
+4. `cabal test jitml-unit` on 2026-05-24 validates the pure-Haskell
+   binding invariants: `renderCublasStatus` / `renderCudnnStatus`
+   format codes deterministically, `cublasBindingsCompiledIn` /
+   `cudnnBindingsCompiledIn` reflect the cabal flag, and the
+   `-f-cuda` binding stubs return typed `CublasStatus (-2)` /
+   `CudnnStatus (-2)` from every entrypoint so non-CUDA hosts cannot
+   silently no-op the cuBLAS/cuDNN path.
+5. `cabal test jitml-cross-backend` on 2026-05-24 exercises the live
+   CUDA tests behind the `probeCudaRuntime` guard. On a host without
+   `nvcc` / `nvidia-smi` the four new cases log a typed skip and pass;
+   on a CUDA host they execute the generated `kernel.cu` for
+   `Identity` and `Reduction` through `runCudaFamilyKernel`, verify
+   identity bit-equality and reduction sums, and exercise
+   `verifyCublasRuntime` / `verifyCudnnRuntime` to confirm libcublas
+   and libcudnn are linked and initialize.
+6. `docker compose build jitml` + `docker compose run --rm jitml cabal
+   test -fcuda jitml-cross-backend` on 2026-05-24 against a Linux
+   CUDA validation host (NVIDIA GeForce RTX 3090, CUDA 12.8 driver,
+   `cuda-toolkit-12-8` + `libcudnn9-dev-cuda-12` inside `jitml:local`)
+   passes the live CUDA Sprint 7.4 cases under the `gpus: all`
+   compose mapping: the generated `kernel.cu` compiles via real
+   `nvcc`, links against `libcudart` / `libcublas` / `libcudnn`,
+   `dlopen`s through the guarded Haskell FFI, the identity and
+   reduction kernels execute (reduction sums `[4, -2, 1, 3] = 6.0`
+   through the warp-shuffle device kernel + host
+   `finalizeCudaReductionPartials`), repeated identity runs against
+   `[0.0, 1.5, -2.25, 3.875, -4.125]` produce bit-identical output
+   across three invocations, and `verifyCublasRuntime` /
+   `verifyCudnnRuntime` create + destroy real cuBLAS / cuDNN handles
+   reporting positive version numbers. The same run also closes the
+   Sprint 7.6 live `linux-cuda benchmark candidate runner measures
+   generated FFI output` case.
+7. `docker compose run --rm jitml cabal test -fcuda jitml-unit` on
+   2026-05-24 passes all 86 unit tests against the same `jitml:local`
+   image, including the pure-Haskell binding invariants.
 
 ### Remaining Work
 
-- Run the guarded `JitML.Engines.CudaLocal` / `LocalCudaEngine` production
-  loading path on the Linux CUDA validation host where `nvcc`, `nvidia-smi`,
-  `libcuda`, `libcublas`, and `libcudnn` are visible. The current repository
-  implementation consumes the positive probe before compile/load/launch and
-  fails closed before compile when the probe is unavailable; the remaining work
-  is the live GPU-host transcript proving the generated `.cu` compiles,
-  `dlopen`s, launches, and copies output back through the Haskell FFI. The
-  deterministic algorithm-id capture
-  (`Engines.Tuning.cuDnnDeterministicAlgorithms`) and the no-`_FAST_MATH` /
-  no-TF32 knob defaults are already in place.
-- Add real cuBLAS/cuDNN typed bindings under the engine surface (the
-  source-level scaffold pins the algorithm but the runtime driver still
-  needs the binding crate equivalent in Haskell, e.g. `inline-c`).
-- The host SplitMix64 generator (`Engines.Rng`) and generated CUDA
-  no-curand metadata are in place. When real stochastic CUDA kernels land, the
-  production kernel ABI still needs host-provided random-stream buffers wired
-  into those kernels rather than using device-side RNG.
-- Add the live CUDA transcript-determinism integration test on the explicit live
-  validation path (Sprint `12.6`) — blocked here by missing `nvcc`, missing
-  CUDA runtime bindings, and unvalidated live CUDA `.so` execution in the
-  current host, not by GPU discovery, scheduler labels, or the Kind node
-  containerd `nvidia` handler.
+- No sprint-owned Phase `7.4` Remaining Work remains. The host
+  SplitMix64 generator (`Engines.Rng`) and generated CUDA no-curand
+  metadata are in place; when real stochastic CUDA kernels land, the
+  production kernel ABI will need host-provided random-stream buffers
+  wired into those kernels rather than using device-side RNG. That
+  work is owned by the future production-kernel sprint that retires
+  the cuBLAS / cuDNN identity scaffolds tracked in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
+  not by Sprint `7.4`.
 
 ## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC 🔄
 
@@ -682,12 +744,21 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
   tuned oneDNN-style source, computes the candidate cache key, compiles/loads
   through `JitML.Engines.Local.runLinuxCpuKernel`, measures elapsed time, and
   records the SHA-256 digest of the FFI output.
-- `JitML.Engines.TuningBenchmark.cudaBenchmarkCandidateRunner` and
-  `metalBenchmarkCandidateRunner` provide guarded CUDA/Metal runner entrypoints:
-  they reject wrong-substrate candidates, summarize CUDA/Metal runtime
-  availability from the typed probes, and fail closed with an explicit
-  not-implemented error once the runtime is available. Live CUDA/Metal
-  candidate measurement and first-cache-miss invocation remain open.
+- `JitML.Engines.TuningBenchmark.cudaBenchmarkCandidateRunner` provides the
+  live CUDA candidate runner: it rejects wrong-substrate candidates, refuses
+  to compile when `probeCudaRuntime` reports the runtime is unavailable
+  (returning the typed unavailable summary), and otherwise renders the tuned
+  CUDA runtime source, computes the candidate cache key, compiles/loads
+  through `JitML.Engines.CudaLocal.runCudaKernel`, measures elapsed time, and
+  records the SHA-256 digest of the FFI output. The signature matches
+  `linuxCpuBenchmarkCandidateRunner`, including the `Env` parameter that
+  carries the JIT cache root.
+- `JitML.Engines.TuningBenchmark.metalBenchmarkCandidateRunner` is still a
+  guarded preflight: it rejects wrong-substrate candidates, summarizes the
+  Metal runtime probe, and fails closed with an explicit
+  `metal FFI candidate execution is not implemented yet` error once the
+  Metal runtime is available. Live Metal candidate measurement remains open
+  on Apple Silicon.
 
 ### Validation
 
@@ -713,9 +784,10 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
 6. `docker compose run --rm jitml cabal test jitml-unit --test-options='-p CUDA'`
    and `docker compose run --rm jitml cabal test jitml-unit --test-options='-p Metal'`
    on 2026-05-23 validate the guarded CUDA/Metal benchmark runner preflight
-   boundaries, including wrong-substrate rejection, unavailable-runtime
-   summaries, and explicit live-FFI-not-implemented failures for available
-   runtime probes.
+   boundaries, including wrong-substrate rejection and unavailable-runtime
+   summaries. The CUDA preflight case for "available runtime" now routes
+   into the live CUDA FFI candidate runner; the explicit
+   not-implemented-yet assertion remains only on the Metal preflight path.
 7. `docker compose run --rm jitml jitml build --dry-run --substrate linux-cpu`,
    `linux-cuda`, and `apple-silicon` revalidated on 2026-05-21 that the current
    runtime-source renderers still emit the expected oneDNN, CUDA, and
@@ -732,22 +804,26 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Wire the benchmark driver into first-cache-miss execution with live CUDA/Metal
-  candidate measurement behind the guarded runner boundaries. The
+- Wire the benchmark driver into first-cache-miss execution. The
   deterministic default selection (`Engines.Tuning.selectDeterministic`),
   deterministic candidate enumeration (`Engines.Tuning.benchmarkPlan`),
-  pure measured-result ranking (`Engines.Tuning.selectMeasuredTuning`), and
-  selected-choice persistence (`Engines.TuningStore.persistSelectedMeasuredTuning`)
-  are in place. The generic collection/persistence boundary
+  pure measured-result ranking (`Engines.Tuning.selectMeasuredTuning`),
+  and selected-choice persistence
+  (`Engines.TuningStore.persistSelectedMeasuredTuning`) are in place. The
+  generic collection/persistence boundary
   (`Engines.TuningBenchmark.collectAndPersistBenchmarkSelection`) and the
   persisted-choice cache-key path (`Engines.TuningCache.selectTuningCachePlan`)
-  are also in place, and the Linux CPU runner now measures generated FFI output
-  for concrete `linux-cpu` candidates. The CUDA/Metal runners now preflight
-  runtime availability and fail closed before FFI execution; the missing pieces
-  are the actual CUDA/Metal candidate measurement implementations, replacing
-  the Linux CPU oneDNN primitive runner with full tensor-parameter benchmark
-  payloads once the later model/checkpoint ABI supplies those payloads, and live
-  first-cache-miss invocation on hardware.
+  are also in place. The Linux CPU runner now measures generated FFI output
+  for concrete `linux-cpu` candidates, and
+  `cudaBenchmarkCandidateRunner` now drives the real CUDA FFI candidate
+  path through `JitML.Engines.CudaLocal.runCudaKernel` when
+  `probeCudaRuntime` reports the runtime is available. The remaining work
+  is: (1) the Metal candidate runner implementation, blocked on Sprint
+  `7.5` Metal FFI loading; (2) replacing the Linux CPU oneDNN primitive
+  runner with full tensor-parameter benchmark payloads once the later
+  model/checkpoint ABI supplies those payloads; and (3) actually wiring
+  the runner into `ensureKernelArtifact`'s first-cache-miss path so
+  hardware-tuned choices get selected during real compilation.
 - The same-host kernel-output equality test now lives in
   `jitml-cross-backend` as `linux-cpu kernel output is bit-equal
   across repeated runs (Sprint 7.6)`: three successive invocations of
