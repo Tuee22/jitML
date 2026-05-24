@@ -25,9 +25,11 @@
 its code-surface obligations (PureScript scaffold, generated browser
 contracts, panel modules with typed payload shapes, Halogen dependency +
 render machinery, `purescript-spec` smoke suite, demo HTTP server with
-deterministic local stream frames, Playwright spec scaffold). Live
-`/api/ws` WebSocket proxy + Halogen render against live daemon state
-+ Playwright on the live edge route migrated to
+deterministic local stream frames, Playwright spec scaffold). The
+Halogen and `purescript-spec` deliverables closed on 2026-05-24; the
+remaining open work is the live `/api/ws` WebSocket proxy + Halogen
+render against live daemon state + Playwright on the live edge route,
+which migrated to
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
 Sprints `13.13` and `13.14`.
 
@@ -54,19 +56,25 @@ matrix. `JitML.Web.Bundle.panelSurfaces` lists all six panel names, and
 `/api/ws`, `/api/ws/training`, `/api/ws/tune`). `JitML.Web.Server.demoHttpRoutes`
 serves the same route family, including deterministic local responses for
 the generated stream contracts.
-**Unmet today**: Sprint `11.3` still owes the default `purs format`
-round-trip and `purescript-spec` smoke suite; the `spago test` and
-`purs-tidy check` subprocess shapes are present as explicit typed values.
-Sprint `11.4` owes Halogen render wiring and the
-live `/api/ws` proxy against real daemon Pulsar topics; Sprint `11.5`
-owes building the compiled bundle as part of the demo image and serving
-it against real daemon state; Sprint `11.6` owes Playwright against the
-live `jitml-demo` edge route rather than inline DOM stubs. 2026-05-21
-local validation re-ran `cabal test jitml-e2e` and `cabal test jitml-unit`;
-`jitml lint purescript` remains container-gated by the code-quality domain and
-the frontend `node_modules` install is absent on this host. Detailed remaining
-work lives in each sprint's
-`### Remaining Work` block below.
+**Met on 2026-05-24**: Sprint `11.3` closed by adding `spec` to the
+`web/spago.yaml` test deps, rewriting `web/test/Main.purs` as a
+`describe`/`it` block that touches every typed `Panels.*` payload-shape
+contract and the generated `Generated.Contracts` endpoint catalog, and
+wiring `JitML.Lint.Stack.runPureScriptSpecSuite` to invoke
+`/usr/local/bin/spago test` through the typed `Subprocess` on the default
+`jitml lint purescript` path. Sprint `11.4` closed by adding `halogen`,
+`halogen-vdom`, `aff`, `web-html`, `arrays`, `foldable-traversable`,
+`maybe`, and `tuples` to `web/spago.yaml`, rewriting every
+`web/src/Panels/*.purs` module as a typed Halogen `H.component` plus
+`mount` driver, and updating `web/src/Main.purs` to dispatch on the URL
+hash. The 2026-05-24 in-container `docker compose build jitml` produced
+the compiled Halogen bundle (`web/dist/Main/index.js`), and
+`docker compose run --rm jitml jitml lint purescript` returned `ok`.
+**Unmet today**: Sprint `11.4` owes the live `/api/ws` proxy against
+real daemon Pulsar topics; Sprint `11.5` owes serving the compiled
+bundle against real daemon state; Sprint `11.6` owes Playwright against
+the live `jitml-demo` edge route rather than inline DOM stubs. Detailed
+remaining work lives in each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
 
@@ -150,14 +158,11 @@ local renderer that produces `web/src/Generated/Contracts.purs`. The external
 2. `jitml lint purescript` verifies the generated contract file exists and
    names the expected endpoint surface.
 
-## Sprint 11.3: `jitml lint purescript` Generated-Contract Smoke Target 🔄
+## Sprint 11.3: `jitml lint purescript` Generated-Contract Smoke Target ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface — the
-`purescript-spec` smoke suite bodies and the `/usr/local/bin/spago test`
-invocation from the default lint path are code-only deliverables in this
-sprint.
-**Implementation**: `web/test/Main.purs`, `src/JitML/Lint/Stack.hs`
+**Status**: Done
+**Implementation**: `web/test/Main.purs`, `web/spago.yaml`,
+`src/JitML/Lint/Stack.hs`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/unit_testing_policy.md`
 
@@ -207,32 +212,28 @@ panel-contract, and `purs-tidy`-formatting smoke target. The target
 
 ### Remaining Work
 
-- Add the `purescript-spec` smoke suite that touches every typed panel
-  contract; this requires writing actual PureScript spec bodies and invoking
-  `/usr/local/bin/spago test` from the default lint path. The typed
-  `Subprocess` value is in place and `purs-tidy check` is now invoked, but
-  the spec invocation is still gated on the PureScript test bodies landing.
-- The smoke `web/test/Main.purs` exists and exercises all six typed
-  panel names + the generated contracts surface.
-- The lint target represents `/usr/local/bin/spago test` as an explicit
-  typed `Subprocess` value in the `web/` working directory; actual invocation
-  remains target work pending the `purescript-spec` smoke bodies above.
-- The lint target invokes `/usr/local/bin/purs-tidy check 'src/**/*.purs'`
-  against the checked-in PureScript sources through the typed `Subprocess`
-  in the `web/` working directory. The Haskell-side
-  `renderPureScriptContracts` produces purs-tidy-clean output so the
-  generated contract file does not need an external format step.
+None. The `purescript-spec` smoke suite closed on 2026-05-24: `spec` is a
+`web/spago.yaml` test dependency, `web/test/Main.purs` is a
+`describe`/`it` block that touches every typed `Panels.*` payload-shape
+contract and the generated `Generated.Contracts` endpoint catalog, and
+`JitML.Lint.Stack.runPureScriptSpecSuite` invokes
+`/usr/local/bin/spago test` through the typed `Subprocess` boundary on
+the default `jitml lint purescript` path. The in-container
+`docker compose run --rm jitml jitml lint purescript` validation
+returned `ok` on 2026-05-24.
 
 ## Sprint 11.4: Interactive Endpoint Contract Surface 🔄
 
 **Status**: Active
-**Owned obligations after refactor**: code-surface — Halogen dependency
-+ render machinery (slot + state + DOM diff) on each `Panels.*` module
-plus the normal `spago build --output web/dist` path. The live `/api/ws`
-WebSocket proxy migrated to Phase `13` Sprint `13.13`.
+**Owned obligations after refactor**: code-surface only. Halogen
+dependency + render machinery (slot + state + DOM diff) on each
+`Panels.*` module plus the normal `spago build --output web/dist` path
+closed on 2026-05-24. The live `/api/ws` WebSocket proxy migrated to
+Phase `13` Sprint `13.13`.
 **Implementation**: `src/JitML/Web/Contracts.hs`,
 `src/JitML/Web/Bundle.hs`,
-`web/src/Main.purs`, `web/src/Generated/Contracts.purs`
+`web/spago.yaml`, `web/src/Main.purs`, `web/src/Generated/Contracts.purs`,
+`web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs`
 **Docs to update**: `documents/engineering/purescript_frontend.md`
 
 ### Objective
@@ -282,10 +283,17 @@ remains target runtime validation.
 
 ### Remaining Work
 
-- Add the Halogen dependency to `web/spago.yaml` and the render
-  machinery (slot + state + DOM diff) to each `web/src/Panels/*.purs`
-  module. Wire `spago build --output web/dist` so the demo image gets
-  a compiled browser bundle. (Code-only.)
+- The Halogen dependency closed on 2026-05-24: `web/spago.yaml`
+  declares `halogen`, `halogen-vdom`, `aff`, `web-html`, `arrays`,
+  `foldable-traversable`, `maybe`, `tuples`, plus the existing
+  `console` / `effect` / `prelude`. Every `web/src/Panels/*.purs`
+  module exports a typed Halogen `H.component` with state and DOM
+  render plus a `mount :: Effect Unit` that drives `Halogen.Aff` +
+  `Halogen.VDom.Driver.runUI`. `web/src/Main.purs` dispatches on the
+  `location.hash` and mounts the matching panel (default: MNIST).
+  `spago build --output dist` runs in `docker/Dockerfile` and the
+  2026-05-24 in-container build compiled 536 PureScript modules and
+  produced `web/dist/Main/index.js` for the demo image.
 - The live `/api/ws` WebSocket proxy that bridges the demo server to
   the daemon's metric/event Pulsar topics is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)

@@ -43,11 +43,17 @@ their typed Haskell envelopes (`src/JitML/Proto/{Training,Rl,Tune}.hs`)
 are checked in; `TrainingCommand` / `TrainingEvent` and `RlCommand` /
 `RlEvent` now have deterministic text render/parse round-trips where
 applicable plus strict proto3-compatible binary encode/decode round-trips for
-the current command and event envelopes through `JitML.Proto.Wire`. **Unmet today**: Sprints `8.1`–`8.6` still owe the
+the current command and event envelopes through `JitML.Proto.Wire`.
+`JitML.RL.Simulator` provides the typed env-step boundary
+(`SimulatedEnvironment`, `cartPoleStep`, `mountainCarStep`,
+`stepEnvironmentIO`, `RenderFrame`) for the cartpole and mountain-car
+classical-control simulators (closed 2026-05-24); lunar-lander Box2D and
+atari-subset ALE await their C libraries in `jitml:local`. **Unmet today**: Sprints `8.1`–`8.6` still owe the
 live MinIO dataset fetch through the available `HasMinIO` client, the live
 Pulsar publish/consume round-trip through a real `HasPulsar` client, generated
-cross-language proto-lens output, and the live convergence / reward
-golden fixtures against real hardware. Detailed remaining work lives in
+cross-language proto-lens output, lunar-lander / atari-subset
+simulator bindings, and the live convergence / reward golden fixtures
+against real hardware. Detailed remaining work lives in
 each sprint's `### Remaining Work` block below.
 
 ### Current Implementation Scope
@@ -195,8 +201,12 @@ local summary body. Pulsar command/event publication remains target daemon work.
 - `encodeTrainingEventProto` / `decodeTrainingEventProto` round-trip the
   current `TrainingEvent` oneof envelope, including repeated checkpoint
   metrics, through strict proto3-compatible bytes.
-- Generated cross-language `proto-lens` output remains to be added when the
-  `proto-lens-protoc` dependency lands.
+- Generated cross-language `proto-lens` output lives under
+  `gen/Proto/Jitml/Training.hs` (+ `Training_Fields`); the cabal library
+  exposes `Proto.Jitml.Training` and `Proto.Jitml.Training_Fields` so
+  callers can decode the same wire bytes through the proto-lens
+  `Message` instance for cross-language interop with other-language
+  proto3 clients.
 
 ### Validation
 
@@ -215,10 +225,20 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 ### Remaining Work
 
-- Generate `proto-lens-protoc` bindings once that dependency lands so the
-  current local `TrainingCommand` / `TrainingEvent` byte codecs are checked
-  against generated cross-language bindings. (Code-only; close by adding
-  the dependency and generating the bindings — no hardware required.)
+- The `proto-lens-protoc` bindings closed on 2026-05-24: generated
+  modules `Proto.Jitml.Training` and `Proto.Jitml.Training_Fields`
+  live under `gen/`, the cabal library exposes them, and the
+  `proto-lens` / `proto-lens-runtime` deps are pinned through
+  `cabal.project` `allow-newer` for `lens-family` / `lens-family-core`
+  on the GHC 9.14.1 / containers 0.8 baseline. The `gen/` tree is
+  excluded from the whitespace lint so regeneration via
+  `protoc --plugin=protoc-gen-haskell=$(which proto-lens-protoc)
+  --haskell_out=../gen jitml/*.proto` from `proto/` produces a
+  drift-free check-code path. Cross-language byte-equivalence is
+  validated by the new `local proto3 bytes decode through the
+  proto-lens generated InferenceRequest` case in
+  `jitml-daemon-lifecycle` (extends the same pattern to Training
+  envelopes as the daemon-side handler lands).
 - The daemon-side `TrainingHandler` against live broker and the live
   publish/consume integration test are owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
@@ -228,14 +248,15 @@ local summary body. Pulsar command/event publication remains target daemon work.
 
 **Status**: Active
 **Owned obligations after refactor**: real simulator bindings for
-`cartpole`, `mountain-car`, `lunar-lander`, and `atari-subset` plus the
-typed env-step boundary (code-only, no hardware required for cartpole +
-mountain-car classical control; lunar-lander Box2D and atari-subset ALE
-require their C libraries baked into `jitml:local`). The daemon-backed
-environment loop migrated to Phase `13` Sprint `13.5`.
+`lunar-lander` (Box2D) and `atari-subset` (ALE) plus their typed
+env-step boundary closures. Cartpole and mountain-car classical-control
+physics closed on 2026-05-24 through `src/JitML/RL/Simulator.hs`. The
+daemon-backed environment loop migrated to Phase `13` Sprint `13.5`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`,
-`test/rl-canonicals/Main.hs`
+`src/JitML/RL/Simulator.hs`,
+`test/rl-canonicals/Main.hs`,
+`test/unit/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -274,13 +295,16 @@ canonical RL stanza.
 
 ### Remaining Work
 
-- Implement real simulator bindings for cartpole, mountain-car,
-  lunar-lander, and atari-subset (e.g., via `inline-c`, an embedded
-  Box2D, and ALE). Code-only: cartpole and mountain-car classical
-  control physics close inside `jitml:local`; lunar-lander Box2D and
-  atari-subset ALE require their C libraries baked into the image.
-- Implement the typed env-step boundary (`step :: Env -> Action -> IO
-  (Obs, Reward, Done)`) plus render-frame access. (Code-only.)
+- Cartpole and mountain-car classical-control physics closed on
+  2026-05-24: `JitML.RL.Simulator` exposes typed `CartPoleState` /
+  `MountainCarState` states, deterministic `cartPoleStep` /
+  `mountainCarStep` transitions, and `SimulatedEnvironment` values with
+  pure step + IO `stepEnvironmentIO` boundaries that match the
+  doctrine's `step :: Env -> Action -> IO (Obs, Reward, Done)` signature
+  through `RenderFrame`-style observation projection.
+- Lunar-lander (Box2D) and atari-subset (ALE) bindings remain open;
+  closing them requires baking their C libraries into `jitml:local`
+  before exposing `SimulatedEnvironment` values for those environments.
 - The daemon-backed environment loop driven by the Phase `5` Pulsar
   consumer is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
@@ -400,10 +424,12 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 
 ### Remaining Work
 
-- Generate `proto-lens` Haskell wire bindings once the dependency lands so the
-  current local `RlCommand` / `RlEvent` byte codecs are checked against
-  generated cross-language bindings. `parseRlCommand` remains the
-  deterministic local text-envelope parser. (Code-only.)
+- `proto-lens` Haskell wire bindings for `rl.proto` closed on
+  2026-05-24: `gen/Proto/Jitml/Rl.hs` and
+  `gen/Proto/Jitml/Rl_Fields.hs` are exposed by the cabal library.
+  `parseRlCommand` remains the deterministic local text-envelope
+  parser; the new `Proto.Jitml.Rl.*` modules are the cross-language
+  byte-equivalent binding for other-language proto3 clients.
 - The daemon-side `RlHandler` against live broker and the live
   `StartRLRun → EpisodeDone` round-trip are owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)

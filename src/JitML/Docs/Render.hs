@@ -43,6 +43,8 @@ import JitML.CLI.Spec
   )
 import JitML.Numerics.Catalog qualified as Numerics
 import JitML.RL.Algorithms qualified as RL
+import JitML.RL.Algorithms.Common qualified as RLCommon
+import JitML.RL.Algorithms.Registry qualified as RLRegistry
 import JitML.Routes qualified as Routes
 import JitML.Tune.Catalog qualified as Tune
 
@@ -154,8 +156,8 @@ renderDaemonSurface =
 renderTrainingRlCatalog :: Text
 renderTrainingRlCatalog =
   Text.unlines $
-    [ "| Algorithm | Family | Replay-backed | Current owner |"
-    , "|-----------|--------|---------------|---------------|"
+    [ "| Algorithm | Family | Replay-backed | Hyperparameters | Module |"
+    , "|-----------|--------|---------------|-----------------|--------|"
     ]
       <> fmap rlAlgorithmRow RL.algorithmCatalog
 
@@ -199,8 +201,44 @@ rlAlgorithmRow algorithm =
     [ "| `" <> RL.algorithmName algorithm <> "`"
     , Text.pack (show (RL.algorithmFamily algorithm))
     , if RL.algorithmReplayBased algorithm then "yes" else "no"
-    , "`src/JitML/RL/Algorithms.hs` |"
+    , Text.pack (show (rlAlgorithmHyperCount (RL.algorithmName algorithm)))
+    , rlAlgorithmModulePath (RL.algorithmName algorithm) <> " |"
     ]
+
+-- | Lookup the per-module hyperparameter count from
+-- 'JitML.RL.Algorithms.Registry'. Algorithms without a dedicated module
+-- (currently @AlphaZero@, which has its own @AlphaZero@ substack) report @0@
+-- so the generated table stays per-row-stable.
+rlAlgorithmHyperCount :: Text -> Int
+rlAlgorithmHyperCount name =
+  case RLRegistry.moduleFor name of
+    Just m -> length (RLCommon.moduleHyperparameters m)
+    Nothing -> 0
+
+rlAlgorithmModulePath :: Text -> Text
+rlAlgorithmModulePath name =
+  case RLRegistry.moduleFor name of
+    Just _ -> "`src/JitML/RL/Algorithms/" <> rlAlgorithmModuleFileName name <> ".hs`"
+    Nothing -> "`src/JitML/RL/AlphaZero/`"
+
+rlAlgorithmModuleFileName :: Text -> Text
+rlAlgorithmModuleFileName name =
+  case Text.unpack name of
+    "QR-DQN" -> "QrDqn"
+    "MaskablePPO" -> "MaskablePpo"
+    "RecurrentPPO" -> "RecurrentPpo"
+    "TRPO" -> "Trpo"
+    "DDPG" -> "Ddpg"
+    "TD3" -> "Td3"
+    "SAC" -> "Sac"
+    "DQN" -> "Dqn"
+    "PPO" -> "Ppo"
+    "A2C" -> "A2c"
+    "CrossQ" -> "CrossQ"
+    "TQC" -> "Tqc"
+    "ARS" -> "Ars"
+    "HER" -> "Her"
+    other -> Text.pack other
 
 showText :: (Show value) => value -> Text
 showText = Text.pack . show

@@ -420,7 +420,7 @@ obligation exists.
 | 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
 | 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
-| 7 | JIT Codegen and Per-Substrate Execution | 🔄 Active | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
+| 7 | JIT Codegen and Per-Substrate Execution | ✅ Done | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | 🔄 Active | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | 🔄 Active | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | 🔄 Active | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
@@ -481,29 +481,34 @@ stateful-platform-services slice (Harbor / Postgres / MinIO / Pulsar /
 observability / TensorBoard / `RuntimeClass/nvidia`), and Phase `5`'s owned
 daemon/service-pod slice.
 
-Phases `7` (JIT codegen and per-substrate execution), `8`
+Phase `7` (JIT codegen and per-substrate execution) is `✅ Done`. Phase `7`
+Sprint `7.4` closed on 2026-05-24 against an RTX 3090 + CUDA 12.8 validation
+host, and the code-only benchmark-runner wiring portion of Sprint `7.6`
+closed on the same date through `ensureKernelArtifactWithBenchmarkTuning`,
+`ensureTuningSelection`, and `candidateRunnerForSubstrate` in
+`JitML.Engines.TuningBenchmark`. Phases `8`
 (supervised and RL framework), `9` (RL catalog, AlphaZero, tuning), `10`
 (checkpointing and inference), `11` (PureScript frontend and demo), and `12`
 (test stanzas and cross-cluster) are `🔄 Active`. Each has materialized its
 typed renderers, catalogs, command summaries, or test bodies in the
 worktree, but at least one owned Exit-Definition obligation requires live
 runtime behaviour or default tool execution that the worktree does not
-exercise. Phase `7` Sprint `7.4` closed on 2026-05-24 against an RTX 3090
-+ CUDA 12.8 validation host (live `nvcc` compile, link against
-`libcudart` / `libcublas` / `libcudnn`, `dlopen`, real device kernel launch,
-bit-identical output across three runs, and round-trip of the typed Haskell
-cuBLAS / cuDNN binding handles), and the live CUDA portion of Sprint `7.6`
-closed on the same date through `cudaBenchmarkCandidateRunner`. The unmet
+exercise. The unmet
 obligations are: the explicit Pulumi-orchestrated ephemeral Kind e2e path
 for Exit 3; Apple Silicon Metal kernel compile/load/execute and the live
-Metal candidate measurement runner plus first-cache-miss benchmark
-invocation in Sprints `7.5` / `7.6` (Exit 1, 5, 12); real SL / RL / AlphaZero training loops with golden convergence and reward
+Metal candidate measurement runner (owned by Phase `14`); real SL / RL /
+AlphaZero training loops with golden convergence and reward
 fixtures, plus live tuner trial execution / persistence beyond the local TPE Dhall render path
-(Exit 6); the PureScript `purescript-spec` smoke suite still open under
-Sprint `11.3` (Exit 15) — the default `purs-tidy check` invocation closed on
-2026-05-23; the live `jitml-e2e` Pulumi + Helm + Playwright path
-against an ephemeral Kind stack (Exit 8, 9); and the empty legacy ledger that
-closes after the remaining runtime gates and toolchain cleanup close (Exit 18).
+(Exit 6); the Halogen + `purescript-spec` code surfaces closed on
+2026-05-24 (Sprints `11.3` and `11.4`'s code-only halves); the
+`proto-lens` cross-language wire bindings under `gen/Proto/Jitml/*`
+closed on 2026-05-24 for all four envelope schemas
+(`training`, `rl`, `tune`, `inference`); the
+`purs-tidy check` invocation closed on 2026-05-23; the live `/api/ws`
+WebSocket proxy still open under Sprint `11.4` migrated to Phase 13; the
+live `jitml-e2e` Pulumi + Helm + Playwright path against an ephemeral
+Kind stack (Exit 8, 9); and the empty legacy ledger that closes after
+the remaining runtime gates and toolchain cleanup close (Exit 18).
 Each gap is logged in the
 owning sprint's `### Remaining Work` block; the dependency-ordered sequence is
 in [Execution Roadmap](#execution-roadmap) above.

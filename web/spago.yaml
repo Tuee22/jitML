@@ -1,12 +1,22 @@
 package:
   name: jitml-web
   dependencies:
+    - aff
+    - arrays
     - console
     - effect
+    - foldable-traversable
+    - halogen
+    - halogen-vdom
+    - maybe
     - prelude
+    - tuples
+    - web-html
   test:
     main: Test.Main
-    dependencies: []
+    dependencies:
+      - aff
+      - spec
 workspace:
   packageSet:
     registry: 77.3.1

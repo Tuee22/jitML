@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-training-throughput
+  namespace: platform
+  labels:
+    grafana_dashboard: "1"
+data:
+  training-throughput.json: |
+    {
+      "title": "training-throughput",
+      "panels": [{"type":"timeseries","targets":[{"expr":"jitml_training_examples_per_second"}]}]
+    }

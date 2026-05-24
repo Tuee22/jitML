@@ -28,6 +28,12 @@ import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import Data.ProtoLens qualified as ProtoLens
+import Data.ProtoLens.Field qualified as Field
+import Lens.Family2 qualified as Lens
+import Proto.Jitml.Inference qualified as ProtoInference
+import Proto.Jitml.Inference_Fields ()
+
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Proto.Inference qualified as Inference
@@ -155,6 +161,28 @@ main =
             @?= Right request
           Inference.decodeInferenceResultProto (Inference.encodeInferenceResultProto result)
             @?= Right result
+      , testCase "local proto3 bytes decode through the proto-lens generated InferenceRequest" $ do
+          let request =
+                Inference.InferenceRequest
+                  { Inference.irCallId = "call-cross"
+                  , Inference.irExperimentHash = "exp-cross"
+                  , Inference.irReplyTopic = "inference.result.linux-cpu"
+                  , Inference.irInput = [0.5, -1.25, 2.5]
+                  }
+              localBytes = Inference.encodeInferenceRequestProto request
+          case ProtoLens.decodeMessage localBytes of
+            Left err ->
+              assertBool ("expected proto-lens decode of local bytes, got: " <> err) False
+            Right (decoded :: ProtoInference.InferenceRequest) -> do
+              Lens.view (Field.field @"callId") decoded @?= Inference.irCallId request
+              Lens.view (Field.field @"experimentHash") decoded
+                @?= Inference.irExperimentHash request
+              Lens.view (Field.field @"replyTopic") decoded
+                @?= Inference.irReplyTopic request
+              Lens.view (Field.field @"input") decoded
+                @?= Inference.irInput request
+              let reencoded = ProtoLens.encodeMessage decoded
+              Inference.decodeInferenceRequestProto reencoded @?= Right request
       , testCase "Apple host inference RPC envelopes render and parse (Sprint 7.5)" $ do
           let command =
                 Inference.AppleInferenceCommand

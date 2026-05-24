@@ -1,0 +1,25 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: pulsar-admin
+  namespace: platform
+  labels:
+    app.kubernetes.io/part-of: jitml
+spec:
+  parentRefs:
+    - name: jitml-edge
+      namespace: platform
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /pulsar/admin
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /admin
+      backendRefs:
+        - name: pulsar-proxy
+          port: 80

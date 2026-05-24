@@ -21,12 +21,13 @@
 
 ## Phase Status
 
-🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
-the code-surface portion of its owned obligations: the per-substrate
-source renderers, content-addressed cache key + storage, the typed
-Subprocess plans for `metal` / `nvcc` / `g++`, the typed runtime
-probes, and the typed candidate-runner scaffold. The live Apple Metal
-execution path migrated to
+✅ **Done** (code-surface only). After the 2026-05-24 refactor, this
+phase carries only the code-surface portion of its owned obligations:
+the per-substrate source renderers, content-addressed cache key +
+storage, the typed Subprocess plans for `metal` / `nvcc` / `g++`, the
+typed runtime probes, the typed candidate-runner scaffold, and the
+benchmark-runner wiring into the first-cache-miss path. The live Apple
+Metal execution path migrated to
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md);
 the live Linux CPU full-tensor benchmark payload + first-cache-miss
 execution path migrated to
@@ -694,21 +695,23 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
   [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
   Sprints `14.1`, `14.2`, `14.4`.
 
-## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract 🔄
+## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract ✅
 
-**Status**: Active
+**Status**: Done
 **Owned obligations after refactor**: code-surface only. The Metal
 candidate runner live execution migrated to Phase `14` Sprint `14.3`.
 The Linux CPU full-tensor benchmark payload migration and live
 first-cache-miss measurement migrated to Phase `13` Sprint `13.15`.
 The cross-substrate equality test migrated to Phase `15` Sprint `15.1`.
-This sprint retains the code-only obligation of wiring the benchmark
-runner into `ensureKernelArtifact`'s first-cache-miss path; the live
-runtime validation of that wiring is owned by Phase `13` Sprint `13.15`.
+The code-only benchmark-runner wiring into `ensureKernelArtifact`'s
+first-cache-miss path closed on 2026-05-24 through
+`JitML.Engines.TuningBenchmark.{ensureKernelArtifactWithBenchmarkTuning,
+ensureTuningSelection,candidateRunnerForSubstrate}`; the live runtime
+validation remains owned by Phase `13` Sprint `13.15`.
 **Implementation**: `src/JitML/Cache/Key.hs`,
 `src/JitML/Engines/Tuning.hs`, `src/JitML/Engines/TuningBenchmark.hs`,
 `src/JitML/Engines/TuningStore.hs`,
-`src/JitML/Engines/TuningCache.hs`
+`src/JitML/Engines/TuningCache.hs`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`
 
@@ -820,13 +823,23 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
 
 ### Remaining Work
 
-- Wire `Engines.TuningBenchmark.collectAndPersistBenchmarkSelection` into
-  `JitML.Engines.Loader.ensureKernelArtifact`'s first-cache-miss path so
-  the typed runner is invoked during real compilation. Pure Haskell IO
-  wiring: select the candidate runner per substrate
-  (`linuxCpuBenchmarkCandidateRunner`, `cudaBenchmarkCandidateRunner`,
-  `metalBenchmarkCandidateRunner`), thread it through the cache-miss
-  branch, and persist the selection via `TuningStore`. The live runtime
+- No sprint-owned code-surface Remaining Work remains. The
+  `ensureKernelArtifactWithBenchmarkTuning` /
+  `ensureKernelArtifactWithBenchmarkTuningWithRunner` /
+  `ensureTuningSelection` wiring in
+  `JitML.Engines.TuningBenchmark` selects the substrate-specific candidate
+  runner (`linuxCpuBenchmarkCandidateRunner`,
+  `cudaBenchmarkCandidateRunner`, `metalBenchmarkCandidateRunner`),
+  drives the deterministic benchmark plan, persists the lowest-latency
+  selection through `TuningStore`, and re-resolves the tuned
+  `TuningCachePlan` before invoking `ensureKernelArtifact`. `jitml build`
+  now routes Linux CPU and Linux CUDA non-dry-run builds through the
+  tuned ensure path, leaving the apple-silicon Tart cache-miss path on
+  the direct ensure boundary until Phase `14` Sprint `14.3` fills in the
+  Metal candidate runner. The 2026-05-24 in-container
+  `cabal test jitml-unit -p "ensureTuningSelection"` validates the
+  synthetic runner is invoked exactly once per candidate on first call
+  and is not invoked again on the cached re-resolution. The live runtime
   validation that hardware-tuned choices get selected during real
   compilation is owned by Phase `13` Sprint `13.15` (Linux CPU) and Phase
   `14` Sprint `14.3` (Metal). The cross-substrate equality test (linux-cpu

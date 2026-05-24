@@ -166,23 +166,23 @@ proto-lens output remains target work. Target runtime work publishes
 ## RL Algorithm Catalog
 
 <!-- jitml:training.rl.catalog:start -->
-| Algorithm | Family | Replay-backed | Current owner |
-|-----------|--------|---------------|---------------|
-| `PPO` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
-| `A2C` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
-| `TRPO` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
-| `MaskablePPO` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
-| `RecurrentPPO` | OnPolicy | no | `src/JitML/RL/Algorithms.hs` |
-| `DQN` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
-| `QR-DQN` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
-| `DDPG` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
-| `TD3` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
-| `SAC` | OffPolicy | yes | `src/JitML/RL/Algorithms.hs` |
-| `CrossQ` | Specialized | yes | `src/JitML/RL/Algorithms.hs` |
-| `TQC` | Specialized | yes | `src/JitML/RL/Algorithms.hs` |
-| `ARS` | Specialized | no | `src/JitML/RL/Algorithms.hs` |
-| `HER` | Specialized | yes | `src/JitML/RL/Algorithms.hs` |
-| `AlphaZero` | SelfPlay | no | `src/JitML/RL/Algorithms.hs` |
+| Algorithm | Family | Replay-backed | Hyperparameters | Module |
+|-----------|--------|---------------|-----------------|--------|
+| `PPO` | OnPolicy | no | 10 | `src/JitML/RL/Algorithms/Ppo.hs` |
+| `A2C` | OnPolicy | no | 7 | `src/JitML/RL/Algorithms/A2c.hs` |
+| `TRPO` | OnPolicy | no | 7 | `src/JitML/RL/Algorithms/Trpo.hs` |
+| `MaskablePPO` | OnPolicy | no | 6 | `src/JitML/RL/Algorithms/MaskablePpo.hs` |
+| `RecurrentPPO` | OnPolicy | no | 6 | `src/JitML/RL/Algorithms/RecurrentPpo.hs` |
+| `DQN` | OffPolicy | yes | 9 | `src/JitML/RL/Algorithms/Dqn.hs` |
+| `QR-DQN` | OffPolicy | yes | 6 | `src/JitML/RL/Algorithms/QrDqn.hs` |
+| `DDPG` | OffPolicy | yes | 7 | `src/JitML/RL/Algorithms/Ddpg.hs` |
+| `TD3` | OffPolicy | yes | 7 | `src/JitML/RL/Algorithms/Td3.hs` |
+| `SAC` | OffPolicy | yes | 7 | `src/JitML/RL/Algorithms/Sac.hs` |
+| `CrossQ` | Specialized | yes | 6 | `src/JitML/RL/Algorithms/CrossQ.hs` |
+| `TQC` | Specialized | yes | 6 | `src/JitML/RL/Algorithms/Tqc.hs` |
+| `ARS` | Specialized | no | 5 | `src/JitML/RL/Algorithms/Ars.hs` |
+| `HER` | Specialized | yes | 5 | `src/JitML/RL/Algorithms/Her.hs` |
+| `AlphaZero` | SelfPlay | no | 0 | `src/JitML/RL/AlphaZero/` |
 <!-- jitml:training.rl.catalog:end -->
 
 `dhall/rl/Schema.dhall` is the current Dhall mirror for the local Haskell

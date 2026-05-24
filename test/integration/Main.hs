@@ -79,6 +79,7 @@ import JitML.Tune.Catalog qualified as Tune
 import JitML.Tune.Resume qualified as TuneResume
 import System.Directory (doesFileExist, listDirectory, makeAbsolute)
 import System.FilePath ((</>))
+import System.Info qualified as SystemInfo
 
 main :: IO ()
 main =
@@ -1472,23 +1473,53 @@ main =
           kubectlNamespace defaultKubectlSettings @?= "platform"
       ]
 
--- | Find the freshly-built `jitml` binary by walking dist-newstyle. Returns
--- `Nothing` if the binary isn't built (first build path). Returns an
--- absolute path so the spawned process can resolve it regardless of cwd.
+-- | Find the freshly-built `jitml` binary. Returns @Nothing@ if the binary
+-- isn't built (first build path). Returns an absolute path so the spawned
+-- process can resolve it regardless of cwd. Preference order: the
+-- container-installed @/usr/local/bin/jitml@ (the path the @jitml:local@
+-- Dockerfile drops it at) → the platform-matching @dist-newstyle@ build
+-- (rejecting wrong-arch binaries the host bind-mount may expose) → any
+-- @dist-newstyle@ binary whose arch directory matches the current host.
 locateJitmlBinary :: IO (Maybe FilePath)
 locateJitmlBinary = do
-  let relative =
-        "dist-newstyle/build/aarch64-osx/ghc-9.14.1/jitml-0.1.0.0/x/jitml/build/jitml/jitml"
-  exists <- doesFileExist relative
-  if exists
-    then Just <$> makeAbsolute relative
+  installed <- doesFileExist installedBinaryPath
+  if installed
+    then Just <$> makeAbsolute installedBinaryPath
     else do
-      base <-
-        (Just <$> listDirectory "dist-newstyle/build")
-          `Control.Exception.catch` (\(_ :: IOError) -> pure Nothing)
-      case base of
-        Nothing -> pure Nothing
-        Just archEntries -> searchForBinary archEntries
+      let preferred =
+            "dist-newstyle/build/"
+              <> currentArchDir
+              <> "/ghc-9.14.1/jitml-0.1.0.0/x/jitml/build/jitml/jitml"
+      exists <- doesFileExist preferred
+      if exists
+        then Just <$> makeAbsolute preferred
+        else do
+          base <-
+            (Just <$> listDirectory "dist-newstyle/build")
+              `Control.Exception.catch` (\(_ :: IOError) -> pure Nothing)
+          case base of
+            Nothing -> pure Nothing
+            Just archEntries ->
+              searchForBinary (filter matchesCurrentPlatform archEntries)
+
+installedBinaryPath :: FilePath
+installedBinaryPath = "/usr/local/bin/jitml"
+
+-- | Cabal's @dist-newstyle@ arch directory suffix for the current host.
+-- macOS reports @darwin@ from 'SystemInfo.os', but cabal writes @osx@; Linux
+-- uses @linux@ verbatim.
+currentArchDir :: FilePath
+currentArchDir = SystemInfo.arch <> "-" <> cabalOsSuffix
+ where
+  cabalOsSuffix = case SystemInfo.os of
+    "darwin" -> "osx"
+    other -> other
+
+-- | Reject @dist-newstyle@ arch directories that don't match the running
+-- host, so a Linux container running the test stanza ignores the macOS
+-- binary the host bind-mount exposes (and vice versa).
+matchesCurrentPlatform :: FilePath -> Bool
+matchesCurrentPlatform arch = arch == currentArchDir
 
 searchForBinary :: [FilePath] -> IO (Maybe FilePath)
 searchForBinary [] = pure Nothing

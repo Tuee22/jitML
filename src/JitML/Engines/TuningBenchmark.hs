@@ -2,12 +2,17 @@
 
 module JitML.Engines.TuningBenchmark
   ( BenchmarkObservation (..)
+  , BenchmarkCandidateRunner
+  , candidateRunnerForSubstrate
   , collectAndPersistBenchmarkSelection
   , collectBenchmarkMeasurements
   , cudaBenchmarkCandidateRunner
   , cudaBenchmarkCandidateRunnerWithProbe
   , digestDoubleOutput
   , digestFloatOutput
+  , ensureKernelArtifactWithBenchmarkTuning
+  , ensureKernelArtifactWithBenchmarkTuningWithRunner
+  , ensureTuningSelection
   , linuxCpuBenchmarkCandidateRunner
   , measureBenchmarkObservation
   , metalBenchmarkCandidateRunner
@@ -25,24 +30,34 @@ import Data.Word (Word32, Word64, Word8)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Float (castDoubleToWord64, castFloatToWord32)
 
+import Path (toFilePath)
+
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Engines.CudaLocal qualified as CudaLocal
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
+import JitML.Engines.Engine (engineForSubstrate)
+import JitML.Engines.Loader (KernelArtifact, ensureKernelArtifact)
 import JitML.Engines.Local qualified as Local
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.Tuning
   ( BenchmarkMeasurement (..)
   , BenchmarkPlan (..)
   , TuningResult
+  , benchmarkPlan
+  , knobSpace
   , tuningChoiceForResult
   , tuningSubstrate
+  )
+import JitML.Engines.TuningCache
+  ( TuningCachePlan (..)
+  , selectTuningCachePlan
   )
 import JitML.Engines.TuningStore
   ( PersistedTuningSelection
   , persistSelectedMeasuredTuning
   )
-import JitML.Env.Env (Env)
+import JitML.Env.Env (Env (..))
 import JitML.Substrate (Substrate (..), renderSubstrate)
 
 data BenchmarkObservation = BenchmarkObservation
@@ -196,6 +211,100 @@ collectAndPersistBenchmarkSelection buildRoot baseHash plan runCandidate = do
   case measurementsResult of
     Left err -> pure (Left err)
     Right measurements -> persistSelectedMeasuredTuning buildRoot baseHash plan measurements
+
+type BenchmarkCandidateRunner =
+  Env
+  -> Cache.KernelSpec
+  -> Cache.Kind
+  -> [Float]
+  -> TuningResult
+  -> IO (Either Text BenchmarkObservation)
+
+candidateRunnerForSubstrate :: Substrate -> BenchmarkCandidateRunner
+candidateRunnerForSubstrate LinuxCPU = linuxCpuBenchmarkCandidateRunner
+candidateRunnerForSubstrate LinuxCUDA = cudaBenchmarkCandidateRunner
+candidateRunnerForSubstrate AppleSilicon =
+  \_env kernelSpec kind input -> metalBenchmarkCandidateRunner kernelSpec kind input
+
+-- | Ensure the JIT cache artifact for @substrate@ exists, invoking the typed
+-- benchmark candidate runner on the first cache miss so the persisted tuning
+-- selection is set before the artifact is materialised.
+--
+-- This is the @collectAndPersistBenchmarkSelection@ → @TuningStore@ wiring
+-- prescribed by Phase 7 Sprint 7.6: when no persisted selection exists for the
+-- @(substrate, base-hash)@ pair, the substrate-specific candidate runner is
+-- invoked across the deterministic benchmark plan, the lowest-latency
+-- candidate is persisted, and the runtime source for the selected
+-- 'TuningResult' is compiled into the cache. When a persisted selection
+-- already exists, the tuned runtime source is used directly.
+ensureKernelArtifactWithBenchmarkTuning
+  :: Env
+  -> Substrate
+  -> Cache.KernelSpec
+  -> Cache.Kind
+  -> Cache.ToolchainFingerprint
+  -> [Float]
+  -> IO (Either Text KernelArtifact)
+ensureKernelArtifactWithBenchmarkTuning env substrate =
+  ensureKernelArtifactWithBenchmarkTuningWithRunner
+    env
+    substrate
+    (candidateRunnerForSubstrate substrate)
+
+ensureKernelArtifactWithBenchmarkTuningWithRunner
+  :: Env
+  -> Substrate
+  -> BenchmarkCandidateRunner
+  -> Cache.KernelSpec
+  -> Cache.Kind
+  -> Cache.ToolchainFingerprint
+  -> [Float]
+  -> IO (Either Text KernelArtifact)
+ensureKernelArtifactWithBenchmarkTuningWithRunner env substrate runner kernelSpec kind fingerprint input = do
+  tuned <- ensureTuningSelection env substrate runner kernelSpec kind fingerprint input
+  case tuned of
+    Left err -> pure (Left err)
+    Right plan ->
+      ensureKernelArtifact
+        env
+        (engineForSubstrate substrate)
+        (tuningCacheRuntimeSource plan)
+        (tuningCacheHash plan)
+
+-- | The persistence half of the benchmark-tuning wiring: load the persisted
+-- selection if one exists, otherwise run the supplied candidate runner across
+-- the deterministic benchmark plan and persist the lowest-latency selection
+-- before re-resolving the tuning plan.
+ensureTuningSelection
+  :: Env
+  -> Substrate
+  -> BenchmarkCandidateRunner
+  -> Cache.KernelSpec
+  -> Cache.Kind
+  -> Cache.ToolchainFingerprint
+  -> [Float]
+  -> IO (Either Text TuningCachePlan)
+ensureTuningSelection env substrate runner kernelSpec kind fingerprint input = do
+  initialPlan <- selectTuningCachePlan buildRoot kernelSpec kind substrate fingerprint
+  case initialPlan of
+    Left err -> pure (Left err)
+    Right plan
+      | Just _ <- tuningCachePersistedSelection plan ->
+          pure (Right plan)
+      | otherwise -> do
+          let candidatePlan = benchmarkPlan (knobSpace substrate)
+          selectionResult <-
+            collectAndPersistBenchmarkSelection
+              buildRoot
+              (tuningCacheBaseHash plan)
+              candidatePlan
+              (runner env kernelSpec kind input)
+          case selectionResult of
+            Left err -> pure (Left err)
+            Right _persisted ->
+              selectTuningCachePlan buildRoot kernelSpec kind substrate fingerprint
+ where
+  buildRoot = toFilePath (envCacheDir env)
 
 linuxCpuBenchmarkCandidateRunner
   :: Env

@@ -10,6 +10,8 @@ import Data.ByteString.Lazy qualified as ByteString
 import Data.Foldable (traverse_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (find, isInfixOf)
+import Data.List qualified as List
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -122,6 +124,7 @@ import JitML.RL.Buffer qualified as Buffer
 import JitML.RL.Environments qualified as RLEnvironments
 import JitML.RL.Framework qualified as RLFramework
 import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
+import JitML.RL.Simulator qualified as Sim
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.HotReload qualified as HotReload
 import JitML.Service.LiveConfig qualified as LiveConfig
@@ -1218,6 +1221,76 @@ main =
                     )
               _ ->
                 assertFailure "expected at least two benchmark candidates"
+      , testCase "ensureTuningSelection persists synthetic runner output on first cache miss" $
+          withSystemTempDirectory "jitml-tuning-ensure" $ \dir -> do
+            env <-
+              buildEnv
+                defaultGlobalFlags
+                  { globalCacheDir = Just (dir </> ".build")
+                  , globalDataDir = Just (dir </> ".data")
+                  }
+            runnerCalls <- newIORef (0 :: Int)
+            let kernelSpec = Cache.KernelSpec "phase-7-kernel:ensure-tuning"
+                kind = Cache.Training
+                fingerprint = Cache.ToolchainFingerprint "g++-shared;tuning=ensure-test"
+                substrate = Substrate.LinuxCPU
+                plan = Tuning.benchmarkPlan (Tuning.knobSpace substrate)
+                candidates = Tuning.benchmarkPlanResults plan
+                candidateLatency candidate =
+                  10 + 100 * fromMaybe 0 (List.elemIndex candidate candidates)
+                syntheticRunner _env _spec _kind _input candidate = do
+                  modifyIORef' runnerCalls succ
+                  pure $
+                    Right
+                      ( TuningBenchmark.BenchmarkObservation
+                          (candidateLatency candidate)
+                          ( "digest-"
+                              <> Cache.unTuningChoice (Tuning.tuningChoiceForResult candidate)
+                          )
+                      )
+            firstResult <-
+              TuningBenchmark.ensureTuningSelection
+                env
+                substrate
+                syntheticRunner
+                kernelSpec
+                kind
+                fingerprint
+                [1.0, 2.0]
+            firstPlan <- case firstResult of
+              Left err -> assertFailure (Text.unpack err) >> error "unreachable"
+              Right p -> pure p
+            firstCalls <- readIORef runnerCalls
+            firstCalls @?= length candidates
+            firstCandidate <- case candidates of
+              candidate : _ -> pure candidate
+              [] -> assertFailure "expected at least one Linux CPU benchmark candidate" >> error "unreachable"
+            case TuningCache.tuningCachePersistedSelection firstPlan of
+              Nothing -> assertFailure "first ensureTuningSelection did not persist a selection"
+              Just selection ->
+                TuningStore.persistedTuningChoice selection
+                  @?= Tuning.tuningChoiceForResult firstCandidate
+            TuningCache.tuningCacheSelectionSource firstPlan @?= "persisted"
+            secondResult <-
+              TuningBenchmark.ensureTuningSelection
+                env
+                substrate
+                syntheticRunner
+                kernelSpec
+                kind
+                fingerprint
+                [1.0, 2.0]
+            secondPlan <- case secondResult of
+              Left err -> assertFailure (Text.unpack err) >> error "unreachable"
+              Right p -> pure p
+            secondCalls <- readIORef runnerCalls
+            assertBool
+              "second ensureTuningSelection does not re-invoke the runner"
+              (secondCalls == firstCalls)
+            TuningCache.tuningCacheTuningChoice secondPlan
+              @?= TuningCache.tuningCacheTuningChoice firstPlan
+            TuningCache.tuningCacheHash secondPlan
+              @?= TuningCache.tuningCacheHash firstPlan
       , testCase "hardware auto-tuning CUDA and Metal runners preflight runtime availability" $ do
           let kernelSpec = Cache.KernelSpec "phase-7-kernel:preflight-runner"
               cudaCandidate = Tuning.selectDeterministic Tuning.linuxCudaKnobs
@@ -1591,6 +1664,62 @@ main =
             @?= ["connect4", "othello", "hex", "gomoku"]
           AlphaZero.policyHeadSize AlphaZero.connect4Network @?= 7
           AlphaZero.arenaWinRate (AlphaZero.ArenaSummary 3 1 0) @?= 0.75
+      , testCase "classical-control simulators step deterministically with physics" $ do
+          -- Cartpole at rest with a right-push starts moving right with
+          -- a positive cart acceleration and a small leftward pole lean.
+          let firstStep = Sim.cartPoleStep Sim.cartPoleInitial 1
+              state1 = Sim.simStepState firstStep
+          Sim.simStepReward firstStep @?= 1.0
+          Sim.simStepDone firstStep @?= False
+          assertBool "cart moves right under positive force" (Sim.cartVelocity state1 > 0)
+          assertBool "pole begins falling left under cart acceleration" (Sim.poleAngularVelocity state1 < 0)
+          -- Stepping the same state twice produces the same result.
+          Sim.cartPoleStep Sim.cartPoleInitial 1 @?= firstStep
+          -- Mountain-car starts at p=-0.5, v=0. Pushing right (action 2)
+          -- gives positive force but gravity dominates initially; pushing
+          -- left should produce negative velocity.
+          let mcStep = Sim.mountainCarStep Sim.mountainCarInitial 0
+              mcState = Sim.simStepState mcStep
+          Sim.simStepReward mcStep @?= -1.0
+          assertBool
+            "mountain-car velocity becomes negative under leftward push"
+            (Sim.mountainCarVelocity mcState < 0)
+          -- A car at the goal terminates.
+          let goalState = Sim.MountainCarState 0.6 0.05
+              goalStep = Sim.mountainCarStep goalState 2
+          Sim.simStepDone goalStep @?= True
+          -- The render-frame observation has the documented length and the
+          -- typed IO boundary mirrors the pure step semantics.
+          length (Sim.renderObservation (Sim.cartPoleRenderFrame Sim.cartPoleInitial)) @?= 4
+          length (Sim.renderObservation (Sim.mountainCarRenderFrame Sim.mountainCarInitial)) @?= 2
+          (obs, reward, done) <- Sim.stepEnvironmentIO Sim.cartPoleEnvironment Sim.cartPoleInitial 1
+          length obs @?= 4
+          reward @?= 1.0
+          done @?= False
+      , testCase "AlphaZero rule engines reject illegal moves per game" $ do
+          -- Othello: cell 19 (D3) flips one stone for opening Black; the
+          -- canonical centre cells 27, 28, 35, 36 are pre-occupied.
+          AlphaZero.othelloLegalMove 19 AlphaZero.initialOthello @?= True
+          AlphaZero.othelloLegalMove 27 AlphaZero.initialOthello @?= False
+          AlphaZero.othelloLegalMove 3 AlphaZero.initialOthello @?= False
+          AlphaZero.othelloFlipsFor AlphaZero.othelloInitialBoard 1 19 @?= [27]
+          -- Hex / Gomoku reject occupied cells.
+          let occupied = AlphaZero.hexApplyMove 5 AlphaZero.initialHex
+          AlphaZero.hexLegalMove 5 AlphaZero.initialHex @?= True
+          AlphaZero.hexLegalMove 5 occupied @?= False
+          AlphaZero.hexLegalMove 121 AlphaZero.initialHex @?= False
+          let gomokuOccupied = AlphaZero.gomokuApplyMove 7 AlphaZero.initialGomoku
+          AlphaZero.gomokuLegalMove 7 AlphaZero.initialGomoku @?= True
+          AlphaZero.gomokuLegalMove 7 gomokuOccupied @?= False
+          -- Connect 4 rejects a column with six pieces already.
+          let columnFull =
+                foldr
+                  (\_ s -> AlphaZero.applyMove 2 s)
+                  AlphaZero.initialConnect4
+                  ([1 .. 6] :: [Int])
+          AlphaZero.connect4LegalMove 2 columnFull @?= False
+          AlphaZero.connect4LegalMove 3 columnFull @?= True
+          AlphaZero.connect4LegalMove (-1) AlphaZero.initialConnect4 @?= False
       , testCase "MCTS transposition table de-dupes equivalent move sequences" $ do
           let cfg = Mcts.defaultMctsConfig 7
               table0 = Mcts.emptyTranspositionTable

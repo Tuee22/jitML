@@ -25,6 +25,12 @@ import JitML.Proto.Rl
   , renderRlCommand
   )
 import JitML.RL.Algorithms (algorithmCatalog, algorithmName, deterministicTrajectory)
+import JitML.RL.Algorithms.Common
+  ( AlgorithmModule (..)
+  , moduleRolloutGenerator
+  , rolloutGoldenLines
+  )
+import JitML.RL.Algorithms.Registry (algorithmModuleRegistry)
 import JitML.RL.AlphaZero (gameMoves, selfPlayTranscript, selfPlayTranscriptFor)
 import JitML.RL.Buffer (bufferSize)
 import JitML.RL.Environments
@@ -42,6 +48,10 @@ import JitML.RL.Loop
   )
 import JitML.RL.Policy (defaultPolicy)
 import JitML.Substrate (Substrate (..))
+import JitML.Test.Report
+  ( ReportCardKnobs (..)
+  , loadReportCardKnobs
+  )
 
 main :: IO ()
 main =
@@ -99,6 +109,25 @@ main =
           fixture <- Text.IO.readFile "test/golden/alphazero/gomoku-transcript.txt"
           Text.lines fixture
             @?= fmap (Text.pack . show . gameMoves) (selfPlayTranscriptFor "gomoku" 3)
+      , testCase "per-algorithm deterministic-stub rollouts match committed goldens" $
+          mapM_ (uncurry checkRolloutGolden) algorithmRolloutCohorts
+      , testCase "rl-canonicals consumes cabal.project rl_steps and rl_eval_episodes knobs" $ do
+          loaded <- loadReportCardKnobs "cabal.project"
+          case loaded of
+            Left err -> assertBool (Text.unpack ("failed to load report-card knobs: " <> err)) False
+            Right knobs -> do
+              assertBool
+                "rl_steps knob is positive"
+                (knobRlSteps knobs > 0)
+              assertBool
+                "rl_eval_episodes knob is positive"
+                (knobRlEvalEpisodes knobs > 0)
+              assertBool
+                "az_games knob is positive"
+                (knobAzGames knobs > 0)
+              assertBool
+                "az_sims knob is positive"
+                (knobAzSims knobs > 0)
       , testCase "RL command envelopes parse after render" $ do
           let start =
                 RlStart
@@ -166,3 +195,39 @@ main =
 assertContains :: Text -> [Text] -> IO ()
 assertContains value values =
   assertBool ("missing " <> show value) (value `elem` values)
+
+-- | Per-algorithm canonical environment pairing used by the deterministic-stub
+-- rollout golden assertion. The pairing keeps continuous-control algorithms on
+-- mountain-car and leaves the discrete algorithms on cartpole.
+algorithmRolloutCohorts :: [(Text, Text)]
+algorithmRolloutCohorts =
+  [ ("PPO", "cartpole")
+  , ("A2C", "cartpole")
+  , ("TRPO", "cartpole")
+  , ("MaskablePPO", "cartpole")
+  , ("RecurrentPPO", "cartpole")
+  , ("DQN", "cartpole")
+  , ("QR-DQN", "cartpole")
+  , ("DDPG", "mountain-car")
+  , ("TD3", "mountain-car")
+  , ("SAC", "mountain-car")
+  , ("CrossQ", "mountain-car")
+  , ("TQC", "mountain-car")
+  , ("ARS", "cartpole")
+  , ("HER", "mountain-car")
+  ]
+
+checkRolloutGolden :: Text -> Text -> IO ()
+checkRolloutGolden algoName envName =
+  case [m | m <- algorithmModuleRegistry, algorithmName (moduleAlgorithm m) == algoName] of
+    [] -> assertBool ("missing algorithm module for " <> show algoName) False
+    (m : _) -> do
+      let rollout = moduleRolloutGenerator m envName 42 8
+          path =
+            "test/golden/rl/"
+              <> Text.unpack (Text.toLower (Text.replace "-" "-" algoName))
+              <> "/"
+              <> Text.unpack envName
+              <> "/rollout.txt"
+      fixture <- Text.IO.readFile path
+      Text.lines fixture @?= rolloutGoldenLines rollout

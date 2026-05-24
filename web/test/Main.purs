@@ -1,12 +1,14 @@
--- | purescript-spec smoke suite for every typed panel contract.
--- | Each entry exercises a request/response payload shape from `Panels.*`.
+-- | purescript-spec smoke suite for every typed panel contract. Each
+-- | describe block exercises the payload-shape contracts the panel will
+-- | exchange with the daemon once `/api/inference`, `/api/ws`, and
+-- | `/api/connect4/move` are wired through Phase 13 Sprint 13.13.
 module Test.Main where
 
 import Prelude
 
+import Data.Array (length)
 import Effect (Effect)
-import Effect.Console (log)
-
+import Effect.Aff (launchAff_)
 import Generated.Contracts as Contracts
 import Panels.Cifar as Cifar
 import Panels.Connect4 as Connect4
@@ -14,19 +16,50 @@ import Panels.Mnist as Mnist
 import Panels.Rl as Rl
 import Panels.Training as Training
 import Panels.Tune as Tune
+import Test.Spec (describe, it)
+import Test.Spec.Assertions (shouldEqual, shouldSatisfy)
+import Test.Spec.Reporter (consoleReporter)
+import Test.Spec.Runner (runSpec)
 
--- | Smokes the six typed panel contracts and confirms the generated browser
--- contracts surface is non-empty.
 main :: Effect Unit
-main = do
-  log ("panel: " <> Mnist.panelName)
-  log ("panel: " <> Cifar.panelName)
-  log ("panel: " <> Connect4.panelName)
-  log ("panel: " <> Rl.panelName)
-  log ("panel: " <> Training.panelName)
-  log ("panel: " <> Tune.panelName)
-  log ("first endpoint: " <> firstPath)
-  where
-  firstPath = case Contracts.endpoints of
-    [] -> "none"
-    _ -> "/api"
+main = launchAff_ $ runSpec [ consoleReporter ] do
+  describe "panel typed contracts" do
+    it "MNIST renderRequest pins the panel name and model id" do
+      let req = Mnist.renderRequest [ 1, 2, 3 ]
+      req.panel `shouldEqual` Mnist.panelName
+      req.modelId `shouldEqual` Mnist.defaultModelId
+      length req.canvasPixels `shouldEqual` 3
+
+    it "CIFAR upload request pins the panel name and default dataset" do
+      let req = Cifar.renderUploadRequest "base64"
+      req.panel `shouldEqual` Cifar.panelName
+      req.datasetName `shouldEqual` Cifar.defaultDataset
+
+    it "Connect 4 move request pins the panel name and simulation budget" do
+      let req = Connect4.renderMoveRequest [ 3, 4 ] 1
+      req.panel `shouldEqual` Connect4.panelName
+      req.humanIsPlayer `shouldEqual` 1
+      req.simulationsPerMove `shouldEqual` Connect4.defaultSimulations
+      length req.moves `shouldEqual` 2
+
+    it "RL frame pins the panel name and observation hash" do
+      let frame = Rl.renderFrame 0 7 1.5 false 42
+      frame.panel `shouldEqual` Rl.panelName
+      frame.observationHash `shouldEqual` 42
+      frame.reward `shouldEqual` 1.5
+
+    it "Training frame pins the panel name and validation loss" do
+      let frame = Training.renderFrame "sha" 4 0.5 0.25 1234
+      frame.panel `shouldEqual` Training.panelName
+      frame.epoch `shouldEqual` 4
+      frame.validationLoss `shouldEqual` 0.25
+
+    it "Tune trial frame pins the panel name and trial seed" do
+      let frame = Tune.renderTrialFrame 7 4242 0.875 false "{}"
+      frame.panel `shouldEqual` Tune.panelName
+      frame.trialSeed `shouldEqual` 4242
+      frame.pruned `shouldEqual` false
+
+  describe "generated browser contracts" do
+    it "generated endpoints catalog is non-empty" do
+      Contracts.endpoints `shouldSatisfy` (\eps -> length eps > 0)

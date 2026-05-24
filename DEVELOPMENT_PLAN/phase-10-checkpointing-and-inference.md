@@ -392,10 +392,15 @@ weight-blob-to-kernel loading remain target runtime work.
 
 ### Remaining Work
 
-- Generate cross-language bindings from `proto/jitml/inference.proto`
-  once the project moves from local proto3-compatible codecs to
-  generated proto-lens / browser interop for all daemon envelopes.
-  (Code-only.)
+- Cross-language bindings for `proto/jitml/inference.proto` closed on
+  2026-05-24: `gen/Proto/Jitml/Inference.hs` and
+  `gen/Proto/Jitml/Inference_Fields.hs` are exposed by the cabal
+  library. The new `local proto3 bytes decode through the proto-lens
+  generated InferenceRequest` case in `jitml-daemon-lifecycle`
+  validates that the local `encodeInferenceRequestProto` output decodes
+  cleanly through `Proto.Jitml.Inference.InferenceRequest` and
+  re-encodes back to bytes the local codec decodes to the original
+  value (wire-format byte-equivalence).
 - The user-facing `jitml inference run` live MinIO path and `jitml
   inspect replay` live MinIO manifest read are owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)

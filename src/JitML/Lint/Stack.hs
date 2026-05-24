@@ -111,6 +111,7 @@ checkPureScriptLint = do
   sources <- purescriptSources
   sourceFindings <- concat <$> traverse checkPureScriptSource sources
   tidyFindings <- runPureScriptTidyCheck
+  specFindings <- runPureScriptSpecSuite
   pure
     ( contractFindings
         <> checkPureScriptRenderer
@@ -119,6 +120,7 @@ checkPureScriptLint = do
         <> checkPureScriptPanelCoverage
         <> checkPureScriptToolSubprocesses
         <> tidyFindings
+        <> specFindings
     )
 
 -- | Invoke the container-installed `purs-tidy check` to enforce
@@ -143,6 +145,29 @@ runPureScriptTidyCheck = do
             "purescript.purs-tidy.drift"
             "purs-tidy reported PureScript formatting drift"
             pureScriptTidyCmd
+
+-- | Invoke the container-installed `spago test` to run the
+-- `purescript-spec` smoke suite that touches every typed `Panels.*`
+-- contract. When `spago` is missing (host invocation), the lint target
+-- reports a missing-tools finding via 'runPureScriptTidyCheck' (the two
+-- paths share the same container-tools precondition); a present `spago`
+-- runs the suite and surfaces any failure as a `purescript.spec.fail`
+-- finding with the captured stdout/stderr.
+runPureScriptSpecSuite :: IO [LintFinding]
+runPureScriptSpecSuite = do
+  webExists <- doesDirectoryExist "web"
+  if not webExists
+    then pure []
+    else do
+      spagoAvailable <- doesFileExist containerPureScriptSpagoPath
+      if not spagoAvailable
+        then pure []
+        else
+          runCommandFinding
+            "web/test/Main.purs"
+            "purescript.spec.fail"
+            "purescript-spec smoke suite reported failures"
+            pureScriptSpagoCmd
 
 missingPureScriptToolsFinding :: LintFinding
 missingPureScriptToolsFinding =
@@ -395,6 +420,7 @@ shouldSkipPath path =
     , ".build/"
     , ".data/"
     , "dist-newstyle/"
+    , "gen/"
     , "node_modules/"
     , "web/node_modules/"
     , "web/output/"

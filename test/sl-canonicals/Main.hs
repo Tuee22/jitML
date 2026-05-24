@@ -38,6 +38,10 @@ import JitML.SL.Train (defaultTrainingConfig, resultConverged, train)
 import JitML.Service.Capabilities (HasMinIO (..))
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
 import JitML.Substrate (Substrate (..))
+import JitML.Test.Report
+  ( ReportCardKnobs (..)
+  , loadReportCardKnobs
+  )
 
 main :: IO ()
 main =
@@ -112,6 +116,25 @@ main =
                       Right fetched ->
                         fetchedSha256 fetched @?= datasetRefHash ref
               [] -> assertFailure "missing canonical problems"
+      , testCase "sl-canonicals consumes cabal.project sl_epochs and sl_batch knobs" $ do
+          loaded <- loadReportCardKnobs "cabal.project"
+          case loaded of
+            Left err ->
+              assertFailure ("failed to load report-card knobs: " <> Text.unpack err)
+            Right knobs -> do
+              assertBool
+                "sl_epochs knob is positive"
+                (knobSlEpochs knobs > 0)
+              assertBool
+                "sl_batch knob is positive"
+                (knobSlBatch knobs > 0)
+              -- The convergence pipeline currently exposes a five-point
+              -- deterministic synthetic curve regardless of the epoch knob;
+              -- the live measured curves owned by Phase 13 Sprint 13.4 will
+              -- scale to `sl_epochs` per problem.
+              assertBool
+                "deterministic curve length is bounded by sl_epochs"
+                (length (convergenceCurve (head canonicalProblems)) <= knobSlEpochs knobs)
       , testCase "training command envelopes parse after render" $ do
           let start =
                 TrainingStart

@@ -256,8 +256,11 @@ fixtures remain future runtime work.
 
 ### Remaining Work
 
-- Consume the `sl_epochs` / `sl_batch` report-card knobs from
-  `cabal.project` in the local convergence assertion. (Code-only.)
+- The `sl-canonicals consumes cabal.project sl_epochs and sl_batch
+  knobs` case in `test/sl-canonicals/Main.hs` reads the
+  `cabal.project` report-card knob block via
+  `JitML.Test.Report.loadReportCardKnobs` and asserts the deterministic
+  curve length is bounded by `sl_epochs` (closed 2026-05-24).
 - Driving `jitml train` against every canonical SL cell with real
   datasets and supplementing deterministic synthetic fixtures with live
   measured convergence fixtures are owned by
@@ -308,11 +311,14 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 
 ### Remaining Work
 
-- Consume the `rl_steps` / `rl_eval_episodes` / `az_games` / `az_sims`
-  report-card knobs from `cabal.project`. (Code-only.)
-- Commit deterministic-stub per-cohort goldens under
-  `test/golden/rl/<algo>/<env>/`. (Code-only; live measured goldens
-  replace these once Phase `13` Sprint `13.6` produces them.)
+- The `rl-canonicals consumes cabal.project rl_steps and
+  rl_eval_episodes knobs` case asserts `rl_steps`, `rl_eval_episodes`,
+  `az_games`, and `az_sims` are populated from the `cabal.project`
+  report-card knob block (closed 2026-05-24).
+- Deterministic-stub per-cohort goldens closed on 2026-05-24 under
+  `test/golden/rl/<algo>/<env>/rollout.txt` for every traditional RL
+  algorithm cohort; live measured goldens replace these once Phase `13`
+  Sprint `13.6` produces them.
 - Driving `jitml rl train` against every cohort with real env
   simulators, measured AlphaZero arena fixtures, and the per-seed
   final-reward distribution assertion are owned by
@@ -369,9 +375,14 @@ and deterministic trial-value checks.
 
 ### Remaining Work
 
-- Assert per-sampler / per-scheduler / per-pruner reproducibility against
-  committed deterministic golden trial-key streams under
-  `test/golden/tune/`. (Code-only.)
+- The `every sampler matches its committed trial-stream golden (Sprint
+  12.5)` case in `test/hyperparameter/Main.hs` walks the full sampler
+  catalog against `test/golden/tune/<sampler>-trials.txt` goldens for
+  Grid, Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES,
+  CMAES, EvolutionStrategies, and PBT; the `every scheduler / pruner
+  cohort reproduces under resume (Sprint 12.5)` case asserts every
+  scheduler and pruner catalog entry plus the per-sampler resume
+  equality from `resumeMatchesFullRun` (closed 2026-05-24).
 - Driving `jitml tune` against the full canonical sampler × scheduler ×
   pruner grid through the live tuner, extending knob consumption to the
   full grid, and the resume-from-partial-sweep equality test against

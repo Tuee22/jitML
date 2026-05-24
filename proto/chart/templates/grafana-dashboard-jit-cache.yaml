@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-jit-cache
+  namespace: platform
+  labels:
+    grafana_dashboard: "1"
+data:
+  jit-cache.json: |
+    {
+      "title": "jit-cache",
+      "panels": [{"type":"timeseries","targets":[{"expr":"jitml_jit_cache_hits"}]}]
+    }

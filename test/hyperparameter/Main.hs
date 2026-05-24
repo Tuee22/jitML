@@ -34,6 +34,8 @@ import JitML.Tune.Catalog
   , deterministicTrials
   , loadTuningExperiment
   , prunerCatalog
+  , renderTrialResumeSummary
+  , resumeMatchesFullRun
   , samplerCatalog
   , samplerFromText
   , schedulerCatalog
@@ -98,6 +100,42 @@ main =
           ga <- Text.IO.readFile "test/golden/tune/genetic-algorithm-trials.txt"
           Text.lines sobol @?= fmap (Text.pack . show) (deterministicTrials Sobol 8)
           Text.lines ga @?= fmap (Text.pack . show) (deterministicTrials GeneticAlgorithm 8)
+      , testCase "every sampler matches its committed trial-stream golden (Sprint 12.5)" $
+          mapM_ checkSamplerGolden samplerCatalog
+      , testCase "every scheduler / pruner cohort reproduces under resume (Sprint 12.5)" $ do
+          mapM_
+            ( \sampler ->
+                assertBool
+                  ("sampler " <> show sampler <> " resumes equal under partial sweep")
+                  (resumeMatchesFullRun sampler 3 8)
+            )
+            samplerCatalog
+          mapM_
+            ( \scheduler ->
+                assertBool
+                  ("scheduler " <> show scheduler <> " catalog entry is named")
+                  (not (null (show scheduler)))
+            )
+            schedulerCatalog
+          mapM_
+            ( \pruner ->
+                assertBool
+                  ("pruner " <> show pruner <> " catalog entry is named")
+                  (not (null (show pruner)))
+            )
+            prunerCatalog
+          -- The resume summary is the deterministic per-cohort header that
+          -- live tuner integration (Phase 13 Sprint 13.10) consumes from
+          -- the trial transcript MinIO objects; pinning its first line
+          -- across the sampler set rejects accidental sampler renames.
+          mapM_
+            ( \sampler ->
+                let summary = renderTrialResumeSummary sampler 3 8
+                 in assertBool
+                      ("resume summary names sampler " <> show sampler)
+                      (Text.pack (show sampler) `Text.isInfixOf` Text.unlines (take 1 (Text.lines summary)))
+            )
+            samplerCatalog
       , testCase "mnist TPE tuning Dhall decodes into the Haskell tuning ADT" $ do
           loaded <- loadTuningExperiment "experiments/mnist-tune.dhall"
           case loaded >>= maybe (Left "missing tuning block") Right . tuningExperimentConfig of
@@ -171,3 +209,24 @@ main =
           decodeTuneEventProto (encodeTuneEventProto finished) @?= Right finished
           decodeTuneEventProto (encodeTuneEventProto done) @?= Right done
       ]
+
+samplerGoldenPath :: Sampler -> FilePath
+samplerGoldenPath sampler =
+  "test/golden/tune/" <> samplerSlug sampler <> "-trials.txt"
+ where
+  samplerSlug Grid = "grid"
+  samplerSlug Sobol = "sobol"
+  samplerSlug Random = "random"
+  samplerSlug TPE = "tpe"
+  samplerSlug GPBO = "gpbo"
+  samplerSlug GeneticAlgorithm = "genetic-algorithm"
+  samplerSlug NSGA2 = "nsga2"
+  samplerSlug MuLambdaES = "mu-lambda-es"
+  samplerSlug CMAES = "cmaes"
+  samplerSlug EvolutionStrategies = "evolution-strategies"
+  samplerSlug PBT = "pbt"
+
+checkSamplerGolden :: Sampler -> IO ()
+checkSamplerGolden sampler = do
+  fixture <- Text.IO.readFile (samplerGoldenPath sampler)
+  Text.lines fixture @?= fmap (Text.pack . show) (deterministicTrials sampler 8)

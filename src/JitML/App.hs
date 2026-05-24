@@ -67,6 +67,7 @@ import JitML.Engines.Local
   , runLinuxCpuCheckpointInference
   , runLinuxCpuKernel
   )
+import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Engines.TuningCache qualified as TuningCache
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (App, ColorMode (..), Env (..), OutputFormat (..))
@@ -755,12 +756,52 @@ runBuild parsedOptions =
           then pure []
           else case substrate of
             LinuxCPU -> do
-              result <- liftIO (runLinuxCpuKernel env runtimeSource hash [1.0, 2.0])
-              case result of
-                Left message ->
-                  exitWithError (SubprocessFailed "linux-cpu-jit" (ExitFailure 1) message)
-                Right kernelRun ->
-                  pure ["linux_cpu_run: " <> Text.pack (show (linuxCpuKernelOutput kernelRun))]
+              tunedArtifact <-
+                runBenchmarkTunedEnsureKernelArtifact
+                  env
+                  engine
+                  substrate
+                  kernelSpec
+                  kind
+                  fingerprint
+                  runtimeSource
+                  hash
+              tunedPlanResult <-
+                liftIO
+                  ( TuningCache.selectTuningCachePlan
+                      (toFilePath (envCacheDir env))
+                      kernelSpec
+                      kind
+                      substrate
+                      fingerprint
+                  )
+              case tunedPlanResult of
+                Left err -> exitWithError (InvalidConfig err)
+                Right tunedPlan -> do
+                  let tunedSource = TuningCache.tuningCacheRuntimeSource tunedPlan
+                      tunedHash = TuningCache.tuningCacheHash tunedPlan
+                  result <-
+                    liftIO (runLinuxCpuKernel env tunedSource tunedHash benchmarkSampleInput)
+                  case result of
+                    Left message ->
+                      exitWithError (SubprocessFailed "linux-cpu-jit" (ExitFailure 1) message)
+                    Right kernelRun ->
+                      pure
+                        ( reportTunedArtifact tunedArtifact
+                            <> ["linux_cpu_run: " <> Text.pack (show (linuxCpuKernelOutput kernelRun))]
+                        )
+            LinuxCUDA -> do
+              tunedArtifact <-
+                runBenchmarkTunedEnsureKernelArtifact
+                  env
+                  engine
+                  substrate
+                  kernelSpec
+                  kind
+                  fingerprint
+                  runtimeSource
+                  hash
+              pure (reportTunedArtifact tunedArtifact)
             _ -> do
               artifactResult <- liftIO (EngineLoader.ensureKernelArtifact env engine runtimeSource hash)
               case artifactResult of
@@ -772,13 +813,39 @@ runBuild parsedOptions =
                         message
                     )
                 Right artifact ->
-                  pure
-                    [ "cache_artifact_ready: "
-                        <> kernelHandleArtifactPath (EngineLoader.kernelArtifactHandle artifact)
-                    , "cache_artifact_compiled: "
-                        <> if EngineLoader.kernelArtifactCompiled artifact then "yes" else "no"
-                    ]
+                  pure (reportTunedArtifact artifact)
       writeText (Text.unlines (rendered : runOutput))
+ where
+  benchmarkSampleInput :: [Float]
+  benchmarkSampleInput = [1.0, 2.0]
+
+  reportTunedArtifact artifact =
+    [ "cache_artifact_ready: "
+        <> kernelHandleArtifactPath (EngineLoader.kernelArtifactHandle artifact)
+    , "cache_artifact_compiled: "
+        <> if EngineLoader.kernelArtifactCompiled artifact then "yes" else "no"
+    ]
+
+  runBenchmarkTunedEnsureKernelArtifact env engine substrate kernelSpec kind fingerprint runtimeSource hash = do
+    result <-
+      liftIO
+        ( TuningBenchmark.ensureKernelArtifactWithBenchmarkTuning
+            env
+            substrate
+            kernelSpec
+            kind
+            fingerprint
+            benchmarkSampleInput
+        )
+    case result of
+      Left message ->
+        exitWithError
+          ( SubprocessFailed
+              (renderSubprocess (compileSubprocess engine runtimeSource hash))
+              (ExitFailure 1)
+              message
+          )
+      Right artifact -> pure artifact
 
 buildToolchainFingerprint :: Substrate -> Cache.ToolchainFingerprint
 buildToolchainFingerprint LinuxCPU =

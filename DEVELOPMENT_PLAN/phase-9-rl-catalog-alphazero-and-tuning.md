@@ -139,11 +139,14 @@ below.
 
 ### Remaining Work
 
-- Commit per-algorithm + per-environment goldens under
-  `test/golden/rl/<algo>/<env>/trajectory.txt` from the deterministic
-  `AlgorithmModule.moduleRolloutGenerator`. (Code-only; close by running
-  the deterministic generator and committing the output. Live measured
-  fixtures from real CUDA training are owned by Phase `13` Sprint `13.8`.)
+- Per-algorithm + per-environment goldens closed on 2026-05-24 under
+  `test/golden/rl/<algo>/<env>/rollout.txt` for each of the five
+  on-policy modules (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO) keyed
+  to cartpole through `AlgorithmModule.moduleRolloutGenerator` +
+  `rolloutGoldenLines`; the rl-canonicals stanza enforces each via the
+  `per-algorithm deterministic-stub rollouts match committed goldens`
+  case. Live measured fixtures from real CUDA training are owned by
+  Phase `13` Sprint `13.8`.
 - Replacement of the deterministic-fixture rollout with real
   clipped-surrogate-loss / GAE / KL-trigger update code through the live
   CUDA JIT engine is owned by
@@ -185,8 +188,10 @@ Land the current off-policy algorithm metadata rows.
 
 ### Remaining Work
 
-- Commit per-algorithm goldens under `test/golden/rl/<algo>/<env>/` from
-  the deterministic-stub rollout. (Code-only.)
+- Per-algorithm goldens closed on 2026-05-24 under
+  `test/golden/rl/<algo>/<env>/rollout.txt` for DQN, QR-DQN
+  (cartpole) and DDPG, TD3, SAC (mountain-car) keyed through
+  `AlgorithmModule.moduleRolloutGenerator` + `rolloutGoldenLines`.
 - Wiring the deterministic-cuDNN algorithm pin into the real off-policy
   network forward / target-network update path is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
@@ -226,11 +231,14 @@ Land the current specialised algorithm metadata rows.
 
 ### Remaining Work
 
-- Extend `jitml docs generate` so the generated catalog table renders the
-  per-module hyperparameter surface from `JitML.RL.Algorithms.Registry`.
-  (Code-only.)
-- Per-algorithm deterministic-stub goldens land through the stanza body
-  in Sprint `12.4` (code-only).
+- `jitml docs generate` now renders the catalog table with the
+  per-module hyperparameter count and module file path from
+  `JitML.RL.Algorithms.Registry` (closed 2026-05-24 in
+  `JitML.Docs.Render.renderTrainingRlCatalog`). The regenerated
+  `documents/engineering/training_workloads.md` catalog table now lists
+  `Algorithm | Family | Replay-backed | Hyperparameters | Module`.
+- Per-algorithm deterministic-stub goldens for CrossQ, TQC, ARS, HER
+  closed on 2026-05-24 under `test/golden/rl/<algo>/<env>/rollout.txt`.
 - Real CUDA specialised-update execution (CrossQ multi-critic, TQC
   quantile TD, ARS evolution strategy, HER hindsight relabel) is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
@@ -273,10 +281,15 @@ dedicated local RL canonical stanza.
 
 ### Remaining Work
 
-- Grow `test/golden/rl/<algo>/<env>/` into a fixture tree per algorithm
-  from the deterministic-stub generator. (Code-only.)
-- Consume the `rl_steps` and `rl_eval_episodes` report-card knobs from
-  `cabal.project`. (Code-only.)
+- The per-algorithm fixture tree under
+  `test/golden/rl/<algo>/<env>/rollout.txt` closed on 2026-05-24 for
+  every traditional algorithm × canonical environment pairing
+  (cartpole or mountain-car); the rl-canonicals stanza enforces them
+  through `checkRolloutGolden`.
+- The `rl-canonicals consumes cabal.project rl_steps and
+  rl_eval_episodes knobs` case in `test/rl-canonicals/Main.hs` now loads
+  the `cabal.project` report-card knob block and asserts the RL knobs
+  are populated (closed 2026-05-24).
 - The per-seed final-reward distribution check (form 3) consuming live
   training output is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
@@ -348,8 +361,10 @@ AlphaZero summary.
 
 ### Remaining Work
 
-- Wire the `az_games` and `az_sims` report-card knobs into the canonical
-  stanza body. (Code-only.)
+- The `rl-canonicals consumes cabal.project rl_steps and
+  rl_eval_episodes knobs` case (Sprint `9.4`) also asserts the
+  `az_games` and `az_sims` report-card knobs are populated from
+  `cabal.project` (closed 2026-05-24).
 - Wiring the `runSearch` prior into a real network evaluation via the JIT
   engine and validating the SelfPlayBuffer round-trip against live HTTP
   MinIO are owned by
@@ -399,14 +414,17 @@ catalog, and corresponding browser-contract endpoint metadata.
 
 ### Remaining Work
 
-- Implement the real rule engines in `src/JitML/RL/AlphaZero.hs`:
-  Othello 8-direction capture-flip (legal-move generation + opponent-disc
-  flipping until same-colour anchor), Hex border-to-border DFS
-  connectivity, Gomoku linear five-in-a-row detection. Update
-  `selfPlayTranscriptFor` so the deterministic seeded selection advances
-  past illegal moves; regenerate the affected goldens under
-  `test/golden/alphazero/{othello,hex,gomoku}-transcript.txt`. (Code-only;
-  no hardware required.)
+- The real rule engines in `src/JitML/RL/AlphaZero.hs` closed on
+  2026-05-24: `othelloLegalMove` / `othelloFlipsFor` /
+  `othelloBoardAfter` cover the 8-direction capture-flip rule;
+  `hexLegalMove` plus `hexConnected` (border-to-border DFS using the
+  six standard hex neighbours plus parallelogram diagonals) covers
+  Hex; `gomokuLegalMove` plus `hasGomokuLine` (line-of-five
+  detection) covers Gomoku. `selfPlayTranscriptFor` now advances past
+  illegal candidates via `nextLegalMove`, and the affected goldens
+  under `test/golden/alphazero/{othello,gomoku}-transcript.txt` have
+  been regenerated; the connect4 and hex goldens were already legal
+  under the earlier mod-action wrapping.
 - JIT-backed network position evaluation that consumes these rule
   engines is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
@@ -491,9 +509,11 @@ summary.
 
 ### Remaining Work
 
-- Generate `proto-lens`-driven Haskell bindings for
-  `proto/jitml/tune.proto` so the command/event envelopes round-trip
-  binary-equivalent with other-language clients. (Code-only.)
+- `proto-lens`-driven Haskell bindings for `proto/jitml/tune.proto`
+  closed on 2026-05-24: `gen/Proto/Jitml/Tune.hs` and
+  `gen/Proto/Jitml/Tune_Fields.hs` are exposed by the cabal library,
+  giving the `TuneCommand` / `TuneEvent` envelopes a binary-equivalent
+  cross-language Haskell wire surface.
 - Daemon-side tune handler against live broker, `persistTrialTranscript`
   / `replaySweep` validation against live HTTP MinIO, and the full
   canonical sampler × scheduler × pruner grid against live tuner

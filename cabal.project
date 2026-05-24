@@ -12,7 +12,10 @@ allow-newer:
     cborg:containers,
     cborg-json:base,
     serialise:base,
-    serialise:containers
+    serialise:containers,
+    lens-family:base,
+    lens-family:containers,
+    lens-family-core:containers
 
 -- Codegen toolchain pins recorded for the deterministic JIT cache key:
 -- LLVM: pinned with the GHC 9.14.1 toolchain

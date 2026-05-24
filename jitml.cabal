@@ -141,6 +141,7 @@ library
         JitML.RL.Loop
         JitML.RL.Policy
         JitML.RL.Schema
+        JitML.RL.Simulator
         JitML.RL.VecEnv
         JitML.Routes
         JitML.Service.BootConfig
@@ -183,8 +184,16 @@ library
         JitML.Web.Bundle
         JitML.Web.Contracts
         JitML.Web.Server
+        Proto.Jitml.Inference
+        Proto.Jitml.Inference_Fields
+        Proto.Jitml.Rl
+        Proto.Jitml.Rl_Fields
+        Proto.Jitml.Training
+        Proto.Jitml.Training_Fields
+        Proto.Jitml.Tune
+        Proto.Jitml.Tune_Fields
 
-    hs-source-dirs:   src
+    hs-source-dirs:   src gen
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
@@ -193,7 +202,10 @@ library
         async,
         bytestring,
         aeson,
+        containers,
         cryptohash-sha256,
+        proto-lens,
+        proto-lens-runtime,
         dhall,
         directory,
         filepath,
@@ -347,8 +359,11 @@ test-suite jitml-daemon-lifecycle
         base >=4.22 && <4.23,
         bytestring,
         jitml,
+        lens-family,
         mtl,
         network,
+        proto-lens,
+        proto-lens-runtime,
         tasty,
         tasty-hunit,
         text
