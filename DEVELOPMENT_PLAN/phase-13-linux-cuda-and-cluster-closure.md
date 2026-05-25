@@ -234,15 +234,17 @@ slice.
 - One canonical SL cell (MNIST shallow MLP at minimum) trains
   end-to-end through the live cluster against a real MinIO-staged
   dataset.
-- The committed convergence threshold for that cell is met by the live
-  measured final loss.
+- The in-code literature-derived convergence threshold for that cell
+  is met by the live measured median test accuracy over a fixed-seed
+  pool (`median(test_acc over k seeds) ≥ literature_target − slack`).
 - The trained checkpoint round-trips through MinIO and replays
-  bit-deterministically.
-- Live-measured convergence fixtures land under
-  `test/golden/sl/<problem-key>/curve.txt` and replace (or supplement
-  with a `-live.txt` sibling) the current deterministic synthetic curves.
+  bit-deterministically (two fresh runs compared against each other).
 - The live SL convergence assertion added to `jitml-sl-canonicals` (see
-  Phase `12` Sprint `12.3`) exercises the live path.
+  Phase `12` Sprint `12.3`) exercises the live path. No
+  `test/golden/sl/<problem-key>/curve.txt` fixtures are created per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets) — the per-host empirical
+  curve is reported as run telemetry, not committed.
 
 ### Validation
 
@@ -258,8 +260,11 @@ slice.
   `TrainingHandler` through `JitML.Service.MinIOSubprocess`.
 - Replace local fixture hashes in `canonicalDatasets` with real dataset
   object hashes from experiment Dhall.
-- Replace / supplement deterministic synthetic SL goldens with live
-  measured convergence fixtures.
+- Replace deterministic synthetic SL stubs with live statistical
+  convergence assertions against in-code literature-derived thresholds
+  (no per-substrate committed convergence fixtures per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets)).
 - Drive `jitml train` against the remaining ten canonical SL cells once
   the first cell closes.
 - Consume `sl_epochs` / `sl_batch` report-card knobs from
@@ -309,7 +314,7 @@ Phase `5` Pulsar consumer.
 - Implement the typed `step` boundary plus render access.
 - Wire `runRLLoop` through `RlHandler` against the live broker.
 
-## Sprint 13.6: Live RL Training E2E with Per-Cohort Goldens 🔄
+## Sprint 13.6: Live RL Training E2E with Statistical Convergence Assertions 🔄
 
 **Status**: Active
 **Blocked by**: Sprint `13.5`
@@ -321,31 +326,43 @@ Phase `5` Pulsar consumer.
 ### Objective
 
 Drive `jitml rl train` against every algorithm × canonical environment
-cohort with the real simulators from Sprint `13.5`, commit per-cohort
-reward / trajectory goldens, and assert per-seed final-reward
-distribution.
+cohort with the real simulators from Sprint `13.5` and assert
+correctness through (a) run-to-run trajectory determinism on the same
+substrate / same seed (compared between two fresh runs, not against a
+stored file) and (b) statistical convergence — `median(final_reward
+over k seeds) ≥ literature_target − slack`, with `slack` an in-code
+per-(env, algo) constant per
+[../README.md → Convergence and determinism checks for RL](../README.md#convergence-and-determinism-checks-for-rl).
+No per-cohort trajectory or reward-distribution files are committed
+per [../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets).
 
 ### Deliverables
 
 - Live `jitml rl train` runs the full algorithm × env catalog cohort
   inside the cluster daemon.
-- `test/golden/rl/<algo>/<env>/trajectory.txt` and
-  `test/golden/rl/<algo>/<env>/reward-distribution.txt` are pinned per
-  cohort.
+- The in-code per-(env, algo) threshold table at
+  `src/JitML/RL/ConvergenceThresholds.hs` declares
+  `(literature_target, slack)` for every cohort, calibrated from the
+  literature reference and not from a per-host empirical run.
 - `jitml-rl-canonicals` consumes `rl_steps` / `rl_eval_episodes`
-  report-card knobs and asserts per-seed final-reward distribution.
+  report-card knobs and asserts the statistical convergence inequality
+  plus run-to-run trajectory determinism.
 
 ### Validation
 
 1. `cabal test jitml-rl-canonicals --test-options='-p Live'` passes
    against the live cluster.
-2. Per-cohort goldens are stable across two consecutive runs.
+2. Two consecutive runs of the same `(env, algo, seed)` cohort produce
+   bit-identical trajectories compared against each other (no stored
+   reference).
 
 ### Remaining Work
 
 - Drive every cohort live.
-- Commit per-cohort goldens.
-- Add the per-seed final-reward distribution assertion.
+- Land the in-code threshold table for every cohort.
+- Add the statistical convergence assertion and the run-to-run
+  trajectory determinism assertion to `jitml-rl-canonicals`.
 
 ## Sprint 13.7: Live MinIO Checkpoint Round-Trip and Retention 🔄
 
@@ -423,10 +440,13 @@ from [../README.md](../README.md).
   update against real CUDA kernels.
 - Each specialised module implements its variant (multi-critic
   averaging, quantile TD, evolution-strategy update, hindsight relabel).
-- Per-algorithm + per-environment golden trajectories under
-  `test/golden/rl/<algo>/<env>/trajectory.txt` reflect the real
-  algorithm output (replace the deterministic-shim goldens committed
-  through the Phase `9` code-only sprints).
+- Per-algorithm + per-environment correctness for the real algorithm
+  output is asserted by run-to-run trajectory determinism (two fresh
+  same-substrate / same-seed runs compared against each other) plus
+  the statistical convergence inequality from Sprint `13.6`. No
+  `test/golden/rl/<algo>/<env>/trajectory.txt` files are committed
+  per [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets).
 - The cuDNN deterministic algorithm pin from
   `Engines.Tuning.cuDnnDeterministicAlgorithms` is honoured by the
   off-policy network forward path.
@@ -434,15 +454,23 @@ from [../README.md](../README.md).
 ### Validation
 
 1. `cabal test -fcuda jitml-rl-canonicals` on Linux+NVIDIA exits `0`
-   with all per-algorithm goldens.
-2. Reward thresholds for each algorithm × env cohort match committed
-   fixtures within ULP tolerance.
+   with run-to-run trajectory determinism for every algorithm and the
+   statistical convergence inequality from Sprint `13.6` for every
+   algorithm × env cohort.
+2. Reward thresholds for each algorithm × env cohort clear the
+   in-code `(literature_target, slack)` from
+   `src/JitML/RL/ConvergenceThresholds.hs` — no per-substrate
+   committed reward fixtures per
+   [../README.md → Snapshot targets → Numerical-fixture
+   prohibition](../README.md#snapshot-targets).
 
 ### Remaining Work
 
 - Replace each algorithm module's rollout body with the real update
   code.
-- Regenerate per-cohort goldens against the real CUDA engine.
+- Replace the deterministic-stub rollout assertions with
+  run-to-run trajectory determinism + statistical convergence
+  inequalities against the in-code threshold table.
 - Validate cuDNN deterministic algorithm pin holds across runs.
 
 ## Sprint 13.9: AlphaZero with Real Network Priors 🔄

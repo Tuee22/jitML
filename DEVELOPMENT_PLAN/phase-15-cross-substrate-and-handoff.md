@@ -54,14 +54,14 @@ least their inference-producing sprints. The work is fixture authoring
 + tolerance assertion + final report-card population + ledger
 sweep-up.
 
-## Sprint 15.1: Cross-Substrate Cohort Fixtures and ULP Tolerance 🔄
+## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands 🔄
 
 **Status**: Active
 **Blocked by**: Phase `13` Sprint `13.11` (Linux CPU + CUDA weighted
 inference live), Phase `14` Sprint `14.5` (Apple Metal weighted inference
 live)
 **Implementation**: `test/cross-backend/Main.hs`,
-`test/golden/cross-backend/`,
+`src/JitML/Engines/Tolerance.hs`,
 `src/JitML/Test/Report.hs`
 **Docs to update**: `documents/engineering/determinism_contract.md`,
 `documents/engineering/unit_testing_policy.md`
@@ -70,38 +70,45 @@ live)
 
 Run the canonical SL cohort across the `(linux-cpu, linux-cuda)` and
 `(linux-cpu, apple-silicon)` substrate pairs (and, opportunistically,
-the triple cohort), commit per-tensor tolerance fixtures, assert
-per-tensor drift fits the committed ULP tolerance band, and update the
-determinism contract doc with measured per-substrate tolerance
-bands. Closes the cross-substrate slice of Exit Definition item 5 and
-the cross-substrate halves of Sprint `12.6` and Sprint `12.2`.
+the triple cohort), assert per-tensor drift fits the **in-code**
+per-layer-family tolerance band at `src/JitML/Engines/Tolerance.hs`,
+and document the methodology in the determinism contract. Closes the
+cross-substrate slice of Exit Definition item 5 and the cross-substrate
+halves of Sprint `12.6` and Sprint `12.2`. No per-tensor fixture files
+are committed per
+[../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets) — hardcoding the
+producing host's float-reduction behavior into the repository would
+authoritatively encode whichever substrate ran the calibration first.
 
 ### Deliverables
 
-- `test/golden/cross-backend/sl/<problem-key>/{linux-cpu,linux-cuda,apple-silicon}.f32.bin`
-  pins the per-substrate tensor outputs for each canonical SL cell
-  exercised live in Phase `13` Sprint `13.4`.
-- `test/golden/cross-backend/sl/<problem-key>/tolerance.txt` records
-  the committed ULP tolerance band per cohort pair.
-- `test/cross-backend/Main.hs` asserts the per-tensor drift between
-  pairs fits the committed band.
-- `documents/engineering/determinism_contract.md` records the measured
-  per-substrate ULP tolerance methodology and bands.
+- `src/JitML/Engines/Tolerance.hs` declares the
+  `LayerFamilyTolerance` table (L∞ bound per layer family, calibrated
+  from the public literature on cuDNN / Metal / oneDNN drift).
+- `test/cross-backend/Main.hs` computes per-tensor `max-abs(delta)` at
+  test time between the cohort substrates and asserts each tensor's
+  drift fits the in-code band for its layer family.
+- `documents/engineering/determinism_contract.md` records the in-code
+  tolerance methodology and the per-layer-family bands.
 
 ### Validation
 
 1. `cabal test jitml-cross-backend --test-options='-p CrossSubstrate'`
-   exits `0` against the committed fixtures.
+   exits `0`, with per-tensor drift fitting the in-code per-layer-family
+   tolerance band.
 2. A controlled regression — perturbing one substrate's output by more
-   than the tolerance band — fails the assertion.
+   than the in-code tolerance band — fails the assertion.
 
 ### Remaining Work
 
-- Capture per-substrate tensor outputs from the live runs in Phases
-  `13` and `14`.
-- Commit the fixtures and tolerance bands.
-- Add the drift assertion.
-- Update `documents/engineering/determinism_contract.md`.
+- Land the `LayerFamilyTolerance` table at
+  `src/JitML/Engines/Tolerance.hs` with bounds calibrated from the
+  literature.
+- Add the cross-substrate drift assertion that consumes the in-code
+  band (no committed `.bin` / `.json` fixtures).
+- Update `documents/engineering/determinism_contract.md` to point at
+  the in-code table.
 
 ## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics 🔄
 
@@ -146,7 +153,7 @@ Closes Exit Definition item 9's live report-card slice.
    with non-empty measured fields.
 2. A controlled regression — disabling one live source — surfaces
    `unavailable` in the corresponding measured field rather than a
-   silent fallback to the deterministic synthetic value.
+   silent fallback to a deterministic-stub value.
 
 ### Remaining Work
 

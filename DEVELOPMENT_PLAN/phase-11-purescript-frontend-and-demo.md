@@ -21,15 +21,16 @@
 
 ## Phase Status
 
-🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
-its code-surface obligations (PureScript scaffold, generated browser
-contracts, panel modules with typed payload shapes, Halogen dependency +
-render machinery, `purescript-spec` smoke suite, demo HTTP server with
-deterministic local stream frames, Playwright spec scaffold). The
-Halogen and `purescript-spec` deliverables closed on 2026-05-24; the
-remaining open work is the live `/api/ws` WebSocket proxy + Halogen
-render against live daemon state + Playwright on the live edge route,
-which migrated to
+✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
+PureScript scaffold, generated browser contracts under
+`web/src/Generated/Contracts.purs`, six typed panel modules under
+`web/src/Panels/`, Halogen dependency + render machinery on each panel,
+`purescript-spec` smoke suite invoked through `jitml lint purescript`,
+demo HTTP server (with deterministic local stream frames), compiled
+bundle baked into `jitml:local`, and Playwright DOM-shape matrix at
+`playwright/jitml-demo.spec.ts`. The remaining live work — `/api/ws`
+WebSocket proxy bridging the demo server to Pulsar event topics, and
+Playwright against the live edge route — is owned by
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
 Sprints `13.13` and `13.14`.
 
@@ -222,14 +223,19 @@ the default `jitml lint purescript` path. The in-container
 `docker compose run --rm jitml jitml lint purescript` validation
 returned `ok` on 2026-05-24.
 
-## Sprint 11.4: Interactive Endpoint Contract Surface 🔄
+## Sprint 11.4: Interactive Endpoint Contract Surface ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Halogen
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. The Halogen
 dependency + render machinery (slot + state + DOM diff) on each
-`Panels.*` module plus the normal `spago build --output web/dist` path
-closed on 2026-05-24. The live `/api/ws` WebSocket proxy migrated to
-Phase `13` Sprint `13.13`.
+`Panels.*` module closed on 2026-05-24; `spago build --output web/dist`
+runs in `docker/Dockerfile` and compiles 536 PureScript modules to
+`web/dist/Main/index.js`. `JitML.Web.Server.loadBundleEntry` +
+`demoHttpRoutesWithBundle` serve the compiled bundle when present.
+`playwright/jitml-demo.spec.ts` covers the canonical six-panel
+DOM-shape matrix. The live `/api/ws` WebSocket proxy migrated to
+Phase `13` Sprint `13.13`; live edge-route Playwright migrated to
+Phase `13` Sprint `13.14`.
 **Implementation**: `src/JitML/Web/Contracts.hs`,
 `src/JitML/Web/Bundle.hs`,
 `web/spago.yaml`, `web/src/Main.purs`, `web/src/Generated/Contracts.purs`,

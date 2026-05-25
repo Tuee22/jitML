@@ -110,7 +110,9 @@ library set per doctrine `Overview → standardized stack`.
   `library.build-depends`: `optparse-applicative`, `text`, `bytestring`, `aeson`,
   `prettyprinter`, `prettyprinter-ansi-terminal`, `ansi-terminal`, `path`,
   `path-io`, `typed-process`, `safe-exceptions`, `dhall`, `tasty`, `tasty-hunit`,
-  `tasty-quickcheck`, `tasty-golden`, `temporary`. Project-specific additions
+  `tasty-quickcheck`, `temporary` (`tasty-golden` is intentionally not
+  adopted; see [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets)). Project-specific additions
   (`pulsar-client-haskell`, `minio-hs`, `purescript-bridge`, etc.) remain target
   dependencies for later live integrations unless a later phase explicitly moves
   them into the current Cabal manifest.
@@ -401,7 +403,7 @@ Establish the `Plan` / `apply` separation per doctrine `Plan / Apply`, with
    exits `0` without side effects.
 2. `jitml train --plan-file /tmp/p.txt path/to/experiment.dhall` writes
    `/tmp/p.txt` and exits `0`.
-3. `jitml-unit` exercises pure `build` invariants (golden render of the empty
+3. `jitml-unit` exercises pure `build` invariants (snapshot render of the empty
    plan, idempotence of `--plan-file`).
 
 ### Remaining Work
@@ -442,7 +444,7 @@ later phases.
 
 1. `jitml lint haskell` reports zero violations of the forbidden subprocess
    primitives across `src/`.
-2. `jitml-unit` exercises `renderSubprocess` golden tests for the Plan renderer.
+2. `jitml-unit` exercises `renderSubprocess` snapshot tests for the Plan renderer.
 3. `jitml-integration` exercises `runStreaming` against a fixture binary and
    asserts the typed `(ExitCode, Text, Text)` shape.
 
@@ -565,8 +567,9 @@ and the doctrine-mandated output flags `--format` and `--color`.
 
 ### Validation
 
-1. Each `AppError` variant has a golden render fixture under
-   `test/golden/cli/`.
+1. Each `AppError` variant has a snapshot render fixture under
+   `test/snapshots/cli/` (pure renderer output — falls under
+   [../README.md → Snapshot targets](../README.md#snapshot-targets)).
 2. Exit code on a forced `ReconcilerNoop` is `3`.
 3. `jitml --format json commands` emits valid JSON; `jitml --format plain
    commands` emits a deterministic plain-text list.

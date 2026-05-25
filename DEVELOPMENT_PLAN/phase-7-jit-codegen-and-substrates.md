@@ -203,7 +203,9 @@ local Linux CPU identity runner is owned by Sprint `7.3`.
 
 ### Validation
 
-1. `jitml-unit` verifies the cache-key golden under `test/golden/cache/`.
+1. `jitml-unit` verifies the cache-key snapshot under `test/snapshots/cache/`
+   (pure-renderer output; see [../README.md → Snapshot
+   targets](../README.md#snapshot-targets)).
 2. `jitml-unit` verifies changing the rendered runtime-source payload changes
    the cache key.
 3. `jitml-unit` verifies the typed cache-hit/cache-miss decision surface.
@@ -651,7 +653,7 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
    validates that the generated Swift package exports
    `jitml_kernel_family_name` and `jitml_kernel_output_count`, that reduction
    output-count metadata matches the simdgroup partial-output shape, and that
-   the Apple Silicon rendered-source cache-key golden changes when the Swift
+   the Apple Silicon rendered-source cache-key snapshot changes when the Swift
    payload changes. The same test stanza validates the typed
    `JitML.Tart.Build` executor boundary by checking ordered host/command
    execution and failure short-circuiting at the copy step.
@@ -883,8 +885,11 @@ Metal / Swift package source participates in a JIT build.
 - Static source/script scaffolds are removed, as tracked in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed).
 - `jitml lint files` rejects future checked-in JIT build scripts and checked-in
-  substrate source extensions unless they are explicit golden fixtures under
-  `test/golden/`.
+  substrate source extensions unless they are explicit pure-renderer
+  snapshots under `test/snapshots/`. It additionally rejects any new
+  file under `test/golden/` per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets).
 
 ### Validation
 
@@ -898,10 +903,10 @@ Metal / Swift package source participates in a JIT build.
    against local Tart `2.31.0`.
 4. Removing documentation-only substrate folders does not change any JIT build
    plan or cache key.
-5. `jitml-unit` golden tests prove `renderRuntimeSource` is deterministic and
+5. `jitml-unit` snapshot tests prove `renderRuntimeSource` is deterministic and
    that renderer changes alter the generated-source hash.
 6. `cabal test jitml-unit --test-options='-p cacheKey'` on 2026-05-21 passes
-   with the cache-key golden backed by rendered runtime source instead of the
+   with the cache-key snapshot backed by rendered runtime source instead of the
    retired placeholder fixture.
 7. `cabal test jitml-cross-backend` on 2026-05-21 passes the local
    generated-source FFI path: deterministic engine flags, manifest-read

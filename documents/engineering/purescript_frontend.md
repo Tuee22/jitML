@@ -148,13 +148,14 @@ Cabal body validates that typed Playwright command shape without starting the
 live stack.
 The checked-in spec currently validates seven inline DOM stub flows rather
 than the live edge route. Target work grows this into one spec per panel
-covering the golden user flow:
+covering the primary user flow:
 
 - MNIST: draw a digit, assert top-1 matches the expected class against a
   fixture model.
 - CIFAR: upload a fixture image, assert classification.
-- Connect 4: play a fixture game against the AlphaZero policy and assert
-  move sequence matches a golden game.
+- Connect 4: play a scripted game against the AlphaZero policy and assert
+  every engine reply is a legal move for the resulting board (no committed
+  move-sequence fixture — engine moves depend on substrate float behavior).
 - RL trajectory: trigger a synthetic RL run and assert the trajectory panel
   renders frames.
 - Training / Tune: trigger a synthetic training run and assert the live

@@ -23,17 +23,20 @@
 
 ## Phase Status
 
-🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
-its code-surface obligations (split-blob layout, manifest CBOR, `.jmw1`
-wire format, local CAS decision surface, retention reconciler
-scaffolding, deterministic inference helpers, cross-language proto-lens
-follow-up). Live MinIO conditional writes + checkpoint round-trip + GC
-publish migrated to
+✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
+split-blob object-key renderers, manifest CBOR codec with canonical
+ordering, `.jmw1` wire format, local pointer-CAS decision surface,
+filesystem-backed `inferFromManifest` /
+`inferWeightsOnlyFromLatestCheckpoint`, retention reconciler surface
+(`RetentionPolicy`, `walkLiveSet`, `buildGcPlan`), inference proto
+envelope codec, and the proto-lens cross-language bindings for
+`inference.proto`. Live MinIO conditional writes + checkpoint
+round-trip + GC publish are owned by
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprint `13.7`. Production weight loading (CUDA + Linux CPU) migrated to
-Phase `13` Sprint `13.11`; Apple Metal weight loading migrated to
+Sprint `13.7`. Production weight loading (CUDA + Linux CPU) is owned by
+Phase `13` Sprint `13.11`; Apple Metal weight loading is owned by
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
-Sprint `14.5`. Per-substrate ULP tolerance documentation migrated to
+Sprint `14.5`. Per-substrate ULP tolerance documentation is owned by
 [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
 Sprint `15.1`.
 
@@ -315,16 +318,20 @@ per `### Remaining Work` below.
   [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
   Sprint `15.1`.
 
-## Sprint 10.4: Inference-Only Read Path 🔄
+## Sprint 10.4: Inference-Only Read Path ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. The
-user-facing live `jitml inference run` MinIO path, `jitml inspect replay`
-live MinIO manifest read, and per-substrate production weight loading
-(Linux CPU + CUDA) migrated to Phase `13` Sprints `13.11` / `13.12`.
-Apple Metal production weight loading migrated to Phase `14` Sprint
-`14.5`. Cross-language proto-lens bindings for `inference.proto` remain
-a code-only follow-up here.
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Cross-language
+proto-lens bindings for `inference.proto` closed on 2026-05-24
+(`gen/Proto/Jitml/Inference.hs` + `gen/Proto/Jitml/Inference_Fields.hs`
+re-exported by the cabal library; `jitml-daemon-lifecycle` validates
+the local proto3 bytes decode through
+`Proto.Jitml.Inference.InferenceRequest` round-trip). The
+user-facing live `jitml inference run` MinIO path, `jitml inspect
+replay` live MinIO manifest read, and per-substrate production weight
+loading (Linux CPU + CUDA) migrated to Phase `13`
+Sprints `13.11` / `13.12`. Apple Metal production weight loading
+migrated to Phase `14` Sprint `14.5`.
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/App.hs`

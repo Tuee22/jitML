@@ -383,7 +383,10 @@ moves to Done and the legacy ledger is empty.
   trajectory helpers, the three GADT-indexed lifecycles
   (`TrainingLifecycle`, `RLRunLifecycle`, `TuneSweepLifecycle`), the
   runtime RL primitives (`Policy`, `VecEnv`, `ReplayBuffer`, `RLLoop`),
-  and a PPO/CartPole golden trajectory fixture. The typed proto
+  and run-to-run determinism for the PPO/CartPole trajectory (two
+  fresh runs compared against each other; no committed trajectory
+  fixture per [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets)). The typed proto
   envelopes (`proto/jitml/{training,rl,tune,inference}.proto` and
   `JitML.Proto.{Training,Rl,Tune,Inference}`) declare the substrate-scoped Pulsar
   topic family; the mirrors parse the deterministic text command envelopes
@@ -476,8 +479,9 @@ moves to Done and the legacy ledger is empty.
   explicit live Pulumi + Helm + Playwright path actually executed against an
   ephemeral Kind stack are owned by Sprints
   `12.2`–`12.6` / `12.8` / `12.9`'s Remaining Work. The seven doctrine
-  test categories (Pure Logic, Parser, Property, Golden, Integration,
-  Daemon Lifecycle, Pulumi-Orchestrated Infrastructure) all map to one
+  test categories (Pure Logic, Parser, Property, Snapshot (pure-renderer
+  output only), Integration, Daemon Lifecycle, Pulumi-Orchestrated
+  Infrastructure) all map to one
   or more of these stanzas, with the four `*-canonicals`/HPO/cross-
   backend rows being project-specific Integration extensions under
   doctrine §Test Organization → project-specific stanzas. Phase:
@@ -555,9 +559,15 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
   panel-contract, and typed frontend-tool command checks.
 - Testing Doctrine.
 - Standard Testing Stack — Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit +
-  tasty-quickcheck + tasty-golden + typed-process + temporary + Pulumi.
-- Test Categories — each of the seven (Pure Logic, Parser, Property, Golden,
-  Integration, Daemon Lifecycle, Pulumi-Orchestrated Infrastructure) mapped to a
+  tasty-quickcheck + typed-process + temporary + Pulumi. Snapshot
+  comparisons for pure-renderer output use `tasty-hunit` text/byte
+  equality; `tasty-golden` is intentionally not adopted, since the
+  project forbids numerical fixtures per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets).
+- Test Categories — each of the seven (Pure Logic, Parser, Property,
+  Snapshot (pure-renderer output only), Integration, Daemon Lifecycle,
+  Pulumi-Orchestrated Infrastructure) mapped to a
   `jitml-*` stanza in
   [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md).
 - Test Organization — one `test-suite` stanza per tier; project-specific stanzas
@@ -820,12 +830,17 @@ Silicon host-Dhall path completes `./bootstrap/apple-silicon.sh up` on
 `inference.command.apple-silicon` as `jitml-host`.
 Phase `3` reclosed on 2026-05-23 after live Linux CPU bootstrap and teardown
 validated the single-node topology.
-Phases `7`, `8`, `9`, `10`, `11`, and `12` are
-`🔄 Active` because at least one owned
-Exit-Definition obligation remains unmet: the explicit Pulumi-orchestrated
-ephemeral Kind e2e path for Exit `3`, real kernel execution, checkpoint
-storage, the PureScript default lint/spec path for Exit `15`, browser flow,
-and cross-substrate parity.
+Phase `7` (JIT codegen) closed on 2026-05-24 against an RTX 3090 + CUDA 12.8
+validation host. Phases `8` (supervised learning + RL framework),
+`9` (RL catalog + AlphaZero + tuning),
+`10` (checkpointing + inference), `11` (PureScript frontend + demo), and
+`12` (test stanzas, lint matrix, cross-cluster parity) closed on
+2026-05-25 — every owned code-surface obligation landed in the worktree;
+each phase's live obligations migrated to Phases `13` / `14` / `15`.
+Phase `8` Sprint `8.3` (lunar-lander + atari-subset simulators) closed
+through pure-Haskell ports in `src/JitML/RL/Simulator.hs` rather than
+Box2D / ALE FFI, matching the README's "native Haskell envs are
+allowed" envelope and the jitML determinism contract.
 Per-sprint Remaining Work blocks list the open work; the dependency-ordered
 sequence lives in
 [README.md → Execution Roadmap](README.md#execution-roadmap).

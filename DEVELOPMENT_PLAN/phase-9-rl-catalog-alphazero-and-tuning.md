@@ -20,14 +20,16 @@
 
 ## Phase Status
 
-🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
-its code-surface obligations (RL algorithm module metadata + deterministic
-rollouts, real Othello/Hex/Gomoku rule engines, deterministic-stub
-goldens, sampler implementations, AlphaZero MCTS framework with
-deterministic prior). Real CUDA RL loss execution and AlphaZero with
-real network priors migrated to
+✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
+the 14 algorithm modules' deterministic-stub run-to-run determinism +
+rule-conformance properties, the real Othello/Hex/Gomoku rule engines,
+the full sampler/scheduler/pruner catalog, the AlphaZero MCTS / SelfPlay
+/ Arena substack, the `experiments/mnist-tune.dhall` worked example
+decode, and the proto-lens bindings for `rl.proto` and `tune.proto`.
+Real CUDA RL loss execution and AlphaZero with real network priors are
+owned by
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprints `13.8` and `13.9`. Live tuner execution migrated to Phase `13`
+Sprints `13.8` and `13.9`. Live tuner execution is owned by Phase `13`
 Sprint `13.10`.
 
 The phase owns the catalog/AlphaZero/tuning half of
@@ -65,13 +67,17 @@ below.
 
 The worktree implements an `RLAlgorithm` catalog with family/replay
 metadata, a Dhall schema mirror/audit at `dhall/rl/Schema.dhall`,
-deterministic trajectory generation with a PPO/CartPole golden fixture,
-and deterministic sampler/scheduler/pruner catalogs in
-`src/JitML/Tune/Catalog.hs`. The 14 per-algorithm modules under
-`src/JitML/RL/Algorithms/` carry typed hyperparameter rows + a
-deterministic `AlgorithmModule.moduleRolloutGenerator` that produces a
-per-seed integer trajectory + reward stream the canonical stanza
-golden-checks; `Registry.algorithmModuleRegistry` aggregates them.
+run-to-run determinism for the PPO/CartPole deterministic-stub rollout
+(two fresh runs compared bit-for-bit, no committed trajectory file per
+[../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)), and deterministic
+sampler/scheduler/pruner catalogs in `src/JitML/Tune/Catalog.hs`. The
+14 per-algorithm modules under `src/JitML/RL/Algorithms/` carry typed
+hyperparameter rows + a deterministic
+`AlgorithmModule.moduleRolloutGenerator` that produces a per-seed
+integer trajectory + reward stream the canonical stanza checks
+via run-to-run equality and rule-conformance properties (no committed
+rollout-value files); `Registry.algorithmModuleRegistry` aggregates them.
 `JitML.RL.AlphaZero.Mcts` implements a deterministic prior + UCB +
 visit-count tree with `runSearch` walking `mctsSimulations` rollouts;
 `SelfPlay` plays `selfPlayGamesPerGeneration` games per generation
@@ -100,14 +106,18 @@ tuning catalogs. The target runtime grows those surfaces into real
 JIT-backed network updates and a typed sweep manager that drives SL, RL, or
 AlphaZero training under a sampler × scheduler × pruner Dhall.
 
-## Sprint 9.1: On-Policy Algorithm Metadata 🔄
+## Sprint 9.1: On-Policy Algorithm Metadata ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Real
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. The
+per-algorithm per-environment run-to-run determinism plus
+rule-conformance properties for the deterministic-stub rollout closed
+on 2026-05-24 for PPO, A2C, TRPO, MaskablePPO, RecurrentPPO via
+`AlgorithmModule.moduleRolloutGenerator` (no committed rollout-value
+files per [../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)). Real
 clipped-surrogate-loss / GAE / KL-trigger update code through the live
-CUDA JIT engine migrated to Phase `13` Sprint `13.8`. The per-algorithm
-per-environment goldens for the deterministic-stub rollout remain a
-code-only deliverable here.
+CUDA JIT engine migrated to Phase `13` Sprint `13.8`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo}.hs`,
 `test/rl-canonicals/Main.hs`
@@ -116,8 +126,10 @@ code-only deliverable here.
 ### Objective
 
 Land the on-policy algorithm metadata rows; grow real algorithm modules
-and full golden trajectory fixture coverage per `### Remaining Work`
-below.
+and full per-algorithm run-to-run trajectory determinism plus
+rule-conformance property coverage per `### Remaining Work` below. No
+committed trajectory `.txt` fixtures per [../README.md → Snapshot
+targets → Numerical-fixture prohibition](../README.md#snapshot-targets).
 
 ### Deliverables
 
@@ -134,30 +146,46 @@ below.
    entries.
 2. Live validation (target): each on-policy algorithm has a dedicated
    module with real loss / policy / rollout-buffer code, reaches the
-   committed reward threshold for its canonical environment, and its
-   per-seed trajectory matches the committed golden fixture.
+   in-code reward threshold for its canonical environment (`median
+   over k seeds ≥ literature_target − slack`, no committed
+   per-substrate reward fixture), and two fresh same-substrate /
+   same-seed runs produce bit-identical per-seed trajectories
+   compared against each other.
 
 ### Remaining Work
 
-- Per-algorithm + per-environment goldens closed on 2026-05-24 under
-  `test/golden/rl/<algo>/<env>/rollout.txt` for each of the five
-  on-policy modules (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO) keyed
-  to cartpole through `AlgorithmModule.moduleRolloutGenerator` +
-  `rolloutGoldenLines`; the rl-canonicals stanza enforces each via the
-  `per-algorithm deterministic-stub rollouts match committed goldens`
-  case. Live measured fixtures from real CUDA training are owned by
-  Phase `13` Sprint `13.8`.
+- Per-algorithm + per-environment run-to-run determinism closed on
+  2026-05-24 for each of the five on-policy modules (PPO, A2C, TRPO,
+  MaskablePPO, RecurrentPPO) keyed to cartpole through
+  `AlgorithmModule.moduleRolloutGenerator`; the rl-canonicals stanza
+  enforces each by running the rollout twice in-process and asserting
+  bit-identity between the two run outputs plus rule-conformance
+  properties (every step legal under the env transition, terminal
+  condition canonical). Per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets), no `test/golden/rl/...`
+  rollout-value files are committed; the legacy `test/golden/rl/`
+  scaffolding is scheduled for deletion per
+  [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
+  Live measured cross-substrate runs from real CUDA training are owned
+  by Phase `13` Sprint `13.8`.
 - Replacement of the deterministic-fixture rollout with real
   clipped-surrogate-loss / GAE / KL-trigger update code through the live
   CUDA JIT engine is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.8`.
 
-## Sprint 9.2: Off-Policy Algorithm Metadata 🔄
+## Sprint 9.2: Off-Policy Algorithm Metadata ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Real cuDNN
-deterministic algorithm pin executed against off-policy network forward /
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Per-algorithm
+run-to-run determinism plus rule-conformance properties closed on
+2026-05-24 for DQN, QR-DQN (cartpole) and DDPG, TD3, SAC (mountain-car)
+via `AlgorithmModule.moduleRolloutGenerator` re-running the rollout
+in-process and asserting bit-identity (no committed rollout-value files
+per [../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)). Real cuDNN deterministic
+algorithm pin executed against off-policy network forward /
 target-network update migrated to Phase `13` Sprint `13.8`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{Dqn,QrDqn,Ddpg,Td3,Sac}.hs`,
@@ -176,7 +204,8 @@ Land the current off-policy algorithm metadata rows.
 - The five checked-in off-policy algorithm modules expose typed
   deterministic hyperparameter rows and per-seed transcripts.
 - Replay-buffer primitives are present in `JitML.RL.Buffer`; real
-  network update code and full golden trajectory fixture coverage are
+  network update code and full per-algorithm run-to-run trajectory
+  determinism coverage are
   still target work.
 
 ### Validation
@@ -184,25 +213,36 @@ Land the current off-policy algorithm metadata rows.
 1. `algorithmCatalog` exposes the five checked-in off-policy rows.
 2. Live validation (target): each off-policy algorithm has a dedicated
    module with real replay-buffer code and per-seed transcript
-   determinism against committed goldens.
+   determinism asserted by run-to-run equality (no committed transcript
+   files per [../README.md → Snapshot targets → Numerical-fixture
+   prohibition](../README.md#snapshot-targets)).
 
 ### Remaining Work
 
-- Per-algorithm goldens closed on 2026-05-24 under
-  `test/golden/rl/<algo>/<env>/rollout.txt` for DQN, QR-DQN
-  (cartpole) and DDPG, TD3, SAC (mountain-car) keyed through
-  `AlgorithmModule.moduleRolloutGenerator` + `rolloutGoldenLines`.
+- Per-algorithm run-to-run determinism closed on 2026-05-24 for DQN,
+  QR-DQN (cartpole) and DDPG, TD3, SAC (mountain-car) keyed through
+  `AlgorithmModule.moduleRolloutGenerator` and asserted by running the
+  rollout twice in-process and asserting bit-identity between the two
+  outputs plus rule-conformance properties; no `test/golden/rl/...`
+  files are committed.
 - Wiring the deterministic-cuDNN algorithm pin into the real off-policy
   network forward / target-network update path is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.8`.
 
-## Sprint 9.3: Specialised Algorithm Metadata 🔄
+## Sprint 9.3: Specialised Algorithm Metadata ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Real specialised
-algorithm execution through live CUDA migrated to Phase `13` Sprint
-`13.8`.
+**Status**: Done
+**Owned obligations after refactor**: code-surface only.
+`jitml docs generate` for the catalog table (closed 2026-05-24 in
+`JitML.Docs.Render.renderTrainingRlCatalog`) and per-algorithm
+deterministic-stub run-to-run determinism for CrossQ, TQC, ARS, HER
+(closed 2026-05-24 via re-running each rollout in-process and
+comparing bit-for-bit) are both in place; no `test/golden/rl/`
+files are committed per [../README.md → Snapshot targets →
+Numerical-fixture prohibition](../README.md#snapshot-targets). Real
+specialised algorithm execution through live CUDA migrated to
+Phase `13` Sprint `13.8`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{CrossQ,Tqc,Ars,Her}.hs`,
 `test/rl-canonicals/Main.hs`
@@ -227,7 +267,10 @@ Land the current specialised algorithm metadata rows.
 1. `algorithmCatalog` exposes the four checked-in specialised rows.
 2. `jitml docs check` validates the generated catalog table.
 3. Live validation (target): each specialised algorithm has a dedicated
-   module exercised by `jitml-rl-canonicals` against committed goldens.
+   module exercised by `jitml-rl-canonicals` against run-to-run
+   determinism plus rule-conformance properties (no committed numerical
+   fixtures per [../README.md → Snapshot targets → Numerical-fixture
+   prohibition](../README.md#snapshot-targets)).
 
 ### Remaining Work
 
@@ -237,19 +280,26 @@ Land the current specialised algorithm metadata rows.
   `JitML.Docs.Render.renderTrainingRlCatalog`). The regenerated
   `documents/engineering/training_workloads.md` catalog table now lists
   `Algorithm | Family | Replay-backed | Hyperparameters | Module`.
-- Per-algorithm deterministic-stub goldens for CrossQ, TQC, ARS, HER
-  closed on 2026-05-24 under `test/golden/rl/<algo>/<env>/rollout.txt`.
+- Per-algorithm deterministic-stub run-to-run determinism for CrossQ,
+  TQC, ARS, HER closed on 2026-05-24 — asserted by re-running the
+  rollout in-process and comparing bit-for-bit; no `test/golden/rl/...`
+  files are committed per [../README.md → Snapshot targets →
+  Numerical-fixture prohibition](../README.md#snapshot-targets).
 - Real CUDA specialised-update execution (CrossQ multi-critic, TQC
   quantile TD, ARS evolution strategy, HER hindsight relabel) is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.8`.
 
-## Sprint 9.4: Local RL Canonical Tests 🔄
+## Sprint 9.4: Local RL Canonical Tests ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Per-seed
-final-reward distribution check consuming live training output migrated
-to Phase `13` Sprint `13.6`.
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. Per-algorithm
+run-to-run determinism coverage closed on 2026-05-24 for every
+traditional algorithm × canonical environment pairing via
+`checkRolloutDeterminism`, and the `rl-canonicals consumes
+cabal.project rl_steps and rl_eval_episodes knobs` case closed on the
+same date. Per-seed final-reward distribution check consuming live
+training output migrated to Phase `13` Sprint `13.6`.
 **Implementation**: `test/unit/Main.hs`, `test/integration/Main.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -263,29 +313,36 @@ dedicated local RL canonical stanza.
 
 - `test/rl-canonicals/Main.hs` verifies representative algorithm names across
   the local metadata catalog.
-- The stanza asserts `deterministicTrajectory "PPO" 42` is stable and matches
-  the current PPO/CartPole golden fixture.
+- The stanza asserts `deterministicTrajectory "PPO" 42` is stable
+  across two in-process invocations (run-to-run equality, no committed
+  trajectory fixture per [../README.md → Snapshot targets →
+  Numerical-fixture prohibition](../README.md#snapshot-targets)).
 - The stanza also checks the current Connect 4 transcript helper keeps moves
   within legal column bounds.
-- `test/golden/rl/ppo/cartpole/trajectory.txt` pins the PPO/CartPole
-  deterministic trajectory; full per-algorithm fixture trees are owned
-  by `### Remaining Work` below.
+- PPO/CartPole determinism is asserted by re-running the rollout
+  in-process and comparing bit-for-bit; per-algorithm coverage is
+  owned by `### Remaining Work` below.
 
 ### Validation
 
 1. `cabal test jitml-rl-canonicals` exits `0` for the body.
 2. Live validation (target): the stanza exercises the RL target matrix
-   forms (2) same-substrate trajectory determinism and (3) per-seed
-   final-reward distribution against live committed fixtures for every
-   algorithm in the catalog.
+   forms (2) same-substrate run-to-run trajectory determinism and (3)
+   per-seed final-reward distribution against an in-code statistical
+   threshold (median over k seeds ≥ literature_target − slack; no
+   per-substrate committed reward fixture per [../README.md → Snapshot
+   targets → Numerical-fixture prohibition](../README.md#snapshot-targets))
+   for every algorithm in the catalog.
 
 ### Remaining Work
 
-- The per-algorithm fixture tree under
-  `test/golden/rl/<algo>/<env>/rollout.txt` closed on 2026-05-24 for
-  every traditional algorithm × canonical environment pairing
-  (cartpole or mountain-car); the rl-canonicals stanza enforces them
-  through `checkRolloutGolden`.
+- The per-algorithm run-to-run determinism coverage closed on
+  2026-05-24 for every traditional algorithm × canonical environment
+  pairing (cartpole or mountain-car); the rl-canonicals stanza
+  enforces each through `checkRolloutDeterminism`, which invokes
+  `AlgorithmModule.moduleRolloutGenerator` twice in-process and
+  asserts bit-identity between the two outputs. No `test/golden/rl/`
+  files are committed.
 - The `rl-canonicals consumes cabal.project rl_steps and
   rl_eval_episodes knobs` case in `test/rl-canonicals/Main.hs` now loads
   the `cabal.project` report-card knob block and asserts the RL knobs
@@ -295,11 +352,13 @@ dedicated local RL canonical stanza.
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.6`.
 
-## Sprint 9.5: AlphaZero Connect 4 Transcript Surface 🔄
+## Sprint 9.5: AlphaZero Connect 4 Transcript Surface ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Real network
-evaluation via the JIT engine for `runSearch` prior, live MinIO
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. The `az_games`
+/ `az_sims` report-card knob assertion in `test/rl-canonicals/Main.hs`
+closed on 2026-05-24 alongside Sprint `9.4`'s knob consumption. Real
+network evaluation via the JIT engine for `runSearch` prior, live MinIO
 self-play buffer round-trip, and live arena promotion migrated to Phase
 `13` Sprint `13.9`.
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
@@ -371,14 +430,18 @@ AlphaZero summary.
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.9`.
 
-## Sprint 9.6: Connect 4 Local Game Surface 🔄
+## Sprint 9.6: Connect 4 Local Game Surface ✅
 
-**Status**: Active
+**Status**: Done
 **Owned obligations after refactor**: code-surface — the real rule
 engines for Othello (8-direction capture-flip), Hex (border-to-border
-connectivity), and Gomoku (line-of-five) are pure Haskell deliverables
-in this sprint. The JIT-backed network position evaluation that consumes
-these rules is owned by Phase `13` Sprint `13.9`.
+connectivity), and Gomoku (line-of-five) closed on 2026-05-24 in
+`src/JitML/RL/AlphaZero.hs` (`othelloLegalMove` / `othelloFlipsFor` /
+`othelloBoardAfter`; `hexLegalMove` + `hexConnected`; `gomokuLegalMove`
++ `hasGomokuLine`); `selfPlayTranscriptFor` advances past illegal
+candidates via `nextLegalMove`. The JIT-backed network position
+evaluation that consumes these rules is owned by Phase `13`
+Sprint `13.9`.
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
 `src/JitML/Web/Contracts.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -400,14 +463,24 @@ catalog, and corresponding browser-contract endpoint metadata.
   `applyMove` dispatch are checked in.
 - `PerfectInformation` admits all four canonical games through
   `gameTwoHeadedNetwork` and `gameActionCount`.
-- Per-game deterministic transcript fixtures are committed under
-  `test/golden/alphazero/{connect4,othello,hex,gomoku}-transcript.txt`.
+- Per-game transcript determinism is asserted by `jitml-rl-canonicals`
+  as run-to-run equality (`selfPlayTranscriptFor` is invoked twice
+  in-process and the outputs are compared bit-for-bit) plus
+  rule-conformance properties (every emitted move is legal under the
+  per-game `applyMove`, terminal states match `gameTerminal`). No
+  `test/golden/alphazero/<game>-transcript.txt` files are committed
+  per [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets) — MCTS visit counts and
+  prior-evaluator output depend on substrate float behavior and
+  hardcoding a host's transcript would lock that host's RNG / FP order
+  into the repository as authoritative.
 
 ### Validation
 
 1. `cabal test jitml-rl-canonicals` validates the Connect 4 move bounds.
-2. Local validation checks the deterministic replay fixture for each
-   canonical game.
+2. Local validation re-runs the per-game self-play transcript twice
+   in-process and asserts bit-identity between the two outputs plus
+   rule-conformance properties — no committed transcript fixtures.
 3. Live validation (target): Othello, Hex, and Gomoku graduate from the
    deterministic local rules to full rule-complete position evaluators
    and JIT-backed network forward passes.
@@ -420,23 +493,27 @@ catalog, and corresponding browser-contract endpoint metadata.
   `hexLegalMove` plus `hexConnected` (border-to-border DFS using the
   six standard hex neighbours plus parallelogram diagonals) covers
   Hex; `gomokuLegalMove` plus `hasGomokuLine` (line-of-five
-  detection) covers Gomoku. `selfPlayTranscriptFor` now advances past
-  illegal candidates via `nextLegalMove`, and the affected goldens
-  under `test/golden/alphazero/{othello,gomoku}-transcript.txt` have
-  been regenerated; the connect4 and hex goldens were already legal
-  under the earlier mod-action wrapping.
+  detection) covers Gomoku. `selfPlayTranscriptFor` advances past
+  illegal candidates via `nextLegalMove`. The per-game self-play
+  helpers are exercised by run-to-run equality plus rule-conformance
+  properties — no per-game transcript files are committed per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets).
 - JIT-backed network position evaluation that consumes these rule
   engines is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.9`.
 
-## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) 🔄
+## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Daemon-side
-tune handler against live broker, live MinIO trial persistence, and
-the full canonical sampler × scheduler × pruner grid against live
-tuner execution migrated to Phase `13` Sprint `13.10`.
+**Status**: Done
+**Owned obligations after refactor**: code-surface only.
+`proto-lens`-driven Haskell bindings for `proto/jitml/tune.proto`
+closed on 2026-05-24 (`gen/Proto/Jitml/Tune.hs` +
+`gen/Proto/Jitml/Tune_Fields.hs` re-exported by the cabal library).
+Daemon-side tune handler against live broker, live MinIO trial
+persistence, and the full canonical sampler × scheduler × pruner grid
+against live tuner execution migrated to Phase `13` Sprint `13.10`.
 **Implementation**: `src/JitML/Tune/Catalog.hs`,
 `src/JitML/App.hs`, `src/JitML/Proto/Tune.hs`,
 `test/hyperparameter/Main.hs`
@@ -456,9 +533,10 @@ summary.
 - `Scheduler` enumerates `Fifo`, `SuccessiveHalving`, `Hyperband`, and `ASHA`.
 - `Pruner` enumerates `NoPruner`, `MedianPruner`, and `PercentilePruner`.
 - `deterministicTrials` emits normalized deterministic trial values for the
-  current sampler set.
-- `test/golden/tune/` pins the current Sobol and GeneticAlgorithm trial
-  streams.
+  current sampler set; sampler outputs are exercised by run-to-run
+  equality and sampler-state-purity property tests, not by committed
+  trial-value files (per [../README.md → Snapshot targets →
+  Numerical-fixture prohibition](../README.md#snapshot-targets)).
 - `trialStorageKey`, `resumeMatchesFullRun`, and
   `renderTrialResumeSummary` provide the local trial persistence/resume
   surface.
@@ -532,8 +610,11 @@ summary.
 **Engineering docs to create/update:**
 
 - `documents/engineering/training_workloads.md` — current RL algorithm
-  metadata catalog, Dhall mirror, PPO/CartPole golden trajectory fixture,
-  Connect 4 transcript helper, and tuner catalog; target algorithm modules,
+  metadata catalog, Dhall mirror, run-to-run determinism for the
+  PPO/CartPole deterministic-stub trajectory (no committed trajectory
+  fixture per [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets)), Connect 4 transcript
+  helper, and tuner catalog; target algorithm modules,
   AlphaZero/MCTS runtime, adversarial games, target sampler decode, and
   full tuner storage/resume surface. The doc also distinguishes the
   current tune text/proto3-compatible command and event envelope codecs from

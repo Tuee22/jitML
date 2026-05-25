@@ -41,7 +41,7 @@ The result is:
 
 **CLI & doctrine** — [Outer-container Linux builds](#outer-container-linux-builds) · [CLI command topology, typed](#cli-command-topology-typed) · [Doctrine scope](#doctrine-scope)
 
-**Numerical & RL core** — [Numerical core](#numerical-core) · [Concrete Dhall worked example](#concrete-dhall-worked-example) · [Hyperparameter tuning](#hyperparameter-tuning-first-class) · [Canonical supervised learning problems](#canonical-supervised-learning-problems) · [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) · [RL framework primitives](#rl-framework-primitives) · [RL algorithm catalog](#rl-algorithm-catalog) · [Golden tests for RL](#golden-tests-for-rl) · [AlphaZero-style self-play and persistent MCTS state](#alphazero-style-self-play-and-persistent-mcts-state) · [Checkpointing](#checkpointing) · [JIT compilation architecture](#jit-compilation-architecture) · [PureScript frontend](#purescript-frontend)
+**Numerical & RL core** — [Numerical core](#numerical-core) · [Concrete Dhall worked example](#concrete-dhall-worked-example) · [Hyperparameter tuning](#hyperparameter-tuning-first-class) · [Canonical supervised learning problems](#canonical-supervised-learning-problems) · [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) · [RL framework primitives](#rl-framework-primitives) · [RL algorithm catalog](#rl-algorithm-catalog) · [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) · [AlphaZero-style self-play and persistent MCTS state](#alphazero-style-self-play-and-persistent-mcts-state) · [Checkpointing](#checkpointing) · [JIT compilation architecture](#jit-compilation-architecture) · [PureScript frontend](#purescript-frontend)
 
 **Tests & benchmarks** — [Test-suite stanzas](#test-suite-stanzas) · [`jitml test all`](#jitml-test-all) · [Benchmarks](#benchmarks) · [Compiler, runtime, and backend tuning](#compiler-runtime-and-backend-tuning)
 
@@ -509,9 +509,9 @@ Sidecars are CBOR canonical-form, content-addressed-style, and written with `If-
 
 ## Determinism caveat
 
-**The TensorBoard byte stream is not part of any bit-determinism golden.** TF's `Event` message carries `wall_time` in every payload; shard boundaries depend on wall-clock-driven flush thresholds; writer metadata varies across writer-ids. None of those bytes can be SHA-equal across two runs.
+**The TensorBoard byte stream is not part of any bit-determinism check.** TF's `Event` message carries `wall_time` in every payload; shard boundaries depend on wall-clock-driven flush thresholds; writer metadata varies across writer-ids. None of those bytes can be SHA-equal across two runs.
 
-The **scalar values themselves** at each `(tag, step)` *are* deterministic under the [Bit-determinism contract](#bit-determinism-contract): two same-substrate runs with the same seed produce identical `Summary.value.simple_value` at every `(tag, step)`. The TB-event determinism test, in [`jitml-unit`](#test-suite-stanzas), is therefore: decode both runs' shards, project to `[(tag, step, value)]`, sort canonically, assert equality. This caveat is called out so the determinism golden for TB events is not conflated with the checkpoint determinism golden (which is byte-level via `sha256(weights.bin)`).
+The **scalar values themselves** at each `(tag, step)` *are* deterministic under the [Bit-determinism contract](#bit-determinism-contract): two same-substrate runs with the same seed produce identical `Summary.value.simple_value` at every `(tag, step)`. The TB-event determinism test, in [`jitml-unit`](#test-suite-stanzas), is therefore: decode both runs' shards, project each to `[(tag, step, value)]`, sort canonically, and assert equality between the two run-derived sequences (no committed reference shard). This caveat is called out so the TB-event determinism check is not conflated with the checkpoint determinism check (which is byte-level via `sha256(weights.bin)` on two fresh runs).
 
 ---
 
@@ -812,7 +812,7 @@ Per doctrine §Automatically Generated Documentation and §Generated Artifacts, 
 flowchart LR
     spec[CommandSpec]
     parser["optparse-applicative parser<br/><i>runtime: jitml &lt;args&gt;</i>"]
-    help["--help text<br/><i>runtime + golden test</i>"]
+    help["--help text<br/><i>runtime + snapshot test</i>"]
     md["Markdown sections<br/><i>spliced between sentinel markers</i>"]
     man["manpage&lpar;s&rpar;<br/><i>rendered for distribution</i>"]
     json["JSON schema<br/><i>jitml commands --json;</i><br/><i>externally stable</i>"]
@@ -837,7 +837,7 @@ flowchart LR
     Parser["CLI.Parser<br/><i>optparse-applicative</i><br/>generated from the spec"]
     Docs["CLI.Docs<br/><i>Markdown, manpages,</i><br/><i>JSON schema, command tree</i>"]
     Commands["Commands.*<br/><i>one module per top-level constructor</i><br/>build :: Inputs → Either AppError Plan<br/>apply :: Env → Plan → IO ExitCode"]
-    Sub["Subprocess<br/><i>pure ADT; rendered for logs /</i><br/><i>--dry-run / golden tests;</i><br/><i>interpreter at the boundary</i>"]
+    Sub["Subprocess<br/><i>pure ADT; rendered for logs /</i><br/><i>--dry-run / snapshot tests;</i><br/><i>interpreter at the boundary</i>"]
     App["App<br/><i>ReaderT Env IO;</i><br/><i>owns process exit</i>"]
     Spec --> Parser --> Docs --> Commands --> Sub --> App
 ```
@@ -890,7 +890,7 @@ Per doctrine §Error Handling for the typed-domain-ADT discipline and single ren
 | `2` | system / capability error (MinIO, Pulsar, Harbor, kubectl, network failure after retry) |
 | `3` | reconciler no-op-on-match (`bootstrap`, `cluster up`, `docs generate`, `lint --write` found nothing to do) |
 
-`test all`, `verify *`, `lint *`, and `docs check` communicate pass/fail by exit code only; their stdout is the rendered Plan, golden output, or summary block — never a status string for callers to grep.
+`test all`, `verify *`, `lint *`, and `docs check` communicate pass/fail by exit code only; their stdout is the rendered Plan, snapshot output, or summary block — never a status string for callers to grep.
 
 The daemon classifies thrown errors as `Recoverable` or `Fatal`. `Recoverable` logs structured JSON and continues after retry per [Retry policy](#retry-policy); `Fatal` drains in-flight work, emits a final structured event, and exits. The full daemon contract (`/healthz`, `/readyz`, `/metrics`, structured JSON logging, drain-on-SIGTERM, `BootConfig`/`LiveConfig` split with SIGHUP hot reload) is doctrine §Long-Running Daemons in the Same Binary; jitML opts in (see [Doctrine scope](#doctrine-scope)).
 
@@ -974,7 +974,7 @@ Loss functions are represented declaratively in Dhall: scalar losses, multi-head
 
 # Concrete Dhall worked example
 
-A canonical SL experiment, end-to-end. The `dataset.train` field is the source for *both* train and validation splits — `Split.PermuteUnderSeed` slices `fullTrain` into a 55 000-example training partition and a 5 000-example validation partition under a fixed seed. `dataset.test` is the held-out final-evaluation set used by the convergence golden, never seen during training. The `metrics` list declares each metric's direction (`Maximise` for accuracy, `Minimise` for loss), which the trainer's `pointers/best/<m>` CAS predicate consumes (see [Concurrency model](#concurrency-model)). The `tuning` field is `None Tuning` for single-run experiments; setting it to `Some Tuning::{ … }` turns the definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
+A canonical SL experiment, end-to-end. The `dataset.train` field is the source for *both* train and validation splits — `Split.PermuteUnderSeed` slices `fullTrain` into a 55 000-example training partition and a 5 000-example validation partition under a fixed seed. `dataset.test` is the held-out final-evaluation set used by the convergence check, never seen during training. The `metrics` list declares each metric's direction (`Maximise` for accuracy, `Minimise` for loss), which the trainer's `pointers/best/<m>` CAS predicate consumes (see [Concurrency model](#concurrency-model)). The `tuning` field is `None Tuning` for single-run experiments; setting it to `Some Tuning::{ … }` turns the definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
 
 ```dhall
 -- experiments/mnist-mlp.dhall
@@ -1257,14 +1257,28 @@ Each dataset's source URL is pinned, the source bytes' SHA-256 is recorded (in t
 
 ## Threshold methodology
 
-The literature-target column above is a **sanity-check expectation**, not the golden. The actual golden numbers are derived from a `k=5` replicate baseline on the pinned reference host: five seeds, each trained to a budget that visibly plateaus the loss curve, then
+The literature-target column above is a **sanity-check expectation** consumed at test time. The convergence assertion for `(dataset, model)` is
 
 ```
-target = median(test_acc) − slack
-slack  = 95th-percentile residual deviation across the five seeds
+median(test_acc over k=5 seeds, current run, current substrate)
+  ≥ literature_target − slack
 ```
 
-so the golden passes with 95% probability if no regression has occurred. If the reference-host `k=5` median materially undershoots the literature target (e.g. by > 1–2 percentage points on classification, or proportionally on RMSE), that's an investigation trigger before the golden is committed. Treating the literature-target numbers as load-bearing — or as a substitute for the empirical baseline — is forbidden.
+where `slack` is a conservative constant declared in code per problem
+class (e.g. ~3 percentage points for image classification, proportional
+band for RMSE on regression). The threshold is **not** stored as a
+committed per-substrate fixture: jitML is a numerical-methods repo, and
+hardcoding the producing host's empirical accuracy as authoritative
+would lock in whichever substrate / RNG / FP-reduction order happened
+to run the calibration first. See [Test-suite stanzas → Snapshot
+prohibition on numerical fixtures](#snapshot-targets) and
+[`documents/engineering/unit_testing_policy.md`](documents/engineering/unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+
+If a substrate's `k=5` median falls below `literature_target − slack`,
+that's an investigation trigger — the test fails loudly rather than
+silently re-baselining. Treating either the literature target or any
+particular host's measured median as load-bearing for cross-substrate
+comparison is forbidden.
 
 ## Citations
 
@@ -1279,13 +1293,16 @@ so the golden passes with 95% probability if no regression has occurred. If the 
 [^pace1997]: Pace & Barry. "Sparse Spatial Autoregressions." Statistics & Probability Letters 33(3):291–297, 1997.
 [^hernandez2015]: Hernández-Lobato & Adams. ["Probabilistic Backpropagation for Scalable Learning of Bayesian Neural Networks."](https://arxiv.org/abs/1502.05336) ICML 2015.
 
-## Golden test shapes
+## SL test shapes
 
-For each `(dataset, model)` pair the test suite asserts three goldens:
+For each `(dataset, model)` pair the test suite asserts three properties.
+None of them stores hardcoded per-epoch numerical values; jitML does not
+commit numerical fixtures for the substrate-sensitive parts of training
+(per [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets)):
 
-- **Determinism golden** — `train` produces bit-identical checkpoint files on the same substrate across runs.
-- **Convergence golden** — the median over `k=5` seeds clears the row's target.
-- **Curve golden** — the per-epoch curves match a stored fixture within the measured tolerance.
+- **Run-to-run determinism** — `train` produces bit-identical checkpoint files on the same substrate, same seed, when run twice. The two runs are compared against each other via `sha256(weights.bin)`; no reference checkpoint is committed.
+- **Convergence (statistical)** — `median(test_acc over k=5 seeds) ≥ literature_target − slack`, with `slack` a per-problem-class constant declared in code (see [Threshold methodology](#threshold-methodology)).
+- **Curve sanity (properties, not fixtures)** — over the training budget, the loss is finite at every step, is monotonically decreasing modulo a small per-class noise window, gradients are finite, and the final-epoch loss improves over the first-epoch loss by at least a per-problem-class margin. No stored per-epoch curve file.
 
 ---
 
@@ -1302,7 +1319,7 @@ Own implementations in Haskell (no Gymnasium dependency at the env layer; jitML 
 | LunarLander-v2 (discrete) | Discrete(4) | Box(8) | crash, land, or 1000 steps |
 | GridWorld-Deterministic-v0 | Discrete(4) | Discrete(N) | reach goal or 100 steps |
 
-GridWorld is jitML-original and serves as a deterministic-by-construction unit-level golden — its trajectory is a pure function of `(seed, policy)` and can be asserted bit-for-bit. For each non-jitML-original env, the dynamics are re-implemented in Haskell from the published equations.
+GridWorld is jitML-original and serves as a deterministic-by-construction unit-level anchor — its trajectory is a pure function of `(seed, policy)` and the test compares two fresh runs against each other rather than against any committed trajectory file. For each non-jitML-original env, the dynamics are re-implemented in Haskell from the published equations.
 
 ---
 
@@ -1425,7 +1442,7 @@ Multi-worker rollout collection cannot serialise writes into one shared ring wit
 
 - **Per-worker shards.** Each env-worker writes to its own private ring sized at `capacity / numEnvs`. A worker's own write sequence is monotone in `(workerId, localStep)`; a worker never sees another worker's ring.
 - **Canonical join at sample time.** `samplingSeed` seeds a draw over the shards: for each batch slot, pick `workerId = (sampleIndex `mod` numEnvs)` and within that worker draw `localStep ∈ [0, ring-fill)`. Both decisions are pure functions of `samplingSeed` and the shards' current fill levels — never of the wall-clock order in which workers wrote.
-- **Determinism golden scope.** With per-worker shards + canonical join, the off-policy `(env, algo, seed, numEnvs)` tuple is bit-deterministic under both `Sync` and `Async` `VecEnv` variants. The PER `α/β` weights are computed against per-shard priorities; PER's sumtree is one-per-shard for the same reason.
+- **Determinism scope.** With per-worker shards + canonical join, the off-policy `(env, algo, seed, numEnvs)` tuple is bit-deterministic under both `Sync` and `Async` `VecEnv` variants. The determinism check compares two fresh runs against each other on the same substrate; no reference rollout is committed. The PER `α/β` weights are computed against per-shard priorities; PER's sumtree is one-per-shard for the same reason.
 
 The shard count is part of the resolved-Dhall hash; changing `numEnvs` defines a different experiment (it changes which transitions a given `samplingSeed` selects).
 
@@ -1569,7 +1586,7 @@ data EvalResult = EvalResult
 evaluatePolicy :: Policy obs act -> Env obs act -> EvalConfig -> IO EvalResult
 ```
 
-The convergence golden in [Golden tests for RL](#golden-tests-for-rl) lives directly on top of this primitive.
+The convergence check in [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) lives directly on top of this primitive.
 
 ## Training loops as typed pipelines
 
@@ -1725,26 +1742,59 @@ Algorithm defaults are pinned via SB3 RL Zoo3 as a sanity check, not as a source
 
 ---
 
-# Golden tests for RL
+# Convergence and determinism checks for RL
 
-RL goldens are harder than SL goldens because the reward landscape is stochastic and high-variance; a single seed's final reward is not a reliable signal. Five forms stack:
+RL correctness is harder to validate than SL because the reward
+landscape is stochastic and high-variance; a single seed's final reward
+is not a reliable signal, and **committing reference reward
+distributions or trajectory bytes would harden whichever substrate ran
+the calibration into the repository as authoritative** — explicitly
+forbidden per [Snapshot targets → Numerical-fixture
+prohibition](#snapshot-targets). Four forms stack, all comparing two
+fresh runs against each other or against an in-code threshold; none
+read a committed numerical fixture:
 
-1. **Trajectory determinism golden (cheap, bit-exact).**
-   Fix `(env, algo, seed, policy_init)`. Run for a small fixed number of steps. SHA-256 the resulting `(obs, action, reward, done)` sequence. Assert byte equality across runs. Runs in `jitml-unit`; costs seconds.
+1. **Run-to-run trajectory determinism (cheap, bit-exact).**
+   Fix `(env, algo, seed, policy_init)`. Run twice on the same
+   substrate for a small fixed number of steps. SHA-256 each run's
+   `(obs, action, reward, done)` sequence and assert byte equality
+   between the two SHAs. No reference trajectory or SHA is stored.
+   Runs in `jitml-unit`; costs seconds.
 
-2. **Convergence golden (the headline test, statistical).**
-   Fix `(env, algo, seed_pool of k=5 seeds, hyperparameters)`. Train each seed to the budgeted timesteps. Golden assertion: `median(final_reward) ≥ T`, where `T` is derived on the reference host by `T = median(reward) − slack` with `slack` from the same `k=5` replicate variance methodology used for SL. Stores the full per-seed final-reward distribution as a JSON fixture; regression detection is by distribution shift (Kolmogorov–Smirnov) against the fixture. Runs in `jitml-rl-canonicals`; costs minutes-to-hours per `(env, algo)`.
+2. **Convergence (the headline check, statistical).**
+   Fix `(env, algo, seed_pool of k=5 seeds, hyperparameters)`. Train
+   each seed to the budgeted timesteps. Assertion:
+   `median(final_reward) ≥ literature_target − slack`, where `slack`
+   is a per-(env, algo) constant declared in code — never a
+   per-substrate empirical fixture. Regression detection is by
+   threshold violation; if a substrate's median falls below the
+   threshold, the test fails loudly rather than silently re-baselining.
+   Runs in `jitml-rl-canonicals`; costs minutes-to-hours per `(env, algo)`.
 
-3. **Replay-from-checkpoint golden.**
-   Train to step `S/2`, checkpoint to MinIO, resume to step `S`, compare final checkpoint and final reward distribution to a from-scratch run trained to step `S` with the same seed. Enforces the determinism claim through the checkpoint boundary.
+3. **Replay-from-checkpoint determinism.**
+   Train to step `S/2`, checkpoint to MinIO, resume to step `S`,
+   compare the resumed final checkpoint and final reward distribution
+   against a from-scratch run trained to step `S` with the same seed.
+   The comparison is run-to-run; no committed reference. Enforces the
+   determinism claim through the checkpoint boundary.
 
-4. **Curve golden (regression detection).**
-   The per-evaluation reward curve (20 evaluations across the budget) is stored as a fixture. Regression: any evaluation falls outside the `[μ − 3σ, +∞)` band derived from the k-seed pool. Catches "still passes the final threshold but learning is now slower" regressions.
+4. **Curve sanity (properties, not fixtures).**
+   Across the per-evaluation reward curve (20 evaluations across the
+   budget) assert: the curve is non-decreasing modulo a per-class
+   noise window, the second half median improves over the first half
+   median by at least a per-(env, algo) margin, no evaluation produces
+   NaN/Inf reward, and the final evaluation clears the convergence
+   threshold from (2). No per-evaluation fixture is stored; the per-host
+   distribution is computed at test time and discarded.
 
-5. **Wall-clock golden (perf regression).**
-   On the pinned reference host, env-steps/sec and gradient-updates/sec are recorded with the convergence run and checked against fixture.
+Wall-clock perf is **not** part of the bit-determinism contract and is
+not asserted against a stored fixture; per-host throughput varies and a
+committed throughput target would either always pass or always fail
+depending on the runner.
 
-Target matrix (all numeric cells TBD pending baseline; same methodology as the SL canon):
+Target matrix (literature targets are declared in code per (env, algo);
+the `reward` column here is purely informational and not consumed by any
+test):
 
 | env | algo | timesteps | reward |
 |---|---|---|---|
@@ -1758,15 +1808,17 @@ Target matrix (all numeric cells TBD pending baseline; same methodology as the S
 | LunarLander-v2 | DQN | TBD | TBD |
 | LunarLander-v2 | SAC | TBD | TBD |
 
-The convergence golden is the load-bearing test; the trajectory-determinism golden runs every commit; the convergence golden runs nightly or on labeled CI only.
+The convergence check is the load-bearing test; the run-to-run
+determinism check runs every commit; the convergence check runs nightly
+or on labeled CI only.
 
-[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The target convergence golden for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). That wrapper and its experiment Dhall are still target Phase 9/12 work; the current worktree carries the algorithm metadata and deterministic fixture surface, not `src/JitML/RL/Exploration.hs`.
+[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The target convergence check for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). That wrapper and its experiment Dhall are still target Phase 9/12 work; the current worktree carries the algorithm metadata and deterministic-stub surface, not `src/JitML/RL/Exploration.hs`.
 
 ---
 
 # AlphaZero-style self-play and persistent MCTS state
 
-The RL surface as a whole is specified earlier in this README — see [RL framework primitives](#rl-framework-primitives) for the type-level taxonomy (algorithm GADT, policy/env types, buffer kinds, schedules, distributions, action noise, callbacks, evaluator, training loops), [RL algorithm catalog](#rl-algorithm-catalog) for the per-algorithm crosswalk, [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) for the env list, and [Golden tests for RL](#golden-tests-for-rl) for the determinism / convergence / replay golden stack. This section adds the pieces that don't fit those tables: the AlphaZero-style self-play loop and the persistent-MCTS-state contract.
+The RL surface as a whole is specified earlier in this README — see [RL framework primitives](#rl-framework-primitives) for the type-level taxonomy (algorithm GADT, policy/env types, buffer kinds, schedules, distributions, action noise, callbacks, evaluator, training loops), [RL algorithm catalog](#rl-algorithm-catalog) for the per-algorithm crosswalk, [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) for the env list, and [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) for the run-to-run determinism / statistical convergence / replay stack. This section adds the pieces that don't fit those tables: the AlphaZero-style self-play loop and the persistent-MCTS-state contract.
 
 ## Persistent MCTS state
 
@@ -1837,7 +1889,7 @@ Triples `(canonicalState, mctsVisits, valueTarget)` plus all game symmetries (Co
 
 ### Arena gating
 
-After each training iteration, the candidate net plays the incumbent for N games; promoted only if win rate ≥ threshold (e.g. 55%). This is the AlphaGo Zero gating policy (AlphaZero proper dropped it); jitML adopts it because it gives a stable regression target for the convergence golden.
+After each training iteration, the candidate net plays the incumbent for N games; promoted only if win rate ≥ threshold (e.g. 55%). This is the AlphaGo Zero gating policy (AlphaZero proper dropped it); jitML adopts it because it gives a stable regression target for the convergence check.
 
 ### Borrowed engineering from the sibling MCTS project
 
@@ -1845,19 +1897,19 @@ The deterministic-search arc — replay-from-transcript, exploration-cache repro
 
 ### Determinism contract
 
-The trajectory-determinism golden from [Golden tests for RL](#golden-tests-for-rl) applies unchanged to AlphaZero self-play. The convergence golden becomes: ELO ≥ T against a fixed random baseline (and ≥ T' against a fixed depth-N alpha-beta baseline for Connect 4), with T and T' derived from `k=5` replicates per the [Threshold methodology](#threshold-methodology).
+The run-to-run determinism check from [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) applies unchanged to AlphaZero self-play: two same-substrate, same-seed runs produce bit-identical game sequences and visit counts, compared against each other. The convergence assertion becomes: median ELO over a fixed-seed pool ≥ T against a fixed random baseline (and ≥ T' against a fixed depth-N alpha-beta baseline for Connect 4), with T and T' constants declared in code per the [Threshold methodology](#threshold-methodology) — not stored as per-substrate empirical fixtures.
 
 ### Canonical adversarial games
 
-| Game | Players | Board / state | Action space | Branching | Notes / golden anchor |
+| Game | Players | Board / state | Action space | Branching | Notes / convergence anchor |
 |---|---|---|---|---|---|
-| Tic-Tac-Toe | 2 | 3×3 | `Masked Discrete(9)` | ≤ 9 | optimal play → draw; minimax-equivalence golden |
+| Tic-Tac-Toe | 2 | 3×3 | `Masked Discrete(9)` | ≤ 9 | optimal play → draw; minimax-equivalence property |
 | Connect 4 | 2 | 6×7 (gravity) | `Masked Discrete(7)` | ≤ 7 | **canonical entry**; ELO vs random baseline; ELO vs depth-6 alpha-beta |
 | Othello (Reversi) | 2 | 8×8 | `Masked Discrete(64)` | ~ 5–15 | ELO targets TBD |
 | Gomoku-9x9 | 2 | 9×9 | `Masked Discrete(81)` | ≤ 81 | ELO targets TBD |
 | Hex-7x7 | 2 | 7×7 hex | `Masked Discrete(49)` | ≤ 49 | ELO targets TBD |
 
-Connect 4 is the canonical AlphaZero target; the others share the same `PerfectInfoGame` interface and self-play loop — switching games is a Dhall change, not a code change. Tic-Tac-Toe doubles as a unit-level golden: the game is solved by minimax, so a sufficiently-trained AlphaZero policy's argmax-visit move at every reachable state must lie in the minimax-optimal move set. (Raw visit *counts* are a function of `mctsSimsPerMove`, the PUCT exploration constant, the policy prior, and the Dirichlet root noise — those are not equal to minimax values; only the argmax over visits is.)
+Connect 4 is the canonical AlphaZero target; the others share the same `PerfectInfoGame` interface and self-play loop — switching games is a Dhall change, not a code change. Tic-Tac-Toe doubles as a unit-level convergence anchor via a minimax property: the game is solved by minimax, so a sufficiently-trained AlphaZero policy's argmax-visit move at every reachable state must lie in the minimax-optimal move set. The property is checked at test time against a freshly-computed minimax oracle — no committed move-sequence file. (Raw visit *counts* are a function of `mctsSimsPerMove`, the PUCT exploration constant, the policy prior, and the Dirichlet root noise — those are not equal to minimax values; only the argmax over visits is, and only the argmax is asserted.)
 
 ---
 
@@ -1873,7 +1925,7 @@ A checkpoint is an immutable deterministic snapshot of one point in training, RL
 - training metadata
 - hardware compilation metadata
 
-Persistence backend: MinIO bucket `jitml-checkpoints`, laid out per [Checkpoint object layout](#checkpoint-object-layout) and written under the [Concurrency model](#concurrency-model). Checkpoint replay is guaranteed deterministic; the [Replay-from-checkpoint golden](#golden-tests-for-rl) test enforces this through the test suite, not just by design statement.
+Persistence backend: MinIO bucket `jitml-checkpoints`, laid out per [Checkpoint object layout](#checkpoint-object-layout) and written under the [Concurrency model](#concurrency-model). Checkpoint replay is guaranteed deterministic; the [Replay-from-checkpoint determinism check](#convergence-and-determinism-checks-for-rl) enforces this through the test suite, not just by design statement.
 
 ## Split-blob layout
 
@@ -1966,7 +2018,25 @@ Cross-substrate, the weight blobs are not byte-equal — float reductions reasso
 
 ### Cross-substrate tolerance methodology
 
-ε is established by the same `k=5` replicate methodology that pins SL/RL convergence targets (see [Threshold methodology](#threshold-methodology)). For each canonical `(dataset, model)` and `(env, algo)` pair, the reference host runs `k=5` same-substrate replicates per backend; per-tensor `max-abs(deltaᵢⱼ)` is computed across every substrate pair `(cpu↔cuda)` and `(cpu↔metal)`. The 95th-percentile delta across the replicates is stored as a committed fixture under `test/golden/cross-backend/<pair>/<tensor>.json`. The fixture is byte-deterministic per doctrine §Golden Tests — no timestamps, no random IDs, no nondeterministic ordering — and the cross-backend stanza asserts each tensor's drift falls within its committed band. Widening a band requires explaining the cause in the PR description; tightening is a free win.
+ε is declared **in Haskell code** at `src/JitML/Engines/Tolerance.hs`
+as a `LayerFamilyTolerance` table — per-layer-family L∞ bounds
+calibrated from the public literature on cuDNN / Metal / oneDNN
+floating-point drift, not from an empirical measurement on whichever
+host happened to write the fixture first. The `jitml-cross-backend`
+stanza runs the canonical workloads on multiple substrates the host
+can exercise (subset), computes per-tensor `max-abs(delta)` at fixed
+checkpoints, and asserts every tensor's drift falls within the
+in-code band for its layer family.
+
+Per-substrate empirical fixture files (e.g. `test/golden/cross-backend/<pair>/<tensor>.json`)
+are explicitly **not** committed. jitML is a numerical-methods repo;
+checking in a host's measured 95th-percentile delta would harden that
+substrate / toolchain pin into the repository as authoritative,
+giving a false sense of correctness while masking real drift on any
+substrate the calibration host did not exercise. Widening a tolerance
+constant requires a code change with a Why justification; tightening
+is a free win and a code change. See [Snapshot targets → Numerical-fixture
+prohibition](#snapshot-targets) and [`documents/engineering/unit_testing_policy.md`](documents/engineering/unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
 ## No Postgres on jitML's data path
 
@@ -2147,21 +2217,21 @@ under `jitml lint *` / `jitml check-code`.
 | Pure Logic | `jitml-unit` |
 | Parser | `jitml-unit` |
 | Property | `jitml-unit` |
-| Golden | `jitml-unit` |
+| Snapshot (pure-renderer output only) | `jitml-unit` |
 | Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` (the four `*-canonicals` and the HPO stanza are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
 | Pulumi-Orchestrated Infrastructure | `jitml-e2e` |
 
-Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **Doctrine category** column below mirrors the matrix above per stanza. The **Delegated by** column names the `TestCommand` constructor that targets the stanza. Per doctrine, the first four categories (Pure / Parser / Property / Golden) share the single `jitml-unit` stanza.
+Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **Doctrine category** column below mirrors the matrix above per stanza. The **Delegated by** column names the `TestCommand` constructor that targets the stanza. Per doctrine, the first four categories (Pure / Parser / Property / Snapshot) share the single `jitml-unit` stanza.
 
 | Stanza | Doctrine category | Delegated by | Scope |
 |---|---|---|---|
-| `jitml-unit` | Pure Logic + Parser + Property + Golden | `TestUnit` | CommandSpec golden, Dhall round-trip, autodiff property, optimizer-step property, route-registry render golden, Grafana-dashboard render golden, RNG mixer property, trajectory-determinism RL goldens |
-| `jitml-integration` | Integration | `TestIntegration` | `jitml` binary across all substrates; checkpoint round-trip; resume semantics; Dhall→typed-record decode; per-substrate determinism |
-| `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems) |
-| `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix, forms (2) and (3) |
-| `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT), per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
-| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, Linux CPU oneDNN primitive compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests; target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from measured float-accumulation drift |
+| `jitml-unit` | Pure Logic + Parser + Property + Snapshot | `TestUnit` | CommandSpec snapshot, Dhall round-trip, autodiff property, optimizer-step property, route-registry render snapshot, Grafana-dashboard render snapshot, RNG mixer property, run-to-run trajectory-determinism for RL (compares two fresh runs against each other; no stored trajectory) |
+| `jitml-integration` | Integration | `TestIntegration` | `jitml` binary across all substrates; checkpoint round-trip; resume semantics; Dhall→typed-record decode; per-substrate run-to-run determinism |
+| `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): run-to-run determinism, statistical convergence against a literature-derived threshold, and per-epoch property checks — no committed numerical fixtures |
+| `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: run-to-run determinism, statistical convergence (median over k seeds ≥ in-code threshold), replay-from-checkpoint determinism, and per-evaluation curve property checks — no committed numerical fixtures |
+| `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
+| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, Linux CPU oneDNN primitive compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests (run-to-run); target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from the in-code per-layer-family bands at `src/JitML/Engines/Tolerance.hs` (no per-tensor committed fixtures) |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path uses Pulumi-orchestrated ephemeral Kind + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 
@@ -2195,19 +2265,54 @@ Per doctrine §Pulumi-Orchestrated Infrastructure Tests, Pulumi (program at `inf
 1. **Training control.** Start a run from a committed Dhall, observe live metrics on `/api/ws`, pause, resume, stop, assert checkpoint flush.
 2. **MNIST handwriting.** Navigate to the MNIST panel, simulate a touchpad stroke for each of the 10 digits via Playwright's pointer events, assert predicted class matches in ≥ 9/10 strokes.
 3. **Image upload.** Upload three fixture images per dataset (CIFAR-10, CIFAR-100, Tiny ImageNet) via Playwright's `setInputFiles`, assert top-1 / top-5 inclusion.
-4. **Game-play.** Drive a full Connect 4 game where Playwright plays a fixed-seed opponent sequence against the AlphaZero policy at a pinned checkpoint, assert the engine's response sequence matches a committed transcript fixture.
+4. **Game-play.** Drive a full Connect 4 game where Playwright plays a fixed-seed opponent sequence against the AlphaZero policy at a pinned checkpoint, assert every engine reply is a legal move under `gameLegalMoves` for the current board and the game terminates within the rules (no committed move-sequence fixture — engine replies depend on substrate float behavior).
 5. **TensorBoard / Grafana navigation.** Assert iframes load and the checkpoint markers from [TensorBoard event storage / Cross-link to checkpoint manifests](#cross-link-to-checkpoint-manifests) appear.
 6. **Hyperparameter sweep.** Launch a small Sobol sweep from the UI, observe live Pareto-frontier updates, kill a trial, assert state propagates.
 
-### Golden targets
+### Snapshot targets
 
-Per doctrine §Plan / Apply and §Generated Artifacts, the canonical goldens are:
+Per doctrine §Plan / Apply and §Generated Artifacts, the canonical
+snapshot targets are exact-string comparisons against committed
+**pure-renderer output** — never against numerical content. Snapshot
+fixtures live under `test/snapshots/`:
 
 - **doctrine-canonical** — `jitml --help` (every command and subcommand path), `jitml commands --tree`, `jitml commands --json`, generated Markdown docs, generated manpages.
-- **plan-render goldens** — the rendered Plan for every Plan/Apply command, reproduced via `--dry-run` and compared exact-string against a committed file: `bootstrap`, `cluster up`, `train`, `eval`, `tune`, `rl train`, `test all`.
-- **jitML-specific** — route-table render from `src/JitML/Routes.hs`, Grafana-dashboard render from `src/JitML/Observability/Grafana.hs`, PureScript contracts (`web/src/Generated/Contracts.purs`), numerical/RL Dhall schema mirrors, checkpoint manifest CBOR helpers, and the report-card summary block from [`jitml test all`](#jitml-test-all).
+- **plan-render snapshots** — the rendered Plan for every Plan/Apply command, reproduced via `--dry-run` and compared exact-string against a committed file: `bootstrap`, `cluster up`, `train`, `eval`, `tune`, `rl train`, `test all`.
+- **jitML-specific renderer output** — route-table render from `src/JitML/Routes.hs`, Grafana-dashboard render from `src/JitML/Observability/Grafana.hs`, Prometheus scrape config, PureScript contracts (`web/src/Generated/Contracts.purs`), numerical/RL Dhall schema mirrors, checkpoint manifest CBOR helpers (round-trip equality, not stored CBOR bytes), `CommandSpec` JSON, cache keys (SHA-256 over rendered runtime source), prerequisite renderings, and the report-card summary block from [`jitml test all`](#jitml-test-all).
 
-Golden outputs are deterministic. Renderers are pure; timestamps, random IDs, locale-dependent ordering, and terminal-width-dependent wrapping are forbidden in golden content per doctrine §Generated Artifacts.
+Snapshot outputs are deterministic. Renderers are pure; timestamps, random IDs, locale-dependent ordering, and terminal-width-dependent wrapping are forbidden in snapshot content per doctrine §Generated Artifacts.
+
+#### Numerical-fixture prohibition
+
+Snapshot tests are **restricted to pure-renderer output**. Committing
+hardcoded numerical content — SL training curves, RL trajectories, RL
+reward distributions, AlphaZero transcripts, sampler trial values,
+per-tensor cross-substrate deltas, or wall-clock perf numbers — is
+forbidden in this repository.
+
+jitML is a numerical-methods project. Floating-point reduction order,
+transcendental implementations, RNG host word size, BLAS/DNN dispatch,
+and cuBLAS/cuDNN algorithm selection all vary across substrates and
+toolchain pins. A `.txt` / `.json` / `.bin` file of numerical values
+hardens whichever host wrote it into the repository as authoritative,
+giving a false sense of correctness while masking real drift on every
+other substrate. Numerical correctness is asserted three ways instead:
+
+1. **Run-to-run determinism** — two fresh runs on the same substrate /
+   same seed produce bit-identical outputs, compared against each other
+   via SHA-256, never against a stored file.
+2. **Statistical convergence** — `median(metric over k seeds) ≥
+   literature_target − slack`, with `slack` an in-code per-problem-class
+   constant. See [Threshold methodology](#threshold-methodology).
+3. **Property tests** — finite gradients, monotonically-decreasing
+   training loss, monotone evaluator reward modulo a noise window,
+   codec round-trips, legal-move generation, terminal-state detection,
+   in-code tolerance bands for cross-substrate drift.
+
+The full statement of the policy, with concrete examples and
+substitutions per stanza, is at
+[`documents/engineering/unit_testing_policy.md → Snapshot Tests and
+the Prohibition on Numerical Fixtures`](documents/engineering/unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
 ### Per-stanza invocations
 
@@ -2282,7 +2387,7 @@ The current non-dry-run wrapper invokes `cabal test` with the explicit eight
 test-only stanza names, parses the `cabal.project` report-card knob block, and
 prints the target-stanza report card after Cabal succeeds.
 
-The live report-card extension will add measured SL/RL/AlphaZero/tuning/daemon/cross-substrate values once the live e2e path produces them. The full local matrices are exercised by `cabal test jitml-sl-canonicals` and `cabal test jitml-rl-canonicals` — see [Canonical supervised learning problems](#canonical-supervised-learning-problems) and [Golden tests for RL](#golden-tests-for-rl).
+The live report-card extension will add measured SL/RL/AlphaZero/tuning/daemon/cross-substrate values once the live e2e path produces them. These values are reported as the run's measured per-host telemetry; they are not stored as cross-run reference fixtures (see [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets)). The full local matrices are exercised by `cabal test jitml-sl-canonicals` and `cabal test jitml-rl-canonicals` — see [Canonical supervised learning problems](#canonical-supervised-learning-problems) and [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl).
 
 ---
 
@@ -2394,12 +2499,13 @@ jitML/
   docker/                       -- one Dockerfile (jitml:local + style-tool gate), playwright.Dockerfile
   experiments/                  -- canonical experiment Dhall files
   test/                         -- per-stanza test trees
-    test/golden/sl/             -- SL convergence/curve fixtures
-    test/golden/rl/             -- RL trajectory + curve fixtures
-    test/golden/cli/            -- CommandSpec + help text fixtures
-    test/golden/routes/         -- route-table render fixture
-    test/golden/grafana/        -- dashboard JSON fixtures
-    test/golden/tuning/         -- Sobol sequences, GA traces
+    test/snapshots/cli/         -- CommandSpec + help text snapshots (pure renderers)
+    test/snapshots/routes/      -- route-table render snapshot
+    test/snapshots/grafana/     -- dashboard JSON snapshots
+    test/snapshots/cache/       -- cache-key snapshot (SHA-256 of rendered runtime source)
+    test/snapshots/prerequisite/-- prerequisite-render snapshots
+                                -- (no test/golden/ — numerical fixtures forbidden;
+                                --  see README "Numerical-fixture prohibition")
   cabal.project                 -- toolchain pin, report-card knobs
   fourmolu.yaml                 -- formatter config
   README.md
@@ -2436,7 +2542,7 @@ Binding project doctrine, in order:
 - Reconcilers: Idempotent Mutation as a Single Command (`bootstrap`, `cluster up`, `docs generate`, `lint --write`)
 - Lint, Format, and Code-Quality Stack — adopted with jitML's container-exclusive code-quality domain: the mandatory `jitml:local` image build installs the style GHC/tools and runs the Haskell style gate; host lint/check-code commands are unsupported and do not discover or bootstrap style tools; test commands do not run style or code-quality gates.
 - Testing Doctrine
-- Standard Testing Stack (Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit + tasty-quickcheck + tasty-golden + typed-process + temporary + Pulumi)
+- Standard Testing Stack (Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit + tasty-quickcheck + typed-process + temporary + Pulumi; snapshot comparisons for pure-renderer output use `tasty-hunit` text/byte equality rather than `tasty-golden`, since the project forbids numerical fixtures per [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets))
 - Test Categories (each of the seven mapped to a `jitml-*` stanza in [Test-suite stanzas](#test-suite-stanzas), including Daemon Lifecycle and Pulumi-Orchestrated Infrastructure)
 - Test Organization (one `test-suite` stanza per tier; project-specific stanzas under §Test Organization → project-specific stanzas)
 
@@ -2469,7 +2575,7 @@ jitML's long-term goal is a fully declarative, reproducible, deterministic ML ru
 - offers hyperparameter optimisation across the sampler × scheduler × pruner axes — Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT × Fifo, SuccessiveHalving, Hyperband, ASHA × {none, median, percentile} pruners;
 - treats complex-valued networks as first-class citizens throughout the stack;
 - ships an interactive demo app that lets users start, pause, and stop training runs from the browser, draw handwritten digits on a touchpad for live MNIST inference, upload images for CIFAR/ImageNet recognition, and play Connect 4 (and the rest of the canonical adversarial games) against the AlphaZero policy at any committed checkpoint;
-- exercises every test category in [Test-suite stanzas](#test-suite-stanzas) — Pure Logic, Parser, Property, Golden, Integration, Daemon Lifecycle, Pulumi-Orchestrated Infrastructure — with target Playwright e2e covering every interactive panel above once live panel state exists.
+- exercises every test category in [Test-suite stanzas](#test-suite-stanzas) — Pure Logic, Parser, Property, Snapshot (pure-renderer output only), Integration, Daemon Lifecycle, Pulumi-Orchestrated Infrastructure — with target Playwright e2e covering every interactive panel above once live panel state exists.
 
 ---
 

@@ -325,8 +325,11 @@ per standards rule L.
   - **Testing Doctrine, Standard Testing Stack, Test Categories, Test
     Organization**: per-tier stanza model, `type: exitcode-stdio-1.0`,
     `tasty`, `execParserPure`, property invariants `decode . encode == id`,
-    `render is deterministic`, `parser roundtrips`, golden tests with
-    sentinel placeholders for non-deterministic content, daemon-lifecycle
+    `render is deterministic`, `parser roundtrips`, snapshot tests for
+    pure-renderer output only (with sentinel placeholders for
+    non-deterministic content) and an explicit prohibition on numerical
+    fixtures per [../README.md → Snapshot targets → Numerical-fixture
+    prohibition](../README.md#snapshot-targets), daemon-lifecycle
     tests, Pulumi-orchestrated infrastructure tests. Ten `jitml-*` stanzas:
     `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
     `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`,
@@ -462,7 +465,7 @@ blocks, or cleanup-ledger rows are required.
   lines `88`-`148` and `218`-`240`; [system-components.md](system-components.md)
   lines `162`-`178` and `298`-`300`.
 - Lint stack and test organization:
-  `grep -RInE 'fourmolu\.yaml|indentation|column-limit|function-arrows|comma-style|import-export-style|indent-wheres|record-brace-space|newlines-between-decls|haddock-style|let-style|in-style|unicode|hlint|cabal format|forbiddenPathRegistry|\.github/workflows/|\.husky/|\.githooks/|Makefile|justfile|Taskfile\.yml|freestanding PVCs|kubernetes\.io/no-provisioner|claimRef|exitcode-stdio-1\.0|tasty|execParserPure|decode \. encode == id|render is deterministic|parser roundtrips|golden tests|sentinel placeholders|daemon-lifecycle|Pulumi-orchestrated|jitml-unit|jitml-integration|jitml-sl-canonicals|jitml-rl-canonicals|jitml-hyperparameter|jitml-cross-backend|jitml-daemon-lifecycle|jitml-e2e|jitml lint haskell|jitml lint purescript' DEVELOPMENT_PLAN documents/engineering`
+  `grep -RInE 'fourmolu\.yaml|indentation|column-limit|function-arrows|comma-style|import-export-style|indent-wheres|record-brace-space|newlines-between-decls|haddock-style|let-style|in-style|unicode|hlint|cabal format|forbiddenPathRegistry|\.github/workflows/|\.husky/|\.githooks/|Makefile|justfile|Taskfile\.yml|freestanding PVCs|kubernetes\.io/no-provisioner|claimRef|exitcode-stdio-1\.0|tasty|execParserPure|decode \. encode == id|render is deterministic|parser roundtrips|snapshot tests|numerical-fixture prohibition|sentinel placeholders|daemon-lifecycle|Pulumi-orchestrated|jitml-unit|jitml-integration|jitml-sl-canonicals|jitml-rl-canonicals|jitml-hyperparameter|jitml-cross-backend|jitml-daemon-lifecycle|jitml-e2e|jitml lint haskell|jitml lint purescript' DEVELOPMENT_PLAN documents/engineering`
   Evidence: [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md)
   lines `235`-`267`; [system-components.md](system-components.md) lines `308`-`336`.
 - Project-level documentation standards:

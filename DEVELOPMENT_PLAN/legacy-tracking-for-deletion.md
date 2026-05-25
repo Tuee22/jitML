@@ -37,11 +37,18 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-Five cleanup rows are currently active. The scoped `allow-newer` block in
+Seven cleanup rows are currently active. The scoped `allow-newer` block in
 `cabal.project` keeps Dhall's transitive CBOR stack building under pinned
-GHC `9.14.1` while upstream package bounds catch up; the other pending rows
-record checked-in stand-ins that are deliberately keeping local test coverage
-green until their owning live-runtime surfaces land. Six cleanup rows have
+GHC `9.14.1` while upstream package bounds catch up; five rows record
+checked-in stand-ins that are deliberately keeping local test coverage
+green until their owning live-runtime surfaces land (CUDA/Metal kernel
+scaffolds, deterministic MCTS prior, demo placeholder shell, target
+report-card stanza-only mode, and deterministic atari-subset RAM-state
+stub awaiting a real ALE FFI binding); the seventh row schedules
+deletion of the committed numerical fixture tree under `test/golden/`
+and migration of its consumers to statistical / run-to-run / property
+assertions per [../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets). Six cleanup rows have
 closed and live in the `Completed` table:
 Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
 style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
@@ -81,6 +88,8 @@ opening event itself enqueues a row here naming the originating sprint.
 | Deterministic MCTS prior stub | `src/JitML/RL/AlphaZero/Mcts.hs` | `priorFor` stands in for the real policy/value network call so MCTS and transposition-table tests are deterministic before AlphaZero uses JIT-backed network inference | Phase 13 Sprint `13.9` |
 | Demo placeholder shell, local stream frames, and inline DOM stubs | `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs` | The demo server falls back to a placeholder shell and deterministic local stream frames, while Playwright uses inline DOM stubs until the compiled Halogen bundle and live edge route are wired | Phase 13 Sprints `13.13`, `13.14` |
 | Target-stanza-only report card | `src/JitML/Test/Report.hs`, `src/JitML/App.hs` | `jitml test all` now renders the actual target stanza names after Cabal succeeds, but live SL/RL/AlphaZero/tuning/daemon/cross-substrate measurements are still absent; extend the report with measured values from the live e2e path | Phase 15 Sprint `15.2` |
+| Numerical-content golden fixtures under `test/golden/` | `test/golden/{sl,rl,alphazero,tune,cross-backend}/`, any consumers under `test/*-canonicals/Main.hs`, `test/cross-backend/Main.hs` | The repo previously committed per-substrate numerical fixtures (SL convergence curves, RL trajectories, AlphaZero transcripts, sampler trial values, per-tensor cross-substrate deltas). These hardcode whichever host wrote the calibration into the repository as authoritative; jitML is a numerical-methods project where RNG and FP-reduction order vary across substrates, so committed fixtures give a false sense of correctness. Delete the directories, port consumers to statistical / run-to-run / property assertions per [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets), and add a `jitml lint files` rule that fails on any new file under `test/golden/`. Pure-renderer snapshot fixtures move to `test/snapshots/{cli,routes,grafana,cache,prerequisite,cluster,observability}/`. | Phase 12 Sprint `12.1` (rule + directory rename) and Sprint `12.3`–`12.6` (numerical-stanza ports) |
+| Deterministic atari-subset RAM-state stub | `src/JitML/RL/Simulator.hs` (`atariSubsetEnvironment`, `atariSubsetStep`, `AtariSubsetState`) | Sprint `8.3` (closed 2026-05-25) ships a deterministic 128-byte RAM-state stub matching the canonical Atari action/obs surface while a real Arcade Learning Environment binding waits on (a) C++ FFI bindings via `inline-c-cpp` against `libale.so`, (b) ROM licensing handling for Atari 2600 titles (Stella ROMs are not redistributable; an `autorom`-style download flow or a single permissively-licensed homebrew ROM such as `tetris` must land alongside), and (c) baking `libale-dev`, `libsdl2-dev`, and `zlib1g-dev` into `jitml:local`. The deterministic stub preserves the action/obs contract so upstream RL primitives (`AlgorithmModule`, `VecEnv`, `RLLoop`) consume the real binding identically when it lands. | Phase 13 Sprint `13.6` (live RL training) or a successor cross-substrate cleanup sprint |
 
 ## Pending Removal Notes
 
@@ -116,7 +125,7 @@ explicitly schedules their deletion.
 | Lint-time host `ghcup` style-tool bootstrap | Sprint 1.4 | Removed runtime `ensureStyleTools` / `installStyleToolsSubprocess` bootstrap from `src/JitML/Lint/Stack.hs`; `docker/Dockerfile` now installs the style-tools GHC plus pinned `fourmolu` / `hlint`, stamps the `jitml:local` code-quality domain, and runs `jitml check-code` during image construction. |
 | `jitml-mirror` Helm release placeholder | Sprint 3.5 | Removed the stand-in `HelmRelease "jitml-mirror" "jitml-images"` row from `JitML.Cluster.Helm.phasedReleases`; `JitML.Bootstrap.livePhasedRolloutSubprocesses` now inserts the Docker build / explicit Kind image-load subprocesses directly before final services. |
 | Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
-| Default runtime-source placeholder | Sprint 7.7 | Removed `defaultRuntimeSourcePayload` and the `runtime-source:phase-2-placeholder` marker from `src/JitML/Cache/Key.hs`; cache-key fixtures now derive their `RuntimeSourcePayload` from `renderRuntimeSource`, and `test/golden/cache/kernel-key.txt` was refreshed to the rendered-source-backed hash. |
+| Default runtime-source placeholder | Sprint 7.7 | Removed `defaultRuntimeSourcePayload` and the `runtime-source:phase-2-placeholder` marker from `src/JitML/Cache/Key.hs`; cache-key snapshot now derives its `RuntimeSourcePayload` from `renderRuntimeSource`, and `test/snapshots/cache/kernel-key.txt` was refreshed to the rendered-source-backed hash. |
 | Standalone MinIO values fragment | Sprint 4.3 | Folded MinIO subchart values into `chart/values.yaml`, removed `chart/minio-values.yaml`, and made bootstrap delete legacy standalone values files during materialization. |
 | RL run sequencing as a `RunPhase` enum instead of an `RLRunLifecycle` GADT | Sprint 8.7 | Replaced the flat `RunPhase` enum with the `RLRunPhase` data kind plus the phase-indexed singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`; updated `rlRunPlan`, `renderRLRunPhase`, and the `jitml-unit` consumer; `cabal test jitml-unit` keeps 57/57 passing. |
 

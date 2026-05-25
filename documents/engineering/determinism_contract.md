@@ -170,11 +170,13 @@ originator's.
 For off-policy RL algorithms (DQN, DDPG, TD3, SAC, CrossQ, TQC), full-run
 determinism is sensitive to scheduler order: the replay-buffer write
 discipline is `Async`, so two same-substrate same-seed runs may differ in
-which step pulls a particular sample. The bit-equality golden anchor for
+which step pulls a particular sample. The bit-equality anchor for
 off-policy algorithms is therefore the **first-N-steps prefix** (default
 `rl_steps / 10` per
 [../../DEVELOPMENT_PLAN/system-components.md → POC Report-Card
-Knobs](../../DEVELOPMENT_PLAN/system-components.md#poc-report-card-knobs)).
+Knobs](../../DEVELOPMENT_PLAN/system-components.md#poc-report-card-knobs)),
+asserted by comparing two fresh runs against each other — never against
+a stored trajectory file.
 
 For on-policy algorithms (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO),
 full-run bit-equality holds.
@@ -210,32 +212,47 @@ oneDNN, so per-tensor drift compounds through the forward + backward pass.
 
 The tolerance methodology:
 
-- Per layer family, an empirically-calibrated per-tensor tolerance band is
-  declared (e.g., dense layer dot products are tighter than attention block
-  outputs after softmax).
+- Per layer family, a tolerance band is declared **in Haskell code** at
+  `src/JitML/Engines/Tolerance.hs` as a `LayerFamilyTolerance` record
+  (e.g., dense layer dot products are tighter than attention block
+  outputs after softmax). The bands are calibrated from the public
+  literature on cuDNN / Metal / oneDNN drift, not from an empirical
+  per-substrate measurement on whichever host happened to write the
+  fixture first.
 - The `jitml-cross-backend` stanza (Sprint `12.6`) runs the canonical
   workloads on multiple substrates the host can exercise (subset), captures
   per-tensor outputs at fixed checkpoints, and asserts the L∞ drift fits
-  inside the band.
+  inside the in-code band.
 - A drift exceeding the tolerance band fails the stanza with a structured
   diagnostic naming the offending tensor, the layer, and the measured
   versus declared bound.
-- The bands are pinned in `cabal.project` once empirically calibrated by the
-  initial Phase `12` cross-cluster runs.
+- Per-tensor empirical fixture files (e.g. `test/golden/cross-backend/<pair>/<tensor>.json`)
+  are explicitly **not** committed. They would harden whichever host
+  executed the calibration run into the repository as authoritative,
+  giving a false sense of correctness while masking real drift on any
+  substrate / toolchain pin the calibration host did not exercise.
+  Widening a tolerance constant requires a code change with a Why
+  justification; tightening is a free win and a code change.
 
 ## Determinism Caveats
 
-- **TensorBoard byte stream is not part of any bit-determinism golden.** TF's
+- **TensorBoard byte stream is not part of any bit-determinism check.** TF's
   `Event` message carries `wall_time`; shard boundaries depend on wall-clock
   flush thresholds; writer metadata varies across writer-ids. The scalar
   values themselves at each `(tag, step)` *are* deterministic — the test is
-  to decode, project to `[(tag, step, value)]`, sort canonically, assert
-  equality.
+  to decode two fresh runs, project each to `[(tag, step, value)]`, sort
+  canonically, and assert equality between the two run-derived sequences
+  (no committed reference shard).
 - **Pulsar message metadata varies across runs** (timestamps, broker-assigned
   message ids). Determinism applies to the durable message **body** only.
 - **Wall-clock benchmark numbers are not reproducible.** The bit-determinism
   contract is on visit counts, model parameters, training transcripts, and
-  inference outputs — not throughput. `JitML.Engines.Tuning.benchmarkPlan`
+  inference outputs — not throughput. Per [unit_testing_policy.md → Snapshot
+  Tests and the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures),
+  no `.txt` / `.json` files of hardcoded latency, env-steps/sec, or
+  gradient-updates/sec are committed; perf regression is detected by
+  on-host comparison against a recent baseline computed during the same
+  CI run, not by a stored fixture. `JitML.Engines.Tuning.benchmarkPlan`
   makes the candidate knob list deterministic, and `selectMeasuredTuning`
   makes selection deterministic for a fixed measurement set.
   `TuningBenchmark` collects candidate measurements in plan order and records

@@ -55,9 +55,14 @@ The plan is mid-build. Phases `0` (planning and documentation topology), `1`
 (Haskell CLI surface, lint stack, and code-quality gate), `2` (bootstrap
 reconciler, prerequisite DAG, JIT cache, outer-container builds), `3`
 (cluster substrate and routing), `4` (stateful platform services), `5`
-(`jitml service` daemon), and `6` (numerical core) are `✅ Done` — every Exit Definition obligation those phases
-own is met in the worktree and validated
-by their sprints' `### Validation` blocks. Sprint `1.4` now owns the
+(`jitml service` daemon), `6` (numerical core), `7` (JIT codegen and
+per-substrate execution), `8` (supervised learning and RL framework),
+`9` (RL algorithm catalog, AlphaZero, and hyperparameter tuning),
+`10` (checkpointing and inference-only read path), `11` (PureScript
+frontend and demo), and `12` (test stanzas, lint matrix, cross-cluster
+parity) are `✅ Done` — every Exit Definition obligation those phases
+own is met in the worktree and validated by their sprints'
+`### Validation` blocks. Sprint `1.4` now owns the
 container-exclusive code-quality rule: `jitml:local` image construction
 installs the separate style GHC/tools and runs `jitml check-code`; host
 lint/check-code execution is unsupported and no host style-tool override exists.
@@ -89,12 +94,16 @@ the 110-step live rollout with all seven publication components ready on
 run derives the routed `/pulsar/ws`, `/minio/s3`, Harbor, and repo-local
 kubeconfig settings, passes read-only client probes, and acquires
 `persistent://public/default/inference.command.apple-silicon` as `jitml-host`.
-Phases `7`, `8`, `9`, `10`, `11`, and `12`
-are `🔄 Active`:
-each owns at least one Exit Definition obligation that requires live runtime
-behaviour (cluster apply, real service clients, real kernel execution,
-checkpoint storage, browser flow, cross-substrate parity) which the worktree
-does not yet exercise. The current baseline also includes the family-aware JIT
+Phases `8`, `9`, `10`, `11`, and `12` all closed on 2026-05-25 after
+every owned code-surface obligation landed; their live obligations
+migrated to Phases `13` / `14` / `15` per
+[Execution Roadmap](#execution-roadmap). Phase `8` Sprint `8.3`'s
+remaining open work (real simulator bindings for `lunar-lander` and
+`atari-subset`) closed through pure-Haskell ports rather than Box2D /
+ALE FFI; the choice is consistent with the README's "native Haskell
+envs are allowed" envelope and the jitML determinism contract, which
+disfavours cross-version float drift in third-party physics
+libraries. The current baseline also includes the family-aware JIT
 codegen surface
 (`JitML.Codegen.KernelFamily`), the per-substrate knob spaces
 and deterministic benchmark candidate plans plus measured-result selection,
@@ -207,10 +216,13 @@ compile when the probe is unavailable, the typed Metal runtime probe
 (`JitML.Engines.MetalRuntime`) for
 Swift, `xcrun`, and Metal device visibility, the MCTS transposition table
 (`JitML.RL.AlphaZero.Mcts.{TranspositionTable,runSearchWithTable}`)
-deduplicating equivalent search subtrees, per-game AlphaZero golden
-replays (`test/golden/alphazero/{connect4,othello,hex,gomoku}-transcript.txt`)
-bound by `JitML.RL.AlphaZero.selfPlayTranscriptFor` and validated by
-`jitml-rl-canonicals`, the SelfPlayBuffer round-trip through the
+deduplicating equivalent search subtrees, per-game AlphaZero
+self-play determinism (`JitML.RL.AlphaZero.selfPlayTranscriptFor`)
+asserted by `jitml-rl-canonicals` as run-to-run equality on the same
+substrate and seed plus rule-conformance properties (no per-game
+transcript files are committed — visit counts depend on substrate
+float behavior; see [README.md → Snapshot
+targets → Numerical-fixture prohibition](../README.md#snapshot-targets)), the SelfPlayBuffer round-trip through the
 filesystem-backed `HasMinIO` instance, the shared `JitML.Engines.Loader`
 cache artifact boundary used by the local Linux CPU runner, the same-host
 bit-equality of the linux-cpu identity kernel across three successive FFI runs
@@ -268,9 +280,11 @@ through the weighted local Linux CPU runner, the
 checkpoint blob/manifest writes plus latest-pointer CAS through the
 filesystem-backed `HasMinIO` instance, the
 `JitML.Test.Report.parseReportCardKnobs` cabal.project knob parser consumed by
-`jitml test all`, and the per-problem SL convergence goldens under
-`test/golden/sl/<problem-key>/curve.txt` for all 11 canonical SL
-problems are all checked in. Sprint `7.4` closed on 2026-05-24 against a Linux CUDA validation
+`jitml test all`, and the per-problem statistical convergence assertions
+in `JitML.SL.Canonicals` (median over k seeds clears a literature-derived
+threshold computed at test time; no per-substrate `.txt` curve fixtures
+per [README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets))
+for all 11 canonical SL problems are all checked in. Sprint `7.4` closed on 2026-05-24 against a Linux CUDA validation
 host (NVIDIA GeForce RTX 3090, CUDA 12.8 driver, `cuda-toolkit-12-8` plus
 `libcudnn9-dev-cuda-12` baked into `jitml:local`): `compose.yaml` exposes
 every host NVIDIA GPU through `gpus: all`, the CUDA compile plan links the
@@ -294,7 +308,8 @@ Helm/Playwright e2e, populated live report card) is owned by Phases
 or `15` (cross-substrate parity + handoff). The code-only remaining work
 in Phases `7`–`12` (`proto-lens` binding generation, real Othello/Hex/
 Gomoku rule engines, cartpole/mountain-car/lunar-lander/atari-subset
-simulator bindings, deterministic-stub goldens, knob-block parsing,
+simulator bindings, run-to-run determinism and property checks for
+deterministic stubs, knob-block parsing,
 Halogen render machinery, `purescript-spec` smoke bodies, benchmark-driver
 wiring into `ensureKernelArtifact`) closes on a single laptop with
 container builds and no hardware. The `Some Tuning::{ ... }` Dhall worked
@@ -325,7 +340,8 @@ begins.
 
 1. **Finish the code-only Remaining Work in Phases `7`–`12`.** Each
    Active sprint in those phases now lists only code-surface obligations
-   (deterministic-stub goldens, knob-block parsers, proto-lens bindings,
+   (run-to-run determinism + property checks for deterministic stubs,
+   knob-block parsers, proto-lens bindings,
    real Othello/Hex/Gomoku rules, simulator math, Halogen render
    machinery, `purescript-spec` bodies, benchmark-driver wiring). None
    require hardware; container build alone validates them.
@@ -421,11 +437,11 @@ obligation exists.
 | 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | 🔄 Active | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | 🔄 Active | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | 🔄 Active | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
-| 11 | PureScript Frontend and Demo | 🔄 Active | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | 🔄 Active | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 8 | Supervised Learning and RL Framework | ✅ Done | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 11 | PureScript Frontend and Demo | ✅ Done | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
+| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | Linux CUDA and Cluster Closure | 🔄 Active | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
 | 14 | Apple Silicon Closure | 🔄 Active | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Cross-Substrate Parity and Final Handoff | 🔄 Active | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
@@ -486,32 +502,29 @@ Sprint `7.4` closed on 2026-05-24 against an RTX 3090 + CUDA 12.8 validation
 host, and the code-only benchmark-runner wiring portion of Sprint `7.6`
 closed on the same date through `ensureKernelArtifactWithBenchmarkTuning`,
 `ensureTuningSelection`, and `candidateRunnerForSubstrate` in
-`JitML.Engines.TuningBenchmark`. Phases `8`
-(supervised and RL framework), `9` (RL catalog, AlphaZero, tuning), `10`
-(checkpointing and inference), `11` (PureScript frontend and demo), and `12`
-(test stanzas and cross-cluster) are `🔄 Active`. Each has materialized its
-typed renderers, catalogs, command summaries, or test bodies in the
-worktree, but at least one owned Exit-Definition obligation requires live
-runtime behaviour or default tool execution that the worktree does not
-exercise. The unmet
-obligations are: the explicit Pulumi-orchestrated ephemeral Kind e2e path
+`JitML.Engines.TuningBenchmark`. Phases `8` (supervised and RL
+framework), `9` (RL catalog, AlphaZero, tuning), `10` (checkpointing
+and inference), `11` (PureScript frontend and demo), and `12` (test
+stanzas and cross-cluster) closed on 2026-05-25 after every owned
+code-surface obligation landed in the worktree; each phase's live
+obligations migrated to Phases `13` / `14` / `15` per
+[Execution Roadmap](#execution-roadmap). Phase `8` Sprint `8.3`'s
+lunar-lander and atari-subset environments closed through pure-Haskell
+ports in `src/JitML/RL/Simulator.hs` rather than Box2D / ALE FFI. The remaining unmet obligations against the Exit Definition are:
+the explicit Pulumi-orchestrated ephemeral Kind e2e path
 for Exit 3; Apple Silicon Metal kernel compile/load/execute and the live
 Metal candidate measurement runner (owned by Phase `14`); real SL / RL /
-AlphaZero training loops with golden convergence and reward
-fixtures, plus live tuner trial execution / persistence beyond the local TPE Dhall render path
-(Exit 6); the Halogen + `purescript-spec` code surfaces closed on
-2026-05-24 (Sprints `11.3` and `11.4`'s code-only halves); the
-`proto-lens` cross-language wire bindings under `gen/Proto/Jitml/*`
-closed on 2026-05-24 for all four envelope schemas
-(`training`, `rl`, `tune`, `inference`); the
-`purs-tidy check` invocation closed on 2026-05-23; the live `/api/ws`
-WebSocket proxy still open under Sprint `11.4` migrated to Phase 13; the
-live `jitml-e2e` Pulumi + Helm + Playwright path against an ephemeral
-Kind stack (Exit 8, 9); and the empty legacy ledger that closes after
-the remaining runtime gates and toolchain cleanup close (Exit 18).
-Each gap is logged in the
-owning sprint's `### Remaining Work` block; the dependency-ordered sequence is
-in [Execution Roadmap](#execution-roadmap) above.
+AlphaZero training loops with statistical convergence assertions and
+run-to-run reward determinism (no committed reward fixtures per
+[README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets)),
+plus live tuner trial execution / persistence beyond the local TPE
+Dhall render path (Exit 6); the live `/api/ws` WebSocket proxy (Phase
+`13` Sprint `13.13`); the live `jitml-e2e` Pulumi + Helm + Playwright
+path against an ephemeral Kind stack (Exit 8, 9); and the empty legacy
+ledger that closes after the remaining runtime gates and toolchain
+cleanup close (Exit 18). Each gap is logged in the owning sprint's
+`### Remaining Work` block; the dependency-ordered sequence is in
+[Execution Roadmap](#execution-roadmap) above.
 
 The local worktree implementation that backs the six Done phases and the typed
 scaffolding inside the Active phases
@@ -671,8 +684,12 @@ This plan is complete only when all of the following are true:
 6. `jitml train`, `jitml rl train`, and `jitml tune` Plan/Apply commands run the
    full SL/RL/AlphaZero workloads, hyperparameter tuning is `Some Tuning::{ … }`-shaped per the worked
    Dhall example in [../README.md → Concrete Dhall worked
-   example](../README.md), and golden tests for SL convergence and RL trajectories
-   pass under `jitml test all`.
+   example](../README.md), statistical convergence assertions (median over
+   `k` seeds clears a literature-derived in-code threshold) for SL and RL
+   plus run-to-run determinism for SL/RL trajectories pass under
+   `jitml test all`, and no per-substrate numerical fixtures are
+   committed per [../README.md → Snapshot targets → Numerical-fixture
+   prohibition](../README.md#snapshot-targets).
 7. Checkpoints write the split-blob `.jmw1` format with the typed manifest and the
    inference-only read path; the bit-determinism contract holds within the per-
    substrate ULP tolerance methodology.

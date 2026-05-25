@@ -1696,6 +1696,84 @@ main =
           length obs @?= 4
           reward @?= 1.0
           done @?= False
+      , testCase "lunar-lander simulator steps deterministically (Sprint 8.3)" $ do
+          -- No-op above the pad: lander falls under gravity; vertical
+          -- velocity becomes negative and the y coordinate decreases.
+          let drift = Sim.lunarLanderStep Sim.lunarLanderInitial 0
+              driftState = Sim.simStepState drift
+          assertBool
+            "no-op step accelerates downward under lunar gravity"
+            (Sim.lunarLanderVy driftState < 0)
+          assertBool
+            "no-op step lowers the lander altitude"
+            (Sim.lunarLanderY driftState < Sim.lunarLanderY Sim.lunarLanderInitial)
+          Sim.simStepDone drift @?= False
+          -- Firing the main engine produces a positive vertical impulse;
+          -- the resulting vy is greater than the no-op vy.
+          let burn = Sim.lunarLanderStep Sim.lunarLanderInitial 2
+              burnState = Sim.simStepState burn
+          assertBool
+            "main-engine fire counters lunar gravity"
+            (Sim.lunarLanderVy burnState > Sim.lunarLanderVy driftState)
+          -- Left side engine yields positive angular velocity.
+          let lefti = Sim.lunarLanderStep Sim.lunarLanderInitial 1
+              leftState = Sim.simStepState lefti
+          assertBool
+            "left side engine spins the lander counter-clockwise"
+            (Sim.lunarLanderOmega leftState > 0)
+          -- Right side engine yields negative angular velocity.
+          let righti = Sim.lunarLanderStep Sim.lunarLanderInitial 3
+              rightState = Sim.simStepState righti
+          assertBool
+            "right side engine spins the lander clockwise"
+            (Sim.lunarLanderOmega rightState < 0)
+          -- Two invocations from the same state produce the same step.
+          Sim.lunarLanderStep Sim.lunarLanderInitial 0 @?= drift
+          -- A lander already touching the ground at high vertical speed
+          -- counts as a crash and terminates with a strong penalty.
+          let crashState =
+                Sim.LunarLanderState
+                  { Sim.lunarLanderX = 0.0
+                  , Sim.lunarLanderY = 0.0
+                  , Sim.lunarLanderVx = 0.0
+                  , Sim.lunarLanderVy = -5.0
+                  , Sim.lunarLanderAngle = 0.0
+                  , Sim.lunarLanderOmega = 0.0
+                  , Sim.lunarLanderLeftLegContact = True
+                  , Sim.lunarLanderRightLegContact = True
+                  }
+              crashStep = Sim.lunarLanderStep crashState 0
+          Sim.simStepDone crashStep @?= True
+          assertBool "crash carries a strong penalty" (Sim.simStepReward crashStep < -50.0)
+          -- Render-frame observation length matches the eight-dim
+          -- canonical state vector.
+          length (Sim.renderObservation (Sim.lunarLanderRenderFrame Sim.lunarLanderInitial))
+            @?= 8
+          (obs, _, _) <-
+            Sim.stepEnvironmentIO Sim.lunarLanderEnvironment Sim.lunarLanderInitial 0
+          length obs @?= 8
+      , testCase "atari-subset deterministic stub steps reproducibly (Sprint 8.3)" $ do
+          -- Two same-state same-action invocations are bit-identical.
+          let first = Sim.atariSubsetStep Sim.atariSubsetInitial 5
+          Sim.atariSubsetStep Sim.atariSubsetInitial 5 @?= first
+          -- Different actions produce different successor RAM hashes.
+          let other = Sim.atariSubsetStep Sim.atariSubsetInitial 6
+          assertBool
+            "distinct actions update the stub RAM hash distinctly"
+            (Sim.atariRamHash (Sim.simStepState first) /= Sim.atariRamHash (Sim.simStepState other))
+          -- Each step advances the step counter by one.
+          Sim.atariStep (Sim.simStepState first) @?= 1
+          -- Reward stays in [0, 1).
+          let r = Sim.simStepReward first
+          assertBool "reward stays normalised in [0, 1)" (r >= 0 && r < 1)
+          -- Render-frame matches the 128-byte canonical RAM-state width.
+          length (Sim.renderObservation (Sim.atariSubsetRenderFrame Sim.atariSubsetInitial))
+            @?= 128
+          -- Step boundary advances to termination at the documented length.
+          let walk s
+                | Sim.simStepDone (Sim.atariSubsetStep s 0) = Sim.atariStep s + 1
+                | otherwise = walk (Sim.simStepState (Sim.atariSubsetStep s 0))
+          walk Sim.atariSubsetInitial @?= 250
       , testCase "AlphaZero rule engines reject illegal moves per game" $ do
           -- Othello: cell 19 (D3) flips one stone for opening Black; the
           -- canonical centre cells 27, 28, 35, 36 are pre-occupied.

@@ -191,7 +191,7 @@ for:
 - test stanzas, lint matrix, and Pulumi-orchestrated infrastructure surfaces
 - toolchain prerequisites and pinned versions
 - state locations (cache root, kubeconfig, Kind metadata, runtime metadata,
-  manual PV root, golden roots)
+  manual PV root, snapshot roots)
 
 When a phase changes the supported architecture, update the inventory in the same
 change.

@@ -96,9 +96,12 @@ where:
   `renderRuntimeSource`.
 - `tuning-choice` is the selected `TuningChoice`.
 
-The cache-key golden fixtures use the same rendered `RuntimeSourcePayload` that
-runtime compilation consumes; there is no separate default placeholder payload
-for tests.
+The cache-key snapshot fixtures use the same rendered `RuntimeSourcePayload`
+that runtime compilation consumes; there is no separate default placeholder
+payload for tests. The cache key is a SHA-256 over the canonical rendered
+source bundle — a pure text artefact — so the snapshot is deterministic by
+construction and falls under [unit_testing_policy.md → Snapshot Tests](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures)
+rather than the numerical-fixture prohibition.
 
 Training and inference kernels are **separate artifacts** because they have
 different compute graphs — training carries the backward pass and optimizer-

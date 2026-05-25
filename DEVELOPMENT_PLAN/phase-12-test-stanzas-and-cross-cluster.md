@@ -25,15 +25,20 @@
 
 ## Phase Status
 
-🔄 **Active**. After the 2026-05-24 refactor, this phase carries only
-its code-surface obligations (eight Cabal test-suite stanzas with
-deterministic-stub bodies, real-binary spawn matrix through the typed
-`Subprocess` boundary, report-card knob parsing, plan/apply rendering
-for `jitml test all`). Live execution of the `jitml-e2e` Pulumi
-orchestrator + Helm rollout + Playwright on the edge route migrated to
+✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
+eight Cabal test-suite stanzas with deterministic bodies, real-binary
+spawn matrix through the typed `Subprocess` boundary, report-card
+knob parsing from `cabal.project`, plan/apply rendering for
+`jitml test all`, statistical and run-to-run replacements for all
+former numerical-golden assertions per
+[../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets), and the typed Pulumi
+ephemeral-Kind orchestrator at `infra/pulumi/index.ts`. Live execution
+of the `jitml-e2e` Pulumi orchestrator + Helm rollout + Playwright on
+the edge route is owned by
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprints `13.1` and `13.14`. Cross-substrate cohort fixtures + ULP
-tolerance + populated live report card migrated to
+Sprints `13.1` and `13.14`. Cross-substrate cohort runs against
+in-code tolerance bands + populated live report card are owned by
 [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
 Sprints `15.1` and `15.2`.
 
@@ -46,7 +51,10 @@ legacy ledger after the open Exit-Definition items, including item `15`, close).
 **Met today**: Sprint `12.1`
 (`jitml-unit` body) and Sprint `12.7` (`jitml-daemon-lifecycle` body)
 close their owned obligations because their entire body is pure-logic /
-parser / property / golden / lifecycle / signal coverage.
+parser / property / snapshot / lifecycle / signal coverage (snapshot
+restricted to pure-renderer output per
+[../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)).
 The 2026-05-19 container validation also proves `jitml test all --dry-run`
 renders the aggregate Plan/Apply surface and non-dry-run `jitml test all`
 invokes the eight test-only Cabal stanzas inside `jitml:local`, parses the
@@ -63,18 +71,17 @@ phased Helm rollout per substrate so the e2e body can verify the
 ordering before invoking the live path. 2026-05-21 local validation re-ran
 `jitml test all --dry-run` and non-dry-run `jitml test all`; all eight test
 stanzas passed and the report card rendered `passed: 8`, `failed: 0`.
-**Unmet today**: Sprint
-`12.2` still owes live checkpoint/Pulsar/cluster capability effects and
-real per-substrate determinism; its real-binary spawn matrix, live routed
-MinIO conditional-write validation, and Dhall
-numerics decode coverage are in place. Sprints `12.3`–`12.6`
-owe live SL convergence, live RL trajectory, live hyperparameter
-reproducibility, and live cross-substrate parity against committed
-fixtures; Sprint `12.8` owes the explicit live Pulumi + Helm + Playwright
-path actually executed against a real Kind cluster;
-Sprint `12.9` owes the report card consuming live results from Sprint
-`12.8`. Detailed remaining work lives in each sprint's
-`### Remaining Work` block below.
+**Migrated live obligations**: Sprint `12.2`'s live checkpoint /
+Pulsar / cluster capability effects and real per-substrate run-to-run
+determinism are owned by Phase `13` Sprint `13.7` and Phase `15`
+Sprint `15.1`. Sprints `12.3`–`12.6`'s live statistical SL
+convergence, live RL trajectory determinism, live hyperparameter
+reproducibility, and live cross-substrate parity are owned by
+Phase `13` Sprints `13.4` / `13.6` / `13.10` and Phase `15`
+Sprint `15.1`. Sprint `12.8`'s live Pulumi + Helm + Playwright path
+is owned by Phase `13` Sprints `13.1` / `13.14`. Sprint `12.9`'s live
+report-card consumption is owned by Phase `15` Sprint `15.2`. No
+code-surface Remaining Work survives in this phase.
 
 ### Current Implementation Scope
 
@@ -123,8 +130,10 @@ to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
 
 Keep `jitml-unit` as the unit workload covering parser, generated
 docs, prerequisite, environment, AppError, Plan/Subprocess, bootstrap-script,
-runtime-source, and cache surfaces. Broader per-domain golden suites remain
-target work.
+runtime-source, and cache surfaces. Broader per-domain snapshot suites
+(restricted to pure-renderer output per [../README.md → Snapshot
+targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)) remain target work.
 
 ### Deliverables
 
@@ -134,21 +143,28 @@ target work.
   execution, prerequisite topology/remediation, bootstrap script diagnostics,
   cache-key/layout/manifest/symlink behavior, runtime-source determinism, and
   AppError rendering.
-- Current golden fixtures exist under `test/golden/cache/`,
-  `test/golden/cli/`, and `test/golden/prerequisite/`.
-- Route-table, Grafana daemon-health, Sobol, GA, PPO/CartPole trajectory,
-  and AlphaZero Connect 4 / Othello / Hex / Gomoku transcript golden fixtures
-  are present under
-  `test/golden/`. Richer transcript codecs and AlphaZero MCTS golden
-  fixtures grow alongside Sprints `9.5` / `9.6` / `10.x` real bodies. The
-  numerical and RL Dhall catalog mirrors are audited by the unit/lint
-  body.
+- Current pure-renderer snapshot fixtures live under `test/snapshots/cache/`,
+  `test/snapshots/cli/`, and `test/snapshots/prerequisite/`. The legacy
+  `test/golden/` tree is scheduled for deletion per
+  [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal)
+  and a `jitml lint files` rule (added in this sprint) fails any new
+  file under that path.
+- Route-table and Grafana daemon-health renderer snapshots are present
+  under `test/snapshots/`. RL and AlphaZero per-game correctness is
+  asserted through run-to-run determinism plus rule-conformance
+  property tests; no per-substrate trajectory or transcript files are
+  committed per [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets). The numerical and RL
+  Dhall catalog mirrors are audited by the unit/lint body.
 
 ### Validation
 
 1. `cabal test jitml-unit` exits `0` for the body.
-2. Existing golden fixtures are deterministic and contain no timestamps or
-   random identifiers.
+2. Existing snapshot fixtures (pure-renderer output only) are
+   deterministic and contain no timestamps or random identifiers.
+3. `jitml lint files` fails if any file is committed under
+   `test/golden/`, per [../README.md → Snapshot targets →
+   Numerical-fixture prohibition](../README.md#snapshot-targets).
 
 ## Sprint 12.2: `jitml-integration` Stanza (Subprocess Boundary + Determinism) ✅
 
@@ -177,7 +193,8 @@ same-substrate training determinism per `### Remaining Work` below.
 - It verifies Kind config rendering is deterministic and route registry
   rendering covers the registered routes.
 - It compares the rendered route table against
-  `test/golden/cluster/route-table.md`.
+  `test/snapshots/cluster/route-table.md` (pure-renderer snapshot per
+  [../README.md → Snapshot targets](../README.md#snapshot-targets)).
 - Real `jitml` binary spawning is now exercised by the
   `spawned ./.build/jitml binary matrix against a real workdir` test —
   it locates the dist-newstyle binary, spawns it through the typed
@@ -214,14 +231,20 @@ same-substrate training determinism per `### Remaining Work` below.
   [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
   Sprint `15.1`.
 
-## Sprint 12.3: `jitml-sl-canonicals` Stanza 🔄
+## Sprint 12.3: `jitml-sl-canonicals` Stanza ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Live `jitml
-train` against canonical SL cells with real MinIO datasets and live
-measured convergence fixtures migrated to Phase `13` Sprint `13.4`. The
-`sl_epochs` / `sl_batch` report-card knob consumption remains a
-code-only deliverable here.
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. The
+`sl_epochs` / `sl_batch` report-card knob consumption closed on
+2026-05-24 — `test/sl-canonicals/Main.hs` reads the `cabal.project`
+report-card knob block via `JitML.Test.Report.loadReportCardKnobs`
+and asserts the deterministic curve length is bounded by `sl_epochs`.
+Live `jitml train` against canonical SL cells with real MinIO
+datasets and live statistical convergence assertions against in-code
+literature-target thresholds (no per-substrate fixtures per
+[../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)) migrated to Phase `13`
+Sprint `13.4`.
 **Implementation**: `test/sl-canonicals/`,
 `jitml.cabal` (the `jitml-sl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -230,17 +253,24 @@ code-only deliverable here.
 ### Objective
 
 Use `jitml-sl-canonicals` for the current eleven-cell local supervised-learning
-canonical summary workload. Live training thresholds and committed convergence
-fixtures remain future runtime work.
+canonical workload exercised as property tests (finite-and-monotone
+loss, run-to-run determinism, median over k seeds clears an in-code
+literature-derived threshold). Live training thresholds remain target
+runtime work; no per-substrate committed convergence fixtures will be
+created per [../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets).
 
 ### Deliverables
 
 - `test/sl-canonicals/Main.hs` verifies the eleven canonical
   cells from `src/JitML/SL/Canonicals.hs`.
-- It asserts convergence curves are deterministic and contain five points.
-- It asserts each final synthetic loss is lower than the initial loss.
-- It compares every deterministic curve against the committed fixture under
-  `test/golden/sl/<problem-key>/curve.txt`.
+- It asserts convergence curves are deterministic across two in-process
+  invocations (run-to-run equality) and contain `sl_epochs` points.
+- It asserts each final synthetic loss is lower than the initial loss
+  by a per-problem-class margin (a property test, not a stored value).
+- It does not compare against any `test/golden/sl/...` file per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets).
 - It covers `TrainingCommand` text render/parse round-trips plus
   `TrainingCommand` / `TrainingEvent` proto3-compatible byte round-trips.
 - It does not run live training or consume `sl_epochs` / `sl_batch` yet.
@@ -250,9 +280,12 @@ fixtures remain future runtime work.
 1. `cabal test jitml-sl-canonicals` exits `0` for the body.
 2. Live validation (target): the stanza runs real training against every
    canonical SL problem with the `sl_epochs` / `sl_batch` knobs from
-   `cabal.project`, asserts the final loss meets the committed
-   convergence threshold per problem, and bit-matches committed goldens
-   under `test/golden/sl/<problem-key>/`.
+   `cabal.project`, asserts the median test accuracy over a fixed-seed
+   pool clears the in-code literature-derived threshold per problem, and
+   asserts run-to-run determinism (two fresh same-substrate / same-seed
+   runs produce bit-identical `sha256(weights.bin)`). No `test/golden/sl/`
+   fixtures are created per [../README.md → Snapshot targets →
+   Numerical-fixture prohibition](../README.md#snapshot-targets).
 
 ### Remaining Work
 
@@ -262,19 +295,26 @@ fixtures remain future runtime work.
   `JitML.Test.Report.loadReportCardKnobs` and asserts the deterministic
   curve length is bounded by `sl_epochs` (closed 2026-05-24).
 - Driving `jitml train` against every canonical SL cell with real
-  datasets and supplementing deterministic synthetic fixtures with live
-  measured convergence fixtures are owned by
+  datasets and asserting median accuracy clears the in-code
+  literature-derived threshold (rather than against a per-substrate
+  committed fixture) are owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.4`.
 
-## Sprint 12.4: `jitml-rl-canonicals` Stanza 🔄
+## Sprint 12.4: `jitml-rl-canonicals` Stanza ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Live `jitml
-rl train` against algorithm × environment cohorts with real env
-simulators and live measured fixtures migrated to Phase `13` Sprint
-`13.6`. The `rl_steps` / `rl_eval_episodes` / `az_games` / `az_sims`
-knob consumption remains a code-only deliverable here.
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. The
+`rl_steps` / `rl_eval_episodes` / `az_games` / `az_sims` knob
+consumption closed on 2026-05-24 and the deterministic-stub per-cohort
+run-to-run determinism closed on the same date — the stanza invokes
+each cohort's rollout helper twice in-process and asserts bit-identity
+plus rule-conformance properties (no `test/golden/rl/` fixtures per
+[../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)). Live `jitml rl train`
+against algorithm × environment cohorts with real env simulators and
+live statistical convergence + run-to-run determinism migrated to
+Phase `13` Sprint `13.6`.
 **Implementation**: `test/rl-canonicals/`,
 `jitml.cabal` (the `jitml-rl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -289,11 +329,16 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 
 - `test/rl-canonicals/Main.hs` verifies representative entries in
   `algorithmCatalog`: `PPO`, `SAC`, `HER`, and `AlphaZero`.
-- It asserts `deterministicTrajectory` is deterministic for a fixed algorithm
-  and seed and matches the current PPO/CartPole golden fixture.
+- It asserts `deterministicTrajectory` is deterministic for a fixed
+  algorithm and seed across two in-process invocations (run-to-run
+  equality; no committed PPO/CartPole trajectory fixture per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets)).
 - It asserts `selfPlayTranscript` emits legal Connect 4 columns.
-- It compares the local Connect 4, Othello, Hex, and Gomoku transcript
-  shapes against `test/golden/alphazero/<game>-transcript.txt`.
+- It asserts each per-game `selfPlayTranscriptFor` helper for Connect 4,
+  Othello, Hex, and Gomoku is run-to-run bit-identical and that every
+  emitted move satisfies the per-game `gameLegalMoves` invariant; no
+  per-game transcript fixtures are committed.
 - It covers `RlCommand` text render/parse round-trips plus `RlCommand` /
   `RlEvent` proto3-compatible byte round-trips.
 - It does not run RL environments, train policies, or consume
@@ -305,9 +350,13 @@ deterministic trajectory helper, and Connect 4 transcript checks.
 2. Live validation (target): the stanza runs real RL training against
    every algorithm × canonical environment cohort with the `rl_steps`,
    `rl_eval_episodes`, `az_games`, `az_sims` knobs from `cabal.project`,
-   asserts trajectory determinism (target matrix form 2) and per-seed
-   final-reward distribution (form 3) against committed fixtures, and
-   bit-matches committed AlphaZero arena summaries.
+   asserts run-to-run trajectory determinism (target matrix form 2)
+   and per-seed final-reward distribution clears an in-code statistical
+   threshold (form 3 — `median ≥ literature_target − slack`, no
+   committed fixtures per [../README.md → Snapshot targets →
+   Numerical-fixture prohibition](../README.md#snapshot-targets)), and
+   asserts AlphaZero arena promotion thresholds against the in-code
+   gating policy.
 
 ### Remaining Work
 
@@ -315,25 +364,34 @@ deterministic trajectory helper, and Connect 4 transcript checks.
   rl_eval_episodes knobs` case asserts `rl_steps`, `rl_eval_episodes`,
   `az_games`, and `az_sims` are populated from the `cabal.project`
   report-card knob block (closed 2026-05-24).
-- Deterministic-stub per-cohort goldens closed on 2026-05-24 under
-  `test/golden/rl/<algo>/<env>/rollout.txt` for every traditional RL
-  algorithm cohort; live measured goldens replace these once Phase `13`
-  Sprint `13.6` produces them.
+- Deterministic-stub per-cohort run-to-run determinism closed on
+  2026-05-24 for every traditional RL algorithm cohort; the stanza
+  invokes the rollout helper twice in-process and asserts bit-identity
+  plus rule-conformance properties. No `test/golden/rl/` fixtures are
+  committed per [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets).
 - Driving `jitml rl train` against every cohort with real env
-  simulators, measured AlphaZero arena fixtures, and the per-seed
-  final-reward distribution assertion are owned by
+  simulators, the AlphaZero arena-promotion gating assertion against
+  the in-code threshold, and the per-seed final-reward statistical
+  assertion are owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.6`.
 
-## Sprint 12.5: `jitml-hyperparameter` Stanza 🔄
+## Sprint 12.5: `jitml-hyperparameter` Stanza ✅
 
-**Status**: Active
-**Owned obligations after refactor**: code-surface only. Live `jitml
-tune` against the full canonical sampler × scheduler × pruner grid
-through the live tuner and resume-from-partial-sweep equality test
-migrated to Phase `13` Sprint `13.10`. The per-sampler / per-scheduler /
-per-pruner reproducibility assertion against committed deterministic
-golden trial-key streams remains a code-only deliverable here.
+**Status**: Done
+**Owned obligations after refactor**: code-surface only. The
+per-sampler run-to-run bit-identity assertion plus the per-scheduler /
+per-pruner cohort resume-equality assertions closed on 2026-05-24 —
+`test/hyperparameter/Main.hs` invokes each sampler twice in-process
+over the same seed, asserts bit-identity between the two trial-value
+streams, and walks every scheduler/pruner catalog entry plus the
+per-sampler `resumeMatchesFullRun` (no `test/golden/tune/` fixtures
+per [../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)). Live `jitml tune`
+against the full canonical sampler × scheduler × pruner grid through
+the live tuner and resume-from-partial-sweep equality test against
+live MinIO migrated to Phase `13` Sprint `13.10`.
 **Implementation**: `test/hyperparameter/`,
 `jitml.cabal` (the `jitml-hyperparameter` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -348,11 +406,15 @@ and deterministic trial-value checks.
 
 - `test/hyperparameter/Main.hs` verifies the current axes are populated:
   eleven samplers, four schedulers, and three pruners.
-- It asserts `deterministicTrials sampler 8` is stable for every current
-  sampler.
+- It asserts `deterministicTrials sampler 8` is bit-identical across
+  two in-process invocations for every current sampler (run-to-run
+  equality).
 - It asserts generated trial values are normalized into `[0, 1)`.
-- It compares Sobol and GeneticAlgorithm trial streams against the current
-  fixtures under `test/golden/tune/`.
+- It does **not** compare against any `test/golden/tune/...` file per
+  [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets); sampler reproducibility
+  is asserted as run-to-run equality plus sampler-state-purity
+  property tests.
 - It decodes `experiments/mnist-tune.dhall` and asserts the local tuning ADT
   carries the TPE / ASHA / MedianPruner worked-example axes.
 - It consumes `tune_trials` and `tune_budget_per_trial` from the
@@ -375,14 +437,17 @@ and deterministic trial-value checks.
 
 ### Remaining Work
 
-- The `every sampler matches its committed trial-stream golden (Sprint
-  12.5)` case in `test/hyperparameter/Main.hs` walks the full sampler
-  catalog against `test/golden/tune/<sampler>-trials.txt` goldens for
-  Grid, Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES,
-  CMAES, EvolutionStrategies, and PBT; the `every scheduler / pruner
-  cohort reproduces under resume (Sprint 12.5)` case asserts every
-  scheduler and pruner catalog entry plus the per-sampler resume
-  equality from `resumeMatchesFullRun` (closed 2026-05-24).
+- The `every sampler is run-to-run bit-identical (Sprint 12.5)` case in
+  `test/hyperparameter/Main.hs` walks the full sampler catalog (Grid,
+  Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES, CMAES,
+  EvolutionStrategies, and PBT), invokes each sampler twice in-process
+  over the same seed, and asserts bit-identity between the two
+  trial-value streams; the `every scheduler / pruner cohort reproduces
+  under resume (Sprint 12.5)` case asserts every scheduler and pruner
+  catalog entry plus the per-sampler resume equality from
+  `resumeMatchesFullRun` (closed 2026-05-24). No `test/golden/tune/`
+  fixtures are committed per [../README.md → Snapshot targets →
+  Numerical-fixture prohibition](../README.md#snapshot-targets).
 - Driving `jitml tune` against the full canonical sampler × scheduler ×
   pruner grid through the live tuner, extending knob consumption to the
   full grid, and the resume-from-partial-sweep equality test against
@@ -394,8 +459,12 @@ and deterministic trial-value checks.
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Cross-substrate
-cohort runs, per-cohort tolerance fixtures, and per-tensor drift
-assertion migrated to Phase `15` Sprint `15.1`.
+cohort runs and per-tensor drift assertion against the **in-code**
+per-layer-family tolerance band at `src/JitML/Engines/Tolerance.hs`
+(no per-tensor stored fixtures per
+[../README.md → Snapshot targets → Numerical-fixture
+prohibition](../README.md#snapshot-targets)) migrated to Phase `15`
+Sprint `15.1`.
 **Implementation**: `test/cross-backend/`,
 `jitml.cabal` (the `jitml-cross-backend` stanza),
 `src/JitML/Test/Report.hs`
@@ -421,8 +490,12 @@ cross-substrate tolerance testing remains the overall handoff gate.
   FFI invocations produce bit-identical fixture output.
 - It dispatches a generated family kernel through the local Linux CPU
   `HasEngine` interpreter and verifies the loaded family metadata.
-- It does not train SL canon cohorts or read `test/golden/cross-backend/`
-  tolerance fixtures yet.
+- It does not train SL canon cohorts yet (the canon-cohort run lives
+  in Phase `15` Sprint `15.1`). The in-code per-layer-family tolerance
+  band at `src/JitML/Engines/Tolerance.hs` will be the **only** drift
+  reference; no `test/golden/cross-backend/` fixtures will be created
+  per [../README.md → Snapshot targets → Numerical-fixture
+  prohibition](../README.md#snapshot-targets).
 
 ### Validation
 
@@ -435,17 +508,17 @@ cross-substrate tolerance testing remains the overall handoff gate.
    generated oneDNN family FFI path in `jitml:local`.
 4. Live validation (target): the stanza runs the canonical SL cohorts
    on the `(linux-cpu, linux-cuda)` and `(linux-cpu, apple-silicon)`
-   substrate pairs, asserts per-tensor drift fits the committed
-   tolerance band per
-   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md),
-   and bit-matches committed cross-substrate fixtures.
+   substrate pairs and asserts per-tensor drift fits the in-code
+   per-layer-family tolerance band at
+   `src/JitML/Engines/Tolerance.hs` per
+   [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
+   No `test/golden/cross-backend/` fixtures are created.
 
 ### Remaining Work
 
 - No sprint-owned code-surface Remaining Work remains. The
-  cross-substrate cohort runs, per-cohort tolerance fixtures, and the
-  per-tensor drift assertion against the committed ULP tolerance band
-  are owned by
+  cross-substrate cohort runs and the per-tensor drift assertion
+  against the in-code per-layer-family tolerance band are owned by
   [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
   Sprint `15.1`.
 

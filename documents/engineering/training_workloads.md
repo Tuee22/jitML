@@ -45,9 +45,12 @@ TrainResult` in `src/JitML/SL/Train.hs`.
 | `tiny-imagenet-resnet50` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
 | `california-housing-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
 
-The current deterministic curve fixtures are committed under
-`test/golden/sl/<problem-key>/curve.txt`; live measured convergence thresholds
-remain runtime validation work.
+Convergence is asserted statistically by `jitml-sl-canonicals`: the
+median over a fixed-seed pool clears a sanity threshold derived from
+the problem's literature target at test time. No per-substrate `.txt`
+loss-curve fixtures are committed — see
+[unit_testing_policy.md → Snapshot Tests and the Prohibition on
+Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
 ### `jitml train` CLI
 
@@ -189,14 +192,18 @@ proto-lens output remains target work. Target runtime work publishes
 algorithm catalog and is audited by `JitML.RL.Schema` plus the Haskell lint
 stack. The traditional algorithms have concrete modules under
 `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}.hs`
-aggregated by `Registry.algorithmModuleRegistry`. `test/golden/rl/ppo/cartpole/trajectory.txt`
-pins the current PPO/CartPole deterministic trajectory. Richer Dhall types at
-`dhall/rl/algos/<algo>.dhall`, real network/update logic, and full trajectory
-fixture coverage under `test/golden/rl/<algo>/<env>/` remain target work.
+aggregated by `Registry.algorithmModuleRegistry`. PPO/CartPole determinism
+is asserted by `jitml-rl-canonicals` as run-to-run equality on the same
+substrate and seed (two fresh runs compared against each other). Richer Dhall
+types at `dhall/rl/algos/<algo>.dhall` and real network/update logic remain
+target work. Per-algorithm trajectory `.txt` fixtures are explicitly
+**not** committed — see [unit_testing_policy.md → Snapshot Tests and
+the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
-For off-policy algorithms, the bit-equality golden anchor is the first-N-
+For off-policy algorithms, the bit-equality anchor is the first-N-
 steps prefix per [determinism_contract.md → Same-Substrate Bit-Equality (RL
-Caveat)](determinism_contract.md#same-substrate-bit-equality-rl-caveat).
+Caveat)](determinism_contract.md#same-substrate-bit-equality-rl-caveat),
+again compared run-to-run rather than against a stored prefix.
 
 ## AlphaZero-Style Self-Play
 
@@ -241,9 +248,14 @@ seed self-play produces bit-identical visit counts.
 | Gomoku | `src/JitML/RL/AlphaZero.hs` metadata, `initialGomoku`, `gomokuApplyMove`, transcript helper, and two-headed network |
 
 Connect 4 is the canonical demo game consumed by the PureScript Connect 4
-panel metadata. `test/golden/alphazero/{connect4,othello,hex,gomoku}-transcript.txt`
-pin the current local transcript shapes; full rule-complete replay fixture
-trees remain target work.
+panel metadata. Per-game transcript files are explicitly **not** committed
+(MCTS visit counts depend on RNG host word size, transcendental impl, and
+PUCT-tie-breaking float order, all of which vary across substrates);
+correctness is asserted as run-to-run equality on the same substrate / seed
+plus rule-conformance properties (every emitted move is legal under
+`nextLegalMove`, terminal states match `gameTerminal`, draws are detected
+canonically). See [unit_testing_policy.md → Snapshot Tests and the
+Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
 ## Hyperparameter Tuning
 
@@ -321,8 +333,13 @@ The current local surface in `src/JitML/Tune/Catalog.hs` exposes
 deterministic key and resume-equality checks. `src/JitML/Tune/Resume.hs`
 provides `persistTrialTranscript` and `replaySweep` over `HasMinIO`, validated
 against the filesystem-backed instance; live HTTP MinIO persistence remains
-target work. `test/golden/tune/` pins the current Sobol and GeneticAlgorithm
-trial streams.
+target work. Sampler behaviour is exercised by `jitml-hyperparameter` as
+properties (sampler state is a pure function of its seed and event log;
+two runs produce bit-identical trial-spec sequences; `replaySweep` over a
+recorded event log yields the same next-batch as the first-pass
+dispatcher). Per-sampler `.txt` trial-value fixtures are explicitly
+**not** committed — see [unit_testing_policy.md → Snapshot Tests and
+the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
 ### `jitml tune` CLI
 

@@ -208,8 +208,8 @@ lazy package validation and remediation.
 - [x] Add synthetic missing-node diagnostics and scope-selection tests.
 - [x] Complete positive `jitml doctor --scope toolchain` validation on a host
   with the Sprint `2.2` toolchain prerequisites installed.
-- [x] Add typed Homebrew package prerequisite/remediation nodes and golden
-  plan-render tests.
+- [x] Add typed Homebrew package prerequisite/remediation nodes and
+  snapshot plan-render tests.
 - [x] Ensure `tart` is validated/installed only on first Apple JIT cache miss,
   never during stage-0 bootstrap or host-daemon startup.
 
@@ -270,7 +270,10 @@ at `./.build/host/apple-silicon/<model-id>.<ext>`.
 
 ### Validation
 
-1. `cacheKey` is deterministic — golden test under `test/golden/cache/`.
+1. `cacheKey` is deterministic — snapshot test under `test/snapshots/cache/`
+   (SHA-256 over pure rendered runtime source; falls under
+   [../README.md → Snapshot targets](../README.md#snapshot-targets), not
+   the numerical-fixture prohibition).
 2. `repointSymlink` is atomic — interleaved test asserts no torn read.
 3. The `manifest.json` round-trips through `decode . encode == id`.
 
@@ -286,12 +289,12 @@ at `./.build/host/apple-silicon/<model-id>.<ext>`.
   atomic write helpers.
 - [x] Implement atomic Apple stable-FFI symlink repointing into
   `jit/apple-silicon/`.
-- [x] Add focused unit/golden coverage for cache-key determinism, path layout,
+- [x] Add focused unit/snapshot coverage for cache-key determinism, path layout,
   manifest round-trip, and symlink repointing.
 
 ### Closure Validation
 
-- `jitml-unit` now covers the Sprint `2.3` cache-key golden, typed cache path,
+- `jitml-unit` now covers the Sprint `2.3` cache-key snapshot, typed cache path,
   manifest JSON round-trip/read/write, and Apple stable symlink repointing.
 - `documents/engineering/jit_codegen_architecture.md` already describes the
   implemented cache layout, key shape, manifest, and Apple stable-FFI symlink
