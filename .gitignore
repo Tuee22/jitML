@@ -14,3 +14,6 @@ chart/charts/
 /web/.spago/
 /web/spago.lock
 /web/package-lock.json
+core
+*.core
+core.[0-9]*

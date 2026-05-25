@@ -5,3 +5,6 @@ dist-newstyle/
 .hlint-output
 chart/charts/
 *.lock
+core
+*.core
+core.[0-9]*
