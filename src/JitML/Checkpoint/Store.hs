@@ -16,6 +16,7 @@ module JitML.Checkpoint.Store
   , inferFromLatestCheckpoint
   , inferWeightsOnlyFromLatestCheckpoint
   , listCheckpointManifests
+  , listCheckpointManifestsMinIO
   , loadInferenceCheckpoint
   , loadInferenceCheckpointWith
   , loadInferenceCheckpointWithWeights
@@ -232,6 +233,47 @@ listCheckpointManifests root experimentHash = do
   readManifestEntry manifestDir entry = do
     payload <- LazyByteString.readFile (manifestDir </> entry)
     pure (decodeManifestCbor payload)
+
+-- | MinIO-backed variant of `listCheckpointManifests`. Used by the live
+-- `jitml internal gc` reconciler against the cluster broker so the
+-- reconciler walks objects under
+-- `jitml-checkpoints/<experiment-hash>/manifests/` through
+-- `HasMinIO.listObjects` and decodes each manifest body through
+-- `minioReadBytes`. Returns the typed `ServiceError` on the first transport
+-- failure or `Text` decode failure (wrapped as `SETransient`); a missing
+-- prefix yields the empty list, matching the local-fs path.
+listCheckpointManifestsMinIO
+  :: (HasMinIO m)
+  => Text
+  -> m (Either ServiceError [CheckpointManifest])
+listCheckpointManifestsMinIO experimentHash = do
+  let bucket = BucketName "jitml-checkpoints"
+      prefix = experimentHash <> "/manifests/"
+  listing <- listObjects bucket prefix
+  case listing of
+    Left err -> pure (Left err)
+    Right refs -> do
+      decoded <- traverse readAndDecode refs
+      pure (sequence decoded)
+ where
+  readAndDecode ref = do
+    bytes <- minioReadBytes ref
+    case bytes of
+      Left err -> pure (Left err)
+      Right payload ->
+        case decodeManifestCbor (LazyByteString.fromStrict payload) of
+          Left err ->
+            pure
+              ( Left
+                  ( SETransient
+                      ( "decodeManifestCbor failed for "
+                          <> Text.pack (show ref)
+                          <> ": "
+                          <> err
+                      )
+                  )
+              )
+          Right manifest -> pure (Right manifest)
 
 inferFromLatestCheckpoint :: FilePath -> Text -> [Double] -> IO (Either Text [Double])
 inferFromLatestCheckpoint root experimentHash input = do

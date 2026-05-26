@@ -33,6 +33,11 @@ import JitML.RL.Algorithms.Common
 import JitML.RL.Algorithms.Registry (algorithmModuleRegistry)
 import JitML.RL.AlphaZero (gameMoves, selfPlayTranscript, selfPlayTranscriptFor)
 import JitML.RL.Buffer (bufferSize)
+import JitML.RL.ConvergenceThresholds
+  ( ConvergenceThreshold (..)
+  , cohortThreshold
+  , passesConvergence
+  )
 import JitML.RL.Environments
   ( canonicalEnvironments
   , environmentActionCount
@@ -128,6 +133,11 @@ main =
               assertBool
                 "az_sims knob is positive"
                 (knobAzSims knobs > 0)
+      , testCase "convergence threshold lookup covers every algorithm rollout cohort (Sprint 13.6)" $
+          mapM_ assertCohortThreshold convergenceAssertionCohorts
+      , testCase
+          "passesConvergence accepts the literature target and rejects below the slack band (Sprint 13.6)"
+          $ mapM_ assertConvergencePredicate convergenceAssertionCohorts
       , testCase "RL command envelopes parse after render" $ do
           let start =
                 RlStart
@@ -195,6 +205,56 @@ main =
 assertContains :: Text -> [Text] -> IO ()
 assertContains value values =
   assertBool ("missing " <> show value) (value `elem` values)
+
+-- | Cohorts asserted against `ConvergenceThresholds.cohortThreshold` from the
+-- canonical stanza. The list excludes (algo, env) pairs where the threshold
+-- table intentionally has no entry (HER's mountain-car cohort and DQN-family
+-- continuous envs aren't in the canonical evaluation matrix); the remaining
+-- pairs all have committed literature anchors.
+convergenceAssertionCohorts :: [(Text, Text)]
+convergenceAssertionCohorts =
+  filter (\(algo, _) -> algo /= "HER")
+    . filter shouldHaveThreshold
+    $ algorithmRolloutCohorts
+ where
+  shouldHaveThreshold (algo, env) =
+    case (algo, env) of
+      ("DDPG", "mountain-car") -> False
+      ("TD3", "mountain-car") -> False
+      ("SAC", "mountain-car") -> False
+      ("CrossQ", "mountain-car") -> False
+      ("TQC", "mountain-car") -> False
+      _ -> True
+
+assertCohortThreshold :: (Text, Text) -> IO ()
+assertCohortThreshold (algo, env) =
+  case cohortThreshold algo env of
+    Just _ -> pure ()
+    Nothing ->
+      assertBool
+        ("missing convergence threshold for cohort " <> show (algo, env))
+        False
+
+-- | Assert `passesConvergence` rejects insufficient rewards and accepts the
+-- literature target itself. Exercising the predicate from the canonical
+-- stanza wires Sprint 13.6's assertion path through `jitml-rl-canonicals`
+-- ahead of live cohort runs; once Sprint 13.5's real simulators land, the
+-- measured median replaces the synthetic test values without touching the
+-- assertion shape.
+assertConvergencePredicate :: (Text, Text) -> IO ()
+assertConvergencePredicate (algo, env) =
+  case cohortThreshold algo env of
+    Nothing ->
+      assertBool
+        ("missing convergence threshold for cohort " <> show (algo, env))
+        False
+    Just threshold -> do
+      assertBool
+        ("literature target should pass for cohort " <> show (algo, env))
+        (passesConvergence threshold (literatureTarget threshold))
+      assertBool
+        ("a reward below target by 2x the slack should fail for cohort " <> show (algo, env))
+        (not (passesConvergence threshold (literatureTarget threshold - 2 * slack threshold)))
 
 -- | Per-algorithm canonical environment pairing used by the deterministic-stub
 -- rollout golden assertion. The pairing keeps continuous-control algorithms on

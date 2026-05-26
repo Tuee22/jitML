@@ -24,6 +24,8 @@ data AppError
   | JitToolchainDrift Text
   | CheckpointFormatUnsupported Text
   | CheckpointWriteConflict Text
+  | InferenceCheckpointMissing Text
+  | InferenceManifestShaMismatch Text Text
   | ReconcilerNoop Text
   deriving stock (Eq, Show)
 

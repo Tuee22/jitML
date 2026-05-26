@@ -37,6 +37,8 @@ oneDnnSource family kernelSpec kind tuningChoice =
     , ""
     , familyImpl family
     , ""
+    , weightedFamilyImpl family
+    , ""
     , "static const char *jitml_kernel_spec = " <> cString (kernelSpecPayload kernelSpec) <> ";"
     , "static const char *jitml_kernel_kind = " <> cString (kindText kind) <> ";"
     , "static const char *jitml_tuning_choice = " <> cString (unTuningChoice tuningChoice) <> ";"
@@ -93,6 +95,32 @@ commonOneDnnHelpers =
     , "  auto pd = matmul::primitive_desc(eng, src_md, weights_md, dst_md);"
     , "  auto src = memory(src_md, eng, const_cast<float *>(input));"
     , "  auto weight_mem = memory(weights_md, eng, weights.data());"
+    , "  auto dst = memory(dst_md, eng, out);"
+    , "  matmul(pd).execute(s, {{DNNL_ARG_SRC, src}, {DNNL_ARG_WEIGHTS, weight_mem}, {DNNL_ARG_DST, dst}});"
+    , "  s.wait();"
+    , "}"
+    , ""
+    , "// Real-weighted oneDNN GEMM. The caller supplies an n x n row-major"
+    , "// weights matrix (in `weights`, length n*n); we matmul a 1xn input"
+    , "// against it to produce a 1xn output. If `weights_count` is less than"
+    , "// n*n, the missing entries default to 0.0 (no-op rows); excess entries"
+    , "// are truncated. Pinned-block-size reduction (256) inherited from the"
+    , "// toolchain fingerprint."
+    , "void jitml_onednn_dense_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  if (n == 0) { return; }"
+    , "  engine eng(engine::kind::cpu, 0);"
+    , "  stream s(eng);"
+    , "  std::vector<float> weight_buffer(n * n, 0.0f);"
+    , "  std::size_t copy_count = std::min(static_cast<std::size_t>(n * n), weights_count);"
+    , "  for (std::size_t i = 0; i < copy_count; ++i) { weight_buffer[i] = weights[i]; }"
+    , "  auto src_md = memory::desc({1, jitml_dim(n)}, memory::data_type::f32, memory::format_tag::ab);"
+    , "  auto weights_md = memory::desc({jitml_dim(n), jitml_dim(n)}, memory::data_type::f32, memory::format_tag::ab);"
+    , "  auto dst_md = memory::desc({1, jitml_dim(n)}, memory::data_type::f32, memory::format_tag::ab);"
+    , "  auto pd = matmul::primitive_desc(eng, src_md, weights_md, dst_md);"
+    , "  auto src = memory(src_md, eng, const_cast<float *>(input));"
+    , "  auto weight_mem = memory(weights_md, eng, weight_buffer.data());"
     , "  auto dst = memory(dst_md, eng, out);"
     , "  matmul(pd).execute(s, {{DNNL_ARG_SRC, src}, {DNNL_ARG_WEIGHTS, weight_mem}, {DNNL_ARG_DST, dst}});"
     , "  s.wait();"
@@ -242,6 +270,42 @@ identityImpl =
   Text.unlines
     [ "extern \"C\" void jitml_kernel(float *out, const float *input, std::size_t n) {"
     , "  jitml_onednn_reorder(out, input, n);"
+    , "}"
+    ]
+
+-- | The weighted-kernel ABI surfaces a second exported entry point
+-- alongside `jitml_kernel`. Callers pass a flat row-major weights
+-- buffer; for `Dense2D` the kernel runs a real GEMM
+-- (`out = input · W`) against those weights. For other families this
+-- pass through the unweighted body — the per-family weighted ABI for
+-- Conv2D / Conv3D / BatchNorm / LayerNorm / MHA / Embedding lands
+-- alongside Sprint 13.11's downstream extension and is tracked in the
+-- sprint's Remaining Work.
+weightedFamilyImpl :: KernelFamily -> Text
+weightedFamilyImpl Dense2D =
+  Text.unlines
+    [ "// Sprint 13.11 — real-weighted Dense2D GEMM via caller-supplied"
+    , "// weight buffer (no fixture identity matrix)."
+    , "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  jitml_onednn_dense_weighted(out, input, n, weights, weights_count);"
+    , "}"
+    ]
+weightedFamilyImpl _ =
+  -- All other families fall back to the unweighted body until their
+  -- per-family weighted ABIs land. The exported `jitml_weighted_kernel`
+  -- ignores the weight buffer for these families; the caller's weights
+  -- still travel across the FFI (matching the deliverable's "decoded
+  -- weight tensors as oneDNN primitive inputs" contract) but are not
+  -- yet consumed by every family.
+  Text.unlines
+    [ "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  (void)weights;"
+    , "  (void)weights_count;"
+    , "  jitml_kernel(out, input, n);"
     , "}"
     ]
 

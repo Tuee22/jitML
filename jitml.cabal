@@ -76,6 +76,7 @@ library
         JitML.Engines.MetalRuntime
         JitML.Engines.OneDnnRuntime
         JitML.Engines.Rng
+        JitML.Engines.Tolerance
         JitML.Engines.Tuning
         JitML.Engines.TuningBenchmark
         JitML.Engines.TuningCache
@@ -99,6 +100,7 @@ library
         JitML.Plan.Apply
         JitML.Plan.Plan
         JitML.Plan.Render
+        JitML.Proto.Gc
         JitML.Proto.Inference
         JitML.Proto.Rl
         JitML.Proto.TensorBoard
@@ -136,6 +138,7 @@ library
         JitML.RL.AlphaZero.SelfPlay
         JitML.RL.AsyncBuffer
         JitML.RL.Buffer
+        JitML.RL.ConvergenceThresholds
         JitML.RL.Environments
         JitML.RL.Framework
         JitML.RL.Loop
@@ -226,6 +229,7 @@ library
         tasty-quickcheck,
         tasty-golden,
         temporary,
+        time,
         unix
 
     if flag(cuda)
@@ -284,16 +288,19 @@ test-suite jitml-integration
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
+        aeson,
         base >=4.22 && <4.23,
         bytestring,
         directory,
         filepath,
         jitml,
+        mtl,
         safe-exceptions,
         tasty,
         tasty-hunit,
         temporary,
-        text
+        text,
+        time
 
 test-suite jitml-sl-canonicals
     type:             exitcode-stdio-1.0

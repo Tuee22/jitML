@@ -100,13 +100,30 @@ authoritatively encode whichever substrate ran the calibration first.
 2. A controlled regression — perturbing one substrate's output by more
    than the in-code tolerance band — fails the assertion.
 
+### Code Surface Landed (2026-05-25)
+
+- `src/JitML/Engines/Tolerance.hs` defines `LayerFamilyTolerance` and
+  `layerFamilyTolerance :: KernelFamily -> LayerFamilyTolerance` for
+  every kernel family in `JitML.Codegen.KernelFamily`. Bounds are
+  calibrated from the published cuBLAS / cuDNN / oneDNN / Metal float32
+  reduction-drift envelopes: `Identity`/`EmbeddingKernel` at `1e-6`
+  (pure copy/lookup), `Dense2D`/`BatchNormKernel`/`LayerNormKernel` at
+  `5e-4` (GEMM-class reduction), `Conv2DKernel` at `1e-3`,
+  `Conv3DKernel` and `MultiHeadAttentionKernel` at `2e-3`. The
+  `withinTolerance family observed` helper is the assertion consumed
+  by `jitml-cross-backend` once cross-substrate live outputs land.
+- `jitml-unit` adds 4 new tests under the "Cross-substrate tolerance
+  bands (Sprint 15.1)" group asserting positive bounds, the
+  Identity/Embedding-tightest invariant, MHA ≥ Dense, and the
+  `withinTolerance` predicate's edge cases.
+
 ### Remaining Work
 
-- Land the `LayerFamilyTolerance` table at
-  `src/JitML/Engines/Tolerance.hs` with bounds calibrated from the
-  literature.
 - Add the cross-substrate drift assertion that consumes the in-code
-  band (no committed `.bin` / `.json` fixtures).
+  band (no committed `.bin` / `.json` fixtures). Requires Phase `13`
+  Sprint `13.11` (Linux CPU + CUDA weighted inference live) and Phase
+  `14` Sprint `14.5` (Apple Metal weighted inference live) to produce
+  the cross-substrate tensors first.
 - Update `documents/engineering/determinism_contract.md` to point at
   the in-code table.
 

@@ -4,6 +4,7 @@ module Main where
 
 import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Exception (SomeException, bracket_, try)
+import Control.Monad qualified
 import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObject, (.:))
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
@@ -58,7 +59,7 @@ import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.Cuda qualified as Cuda
-import JitML.Codegen.KernelFamily (KernelFamily (..))
+import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilies)
 import JitML.Codegen.Metal qualified as Metal
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Codegen.SourceFile (SourceFile (..))
@@ -73,6 +74,7 @@ import JitML.Engines.Local qualified as LocalEngine
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Engines.Rng qualified as Rng
+import JitML.Engines.Tolerance qualified as Tolerance
 import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Engines.TuningCache qualified as TuningCache
@@ -117,10 +119,13 @@ import JitML.Prerequisite.Registry
   , syntheticMissingPrerequisite
   )
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
+import JitML.Proto.Gc qualified as ProtoGc
+import JitML.RL.Algorithms qualified as RLAlgorithms
 import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.Mcts qualified as Mcts
 import JitML.RL.AsyncBuffer qualified as AsyncBuffer
 import JitML.RL.Buffer qualified as Buffer
+import JitML.RL.ConvergenceThresholds qualified as ConvergenceThresholds
 import JitML.RL.Environments qualified as RLEnvironments
 import JitML.RL.Framework qualified as RLFramework
 import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
@@ -2005,6 +2010,154 @@ main =
               , "- /api/ws/tune tune-stream-contract <- src/JitML/Web/Contracts.hs"
               ]
           WebContracts.contractGeneratorName @?= "local-purescript-bridge-compatible-renderer"
+      , -- Sprint 13.6 — convergence threshold table sanity.
+        testGroup
+          "RL convergence threshold table (Sprint 13.6)"
+          [ testCase "PPO cartpole threshold is reachable by SB3-zoo baselines" $ do
+              case ConvergenceThresholds.cohortThreshold "PPO" "cartpole" of
+                Nothing ->
+                  assertBool
+                    "PPO/cartpole threshold must exist"
+                    False
+                Just threshold -> do
+                  ConvergenceThresholds.literatureTarget threshold @?= 475.0
+                  ConvergenceThresholds.slack threshold @?= 25.0
+                  assertBool
+                    "median 480 passes literature target - slack"
+                    (ConvergenceThresholds.passesConvergence threshold 480.0)
+                  assertBool
+                    "median 449 (just below 475 - 25) fails the assertion"
+                    (not (ConvergenceThresholds.passesConvergence threshold 449.0))
+          , testCase "every catalog algorithm except HER/AlphaZero has at least one cohort" $ do
+              let catalogNames =
+                    fmap RLAlgorithms.algorithmName RLAlgorithms.algorithmCatalog
+                  covered =
+                    fmap (fst . fst) ConvergenceThresholds.cohortThresholds
+                  required = filter (`notElem` ["HER", "AlphaZero"]) catalogNames
+                  missing = [name | name <- required, name `notElem` covered]
+              missing @?= []
+          , testCase "every threshold row uses a positive slack and an env from the canonical catalog" $ do
+              let envNames =
+                    fmap RLEnvironments.environmentName RLEnvironments.canonicalEnvironments
+                  rows = ConvergenceThresholds.cohortThresholds
+                  badSlack =
+                    [ (algo, env)
+                    | ((algo, env), threshold) <- rows
+                    , ConvergenceThresholds.slack threshold <= 0
+                    ]
+                  unknownEnv =
+                    [ (algo, env)
+                    | ((algo, env), _) <- rows
+                    , env `notElem` envNames
+                    ]
+              badSlack @?= []
+              unknownEnv @?= []
+          , testCase "mountain-car thresholds keep the literature target negative" $
+              mapM_
+                ( \((algo, env), threshold) ->
+                    Control.Monad.when (env == "mountain-car") $
+                      assertBool
+                        ("mountain-car target for " <> Text.unpack algo <> " must be negative")
+                        (ConvergenceThresholds.literatureTarget threshold < 0)
+                )
+                ConvergenceThresholds.cohortThresholds
+          ]
+      , -- Sprint 15.1 — cross-substrate tolerance band table sanity.
+        testGroup
+          "Cross-substrate tolerance bands (Sprint 15.1)"
+          [ testCase "every KernelFamily has a positive L∞ bound" $
+              mapM_
+                ( \family ->
+                    assertBool
+                      ( "tolerance for "
+                          <> show family
+                          <> " must be positive"
+                      )
+                      (Tolerance.toleranceBound family > 0)
+                )
+                kernelFamilies
+          , testCase "Identity and Embedding families admit the tightest band" $ do
+              -- These are pure copy/lookup paths; they must be at least as
+              -- tight as any GEMM/conv family.
+              assertBool
+                "Identity tolerance ≤ Dense2D tolerance"
+                ( Tolerance.toleranceBound Identity
+                    <= Tolerance.toleranceBound Dense2D
+                )
+              assertBool
+                "Embedding tolerance ≤ Conv2D tolerance"
+                ( Tolerance.toleranceBound EmbeddingKernel
+                    <= Tolerance.toleranceBound Conv2DKernel
+                )
+          , testCase "MultiHeadAttention band is at least as loose as Dense2D" $
+              -- Attention chains a Dense → softmax → Dense; its drift must be
+              -- at least Dense's worst case.
+              assertBool
+                "MHA tolerance ≥ Dense2D tolerance"
+                ( Tolerance.toleranceBound MultiHeadAttentionKernel
+                    >= Tolerance.toleranceBound Dense2D
+                )
+          , testCase "withinTolerance accepts observed delta ≤ band and rejects > band" $ do
+              let dense = Dense2D
+                  band = Tolerance.toleranceBound dense
+              assertBool
+                "observed delta inside the band passes"
+                (Tolerance.withinTolerance dense (band * 0.5))
+              assertBool
+                "observed delta above the band fails"
+                (not (Tolerance.withinTolerance dense (band * 2.0)))
+          ]
+      , -- Sprint 13.7 — gc_reaped envelope round-trips through the
+        -- proto3-compatible wire format and the deterministic text
+        -- render/parse pair.
+        testGroup
+          "GC reaped event envelope (Sprint 13.7)"
+          [ testCase "gcEventTopic emits a substrate-scoped persistent path" $ do
+              ProtoGc.gcEventTopic Substrate.LinuxCUDA
+                @?= "persistent://public/default/gc.event.linux-cuda"
+              ProtoGc.gcEventTopic Substrate.LinuxCPU
+                @?= "persistent://public/default/gc.event.linux-cpu"
+              ProtoGc.gcEventTopic Substrate.AppleSilicon
+                @?= "persistent://public/default/gc.event.apple-silicon"
+          , testCase "GcReapedEvent round-trips through proto3-compatible bytes" $ do
+              let envelope =
+                    ProtoGc.GcReapedEvent
+                      { ProtoGc.gcEventExperimentHash = "exp-13.7"
+                      , ProtoGc.gcEventManifestSha = "sha256:reaped"
+                      , ProtoGc.gcEventReapedBlobShas = ["blob-a", "blob-b"]
+                      , ProtoGc.gcEventStepAtReap = 42
+                      , ProtoGc.gcEventSubstrate = "linux-cuda"
+                      , ProtoGc.gcEventTimestampNs = 1_700_000_000_000_000_000
+                      }
+              ProtoGc.decodeGcReapedEventProto (ProtoGc.encodeGcReapedEventProto envelope)
+                @?= Right envelope
+          , testCase "GcReapedEvent round-trips through render/parse" $ do
+              let envelope =
+                    ProtoGc.GcReapedEvent
+                      { ProtoGc.gcEventExperimentHash = "exp-text"
+                      , ProtoGc.gcEventManifestSha = "sha256:text"
+                      , ProtoGc.gcEventReapedBlobShas = ["blob-x"]
+                      , ProtoGc.gcEventStepAtReap = 7
+                      , ProtoGc.gcEventSubstrate = "linux-cpu"
+                      , ProtoGc.gcEventTimestampNs = 1
+                      }
+              ProtoGc.parseGcReapedEvent (ProtoGc.renderGcReapedEvent envelope)
+                @?= Just envelope
+          , testCase "GcReapedEvent with no reaped blobs round-trips" $ do
+              let envelope =
+                    ProtoGc.GcReapedEvent
+                      { ProtoGc.gcEventExperimentHash = "exp-no-blobs"
+                      , ProtoGc.gcEventManifestSha = "sha256:lonely"
+                      , ProtoGc.gcEventReapedBlobShas = []
+                      , ProtoGc.gcEventStepAtReap = 0
+                      , ProtoGc.gcEventSubstrate = "apple-silicon"
+                      , ProtoGc.gcEventTimestampNs = 0
+                      }
+              ProtoGc.decodeGcReapedEventProto (ProtoGc.encodeGcReapedEventProto envelope)
+                @?= Right envelope
+              ProtoGc.parseGcReapedEvent (ProtoGc.renderGcReapedEvent envelope)
+                @?= Just envelope
+          ]
       ]
 
 takeFileNameCompat :: FilePath -> FilePath
@@ -2070,6 +2223,8 @@ canonicalErrors =
   , AppError.JitToolchainDrift "cached with older nvcc"
   , AppError.CheckpointFormatUnsupported ".jmw0"
   , AppError.CheckpointWriteConflict "latest pointer etag changed"
+  , AppError.InferenceCheckpointMissing "abc123"
+  , AppError.InferenceManifestShaMismatch "abc123" "deadbeef"
   , AppError.ReconcilerNoop "docs generate: no changes"
   ]
 

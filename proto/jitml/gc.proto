@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package jitml.gc;
+
+// Envelope published on `gc.event.<substrate>` after the `jitml internal gc`
+// reconciler deletes a manifest + its addressed blobs from MinIO. The
+// envelope names the substrate that ran the reap, the experiment hash, the
+// content-addressed manifest sha, the addressed blob keys, the monotonic
+// step the reaped manifest carried, and the wall-clock timestamp the reap
+// completed at. Consumers (observability stack, audit pipelines) subscribe
+// to `gc.event.<substrate>` to follow the reconciler's deletion stream.
+message GcReapedEvent {
+  string experiment_hash = 1;
+  string manifest_sha = 2;
+  repeated string reaped_blob_shas = 3;
+  uint64 step_at_reap = 4;
+  string substrate = 5;
+  uint64 timestamp_ns = 6;
+}

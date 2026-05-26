@@ -462,12 +462,14 @@ Replay a manifest.
 Replays a cached manifest transcript.
 
 ```text
-jitml inspect replay <manifest-sha>
+jitml inspect replay [<manifest-sha>] [--manifest-sha <manifest-sha>] [--experiment-hash <experiment-hash>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
-| `<manifest-sha>` | positional | yes | Manifest SHA. |
+| `<manifest-sha>` | positional | no | Manifest SHA (omit when using --manifest-sha + --experiment-hash). |
+| `--manifest-sha <manifest-sha>` | value | no | Manifest SHA (alternative to the positional). |
+| `--experiment-hash <experiment-hash>` | value | no | Override the experiment hash directly (live MinIO lookup). |
 
 Examples:
 
@@ -475,7 +477,13 @@ Examples:
 jitml inspect replay abc123
 ```
 
-Replay a cached manifest.
+Replay a cached manifest from the local store.
+
+```text
+jitml inspect replay --manifest-sha abc123 --experiment-hash live-test-1
+```
+
+Replay a live-MinIO manifest by SHA.
 
 
 ## `jitml inspect trial`
@@ -601,14 +609,15 @@ Run inference at any point.
 Runs inference against latest, best/<metric>, or a manifest SHA checkpoint.
 
 ```text
-jitml inference run <experiment-dhall> --checkpoint <latest|best/<metric>|manifest-sha> [--trial <trial-hash>]
+jitml inference run [<experiment-dhall>] [--checkpoint <latest|best/<metric>|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
-| `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
-| `--checkpoint <latest\|best/<metric>\|manifest-sha>` | value | yes | Checkpoint selector. |
+| `<experiment-dhall>` | positional | no | Experiment Dhall file. |
+| `--checkpoint <latest\|best/<metric>\|manifest-sha>` | value | no | Checkpoint selector. |
 | `--trial <trial-hash>` | value | no | Optional tuning trial hash. |
+| `--experiment-hash <experiment-hash>` | value | no | Override the experiment hash directly (live MinIO lookup). |
 
 Examples:
 
@@ -617,6 +626,12 @@ jitml inference run experiments/mnist.dhall --checkpoint latest
 ```
 
 Run inference using the latest checkpoint.
+
+```text
+jitml inference run --experiment-hash abc123
+```
+
+Live-MinIO inference run against a known experiment hash.
 
 
 ## `jitml test all`

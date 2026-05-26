@@ -170,8 +170,10 @@ daemon negative-acks the failed delivery, the
 LiveConfig-derived dedup cache size used by the handler router, the
 typed phased Helm rollout
 (`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus
-`pulsarTopicCreateSubprocesses` registering the same 26-topic
-substrate-scoped Pulsar family and actually invoked through
+`pulsarTopicCreateSubprocesses` registering the same 29-topic
+substrate-scoped Pulsar family (8 product topics × 3 substrates + 2
+apple-only internal + 3 `gc.event.<substrate>` topics added in
+Sprint 13.7) and actually invoked through
 `JitML.Bootstrap.liveExecutePhasedRollout` from
 `jitml bootstrap --<substrate>`,
 the service-Postgres registry lint wired into `JitML.Lint.Chart` plus the
@@ -184,9 +186,11 @@ database and writes registry objects into that MinIO S3 backend, plus
 `If-Match` conflicts map to `SEConflict` through `/minio/s3`, plus
 2026-05-19 live validation proving `/pulsar/ws` targets the broker-embedded
 WebSocket service and `JitML.Service.PulsarWebSocketSubprocess` publishes and
-consumes through the edge, plus 2026-05-20 live validation proving the current
-26-topic substrate-scoped Pulsar family is registered and routed publish/consume
-works on `training.command.linux-cpu` from `jitml:local`, plus the current
+consumes through the edge, plus 2026-05-20 live validation proving the then-current
+26-topic substrate-scoped Pulsar family was registered and routed
+publish/consume worked on `training.command.linux-cpu` from
+`jitml:local` (the family grew to 29 topics on 2026-05-26 when
+Sprint 13.7 added `gc.event.<substrate>`), plus the current
 single-node Linux CUDA Kind config wiring the node-local containerd `nvidia`
 runtime handler and `RuntimeClass/nvidia` selector; the 2026-05-23 live CUDA
 `nvidia-smi -L` probe on a GPU validation host (RTX 5090, CUDA 12.8)
@@ -510,7 +514,104 @@ code-surface obligation landed in the worktree; each phase's live
 obligations migrated to Phases `13` / `14` / `15` per
 [Execution Roadmap](#execution-roadmap). Phase `8` Sprint `8.3`'s
 lunar-lander and atari-subset environments closed through pure-Haskell
-ports in `src/JitML/RL/Simulator.hs` rather than Box2D / ALE FFI. The remaining unmet obligations against the Exit Definition are:
+ports in `src/JitML/RL/Simulator.hs` rather than Box2D / ALE FFI.
+Phase `13` Sprints `13.1` / `13.2` / `13.3` / `13.7` / `13.10` /
+`13.12` partially validated on 2026-05-25 against a Linux+NVIDIA host (RTX 3090, CUDA 12.8, Ubuntu
+24.04, Docker 29.5.0). The validation set covers: a live `jitml
+bootstrap --linux-cuda` rollout (typed `Subprocess` boundary) bringing
+up `jitml-linux-cuda-control-plane` with all 9 helm releases deployed
+and all 7 publication components Ready in `cluster-publication.json`;
+the Envoy `gateway/jitml-edge` resolving all 14 HTTPRoutes from
+`JitML.Routes.routeRegistry`; the 9-case `Live` test group inside
+`jitml-integration` exercising `putBlobIfAbsent` + `casPointer` +
+`listObjects` + `deleteObject` through
+`JitML.Service.MinIOSubprocess`, `pulsarSubscribe` +
+`pulsarPublish` + `pulsarConsume` + `pulsarAcknowledge` through
+`JitML.Service.PulsarWebSocketSubprocess`, a daemon-dispatch
+StartTraining → Pulsar publish → daemon consume → `kubectl apply
+job/jitml-train-<hash>` round-trip, a checkpoint snapshot manifest +
+blob + latest-pointer write through
+`CheckpointStore.writeCheckpointSnapshotWithMinIO` (idempotent
+re-write asserts `PointerConflict`), and a tune-trial transcript
+persist + `TuneResume.replaySweep` round-trip, a live MinIO GC
+pipeline (`listCheckpointManifestsMinIO` →
+`buildGcPlan LastN 2` → `executeGcPlan`) that stages three manifests,
+lists them through the routed S3 surface, executes the plan, and
+asserts the lowest-step manifest + blob are reaped, and a live
+`./.build/jitml inference run --experiment-hash <hash>` +
+`./.build/jitml inspect replay --experiment-hash <hash>
+--manifest-sha <sha>` round-trip through the spawned CLI binary
+that exercises `JitML.App.runInference` /
+`JitML.App.runInspectReplay` reading from live MinIO via
+`JitML.Service.MinIOSubprocess`, and a `./.build/jitml internal gc
+<hash>` round-trip that stages six manifests, runs the CLI, asserts
+`reaped=1 reaped-blobs=1` on the first call and exit `3` on the second
+(noop) call — all against the leased edge port `127.0.0.1:9092`; the `kubectl logs deploy/jitml-service` daemon-side
+surface reporting four held subscriptions on the substrate-scoped
+command + inference-request topics as `jitml-service`; `jitml cluster
+down` plus post-teardown `kind get clusters` / `docker ps` / `docker
+volume ls` checks confirming clean Kind cluster teardown with no
+orphan container or Docker volume. The 2026-05-25 retry-loop fix to
+`JitML.Cluster.PulsarBootstrap.pulsarTopicCreateSubprocess` was
+re-validated on a fresh bootstrap: every expected topic from
+`pulsarTopics` returns `HTTP 409 "This topic already exists"` to a
+manual `pulsar-admin topics create`. Code-only landings include
+`src/JitML/RL/ConvergenceThresholds.hs` (Sprint `13.6` literature-
+anchored per-(algo, env) threshold table) and
+`src/JitML/Engines/Tolerance.hs` (Sprint `15.1` per-layer-family L∞
+cross-substrate tolerance band), both unit-tested. The 2026-05-26
+session added the Sprint `13.7` `gc_reaped` Pulsar event surface
+(`JitML.Proto.Gc.GcReapedEvent` envelope with text + proto3 codecs,
+`gc.event.<substrate>` topic registered in
+`JitML.Cluster.PulsarBootstrap.substrateTopics` extending the topic
+family from 26 to 29, `publishGcReapedEvents` wired into
+`JitML.App.runInternalGc`, 4 new `jitml-unit` round-trip tests), the
+Sprint `13.12` typed inference `AppError` variants
+(`InferenceCheckpointMissing :: Text -> AppError` and
+`InferenceManifestShaMismatch :: Text -> Text -> AppError`,
+`renderError` boundary updates, `runInference` mapping `pointer read
+failed` / `manifest read failed` to `InferenceCheckpointMissing`,
+`runInspectReplay` `assertManifestShaMatches` against
+`Checkpoint.manifestContentSha`, golden render fixture extended), and
+the Sprint `13.6` convergence-assertion wiring through
+`jitml-rl-canonicals` (`cohortThreshold` lookups asserted for every
+in-evaluation-matrix algorithm × env pair, `passesConvergence`
+predicate exercised against literature targets and
+`literatureTarget − 2 × slack` synthetic medians). The 2026-05-26
+session also closed Sprint `13.2` (live `HasHarbor` tag-promotion
+round-trip + the `jitml-service` subscription-acquisition assertion
+on all four daemon command topics; flipped to ✅ Done), closed
+Sprint `13.7` (live `gc.event.<substrate>` publish-stream
+validation; flipped to ✅ Done), and landed both Linux CPU and CUDA halves of Sprint `13.11`'s weighted
+runner: new substrate-symmetric `jitml_weighted_kernel(float*,
+const float*, size_t, const float*, size_t)` ABI emitted by
+`JitML.Codegen.OneDnn` (Linux CPU) and `JitML.Codegen.Cuda` (CUDA),
+with Dense2D consuming the supplied weights through a real oneDNN
+matmul on Linux CPU (`out = input · W`, padded / truncated to
+`n × n` row-major) and a real device GEMM kernel on CUDA
+(`out[i] = sum_j input[j] * W[j*n+i]`); `JitML.Engines.Local`'s
+`runLinuxCpuWeightedKernel` / `runLinuxCpuWeightedFamilyKernel` and
+`JitML.Engines.CudaLocal`'s `runCudaWeightedKernel` /
+`runCudaWeightedFamilyKernel` / `runCudaWeightedFamilyKernelWithProbe`
+drive the new symbol; `flattenLoadedWeights` concatenates
+`LoadedWeightTensor` lists into the flat row-major buffer the FFI
+accepts; both substrate toolchain fingerprints are extended; and
+`jitml-cross-backend` adds a bit-equality determinism test for each
+substrate's weighted Dense2D GEMM (CUDA case skips when the runtime
+probe fails — currently the case on the compose-managed
+`jitml:local` container where `nvidia-smi` cannot reach the host
+driver, separate from Sprint `13.11`'s code scope). Other
+family-specific weighted bodies (Conv2D / Conv3D / BatchNorm /
+LayerNorm / MHA / Embedding) and the daemon
+`daemonWorkloadDispatcherWithInference` widening to thread the
+weighted callback remain as Sprint `13.11` Remaining Work. Sprint
+`13.1`'s Pulumi-ephemeral name path (`jitml-e2e-<short-sha>`
+cluster), Sprint `13.3`'s event-envelope publication after dispatch
+(depends on Sprint `13.4` / `13.6` worker-side event emit), and
+every other Sprint after `13.3` remain unmet (live-runtime-dependent)
+— see each sprint's `### Remaining Work` block in
+`phase-13-linux-cuda-and-cluster-closure.md` and
+`phase-15-cross-substrate-and-handoff.md`. The remaining unmet obligations against the Exit Definition are:
 the explicit Pulumi-orchestrated ephemeral Kind e2e path
 for Exit 3; Apple Silicon Metal kernel compile/load/execute and the live
 Metal candidate measurement runner (owned by Phase `14`); real SL / RL /

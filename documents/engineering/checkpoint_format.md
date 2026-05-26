@@ -238,14 +238,29 @@ re-running `gc` on a steady-state experiment is a no-op (exit code `3`).
   SHA so the audit trail survives the deletion.
 
 The current store exposes `RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
-`applyRetentionPolicy`, `buildGcPlan`, `listCheckpointManifests`, and
-`executeGcPlan` over the typed `HasMinIO` boundary, with filesystem-backed
-coverage in tests. The current `jitml internal gc <experiment-hash>` scans
-`<cache-dir>/checkpoints/jitml-checkpoints/<experiment-hash>/manifests/`,
-prints `gc: <experiment-hash> kept=<n> reaped=<n>`, and exits `3` when the
-local plan is a no-op. Live GC traversal and deletion through
-`JitML.Service.MinIOSubprocess`, plus live `gc_reaped` Pulsar publication,
-remain target runtime work.
+`applyRetentionPolicy`, `buildGcPlan`, `listCheckpointManifests`,
+`listCheckpointManifestsMinIO`, and `executeGcPlan` over the typed
+`HasMinIO` boundary. The current `jitml internal gc <experiment-hash>`
+detects the live cluster publication
+(`./.build/runtime/cluster-publication.json`) and routes the live half
+through `listCheckpointManifestsMinIO + buildGcPlan + executeGcPlan` via
+`JitML.Service.MinIOSubprocess`; the offline half scans
+`<cache-dir>/checkpoints/jitml-checkpoints/<experiment-hash>/manifests/`.
+The stdout reports
+`gc: <experiment-hash> kept=<n> reaped=<n> reaped-blobs=<n>` (live) or
+`gc: <experiment-hash> kept=<n> reaped=<n>` (offline) and exits `3`
+when the plan is a no-op.
+
+After the live reaper completes, `JitML.App.publishGcReapedEvents`
+publishes a `GcReapedEvent` envelope on
+`persistent://public/default/gc.event.<substrate>` for each successfully
+reaped manifest. The envelope carries `experiment_hash`, `manifest_sha`,
+the addressed `reaped_blob_shas`, the reaped manifest's `step_at_reap`,
+the live `substrate`, and the reap `timestamp_ns`; text + proto3 codecs
+live in `JitML.Proto.Gc`. Publication failures surface a stderr line
+but do not roll back the MinIO delete and do not short-circuit the
+reconciler — at-least-once handles the missed event on a subsequent
+run.
 
 ## Inference-Only Read Path
 

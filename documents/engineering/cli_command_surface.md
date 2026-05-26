@@ -716,15 +716,19 @@ Replay a manifest.
 Replays a cached manifest transcript.
 
 Usage:
-  jitml inspect replay <manifest-sha>
+  jitml inspect replay [<manifest-sha>] [--manifest-sha <manifest-sha>] [--experiment-hash <experiment-hash>]
 
 Options:
-  <manifest-sha>  Manifest SHA.
+  <manifest-sha>                       Manifest SHA (omit when using --manifest-sha + --experiment-hash).
+  --manifest-sha <manifest-sha>        Manifest SHA (alternative to the positional).
+  --experiment-hash <experiment-hash>  Override the experiment hash directly (live MinIO lookup).
 
 
 Examples:
   jitml inspect replay abc123
-      Replay a cached manifest.
+      Replay a cached manifest from the local store.
+  jitml inspect replay --manifest-sha abc123 --experiment-hash live-test-1
+      Replay a live-MinIO manifest by SHA.
 ```
 
 ### `jitml inspect trial`
@@ -843,17 +847,20 @@ Run inference at any point.
 Runs inference against latest, best/<metric>, or a manifest SHA checkpoint.
 
 Usage:
-  jitml inference run <experiment-dhall> --checkpoint <latest|best/<metric>|manifest-sha> [--trial <trial-hash>]
+  jitml inference run [<experiment-dhall>] [--checkpoint <latest|best/<metric>|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]
 
 Options:
   <experiment-dhall>                                Experiment Dhall file.
   --checkpoint <latest|best/<metric>|manifest-sha>  Checkpoint selector.
   --trial <trial-hash>                              Optional tuning trial hash.
+  --experiment-hash <experiment-hash>               Override the experiment hash directly (live MinIO lookup).
 
 
 Examples:
   jitml inference run experiments/mnist.dhall --checkpoint latest
       Run inference using the latest checkpoint.
+  jitml inference run --experiment-hash abc123
+      Live-MinIO inference run against a known experiment hash.
 ```
 
 ### `jitml test all`

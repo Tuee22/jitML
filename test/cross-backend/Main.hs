@@ -15,6 +15,7 @@ import JitML.Engines.CudaLocal
   , cudaKernelReportedFamily
   , runCudaFamilyKernel
   )
+import JitML.Engines.CudaLocal qualified as Cuda
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.CudnnBindings qualified as Cudnn
 import JitML.Engines.Engine (deterministicFlags, engineForSubstrate)
@@ -30,6 +31,7 @@ import JitML.Engines.Local
   , runLinuxCpuFamilyKernel
   , runLinuxCpuIdentityKernel
   )
+import JitML.Engines.Local qualified as Local
 import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
@@ -102,6 +104,33 @@ main =
               linuxCpuKernelOutput a @?= payload
             _ ->
               assertBool "all three linux-cpu kernel runs succeed" False
+      , testCase "linux-cpu weighted Dense2D kernel runs real GEMM bit-deterministically (Sprint 13.11)" $ do
+          -- Sprint 13.11 same-host bit-equality for the weighted kernel
+          -- ABI. Three successive invocations of the generated Dense2D
+          -- `jitml_weighted_kernel` with the same input + weight buffer
+          -- must produce bit-identical output. Confirms the new ABI is
+          -- deterministic per the determinism contract.
+          env <- buildEnv defaultGlobalFlags
+          let input = [1.0, 2.0, 3.0]
+              -- Row-major 3x3 weight matrix. Picks values that test
+              -- multiple non-zero columns so the GEMM exercises every
+              -- row of W (not just the diagonal):
+              --   W = [[1, 0, 0],
+              --        [0, 2, 0],
+              --        [0, 0, 3]]
+              -- input * W = [1, 4, 9].
+              weights = [1, 0, 0, 0, 2, 0, 0, 0, 3]
+          first <- Local.runLinuxCpuWeightedFamilyKernel env Dense2D input weights
+          second <- Local.runLinuxCpuWeightedFamilyKernel env Dense2D input weights
+          third <- Local.runLinuxCpuWeightedFamilyKernel env Dense2D input weights
+          case (first, second, third) of
+            (Right a, Right b, Right c) -> do
+              Local.linuxCpuWeightedKernelReportedFamily a @?= "dense"
+              Local.linuxCpuWeightedKernelOutput a @?= Local.linuxCpuWeightedKernelOutput b
+              Local.linuxCpuWeightedKernelOutput b @?= Local.linuxCpuWeightedKernelOutput c
+              Local.linuxCpuWeightedKernelOutput a @?= [1.0, 4.0, 9.0]
+            _ ->
+              assertBool "all three linux-cpu weighted kernel runs succeed" False
       , testCase "linux-cuda generated kernel compiles and runs through nvcc + FFI (Sprint 7.4)" $ do
           -- Live CUDA validation: Sprint 7.4 closure. When the host
           -- has nvcc + libcublas + libcudnn visible and an NVIDIA GPU
@@ -177,6 +206,37 @@ main =
                   cudaKernelOutput a @?= payload
                 _ ->
                   assertBool "all three linux-cuda kernel runs succeed" False
+      , testCase
+          "linux-cuda weighted Dense2D kernel runs real device GEMM bit-deterministically (Sprint 13.11)"
+          $ do
+            -- Sprint 13.11 CUDA half — same-host bit-equality for the
+            -- weighted CUDA ABI. Three runs of the device GEMM kernel
+            -- against the same input + weights buffer must produce
+            -- bit-identical output, and the math must match the
+            -- diagonal-scaling expectation from the Linux CPU sibling.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; weighted CUDA Dense2D test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let input = [1.0, 2.0, 3.0]
+                    -- Same 3×3 diagonal matrix as the Linux CPU sibling
+                    -- test. Expected output: input × diag(1,2,3) = [1,4,9].
+                    weights = [1, 0, 0, 0, 2, 0, 0, 0, 3]
+                first <- Cuda.runCudaWeightedFamilyKernel env Dense2D input weights
+                second <- Cuda.runCudaWeightedFamilyKernel env Dense2D input weights
+                third <- Cuda.runCudaWeightedFamilyKernel env Dense2D input weights
+                case (first, second, third) of
+                  (Right a, Right b, Right c) -> do
+                    Cuda.cudaWeightedKernelReportedFamily a @?= "dense"
+                    Cuda.cudaWeightedKernelOutput a @?= Cuda.cudaWeightedKernelOutput b
+                    Cuda.cudaWeightedKernelOutput b @?= Cuda.cudaWeightedKernelOutput c
+                    Cuda.cudaWeightedKernelOutput a @?= [1.0, 4.0, 9.0]
+                  _ ->
+                    assertBool "all three linux-cuda weighted kernel runs succeed" False
       , testCase "cuBLAS bindings initialize and report a version (Sprint 7.4)" $ do
           probe <- CudaRuntime.probeCudaRuntime
           if not (CudaRuntime.cudaRuntimeAvailable probe)

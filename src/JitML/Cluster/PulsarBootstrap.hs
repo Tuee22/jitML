@@ -30,6 +30,11 @@ renderPulsarAdminCommands =
   fmap (\topic -> "pulsar-admin topics create " <> topicName topic) pulsarTopics
 
 -- | Subprocess that creates a single Pulsar topic through the chart's toolset pod.
+-- Retries a transient `pulsar-admin topics create` failure up to 5 times with
+-- 2-second backoff to ride out the broker's first-minute readiness window,
+-- and treats a non-zero create that names an already-existing topic as success
+-- (`HTTP code: 409`) so the script is idempotent regardless of who created the
+-- topic first (auto-create on subscribe vs explicit admin call).
 pulsarTopicCreateSubprocess :: Topic -> Subprocess
 pulsarTopicCreateSubprocess topic =
   subprocess
@@ -47,10 +52,18 @@ pulsarTopicCreateSubprocess topic =
         [ "topic=\"$1\";"
         , "namespace=\"${topic#persistent://}\";"
         , "namespace=\"${namespace%/*}\";"
-        , "if /pulsar/bin/pulsar-admin topics list \"$namespace\" | grep -Fx \"$topic\" >/dev/null;"
+        , "for attempt in 1 2 3 4 5; do"
+        , "if /pulsar/bin/pulsar-admin topics list \"$namespace\" 2>/dev/null | grep -Fx \"$topic\" >/dev/null;"
         , "then exit 0;"
         , "fi;"
-        , "/pulsar/bin/pulsar-admin topics create \"$topic\""
+        , "out=$(/pulsar/bin/pulsar-admin topics create \"$topic\" 2>&1);"
+        , "rc=$?;"
+        , "if [ $rc -eq 0 ]; then exit 0; fi;"
+        , "case \"$out\" in *\"already exists\"*|*\"HTTP code: 409\"*) exit 0;; esac;"
+        , "sleep 2;"
+        , "done;"
+        , "echo \"$out\" 1>&2;"
+        , "exit 1"
         ]
     , "jitml-topic-create"
     , topicName topic
@@ -72,6 +85,10 @@ substrateTopics substrate =
     , "persistent://public/default/rl.event"
     , "persistent://public/default/inference.request"
     , "persistent://public/default/inference.result"
+    , -- Sprint 13.7: gc_reaped events emitted by `jitml internal gc` after
+      -- each MinIO `deleteObject` succeeds. One topic per substrate so
+      -- consumers can scope auditing to a specific cohort's reconciler.
+      "persistent://public/default/gc.event"
     ]
 
 appleSiliconInternalTopics :: [Topic]

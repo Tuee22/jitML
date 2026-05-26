@@ -18,6 +18,8 @@ import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Word (Word64)
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
@@ -30,6 +32,7 @@ import JitML.Bootstrap
   ( LiveExecutionResult (..)
   , liveExecutePhasedRollout
   , materializeBootstrapFiles
+  , readExistingLivePublication
   )
 import JitML.CLI.Help (renderHelp)
 import JitML.CLI.Json (renderCommandJson)
@@ -95,10 +98,12 @@ import JitML.Prerequisite.Registry
   , renderPrerequisiteRegistry
   , scopeRootNodeId
   )
+import JitML.Proto.Gc qualified as ProtoGc
 import JitML.RL.Algorithms qualified as RL
 import JitML.SL.Canonicals qualified as SL
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities (SubscriptionId)
+import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.Consumer
   ( ConsumerOutcome (..)
@@ -107,6 +112,7 @@ import JitML.Service.Consumer
   , HandlerRouter
   , consumerStepWithActions
   )
+import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.Retry (ServiceError)
 import JitML.Service.Runtime qualified as ServiceRuntime
@@ -908,14 +914,55 @@ runRl ["rl", "rollout"] parsedOptions =
 runRl path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
 
+-- | `jitml inference run` — produces the deterministic inference summary
+-- for the supplied experiment hash. When a live `cluster-publication.json`
+-- is present (Sprint 13.1 cluster up), the manifest + weight-only tensors
+-- are read from MinIO via `JitML.Checkpoint.Store.loadInferenceCheckpoint`
+-- through `JitML.Service.MinIOSubprocess`. Otherwise the command falls
+-- back to a placeholder summary computed from
+-- `Checkpoint.emptyManifest`.
+--
+-- Live half of Sprint 13.12. The JIT-kernel-backed inference path
+-- (Sprint 13.11) layers on top of this once the per-substrate weighted
+-- runners (`runLinuxCpuWeightedKernel`, `runCudaWeightedKernel`,
+-- `runMetalWeightedKernel`) land.
 runInference :: [ParsedOption] -> App ()
-runInference parsedOptions =
-  let manifest =
-        Checkpoint.emptyManifest
-          "latest"
-          (selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions)
-          [Checkpoint.TensorBlob "dense.weight" [2, 2] "blob-1"]
-   in writeLine ("inference: " <> Text.pack (show (Checkpoint.inferFromManifest manifest [1.0, 2.0])))
+runInference parsedOptions = do
+  let experimentHash = selectedValue "experiment-hash" "default" parsedOptions
+      dhall = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
+  livePublication <- liftIO (readExistingLivePublication ".")
+  case livePublication of
+    Just publication -> do
+      let edgePort = Publication.publicationEdgePort publication
+          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+      result <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              (CheckpointStore.loadInferenceCheckpoint experimentHash [1.0, 2.0])
+          )
+      case result of
+        Right values ->
+          writeLine
+            ( "inference: experiment="
+                <> experimentHash
+                <> " dhall="
+                <> dhall
+                <> " result="
+                <> Text.pack (show values)
+            )
+        Left err ->
+          exitWithError (classifyCheckpointLoadError experimentHash err)
+    Nothing ->
+      let manifest =
+            Checkpoint.emptyManifest
+              "latest"
+              dhall
+              [Checkpoint.TensorBlob "dense.weight" [2, 2] "blob-1"]
+       in writeLine
+            ( "inference: "
+                <> Text.pack (show (Checkpoint.inferFromManifest manifest [1.0, 2.0]))
+            )
 
 runVerify :: [Text] -> [ParsedOption] -> App ()
 runVerify path parsedOptions =
@@ -933,27 +980,86 @@ runInspect path parsedOptions =
   writeLine
     ("inspect: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
 
--- | `jitml inspect replay <manifest-sha>` — walks the local checkpoint store
--- by manifest content SHA and prints the deterministic inference summary
--- the manifest would produce on a fixed input. Used as the offline replay
--- harness for the determinism contract; the live-MinIO variant lives in
--- Sprint 10.4's `loadInferenceCheckpoint` once `HasMinIO` is wired.
+-- | `jitml inspect replay <manifest-sha>` — fetches a named manifest by
+-- content SHA and prints the deterministic inference summary it would
+-- produce on a fixed input. The replay harness for the determinism
+-- contract.
+--
+-- When a live `cluster-publication.json` is present, the manifest is
+-- read from MinIO bucket `jitml-checkpoints/<experiment-hash>/manifests/`
+-- via `JitML.Service.MinIOSubprocess`. Otherwise the local on-disk
+-- checkpoint store is used. Live half of Sprint 13.12.
 runInspectReplay :: [ParsedOption] -> App ()
 runInspectReplay parsedOptions = do
   let manifestSha = selectedValue "manifest-sha" "missing" parsedOptions
       experimentHash = selectedValue "experiment-hash" "default" parsedOptions
-  checkpointRoot <- localCheckpointRoot
-  result <- liftIO (CheckpointStore.readCheckpointManifest checkpointRoot experimentHash manifestSha)
-  case result of
-    Left err -> exitWithError (InvalidConfig ("inspect replay: " <> err))
-    Right manifest ->
-      let inferred = Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0]
-       in writeLine
-            ( "inspect replay: "
-                <> manifestSha
-                <> " -> "
-                <> Text.pack (show inferred)
-            )
+  livePublication <- liftIO (readExistingLivePublication ".")
+  case livePublication of
+    Just publication -> do
+      let edgePort = Publication.publicationEdgePort publication
+          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+          manifestRef =
+            CheckpointStore.checkpointObjectRef
+              (Checkpoint.manifestKey experimentHash manifestSha)
+      bytes <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              (Capabilities.minioReadBytes manifestRef)
+          )
+      case bytes of
+        Left _ ->
+          exitWithError (InferenceCheckpointMissing experimentHash)
+        Right payload ->
+          case Checkpoint.decodeManifestCbor (LazyByteString.fromStrict payload) of
+            Left err ->
+              exitWithError (InvalidConfig ("inspect replay: " <> err))
+            Right manifest ->
+              assertManifestShaMatches experimentHash manifestSha manifest
+    Nothing -> do
+      checkpointRoot <- localCheckpointRoot
+      result <-
+        liftIO
+          (CheckpointStore.readCheckpointManifest checkpointRoot experimentHash manifestSha)
+      case result of
+        Left _ ->
+          exitWithError (InferenceCheckpointMissing experimentHash)
+        Right manifest ->
+          assertManifestShaMatches experimentHash manifestSha manifest
+
+-- | Print the deterministic inference summary for a replayed manifest, or
+-- exit with `InferenceManifestShaMismatch` when the manifest body's
+-- content SHA does not match the SHA the caller requested. The mismatch
+-- case is rare under normal storage discipline (manifests are written at
+-- `manifests/<content-sha>.cbor`), but surfaces clearly when a manifest
+-- has been corrupted, mis-keyed, or otherwise drifted from its address.
+assertManifestShaMatches :: Text -> Text -> Checkpoint.CheckpointManifest -> App ()
+assertManifestShaMatches experimentHash requestedSha manifest =
+  let actualSha = Checkpoint.manifestContentSha manifest
+   in if actualSha /= requestedSha
+        then exitWithError (InferenceManifestShaMismatch experimentHash requestedSha)
+        else
+          let inferred = Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0]
+           in writeLine
+                ( "inspect replay: "
+                    <> requestedSha
+                    <> " -> "
+                    <> Text.pack (show inferred)
+                )
+
+-- | Map a `loadInferenceCheckpoint` `Left Text` to a typed `AppError`. The
+-- live read path returns "pointer read failed: ..." when the latest
+-- pointer is missing and "manifest read failed: ..." when the addressed
+-- manifest is missing; both surface as `InferenceCheckpointMissing`.
+-- Decode failures retain `InvalidConfig` as they indicate format drift
+-- rather than absence.
+classifyCheckpointLoadError :: Text -> Text -> AppError
+classifyCheckpointLoadError experimentHash err
+  | "pointer read failed" `Text.isPrefixOf` err =
+      InferenceCheckpointMissing experimentHash
+  | "manifest read failed" `Text.isPrefixOf` err =
+      InferenceCheckpointMissing experimentHash
+  | otherwise = InvalidConfig ("inference: " <> err)
 
 runTest :: [Text] -> App ()
 runTest ["test", "all"] =
@@ -1036,31 +1142,137 @@ reportInternalVmLifecycleResult action result =
 jitmlBuildVm :: VmName
 jitmlBuildVm = VmName "jitml-build"
 
--- | `jitml internal gc <experiment-hash>` reconciler. Walks the local
--- on-disk manifests under the supplied experiment hash, applies
--- `LastN 5` retention through `Store.buildGcPlan`, and exits `3`
--- (`ReconcilerNoop`) when the cluster is already at the target state.
+-- | `jitml internal gc <experiment-hash>` reconciler. When a live
+-- `cluster-publication.json` is present, walks the live MinIO bucket
+-- `jitml-checkpoints/<experiment-hash>/manifests/` through
+-- `JitML.Checkpoint.Store.listCheckpointManifestsMinIO`, applies
+-- `LastN 5` retention through `Store.buildGcPlan`, and executes the
+-- plan through `Store.executeGcPlan` over `JitML.Service.MinIOSubprocess`.
+-- Without a live publication the reconciler falls back to walking the
+-- local on-disk manifest store. Exits `3` (`ReconcilerNoop`) when the
+-- store is already at the target state.
 runInternalGc :: [ParsedOption] -> App ()
 runInternalGc parsedOptions = do
   let experimentHash = selectedValue "experiment-hash" "default" parsedOptions
       retention = CheckpointStore.LastN 5
-  checkpointRoot <- localCheckpointRoot
-  loadedManifests <- liftIO (CheckpointStore.listCheckpointManifests checkpointRoot experimentHash)
-  manifests <-
-    case loadedManifests of
-      Left err -> exitWithError (InvalidConfig ("gc manifest scan: " <> err))
-      Right found -> pure found
-  let plan = CheckpointStore.buildGcPlan experimentHash retention manifests []
-  writeLine
-    ( "gc: "
-        <> experimentHash
-        <> " kept="
-        <> Text.pack (show (length (CheckpointStore.gcKeptManifestShas plan)))
-        <> " reaped="
-        <> Text.pack (show (length (CheckpointStore.gcReapEvents plan)))
-    )
-  when (CheckpointStore.gcNoOp plan) $
-    exitWithError (ReconcilerNoop ("gc: " <> experimentHash <> " already current"))
+  livePublication <- liftIO (readExistingLivePublication ".")
+  case livePublication of
+    Just publication -> do
+      let edgePort = Publication.publicationEdgePort publication
+          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+      listing <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              (CheckpointStore.listCheckpointManifestsMinIO experimentHash)
+          )
+      manifests <-
+        case listing of
+          Left err ->
+            exitWithError
+              ( InvalidConfig
+                  ("gc live manifest scan: " <> Text.pack (show err))
+              )
+          Right found -> pure found
+      let plan = CheckpointStore.buildGcPlan experimentHash retention manifests []
+      executed <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              (CheckpointStore.executeGcPlan plan)
+          )
+      publishGcReapedEvents publication executed plan
+      writeLine
+        ( "gc: "
+            <> experimentHash
+            <> " kept="
+            <> Text.pack (show (length (CheckpointStore.gcKeptManifestShas plan)))
+            <> " reaped="
+            <> Text.pack (show (CheckpointStore.gcExecutedReapedManifests executed))
+            <> " reaped-blobs="
+            <> Text.pack (show (CheckpointStore.gcExecutedReapedBlobs executed))
+        )
+      when (CheckpointStore.gcNoOp plan) $
+        exitWithError (ReconcilerNoop ("gc: " <> experimentHash <> " already current"))
+    Nothing -> do
+      checkpointRoot <- localCheckpointRoot
+      loadedManifests <- liftIO (CheckpointStore.listCheckpointManifests checkpointRoot experimentHash)
+      manifests <-
+        case loadedManifests of
+          Left err -> exitWithError (InvalidConfig ("gc manifest scan: " <> err))
+          Right found -> pure found
+      let plan = CheckpointStore.buildGcPlan experimentHash retention manifests []
+      writeLine
+        ( "gc: "
+            <> experimentHash
+            <> " kept="
+            <> Text.pack (show (length (CheckpointStore.gcKeptManifestShas plan)))
+            <> " reaped="
+            <> Text.pack (show (length (CheckpointStore.gcReapEvents plan)))
+        )
+      when (CheckpointStore.gcNoOp plan) $
+        exitWithError (ReconcilerNoop ("gc: " <> experimentHash <> " already current"))
+
+-- | Publish a `gc.event.<substrate>` envelope per successfully reaped
+-- manifest after `executeGcPlan` returns. Sprint 13.7. The envelope is
+-- emitted only for manifests that the live execution actually reaped
+-- (excluding the trailing partial failure window) so consumers see a
+-- delete stream that matches MinIO state. Publication errors are
+-- non-fatal: a failed `pulsarPublish` is logged to stderr but does not
+-- roll back the MinIO delete (which already happened) and does not
+-- short-circuit the reconciler — the consumer's at-least-once recovery
+-- handles the missed event on the next run.
+publishGcReapedEvents
+  :: ClusterPublication
+  -> CheckpointStore.GcExecutionResult
+  -> CheckpointStore.GcPlan
+  -> App ()
+publishGcReapedEvents publication executed plan
+  | CheckpointStore.gcExecutedReapedManifests executed <= 0 = pure ()
+  | otherwise = do
+      let edgePort = Publication.publicationEdgePort publication
+          substrate = Publication.publicationSubstrate publication
+          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+          topic = Capabilities.TopicName (ProtoGc.gcEventTopic substrate)
+          reapedCount = CheckpointStore.gcExecutedReapedManifests executed
+          reapedEvents =
+            take reapedCount (CheckpointStore.gcReapEvents plan)
+      timestampNs <- liftIO currentTimestampNs
+      for_ reapedEvents $ \event -> do
+        let envelope =
+              ProtoGc.GcReapedEvent
+                { ProtoGc.gcEventExperimentHash =
+                    CheckpointStore.gcExperimentHash event
+                , ProtoGc.gcEventManifestSha =
+                    CheckpointStore.gcReapedManifestSha event
+                , ProtoGc.gcEventReapedBlobShas =
+                    CheckpointStore.gcReapedBlobShas event
+                , ProtoGc.gcEventStepAtReap =
+                    CheckpointStore.gcStepAtReap event
+                , ProtoGc.gcEventSubstrate = renderSubstrate substrate
+                , ProtoGc.gcEventTimestampNs = timestampNs
+                }
+        result <-
+          liftIO
+            ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+                pulsarSettings
+                (Capabilities.pulsarPublish topic (ProtoGc.renderGcReapedEvent envelope))
+            )
+        case result of
+          Right _ -> pure ()
+          Left err ->
+            writeText
+              ( "gc: publish failed for "
+                  <> ProtoGc.gcEventManifestSha envelope
+                  <> ": "
+                  <> Text.pack (show err)
+                  <> "\n"
+              )
+
+currentTimestampNs :: IO Word64
+currentTimestampNs = do
+  posix <- getPOSIXTime
+  pure (floor (posix * 1_000_000_000))
 
 localCheckpointRoot :: App FilePath
 localCheckpointRoot = do

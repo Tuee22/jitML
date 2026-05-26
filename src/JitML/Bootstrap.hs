@@ -7,6 +7,7 @@ module JitML.Bootstrap
   , livePhasedRolloutSubprocesses
   , liveExecutePhasedRollout
   , materializeBootstrapFiles
+  , readExistingLivePublication
   )
 where
 

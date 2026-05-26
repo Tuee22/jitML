@@ -759,13 +759,13 @@ mindmap
 | `jitml verify replay` | Verify checkpoint replay. | `jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>` |
 | `jitml inspect list` | List cached manifests. | `jitml inspect list` |
 | `jitml inspect show` | Show a manifest. | `jitml inspect show <manifest-sha> [--with-equity]` |
-| `jitml inspect replay` | Replay a manifest. | `jitml inspect replay <manifest-sha>` |
+| `jitml inspect replay` | Replay a manifest. | `jitml inspect replay [<manifest-sha>] [--manifest-sha <manifest-sha>] [--experiment-hash <experiment-hash>]` |
 | `jitml inspect trial` | Inspect a trial. | `jitml inspect trial <trial-hash>` |
 | `jitml inspect frontier` | Inspect a tuning frontier. | `jitml inspect frontier <sweep-id>` |
 | `jitml bench train` | Benchmark training. | `jitml bench train <experiment-dhall>` |
 | `jitml bench inference` | Benchmark inference. | `jitml bench inference <experiment-dhall> --checkpoint <checkpoint-id>` |
 | `jitml bench env` | Benchmark environment stepping. | `jitml bench env <rl-experiment-dhall>` |
-| `jitml inference run` | Run inference at any point. | `jitml inference run <experiment-dhall> --checkpoint <latest\|best/<metric>\|manifest-sha> [--trial <trial-hash>]` |
+| `jitml inference run` | Run inference at any point. | `jitml inference run [<experiment-dhall>] [--checkpoint <latest\|best/<metric>\|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]` |
 | `jitml test all` | Run all test stanzas. | `jitml test all [--dry-run] [--plan-file <path>]` |
 | `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit` |
 | `jitml test jitml-integration` | Run jitml-integration. | `jitml test jitml-integration` |

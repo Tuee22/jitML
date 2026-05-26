@@ -17,9 +17,10 @@ spec:
     metadata:
       labels:
         app: jitml-service
-        jitml.substrate: apple-silicon
+        jitml.substrate: linux-cuda
     spec:
       serviceAccountName: jitml-service
+      runtimeClassName: nvidia
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -33,6 +34,11 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
           volumeMounts:
             - name: jit-cache
               mountPath: /opt/build

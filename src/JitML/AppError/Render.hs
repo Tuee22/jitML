@@ -53,6 +53,12 @@ renderError (CheckpointFormatUnsupported message) =
   renderSingle "checkpoint format unsupported" message
 renderError (CheckpointWriteConflict message) =
   renderSingle "checkpoint write conflict" message
+renderError (InferenceCheckpointMissing experimentHash) =
+  renderSingle "inference checkpoint missing" experimentHash
+renderError (InferenceManifestShaMismatch experimentHash manifestSha) =
+  renderSingle
+    "inference manifest sha mismatch"
+    (experimentHash <> ": requested " <> manifestSha)
 renderError (ReconcilerNoop message) =
   ensureFinalNewline message
 

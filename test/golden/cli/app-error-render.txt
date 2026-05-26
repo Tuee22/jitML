@@ -39,4 +39,8 @@ checkpoint format unsupported: .jmw0
 ---
 checkpoint write conflict: latest pointer etag changed
 ---
+inference checkpoint missing: abc123
+---
+inference manifest sha mismatch: abc123: requested deadbeef
+---
 docs generate: no changes

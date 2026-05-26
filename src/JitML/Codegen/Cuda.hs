@@ -51,6 +51,8 @@ cudaSource family kernelSpec kind tuningChoice =
     , ""
     , familyImpl family
     , ""
+    , weightedFamilyImpl family
+    , ""
     , "extern \"C\" const char *jitml_kernel_family_name(void) { return jitml_kernel_family; }"
     ]
 
@@ -150,10 +152,71 @@ identityLikeFamilyImpl deviceKernelName comment =
     , "}"
     ]
 
+-- | Sprint 13.11 — CUDA weighted kernel ABI. Dense2D drives a real
+-- device GEMM (`out = input · W`) against the caller-supplied
+-- row-major weights buffer (n*n entries, padded with zeros / truncated
+-- to fit). Other families fall through to the existing unweighted
+-- body — the per-family weighted CUDA ABIs land alongside the broader
+-- Sprint 13.11 follow-up tracked in the sprint's Remaining Work.
+weightedFamilyImpl :: KernelFamily -> Text
+weightedFamilyImpl Dense2D =
+  Text.unlines
+    [ "// Sprint 13.11 — real-weighted Dense2D device GEMM. Each output"
+    , "// row computes `out[i] = sum_j input[j] * W[j * n + i]` against"
+    , "// the supplied weights buffer (padded with zero for indices"
+    , "// >= weights_count). Single-warp launch per output element keeps"
+    , "// the reduction order deterministic; warp-shuffle isn't needed"
+    , "// because each thread accumulates its own column."
+    , "static __global__ void jitml_device_dense_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  std::size_t i = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;"
+    , "  if (i >= n) { return; }"
+    , "  float acc = 0.0f;"
+    , "  for (std::size_t j = 0; j < n; ++j) {"
+    , "    std::size_t idx = j * n + i;"
+    , "    float w = (idx < weights_count && weights != nullptr) ? weights[idx] : 0.0f;"
+    , "    acc += input[j] * w;"
+    , "  }"
+    , "  out[i] = acc;"
+    , "}"
+    , ""
+    , "static void jitml_launch_device_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  dim3 block(256);"
+    , "  std::size_t gridCount = (n + block.x - 1) / block.x;"
+    , "  dim3 grid(static_cast<unsigned int>(gridCount));"
+    , "  jitml_device_dense_weighted<<<grid, block>>>(out, input, n, weights, weights_count);"
+    , "}"
+    , ""
+    , "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  jitml_cuda_copy_and_launch_weighted("
+    , "      out, input, n, weights, weights_count,"
+    , "      jitml_kernel_output_count(n), jitml_launch_device_weighted);"
+    , "}"
+    ]
+weightedFamilyImpl _ =
+  -- Other families fall through to the unweighted body. The exported
+  -- `jitml_weighted_kernel` accepts the weights buffer for ABI parity
+  -- but ignores it until the per-family CUDA weighted body lands.
+  Text.unlines
+    [ "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  (void)weights;"
+    , "  (void)weights_count;"
+    , "  jitml_kernel(out, input, n);"
+    , "}"
+    ]
+
 cudaRuntimeHelpers :: Text
 cudaRuntimeHelpers =
   Text.unlines
     [ "using JitmlCudaLauncher = void (*)(float *, const float *, std::size_t);"
+    , "using JitmlCudaWeightedLauncher = void (*)(float *, const float *, std::size_t, const float *, std::size_t);"
     , ""
     , "static void jitml_cuda_check(cudaError_t status, const char *operation) {"
     , "  if (status != cudaSuccess) {"
@@ -179,6 +242,37 @@ cudaRuntimeHelpers =
     , "  jitml_cuda_check(cudaGetLastError(), \"kernel launch\");"
     , "  jitml_cuda_check(cudaDeviceSynchronize(), \"cudaDeviceSynchronize\");"
     , "  jitml_cuda_check(cudaMemcpy(out, deviceOutput, outputCount * sizeof(float), cudaMemcpyDeviceToHost), \"cudaMemcpy(output)\");"
+    , "  jitml_cuda_free(deviceOutput);"
+    , "  jitml_cuda_free(deviceInput);"
+    , "}"
+    , ""
+    , "// Sprint 13.11 — weighted helper. Allocates device buffers for"
+    , "// input, weights, and output, copies them across, launches the"
+    , "// family-specific weighted device kernel, and copies the result"
+    , "// back. When `weights_count` is zero the host wrapper still"
+    , "// allocates a zero-sized device buffer (the device launcher"
+    , "// receives a null pointer and treats the missing weights as"
+    , "// zero-padded)."
+    , "static void jitml_cuda_copy_and_launch_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count,"
+    , "    std::size_t outputCount, JitmlCudaWeightedLauncher launcher) {"
+    , "  if (n == 0 || outputCount == 0) { return; }"
+    , "  float *deviceInput = nullptr;"
+    , "  float *deviceOutput = nullptr;"
+    , "  float *deviceWeights = nullptr;"
+    , "  jitml_cuda_check(cudaMalloc(reinterpret_cast<void **>(&deviceInput), n * sizeof(float)), \"cudaMalloc(input)\");"
+    , "  jitml_cuda_check(cudaMalloc(reinterpret_cast<void **>(&deviceOutput), outputCount * sizeof(float)), \"cudaMalloc(output)\");"
+    , "  if (weights_count > 0) {"
+    , "    jitml_cuda_check(cudaMalloc(reinterpret_cast<void **>(&deviceWeights), weights_count * sizeof(float)), \"cudaMalloc(weights)\");"
+    , "    jitml_cuda_check(cudaMemcpy(deviceWeights, weights, weights_count * sizeof(float), cudaMemcpyHostToDevice), \"cudaMemcpy(weights)\");"
+    , "  }"
+    , "  jitml_cuda_check(cudaMemcpy(deviceInput, input, n * sizeof(float), cudaMemcpyHostToDevice), \"cudaMemcpy(input)\");"
+    , "  launcher(deviceOutput, deviceInput, n, deviceWeights, weights_count);"
+    , "  jitml_cuda_check(cudaGetLastError(), \"weighted kernel launch\");"
+    , "  jitml_cuda_check(cudaDeviceSynchronize(), \"cudaDeviceSynchronize\");"
+    , "  jitml_cuda_check(cudaMemcpy(out, deviceOutput, outputCount * sizeof(float), cudaMemcpyDeviceToHost), \"cudaMemcpy(output)\");"
+    , "  jitml_cuda_free(deviceWeights);"
     , "  jitml_cuda_free(deviceOutput);"
     , "  jitml_cuda_free(deviceInput);"
     , "}"

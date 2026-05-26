@@ -82,7 +82,7 @@ Show a manifest.
 .SS JITML INSPECT REPLAY
 Replay a manifest.
 .PP
-.B jitml inspect replay <manifest\\-sha>
+.B jitml inspect replay [<manifest\\-sha>] [\\-\\-manifest\\-sha <manifest\\-sha>] [\\-\\-experiment\\-hash <experiment\\-hash>]
 .SS JITML INSPECT TRIAL
 Inspect a trial.
 .PP
@@ -106,7 +106,7 @@ Benchmark environment stepping.
 .SS JITML INFERENCE RUN
 Run inference at any point.
 .PP
-.B jitml inference run <experiment\\-dhall> \\-\\-checkpoint <latest|best/<metric>|manifest\\-sha> [\\-\\-trial <trial\\-hash>]
+.B jitml inference run [<experiment\\-dhall>] [\\-\\-checkpoint <latest|best/<metric>|manifest\\-sha>] [\\-\\-trial <trial\\-hash>] [\\-\\-experiment\\-hash <experiment\\-hash>]
 .SS JITML TEST ALL
 Run all test stanzas.
 .PP

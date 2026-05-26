@@ -339,8 +339,22 @@ inspectCommand =
         "replay"
         "Replay a manifest."
         "Replays a cached manifest transcript."
-        [positional "manifest-sha" True "Manifest SHA."]
-        [Example "jitml inspect replay abc123" "Replay a cached manifest."]
+        [ positional "manifest-sha" False "Manifest SHA (omit when using --manifest-sha + --experiment-hash)."
+        , value "manifest-sha" Nothing "manifest-sha" False "Manifest SHA (alternative to the positional)."
+        , value
+            "experiment-hash"
+            Nothing
+            "experiment-hash"
+            False
+            "Override the experiment hash directly (live MinIO lookup)."
+        ]
+        [ Example
+            "jitml inspect replay abc123"
+            "Replay a cached manifest from the local store."
+        , Example
+            "jitml inspect replay --manifest-sha abc123 --experiment-hash live-test-1"
+            "Replay a live-MinIO manifest by SHA."
+        ]
     , leaf
         "trial"
         "Inspect a trial."
@@ -396,13 +410,22 @@ inferenceCommand =
         "run"
         "Run inference at any point."
         "Runs inference against latest, best/<metric>, or a manifest SHA checkpoint."
-        [ positional "experiment-dhall" True "Experiment Dhall file."
-        , value "checkpoint" Nothing "latest|best/<metric>|manifest-sha" True "Checkpoint selector."
+        [ positional "experiment-dhall" False "Experiment Dhall file."
+        , value "checkpoint" Nothing "latest|best/<metric>|manifest-sha" False "Checkpoint selector."
         , value "trial" Nothing "trial-hash" False "Optional tuning trial hash."
+        , value
+            "experiment-hash"
+            Nothing
+            "experiment-hash"
+            False
+            "Override the experiment hash directly (live MinIO lookup)."
         ]
         [ Example
             "jitml inference run experiments/mnist.dhall --checkpoint latest"
             "Run inference using the latest checkpoint."
+        , Example
+            "jitml inference run --experiment-hash abc123"
+            "Live-MinIO inference run against a known experiment hash."
         ]
     ]
 

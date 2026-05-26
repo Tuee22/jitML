@@ -185,6 +185,7 @@ internal-RPC pair.
 | `inference.result.<mode>` | daemon → demo frontend | inference results | Sprint 11.4 |
 | `inference.command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | internal RPC envelopes (`call-id`, `kind`, `model-id`, `starting-snapshot`, `reply-topic`, `inputs`) | Sprint 7.5 |
 | `inference.event.apple-silicon` (Apple only) | host daemon → cluster orchestrator | ACK envelopes (`call-id`, `kind`, MinIO refs to outputs) | Sprint 7.5 |
+| `gc.event.<mode>` | `jitml internal gc` reconciler → audit / observability | `GcReapedEvent` envelopes (`experiment_hash`, `manifest_sha`, repeated `reaped_blob_shas`, `step_at_reap`, `substrate`, `timestamp_ns`) | Sprint 13.7 |
 
 ## `jitml service` Daemon Surface
 
@@ -309,7 +310,7 @@ standards rule L.
 | `Plan` / `apply` boundary with `--dry-run` and `--plan-file <path>` | Plan / Apply | ✅ Done | Sprint 1.5 |
 | `prerequisiteRegistry` with `nodeId`, `nodeDescription`, remedy hint, transitive closure | Prerequisites as Typed Effects | ✅ Done | Sprint 1.7 |
 | Single `Env` record threaded via `ReaderT Env IO` | Application Environment | ✅ Done | Sprint 1.8 |
-| Single `AppError` ADT (`PrerequisiteUnmet`, `SubprocessFailed`, `MinIOFailed`, `PulsarFailed`, `HarborFailed`, `KubectlFailed`, `DocsCheckDrift`, `UnknownCommand`, `InvalidConfig`, `DhallTypeError`, `ChartLintFailed`, `RouteRegistryDrift`, `JitCacheMiss`, `JitToolchainDrift`, `CheckpointFormatUnsupported`, `CheckpointWriteConflict`, `ReconcilerNoop`) | Error Handling | ✅ Done | Sprint 1.9 |
+| Single `AppError` ADT (`PrerequisiteUnmet`, `SubprocessFailed`, `MinIOFailed`, `PulsarFailed`, `HarborFailed`, `KubectlFailed`, `DocsCheckDrift`, `UnknownCommand`, `InvalidConfig`, `DhallTypeError`, `ChartLintFailed`, `RouteRegistryDrift`, `JitCacheMiss`, `JitToolchainDrift`, `CheckpointFormatUnsupported`, `CheckpointWriteConflict`, `InferenceCheckpointMissing`, `InferenceManifestShaMismatch`, `ReconcilerNoop`) | Error Handling | ✅ Done | Sprint 1.9 (extended Sprint 13.12) |
 | `renderError :: AppError -> Text` boundary | Error Handling | ✅ Done | Sprint 1.9 |
 | Exit code `3` for reconciler no-op-on-match | Error Handling | ✅ Done | Sprint 1.9 |
 | HLint rule config and in-repo primitive scan cover terminal output primitives, `exitFailure`, and subprocess constructors outside their approved modules | Error Handling | ✅ Done | Sprint 1.4 |
