@@ -34,7 +34,12 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.DockerImage qualified as DockerImage
 import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Helm qualified as Helm
-import JitML.Cluster.Kind (kindConfigFor, renderKindConfig)
+import JitML.Cluster.Kind
+  ( kindConfigFor
+  , kindConfigForEdgePortNamed
+  , kindConfigForNamed
+  , renderKindConfig
+  )
 import JitML.Cluster.PostgresRegistry qualified as PostgresRegistry
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
@@ -138,6 +143,24 @@ main =
           assertBool
             "the single node has the repo build mount"
             (length (Text.breakOnAll "containerPath: /jitml/.build" cpuConfig) == 1)
+      , testCase "kind config name is overridable for Pulumi ephemeral path (Sprint 13.1)" $ do
+          let named = renderKindConfig (kindConfigForNamed LinuxCUDA "jitml-e2e-abc123")
+              edgeOverride = renderKindConfig (kindConfigForEdgePortNamed LinuxCPU "jitml-e2e-xyz789" 30099)
+          assertBool
+            "named CUDA config emits the override name in the `name:` line"
+            ("name: jitml-e2e-abc123" `Text.isInfixOf` named)
+          assertBool
+            "named CUDA config still carries the NVIDIA containerd patches"
+            ("runtimes.nvidia" `Text.isInfixOf` named)
+          assertBool
+            "named CUDA config still mounts the host driver root"
+            ("containerPath: /run/nvidia/driver" `Text.isInfixOf` named)
+          assertBool
+            "edge-port override is honoured for the ephemeral cluster"
+            ("hostPort: 30099" `Text.isInfixOf` edgeOverride)
+          assertBool
+            "edge-port override carries the override name"
+            ("name: jitml-e2e-xyz789" `Text.isInfixOf` edgeOverride)
       , testCase "linux-cuda Kind config wires NVIDIA runtime handler (Sprint 4.7)" $ do
           let cudaConfig = renderKindConfig (kindConfigFor LinuxCUDA)
           assertBool
@@ -677,6 +700,37 @@ main =
                 SelfPlay.bufferTranscriptHash buffer @?= SelfPlay.bufferTranscriptHash buffer2
               liftIO $
                 SelfPlay.bufferLength buffer @?= 3
+      , testCase "SelfPlayBuffer CBOR round-trip via writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9)" $
+          -- Sprint 13.9 — write a deterministic SelfPlayBuffer through the
+          -- new `writeSelfPlayBuffer` helper (CBOR-encoded via
+          -- `Codec.Serialise`) and read it back via `readSelfPlayBuffer`.
+          -- Asserts the round-tripped buffer is structurally equal to the
+          -- original (not just hash-equal). Validates the CBOR codec for
+          -- `SelfPlayBuffer`, `SelfPlayGame`, and `GameState` against the
+          -- typed `HasMinIO` filesystem boundary.
+          withSystemTempDirectory "jitml-selfplay-cbor" $ \root ->
+            runFilesystemMinIO root $ do
+              let experimentHash = "exp-selfplay-cbor"
+                  buffer =
+                    SelfPlay.runSelfPlay
+                      ( SelfPlay.defaultSelfPlayConfig
+                          { SelfPlay.selfPlayGamesPerGeneration = 3
+                          , SelfPlay.selfPlaySimulationsPerMove = 2
+                          }
+                      )
+                  contentHash = SelfPlay.bufferTranscriptHash buffer
+              writeResult <- SelfPlay.writeSelfPlayBuffer experimentHash buffer
+              liftIO $ case writeResult of
+                Right (ETag _) -> pure ()
+                Left err ->
+                  assertFailure ("expected writeSelfPlayBuffer OK, got: " <> show err)
+              readResult <- SelfPlay.readSelfPlayBuffer experimentHash contentHash
+              liftIO $ case readResult of
+                Right buffer' -> do
+                  buffer' @?= buffer
+                  SelfPlay.bufferTranscriptHash buffer' @?= contentHash
+                Left err ->
+                  assertFailure ("expected readSelfPlayBuffer OK, got: " <> Text.unpack err)
       , testCase "GC reaping deletes manifests + blobs through HasMinIO (Sprint 10.3)" $
           withSystemTempDirectory "jitml-gc-reap" $ \root ->
             runFilesystemMinIO root $ do

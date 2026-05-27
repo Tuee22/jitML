@@ -198,10 +198,222 @@ weightedFamilyImpl Dense2D =
     , "      jitml_kernel_output_count(n), jitml_launch_device_weighted);"
     , "}"
     ]
+weightedFamilyImpl Conv2DKernel =
+  -- Sprint 13.11 — CUDA-side weighted 1x1 Conv2D. Per-position multiply
+  -- by weights[0] (single 1x1 filter coefficient). Output equals input
+  -- when weights_count == 0 (filter defaults to 1.0).
+  Text.unlines
+    [ "static __global__ void jitml_device_conv2d_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  std::size_t i = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;"
+    , "  if (i >= n) { return; }"
+    , "  float w = (weights_count > 0 && weights != nullptr) ? weights[0] : 1.0f;"
+    , "  out[i] = input[i] * w;"
+    , "}"
+    , ""
+    , "static void jitml_launch_conv2d_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  dim3 block(256);"
+    , "  dim3 grid(static_cast<unsigned int>((n + block.x - 1) / block.x));"
+    , "  jitml_device_conv2d_weighted<<<grid, block>>>(out, input, n, weights, weights_count);"
+    , "}"
+    , ""
+    , "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  jitml_cuda_copy_and_launch_weighted("
+    , "      out, input, n, weights, weights_count,"
+    , "      jitml_kernel_output_count(n), jitml_launch_conv2d_weighted);"
+    , "}"
+    ]
+weightedFamilyImpl Conv3DKernel =
+  Text.unlines
+    [ "static __global__ void jitml_device_conv3d_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  std::size_t i = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;"
+    , "  if (i >= n) { return; }"
+    , "  float w = (weights_count > 0 && weights != nullptr) ? weights[0] : 1.0f;"
+    , "  out[i] = input[i] * w;"
+    , "}"
+    , ""
+    , "static void jitml_launch_conv3d_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  dim3 block(256);"
+    , "  dim3 grid(static_cast<unsigned int>((n + block.x - 1) / block.x));"
+    , "  jitml_device_conv3d_weighted<<<grid, block>>>(out, input, n, weights, weights_count);"
+    , "}"
+    , ""
+    , "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  jitml_cuda_copy_and_launch_weighted("
+    , "      out, input, n, weights, weights_count,"
+    , "      jitml_kernel_output_count(n), jitml_launch_conv3d_weighted);"
+    , "}"
+    ]
+weightedFamilyImpl BatchNormKernel =
+  -- Sprint 13.11 — CUDA weighted BatchNorm. Weights buffer carries
+  -- [scale(n), shift(n), mean(n), variance(n)] with missing entries
+  -- defaulting to canonical no-op values.
+  Text.unlines
+    [ "static __global__ void jitml_device_batchnorm_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  std::size_t i = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;"
+    , "  if (i >= n) { return; }"
+    , "  float scale = (i < weights_count && weights != nullptr) ? weights[i] : 1.0f;"
+    , "  float shift = (n + i < weights_count && weights != nullptr) ? weights[n + i] : 0.0f;"
+    , "  float mean = (2 * n + i < weights_count && weights != nullptr) ? weights[2 * n + i] : 0.0f;"
+    , "  float var = (3 * n + i < weights_count && weights != nullptr) ? weights[3 * n + i] : 1.0f;"
+    , "  float eps = 1.0e-5f;"
+    , "  float normalised = (input[i] - mean) / sqrtf(var + eps);"
+    , "  out[i] = normalised * scale + shift;"
+    , "}"
+    , ""
+    , "static void jitml_launch_batchnorm_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  dim3 block(256);"
+    , "  dim3 grid(static_cast<unsigned int>((n + block.x - 1) / block.x));"
+    , "  jitml_device_batchnorm_weighted<<<grid, block>>>(out, input, n, weights, weights_count);"
+    , "}"
+    , ""
+    , "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  jitml_cuda_copy_and_launch_weighted("
+    , "      out, input, n, weights, weights_count,"
+    , "      jitml_kernel_output_count(n), jitml_launch_batchnorm_weighted);"
+    , "}"
+    ]
+weightedFamilyImpl LayerNormKernel =
+  -- Sprint 13.11 — CUDA weighted LayerNorm. Weights buffer carries
+  -- [scale(n), shift(n)]. Per-element normalization uses the input's
+  -- own mean/variance computed in a single sweep.
+  Text.unlines
+    [ "static __global__ void jitml_device_layernorm_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  std::size_t i = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;"
+    , "  if (i >= n) { return; }"
+    , "  float sum = 0.0f;"
+    , "  for (std::size_t j = 0; j < n; ++j) { sum += input[j]; }"
+    , "  float mean = sum / static_cast<float>(n);"
+    , "  float varSum = 0.0f;"
+    , "  for (std::size_t j = 0; j < n; ++j) { float d = input[j] - mean; varSum += d * d; }"
+    , "  float var = varSum / static_cast<float>(n);"
+    , "  float eps = 1.0e-5f;"
+    , "  float scale = (i < weights_count && weights != nullptr) ? weights[i] : 1.0f;"
+    , "  float shift = (n + i < weights_count && weights != nullptr) ? weights[n + i] : 0.0f;"
+    , "  out[i] = ((input[i] - mean) / sqrtf(var + eps)) * scale + shift;"
+    , "}"
+    , ""
+    , "static void jitml_launch_layernorm_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  dim3 block(256);"
+    , "  dim3 grid(static_cast<unsigned int>((n + block.x - 1) / block.x));"
+    , "  jitml_device_layernorm_weighted<<<grid, block>>>(out, input, n, weights, weights_count);"
+    , "}"
+    , ""
+    , "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  jitml_cuda_copy_and_launch_weighted("
+    , "      out, input, n, weights, weights_count,"
+    , "      jitml_kernel_output_count(n), jitml_launch_layernorm_weighted);"
+    , "}"
+    ]
+weightedFamilyImpl EmbeddingKernel =
+  -- Sprint 13.11 — CUDA weighted Embedding lookup. Weights buffer is
+  -- a row-major embedding table of length table_rows * n; the input
+  -- supplies the (unsigned) row indices.
+  Text.unlines
+    [ "static __global__ void jitml_device_embedding_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  std::size_t i = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;"
+    , "  if (i >= n) { return; }"
+    , "  if (weights_count == 0 || weights == nullptr) { out[i] = input[i]; return; }"
+    , "  std::size_t table_rows = weights_count / n;"
+    , "  if (table_rows == 0) { table_rows = 1; }"
+    , "  float idx = input[i] < 0.0f ? 0.0f : input[i];"
+    , "  std::size_t row = static_cast<std::size_t>(idx) % table_rows;"
+    , "  std::size_t off = row * n + i;"
+    , "  out[i] = (off < weights_count) ? weights[off] : 0.0f;"
+    , "}"
+    , ""
+    , "static void jitml_launch_embedding_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  dim3 block(256);"
+    , "  dim3 grid(static_cast<unsigned int>((n + block.x - 1) / block.x));"
+    , "  jitml_device_embedding_weighted<<<grid, block>>>(out, input, n, weights, weights_count);"
+    , "}"
+    , ""
+    , "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  jitml_cuda_copy_and_launch_weighted("
+    , "      out, input, n, weights, weights_count,"
+    , "      jitml_kernel_output_count(n), jitml_launch_embedding_weighted);"
+    , "}"
+    ]
+weightedFamilyImpl MultiHeadAttentionKernel =
+  -- Sprint 13.11 — CUDA weighted MHA. Weights buffer holds three
+  -- consecutive n*n blocks (Wq, Wk, Wv). Computes
+  -- out[i] = sum_j (q[j] * k[j] * Wv[j*n+i])
+  -- where q = input·Wq and k = input·Wk. No softmax (determinism
+  -- contract requires fixed-precision reduction; softmax introduces
+  -- a cross-substrate ULP gap).
+  Text.unlines
+    [ "static __global__ void jitml_device_mha_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  std::size_t i = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;"
+    , "  if (i >= n) { return; }"
+    , "  std::size_t block_size = n * n;"
+    , "  float v = 0.0f;"
+    , "  for (std::size_t j = 0; j < n; ++j) {"
+    , "    float qsum = 0.0f, ksum = 0.0f;"
+    , "    for (std::size_t k = 0; k < n; ++k) {"
+    , "      std::size_t qi = k * n + j;"
+    , "      std::size_t ki = block_size + k * n + j;"
+    , "      float wq = (qi < weights_count && weights != nullptr) ? weights[qi] : 0.0f;"
+    , "      float wk = (ki < weights_count && weights != nullptr) ? weights[ki] : 0.0f;"
+    , "      qsum += input[k] * wq;"
+    , "      ksum += input[k] * wk;"
+    , "    }"
+    , "    std::size_t vi = 2 * block_size + j * n + i;"
+    , "    float wv = (vi < weights_count && weights != nullptr) ? weights[vi] : 0.0f;"
+    , "    v += qsum * ksum * wv;"
+    , "  }"
+    , "  out[i] = v;"
+    , "}"
+    , ""
+    , "static void jitml_launch_mha_weighted("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  dim3 block(256);"
+    , "  dim3 grid(static_cast<unsigned int>((n + block.x - 1) / block.x));"
+    , "  jitml_device_mha_weighted<<<grid, block>>>(out, input, n, weights, weights_count);"
+    , "}"
+    , ""
+    , "extern \"C\" void jitml_weighted_kernel("
+    , "    float *out, const float *input, std::size_t n,"
+    , "    const float *weights, std::size_t weights_count) {"
+    , "  jitml_cuda_copy_and_launch_weighted("
+    , "      out, input, n, weights, weights_count,"
+    , "      jitml_kernel_output_count(n), jitml_launch_mha_weighted);"
+    , "}"
+    ]
 weightedFamilyImpl _ =
-  -- Other families fall through to the unweighted body. The exported
-  -- `jitml_weighted_kernel` accepts the weights buffer for ABI parity
-  -- but ignores it until the per-family CUDA weighted body lands.
+  -- Identity / Reduction kernels keep the unweighted body — they have
+  -- no natural weight parameter.
   Text.unlines
     [ "extern \"C\" void jitml_weighted_kernel("
     , "    float *out, const float *input, std::size_t n,"

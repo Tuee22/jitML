@@ -721,6 +721,7 @@ mindmap
     kubectl
     internal
       materialize-substrate
+      render-kind-config
       list-prereqs
       gc
       vm
@@ -788,6 +789,7 @@ mindmap
 | `jitml build` | Build inside the substrate container. | `jitml build [--substrate <substrate>] [--dry-run] [--plan-file <path>]` |
 | `jitml kubectl` | Run kubectl against the jitML kubeconfig. | `jitml kubectl [-- <kubectl-args...>]` |
 | `jitml internal materialize-substrate` | Materialize substrate files. | `jitml internal materialize-substrate [--substrate <substrate>]` |
+| `jitml internal render-kind-config` | Render a Kind cluster YAML. | `jitml internal render-kind-config [--substrate <substrate>] [--name <name>] [--edge-port <port>]` |
 | `jitml internal list-prereqs` | List prerequisite checks. | `jitml internal list-prereqs` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |
 | `jitml internal vm bootstrap` | Bootstrap the VM. | `jitml internal vm bootstrap` |

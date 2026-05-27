@@ -1105,6 +1105,31 @@ jitml internal materialize-substrate --substrate linux-cpu
 Materialize Linux CPU substrate files.
 
 
+## `jitml internal render-kind-config`
+
+Render a Kind cluster YAML.
+
+Renders the Kind cluster config for the given substrate and optional name/edge-port override; stdout is the YAML the Pulumi orchestrator pipes into kind create.
+
+```text
+jitml internal render-kind-config [--substrate <substrate>] [--name <name>] [--edge-port <port>]
+```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--substrate <substrate>` | value | no | Substrate to render. |
+| `--name <name>` | value | no | Cluster name override (Pulumi ephemeral path). |
+| `--edge-port <port>` | value | no | Edge port override (defaults per substrate). |
+
+Examples:
+
+```text
+jitml internal render-kind-config --substrate linux-cuda --name jitml-e2e-abc123
+```
+
+Render a CUDA-shaped Kind config with the ephemeral cluster name.
+
+
 ## `jitml internal list-prereqs`
 
 List prerequisite checks.

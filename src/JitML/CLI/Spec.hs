@@ -527,6 +527,18 @@ internalCommand =
             "Materialize Linux CPU substrate files."
         ]
     , leaf
+        "render-kind-config"
+        "Render a Kind cluster YAML."
+        "Renders the Kind cluster config for the given substrate and optional name/edge-port override; stdout is the YAML the Pulumi orchestrator pipes into kind create."
+        [ value "substrate" Nothing "substrate" False "Substrate to render."
+        , value "name" Nothing "name" False "Cluster name override (Pulumi ephemeral path)."
+        , value "edge-port" Nothing "port" False "Edge port override (defaults per substrate)."
+        ]
+        [ Example
+            "jitml internal render-kind-config --substrate linux-cuda --name jitml-e2e-abc123"
+            "Render a CUDA-shaped Kind config with the ephemeral cluster name."
+        ]
+    , leaf
         "list-prereqs"
         "List prerequisite checks."
         "Prints the prerequisite registry for the current substrate."

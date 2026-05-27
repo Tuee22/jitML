@@ -2,6 +2,7 @@
 
 module Main where
 
+import Data.Foldable (for_)
 import Data.Text qualified as Text
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
@@ -131,6 +132,39 @@ main =
               Local.linuxCpuWeightedKernelOutput a @?= [1.0, 4.0, 9.0]
             _ ->
               assertBool "all three linux-cpu weighted kernel runs succeed" False
+      , testCase
+          "linux-cpu weighted Conv2D / Conv3D / BatchNorm / LayerNorm / Embedding bodies compile and run deterministically (Sprint 13.11)"
+          $ do
+            -- Sprint 13.11 closure for the other family weighted bodies.
+            -- Each family's weighted ABI is exercised twice against the
+            -- same input + weight buffer; the second invocation must be
+            -- bit-equal to the first (determinism contract). The expected
+            -- output values aren't asserted against literature fixtures
+            -- (per README.md → Snapshot targets → Numerical-fixture
+            -- prohibition); only run-to-run equality is the assertion.
+            env <- buildEnv defaultGlobalFlags
+            let input = [0.5, 1.5, 2.5, 3.5]
+            let families =
+                  [ (Conv2DKernel, [2.0 :: Float])
+                  , (Conv3DKernel, [3.0 :: Float])
+                  , (BatchNormKernel, [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+                  , (LayerNormKernel, [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+                  , (EmbeddingKernel, [10.0, 11.0, 12.0, 13.0, 20.0, 21.0, 22.0, 23.0])
+                  ]
+            for_ families $ \(family, weights) -> do
+              first <- Local.runLinuxCpuWeightedFamilyKernel env family input weights
+              second <- Local.runLinuxCpuWeightedFamilyKernel env family input weights
+              case (first, second) of
+                (Right a, Right b) ->
+                  Local.linuxCpuWeightedKernelOutput a
+                    @?= Local.linuxCpuWeightedKernelOutput b
+                _ ->
+                  assertBool
+                    ( "linux-cpu weighted "
+                        <> show family
+                        <> " kernel must produce deterministic output"
+                    )
+                    False
       , testCase "linux-cuda generated kernel compiles and runs through nvcc + FFI (Sprint 7.4)" $ do
           -- Live CUDA validation: Sprint 7.4 closure. When the host
           -- has nvcc + libcublas + libcudnn visible and an NVIDIA GPU

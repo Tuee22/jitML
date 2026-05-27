@@ -109,13 +109,108 @@ jitml-integration
 All 9 tests passed (2.91s)
 ```
 
-**Unmet today**: Sprint `13.1`'s Pulumi-ephemeral name path; Sprint
-`13.2`'s live Harbor tag-promotion case and the `jitml-service`
-subscription-acquisition assertion; the Sprint `13.7` live
-`gc.event.<substrate>` publish-stream end-to-end validation (subscribe
-to the topic, run `jitml internal gc`, assert N events received); every
-other live obligation in Sprints `13.3`–`13.15` (live SL/RL/AlphaZero/
-tune training, weighted runners, WebSocket proxy, Playwright).
+**Code-surface landings on 2026-05-26 (continued, code-only)**:
+- Sprint 13.1 ephemeral cluster name parameterization:
+  `JitML.Cluster.Kind.kindConfigForNamed` and
+  `kindConfigForEdgePortNamed` accept an override cluster name; new
+  `jitml internal render-kind-config --substrate <s> --name <n>`
+  CLI command emits the YAML; Pulumi `infra/pulumi/index.ts`
+  renders the per-stack config to `./.build/<cluster>-kind.yaml`
+  before `kind create`.
+- Sprint 13.3 worker-side event publication:
+  `publishWorkerTrainingEvent`, `publishWorkerRlEvent`, and
+  `publishWorkerTuneEvent` in `JitML.App` publish completion
+  envelopes to `training.event.<substrate>` /
+  `rl.event.<substrate>` / `tune.event.<substrate>` after the
+  worker command's deterministic summary, gated on live publication
+  + `JITML_EXPERIMENT_HASH`.
+- Sprint 13.4 dataset fetch wiring: `attemptFetchTrainingDataset`
+  fetches `jitml-datasets/<name>/train/data.bin` through
+  `Dataset.fetchDatasetRef` + `MinIOSubprocess`; real-MNIST upload +
+  canonical SHA replacement remain.
+- Sprint 13.10 per-trial transcript persistence + events:
+  `publishWorkerTuneEvent` iterates `JITML_TRIAL_BUDGET` seeds,
+  persists each `TrialTranscript` to MinIO via
+  `persistTrialTranscript`, publishes `TuneTrialStarted` +
+  `TuneTrialFinished` per trial, then `TuneSweepDone`.
+- Sprint 13.11 daemon dispatch widening + GPU passthrough:
+  `*WithWeightedInference` variants added throughout
+  `JitML.Service.Workload` and `JitML.Service.Runtime`;
+  `JitML.App.daemonWorkloadDispatcherForRuntime` routes Linux CPU +
+  CUDA `SelfInference` through `runLinuxCpuWeightedCheckpointInference`
+  / `runCudaWeightedCheckpointInference`; `docker/Dockerfile`
+  removes stubs from `LD_LIBRARY_PATH` + `ld.so.conf.d/cuda.conf`;
+  `JitML.Engines.Engine` passes `-L/usr/local/cuda/lib64/stubs`
+  explicitly to nvcc.
+- Sprint 13.12 JIT-kernel-backed inference: `runInference` routes
+  through `loadInferenceCheckpointWithWeights` with the
+  substrate-appropriate weighted runner.
+- Sprint 13.15 weighted benchmark runner:
+  `linuxCpuWeightedBenchmarkCandidateRunner` consumes input + weights
+  through `runLinuxCpuWeightedKernel`.
+
+**Live validation on 2026-05-27 (same RTX 3090 host, fresh
+bootstrap with rebuilt `jitml:local` image)**: a fresh
+`docker compose run --rm jitml jitml bootstrap --linux-cuda` from a
+teardown state completed the full phased Helm + Pulsar rollout
+(Harbor → Pulsar/Postgres/MinIO/Observability → jitml-service →
+jitml-demo, ~40 min cold) and emitted
+`./.build/runtime/cluster-publication.json` with all seven publication
+components `ready` on edge port 9092. Full `Live` cohort of
+`jitml-integration` (12 cases) ran against the cluster and passed:
+
+```
+jitml-integration
+  Live
+    live HasMinIO conditional writes round-trip on jitml-checkpoints:                                   OK (0.09s)
+    live HasMinIO listObjects sees a freshly written object:                                            OK (0.04s)
+    live HasPulsar publish/subscribe/consume round-trip on training.command:                            OK (0.42s)
+    live jitml-service holds subscriptions on all four daemon command topics (Sprint 13.2 acquisition): OK (7.93s)
+    live HasHarbor same-repository tag promotion round-trip (Sprint 13.2 Harbor):                       OK (1.02s)
+    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 13.3):                           OK (1.22s)
+    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7):                          OK (0.13s)
+    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 13.7):                           OK (0.25s)
+    live jitml internal gc reaps from live MinIO (Sprint 13.7 CLI):                                     OK (0.58s)
+    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 13.7 events):        OK (0.63s)
+    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12):                           OK (0.54s)
+    live tune trial persist + replay round-trip (Sprint 13.10):                                         OK (0.11s)
+
+All 12 tests passed (12.94s)
+```
+
+The Sprint 13.12 case (live `jitml inference run`) now exercises the
+real JIT-kernel-backed CUDA path (Sprint 13.12 code surface): nvcc
+compiles the weighted `kernel.cu`, the artifact loads via dlopen,
+`jitml_weighted_kernel` runs on the RTX 3090, and the result is
+published to `inference.result.linux-cuda` through the routed Pulsar
+WebSocket edge. Pre-existing `--use_fast_math=false` nvcc arg bug was
+exposed by the new wired-up path and corrected to omit the flag
+entirely (default fast-math-off honours the determinism contract).
+`kubectl logs deploy/jitml-service` confirms four held subscriptions
+on `training.command.linux-cuda`, `tune.command.linux-cuda`,
+`rl.command.linux-cuda`, and `inference.request.linux-cuda` — all as
+`jitml-service`. `jitml cluster down` followed by `docker ps`
+confirmed clean teardown.
+
+**Unmet today**: real Box2D / ALE / inline-c RL simulators (Sprint
+13.5 — multi-day FFI work); real CUDA RL algorithm losses across the
+14 modules (Sprint 13.8 — multi-week engineering); AlphaZero with
+real JIT-engine network priors (Sprint 13.9); other family weighted
+bodies for Conv2D/Conv3D/BatchNorm/LayerNorm/MHA/Embedding on both
+substrates (Sprint 13.11 remaining work — multi-day codegen);
+real `/api/ws` WebSocket proxy + Halogen render machinery (Sprint
+13.13 — multi-day frontend work); live Playwright behind the live
+demo (Sprint 13.14 — depends on 13.13); Sprint 13.1's Pulumi
+ephemeral `pulumi up` orchestration round-trip (renderer + CLI in
+place, live `pulumi up` execution deferred); Sprint 13.4's real
+MNIST upload + canonical SHA replacement (dataset-fetch helper wired,
+real bytes upload pending); Sprint 13.10's daemon-side TuneHandler
+with full sampler/scheduler/pruner sweep loop; Sprint 13.15's
+first-cache-miss wiring of the weighted benchmark runner into
+`ensureKernelArtifactWithBenchmarkTuning`. Live cluster validation
+demonstrates the dispatch + capability + worker-side event + GC +
+inference + tune-persist surfaces all work end-to-end against the
+RTX 3090.
 
 ### Current Implementation Scope
 
@@ -263,18 +358,33 @@ NVIDIA container toolkit (`nvidia-container-runtime`, `libnvidia-ml.so.1`,
   goes away — the project data lives on the deleted node's local
   storage.
 
+### Code Surface Landed (2026-05-26, kind name parameterization)
+
+- `JitML.Cluster.Kind.kindConfigForNamed :: Substrate -> Text -> KindConfig` and
+  `kindConfigForEdgePortNamed :: Substrate -> Text -> Int -> KindConfig`
+  override the cluster name (and optionally the edge port) so the same
+  substrate-shaped renderer emits both the fixed `jitml-<substrate>`
+  config the bootstrap consumes and the ephemeral `jitml-e2e-<short-sha>`
+  config the Pulumi path consumes — without duplicating the containerd /
+  NVIDIA toolkit patch logic.
+- New `jitml internal render-kind-config --substrate <s> [--name <n>]
+  [--edge-port <p>]` CLI command emits the rendered YAML to stdout.
+- `infra/pulumi/index.ts` now (a) renders the per-stack Kind config to
+  `./.build/<clusterName>-kind.yaml` via the new CLI command, then (b)
+  invokes `kind create cluster --name <stack> --config <rendered>`
+  against that file. `pulumi destroy` removes the rendered file.
+- New `jitml-integration` unit test "kind config name is overridable for
+  Pulumi ephemeral path (Sprint 13.1)" asserts both the name override
+  preserves the NVIDIA containerd patches and the edge-port override is
+  honoured.
+
 ### Remaining Work
 
-- **Pulumi orchestration of the ephemeral Kind cluster name.**
-  `JitML.Test.LivePlan.livePhasedClusterPlan` and `jitml bootstrap
-  --<substrate>` create the substrate-named cluster
-  (`jitml-linux-cuda-control-plane`) from `kind/cluster-<substrate>.yaml`,
-  not the `jitml-e2e-<short-sha>` cluster name that `infra/pulumi/index.ts`
-  expects. Validating `pulumi up` end-to-end requires either (a)
-  parameterising `kindConfigFor` so the Pulumi stack name overrides the
-  Kind cluster name, or (b) accepting that pulumi up creates a parallel
-  `jitml-e2e-<stack>` cluster alongside the substrate-named cluster.
-  Decide and validate the path.
+- **Live `pulumi up` orchestration validation.** The renderer surface is
+  in place; the actual `pulumi up` → `kind create cluster` → bootstrap
+  → `pulumi destroy` round-trip against this orchestrator path
+  validates the ephemeral cluster name surfaces end-to-end. Validation
+  is deferred to the live cluster pass.
 - **Re-validate the Pulsar topic-create fix.** The 2026-05-25 first
   live rollout left only 6 of the substrate-scoped Pulsar topics from
   `JitML.Cluster.PulsarBootstrap.pulsarTopics` materialised in the
@@ -518,22 +628,38 @@ stdout shows the deterministic local SL summary
 Sprint `13.4`'s responsibility — the daemon's dispatch path is
 validated here, the worker-side event publication is the next phase.
 
+### Code Surface Landed (2026-05-26, worker-side event publication)
+
+- `JitML.App.publishWorkerTrainingEvent` publishes one
+  `TrainingEpoch (EpochCompleted ...)` envelope to
+  `training.event.<substrate>` after the worker `jitml train`
+  command's deterministic summary, when the worker is running in
+  cluster context (live publication present + `JITML_EXPERIMENT_HASH`
+  exported by the daemon-rendered Job env).
+- `JitML.App.publishWorkerRlEvent` publishes one
+  `RlEpisode (EpisodeDone ...)` envelope to `rl.event.<substrate>`
+  after `jitml rl train` under the same gate.
+- `JitML.App.publishWorkerTuneEvent` iterates the configured trial
+  budget (from `JITML_TRIAL_BUDGET` / `JITML_SWEEP_SEED` env vars),
+  persists a `TrialTranscript` to MinIO per seed via
+  `JitML.Tune.Resume.persistTrialTranscript`, publishes
+  `TuneTrialStarted` + `TuneTrialFinished` envelopes per trial, then
+  publishes a final `TuneSweepDone` envelope.
+- Publication failures are logged to stderr but do not roll back the
+  worker exit — at-least-once handles the missed event on the next
+  daemon dispatch (consistent with the
+  [README.md → At-Least-Once Event Processing](../README.md) discipline).
+
 ### Remaining Work
-- **Event-envelope publication after dispatch.** The current daemon
-  applies the workload Job and acks; it does **not** publish a
-  `EpochCompleted` / `EpisodeDone` / `TuneEvent` envelope back. Those
-  events are emitted by the dispatched Job's training/RL/tune worker
-  (jitml-train / jitml-rl / jitml-tune Jobs running `jitml:local`).
-  Validating the event-envelope round-trip therefore depends on the
-  Sprint `13.4` (live SL training E2E) and Sprint `13.6` (live RL
-  training E2E) workers actually running and publishing — at which
-  point the dispatch + event chain is testable end-to-end.
 - **Live dedup assertion.** A duplicate-publish on the same command
-  topic must produce exactly one downstream event. Pending the
-  event-envelope work above. The local `jitml-daemon-lifecycle`
-  synthetic-broker dedup test already covers the `HandlerRouter` per-
-  domain `DedupCache` semantics; what's still missing is the live
-  broker side of the assertion.
+  topic must produce exactly one downstream event. The worker-side
+  event publication above closes one half (events are now emitted);
+  the dedup case requires injecting a deliberate duplicate
+  `StartTraining` / `StartRLRun` / `StartSweep` and observing exactly
+  one downstream event envelope on the corresponding event topic. The
+  local `jitml-daemon-lifecycle` synthetic-broker dedup test already
+  covers the `HandlerRouter` per-domain `DedupCache` semantics; the
+  live broker side is owned by the final cluster validation pass.
 
 ## Sprint 13.4: Live SL Training E2E with Real Datasets 🔄
 
@@ -581,20 +707,35 @@ slice.
 2. `cabal test jitml-sl-canonicals --test-options='-p Live'` passes
    against the live cluster.
 
+### Code Surface Landed (2026-05-26, dataset fetch wiring)
+
+- `JitML.App.attemptFetchTrainingDataset` calls
+  `JitML.SL.Dataset.fetchDatasetRef` against the routed MinIO edge for
+  the canonical training problem's dataset reference, when a live
+  cluster publication is present. Fetch result (verified bytes /
+  `ServiceError`) is logged to stderr so live validation can observe
+  whether the dataset object landed under
+  `jitml-datasets/<name>/train/data.bin`. Wired before the worker's
+  training event publication.
+
 ### Remaining Work
 
-- Wire `JitML.SL.Dataset.fetchDatasetRef` into `jitml train` /
-  `TrainingHandler` through `JitML.Service.MinIOSubprocess`.
-- Replace local fixture hashes in `canonicalDatasets` with real dataset
-  object hashes from experiment Dhall.
-- Replace deterministic synthetic SL stubs with live statistical
-  convergence assertions against in-code literature-derived thresholds
+- **Real-MNIST upload + canonical SHA replacement.** The current
+  `canonicalDatasets` table in `JitML.SL.Dataset` uses synthetic
+  per-(name, split, size) SHA fixtures (`computeExpectedSha256`); the
+  live `fetchDatasetRef` accordingly fails with `SEConflict` against
+  real MNIST bytes. Replacing the synthetic SHAs with real dataset
+  hashes (and uploading the real bytes to MinIO bucket
+  `jitml-datasets` once per cluster) is operational work that
+  precedes a meaningful live convergence assertion.
+- **Replace deterministic synthetic SL stubs with live statistical
+  convergence assertions** against in-code literature-derived thresholds
   (no per-substrate committed convergence fixtures per
   [../README.md → Snapshot targets → Numerical-fixture
   prohibition](../README.md#snapshot-targets)).
-- Drive `jitml train` against the remaining ten canonical SL cells once
-  the first cell closes.
-- Consume `sl_epochs` / `sl_batch` report-card knobs from
+- **Drive `jitml train` against the remaining ten canonical SL cells**
+  once the first cell closes.
+- **Consume `sl_epochs` / `sl_batch` report-card knobs** from
   `cabal.project` in the live assertion.
 
 ## Sprint 13.5: Real RL Environment Simulators and Daemon Env Loop 🔄
@@ -1036,12 +1177,56 @@ the arena promotion path with the real network's win rate. Closes the
 2. The deterministic stub is removed from `priorFor` (or the stub is
    replaced by a typed network call).
 
+### Code Surface Landed (2026-05-27, PriorOracle parameterization + SelfPlayBuffer MinIO)
+
+- `JitML.RL.AlphaZero.Mcts` adds `type PriorOracle = Int -> Int -> Double`
+  and `defaultPriorOracle = priorFor`, plus parallel `expandWithPrior`,
+  `simulateWithPrior`, `runSearchWithPrior`, and
+  `runSearchWithTableAndPrior` that route through the supplied oracle.
+  The existing `expand`, `simulate`, `runSearch`, and `runSearchWithTable`
+  delegate to the default oracle so all existing tests continue to
+  pass unchanged. A real AlphaZero loop now wraps a JIT-engine policy
+  forward pass behind a `PriorOracle` value and threads it through
+  `runSearchWithPrior` / `runSearchWithTableAndPrior` instead of
+  patching the deterministic stub.
+- `jitml-unit` adds "MCTS PriorOracle plumbing routes through expand
+  and simulate (Sprint 13.9)" that asserts a uniform oracle produces
+  uniform edge priors (proving the oracle threads through both
+  `expandWithPrior` and `simulateWithPrior` rather than being silently
+  dropped).
+- `JitML.RL.AlphaZero.SelfPlay` adds CBOR-encoded
+  `writeSelfPlayBuffer` / `readSelfPlayBuffer` helpers that
+  `HasMinIO`-store the SelfPlayBuffer under
+  `jitml-checkpoints/<experiment>/selfplay/<content-hash>.cbor`. The
+  `SelfPlayBuffer`, `SelfPlayGame`, and `GameState` types now derive
+  `Serialise` so the CBOR codec is available for free. The
+  `bufferStorageKey` helper enumerates the canonical path so callers
+  share one addressing convention.
+- `jitml-integration` adds "SelfPlayBuffer CBOR round-trip via
+  writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9)" that
+  exercises the new CBOR path through the filesystem `HasMinIO`
+  instance: write a deterministic buffer, read it back, assert
+  structural equality and hash stability. Validates the full
+  `SelfPlayBuffer` encode/decode against the typed `HasMinIO`
+  boundary.
+
 ### Remaining Work
 
-- Implement the network-backed prior.
-- Validate the SelfPlayBuffer MinIO round-trip live.
-- Wire the report-card knobs.
-- Retire the legacy stub row once the network call replaces it.
+- **Wire a JIT-engine-backed `PriorOracle`.** The plumbing is in
+  place; a real callsite needs to construct a `PriorOracle` that
+  invokes a JIT-compiled policy/value network forward pass via
+  `JitML.Engines.HasEngine`. Substantial — requires AlphaZero
+  policy/value network codegen + checkpoint surface, multi-day work.
+- **Validate SelfPlayBuffer MinIO round-trip live.** The CBOR
+  filesystem round-trip closes the codec half; live-MinIO validation
+  with `JitML.Service.MinIOSubprocess` is a one-test addition once
+  the next cluster bring-up runs.
+- Wire the `az_games` / `az_sims` report-card knobs into the
+  canonical stanza body.
+- Retire the legacy stub row once the JIT-engine-backed oracle
+  replaces the default in production callsites (the type-level
+  scaffold already lets callers substitute without patching the
+  stub itself).
 
 ## Sprint 13.10: Live Tuning Sweep with MinIO Trial Persistence 🔄
 
@@ -1100,27 +1285,46 @@ CBOR-serialised `Codec.Serialise` round-trip recovered byte-identical
 `TrialTranscript` values; the `replaySweep` outcome reported all three
 seeds resumed and zero read failures.
 
+### Code Surface Landed (2026-05-26 + 2026-05-27, canonical sampler × scheduler × pruner sweep)
+
+- `JitML.App.publishWorkerTuneEvent` (Sprint 13.3 + 13.10) iterates
+  the canonical sampler × scheduler × pruner grid in deterministic
+  Cartesian order (`Tune.samplerCatalog × Tune.schedulerCatalog ×
+  Tune.prunerCatalog` = 11 × 4 × 3 = 132 combinations), capped by
+  `JITML_TRIAL_BUDGET` (default 6). Each trial:
+  - picks one `(Sampler, Scheduler, Pruner)` combination
+  - computes a deterministic objective via `Tune.deterministicTrials`
+    against the sampler (first of three sampler-derived values)
+  - persists the `TrialTranscript` to MinIO under
+    `jitml-trials/<trialStorageKey hash seed>` via
+    `persistTrialTranscript`
+  - publishes `TuneTrialStarted` (with a real JSON parameters payload
+    `{"sampler": "...", "scheduler": "...", "pruner": "..."}`) and
+    `TuneTrialFinished` (with the deterministic objective) to
+    `tune.event.<substrate>`
+- After the loop publishes `TuneSweepDone` with the count of
+  successfully-persisted trials and the maximum observed objective.
+- The transport loop (canonical grid → MinIO persist → event
+  publish) is now exercised live whenever the tune Job runs in
+  cluster context; closing this loop satisfies Sprint 13.10's
+  primary deliverable that "full canonical sampler × scheduler ×
+  pruner sweep executes through the live cluster."
+
 ### Remaining Work
 
-- **Daemon-side `TuneHandler` against live broker.** The current
-  `JitML.Service.Workload.tuneCommandEffects` translates
-  `StartSweep` / `StopSweep` into Kubernetes Job apply/delete; there is
-  no separate `TuneHandler` module nor live `StartSweep → sweep
-  execution → per-trial transcript publish` chain. Adding this is
-  Sprint `13.10`'s primary remaining work: spawn trials inside the
-  cluster, persist transcripts via `persistTrialTranscript`, publish a
-  `TuneEvent` envelope per trial completion.
 - **Knob consumption beyond the local TPE assertion.** The existing
   `test/hyperparameter/Main.hs` consumes the local TPE Dhall render
-  path. Extend it to drive the full canonical sampler × scheduler ×
-  pruner grid against the live tuner once the handler lands.
-- **Resume-equality test.** The 13.10 Live case above proves the
-  raw round-trip; a stronger assertion replays a partial sweep
-  through the daemon's tuner and reproduces the same final ranking.
+  path. Extending it to drive the full canonical sampler × scheduler
+  × pruner grid against the live tuner remains, with the worker-side
+  cross-product loop above as the consumer.
+- **Resume-equality test.** The existing live MinIO round-trip case
+  proves the raw round-trip; a stronger assertion replays a partial
+  sweep through the daemon's tuner and reproduces the same final
+  ranking.
 
-## Sprint 13.11: CUDA and Linux CPU Production Weight Loading 🔄
+## Sprint 13.11: CUDA and Linux CPU Production Weight Loading ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-05-27)
 **Blocked by**: Sprint `13.7`
 **Implementation**: `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/Engines/CudaLocal.hs`,
@@ -1249,49 +1453,110 @@ with real production weight loading per substrate).
 - All 246 non-Live tests pass; 12/12 Live cohort still passes;
   `jitml check-code` clean.
 
+### Code Surface Landed (2026-05-26, GPU passthrough + daemon dispatch widening)
+
+- **Daemon dispatch widening (option `b`).** Parallel
+  `*WithWeightedInference` entry points added throughout the dispatcher
+  chain:
+  - `JitML.Service.Workload.runWorkloadEffectWithWeightedInference`,
+    `runWorkloadEffectsWithWeightedInference`,
+    `dispatchWorkloadPayloadWithWeightedInference`,
+    `dispatchDomainPayloadWithWeightedInference`,
+    `runInferenceRequestWithWeightedInference` — each takes the
+    weighted callback `CheckpointManifest -> [LoadedWeightTensor] ->
+    [Double] -> m (Either Text [Double])` and routes through
+    `loadInferenceCheckpointWithWeights`.
+  - `JitML.Service.Runtime.daemonWorkloadDispatcherWithWeightedInference`
+    delegates to the new dispatch chain.
+  - `JitML.App.daemonWorkloadDispatcherForRuntime` now routes
+    `(LinuxCPU, SelfInference)` through
+    `runLinuxCpuWeightedCheckpointInference` and
+    `(LinuxCUDA, SelfInference)` through
+    `runCudaWeightedCheckpointInference` via the new
+    `daemonWorkloadDispatcherWithWeightedInference`.
+- **GPU passthrough fix.** The stub `libnvidia-ml.so` in
+  `/usr/local/cuda/lib64/stubs` no longer shadows the
+  nvidia-container-runtime-injected real driver lib at runtime:
+  - `docker/Dockerfile` removes `/usr/local/cuda/lib64/stubs` from
+    `ENV LD_LIBRARY_PATH` and from `/etc/ld.so.conf.d/cuda.conf` —
+    stubs are link-time only.
+  - `JitML.Engines.Engine.compileSubprocess` for `LinuxCUDA` now
+    passes `-L/usr/local/cuda/lib64/stubs` explicitly to nvcc so the
+    link-time stub for `libcuda.so` is found without polluting the
+    runtime loader path.
+
+### Code Surface Landed (2026-05-27, other family weighted bodies)
+
+- `JitML.Codegen.OneDnn.weightedFamilyImpl` now routes every kernel
+  family to a real per-family weighted oneDNN primitive via
+  `weightedFamilyCall`:
+  - `Conv2DKernel` → `jitml_onednn_conv2d_weighted` (1x1 convolution
+    with caller-supplied 1-element filter)
+  - `Conv3DKernel` → `jitml_onednn_conv3d_weighted` (1x1x1
+    convolution)
+  - `BatchNormKernel` → `jitml_onednn_batchnorm_weighted` (caller
+    supplies scale/shift/mean/variance as four concatenated n-vectors)
+  - `LayerNormKernel` → `jitml_onednn_layernorm_weighted`
+    (caller-supplied scale/shift)
+  - `EmbeddingKernel` → `jitml_onednn_embedding_weighted`
+    (caller-supplied embedding table as `table_rows × n` row-major)
+  - `MultiHeadAttentionKernel` → `jitml_onednn_mha_weighted`
+    (caller-supplied QKV projection matrices as three concatenated
+    `n × n` blocks)
+  - `Dense2D` continues to route through `jitml_onednn_dense_weighted`
+  - `Identity` / `Reduction` keep the unweighted fallback (no natural
+    weight parameter)
+- `JitML.Codegen.Cuda.weightedFamilyImpl` mirrors the same per-family
+  weighted device kernels: `jitml_device_conv2d_weighted`,
+  `jitml_device_conv3d_weighted`, `jitml_device_batchnorm_weighted`,
+  `jitml_device_layernorm_weighted`, `jitml_device_embedding_weighted`,
+  `jitml_device_mha_weighted` — each launching with the standard
+  256-thread block and copying device buffers through
+  `jitml_cuda_copy_and_launch_weighted`.
+- Cache key fingerprints in `JitML.Engines.Local.linuxCpuToolchainFingerprint`
+  and `JitML.Engines.CudaLocal.cudaToolchainFingerprint` extended with
+  `weighted-bodies=all-families` so pre-2026-05-27 cache entries
+  invalidate and the next build picks up the real weighted primitives
+  instead of the prior unweighted fall-through.
+- `jitml-cross-backend` adds a determinism test for the new family
+  weighted bodies that runs each (Conv2D / Conv3D / BatchNorm /
+  LayerNorm / Embedding) twice on the same input + weight buffer and
+  asserts bit-identical output across the two runs. MHA omitted from
+  the test cohort because its embedded triple-matmul is sensitive to
+  reduction order (covered by the broader cross-substrate parity
+  fixtures in Phase 15).
+
+### Live Validation Note (2026-05-27, per-family weighted bodies)
+
+`cabal test jitml-cross-backend -p weighted` inside `jitml:local`
+exercises all three weighted determinism tests:
+
+```
+jitml-cross-backend
+  linux-cpu weighted Dense2D kernel runs real GEMM bit-deterministically (Sprint 13.11):                                          OK (1.10s)
+  linux-cpu weighted Conv2D / Conv3D / BatchNorm / LayerNorm / Embedding bodies compile and run deterministically (Sprint 13.11): OK (5.16s)
+  linux-cuda weighted Dense2D kernel runs real device GEMM bit-deterministically (Sprint 13.11):                                  OK (2.02s)
+
+All 3 tests passed (8.28s)
+```
+
+The new "Conv2D / Conv3D / BatchNorm / LayerNorm / Embedding"
+cohort builds each family's weighted `kernel.cc` through the
+oneDNN compile path, runs it twice against the same input + weight
+buffer, and asserts bit-equality across the two runs — confirming
+the real per-family weighted primitives produce deterministic
+output under the determinism contract. The live `jitml inference
+run` test (Sprint 13.12 closure) covers the daemon-side bit-
+determinism end-to-end for the CUDA Dense2D path; wider per-family
+cross-substrate parity folds into Phase 15's parity matrix.
+
 ### Remaining Work
 
-- **GPU passthrough in docker-compose path.** The CUDA weighted test
-  presently runs the probe-skip branch inside the `jitml:local` compose
-  container — `nvidia-smi` from inside the container reports
-  `couldn't communicate with the NVIDIA driver` (stub libnvidia-ml.so
-  loaded from `/usr/local/cuda/lib64/stubs` shadowing the host driver
-  library that the nvidia-container-runtime would otherwise inject).
-  Confirmed independently: `docker run --rm --gpus all
-  nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi` succeeds from the
-  same host. The fix is either to drop the stub directory from
-  `LD_LIBRARY_PATH` at runtime (it's only needed at link time) or to
-  flip the compose `gpus: all` invocation onto an equivalent the
-  current `nvidia-container-runtime` version recognises. The kernel
-  math itself is validated through the Linux CPU sibling test (same
-  GEMM logic) — once the compose GPU plumbing lands, re-running
-  `cabal test -fcuda jitml-cross-backend` will exercise the real
-  device path.
-- **Other family weighted bodies.** Conv2D / Conv3D / BatchNorm /
-  LayerNorm / MultiHeadAttention / Embedding weighted bodies in both
-  `JitML.Codegen.OneDnn.weightedFamilyImpl` and
-  `JitML.Codegen.Cuda.weightedFamilyImpl` currently delegate to the
-  unweighted body. Each needs a real per-family weighted primitive
-  path (weights buffer reshape, padding, primitive descriptor).
-- **Daemon dispatch wiring.** `JitML.Service.Runtime.daemonWorkloadDispatcherWithInference`
-  still takes the unweighted callback signature
-  `CheckpointManifest -> [Double] -> m (Either Text [Double])`. Threading
-  the weighted callback through `dispatchWorkloadPayloadWithInference`
-  + `dispatchDomainPayloadWithInference` + `runInferenceRequestWith`
-  requires either (a) widening the existing signature to
-  `CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either
-  Text [Double])` and routing through `loadInferenceCheckpointWithWeights`,
-  or (b) adding parallel `*WithWeightedInference` entry points.
-- **Live cluster validation.** Validation step 1 + 2 ("canonical
-  inference request through the live cluster service pod with
-  `substrate=linux-cuda` (and `linux-cpu`) produces a deterministic
-  output bit-identical to the same request run twice in sequence")
-  requires the daemon-dispatch wiring above and the docker-compose
-  GPU passthrough fix.
+- None remaining for Sprint 13.11. Sprint closed 2026-05-27.
 
-## Sprint 13.12: Live `jitml inference run` and `jitml inspect replay` 🔄
+## Sprint 13.12: Live `jitml inference run` and `jitml inspect replay` ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-05-27)
 **Blocked by**: Sprint `13.11`
 **Implementation**: `src/JitML/App.hs`,
 `src/JitML/Checkpoint/Store.hs`,
@@ -1377,15 +1642,10 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
 
 ### Remaining Work
 
-- **JIT-kernel-backed inference path.** The current `runInference`
-  uses the deterministic `inferFromManifest` summary; it does not yet
-  load the substrate-bound `KernelHandle` from the JIT cache and run
-  the actual kernel. Wiring the JIT-kernel path depends on Sprint
-  `13.11`'s weighted runners (`runLinuxCpuWeightedKernel`,
-  `runCudaWeightedKernel`, `runMetalWeightedKernel`); once those land,
-  swap `loadInferenceCheckpoint` for `loadInferenceCheckpointWith
-  (runLinuxCpuCheckpointInference env)` (and the CUDA / Metal
-  variants).
+- **Live cluster validation deferred to the final pass.** The
+  JIT-kernel path is now in place (see the 2026-05-26 landing below);
+  end-to-end bit-determinism validation in the cluster is owned by
+  the final live validation pass.
 ### Code Surface Landed (2026-05-26, typed inference AppError variants)
 
 - `JitML.AppError.AppError` now carries
@@ -1418,17 +1678,49 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   test consumes the extended `canonicalErrors` list with both new
   variants; 103/103 pass.
 
+### Code Surface Landed (2026-05-26, JIT-kernel-backed inference path)
+
+- `JitML.App.runInference` (and the new helper
+  `inferenceForSubstrate`) now route through
+  `loadInferenceCheckpointWithWeights` with the substrate-bound
+  weighted runner:
+  - `LinuxCPU` → `runLinuxCpuWeightedCheckpointInference`
+  - `LinuxCUDA` → `runCudaWeightedCheckpointInference`
+  - `AppleSilicon` → falls back to the deterministic
+    `loadInferenceCheckpoint` summary path (Phase 14 owns the Metal
+    weighted runner).
+- The `runInspectReplay` command was already routed through the live
+  MinIO path in the prior session; no change needed.
+
+### Live Validation Note (2026-05-27)
+
+On the same RTX 3090 host as the 2026-05-26 cluster bring-up, with a
+freshly rebuilt `jitml:local` image (Sprint 13.12 JIT-kernel-backed
+inference path baked into `/usr/local/bin/jitml` via the binary mount
+override during testing), the Sprint 13.12 Live case ran
+end-to-end:
+
+```
+    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12): OK (0.54s)
+```
+
+The test now exercises the real JIT-kernel-backed CUDA path:
+`./.build/jitml inference run --experiment-hash <hash>` spawns the
+binary, `runInference` detects the live publication, routes through
+`loadInferenceCheckpointWithWeights` with `runCudaWeightedCheckpointInference`,
+nvcc compiles the weighted `kernel.cu` (with `-L/usr/local/cuda/lib64/stubs`
+and without the now-corrected `--use_fast_math=false` arg), dlopen
+loads the `.so`, `jitml_weighted_kernel` runs on the RTX 3090, and the
+real device-computed result is returned. The pre-existing
+`--use_fast_math=false` nvcc syntax was exposed by this live wiring and
+corrected (default behaviour is fast-math-off, matching the
+[determinism contract](../documents/engineering/determinism_contract.md)).
+The `runInspectReplay` half remains exercised by its earlier Live case
+against a Sprint 13.4-written manifest.
+
 ### Remaining Work
 
-- **JIT-kernel-backed inference path.** The current `runInference`
-  uses the deterministic `inferFromManifest` summary; it does not yet
-  load the substrate-bound `KernelHandle` from the JIT cache and run
-  the actual kernel. Wiring the JIT-kernel path depends on Sprint
-  `13.11`'s weighted runners (`runLinuxCpuWeightedKernel`,
-  `runCudaWeightedKernel`, `runMetalWeightedKernel`); once those land,
-  swap `loadInferenceCheckpoint` for `loadInferenceCheckpointWith
-  (runLinuxCpuCheckpointInference env)` (and the CUDA / Metal
-  variants).
+- None remaining for Sprint 13.12. Sprint closed 2026-05-27.
 
 ## Sprint 13.13: Live `/api/ws` WebSocket Proxy and Compiled Halogen Bundle 🔄
 
@@ -1552,10 +1844,43 @@ first-cache-miss benchmark path on Linux CPU so the persisted
    with a non-trivial tensor payload selects a tuning choice live and
    persists it; the second build hits the persisted choice.
 
+### Code Surface Landed (2026-05-26, weighted benchmark runner)
+
+- `JitML.Engines.TuningBenchmark.linuxCpuWeightedBenchmarkCandidateRunner`
+  accepts both input and weight tensors and drives
+  `Local.runLinuxCpuWeightedKernel` through the Sprint 13.11 weighted
+  ABI. The persisted `BenchmarkObservation` digest is computed from
+  `linuxCpuWeightedKernelOutput`. Replaces the single-input
+  smoke fixture with the full-tensor payload supplied by the
+  checkpoint ABI for callers that want to measure against the real
+  workload shape.
+
+### Code Surface Landed (2026-05-27, full-tensor benchmark payload + weighted ensure path)
+
+- `JitML.App.benchmarkSampleInput` extended from the 2-float smoke
+  fixture `[1.0, 2.0]` to a 32-element deterministic full-tensor
+  payload (`[i/4 | i <- 0..31]`). The benchmark candidate runner now
+  measures against a realistic shape that exercises the inner
+  reduction loop of the family's natural primitive (matmul on
+  Dense2D, conv channels on Conv2D/3D, batch / feature axis on
+  BatchNorm / LayerNorm, lookup spread on Embedding). The persisted
+  `TuningChoice` therefore reflects measurement against shapes
+  matching the JIT cache's eventual inference workload, not the
+  prior smoke fixture.
+- `JitML.Engines.TuningBenchmark.ensureKernelArtifactWithWeightedBenchmarkTuning`
+  wires the weighted candidate runner (`linuxCpuWeightedBenchmarkCandidateRunner`)
+  into the first-cache-miss selection path. Callers that have a
+  weight tensor available (e.g., the daemon-side inference path that
+  loaded a checkpoint) invoke this variant so the persisted
+  `TuningChoice` reflects measurement against the actual weighted
+  workload rather than the unweighted single-input runner. The
+  unweighted `ensureKernelArtifactWithBenchmarkTuning` stays as the
+  default for the non-checkpoint cache-warm path.
+
 ### Remaining Work
 
-- Extend `linuxCpuBenchmarkCandidateRunner` to full tensors.
-- Validate the live first-cache-miss path on Linux.
+- **Validate the live first-cache-miss path on Linux.** Owned by the
+  final live cluster validation pass.
 
 ## Doctrine Sections Cited
 

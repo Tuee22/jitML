@@ -12,8 +12,10 @@ module JitML.Engines.TuningBenchmark
   , digestFloatOutput
   , ensureKernelArtifactWithBenchmarkTuning
   , ensureKernelArtifactWithBenchmarkTuningWithRunner
+  , ensureKernelArtifactWithWeightedBenchmarkTuning
   , ensureTuningSelection
   , linuxCpuBenchmarkCandidateRunner
+  , linuxCpuWeightedBenchmarkCandidateRunner
   , measureBenchmarkObservation
   , metalBenchmarkCandidateRunner
   , metalBenchmarkCandidateRunnerWithProbe
@@ -271,6 +273,40 @@ ensureKernelArtifactWithBenchmarkTuningWithRunner env substrate runner kernelSpe
         (tuningCacheRuntimeSource plan)
         (tuningCacheHash plan)
 
+-- | Sprint 13.15 — weighted variant of `ensureKernelArtifactWithBenchmarkTuning`.
+-- The first cache miss for a Linux CPU kernel drives the
+-- `linuxCpuWeightedBenchmarkCandidateRunner` against the supplied input +
+-- weights tensors (measuring the real weighted Dense2D body, not the
+-- unweighted single-input fixture). The persisted `TuningChoice` therefore
+-- reflects measurement against the same workload shape the JIT cache will see
+-- at inference time. Only Linux CPU is wired here — Linux CUDA's weighted
+-- benchmark candidate runner closes alongside the GPU passthrough validation
+-- in Phase 15.
+ensureKernelArtifactWithWeightedBenchmarkTuning
+  :: Env
+  -> Cache.KernelSpec
+  -> Cache.Kind
+  -> Cache.ToolchainFingerprint
+  -> [Float]
+  -> [Float]
+  -> IO (Either Text KernelArtifact)
+ensureKernelArtifactWithWeightedBenchmarkTuning env kernelSpec kind fingerprint input weights = do
+  let runner runnerEnv runnerSpec runnerKind runnerInput =
+        linuxCpuWeightedBenchmarkCandidateRunner
+          runnerEnv
+          runnerSpec
+          runnerKind
+          runnerInput
+          weights
+  ensureKernelArtifactWithBenchmarkTuningWithRunner
+    env
+    LinuxCPU
+    runner
+    kernelSpec
+    kind
+    fingerprint
+    input
+
 -- | The persistence half of the benchmark-tuning wiring: load the persisted
 -- selection if one exists, otherwise run the supplied candidate runner across
 -- the deterministic benchmark plan and persist the lowest-latency selection
@@ -334,6 +370,62 @@ linuxCpuBenchmarkCandidateRunner env kernelSpec kind input candidate
                 { benchmarkObservationLatencyMicros = elapsedMicros start end
                 , benchmarkObservationOutputDigest =
                     digestFloatOutput (Local.linuxCpuKernelOutput kernelRun)
+                }
+ where
+  tuningChoice = tuningChoiceForResult candidate
+  source =
+    renderRuntimeSource
+      kernelSpec
+      kind
+      Cache.LinuxCPU
+      tuningChoice
+  hash =
+    Cache.cacheKey
+      kernelSpec
+      kind
+      Cache.LinuxCPU
+      Local.linuxCpuToolchainFingerprint
+      (runtimeSourcePayload source)
+      tuningChoice
+
+-- | Sprint 13.15 — weighted variant of the Linux CPU benchmark candidate
+-- runner. Drives `runLinuxCpuWeightedKernel` against the supplied input +
+-- weights tensors so the first-cache-miss benchmark path measures the real
+-- weighted Dense2D body (Sprint 13.11 ABI) instead of the single-tensor
+-- unweighted body. The persisted `TuningChoice` therefore reflects measured
+-- selection against the actual workload shape that production inference
+-- will execute, not the smoke fixture.
+linuxCpuWeightedBenchmarkCandidateRunner
+  :: Env
+  -> Cache.KernelSpec
+  -> Cache.Kind
+  -> [Float]
+  -- ^ input tensor (flat row-major)
+  -> [Float]
+  -- ^ weight tensor (flat row-major)
+  -> TuningResult
+  -> IO (Either Text BenchmarkObservation)
+linuxCpuWeightedBenchmarkCandidateRunner env kernelSpec kind input weights candidate
+  | tuningSubstrate candidate /= LinuxCPU =
+      pure $
+        Left
+          ( "linux-cpu weighted benchmark runner cannot execute "
+              <> renderSubstrate (tuningSubstrate candidate)
+              <> " candidate"
+          )
+  | otherwise = do
+      start <- getMonotonicTimeNSec
+      kernelResult <- Local.runLinuxCpuWeightedKernel env source hash input weights
+      end <- getMonotonicTimeNSec
+      pure $
+        case kernelResult of
+          Left err -> Left err
+          Right kernelRun ->
+            Right
+              BenchmarkObservation
+                { benchmarkObservationLatencyMicros = elapsedMicros start end
+                , benchmarkObservationOutputDigest =
+                    digestFloatOutput (Local.linuxCpuWeightedKernelOutput kernelRun)
                 }
  where
   tuningChoice = tuningChoiceForResult candidate

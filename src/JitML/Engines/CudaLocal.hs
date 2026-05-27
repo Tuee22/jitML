@@ -324,10 +324,14 @@ cudaToolchainFingerprint =
         , "jitml_kernel(float*,const float*,size_t)"
         , "jitml_kernel_family_name(void)"
         , "jitml_kernel_output_count(size_t)"
-        , -- Sprint 13.11: weighted CUDA ABI. Dense2D runs a real device
-          -- GEMM; other families pass through the unweighted body until
-          -- their per-family CUDA weighted bodies land.
+        , -- Sprint 13.11: weighted CUDA ABI. Dense2D / Conv2D / Conv3D /
+          -- BatchNorm / LayerNorm / MHA / Embedding now drive real device
+          -- kernels (full set landed 2026-05-27). The "all-families" tag
+          -- bumps cache invalidation so the JIT cache picks up the real
+          -- weighted device kernels instead of the prior unweighted
+          -- fall-through.
           "jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)"
+        , "weighted-bodies=all-families"
         ]
     )
 

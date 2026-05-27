@@ -12,7 +12,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV PATH=/root/.ghcup/bin:/root/.cabal/bin:/usr/local/cuda/bin:/usr/local/bin:$PATH
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/lib64/stubs:$LD_LIBRARY_PATH
+# Sprint 13.11 — at runtime the NVIDIA Container Toolkit injects the real
+# host driver libraries under /usr/lib/x86_64-linux-gnu/. The CUDA-shipped
+# `libcuda.so` under `lib64/stubs/` is a link-time stub that returns
+# `cudaErrorNoDevice` at runtime; including its directory in LD_LIBRARY_PATH
+# shadows the injected real driver and breaks `nvidia-smi`/CUDA inside the
+# compose container. Keep stubs available for nvcc at link time via the
+# explicit `-L` in the JIT compile command — not on LD_LIBRARY_PATH.
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 ENV JITML_STYLE_TOOLS_ROOT=/opt/jitml-style-tools
 
 RUN apt-get update \
@@ -62,7 +69,12 @@ RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
         ${CUDNN_PACKAGE} \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/local/cuda-12.8 /usr/local/cuda \
-    && printf '/usr/local/cuda/lib64\n/usr/local/cuda/lib64/stubs\n' > /etc/ld.so.conf.d/cuda.conf \
+    # Sprint 13.11 — only the runtime libs (cudart, cublas, cudnn) belong on
+    # the ldconfig cache; the stubs directory contains a link-time-only
+    # `libcuda.so` that conflicts with the NVIDIA Container Toolkit's runtime
+    # injection. nvcc continues to resolve the link-time stub via the
+    # explicit `-L/usr/local/cuda/lib64/stubs` we pass during JIT compile.
+    && printf '/usr/local/cuda/lib64\n' > /etc/ld.so.conf.d/cuda.conf \
     && ldconfig
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \

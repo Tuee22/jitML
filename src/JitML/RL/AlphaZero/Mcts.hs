@@ -4,15 +4,20 @@ module JitML.RL.AlphaZero.Mcts
   ( MctsConfig (..)
   , MctsEdge (..)
   , MctsNode (..)
+  , PriorOracle
   , TranspositionKey (..)
   , TranspositionTable (..)
   , defaultMctsConfig
+  , defaultPriorOracle
   , emptyTranspositionTable
   , expand
+  , expandWithPrior
   , initialNode
   , priorFor
   , runSearch
+  , runSearchWithPrior
   , runSearchWithTable
+  , runSearchWithTableAndPrior
   , selectAction
   , transpositionKey
   , transpositionLookup
@@ -71,16 +76,36 @@ initialNode =
 
 -- | Deterministic prior derived from the action index plus a per-search seed;
 -- the real network call is stubbed by a reproducible function so the search
--- tree is end-to-end testable.
+-- tree is end-to-end testable. Sprint 13.9 introduces `PriorOracle` so callers
+-- can substitute a real JIT-engine network forward pass without changing the
+-- search loop.
 priorFor :: Int -> Int -> Double
 priorFor seed action =
   let raw = ((seed * 2654435761 + action * 41) `mod` 9973) + 1
    in fromIntegral raw / 9973.0
 
+-- | A prior oracle takes the search seed and the candidate action index and
+-- returns the prior probability that AlphaZero should assign to that action.
+-- The deterministic stub `priorFor` matches `defaultPriorOracle`; a real
+-- AlphaZero loop wraps a JIT-engine policy network forward pass that emits
+-- the prior distribution for the current position. Sprint 13.9.
+type PriorOracle = Int -> Int -> Double
+
+-- | The deterministic stub oracle. Kept as the default so existing tests and
+-- non-network callers continue to exercise a reproducible search tree.
+defaultPriorOracle :: PriorOracle
+defaultPriorOracle = priorFor
+
 expand :: MctsConfig -> Int -> MctsNode -> MctsNode
-expand config seed node =
+expand = expandWithPrior defaultPriorOracle
+
+-- | Same as `expand` but the caller supplies the prior oracle. Sprint 13.9 —
+-- swap `defaultPriorOracle` for a JIT-engine network-backed oracle to drive
+-- real AlphaZero search.
+expandWithPrior :: PriorOracle -> MctsConfig -> Int -> MctsNode -> MctsNode
+expandWithPrior oracle config seed node =
   let actions = [0 .. mctsActionSpace config - 1]
-      priors = [priorFor seed action | action <- actions]
+      priors = [oracle seed action | action <- actions]
       total = sum priors
       normalised = [p / total | p <- priors]
       edges =
@@ -115,11 +140,16 @@ selectAction config node
 -- | Run the search loop for `mctsSimulations` rollouts; each rollout backs up a
 -- deterministic value derived from the action index, the seed, and the depth.
 runSearch :: MctsConfig -> Int -> MctsNode
-runSearch config seed =
-  go (mctsSimulations config) (expand config seed initialNode)
+runSearch = runSearchWithPrior defaultPriorOracle
+
+-- | Sprint 13.9 — `runSearch` with a caller-supplied prior oracle. The real
+-- AlphaZero loop threads a JIT-engine policy network forward pass here.
+runSearchWithPrior :: PriorOracle -> MctsConfig -> Int -> MctsNode
+runSearchWithPrior oracle config seed =
+  go (mctsSimulations config) (expandWithPrior oracle config seed initialNode)
  where
   go 0 node = node
-  go n node = go (n - 1) (simulate config seed node)
+  go n node = go (n - 1) (simulateWithPrior oracle config seed node)
 
 -- | Transposition-table key. Two distinct move sequences that lead to the
 -- same position collapse to the same key. The canonical form sorts the
@@ -176,21 +206,38 @@ hashHex =
 -- already-visited positions.
 runSearchWithTable
   :: MctsConfig -> Int -> [Int] -> TranspositionTable -> (MctsNode, TranspositionTable)
-runSearchWithTable config seed moves table =
+runSearchWithTable = runSearchWithTableAndPrior defaultPriorOracle
+
+-- | Sprint 13.9 — `runSearchWithTable` with a caller-supplied prior oracle.
+runSearchWithTableAndPrior
+  :: PriorOracle
+  -> MctsConfig
+  -> Int
+  -> [Int]
+  -> TranspositionTable
+  -> (MctsNode, TranspositionTable)
+runSearchWithTableAndPrior oracle config seed moves table =
   let key = transpositionKey moves
    in case transpositionLookup key table of
         Just cached -> (cached, table)
         Nothing ->
-          let result = runSearch config seed
+          let result = runSearchWithPrior oracle config seed
               table' = transpositionInsert key result table
            in (result, table')
 
 simulate :: MctsConfig -> Int -> MctsNode -> MctsNode
-simulate config seed node =
+simulate = simulateWithPrior defaultPriorOracle
+
+-- | Sprint 13.9 — backup uses the supplied oracle's value for the chosen
+-- action. The deterministic stub feeds the same `priorFor`-derived value
+-- the original `simulate` used; a real network call replaces this with the
+-- value-head output for the current position.
+simulateWithPrior :: PriorOracle -> MctsConfig -> Int -> MctsNode -> MctsNode
+simulateWithPrior oracle config seed node =
   case selectAction config node of
     Nothing -> node
     Just action ->
-      let value = priorFor (seed + 7919) action
+      let value = oracle (seed + 7919) action
           newChildren =
             [ if edgeAction edge == action
                 then

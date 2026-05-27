@@ -31,14 +31,37 @@ export const substrate = config.get("substrate") ?? "linux-cpu";
 export const chartPath = config.get("chartPath") ?? "chart";
 export const jitmlBinary = config.get("jitmlBinary") ?? ".build/jitml";
 
-const kindConfigPath = config.get("kindConfig") ?? `kind/cluster-${substrate}.yaml`;
+// The default ephemeral path renders a per-stack Kind config from the same
+// `JitML.Cluster.Kind` renderer the substrate bootstrap uses, with the
+// `name:` field overridden to the ephemeral `jitml-e2e-<stack>` cluster
+// name. The committed `kind/cluster-<substrate>.yaml` files keep the fixed
+// substrate-named cluster for the non-Pulumi bootstrap path; the ephemeral
+// path materializes its config in `./.build/` so the two never collide.
+// Sprint 13.1.
+const kindConfigPath = config.get("kindConfig") ?? `./.build/${clusterName}-kind.yaml`;
+const edgePortConfig = config.getNumber("edgePort");
 
-// Step 1 — Kind cluster create.
-const kindCluster = new local.Command("kind-cluster", {
-  create: pulumi.interpolate`kind create cluster --name ${clusterName} --config ${kindConfigPath} --kubeconfig ${kubeconfigPath}`,
-  delete: pulumi.interpolate`kind delete cluster --name ${clusterName}`,
-  triggers: [clusterName, substrate, kindConfigPath],
+// Step 0 — Render the per-stack Kind config to `kindConfigPath`.
+const renderArgs = edgePortConfig === undefined
+  ? pulumi.interpolate`internal render-kind-config --substrate ${substrate} --name ${clusterName}`
+  : pulumi.interpolate`internal render-kind-config --substrate ${substrate} --name ${clusterName} --edge-port ${edgePortConfig}`;
+
+const kindConfigRender = new local.Command("kind-config-render", {
+  create: pulumi.interpolate`mkdir -p $(dirname ${kindConfigPath}) && ${jitmlBinary} ${renderArgs} > ${kindConfigPath}`,
+  delete: pulumi.interpolate`rm -f ${kindConfigPath}`,
+  triggers: [clusterName, substrate, edgePortConfig ?? -1, jitmlBinary],
 });
+
+// Step 1 — Kind cluster create against the rendered config.
+const kindCluster = new local.Command(
+  "kind-cluster",
+  {
+    create: pulumi.interpolate`kind create cluster --name ${clusterName} --config ${kindConfigPath} --kubeconfig ${kubeconfigPath}`,
+    delete: pulumi.interpolate`kind delete cluster --name ${clusterName}`,
+    triggers: [clusterName, substrate, kindConfigPath],
+  },
+  { dependsOn: [kindConfigRender] }
+);
 
 // Step 2 — `helm dependency build chart`. Sequenced after the cluster so the
 // kubeconfig is present when the chart's subchart pulls reference cluster

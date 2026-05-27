@@ -172,13 +172,25 @@ compileSubprocess engine source hash =
         "nvcc"
         [ "--shared"
         , "--compiler-options=-fPIC"
-        , "--use_fast_math=false"
-        , "-arch=sm_70"
+        , -- `--use_fast_math` is a presence flag; omitting it (the default)
+          -- means fast-math is off, which is what the determinism contract
+          -- requires. Earlier versions wrote `--use_fast_math=false` here;
+          -- the modern nvcc parser rejects that with `no argument expected
+          -- after '--use_fast_math'`. The fingerprint string still records
+          -- `tf32=disabled` + `--use_fast_math=false` as the human-readable
+          -- intent.
+          "-arch=sm_70"
         , "-DJITML_USE_CUBLAS=1"
         , "-DJITML_USE_CUDNN=1"
         , "-o"
         , artifactPathText engine hash
         , sourceDir <> "/kernel.cu"
+        , -- Sprint 13.11 — the CUDA-shipped stubs dir holds a link-time
+          -- `libcuda.so` that we need at compile time but not at runtime.
+          -- Pass it explicitly so link succeeds without leaving stubs on
+          -- LD_LIBRARY_PATH, which would otherwise shadow the real driver
+          -- library injected by the NVIDIA Container Toolkit.
+          "-L/usr/local/cuda/lib64/stubs"
         , "-lcudart"
         , "-lcublas"
         , "-lcudnn"

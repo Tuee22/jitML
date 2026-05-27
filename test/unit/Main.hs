@@ -1818,6 +1818,25 @@ main =
           assertBool
             "distinct move sequences hash differently"
             (Mcts.transpositionKey [0, 1, 2] /= Mcts.transpositionKey [0, 1, 3])
+      , testCase "MCTS PriorOracle plumbing routes through expand and simulate (Sprint 13.9)" $ do
+          -- Sprint 13.9 closure: confirm that supplying a custom
+          -- `PriorOracle` actually changes the search output. Default
+          -- oracle (deterministic stub) produces an asymmetric prior
+          -- distribution; a constant oracle produces uniform priors.
+          -- The visit-weighted edge values therefore differ, proving the
+          -- oracle threads through `expandWithPrior` and
+          -- `simulateWithPrior` rather than being silently dropped.
+          let cfg = Mcts.defaultMctsConfig 4
+              defaultTree = Mcts.runSearch cfg 17
+              uniformTree = Mcts.runSearchWithPrior (\_ _ -> 1.0) cfg 17
+              defaultPriors = map Mcts.edgePrior (Mcts.nodeChildren defaultTree)
+              uniformPriors = map Mcts.edgePrior (Mcts.nodeChildren uniformTree)
+          assertBool
+            "default oracle does not produce uniform priors"
+            (length (filter (\p -> abs (p - 0.25) > 0.001) defaultPriors) > 0)
+          assertBool
+            "uniform oracle produces uniform priors"
+            (all (\p -> abs (p - 0.25) < 0.001) uniformPriors)
       , testCase "tuning trial storage and resume summary are deterministic" $ do
           Tune.trialStorageKey "exp-a" 42 @?= "jitml-trials/exp-a/42/transcript.cbor"
           Tune.resumeMatchesFullRun Tune.Sobol 3 8 @?= True
@@ -2454,6 +2473,7 @@ canonicalLeafPaths =
   , ["build"]
   , ["kubectl"]
   , ["internal", "materialize-substrate"]
+  , ["internal", "render-kind-config"]
   , ["internal", "list-prereqs"]
   , ["internal", "gc"]
   , ["internal", "vm", "bootstrap"]

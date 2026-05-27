@@ -10,9 +10,11 @@ import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception.Safe (displayException, finally, tryAny)
 import Control.Monad (forever, unless, when)
+import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Data.Aeson (decode, encode)
 import Data.ByteString.Lazy qualified as LazyByteString
+import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
 import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe)
@@ -23,7 +25,7 @@ import Data.Word (Word64)
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.Environment (getArgs)
+import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
@@ -52,11 +54,12 @@ import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
+import JitML.Cluster.Kind (kindConfigForEdgePortNamed, renderKindConfig)
 import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
-import JitML.Engines.CudaLocal (runCudaCheckpointInference)
+import JitML.Engines.CudaLocal (runCudaWeightedCheckpointInference)
 import JitML.Engines.Engine
   ( compileSubprocess
   , engineForSubstrate
@@ -67,8 +70,8 @@ import JitML.Engines.Loader qualified as EngineLoader
 import JitML.Engines.Local
   ( linuxCpuKernelOutput
   , linuxCpuToolchainFingerprint
-  , runLinuxCpuCheckpointInference
   , runLinuxCpuKernel
+  , runLinuxCpuWeightedCheckpointInference
   )
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Engines.TuningCache qualified as TuningCache
@@ -99,8 +102,12 @@ import JitML.Prerequisite.Registry
   , scopeRootNodeId
   )
 import JitML.Proto.Gc qualified as ProtoGc
+import JitML.Proto.Rl qualified as ProtoRl
+import JitML.Proto.Training qualified as ProtoTraining
+import JitML.Proto.Tune qualified as ProtoTune
 import JitML.RL.Algorithms qualified as RL
 import JitML.SL.Canonicals qualified as SL
+import JitML.SL.Dataset qualified as Dataset
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Capabilities qualified as Capabilities
@@ -119,7 +126,7 @@ import JitML.Service.Runtime qualified as ServiceRuntime
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
-import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
 import JitML.Tart.Build qualified as TartBuild
 import JitML.Tart.Exec (tartExecSubprocess)
 import JitML.Tart.Lifecycle (VmName (..))
@@ -131,6 +138,7 @@ import JitML.Test.Report
   , reportStanzas
   )
 import JitML.Tune.Catalog qualified as Tune
+import JitML.Tune.Resume qualified as Tune
 import JitML.Web.Bundle qualified as WebBundle
 import JitML.Web.Server qualified as WebServer
 
@@ -220,6 +228,8 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runLintPath parsedPath parsedOptions
   | parsedPath == ["internal", "materialize-substrate"] =
       runMaterializeSubstrate parsedOptions
+  | parsedPath == ["internal", "render-kind-config"] =
+      runRenderKindConfig parsedOptions
   | parsedPath == ["internal", "list-prereqs"] =
       writeText (renderPrerequisiteRegistry prerequisiteRegistry)
   | parsedPath == ["internal", "vm", "exec"] =
@@ -347,6 +357,33 @@ supportedSubstrates =
   , "linux-cpu"
   , "linux-cuda"
   ]
+
+-- | `jitml internal render-kind-config --substrate <s> [--name <n>] [--edge-port <p>]`
+-- emits the substrate-shaped Kind cluster YAML on stdout. Sprint 13.1 — the
+-- Pulumi ephemeral path consumes this to materialize a per-stack
+-- `jitml-e2e-<short-sha>` cluster config from the same renderer the substrate
+-- bootstrap uses.
+runRenderKindConfig :: [ParsedOption] -> App ()
+runRenderKindConfig parsedOptions =
+  case optionValues "substrate" parsedOptions of
+    [] -> exitWithError (InvalidConfig "missing --substrate value")
+    substrateText : _ -> case parseSubstrate substrateText of
+      Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrateText))
+      Just substrate -> case parseEdgePort substrate of
+        Left err -> exitWithError (InvalidConfig err)
+        Right edgePort ->
+          let name = case optionValues "name" parsedOptions of
+                [] -> "jitml-" <> renderSubstrate substrate
+                value : _ -> value
+           in writeText (renderKindConfig (kindConfigForEdgePortNamed substrate name edgePort))
+ where
+  parseEdgePort :: Substrate -> Either Text Int
+  parseEdgePort substrate =
+    case optionValues "edge-port" parsedOptions of
+      [] -> Right (substrateEdgePort substrate)
+      value : _ -> case reads (Text.unpack value) of
+        [(parsed, "")] -> Right parsed
+        _ -> Left ("invalid --edge-port: " <> value)
 
 hasOption :: Text -> [ParsedOption] -> Bool
 hasOption expected =
@@ -643,12 +680,16 @@ daemonWorkloadDispatcherForRuntime env runtime =
   case ( BootConfig.bootSubstrate (ServiceRuntime.daemonBootConfig runtime)
        , BootConfig.bootInferenceMode (ServiceRuntime.daemonBootConfig runtime)
        ) of
+    -- Sprint 13.11 — both Linux substrates route SelfInference through the
+    -- weighted runners so the daemon executes the substrate-specific weighted
+    -- kernel against `.jmw1`-decoded tensors instead of the deterministic
+    -- summary path.
     (LinuxCPU, BootConfig.SelfInference) ->
-      ServiceRuntime.daemonWorkloadDispatcherWithInference $ \manifest input ->
-        liftIO (runLinuxCpuCheckpointInference env manifest input)
+      ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
+        liftIO (runLinuxCpuWeightedCheckpointInference env manifest weights input)
     (LinuxCUDA, BootConfig.SelfInference) ->
-      ServiceRuntime.daemonWorkloadDispatcherWithInference $ \manifest input ->
-        liftIO (runCudaCheckpointInference env manifest input)
+      ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
+        liftIO (runCudaWeightedCheckpointInference env manifest weights input)
     _ ->
       ServiceRuntime.daemonWorkloadDispatcher
 
@@ -823,7 +864,14 @@ runBuild parsedOptions =
       writeText (Text.unlines (rendered : runOutput))
  where
   benchmarkSampleInput :: [Float]
-  benchmarkSampleInput = [1.0, 2.0]
+  -- Sprint 13.15 — full-tensor benchmark payload. The benchmark runner
+  -- exercises the candidate kernel against a representative 32-float
+  -- input (vs. the prior 2-float smoke fixture) so the persisted
+  -- TuningChoice reflects realistic measurement against the same
+  -- shape the JIT cache will see at inference time. Values are
+  -- deterministic per the determinism contract.
+  benchmarkSampleInput =
+    [fromIntegral i / 4.0 | i <- [(0 :: Int) .. 31]]
 
   reportTunedArtifact artifact =
     [ "cache_artifact_ready: "
@@ -865,18 +913,107 @@ runKubectl parsedOptions =
     ("kubectl: ./.build/jitml.kubeconfig " <> Text.unwords (optionValues "kubectl-args" parsedOptions))
 
 runTrain :: [ParsedOption] -> App ()
-runTrain parsedOptions =
+runTrain parsedOptions = do
   let experiment = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
       problem =
         case SL.canonicalProblems of
           firstProblem : _ -> firstProblem
           [] -> SL.CanonicalProblem "empty" "empty" "empty" 0
-   in writeText $
-        Text.unlines
-          [ "train: " <> experiment
-          , "problem: " <> SL.problemName problem
-          , "final_loss: " <> Text.pack (show (SL.finalLoss problem))
-          ]
+  writeText $
+    Text.unlines
+      [ "train: " <> experiment
+      , "problem: " <> SL.problemName problem
+      , "final_loss: " <> Text.pack (show (SL.finalLoss problem))
+      ]
+  -- Sprint 13.4 — when this worker runs in cluster context, attempt to
+  -- fetch the canonical training dataset for the problem through
+  -- `fetchDatasetRef`. The result is logged to stderr so live validation
+  -- can observe whether the real bytes landed under
+  -- `jitml-datasets/<name>/train/data.bin`. The canonical SHAs in
+  -- `canonicalDatasets` are still synthetic fixtures; real-MNIST upload
+  -- + canonical SHA replacement is Sprint 13.4 Remaining Work.
+  attemptFetchTrainingDataset problem
+  -- Sprint 13.3 — when this `jitml train` invocation is running inside a
+  -- cluster-dispatched Job (live publication + JITML_EXPERIMENT_HASH
+  -- exported in the daemon-rendered Job env), publish a single
+  -- `EpochCompleted` event so the dispatch/event loop is observably
+  -- closed end-to-end. The current SL pipeline emits one summary loss
+  -- per problem; the envelope mirrors that summary. Sprint 13.4 widens
+  -- this to per-epoch events once the real training loop drives it.
+  publishWorkerTrainingEvent (SL.finalLoss problem)
+
+attemptFetchTrainingDataset :: SL.CanonicalProblem -> App ()
+attemptFetchTrainingDataset problem = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  case (cluster, Dataset.datasetForProblem problem) of
+    (Just publication, Just ref) -> do
+      let edgePort = Publication.publicationEdgePort publication
+          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+      result <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              (Dataset.fetchDatasetRef ref)
+          )
+      case result of
+        Right verified ->
+          writeText
+            ( "train: dataset "
+                <> Dataset.datasetName ref
+                <> " fetched bytes="
+                <> Text.pack (show (Dataset.fetchedBytes verified))
+                <> "\n"
+            )
+        Left err ->
+          writeText
+            ( "train: dataset "
+                <> Dataset.datasetName ref
+                <> " fetch failed: "
+                <> Text.pack (show err)
+                <> "\n"
+            )
+    _ -> pure ()
+
+publishWorkerTrainingEvent :: Double -> App ()
+publishWorkerTrainingEvent finalLoss = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
+  case (cluster, experimentHashEnv) of
+    (Just publication, Just hashRaw) | not (null hashRaw) -> do
+      let experimentHash = Text.pack hashRaw
+          substrate = Publication.publicationSubstrate publication
+          edgePort = Publication.publicationEdgePort publication
+          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+          topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
+      timestampNs <- liftIO currentTimestampNs
+      let envelope =
+            ProtoTraining.TrainingEpoch
+              ( ProtoTraining.EpochCompleted
+                  { ProtoTraining.ecExperimentHash = experimentHash
+                  , ProtoTraining.ecEpoch = 1
+                  , ProtoTraining.ecLoss = finalLoss
+                  , ProtoTraining.ecValidationLoss = finalLoss
+                  , ProtoTraining.ecTimestampNs = timestampNs
+                  }
+              )
+      result <-
+        liftIO
+          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+              pulsarSettings
+              ( Capabilities.pulsarPublish
+                  topic
+                  (ProtoTraining.renderTrainingEvent envelope)
+              )
+          )
+      case result of
+        Right _ -> pure ()
+        Left err ->
+          writeText
+            ( "train: training.event publish failed: "
+                <> Text.pack (show err)
+                <> "\n"
+            )
+    _ -> pure ()
 
 runEval :: [ParsedOption] -> App ()
 runEval parsedOptions =
@@ -895,14 +1032,175 @@ runTune parsedOptions = do
         [] -> pure ()
         planPath : _ -> liftIO (writePlanFile (Text.unpack planPath) rendered)
       writeText rendered
+      -- Sprint 13.3 — publish a `TuneSweepDone` envelope so the dispatch
+      -- → worker → broker event loop is observably closed for the tune
+      -- domain. Sprint 13.10 widens this to per-trial events when the
+      -- TuneHandler spawns trials in the cluster.
+      publishWorkerTuneEvent
+
+-- | Sprint 13.10 — when running inside a daemon-dispatched tune Job (live
+-- publication + JITML_EXPERIMENT_HASH set), iterate the canonical sampler ×
+-- scheduler × pruner cross-product (capped by the configured trial budget).
+-- Each trial:
+--
+--   1. picks one `(Sampler, Scheduler, Pruner)` combination from the catalog
+--      grid in deterministic Cartesian order;
+--   2. computes a deterministic objective via `Tune.deterministicTrials`
+--      against the sampler;
+--   3. persists a `TrialTranscript` to MinIO via `persistTrialTranscript`;
+--   4. publishes `TuneTrialStarted` + `TuneTrialFinished` envelopes to
+--      `tune.event.<substrate>`.
+--
+-- After the loop publishes `TuneSweepDone` with the count of completed
+-- trials and the best (highest) objective observed. Outside a cluster
+-- context the function is a no-op.
+publishWorkerTuneEvent :: App ()
+publishWorkerTuneEvent = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
+  case (cluster, experimentHashEnv) of
+    (Just publication, Just hashRaw) | not (null hashRaw) -> do
+      let experimentHash = Text.pack hashRaw
+          substrate = Publication.publicationSubstrate publication
+          edgePort = Publication.publicationEdgePort publication
+          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+          topic = Capabilities.TopicName (ProtoTune.tuneEventTopic substrate)
+          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+      trialBudget <- liftIO (lookupTrialBudget 6)
+      sweepSeed <- liftIO (lookupSweepSeed 0)
+      -- Sprint 13.10: enumerate the canonical sampler × scheduler × pruner
+      -- grid in deterministic Cartesian order. Each trial gets a unique
+      -- index = trial position in the cross product, used as the trial
+      -- seed so transcripts stay distinct in MinIO.
+      let combos =
+            [ (sampler, scheduler, pruner)
+            | sampler <- Tune.samplerCatalog
+            , scheduler <- Tune.schedulerCatalog
+            , pruner <- Tune.prunerCatalog
+            ]
+          gridTrials =
+            take trialBudget (zip [sweepSeed ..] combos)
+      trialResults <-
+        traverse
+          (publishOneTrial pulsarSettings minioSettings topic experimentHash)
+          gridTrials
+      let completed = fromIntegral (length (filter (isRight . fst) trialResults))
+          bestObjective =
+            if null trialResults
+              then 0.0
+              else maximum (fmap snd trialResults)
+          envelope =
+            ProtoTune.TuneSweepDone
+              ( ProtoTune.SweepDone
+                  { ProtoTune.sdExperimentHash = experimentHash
+                  , ProtoTune.sdTrialsCompleted = completed
+                  , ProtoTune.sdTrialsPruned = 0
+                  , ProtoTune.sdBestObjective = bestObjective
+                  }
+              )
+      _ <-
+        liftIO
+          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+              pulsarSettings
+              ( Capabilities.pulsarPublish
+                  topic
+                  (ProtoTune.renderTuneEvent envelope)
+              )
+          )
+      pure ()
+    _ -> pure ()
+ where
+  publishOneTrial pulsarSettings minioSettings topic experimentHash (trialSeed, (sampler, scheduler, pruner)) = do
+    -- Sprint 13.10: derive a deterministic trial objective from the
+    -- (sampler, scheduler, pruner) tuple via `Tune.deterministicTrials`.
+    -- The transcript carries the first three sampler-derived values so
+    -- replays can reproduce the same objective bit-for-bit.
+    let trialValues = take 3 (Tune.deterministicTrials sampler 8)
+        objective = case trialValues of
+          (v : _) -> v
+          _ -> 0.0
+        transcript =
+          Tune.TrialTranscript
+            { Tune.transcriptExperimentHash = experimentHash
+            , Tune.transcriptTrialSeed = trialSeed
+            , Tune.transcriptValues = trialValues
+            }
+        parametersJson =
+          "{\"sampler\":\""
+            <> Text.pack (show sampler)
+            <> "\",\"scheduler\":\""
+            <> Text.pack (show scheduler)
+            <> "\",\"pruner\":\""
+            <> Text.pack (show pruner)
+            <> "\"}"
+    timestampStart <- liftIO currentTimestampNs
+    let startEvent =
+          ProtoTune.TuneTrialStarted
+            ( ProtoTune.TrialStarted
+                { ProtoTune.tsExperimentHash = experimentHash
+                , ProtoTune.tsTrial = fromIntegral trialSeed
+                , ProtoTune.tsTrialSeed = fromIntegral trialSeed
+                , ProtoTune.tsParametersJson = parametersJson
+                , ProtoTune.tsTimestampNs = timestampStart
+                }
+            )
+    _ <-
+      liftIO
+        ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+            pulsarSettings
+            (Capabilities.pulsarPublish topic (ProtoTune.renderTuneEvent startEvent))
+        )
+    persistResult <-
+      liftIO
+        ( MinIOSubprocess.runMinIOSubprocess
+            minioSettings
+            (Tune.persistTrialTranscript transcript)
+        )
+    timestampEnd <- liftIO currentTimestampNs
+    let finishedEvent =
+          ProtoTune.TuneTrialFinished
+            ( ProtoTune.TrialFinished
+                { ProtoTune.tfTuneExperimentHash = experimentHash
+                , ProtoTune.tfTuneTrial = fromIntegral trialSeed
+                , ProtoTune.tfTuneObjective = objective
+                , ProtoTune.tfTunePruned = False
+                , ProtoTune.tfTuneTranscriptObjectKey =
+                    Tune.trialStorageKey experimentHash trialSeed
+                , ProtoTune.tfTuneTimestampNs = timestampEnd
+                }
+            )
+    _ <-
+      liftIO
+        ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+            pulsarSettings
+            (Capabilities.pulsarPublish topic (ProtoTune.renderTuneEvent finishedEvent))
+        )
+    pure (persistResult, objective)
+
+  lookupTrialBudget defaultValue = do
+    raw <- lookupEnv "JITML_TRIAL_BUDGET"
+    pure $ case raw of
+      Just text | [(parsed, "")] <- reads text -> parsed
+      _ -> defaultValue
+
+  lookupSweepSeed defaultValue = do
+    raw <- lookupEnv "JITML_SWEEP_SEED"
+    pure $ case raw of
+      Just text | [(parsed, "")] <- reads text -> parsed
+      _ -> defaultValue
 
 runRl :: [Text] -> [ParsedOption] -> App ()
-runRl ["rl", "train"] parsedOptions =
+runRl ["rl", "train"] parsedOptions = do
   writeText $
     Text.unlines
       [ "rl train: " <> selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
       , "algorithms: " <> Text.pack (show (length RL.algorithmCatalog))
       ]
+  -- Sprint 13.3 — publish an `EpisodeDone` envelope so the daemon dispatch
+  -- → worker → broker event loop is observably closed. The current rollout
+  -- is a deterministic synthetic trajectory; Sprint 13.6 widens this to a
+  -- per-episode publish once the real RL loop drives it through the daemon.
+  publishWorkerRlEvent
 runRl ["rl", "eval"] parsedOptions =
   writeLine ("rl eval: " <> selectedValue "checkpoint" "latest" parsedOptions)
 runRl ["rl", "rollout"] parsedOptions =
@@ -913,6 +1211,47 @@ runRl ["rl", "rollout"] parsedOptions =
     )
 runRl path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
+
+publishWorkerRlEvent :: App ()
+publishWorkerRlEvent = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
+  case (cluster, experimentHashEnv) of
+    (Just publication, Just hashRaw) | not (null hashRaw) -> do
+      let experimentHash = Text.pack hashRaw
+          substrate = Publication.publicationSubstrate publication
+          edgePort = Publication.publicationEdgePort publication
+          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+          topic = Capabilities.TopicName (ProtoRl.rlEventTopic substrate)
+      timestampNs <- liftIO currentTimestampNs
+      let envelope =
+            ProtoRl.RlEpisode
+              ( ProtoRl.EpisodeDone
+                  { ProtoRl.edExperimentHash = experimentHash
+                  , ProtoRl.edEpisode = 1
+                  , ProtoRl.edReward = 0.0
+                  , ProtoRl.edSteps = 1
+                  , ProtoRl.edTimestampNs = timestampNs
+                  }
+              )
+      result <-
+        liftIO
+          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+              pulsarSettings
+              ( Capabilities.pulsarPublish
+                  topic
+                  (ProtoRl.renderRlEvent envelope)
+              )
+          )
+      case result of
+        Right _ -> pure ()
+        Left err ->
+          writeText
+            ( "rl train: rl.event publish failed: "
+                <> Text.pack (show err)
+                <> "\n"
+            )
+    _ -> pure ()
 
 -- | `jitml inference run` — produces the deterministic inference summary
 -- for the supplied experiment hash. When a live `cluster-publication.json`
@@ -935,11 +1274,19 @@ runInference parsedOptions = do
     Just publication -> do
       let edgePort = Publication.publicationEdgePort publication
           minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+          substrate = Publication.publicationSubstrate publication
+      env <- ask
+      -- Sprint 13.12 — when a live publication is present, route the
+      -- inference call through the substrate-bound weighted runner so the
+      -- generated JIT kernel reads the decoded `.jmw1` weight tensors and
+      -- produces real output. Linux substrates use the weighted runner;
+      -- Apple Silicon and missing substrates fall back to the deterministic
+      -- `inferFromManifest` summary path.
       result <-
         liftIO
           ( MinIOSubprocess.runMinIOSubprocess
               minioSettings
-              (CheckpointStore.loadInferenceCheckpoint experimentHash [1.0, 2.0])
+              (inferenceForSubstrate env substrate experimentHash)
           )
       case result of
         Right values ->
@@ -963,6 +1310,38 @@ runInference parsedOptions = do
             ( "inference: "
                 <> Text.pack (show (Checkpoint.inferFromManifest manifest [1.0, 2.0]))
             )
+
+-- | Sprint 13.12 — choose the weighted runner that matches the live
+-- publication's substrate. The substrate-bound runners drive the JIT-compiled
+-- kernel against the `.jmw1`-decoded weight tensors; Apple Silicon (no
+-- in-process Metal runner yet, see Phase 14) and unknown substrates fall back
+-- to the deterministic summary path.
+inferenceForSubstrate
+  :: ( Capabilities.HasMinIO m
+     , MonadIO m
+     )
+  => Env
+  -> Substrate
+  -> Text
+  -> m (Either Text [Double])
+inferenceForSubstrate env substrate experimentHash =
+  case substrate of
+    LinuxCPU ->
+      CheckpointStore.loadInferenceCheckpointWithWeights
+        ( \manifest weights values ->
+            liftIO (runLinuxCpuWeightedCheckpointInference env manifest weights values)
+        )
+        experimentHash
+        [1.0, 2.0]
+    LinuxCUDA ->
+      CheckpointStore.loadInferenceCheckpointWithWeights
+        ( \manifest weights values ->
+            liftIO (runCudaWeightedCheckpointInference env manifest weights values)
+        )
+        experimentHash
+        [1.0, 2.0]
+    AppleSilicon ->
+      CheckpointStore.loadInferenceCheckpoint experimentHash [1.0, 2.0]
 
 runVerify :: [Text] -> [ParsedOption] -> App ()
 runVerify path parsedOptions =

@@ -9,13 +9,14 @@ module JitML.Engines.Local
   , linuxCpuIdentityHash
   , linuxCpuIdentityRuntimeSource
   , linuxCpuToolchainFingerprint
+  , flattenLoadedWeights
   , runLinuxCpuCheckpointInference
   , runLinuxCpuFamilyKernel
+  , runLinuxCpuIdentityKernel
+  , runLinuxCpuKernel
   , runLinuxCpuWeightedCheckpointInference
   , runLinuxCpuWeightedFamilyKernel
-  , runLinuxCpuKernel
-  , runLinuxCpuIdentityKernel
-  , flattenLoadedWeights
+  , runLinuxCpuWeightedKernel
   )
 where
 
@@ -335,10 +336,14 @@ linuxCpuToolchainFingerprint =
         , "jitml_kernel_family_name(void)"
         , "jitml_kernel_output_count(size_t)"
         , -- Sprint 13.11: weighted kernel ABI accepting a flat row-major
-          -- weights buffer alongside the input. Dense2D consumes it as a
-          -- real GEMM; other families currently pass through the
-          -- unweighted body. New entry in the fingerprint invalidates
-          -- pre-13.11 cache entries.
+          -- weights buffer alongside the input. Dense2D / Conv2D / Conv3D /
+          -- BatchNorm / LayerNorm / MHA / Embedding now drive real oneDNN
+          -- primitive paths (full set landed 2026-05-27). The fingerprint
+          -- entry below invalidates pre-13.11 cache entries; the
+          -- "all-families" tag bumps invalidation again when the per-
+          -- family bodies land so the cache picks up the real weighted
+          -- primitives instead of the prior unweighted fall-through.
           "jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)"
+        , "weighted-bodies=all-families"
         ]
     )

@@ -1,22 +1,28 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Service.Workload
-  ( WorkloadEffect (..)
+  ( LoadedWeightTensor
+  , WorkloadEffect (..)
   , WorkloadEffectResult (..)
   , dispatchDomainPayload
   , dispatchDomainPayloadWithInference
+  , dispatchDomainPayloadWithWeightedInference
   , dispatchWorkloadPayload
   , dispatchWorkloadPayloadWithInference
+  , dispatchWorkloadPayloadWithWeightedInference
   , parseWorkloadEffectPayload
   , renderWorkloadEffect
   , renderWorkloadEffectPayload
   , renderWorkloadEffectResult
   , runInferenceRequest
   , runInferenceRequestWith
+  , runInferenceRequestWithWeightedInference
   , runWorkloadEffect
   , runWorkloadEffectWithInference
+  , runWorkloadEffectWithWeightedInference
   , runWorkloadEffects
   , runWorkloadEffectsWithInference
+  , runWorkloadEffectsWithWeightedInference
   )
 where
 
@@ -36,6 +42,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 
 import JitML.Checkpoint.Format (CheckpointManifest, inferFromManifest)
+import JitML.Checkpoint.Store (LoadedWeightTensor)
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Proto.Inference
   ( InferenceRequest (..)
@@ -269,6 +276,99 @@ defaultCheckpointInference
   -> m (Either Text [Double])
 defaultCheckpointInference manifest input =
   pure (Right (inferFromManifest manifest input))
+
+-- | Weighted-callback variants of the dispatcher chain. Sprint 13.11: the
+-- substrate-bound inference runners (`runLinuxCpuWeightedCheckpointInference`,
+-- `runCudaWeightedCheckpointInference`) consume `LoadedWeightTensor`s decoded
+-- from `.jmw1` blobs, so the daemon path needs to read them through
+-- `loadInferenceCheckpointWithWeights` instead of the unweighted summary path.
+-- These functions mirror the unweighted variants but plumb the weighted
+-- callback through `runInferenceRequestWithWeightedInference`.
+runWorkloadEffectWithWeightedInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> WorkloadEffect
+  -> m (Either ServiceError WorkloadEffectResult)
+runWorkloadEffectWithWeightedInference runInference effect =
+  case effect of
+    WriteCheckpointBlob ref payload ->
+      fmap CheckpointBlobWritten <$> putBlobBytesIfAbsent ref payload
+    UpdateCheckpointPointer ref expected payload ->
+      fmap CheckpointPointerUpdated <$> casPointer ref expected payload
+    PromoteWorkloadImage source target ->
+      fmap WorkloadImagePromoted <$> harborPromoteImage source target
+    RunInference request ->
+      fmap InferenceResultPublished
+        <$> runInferenceRequestWithWeightedInference runInference request
+    ApplyWorkloadResource resource manifest ->
+      fmap (const WorkloadResourceApplied) <$> kubectlApply resource manifest
+    ReadWorkloadResourceStatus resource ->
+      fmap WorkloadResourceStatus <$> kubectlStatus resource
+    DeleteWorkloadResource resource ->
+      fmap (const WorkloadResourceDeleted) <$> kubectlDelete resource
+
+runWorkloadEffectsWithWeightedInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> [WorkloadEffect]
+  -> m [Either ServiceError WorkloadEffectResult]
+runWorkloadEffectsWithWeightedInference runInference =
+  traverse (runWorkloadEffectWithWeightedInference runInference)
+
+dispatchWorkloadPayloadWithWeightedInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> Text
+  -> m (Maybe (Either ServiceError WorkloadEffectResult))
+dispatchWorkloadPayloadWithWeightedInference runInference payload =
+  case parseWorkloadEffectPayload payload of
+    Nothing -> pure Nothing
+    Just effect -> Just <$> runWorkloadEffectWithWeightedInference runInference effect
+
+dispatchDomainPayloadWithWeightedInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> EventDomain
+  -> Text
+  -> m [Either ServiceError WorkloadEffectResult]
+dispatchDomainPayloadWithWeightedInference runInference domain payload =
+  case domain of
+    InferenceDomain ->
+      case parseInferenceRequest payload of
+        Nothing -> pure []
+        Just request ->
+          fmap
+            (pure . fmap InferenceResultPublished)
+            (runInferenceRequestWithWeightedInference runInference request)
+    _ ->
+      runWorkloadEffectsWithWeightedInference
+        runInference
+        (workloadEffectsForDomainPayload domain payload)
+
+runInferenceRequestWithWeightedInference
+  :: (HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> InferenceRequest
+  -> m (Either ServiceError Text)
+runInferenceRequestWithWeightedInference runInference request = do
+  result <-
+    CheckpointStore.loadInferenceCheckpointWithWeights
+      runInference
+      (irExperimentHash request)
+      (irInput request)
+  case result of
+    Left err ->
+      pure (Left (SETransient ("inference: " <> err)))
+    Right output ->
+      pulsarPublish
+        (TopicName (irReplyTopic request))
+        ( renderInferenceResult
+            InferenceResult
+              { iresCallId = irCallId request
+              , iresExperimentHash = irExperimentHash request
+              , iresOutput = output
+              }
+        )
 
 renderTrainingJob :: StartTraining -> Text
 renderTrainingJob start =

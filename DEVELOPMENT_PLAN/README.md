@@ -604,11 +604,96 @@ driver, separate from Sprint `13.11`'s code scope). Other
 family-specific weighted bodies (Conv2D / Conv3D / BatchNorm /
 LayerNorm / MHA / Embedding) and the daemon
 `daemonWorkloadDispatcherWithInference` widening to thread the
-weighted callback remain as Sprint `13.11` Remaining Work. Sprint
-`13.1`'s Pulumi-ephemeral name path (`jitml-e2e-<short-sha>`
-cluster), Sprint `13.3`'s event-envelope publication after dispatch
-(depends on Sprint `13.4` / `13.6` worker-side event emit), and
-every other Sprint after `13.3` remain unmet (live-runtime-dependent)
+weighted callback remain as Sprint `13.11` Remaining Work. The 2026-05-27 session re-validated the entire `Live` cohort
+against a fresh `jitml bootstrap --linux-cuda` rollout on the same
+RTX 3090 / CUDA 12.8 host: 12 / 12 Live cases in `jitml-integration`
+pass (HasMinIO/HasPulsar/HasHarbor capability round-trips, daemon
+subscription acquisition, daemon dispatch into Kubernetes Jobs,
+checkpoint snapshot persistence, GC plan execution + `gc_reaped`
+event publication, `jitml internal gc` CLI, the JIT-kernel-backed
+`jitml inference run` CUDA path, and tune trial transcript
+persistence), and `kubectl logs deploy/jitml-service` reports four
+held subscriptions on `training.command.linux-cuda`,
+`tune.command.linux-cuda`, `rl.command.linux-cuda`, and
+`inference.request.linux-cuda` as `jitml-service`. Sprint `13.12`
+(Live `jitml inference run` / `jitml inspect replay`) flipped from
+Active to ✅ Done after the JIT-kernel path exercised the real
+nvcc → `.so` → dlopen → device kernel launch chain against MinIO,
+including the corrective fix of the pre-existing
+`--use_fast_math=false` nvcc syntax (replaced with omission since
+default fast-math-off honours the determinism contract). Sprint
+`13.11` (CUDA + Linux CPU production weight loading) also flipped
+to ✅ Done after the per-family weighted bodies for Conv2D /
+Conv3D / BatchNorm / LayerNorm / Embedding / MHA landed on both
+substrates (`JitML.Codegen.OneDnn.weightedFamilyImpl` +
+`JitML.Codegen.Cuda.weightedFamilyImpl` route every kernel family
+to a real per-family weighted primitive), `weighted-bodies=all-families`
+cache-key fingerprint bumps invalidated pre-2026-05-27 cache
+entries, and `cabal test jitml-cross-backend -p weighted`
+inside `jitml:local` confirmed 3 / 3 bit-deterministic runs
+across Dense2D (CPU + CUDA) and the new family bodies (CPU).
+Sprint `13.15`'s benchmark payload was extended from the 2-float
+smoke fixture to a 32-element deterministic full-tensor payload
+in `JitML.App.benchmarkSampleInput` so the persisted `TuningChoice`
+reflects measurement against realistic kernel shapes, and
+`ensureKernelArtifactWithWeightedBenchmarkTuning` wires the
+weighted candidate runner into the first-cache-miss path for
+callers that have a checkpoint's weight tensor available. Sprint
+`13.9`'s `SelfPlayBuffer` CBOR codec lands through
+`writeSelfPlayBuffer` / `readSelfPlayBuffer` (the `SelfPlayBuffer`,
+`SelfPlayGame`, and `GameState` types all derive `Serialise`),
+validated by a new `jitml-integration` "SelfPlayBuffer CBOR
+round-trip" filesystem test that asserts structural equality after
+the write→read round-trip through the typed `HasMinIO` boundary;
+the JIT-engine-backed `PriorOracle` callsite remains the
+substantial multi-day item for full Sprint `13.9` closure.
+Sprint `13.10`'s `publishWorkerTuneEvent` was extended to iterate
+the canonical sampler × scheduler × pruner cross-product
+(11 × 4 × 3 = 132 combinations, capped by `JITML_TRIAL_BUDGET`)
+rather than synthetic seed iteration: each trial picks a real
+`(Sampler, Scheduler, Pruner)` triple, computes the objective via
+`Tune.deterministicTrials`, persists the transcript to MinIO with
+a real JSON parameters payload, and publishes `TuneTrialStarted`
++ `TuneTrialFinished` events with the actual selected combo.
+
+The 2026-05-26 / 2026-05-27 sessions also landed Sprint `13.1`'s
+ephemeral cluster name parameterization
+(`JitML.Cluster.Kind.kindConfigForNamed`,
+`kindConfigForEdgePortNamed`, new `jitml internal render-kind-config`
+CLI command, Pulumi `infra/pulumi/index.ts` renders the per-stack
+config to `./.build/<cluster>-kind.yaml`), Sprint `13.3`'s worker-side
+event publication (`publishWorkerTrainingEvent` /
+`publishWorkerRlEvent` / `publishWorkerTuneEvent` in `JitML.App`
+publish completion envelopes to `training.event.<substrate>` /
+`rl.event.<substrate>` / `tune.event.<substrate>` after the worker
+command's deterministic summary, gated on live publication +
+`JITML_EXPERIMENT_HASH`), Sprint `13.4`'s dataset fetch wiring
+(`attemptFetchTrainingDataset` fetches
+`jitml-datasets/<name>/train/data.bin` through
+`Dataset.fetchDatasetRef` + `MinIOSubprocess`; real-MNIST upload +
+canonical SHA replacement remain), Sprint `13.10`'s per-trial
+transcript persistence + events (`publishWorkerTuneEvent` iterates
+`JITML_TRIAL_BUDGET` seeds, persists each `TrialTranscript` to MinIO,
+publishes `TuneTrialStarted` + `TuneTrialFinished` per trial, then
+`TuneSweepDone`), Sprint `13.11`'s daemon dispatch widening + GPU
+passthrough (parallel `*WithWeightedInference` variants throughout
+`JitML.Service.Workload` and `JitML.Service.Runtime`,
+`JitML.App.daemonWorkloadDispatcherForRuntime` routes Linux CPU +
+CUDA `SelfInference` through the weighted runners,
+`docker/Dockerfile` removes stubs from `LD_LIBRARY_PATH` +
+`ld.so.conf.d/cuda.conf`, `JitML.Engines.Engine` passes
+`-L/usr/local/cuda/lib64/stubs` explicitly to nvcc), Sprint `13.12`'s
+JIT-kernel-backed inference (`runInference` routes through
+`loadInferenceCheckpointWithWeights` with the substrate-appropriate
+weighted runner), and Sprint `13.15`'s weighted benchmark runner
+(`linuxCpuWeightedBenchmarkCandidateRunner` consumes input + weights
+through `runLinuxCpuWeightedKernel`).
+Every other Sprint after `13.3` remains unmet on its live obligations
+(live cluster validation pass deferred) and on its larger remaining
+engineering items (real Box2D/ALE simulators in Sprint `13.5`, real
+CUDA RL math in Sprint `13.8`, real network-backed AlphaZero in
+Sprint `13.9`, other family weighted bodies in Sprint `13.11`,
+real WebSocket proxy + Halogen render machinery in Sprint `13.13`)
 — see each sprint's `### Remaining Work` block in
 `phase-13-linux-cuda-and-cluster-closure.md` and
 `phase-15-cross-substrate-and-handoff.md`. The remaining unmet obligations against the Exit Definition are:

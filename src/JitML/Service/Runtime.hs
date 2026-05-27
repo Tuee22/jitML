@@ -13,6 +13,7 @@ module JitML.Service.Runtime
   , daemonTensorBoardDispatcher
   , daemonWorkloadDispatcher
   , daemonWorkloadDispatcherWithInference
+  , daemonWorkloadDispatcherWithWeightedInference
   , daemonHttpRoutes
   , daemonRuntimeForBootConfig
   , defaultDaemonRuntime
@@ -544,6 +545,32 @@ daemonWorkloadDispatcherWithInference runInference domain _eventId payload = do
       pure (workloadEffectToUnit (Just result))
     Nothing ->
       workloadEffectsToUnit <$> Workload.dispatchDomainPayloadWithInference runInference domain payload
+
+-- | Sprint 13.11 — daemon dispatch variant that threads the weighted inference
+-- callback (`CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> ...`)
+-- so the substrate-bound runners can consume real `.jmw1`-decoded weight
+-- tensors instead of the deterministic `inferFromManifest` summary. Used by
+-- `daemonWorkloadDispatcherForRuntime` whenever the loaded `BootConfig`
+-- requests `SelfInference` on `LinuxCPU` or `LinuxCUDA`.
+daemonWorkloadDispatcherWithWeightedInference
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => ( CheckpointManifest
+       -> [Workload.LoadedWeightTensor]
+       -> [Double]
+       -> m (Either Text [Double])
+     )
+  -> EventDomain
+  -> EventId
+  -> Text
+  -> m (Either ServiceError ())
+daemonWorkloadDispatcherWithWeightedInference runInference domain _eventId payload = do
+  effectResult <- Workload.dispatchWorkloadPayloadWithWeightedInference runInference payload
+  case effectResult of
+    Just result ->
+      pure (workloadEffectToUnit (Just result))
+    Nothing ->
+      workloadEffectsToUnit
+        <$> Workload.dispatchDomainPayloadWithWeightedInference runInference domain payload
 
 workloadEffectToUnit
   :: Maybe (Either ServiceError Workload.WorkloadEffectResult)

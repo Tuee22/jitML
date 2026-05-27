@@ -1308,6 +1308,29 @@ Examples:
       Materialize Linux CPU substrate files.
 ```
 
+### `jitml internal render-kind-config`
+
+```text
+jitml internal render-kind-config
+
+Render a Kind cluster YAML.
+
+Renders the Kind cluster config for the given substrate and optional name/edge-port override; stdout is the YAML the Pulumi orchestrator pipes into kind create.
+
+Usage:
+  jitml internal render-kind-config [--substrate <substrate>] [--name <name>] [--edge-port <port>]
+
+Options:
+  --substrate <substrate>  Substrate to render.
+  --name <name>            Cluster name override (Pulumi ephemeral path).
+  --edge-port <port>       Edge port override (defaults per substrate).
+
+
+Examples:
+  jitml internal render-kind-config --substrate linux-cuda --name jitml-e2e-abc123
+      Render a CUDA-shaped Kind config with the ephemeral cluster name.
+```
+
 ### `jitml internal list-prereqs`
 
 ```text

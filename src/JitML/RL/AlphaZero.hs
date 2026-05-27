@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.RL.AlphaZero
@@ -41,19 +44,22 @@ module JitML.RL.AlphaZero
   )
 where
 
+import Codec.Serialise (Serialise)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
 import Data.Text (Text)
 import Data.Text qualified as Text
+import GHC.Generics (Generic)
 
 data GameState = GameState
   { gameName :: Text
   , gameMoves :: [Int]
   , gameCurrentPlayer :: Int
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
 
 data MctsState = MctsState
   { mctsVisitCount :: Int
