@@ -9,8 +9,10 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (eitherDecode)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as AesonKeyMap
+import Data.Function ((&))
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding.Error qualified as Text.Encoding.Error
 import Data.Text.IO qualified as Text.IO
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import System.Exit (ExitCode (..))
@@ -75,7 +77,7 @@ import JitML.Service.Capabilities
   )
 import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.ConfigMap qualified as ServiceConfigMap
-import JitML.Service.Consumer (EventDomain (..), eventIdFromPayload)
+import JitML.Service.Consumer (EventDomain (..), EventId (..), eventIdFromPayload)
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
 import JitML.Service.HarborSubprocess qualified as HarborSubprocess
 import JitML.Service.KubectlSubprocess (KubectlSettings (..), defaultKubectlSettings)
@@ -1867,6 +1869,93 @@ main =
               -- Best-effort cleanup so a re-run doesn't pile up Jobs.
               _ <- deleteJob expectedJobName
               pure ()
+          , testCase
+              "live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 13.3 dedup)"
+              $ do
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    pulsarSettings =
+                      PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+                    substrate = Publication.publicationSubstrate publication
+                    topic =
+                      TopicName
+                        ( "persistent://public/default/training.command."
+                            <> substrateUrlSegment substrate
+                        )
+                uniqueSuffix <- pickRandomSuffix
+                let experimentHash =
+                      Text.take 16 ("dedup" <> uniqueSuffix <> "abcdef0123456789")
+                    payload =
+                      Text.unlines
+                        [ "kind: StartTraining"
+                        , "experiment-hash: " <> experimentHash
+                        , "dhall-object-key: experiments/mnist.dhall"
+                        , "substrate: " <> substrateUrlSegment substrate
+                        , "seed: 42"
+                        , "epochs: 1"
+                        , "batch-size: 32"
+                        ]
+                    expectedJobName = "jitml-train-" <> experimentHash
+                    eventId =
+                      eventIdFromPayload (Text.Encoding.encodeUtf8 payload)
+                -- Snapshot the daemon log offset before publish so the
+                -- post-publish tail only sees lines from this test's run.
+                logStartBytes <- daemonLogByteSize
+                -- Publish the identical StartTraining payload twice. The
+                -- payload is byte-equal, so SHA256(payload) matches and
+                -- the daemon's HandlerRouter (per-domain DedupCache) must
+                -- skip dispatch on the second consume.
+                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
+                  first <- pulsarPublish topic payload
+                  liftIO $ case first of
+                    Right _ -> pure ()
+                    Left err ->
+                      assertFailure
+                        ("first dedup publish failed live: " <> show err)
+                  second <- pulsarPublish topic payload
+                  liftIO $ case second of
+                    Right _ -> pure ()
+                    Left err ->
+                      assertFailure
+                        ("second dedup publish failed live: " <> show err)
+                -- The daemon consumes the first envelope (dispatches the
+                -- Kubernetes Job, acks) and consumes the second envelope
+                -- (dedup-skips, acks). Wait briefly for the Job to appear
+                -- as evidence the first consume reached the dispatcher.
+                jobAppeared <- waitForJob expectedJobName 30
+                assertBool
+                  ( "expected Job "
+                      <> Text.unpack expectedJobName
+                      <> " to be applied by the daemon's first consume"
+                  )
+                  jobAppeared
+                -- Drain a window of fresh daemon log lines (since the
+                -- snapshot above) and assert at least one "deduplicated
+                -- training <event-id>" line is present matching the
+                -- payload's eventId.
+                let waitForDedup :: Int -> IO Bool
+                    waitForDedup remaining = do
+                      tail' <- daemonLogTailSinceBytes logStartBytes
+                      let needle =
+                            "deduplicated training "
+                              <> unEventId eventId
+                      if needle `Text.isInfixOf` tail'
+                        then pure True
+                        else
+                          if remaining <= 0
+                            then pure False
+                            else do
+                              Control.Concurrent.threadDelay 1_000_000
+                              waitForDedup (remaining - 1)
+                dedupObserved <- waitForDedup 30
+                assertBool
+                  ( "expected daemon log to contain `deduplicated training "
+                      <> Text.unpack (unEventId eventId)
+                      <> "` line within 30s of the duplicate publish"
+                  )
+                  dedupObserved
+                _ <- deleteJob expectedJobName
+                pure ()
           , testCase "live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
@@ -2419,6 +2508,91 @@ main =
                       . Tune.trialStorageKey experimentHash
                   )
                   seeds
+          , testCase
+              "live daemon TuneHandler dispatches StartSweep into a Kubernetes Job (Sprint 13.10 daemon)"
+              $ do
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+                    substrate = Publication.publicationSubstrate publication
+                    topic =
+                      TopicName
+                        ( "persistent://public/default/tune.command."
+                            <> substrateUrlSegment substrate
+                        )
+                uniqueSuffix <- pickRandomSuffix
+                let experimentHash =
+                      Text.take 16 ("tune" <> uniqueSuffix <> "abcdef0123456789")
+                    payload =
+                      Text.unlines
+                        [ "kind: StartSweep"
+                        , "experiment-hash: " <> experimentHash
+                        , "dhall-object-key: experiments/mnist-tune.dhall"
+                        , "substrate: " <> substrateUrlSegment substrate
+                        , "sweep-seed: 17"
+                        , "trial-budget: 4"
+                        , "budget-per-trial: 100"
+                        , "sampler: TPE"
+                        , "scheduler: ASHA"
+                        , "pruner: MedianPruner"
+                        ]
+                    expectedJobName = "jitml-tune-" <> experimentHash
+                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
+                  publishResult <- pulsarPublish topic payload
+                  liftIO $ case publishResult of
+                    Right _ -> pure ()
+                    Left err ->
+                      assertFailure
+                        ("pulsarPublish StartSweep failed live: " <> show err)
+                jobAppeared <- waitForJob expectedJobName 30
+                assertBool
+                  ( "expected Job "
+                      <> Text.unpack expectedJobName
+                      <> " to be applied by the daemon's TuneHandler"
+                  )
+                  jobAppeared
+                _ <- deleteJob expectedJobName
+                pure ()
+          , testCase
+              "live SelfPlayBuffer MinIO round-trip via writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9)"
+              $ do
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    settings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+                uniqueSuffix <- pickRandomSuffix
+                let experimentHash = "live-selfplay-" <> uniqueSuffix
+                    -- Use a tiny self-play config so the buffer write
+                    -- finishes in milliseconds on the live cluster.
+                    config =
+                      SelfPlay.defaultSelfPlayConfig
+                        { SelfPlay.selfPlayGamesPerGeneration = 2
+                        , SelfPlay.selfPlaySimulationsPerMove = 4
+                        , SelfPlay.selfPlayMaxPlies = 6
+                        , SelfPlay.selfPlaySeed = 17
+                        , SelfPlay.selfPlayActionSpace = 7
+                        }
+                    buffer = SelfPlay.runSelfPlay config
+                    contentHash = SelfPlay.bufferTranscriptHash buffer
+                MinIOSubprocess.runMinIOSubprocess settings $ do
+                  writeResult <- SelfPlay.writeSelfPlayBuffer experimentHash buffer
+                  liftIO $ case writeResult of
+                    Right _ -> pure ()
+                    Left err ->
+                      assertFailure
+                        ("writeSelfPlayBuffer failed live: " <> show err)
+                  readResult <- SelfPlay.readSelfPlayBuffer experimentHash contentHash
+                  liftIO $ case readResult of
+                    Right roundTripped -> roundTripped @?= buffer
+                    Left err ->
+                      assertFailure
+                        ("readSelfPlayBuffer failed live: " <> Text.unpack err)
+                  _ <-
+                    deleteObject
+                      ( ObjectRef
+                          (BucketName "jitml-checkpoints")
+                          (ObjectKey ("jitml-checkpoints/" <> experimentHash <> "/selfplay/" <> contentHash <> ".cbor"))
+                      )
+                  pure ()
           ]
       ]
 
@@ -2484,6 +2658,41 @@ kubectlJobExists jobName = do
           ]
   (exitCode, stdoutText, _stderrText) <- runStreaming defaultSubprocessEnv command
   pure (exitCode == ExitSuccess && not (Text.null (Text.strip stdoutText)))
+
+-- | Current `kubectl logs deploy/jitml-service` byte length. The Sprint
+-- 13.3 dedup live test snapshots this before publishing the duplicate
+-- StartTraining envelopes so the post-publish tail only sees lines
+-- emitted during this test.
+daemonLogByteSize :: IO Int
+daemonLogByteSize = do
+  (_, stdoutText, _) <- daemonLogStream Nothing
+  pure (Text.Encoding.encodeUtf8 stdoutText & Data.ByteString.length)
+
+-- | Drain `kubectl logs deploy/jitml-service` and return the tail of
+-- the log that was emitted after `startBytes`. The daemon writes one
+-- `service: <outcome>` line per consumed envelope (Sprint 13.3 dedup
+-- assertion observes the `deduplicated training <event-id>` line).
+daemonLogTailSinceBytes :: Int -> IO Text
+daemonLogTailSinceBytes startBytes = do
+  (_, stdoutText, _) <- daemonLogStream Nothing
+  let asBytes = Text.Encoding.encodeUtf8 stdoutText
+      tailBytes = Data.ByteString.drop startBytes asBytes
+  pure (Text.Encoding.decodeUtf8With Text.Encoding.Error.lenientDecode tailBytes)
+
+daemonLogStream :: Maybe Text -> IO (ExitCode, Text, Text)
+daemonLogStream sinceArg = do
+  let baseArgs =
+        [ "--kubeconfig"
+        , "./.build/jitml.kubeconfig"
+        , "logs"
+        , "deploy/jitml-service"
+        , "-n"
+        , "platform"
+        , "--tail=-1"
+        ]
+      args = baseArgs <> maybe [] (\s -> ["--since=" <> s]) sinceArg
+      command = subprocess "kubectl" args
+  runStreaming defaultSubprocessEnv command
 
 deleteJob :: Text -> IO ExitCode
 deleteJob jobName = do

@@ -225,9 +225,6 @@ runSearchWithTableAndPrior oracle config seed moves table =
               table' = transpositionInsert key result table
            in (result, table')
 
-simulate :: MctsConfig -> Int -> MctsNode -> MctsNode
-simulate = simulateWithPrior defaultPriorOracle
-
 -- | Sprint 13.9 — backup uses the supplied oracle's value for the chosen
 -- action. The deterministic stub feeds the same `priorFor`-derived value
 -- the original `simulate` used; a real network call replaces this with the

@@ -2,8 +2,10 @@
 
 module JitML.Service.Http
   ( HttpRoute (..)
+  , WebSocketRoute (..)
   , serveHttpRoutes
   , serveHttpRoutesOnce
+  , serveHttpRoutesWithWebSockets
   , withHttpRoutesOnce
   )
 where
@@ -11,6 +13,7 @@ where
 import Control.Concurrent (forkFinally)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (bracket)
+import Control.Exception qualified
 import Control.Monad (forever, void)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Char8 qualified as Char8
@@ -43,6 +46,13 @@ import Network.Socket.ByteString (recv, sendAll)
 
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Endpoints (EndpointResponse (..))
+import JitML.Service.WebSocket
+  ( WebSocketUpgrade (..)
+  , detectWebSocketUpgrade
+  , encodeCloseFrame
+  , encodeTextFrame
+  , renderUpgradeAccept
+  )
 
 data HttpRoute = HttpRoute
   { httpRouteMethod :: Text
@@ -52,15 +62,35 @@ data HttpRoute = HttpRoute
   }
   deriving stock (Eq, Show)
 
+-- | Sprint 13.13 — a WebSocket route paired with a streaming bridge
+-- callback. After the HTTP upgrade handshake the listener invokes
+-- 'webSocketRouteHandler' with a typed @writeFrame :: Text -> IO Bool@
+-- callback the handler uses to publish text frames downstream. The
+-- callback returns 'False' when the client has disconnected so the
+-- bridge can exit its consumer loop cleanly.
+data WebSocketRoute = WebSocketRoute
+  { webSocketRoutePath :: Text
+  , webSocketRouteHandler :: (Text -> IO Bool) -> IO ()
+  }
+
 serveHttpRoutes :: HttpListener -> [HttpRoute] -> IO ()
 serveHttpRoutes listener routes =
+  serveHttpRoutesWithWebSockets listener routes []
+
+-- | Sprint 13.13 — serve the demo over HTTP and bridge any matching
+-- WebSocket-upgrade requests to the per-domain consumer callbacks. The
+-- non-WS routes still go through the one-request-one-response path
+-- the rest of the demo uses.
+serveHttpRoutesWithWebSockets
+  :: HttpListener -> [HttpRoute] -> [WebSocketRoute] -> IO ()
+serveHttpRoutesWithWebSockets listener routes wsRoutes =
   withListener listener $ \(listenerSocket, _actualPort) ->
-    forever (serveAcceptedConnection listenerSocket routes)
+    forever (serveAcceptedConnection listenerSocket routes wsRoutes)
 
 serveHttpRoutesOnce :: HttpListener -> [HttpRoute] -> IO ()
 serveHttpRoutesOnce listener routes =
   withListener listener $ \(listenerSocket, _actualPort) ->
-    serveAcceptedConnection listenerSocket routes
+    serveAcceptedConnection listenerSocket routes []
 
 withHttpRoutesOnce :: HttpListener -> [HttpRoute] -> (Int -> IO a) -> IO a
 withHttpRoutesOnce listener routes action =
@@ -68,7 +98,7 @@ withHttpRoutesOnce listener routes action =
     done <- newEmptyMVar
     void $
       forkFinally
-        (serveAcceptedConnection listenerSocket routes)
+        (serveAcceptedConnection listenerSocket routes [])
         (\_result -> putMVar done ())
     result <- action actualPort
     takeMVar done
@@ -118,11 +148,51 @@ portNumberToInt :: PortNumber -> Int
 portNumberToInt =
   fromIntegral
 
-serveAcceptedConnection :: Socket -> [HttpRoute] -> IO ()
-serveAcceptedConnection listenerSocket routes =
+serveAcceptedConnection :: Socket -> [HttpRoute] -> [WebSocketRoute] -> IO ()
+serveAcceptedConnection listenerSocket routes wsRoutes =
   bracket (accept listenerSocket) (close . fst) $ \(connection, _peer) -> do
     request <- recv connection 4096
-    sendAll connection (responseFor routes request)
+    case wsRouteFor request wsRoutes of
+      Just (route, acceptKey) -> do
+        sendAll connection (renderUpgradeAccept acceptKey)
+        runWebSocketHandler connection route
+      Nothing ->
+        sendAll connection (responseFor routes request)
+
+wsRouteFor
+  :: ByteString.ByteString -> [WebSocketRoute] -> Maybe (WebSocketRoute, ByteString.ByteString)
+wsRouteFor request wsRoutes =
+  case parseRequest request of
+    Just ("GET", path) ->
+      case [route | route <- wsRoutes, webSocketRoutePath route == path] of
+        route : _ ->
+          case detectWebSocketUpgrade request of
+            UpgradeAccepted acceptKey -> Just (route, acceptKey)
+            NoUpgrade -> Nothing
+        [] -> Nothing
+    _ -> Nothing
+
+-- | After the upgrade handshake, run the route's handler against a
+-- @write :: Text -> IO Bool@ callback that pushes one server-side text
+-- frame per call. The callback returns 'False' on a write failure
+-- (client disconnected) so the bridge exits its consumer loop. A
+-- close frame is sent on a clean exit.
+runWebSocketHandler :: Socket -> WebSocketRoute -> IO ()
+runWebSocketHandler connection route = do
+  let writeFrame payload = do
+        sendAllSafe connection (encodeTextFrame payload)
+  webSocketRouteHandler route writeFrame
+  _ <- sendAllSafe connection encodeCloseFrame
+  pure ()
+
+-- | Send all bytes through the socket; return 'True' on success,
+-- 'False' on any 'IOException' so the bridge cleanly exits without
+-- swallowing the error.
+sendAllSafe :: Socket -> ByteString.ByteString -> IO Bool
+sendAllSafe connection bytes =
+  Control.Exception.catch
+    (sendAll connection bytes >> pure True)
+    (\(_ :: Control.Exception.IOException) -> pure False)
 
 responseFor :: [HttpRoute] -> ByteString.ByteString -> ByteString.ByteString
 responseFor routes request =

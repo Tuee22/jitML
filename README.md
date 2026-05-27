@@ -723,6 +723,7 @@ mindmap
       materialize-substrate
       render-kind-config
       list-prereqs
+      upload-dataset
       gc
       vm
         bootstrap
@@ -791,6 +792,7 @@ mindmap
 | `jitml internal materialize-substrate` | Materialize substrate files. | `jitml internal materialize-substrate [--substrate <substrate>]` |
 | `jitml internal render-kind-config` | Render a Kind cluster YAML. | `jitml internal render-kind-config [--substrate <substrate>] [--name <name>] [--edge-port <port>]` |
 | `jitml internal list-prereqs` | List prerequisite checks. | `jitml internal list-prereqs` |
+| `jitml internal upload-dataset` | Upload a real dataset blob to MinIO. | `jitml internal upload-dataset [--name <name>] [--split <split>] [--path <path>] [--dry-run] [--plan-file <path>]` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |
 | `jitml internal vm bootstrap` | Bootstrap the VM. | `jitml internal vm bootstrap` |
 | `jitml internal vm up` | Start the VM. | `jitml internal vm up` |

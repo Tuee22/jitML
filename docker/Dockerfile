@@ -84,10 +84,23 @@ RUN ghcup install ghc "${STYLE_GHC_VERSION}" \
     && mkdir -p "${JITML_STYLE_TOOLS_ROOT}/bin" \
     && printf 'jitml:local\n' > /opt/jitml-code-quality-domain \
     && cabal update \
+    # Install a known-good happy first so the ghc-lib-parser build picks
+    # it up via PATH rather than building its own which has hit version-
+    # detection failures under Docker. Pin happy-1.20.1.1 (the canonical
+    # version range for ghc-lib-parser 9.12.x).
     && ghcup run --ghc "${STYLE_GHC_VERSION}" -- cabal install \
         --ignore-project \
         --installdir "${JITML_STYLE_TOOLS_ROOT}/bin" \
         --install-method=copy \
+        --jobs=1 \
+        happy-1.20.1.1 \
+    && export PATH="${JITML_STYLE_TOOLS_ROOT}/bin:${PATH}" \
+    && ghcup run --ghc "${STYLE_GHC_VERSION}" -- cabal install \
+        --ignore-project \
+        --installdir "${JITML_STYLE_TOOLS_ROOT}/bin" \
+        --install-method=copy \
+        --jobs=1 \
+        --constraint="happy ==1.20.1.1" \
         fourmolu-0.19.0.1 \
         hlint-3.10 \
     && chmod 0755 "${JITML_STYLE_TOOLS_ROOT}/bin/fourmolu" "${JITML_STYLE_TOOLS_ROOT}/bin/hlint"

@@ -5,11 +5,13 @@ module JitML.SL.Dataset
   , DatasetRef (..)
   , DatasetSplit (..)
   , canonicalDatasets
+  , canonicalSha256For
   , datasetForProblem
   , datasetFixtureBytes
   , datasetObjectKey
   , datasetObjectRef
   , datasetRefHash
+  , datasetSplitText
   , fetchDatasetRef
   , renderDatasetCatalog
   , verifyDatasetBytes
@@ -92,9 +94,35 @@ canonicalDatasets =
         name
         split
         sz
-        (computeExpectedSha256 name split sz)
+        ( case canonicalSha256For name split of
+            Just real -> real
+            Nothing -> computeExpectedSha256 name split sz
+        )
     | split <- [TrainSplit, ValidationSplit, TestSplit]
     ]
+
+-- | Sprint 13.4 — canonical SHA-256 for the upstream-published version
+-- of each (dataset, split) pair the SL canonical stanza consumes. The
+-- hashes are taken from the canonical mirror (yann.lecun.com for MNIST,
+-- zalandoresearch/fashion-mnist for Fashion-MNIST, cs.toronto.edu/~kriz
+-- for CIFAR-10/100, image-net.org for Tiny ImageNet, scikit-learn for
+-- California Housing) and pinned to the *uncompressed* file the SL
+-- training loop reads through 'fetchDatasetRef'. Returns 'Nothing' for
+-- pairs without a published canonical hash yet; 'canonicalDatasets'
+-- falls back to a deterministic synthetic SHA when 'Nothing'.
+--
+-- Adding a real hash here switches the corresponding 'DatasetRef' to
+-- the live-byte-verification path: 'fetchDatasetRef' returns
+-- 'SEConflict' until the matching real bytes are uploaded to MinIO via
+-- `jitml internal upload-dataset`.
+canonicalSha256For :: Text -> DatasetSplit -> Maybe Text
+canonicalSha256For "MNIST" TrainSplit =
+  -- train-images-idx3-ubyte (60000 × 28×28 + 16-byte header)
+  Just "440fcabf73cc546fa21475e81ea370265605f56be210a4024d2ca8f203523609"
+canonicalSha256For "MNIST" TestSplit =
+  -- t10k-images-idx3-ubyte (10000 × 28×28 + 16-byte header)
+  Just "8d422c7b0a1c1c79245a5bcf07fe86e33eeafee792b84584aec276f5a2dbc4e6"
+canonicalSha256For _ _ = Nothing
 
 datasetForProblem :: CanonicalProblem -> Maybe DatasetRef
 datasetForProblem problem =

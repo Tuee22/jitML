@@ -12,7 +12,9 @@ import Control.Exception.Safe (displayException, finally, tryAny)
 import Control.Monad (forever, unless, when)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
+import Crypto.Hash.SHA256 qualified
 import Data.Aeson (decode, encode)
+import Data.ByteString qualified
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
@@ -28,6 +30,7 @@ import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
+import System.IO qualified
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Bootstrap
@@ -106,6 +109,7 @@ import JitML.Proto.Rl qualified as ProtoRl
 import JitML.Proto.Training qualified as ProtoTraining
 import JitML.Proto.Tune qualified as ProtoTune
 import JitML.RL.Algorithms qualified as RL
+import JitML.RL.SimulatorLoop qualified as SimulatorLoop
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Dataset qualified as Dataset
 import JitML.Service.BootConfig qualified as BootConfig
@@ -246,6 +250,8 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runInternalCache parsedPath parsedOptions
   | parsedPath == ["internal", "gc"] =
       runInternalGc parsedOptions
+  | parsedPath == ["internal", "upload-dataset"] =
+      runInternalUploadDataset parsedOptions
   | otherwise =
       writeLine ("registered command: " <> commandPathText parsedPath)
 
@@ -542,6 +548,15 @@ bootstrapSubstrates parsedOptions =
 
 runService :: [ParsedOption] -> App ()
 runService parsedOptions = do
+  -- Sprint 13.3 dedup observation — Kubernetes pipes the daemon
+  -- container's stdout into the kubelet log stream, which makes
+  -- GHC's default block-buffering swallow per-delivery
+  -- `service: <outcome>` lines until ~4 KB accumulates. Switch to
+  -- line-buffered output so `kubectl logs deploy/jitml-service` sees
+  -- every consumer outcome as it lands (the dedup live assertion
+  -- depends on this).
+  liftIO (System.IO.hSetBuffering System.IO.stdout System.IO.LineBuffering)
+  liftIO (System.IO.hSetBuffering System.IO.stderr System.IO.LineBuffering)
   let configValues = optionValues "config" parsedOptions
       explicitConfig = not (null configValues)
       consumeOnceRequested = hasOption "consume-once" parsedOptions
@@ -1191,16 +1206,43 @@ publishWorkerTuneEvent = do
 
 runRl :: [Text] -> [ParsedOption] -> App ()
 runRl ["rl", "train"] parsedOptions = do
+  -- Read the RL run parameters the daemon-rendered Job set in the
+  -- container env (Sprint 13.3 `renderRlJob`). Defaults match the
+  -- experiments/cartpole.dhall worked example.
+  envName <-
+    liftIO (envWithDefault "JITML_ENVIRONMENT" "cartpole")
+  seedRaw <-
+    liftIO (envWithDefault "JITML_SEED" "42")
+  maxStepsRaw <-
+    liftIO (envWithDefault "JITML_MAX_STEPS" "200")
+  evalEpisodesRaw <-
+    liftIO (envWithDefault "JITML_EVAL_EPISODES" "4")
+  let seed = readIntDefault 42 seedRaw
+      maxSteps = max 1 (readIntDefault 200 maxStepsRaw)
+      evalEpisodes = max 1 (readIntDefault 4 evalEpisodesRaw)
+  -- Sprint 13.5 — run a real episode loop against the pure-Haskell
+  -- simulators (cartpole / mountain-car / lunar-lander / atari-subset)
+  -- chosen via `JITML_ENVIRONMENT`. Per-episode `RlEpisode (EpisodeDone)`
+  -- events are published to `rl.event.<substrate>` so the daemon → worker
+  -- → broker chain carries one envelope per episode.
+  let episodes =
+        case SimulatorLoop.lookupSimulatedEnvByName envName of
+          Just envHandle ->
+            SimulatorLoop.runSimulatedEpisodesByName envHandle seed evalEpisodes maxSteps
+          Nothing -> []
+      averageReward =
+        if null episodes
+          then 0.0
+          else sum (fmap SimulatorLoop.simEpisodeReward episodes) / fromIntegral (length episodes)
   writeText $
     Text.unlines
       [ "rl train: " <> selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
       , "algorithms: " <> Text.pack (show (length RL.algorithmCatalog))
+      , "environment: " <> envName
+      , "episodes: " <> Text.pack (show (length episodes))
+      , "avg-reward: " <> Text.pack (show averageReward)
       ]
-  -- Sprint 13.3 — publish an `EpisodeDone` envelope so the daemon dispatch
-  -- → worker → broker event loop is observably closed. The current rollout
-  -- is a deterministic synthetic trajectory; Sprint 13.6 widens this to a
-  -- per-episode publish once the real RL loop drives it through the daemon.
-  publishWorkerRlEvent
+  traverse_ publishWorkerRlEpisode episodes
 runRl ["rl", "eval"] parsedOptions =
   writeLine ("rl eval: " <> selectedValue "checkpoint" "latest" parsedOptions)
 runRl ["rl", "rollout"] parsedOptions =
@@ -1212,8 +1254,12 @@ runRl ["rl", "rollout"] parsedOptions =
 runRl path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
 
-publishWorkerRlEvent :: App ()
-publishWorkerRlEvent = do
+-- | Sprint 13.5 — publish one @EpisodeDone@ envelope per simulator
+-- episode produced by 'SimulatorLoop.runSimulatedEpisodesByName'. Gated
+-- on @JITML_EXPERIMENT_HASH@ + live cluster publication so the worker
+-- can still run offline without a broker.
+publishWorkerRlEpisode :: SimulatorLoop.SimulatedEpisode -> App ()
+publishWorkerRlEpisode episode = do
   cluster <- liftIO (readExistingLivePublication ".")
   experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
   case (cluster, experimentHashEnv) of
@@ -1228,9 +1274,11 @@ publishWorkerRlEvent = do
             ProtoRl.RlEpisode
               ( ProtoRl.EpisodeDone
                   { ProtoRl.edExperimentHash = experimentHash
-                  , ProtoRl.edEpisode = 1
-                  , ProtoRl.edReward = 0.0
-                  , ProtoRl.edSteps = 1
+                  , ProtoRl.edEpisode =
+                      fromIntegral (SimulatorLoop.simEpisodeIndex episode)
+                  , ProtoRl.edReward = SimulatorLoop.simEpisodeReward episode
+                  , ProtoRl.edSteps =
+                      fromIntegral (SimulatorLoop.simEpisodeSteps episode)
                   , ProtoRl.edTimestampNs = timestampNs
                   }
               )
@@ -1252,6 +1300,19 @@ publishWorkerRlEvent = do
                 <> "\n"
             )
     _ -> pure ()
+
+envWithDefault :: String -> Text -> IO Text
+envWithDefault name fallback = do
+  raw <- lookupEnv name
+  pure $ case raw of
+    Just value | not (null value) -> Text.pack value
+    _ -> fallback
+
+readIntDefault :: Int -> Text -> Int
+readIntDefault fallback text =
+  case reads (Text.unpack text) of
+    [(parsed, "")] -> parsed
+    _ -> fallback
 
 -- | `jitml inference run` — produces the deterministic inference summary
 -- for the supplied experiment hash. When a live `cluster-publication.json`
@@ -1530,6 +1591,118 @@ jitmlBuildVm = VmName "jitml-build"
 -- Without a live publication the reconciler falls back to walking the
 -- local on-disk manifest store. Exits `3` (`ReconcilerNoop`) when the
 -- store is already at the target state.
+-- | Sprint 13.4 — `jitml internal upload-dataset` reads a local file,
+-- looks up the canonical SHA-256 in 'JitML.SL.Dataset.canonicalSha256For'
+-- (or the synthetic fallback), verifies the file's SHA matches the
+-- canonical, and uploads it to MinIO at
+-- `jitml-datasets/<name>/<split>/data.bin` via the routed
+-- `MinIOSubprocess`. Mismatches abort with 'InvalidConfig'.
+runInternalUploadDataset :: [ParsedOption] -> App ()
+runInternalUploadDataset parsedOptions = do
+  let name = selectedValue "name" "MNIST" parsedOptions
+      splitText = selectedValue "split" "train" parsedOptions
+      path = Text.unpack (selectedValue "path" "" parsedOptions)
+  split <- case parseDatasetSplit splitText of
+    Just s -> pure s
+    Nothing ->
+      exitWithError
+        ( InvalidConfig
+            ( "upload-dataset: unknown split "
+                <> splitText
+                <> " (expected train/validation/test)"
+            )
+        )
+  when (null path) $
+    exitWithError
+      (InvalidConfig "upload-dataset: --path is required")
+  bytes <- liftIO (Data.ByteString.readFile path)
+  let actualSha = hexEncodeBytes (Crypto.Hash.SHA256.hash bytes)
+      canonicalSha = Dataset.canonicalSha256For name split
+  case canonicalSha of
+    Nothing ->
+      writeText
+        ( "upload-dataset: warning — no canonical SHA for "
+            <> name
+            <> "/"
+            <> Dataset.datasetSplitText split
+            <> "; uploading "
+            <> Text.pack (show (Data.ByteString.length bytes))
+            <> " bytes with synthetic SHA verification disabled\n"
+        )
+    Just expected ->
+      when (expected /= actualSha) $
+        exitWithError
+          ( InvalidConfig
+              ( "upload-dataset SHA mismatch for "
+                  <> name
+                  <> "/"
+                  <> Dataset.datasetSplitText split
+                  <> ": expected "
+                  <> expected
+                  <> ", got "
+                  <> actualSha
+              )
+          )
+  livePublication <- liftIO (readExistingLivePublication ".")
+  case livePublication of
+    Nothing ->
+      exitWithError
+        ( InvalidConfig
+            "upload-dataset requires a live cluster; bring it up via `jitml bootstrap`"
+        )
+    Just publication -> do
+      let edgePort = Publication.publicationEdgePort publication
+          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+          ref =
+            Dataset.DatasetRef
+              name
+              split
+              (Data.ByteString.length bytes)
+              actualSha
+      uploaded <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              ( Capabilities.putBlobBytesIfAbsent
+                  (Dataset.datasetObjectRef ref)
+                  bytes
+              )
+          )
+      case uploaded of
+        Right _ ->
+          writeText
+            ( "upload-dataset: "
+                <> name
+                <> "/"
+                <> Dataset.datasetSplitText split
+                <> " uploaded ("
+                <> Text.pack (show (Data.ByteString.length bytes))
+                <> " bytes, sha256="
+                <> actualSha
+                <> ")\n"
+            )
+        Left err ->
+          exitWithError
+            ( InvalidConfig
+                ("upload-dataset failed: " <> Text.pack (show err))
+            )
+
+parseDatasetSplit :: Text -> Maybe Dataset.DatasetSplit
+parseDatasetSplit "train" = Just Dataset.TrainSplit
+parseDatasetSplit "validation" = Just Dataset.ValidationSplit
+parseDatasetSplit "test" = Just Dataset.TestSplit
+parseDatasetSplit _ = Nothing
+
+hexEncodeBytes :: Data.ByteString.ByteString -> Text
+hexEncodeBytes =
+  Text.pack
+    . concatMap (\b -> [hexDigit (fromIntegral b `div` 16), hexDigit (fromIntegral b `mod` 16)])
+    . Data.ByteString.unpack
+ where
+  hexDigit n
+    | n < 10 = toEnum (fromEnum '0' + n)
+    | otherwise = toEnum (fromEnum 'a' + n - 10)
+
 runInternalGc :: [ParsedOption] -> App ()
 runInternalGc parsedOptions = do
   let experimentHash = selectedValue "experiment-hash" "default" parsedOptions

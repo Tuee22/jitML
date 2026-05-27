@@ -1,10 +1,15 @@
--- | Training-progress panel. The Halogen component renders the loss-curve
--- | DOM; the live `/api/ws/training` stream wiring is owned by Phase 13
--- | Sprint 13.13.
+-- | Training-progress panel.
+-- |
+-- | Sprint 13.13 — typed Halogen render machinery. Each
+-- | `/api/ws/training` frame appends to the in-memory frame list;
+-- | the render shows the loss curve as a textual table plus the
+-- | canvas placeholder a future renderer can draw against.
 module Panels.Training where
 
 import Prelude
 
+import Data.Array as Array
+import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
@@ -22,7 +27,14 @@ type TrainingFrame =
   , timestampNs :: Int
   }
 
-type State = { frames :: Array TrainingFrame }
+type State =
+  { frames :: Array TrainingFrame
+  , lastError :: Maybe String
+  }
+
+data Action
+  = FrameReceived TrainingFrame
+  | StreamFailed String
 
 panelName :: String
 panelName = "training-progress"
@@ -37,15 +49,30 @@ renderFrame experimentHash epoch trainingLoss validationLoss timestampNs =
   , timestampNs
   }
 
+initialState :: State
+initialState = { frames: [], lastError: Nothing }
+
 component :: forall query input output m. MonadAff m => H.Component query input output m
 component =
   H.mkComponent
-    { initialState: \_ -> { frames: [] }
+    { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
     }
   where
-  render _ =
+  handleAction = case _ of
+    FrameReceived frame ->
+      H.modify_
+        ( \s ->
+            s
+              { frames = Array.take 200 (Array.snoc s.frames frame)
+              , lastError = Nothing
+              }
+        )
+    StreamFailed message ->
+      H.modify_ (_ { lastError = Just message })
+
+  render state =
     HH.div
       [ HP.id panelName, HP.classes [ H.ClassName "jitml-panel" ] ]
       [ HH.h2_ [ HH.text "Training progress" ]
@@ -54,7 +81,36 @@ component =
           , HP.width 640
           , HP.height 240
           ]
+      , HH.table
+          [ HP.id (panelName <> "-table")
+          , HP.classes [ H.ClassName "loss-table" ]
+          ]
+          ( [ HH.tr_
+                [ HH.th_ [ HH.text "epoch" ]
+                , HH.th_ [ HH.text "train_loss" ]
+                , HH.th_ [ HH.text "val_loss" ]
+                ]
+            ] <> map renderRow state.frames
+          )
+      , renderError state
       ]
+
+  renderRow frame =
+    HH.tr_
+      [ HH.td_ [ HH.text (show frame.epoch) ]
+      , HH.td_ [ HH.text (show frame.trainingLoss) ]
+      , HH.td_ [ HH.text (show frame.validationLoss) ]
+      ]
+
+  renderError state =
+    case state.lastError of
+      Nothing -> HH.div_ []
+      Just message ->
+        HH.div
+          [ HP.id (panelName <> "-error")
+          , HP.classes [ H.ClassName "jitml-error" ]
+          ]
+          [ HH.text ("stream error: " <> message) ]
 
 mount :: Effect Unit
 mount = runHalogenAff do

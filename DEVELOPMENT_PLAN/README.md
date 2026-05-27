@@ -690,13 +690,114 @@ weighted runner), and Sprint `13.15`'s weighted benchmark runner
 through `runLinuxCpuWeightedKernel`).
 Every other Sprint after `13.3` remains unmet on its live obligations
 (live cluster validation pass deferred) and on its larger remaining
-engineering items (real Box2D/ALE simulators in Sprint `13.5`, real
-CUDA RL math in Sprint `13.8`, real network-backed AlphaZero in
-Sprint `13.9`, other family weighted bodies in Sprint `13.11`,
-real WebSocket proxy + Halogen render machinery in Sprint `13.13`)
-— see each sprint's `### Remaining Work` block in
+engineering items (real CUDA RL math in Sprint `13.8`,
+real network-backed AlphaZero in Sprint `13.9`, the other five
+Halogen panels beyond the Mnist template in Sprint `13.13`,
+held-open WebSocket-upgrade proxy beyond the polling snapshot in
+Sprint `13.13`) — see each sprint's `### Remaining Work` block in
 `phase-13-linux-cuda-and-cluster-closure.md` and
-`phase-15-cross-substrate-and-handoff.md`. The remaining unmet obligations against the Exit Definition are:
+`phase-15-cross-substrate-and-handoff.md`. The 2026-05-27 session
+re-scoped Sprint `13.5` to the pure-Haskell-simulator approach Phase
+8 Sprint `8.3` chose (real Box2D/ALE FFI rejected per the
+determinism contract) and landed the simulator-loop wiring through
+the worker `jitml rl train`; the daemon-side dispatch already routes
+StartRLRun envelopes into a Job that invokes that wiring.
+
+The 2026-05-27 code-only session also landed: a live dedup assertion
+for Sprint `13.3` (`live duplicate StartTraining produces one
+daemon-side dedup-skip` in `jitml-integration`); `JitML.RL.
+SimulatorLoop` plus the per-episode `RlEpisode (EpisodeDone)`
+publication chain for Sprint `13.5`; the run-to-run simulator-loop
+determinism assertion in `jitml-rl-canonicals` for Sprint `13.6`;
+`JitML.RL.AlphaZero.EnginePrior.buildLinuxCpuPriorOracle` and
+`runSelfPlayWithPrior` plus the `reportCardSelfPlayConfig` helper
+and a `Live` `writeSelfPlayBuffer` / `readSelfPlayBuffer` round-trip
+for Sprint `13.9`; the canonical sampler × scheduler × pruner grid
+resume-equality assertion in `jitml-hyperparameter` for Sprint
+`13.10`; `JitML.Web.Server.liveEventSnapshotResponse` plus the
+typed Mnist Halogen `State` / `Action` / `handleAction` /
+`render` machinery as the panel template for Sprint `13.13`;
+and the `playwright/jitml-demo.spec.ts` live-edge selection that
+honours `cluster-publication.json` when present for Sprint `13.14`.
+
+The 2026-05-27 second session pushed Sprint 13's code surface
+further: typed Halogen render machinery now lands on all five
+remaining demo panels (`Cifar`, `Connect4`, `Rl`, `Training`,
+`Tune`) following the `Mnist` template; the held-open WebSocket-
+upgrade proxy under `JitML.Service.WebSocket` +
+`JitML.Service.Http.WebSocketRoute` +
+`JitML.Web.Server.liveDemoWebSocketRoutes` bridges
+`/api/ws/<domain>` upgrade requests to the matching Pulsar event
+topic with RFC 6455 §1.3 known-answer test coverage; a typed
+`jitml internal upload-dataset` CLI command plus
+`JitML.SL.Dataset.canonicalSha256For` (with the canonical
+upstream MNIST train + test SHAs) closes Sprint 13.4's
+real-MNIST + canonical-SHA code surface; and the full Sprint
+13.8 catalog of **14 pure-Haskell RL algorithm loss modules** —
+`PpoLoss` / `A2cLoss` / `TrpoLoss` / `MaskablePpoLoss` /
+`RecurrentPpoLoss` / `DqnLoss` / `QrDqnLoss` / `DdpgLoss` /
+`Td3Loss` / `SacLoss` / `CrossQLoss` / `TqcLoss` / `ArsLoss` /
+`HerLoss` — ships the canonical update math from each
+algorithm's reference paper (Schulman et al. 2015/2016/2017,
+Mnih et al. 2013/2016, van Hasselt et al. 2016, Lillicrap et
+al. 2016, Fujimoto et al. 2018, Haarnoja et al. 2018a/b, Mania
+et al. 2018, Andrychowicz et al. 2017, Dabney et al. 2017,
+Kuznetsov et al. 2020, Bhatt et al. 2024) with 56 deterministic
+unit tests covering input-output known answers, regime
+crossovers, and run-to-run bit-equality.
+
+All landings compile via `cabal build all --enable-tests` and pass
+the host-runnable suites: `jitml-unit` (163), `jitml-sl-canonicals`
+(9), `jitml-rl-canonicals` (18), `jitml-hyperparameter` (12),
+`jitml-daemon-lifecycle` (30), `jitml-e2e` (16) — **248 host
+tests total**, plus `jitml-integration` 46 non-oneDNN cases.
+
+**Live cluster validation (2026-05-27, third session, RTX 3090 /
+CUDA 12.8 / Ubuntu 24.04 host)**: `docker compose build jitml`
+landed the `jitml:local` image after the Dockerfile fix
+(`-j1`, pinned `happy-1.20.1.1`, explicit `--ghc-options` heap
+cap) overcame the prior SIGSEGV. `docker compose run --rm jitml
+jitml bootstrap --linux-cuda` ran the full phased rollout (113
+steps) and all seven publication components landed Ready on
+edge port 9092. Inside `jitml:local` against the live cluster:
+
+- `cabal test jitml-integration --test-options='-p Live'` —
+  **15 / 15 Live cases pass** including the new Sprint 13.3
+  dedup assertion (`live duplicate StartTraining produces one
+  daemon-side dedup-skip`), the new Sprint 13.10 daemon
+  `TuneHandler dispatches StartSweep into a Kubernetes Job`
+  assertion, the Sprint 13.9 SelfPlayBuffer MinIO round-trip,
+  the Sprint 13.7 `gc.event.<substrate>` publish stream, Harbor
+  tag promotion, daemon subscription acquisition on all four
+  command topics, and the JIT-kernel-backed live `jitml
+  inference run` against MinIO.
+- `cabal test jitml-cross-backend` — **19 / 19 pass** including
+  every Linux CPU + Linux CUDA kernel (identity, reduction,
+  family scaffolds, weighted Dense2D / Conv2D / Conv3D /
+  BatchNorm / LayerNorm / Embedding, cuBLAS + cuDNN bindings,
+  benchmark candidate runner) plus the new Sprint 13.15
+  first-cache-miss `TuningChoice` JSON persistence assertion.
+- `cabal test jitml-e2e` — **16 / 16 pass**.
+- `jitml cluster down` followed by `kind get clusters` confirms
+  clean teardown with zero Kind clusters and zero containers.
+
+The Sprint 13.3 dedup assertion required a daemon-stdout line-
+buffering fix in `JitML.App.runService` (`hSetBuffering stdout
+LineBuffering`) so Kubernetes pipe-based log capture flushes the
+per-delivery `service: deduplicated training <event-id>` lines
+as they land rather than batching them into 4 KB blocks.
+
+**Phase 13 closure status after this session**: **7 of 15
+sprints Done** (13.2, 13.3, 13.7, 13.10, 13.11, 13.12, 13.15).
+The remaining 8 (13.1, 13.4, 13.5, 13.6, 13.8, 13.9, 13.13,
+13.14) carry honest Remaining-Work blocks per
+`development_plan_standards.md` C "Honest Completion Tracking";
+the largest remaining engineering items are Sprint 13.8 (live
+network forward/backward seam for the 14 RL loss modules —
+multi-week per plan) and Sprint 13.9 (full policy/value network
+codegen for AlphaZero — multi-day per plan). Sprints 13.5 and
+13.6 are gated on 13.8; Sprints 13.13 and 13.14 wait on the
+live render validation against the cluster. The remaining unmet obligations against the Exit Definition are:
 the explicit Pulumi-orchestrated ephemeral Kind e2e path
 for Exit 3; Apple Silicon Metal kernel compile/load/execute and the live
 Metal candidate measurement runner (owned by Phase `14`); real SL / RL /

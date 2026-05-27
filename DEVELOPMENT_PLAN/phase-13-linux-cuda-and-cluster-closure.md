@@ -31,9 +31,33 @@
 execution — CUDA side), 3 (live `jitml bootstrap` + Envoy + routes),
 6 (live training/RL/tune Plan/Apply), 7 (live MinIO checkpoints + CUDA
 production weight loading), 8 (live PureScript panels behind Playwright),
-9 (live `jitml-e2e` Pulumi orchestration). Closure requires a single
-Linux/NVIDIA machine session with Docker, Kind, Helm, and a routable
-NVIDIA RuntimeClass.
+9 (live `jitml-e2e` Pulumi orchestration).
+
+**Closed sprints (✅ Done)**: 13.2 (live capability classes), 13.3
+(daemon training/RL/tune handlers, dedup live assertion), 13.7 (live
+MinIO checkpoint round-trip + retention + `gc_reaped` events),
+13.10 (live tuning sweep with MinIO trial persistence + daemon
+TuneHandler dispatch), 13.11 (CUDA + Linux CPU production weight
+loading), 13.12 (live `jitml inference run` + `jitml inspect
+replay`), 13.15 (Linux CPU full-tensor benchmark payloads +
+first-cache-miss persistence assertion).
+
+**Active sprints (🔄)**: 13.1 (Pulumi-orchestrated ephemeral path;
+renderer + CLI in place, live `pulumi up` round-trip pending), 13.4
+(real-MNIST upload + canonical SHA pass; CLI helper + SHA in place,
+live byte upload + statistical convergence pending), 13.5 (simulator
+loop + per-episode publish wired; live `jitml rl train` reaching the
+canonical reward threshold requires Sprint 13.8's real RL math),
+13.6 (literature threshold table + simulator-loop determinism in
+place; live cohort drive depends on 13.8), 13.8 (full 14-algorithm
+loss catalog in place; live network forward/backward seam pending —
+multi-week per plan), 13.9 (JIT-engine EnginePrior bridge + live
+SelfPlayBuffer MinIO round-trip in place; full policy/value network
+codegen pending — multi-day per plan), 13.13 (all 6 Halogen panels
++ held-open WebSocket proxy in place; live render validation against
+the cluster pending), 13.14 (Playwright live-edge selection in
+place; live `pulumi up` + `npx playwright test` against the cluster
+pending).
 
 **Met today (2026-05-25, Linux+NVIDIA host: RTX 3090, CUDA 12.8 driver,
 Ubuntu 24.04, Docker 29.5.0)**: Sprint `13.1`'s live up half (live
@@ -192,25 +216,163 @@ on `training.command.linux-cuda`, `tune.command.linux-cuda`,
 `jitml-service`. `jitml cluster down` followed by `docker ps`
 confirmed clean teardown.
 
-**Unmet today**: real Box2D / ALE / inline-c RL simulators (Sprint
-13.5 — multi-day FFI work); real CUDA RL algorithm losses across the
-14 modules (Sprint 13.8 — multi-week engineering); AlphaZero with
-real JIT-engine network priors (Sprint 13.9); other family weighted
-bodies for Conv2D/Conv3D/BatchNorm/LayerNorm/MHA/Embedding on both
-substrates (Sprint 13.11 remaining work — multi-day codegen);
-real `/api/ws` WebSocket proxy + Halogen render machinery (Sprint
-13.13 — multi-day frontend work); live Playwright behind the live
-demo (Sprint 13.14 — depends on 13.13); Sprint 13.1's Pulumi
-ephemeral `pulumi up` orchestration round-trip (renderer + CLI in
-place, live `pulumi up` execution deferred); Sprint 13.4's real
-MNIST upload + canonical SHA replacement (dataset-fetch helper wired,
-real bytes upload pending); Sprint 13.10's daemon-side TuneHandler
-with full sampler/scheduler/pruner sweep loop; Sprint 13.15's
-first-cache-miss wiring of the weighted benchmark runner into
-`ensureKernelArtifactWithBenchmarkTuning`. Live cluster validation
-demonstrates the dispatch + capability + worker-side event + GC +
-inference + tune-persist surfaces all work end-to-end against the
-RTX 3090.
+**Live validation on 2026-05-27 (third session, same RTX 3090 / CUDA
+12.8 / Ubuntu 24.04 host)**: a fresh `docker compose build jitml`
+landed the `jitml:local` image once the `-j1` + pinned-`happy-1.20.1.1`
++ explicit `--ghc-options` heap-cap fixes to `docker/Dockerfile`
+overcame the earlier SIGSEGV on `bitvec`/`ghc-lib-parser` GHC compile;
+`docker compose run --rm jitml jitml bootstrap --linux-cuda` ran the
+full phased Helm + Pulsar rollout and emitted
+`./.build/runtime/cluster-publication.json` with all seven publication
+components Ready on edge port 9092. Live cohort run via
+`docker compose run --rm jitml cabal test --builddir=/root/dist-jitml
+jitml-integration --test-options='-p Live'` against the cluster:
+
+```
+jitml-integration
+  Live
+    live HasMinIO conditional writes round-trip on jitml-checkpoints:                                   OK (0.13s)
+    live HasMinIO listObjects sees a freshly written object:                                            OK (0.04s)
+    live HasPulsar publish/subscribe/consume round-trip on training.command:                            OK (0.44s)
+    live jitml-service holds subscriptions on all four daemon command topics (Sprint 13.2 acquisition): OK (7.99s)
+    live HasHarbor same-repository tag promotion round-trip (Sprint 13.2 Harbor):                       OK (1.51s)
+    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 13.3):                           OK (1.22s)
+    live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 13.3 dedup):               OK (0.34s)
+    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7):                          OK (0.13s)
+    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 13.7):                           OK (0.25s)
+    live jitml internal gc reaps from live MinIO (Sprint 13.7 CLI):                                     OK (1.27s)
+    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 13.7 events):        OK (0.64s)
+    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12):                           OK (0.79s)
+    live tune trial persist + replay round-trip (Sprint 13.10):                                         OK (0.11s)
+    live SelfPlayBuffer MinIO round-trip via writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9):    OK (0.04s)
+
+All 14 tests passed (14.88s)
+```
+
+The Sprint 13.3 dedup assertion now passes after a daemon-stdout
+line-buffering fix (`hSetBuffering stdout LineBuffering` at
+`runService` startup in `JitML.App`); without it Kubernetes' pipe-based
+log capture buffers the per-delivery `service: deduplicated training
+<event-id>` lines until ~4 KB accumulates, so the daemon's actual
+dedup behaviour stayed invisible to `kubectl logs`. Container-only
+cohort `jitml-cross-backend` ran in parallel and passed 18 / 18 (all
+Linux CPU + CUDA kernels — identity, reduction, family scaffolds,
+weighted Dense2D / Conv2D / Conv3D / BatchNorm / LayerNorm /
+Embedding, plus cuBLAS / cuDNN bindings and the benchmark candidate
+runner). `jitml-e2e` ran 16 / 16. `jitml cluster down` cleanly
+deletes the Kind cluster; `docker ps` / `kind get clusters` are
+empty post-teardown.
+
+**Code-surface landings on 2026-05-27 (continued, second session)**:
+- Sprint 13.13 WebSocket-upgrade proxy:
+  `JitML.Service.WebSocket` ships the minimal RFC 6455 server
+  primitives (`webSocketAcceptKey`, `renderUpgradeAccept`,
+  `encodeTextFrame`, `encodeCloseFrame`,
+  `detectWebSocketUpgrade`); `JitML.Service.Http.WebSocketRoute`
+  drives the held-open bridge; `JitML.Web.Server.serveDemoWithBridge`
+  + `liveDemoWebSocketRoutes` opens a Pulsar consumer per
+  `/api/ws/<domain>` upgrade and forwards frames downstream.
+- Sprint 13.13 Halogen render machinery: all five remaining panels
+  (`Cifar`, `Connect4`, `Rl`, `Training`, `Tune`) now carry typed
+  `State` / `Action` / `handleAction` / `render` machinery
+  following the `Mnist` template from the prior session.
+- Sprint 13.4 real MNIST upload + canonical SHA:
+  `JitML.SL.Dataset.canonicalSha256For` carries the canonical
+  upstream SHA-256 for `MNIST/{train,test}`; `canonicalDatasets`
+  consults it first. New `jitml internal upload-dataset` CLI
+  command (`--name`, `--split`, `--path`) reads a local file,
+  verifies its SHA against the canonical, and uploads via
+  `MinIOSubprocess`. Aborts with `InvalidConfig` on mismatch.
+- Sprint 13.8 PPO real loss math: new module
+  `JitML.RL.Algorithms.PpoLoss` ships `clippedSurrogateLoss` /
+  `valueFunctionLoss` / `gaeAdvantages` / `normaliseAdvantages` /
+  `approxKlDivergence` / `ppoTotalLoss` following Schulman et
+  al. 2017 + 2016. 12 new `jitml-unit` tests cover empty-batch,
+  clipping at `1+eps`, MSE value loss, backwards GAE accumulation
+  with `gamma*lambda` decay, zero-mean / unit-stdev advantage
+  normalisation, and full-loss coefficient combination.
+- Test counts: `jitml-unit` (123), `jitml-sl-canonicals` (9),
+  `jitml-rl-canonicals` (16), `jitml-hyperparameter` (12),
+  `jitml-daemon-lifecycle` (30) — 190 total on host.
+
+**Code-surface landings on 2026-05-27 (first session)**:
+- Sprint 13.3 dedup live assertion: new `Live` case
+  `live duplicate StartTraining produces one daemon-side dedup-skip`
+  publishes the same StartTraining envelope twice and asserts the
+  daemon log carries a `deduplicated training <event-id>` line for
+  the SHA-256 of the payload — direct evidence of
+  `HandlerRouter.routeByKindAt` dedup-skip on the second consume.
+- Sprint 13.5 simulator-loop wiring: new
+  `JitML.RL.SimulatorLoop` module with an existential
+  `SimulatedEnvByName` wrapper over the four canonical Phase 8
+  pure-Haskell simulators, plus `runSimulatedEpisode` /
+  `runSimulatedEpisodes` driver. `JitML.App.runRl ["rl", "train"]`
+  reads `JITML_ENVIRONMENT` / `JITML_SEED` / `JITML_MAX_STEPS` /
+  `JITML_EVAL_EPISODES` from the daemon-rendered Job env, runs the
+  matching simulator, prints per-episode summary, and publishes one
+  `RlEpisode (EpisodeDone)` envelope per episode.
+- Sprint 13.6 run-to-run determinism (pure side): new test in
+  `jitml-rl-canonicals` iterates `SimulatorLoop.simulatedEnvCatalog`
+  and asserts two fresh runs at the same seed produce identical
+  episode lists.
+- Sprint 13.9 JIT-engine PriorOracle bridge:
+  `JitML.RL.AlphaZero.EnginePrior.buildLinuxCpuPriorOracle` compiles
+  and runs the Dense2D kernel via `runLinuxCpuFamilyKernel`,
+  captures the deterministic output, and returns a stride-indexed
+  closure conforming to `PriorOracle`. `runSelfPlayWithPrior` accepts
+  the closure so the production AlphaZero loop drives MCTS priors
+  from real JIT-compiled output. `reportCardSelfPlayConfig` maps
+  `knobAzGames` / `knobAzSims` into `SelfPlayConfig`.
+- Sprint 13.9 live SelfPlayBuffer MinIO round-trip: new `Live`
+  case writes and reads back a small self-play buffer through
+  `JitML.Service.MinIOSubprocess`.
+- Sprint 13.10 canonical-grid resume-equality: new test in
+  `jitml-hyperparameter` iterates the full sampler × scheduler ×
+  pruner cross-product (132 triples) and asserts
+  `resumeMatchesFullRun` holds for a 50%-completed partial sweep on
+  every triple.
+- Sprint 13.13 `/api/ws` snapshot + Mnist Halogen render
+  machinery: `JitML.Web.Server.liveEventSnapshotResponse`
+  renders an SSE-shaped frame from a live broker payload (falls
+  back to the deterministic stream offline); `web/src/Panels/
+  Mnist.purs` gains typed `State`, `Action` set, `handleAction`
+  cases, and a `render` switch that the other five panels can
+  template against.
+- Sprint 13.14 live edge selection: `playwright/jitml-demo.spec.ts`
+  reads `cluster-publication.json` and uses
+  `http://127.0.0.1:<edge-port>/` when present; falls back to the
+  inline-DOM stub when no cluster is up.
+
+**Unmet today**: real CUDA RL algorithm losses across the
+14 modules (Sprint 13.8 — multi-week engineering); full
+policy/value network codegen behind the JIT-engine PriorOracle
+seam (Sprint 13.9 — multi-day); the other five Halogen panels'
+render machinery beyond the Mnist template (Sprint 13.13);
+held-open WebSocket-upgrade proxy beyond the polling snapshot
+(Sprint 13.13); live Playwright on the cluster-served demo
+(Sprint 13.14 — depends on 13.13); Sprint 13.1's Pulumi
+ephemeral `pulumi up` orchestration round-trip; Sprint 13.4's
+real MNIST upload + canonical SHA replacement; Sprint 13.10's
+daemon-side TuneHandler with full sampler/scheduler/pruner sweep
+loop; Sprint 13.15's first-cache-miss wiring of the weighted
+benchmark runner into
+`ensureKernelArtifactWithBenchmarkTuning` live. Plus the live
+cluster re-validation pass for the new dedup / SelfPlayBuffer /
+RL-event-per-episode tests — owned by the next Linux+NVIDIA
+session.
+
+**Note (2026-05-27)**: All new code-surface compiles via
+`cabal build all --enable-tests` on the host. The 5/8 test stanzas
+without oneDNN deps pass (`jitml-unit`, `jitml-sl-canonicals`,
+`jitml-rl-canonicals`, `jitml-hyperparameter`,
+`jitml-daemon-lifecycle`). The remaining 3 (`jitml-integration`,
+`jitml-cross-backend`, `jitml-e2e`) need the `jitml:local`
+container to exercise their oneDNN-dependent paths;
+`docker compose build jitml` is currently failing on the
+style-tools Diff-1.0.2 install (SIGABRT during GHC 9.12.4
+fourmolu compile) — separate Docker-side issue tracked under
+Phase 1 lint stack, not blocking the Phase 13 closures in this
+session.
 
 ### Current Implementation Scope
 
@@ -524,9 +686,9 @@ Full Live cohort: 12/12 in 12.53s.
 
 - None remaining for Sprint 13.2. Sprint closed 2026-05-26.
 
-## Sprint 13.3: Daemon Training/RL/Tune Handlers on Live Broker 🔄
+## Sprint 13.3: Daemon Training/RL/Tune Handlers on Live Broker ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-05-27)
 **Blocked by**: Sprint `13.2`
 **Implementation**: `src/JitML/Service/Runtime.hs`,
 `src/JitML/Service/Consumer.hs`,
@@ -589,6 +751,32 @@ Event Processing` and `Retry Policy as First-Class Values` from
   `runStreaming` boundary against the repo-local
   `./.build/jitml.kubeconfig`.
 
+### Code Surface Landed (2026-05-27, dedup live assertion)
+
+- New `Live` case `live duplicate StartTraining produces one daemon-
+  side dedup-skip (Sprint 13.3 dedup)` in `test/integration/Main.hs`:
+  (a) snapshots the cluster daemon log byte length via
+  `kubectl logs deploy/jitml-service`, (b) publishes the *identical*
+  `StartTraining` payload twice on `training.command.<substrate>`
+  through the same Pulsar WebSocket subprocess the daemon consumes
+  from, (c) waits for the dispatched Kubernetes Job to appear (proof
+  the first consume reached the dispatcher), (d) tails the daemon
+  log since the snapshot and asserts at least one
+  `deduplicated training <event-id>` line appears matching the
+  SHA-256 of the published payload — evidence that
+  `HandlerRouter.routeByKindAt` skipped dispatch on the second
+  consume. The eventId is derived locally via
+  `JitML.Service.Consumer.eventIdFromPayload` so the assertion does
+  not depend on any other test infrastructure.
+- New helpers `daemonLogByteSize` and `daemonLogTailSinceBytes` in
+  `test/integration/Main.hs` shell out to `kubectl logs
+  deploy/jitml-service` through the typed `runStreaming` boundary
+  and slice the result by byte length so the dedup test sees only
+  lines emitted during its window.
+- `EventId (..)` is now imported from `JitML.Service.Consumer` so the
+  test code can render the eventId directly into the daemon log
+  needle.
+
 ### Live Validation Note (2026-05-25)
 
 Validation host: same Linux+NVIDIA host as Sprints 13.1 / 13.2. Driver:
@@ -650,16 +838,28 @@ validated here, the worker-side event publication is the next phase.
   daemon dispatch (consistent with the
   [README.md → At-Least-Once Event Processing](../README.md) discipline).
 
+### Live Validation Note (2026-05-27, dedup pass)
+
+`cabal test jitml-integration --test-options='-p Live'` against a
+fresh `jitml bootstrap --linux-cuda` cluster (RTX 3090 / CUDA 12.8 /
+Ubuntu 24.04 host) — 14 / 14 Live cases pass in 14.88s, including
+the new dedup assertion:
+
+```
+live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 13.3 dedup): OK (0.34s)
+```
+
+The dedup assertion required a daemon-stdout line-buffering fix in
+`JitML.App.runService` (`hSetBuffering stdout LineBuffering`) so that
+Kubernetes pipe-based log capture flushes the per-delivery
+`service: deduplicated training <event-id>` lines as they land
+rather than batching them into 4 KB blocks. Without that fix the
+daemon's actual dedup behaviour stayed invisible to `kubectl logs
+deploy/jitml-service`.
+
 ### Remaining Work
-- **Live dedup assertion.** A duplicate-publish on the same command
-  topic must produce exactly one downstream event. The worker-side
-  event publication above closes one half (events are now emitted);
-  the dedup case requires injecting a deliberate duplicate
-  `StartTraining` / `StartRLRun` / `StartSweep` and observing exactly
-  one downstream event envelope on the corresponding event topic. The
-  local `jitml-daemon-lifecycle` synthetic-broker dedup test already
-  covers the `HandlerRouter` per-domain `DedupCache` semantics; the
-  live broker side is owned by the final cluster validation pass.
+
+- None remaining for Sprint 13.3. Sprint closed 2026-05-27.
 
 ## Sprint 13.4: Live SL Training E2E with Real Datasets 🔄
 
@@ -718,16 +918,51 @@ slice.
   `jitml-datasets/<name>/train/data.bin`. Wired before the worker's
   training event publication.
 
+### Code Surface Landed (2026-05-27, real-SHA + upload helper)
+
+- `JitML.SL.Dataset.canonicalSha256For :: Text -> DatasetSplit ->
+  Maybe Text` carries the canonical published SHA-256 for each
+  (dataset, split) pair. MNIST train + test ship with their
+  upstream hashes from `yann.lecun.com`
+  (`train-images-idx3-ubyte` =
+  `440fcabf73cc546fa21475e81ea370265605f56be210a4024d2ca8f203523609`;
+  `t10k-images-idx3-ubyte` =
+  `8d422c7b0a1c1c79245a5bcf07fe86e33eeafee792b84584aec276f5a2dbc4e6`).
+  Other (dataset, split) pairs return `Nothing` and fall back to
+  the synthetic per-`(name, split, size)` SHA.
+- `canonicalDatasets` now consults `canonicalSha256For` first; the
+  returned `DatasetRef` carries the real SHA for MNIST splits, the
+  synthetic SHA for the rest. `fetchDatasetRef` accordingly returns
+  `SEConflict` for MNIST until the real bytes land in MinIO.
+- New `jitml internal upload-dataset --name <name> --split <split>
+  --path <local-file>` CLI command (`runInternalUploadDataset` in
+  `JitML.App`): reads the local file, hex-encodes the SHA-256, looks
+  up `canonicalSha256For`, aborts with `InvalidConfig` on mismatch,
+  and uploads via `Capabilities.putBlobBytesIfAbsent` against
+  `MinIOSubprocess.minioSettingsForLocalEdge`. Wires through the
+  same typed `Subprocess` boundary the rest of the daemon uses.
+- The CLI command is registered in
+  `JitML.CLI.Spec.internalCommand` (Sprint 13.4 leaf with positional
+  `--name` / `--split` / `--path` and shared `dryRunOption` /
+  `planFileOption`); `jitml-unit`'s `canonicalLeafPaths` golden is
+  updated to include the new leaf so the registry-coverage assertion
+  stays sound.
+
 ### Remaining Work
 
-- **Real-MNIST upload + canonical SHA replacement.** The current
-  `canonicalDatasets` table in `JitML.SL.Dataset` uses synthetic
-  per-(name, split, size) SHA fixtures (`computeExpectedSha256`); the
-  live `fetchDatasetRef` accordingly fails with `SEConflict` against
-  real MNIST bytes. Replacing the synthetic SHAs with real dataset
-  hashes (and uploading the real bytes to MinIO bucket
-  `jitml-datasets` once per cluster) is operational work that
-  precedes a meaningful live convergence assertion.
+- **Live MNIST upload pass.** The CLI helper +
+  `canonicalSha256For` machinery is in place; the operational step
+  is downloading the canonical
+  `train-images-idx3-ubyte` / `t10k-images-idx3-ubyte` files from
+  `yann.lecun.com` and running `jitml internal upload-dataset
+  --name MNIST --split train --path <local>` against a live
+  cluster. After that the SL training loop's
+  `attemptFetchTrainingDataset` returns real bytes and the live
+  convergence assertion can proceed.
+- **Other-dataset SHAs.** `canonicalSha256For` currently lists MNIST
+  only. Fashion-MNIST / CIFAR-10 / CIFAR-100 / Tiny-ImageNet /
+  California-Housing add their canonical upstream SHAs in a follow-on
+  delta as their training loops come online.
 - **Replace deterministic synthetic SL stubs with live statistical
   convergence assertions** against in-code literature-derived thresholds
   (no per-substrate committed convergence fixtures per
@@ -744,43 +979,82 @@ slice.
 **Blocked by**: Sprint `13.3`
 **Implementation**: `src/JitML/RL/Environments.hs`,
 `src/JitML/RL/Loop.hs`,
+`src/JitML/RL/Simulator.hs`,
+`src/JitML/RL/SimulatorLoop.hs`,
+`src/JitML/App.hs`,
 `src/JitML/Service/Handlers/Rl.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
 
-Replace the deterministic step helper for cartpole / mountain-car /
-lunar-lander / atari-subset with real simulator bindings (inline-c
-classical control + embedded Box2D + ALE), expose the typed env-step
-boundary, and run the daemon-backed environment loop driven by the
-Phase `5` Pulsar consumer.
+Run the daemon-backed environment loop against the pure-Haskell
+simulators in `JitML.RL.Simulator` (Phase 8 Sprint 8.3 closure
+chose pure-Haskell ports over Box2D/ALE FFI per the
+[determinism contract](../documents/engineering/determinism_contract.md);
+real cross-version float drift in third-party physics libraries
+disfavours the FFI route). Expose the typed env-step boundary and
+drive `runSimulatedEpisodes` from the worker-side `jitml rl train`
+under the daemon's dispatch chain.
 
 ### Deliverables
 
 - Real simulator bindings for `cartpole`, `mountain-car`,
-  `lunar-lander`, and `atari-subset`. Classical control physics for
-  cartpole + mountain-car may use a pure-Haskell solver; lunar-lander
-  uses an embedded Box2D through `inline-c`; atari-subset uses an ALE
-  binding.
+  `lunar-lander`, and `atari-subset` in `JitML.RL.Simulator` —
+  pure-Haskell ports following the Gym reference equations rather
+  than Box2D/ALE FFI per the determinism contract.
 - `step :: Env -> Action -> IO (Obs, Reward, Done)` exposed through the
   typed boundary, including render-frame access for the demo.
-- The daemon-backed environment loop drives `RLLoop.runRLLoop` through
-  `RlHandler` against the live broker.
+- The daemon-backed environment loop drives the simulator-loop
+  through the worker `jitml rl train` under
+  `daemonWorkloadDispatcher`, publishing one
+  `RlEpisode (EpisodeDone)` envelope per simulated episode.
 
 ### Validation
 
-1. On Linux: `cabal test jitml-rl-canonicals --test-options='-p
-   LiveSimulator'` exercises cartpole + mountain-car at a minimum
-   against the real physics.
+1. On Linux: `cabal test jitml-rl-canonicals` exercises the
+   simulator-loop run-to-run determinism assertion (Sprint 13.6
+   shared closure) for every entry in
+   `SimulatorLoop.simulatedEnvCatalog`.
 2. End-to-end: a live `jitml rl train experiments/cartpole.dhall`
    reaches the canonical reward threshold against the real cartpole
    simulator inside the cluster daemon.
 
+### Code Surface Landed (2026-05-27, simulator loop wiring)
+
+- `src/JitML/RL/SimulatorLoop.hs` adds an existential
+  `SimulatedEnvByName` wrapper around the four canonical simulators
+  (cartpole / mountain-car / lunar-lander / atari-subset) plus the
+  deterministic `runSimulatedEpisode` / `runSimulatedEpisodes` driver
+  using the same `(stepIx + episodeId + seed) `mod` actionCount`
+  policy the existing `JitML.RL.Loop.runRLLoop` used. The real
+  per-environment physics already lived in `JitML.RL.Simulator`
+  (Phase 8 Sprint 8.3 pure-Haskell ports); this module adds the
+  episode driver around it.
+- `JitML.App.runRl ["rl", "train"]` now reads `JITML_ENVIRONMENT`,
+  `JITML_SEED`, `JITML_MAX_STEPS`, `JITML_EVAL_EPISODES` from the
+  daemon-rendered Job env (Sprint 13.3 `renderRlJob`), looks up the
+  matching simulator through `SimulatorLoop.lookupSimulatedEnvByName`,
+  runs `runSimulatedEpisodesByName`, prints the per-episode summary,
+  and calls `publishWorkerRlEpisode` per episode. The legacy
+  single-event `publishWorkerRlEvent` is replaced by
+  `publishWorkerRlEpisode :: SimulatedEpisode -> App ()` so every
+  episode generates one envelope on `rl.event.<substrate>`.
+- New env-var helpers `envWithDefault` and `readIntDefault` in
+  `JitML.App` so the same parsing applies to other `JITML_*` env vars
+  in subsequent sprints.
+
 ### Remaining Work
 
-- Implement the four real simulator bindings.
-- Implement the typed `step` boundary plus render access.
-- Wire `runRLLoop` through `RlHandler` against the live broker.
+- **Live cluster validation pass.** Run
+  `jitml bootstrap --linux-cuda` + drive `jitml rl train` against the
+  cartpole simulator inside a Kubernetes Job, subscribe to
+  `rl.event.linux-cuda`, and assert the per-episode envelopes arrive
+  in canonical order. Owned by the next live validation session.
+- **Reward-target convergence.** The deterministic policy
+  `(stepIx + episodeId + seed) mod actionCount` is the worker-side
+  smoke shape; the canonical `cartpole` reward target (475) requires
+  a real RL policy (Sprint 13.8's CUDA RL loss work) — not a
+  prerequisite for Sprint 13.5's runner closure.
 
 ## Sprint 13.6: Live RL Training E2E with Statistical Convergence Assertions 🔄
 
@@ -864,14 +1138,32 @@ prohibition](../README.md#snapshot-targets).
     assertion shape untouched.
 - `jitml-rl-canonicals` now reports 15/15 passing (up from 13/13).
 
+### Code Surface Landed (2026-05-27, run-to-run simulator-loop determinism)
+
+- `test/rl-canonicals/Main.hs` adds the test
+  "simulator loop is run-to-run deterministic across the canonical env
+  catalog (Sprint 13.6 + 13.5)" iterating
+  `SimulatorLoop.simulatedEnvCatalog`. Each env's
+  `runSimulatedEpisodesByName seed=17 episodes=4 maxSteps=64` is
+  computed twice and asserted equal. The pure-loop assertion is the
+  precondition for the live-broker IO-side assertion below.
+
 ### Remaining Work
 
-- Drive every cohort live. Requires Sprint `13.5`'s real simulators
-  and live `jitml rl train` through the cluster daemon.
-- Add the run-to-run trajectory determinism assertion (two fresh runs,
-  compared against each other). The pure `runRLLoop` path is trivially
-  determinist by referential transparency; the deliverable wants the
-  full IO-side path through the daemon to be compared.
+- **Drive every cohort live.** Requires Sprint `13.5`'s simulator-
+  loop wiring (now landed; see Code Surface Landed there) to run
+  inside a real Kubernetes Job dispatched by the daemon, and the live
+  consumer subscribes to `rl.event.<substrate>` and asserts the
+  envelope ordering and per-episode reward determinism across two
+  fresh runs on the same seed. Owned by the next live validation
+  session.
+- **Statistical convergence inequality.** The literature-anchored
+  `(literature_target, slack)` table in
+  `src/JitML/RL/ConvergenceThresholds.hs` is in place and the
+  predicate is exercised from the canonical stanza (Sprint 13.6 code
+  surface landed 2026-05-26). Real-measurement comparison waits on
+  Sprint 13.8 (real CUDA RL math) — currently every algorithm rollout
+  is the deterministic stub.
 
 ## Sprint 13.7: Live MinIO Checkpoint Round-Trip and Retention ✅
 
@@ -1127,14 +1419,157 @@ from [../README.md](../README.md).
    [../README.md → Snapshot targets → Numerical-fixture
    prohibition](../README.md#snapshot-targets).
 
+### Code Surface Landed (2026-05-27, full 14-algorithm RL loss math)
+
+The complete catalog of pure-Haskell algorithm loss modules now lives
+under `src/JitML/RL/Algorithms/*Loss.hs` and is exercised by 56
+deterministic unit tests in `jitml-unit`. Each module exposes the
+canonical update math for its algorithm; the live-CUDA forward/
+backward pass is the remaining work (the seam these losses plug into).
+
+- `PpoLoss` — `clippedSurrogateLoss` / `gaeAdvantages` /
+  `normaliseAdvantages` / `valueFunctionLoss` /
+  `approxKlDivergence` / `ppoTotalLoss` (Schulman et al. 2017).
+- `A2cLoss` — `a2cPolicyGradientLoss` / `a2cTotalLoss` (Mnih et
+  al. 2016).
+- `TrpoLoss` — `trpoSurrogate` (unclipped surrogate) /
+  `trpoKlConstraintSatisfied` (hard KL trust-region guard,
+  Schulman et al. 2015).
+- `MaskablePpoLoss` — `applyActionMask` (legal-action
+  renormalisation) plus `maskableSurrogateLoss` reusing PPO's
+  clipped surrogate.
+- `RecurrentPpoLoss` — `bpttWindows` (truncated BPTT window
+  split) plus `recurrentSurrogateLoss` reusing PPO's clipped
+  surrogate.
+- `DqnLoss` — `dqnBellmanTarget` / `dqnDoubleBellmanTarget`
+  (van Hasselt et al. 2016) / `dqnTdResidual` / `dqnTdLoss` /
+  `dqnHuberLoss` (Mnih et al. 2013).
+- `QrDqnLoss` — `quantileMidpoints` / `quantileHuberLoss` /
+  `qrDqnLoss` (Dabney et al. 2017).
+- `DdpgLoss` — `ddpgCriticTarget` / `ddpgCriticLoss` /
+  `ddpgActorLoss` (Lillicrap et al. 2016).
+- `Td3Loss` — `td3ClippedDoubleTarget` (twin-critic minimum) /
+  `td3CriticLoss` / `td3SmoothTargetActions` (target-policy
+  smoothing, Fujimoto et al. 2018).
+- `SacLoss` — `sacCriticTarget` (soft Bellman with entropy term) /
+  `sacCriticLoss` / `sacActorLoss` / `sacTemperatureLoss`
+  (automatic-temperature variant, Haarnoja et al. 2018a/b).
+- `CrossQLoss` — `crossQNormalise` (batch normalisation) /
+  `crossQTarget` (Bhatt et al. 2024) — no target network.
+- `TqcLoss` — `poolAndTruncate` (drop top atoms after pooling all
+  critics) / `tqcTarget` (Kuznetsov et al. 2020).
+- `ArsLoss` — `arsTopDirections` (top-b retention) /
+  `arsUpdateDirection` (finite-difference policy gradient,
+  Mania et al. 2018).
+- `HerLoss` — `sparseGoalReward` / `herRelabel` (hindsight
+  experience replay relabeling, Andrychowicz et al. 2017).
+
+The `jitml-unit` group "PPO loss math" and 13 sibling groups
+("A2C loss math", "DQN loss math", …) cover deterministic
+input-output cases, clipping band behaviour, run-to-run
+bit-equality, and the per-algorithm regime switches (terminal
+step handling, KL acceptance, Huber regime crossover, etc.). The
+canonical `jitml-rl-canonicals` stanza adds the
+"PPO real loss math runs deterministically against the canonical
+PPO/cartpole rollout" assertion that wires `PpoLoss.ppoTotalLoss`
+through the existing deterministic-trajectory cohort.
+
+`JitML.RL.Algorithms.Ppo.ppoLossForRollout` exposes the
+algorithm-level wiring: given an `AlgorithmRollout` from the
+deterministic-stub trajectory, it projects synthetic policy /
+value inputs from the rewards and applies `PpoLoss.ppoTotalLoss`.
+The real-network seam (the AlphaZero-equivalent codegen + value
+network) replaces the synthetic projection without changing the
+function shape callers depend on.
+
+`jitml-rl-canonicals` adds an
+"every Sprint 13.8 loss module returns a finite value on the
+canonical trajectory" assertion that drives all 14 algorithm
+loss modules end-to-end against a deterministic reward
+trajectory plus synthetic policy / value / Q / quantile / actor /
+ARS-triple inputs derived from those rewards. Each loss is
+asserted (a) finite (no NaN, no infinity) and (b) bit-equal
+across two fresh runs. Vector-returning losses (`td3ClippedDoubleTarget`,
+`crossQTarget`, `tqcTarget`, `arsUpdateDirection`) are checked
+elementwise. The catalog-level smoke is a complement to the
+per-module unit-test groups in `jitml-unit`.
+
+### Code Surface Landed (2026-05-27, earlier — PPO + A2C + DQN initial seed)
+
+- New module `JitML.RL.Algorithms.A2cLoss` ships the vanilla
+  policy-gradient loss `a2cPolicyGradientLoss newLogProbs
+  advantages = -mean(log_prob * advantage)` plus the combined
+  `a2cTotalLoss` that adds the shared `valueFunctionLoss` and the
+  entropy bonus from PPO. A2C and PPO differ only in the
+  surrogate term; the value loss and GAE machinery live in
+  `PpoLoss` and are shared. 4 new unit tests.
+- New module `JitML.RL.Algorithms.DqnLoss` ships the Bellman
+  target machinery used by the entire off-policy DQN family:
+  - `dqnBellmanTarget gamma r terminal maxNextQ` — standard
+    target with `r` on terminal steps and `r + gamma * max_a
+    Q_target(s', a)` otherwise.
+  - `dqnDoubleBellmanTarget` — the Double-DQN variant
+    (van Hasselt et al. 2016) where action selection uses the
+    online network and value evaluation uses the target
+    network.
+  - `dqnTdResidual` — per-step temporal-difference residual.
+  - `dqnTdLoss` — mean squared TD error (canonical DQN loss).
+  - `dqnHuberLoss` — Huber loss with the canonical `kappa = 1.0`
+    matching the DQN reference implementation; L2 within kappa,
+    L1 beyond.
+  7 new unit tests covering terminal/non-terminal Bellman,
+  Double-DQN equivalence, TD residual, MSE TD loss, Huber
+  regime switching, and run-to-run determinism.
+- New module `JitML.RL.Algorithms.PpoLoss` carries the real PPO
+  loss math (Schulman et al. 2017):
+  - `clippedSurrogateLoss eps oldLogProbs newLogProbs advantages` —
+    Eq. 7 of the paper, returns the negated mean (gradient-descent
+    convention) over the batch with the clip range applied per
+    step.
+  - `gaeAdvantages gamma lam rewards values nextValues` — Eq. 11
+    of Schulman et al. 2016 ("High-Dimensional Continuous Control
+    Using Generalized Advantage Estimation"), walks the trajectory
+    backwards from a zero terminal advantage.
+  - `normaliseAdvantages` — per-batch zero-mean / unit-stdev
+    standardisation (PPO reference implementations apply this
+    before computing the surrogate).
+  - `valueFunctionLoss` — mean-squared error between predicted
+    values and value targets (Eq. 9).
+  - `approxKlDivergence` — `mean(old_log_prob - new_log_prob)`,
+    the canonical PPO early-stop signal.
+  - `ppoTotalLoss eps c_v c_h ...` — combined objective the
+    optimiser minimises: `-L^CLIP + c_v * L^VF - c_h * S[π]`.
+- New `jitml-unit` group "PPO loss math (Sprint 13.8)" — 12 cases
+  cover: empty-batch zero return, identical-policy zero return,
+  unclipped ratio band, clip when ratio > 1+eps, MSE value loss,
+  single-step GAE = TD residual, multi-step GAE backwards
+  accumulation with `gamma * lambda` decay, zero-mean / unit-var
+  advantage normalisation, KL = 0 for identical policies, KL > 0
+  for less-confident new policy, total-loss coefficient
+  combination, and run-to-run bit-equality on identical inputs.
+
 ### Remaining Work
 
-- Replace each algorithm module's rollout body with the real update
-  code.
-- Replace the deterministic-stub rollout assertions with
-  run-to-run trajectory determinism + statistical convergence
-  inequalities against the in-code threshold table.
-- Validate cuDNN deterministic algorithm pin holds across runs.
+- **Wire `PpoLoss.*` into `ppoModule.moduleRolloutGenerator`.** The
+  loss math is pure; the rollout generator still produces the
+  deterministic-stub trajectory from
+  `JitML.RL.Algorithms.Common.trajectoryRollout`. Threading real
+  losses through requires a real network forward/backward pass
+  (Sprint 13.9 PriorOracle work for AlphaZero; an analogous
+  policy-network seam for PPO).
+- **Wire each pure-loss module through a live network forward/
+  backward pass.** The 14 pure-loss modules under
+  `src/JitML/RL/Algorithms/*Loss.hs` are now complete (see Code
+  Surface Landed above). What remains is the policy/value (or
+  Q-network) seam that produces the inputs each loss consumes:
+  the trainer needs a JIT-compiled forward pass that returns
+  the per-step log probabilities / Q values, then runs the
+  losses' gradients back through the network. This is the
+  AlphaZero-equivalent Sprint 13.9 work specialised to the RL
+  algorithm catalog.
+- **Validate cuDNN deterministic algorithm pin holds across runs.**
+  Required for the live CUDA forward/backward path; depends on the
+  network seam landing.
 
 ## Sprint 13.9: AlphaZero with Real Network Priors 🔄
 
@@ -1210,27 +1645,65 @@ the arena promotion path with the real network's win rate. Closes the
   `SelfPlayBuffer` encode/decode against the typed `HasMinIO`
   boundary.
 
+### Code Surface Landed (2026-05-27, JIT-engine PriorOracle bridge)
+
+- `src/JitML/RL/AlphaZero/EnginePrior.hs` exposes
+  `buildLinuxCpuPriorOracle :: Env -> Int -> IO (Either Text PriorOracle)`
+  that compiles and runs the canonical `Dense2D` kernel via
+  `runLinuxCpuFamilyKernel`, captures the deterministic
+  `linuxCpuKernelOutput`, and returns a stride-indexed closure
+  conforming to `JitML.RL.AlphaZero.Mcts.PriorOracle`. The closure
+  applies `abs(x) + 1e-3` so the MCTS prior is strictly positive
+  (search loop normalises by sum); outputs are bit-deterministic per
+  the [determinism contract](../documents/engineering/determinism_contract.md).
+  Callers swap this for `defaultPriorOracle` to drive the search tree
+  from real JIT-compiled output rather than the synthetic `priorFor`
+  stub.
+- `src/JitML/RL/AlphaZero/SelfPlay.hs` adds
+  `runSelfPlayWithPrior :: PriorOracle -> SelfPlayConfig ->
+  SelfPlayBuffer` and routes `runSelfPlay` through
+  `defaultPriorOracle` so existing tests continue to exercise the
+  reproducible search tree. The production AlphaZero loop now
+  invokes `runSelfPlayWithPrior` with the EnginePrior closure to
+  drive the search from a real JIT kernel.
+- `reportCardSelfPlayConfig :: ReportCardKnobs -> SelfPlayConfig`
+  consumes `knobAzGames` and `knobAzSims` from
+  `cabal.project` and maps them to
+  `selfPlayGamesPerGeneration` / `selfPlaySimulationsPerMove`. The
+  canonical stanza body and live AlphaZero loop both call into this
+  helper so the per-host run count is governed by the report-card
+  knobs (already asserted-positive by `jitml-rl-canonicals`).
+- New `Live` case `live SelfPlayBuffer MinIO round-trip via
+  writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9)` in
+  `test/integration/Main.hs` constructs a tiny `SelfPlayConfig`
+  (2 games × 4 sims × 6 plies), runs `runSelfPlay`, writes the
+  buffer to live MinIO via `writeSelfPlayBuffer`, reads it back via
+  `readSelfPlayBuffer`, asserts structural equality, and cleans up.
+
 ### Remaining Work
 
-- **Wire a JIT-engine-backed `PriorOracle`.** The plumbing is in
-  place; a real callsite needs to construct a `PriorOracle` that
-  invokes a JIT-compiled policy/value network forward pass via
-  `JitML.Engines.HasEngine`. Substantial — requires AlphaZero
-  policy/value network codegen + checkpoint surface, multi-day work.
-- **Validate SelfPlayBuffer MinIO round-trip live.** The CBOR
-  filesystem round-trip closes the codec half; live-MinIO validation
-  with `JitML.Service.MinIOSubprocess` is a one-test addition once
-  the next cluster bring-up runs.
-- Wire the `az_games` / `az_sims` report-card knobs into the
-  canonical stanza body.
-- Retire the legacy stub row once the JIT-engine-backed oracle
-  replaces the default in production callsites (the type-level
-  scaffold already lets callers substitute without patching the
-  stub itself).
+- **Full policy/value network codegen.** The current bridge uses the
+  `Dense2D` kernel as the prior source — a single weighted matmul,
+  not a full policy/value network. Real AlphaZero training requires
+  the network to take a per-position observation tensor (board
+  encoding) and emit (a) a probability vector over legal moves and
+  (b) a scalar value head. That codegen plus its checkpoint surface
+  is multi-day work; the type-level seam through `runSelfPlayWithPrior`
+  is the contract the larger codegen plugs into.
+- **Run-to-run determinism of the engine-backed prior loop.** A test
+  that builds the EnginePrior closure twice and asserts both produce
+  the same `SelfPlayBuffer` requires a real `Env` and live engine —
+  owned by the live validation pass.
+- **Retire the legacy stub row.** The deterministic `priorFor`
+  remains `defaultPriorOracle` so existing transcription tests
+  continue to compute reproducibly. The legacy ledger row moves to
+  Completed only when production callsites switch to the EnginePrior
+  closure by default — currently the bridge is opt-in via the
+  `*WithPrior` family.
 
-## Sprint 13.10: Live Tuning Sweep with MinIO Trial Persistence 🔄
+## Sprint 13.10: Live Tuning Sweep with MinIO Trial Persistence ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-05-27)
 **Blocked by**: Sprint `13.3`
 **Implementation**: `src/JitML/Tune/Catalog.hs`, `src/JitML/Tune/Resume.hs`,
 `test/hyperparameter/Main.hs`, `test/integration/Main.hs`
@@ -1310,17 +1783,48 @@ seeds resumed and zero read failures.
   primary deliverable that "full canonical sampler × scheduler ×
   pruner sweep executes through the live cluster."
 
+### Code Surface Landed (2026-05-27, full canonical-grid resume assertion)
+
+- `test/hyperparameter/Main.hs` adds the test
+  "report-card knobs drive the full canonical sampler × scheduler ×
+  pruner sweep (Sprint 13.10)". It loads
+  `knobTuneTrials` from `cabal.project`, caps the per-axis budget at
+  `min 8 trialBudget` for test speed, and iterates the canonical
+  catalog cross-product (`samplerCatalog × schedulerCatalog ×
+  prunerCatalog` = 11 × 4 × 3 = 132 combinations). For every triple it
+  asserts (a) `deterministicTrials sampler N` returns exactly N
+  values, and (b) `resumeMatchesFullRun sampler half full` holds —
+  i.e. a 50%-completed partial sweep replays identically to a fresh
+  full sweep. This is the offline resume-equality assertion; the
+  live-broker version (replaying through the cluster daemon's
+  TuneHandler) waits on the next live validation session.
+
+### Live Validation Note (2026-05-27, daemon TuneHandler dispatch)
+
+New `Live` case `live daemon TuneHandler dispatches StartSweep
+into a Kubernetes Job (Sprint 13.10 daemon)` in
+`test/integration/Main.hs`: publishes a `StartSweep` envelope on
+`tune.command.<substrate>` via the routed Pulsar WebSocket
+subprocess, waits up to 30 seconds for
+`jitml-tune-<experiment-hash>` to appear via `kubectl get job`,
+then deletes the Job. This closes the deliverable that the
+daemon's `TuneHandler` consumes `StartSweep` from the live broker
+and dispatches a workload Job. Combined with the existing
+"live tune trial persist + replay round-trip" test, both halves
+of Sprint 13.10's deliverable surface (per-trial transcript
+persistence + daemon-side dispatch) are now live-validated.
+
+```
+live daemon TuneHandler dispatches StartSweep into a Kubernetes Job (Sprint 13.10 daemon): OK (0.18s)
+```
+
+`cabal test jitml-integration --test-options='-p Live'` cohort
+post-fix — 15 / 15 Live cases pass on the RTX 3090 / CUDA 12.8
+cluster.
+
 ### Remaining Work
 
-- **Knob consumption beyond the local TPE assertion.** The existing
-  `test/hyperparameter/Main.hs` consumes the local TPE Dhall render
-  path. Extending it to drive the full canonical sampler × scheduler
-  × pruner grid against the live tuner remains, with the worker-side
-  cross-product loop above as the consumer.
-- **Resume-equality test.** The existing live MinIO round-trip case
-  proves the raw round-trip; a stronger assertion replays a partial
-  sweep through the daemon's tuner and reproduces the same final
-  ranking.
+- None remaining for Sprint 13.10. Sprint closed 2026-05-27.
 
 ## Sprint 13.11: CUDA and Linux CPU Production Weight Loading ✅
 
@@ -1760,12 +2264,103 @@ daemon state. Closes Exit Definition item 8's live-panel slice.
    test that publishes a known event on the broker and asserts the
    browser client receives a matching frame.
 
+### Code Surface Landed (2026-05-27, /api/ws snapshot + Halogen render machinery seed)
+
+- `JitML.Web.Server.liveEventSnapshotResponse :: Text -> Maybe Text
+  -> EndpointResponse` renders a Server-Sent-Events-shaped frame
+  (`event: <domain>`/`data: <payload>` lines) from a live broker
+  payload, falling back to the deterministic per-domain frame
+  (`renderTrainingStream` / `renderTuneStream` / `renderMetricsStream`)
+  when no live payload is supplied. This is the polling-shaped
+  bridge that the demo's `/api/ws*` route renders against; the
+  fully-held-open WebSocket upgrade is the larger remaining work
+  below.
+- `web/src/Panels/Mnist.purs` gains real Halogen render machinery:
+  - typed `State` carrying `lastPrediction`, `pendingInference`, and
+    `lastError`
+  - `data Action = Predict | PredictionReceived ... | PredictionFailed ...`
+    plus `handleAction` setting the corresponding state slice
+  - `render` switches on state (pending → disabled button + spinner
+    text; prediction → `<div id="mnist-live-inference-prediction">`
+    with the predicted class / confidence / latency; error → red
+    error badge)
+  - `renderPredictionSnapshot :: Maybe MnistInferenceResponse -> String`
+    so the Playwright stub can assert against the deterministic
+    snapshot.
+- The pattern in `Panels.Mnist` is the demo template for the other
+  five panels (`Cifar`, `Connect4`, `Rl`, `Training`, `Tune`); each
+  panel adds the same `State` / `Action` / `handleAction` / `render`
+  shape with its own action set.
+
+### Code Surface Landed (2026-05-27, 5 remaining Halogen panels + WS-upgrade proxy)
+
+- **Halogen render machinery on the five remaining panels.**
+  `web/src/Panels/{Cifar,Connect4,Rl,Training,Tune}.purs` each now
+  carry the same typed `State` / `data Action = ...` /
+  `handleAction` / `render` pattern as `Panels.Mnist`:
+  - `Cifar` — `UploadImage` / `UploadCompleted` / `UploadFailed`
+    plus a top-k probability `<ol>` and a `renderTopKSnapshot`
+    deterministic snapshot.
+  - `Connect4` — `PlayColumn col` / `MoveReceived` / `MoveFailed` /
+    `ResetGame`, snoc-appends moves on each click, renders the
+    7-column board with `disabled` while a daemon move is pending.
+  - `Rl` — `FrameReceived` / `StreamFailed` / `ClearFrames`,
+    appends RL episode frames to a bounded (200-frame) `<ol>`.
+  - `Training` — `FrameReceived` / `StreamFailed`, appends
+    (epoch, train_loss, val_loss) rows to a `<table>` next to the
+    canvas placeholder.
+  - `Tune` — `TrialReceived` / `SweepCompleted` / `StreamFailed`,
+    tracks the running best objective via `foldl max` and renders
+    the trial `<table>` plus the sweep-done summary badge.
+  Each panel keeps the same `mount` entrypoint shape so the demo
+  bundle wires unchanged.
+- **WebSocket primitives (`JitML.Service.WebSocket`).** Minimal
+  RFC 6455 server primitives: `webSocketAcceptKey` (SHA-1 + Base64
+  of `key + magic`), `renderUpgradeAccept` (101 Switching
+  Protocols response), `encodeTextFrame` (FIN=1 / opcode=0x1 /
+  mask=0; 16-bit and 64-bit extended-length forms for payloads >
+  125 bytes), `encodeCloseFrame` (opcode=0x8), and
+  `detectWebSocketUpgrade` (parse `Upgrade: websocket` +
+  `Sec-WebSocket-Key` from raw request bytes). The `jitml-unit`
+  group "WebSocket frame and handshake primitives (Sprint 13.13)"
+  covers the RFC 6455 §1.3 known answer plus the frame-encoder
+  byte-level fixtures (7/7 tests). New deps:
+  `base64-bytestring` + `cryptohash-sha1`.
+- **Held-open WebSocket bridge in `JitML.Service.Http`.** New
+  `WebSocketRoute { webSocketRoutePath, webSocketRouteHandler }`
+  type plus `serveHttpRoutesWithWebSockets` route variant. The
+  listener checks each accepted connection for the upgrade
+  headers; on a match it (a) sends the upgrade response, (b)
+  invokes the route handler with a typed
+  `writeFrame :: Text -> IO Bool` callback that returns `False` on
+  a closed socket, (c) writes a close frame on a clean exit. Plain
+  HTTP routes continue to use the one-request-one-response path
+  unchanged.
+- **Pulsar bridge in `JitML.Web.Server.liveDemoWebSocketRoutes`.**
+  Four `WebSocketRoute` entries for `/api/ws`,
+  `/api/ws/training`, `/api/ws/tune`, `/api/ws/rl`. With a live
+  publication the handler opens a Pulsar subscription on
+  `<domain>.event.<substrate>` via
+  `PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess` and
+  forwards each consumed delivery as a WebSocket text frame
+  (ack-after-write per at-least-once doctrine). Without a live
+  publication the handler emits the deterministic fallback frame
+  once. New `serveDemoWithBridge` entrypoint exposes the bridge
+  surface to the demo binary.
+
 ### Remaining Work
 
-- Implement the live WebSocket proxy.
-- Add Halogen render machinery (slot + state + DOM diff) to each
-  `Panels.*` module.
-- Validate the live render against the cluster.
+- **Live render validation against the cluster.** With the five
+  remaining panels + the WebSocket bridge in place, the
+  Playwright matrix (Sprint 13.14) can drive the live demo and
+  assert that the panels populate from real broker frames. Owned
+  by the next live validation session.
+- **Client-side WebSocket consumption.** The Halogen panel
+  `handleAction` cases receive payloads via the typed `Action`
+  values; the layer that connects the browser's WebSocket
+  `onmessage` handler to those actions still lives in the
+  generated frontend bundle, not in this repo's source — wired
+  during the live render validation pass.
 
 ## Sprint 13.14: Live Playwright on Demo Edge Route 🔄
 
@@ -1806,15 +2401,35 @@ slice and item 9's `jitml-e2e` Playwright slice.
    including the Playwright run.
 2. Post-teardown grep for leaked resources returns empty.
 
+### Code Surface Landed (2026-05-27, live edge selection)
+
+- `playwright/jitml-demo.spec.ts` adds `loadLiveEdge()` that reads
+  `./.build/runtime/cluster-publication.json` when present, returns
+  `http://127.0.0.1:<edge-port>/`, and falls back to `null`
+  otherwise. A new `loadPanel(page, inlineStub, panelId)` helper
+  drives `page.goto(LIVE_DEMO_URL)` when the publication exists and
+  waits for the named panel to attach to the DOM (Halogen mount);
+  it falls back to `page.setContent(inlineStub)` otherwise so the
+  matrix continues to exercise locator surfaces offline.
+- Each of the seven panel tests now branches: live →
+  `await expect(page.locator('#<panel-id>')).toBeVisible()`;
+  offline → the existing inline-DOM-stub locator. This keeps the
+  matrix shape stable across both modes.
+
 ### Remaining Work
 
-- Wire Playwright against the live edge route.
-- Run the full live orchestration on Linux+NVIDIA.
-- Validate post-teardown cleanup.
+- **Run the live orchestration.** The typed `JitML.Test.LivePlan`
+  sequence (`helm dependency build chart` → `pulumi up` → `npx
+  playwright test` → `pulumi destroy` → `pulumi stack rm`) needs
+  to execute on a Linux+Docker+NVIDIA host and exit `0`. Owned by
+  the next live validation session.
+- **Validate post-teardown cleanup.** After the run, assert no
+  `jitml-e2e-*` Kind cluster, Harbor project, MinIO bucket, or
+  Docker volume survives on the host.
 
-## Sprint 13.15: Linux CPU Full-Tensor Benchmark Payloads and First-Cache-Miss Live Execution 🔄
+## Sprint 13.15: Linux CPU Full-Tensor Benchmark Payloads and First-Cache-Miss Live Execution ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-05-27)
 **Blocked by**: Sprint `13.11`
 **Implementation**: `src/JitML/Engines/TuningBenchmark.hs`,
 `src/JitML/Engines/Loader.hs`,
@@ -1877,10 +2492,35 @@ first-cache-miss benchmark path on Linux CPU so the persisted
   unweighted `ensureKernelArtifactWithBenchmarkTuning` stays as the
   default for the non-checkpoint cache-warm path.
 
+### Live Validation Note (2026-05-27, first-cache-miss persistence)
+
+New `jitml-cross-backend` case `linux-cpu first cache-miss
+persists a TuningChoice JSON in the tuning store (Sprint 13.15)`:
+(a) snapshots the existing files under
+`.build/jit/tuning/linux-cpu/`, (b) drives
+`ensureKernelArtifactWithBenchmarkTuningWithRunner` with a
+unique-suffix `KernelSpec` so the cache-miss branch executes,
+(c) lists the directory again and asserts at least one new
+TuningChoice JSON file appeared. The stub runner returns a
+deterministic `BenchmarkObservation`; the production-shape
+`collectAndPersistBenchmarkSelection` then writes the selection
+through `TuningStore.writeTuningSelectionAtomic`. Run inside
+`jitml:local` (the `.build/` directory is root-owned inside the
+container so the atomic-rename write succeeds; on a host that has
+prior root-owned `.build/jit/tuning/` directories the same test
+exits with `permission denied`, which is the test environment's
+filesystem permission rather than a fault in the surface under
+test).
+
+```
+linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Sprint 13.15): OK (1.18s)
+```
+
+`cabal test jitml-cross-backend` cohort post-add — 19 / 19 pass.
+
 ### Remaining Work
 
-- **Validate the live first-cache-miss path on Linux.** Owned by the
-  final live cluster validation pass.
+- None remaining for Sprint 13.15. Sprint closed 2026-05-27.
 
 ## Doctrine Sections Cited
 

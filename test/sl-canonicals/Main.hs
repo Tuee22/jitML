@@ -3,6 +3,7 @@
 module Main where
 
 import Control.Monad.Reader (runReaderT)
+import Data.Maybe qualified
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import System.IO.Temp (withSystemTempDirectory)
@@ -26,6 +27,7 @@ import JitML.Proto.Training
   , renderTrainingCommand
   )
 import JitML.SL.Canonicals (canonicalProblems, convergenceCurve, finalLoss, problemName)
+import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Dataset
   ( datasetFixtureBytes
   , datasetForProblem
@@ -34,6 +36,7 @@ import JitML.SL.Dataset
   , fetchDatasetRef
   , fetchedSha256
   )
+import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.Train (defaultTrainingConfig, resultConverged, train)
 import JitML.Service.Capabilities (HasMinIO (..))
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
@@ -99,8 +102,17 @@ main =
             canonicalProblems
       , testCase "dataset refs fetch and SHA-verify through HasMinIO" $
           withSystemTempDirectory "jitml-sl-dataset" $ \dir ->
-            case canonicalProblems of
-              problem : _ ->
+            -- Sprint 13.4 — the round-trip test runs against a problem
+            -- whose dataset still uses the synthetic per-(name, split,
+            -- size) SHA. MNIST now carries the canonical upstream SHA
+            -- (`Dataset.canonicalSha256For`) so synthetic bytes no
+            -- longer hash to its `datasetExpectedSha256`. The first
+            -- problem without a canonical SHA in the catalog drives the
+            -- assertion; MNIST's live MinIO round-trip is exercised by
+            -- the `jitml internal upload-dataset` CLI path against a
+            -- real-byte payload.
+            case firstSyntheticProblem of
+              Just problem ->
                 case datasetForProblem problem of
                   Nothing -> assertFailure "expected canonical dataset ref"
                   Just ref -> do
@@ -115,7 +127,7 @@ main =
                       Left err -> assertFailure ("dataset fetch failed: " <> show err)
                       Right fetched ->
                         fetchedSha256 fetched @?= datasetRefHash ref
-              [] -> assertFailure "missing canonical problems"
+              Nothing -> assertFailure "expected at least one canonical problem with synthetic SHA"
       , testCase "sl-canonicals consumes cabal.project sl_epochs and sl_batch knobs" $ do
           loaded <- loadReportCardKnobs "cabal.project"
           case loaded of
@@ -191,3 +203,24 @@ main =
           decodeTrainingEventProto (encodeTrainingEventProto checkpoint) @?= Right checkpoint
           decodeTrainingEventProto (encodeTrainingEventProto failure) @?= Right failure
       ]
+
+-- | The first canonical problem whose dataset does not have a
+-- published canonical SHA in 'Dataset.canonicalSha256For'. Such a
+-- problem's `datasetFixtureBytes` still hashes to its synthetic
+-- `datasetExpectedSha256`, so the filesystem-backed MinIO round-trip
+-- test can exercise the full encode/verify path without real bytes.
+firstSyntheticProblem :: Maybe SL.CanonicalProblem
+firstSyntheticProblem =
+  case filter usesSyntheticSha canonicalProblems of
+    p : _ -> Just p
+    [] -> Nothing
+ where
+  usesSyntheticSha problem =
+    case datasetForProblem problem of
+      Just ref ->
+        Data.Maybe.isNothing
+          ( Dataset.canonicalSha256For
+              (Dataset.datasetName ref)
+              (Dataset.datasetSplit ref)
+          )
+      Nothing -> False

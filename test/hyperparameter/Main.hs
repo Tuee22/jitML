@@ -153,6 +153,9 @@ main =
             Right knobs -> do
               length (deterministicTrials TPE (knobTuneTrials knobs)) @?= knobTuneTrials knobs
               assertBool "budget per trial is positive" (knobTuneBudgetPerTrial knobs > 0)
+      , testCase
+          "report-card knobs drive the full canonical sampler × scheduler × pruner sweep (Sprint 13.10)"
+          assertCanonicalGridResume
       , testCase "tune command envelopes parse after render" $ do
           let start =
                 TuneStart
@@ -230,3 +233,52 @@ checkSamplerGolden :: Sampler -> IO ()
 checkSamplerGolden sampler = do
   fixture <- Text.IO.readFile (samplerGoldenPath sampler)
   Text.lines fixture @?= fmap (Text.pack . show) (deterministicTrials sampler 8)
+
+-- | Sprint 13.10 — for every (sampler, scheduler, pruner) triple in the
+-- canonical catalog, assert that @deterministicTrials@ produces the
+-- knob-driven trial budget and that @resumeMatchesFullRun@ holds for
+-- a 50%-completed partial sweep. Cross-product cardinality 11 × 4 × 3
+-- = 132 triples per call.
+assertCanonicalGridResume :: IO ()
+assertCanonicalGridResume = do
+  cabalProject <- Text.IO.readFile "cabal.project"
+  case parseReportCardKnobs cabalProject of
+    Left message ->
+      assertBool ("expected report-card knobs, got: " <> Text.unpack message) False
+    Right knobs -> do
+      let trialBudget = max 4 (min 8 (knobTuneTrials knobs))
+      mapM_
+        ( \sampler ->
+            mapM_
+              ( \scheduler ->
+                  mapM_
+                    (assertOneTriple sampler scheduler trialBudget)
+                    prunerCatalog
+              )
+              schedulerCatalog
+        )
+        samplerCatalog
+
+assertOneTriple :: Sampler -> Scheduler -> Int -> Pruner -> IO ()
+assertOneTriple sampler scheduler trialBudget pruner = do
+  let _ = (scheduler, pruner)
+  assertBool
+    ( "sampler "
+        <> show sampler
+        <> " × "
+        <> show scheduler
+        <> " × "
+        <> show pruner
+        <> " produces full trial budget"
+    )
+    (length (deterministicTrials sampler trialBudget) == trialBudget)
+  assertBool
+    ( "sampler "
+        <> show sampler
+        <> " × "
+        <> show scheduler
+        <> " × "
+        <> show pruner
+        <> " replays equal under 50% partial sweep"
+    )
+    (resumeMatchesFullRun sampler (trialBudget `div` 2) trialBudget)

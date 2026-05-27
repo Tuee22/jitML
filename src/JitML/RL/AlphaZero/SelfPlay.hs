@@ -14,7 +14,9 @@ module JitML.RL.AlphaZero.SelfPlay
   , defaultSelfPlayConfig
   , emptyBuffer
   , readSelfPlayBuffer
+  , reportCardSelfPlayConfig
   , runSelfPlay
+  , runSelfPlayWithPrior
   , writeSelfPlayBuffer
   )
 where
@@ -31,7 +33,14 @@ import Data.Word (Word8)
 import GHC.Generics (Generic)
 
 import JitML.RL.AlphaZero (GameState (..), applyMove, initialConnect4)
-import JitML.RL.AlphaZero.Mcts (MctsConfig (..), defaultMctsConfig, runSearch, selectAction)
+import JitML.RL.AlphaZero.Mcts
+  ( MctsConfig (..)
+  , PriorOracle
+  , defaultMctsConfig
+  , defaultPriorOracle
+  , runSearchWithPrior
+  , selectAction
+  )
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ETag
@@ -40,6 +49,7 @@ import JitML.Service.Capabilities
   , ObjectRef (..)
   )
 import JitML.Service.Retry (ServiceError)
+import JitML.Test.Report (ReportCardKnobs (knobAzGames, knobAzSims))
 
 data SelfPlayConfig = SelfPlayConfig
   { selfPlayGamesPerGeneration :: Int
@@ -108,14 +118,34 @@ hashHex =
     ]
 
 runSelfPlay :: SelfPlayConfig -> SelfPlayBuffer
-runSelfPlay config =
+runSelfPlay = runSelfPlayWithPrior defaultPriorOracle
+
+-- | Sprint 13.9 — run self-play with a caller-supplied prior oracle. The
+-- production AlphaZero loop passes
+-- 'JitML.RL.AlphaZero.EnginePrior.buildLinuxCpuPriorOracle' here so the
+-- search tree's prior input comes from a real JIT-compiled forward pass
+-- rather than the deterministic stub.
+runSelfPlayWithPrior :: PriorOracle -> SelfPlayConfig -> SelfPlayBuffer
+runSelfPlayWithPrior oracle config =
   SelfPlayBuffer
-    [ playOneGame config gameId
+    [ playOneGame oracle config gameId
     | gameId <- [0 .. selfPlayGamesPerGeneration config - 1]
     ]
 
-playOneGame :: SelfPlayConfig -> Int -> SelfPlayGame
-playOneGame config gameId =
+-- | Sprint 13.9 — construct a 'SelfPlayConfig' from the @az_games@ /
+-- @az_sims@ knobs declared in @cabal.project@ (read via
+-- 'JitML.Test.Report.loadReportCardKnobs'). The canonical stanza body
+-- consumes this to drive the live self-play loop with the same counts
+-- the report-card declares.
+reportCardSelfPlayConfig :: ReportCardKnobs -> SelfPlayConfig
+reportCardSelfPlayConfig knobs =
+  defaultSelfPlayConfig
+    { selfPlayGamesPerGeneration = max 1 (knobAzGames knobs)
+    , selfPlaySimulationsPerMove = max 1 (knobAzSims knobs)
+    }
+
+playOneGame :: PriorOracle -> SelfPlayConfig -> Int -> SelfPlayGame
+playOneGame oracle config gameId =
   let seed = selfPlaySeed config + gameId
       mctsCfg =
         (defaultMctsConfig (selfPlayActionSpace config))
@@ -124,7 +154,7 @@ playOneGame config gameId =
       step state ply
         | ply >= selfPlayMaxPlies config = (state, ply)
         | otherwise =
-            let tree = runSearch mctsCfg (seed + ply)
+            let tree = runSearchWithPrior oracle mctsCfg (seed + ply)
              in case selectAction mctsCfg tree of
                   Nothing -> (state, ply)
                   Just action ->

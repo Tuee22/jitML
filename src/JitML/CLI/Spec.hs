@@ -545,6 +545,20 @@ internalCommand =
         []
         [Example "jitml internal list-prereqs" "List prerequisite checks."]
     , leaf
+        "upload-dataset"
+        "Upload a real dataset blob to MinIO."
+        "Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/data.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalSha256For`; mismatches abort the upload."
+        [ value "name" Nothing "name" False "Dataset name (e.g., MNIST)."
+        , value "split" Nothing "split" False "Dataset split (train/validation/test)."
+        , value "path" Nothing "path" False "Local file path to upload."
+        , dryRunOption
+        , planFileOption
+        ]
+        [ Example
+            "jitml internal upload-dataset --name MNIST --split train --path /tmp/train-images-idx3-ubyte"
+            "Upload the canonical MNIST training images to the live MinIO bucket."
+        ]
+    , leaf
         "gc"
         "Apply checkpoint retention."
         "Reconciles the experiment retention policy against the checkpoint store."

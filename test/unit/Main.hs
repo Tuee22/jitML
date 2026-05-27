@@ -121,6 +121,20 @@ import JitML.Prerequisite.Registry
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.RL.Algorithms qualified as RLAlgorithms
+import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
+import JitML.RL.Algorithms.ArsLoss qualified as ArsLoss
+import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
+import JitML.RL.Algorithms.DdpgLoss qualified as DdpgLoss
+import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
+import JitML.RL.Algorithms.HerLoss qualified as HerLoss
+import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
+import JitML.RL.Algorithms.PpoLoss qualified as PpoLoss
+import JitML.RL.Algorithms.QrDqnLoss qualified as QrDqnLoss
+import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
+import JitML.RL.Algorithms.SacLoss qualified as SacLoss
+import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
+import JitML.RL.Algorithms.TqcLoss qualified as TqcLoss
+import JitML.RL.Algorithms.TrpoLoss qualified as TrpoLoss
 import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.Mcts qualified as Mcts
 import JitML.RL.AsyncBuffer qualified as AsyncBuffer
@@ -133,6 +147,7 @@ import JitML.RL.Simulator qualified as Sim
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.HotReload qualified as HotReload
 import JitML.Service.LiveConfig qualified as LiveConfig
+import JitML.Service.WebSocket qualified as WS
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
@@ -1833,7 +1848,7 @@ main =
               uniformPriors = map Mcts.edgePrior (Mcts.nodeChildren uniformTree)
           assertBool
             "default oracle does not produce uniform priors"
-            (length (filter (\p -> abs (p - 0.25) > 0.001) defaultPriors) > 0)
+            (any (\p -> abs (p - 0.25) > 0.001) defaultPriors)
           assertBool
             "uniform oracle produces uniform priors"
             (all (\p -> abs (p - 0.25) < 0.001) uniformPriors)
@@ -2177,6 +2192,374 @@ main =
               ProtoGc.parseGcReapedEvent (ProtoGc.renderGcReapedEvent envelope)
                 @?= Just envelope
           ]
+      , -- Sprint 13.13 — minimal RFC 6455 WebSocket primitives.
+        testGroup
+          "WebSocket frame and handshake primitives (Sprint 13.13)"
+          [ testCase "Sec-WebSocket-Accept matches the RFC 6455 example" $
+              -- RFC 6455 §1.3 worked example: key "dGhlIHNhbXBsZSBub25jZQ=="
+              -- must produce accept "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=".
+              WS.webSocketAcceptKey "dGhlIHNhbXBsZSBub25jZQ=="
+                @?= "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+          , testCase "detectWebSocketUpgrade derives the accept key from a real request" $
+              case WS.detectWebSocketUpgrade
+                ( "GET /api/ws HTTP/1.1\r\n"
+                    <> "Host: 127.0.0.1\r\n"
+                    <> "Upgrade: websocket\r\n"
+                    <> "Connection: Upgrade\r\n"
+                    <> "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                    <> "Sec-WebSocket-Version: 13\r\n\r\n"
+                ) of
+                WS.UpgradeAccepted accept ->
+                  accept @?= "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+                WS.NoUpgrade ->
+                  assertFailure "expected WebSocket upgrade detection"
+          , testCase "detectWebSocketUpgrade ignores plain HTTP requests" $
+              WS.detectWebSocketUpgrade
+                "GET /api HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+                @?= WS.NoUpgrade
+          , testCase "encodeTextFrame writes a 1-frame text payload (≤125 bytes)" $
+              -- "hello" (5 bytes) → 0x81 0x05 'h' 'e' 'l' 'l' 'o'.
+              WS.encodeTextFrame "hello"
+                @?= StrictByteString.pack
+                  [0x81, 0x05, 0x68, 0x65, 0x6C, 0x6C, 0x6F]
+          , testCase "encodeTextFrame uses the 16-bit extended length form for 126..65535 byte payloads" $
+              let payload = Text.replicate 200 "x"
+                  encoded = WS.encodeTextFrame payload
+               in do
+                    StrictByteString.index encoded 0 @?= 0x81
+                    StrictByteString.index encoded 1 @?= 126
+                    -- bytes 2..3 carry big-endian 200 = 0x00C8.
+                    StrictByteString.index encoded 2 @?= 0x00
+                    StrictByteString.index encoded 3 @?= 0xC8
+          , testCase "encodeCloseFrame writes opcode 0x8 with no payload" $
+              WS.encodeCloseFrame @?= StrictByteString.pack [0x88, 0x00]
+          , testCase "renderUpgradeAccept emits the canonical 101 Switching Protocols response" $
+              WS.renderUpgradeAccept "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+                @?= "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+          ]
+      , -- Sprint 13.8 — PPO real-loss math (clipped surrogate, value
+        -- loss, GAE, KL early stop). The other 13 algorithms keep the
+        -- deterministic-stub rollout until their loss modules land.
+        testGroup
+          "PPO loss math (Sprint 13.8)"
+          [ testCase "clippedSurrogateLoss returns 0 on empty batch" $
+              PpoLoss.clippedSurrogateLoss 0.2 [] [] [] @?= 0.0
+          , testCase "clippedSurrogateLoss with identical policies and zero advantage is 0" $
+              PpoLoss.clippedSurrogateLoss
+                0.2
+                [0.0, 0.0, 0.0]
+                [0.0, 0.0, 0.0]
+                [0.0, 0.0, 0.0]
+                @?= 0.0
+          , testCase "clippedSurrogateLoss returns negated unclipped objective when ratio stays in band" $
+              let
+                -- ratio = exp(0) = 1.0, advantage = 1.0, term = 1.0
+                result =
+                  PpoLoss.clippedSurrogateLoss
+                    0.2
+                    [0.0, 0.0]
+                    [0.0, 0.0]
+                    [1.0, 1.0]
+               in
+                result @?= negate 1.0
+          , testCase "clippedSurrogateLoss clips ratio above 1 + eps when advantage positive" $
+              let
+                -- new=log(2), old=0, ratio=2.0 > 1+eps=1.2; clipped to 1.2.
+                -- min(2*1, 1.2*1) = 1.2 → loss = -1.2.
+                result =
+                  PpoLoss.clippedSurrogateLoss 0.2 [0.0] [log 2.0] [1.0]
+               in
+                abs (result - (-1.2)) < 1.0e-9 @?= True
+          , testCase "valueFunctionLoss is mean squared error" $
+              -- ((1-0)^2 + (2-0)^2 + (0-3)^2) / 3 = (1+4+9)/3 = 14/3
+              let result = PpoLoss.valueFunctionLoss [1.0, 2.0, 0.0] [0.0, 0.0, 3.0]
+               in abs (result - 14.0 / 3.0) < 1.0e-9 @?= True
+          , testCase "gaeAdvantages on a single-step trajectory equals the TD residual" $
+              -- delta = r + gamma*nv - v = 1 + 0.99*0 - 0 = 1
+              -- A = delta + 0 = 1
+              PpoLoss.gaeAdvantages 0.99 0.95 [1.0] [0.0] [0.0]
+                @?= [1.0]
+          , testCase "gaeAdvantages accumulates backwards with gamma*lambda decay" $
+              -- deltas = [d0=1+0.99*0-0=1, d1=1+0.99*0-0=1]
+              -- A1 = d1 + 0 = 1
+              -- A0 = d0 + gamma*lambda*A1 = 1 + 0.99*0.95*1 = 1.9405
+              case PpoLoss.gaeAdvantages 0.99 0.95 [1.0, 1.0] [0.0, 0.0] [0.0, 0.0] of
+                [a0, a1] ->
+                  (abs (a0 - 1.9405) < 1.0e-9, abs (a1 - 1.0) < 1.0e-9) @?= (True, True)
+                other -> assertFailure ("expected 2 advantages, got: " <> show other)
+          , testCase "normaliseAdvantages produces zero-mean unit-stdev output" $
+              let xs = [1.0, 2.0, 3.0, 4.0, 5.0]
+                  normalised = PpoLoss.normaliseAdvantages xs
+                  meanZ = sum normalised / fromIntegral (length normalised)
+                  sqDev z = (z - meanZ) * (z - meanZ)
+                  varZ = sum (fmap sqDev normalised) / fromIntegral (length normalised)
+               in (abs meanZ < 1.0e-6, abs (varZ - 1.0) < 1.0e-6) @?= (True, True)
+          , testCase "approxKlDivergence is zero when policies coincide" $
+              PpoLoss.approxKlDivergence [0.0, 0.0] [0.0, 0.0] @?= 0.0
+          , testCase "approxKlDivergence is positive when new policy is less confident" $
+              -- new = -1 (less confident), old = 0; KL ≈ mean(old - new) = 1.0
+              PpoLoss.approxKlDivergence [0.0, 0.0] [-1.0, -1.0] @?= 1.0
+          , testCase "ppoTotalLoss combines surrogate + value + entropy with the configured coefficients" $
+              -- surrogate = -1.0 (from identical-policy + adv=1 case)
+              -- value loss = 1.0 (predicted=0, target=1)
+              -- entropy = 1.0
+              -- total = -1.0 + 0.5*1.0 - 0.01*1.0 = -1 + 0.5 - 0.01 = -0.51
+              let result =
+                    PpoLoss.ppoTotalLoss 0.2 0.5 0.01 [0.0] [0.0] [1.0] [0.0] [1.0] 1.0
+               in abs (result - (-0.51)) < 1.0e-9 @?= True
+          , testCase "ppoTotalLoss is run-to-run deterministic on identical inputs" $
+              let first = PpoLoss.ppoTotalLoss 0.2 0.5 0.01 [0.0, 0.1] [0.0, 0.1] [1.0, 0.5] [0.0, 0.0] [1.0, 1.0] 0.5
+                  second = PpoLoss.ppoTotalLoss 0.2 0.5 0.01 [0.0, 0.1] [0.0, 0.1] [1.0, 0.5] [0.0, 0.0] [1.0, 1.0] 0.5
+               in first @?= second
+          ]
+      , -- Sprint 13.8 — A2C real loss math.
+        testGroup
+          "A2C loss math (Sprint 13.8)"
+          [ testCase "a2cPolicyGradientLoss returns 0 on empty batch" $
+              A2cLoss.a2cPolicyGradientLoss [] [] @?= 0.0
+          , testCase "a2cPolicyGradientLoss is mean(-log_prob * advantage)" $
+              -- log_probs = [-1, -2], advantages = [1.0, 2.0]
+              -- term = [-1, -4], mean = -5/2 = -2.5
+              -- loss = -mean = 2.5
+              A2cLoss.a2cPolicyGradientLoss [-1.0, -2.0] [1.0, 2.0] @?= 2.5
+          , testCase "a2cTotalLoss combines policy gradient + value + entropy" $
+              -- pg = 2.5 (from above)
+              -- vf = ((0-1)^2 + (0-1)^2) / 2 = 1.0
+              -- entropy = 1.0
+              -- total = 2.5 + 0.5*1.0 - 0.01*1.0 = 2.99
+              let result = A2cLoss.a2cTotalLoss 0.5 0.01 [-1.0, -2.0] [1.0, 2.0] [0.0, 0.0] [1.0, 1.0] 1.0
+               in abs (result - 2.99) < 1.0e-9 @?= True
+          , testCase "a2cTotalLoss is run-to-run deterministic" $
+              let first = A2cLoss.a2cTotalLoss 0.5 0.01 [-1.0, -0.5] [1.0, 0.5] [0.0, 0.5] [1.0, 1.0] 0.5
+                  second = A2cLoss.a2cTotalLoss 0.5 0.01 [-1.0, -0.5] [1.0, 0.5] [0.0, 0.5] [1.0, 1.0] 0.5
+               in first @?= second
+          ]
+      , -- Sprint 13.8 — DQN real loss math.
+        testGroup
+          "DQN loss math (Sprint 13.8)"
+          [ testCase "dqnBellmanTarget passes through reward on terminal step" $
+              DqnLoss.dqnBellmanTarget 0.99 1.0 True 5.0 @?= 1.0
+          , testCase "dqnBellmanTarget adds discounted maxQ on non-terminal step" $
+              -- r + gamma * maxNext = 1.0 + 0.99 * 5.0 = 5.95
+              DqnLoss.dqnBellmanTarget 0.99 1.0 False 5.0 @?= 5.95
+          , testCase "dqnDoubleBellmanTarget uses the online-selected action's target value" $
+              -- Same shape as Bellman; the caller has already selected the action.
+              DqnLoss.dqnDoubleBellmanTarget 0.99 1.0 False 3.0 @?= 1.0 + 0.99 * 3.0
+          , testCase "dqnTdResidual is (Q - target)" $
+              DqnLoss.dqnTdResidual 2.0 0.5 @?= 1.5
+          , testCase "dqnTdLoss is mean squared TD error" $
+              -- residuals = [2-0, 0-2] = [2, -2], mse = (4+4)/2 = 4.0
+              DqnLoss.dqnTdLoss [2.0, 0.0] [0.0, 2.0] @?= 4.0
+          , testCase "dqnHuberLoss uses L2 within kappa and L1 beyond" $
+              -- residual = 0.5 (within kappa=1.0): 0.5 * 0.5^2 = 0.125
+              -- residual = 2.0 (beyond kappa): 1.0 * (2.0 - 0.5*1.0) = 1.5
+              -- mean = (0.125 + 1.5) / 2 = 0.8125
+              let result = DqnLoss.dqnHuberLoss 1.0 [0.5, 2.0] [0.0, 0.0]
+               in abs (result - 0.8125) < 1.0e-9 @?= True
+          , testCase "dqnHuberLoss is run-to-run deterministic" $
+              let first = DqnLoss.dqnHuberLoss 1.0 [0.5, 2.0, -1.0] [0.0, 0.0, 0.0]
+                  second = DqnLoss.dqnHuberLoss 1.0 [0.5, 2.0, -1.0] [0.0, 0.0, 0.0]
+               in first @?= second
+          ]
+      , -- Sprint 13.8 — DDPG real loss math.
+        testGroup
+          "DDPG loss math (Sprint 13.8)"
+          [ testCase "ddpgCriticTarget applies the deterministic-policy Bellman target" $
+              -- rewards = [1, 1], terminals = [False, True], targetQ = [5, 5]
+              -- → [1 + 0.99*5, 1] = [5.95, 1.0]
+              DdpgLoss.ddpgCriticTarget 0.99 [1.0, 1.0] [False, True] [5.0, 5.0]
+                @?= [5.95, 1.0]
+          , testCase "ddpgActorLoss is -mean(Q(s, mu(s)))" $
+              -- mean([2, 4]) = 3, loss = -3
+              DdpgLoss.ddpgActorLoss [2.0, 4.0] @?= (-3.0)
+          , testCase "ddpgActorLoss returns 0 on empty batch" $
+              DdpgLoss.ddpgActorLoss [] @?= 0.0
+          ]
+      , -- Sprint 13.8 — TD3 real loss math.
+        testGroup
+          "TD3 loss math (Sprint 13.8)"
+          [ testCase "td3ClippedDoubleTarget picks the minimum of Q1_target and Q2_target" $
+              -- Q1 = [3, 5], Q2 = [4, 2], min = [3, 2]
+              -- → [1 + 0.99*3, 1 + 0.99*2] = [3.97, 2.98]
+              case Td3Loss.td3ClippedDoubleTarget 0.99 [1.0, 1.0] [False, False] [3.0, 5.0] [4.0, 2.0] of
+                [a0, a1] -> (abs (a0 - 3.97) < 1.0e-9, abs (a1 - 2.98) < 1.0e-9) @?= (True, True)
+                other -> assertFailure ("expected 2 outputs, got: " <> show other)
+          , testCase "td3SmoothTargetActions clips both noise and action to ranges" $
+              -- noiseClip = 0.5, actionRange = [-1.0, 1.0]
+              -- actions = [0.0, 0.9], noise = [0.7, 0.3]
+              -- clipped noise = [0.5, 0.3]
+              -- smoothed = clip(0.0 + 0.5, ...) = 0.5; clip(0.9 + 0.3, ...) = 1.0
+              Td3Loss.td3SmoothTargetActions 0.5 (-1.0) 1.0 [0.0, 0.9] [0.7, 0.3]
+                @?= [0.5, 1.0]
+          ]
+      , -- Sprint 13.8 — SAC real loss math.
+        testGroup
+          "SAC loss math (Sprint 13.8)"
+          [ testCase "sacCriticTarget subtracts alpha * log_pi from min(Q1, Q2)" $
+              -- alpha = 0.2, rewards = [1], terminals = [False],
+              -- Q1 = [3], Q2 = [4], min = [3], log_pi = [0.5]
+              -- soft = 3 - 0.2*0.5 = 2.9
+              -- target = 1 + 0.99 * 2.9 = 3.871
+              case SacLoss.sacCriticTarget 0.99 0.2 [1.0] [False] [3.0] [4.0] [0.5] of
+                [target] -> abs (target - 3.871) < 1.0e-9 @?= True
+                other -> assertFailure ("expected 1 target, got: " <> show other)
+          , testCase "sacActorLoss is mean(alpha * log_pi - Q_min)" $
+              -- alpha = 0.2, log_pi = [0.5, 1.0], Q_min = [3, 4]
+              -- terms = [0.2*0.5 - 3, 0.2*1.0 - 4] = [-2.9, -3.8]
+              -- mean = -3.35
+              let result = SacLoss.sacActorLoss 0.2 [0.5, 1.0] [3.0, 4.0]
+               in abs (result - (-3.35)) < 1.0e-9 @?= True
+          , testCase "sacTemperatureLoss drives alpha toward the target entropy" $
+              -- alpha = 0.5, target_entropy = -2.0, log_pi = [1.0]
+              -- term = -0.5 * (1.0 + (-2.0)) = -0.5 * -1.0 = 0.5
+              let result = SacLoss.sacTemperatureLoss 0.5 (-2.0) [1.0]
+               in abs (result - 0.5) < 1.0e-9 @?= True
+          ]
+      , -- Sprint 13.8 — QR-DQN real loss math.
+        testGroup
+          "QR-DQN loss math (Sprint 13.8)"
+          [ testCase "quantileMidpoints emits (i + 0.5) / N for the canonical 4-atom case" $
+              QrDqnLoss.quantileMidpoints 4 @?= [0.125, 0.375, 0.625, 0.875]
+          , testCase "quantileMidpoints returns [] on non-positive N" $
+              QrDqnLoss.quantileMidpoints 0 @?= []
+          , testCase "quantileHuberLoss is asymmetric across the residual sign" $ do
+              -- residual = 1.0 (positive), tau = 0.5, kappa = 1.0:
+              -- asymmetric = |0.5 - 0| = 0.5; Huber = 0.5 * 1 * 1 = 0.5
+              -- total = 0.25
+              let result = QrDqnLoss.quantileHuberLoss 1.0 0.5 1.0
+              abs (result - 0.25) < 1.0e-9 @?= True
+              -- residual = -1.0, tau = 0.5: asymmetric = |0.5 - 1| = 0.5; Huber = 0.5
+              -- total = 0.25 (symmetric here at tau=0.5).
+              let result2 = QrDqnLoss.quantileHuberLoss 1.0 0.5 (-1.0)
+              abs (result2 - 0.25) < 1.0e-9 @?= True
+          , testCase "qrDqnLoss is run-to-run deterministic" $
+              let predicted = [[0.1, 0.2, 0.3, 0.4]]
+                  targets = [[0.15, 0.25, 0.35, 0.45]]
+                  first = QrDqnLoss.qrDqnLoss 1.0 predicted targets
+                  second = QrDqnLoss.qrDqnLoss 1.0 predicted targets
+               in first @?= second
+          ]
+      , -- Sprint 13.8 — ARS update math.
+        testGroup
+          "ARS update math (Sprint 13.8)"
+          [ testCase "arsTopDirections keeps the top-b perturbations by max(R+, R-)" $
+              -- max returns = [10, 5, 8]; top-2 = [10, 8] → triples at index 0, 2
+              ArsLoss.arsTopDirections
+                2
+                [ (10.0, 3.0, [1.0, 0.0])
+                , (5.0, 5.0, [0.0, 1.0])
+                , (8.0, 8.0, [1.0, 1.0])
+                ]
+                @?= [ (10.0, 3.0, [1.0, 0.0])
+                    , (8.0, 8.0, [1.0, 1.0])
+                    ]
+          , testCase "arsUpdateDirection sums (R+ - R-) * delta across kept directions" $
+              -- triples: (10, 3, [1, 0]) → (10-3)*[1, 0] = [7, 0]
+              --          (8, 8, [1, 1]) → (8-8)*[1, 1] = [0, 0]
+              -- total = [7, 0]
+              ArsLoss.arsUpdateDirection
+                [ (10.0, 3.0, [1.0, 0.0])
+                , (8.0, 8.0, [1.0, 1.0])
+                ]
+                @?= [7.0, 0.0]
+          , testCase "arsUpdateDirection returns empty on no triples" $
+              ArsLoss.arsUpdateDirection [] @?= []
+          ]
+      , -- Sprint 13.8 — TRPO real loss math.
+        testGroup
+          "TRPO loss math (Sprint 13.8)"
+          [ testCase "trpoSurrogate is -mean(ratio * advantage)" $
+              -- ratio = exp(0) = 1, adv = 1, term = 1, mean = 1, loss = -1
+              TrpoLoss.trpoSurrogate [0.0] [0.0] [1.0] @?= (-1.0)
+          , testCase "trpoKlConstraintSatisfied accepts step within delta" $ do
+              -- KL = mean(old - new) = mean(0 - 0) = 0 ≤ 0.01
+              TrpoLoss.trpoKlConstraintSatisfied 0.01 [0.0] [0.0] @?= True
+              -- KL = mean(0 - (-1)) = 1 > 0.01
+              TrpoLoss.trpoKlConstraintSatisfied 0.01 [0.0] [-1.0] @?= False
+          ]
+      , -- Sprint 13.8 — MaskablePPO action masking.
+        testGroup
+          "MaskablePPO masking (Sprint 13.8)"
+          [ testCase "applyActionMask zeros illegal actions and renormalises" $
+              -- mask = [T, F, T], probs = [0.4, 0.4, 0.2]
+              -- masked = [0.4, 0, 0.2], sum = 0.6
+              -- normalised = [0.4/0.6, 0, 0.2/0.6]
+              let result = MaskablePpoLoss.applyActionMask [True, False, True] [0.4, 0.4, 0.2]
+                  expected = [0.4 / 0.6, 0.0, 0.2 / 0.6]
+                  closeEnough = all (\(a, b) -> abs (a - b) < 1.0e-9) (zip result expected)
+               in closeEnough @?= True
+          , testCase "applyActionMask returns probs unchanged on length mismatch" $
+              MaskablePpoLoss.applyActionMask [True, True] [0.5, 0.3, 0.2]
+                @?= [0.5, 0.3, 0.2]
+          ]
+      , -- Sprint 13.8 — RecurrentPPO BPTT windowing.
+        testGroup
+          "RecurrentPPO BPTT windowing (Sprint 13.8)"
+          [ testCase "bpttWindows splits a trajectory into windows" $
+              RecurrentPpoLoss.bpttWindows 3 ([1, 2, 3, 4, 5, 6, 7] :: [Int])
+                @?= [[1, 2, 3], [4, 5, 6], [7]]
+          , testCase "bpttWindows treats non-positive window as a single bucket" $
+              RecurrentPpoLoss.bpttWindows 0 ([1, 2, 3] :: [Int]) @?= [[1, 2, 3]]
+          , testCase "bpttWindows returns [] on empty trajectory" $
+              RecurrentPpoLoss.bpttWindows 4 ([] :: [Int]) @?= []
+          ]
+      , -- Sprint 13.8 — CrossQ batch normalisation.
+        testGroup
+          "CrossQ loss math (Sprint 13.8)"
+          [ testCase "crossQNormalise centres and scales the input" $
+              -- mean = 2.0, var = 1.0, eps = 0
+              -- q = 3 → (3 - 2)/sqrt(1) = 1.0
+              -- q = 2 → 0.0
+              -- q = 1 → -1.0
+              CrossQLoss.crossQNormalise 2.0 1.0 0 [3.0, 2.0, 1.0]
+                @?= [1.0, 0.0, -1.0]
+          , testCase "crossQTarget subtracts alpha * log_pi from normalised Q" $
+              -- gamma = 0.99, alpha = 0.2, reward = 1, terminal = False,
+              -- qNorm = [3], log_pi = [0.5]
+              -- soft = 3 - 0.2*0.5 = 2.9
+              -- target = 1 + 0.99 * 2.9 = 3.871
+              case CrossQLoss.crossQTarget 0.99 0.2 [1.0] [False] [3.0] [0.5] of
+                [target] -> abs (target - 3.871) < 1.0e-9 @?= True
+                other -> assertFailure ("expected 1 target, got: " <> show other)
+          ]
+      , -- Sprint 13.8 — TQC truncated quantile pooling.
+        testGroup
+          "TQC loss math (Sprint 13.8)"
+          [ testCase "poolAndTruncate drops the top atoms after pooling all critics" $
+              -- 3 critics × 2 atoms = 6 atoms total: [5,3, 4,2, 6,1]
+              -- sorted = [1, 2, 3, 4, 5, 6]
+              -- drop top 1 per critic × 3 critics = drop 3 → [1, 2, 3]
+              TqcLoss.poolAndTruncate 1 [[5.0, 3.0], [4.0, 2.0], [6.0, 1.0]]
+                @?= [1.0, 2.0, 3.0]
+          , testCase "tqcTarget collapses to a point mass on terminal step" $
+              TqcLoss.tqcTarget 0.99 1 1.0 True [[1.0, 2.0]] 0.1 @?= [1.0]
+          , testCase "tqcTarget shifts the truncated atoms by the reward" $
+              -- gamma = 1.0 for an easy check, drop none, softTerm = 0
+              -- critics = [[1, 2]], truncated = [1, 2]
+              -- shifted = [r + 1*(1-0), r + 1*(2-0)] = [r+1, r+2]
+              TqcLoss.tqcTarget 1.0 0 5.0 False [[1.0, 2.0]] 0.0 @?= [6.0, 7.0]
+          ]
+      , -- Sprint 13.8 — HER goal relabeling.
+        testGroup
+          "HER relabeling (Sprint 13.8)"
+          [ testCase "sparseGoalReward returns 0 within epsilon, -1 beyond" $ do
+              -- distance = abs(x - g); epsilon = 0.5
+              let distance x g = abs (x - g)
+              HerLoss.sparseGoalReward distance 0.5 0.3 0.0 @?= 0.0
+              HerLoss.sparseGoalReward distance 0.5 1.0 0.0 @?= (-1.0)
+          , testCase "herRelabel substitutes the new goal and recomputes the reward" $
+              -- (s, a, s', terminal) = (0.0, 1, 0.4, False), newGoal = 0.5
+              -- distance = |0.4 - 0.5| = 0.1, within eps=0.5 → reward = 0
+              let distance x g = abs (x - g)
+                  result =
+                    HerLoss.herRelabel
+                      distance
+                      0.5
+                      (0.5 :: Double)
+                      (0.0 :: Double, 1, 0.4, False)
+               in (HerLoss.relRelabeledGoal result, HerLoss.relRelabeledReward result)
+                    @?= (0.5, 0.0)
+          ]
       ]
 
 takeFileNameCompat :: FilePath -> FilePath
@@ -2475,6 +2858,7 @@ canonicalLeafPaths =
   , ["internal", "materialize-substrate"]
   , ["internal", "render-kind-config"]
   , ["internal", "list-prereqs"]
+  , ["internal", "upload-dataset"]
   , ["internal", "gc"]
   , ["internal", "vm", "bootstrap"]
   , ["internal", "vm", "up"]

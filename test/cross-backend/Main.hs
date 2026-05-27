@@ -7,6 +7,7 @@ import Data.Text qualified as Text
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (TensorBlob (..), emptyManifest, inferFromManifest)
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
@@ -34,10 +35,15 @@ import JitML.Engines.Local
   )
 import JitML.Engines.Local qualified as Local
 import JitML.Engines.Tuning qualified as Tuning
+import Control.Exception qualified
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
-import JitML.Env.Env (Env)
+import JitML.Env.Env (Env, envCacheDir)
 import JitML.Substrate (Substrate (..), allSubstrates)
+import JitML.Substrate qualified as Substrate
+import Path (toFilePath)
+import System.FilePath ((</>))
+import System.Directory (listDirectory)
 
 main :: IO ()
 main =
@@ -411,6 +417,58 @@ main =
               input
               (Tuning.selectDeterministic Tuning.linuxCudaKnobs)
           rejected @?= Left "linux-cpu benchmark runner cannot execute linux-cuda candidate"
+      , testCase
+          "linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Sprint 13.15)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let buildRoot = toFilePath (envCacheDir env)
+                tuningDir = buildRoot </> "jit" </> "tuning" </> "linux-cpu"
+            -- Pick a uniquely-named kernel spec so the cache-miss path
+            -- triggers regardless of any prior tuning selections.
+            uniqueSuffix <- pickRandomSuffix
+            let kernelSpec = Cache.KernelSpec ("jitml-linux-cpu:13.15-cache-miss-" <> uniqueSuffix)
+            -- Snapshot the existing selection files so the assertion
+            -- below counts only files newly written by this run.
+            preExisting <-
+              ( listDirectory tuningDir
+                  `Control.Exception.catch` \(_ :: Control.Exception.IOException) -> pure []
+                )
+            -- Drive the cache-miss path. The deterministic-stub runner
+            -- returns a constant observation; the typed
+            -- ensureKernelArtifactWithBenchmarkTuningWithRunner closure
+            -- writes the selection to disk via TuningStore.
+            let stubRunner _env _spec _kind _input _candidate =
+                  pure
+                    ( Right
+                        ( TuningBenchmark.BenchmarkObservation
+                            { TuningBenchmark.benchmarkObservationLatencyMicros = 1
+                            , TuningBenchmark.benchmarkObservationOutputDigest = "stub-digest"
+                            }
+                        )
+                    )
+            _ <-
+              TuningBenchmark.ensureKernelArtifactWithBenchmarkTuningWithRunner
+                env
+                Substrate.LinuxCPU
+                stubRunner
+                kernelSpec
+                Cache.Inference
+                (Cache.ToolchainFingerprint "13.15-fingerprint")
+                [0.0]
+            -- A fresh kernel spec hashes to a previously-unseen base
+            -- hash; the cache-miss path must persist exactly one new
+            -- JSON selection under the tuning store directory.
+            afterFirst <- listDirectory tuningDir
+            let newFiles = filter (`notElem` preExisting) afterFirst
+            assertBool
+              ( "expected at least one new TuningChoice JSON under "
+                  <> tuningDir
+                  <> "; pre="
+                  <> show preExisting
+                  <> " post="
+                  <> show afterFirst
+              )
+              (not (null newFiles))
       ]
 
 assertFamilySmoke :: Env -> KernelFamily -> IO ()
@@ -448,3 +506,10 @@ assertOneDnnOutput env family input expected = do
     Right kernelRun -> do
       linuxCpuKernelReportedFamily kernelRun @?= familyName family
       linuxCpuKernelOutput kernelRun @?= expected
+
+-- | Sprint 13.15 — unique per-run suffix so the first-cache-miss test
+-- starts from a guaranteed-cold cache key on every invocation.
+pickRandomSuffix :: IO Text.Text
+pickRandomSuffix = do
+  micros <- round . (* 1_000_000) <$> getPOSIXTime :: IO Integer
+  pure (Text.pack (show micros))

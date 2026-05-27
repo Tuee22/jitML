@@ -1350,6 +1350,31 @@ Examples:
       List prerequisite checks.
 ```
 
+### `jitml internal upload-dataset`
+
+```text
+jitml internal upload-dataset
+
+Upload a real dataset blob to MinIO.
+
+Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/data.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalSha256For`; mismatches abort the upload.
+
+Usage:
+  jitml internal upload-dataset [--name <name>] [--split <split>] [--path <path>] [--dry-run] [--plan-file <path>]
+
+Options:
+  --name <name>       Dataset name (e.g., MNIST).
+  --split <split>     Dataset split (train/validation/test).
+  --path <path>       Local file path to upload.
+  --dry-run           Print the plan without applying it.
+  --plan-file <path>  Write the plan to a file.
+
+
+Examples:
+  jitml internal upload-dataset --name MNIST --split train --path /tmp/train-images-idx3-ubyte
+      Upload the canonical MNIST training images to the live MinIO bucket.
+```
+
 ### `jitml internal gc`
 
 ```text

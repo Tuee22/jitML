@@ -117,23 +117,38 @@ library
         JitML.Prerequisite.Types
         JitML.RL.Algorithms
         JitML.RL.Algorithms.A2c
+        JitML.RL.Algorithms.A2cLoss
         JitML.RL.Algorithms.Ars
+        JitML.RL.Algorithms.ArsLoss
         JitML.RL.Algorithms.Common
         JitML.RL.Algorithms.CrossQ
+        JitML.RL.Algorithms.CrossQLoss
         JitML.RL.Algorithms.Ddpg
+        JitML.RL.Algorithms.DdpgLoss
         JitML.RL.Algorithms.Dqn
+        JitML.RL.Algorithms.DqnLoss
         JitML.RL.Algorithms.Her
+        JitML.RL.Algorithms.HerLoss
         JitML.RL.Algorithms.MaskablePpo
+        JitML.RL.Algorithms.MaskablePpoLoss
         JitML.RL.Algorithms.Ppo
+        JitML.RL.Algorithms.PpoLoss
         JitML.RL.Algorithms.QrDqn
+        JitML.RL.Algorithms.QrDqnLoss
         JitML.RL.Algorithms.RecurrentPpo
+        JitML.RL.Algorithms.RecurrentPpoLoss
         JitML.RL.Algorithms.Registry
         JitML.RL.Algorithms.Sac
+        JitML.RL.Algorithms.SacLoss
         JitML.RL.Algorithms.Td3
+        JitML.RL.Algorithms.Td3Loss
         JitML.RL.Algorithms.Tqc
+        JitML.RL.Algorithms.TqcLoss
         JitML.RL.Algorithms.Trpo
+        JitML.RL.Algorithms.TrpoLoss
         JitML.RL.AlphaZero
         JitML.RL.AlphaZero.Arena
+        JitML.RL.AlphaZero.EnginePrior
         JitML.RL.AlphaZero.Mcts
         JitML.RL.AlphaZero.SelfPlay
         JitML.RL.AsyncBuffer
@@ -145,6 +160,7 @@ library
         JitML.RL.Policy
         JitML.RL.Schema
         JitML.RL.Simulator
+        JitML.RL.SimulatorLoop
         JitML.RL.VecEnv
         JitML.Routes
         JitML.Service.BootConfig
@@ -167,6 +183,7 @@ library
         JitML.Service.Retry
         JitML.Service.Runtime
         JitML.Service.Signal
+        JitML.Service.WebSocket
         JitML.Service.Workload
         JitML.SL.Canonicals
         JitML.SL.Dataset
@@ -205,7 +222,9 @@ library
         async,
         bytestring,
         aeson,
+        base64-bytestring,
         containers,
+        cryptohash-sha1,
         cryptohash-sha256,
         proto-lens,
         proto-lens-runtime,
@@ -351,10 +370,15 @@ test-suite jitml-cross-backend
     ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        directory,
+        filepath,
         jitml,
+        path,
+        safe-exceptions,
         tasty,
         tasty-hunit,
-        text
+        text,
+        time
 
 test-suite jitml-daemon-lifecycle
     type:             exitcode-stdio-1.0
