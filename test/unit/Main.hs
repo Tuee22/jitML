@@ -36,6 +36,7 @@ import System.Posix.Files (readSymbolicLink)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
+import Data.Vector.Unboxed qualified
 import JitML.AppError.AppError (AppError)
 import JitML.AppError.AppError qualified as AppError
 import JitML.AppError.Render (renderError)
@@ -92,6 +93,7 @@ import JitML.Generated.Registry
 import JitML.Lint.Chart (checkChartFiles)
 import JitML.Lint.DhallNumerics (checkDhallNumerics)
 import JitML.Lint.DhallRL (checkDhallRL)
+import JitML.Numerics.Mlp qualified as Mlp
 import JitML.Numerics.Schema
   ( loadNumericsCatalog
   , validateNumericsCatalog
@@ -123,13 +125,19 @@ import JitML.Proto.Gc qualified as ProtoGc
 import JitML.RL.Algorithms qualified as RLAlgorithms
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
 import JitML.RL.Algorithms.ArsLoss qualified as ArsLoss
+import JitML.RL.Algorithms.ArsTrainer qualified as ArsTrainer
+import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
 import JitML.RL.Algorithms.DdpgLoss qualified as DdpgLoss
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
+import JitML.RL.Algorithms.DqnTrainer qualified as DqnTrainer
 import JitML.RL.Algorithms.HerLoss qualified as HerLoss
+import JitML.RL.Algorithms.HerTrainer qualified as HerTrainer
 import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
 import JitML.RL.Algorithms.PpoLoss qualified as PpoLoss
+import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnLoss qualified as QrDqnLoss
+import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
 import JitML.RL.Algorithms.SacLoss qualified as SacLoss
 import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
@@ -2560,7 +2568,295 @@ main =
                in (HerLoss.relRelabeledGoal result, HerLoss.relRelabeledReward result)
                     @?= (0.5, 0.0)
           ]
+      , testGroup
+          "Differentiable MLP (Sprint 13.8 + 13.9)"
+          [ testCase "mlpForward output dim matches shape outputs" $ do
+              let shape = Mlp.MlpShape 4 8 3
+                  params = Mlp.mlpInit shape 7
+                  fwd = Mlp.mlpForward params (Data.Vector.Unboxed.fromList [0.1, 0.2, 0.3, 0.4])
+              Data.Vector.Unboxed.length (Mlp.forwardOutput fwd) @?= 3
+          , testCase "mlpForward is run-to-run deterministic on same seed" $ do
+              let shape = Mlp.MlpShape 4 8 3
+                  paramsA = Mlp.mlpInit shape 99
+                  paramsB = Mlp.mlpInit shape 99
+                  inp = Data.Vector.Unboxed.fromList [1.0, -0.5, 0.25, 0.0]
+                  fa = Mlp.forwardOutput (Mlp.mlpForward paramsA inp)
+                  fb = Mlp.forwardOutput (Mlp.mlpForward paramsB inp)
+              fa @?= fb
+          , testCase "Adam step reduces a quadratic loss after enough updates" $ do
+              -- Minimal sanity: train a 1-hidden-unit MLP to drive output → 1.0
+              -- given a fixed input. The Adam update direction must be correct.
+              let shape = Mlp.MlpShape 1 4 1
+                  initialParams = Mlp.mlpInit shape 13
+                  adamConfig =
+                    Mlp.defaultAdamConfig {Mlp.adamLearningRate = 0.05}
+                  initialAdam = Mlp.adamInit shape
+                  target = Data.Vector.Unboxed.fromList [1.0]
+                  inp = Data.Vector.Unboxed.fromList [0.5]
+                  stepOnce (p, a) _ =
+                    let fwd = Mlp.mlpForward p inp
+                        out = Mlp.forwardOutput fwd
+                        dLdy = Data.Vector.Unboxed.zipWith (-) out target
+                        grad = Mlp.mlpBackward p fwd dLdy
+                     in Mlp.adamStep adamConfig a p grad
+                  (trainedParams, _) = foldl stepOnce (initialParams, initialAdam) [1 :: Int .. 200]
+                  initialOut =
+                    Data.Vector.Unboxed.head
+                      (Mlp.forwardOutput (Mlp.mlpForward initialParams inp))
+                  finalOut =
+                    Data.Vector.Unboxed.head
+                      (Mlp.forwardOutput (Mlp.mlpForward trainedParams inp))
+              assertBool
+                ( "Adam should move output toward target; initial="
+                    <> show initialOut
+                    <> " final="
+                    <> show finalOut
+                )
+                (abs (finalOut - 1.0) < abs (initialOut - 1.0))
+          , testCase "policyValueForward produces normalised policy" $ do
+              let shape = Mlp.MlpShape 4 8 3
+                  params = Mlp.mlpInit shape 5
+                  inp = Data.Vector.Unboxed.fromList [0.0, 0.0, 0.0, 0.0]
+                  pv = Mlp.policyValueForward params 2 inp
+                  total = Data.Vector.Unboxed.sum (Mlp.pvPolicy pv)
+              Data.Vector.Unboxed.length (Mlp.pvPolicy pv) @?= 2
+              assertBool ("policy should sum to 1; got " <> show total) (abs (total - 1.0) < 1.0e-9)
+              assertBool "value head is tanh-bounded" (abs (Mlp.pvValue pv) <= 1.0)
+          , testCase "sampleCategorical maps uniform to expected bucket" $ do
+              let probs = Data.Vector.Unboxed.fromList [0.25, 0.25, 0.5 :: Double]
+              Mlp.sampleCategorical probs 0.1 @?= 0
+              Mlp.sampleCategorical probs 0.3 @?= 1
+              Mlp.sampleCategorical probs 0.6 @?= 2
+              Mlp.sampleCategorical probs 0.99 @?= 2
+          ]
+      , testGroup
+          "PPO trainer end-to-end (Sprint 13.8)"
+          [ testCase "trainPpoOnCartpole produces stats for each iteration" $ do
+              let smallConfig =
+                    PpoTrainer.defaultPpoTrainConfig
+                      { PpoTrainer.ppoSeed = 7
+                      , PpoTrainer.ppoRolloutSteps = 64
+                      , PpoTrainer.ppoNumIterations = 3
+                      , PpoTrainer.ppoEpochsPerUpdate = 2
+                      }
+              result <- PpoTrainer.trainPpoOnCartpole smallConfig
+              length (PpoTrainer.resultIterations result) @?= 3
+          , testCase "PPO training is run-to-run deterministic on the same seed" $ do
+              let smallConfig =
+                    PpoTrainer.defaultPpoTrainConfig
+                      { PpoTrainer.ppoSeed = 17
+                      , PpoTrainer.ppoRolloutSteps = 64
+                      , PpoTrainer.ppoNumIterations = 2
+                      , PpoTrainer.ppoEpochsPerUpdate = 1
+                      }
+              resultA <- PpoTrainer.trainPpoOnCartpole smallConfig
+              resultB <- PpoTrainer.trainPpoOnCartpole smallConfig
+              fmap PpoTrainer.iterMeanReward (PpoTrainer.resultIterations resultA)
+                @?= fmap PpoTrainer.iterMeanReward (PpoTrainer.resultIterations resultB)
+          ]
+      , testGroup
+          "DQN trainer (Sprint 13.8 off-policy seam)"
+          [ testCase "DQN training runs end-to-end and emits stats" $ do
+              let smallConfig =
+                    DqnTrainer.defaultDqnTrainConfig
+                      { DqnTrainer.dqnSeed = 11
+                      , DqnTrainer.dqnNumSteps = 2000
+                      , DqnTrainer.dqnTrainStart = 200
+                      , DqnTrainer.dqnTargetUpdateInterval = 200
+                      , DqnTrainer.dqnStatInterval = 500
+                      , DqnTrainer.dqnReplayCapacity = 500
+                      }
+              result <- DqnTrainer.trainDqnOnCartpole smallConfig
+              assertBool
+                "DQN trainer emitted at least one stat"
+                (not (null (DqnTrainer.dqnResultStats result)))
+          , testCase "DQN training is run-to-run deterministic on the same seed" $ do
+              let smallConfig =
+                    DqnTrainer.defaultDqnTrainConfig
+                      { DqnTrainer.dqnSeed = 23
+                      , DqnTrainer.dqnNumSteps = 1000
+                      , DqnTrainer.dqnTrainStart = 100
+                      , DqnTrainer.dqnTargetUpdateInterval = 100
+                      , DqnTrainer.dqnStatInterval = 500
+                      , DqnTrainer.dqnReplayCapacity = 200
+                      }
+              resultA <- DqnTrainer.trainDqnOnCartpole smallConfig
+              resultB <- DqnTrainer.trainDqnOnCartpole smallConfig
+              fmap DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats resultA)
+                @?= fmap DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats resultB)
+          , testCase "Double-DQN variant trains end-to-end and stays deterministic" $ do
+              let doubleConfig =
+                    DqnTrainer.defaultDqnTrainConfig
+                      { DqnTrainer.dqnSeed = 31
+                      , DqnTrainer.dqnNumSteps = 1500
+                      , DqnTrainer.dqnTrainStart = 200
+                      , DqnTrainer.dqnTargetUpdateInterval = 150
+                      , DqnTrainer.dqnStatInterval = 500
+                      , DqnTrainer.dqnReplayCapacity = 400
+                      , DqnTrainer.dqnUseDouble = True
+                      }
+              resultA <- DqnTrainer.trainDqnOnCartpole doubleConfig
+              resultB <- DqnTrainer.trainDqnOnCartpole doubleConfig
+              assertBool
+                "Double-DQN emitted at least one stat"
+                (not (null (DqnTrainer.dqnResultStats resultA)))
+              fmap DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats resultA)
+                @?= fmap DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats resultB)
+          ]
+      , testGroup
+          "Continuous actor-critic trainer (Sprint 13.8 DDPG/TD3/SAC/CrossQ/TQC)"
+          [ testCase (show variant <> " trains end-to-end and is run-to-run deterministic") $ do
+              resultA <- ContinuousTrainer.trainContinuousOnPendulum (smallContConfig variant)
+              resultB <- ContinuousTrainer.trainContinuousOnPendulum (smallContConfig variant)
+              assertBool
+                (show variant <> " emitted at least one stat")
+                (not (null (ContinuousTrainer.contResultStats resultA)))
+              assertBool
+                (show variant <> " produced finite episode rewards")
+                ( not
+                    ( any
+                        (isNaN . ContinuousTrainer.contIterMeanReward)
+                        (ContinuousTrainer.contResultStats resultA)
+                    )
+                )
+              fmap ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats resultA)
+                @?= fmap ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats resultB)
+          | variant <-
+              [ ContinuousTrainer.VariantDDPG
+              , ContinuousTrainer.VariantTD3
+              , ContinuousTrainer.VariantSAC
+              , ContinuousTrainer.VariantCrossQ
+              , ContinuousTrainer.VariantTQC
+              ]
+          ]
+      , testGroup
+          "QR-DQN trainer (Sprint 13.8 distributional off-policy)"
+          [ testCase "QR-DQN trains end-to-end and emits stats" $ do
+              let cfg =
+                    QrDqnTrainer.defaultQrDqnTrainConfig
+                      { QrDqnTrainer.qrSeed = 13
+                      , QrDqnTrainer.qrNumQuantiles = 5
+                      , QrDqnTrainer.qrHiddenUnits = 16
+                      , QrDqnTrainer.qrNumSteps = 1500
+                      , QrDqnTrainer.qrTrainStart = 100
+                      , QrDqnTrainer.qrTargetUpdateInterval = 150
+                      , QrDqnTrainer.qrStatInterval = 500
+                      , QrDqnTrainer.qrReplayCapacity = 400
+                      }
+              result <- QrDqnTrainer.trainQrDqnOnCartpole cfg
+              assertBool
+                "QR-DQN emitted at least one stat"
+                (not (null (QrDqnTrainer.qrResultStats result)))
+          , testCase "QR-DQN is run-to-run deterministic on the same seed" $ do
+              let cfg =
+                    QrDqnTrainer.defaultQrDqnTrainConfig
+                      { QrDqnTrainer.qrSeed = 27
+                      , QrDqnTrainer.qrNumQuantiles = 4
+                      , QrDqnTrainer.qrHiddenUnits = 16
+                      , QrDqnTrainer.qrNumSteps = 1000
+                      , QrDqnTrainer.qrTrainStart = 100
+                      , QrDqnTrainer.qrStatInterval = 500
+                      , QrDqnTrainer.qrReplayCapacity = 300
+                      }
+              resultA <- QrDqnTrainer.trainQrDqnOnCartpole cfg
+              resultB <- QrDqnTrainer.trainQrDqnOnCartpole cfg
+              fmap QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats resultA)
+                @?= fmap QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats resultB)
+          ]
+      , testGroup
+          "ARS trainer (Sprint 13.8 gradient-free)"
+          [ testCase "ARS trains end-to-end and is run-to-run deterministic" $ do
+              let cfg =
+                    ArsTrainer.defaultArsTrainConfig
+                      { ArsTrainer.arsSeed = 5
+                      , ArsTrainer.arsIterations = 20
+                      , ArsTrainer.arsNumDirections = 8
+                      , ArsTrainer.arsTopB = 4
+                      , ArsTrainer.arsMaxEpisodeSteps = 200
+                      }
+              resultA <- ArsTrainer.trainArsOnCartpole cfg
+              resultB <- ArsTrainer.trainArsOnCartpole cfg
+              assertBool
+                "ARS emitted at least one stat"
+                (not (null (ArsTrainer.arsResultStats resultA)))
+              fmap ArsTrainer.arsIterBestReturn (ArsTrainer.arsResultStats resultA)
+                @?= fmap ArsTrainer.arsIterBestReturn (ArsTrainer.arsResultStats resultB)
+          , testCase "ARS improves the mean episode return over the run" $ do
+              let cfg =
+                    ArsTrainer.defaultArsTrainConfig
+                      { ArsTrainer.arsSeed = 9
+                      , ArsTrainer.arsIterations = 40
+                      , ArsTrainer.arsNumDirections = 16
+                      , ArsTrainer.arsTopB = 8
+                      , ArsTrainer.arsMaxEpisodeSteps = 500
+                      }
+              result <- ArsTrainer.trainArsOnCartpole cfg
+              let means = fmap ArsTrainer.arsIterMeanReturn (ArsTrainer.arsResultStats result)
+              case (means, reverse means) of
+                (firstMean : _, lastMean : _) ->
+                  assertBool
+                    ("ARS mean return should improve; first=" <> show firstMean <> " last=" <> show lastMean)
+                    (lastMean > firstMean)
+                _ -> assertBool "ARS produced no stats" False
+          ]
+      , testGroup
+          "HER trainer (Sprint 13.8 goal-conditioned)"
+          [ testCase "HER trains end-to-end and is run-to-run deterministic" $ do
+              let cfg =
+                    HerTrainer.defaultHerTrainConfig
+                      { HerTrainer.herSeed = 3
+                      , HerTrainer.herNumBits = 5
+                      , HerTrainer.herHiddenUnits = 32
+                      , HerTrainer.herEpisodes = 120
+                      , HerTrainer.herStatInterval = 40
+                      , HerTrainer.herReplayCapacity = 2000
+                      }
+              resultA <- HerTrainer.trainHerOnBitFlip cfg
+              resultB <- HerTrainer.trainHerOnBitFlip cfg
+              assertBool
+                "HER emitted at least one stat"
+                (not (null (HerTrainer.herResultStats resultA)))
+              fmap HerTrainer.herIterSuccessRate (HerTrainer.herResultStats resultA)
+                @?= fmap HerTrainer.herIterSuccessRate (HerTrainer.herResultStats resultB)
+          , testCase "hindsight relabeling beats no-hindsight on bit-flip success rate" $ do
+              let base =
+                    HerTrainer.defaultHerTrainConfig
+                      { HerTrainer.herSeed = 8
+                      , HerTrainer.herNumBits = 5
+                      , HerTrainer.herHiddenUnits = 32
+                      , HerTrainer.herEpisodes = 300
+                      , HerTrainer.herStatInterval = 50
+                      , HerTrainer.herReplayCapacity = 4000
+                      }
+              withHer <- HerTrainer.trainHerOnBitFlip base {HerTrainer.herUseHindsight = True}
+              withoutHer <- HerTrainer.trainHerOnBitFlip base {HerTrainer.herUseHindsight = False}
+              let finalRate r =
+                    case reverse (HerTrainer.herResultStats r) of
+                      (s : _) -> HerTrainer.herIterSuccessRate s
+                      [] -> 0.0
+                  herRate = finalRate withHer
+                  noHerRate = finalRate withoutHer
+              assertBool
+                ("hindsight should help; HER=" <> show herRate <> " noHER=" <> show noHerRate)
+                (herRate >= noHerRate)
+          ]
       ]
+
+-- | Small continuous-trainer config for fast unit-test runs.
+smallContConfig
+  :: ContinuousTrainer.ContinuousVariant -> ContinuousTrainer.ContinuousTrainConfig
+smallContConfig variant =
+  (ContinuousTrainer.defaultContinuousTrainConfig variant)
+    { ContinuousTrainer.ctSeed = 19
+    , ContinuousTrainer.ctHidden = 16
+    , ContinuousTrainer.ctNumSteps = 400
+    , ContinuousTrainer.ctReplayCapacity = 400
+    , ContinuousTrainer.ctBatchSize = 16
+    , ContinuousTrainer.ctStartSteps = 50
+    , ContinuousTrainer.ctTrainStart = 50
+    , ContinuousTrainer.ctMaxEpisodeSteps = 40
+    , ContinuousTrainer.ctStatInterval = 100
+    }
 
 takeFileNameCompat :: FilePath -> FilePath
 takeFileNameCompat path =

@@ -13,6 +13,7 @@ module JitML.Web.Server
   , serveDemo
   , serveDemoOnce
   , serveDemoWithBridge
+  , serveDemoWithBridgeEndpoint
   )
 where
 
@@ -70,47 +71,66 @@ serveDemoOnce host port = do
 -- @/api@, @/api/inference@, etc.) keep their existing
 -- one-request-one-response behaviour.
 serveDemoWithBridge :: Text -> Int -> Maybe Publication.ClusterPublication -> IO ()
-serveDemoWithBridge host port livePublication = do
+serveDemoWithBridge host port livePublication =
+  serveDemoWithBridgeEndpoint host port livePublication Nothing
+
+-- | Sprint 13.13 — as 'serveDemoWithBridge', but with an explicit Pulsar
+-- WebSocket endpoint override. When the demo runs as the in-cluster
+-- @jitml-demo@ pod it cannot reach the host edge port; it reaches the
+-- broker through the in-cluster service DNS instead (supplied via
+-- @JITML_DEMO_PULSAR_WS@). When the override is 'Nothing' the bridge
+-- derives the host-edge settings from the publication's leased edge port
+-- (the local @jitml-demo@ workflow).
+serveDemoWithBridgeEndpoint
+  :: Text -> Int -> Maybe Publication.ClusterPublication -> Maybe Text -> IO ()
+serveDemoWithBridgeEndpoint host port livePublication endpointOverride = do
   bundle <- loadBundleEntry
   serveHttpRoutesWithWebSockets
     (demoListener host port)
     (demoHttpRoutesWithBundle bundle)
-    (liveDemoWebSocketRoutes livePublication)
+    (liveDemoWebSocketRoutes livePublication endpointOverride)
 
 -- | Build the WebSocket route table for the demo. With a live
 -- publication the bridges open Pulsar consumers; without one they
 -- return a single SSE-shaped 'event: ... \ndata: ... \n\n' frame
 -- derived from 'liveEventSnapshotResponse'\'s deterministic
 -- fallback so the WebSocket handshake still completes.
-liveDemoWebSocketRoutes :: Maybe Publication.ClusterPublication -> [WebSocketRoute]
-liveDemoWebSocketRoutes publication =
-  [ webSocketRouteFor "/api/ws" "metrics" publication
-  , webSocketRouteFor "/api/ws/training" "training" publication
-  , webSocketRouteFor "/api/ws/tune" "tune" publication
-  , webSocketRouteFor "/api/ws/rl" "rl" publication
+liveDemoWebSocketRoutes
+  :: Maybe Publication.ClusterPublication -> Maybe Text -> [WebSocketRoute]
+liveDemoWebSocketRoutes publication endpointOverride =
+  [ webSocketRouteFor "/api/ws" "metrics" publication endpointOverride
+  , webSocketRouteFor "/api/ws/training" "training" publication endpointOverride
+  , webSocketRouteFor "/api/ws/tune" "tune" publication endpointOverride
+  , webSocketRouteFor "/api/ws/rl" "rl" publication endpointOverride
   ]
 
 webSocketRouteFor
-  :: Text -> Text -> Maybe Publication.ClusterPublication -> WebSocketRoute
-webSocketRouteFor path domain publication =
+  :: Text -> Text -> Maybe Publication.ClusterPublication -> Maybe Text -> WebSocketRoute
+webSocketRouteFor path domain publication endpointOverride =
   WebSocketRoute
     { webSocketRoutePath = path
-    , webSocketRouteHandler = bridgeHandler domain publication
+    , webSocketRouteHandler = bridgeHandler domain publication endpointOverride
     }
 
 bridgeHandler
-  :: Text -> Maybe Publication.ClusterPublication -> (Text -> IO Bool) -> IO ()
-bridgeHandler domain Nothing writeFrame = do
+  :: Text
+  -> Maybe Publication.ClusterPublication
+  -> Maybe Text
+  -> (Text -> IO Bool)
+  -> IO ()
+bridgeHandler domain Nothing _ writeFrame = do
   -- No live cluster — write the deterministic fallback frame once
   -- so the upgrade is observable even offline, then exit. The
   -- client treats the close frame as end-of-stream.
   _ <- writeFrame (fallbackFrame domain)
   pure ()
-bridgeHandler domain (Just publication) writeFrame = do
+bridgeHandler domain (Just publication) endpointOverride writeFrame = do
   let substrate = Publication.publicationSubstrate publication
       edgePort = Publication.publicationEdgePort publication
       pulsarSettings =
-        PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+        case endpointOverride of
+          Just endpoint -> PulsarWebSocketSubprocess.pulsarSettingsForEndpoint endpoint
+          Nothing -> PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
       topic = TopicName (eventTopicFor domain substrate)
       subscriptionName = "jitml-demo-bridge-" <> domain
   result <-
@@ -160,24 +180,41 @@ eventTopicFor "metrics" substrate =
 eventTopicFor domain substrate =
   "persistent://public/default/" <> domain <> ".event." <> renderSubstrate substrate
 
--- | Canonical path to the compiled Halogen entry bundle. `spago build
--- --output web/dist` writes the per-module CoreFn JS under
--- `web/dist/<Module>/index.js`; the demo serves the Main module's entry
--- at `/bundle/main.js`.
+-- | Canonical path to the browser-loadable Halogen entry bundle. The
+-- Dockerfile runs `spago build --output dist` (per-module CommonJS
+-- CoreFn under `web/dist/<Module>/index.js`) then bundles the `Main`
+-- entry into a self-contained IIFE at `web/dist/Main/bundle.js` via
+-- esbuild (Sprint 13.13). The demo serves that bundle at
+-- `/bundle/main.js`.
 bundleEntryPath :: FilePath
-bundleEntryPath = "web/dist/Main/index.js"
+bundleEntryPath = "web/dist/Main/bundle.js"
 
--- | Read the compiled Halogen bundle if `spago build` has produced it;
--- returns Nothing otherwise so the demo falls back to the placeholder
--- HTML shell.
+-- | The pre-esbuild per-module CommonJS entry. Kept as a fallback for
+-- environments that ran `spago build` without the esbuild bundling
+-- step; it is not browser-loadable on its own (the `require` calls do
+-- not resolve in a browser) but lets the offline demo shell still
+-- script-tag a path that exists.
+bundleEntryFallbackPath :: FilePath
+bundleEntryFallbackPath = "web/dist/Main/index.js"
+
+-- | Read the compiled Halogen bundle if a build has produced it,
+-- preferring the browser-loadable esbuild output and falling back to
+-- the per-module entry; returns Nothing otherwise so the demo falls
+-- back to the placeholder HTML shell.
 loadBundleEntry :: IO (Maybe Text)
 loadBundleEntry = do
-  exists <- doesFileExist bundleEntryPath
-  if exists
-    then
-      (Just <$> Text.IO.readFile bundleEntryPath)
-        `Control.Exception.catch` \(_ :: Control.Exception.SomeException) -> pure Nothing
-    else pure Nothing
+  bundled <- readIfExists bundleEntryPath
+  case bundled of
+    Just _ -> pure bundled
+    Nothing -> readIfExists bundleEntryFallbackPath
+ where
+  readIfExists path = do
+    exists <- doesFileExist path
+    if exists
+      then
+        (Just <$> Text.IO.readFile path)
+          `Control.Exception.catch` \(_ :: Control.Exception.SomeException) -> pure Nothing
+      else pure Nothing
 
 demoHttpRoutes :: [HttpRoute]
 demoHttpRoutes = demoHttpRoutesWithBundle Nothing

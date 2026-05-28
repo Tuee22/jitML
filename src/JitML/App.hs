@@ -109,6 +109,12 @@ import JitML.Proto.Rl qualified as ProtoRl
 import JitML.Proto.Training qualified as ProtoTraining
 import JitML.Proto.Tune qualified as ProtoTune
 import JitML.RL.Algorithms qualified as RL
+import JitML.RL.Algorithms.ArsTrainer qualified as ArsTrainer
+import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
+import JitML.RL.Algorithms.DqnTrainer qualified as DqnTrainer
+import JitML.RL.Algorithms.HerTrainer qualified as HerTrainer
+import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
+import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.SimulatorLoop qualified as SimulatorLoop
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Dataset qualified as Dataset
@@ -156,7 +162,36 @@ demoMain = do
     Left err -> exitWithErrorIO (InvalidConfig err)
     Right demoArgs -> do
       writeLineIO WebBundle.demoStatusLine
-      WebServer.serveDemo (demoHost demoArgs) (demoPort demoArgs)
+      -- Sprint 13.13 — serve the demo with the held-open Pulsar→WebSocket
+      -- bridge active. Two deployment shapes:
+      --   * in-cluster `jitml-demo` pod — `JITML_DEMO_PULSAR_WS` names the
+      --     in-cluster broker WebSocket endpoint (the pod cannot reach the
+      --     host edge port), with `JITML_SUBSTRATE` selecting the event
+      --     topic family;
+      --   * local run — the bridge derives host-edge settings from the
+      --     leased edge port in `./.build/runtime/cluster-publication.json`.
+      -- With no live cluster the bridge still completes the `/api/ws`
+      -- handshake and emits the deterministic fallback frame.
+      inClusterEndpoint <- lookupEnv "JITML_DEMO_PULSAR_WS"
+      substrateEnv <- lookupEnv "JITML_SUBSTRATE"
+      localPublication <- readExistingLivePublication "."
+      let endpointOverride = fmap Text.pack (nonEmpty inClusterEndpoint)
+          inClusterPublication = do
+            _ <- endpointOverride
+            substrateName <- substrateEnv
+            substrate <- parseSubstrate (Text.pack substrateName)
+            pure (defaultPublication substrate)
+          publication = inClusterPublication `orElse` localPublication
+      WebServer.serveDemoWithBridgeEndpoint
+        (demoHost demoArgs)
+        (demoPort demoArgs)
+        publication
+        endpointOverride
+ where
+  nonEmpty (Just s) | not (null s) = Just s
+  nonEmpty _ = Nothing
+  orElse (Just x) _ = Just x
+  orElse Nothing y = y
 
 runArgs :: [String] -> IO ()
 runArgs args =
@@ -989,16 +1024,45 @@ attemptFetchTrainingDataset problem = do
             )
     _ -> pure ()
 
+-- | Sprint 13.5 — resolve the worker's broker publish target. A
+-- daemon-dispatched worker runs inside a Kubernetes Job pod where the
+-- host edge (@127.0.0.1:\<edge-port\>@) is the pod's own localhost, not
+-- the broker; the daemon-rendered Job sets @JITML_PULSAR_WS@ (the
+-- in-cluster broker WebSocket endpoint) + @JITML_SUBSTRATE@ so the worker
+-- reaches the broker through the in-cluster service DNS. Offline / host
+-- runs fall back to the leased host-edge settings in
+-- @cluster-publication.json@.
+workerBrokerTarget
+  :: App (Maybe (Substrate, PulsarWebSocketSubprocess.PulsarWebSocketSettings))
+workerBrokerTarget = do
+  pulsarWsEnv <- liftIO (lookupEnv "JITML_PULSAR_WS")
+  substrateEnv <- liftIO (lookupEnv "JITML_SUBSTRATE")
+  cluster <- liftIO (readExistingLivePublication ".")
+  pure $
+    case (pulsarWsEnv >>= nonEmptyString, substrateEnv >>= (parseSubstrate . Text.pack)) of
+      (Just wsUrl, Just substrate) ->
+        Just
+          ( substrate
+          , PulsarWebSocketSubprocess.pulsarSettingsForEndpoint (Text.pack wsUrl)
+          )
+      _ -> case cluster of
+        Just publication ->
+          Just
+            ( Publication.publicationSubstrate publication
+            , PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge
+                (Publication.publicationEdgePort publication)
+            )
+        Nothing -> Nothing
+ where
+  nonEmptyString s = if null s then Nothing else Just s
+
 publishWorkerTrainingEvent :: Double -> App ()
 publishWorkerTrainingEvent finalLoss = do
-  cluster <- liftIO (readExistingLivePublication ".")
+  target <- workerBrokerTarget
   experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
-  case (cluster, experimentHashEnv) of
-    (Just publication, Just hashRaw) | not (null hashRaw) -> do
+  case (target, experimentHashEnv) of
+    (Just (substrate, pulsarSettings), Just hashRaw) | not (null hashRaw) -> do
       let experimentHash = Text.pack hashRaw
-          substrate = Publication.publicationSubstrate publication
-          edgePort = Publication.publicationEdgePort publication
-          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
           topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
       timestampNs <- liftIO currentTimestampNs
       let envelope =
@@ -1217,20 +1281,22 @@ runRl ["rl", "train"] parsedOptions = do
     liftIO (envWithDefault "JITML_MAX_STEPS" "200")
   evalEpisodesRaw <-
     liftIO (envWithDefault "JITML_EVAL_EPISODES" "4")
+  trainerKindRaw <-
+    liftIO (envWithDefault "JITML_RL_TRAINER" "simulator")
   let seed = readIntDefault 42 seedRaw
       maxSteps = max 1 (readIntDefault 200 maxStepsRaw)
       evalEpisodes = max 1 (readIntDefault 4 evalEpisodesRaw)
-  -- Sprint 13.5 — run a real episode loop against the pure-Haskell
-  -- simulators (cartpole / mountain-car / lunar-lander / atari-subset)
-  -- chosen via `JITML_ENVIRONMENT`. Per-episode `RlEpisode (EpisodeDone)`
-  -- events are published to `rl.event.<substrate>` so the daemon → worker
-  -- → broker chain carries one envelope per episode.
-  let episodes =
-        case SimulatorLoop.lookupSimulatedEnvByName envName of
-          Just envHandle ->
-            SimulatorLoop.runSimulatedEpisodesByName envHandle seed evalEpisodes maxSteps
-          Nothing -> []
-      averageReward =
+      trainerKind = Text.toLower (Text.strip trainerKindRaw)
+  -- Sprint 13.5 — by default, run the deterministic per-episode
+  -- simulator loop against the canonical cartpole / mountain-car /
+  -- lunar-lander / atari-subset envs. Sprint 13.8 — when
+  -- @JITML_RL_TRAINER@ names a catalog algorithm the worker drives that
+  -- algorithm's real MLP-backed trainer instead, producing real
+  -- convergence statistics through the network seam; the per-iteration
+  -- summary is projected into the @EpisodeDone@ envelope shape so the
+  -- dispatch chain stays observable end-to-end.
+  episodes <- liftIO (runTrainerEpisodes trainerKind envName seed evalEpisodes maxSteps)
+  let averageReward =
         if null episodes
           then 0.0
           else sum (fmap SimulatorLoop.simEpisodeReward episodes) / fromIntegral (length episodes)
@@ -1239,6 +1305,7 @@ runRl ["rl", "train"] parsedOptions = do
       [ "rl train: " <> selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
       , "algorithms: " <> Text.pack (show (length RL.algorithmCatalog))
       , "environment: " <> envName
+      , "trainer: " <> trainerKind
       , "episodes: " <> Text.pack (show (length episodes))
       , "avg-reward: " <> Text.pack (show averageReward)
       ]
@@ -1254,20 +1321,131 @@ runRl ["rl", "rollout"] parsedOptions =
 runRl path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
 
+-- | Sprint 13.8 — dispatch the worker-side RL run to the real MLP-backed
+-- trainer named by @JITML_RL_TRAINER@, projecting each trainer's
+-- per-iteration summary into the existing 'SimulatedEpisode' envelope
+-- shape so the downstream dispatch chain and Pulsar publication path
+-- (Sprint 13.5) stay unchanged. Every trainer is bit-deterministic on
+-- the same substrate / same seed per
+-- [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
+-- An unrecognised @trainerKind@ falls back to the deterministic
+-- per-episode simulator loop against the named environment.
+runTrainerEpisodes
+  :: Text -> Text -> Int -> Int -> Int -> IO [SimulatorLoop.SimulatedEpisode]
+runTrainerEpisodes trainerKind envName seed evalEpisodes maxStepsPerEpisode =
+  case trainerKind of
+    "ppo" -> onPolicyEpisodes PpoTrainer.VariantPPO
+    "a2c" -> onPolicyEpisodes PpoTrainer.VariantA2C
+    "trpo" -> onPolicyEpisodes PpoTrainer.VariantTRPO
+    "maskableppo" -> onPolicyEpisodes PpoTrainer.VariantMaskablePPO
+    "recurrentppo" -> onPolicyEpisodes PpoTrainer.VariantRecurrentPPO
+    "dqn" -> dqnEpisodes False
+    "qrdqn" -> qrDqnEpisodes
+    "ddpg" -> continuousEpisodes ContinuousTrainer.VariantDDPG
+    "td3" -> continuousEpisodes ContinuousTrainer.VariantTD3
+    "sac" -> continuousEpisodes ContinuousTrainer.VariantSAC
+    "crossq" -> continuousEpisodes ContinuousTrainer.VariantCrossQ
+    "tqc" -> continuousEpisodes ContinuousTrainer.VariantTQC
+    "ars" -> arsEpisodes
+    "her" -> herEpisodes
+    _ ->
+      pure $ case SimulatorLoop.lookupSimulatedEnvByName envName of
+        Just envHandle ->
+          SimulatorLoop.runSimulatedEpisodesByName envHandle seed evalEpisodes maxStepsPerEpisode
+        Nothing -> []
+ where
+  asEpisode index reward =
+    SimulatorLoop.SimulatedEpisode
+      { SimulatorLoop.simEpisodeIndex = index
+      , SimulatorLoop.simEpisodeSteps = maxStepsPerEpisode
+      , SimulatorLoop.simEpisodeReward = reward
+      , SimulatorLoop.simEpisodeDone = True
+      }
+  -- Project per-iteration stats into sequentially-indexed episodes.
+  -- Manual index threading (not @zipWith ... [0 ..]@) keeps hlint's
+  -- @Use zipWithFrom@ hint from firing without pulling the extra package.
+  indexedEpisodes :: (a -> Double) -> [a] -> [SimulatorLoop.SimulatedEpisode]
+  indexedEpisodes statReward = goIndexed 0
+   where
+    goIndexed _ [] = []
+    goIndexed i (stat : rest) = asEpisode i (statReward stat) : goIndexed (i + 1) rest
+  onPolicyEpisodes variant = do
+    let config =
+          PpoTrainer.defaultPpoTrainConfig
+            { PpoTrainer.ppoSeed = seed
+            , PpoTrainer.ppoVariant = variant
+            , PpoTrainer.ppoNumIterations = max 1 evalEpisodes
+            , PpoTrainer.ppoRolloutSteps = max 256 maxStepsPerEpisode
+            , PpoTrainer.ppoMaxEpisodeSteps = max 200 maxStepsPerEpisode
+            }
+    result <- PpoTrainer.trainPpoOnCartpole config
+    pure $
+      fmap
+        (\stat -> asEpisode (PpoTrainer.iterIndex stat) (PpoTrainer.iterMeanReward stat))
+        (PpoTrainer.resultIterations result)
+  dqnEpisodes useDouble = do
+    let config =
+          DqnTrainer.defaultDqnTrainConfig
+            { DqnTrainer.dqnSeed = seed
+            , DqnTrainer.dqnUseDouble = useDouble
+            , DqnTrainer.dqnNumSteps = max 2000 (evalEpisodes * maxStepsPerEpisode)
+            , DqnTrainer.dqnStatInterval = max 500 maxStepsPerEpisode
+            }
+    result <- DqnTrainer.trainDqnOnCartpole config
+    pure (indexedEpisodes DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats result))
+  qrDqnEpisodes = do
+    let config =
+          QrDqnTrainer.defaultQrDqnTrainConfig
+            { QrDqnTrainer.qrSeed = seed
+            , QrDqnTrainer.qrNumSteps = max 2000 (evalEpisodes * maxStepsPerEpisode)
+            , QrDqnTrainer.qrStatInterval = max 500 maxStepsPerEpisode
+            }
+    result <- QrDqnTrainer.trainQrDqnOnCartpole config
+    pure (indexedEpisodes QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats result))
+  continuousEpisodes variant = do
+    let config =
+          (ContinuousTrainer.defaultContinuousTrainConfig variant)
+            { ContinuousTrainer.ctSeed = seed
+            , ContinuousTrainer.ctNumSteps = max 2000 (evalEpisodes * maxStepsPerEpisode)
+            , ContinuousTrainer.ctMaxEpisodeSteps = max 100 maxStepsPerEpisode
+            , ContinuousTrainer.ctStatInterval = max 500 maxStepsPerEpisode
+            }
+    result <- ContinuousTrainer.trainContinuousOnPendulum config
+    pure
+      (indexedEpisodes ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats result))
+  arsEpisodes = do
+    let config =
+          ArsTrainer.defaultArsTrainConfig
+            { ArsTrainer.arsSeed = seed
+            , ArsTrainer.arsIterations = max 1 evalEpisodes
+            , ArsTrainer.arsMaxEpisodeSteps = max 200 maxStepsPerEpisode
+            }
+    result <- ArsTrainer.trainArsOnCartpole config
+    pure $
+      fmap
+        (\stat -> asEpisode (ArsTrainer.arsIterIndex stat) (ArsTrainer.arsIterMeanReturn stat))
+        (ArsTrainer.arsResultStats result)
+  herEpisodes = do
+    let config =
+          HerTrainer.defaultHerTrainConfig
+            { HerTrainer.herSeed = seed
+            , HerTrainer.herEpisodes = max 50 (evalEpisodes * 20)
+            , HerTrainer.herStatInterval = max 25 evalEpisodes
+            }
+    result <- HerTrainer.trainHerOnBitFlip config
+    pure (indexedEpisodes HerTrainer.herIterSuccessRate (HerTrainer.herResultStats result))
+
 -- | Sprint 13.5 — publish one @EpisodeDone@ envelope per simulator
 -- episode produced by 'SimulatorLoop.runSimulatedEpisodesByName'. Gated
 -- on @JITML_EXPERIMENT_HASH@ + live cluster publication so the worker
 -- can still run offline without a broker.
 publishWorkerRlEpisode :: SimulatorLoop.SimulatedEpisode -> App ()
 publishWorkerRlEpisode episode = do
-  cluster <- liftIO (readExistingLivePublication ".")
+  target <- workerBrokerTarget
   experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
-  case (cluster, experimentHashEnv) of
-    (Just publication, Just hashRaw) | not (null hashRaw) -> do
+  case (target, experimentHashEnv) of
+    (Just (substrate, pulsarSettings), Just hashRaw) | not (null hashRaw) -> do
       let experimentHash = Text.pack hashRaw
-          substrate = Publication.publicationSubstrate publication
-          edgePort = Publication.publicationEdgePort publication
-          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
           topic = Capabilities.TopicName (ProtoRl.rlEventTopic substrate)
       timestampNs <- liftIO currentTimestampNs
       let envelope =

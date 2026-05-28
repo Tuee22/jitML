@@ -8,6 +8,7 @@ import Data.Text.IO qualified as Text.IO
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import Data.Vector.Unboxed qualified
 import JitML.Proto.Rl
   ( CheckpointDoneRL (..)
   , EpisodeDone (..)
@@ -33,12 +34,14 @@ import JitML.RL.Algorithms.Common
   , moduleRolloutGenerator
   , rolloutGoldenLines
   )
+import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
 import JitML.RL.Algorithms.DdpgLoss qualified as DdpgLoss
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
 import JitML.RL.Algorithms.HerLoss qualified as HerLoss
 import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
 import JitML.RL.Algorithms.PpoLoss qualified as PpoLoss
+import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnLoss qualified as QrDqnLoss
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
 import JitML.RL.Algorithms.Registry (algorithmModuleRegistry)
@@ -46,7 +49,9 @@ import JitML.RL.Algorithms.SacLoss qualified as SacLoss
 import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
 import JitML.RL.Algorithms.TqcLoss qualified as TqcLoss
 import JitML.RL.Algorithms.TrpoLoss qualified as TrpoLoss
-import JitML.RL.AlphaZero (gameMoves, selfPlayTranscript, selfPlayTranscriptFor)
+import JitML.RL.AlphaZero (gameMoves, initialConnect4, selfPlayTranscript, selfPlayTranscriptFor)
+import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
+import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
 import JitML.RL.Buffer (bufferSize)
 import JitML.RL.ConvergenceThresholds
   ( ConvergenceThreshold (..)
@@ -163,6 +168,33 @@ main =
       , testCase
           "every Sprint 13.8 loss module returns a finite value on the canonical trajectory"
           assertAllLossModulesFinite
+      , testCase
+          "PPO trainer learns cartpole through the differentiable MLP (Sprint 13.8 + 13.9 seam)"
+          assertPpoTrainerImprovesOnCartpole
+      , testCase
+          "PPO trainer is bit-deterministic across two fresh runs (Sprint 13.8 determinism)"
+          assertPpoTrainerDeterministic
+      , testCase
+          "every on-policy variant trains and improves on cartpole (Sprint 13.8 A2C/TRPO/MaskablePPO/RecurrentPPO)"
+          assertOnPolicyVariantsImprove
+      , testCase
+          "DDPG continuous actor-critic learns to swing up pendulum (Sprint 13.8 continuous seam)"
+          assertDdpgImprovesOnPendulum
+      , testCase
+          "policy/value network forward emits a valid policy distribution (Sprint 13.9)"
+          assertPolicyValueForwardValid
+      , testCase
+          "policy/value network gradient update reduces a synthetic policy/value loss (Sprint 13.9)"
+          assertPolicyValueTrainingReducesLoss
+      , testCase
+          "AlphaZero self-play generation runs deterministically and reports an arena win rate (Sprint 13.9)"
+          assertAlphaZeroSelfPlayGenerationDeterministic
+      , testCase
+          "network-driven MCTS self-play is deterministic and legal (Sprint 13.9 production prior)"
+          assertNetworkSelfPlayDeterministic
+      , testCase
+          "MCTS visit-count target is a valid search-derived distribution (Sprint 13.9 visit targets)"
+          assertMctsVisitTargets
       , testCase "RL command envelopes parse after render" $ do
           let start =
                 RlStart
@@ -521,3 +553,259 @@ deterministicTrajectoryFor seed =
   fmap
     (\i -> fromIntegral ((seed + i) `mod` 7) / 7.0 + 0.01)
     [0 ..]
+
+-- | Sprint 13.8 — drive a short PPO training cohort on cartpole through
+-- the differentiable MLP seam and assert the final iteration's mean
+-- reward improves over the first iteration. Wall-clock-bounded to a few
+-- seconds: 8 iterations × 512 rollout steps × 4 epochs/update is enough
+-- to observe early-training improvement without saturating CI time. The
+-- real literature threshold (cartpole/PPO ≥ 475) requires the longer
+-- training shape exercised by the live cohort (Sprint 13.6); this
+-- assertion is the canonical smoke that the trainer is actually
+-- updating the policy in the right direction.
+assertPpoTrainerImprovesOnCartpole :: IO ()
+assertPpoTrainerImprovesOnCartpole = do
+  let config =
+        PpoTrainer.defaultPpoTrainConfig
+          { PpoTrainer.ppoSeed = 42
+          , PpoTrainer.ppoRolloutSteps = 512
+          , PpoTrainer.ppoNumIterations = 8
+          , PpoTrainer.ppoEpochsPerUpdate = 4
+          , PpoTrainer.ppoLearningRate = 1.0e-3
+          , PpoTrainer.ppoMaxEpisodeSteps = 200
+          }
+  result <- PpoTrainer.trainPpoOnCartpole config
+  let stats = PpoTrainer.resultIterations result
+  case stats of
+    (firstStat : _) -> do
+      let lastStat = last stats
+      assertBool
+        ( "PPO trainer should improve: first iter mean="
+            <> show (PpoTrainer.iterMeanReward firstStat)
+            <> ", last iter mean="
+            <> show (PpoTrainer.iterMeanReward lastStat)
+        )
+        (PpoTrainer.iterMeanReward lastStat > PpoTrainer.iterMeanReward firstStat)
+    [] -> assertBool "PPO trainer returned no iteration stats" False
+
+-- | Sprint 13.8 — drive a DDPG continuous actor-critic cohort on the
+-- Pendulum-v1 simulator and assert the agent improves: the mean episode
+-- return in the final stat window beats the first window. Pendulum
+-- returns are strongly negative for a random policy (the pole hangs and
+-- spins); a learning deterministic-policy-gradient agent raises the
+-- return as it learns to swing up and hold. This is the canonical smoke
+-- that the continuous actor-critic loop drives the actor in the right
+-- direction (a sign error in @dQ/da@ would make it diverge).
+assertDdpgImprovesOnPendulum :: IO ()
+assertDdpgImprovesOnPendulum = do
+  let config =
+        (ContinuousTrainer.defaultContinuousTrainConfig ContinuousTrainer.VariantDDPG)
+          { ContinuousTrainer.ctSeed = 7
+          , ContinuousTrainer.ctNumSteps = 10000
+          , ContinuousTrainer.ctMaxEpisodeSteps = 200
+          , ContinuousTrainer.ctStatInterval = 2000
+          }
+  result <- ContinuousTrainer.trainContinuousOnPendulum config
+  let means = fmap ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats result)
+  case (means, reverse means) of
+    (firstMean : _, lastMean : _) ->
+      assertBool
+        ( "DDPG should improve pendulum return: first window mean="
+            <> show firstMean
+            <> ", last window mean="
+            <> show lastMean
+        )
+        (lastMean > firstMean)
+    _ -> assertBool "DDPG trainer returned no stats" False
+
+-- | Sprint 13.8 — assert two fresh PPO training runs with the same
+-- config produce bit-identical per-iteration statistics. The
+-- determinism contract requires same-substrate / same-seed reductions
+-- to be bit-equal; this holds the trainer to that bar end-to-end.
+assertPpoTrainerDeterministic :: IO ()
+assertPpoTrainerDeterministic = do
+  let config =
+        PpoTrainer.defaultPpoTrainConfig
+          { PpoTrainer.ppoSeed = 5
+          , PpoTrainer.ppoRolloutSteps = 128
+          , PpoTrainer.ppoNumIterations = 3
+          , PpoTrainer.ppoEpochsPerUpdate = 2
+          }
+  resultA <- PpoTrainer.trainPpoOnCartpole config
+  resultB <- PpoTrainer.trainPpoOnCartpole config
+  fmap PpoTrainer.iterMeanReward (PpoTrainer.resultIterations resultA)
+    @?= fmap PpoTrainer.iterMeanReward (PpoTrainer.resultIterations resultB)
+  fmap PpoTrainer.iterMedianReward (PpoTrainer.resultIterations resultA)
+    @?= fmap PpoTrainer.iterMedianReward (PpoTrainer.resultIterations resultB)
+
+-- | Sprint 13.8 — every on-policy variant (A2C / TRPO / MaskablePPO /
+-- RecurrentPPO, alongside PPO) shares the MLP forward/backward seam and
+-- must improve its mean cartpole reward over a short training cohort.
+-- This proves the shared-template trainer drives each variant's policy
+-- in the right direction; the full literature-threshold convergence uses
+-- the longer `defaultPpoTrainConfig` shape (demonstrated for PPO).
+assertOnPolicyVariantsImprove :: IO ()
+assertOnPolicyVariantsImprove =
+  mapM_
+    checkVariant
+    [ PpoTrainer.VariantA2C
+    , PpoTrainer.VariantTRPO
+    , PpoTrainer.VariantMaskablePPO
+    , PpoTrainer.VariantRecurrentPPO
+    ]
+ where
+  checkVariant variant = do
+    let config =
+          PpoTrainer.defaultPpoTrainConfig
+            { PpoTrainer.ppoSeed = 42
+            , PpoTrainer.ppoRolloutSteps = 512
+            , PpoTrainer.ppoNumIterations = 8
+            , PpoTrainer.ppoEpochsPerUpdate = 4
+            , PpoTrainer.ppoLearningRate = 1.0e-3
+            , PpoTrainer.ppoMaxEpisodeSteps = 200
+            }
+    result <- PpoTrainer.trainOnPolicyOnCartpole variant config
+    let stats = PpoTrainer.resultIterations result
+    case stats of
+      (firstStat : _) -> do
+        let lastStat = last stats
+        assertBool
+          ( show variant
+              <> " should improve: first="
+              <> show (PpoTrainer.iterMeanReward firstStat)
+              <> " last="
+              <> show (PpoTrainer.iterMeanReward lastStat)
+          )
+          (PpoTrainer.iterMeanReward lastStat > PpoTrainer.iterMeanReward firstStat)
+      [] -> assertBool (show variant <> " returned no stats") False
+
+-- | Sprint 13.9 — assert the policy/value network's forward pass
+-- produces a valid policy distribution on the initial Connect 4 board.
+assertPolicyValueForwardValid :: IO ()
+assertPolicyValueForwardValid = do
+  let net = PVN.initPolicyValueNet 43 7 32 11
+      pv = PVN.networkPolicyValue net initialConnect4
+      policy = PVN.pvPolicy pv
+  assertBool
+    "policy probabilities are non-negative"
+    (all (>= 0) (policySamples policy))
+  assertBool
+    "policy probabilities sum to 1"
+    (abs (sum (policySamples policy) - 1.0) < 1.0e-9)
+  assertBool
+    "value is bounded by tanh"
+    (abs (PVN.pvValue pv) <= 1.0)
+ where
+  policySamples = unsafePolicyToList
+
+-- | Convert the unboxed-vector policy to a list (test helper).
+unsafePolicyToList
+  :: Data.Vector.Unboxed.Vector Double
+  -> [Double]
+unsafePolicyToList = Data.Vector.Unboxed.toList
+
+-- | Sprint 13.9 — exercise one round of training and assert the
+-- mean-squared error on a synthetic batch decreases after enough
+-- gradient updates. This is the canonical "the network is actually
+-- learning" sanity check for the AlphaZero policy/value seam.
+assertPolicyValueTrainingReducesLoss :: IO ()
+assertPolicyValueTrainingReducesLoss = do
+  let net0 = PVN.initPolicyValueNet 43 7 16 22
+      adam0 = PVN.initAdamFor net0
+      target =
+        Data.Vector.Unboxed.fromList [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+      sample =
+        PVN.PolicyValueTrainingSample
+          { PVN.sampleState = initialConnect4
+          , PVN.sampleVisitDist = target
+          , PVN.sampleOutcome = 0.5
+          }
+      lossOf net =
+        let pv = PVN.networkPolicyValue net (PVN.sampleState sample)
+            policy = PVN.pvPolicy pv
+            policyLoss =
+              -sum
+                [ (PVN.sampleVisitDist sample Data.Vector.Unboxed.! i)
+                    * logSafe (policy Data.Vector.Unboxed.! i)
+                | i <- [0 .. Data.Vector.Unboxed.length policy - 1]
+                ]
+            valueLoss =
+              0.5 * (PVN.pvValue pv - PVN.sampleOutcome sample) ^ (2 :: Int)
+         in policyLoss + valueLoss
+      logSafe x = if x <= 0 then -1.0e9 else log x
+      (netN, _) = PVN.trainPolicyValueNetOnSamples net0 adam0 1.0e-2 80 [sample]
+      lossBefore = lossOf net0
+      lossAfter = lossOf netN
+  assertBool
+    ( "policy/value loss should decrease; before="
+        <> show lossBefore
+        <> " after="
+        <> show lossAfter
+    )
+    (lossAfter < lossBefore)
+
+-- | Sprint 13.9 — assert two fresh self-play generations with the
+-- same seed produce bit-identical sample counts and arena win rate.
+assertAlphaZeroSelfPlayGenerationDeterministic :: IO ()
+assertAlphaZeroSelfPlayGenerationDeterministic = do
+  let net = PVN.initPolicyValueNet 43 7 16 31
+      adam = PVN.initAdamFor net
+      runOne = PVN.runOneGenerationOfSelfPlay net adam 2 16 8 4 4 99
+      resultA = runOne
+      resultB = runOne
+  PVN.genSamplesCount resultA @?= PVN.genSamplesCount resultB
+  PVN.genArenaWinRate resultA @?= PVN.genArenaWinRate resultB
+  assertBool
+    "arena win rate is in [0, 1]"
+    (PVN.genArenaWinRate resultA >= 0.0 && PVN.genArenaWinRate resultA <= 1.0)
+
+-- | Sprint 13.9 — the production self-play path now drives the MCTS prior
+-- from the real policy/value network forward pass per position
+-- (`runNetworkSelfPlay` → `runSelfPlayWithOracleFactory` →
+-- `netOracleFactory`), replacing the deterministic `priorFor` stub. Assert
+-- two fresh runs at the same seed produce bit-identical buffers (the network
+-- weights are fixed by the init seed, the search is deterministic) and that
+-- every move in every transcript is a legal Connect 4 column.
+assertNetworkSelfPlayDeterministic :: IO ()
+assertNetworkSelfPlayDeterministic = do
+  let net = PVN.initPolicyValueNet 43 7 16 53
+      config =
+        SelfPlay.defaultSelfPlayConfig
+          { SelfPlay.selfPlayGamesPerGeneration = 2
+          , SelfPlay.selfPlaySimulationsPerMove = 8
+          , SelfPlay.selfPlayMaxPlies = 6
+          , SelfPlay.selfPlayActionSpace = 7
+          }
+      bufferA = PVN.runNetworkSelfPlay net config
+      bufferB = PVN.runNetworkSelfPlay net config
+  SelfPlay.bufferLength bufferA @?= SelfPlay.bufferLength bufferB
+  SelfPlay.bufferTranscriptHash bufferA @?= SelfPlay.bufferTranscriptHash bufferB
+  let allMoves =
+        concatMap
+          (concatMap gameMoves . SelfPlay.gameTranscript)
+          (SelfPlay.unBuffer bufferA)
+  assertBool
+    "network self-play moves are legal Connect 4 columns"
+    (all (\c -> c >= 0 && c < 7) allMoves)
+
+-- | Sprint 13.9 — the policy training target is now the true MCTS
+-- visit-count distribution from 'mctsVisitDistribution', not the
+-- network's raw policy. Assert the distribution is well-formed (length
+-- = action space, non-negative, sums to 1), run-to-run deterministic,
+-- and genuinely search-shaped: the search concentrates visits beyond
+-- the uniform 1/7 baseline, proving the UCB rollout reshaped the prior.
+assertMctsVisitTargets :: IO ()
+assertMctsVisitTargets = do
+  let net = PVN.initPolicyValueNet 43 7 16 71
+      distA = PVN.mctsVisitDistribution net 64 initialConnect4 1234
+      distB = PVN.mctsVisitDistribution net 64 initialConnect4 1234
+      entries = Data.Vector.Unboxed.toList distA
+  Data.Vector.Unboxed.length distA @?= 7
+  assertBool "visit distribution is deterministic" (distA == distB)
+  assertBool "visit probabilities are non-negative" (all (>= 0) entries)
+  assertBool
+    "visit distribution sums to 1"
+    (abs (sum entries - 1.0) < 1.0e-9)
+  assertBool
+    "search concentrates visits beyond the uniform 1/7 baseline"
+    (maximum entries > 1.0 / 7.0)

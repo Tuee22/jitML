@@ -20,8 +20,11 @@
 module JitML.RL.Simulator
   ( AtariSubsetState (..)
   , CartPoleState (..)
+  , ContinuousEnvironment (..)
+  , ContinuousSimStep (..)
   , LunarLanderState (..)
   , MountainCarState (..)
+  , PendulumState (..)
   , RenderFrame (..)
   , SimStep (..)
   , SimulatedEnvironment (..)
@@ -41,6 +44,10 @@ module JitML.RL.Simulator
   , mountainCarInitial
   , mountainCarRenderFrame
   , mountainCarStep
+  , pendulumEnvironment
+  , pendulumInitial
+  , pendulumObservation
+  , pendulumStep
   , stepEnvironmentIO
   )
 where
@@ -526,6 +533,122 @@ atariSubsetRenderFrame state =
 
 atariSubsetEpisodeLength :: Int
 atariSubsetEpisodeLength = 250
+
+-- * Pendulum-v1 (continuous action)
+
+-- | Result of advancing one continuous-action simulator state by one
+-- real-valued action. Mirrors 'SimStep' but for the continuous-control
+-- env-step boundary the actor-critic catalog (DDPG / TD3 / SAC / CrossQ
+-- / TQC) consumes.
+data ContinuousSimStep state = ContinuousSimStep
+  { cStepState :: state
+  , cStepReward :: Double
+  , cStepDone :: Bool
+  }
+  deriving stock (Eq, Show)
+
+-- | The continuous-action env-step boundary. The action is a scalar
+-- torque in @[cEnvActionLow, cEnvActionHigh]@; the observation is the
+-- @cEnvObservationSize@-wide vector the policy/critic networks consume.
+data ContinuousEnvironment state = ContinuousEnvironment
+  { cEnvName :: Text
+  , cEnvInitial :: state
+  , cEnvStep :: state -> Double -> ContinuousSimStep state
+  , cEnvObservation :: state -> [Double]
+  , cEnvActionLow :: Double
+  , cEnvActionHigh :: Double
+  , cEnvObservationSize :: Int
+  }
+
+-- | Pendulum-v1 state: pole angle @theta@ (radians, 0 = upright) and
+-- angular velocity @thetadot@ (rad/s). The canonical Gym observation is
+-- the angle projected to @(cos theta, sin theta)@ plus @thetadot@.
+data PendulumState = PendulumState
+  { pendTheta :: Double
+  , pendThetaDot :: Double
+  }
+  deriving stock (Eq, Show)
+
+-- | Canonical deterministic reset: the pendulum hangs straight down
+-- (@theta = pi@) at rest. The Gym env randomises the reset; the
+-- determinism contract here prefers a fixed start so same-seed trainer
+-- runs are bit-reproducible (exploration noise comes from the trainer's
+-- seeded RNG, not env-internal stochasticity).
+pendulumInitial :: PendulumState
+pendulumInitial = PendulumState pi 0.0
+
+pendulumEnvironment :: ContinuousEnvironment PendulumState
+pendulumEnvironment =
+  ContinuousEnvironment
+    { cEnvName = "pendulum"
+    , cEnvInitial = pendulumInitial
+    , cEnvStep = pendulumStep
+    , cEnvObservation = pendulumObservation
+    , cEnvActionLow = -pendulumMaxTorque
+    , cEnvActionHigh = pendulumMaxTorque
+    , cEnvObservationSize = 3
+    }
+
+-- | Advance the pendulum one Gym timestep under a continuous torque.
+-- Dynamics follow the documented @Pendulum-v1@ equations:
+--
+-- @newthdot = thetadot + (3*g/(2*l) * sin theta + 3/(m*l^2) * u) * dt@
+--
+-- clamped to @[-maxSpeed, maxSpeed]@, then @newtheta = theta + newthdot
+-- * dt@. The reward is the negated cost
+-- @-(angle_normalize(theta)^2 + 0.1*thetadot^2 + 0.001*u^2)@ (computed
+-- from the /pre-step/ angle and the applied torque, per the Gym
+-- reference). The episode never self-terminates; the trainer caps the
+-- horizon.
+pendulumStep :: PendulumState -> Double -> ContinuousSimStep PendulumState
+pendulumStep state actionRaw =
+  let u = clamp actionRaw (-pendulumMaxTorque) pendulumMaxTorque
+      theta = pendTheta state
+      thetadot = pendThetaDot state
+      cost =
+        angleNormalize theta * angleNormalize theta
+          + 0.1 * thetadot * thetadot
+          + 0.001 * u * u
+      newThetaDotRaw =
+        thetadot
+          + ( 3.0 * pendulumGravity / (2.0 * pendulumLength) * sin theta
+                + 3.0 / (pendulumMass * pendulumLength * pendulumLength) * u
+            )
+            * pendulumDt
+      newThetaDot = clamp newThetaDotRaw (-pendulumMaxSpeed) pendulumMaxSpeed
+      newTheta = theta + newThetaDot * pendulumDt
+   in ContinuousSimStep
+        { cStepState = PendulumState newTheta newThetaDot
+        , cStepReward = negate cost
+        , cStepDone = False
+        }
+
+pendulumObservation :: PendulumState -> [Double]
+pendulumObservation state =
+  [ cos (pendTheta state)
+  , sin (pendTheta state)
+  , pendThetaDot state
+  ]
+
+pendulumGravity
+  , pendulumMass
+  , pendulumLength
+  , pendulumMaxSpeed
+  , pendulumMaxTorque
+  , pendulumDt
+    :: Double
+pendulumGravity = 10.0
+pendulumMass = 1.0
+pendulumLength = 1.0
+pendulumMaxSpeed = 8.0
+pendulumMaxTorque = 2.0
+pendulumDt = 0.05
+
+-- | Normalise an angle to @[-pi, pi)@.
+angleNormalize :: Double -> Double
+angleNormalize x =
+  let twoPi = 2.0 * pi
+   in x - twoPi * fromIntegral (floor ((x + pi) / twoPi) :: Int)
 
 -- * Helpers
 

@@ -44,15 +44,15 @@ async function loadPanel(
   panelId: string
 ): Promise<void> {
   if (LIVE_DEMO_URL) {
-    await page.goto(LIVE_DEMO_URL);
-    // Wait briefly for the Halogen bundle to mount the panel before the
-    // assertion runs. The Sprint 13.13 render machinery populates each
-    // `section#<panel-id>` inside `<main id="app">` once mounted.
+    // `Main.main` mounts the panel selected by `location.hash`; the bare
+    // demo URL mounts only the MNIST panel, so each test navigates to its
+    // own `#<panel-id>` hash to drive the matching `Panels.*` mount
+    // (Sprint 13.13 + 13.14). The Halogen render machinery populates
+    // `#<panel-id>` inside `<main id="app">` once mounted.
+    await page.goto(`${LIVE_DEMO_URL}#${panelId}`);
     await page
       .locator(`#${panelId}`)
-      .or(page.locator("main#app"))
-      .first()
-      .waitFor({ state: "attached", timeout: 5000 });
+      .waitFor({ state: "attached", timeout: 10000 });
   } else {
     await page.setContent(inlineStub);
   }

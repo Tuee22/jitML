@@ -2,6 +2,7 @@
 .data/
 .git/
 dist-newstyle/
+.dist-newstyle/
 .hlint-output
 chart/charts/
 *.lock

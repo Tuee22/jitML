@@ -7,6 +7,7 @@ import Data.Text qualified as Text
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import Control.Exception qualified
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (TensorBlob (..), emptyManifest, inferFromManifest)
@@ -35,15 +36,14 @@ import JitML.Engines.Local
   )
 import JitML.Engines.Local qualified as Local
 import JitML.Engines.Tuning qualified as Tuning
-import Control.Exception qualified
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env, envCacheDir)
 import JitML.Substrate (Substrate (..), allSubstrates)
 import JitML.Substrate qualified as Substrate
 import Path (toFilePath)
-import System.FilePath ((</>))
 import System.Directory (listDirectory)
+import System.FilePath ((</>))
 
 main :: IO ()
 main =
@@ -430,9 +430,8 @@ main =
             -- Snapshot the existing selection files so the assertion
             -- below counts only files newly written by this run.
             preExisting <-
-              ( listDirectory tuningDir
-                  `Control.Exception.catch` \(_ :: Control.Exception.IOException) -> pure []
-                )
+              listDirectory tuningDir
+                `Control.Exception.catch` \(_ :: Control.Exception.IOException) -> pure []
             -- Drive the cache-miss path. The deterministic-stub runner
             -- returns a constant observation; the typed
             -- ensureKernelArtifactWithBenchmarkTuningWithRunner closure

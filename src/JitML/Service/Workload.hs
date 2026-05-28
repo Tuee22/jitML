@@ -381,6 +381,7 @@ renderTrainingJob start =
     , ("JITML_SEED", Text.pack (show (stSeed start)))
     , ("JITML_EPOCHS", Text.pack (show (stEpochs start)))
     , ("JITML_BATCH_SIZE", Text.pack (show (stBatchSize start)))
+    , ("JITML_PULSAR_WS", inClusterPulsarWsUrl)
     ]
 
 renderTuneJob :: StartSweep -> Text
@@ -397,6 +398,7 @@ renderTuneJob start =
     , ("JITML_SAMPLER", ssSampler start)
     , ("JITML_SCHEDULER", ssScheduler start)
     , ("JITML_PRUNER", ssPruner start)
+    , ("JITML_PULSAR_WS", inClusterPulsarWsUrl)
     ]
 
 renderRlJob :: StartRLRun -> Text
@@ -412,7 +414,46 @@ renderRlJob start =
     , ("JITML_SEED", Text.pack (show (srlSeed start)))
     , ("JITML_MAX_STEPS", Text.pack (show (srlMaxSteps start)))
     , ("JITML_EVAL_EPISODES", Text.pack (show (srlEvalEpisodes start)))
+    , -- Sprint 13.8 — route each catalog algorithm to its real
+      -- network-backed trainer in the worker (PPO/A2C/TRPO/MaskablePPO/
+      -- RecurrentPPO on-policy, DQN/QR-DQN/DDPG/TD3/SAC/CrossQ/TQC
+      -- off-policy, ARS gradient-free, HER goal-conditioned). Unknown
+      -- algorithm names fall back to the deterministic simulator loop.
+      ("JITML_RL_TRAINER", rlTrainerForAlgorithm (srlAlgorithm start))
+    , ("JITML_PULSAR_WS", inClusterPulsarWsUrl)
     ]
+
+-- | The in-cluster Pulsar WebSocket endpoint a daemon-dispatched worker
+-- Job uses to publish completion events back to the broker. A Job pod
+-- cannot reach the host edge (@127.0.0.1:\<edge-port\>@); it reaches the
+-- broker through the in-cluster service DNS instead. Matches the daemon's
+-- own cluster WebSocket endpoint in 'JitML.Service.Clients'.
+inClusterPulsarWsUrl :: Text
+inClusterPulsarWsUrl = "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
+
+-- | Map an RL algorithm name to the worker-side trainer selector the
+-- worker's @jitml rl train@ command reads from @JITML_RL_TRAINER@. Each
+-- catalog algorithm selects its real MLP-backed trainer; an unrecognised
+-- name keeps the deterministic per-episode simulator loop.
+rlTrainerForAlgorithm :: Text -> Text
+rlTrainerForAlgorithm algorithm =
+  case Text.toUpper (Text.strip algorithm) of
+    "PPO" -> "ppo"
+    "A2C" -> "a2c"
+    "TRPO" -> "trpo"
+    "MASKABLEPPO" -> "maskableppo"
+    "RECURRENTPPO" -> "recurrentppo"
+    "DQN" -> "dqn"
+    "QR-DQN" -> "qrdqn"
+    "QRDQN" -> "qrdqn"
+    "DDPG" -> "ddpg"
+    "TD3" -> "td3"
+    "SAC" -> "sac"
+    "CROSSQ" -> "crossq"
+    "TQC" -> "tqc"
+    "ARS" -> "ars"
+    "HER" -> "her"
+    _ -> "simulator"
 
 renderJob :: Text -> Text -> [Text] -> [(Text, Text)] -> Text
 renderJob component name args envVars =

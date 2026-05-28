@@ -1956,6 +1956,74 @@ main =
                   dedupObserved
                 _ <- deleteJob expectedJobName
                 pure ()
+          , testCase
+              "live daemon dispatches StartRLRun into a Job and per-episode events arrive on rl.event (Sprint 13.5/13.6)"
+              $ do
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    pulsarSettings =
+                      PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+                    substrate = Publication.publicationSubstrate publication
+                    segment = substrateUrlSegment substrate
+                    commandTopic =
+                      TopicName ("persistent://public/default/rl.command." <> segment)
+                    eventTopic =
+                      TopicName ("persistent://public/default/rl.event." <> segment)
+                uniqueSuffix <- pickRandomSuffix
+                let experimentHash =
+                      Text.take 16 ("liverl" <> uniqueSuffix <> "abcdef0123456789")
+                    subscription = "live-rl-event-sub-" <> uniqueSuffix
+                    evalEpisodes = 2 :: Int
+                    commandPayload =
+                      Text.unlines
+                        [ "kind: StartRLRun"
+                        , "experiment-hash: " <> experimentHash
+                        , "algorithm: PPO"
+                        , "environment: cartpole"
+                        , "substrate: " <> segment
+                        , "seed: 7"
+                        , "max-steps: 64"
+                        , "eval-episodes: " <> Text.pack (show evalEpisodes)
+                        ]
+                    expectedJobName = "jitml-rl-" <> experimentHash
+                -- Subscribe to rl.event BEFORE publishing so the unique
+                -- subscription captures every episode the worker publishes
+                -- back to the in-cluster broker after the dispatched Job runs.
+                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
+                  subscribeResult <- pulsarSubscribe eventTopic subscription
+                  case subscribeResult of
+                    Right _ -> pure ()
+                    Left err ->
+                      liftIO (assertFailure ("rl.event subscribe failed live: " <> show err))
+                -- Publish StartRLRun; the cluster daemon dispatches it into a
+                -- `jitml-rl-<hash>` Job that runs `jitml rl train`.
+                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
+                  publishResult <- pulsarPublish commandTopic commandPayload
+                  liftIO $ case publishResult of
+                    Right _ -> pure ()
+                    Left err ->
+                      assertFailure ("pulsarPublish StartRLRun failed live: " <> show err)
+                jobAppeared <- waitForJob expectedJobName 30
+                assertBool
+                  ("expected Job " <> Text.unpack expectedJobName <> " to be applied by the daemon")
+                  jobAppeared
+                -- The worker publishes one `EpisodeDone` per episode to
+                -- `rl.event.<substrate>` through the in-cluster broker
+                -- (JITML_PULSAR_WS). Collect them off the subscription.
+                episodes <-
+                  collectRlEpisodes pulsarSettings eventTopic subscription experimentHash evalEpisodes 10
+                assertBool
+                  ( "expected at least one EpisodeDone on rl.event for "
+                      <> Text.unpack experimentHash
+                      <> "; collected indices: "
+                      <> show episodes
+                  )
+                  (not (null episodes))
+                assertBool
+                  ("episode indices should arrive in non-decreasing order; got " <> show episodes)
+                  (nonDecreasingInts episodes)
+                _ <- deleteJob expectedJobName
+                pure ()
           , testCase "live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
@@ -2639,6 +2707,73 @@ waitForJob jobName remaining
         else do
           Control.Concurrent.threadDelay 1_000_000
           waitForJob jobName (remaining - 1)
+
+-- | Sprint 13.5/13.6 — poll @rl.event.<substrate>@ for the per-episode
+-- @EpisodeDone@ envelopes the worker publishes to the in-cluster broker
+-- after a daemon-dispatched RL Job runs. Returns the matching episode
+-- indices in arrival order. Each consume waits up to the consumer's
+-- timeout; on a timeout we retry (the worker Job may not have published
+-- yet) until @wanted@ matching episodes are collected or @attempts@ run
+-- out. Non-matching frames are acked and skipped so the unique
+-- subscription advances.
+collectRlEpisodes
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> TopicName
+  -> Text
+  -> Text
+  -> Int
+  -> Int
+  -> IO [Int]
+collectRlEpisodes settings topic subscription experimentHash wanted attempts =
+  go attempts []
+ where
+  subId = SubscriptionId (unTopicName topic <> "\n" <> subscription)
+  go n acc
+    | n <= 0 = pure (reverse acc)
+    | length acc >= wanted = pure (reverse acc)
+    | otherwise = do
+        consumed <-
+          PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+            settings
+            (pulsarConsume subId)
+        case consumed of
+          Left _ ->
+            -- Timeout: the worker may not have published yet; retry.
+            go (n - 1) acc
+          Right (_topicBack, payload) -> do
+            _ <-
+              PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+                settings
+                (pulsarAcknowledge topic payload)
+            let matches =
+                  "kind: EpisodeDone"
+                    `Text.isInfixOf` payload
+                    && ("experiment-hash: " <> experimentHash) `Text.isInfixOf` payload
+            if matches
+              then case parseEpisodeIndex payload of
+                Just idx -> go (n - 1) (idx : acc)
+                Nothing -> go (n - 1) acc
+              else go (n - 1) acc
+
+-- | True when the list is in non-decreasing order. Manual recursion
+-- (not @zipWith (<=) xs (drop 1 xs)@) so hlint's @drop1@ hint does not
+-- fire without pulling the extra package.
+nonDecreasingInts :: [Int] -> Bool
+nonDecreasingInts (a : b : rest) = a <= b && nonDecreasingInts (b : rest)
+nonDecreasingInts _ = True
+
+-- | Extract the @episode: <n>@ index from a rendered @EpisodeDone@ frame.
+parseEpisodeIndex :: Text -> Maybe Int
+parseEpisodeIndex payload =
+  case [ Text.strip (Text.drop (Text.length "episode:") stripped)
+       | line <- Text.lines payload
+       , let stripped = Text.strip line
+       , "episode:" `Text.isPrefixOf` stripped
+       ] of
+    (value : _) -> case reads (Text.unpack value) of
+      [(idx, "")] -> Just idx
+      _ -> Nothing
+    [] -> Nothing
 
 kubectlJobExists :: Text -> IO Bool
 kubectlJobExists jobName = do

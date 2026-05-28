@@ -18,6 +18,7 @@ import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
+import Panels.Stream (subscribeStream)
 
 type RlStreamFrame =
   { panel :: String
@@ -30,11 +31,14 @@ type RlStreamFrame =
 
 type State =
   { frames :: Array RlStreamFrame
+  , liveFrames :: Array String
   , lastError :: Maybe String
   }
 
 data Action
-  = FrameReceived RlStreamFrame
+  = Initialize
+  | FrameReceived RlStreamFrame
+  | LiveFrame String
   | StreamFailed String
   | ClearFrames
 
@@ -52,17 +56,29 @@ renderFrame episodeIndex stepIndex reward done observationHash =
   }
 
 initialState :: State
-initialState = { frames: [], lastError: Nothing }
+initialState = { frames: [], liveFrames: [], lastError: Nothing }
 
 component :: forall query input output m. MonadAff m => H.Component query input output m
 component =
   H.mkComponent
     { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction, initialize = Just Initialize }
     }
   where
   handleAction = case _ of
+    Initialize ->
+      -- Sprint 13.13 — open the held-open `/api/ws/rl` bridge; each
+      -- broker frame the daemon publishes lands as a `LiveFrame`.
+      subscribeStream ("/api/ws/" <> "rl") LiveFrame
+    LiveFrame payload ->
+      H.modify_
+        ( \s ->
+            s
+              { liveFrames = Array.take 200 (Array.snoc s.liveFrames payload)
+              , lastError = Nothing
+              }
+        )
     FrameReceived frame ->
       -- Keep the last 200 frames so the DOM diff bounded; older
       -- frames roll off the head.
@@ -92,6 +108,11 @@ component =
           , HP.classes [ H.ClassName "episodes" ]
           ]
           (map renderEpisodeFrame state.frames)
+      , HH.ol
+          [ HP.id (panelName <> "-live")
+          , HP.classes [ H.ClassName "live-frames" ]
+          ]
+          (map (\frame -> HH.li_ [ HH.text frame ]) state.liveFrames)
       , renderError state
       ]
 

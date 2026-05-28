@@ -420,6 +420,7 @@ shouldSkipPath path =
     , ".build/"
     , ".data/"
     , "dist-newstyle/"
+    , ".dist-newstyle/"
     , "gen/"
     , "node_modules/"
     , "web/node_modules/"

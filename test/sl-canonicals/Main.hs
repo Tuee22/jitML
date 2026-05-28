@@ -3,12 +3,29 @@
 module Main where
 
 import Control.Monad.Reader (runReaderT)
+import Data.Bits (shiftR, (.&.))
+import Data.ByteString qualified as ByteString
 import Data.Maybe qualified
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.Vector.Unboxed qualified as VU
+import Data.Word (Word8)
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+
+import JitML.SL.Classifier
+  ( ClassifierConfig (..)
+  , LabeledExample (..)
+  , accuracy
+  , classify
+  , crossEntropyLoss
+  , defaultClassifierConfig
+  , parseIdxImages
+  , parseIdxLabels
+  , trainClassifier
+  , zipImagesLabels
+  )
 
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Proto.Training
@@ -202,7 +219,95 @@ main =
           decodeTrainingEventProto (encodeTrainingEventProto epoch) @?= Right epoch
           decodeTrainingEventProto (encodeTrainingEventProto checkpoint) @?= Right checkpoint
           decodeTrainingEventProto (encodeTrainingEventProto failure) @?= Right failure
+      , testCase "SL classifier converges on a separable synthetic task (Sprint 13.4 network seam)" $ do
+          -- Sprint 13.4 — drive the real differentiable softmax-cross-entropy
+          -- classifier (`JitML.SL.Classifier`, built on the MLP seam) over a
+          -- deterministic, linearly-separable 3-class dataset and assert it
+          -- learns: train accuracy crosses a high threshold and the
+          -- cross-entropy loss drops well below its log(3) random baseline.
+          let dataset = syntheticDataset
+              config =
+                defaultClassifierConfig
+                  { clfSeed = 7
+                  , clfInputs = 4
+                  , clfHidden = 16
+                  , clfClasses = 3
+                  , clfEpochs = 60
+                  , clfLearningRate = 5.0e-3
+                  }
+              trained = trainClassifier config dataset
+              acc = accuracy trained dataset
+              loss = crossEntropyLoss trained dataset
+          assertBool
+            ("expected train accuracy >= 0.95, got " <> show acc)
+            (acc >= 0.95)
+          assertBool
+            ("expected cross-entropy loss < 0.5 (random ~1.10), got " <> show loss)
+            (loss < 0.5)
+      , testCase "SL classifier training is run-to-run deterministic (Sprint 13.4)" $ do
+          let config = defaultClassifierConfig {clfInputs = 4, clfHidden = 16, clfClasses = 3, clfEpochs = 20}
+              dataset = syntheticDataset
+              a = trainClassifier config dataset
+              b = trainClassifier config dataset
+          fmap (classify a . exampleFeatures) dataset
+            @?= fmap (classify b . exampleFeatures) dataset
+      , testCase "IDX image + label parsers round-trip the canonical MNIST format (Sprint 13.4)" $ do
+          -- Build a tiny synthetic IDX3 (2 images, 2x2) + IDX1 (2 labels)
+          -- payload in the canonical big-endian header format and assert the
+          -- parsers recover the pixel/label content the live MNIST upload
+          -- (Sprint 13.4 upload half) stages in MinIO.
+          let imageBytes =
+                ByteString.pack $
+                  be32Bytes 0x0803 -- magic IDX3
+                    <> be32Bytes 2 -- count
+                    <> be32Bytes 2 -- rows
+                    <> be32Bytes 2 -- cols
+                    <> [0, 255, 128, 64, 10, 20, 30, 40] -- two 2x2 images
+              labelBytes =
+                ByteString.pack $
+                  be32Bytes 0x0801 -- magic IDX1
+                    <> be32Bytes 2 -- count
+                    <> [7, 3] -- two labels
+          case (parseIdxImages imageBytes, parseIdxLabels labelBytes) of
+            (Right (pixelsPer, images), Right labels) -> do
+              pixelsPer @?= 4
+              length images @?= 2
+              labels @?= [7, 3]
+              -- first pixel of image 0 is 0/255 = 0.0; second is 255/255 = 1.0
+              VU.toList (head images) @?= [0.0, 1.0, 128.0 / 255.0, 64.0 / 255.0]
+              let examples = zipImagesLabels images labels
+              fmap exampleLabel examples @?= [7, 3]
+            (imgErr, lblErr) ->
+              assertFailure ("IDX parse failed: " <> show imgErr <> " / " <> show lblErr)
       ]
+
+-- | Deterministic, linearly-separable 3-class dataset: each class is a
+-- tight cluster around a distinct corner of the 4-D unit cube. Used by
+-- the Sprint 13.4 SL convergence assertion (no committed fixtures — the
+-- data is generated in-code per the numerical-fixture prohibition).
+syntheticDataset :: [LabeledExample]
+syntheticDataset =
+  [ LabeledExample (VU.fromList (classCentre c i)) c
+  | c <- [0, 1, 2]
+  , i <- [0 .. 19 :: Int]
+  ]
+ where
+  classCentre c i =
+    let jitter k = fromIntegral ((c * 31 + i * 7 + k * 13) `mod` 5) / 100.0
+        base = case c of
+          0 -> [1.0, 0.0, 0.0, 0.0]
+          1 -> [0.0, 1.0, 0.0, 0.0]
+          _ -> [0.0, 0.0, 1.0, 1.0]
+     in zipWith (\b k -> b + jitter k) base [0 ..]
+
+-- | Big-endian 4-byte encoding for the synthetic IDX header test.
+be32Bytes :: Int -> [Word8]
+be32Bytes n =
+  [ fromIntegral ((n `shiftR` 24) .&. 0xff)
+  , fromIntegral ((n `shiftR` 16) .&. 0xff)
+  , fromIntegral ((n `shiftR` 8) .&. 0xff)
+  , fromIntegral (n .&. 0xff)
+  ]
 
 -- | The first canonical problem whose dataset does not have a
 -- published canonical SHA in 'Dataset.canonicalSha256For'. Such a

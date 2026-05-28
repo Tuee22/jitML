@@ -17,6 +17,7 @@ import Halogen.Aff (awaitBody, runHalogenAff)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
+import Panels.Stream (subscribeStream)
 
 type TrainingFrame =
   { panel :: String
@@ -29,11 +30,14 @@ type TrainingFrame =
 
 type State =
   { frames :: Array TrainingFrame
+  , liveFrames :: Array String
   , lastError :: Maybe String
   }
 
 data Action
-  = FrameReceived TrainingFrame
+  = Initialize
+  | FrameReceived TrainingFrame
+  | LiveFrame String
   | StreamFailed String
 
 panelName :: String
@@ -50,17 +54,27 @@ renderFrame experimentHash epoch trainingLoss validationLoss timestampNs =
   }
 
 initialState :: State
-initialState = { frames: [], lastError: Nothing }
+initialState = { frames: [], liveFrames: [], lastError: Nothing }
 
 component :: forall query input output m. MonadAff m => H.Component query input output m
 component =
   H.mkComponent
     { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction, initialize = Just Initialize }
     }
   where
   handleAction = case _ of
+    Initialize ->
+      subscribeStream ("/api/ws/" <> "training") LiveFrame
+    LiveFrame payload ->
+      H.modify_
+        ( \s ->
+            s
+              { liveFrames = Array.take 200 (Array.snoc s.liveFrames payload)
+              , lastError = Nothing
+              }
+        )
     FrameReceived frame ->
       H.modify_
         ( \s ->
@@ -92,6 +106,11 @@ component =
                 ]
             ] <> map renderRow state.frames
           )
+      , HH.ol
+          [ HP.id (panelName <> "-live")
+          , HP.classes [ H.ClassName "live-frames" ]
+          ]
+          (map (\frame -> HH.li_ [ HH.text frame ]) state.liveFrames)
       , renderError state
       ]
 

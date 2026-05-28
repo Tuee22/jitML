@@ -1,0 +1,12 @@
+{
+  "name": "jitml-demo-playwright",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright canonical panel matrix for the jitML demo (Sprint 13.14).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1"
+  }
+}

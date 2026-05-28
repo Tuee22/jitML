@@ -19,6 +19,7 @@ import Halogen.Aff (awaitBody, runHalogenAff)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
+import Panels.Stream (subscribeStream)
 
 type TuneTrialFrame =
   { panel :: String
@@ -38,13 +39,16 @@ type TuneSweepDoneFrame =
 
 type State =
   { trials :: Array TuneTrialFrame
+  , liveFrames :: Array String
   , bestObjective :: Number
   , sweepDone :: Maybe TuneSweepDoneFrame
   , lastError :: Maybe String
   }
 
 data Action
-  = TrialReceived TuneTrialFrame
+  = Initialize
+  | TrialReceived TuneTrialFrame
+  | LiveFrame String
   | SweepCompleted TuneSweepDoneFrame
   | StreamFailed String
 
@@ -64,6 +68,7 @@ renderTrialFrame trialIndex trialSeed objective pruned parametersJson =
 initialState :: State
 initialState =
   { trials: []
+  , liveFrames: []
   , bestObjective: 0.0
   , sweepDone: Nothing
   , lastError: Nothing
@@ -74,10 +79,20 @@ component =
   H.mkComponent
     { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction, initialize = Just Initialize }
     }
   where
   handleAction = case _ of
+    Initialize ->
+      subscribeStream ("/api/ws/" <> "tune") LiveFrame
+    LiveFrame payload ->
+      H.modify_
+        ( \s ->
+            s
+              { liveFrames = Array.take 200 (Array.snoc s.liveFrames payload)
+              , lastError = Nothing
+              }
+        )
     TrialReceived trial ->
       H.modify_
         ( \s ->
@@ -121,6 +136,11 @@ component =
       , HH.div
           [ HP.id (panelName <> "-best") ]
           [ HH.text ("best objective: " <> show state.bestObjective) ]
+      , HH.ol
+          [ HP.id (panelName <> "-live")
+          , HP.classes [ H.ClassName "live-frames" ]
+          ]
+          (map (\frame -> HH.li_ [ HH.text frame ]) state.liveFrames)
       , renderSweepDone state
       , renderError state
       ]

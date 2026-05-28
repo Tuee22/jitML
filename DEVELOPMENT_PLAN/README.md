@@ -720,6 +720,41 @@ typed Mnist Halogen `State` / `Action` / `handleAction` /
 and the `playwright/jitml-demo.spec.ts` live-edge selection that
 honours `cluster-publication.json` when present for Sprint `13.14`.
 
+The 2026-05-27 **fourth session** closed the algorithmic seam
+Sprints 13.8 and 13.9 hung off:
+
+- **`JitML.Numerics.Mlp`** — pure-Haskell differentiable MLP
+  (forward + manual reverse-mode backprop + Adam optimiser).
+  Pure-vector storage in `Data.Vector.Unboxed`; bit-deterministic
+  on the same substrate / same seed.
+- **`JitML.RL.Algorithms.PpoTrainer`** — real on-policy PPO loop
+  using the MLP as policy + value network and the canonical
+  pure-Haskell cartpole simulator. Local smoke at
+  `defaultPpoTrainConfig` (40 iterations × 2048 rollout steps)
+  reaches mean reward 500 / median 500 (the `cartpole_v1` cap)
+  starting at iteration ~15-18, clearing the
+  `JitML.RL.ConvergenceThresholds` literature target of 475.
+- **`JitML.RL.Algorithms.DqnTrainer`** — real off-policy DQN
+  loop (replay buffer + target network + epsilon-greedy + Adam)
+  using the MLP as the Q network. Same simulator, same Bellman
+  residual math from `JitML.RL.Algorithms.DqnLoss`.
+- **`JitML.RL.AlphaZero.PolicyValueNet`** — two-headed
+  policy/value network for AlphaZero. Includes
+  `encodeConnect4Board`, `networkPriorOracle` (so MCTS reads
+  priors from the real network forward pass), a real Connect-4
+  4-in-a-row terminal evaluator, and `runOneGenerationOfSelfPlay`
+  driving self-play → gradient updates → arena win-rate against
+  a uniform-random baseline.
+
+5 new tests in `jitml-unit` and 5 new tests in `jitml-rl-canonicals`
+cover the network seam: MLP forward determinism, Adam step
+descent on a quadratic, policy/value normalisation,
+sampleCategorical buckets, PPO trainer end-to-end + run-to-run
+determinism, DQN trainer end-to-end + run-to-run determinism,
+policy/value forward validity, policy/value gradient-descent loss
+reduction, and AlphaZero self-play generation determinism. All
+182 host-side unit tests + 23 RL canonical tests pass.
+
 The 2026-05-27 second session pushed Sprint 13's code surface
 further: typed Halogen render machinery now lands on all five
 remaining demo panels (`Cifar`, `Connect4`, `Rl`, `Training`,
@@ -746,11 +781,100 @@ Kuznetsov et al. 2020, Bhatt et al. 2024) with 56 deterministic
 unit tests covering input-output known answers, regime
 crossovers, and run-to-run bit-equality.
 
+The 2026-05-28 session closed the remaining non-deferred trainer,
+AlphaZero-target, and demo-bridge code surfaces:
+
+- **Sprint 13.8 — the full 14-algorithm trainer catalog now exists**
+  as real MLP-backed loops, not just the loss math. The continuous
+  prerequisite is gone: `JitML.RL.Simulator` gains a `Pendulum-v1`
+  continuous-action env (`ContinuousEnvironment` boundary), and
+  `JitML.RL.Algorithms.ContinuousTrainer` runs DDPG / TD3 / SAC /
+  CrossQ / TQC over it (each routed through its canonical `*Loss`
+  target, with the deterministic-policy gradient enabled by the new
+  `JitML.Numerics.Mlp.mlpInputGradient`). `QrDqnTrainer` (quantile
+  head), `ArsTrainer` (gradient-free), and `HerTrainer` (bit-flip
+  goal-conditioned + hindsight relabel) complete the catalog.
+  `JitML.Service.Workload.rlTrainerForAlgorithm` +
+  `JitML.App.runTrainerEpisodes` route every algorithm to its trainer
+  so the catalog is reachable from `jitml rl train` /
+  `StartRLRun`. Only the multi-week CUDA-emitted backward kernels
+  remain open.
+- **Sprint 13.9 — true MCTS visit-count training targets.**
+  `PolicyValueNet.mctsVisitDistribution` runs the search per position
+  and trains the policy head on the normalised visit counts (the
+  canonical AlphaZero target), replacing the network's-own-policy
+  proxy. Only the multi-week CUDA/oneDNN network codegen remains.
+- **Sprint 13.13 — the demo WebSocket bridge is activated.**
+  `JitML.App.demoMain` now serves through
+  `serveDemoWithBridgeEndpoint` (in-cluster broker endpoint via
+  `JITML_DEMO_PULSAR_WS`), and the streaming Halogen panels (`Rl`,
+  `Training`, `Tune`) subscribe through the new `Panels.Stream` FFI
+  so live frames render. Only the live publish→browser-frame
+  round-trip validation remains.
+
 All landings compile via `cabal build all --enable-tests` and pass
-the host-runnable suites: `jitml-unit` (163), `jitml-sl-canonicals`
-(9), `jitml-rl-canonicals` (18), `jitml-hyperparameter` (12),
-`jitml-daemon-lifecycle` (30), `jitml-e2e` (16) — **248 host
-tests total**, plus `jitml-integration` 46 non-oneDNN cases.
+the host-runnable suites; after the 2026-05-28 session the fast
+stanzas report `jitml-unit` (184), `jitml-sl-canonicals` (12),
+`jitml-rl-canonicals` (27), `jitml-hyperparameter` (12),
+`jitml-daemon-lifecycle` (30) — **265 fast tests** — plus
+`jitml-e2e` (16); the new code is host-validated end-to-end
+(continuous DDPG asserted to learn on Pendulum, ARS to improve, HER
+hindsight to beat no-hindsight, MCTS visit targets search-shaped).
+The PureScript bridge glue compiles via `spago build` inside
+`jitml:local`.
+
+The 2026-05-28 session also closed two live-runtime sprints against a
+fresh `jitml bootstrap --linux-cuda` cluster (RTX 3090 / CUDA 12.8,
+rebuilt image). To make daemon-dispatched workers publish events from
+inside a Job pod (which cannot reach the host edge), the daemon-rendered
+Jobs now set `JITML_PULSAR_WS` (the in-cluster broker WS endpoint) and
+`JitML.App.workerBrokerTarget` resolves the worker's publish settings
+from it:
+
+- **Sprint 13.5 → ✅ Done** — a new `jitml-integration` Live case
+  publishes a `StartRLRun`, the daemon dispatches a `jitml-rl-<hash>`
+  Job, and the per-episode `EpisodeDone` envelopes arrive on
+  `rl.event.linux-cuda` in canonical order (16 / 16 Live cohort).
+- **Sprint 13.13 → ✅ Done** — the `jitml-demo` chart sets
+  `JITML_DEMO_PULSAR_WS` so the held-open `/api/ws` bridge consumes from
+  the in-cluster broker; a WebSocket client on
+  `/api/ws/training` received the exact payload published on
+  `training.event.linux-cuda` (the broker → bridge → client round-trip),
+  with the demo `/` + 236 KB IIFE bundle served through the Envoy edge.
+
+The remaining open items across the still-Active sprints are: the
+per-cohort statistical convergence runs (13.6, operationally heavy), the
+`pulumi up` ephemeral wrapper (13.1 / 13.14, blocked on pulumi not being
+in `jitml:local`), real-MNIST training + convergence (13.4,
+operational), and the explicitly-deferred multi-week CUDA/oneDNN
+backward-kernel codegen (13.8 / 13.9).
+
+The pre-2026-05-28 host suites were: `jitml-unit` (172),
+`jitml-sl-canonicals` (9), `jitml-rl-canonicals` (23),
+`jitml-hyperparameter` (12), `jitml-daemon-lifecycle` (30),
+`jitml-e2e` (16), plus `jitml-integration` 46 non-oneDNN cases.
+
+**Live cluster validation (2026-05-27, fifth session, RTX 3090 /
+CUDA 12.8 / Ubuntu 24.04 host)**: with the Sprint 13.8/13.9
+network seam landed, `docker compose build jitml` rebuilt the
+`jitml:local` image after a `--jobs=2 --ghc-options="+RTS -M2G
+-RTS"` cap was added to the Dockerfile's `cabal build -fcuda`
+step (the new `vector`/`random` dependency tree pulled in
+`bifunctors-5.6.3`, which SIGABRTed under unbounded parallel
+compile) plus a `.dockerignore` / lint-skip entry for the
+host-side `.dist-newstyle/` builddir. A fresh `jitml bootstrap
+--linux-cuda` ran the full 113-step rollout with all seven
+publication components Ready on edge port 9092. Against the live
+cluster: **`jitml-integration` Live 15 / 15 pass**,
+**`jitml-cross-backend` 19 / 19 pass** (all CUDA + CPU kernels
+on the RTX 3090), **`jitml-e2e` 16 / 16 pass**; `jitml internal
+upload-dataset` SHA-verified and uploaded both MNIST splits to
+live MinIO (Sprint 13.4 upload half); the real MLP-backed PPO
+trainer ran through the production binary
+(`jitml rl train ... JITML_RL_TRAINER=ppo`) reaching
+`avg-reward: 472.6` across 40 cartpole iterations (converged
+policy hits the 500 cap; median clears the literature target of
+475); `jitml cluster down` left zero Kind clusters / containers.
 
 **Live cluster validation (2026-05-27, third session, RTX 3090 /
 CUDA 12.8 / Ubuntu 24.04 host)**: `docker compose build jitml`
@@ -797,7 +921,65 @@ network forward/backward seam for the 14 RL loss modules —
 multi-week per plan) and Sprint 13.9 (full policy/value network
 codegen for AlphaZero — multi-day per plan). Sprints 13.5 and
 13.6 are gated on 13.8; Sprints 13.13 and 13.14 wait on the
-live render validation against the cluster. The remaining unmet obligations against the Exit Definition are:
+live render validation against the cluster.
+
+**Sprint 13.8 / 13.9 algorithmic seam (2026-05-27 fourth
+session)**: the pure-Haskell differentiable network seam closed
+through four new modules: `JitML.Numerics.Mlp` (forward + manual
+reverse-mode backprop + Adam),
+`JitML.RL.Algorithms.PpoTrainer` (real on-policy PPO clearing
+cartpole literature target 475 by iteration 15+),
+`JitML.RL.Algorithms.DqnTrainer` (real off-policy DQN with
+replay buffer + target net + epsilon-greedy), and
+`JitML.RL.AlphaZero.PolicyValueNet` (two-headed policy/value
+network for connect4 with real 4-in-a-row terminal evaluator +
+arena win-rate against uniform-random baseline). 5 new
+`jitml-unit` tests + 5 new `jitml-rl-canonicals` tests cover
+the seam.
+
+**Sprint 13.4 / 13.8 / 13.9 / 13.13 / 13.14 (2026-05-27 fifth
+session)** pushed every Active sprint further (host cohort now
+**268 tests**, lint clean, image rebuilt + live-validated on the
+RTX 3090 cluster):
+- **13.9 production prior flip**:
+  `SelfPlay.runSelfPlayWithOracleFactory` threads a per-position
+  oracle so `PolicyValueNet.runNetworkSelfPlay` drives the MCTS
+  prior from the real network forward pass — the production
+  self-play callsite no longer uses `priorFor` (the earlier
+  "blocked on golden fixtures" claim was wrong; the transcripts
+  are oracle-independent). The legacy ledger row is corrected.
+- **13.8 on-policy framework**: `OnPolicyVariant` parameterises
+  the PPO trainer so A2C / TRPO (with a KL trust-region gate) /
+  MaskablePPO / RecurrentPPO share one loop; all four improve on
+  cartpole in `jitml-rl-canonicals`. `DqnTrainer` now honours
+  `dqnUseDouble` (real Double-DQN). Continuous-control
+  (DDPG/TD3/SAC/CrossQ/TQC) is blocked on a continuous-action
+  simulator; CUDA backward kernels remain multi-week.
+- **13.4 SL classifier seam**: `JitML.SL.Classifier`
+  (softmax-cross-entropy MLP + Adam + canonical MNIST IDX3/IDX1
+  parsers) converges on a separable task; wiring it into
+  `jitml train` over staged MNIST + the live convergence
+  assertion remains.
+- **13.13 / 13.14 live render + Playwright**: the Dockerfile now
+  esbuild-bundles the spago output into a 225 KB browser-loadable
+  IIFE; the rebuilt image was `kind load`ed + the demo
+  rollout-restarted, and the **7-test Playwright matrix passes
+  7/7 against the live `jitml-demo` Envoy edge** with each panel
+  mounting from the real bundle. The live `/api/ws` broker-frame
+  round-trip (demo `serveDemoWithBridge` wiring + in-cluster
+  broker endpoint) and the Pulumi-orchestrated wrapper remain.
+- **13.1 render surface**: `jitml internal render-kind-config
+  --name jitml-e2e-<sha>` validated live; the `pulumi up`
+  round-trip is environment-blocked (pulumi absent in
+  `jitml:local`, kind absent on host).
+
+The remaining open work in 13.8/13.9 is
+infrastructure: CUDA-emitted backward kernels (multi-week — the
+pure-Haskell backward holds the determinism contract in the
+meantime per
+[../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md))
+and continuous-action env support for the actor-critic
+off-policy algorithms. The remaining unmet obligations against the Exit Definition are:
 the explicit Pulumi-orchestrated ephemeral Kind e2e path
 for Exit 3; Apple Silicon Metal kernel compile/load/execute and the live
 Metal candidate measurement runner (owned by Phase `14`); real SL / RL /
@@ -855,10 +1037,20 @@ summaries
 plus the typed pipeline (`JitML.SL.{Dataset,Loop,Train}`); the RL
 algorithm catalog with one module per algorithm
 (`JitML.RL.Algorithms.{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}`)
-aggregated through `Registry.algorithmModuleRegistry`; the runtime RL
-primitives (`Policy`, `VecEnv`, `ReplayBuffer`, `RLLoop`); the AlphaZero
-substack (`Mcts`, `SelfPlay`, `Arena`) plus the `PerfectInformation`
-typeclass admitting Connect 4 / Othello / Hex / Gomoku; the tuning
+aggregated through `Registry.algorithmModuleRegistry`; the pure-Haskell
+differentiable network seam (`JitML.Numerics.Mlp`) for forward + manual
+reverse-mode backprop + Adam optimisation; the real on-policy PPO trainer
+(`JitML.RL.Algorithms.PpoTrainer`) clearing cartpole literature target
+475 by iteration ~15 (2026-05-27 fourth session); the real off-policy
+DQN trainer (`JitML.RL.Algorithms.DqnTrainer`) with replay buffer + target
+network + epsilon-greedy + Adam (2026-05-27 fourth session); the runtime
+RL primitives (`Policy`, `VecEnv`, `ReplayBuffer`, `RLLoop`); the
+AlphaZero substack (`Mcts`, `SelfPlay`, `Arena`,
+`PolicyValueNet`) plus the `PerfectInformation` typeclass admitting
+Connect 4 / Othello / Hex / Gomoku, including the two-headed
+policy/value network with real Connect-4 4-in-a-row terminal evaluator
+and arena win-rate measurement against a uniform-random baseline
+(2026-05-27 fourth session); the tuning
 catalog, trial-key surface, and the canonical
 `experiments/mnist-tune.dhall` worked example; the typed proto
 envelopes under `proto/jitml/{training,rl,tune}.proto` mirrored by

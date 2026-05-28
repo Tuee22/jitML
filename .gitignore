@@ -1,12 +1,16 @@
 /.build/
 /.data/
 /dist-newstyle/
+/.dist-newstyle/
 /.hlint-output
 chart/charts/
 *.lock
 /node_modules/
 /package.json
 /playwright-report/
+/playwright/node_modules/
+/playwright/package-lock.json
+/playwright/test-results/
 /test-results/
 /web/node_modules/
 /web/output/

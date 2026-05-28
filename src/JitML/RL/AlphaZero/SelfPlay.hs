@@ -17,6 +17,7 @@ module JitML.RL.AlphaZero.SelfPlay
   , reportCardSelfPlayConfig
   , runSelfPlay
   , runSelfPlayWithPrior
+  , runSelfPlayWithOracleFactory
   , writeSelfPlayBuffer
   )
 where
@@ -126,9 +127,21 @@ runSelfPlay = runSelfPlayWithPrior defaultPriorOracle
 -- search tree's prior input comes from a real JIT-compiled forward pass
 -- rather than the deterministic stub.
 runSelfPlayWithPrior :: PriorOracle -> SelfPlayConfig -> SelfPlayBuffer
-runSelfPlayWithPrior oracle config =
+runSelfPlayWithPrior oracle = runSelfPlayWithOracleFactory (const oracle)
+
+-- | Sprint 13.9 — run self-play with a per-position oracle factory. At each
+-- ply the factory is applied to the current 'GameState' to produce the
+-- 'PriorOracle' the MCTS search consumes, so a real policy/value network can
+-- emit position-dependent priors (the AlphaZero contract) rather than a
+-- search-seed-only stub. The production AlphaZero loop passes
+-- @\\state -> 'JitML.RL.AlphaZero.PolicyValueNet.networkPriorOracle' net
+-- (const state)@ here. A fixed factory @const oracle@ recovers the
+-- 'runSelfPlayWithPrior' behaviour.
+runSelfPlayWithOracleFactory
+  :: (GameState -> PriorOracle) -> SelfPlayConfig -> SelfPlayBuffer
+runSelfPlayWithOracleFactory oracleFactory config =
   SelfPlayBuffer
-    [ playOneGame oracle config gameId
+    [ playOneGame oracleFactory config gameId
     | gameId <- [0 .. selfPlayGamesPerGeneration config - 1]
     ]
 
@@ -144,8 +157,8 @@ reportCardSelfPlayConfig knobs =
     , selfPlaySimulationsPerMove = max 1 (knobAzSims knobs)
     }
 
-playOneGame :: PriorOracle -> SelfPlayConfig -> Int -> SelfPlayGame
-playOneGame oracle config gameId =
+playOneGame :: (GameState -> PriorOracle) -> SelfPlayConfig -> Int -> SelfPlayGame
+playOneGame oracleFactory config gameId =
   let seed = selfPlaySeed config + gameId
       mctsCfg =
         (defaultMctsConfig (selfPlayActionSpace config))
@@ -154,7 +167,9 @@ playOneGame oracle config gameId =
       step state ply
         | ply >= selfPlayMaxPlies config = (state, ply)
         | otherwise =
-            let tree = runSearchWithPrior oracle mctsCfg (seed + ply)
+            -- Build the prior oracle from the current position so a real
+            -- network emits position-dependent priors (Sprint 13.9).
+            let tree = runSearchWithPrior (oracleFactory state) mctsCfg (seed + ply)
              in case selectAction mctsCfg tree of
                   Nothing -> (state, ply)
                   Just action ->

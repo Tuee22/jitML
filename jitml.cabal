@@ -92,6 +92,7 @@ library
         JitML.Lint.Stack
         JitML.Lint.Stack.Types
         JitML.Numerics.Catalog
+        JitML.Numerics.Mlp
         JitML.Numerics.Schema
         JitML.Observability.Grafana
         JitML.Observability.Prometheus
@@ -120,21 +121,27 @@ library
         JitML.RL.Algorithms.A2cLoss
         JitML.RL.Algorithms.Ars
         JitML.RL.Algorithms.ArsLoss
+        JitML.RL.Algorithms.ArsTrainer
         JitML.RL.Algorithms.Common
+        JitML.RL.Algorithms.ContinuousTrainer
         JitML.RL.Algorithms.CrossQ
         JitML.RL.Algorithms.CrossQLoss
         JitML.RL.Algorithms.Ddpg
         JitML.RL.Algorithms.DdpgLoss
         JitML.RL.Algorithms.Dqn
         JitML.RL.Algorithms.DqnLoss
+        JitML.RL.Algorithms.DqnTrainer
         JitML.RL.Algorithms.Her
         JitML.RL.Algorithms.HerLoss
+        JitML.RL.Algorithms.HerTrainer
         JitML.RL.Algorithms.MaskablePpo
         JitML.RL.Algorithms.MaskablePpoLoss
         JitML.RL.Algorithms.Ppo
         JitML.RL.Algorithms.PpoLoss
+        JitML.RL.Algorithms.PpoTrainer
         JitML.RL.Algorithms.QrDqn
         JitML.RL.Algorithms.QrDqnLoss
+        JitML.RL.Algorithms.QrDqnTrainer
         JitML.RL.Algorithms.RecurrentPpo
         JitML.RL.Algorithms.RecurrentPpoLoss
         JitML.RL.Algorithms.Registry
@@ -149,6 +156,7 @@ library
         JitML.RL.AlphaZero
         JitML.RL.AlphaZero.Arena
         JitML.RL.AlphaZero.EnginePrior
+        JitML.RL.AlphaZero.PolicyValueNet
         JitML.RL.AlphaZero.Mcts
         JitML.RL.AlphaZero.SelfPlay
         JitML.RL.AsyncBuffer
@@ -186,6 +194,7 @@ library
         JitML.Service.WebSocket
         JitML.Service.Workload
         JitML.SL.Canonicals
+        JitML.SL.Classifier
         JitML.SL.Dataset
         JitML.SL.Loop
         JitML.SL.Train
@@ -239,6 +248,7 @@ library
         ansi-terminal,
         path,
         path-io,
+        random,
         serialise,
         stm,
         typed-process,
@@ -249,7 +259,8 @@ library
         tasty-golden,
         temporary,
         time,
-        unix
+        unix,
+        vector
 
     if flag(cuda)
         cpp-options:     -DJITML_CUDA_BINDINGS=1
@@ -298,7 +309,8 @@ test-suite jitml-unit
         tasty-hunit,
         temporary,
         text,
-        unix
+        unix,
+        vector
 
 test-suite jitml-integration
     type:             exitcode-stdio-1.0
@@ -329,12 +341,14 @@ test-suite jitml-sl-canonicals
     ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.22 && <4.23,
+        bytestring,
         jitml,
         mtl,
         tasty,
         tasty-hunit,
         temporary,
-        text
+        text,
+        vector
 
 test-suite jitml-rl-canonicals
     type:             exitcode-stdio-1.0
@@ -347,7 +361,8 @@ test-suite jitml-rl-canonicals
         jitml,
         text,
         tasty,
-        tasty-hunit
+        tasty-hunit,
+        vector
 
 test-suite jitml-hyperparameter
     type:             exitcode-stdio-1.0

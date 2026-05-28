@@ -127,17 +127,28 @@ WORKDIR /jitml
 
 COPY . .
 
-RUN cabal build -fcuda exe:jitml exe:jitml-demo \
+RUN cabal build -fcuda --jobs=2 --ghc-options="+RTS -M2G -RTS" exe:jitml exe:jitml-demo \
     && cp "$(cabal list-bin -fcuda exe:jitml)" /usr/local/bin/jitml \
     && cp "$(cabal list-bin -fcuda exe:jitml-demo)" /usr/local/bin/jitml-demo \
     && chmod 0755 /usr/local/bin/jitml /usr/local/bin/jitml-demo \
     && jitml check-code
 
-# Bake the compiled PureScript bundle into the image at the canonical
-# path `web/dist/<Module>/index.js`. The demo container (no bind mount
-# in Kind) serves `/jitml/web/dist/Main/index.js` from
+# Bake the compiled PureScript bundle into the image. `spago build
+# --output dist` emits per-module CommonJS CoreFn artifacts under
+# `web/dist/<Module>/index.js`; a browser cannot resolve those
+# `require` calls, so we additionally bundle the `Main` entry into a
+# self-contained IIFE at `web/dist/Main/bundle.js` with esbuild. The
+# demo container (no bind mount in Kind) serves that bundle from
 # `JitML.Web.Server.loadBundleEntry`, switching the demo `/` route from
-# the placeholder shell to the script-tagged Halogen entry point.
-RUN cd /jitml/web && spago build --output dist
+# the placeholder shell to a browser-loadable Halogen entry point that
+# mounts the panel selected by `location.hash` (Sprint 13.13).
+RUN cd /jitml/web \
+    && spago build --output dist \
+    && npx --yes esbuild dist/Main/index.js \
+        --bundle \
+        --format=iife \
+        --global-name=jitmlDemo \
+        --outfile=dist/Main/bundle.js \
+    && printf 'jitmlDemo.main();\n' >> dist/Main/bundle.js
 
 CMD ["jitml", "--help"]
