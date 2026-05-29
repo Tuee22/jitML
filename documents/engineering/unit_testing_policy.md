@@ -17,12 +17,12 @@ This doc defers to [../../README.md](../../README.md) for:
 - **Testing Doctrine** — every behavioural surface gated by a stanza; no
   spanning `tasty` tree.
 - **Standard Testing Stack** — Cabal + `exitcode-stdio-1.0` + `tasty` +
-  `tasty-hunit` + `tasty-quickcheck` + `typed-process` + `temporary` +
-  Pulumi. Snapshot comparisons for renderer output are spelled with
+  `tasty-hunit` + `tasty-quickcheck` + `typed-process` + `temporary`.
+  Snapshot comparisons for renderer output are spelled with
   plain `tasty-hunit` equality assertions over `Text` / `ByteString`
   values; jitML does not depend on `tasty-golden`.
 - **Test Categories** — Pure Logic, Parser, Property, Snapshot (pure-renderer
-  output only), Integration, Daemon Lifecycle, Pulumi-Orchestrated
+  output only), Integration, Daemon Lifecycle, Ephemeral-Cluster
   Infrastructure. Snapshot tests are restricted to deterministic,
   non-numerical renderer output — CLI help text, `CommandSpec` JSON, route
   tables, dashboard JSON, prerequisite renderings, cache keys, and other
@@ -47,7 +47,7 @@ cluster validation remains phase-gated:
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), and Tune command/event envelope round-trips. Sampler trial values are checked as properties (e.g. resume equality, sampler-state purity, scheduler ordering invariants) rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
 | `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, generated Linux CPU oneDNN primitive kernel compile/load/run, exported family/output-count symbol verification, and local Linux CPU `HasEngine` dispatch | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, inference request/result protobuf byte round-trips, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, and typed live-plan surfaces | Pulumi-Orchestrated Infrastructure | Sprint 12.8 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, and typed live-plan surfaces | Ephemeral-Cluster Infrastructure | Sprint 12.8 |
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 `Test Organization`.
@@ -62,7 +62,7 @@ runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 | Snapshot (pure-renderer output only) | `jitml-unit` |
 | Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
-| Pulumi-Orchestrated Infrastructure | `jitml-e2e` |
+| Ephemeral-Cluster Infrastructure | `jitml-e2e` |
 
 The four `*-canonicals`/HPO/cross-backend rows are **project-specific
 Integration** stanzas under doctrine §Test Organization's project-specific
@@ -157,7 +157,7 @@ HTTP serving for `/healthz`. It also covers the `JitML.Service.Signal` mapping:
 and make readiness false. Real Pulsar redelivery remains target runtime
 validation.
 
-### `jitml-e2e` and Pulumi
+### `jitml-e2e` and the ephemeral-cluster live driver
 
 The current `jitml-e2e` body validates local route, bucket, `chart/values.yaml`
 MinIO coverage, publication, browser-contract, demo HTTP routes including the
@@ -165,23 +165,21 @@ generated stream endpoints, deployment, report-card rendering plus the
 `cabal.project` knob-block parser, typed live-plan surfaces, no leaked
 `jitml-e2e-*` Kind clusters when `kind` and `/var/run/docker.sock` are both
 available, and the bundle-serving fallback. When the binary or Docker socket is
-absent, only the local Docker-backed Kind query is skipped. The Pulumi
-TypeScript program at
-`infra/pulumi/`
-contains a typed `@pulumi/command` resource graph for Kind creation, Helm
-dependency build, `jitml bootstrap`, publication checking, and symmetric Kind
-deletion. The live driver is an explicit command path, not a process-environment
-gate or part of default `cabal test all`, because it creates and destroys Kind,
-builds Helm dependencies, mutates
-image/runtime state, and polls live routes.
-Future live test driver:
+absent, only the local Docker-backed Kind query is skipped. The typed
+`JitML.Test.LivePlan.liveE2EPlan` records the live orchestration as `Subprocess`
+values: `helm dependency build chart` → `jitml bootstrap` (ephemeral Kind +
+phased Helm rollout) → `npx playwright test` → `jitml cluster down`. The live
+driver is an explicit command path, not a process-environment gate or part of
+default `cabal test all`, because it creates and destroys Kind, builds Helm
+dependencies, mutates image/runtime state, and polls live routes.
+Live test driver:
 
 1. A typed `helm dependency build chart` step prepares subchart dependencies
    before any apply. `Chart.lock` becomes part of the reproducible surface only
    if the project adopts committed chart dependency locking.
-2. `pulumi up` brings up the stack (Kind cluster, Helm chart in its `final`
-   phase against a temporary registry image pushed during the run, plus the
-   `jitml-demo` Deployment).
+2. `jitml bootstrap --<substrate>` brings up the stack (ephemeral Kind cluster,
+   Helm chart in its `final` phase, plus the `jitml-demo` Deployment) and writes
+   `cluster-publication.json`.
 3. The driver runs `jitml train`, `jitml rl train`, `jitml tune` against the
    ephemeral stack to seed the demo state.
 4. The driver invokes the Playwright suite from
@@ -190,14 +188,14 @@ Future live test driver:
    against the live bundle across the six demo cohorts (training control,
    MNIST handwriting, image upload, Connect 4 game-play, TensorBoard/Grafana
    navigation, hyperparameter sweep).
-5. `pulumi destroy` and a teardown audit (no orphan PVs, MinIO buckets,
+5. `jitml cluster down` and a teardown audit (no orphan PVs, MinIO buckets,
    Harbor projects, or Docker volumes survive).
 
-Future Pulumi invocations flow through the typed `Subprocess` boundary.
+All live driver invocations flow through the typed `Subprocess` boundary.
 
 ### Playwright
 
-Playwright belongs to the doctrine's target Pulumi-Orchestrated Infrastructure
+Playwright belongs to the doctrine's target Ephemeral-Cluster Infrastructure
 test category. The current repository has `playwright/jitml-demo.spec.ts` as a
 scaffold. The default `jitml-e2e` body validates the typed Playwright plan and
 the current inline DOM stub spec without invoking the live stack. Live

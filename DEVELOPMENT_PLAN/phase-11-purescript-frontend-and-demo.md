@@ -386,8 +386,7 @@ HTTP server, and chart deployment surface.
 **Owned obligations after refactor**: code-surface only. Live edge-route
 Playwright execution against the running cluster (replacing the inline
 `page.setContent` DOM stubs) migrated to Phase `13` Sprint `13.14`.
-**Implementation**: `playwright/jitml-demo.spec.ts`,
-`infra/pulumi/`
+**Implementation**: `playwright/jitml-demo.spec.ts`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/unit_testing_policy.md`
 
@@ -442,7 +441,7 @@ Land the Playwright scaffold for the future interactive panel suite.
 - [../README.md → Generated Artifacts](../README.md#generated-documentation-flow) (Sprint 11.2 — generated PureScript contracts)
 - [../README.md → Repository layout (target)](../README.md#repository-layout-target) (Sprint 11.5 — six-line `app/Demo.hs` shim)
 - [../README.md → Application Environment](../README.md#doctrine-scope) (target demo server uses the full `Env`; current `demoMain` reads explicit `--port`, prints `demoStatusLine`, and starts the local HTTP server)
-- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 11.6 — Playwright scaffold belongs to the target Pulumi-Orchestrated Infrastructure category via `jitml-e2e`)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 11.6 — Playwright scaffold belongs to the target Ephemeral-Cluster Infrastructure category via `jitml-e2e`)
 - [../README.md → Lint matrix](../README.md#lint-matrix) (Sprint 11.3 — local project-specific lint target via `jitml lint purescript`)
 
 ## Documentation Requirements
@@ -458,7 +457,7 @@ Land the Playwright scaffold for the future interactive panel suite.
 - `documents/engineering/daemon_architecture.md` — `jitml-demo` server
   shape and its place in the deployment.
 - `documents/engineering/unit_testing_policy.md` — Playwright belongs to
-  the doctrine's target Pulumi-Orchestrated Infrastructure test category and
+  the doctrine's target Ephemeral-Cluster Infrastructure test category and
   is scaffolded for `jitml-e2e`; the current PureScript generated-contract
   smoke checks are owned by the `jitml lint purescript` target (Sprint
   `11.3`).

@@ -429,7 +429,6 @@ shouldSkipPath path =
     , "web/.spago/"
     , "playwright-report/"
     , "test-results/"
-    , "infra/pulumi/node_modules/"
     ]
     || "/node_modules/" `isInfixOf` path
     || "/.spago/" `isInfixOf` path

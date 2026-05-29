@@ -48,7 +48,7 @@ stub awaiting a real ALE FFI binding); the seventh row schedules
 deletion of the committed numerical fixture tree under `test/golden/`
 and migration of its consumers to statistical / run-to-run / property
 assertions per [../README.md → Snapshot targets → Numerical-fixture
-prohibition](../README.md#snapshot-targets). Six cleanup rows have
+prohibition](../README.md#snapshot-targets). Seven cleanup rows have
 closed and live in the `Completed` table:
 Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
 style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
@@ -61,7 +61,11 @@ removed the static checked-in JIT source/build scaffold (JIT compiler inputs
 are generated on demand by the Haskell binary) and removed the default
 runtime-source placeholder fixture; Sprint `8.7` replaced the flat `RunPhase`
 enum with the phase-indexed `RLRunLifecycle` GADT so all three jitML
-lifecycles share doctrine-aligned shape.
+lifecycles share doctrine-aligned shape; and the 2026-05-28 Pulumi-removal
+cleanup deleted the `infra/pulumi/` ephemeral-Kind orchestrator (added in
+error), its `toolchain.pulumi` prerequisite, and the Pulumi-only Kind
+name-override surface, leaving the `jitml bootstrap` + `jitml cluster down`
+path as the ephemeral-cluster e2e orchestration.
 
 Two classes of entries populate this ledger over time:
 
@@ -128,6 +132,7 @@ explicitly schedules their deletion.
 | Default runtime-source placeholder | Sprint 7.7 | Removed `defaultRuntimeSourcePayload` and the `runtime-source:phase-2-placeholder` marker from `src/JitML/Cache/Key.hs`; cache-key snapshot now derives its `RuntimeSourcePayload` from `renderRuntimeSource`, and `test/snapshots/cache/kernel-key.txt` was refreshed to the rendered-source-backed hash. |
 | Standalone MinIO values fragment | Sprint 4.3 | Folded MinIO subchart values into `chart/values.yaml`, removed `chart/minio-values.yaml`, and made bootstrap delete legacy standalone values files during materialization. |
 | RL run sequencing as a `RunPhase` enum instead of an `RLRunLifecycle` GADT | Sprint 8.7 | Replaced the flat `RunPhase` enum with the `RLRunPhase` data kind plus the phase-indexed singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`; updated `rlRunPlan`, `renderRLRunPhase`, and the `jitml-unit` consumer; `cabal test jitml-unit` keeps 57/57 passing. |
+| Pulumi ephemeral-Kind orchestrator + `toolchain.pulumi` prerequisite | Pulumi-removal cleanup (2026-05-28) | Pulumi was added in error — the project needs no external IaC orchestrator. Removed completely: deleted `infra/pulumi/` (`index.ts`, `package.json`, `Pulumi.yaml`); rewrote `JitML.Test.LivePlan.liveE2EPlan` to the Pulumi-free sequence `helm dependency build chart` → `jitml bootstrap` → `npx playwright test` → `jitml cluster down`; removed the `toolchain.pulumi` prerequisite node and its unit tests; deleted the Pulumi-only `JitML.Cluster.Kind.kindConfigForNamed` / `kindConfigForEdgePortNamed` and the `jitml internal render-kind-config` CLI command (the renderer uses the substrate-default cluster name); dropped the `infra/pulumi/node_modules/` lint-skip entry. Renamed the doctrine test category "Pulumi-Orchestrated Infrastructure" → "Ephemeral-Cluster Infrastructure" across the project README, `DEVELOPMENT_PLAN/`, and `documents/engineering/`. The ephemeral-cluster e2e orchestration is now the `jitml bootstrap` + `jitml cluster down` path (Sprints 13.1 / 13.14). |
 
 ## Related Documents
 

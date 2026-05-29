@@ -46,6 +46,7 @@ library
         JitML.Codegen.Cuda
         JitML.Codegen.KernelFamily
         JitML.Codegen.Metal
+        JitML.Codegen.MlpCuda
         JitML.Codegen.OneDnn
         JitML.Codegen.RuntimeSource
         JitML.Codegen.SourceFile
@@ -93,6 +94,7 @@ library
         JitML.Lint.Stack.Types
         JitML.Numerics.Catalog
         JitML.Numerics.Mlp
+        JitML.Numerics.MlpCuda
         JitML.Numerics.Schema
         JitML.Observability.Grafana
         JitML.Observability.Prometheus
@@ -195,6 +197,7 @@ library
         JitML.Service.Workload
         JitML.SL.Canonicals
         JitML.SL.Classifier
+        JitML.SL.ConvergenceThresholds
         JitML.SL.Dataset
         JitML.SL.Loop
         JitML.SL.Train
@@ -260,7 +263,8 @@ library
         temporary,
         time,
         unix,
-        vector
+        vector,
+        zlib
 
     if flag(cuda)
         cpp-options:     -DJITML_CUDA_BINDINGS=1
@@ -348,7 +352,8 @@ test-suite jitml-sl-canonicals
         tasty-hunit,
         temporary,
         text,
-        vector
+        vector,
+        zlib
 
 test-suite jitml-rl-canonicals
     type:             exitcode-stdio-1.0
@@ -393,7 +398,8 @@ test-suite jitml-cross-backend
         tasty,
         tasty-hunit,
         text,
-        time
+        time,
+        vector
 
 test-suite jitml-daemon-lifecycle
     type:             exitcode-stdio-1.0

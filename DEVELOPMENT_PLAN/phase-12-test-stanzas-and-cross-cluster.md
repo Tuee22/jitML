@@ -16,9 +16,9 @@
 > `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
 > `jitml-e2e`), the `jitml test all` Plan/Apply orchestrator, the
 > report-card knob plumbing,
-> the current Pulumi metadata scaffold at `infra/pulumi/` for the target
-> ephemeral-Kind orchestrator, and the cross-substrate parity gate that closes
-> the final handoff. Phase 12 owns the
+> the typed `JitML.Test.LivePlan` live-plan surface for the
+> ephemeral-Kind e2e orchestration, and the cross-substrate parity gate that
+> closes the final handoff. Phase 12 owns the
 > integration / canonicals / cross-backend / daemon-lifecycle / e2e stanzas
 > and the orchestrator. Lint and code-quality targets are owned outside this
 > phase and are not Cabal test stanzas.
@@ -32,9 +32,9 @@ knob parsing from `cabal.project`, plan/apply rendering for
 `jitml test all`, statistical and run-to-run replacements for all
 former numerical-golden assertions per
 [../README.md → Snapshot targets → Numerical-fixture
-prohibition](../README.md#snapshot-targets), and the typed Pulumi
-ephemeral-Kind orchestrator at `infra/pulumi/index.ts`. Live execution
-of the `jitml-e2e` Pulumi orchestrator + Helm rollout + Playwright on
+prohibition](../README.md#snapshot-targets), and the typed
+`JitML.Test.LivePlan` live-plan surface. Live execution
+of the `jitml-e2e` ephemeral-Kind rollout + Playwright on
 the edge route is owned by
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
 Sprints `13.1` and `13.14`. Cross-substrate cohort runs against
@@ -46,7 +46,8 @@ The phase owns
 [Exit Definition](README.md#exit-definition) item 9 (`jitml test all`
 runs every test-only Cabal test-suite stanza with the report-card knobs pinned in
 `cabal.project`; the `jitml-e2e` stanza orchestrates an ephemeral Kind
-stack via the `infra/pulumi/` TypeScript program) and item 18 (empty
+stack via `jitml bootstrap` + the typed `JitML.Test.LivePlan` live plan)
+and item 18 (empty
 legacy ledger after the open Exit-Definition items, including item `15`, close).
 **Met today**: Sprint `12.1`
 (`jitml-unit` body) and Sprint `12.7` (`jitml-daemon-lifecycle` body)
@@ -62,10 +63,9 @@ invokes the eight test-only Cabal stanzas inside `jitml:local`, parses the
 report card after Cabal succeeds. `renderReportCardForTargets` renders the
 actual Cabal stanza targets that were run instead of fixed placeholder
 workload PASS rows.
-`infra/pulumi/index.ts` now contains the typed ephemeral-Kind
-orchestrator that runs `kind create cluster` → `helm dependency
-build` → `jitml bootstrap --<substrate>` → publication-check, with
-the symmetric `kind delete cluster` rollback on destroy.
+`JitML.Test.LivePlan.liveE2EPlan` contains the typed ephemeral-Kind
+orchestration that runs `helm dependency build chart` → `jitml
+bootstrap` → `npx playwright test` → `jitml cluster down`.
 `JitML.Test.LivePlan.livePhasedClusterPlan` enumerates the typed
 phased Helm rollout per substrate so the e2e body can verify the
 ordering before invoking the live path. 2026-05-21 local validation re-ran
@@ -78,7 +78,7 @@ Sprint `15.1`. Sprints `12.3`–`12.6`'s live statistical SL
 convergence, live RL trajectory determinism, live hyperparameter
 reproducibility, and live cross-substrate parity are owned by
 Phase `13` Sprints `13.4` / `13.6` / `13.10` and Phase `15`
-Sprint `15.1`. Sprint `12.8`'s live Pulumi + Helm + Playwright path
+Sprint `15.1`. Sprint `12.8`'s live Helm + Playwright path
 is owned by Phase `13` Sprints `13.1` / `13.14`. Sprint `12.9`'s live
 report-card consumption is owned by Phase `15` Sprint `15.2`. No
 code-surface Remaining Work survives in this phase.
@@ -92,7 +92,7 @@ daemon lifecycle data, and frontend contract scaffolds. The
 `jitml-cross-backend` body also compiles, loads, and runs the generated
 Linux CPU oneDNN primitive kernels through
 `dlopen` and checks the exported family and output-count symbols; the `jitml-e2e` body
-verifies the typed live Helm/Pulumi/Playwright plan and the deterministic
+verifies the typed live Helm/Playwright plan and the deterministic
 demo stream routes without executing the live stack. Its local
 post-teardown check asserts no `jitml-e2e-*` Kind clusters survive when both
 `kind` and `/var/run/docker.sock` are available, and skips only the Docker
@@ -112,8 +112,8 @@ tree uses dedicated local deterministic bodies for every stanza:
 with Phase-12-owned workloads per doctrine `Test Organization` (each
 `type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner; a single `tasty`
 tree spanning all tiers is forbidden). It also lands the current `jitml test
-all` Plan/Apply report-card surface and the Pulumi TypeScript metadata scaffold
-at `infra/pulumi/`; the live ephemeral-Kind orchestration remains target e2e
+all` Plan/Apply report-card surface and the typed `JitML.Test.LivePlan`
+live-plan surface; the live ephemeral-Kind orchestration remains target e2e
 work. Current `jitml test all` delegates to Cabal for the eight test-only
 stanzas and then renders the target-stanza report-card summary. The eight-stanza coverage
 maps every doctrine test category
@@ -559,41 +559,39 @@ the current boot → ready → serve → SIGHUP reload → drain → exit contro
 5. Inference request/result protobuf envelopes round-trip through the local
    codec.
 
-## Sprint 12.8: `jitml-e2e` Stanza and Pulumi Orchestrator ✅
+## Sprint 12.8: `jitml-e2e` Stanza and Live-Plan Orchestrator ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live phased
 Helm + Pulsar rollout against a real Kind cluster, live Playwright
 against the edge route, and full live teardown leak-detection migrated
 to Phase `13` Sprints `13.1` and `13.14`.
-**Implementation**: `infra/pulumi/`,
-`infra/pulumi/package.json`, `infra/pulumi/Pulumi.yaml`,
-`infra/pulumi/index.ts`,
-`src/JitML/Test/LivePlan.hs`,
+**Implementation**: `src/JitML/Test/LivePlan.hs`,
 `test/e2e/`,
 `jitml.cabal` (the `jitml-e2e` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`
 
 ### Objective
 
-Use `jitml-e2e` for the e2e scaffold and target Pulumi/
-Playwright stack. The current body checks route, bucket, publication, contract,
-report-card, and typed live-plan surfaces; the future body brings up an
-ephemeral Kind stack, runs the demo cohorts against the real Envoy listener with
-Playwright, and tears the stack down deterministically.
-This is the doctrine's Pulumi-Orchestrated Infrastructure test category.
-The live body is an explicit opt-in gate, not part of default `cabal test all`,
-because it creates Kind clusters, builds Helm dependencies, mutates external
-container/runtime state, and validates teardown.
+Use `jitml-e2e` for the e2e scaffold and the typed live-plan
+orchestration. The current body checks route, bucket, publication,
+contract, report-card, and typed live-plan surfaces; the live body
+brings up an ephemeral Kind stack via `jitml bootstrap`, runs the demo
+cohorts against the real Envoy listener with Playwright, and tears the
+stack down deterministically via `jitml cluster down`. This is the
+doctrine's Ephemeral-Cluster Infrastructure test category. The live body
+is an explicit opt-in gate, not part of default `cabal test all`,
+because it creates Kind clusters, builds Helm dependencies, mutates
+external container/runtime state, and validates teardown.
 
 ### Deliverables
 
-- `infra/pulumi/index.ts` now declares the typed `kindCluster`,
-  `helmDeps`, `jitmlBootstrap`, and `publicationCheck`
-  `@pulumi/command` `local.Command` resources, in dependency order;
-  destroy reverses the order via the typed `delete` commands. The
-  `playwrightCommand` output exposes the typed `npx playwright
-  test` invocation with the leased kubeconfig.
+- `JitML.Test.LivePlan.liveE2EPlan` declares the typed live-plan
+  sequence — `helm dependency build chart` → `jitml bootstrap`
+  (ephemeral Kind + phased Helm rollout) → `npx playwright test` →
+  `jitml cluster down` — through typed `Subprocess` values, and
+  `livePhasedClusterPlan` records the bootstrap rollout's typed
+  subprocess list for the explicit live driver.
 - `test/e2e/Main.hs` currently validates the route registry, bucket registry,
   `chart/values.yaml` MinIO bucket coverage, publication defaults, browser
   contract endpoint count, demo deployment command, demo HTTP route table
@@ -603,18 +601,13 @@ container/runtime state, and validates teardown.
   the absence of leaked `jitml-e2e-*` Kind clusters. When `kind` or the
   Docker socket is absent, the no-leak query is skipped in the local scaffold
   because live Kind orchestration is an explicit target gate.
-- `JitML.Test.LivePlan` sequences `helm dependency build chart`, `pulumi up`,
-  `npx playwright test`, `pulumi destroy`, and `pulumi stack rm` through typed
-  `Subprocess` values.
-- The target Pulumi stack is the only path that touches Pulumi; it is gated by
-  the `pulumi` prerequisite node from Sprint `2.2`.
 - The target live path runs typed `helm dependency build chart` before apply and
   records whether `Chart.lock` is part of the reproducible dependency surface.
 - Default `cabal test jitml-e2e` remains local. The full live path is a separate
   explicit orchestration command, not a process-environment gate.
-- Playwright invocation is represented in the typed live plan today; the
-  checked-in spec still uses inline DOM stubs. Live edge-route Playwright remains
-  target work after the demo panels read fixture-backed or live-backed state.
+- Playwright invocation is represented in the typed live plan and is validated
+  live against the demo edge route (Phase `13` Sprint `13.14`, 7/7 panel
+  matrix).
 
 ### Validation
 
@@ -623,10 +616,10 @@ container/runtime state, and validates teardown.
    Helm dependency-build and Playwright steps.
 3. Live validation (target): the explicit live e2e orchestration runs the full
    sequence: `helm dependency build chart`
-   → `pulumi up` (ephemeral Kind) → demo cohorts reach Ready behind the
+   → `jitml bootstrap` (ephemeral Kind) → demo cohorts reach Ready behind the
    real Envoy listener → `npx playwright test` against every canonical
-   panel → `pulumi destroy` → `pulumi stack rm`. Teardown leaves no
-   orphan `jitml-e2e` Kind clusters, Harbor projects, PVs, or Docker
+   panel → `jitml cluster down`. Teardown leaves no
+   orphan Kind clusters, Harbor projects, PVs, or Docker
    volumes.
 
 ### Remaining Work
@@ -737,7 +730,7 @@ health, cross-substrate parity tolerance).
 - `documents/engineering/unit_testing_policy.md` — populate the eight-stanza
   surface, the doctrine-category mapping (including the project-specific
   Integration extensions), the
-  Pulumi-Orchestrated Infrastructure test pattern, the report-card
+  Ephemeral-Cluster Infrastructure test pattern, the report-card
   narrative, and the per-stanza notes for canonicals / hyperparameter /
   cross-backend / daemon-lifecycle / e2e.
 - `documents/engineering/training_workloads.md` — SL canonicals threshold

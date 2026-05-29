@@ -9,6 +9,7 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import Control.Exception qualified
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Vector.Unboxed qualified as VU
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (TensorBlob (..), emptyManifest, inferFromManifest)
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
@@ -39,6 +40,61 @@ import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env, envCacheDir)
+import JitML.Numerics.Mlp
+  ( MlpForward (..)
+  , MlpGradient (..)
+  , MlpShape (..)
+  , mlpBackward
+  , mlpForward
+  , mlpInit
+  , mlpInputGradient
+  )
+import JitML.Numerics.MlpCuda
+  ( mlpBackwardCuda
+  , mlpBatchGradientCuda
+  , mlpForwardBatchCuda
+  , mlpForwardCuda
+  , mlpInputGradientBatchCuda
+  )
+import JitML.RL.Algorithms.ContinuousTrainer
+  ( ContinuousIterationStat (..)
+  , ContinuousTrainConfig (..)
+  , ContinuousTrainResult (..)
+  , ContinuousVariant (..)
+  , defaultContinuousTrainConfig
+  , trainContinuousOnPendulumCuda
+  )
+import JitML.RL.Algorithms.DqnTrainer
+  ( DqnIterationStat (..)
+  , DqnTrainConfig (..)
+  , DqnTrainResult (..)
+  , defaultDqnTrainConfig
+  , trainDqnOnCartpoleCuda
+  )
+import JitML.RL.Algorithms.HerTrainer
+  ( HerIterationStat (..)
+  , HerTrainConfig (..)
+  , HerTrainResult (..)
+  , defaultHerTrainConfig
+  , trainHerOnBitFlipCuda
+  )
+import JitML.RL.Algorithms.PpoTrainer
+  ( OnPolicyVariant (..)
+  , PpoIterationStat (..)
+  , PpoTrainConfig (..)
+  , PpoTrainResult (..)
+  , defaultPpoTrainConfig
+  , trainOnPolicyOnCartpoleCuda
+  )
+import JitML.RL.Algorithms.QrDqnTrainer
+  ( QrDqnIterationStat (..)
+  , QrDqnTrainConfig (..)
+  , QrDqnTrainResult (..)
+  , defaultQrDqnTrainConfig
+  , trainQrDqnOnCartpoleCuda
+  )
+import JitML.RL.AlphaZero (initialConnect4)
+import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.Substrate (Substrate (..), allSubstrates)
 import JitML.Substrate qualified as Substrate
 import Path (toFilePath)
@@ -468,7 +524,494 @@ main =
                   <> show afterFirst
               )
               (not (null newFiles))
+      , testCase
+          "linux-cuda MLP forward kernel matches the pure-Haskell network (Sprint 13.8/13.9)"
+          $ do
+            -- Sprint 13.8/13.9 — the nvcc-emitted MLP forward kernel
+            -- (JitML.Codegen.MlpCuda) must reproduce the pure-Haskell
+            -- forward pass within a single-precision tolerance. CUDA runs
+            -- float32 while the reference runs Double, so the contract is
+            -- close-agreement, not bit-equality (the determinism contract's
+            -- bit-equality requirement is the run-to-run check below).
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; MLP forward CUDA test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                    params = mlpInit shape 5
+                    input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                    refForward = mlpForward params input
+                cudaResult <- mlpForwardCuda env params input
+                case cudaResult of
+                  Left message ->
+                    assertBool ("MLP forward CUDA run failed: " <> Text.unpack message) False
+                  Right cudaForward -> do
+                    assertBool
+                      ( "CUDA hidden_pre within tolerance of reference: cuda="
+                          <> show (VU.toList (forwardHiddenPre cudaForward))
+                          <> " ref="
+                          <> show (VU.toList (forwardHiddenPre refForward))
+                      )
+                      (approxEqualVec 1.0e-3 (forwardHiddenPre cudaForward) (forwardHiddenPre refForward))
+                    assertBool
+                      "CUDA hidden_act within tolerance of reference"
+                      (approxEqualVec 1.0e-3 (forwardHiddenAct cudaForward) (forwardHiddenAct refForward))
+                    assertBool
+                      ( "CUDA output within tolerance of reference: cuda="
+                          <> show (VU.toList (forwardOutput cudaForward))
+                          <> " ref="
+                          <> show (VU.toList (forwardOutput refForward))
+                      )
+                      (approxEqualVec 1.0e-3 (forwardOutput cudaForward) (forwardOutput refForward))
+      , testCase
+          "linux-cuda MLP backward kernel matches the pure-Haskell gradient (Sprint 13.8/13.9)"
+          $ do
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; MLP backward CUDA test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                    params = mlpInit shape 5
+                    input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                    -- Feed both backward passes the same (pure) forward cache
+                    -- so the comparison isolates the backward kernel.
+                    refForward = mlpForward params input
+                    dLdy = VU.fromList [0.2, -0.4, 0.6]
+                    refGrad = mlpBackward params refForward dLdy
+                cudaResult <- mlpBackwardCuda env params refForward dLdy
+                case cudaResult of
+                  Left message ->
+                    assertBool ("MLP backward CUDA run failed: " <> Text.unpack message) False
+                  Right cudaGrad -> do
+                    assertBool
+                      "CUDA gradW1 within tolerance of reference"
+                      (approxEqualVec 1.0e-3 (gradW1 cudaGrad) (gradW1 refGrad))
+                    assertBool
+                      "CUDA gradB1 within tolerance of reference"
+                      (approxEqualVec 1.0e-3 (gradB1 cudaGrad) (gradB1 refGrad))
+                    assertBool
+                      "CUDA gradW2 within tolerance of reference"
+                      (approxEqualVec 1.0e-3 (gradW2 cudaGrad) (gradW2 refGrad))
+                    assertBool
+                      "CUDA gradB2 within tolerance of reference"
+                      (approxEqualVec 1.0e-3 (gradB2 cudaGrad) (gradB2 refGrad))
+      , testCase
+          "linux-cuda MLP kernels are bit-deterministic across repeated runs (Sprint 13.8/13.9)"
+          $ do
+            -- The determinism contract requires bit-equal output run-to-run
+            -- on the same substrate. Per-thread sequential reductions in the
+            -- generated kernel guarantee this.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; MLP determinism CUDA test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                    params = mlpInit shape 5
+                    input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                    dLdy = VU.fromList [0.2, -0.4, 0.6]
+                first <- mlpForwardCuda env params input
+                second <- mlpForwardCuda env params input
+                case (first, second) of
+                  (Right a, Right b) -> do
+                    forwardOutput a @?= forwardOutput b
+                    forwardHiddenAct a @?= forwardHiddenAct b
+                    gradA <- mlpBackwardCuda env params a dLdy
+                    gradB <- mlpBackwardCuda env params b dLdy
+                    case (gradA, gradB) of
+                      (Right ga, Right gb) -> do
+                        gradW1 ga @?= gradW1 gb
+                        gradW2 ga @?= gradW2 gb
+                      _ -> assertBool "both MLP backward CUDA runs succeed" False
+                  _ -> assertBool "both MLP forward CUDA runs succeed" False
+      , testCase
+          "linux-cuda batched MLP gradient matches the pure summed gradient (Sprint 13.8)"
+          $ do
+            -- Sprint 13.8 — the batched device gradient (one device call for
+            -- the whole minibatch) must equal the pure per-sample summed
+            -- gradient within a single-precision tolerance, and be
+            -- bit-deterministic run-to-run. This is the amortised-copy
+            -- primitive the RL trainers' minibatch hot path adopts.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; batched MLP gradient test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                    params = mlpInit shape 5
+                    batch =
+                      [ (VU.fromList [0.5, -0.25, 1.0, -0.75], VU.fromList [0.2, -0.4, 0.6])
+                      , (VU.fromList [-0.1, 0.3, -0.5, 0.2], VU.fromList [-0.3, 0.5, 0.1])
+                      , (VU.fromList [0.9, 0.1, -0.2, 0.4], VU.fromList [0.05, -0.15, 0.25])
+                      ]
+                    perSample (i, dy) = mlpBackward params (mlpForward params i) dy
+                    sumGrad a b =
+                      MlpGradient
+                        { gradW1 = VU.zipWith (+) (gradW1 a) (gradW1 b)
+                        , gradB1 = VU.zipWith (+) (gradB1 a) (gradB1 b)
+                        , gradW2 = VU.zipWith (+) (gradW2 a) (gradW2 b)
+                        , gradB2 = VU.zipWith (+) (gradB2 a) (gradB2 b)
+                        }
+                    refGrad = foldl1 sumGrad (map perSample batch)
+                first <- mlpBatchGradientCuda env params batch
+                second <- mlpBatchGradientCuda env params batch
+                case (first, second) of
+                  (Right g, Right g2) -> do
+                    assertBool
+                      "batched gradW1 within tolerance of the pure summed gradient"
+                      (approxEqualVec 1.0e-3 (gradW1 g) (gradW1 refGrad))
+                    assertBool
+                      "batched gradB1 within tolerance"
+                      (approxEqualVec 1.0e-3 (gradB1 g) (gradB1 refGrad))
+                    assertBool
+                      "batched gradW2 within tolerance"
+                      (approxEqualVec 1.0e-3 (gradW2 g) (gradW2 refGrad))
+                    assertBool
+                      "batched gradB2 within tolerance"
+                      (approxEqualVec 1.0e-3 (gradB2 g) (gradB2 refGrad))
+                    -- bit-deterministic across the two device runs
+                    gradW1 g @?= gradW1 g2
+                    gradW2 g @?= gradW2 g2
+                  _ -> assertBool "both batched MLP gradient runs succeed" False
+      , testCase
+          "linux-cuda batched MLP forward matches the pure per-sample forward (Sprint 13.8)"
+          $ do
+            -- Sprint 13.8 — the batched forward (one device call for the whole
+            -- minibatch) must reproduce the pure per-sample forward outputs
+            -- within single precision, and be bit-deterministic. Together with
+            -- the batched gradient this is the full device minibatch primitive
+            -- set a CUDA trainer drives.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; batched MLP forward test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                    params = mlpInit shape 5
+                    inputs =
+                      [ VU.fromList [0.5, -0.25, 1.0, -0.75]
+                      , VU.fromList [-0.1, 0.3, -0.5, 0.2]
+                      , VU.fromList [0.9, 0.1, -0.2, 0.4]
+                      ]
+                    refOutputs = map (forwardOutput . mlpForward params) inputs
+                first <- mlpForwardBatchCuda env params inputs
+                second <- mlpForwardBatchCuda env params inputs
+                case (first, second) of
+                  (Right outs, Right outs2) -> do
+                    assertBool
+                      ("batched forward returns " <> show (length inputs) <> " outputs")
+                      (length outs == length inputs)
+                    assertBool
+                      "each batched forward output is within tolerance of the pure forward"
+                      (and (zipWith (approxEqualVec 1.0e-3) outs refOutputs))
+                    -- bit-deterministic across the two device runs
+                    outs @?= outs2
+                  _ -> assertBool "both batched MLP forward runs succeed" False
+      , testCase
+          "linux-cuda batched MLP input-gradient matches the pure mlpInputGradient (Sprint 13.8)"
+          $ do
+            -- Sprint 13.8 — the batched device input-gradient (one device
+            -- call → per-sample dL/dx) must match the pure
+            -- `mlpInputGradient` within single precision and be
+            -- bit-deterministic. This is the deterministic-policy gradient
+            -- primitive the continuous actor-critic family needs.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; batched input-gradient test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                    params = mlpInit shape 5
+                    batch =
+                      [ (VU.fromList [0.5, -0.25, 1.0, -0.75], VU.fromList [0.2, -0.4, 0.6])
+                      , (VU.fromList [-0.1, 0.3, -0.5, 0.2], VU.fromList [-0.3, 0.5, 0.1])
+                      , (VU.fromList [0.9, 0.1, -0.2, 0.4], VU.fromList [0.05, -0.15, 0.25])
+                      ]
+                    refDx (i, dy) = mlpInputGradient params (mlpForward params i) dy
+                    refs = map refDx batch
+                first <- mlpInputGradientBatchCuda env params batch
+                second <- mlpInputGradientBatchCuda env params batch
+                case (first, second) of
+                  (Right dxs, Right dxs2) -> do
+                    assertBool
+                      ("batched input-gradient returns " <> show (length batch) <> " vectors")
+                      (length dxs == length batch)
+                    assertBool
+                      "each batched dL/dx is within tolerance of the pure mlpInputGradient"
+                      (and (zipWith (approxEqualVec 1.0e-3) dxs refs))
+                    dxs @?= dxs2
+                  _ -> assertBool "both batched input-gradient runs succeed" False
+      , testCase
+          "linux-cuda on-policy PPO trainer trains through the batched device path (Sprint 13.8)"
+          $ do
+            -- Sprint 13.8 — the shared on-policy trainer
+            -- (`trainOnPolicyOnCartpoleCuda`, covering PPO/A2C/TRPO/
+            -- MaskablePPO/RecurrentPPO) runs its minibatch forward + backward
+            -- on the GPU through the batched device primitives. Assert it
+            -- completes the configured iterations with finite rewards and is
+            -- run-to-run deterministic on the device (same seed → identical
+            -- per-iteration means). Float32 means it does not match the pure
+            -- Double trainer's numbers — determinism on CUDA is the contract.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; on-policy CUDA trainer test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let config =
+                      defaultPpoTrainConfig
+                        { ppoNumIterations = 3
+                        , ppoRolloutSteps = 128
+                        , ppoEpochsPerUpdate = 2
+                        , ppoMiniBatchSize = 32
+                        , ppoHiddenUnits = 16
+                        }
+                    finite x = not (isNaN x) && not (isInfinite x)
+                r1 <- trainOnPolicyOnCartpoleCuda env VariantPPO config
+                r2 <- trainOnPolicyOnCartpoleCuda env VariantPPO config
+                case (r1, r2) of
+                  (Right res1, Right res2) -> do
+                    length (resultIterations res1) @?= 3
+                    assertBool
+                      "per-iteration mean rewards are finite"
+                      (all (finite . iterMeanReward) (resultIterations res1))
+                    -- run-to-run determinism on the device
+                    map iterMeanReward (resultIterations res1)
+                      @?= map iterMeanReward (resultIterations res2)
+                  (Left e, _) ->
+                    assertBool ("CUDA on-policy trainer failed: " <> Text.unpack e) False
+                  _ -> assertBool "both CUDA on-policy trainer runs succeed" False
+      , testCase
+          "linux-cuda DQN trainer trains through the batched device path (Sprint 13.8)"
+          $ do
+            -- Sprint 13.8 — the DQN trainer (the discrete off-policy
+            -- template) runs its minibatch Q-network forward + backward on
+            -- the GPU through the batched primitives. Assert it produces
+            -- finite per-interval mean rewards and is run-to-run
+            -- deterministic on the device.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; DQN CUDA trainer test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let config =
+                      defaultDqnTrainConfig
+                        { dqnNumSteps = 600
+                        , dqnTrainStart = 100
+                        , dqnBatchSize = 16
+                        , dqnHiddenUnits = 16
+                        , dqnStatInterval = 200
+                        , dqnTargetUpdateInterval = 200
+                        }
+                    finite x = not (isNaN x) && not (isInfinite x)
+                r1 <- trainDqnOnCartpoleCuda env config
+                r2 <- trainDqnOnCartpoleCuda env config
+                assertBool
+                  "DQN run produced at least one interval stat"
+                  (not (null (dqnResultStats r1)))
+                assertBool
+                  "per-interval mean rewards are finite"
+                  (all (finite . dqnIterMeanReward) (dqnResultStats r1))
+                map dqnIterMeanReward (dqnResultStats r1)
+                  @?= map dqnIterMeanReward (dqnResultStats r2)
+      , testCase
+          "linux-cuda QR-DQN trainer trains through the batched device path (Sprint 13.8)"
+          $ do
+            -- Sprint 13.8 — the QR-DQN distributional off-policy trainer runs
+            -- its minibatch quantile-network forward + backward on the GPU
+            -- through the batched primitives. Finite + run-to-run
+            -- deterministic on the device.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; QR-DQN CUDA trainer test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let config =
+                      defaultQrDqnTrainConfig
+                        { qrNumSteps = 600
+                        , qrTrainStart = 100
+                        , qrBatchSize = 16
+                        , qrHiddenUnits = 16
+                        , qrNumQuantiles = 4
+                        , qrStatInterval = 200
+                        , qrTargetUpdateInterval = 200
+                        }
+                    finite x = not (isNaN x) && not (isInfinite x)
+                r1 <- trainQrDqnOnCartpoleCuda env config
+                r2 <- trainQrDqnOnCartpoleCuda env config
+                assertBool
+                  "QR-DQN run produced at least one interval stat"
+                  (not (null (qrResultStats r1)))
+                assertBool
+                  "per-interval mean rewards are finite"
+                  (all (finite . qrIterMeanReward) (qrResultStats r1))
+                map qrIterMeanReward (qrResultStats r1)
+                  @?= map qrIterMeanReward (qrResultStats r2)
+      , testCase
+          "linux-cuda HER trainer trains through the batched device path (Sprint 13.8)"
+          $ do
+            -- Sprint 13.8 — the HER goal-conditioned trainer (DQN-shaped Q
+            -- network on the bit-flip env) runs its minibatch forward +
+            -- backward on the GPU through the batched primitives. Finite
+            -- success rates + run-to-run deterministic on the device.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; HER CUDA trainer test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let config =
+                      defaultHerTrainConfig
+                        { herNumBits = 4
+                        , herEpisodes = 60
+                        , herHiddenUnits = 16
+                        , herBatchSize = 16
+                        , herStatInterval = 20
+                        , herTargetUpdateInterval = 20
+                        }
+                    finite x = not (isNaN x) && not (isInfinite x)
+                r1 <- trainHerOnBitFlipCuda env config
+                r2 <- trainHerOnBitFlipCuda env config
+                assertBool
+                  "HER run produced at least one interval stat"
+                  (not (null (herResultStats r1)))
+                assertBool
+                  "per-interval success rates are finite in [0,1]"
+                  ( all
+                      (\s -> finite (herIterSuccessRate s) && herIterSuccessRate s >= 0 && herIterSuccessRate s <= 1)
+                      (herResultStats r1)
+                  )
+                map herIterSuccessRate (herResultStats r1)
+                  @?= map herIterSuccessRate (herResultStats r2)
+      , testCase
+          "linux-cuda continuous actor-critic (DDPG) trains through the batched device path (Sprint 13.8)"
+          $ do
+            -- Sprint 13.8 — the continuous actor-critic trainer
+            -- (`trainContinuousOnPendulumCuda`, covering DDPG/TD3/SAC/CrossQ/
+            -- TQC) runs its critic param-gradient, the actor's dQ/da
+            -- (critic input-gradient), and the actor param-gradient on the
+            -- GPU through the batched primitives. DDPG exercises the full
+            -- device actor-critic path; the other variants differ only in
+            -- the shared pure `bellmanTarget`. Finite + run-to-run
+            -- deterministic on the device.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; continuous CUDA trainer test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let config =
+                      (defaultContinuousTrainConfig VariantDDPG)
+                        { ctNumSteps = 400
+                        , ctTrainStart = 100
+                        , ctStartSteps = 100
+                        , ctBatchSize = 16
+                        , ctHidden = 16
+                        , ctStatInterval = 200
+                        }
+                    finite x = not (isNaN x) && not (isInfinite x)
+                r1 <- trainContinuousOnPendulumCuda env config
+                r2 <- trainContinuousOnPendulumCuda env config
+                assertBool
+                  "continuous run produced at least one interval stat"
+                  (not (null (contResultStats r1)))
+                assertBool
+                  "per-interval mean rewards are finite"
+                  (all (finite . contIterMeanReward) (contResultStats r1))
+                map contIterMeanReward (contResultStats r1)
+                  @?= map contIterMeanReward (contResultStats r2)
+      , testCase
+          "linux-cuda AlphaZero PolicyValueNet trains on the device and reduces loss (Sprint 13.9)"
+          $ do
+            -- Sprint 13.9 — the CUDA-backed AlphaZero training step
+            -- (`trainPolicyValueNetOnSamplesCuda`) runs the network
+            -- forward + backward on the GPU through the generated nvcc MLP
+            -- kernels. Mirror of the pure `rl-canonicals` loss-reduction
+            -- assertion: 80 device gradient passes on a synthetic sample
+            -- must drive the policy+value loss below its starting value.
+            probe <- CudaRuntime.probeCudaRuntime
+            if not (CudaRuntime.cudaRuntimeAvailable probe)
+              then
+                assertBool
+                  "CUDA runtime unavailable on this host; PolicyValueNet CUDA training skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let net0 = PVN.initPolicyValueNet 43 7 16 22
+                    adam0 = PVN.initAdamFor net0
+                    target = VU.fromList [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+                    sample =
+                      PVN.PolicyValueTrainingSample
+                        { PVN.sampleState = initialConnect4
+                        , PVN.sampleVisitDist = target
+                        , PVN.sampleOutcome = 0.5
+                        }
+                    logSafe x = if x <= 0 then -1.0e9 else log x
+                    lossOf net =
+                      let pv = PVN.networkPolicyValue net (PVN.sampleState sample)
+                          policy = PVN.pvPolicy pv
+                          policyLoss =
+                            negate
+                              ( sum
+                                  [ (PVN.sampleVisitDist sample VU.! i) * logSafe (policy VU.! i)
+                                  | i <- [0 .. VU.length policy - 1]
+                                  ]
+                              )
+                          valueLoss = 0.5 * (PVN.pvValue pv - PVN.sampleOutcome sample) ^ (2 :: Int)
+                       in policyLoss + valueLoss
+                trained <- PVN.trainPolicyValueNetOnSamplesCuda env net0 adam0 1.0e-2 80 [sample]
+                case trained of
+                  Left message ->
+                    assertBool ("PolicyValueNet CUDA training failed: " <> Text.unpack message) False
+                  Right (netN, _) -> do
+                    let before = lossOf net0
+                        after = lossOf netN
+                    assertBool
+                      ( "device-trained policy/value loss should decrease; before="
+                          <> show before
+                          <> " after="
+                          <> show after
+                      )
+                      (after < before)
       ]
+
+-- | Elementwise approximate equality for two unboxed Double vectors.
+approxEqualVec :: Double -> VU.Vector Double -> VU.Vector Double -> Bool
+approxEqualVec tol a b =
+  VU.length a == VU.length b
+    && VU.and (VU.zipWith (\x y -> abs (x - y) <= tol) a b)
 
 assertFamilySmoke :: Env -> KernelFamily -> IO ()
 assertFamilySmoke env family = do

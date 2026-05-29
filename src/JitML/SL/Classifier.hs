@@ -31,6 +31,8 @@ module JitML.SL.Classifier
   , defaultClassifierConfig
   , TrainedClassifier (..)
   , trainClassifier
+  , trainClassifierFromIdx
+  , trainClassifierFromIdxBounded
   , classify
   , accuracy
   , crossEntropyLoss
@@ -219,3 +221,50 @@ crossEntropyLoss trained dataset =
             p = probs VU.! exampleLabel example
          in if p <= 0 then 1.0e9 else negate (log p)
    in sum (map lossOne dataset) / fromIntegral (length dataset)
+
+-- | Sprint 13.4 — the end-to-end training entry point the worker's
+-- @jitml train@ command drives over real MNIST: parse the canonical IDX3
+-- image bytes and IDX1 label bytes, zip them into a 'Dataset', train the
+-- softmax classifier, and return the trained model plus its train-set
+-- accuracy. The input width (@clfInputs@) is taken from the parsed image
+-- dimensions so the network shape matches the data. Pure and
+-- bit-deterministic on the same seed; the worker fetches the two byte
+-- blobs from MinIO and the rest is this function.
+trainClassifierFromIdx
+  :: ClassifierConfig
+  -> ByteString
+  -- ^ raw IDX3 image bytes (@data.bin@)
+  -> ByteString
+  -- ^ raw IDX1 label bytes (@labels.bin@)
+  -> Either String (TrainedClassifier, Double)
+trainClassifierFromIdx config = trainClassifierFromIdxBounded config Nothing
+
+-- | Bounded variant of 'trainClassifierFromIdx': train over at most
+-- @limit@ examples (drawn in dataset order) when @Just limit@ is supplied.
+-- The full 60k-example MNIST pass under the pure-Haskell MLP is
+-- operationally heavy; the worker's @jitml train@ caps the example count
+-- (via @JITML_SL_TRAIN_LIMIT@) so a live cluster run is tractable while
+-- still exercising the real fetch → IDX parse → differentiable train path.
+-- Returns the trained model and its accuracy over the (possibly bounded)
+-- training subset.
+trainClassifierFromIdxBounded
+  :: ClassifierConfig
+  -> Maybe Int
+  -> ByteString
+  -- ^ raw IDX3 image bytes (@data.bin@)
+  -> ByteString
+  -- ^ raw IDX1 label bytes (@labels.bin@)
+  -> Either String (TrainedClassifier, Double)
+trainClassifierFromIdxBounded config subsetLimit imageBytes labelBytes = do
+  (pixelsPer, images) <- parseIdxImages imageBytes
+  labels <- parseIdxLabels labelBytes
+  let full = zipImagesLabels images labels
+      dataset = case subsetLimit of
+        Just limit | limit >= 0 -> take limit full
+        _ -> full
+  if null dataset
+    then Left "idx: produced no labeled examples (empty images or labels)"
+    else
+      let trainedConfigForData = config {clfInputs = pixelsPer}
+          trained = trainClassifier trainedConfigForData dataset
+       in Right (trained, accuracy trained dataset)

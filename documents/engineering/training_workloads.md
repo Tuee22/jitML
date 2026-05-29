@@ -62,7 +62,22 @@ jitml train <experiment-dhall>
 
 Current `jitml train` supports the Plan/Apply dry-run surface and, on normal
 execution, prints the selected experiment path plus a deterministic local
-canonical-problem summary. `src/JitML/Proto/Training.hs` defines the typed
+canonical-problem summary. **Sprint 13.4 real-MNIST path**: when the worker
+runs in cluster context against a dataset with canonical image + label
+artefacts staged in MinIO (MNIST), `JitML.App.attemptRealMnistTraining`
+fetches `jitml-datasets/MNIST/{train,test}/{data,labels}.bin`, gunzips
+(`JitML.SL.Dataset.maybeGunzip`), IDX-parses, and trains the real
+differentiable softmax classifier (`JitML.SL.Classifier`, on the
+`JitML.Numerics.Mlp` seam) over the bytes — example count / epochs / test
+size capped by `JITML_SL_TRAIN_LIMIT` / `JITML_SL_EPOCHS` /
+`JITML_SL_TEST_LIMIT` so a live run stays tractable under the pure-Haskell
+MLP. The measured `train_acc` / `test_acc` are reported and the published
+`EpochCompleted` loss becomes the live measurement. Image + label blobs are
+staged via `jitml internal upload-dataset --name MNIST --split <split>
+--artifact {images,labels} --path <gz>`, SHA-verified against
+`JitML.SL.Dataset.canonicalArtifactSha256For`. The operationally-heavy live
+full-MNIST statistical-convergence assertion remains Sprint 13.4
+Remaining Work. `src/JitML/Proto/Training.hs` defines the typed
 `TrainingCommand` envelopes and deterministic text render/parse round-trips
 for `StartTraining` and `StopTraining`; `encodeTrainingCommandProto` and
 `decodeTrainingCommandProto` round-trip the current command oneof through

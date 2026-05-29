@@ -18,6 +18,7 @@ module JitML.RL.Algorithms.QrDqnTrainer
   , QrDqnTrainResult (..)
   , QrDqnIterationStat (..)
   , trainQrDqnOnCartpole
+  , trainQrDqnOnCartpoleCuda
   )
 where
 
@@ -26,9 +27,11 @@ import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
+import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
+  , MlpGradient (..)
   , MlpParams
   , MlpShape (..)
   , adamInit
@@ -39,6 +42,7 @@ import JitML.Numerics.Mlp
   , mlpForward
   , mlpInit
   )
+import JitML.Numerics.MlpCuda (mlpBatchGradientCuda, mlpForwardBatchCuda)
 import JitML.RL.Algorithms.QrDqnLoss (quantileMidpoints)
 import JitML.RL.Simulator
   ( CartPoleState (..)
@@ -128,6 +132,7 @@ trainQrDqnOnCartpole config = do
       initialParams = mlpInit shape (qrSeed config)
   loop
     config
+    (\online target adam batch -> pure (qrUpdate config online target adam batch))
     initialParams
     initialParams
     (adamInit shape)
@@ -142,6 +147,7 @@ trainQrDqnOnCartpole config = do
 
 loop
   :: QrDqnTrainConfig
+  -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (MlpParams, AdamState))
   -> MlpParams
   -> MlpParams
   -> AdamState
@@ -154,7 +160,7 @@ loop
   -> [Double]
   -> [QrDqnIterationStat]
   -> IO QrDqnTrainResult
-loop config online target adam gen buffer step state episodeLen episodeReturn episodes stats
+loop config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= qrNumSteps config =
       pure
         QrDqnTrainResult
@@ -186,7 +192,7 @@ loop config online target adam gen buffer step state episodeLen episodeReturn ep
           && length newBuffer >= qrBatchSize config
           then do
             let (batch, genB) = sampleBatch (qrBatchSize config) newBuffer gen2
-                (onlineUpd, adamUpd) = qrUpdate config online target adam batch
+            (onlineUpd, adamUpd) <- update online target adam batch
             pure (onlineUpd, adamUpd, genB)
           else pure (online, adam, gen2)
       let targetNext =
@@ -205,6 +211,7 @@ loop config online target adam gen buffer step state episodeLen episodeReturn ep
               else stats
       loop
         config
+        update
         onlineNext
         targetNext
         adamNext
@@ -256,41 +263,56 @@ qrUpdate
   :: QrDqnTrainConfig -> MlpParams -> MlpParams -> AdamState -> [Transition] -> (MlpParams, AdamState)
 qrUpdate config online target adam batch =
   let adamCfg = defaultAdamConfig {adamLearningRate = qrLearningRate config}
-      gamma = qrGamma config
-      kappa = qrKappa config
-      n = qrNumQuantiles config
-      taus = quantileMidpoints n
-      outputs = qrActionCount config * n
       stepUpdate (params, a) trans =
         let fwd = mlpForward params (transObs trans)
             output = forwardOutput fwd
-            actionIx = transAction trans
-            predicted = VU.toList (actionAtoms config output actionIx)
-            -- Bellman-projected target distribution.
             targetOutput = forwardOutput (mlpForward target (transNextObs trans))
-            nextGreedy = greedyActionFor config target (transNextObs trans)
-            nextAtoms = VU.toList (actionAtoms config targetOutput nextGreedy)
-            targetAtoms =
-              if transDone trans
-                then replicate n (transReward trans)
-                else fmap (\q -> transReward trans + gamma * q) nextAtoms
-            -- Per-atom quantile-Huber gradient for the taken action.
-            atomGrad tau thetaP =
-              let contrib thetaT =
-                    let uu = thetaT - thetaP
-                        asym = if uu < 0 then abs (tau - 1.0) else abs tau
-                        clipped = max (-kappa) (min kappa uu)
-                     in asym * clipped
-               in negate (sum (fmap contrib targetAtoms)) / fromIntegral n
-            actionGrads =
-              zipWith atomGrad taus predicted
-            dLdy =
-              VU.generate outputs $ \k ->
-                let (act, qi) = k `divMod` n
-                 in if act == actionIx then actionGrads !! qi else 0.0
+            dLdy = qrResidualDLdy config output targetOutput trans
             grad = mlpBackward params fwd dLdy
          in adamStep adamCfg a params grad
    in Data.List.foldl' stepUpdate (online, adam) batch
+
+-- | The per-transition QR-DQN loss gradient w.r.t. the quantile-network
+-- output: the quantile-Huber gradient placed at the taken action's atom
+-- slots, zero elsewhere. Takes the online output at the state and the
+-- target-net output at the next state (the greedy next action is read off
+-- the target output via 'actionMeanQ', so no extra forward is needed).
+-- Factored out of 'qrUpdate' so the pure CPU path and the batched CUDA
+-- path ('qrUpdateCuda') compute the identical loss gradient.
+qrResidualDLdy
+  :: QrDqnTrainConfig
+  -> Vector Double
+  -- ^ online output Q-atoms at the state
+  -> Vector Double
+  -- ^ target-net output Q-atoms at the next state
+  -> Transition
+  -> Vector Double
+qrResidualDLdy config output targetOutput trans =
+  VU.generate outputs $ \k ->
+    let (act, qi) = k `divMod` n
+     in if act == actionIx then actionGrads !! qi else 0.0
+ where
+  n = qrNumQuantiles config
+  outputs = qrActionCount config * n
+  gamma = qrGamma config
+  kappa = qrKappa config
+  taus = quantileMidpoints n
+  actionIx = transAction trans
+  predicted = VU.toList (actionAtoms config output actionIx)
+  nextGreedy = argmax [actionMeanQ config targetOutput a | a <- [0 .. qrActionCount config - 1]]
+  nextAtoms = VU.toList (actionAtoms config targetOutput nextGreedy)
+  targetAtoms =
+    if transDone trans
+      then replicate n (transReward trans)
+      else fmap (\q -> transReward trans + gamma * q) nextAtoms
+  atomGrad tau thetaP =
+    let contrib thetaT =
+          let uu = thetaT - thetaP
+              asym = if uu < 0 then abs (tau - 1.0) else abs tau
+              clipped = max (-kappa) (min kappa uu)
+           in asym * clipped
+     in negate (sum (fmap contrib targetAtoms)) / fromIntegral n
+  actionGrads = zipWith atomGrad taus predicted
 
 sampleBatch :: Int -> [Transition] -> Random.StdGen -> ([Transition], Random.StdGen)
 sampleBatch n buffer gen =
@@ -310,3 +332,74 @@ obsVector state =
     , poleAngle state
     , poleAngularVelocity state
     ]
+
+-- | Sprint 13.8 — train QR-DQN on cartpole with the quantile network's
+-- forward + backward running on the GPU through the batched device
+-- primitives. Same env loop / replay / target-copy as the pure
+-- 'trainQrDqnOnCartpole' (shared via the parameterised 'loop'); only the
+-- minibatch gradient update runs on the device ('qrUpdateCuda'), reusing
+-- the shared quantile-Huber head 'qrResidualDLdy'.
+trainQrDqnOnCartpoleCuda :: Env -> QrDqnTrainConfig -> IO QrDqnTrainResult
+trainQrDqnOnCartpoleCuda env config = do
+  let shape =
+        MlpShape
+          { mlpInputs = qrObsSize config
+          , mlpHidden = qrHiddenUnits config
+          , mlpOutputs = qrActionCount config * qrNumQuantiles config
+          }
+      initialParams = mlpInit shape (qrSeed config)
+  loop
+    config
+    (qrUpdateCuda env config)
+    initialParams
+    initialParams
+    (adamInit shape)
+    (Random.mkStdGen (qrSeed config + 1))
+    []
+    0
+    cartPoleInitial
+    0
+    0.0
+    []
+    []
+
+-- | Minibatch QR-DQN gradient update through the batched CUDA primitives:
+-- batched online forward at the states + target forward at the next states,
+-- the per-sample quantile-Huber gradient ('qrResidualDLdy'), one batched
+-- device backward (mean gradient), and one Adam step. Falls back to the
+-- pure 'qrUpdate' if the CUDA runtime/compile is unavailable.
+qrUpdateCuda
+  :: Env
+  -> QrDqnTrainConfig
+  -> MlpParams
+  -> MlpParams
+  -> AdamState
+  -> [Transition]
+  -> IO (MlpParams, AdamState)
+qrUpdateCuda env config online target adam batch = do
+  onlineOutE <- mlpForwardBatchCuda env online (map transObs batch)
+  targetOutE <- mlpForwardBatchCuda env target (map transNextObs batch)
+  case (onlineOutE, targetOutE) of
+    (Right onlineOuts, Right targetOuts) -> do
+      let pairs =
+            [ (transObs trans, qrResidualDLdy config onOut tgOut trans)
+            | (trans, onOut, tgOut) <- zip3 batch onlineOuts targetOuts
+            ]
+      gradResult <- mlpBatchGradientCuda env online pairs
+      case gradResult of
+        Right summed ->
+          let scale = 1.0 / fromIntegral (length batch)
+              meanGradient = scaleGradient scale summed
+              adamCfg = defaultAdamConfig {adamLearningRate = qrLearningRate config}
+              (onlineAfter, adamAfter) = adamStep adamCfg adam online meanGradient
+           in pure (onlineAfter, adamAfter)
+        Left _ -> pure (qrUpdate config online target adam batch)
+    _ -> pure (qrUpdate config online target adam batch)
+ where
+  scaleGradient sc g =
+    MlpGradient
+      { gradW1 = VU.map (* sc) (gradW1 g)
+      , gradB1 = VU.map (* sc) (gradB1 g)
+      , gradW2 = VU.map (* sc) (gradW2 g)
+      , gradB2 = VU.map (* sc) (gradB2 g)
+      }

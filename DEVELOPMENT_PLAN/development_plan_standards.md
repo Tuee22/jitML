@@ -48,7 +48,7 @@ contracts.
   services, to the long-running daemon, then through the numerical core and per-
   substrate JIT codegen, the SL/RL framework and algorithm catalog, AlphaZero and
   hyperparameter tuning, checkpointing and the inference-only read path, the
-  PureScript frontend, and finally the test stanzas and Pulumi-orchestrated
+  PureScript frontend, and finally the test stanzas and the
   cross-cluster parity surface.
 - A reader unfamiliar with the repository must be able to follow the plan top to
   bottom without reconstructing hidden dependencies from multiple documents.
@@ -188,7 +188,7 @@ for:
 - training-workload surfaces (SL loops, RL framework, RL catalog, AlphaZero, tuning)
 - checkpoint format and inference-only read path
 - frontend bundle and generated browser-contract surfaces
-- test stanzas, lint matrix, and Pulumi-orchestrated infrastructure surfaces
+- test stanzas, lint matrix, and ephemeral-cluster infrastructure surfaces
 - toolchain prerequisites and pinned versions
 - state locations (cache root, kubeconfig, Kind metadata, runtime metadata,
   manual PV root, snapshot roots)

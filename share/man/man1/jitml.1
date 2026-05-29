@@ -195,10 +195,6 @@ Run kubectl against the jitML kubeconfig.
 Materialize substrate files.
 .PP
 .B jitml internal materialize\\-substrate [\\-\\-substrate <substrate>]
-.SS JITML INTERNAL RENDER-KIND-CONFIG
-Render a Kind cluster YAML.
-.PP
-.B jitml internal render\\-kind\\-config [\\-\\-substrate <substrate>] [\\-\\-name <name>] [\\-\\-edge\\-port <port>]
 .SS JITML INTERNAL LIST-PREREQS
 List prerequisite checks.
 .PP
@@ -206,7 +202,7 @@ List prerequisite checks.
 .SS JITML INTERNAL UPLOAD-DATASET
 Upload a real dataset blob to MinIO.
 .PP
-.B jitml internal upload\\-dataset [\\-\\-name <name>] [\\-\\-split <split>] [\\-\\-path <path>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.B jitml internal upload\\-dataset [\\-\\-name <name>] [\\-\\-split <split>] [\\-\\-artifact <artifact>] [\\-\\-path <path>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML INTERNAL GC
 Apply checkpoint retention.
 .PP

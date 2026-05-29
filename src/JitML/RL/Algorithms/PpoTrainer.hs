@@ -45,6 +45,8 @@ module JitML.RL.Algorithms.PpoTrainer
     -- * Run
   , trainPpoOnCartpole
   , trainOnPolicyOnCartpole
+  , trainPpoOnCartpoleCuda
+  , trainOnPolicyOnCartpoleCuda
   , collectRollout
   , rolloutSummary
 
@@ -57,13 +59,16 @@ where
 import Control.Monad (foldM)
 import Data.IORef qualified as IORef
 import Data.List qualified
+import Data.Text (Text)
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
+import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
+  , MlpGradient (..)
   , MlpParams
   , MlpShape (..)
   , PolicyValueOutput (..)
@@ -74,7 +79,9 @@ import JitML.Numerics.Mlp
   , policyValueBackward
   , policyValueForward
   , sampleCategorical
+  , softmax
   )
+import JitML.Numerics.MlpCuda (mlpBatchGradientCuda, mlpForwardBatchCuda)
 import JitML.RL.Simulator
   ( CartPoleState (..)
   , SimStep (..)
@@ -342,55 +349,8 @@ ppoSingleStep
 ppoSingleStep config params adam step advantage target =
   let actionCount = ppoActionCount config
       pvOut = policyValueForward params actionCount (rsObs step)
-      probs = pvPolicy pvOut
-      action = rsAction step
-      prob = probs VU.! action
-      newLogProb = if prob <= 0 then -1.0e9 else log prob
-      oldLogProb = rsLogProb step
-      ratio = exp (newLogProb - oldLogProb)
-      clipEps = ppoClipEps config
-      ratioClipped = max (1.0 - clipEps) (min (1.0 + clipEps) ratio)
-      surrogate1 = ratio * advantage
-      surrogate2 = ratioClipped * advantage
-      -- dL_pi / dlogit_a:
-      -- d(-min(s1, s2))/dlogit = -(min comes from s1 or clipped s2)
-      -- For simplicity use the unclipped gradient when ratio is in the clip band,
-      -- zero outside (the standard SB3 implementation behaviour).
-      inClipBand = ratio >= 1.0 - clipEps && ratio <= 1.0 + clipEps
-      -- PPO / MaskablePPO / RecurrentPPO clip the surrogate; A2C and TRPO
-      -- use the unclipped policy-gradient ratio (TRPO instead bounds the
-      -- update via the per-epoch KL trust region in `ppoUpdate`).
-      clips = ppoVariant config `elem` [VariantPPO, VariantMaskablePPO, VariantRecurrentPPO]
-      effectiveRatio
-        | not clips = ratio
-        | inClipBand = ratio
-        | surrogate1 < surrogate2 = ratio
-        | otherwise = 0.0
-      -- d/dlogit_a log(softmax_a) = 1 - softmax_a
-      -- d/dlogit_j log(softmax_a) = -softmax_j (j /= a)
-      dLogProbDLogit i
-        | i == action = 1.0 - probs VU.! i
-        | otherwise = -(probs VU.! i)
-      dPolicyLossDLogit i =
-        -((effectiveRatio * advantage) * dLogProbDLogit i)
-      -- Entropy bonus gradient: H = -sum p log p
-      -- d/dlogit_i H = -d/dlogit_i (sum p log p)
-      --             = -(d p_i)/dlogit_i * log p_i - p_i * (d log p_i)/dlogit_i ...
-      -- Use shortcut: d/dlogit H = p_i * (log p_i + 1 - sum_k p_k (log p_k + 1))
-      -- but since sum p = 1 the shift simplifies to (log p_i - mean_log).
-      meanLog =
-        VU.sum (VU.zipWith (*) probs (VU.map logSafe probs))
-      dEntropyDLogit i =
-        let p = probs VU.! i
-            logP = logSafe p
-         in p * (logP - meanLog)
-      dHeadDLogit i =
-        dPolicyLossDLogit i
-          - ppoEntropyCoef config * dEntropyDLogit i
-      dLogitVec =
-        VU.generate actionCount dHeadDLogit
-      -- Value loss = 0.5 * (value - target)^2, scaled by value coef.
-      valueGrad = ppoValueCoef config * (pvValue pvOut - target)
+      (dLogitVec, valueGrad) =
+        ppoHeadGradient config (pvPolicy pvOut) (pvValue pvOut) step advantage target
       gradient =
         policyValueBackward params pvOut dLogitVec valueGrad
    in adamStep adamConfig adam params gradient
@@ -399,6 +359,65 @@ ppoSingleStep config params adam step advantage target =
     defaultAdamConfig
       { adamLearningRate = ppoLearningRate config
       }
+
+-- | The per-sample policy/value loss-gradient head: given the network's
+-- softmax policy and tanh value for one rollout step, plus the step's
+-- advantage and value target, return @(dL/dlogits, dL/dvalue)@. Factored
+-- out of 'ppoSingleStep' so the pure CPU path and the batched CUDA path
+-- ('ppoUpdateCuda') compute the identical loss-gradient head; only the
+-- backward kernel backend differs. Behaviour-preserving for the pure path.
+ppoHeadGradient
+  :: PpoTrainConfig
+  -> Vector Double
+  -- ^ softmax policy
+  -> Double
+  -- ^ tanh value
+  -> RolloutStep
+  -> Double
+  -- ^ advantage
+  -> Double
+  -- ^ value target
+  -> (Vector Double, Double)
+ppoHeadGradient config probs value step advantage target =
+  (dLogitVec, valueGrad)
+ where
+  actionCount = ppoActionCount config
+  action = rsAction step
+  prob = probs VU.! action
+  newLogProb = if prob <= 0 then -1.0e9 else log prob
+  oldLogProb = rsLogProb step
+  ratio = exp (newLogProb - oldLogProb)
+  clipEps = ppoClipEps config
+  ratioClipped = max (1.0 - clipEps) (min (1.0 + clipEps) ratio)
+  surrogate1 = ratio * advantage
+  surrogate2 = ratioClipped * advantage
+  inClipBand = ratio >= 1.0 - clipEps && ratio <= 1.0 + clipEps
+  -- PPO / MaskablePPO / RecurrentPPO clip the surrogate; A2C and TRPO use
+  -- the unclipped policy-gradient ratio (TRPO bounds the update via the
+  -- per-epoch KL trust region in `ppoUpdate`).
+  clips = ppoVariant config `elem` [VariantPPO, VariantMaskablePPO, VariantRecurrentPPO]
+  effectiveRatio
+    | not clips = ratio
+    | inClipBand = ratio
+    | surrogate1 < surrogate2 = ratio
+    | otherwise = 0.0
+  dLogProbDLogit i
+    | i == action = 1.0 - probs VU.! i
+    | otherwise = -(probs VU.! i)
+  dPolicyLossDLogit i =
+    -((effectiveRatio * advantage) * dLogProbDLogit i)
+  meanLog =
+    VU.sum (VU.zipWith (*) probs (VU.map logSafe probs))
+  dEntropyDLogit i =
+    let p = probs VU.! i
+        logP = logSafe p
+     in p * (logP - meanLog)
+  dHeadDLogit i =
+    dPolicyLossDLogit i
+      - ppoEntropyCoef config * dEntropyDLogit i
+  dLogitVec = VU.generate actionCount dHeadDLogit
+  -- Value loss = 0.5 * (value - target)^2, scaled by value coef.
+  valueGrad = ppoValueCoef config * (value - target)
   logSafe x
     | x <= 0 = -1.0e9
     | otherwise = log x
@@ -448,6 +467,140 @@ trainPpoOnCartpole config = do
       , resultFinalParams = finalParams
       , resultConfig = config
       }
+
+-- | Sprint 13.8 — train any on-policy variant on cartpole with the
+-- network forward + backward running on the GPU through the batched device
+-- primitives (`mlpForwardBatchCuda` / `mlpBatchGradientCuda`). Unlike the
+-- pure 'ppoUpdate' (per-sample online SGD, inherently sequential), the
+-- CUDA path uses proper /minibatch/ gradients — fixed params over a
+-- minibatch, one batched device forward + one batched device backward, one
+-- Adam step — so each minibatch is a single host↔device round-trip. The
+-- loss-gradient head ('ppoHeadGradient') is shared with the pure path; only
+-- the kernel backend differs. Returns 'Left' when the CUDA runtime/compile
+-- is unavailable so callers can fall back to 'trainOnPolicyOnCartpole'.
+trainOnPolicyOnCartpoleCuda
+  :: Env -> OnPolicyVariant -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainOnPolicyOnCartpoleCuda env variant config =
+  trainPpoOnCartpoleCuda env config {ppoVariant = variant}
+
+trainPpoOnCartpoleCuda :: Env -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainPpoOnCartpoleCuda env config = do
+  let shape =
+        MlpShape
+          { mlpInputs = ppoObsSize config
+          , mlpHidden = ppoHiddenUnits config
+          , mlpOutputs = ppoActionCount config + 1
+          }
+      initialParams = mlpInit shape (ppoSeed config)
+      initialAdam = adamInit shape
+  result <-
+    foldM
+      step
+      ( Right
+          ( cartPoleInitial
+          , Random.mkStdGen (ppoSeed config + 1)
+          , initialParams
+          , initialAdam
+          , [] :: [PpoIterationStat]
+          , initialParams
+          )
+      )
+      [0 .. ppoNumIterations config - 1]
+  pure $
+    fmap
+      ( \(_, _, _, _, stats, finalParams) ->
+          PpoTrainResult
+            { resultIterations = stats
+            , resultFinalParams = finalParams
+            , resultConfig = config
+            }
+      )
+      result
+ where
+  step (Left e) _ = pure (Left e)
+  step (Right (state, gen, params, adam, stats, _)) iteration = do
+    (rollout, nextState, nextGen) <- collectRollout config params state gen
+    let (advs, targets) = computeAdvantages config rollout
+        normAdvs = standardise advs
+        triples = zip3 (rolloutSteps rollout) normAdvs targets
+    updated <- ppoUpdateCuda env config params adam triples
+    case updated of
+      Left e -> pure (Left e)
+      Right (paramsAfter, adamAfter) ->
+        let stat = rolloutSummary iteration (rolloutEpisodes rollout)
+         in pure
+              ( Right
+                  (nextState, nextGen, paramsAfter, adamAfter, stats <> [stat], paramsAfter)
+              )
+
+-- | Minibatch on-policy update through the batched CUDA primitives. For
+-- each epoch, the rollout is split into minibatches; each minibatch runs
+-- one batched device forward (to obtain the per-sample policy/value
+-- outputs), computes the per-sample loss-gradient head on the host, runs
+-- one batched device backward (the mean gradient over the minibatch), and
+-- applies one Adam step. TRPO's per-epoch KL trust-region gate is honoured.
+ppoUpdateCuda
+  :: Env
+  -> PpoTrainConfig
+  -> MlpParams
+  -> AdamState
+  -> [(RolloutStep, Double, Double)]
+  -> IO (Either Text (MlpParams, AdamState))
+ppoUpdateCuda env config params0 adam0 batch =
+  foldM runEpoch (Right (params0, adam0)) [1 .. ppoEpochsPerUpdate config]
+ where
+  adamConfig = defaultAdamConfig {adamLearningRate = ppoLearningRate config}
+  actionCount = ppoActionCount config
+  minibatches = chunked (max 1 (ppoMiniBatchSize config)) batch
+  runEpoch (Left e) _ = pure (Left e)
+  runEpoch acc@(Right (params, _)) epoch
+    | ppoVariant config == VariantTRPO
+        && epoch > 1
+        && approxBatchKl params > ppoKlTarget config =
+        pure acc
+    | otherwise = foldM runMinibatch acc minibatches
+  runMinibatch (Left e) _ = pure (Left e)
+  runMinibatch (Right (params, adam)) [] = pure (Right (params, adam))
+  runMinibatch (Right (params, adam)) mb = do
+    forwardResult <- mlpForwardBatchCuda env params [rsObs s | (s, _, _) <- mb]
+    case forwardResult of
+      Left e -> pure (Left e)
+      Right outs -> do
+        let pairs =
+              [ (rsObs s, fullOutputGradient out s adv target)
+              | ((s, adv, target), out) <- zip mb outs
+              ]
+        gradResult <- mlpBatchGradientCuda env params pairs
+        case gradResult of
+          Left e -> pure (Left e)
+          Right summed ->
+            let scale = 1.0 / fromIntegral (length mb)
+                meanGradient = scaleGradient scale summed
+                (paramsAfter, adamAfter) = adamStep adamConfig adam params meanGradient
+             in pure (Right (paramsAfter, adamAfter))
+  fullOutputGradient out step advantage target =
+    let policy = softmax (VU.take actionCount out)
+        value = tanh (out VU.! actionCount)
+        (dLogitVec, valueGrad) = ppoHeadGradient config policy value step advantage target
+     in dLogitVec VU.++ VU.singleton (valueGrad * (1.0 - value * value))
+  approxBatchKl params =
+    let kls =
+          [ let pvOut = policyValueForward params actionCount (rsObs step)
+                prob = pvPolicy pvOut VU.! rsAction step
+                newLogProb = if prob <= 0 then -1.0e9 else log prob
+             in rsLogProb step - newLogProb
+          | (step, _, _) <- batch
+          ]
+     in if null kls then 0.0 else sum kls / fromIntegral (length kls)
+  scaleGradient sc g =
+    MlpGradient
+      { gradW1 = VU.map (* sc) (gradW1 g)
+      , gradB1 = VU.map (* sc) (gradB1 g)
+      , gradW2 = VU.map (* sc) (gradW2 g)
+      , gradB2 = VU.map (* sc) (gradB2 g)
+      }
+  chunked _ [] = []
+  chunked k xs = let (h, t) = splitAt k xs in h : chunked k t
 
 rolloutSummary :: Int -> [Double] -> PpoIterationStat
 rolloutSummary iteration [] =

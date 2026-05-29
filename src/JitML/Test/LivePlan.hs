@@ -25,19 +25,17 @@ data LivePlanStep = LivePlanStep
   }
   deriving stock (Eq, Show)
 
--- | The single-command e2e plan. Sequences `helm dependency build chart` →
--- `pulumi up` (ephemeral Kind) → `npx playwright test` → `pulumi destroy` →
--- `pulumi stack rm`; local stanzas validate the typed order while explicit
--- live commands execute the real stack.
+-- | The single-command e2e plan for the ephemeral-cluster infrastructure
+-- stanza. Sequences `helm dependency build chart` → `jitml bootstrap`
+-- (ephemeral Kind cluster + phased Helm rollout) → `npx playwright test` →
+-- `jitml cluster down` (always-teardown); local stanzas validate the typed
+-- order while the explicit live driver executes the real stack.
 liveE2EPlan :: [LivePlanStep]
 liveE2EPlan =
   [ LivePlanStep "helm-dependency-build" (helmDependencyBuildSubprocess "chart")
-  , LivePlanStep "pulumi-up" (subprocess "pulumi" ["up", "--yes", "--cwd", "infra/pulumi"])
+  , LivePlanStep "bootstrap" (subprocess "jitml" ["bootstrap", "--linux-cpu"])
   , LivePlanStep "playwright" (subprocess "npx" ["playwright", "test"])
-  , LivePlanStep "pulumi-destroy" (subprocess "pulumi" ["destroy", "--yes", "--cwd", "infra/pulumi"])
-  , LivePlanStep
-      "pulumi-stack-rm"
-      (subprocess "pulumi" ["stack", "rm", "--yes", "--cwd", "infra/pulumi"])
+  , LivePlanStep "cluster-down" (subprocess "jitml" ["cluster", "down"])
   ]
 
 -- | The phased cluster plan emitted by the same typed subprocess list used by

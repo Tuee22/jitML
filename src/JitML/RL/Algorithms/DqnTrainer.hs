@@ -27,6 +27,7 @@ module JitML.RL.Algorithms.DqnTrainer
   , DqnIterationStat (..)
   , Transition (..)
   , trainDqnOnCartpole
+  , trainDqnOnCartpoleCuda
   )
 where
 
@@ -35,9 +36,11 @@ import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
+import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
+  , MlpGradient (..)
   , MlpParams
   , MlpShape (..)
   , adamInit
@@ -48,6 +51,7 @@ import JitML.Numerics.Mlp
   , mlpForward
   , mlpInit
   )
+import JitML.Numerics.MlpCuda (mlpBatchGradientCuda, mlpForwardBatchCuda)
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
 import JitML.RL.Simulator
   ( CartPoleState (..)
@@ -83,18 +87,18 @@ defaultDqnTrainConfig :: DqnTrainConfig
 defaultDqnTrainConfig =
   DqnTrainConfig
     { dqnSeed = 42
-    , dqnHiddenUnits = 64
+    , dqnHiddenUnits = 128
     , dqnNumSteps = 20000
     , dqnReplayCapacity = 10000
-    , dqnBatchSize = 32
+    , dqnBatchSize = 64
     , dqnLearningRate = 1.0e-3
     , dqnGamma = 0.99
-    , dqnTargetUpdateInterval = 500
+    , dqnTargetUpdateInterval = 250
     , dqnEpsilonStart = 1.0
-    , dqnEpsilonEnd = 0.05
-    , dqnEpsilonDecaySteps = 5000
+    , dqnEpsilonEnd = 0.02
+    , dqnEpsilonDecaySteps = 10000
     , dqnTrainStart = 1000
-    , dqnUpdateFrequency = 4
+    , dqnUpdateFrequency = 1
     , dqnMaxEpisodeSteps = 500
     , dqnActionCount = 2
     , dqnObsSize = 4
@@ -138,6 +142,7 @@ trainDqnOnCartpole config = do
   -- Replay buffer carried as a list (ring-buffer semantics via take + cons).
   loop
     config
+    (\online target adam batch -> pure (dqnUpdate config online target adam batch))
     initialParams
     initialParams
     (adamInit shape)
@@ -152,6 +157,8 @@ trainDqnOnCartpole config = do
 
 loop
   :: DqnTrainConfig
+  -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (MlpParams, AdamState))
+  -- ^ minibatch update: online → target → adam → batch → (online', adam')
   -> MlpParams -- online net
   -> MlpParams -- target net
   -> AdamState
@@ -164,7 +171,7 @@ loop
   -> [Double] -- recent episode returns
   -> [DqnIterationStat]
   -> IO DqnTrainResult
-loop config online target adam gen buffer step state episodeLen episodeReturn episodes stats
+loop config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= dqnNumSteps config =
       pure
         DqnTrainResult
@@ -188,9 +195,15 @@ loop config online target adam gen buffer step state episodeLen episodeReturn ep
               then actionU
               else greedyAction
           stepResult = cartPoleStep state action
-          terminal =
-            simStepDone stepResult
-              || episodeLen + 1 >= dqnMaxEpisodeSteps config
+          -- True environment termination (pole fell / out of bounds). Only
+          -- this stops Bellman bootstrapping.
+          envDone = simStepDone stepResult
+          -- Episode reset also fires on the time limit, but a time-limit
+          -- truncation is NOT a terminal state: bootstrapping must continue
+          -- through it, otherwise the net learns that long-survival states
+          -- are worth only their immediate reward and never reaches 500.
+          timeLimit = episodeLen + 1 >= dqnMaxEpisodeSteps config
+          terminal = envDone || timeLimit
           nextObs = obsVector (simStepState stepResult)
           transition =
             Transition
@@ -198,7 +211,7 @@ loop config online target adam gen buffer step state episodeLen episodeReturn ep
               , transAction = action
               , transReward = simStepReward stepResult
               , transNextObs = nextObs
-              , transDone = terminal
+              , transDone = envDone
               }
           newBuffer =
             take (dqnReplayCapacity config) (transition : buffer)
@@ -225,8 +238,7 @@ loop config online target adam gen buffer step state episodeLen episodeReturn ep
           then do
             let (batch, gen2b) =
                   sampleBatch (dqnBatchSize config) newBuffer gen2
-                (onlineUpd, adamUpd) =
-                  dqnUpdate config online target adam batch
+            (onlineUpd, adamUpd) <- update online target adam batch
             pure (onlineUpd, adamUpd, gen2b)
           else pure (online, adam, gen2)
       -- Periodic target-net hard copy.
@@ -256,6 +268,7 @@ loop config online target adam gen buffer step state episodeLen episodeReturn ep
               else stats
       loop
         config
+        update
         onlineNext
         targetNext
         adamNext
@@ -308,46 +321,90 @@ dqnUpdate
 dqnUpdate config online target adam batch =
   let adamConfig =
         defaultAdamConfig {adamLearningRate = dqnLearningRate config}
-      gamma = dqnGamma config
-      stepUpdate (params, a) trans =
-        let fwd = mlpForward params (transObs trans)
+      -- All per-sample gradients are evaluated at the *same* online params
+      -- (a true minibatch gradient), then averaged for one Adam step. This
+      -- matches the batched CUDA path ('dqnUpdateCuda') exactly and is the
+      -- standard DQN update — the previous per-transition Adam step (one
+      -- optimiser step per batch element) over-fit each minibatch and
+      -- destabilised learning.
+      perSampleGradient trans =
+        let fwd = mlpForward online (transObs trans)
             qVec = VU.toList (forwardOutput fwd)
-            actionIx = transAction trans
-            qSa =
-              if actionIx >= 0 && actionIx < length qVec
-                then qVec !! actionIx
-                else 0.0
-            nextFwd = mlpForward target (transNextObs trans)
-            nextQ = VU.toList (forwardOutput nextFwd)
-            -- Standard DQN: max over the target net's next-state Q values.
-            -- Double-DQN (van Hasselt et al. 2016): select the next action
-            -- with the *online* net, evaluate it with the *target* net —
-            -- removing the max-operator overestimation bias.
-            bootstrapNextQ
-              | dqnUseDouble config =
-                  let onlineNextQ = VU.toList (forwardOutput (mlpForward params (transNextObs trans)))
-                      onlineArgmax = argmax onlineNextQ
-                   in if onlineArgmax >= 0 && onlineArgmax < length nextQ
-                        then nextQ !! onlineArgmax
-                        else 0.0
-              | otherwise = maximum (0 : nextQ)
-            tdTarget =
-              ( if dqnUseDouble config
-                  then DqnLoss.dqnDoubleBellmanTarget
-                  else DqnLoss.dqnBellmanTarget
-              )
-                gamma
-                (transReward trans)
-                (transDone trans)
-                bootstrapNextQ
-            residual = qSa - tdTarget
-            dLdy =
-              VU.generate
-                (length qVec)
-                (\i -> if i == actionIx then residual else 0.0)
-            grad = mlpBackward params fwd dLdy
-         in adamStep adamConfig a params grad
-   in Data.List.foldl' stepUpdate (online, adam) batch
+            nextQ = VU.toList (forwardOutput (mlpForward target (transNextObs trans)))
+            onlineNextQ = VU.toList (forwardOutput (mlpForward online (transNextObs trans)))
+            dLdy = dqnResidualDLdy config qVec nextQ onlineNextQ trans
+         in mlpBackward online fwd dLdy
+      scale = 1.0 / fromIntegral (max 1 (length batch))
+      meanGradient = scaleGradient scale (sumGradients (map perSampleGradient batch))
+   in adamStep adamConfig adam online meanGradient
+
+-- | The per-transition DQN loss gradient w.r.t. the Q-network output: the
+-- TD residual @Q(s,a) - target@ placed at the taken-action index, zero
+-- elsewhere. The Bellman target uses the target net's next-state Q
+-- (@nextQ@); Double-DQN (van Hasselt et al. 2016) selects the next action
+-- with the online net (@onlineNextQ@, forced only when @dqnUseDouble@) and
+-- evaluates it with the target net. Factored out of 'dqnUpdate' so the
+-- pure CPU path and the batched CUDA path ('dqnUpdateCuda') compute the
+-- identical loss gradient; only the backward backend differs.
+dqnResidualDLdy
+  :: DqnTrainConfig
+  -> [Double]
+  -- ^ online Q(s, ·)
+  -> [Double]
+  -- ^ target net Q(s', ·)
+  -> [Double]
+  -- ^ online Q(s', ·) (Double-DQN action selection; lazy)
+  -> Transition
+  -> Vector Double
+dqnResidualDLdy config qVec nextQ onlineNextQ trans =
+  VU.generate (length qVec) (\i -> if i == actionIx then residual else 0.0)
+ where
+  actionIx = transAction trans
+  qSa
+    | actionIx >= 0 && actionIx < length qVec = qVec !! actionIx
+    | otherwise = 0.0
+  bootstrapNextQ
+    | dqnUseDouble config =
+        let onlineArgmax = argmax onlineNextQ
+         in if onlineArgmax >= 0 && onlineArgmax < length nextQ
+              then nextQ !! onlineArgmax
+              else 0.0
+    | otherwise = maximum (0 : nextQ)
+  tdTarget =
+    ( if dqnUseDouble config
+        then DqnLoss.dqnDoubleBellmanTarget
+        else DqnLoss.dqnBellmanTarget
+    )
+      (dqnGamma config)
+      (transReward trans)
+      (transDone trans)
+      bootstrapNextQ
+  residual = qSa - tdTarget
+
+-- | Sum a non-empty list of MLP gradients component-wise. Used to form the
+-- minibatch gradient before averaging in 'dqnUpdate'.
+sumGradients :: [MlpGradient] -> MlpGradient
+sumGradients [] =
+  MlpGradient VU.empty VU.empty VU.empty VU.empty
+sumGradients (g : gs) = Data.List.foldl' addGradient g gs
+
+addGradient :: MlpGradient -> MlpGradient -> MlpGradient
+addGradient a b =
+  MlpGradient
+    { gradW1 = VU.zipWith (+) (gradW1 a) (gradW1 b)
+    , gradB1 = VU.zipWith (+) (gradB1 a) (gradB1 b)
+    , gradW2 = VU.zipWith (+) (gradW2 a) (gradW2 b)
+    , gradB2 = VU.zipWith (+) (gradB2 a) (gradB2 b)
+    }
+
+scaleGradient :: Double -> MlpGradient -> MlpGradient
+scaleGradient sc g =
+  MlpGradient
+    { gradW1 = VU.map (* sc) (gradW1 g)
+    , gradB1 = VU.map (* sc) (gradB1 g)
+    , gradW2 = VU.map (* sc) (gradW2 g)
+    , gradB2 = VU.map (* sc) (gradB2 g)
+    }
 
 obsVector :: CartPoleState -> Vector Double
 obsVector state =
@@ -357,3 +414,79 @@ obsVector state =
     , poleAngle state
     , poleAngularVelocity state
     ]
+
+-- | Sprint 13.8 — train DQN (and the discrete off-policy family it
+-- templates) on cartpole with the Q-network forward + backward running on
+-- the GPU through the batched device primitives. The env loop, replay
+-- buffer, epsilon-greedy, and target-net copy are unchanged (shared with
+-- the pure 'trainDqnOnCartpole' via the parameterised 'loop'); only the
+-- minibatch gradient update runs on the device ('dqnUpdateCuda'). The
+-- loss-gradient head ('dqnResidualDLdy') is shared with the pure path.
+trainDqnOnCartpoleCuda :: Env -> DqnTrainConfig -> IO DqnTrainResult
+trainDqnOnCartpoleCuda env config = do
+  let shape =
+        MlpShape
+          { mlpInputs = dqnObsSize config
+          , mlpHidden = dqnHiddenUnits config
+          , mlpOutputs = dqnActionCount config
+          }
+      initialParams = mlpInit shape (dqnSeed config)
+  loop
+    config
+    (dqnUpdateCuda env config)
+    initialParams
+    initialParams
+    (adamInit shape)
+    (Random.mkStdGen (dqnSeed config + 1))
+    []
+    0
+    cartPoleInitial
+    0
+    0.0
+    []
+    []
+
+-- | Minibatch DQN gradient update through the batched CUDA primitives:
+-- batched forward of the online net at the batch states (Q(s,·)) and the
+-- target net at the next states (Q(s',·)) — plus the online net at the
+-- next states for Double-DQN action selection — then the per-sample TD
+-- residual gradient ('dqnResidualDLdy'), one batched device backward (mean
+-- gradient over the minibatch), and one Adam step. Falls back to the pure
+-- 'dqnUpdate' if the CUDA runtime/compile is unavailable so non-GPU hosts
+-- still train. (Minibatch GD vs. the pure path's per-sample online SGD —
+-- standard for a batched DQN.)
+dqnUpdateCuda
+  :: Env
+  -> DqnTrainConfig
+  -> MlpParams
+  -> MlpParams
+  -> AdamState
+  -> [Transition]
+  -> IO (MlpParams, AdamState)
+dqnUpdateCuda env config online target adam batch = do
+  let obsList = map transObs batch
+      nextObsList = map transNextObs batch
+  onlineQE <- mlpForwardBatchCuda env online obsList
+  targetQE <- mlpForwardBatchCuda env target nextObsList
+  onlineNextQE <-
+    if dqnUseDouble config
+      then mlpForwardBatchCuda env online nextObsList
+      else pure (Right (map (const VU.empty) batch))
+  case (onlineQE, targetQE, onlineNextQE) of
+    (Right onlineQs, Right targetQs, Right onlineNextQs) -> do
+      let pairs =
+            [ ( transObs trans
+              , dqnResidualDLdy config (VU.toList qv) (VU.toList nq) (VU.toList onq) trans
+              )
+            | (trans, qv, nq, onq) <- Data.List.zip4 batch onlineQs targetQs onlineNextQs
+            ]
+      gradResult <- mlpBatchGradientCuda env online pairs
+      case gradResult of
+        Right summed ->
+          let scale = 1.0 / fromIntegral (length batch)
+              meanGradient = scaleGradient scale summed
+              adamConfig = defaultAdamConfig {adamLearningRate = dqnLearningRate config}
+              (onlineAfter, adamAfter) = adamStep adamConfig adam online meanGradient
+           in pure (onlineAfter, adamAfter)
+        Left _ -> pure (dqnUpdate config online target adam batch)
+    _ -> pure (dqnUpdate config online target adam batch)

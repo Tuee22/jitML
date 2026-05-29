@@ -2,9 +2,11 @@
 
 module Main where
 
+import Codec.Compression.GZip qualified as GZip
 import Control.Monad.Reader (runReaderT)
 import Data.Bits (shiftR, (.&.))
 import Data.ByteString qualified as ByteString
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Maybe qualified
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
@@ -24,9 +26,12 @@ import JitML.SL.Classifier
   , parseIdxImages
   , parseIdxLabels
   , trainClassifier
+  , trainClassifierFromIdxBounded
   , zipImagesLabels
   )
 
+import JitML.Bootstrap (readExistingLivePublication)
+import JitML.Cluster.Publication (publicationEdgePort)
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Proto.Training
   ( CheckpointDone (..)
@@ -45,6 +50,12 @@ import JitML.Proto.Training
   )
 import JitML.SL.Canonicals (canonicalProblems, convergenceCurve, finalLoss, problemName)
 import JitML.SL.Canonicals qualified as SL
+import JitML.SL.ConvergenceThresholds
+  ( SlConvergenceThreshold (..)
+  , passesSlConvergence
+  , slCohortThreshold
+  , slCohortThresholds
+  )
 import JitML.SL.Dataset
   ( datasetFixtureBytes
   , datasetForProblem
@@ -57,6 +68,7 @@ import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.Train (defaultTrainingConfig, resultConverged, train)
 import JitML.Service.Capabilities (HasMinIO (..))
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
+import JitML.Service.MinIOSubprocess (minioSettingsForLocalEdge, runMinIOSubprocess)
 import JitML.Substrate (Substrate (..))
 import JitML.Test.Report
   ( ReportCardKnobs (..)
@@ -279,6 +291,139 @@ main =
               fmap exampleLabel examples @?= [7, 3]
             (imgErr, lblErr) ->
               assertFailure ("IDX parse failed: " <> show imgErr <> " / " <> show lblErr)
+      , testCase "gunzip transparently decompresses the canonical compressed blob (Sprint 13.4)" $ do
+          -- The canonical MNIST blobs are distributed gzip-compressed; the
+          -- worker's fetch path calls `maybeGunzip` before IDX parsing. Assert
+          -- a gzip-magic payload round-trips and a raw payload is unchanged.
+          let raw = ByteString.pack [0x00, 0x01, 0x02, 0x03, 0x04]
+              gz = LazyByteString.toStrict (GZip.compress (LazyByteString.fromStrict raw))
+          Dataset.maybeGunzip gz @?= raw
+          Dataset.maybeGunzip raw @?= raw
+      , testCase "classifier trains over (gzipped) IDX bytes through the bounded entry (Sprint 13.4)" $ do
+          -- End-to-end exercise of the live worker path: build a synthetic but
+          -- learnable IDX3 image + IDX1 label payload, gzip it (as the canonical
+          -- MNIST upload stages), gunzip + IDX-parse + train through
+          -- `trainClassifierFromIdxBounded`, and assert the bounded subset is
+          -- learned. No committed fixtures (numerical-fixture prohibition).
+          let imageBytes =
+                ByteString.pack $
+                  be32Bytes 0x0803 -- magic IDX3
+                    <> be32Bytes 6 -- count
+                    <> be32Bytes 1 -- rows
+                    <> be32Bytes 2 -- cols
+                    -- three class-0 (high first pixel) + three class-1 (high second pixel)
+                    <> [250, 5, 240, 10, 255, 0, 5, 250, 10, 240, 0, 255]
+              labelBytes =
+                ByteString.pack $
+                  be32Bytes 0x0801 -- magic IDX1
+                    <> be32Bytes 6 -- count
+                    <> [0, 0, 0, 1, 1, 1]
+              gzImages = LazyByteString.toStrict (GZip.compress (LazyByteString.fromStrict imageBytes))
+              gzLabels = LazyByteString.toStrict (GZip.compress (LazyByteString.fromStrict labelBytes))
+              config =
+                defaultClassifierConfig
+                  { clfSeed = 11
+                  , clfInputs = 2
+                  , clfHidden = 8
+                  , clfClasses = 2
+                  , clfEpochs = 80
+                  , clfLearningRate = 5.0e-3
+                  }
+          case trainClassifierFromIdxBounded
+            config
+            (Just 6)
+            (Dataset.maybeGunzip gzImages)
+            (Dataset.maybeGunzip gzLabels) of
+            Left err -> assertFailure ("bounded IDX training failed: " <> err)
+            Right (_, acc) ->
+              assertBool
+                ("expected bounded-subset train accuracy >= 0.83, got " <> show acc)
+                (acc >= 0.83)
+      , testCase "SL convergence threshold table covers the classification problems (Sprint 13.4)" $ do
+          -- Every MNIST / Fashion-MNIST / CIFAR / Tiny-ImageNet classification
+          -- problem has a literature-anchored threshold; the regression
+          -- problem (california-housing) is intentionally omitted.
+          assertBool
+            "mnist-shallow-mlp has a threshold"
+            (Data.Maybe.isJust (slCohortThreshold "mnist-shallow-mlp"))
+          assertBool
+            "fashion-mnist-mlp has a threshold"
+            (Data.Maybe.isJust (slCohortThreshold "fashion-mnist-mlp"))
+          assertBool
+            "california-housing (regression) is omitted"
+            (Data.Maybe.isNothing (slCohortThreshold "california-housing-mlp"))
+          assertBool
+            "every threshold has positive slack and a target in (0, 1]"
+            ( all
+                (\(_, t) -> slSlack t > 0 && slLiteratureTarget t > 0 && slLiteratureTarget t <= 1.0)
+                slCohortThresholds
+            )
+      , testCase "passesSlConvergence accepts target and rejects below the slack band (Sprint 13.4)" $ do
+          let threshold = SlConvergenceThreshold 0.97 0.07
+          assertBool "accepts the literature target" (passesSlConvergence threshold 0.97)
+          assertBool "accepts target - slack (lower bar)" (passesSlConvergence threshold 0.90)
+          assertBool
+            "rejects a measured median below the slack band"
+            (not (passesSlConvergence threshold 0.80))
+      , testCase "live MNIST SL training clears the convergence threshold (Sprint 13.4 Live)" $ do
+          -- Sprint 13.4 live convergence assertion. With a live cluster
+          -- publication present, fetch the real MNIST bytes from MinIO,
+          -- gunzip + IDX-parse + train the differentiable classifier over a
+          -- bounded budget, and assert the measured test accuracy clears the
+          -- in-code literature threshold − slack. Offline (no publication)
+          -- the case skips with a passing message, matching the live-test
+          -- convention in the integration / playwright stanzas. No committed
+          -- fixtures — the data is the canonical MinIO-staged MNIST and the
+          -- bar is the in-code threshold.
+          publication <- readExistingLivePublication "."
+          case publication of
+            Nothing ->
+              assertBool
+                "no live cluster publication; live SL convergence assertion skipped"
+                True
+            Just pub ->
+              case (Dataset.datasetForProblem (head canonicalProblems), slCohortThreshold "mnist-shallow-mlp") of
+                (Just trainRef, Just threshold) -> do
+                  let settings = minioSettingsForLocalEdge (publicationEdgePort pub)
+                      testRef = trainRef {Dataset.datasetSplit = Dataset.TestSplit}
+                      run = runMinIOSubprocess settings
+                  trainImg <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
+                  trainLbl <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
+                  testImg <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.ImagesArtifact)
+                  testLbl <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.LabelsArtifact)
+                  case (trainImg, trainLbl, testImg, testLbl) of
+                    (Right ti, Right tl, Right vi, Right vl) -> do
+                      let config = defaultClassifierConfig {clfEpochs = 10}
+                      case trainClassifierFromIdxBounded
+                        config
+                        (Just 10000)
+                        (Dataset.maybeGunzip ti)
+                        (Dataset.maybeGunzip tl) of
+                        Left err -> assertFailure ("live MNIST training failed: " <> err)
+                        Right (trained, _trainAcc) -> do
+                          let testAcc =
+                                case ( parseIdxImages (Dataset.maybeGunzip vi)
+                                     , parseIdxLabels (Dataset.maybeGunzip vl)
+                                     ) of
+                                  (Right (_, images), Right labels) ->
+                                    accuracy trained (take 5000 (zipImagesLabels images labels))
+                                  _ -> 0.0
+                          assertBool
+                            ( "live MNIST test_acc "
+                                <> show testAcc
+                                <> " must clear threshold − slack = "
+                                <> show (slLiteratureTarget threshold - slSlack threshold)
+                            )
+                            (passesSlConvergence threshold testAcc)
+                    _ ->
+                      -- A stale publication can survive `jitml cluster down`;
+                      -- when MinIO is unreachable / the bytes aren't staged the
+                      -- fetch returns Left, so the live assertion skips rather
+                      -- than failing offline.
+                      assertBool
+                        "live MNIST bytes unavailable (cluster down or not staged); skipped"
+                        True
+                _ -> assertFailure "missing MNIST dataset ref or convergence threshold"
       ]
 
 -- | Deterministic, linearly-separable 3-class dataset: each class is a

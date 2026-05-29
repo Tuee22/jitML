@@ -142,8 +142,9 @@ arguments so Envoy can reach the pod IP. HTTPRoutes for `/`, `/api`, `/api/ws`
 ## Playwright E2E
 
 `playwright/jitml-demo.spec.ts` is the current TypeScript Playwright scaffold.
-`JitML.Test.LivePlan` records the target `npx playwright test` step after Helm
-dependency build and Pulumi stack creation. The current default `jitml-e2e`
+`JitML.Test.LivePlan` records the target `npx playwright test` step after the
+Helm dependency build and the `jitml bootstrap` ephemeral-cluster rollout. The
+current default `jitml-e2e`
 Cabal body validates that typed Playwright command shape without starting the
 live stack.
 The checked-in spec currently validates seven inline DOM stub flows rather
@@ -163,7 +164,7 @@ covering the primary user flow:
 
 Target Playwright execution runs through the typed `Subprocess` boundary. The
 target `jitml-e2e` stanza invokes the Playwright suite as part of its
-end-to-end run; Playwright belongs to the doctrine's Pulumi-Orchestrated
+end-to-end run; Playwright belongs to the doctrine's Ephemeral-Cluster
 Infrastructure test category and does not have its own Cabal stanza.
 Playwright execution waits until panels consume fixture-backed or live-backed
 state through `jitml-demo`; static route/API scaffold checks stay in the local

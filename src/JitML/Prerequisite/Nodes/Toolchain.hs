@@ -27,7 +27,6 @@ toolchainPrerequisites =
       , NodeId "toolchain.poetry"
       , NodeId "toolchain.purescript"
       , NodeId "toolchain.spago"
-      , NodeId "toolchain.pulumi"
       ]
   , ghcPrerequisite
   , cabalPrerequisite
@@ -46,7 +45,6 @@ toolchainPrerequisites =
       "purescript"
       []
   , homebrewPackagePrerequisite (NodeId "toolchain.spago") "Spago is installed." "spago" "spago" []
-  , homebrewPackagePrerequisite (NodeId "toolchain.pulumi") "Pulumi is installed." "pulumi" "pulumi" []
   ]
 
 ghcPrerequisite :: Prerequisite

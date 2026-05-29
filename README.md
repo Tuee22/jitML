@@ -721,7 +721,6 @@ mindmap
     kubectl
     internal
       materialize-substrate
-      render-kind-config
       list-prereqs
       upload-dataset
       gc
@@ -790,9 +789,8 @@ mindmap
 | `jitml build` | Build inside the substrate container. | `jitml build [--substrate <substrate>] [--dry-run] [--plan-file <path>]` |
 | `jitml kubectl` | Run kubectl against the jitML kubeconfig. | `jitml kubectl [-- <kubectl-args...>]` |
 | `jitml internal materialize-substrate` | Materialize substrate files. | `jitml internal materialize-substrate [--substrate <substrate>]` |
-| `jitml internal render-kind-config` | Render a Kind cluster YAML. | `jitml internal render-kind-config [--substrate <substrate>] [--name <name>] [--edge-port <port>]` |
 | `jitml internal list-prereqs` | List prerequisite checks. | `jitml internal list-prereqs` |
-| `jitml internal upload-dataset` | Upload a real dataset blob to MinIO. | `jitml internal upload-dataset [--name <name>] [--split <split>] [--path <path>] [--dry-run] [--plan-file <path>]` |
+| `jitml internal upload-dataset` | Upload a real dataset blob to MinIO. | `jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |
 | `jitml internal vm bootstrap` | Bootstrap the VM. | `jitml internal vm bootstrap` |
 | `jitml internal vm up` | Start the VM. | `jitml internal vm up` |
@@ -2224,7 +2222,7 @@ under `jitml lint *` / `jitml check-code`.
 | Snapshot (pure-renderer output only) | `jitml-unit` |
 | Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` (the four `*-canonicals` and the HPO stanza are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
-| Pulumi-Orchestrated Infrastructure | `jitml-e2e` |
+| Ephemeral-Cluster Infrastructure | `jitml-e2e` |
 
 Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **Doctrine category** column below mirrors the matrix above per stanza. The **Delegated by** column names the `TestCommand` constructor that targets the stanza. Per doctrine, the first four categories (Pure / Parser / Property / Snapshot) share the single `jitml-unit` stanza.
 
@@ -2237,7 +2235,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, Linux CPU oneDNN primitive compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests (run-to-run); target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from the in-code per-layer-family bands at `src/JitML/Engines/Tolerance.hs` (no per-tensor committed fixtures) |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Pulumi-Orchestrated Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path uses Pulumi-orchestrated ephemeral Kind + Playwright against real Envoy routes; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
+| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, and tears down via `jitml cluster down`; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 
 `TestAll` fans out to every stanza above. It does not run lint, style, or
 code-quality gates; `jitml lint all` and `jitml check-code` are the separate
@@ -2256,15 +2254,15 @@ Notes on the mapping:
 **Local by default, live by explicit command.** Default `cabal test all` remains
 local and deterministic. Live infrastructure work is reached by explicit command
 paths, not process environment variables: `jitml bootstrap --<substrate>` applies
-the local Kind/Helm stack directly, and the target Pulumi/Kind/Helm/Playwright
-e2e path is a separately invoked orchestration path that creates clusters,
-builds Helm dependencies, mutates image/runtime state, polls live routes, and
-tears everything down via `bracket`. `JitML.Test.LivePlan` records that typed
-sequence without running it by default.
+the local Kind/Helm stack directly, and the target Kind/Helm/Playwright
+e2e path is a separately invoked orchestration path that creates an ephemeral
+cluster, builds Helm dependencies, mutates image/runtime state, polls live
+routes, and tears everything down via `bracket`. `JitML.Test.LivePlan` records
+that typed sequence without running it by default.
 
 ### E2E cohorts
 
-Per doctrine §Pulumi-Orchestrated Infrastructure Tests, Pulumi (program at `infra/pulumi/`) owns the target lifecycle of an **ephemeral** Kind stack — unique stack name per run, aggressive resource tagging, `pulumi up` → run tests → `pulumi destroy` → `pulumi stack rm`. The e2e cluster is **distinct** from the developer's local bootstrap Kind: different stack name, different lifetime; the e2e teardown never touches the dev cluster. Always-teardown via `bracket`. A typed `helm dependency build chart` step precedes live apply. Playwright drives the demo surface end-to-end against the real Envoy routes once panels consume fixture-backed or live-backed state. Six target cohorts:
+Per doctrine §Ephemeral-Cluster Infrastructure Tests, the `jitml-e2e` driver owns the target lifecycle of an **ephemeral** Kind stack — a distinct cluster name per run, brought up by `jitml bootstrap` (phased Helm rollout), exercised, then torn down by `jitml cluster down`. The e2e cluster is **distinct** from the developer's local bootstrap Kind: different lifetime; the e2e teardown never touches the dev cluster. Always-teardown via `bracket`. A typed `helm dependency build chart` step precedes live apply. Playwright drives the demo surface end-to-end against the real Envoy routes once panels consume fixture-backed or live-backed state. Six target cohorts:
 
 1. **Training control.** Start a run from a committed Dhall, observe live metrics on `/api/ws`, pause, resume, stop, assert checkpoint flush.
 2. **MNIST handwriting.** Navigate to the MNIST panel, simulate a touchpad stroke for each of the 10 digits via Playwright's pointer events, assert predicted class matches in ≥ 9/10 strokes.
@@ -2497,8 +2495,6 @@ jitML/
     templates/                  -- GatewayClass, Gateway, HTTPRoutes, EnvoyProxy, ...
   kind/                         -- per-substrate Kind configs
   bootstrap/                    -- stage-0 idempotent reconcilers
-  infra/
-    pulumi/                     -- ephemeral-Kind stack for jitml-e2e (TypeScript program; see Test-suite stanzas)
   compose.yaml                  -- one Compose service: jitml
   docker/                       -- one Dockerfile (jitml:local + style-tool gate), playwright.Dockerfile
   experiments/                  -- canonical experiment Dhall files
@@ -2546,8 +2542,8 @@ Binding project doctrine, in order:
 - Reconcilers: Idempotent Mutation as a Single Command (`bootstrap`, `cluster up`, `docs generate`, `lint --write`)
 - Lint, Format, and Code-Quality Stack — adopted with jitML's container-exclusive code-quality domain: the mandatory `jitml:local` image build installs the style GHC/tools and runs the Haskell style gate; host lint/check-code commands are unsupported and do not discover or bootstrap style tools; test commands do not run style or code-quality gates.
 - Testing Doctrine
-- Standard Testing Stack (Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit + tasty-quickcheck + typed-process + temporary + Pulumi; snapshot comparisons for pure-renderer output use `tasty-hunit` text/byte equality rather than `tasty-golden`, since the project forbids numerical fixtures per [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets))
-- Test Categories (each of the seven mapped to a `jitml-*` stanza in [Test-suite stanzas](#test-suite-stanzas), including Daemon Lifecycle and Pulumi-Orchestrated Infrastructure)
+- Standard Testing Stack (Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit + tasty-quickcheck + typed-process + temporary; snapshot comparisons for pure-renderer output use `tasty-hunit` text/byte equality rather than `tasty-golden`, since the project forbids numerical fixtures per [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets))
+- Test Categories (each of the seven mapped to a `jitml-*` stanza in [Test-suite stanzas](#test-suite-stanzas), including Daemon Lifecycle and Ephemeral-Cluster Infrastructure)
 - Test Organization (one `test-suite` stanza per tier; project-specific stanzas under §Test Organization → project-specific stanzas)
 
 Out of scope (informational only):
@@ -2579,7 +2575,7 @@ jitML's long-term goal is a fully declarative, reproducible, deterministic ML ru
 - offers hyperparameter optimisation across the sampler × scheduler × pruner axes — Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT × Fifo, SuccessiveHalving, Hyperband, ASHA × {none, median, percentile} pruners;
 - treats complex-valued networks as first-class citizens throughout the stack;
 - ships an interactive demo app that lets users start, pause, and stop training runs from the browser, draw handwritten digits on a touchpad for live MNIST inference, upload images for CIFAR/ImageNet recognition, and play Connect 4 (and the rest of the canonical adversarial games) against the AlphaZero policy at any committed checkpoint;
-- exercises every test category in [Test-suite stanzas](#test-suite-stanzas) — Pure Logic, Parser, Property, Snapshot (pure-renderer output only), Integration, Daemon Lifecycle, Pulumi-Orchestrated Infrastructure — with target Playwright e2e covering every interactive panel above once live panel state exists.
+- exercises every test category in [Test-suite stanzas](#test-suite-stanzas) — Pure Logic, Parser, Property, Snapshot (pure-renderer output only), Integration, Daemon Lifecycle, Ephemeral-Cluster Infrastructure — with target Playwright e2e covering every interactive panel above once live panel state exists.
 
 ---
 

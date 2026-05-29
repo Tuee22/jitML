@@ -1105,31 +1105,6 @@ jitml internal materialize-substrate --substrate linux-cpu
 Materialize Linux CPU substrate files.
 
 
-## `jitml internal render-kind-config`
-
-Render a Kind cluster YAML.
-
-Renders the Kind cluster config for the given substrate and optional name/edge-port override; stdout is the YAML the Pulumi orchestrator pipes into kind create.
-
-```text
-jitml internal render-kind-config [--substrate <substrate>] [--name <name>] [--edge-port <port>]
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `--substrate <substrate>` | value | no | Substrate to render. |
-| `--name <name>` | value | no | Cluster name override (Pulumi ephemeral path). |
-| `--edge-port <port>` | value | no | Edge port override (defaults per substrate). |
-
-Examples:
-
-```text
-jitml internal render-kind-config --substrate linux-cuda --name jitml-e2e-abc123
-```
-
-Render a CUDA-shaped Kind config with the ephemeral cluster name.
-
-
 ## `jitml internal list-prereqs`
 
 List prerequisite checks.
@@ -1153,16 +1128,17 @@ List prerequisite checks.
 
 Upload a real dataset blob to MinIO.
 
-Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/data.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalSha256For`; mismatches abort the upload.
+Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/<data|labels>.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin) or labels (labels.bin).
 
 ```text
-jitml internal upload-dataset [--name <name>] [--split <split>] [--path <path>] [--dry-run] [--plan-file <path>]
+jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `--name <name>` | value | no | Dataset name (e.g., MNIST). |
 | `--split <split>` | value | no | Dataset split (train/validation/test). |
+| `--artifact <artifact>` | value | no | Artifact kind (images/labels); defaults to images. |
 | `--path <path>` | value | no | Local file path to upload. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
@@ -1170,10 +1146,16 @@ jitml internal upload-dataset [--name <name>] [--split <split>] [--path <path>] 
 Examples:
 
 ```text
-jitml internal upload-dataset --name MNIST --split train --path /tmp/train-images-idx3-ubyte
+jitml internal upload-dataset --name MNIST --split train --path /tmp/train-images-idx3-ubyte.gz
 ```
 
 Upload the canonical MNIST training images to the live MinIO bucket.
+
+```text
+jitml internal upload-dataset --name MNIST --split train --artifact labels --path /tmp/train-labels-idx1-ubyte.gz
+```
+
+Upload the canonical MNIST training labels alongside the images.
 
 
 ## `jitml internal gc`

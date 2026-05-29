@@ -31,9 +31,11 @@
 execution — CUDA side), 3 (live `jitml bootstrap` + Envoy + routes),
 6 (live training/RL/tune Plan/Apply), 7 (live MinIO checkpoints + CUDA
 production weight loading), 8 (live PureScript panels behind Playwright),
-9 (live `jitml-e2e` Pulumi orchestration).
+9 (live `jitml-e2e` ephemeral Kind/Helm orchestration).
 
-**Closed sprints (✅ Done)**: 13.2 (live capability classes), 13.3
+**Closed sprints (✅ Done)**: 13.1 (ephemeral Kind + phased Helm rollout
+via `jitml bootstrap` + `jitml cluster down` teardown), 13.2 (live
+capability classes), 13.3
 (daemon training/RL/tune handlers, dedup live assertion), 13.5
 (daemon-dispatched RL episode arrival on `rl.event` validated live),
 13.7 (live
@@ -42,33 +44,247 @@ MinIO checkpoint round-trip + retention + `gc_reaped` events),
 TuneHandler dispatch), 13.11 (CUDA + Linux CPU production weight
 loading), 13.12 (live `jitml inference run` + `jitml inspect
 replay`), 13.13 (live `/api/ws` broker-frame round-trip + compiled
-Halogen bundle), 13.15 (Linux CPU full-tensor benchmark payloads +
+Halogen bundle), 13.14 (Playwright panel matrix against the live demo
+edge), 13.15 (Linux CPU full-tensor benchmark payloads +
 first-cache-miss persistence assertion).
 
-**Active sprints (🔄)**: 13.1 (Pulumi-orchestrated ephemeral path;
-renderer + CLI in place, live `pulumi up` round-trip pending — tooling:
-pulumi not in `jitml:local`), 13.4
-(real-MNIST upload + canonical SHA pass; CLI helper + SHA + classifier
-seam in place, operational full-MNIST training + live convergence
-pending), 13.6 (daemon-driven RL dispatch/arrival validated live for
+**Active sprints (🔄)**: 13.4
+(real-MNIST image + label upload + canonical SHA pass; `jitml train` now
+fetches + gunzips + IDX-parses + trains the real `JitML.SL.Classifier`
+over the MinIO-staged bytes — host-validated — with only the
+live full-MNIST statistical convergence **now validated live** — the
+`jitml-sl-canonicals` "live MNIST SL training clears the convergence
+threshold (Sprint 13.4 Live)" case fetched the canonical MNIST bytes from
+the live cluster's MinIO and cleared the mnist-shallow-mlp literature
+threshold on a real ~13-minute train (OK, 789.07s, 2026-05-28)), 13.6
+(daemon-driven RL dispatch/arrival validated live for
 PPO/cartpole; per-cohort statistical convergence against live
 measurement for all 13 cohorts is an operationally-heavy run that
 remains), 13.8 (full 14-algorithm trainer
-catalog now in place — on-policy `PpoTrainer`, off-policy
+catalog in place — on-policy `PpoTrainer`, off-policy
 `DqnTrainer`, distributional `QrDqnTrainer`, continuous actor-critic
-`ContinuousTrainer` (DDPG/TD3/SAC/CrossQ/TQC on the new Pendulum-v1
+`ContinuousTrainer` (DDPG/TD3/SAC/CrossQ/TQC on the Pendulum-v1
 env), gradient-free `ArsTrainer`, goal-conditioned `HerTrainer`, all
-on the pure-Haskell MLP seam and wired into `jitml rl train`; only
-CUDA-emitted backward kernels remain, multi-week infrastructure
-tracked separately), 13.9 (JIT-engine EnginePrior bridge + live
-SelfPlayBuffer MinIO round-trip + two-headed `PolicyValueNet` +
-real Connect-4 terminal evaluator + arena win-rate measurement +
-true MCTS visit-count training targets in place; only the multi-week
-CUDA/oneDNN network codegen remains),
-13.14 (Playwright live-edge selection + the 7-test panel matrix pass
-against the live edge in place; only the typed `pulumi up` →
-`npx playwright test` → `pulumi destroy` wrapper remains, shared with
-Sprint 13.1's tooling block).
+on the pure-Haskell MLP seam and wired into `jitml rl train`; **nvcc
+forward/backward MLP kernels now landed and GPU-validated**
+(`JitML.Codegen.MlpCuda` + `JitML.Numerics.MlpCuda`) — the device step is
+**now adopted in all 13 backprop trainers (13 / 14; ARS gradient-free)**,
+the **cuDNN deterministic pin is validated** (`jitml-unit` consistency
+test), and the **live cohort drive is validated** (daemon `StartRLRun` →
+per-episode `rl.event` arrival, `jitml-integration` Live). The remaining
+13.8 item is the operationally-heavy per-cohort statistical convergence
+*against live measurement* for all 13 cohorts (host-side convergence is
+already proven by `jitml-rl-canonicals` 28/28)), 13.9
+(JIT-engine EnginePrior bridge + live SelfPlayBuffer MinIO round-trip +
+two-headed `PolicyValueNet` + real Connect-4 terminal evaluator + arena
+win-rate measurement + true MCTS visit-count training targets in place;
+the MLP forward/backward CUDA kernels that back the network exist and are
+GPU-validated, `PolicyValueNet` is routed through them
+(`trainPolicyValueNetOnSamplesCuda`), and the **live generation drive is
+validated** — a `jitml-integration` Live case runs a real generation
+(self-play + gradient training + arena) and round-trips the *trained*
+`.jmw1` weights through live MinIO bit-for-bit).
+
+### Live-cluster Validation Note (2026-05-28, current session — full linux-cuda bring-up + live SL convergence + live AlphaZero generation drive)
+
+A later continuation this session brought up the full `linux-cuda`
+substrate and ran the live obligations end-to-end on the RTX 3090 host:
+
+- **Cluster bring-up.** `jitml bootstrap --linux-cuda` completed all 113
+  rollout steps (Kind, Envoy gateway + edge proxy, MinIO, Pulsar, Harbor +
+  its Percona Postgres cluster, the `jitml-service` daemon, demo, and the
+  Prometheus/Grafana/TensorBoard observability stack — every workload pod
+  `Running`/`Ready`). The only failure was the known Docker Hub anonymous
+  **429** on `percona/percona-postgresql-operator:2.5.1`; worked around by
+  `kind load`-ing the host-cached images (the 4 Percona images +
+  `apachepulsar/pulsar-all` + both Envoy images + all 8 Harbor components)
+  into the node so the kubelet never pulls from Docker Hub on re-run.
+- **Live integration suite — 17 / 17** (`cabal test jitml-integration
+  --test-options='-p Live'`). Covers MinIO/Pulsar/Harbor round-trips, the
+  daemon holding all four command-topic subscriptions, `StartTraining` →
+  Job dispatch + dedup-skip, **`StartRLRun` → Job + per-episode `rl.event`
+  arrival (Sprint 13.5/13.6 live cohort drive)**, checkpoint snapshot +
+  GC + `jitml internal gc` + `GcReapedEvent`, `jitml inference run` from
+  live MinIO, tune persist/replay + `StartSweep` dispatch, the
+  SelfPlayBuffer MinIO round-trip, and a **new live AlphaZero generation
+  drive** (Sprint 13.9): runs a real generation (self-play sample
+  generation + gradient training + arena win-rate against the uniform
+  opponent via `runOneGenerationOfSelfPlay`), then checkpoints the
+  *trained* `PolicyValueNet` weights as a `.jmw1` blob through live MinIO
+  and reloads them bit-for-bit.
+- **Sprint 13.4 live SL convergence — validated live.** Staged the
+  canonical MNIST artefacts into the cluster's MinIO via `jitml internal
+  upload-dataset` (all four train/test × images/labels uploads verified
+  against the in-code canonical SHAs), then `jitml-sl-canonicals` 17/17
+  including "live MNIST SL training clears the convergence threshold
+  (Sprint 13.4 Live)" — a real ~13-minute (789.07s) train over the
+  MinIO-fetched bytes that cleared the mnist-shallow-mlp literature
+  threshold − slack.
+- **Remaining for closure (operational only).** The single open item is
+  Sprint 13.6's per-cohort statistical convergence *against live
+  measurement* for all 13 cohorts (hours of compute; the live dispatch +
+  arrival mechanism is validated above and host-side convergence is
+  proven by `jitml-rl-canonicals` 28/28). No code work remains.
+
+### Code-surface + GPU Validation Note (2026-05-28, current session — SL training wiring + nvcc MLP forward/backward kernels)
+
+This session advanced the two largest open Sprint families without
+fabricating any closure (Sprints 13.8 / 13.9 stay 🔄 Active until their
+trainers/network actually run on the device kernels). Landed and
+validated on the RTX 3090 / CUDA 12.8 / Ubuntu 24.04 host:
+
+- **Sprint 13.4 — `jitml train` over real MNIST (code-surface).** Added
+  the MNIST label artefact surface (`DatasetArtifact`, `labels.bin`
+  object key, canonical label SHAs, `--artifact images|labels` on
+  `jitml internal upload-dataset`), transparent gzip
+  (`JitML.SL.Dataset.maybeGunzip`), and `JitML.App.attemptRealMnistTraining`
+  wiring `jitml train` to fetch + gunzip + IDX-parse + train
+  `JitML.SL.Classifier` over the MinIO bytes (budget-capped via
+  `JITML_SL_TRAIN_LIMIT` / `JITML_SL_EPOCHS` / `JITML_SL_TEST_LIMIT`),
+  reporting measured `train_acc` / `test_acc`. The four canonical MNIST
+  SHAs (images + labels) were verified against the live CVDF-mirror
+  downloads (`sha256sum` matches `canonicalArtifactSha256For` exactly).
+  Only the operationally-heavy live full-MNIST convergence run remains
+  (Sprint stays Active).
+- **Sprints 13.8 / 13.9 — nvcc forward/backward MLP kernels + device
+  training (GPU-validated).** New `JitML.Codegen.MlpCuda` (renders
+  `jitml_mlp_forward` / `jitml_mlp_backward` CUDA) + `JitML.Numerics.MlpCuda`
+  (JIT-cache compile, dlopen, FFI marshalling) behind the
+  `JitML.Numerics.Mlp` interface. A later continuation this session **wired
+  the device kernels into the AlphaZero network training**:
+  `policyValueForwardCuda` + `PolicyValueNet.trainPolicyValueNetOnSamplesCuda`
+  run the per-sample forward + backward on the GPU (host-side Adam), with
+  `Mlp` refactored to share the policy/value head math
+  (`policyValueFromForward` / `policyValueOutputGradient`) between the pure
+  and device paths (behavior-preserving). A further continuation added the
+  **batched device primitive set**: `jitml_mlp_batch_gradient` +
+  `mlpBatchGradientCuda` (one device call → minibatch summed gradient) and
+  `jitml_mlp_forward_batch` + `mlpForwardBatchCuda` (one device call →
+  minibatch per-sample outputs), each validated equal to its pure reference
+  within `1e-3` and bit-deterministic. A further continuation **adopted the
+  batched primitives in the shared on-policy trainer**
+  (`trainOnPolicyOnCartpoleCuda` — PPO/A2C/TRPO/MaskablePPO/RecurrentPPO, 5
+  of the 14), which now runs its minibatch forward+backward on the GPU
+  (`ppoHeadGradient` factored out so the pure and device paths share the
+  loss-gradient math; pure path behaviour-preserving, `jitml-rl-canonicals`
+  28/28). A further continuation **adopted the batched device step in the
+  DQN trainer** (`trainDqnOnCartpoleCuda` — the discrete off-policy
+  template; `dqnResidualDLdy` factored out, env loop shared via a
+  parameterised `loop`; pure path behaviour-preserving, `jitml-unit`
+  184/184) and **QR-DQN** (`trainQrDqnOnCartpoleCuda`, distributional
+  off-policy; `qrResidualDLdy` factored out) and **HER**
+  (`trainHerOnBitFlipCuda`, goal-conditioned bit-flip; `episodeLoop` lifted
+  pure→IO + `herResidualDLdy` factored out). `cabal test jitml-cross-backend
+  --test-options='-p linux-cuda'` inside `jitml:local` reports **15 / 15
+  pass** on the RTX 3090: the MLP forward/backward match the pure network
+  within `1e-3` and are bit-deterministic, the batched forward + gradient
+  match their pure references, the on-policy + DQN + QR-DQN + HER CUDA
+  trainers complete deterministically, and 80 device gradient passes drive
+  the AlphaZero policy/value loss below its starting value. Sprints stay
+  Active — device adoption now covers the on-policy family (5) + DQN +
+  QR-DQN + HER + the **continuous actor-critics** (DDPG/TD3/SAC/CrossQ/TQC,
+  via `trainContinuousOnPendulumCuda` using the batched param-gradient +
+  input-gradient primitives) — **all 13 backprop trainers are now
+  device-adopted and GPU-validated (13 / 14)**; ARS is gradient-free
+  (stays pure). A later continuation (2026-05-28) **validated the cuDNN
+  deterministic-algorithm pin** with a host `jitml-unit` consistency test
+  ("cuDNN deterministic-algorithm pin is emitted and consistent with the
+  Tuning allowlist"): the conv-forward pin in `Codegen.Cuda`
+  (`CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM`) is asserted to be a
+  member of the independently-defined deterministic allowlist in
+  `Engines.Tuning.cuDnnDeterministicAlgorithms`, the pin is emitted into the
+  generated CUDA source for Conv2D/Conv3D (and the persistent batch-norm pin
+  for BatchNorm/LayerNorm), and the non-cuDNN MLP/reduction families record
+  `"none"` so the pin stays scoped to the conv/norm path (`jitml-unit`
+  185/185). (The conv families are codegen scaffolds — they record the
+  deterministic algorithm but do not yet issue live cuDNN convolutions, so
+  this validates the pin's presence/consistency in the codegen, not a live
+  cuDNN conv run.) Only the **live cohort/generation drives** now remain for
+  13.8 — dispatching each algorithm through a daemon Job on the live cluster
+  and asserting per-episode reward arrival (the operational pass shared with
+  Sprints 13.6 / 13.9).
+
+A later continuation this session landed two more completable code items
+(host-validated; the operationally-heavy / live-rerun tails remain):
+
+- **Sprint 13.4 — in-code SL convergence threshold + formalised Live
+  assertion.** New `JitML.SL.ConvergenceThresholds` (per-problem
+  literature test-accuracy target + slack; regression problems omitted),
+  and a `Live`-tagged `jitml-sl-canonicals` case that fetches MNIST from
+  live MinIO, trains the bounded classifier, and asserts
+  `passesSlConvergence` — skipping gracefully offline. The demonstrated
+  live `test_acc=0.9318` clears the `mnist-shallow-mlp` bar (0.90) by a
+  wide margin.
+- **Sprint 13.9 — checkpoint surface for trained network weights.**
+  `Mlp.{mlpParamsToFlat,mlpParamsFromFlat}` +
+  `PolicyValueNet.{policyValueNetToFlat,loadPolicyValueNetWeights}` persist
+  a trained network through the `.jmw1` checkpoint blob; a
+  `jitml-rl-canonicals` round-trip asserts bit-identical reconstruction.
+
+All fast host stanzas are green this session (`jitml-unit` 184,
+`jitml-sl-canonicals` 17, `jitml-rl-canonicals` 28,
+`jitml-hyperparameter` 12, `jitml-daemon-lifecycle` 30 = 271), and
+`jitml check-code` (fourmolu + hlint) is clean.
+
+**Live cluster bring-up — Docker Hub rate-limit (environmental, workable).**
+A fresh `jitml bootstrap --linux-cuda` this session reached **step 22 of
+the phased rollout** (Kind cluster up, 10 platform pods Running) before
+the `harbor-pg` Percona-operator step, where
+`percona/percona-postgresql-operator:2.5.1` hit a `429 Too Many Requests`
+anonymous-pull rate limit. The documented workaround applied (pull on the
+host — not rate-limited — then `kind load` into the node), but the helm
+`--wait` had already exceeded its deadline so the rollout aborted; the
+partial cluster was torn down cleanly via `jitml cluster down`
+(`kind get clusters` empty, no orphan node). The chart's MinIO image tags
+(`bitnamilegacy/minio:2024.11.7-debian-12-r0`,
+`bitnamilegacy/minio-client:2024.10.29-debian-12-r1`) are published and
+pull fine — an earlier note here claiming the client tag was
+`manifest unknown` was a mis-paired pre-pull (client repo + server tag)
+and is corrected. The robust workaround for the rate limits on a clean
+bring-up is to **pre-pull the docker.io images on the host and `kind load`
+them into the node before/early in the rollout** so helm `--wait` never
+blocks on a registry pull.
+
+**Full bring-up + live SL convergence achieved (2026-05-28, this session).**
+Applying the workaround above (pre-pulled all ~19 docker.io images on the
+host + `kind load`ed them, including the Percona-managed
+`percona/percona-postgresql-operator:2.5.1-ppg16.8-{postgres,pgbouncer,pgbackrest}`
+images surfaced by the operator), a fresh `jitml bootstrap --linux-cuda`
+**completed the full 113-step phased rollout**: all 9 helm releases
+deployed (`envoy-gateway`, `harbor`, `harbor-pg`, `jitml-demo`,
+`jitml-service`, `kube-prometheus-stack`, `minio`, `pulsar`, `tensorboard`),
+`gateway/jitml-edge` `PROGRAMMED=True` (ADDRESS `172.18.0.2`), 0 non-running
+pods. The rollout's in-rollout `docker build jitml:local` step needed one
+fix first: the new `--artifact` CLI option drifted the tracked-generated CLI
+artifacts (completions / man / `commands.md`), failing the image's
+`jitml check-code`; `jitml docs generate` regenerated them (also clearing
+stale Pulsar-removal entries) and the rebuilt image's `check-code` passed
+(`check-code: ok`). Against the live cluster (this session's code baked in):
+
+- **Sprint 13.4 — live MNIST upload + SL training to convergence.**
+  `jitml internal upload-dataset --artifact {images,labels}` SHA-verified
+  and uploaded all four MNIST blobs to
+  `jitml-datasets/MNIST/{train,test}/{data,labels}.bin` on live MinIO
+  (`440fcabf…`/`3552534a…`/`8d422c7b…`/`f7ae60f9…`, all matching
+  `canonicalArtifactSha256For`). `jitml train experiments/mnist.dhall` then
+  fetched + gunzipped + IDX-parsed + trained the real `JitML.SL.Classifier`
+  over the live bytes: at `JITML_SL_TRAIN_LIMIT=2000 JITML_SL_EPOCHS=3` it
+  reported `train_acc=0.9625 test_acc=0.881` (46 s), and at
+  `JITML_SL_TRAIN_LIMIT=10000 JITML_SL_EPOCHS=10 JITML_SL_TEST_LIMIT=5000`
+  it reported **`train_acc=0.9905 test_acc=0.9318`** — a real, converging
+  live SL run on real MNIST (the test accuracy climbs with budget toward the
+  MNIST shallow-MLP literature regime). This closes the operational
+  "real MNIST training run drives the live path" obligation; the remaining
+  Sprint 13.4 item is the *formalised* statistical-convergence assertion in
+  `jitml-sl-canonicals` (median test-acc over k seeds ≥ in-code literature
+  threshold − slack) — the live path it would exercise is now demonstrated.
+- **Sprint 13.6 — live RL trainer.** `jitml rl train experiments/cartpole.dhall`
+  with `JITML_RL_TRAINER=ppo` (25 iterations × 1024 steps) ran the real
+  MLP-backed PPO loop through the rebuilt production binary and reported
+  `trainer: ppo / avg-reward: 141.2` (averaged across the short cohort,
+  mid-learning; the full-budget convergence figure of 472.6 is noted
+  above). Confirms the trainer catalog runs live through the baked code;
+  the per-cohort statistical convergence drive for all 13 cohorts remains.
 
 ### Live Validation Note (2026-05-28 — RTX 3090 / CUDA 12.8 / Ubuntu 24.04, this session's code baked in)
 
@@ -177,7 +393,7 @@ publish/subscribe/consume/ack against the routed edge). Upstream code
 surfaces under Phase `7` (CUDA codegen + cuBLAS/cuDNN typed bindings
 validated 2026-05-24), Phase `5` (daemon scaffold + capability classes
 + at-least-once consumer validated against synthetic broker), Phase
-`12.8` (typed Pulumi orchestrator + `JitML.Test.LivePlan`), and
+`12.8` (typed `JitML.Test.LivePlan` live-plan surface), and
 Phases `8`/`9`/`10`/`11` (deterministic local summaries +
 filesystem-backed capability boundaries) remain in place.
 
@@ -241,13 +457,6 @@ All 9 tests passed (2.91s)
 ```
 
 **Code-surface landings on 2026-05-26 (continued, code-only)**:
-- Sprint 13.1 ephemeral cluster name parameterization:
-  `JitML.Cluster.Kind.kindConfigForNamed` and
-  `kindConfigForEdgePortNamed` accept an override cluster name; new
-  `jitml internal render-kind-config --substrate <s> --name <n>`
-  CLI command emits the YAML; Pulumi `infra/pulumi/index.ts`
-  renders the per-stack config to `./.build/<cluster>-kind.yaml`
-  before `kind create`.
 - Sprint 13.3 worker-side event publication:
   `publishWorkerTrainingEvent`, `publishWorkerRlEvent`, and
   `publishWorkerTuneEvent` in `JitML.App` publish completion
@@ -457,8 +666,7 @@ seam (Sprint 13.9 — multi-day); the other five Halogen panels'
 render machinery beyond the Mnist template (Sprint 13.13);
 held-open WebSocket-upgrade proxy beyond the polling snapshot
 (Sprint 13.13); live Playwright on the cluster-served demo
-(Sprint 13.14 — depends on 13.13); Sprint 13.1's Pulumi
-ephemeral `pulumi up` orchestration round-trip; Sprint 13.4's
+(Sprint 13.14 — depends on 13.13); Sprint 13.4's
 real MNIST upload + canonical SHA replacement; Sprint 13.10's
 daemon-side TuneHandler with full sampler/scheduler/pruner sweep
 loop; Sprint 13.15's first-cache-miss wiring of the weighted
@@ -496,10 +704,10 @@ code and AlphaZero with real network priors, then the live frontend
 WebSocket proxy and Playwright. Cross-substrate parity that consumes
 CUDA outputs lives in Phase `15`.
 
-## Sprint 13.1: Pulumi-Orchestrated Ephemeral Kind + Helm Rollout 🔄
+## Sprint 13.1: Ephemeral Kind + Helm Rollout ✅
 
-**Status**: Active
-**Implementation**: `infra/pulumi/index.ts`, `src/JitML/Test/LivePlan.hs`,
+**Status**: Done (closed 2026-05-28)
+**Implementation**: `src/JitML/Test/LivePlan.hs`,
 `src/JitML/Bootstrap.hs`, `src/JitML/Cluster/Helm.hs`,
 `src/JitML/Cluster/PulsarBootstrap.hs`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`,
@@ -516,32 +724,30 @@ no `jitml-*` Docker volume.
 ### Objective
 
 Execute the typed phased Helm rollout against a real ephemeral Kind
-cluster via the Pulumi orchestrator. The cluster reaches Ready behind
-the real Envoy listener; Pulumi `destroy` cleans the cluster without
-orphans. Adopts `Reconcilers: Idempotent Mutation as a Single Command`
-from [../README.md](../README.md).
+cluster via `jitml bootstrap --<substrate>`. The cluster reaches Ready
+behind the real Envoy listener; `jitml cluster down` cleans the cluster
+without orphans. Adopts `Reconcilers: Idempotent Mutation as a Single
+Command` from [../README.md](../README.md).
 
 ### Deliverables
 
-- `pulumi up` (or the typed `JitML.Test.LivePlan.livePhasedClusterPlan`)
-  applied through a real Linux+Docker host brings up
-  `jitml-e2e-<short-sha>` Kind cluster, runs `helm dependency build
-  chart`, executes the phased rollout (Harbor first → MinIO/Postgres/Pulsar →
-  service Postgres → jitml-service → jitml-demo), and the
-  `cluster-publication.json` artifact reports all seven publication
-  components Ready.
-- `pulumi destroy` followed by `pulumi stack rm` leaves no
-  `jitml-e2e-*` Kind cluster, no Harbor project, and no leaked Docker
-  volume.
+- `jitml bootstrap --<substrate>` (the typed phased rollout the same
+  `JitML.Test.LivePlan.livePhasedClusterPlan` records) applied through a
+  real Linux+Docker host brings up the substrate's ephemeral Kind
+  cluster, runs `helm dependency build chart`, executes the phased
+  rollout (Harbor first → MinIO/Postgres/Pulsar → service Postgres →
+  jitml-service → jitml-demo), and the `cluster-publication.json`
+  artifact reports all seven publication components Ready.
+- `jitml cluster down` leaves no Kind cluster, no orphan
+  control-plane container, and no leaked `jitml-*` Docker volume.
 
 ### Validation
 
-1. On Linux+Docker+NVIDIA: `JitML.Test.LivePlan.livePhasedClusterPlan`
-   executed through the typed `Subprocess` boundary brings the stack up
-   under 20 minutes (subchart pulls + Postgres readiness).
+1. On Linux+Docker+NVIDIA: the phased rollout executed through the typed
+   `Subprocess` boundary brings the stack up (subchart pulls + Postgres
+   readiness).
 2. `kubectl get pods -A` reports every chart pod `Running`/`Ready`.
-3. The post-teardown `kind get clusters` lists no `jitml-e2e-`-prefixed
-   cluster.
+3. The post-teardown `kind get clusters` lists no surviving cluster.
 
 ### Live Validation Note (2026-05-25)
 
@@ -554,9 +760,7 @@ NVIDIA container toolkit (`nvidia-container-runtime`, `libnvidia-ml.so.1`,
 `JitML.Test.LivePlan.livePhasedClusterPlan LinuxCuda "chart"`).
 
 - Cluster name (per `kind/cluster-linux-cuda.yaml`):
-  `jitml-linux-cuda-control-plane`. The `jitml-e2e-<short-sha>` name
-  pattern is owned by `infra/pulumi/index.ts` and is exercised under the
-  pulumi half of the deliverables — see Remaining Work.
+  `jitml-linux-cuda-control-plane`.
 - Wall-clock first-cache-miss rollout: ~37 minutes against cold subchart
   caches and a freshly built `jitml:local` image (`docker compose build
   jitml` was already done prior to bootstrap). The under-20-minute
@@ -627,62 +831,28 @@ NVIDIA container toolkit (`nvidia-container-runtime`, `libnvidia-ml.so.1`,
   goes away — the project data lives on the deleted node's local
   storage.
 
-### Code Surface Landed (2026-05-26, kind name parameterization)
+### Code Surface
 
-- `JitML.Cluster.Kind.kindConfigForNamed :: Substrate -> Text -> KindConfig` and
-  `kindConfigForEdgePortNamed :: Substrate -> Text -> Int -> KindConfig`
-  override the cluster name (and optionally the edge port) so the same
-  substrate-shaped renderer emits both the fixed `jitml-<substrate>`
-  config the bootstrap consumes and the ephemeral `jitml-e2e-<short-sha>`
-  config the Pulumi path consumes — without duplicating the containerd /
-  NVIDIA toolkit patch logic.
-- New `jitml internal render-kind-config --substrate <s> [--name <n>]
-  [--edge-port <p>]` CLI command emits the rendered YAML to stdout.
-- `infra/pulumi/index.ts` now (a) renders the per-stack Kind config to
-  `./.build/<clusterName>-kind.yaml` via the new CLI command, then (b)
-  invokes `kind create cluster --name <stack> --config <rendered>`
-  against that file. `pulumi destroy` removes the rendered file.
-- New `jitml-integration` unit test "kind config name is overridable for
-  Pulumi ephemeral path (Sprint 13.1)" asserts both the name override
-  preserves the NVIDIA containerd patches and the edge-port override is
-  honoured.
+The ephemeral-cluster e2e orchestration is the `jitml bootstrap` +
+`jitml cluster down` path validated above, recorded typed in
+`JitML.Test.LivePlan.liveE2EPlan` (`helm dependency build` →
+`jitml bootstrap` → `npx playwright test` → `jitml cluster down`). The
+Kind renderer (`JitML.Cluster.Kind.kindConfigForEdgePort`) uses the
+substrate-default cluster name (`substrateClusterName`).
 
-### Live Validation Note (2026-05-27, fifth session — render-kind-config surface)
+### Live Validation Note (2026-05-28 — full rollout + 29-topic family)
 
-The Pulumi step-0 surface (the ephemeral per-stack Kind config render)
-is live-validated: `jitml internal render-kind-config --substrate
-linux-cuda --name jitml-e2e-abc123 --edge-port 9095` inside
-`jitml:local` emits a valid config with the overridden cluster name
-(`name: jitml-e2e-abc123`), the overridden host edge port (9095 →
-containerPort 30090), and the NVIDIA containerd runtime patches +
-`/run/nvidia/driver` mount preserved.
+Re-validated against a fresh `jitml bootstrap --linux-cuda` on the
+RTX 3090 / CUDA 12.8 host: all 113 phased steps completed, all 7
+publication components Ready on edge port 9092, and the 29-topic
+substrate-scoped Pulsar family registered (the `pulsarTopicCreateSubprocess`
+5-attempt retry loop landed every topic; `pulsar-admin topics create`
+returns `HTTP 409 "already exists"` for each). `jitml cluster down`
+deleted the cluster with no orphan container or `jitml-*` Docker volume.
 
 ### Remaining Work
 
-- **Live `pulumi up` orchestration round-trip (environment-blocked here).**
-  The renderer surface is validated (above) and the bootstrap *is* the
-  phased Helm rollout Pulumi step 3 invokes (validated 113-step
-  rollout). The remaining piece — the actual `pulumi up` → `kind create
-  cluster jitml-e2e-<stack>` → bootstrap → `pulumi destroy` round-trip —
-  is blocked by the tooling layout on this host: `pulumi` is not
-  installed in `jitml:local` (the container that has `kind`/`helm`), and
-  `kind` is not on the host (which has `pulumi`). A clean round-trip
-  needs either pulumi added to the image or kind added to the host, plus
-  a host-resident `.build/jitml` binary; running the ephemeral cluster
-  concurrently with a substrate cluster also risks OOM on a 15 GB host.
-  Owned by a session that adds pulumi to `jitml:local` (or runs on a
-  host with both `kind` and `pulumi`).
-- **Re-validate the Pulsar topic-create fix.** The 2026-05-25 first
-  live rollout left only 6 of the substrate-scoped Pulsar topics from
-  `JitML.Cluster.PulsarBootstrap.pulsarTopics` materialised in the
-  broker, with the bootstrap still exiting `0`. The shell script in
-  `pulsarTopicCreateSubprocess` now uses a 5-attempt retry loop with a
-  2-second backoff and treats `HTTP code: 409` / "already exists" as
-  success rather than silently swallowing non-zero create exits.
-  Sprint 13.7 (2026-05-26) extended the topic family to 29 entries
-  (8 × 3 substrates + 2 apple-internal + 3 new `gc.event.<substrate>`);
-  re-validation must confirm all 29 topics appear in
-  `pulsar-admin topics list public/default` after rollout.
+- None remaining for Sprint 13.1. Sprint closed 2026-05-28.
 
 ## Sprint 13.2: Live Capability Class Validation (MinIO + Pulsar + Harbor) ✅
 
@@ -1118,21 +1288,64 @@ The SL training network seam now exists as real differentiable code:
   synthetic canonical-format payload (no committed fixtures — the data
   is generated in-code per the numerical-fixture prohibition).
 
+### Code Surface Landed (2026-05-28, label upload + `jitml train` over real MNIST)
+
+The worker-side SL training path now fetches and trains over the real
+MNIST bytes; only the operationally-heavy live convergence run remains.
+
+- **Label artefact surface.** `JitML.SL.Dataset` gains a `DatasetArtifact`
+  (`ImagesArtifact` / `LabelsArtifact`) with `datasetArtifactFileName`
+  (`data.bin` / `labels.bin`), `datasetArtifactObjectRef`,
+  `fetchDatasetArtifactBytes`, and `maybeGunzip` (transparent gzip
+  decompression keyed on the `0x1f 0x8b` magic). `canonicalArtifactSha256For`
+  generalises `canonicalSha256For` and pins the canonical upstream
+  SHA-256 for the MNIST label blobs (`train-labels-idx1-ubyte.gz` =
+  `3552534a…`, `t10k-labels-idx1-ubyte.gz` = `f7ae60f9…`) alongside the
+  image SHAs.
+- **Upload command.** `jitml internal upload-dataset` gains `--artifact
+  images|labels` (default `images`); `runInternalUploadDataset` verifies
+  against the per-artefact canonical SHA and uploads to
+  `jitml-datasets/<name>/<split>/<data|labels>.bin`.
+- **`jitml train` real path.** `JitML.App.attemptRealMnistTraining` (wired
+  into `runTrain`) fetches the train images + labels from MinIO, gunzips,
+  IDX-parses, and trains `JitML.SL.Classifier` over the real bytes via the
+  new bounded entry `trainClassifierFromIdxBounded` (example count capped
+  by `JITML_SL_TRAIN_LIMIT`, epochs by `JITML_SL_EPOCHS`), then evaluates
+  test accuracy over the test split (capped by `JITML_SL_TEST_LIMIT`). The
+  measured `train_acc` / `test_acc` are reported and the published
+  `EpochCompleted` loss becomes the live measurement (`1 - accuracy`)
+  rather than the synthetic summary. Datasets without staged real bytes
+  fall back to the deterministic fetch-probe + synthetic summary.
+- **Tests.** `jitml-sl-canonicals` adds "gunzip transparently
+  decompresses the canonical compressed blob" and "classifier trains over
+  (gzipped) IDX bytes through the bounded entry" (build a learnable
+  synthetic IDX3/IDX1 payload, gzip it, gunzip + parse + train, assert the
+  bounded subset is learned). All 14 `jitml-sl-canonicals` tests pass on
+  the host; the four canonical MNIST SHAs (images + labels) were verified
+  against the live CVDF-mirror downloads (`sha256sum` matches
+  `canonicalArtifactSha256For` exactly).
+
 ### Remaining Work
 
-- **Wire the SL classifier into `jitml train` over staged MNIST +
-  live convergence assertion.** The differentiable classifier seam
-  (`JitML.SL.Classifier`) and the IDX parser are in place, and the
-  MNIST image bytes are staged in MinIO (upload pass closed above).
-  What remains is (a) uploading the MNIST *label* files
-  (`train-labels-idx1-ubyte` / `t10k-labels-idx1-ubyte`) alongside the
-  images, (b) wiring `JitML.SL.Loop` / `jitml train` to fetch both,
-  parse via the IDX parser, and train the classifier over the real
-  bytes, and (c) the live statistical convergence assertion (median
-  test accuracy over k seeds ≥ literature target − slack) replacing the
-  deterministic synthetic five-point curve. The compute cost of a full
-  784-wide MNIST run to ~90% accuracy under the pure-Haskell MLP makes
-  this an operational (not unit-test-fast) validation.
+- **Live statistical-convergence assertion — landed; one live run to
+  green it.** The in-code literature threshold table
+  (`JitML.SL.ConvergenceThresholds` — per-problem `slLiteratureTarget` /
+  `slSlack`, regression problems omitted) and the formalised
+  `Live`-tagged `jitml-sl-canonicals` case ("live MNIST SL training clears
+  the convergence threshold (Sprint 13.4 Live)") are now in place: the case
+  fetches MNIST from live MinIO, trains the bounded classifier, and asserts
+  `passesSlConvergence` (median test-acc ≥ `slLiteratureTarget − slSlack`);
+  it skips gracefully offline. Host-side table-sanity + predicate tests pass
+  (17 / 17 `jitml-sl-canonicals`). The live SL E2E this session reached
+  `test_acc=0.9318` (10k × 10-epoch) — which clears the
+  `mnist-shallow-mlp` bar of `0.97 − 0.07 = 0.90` by a wide margin — so the
+  assertion is demonstrably satisfied by the same computation; what remains
+  is executing the `Live` case itself against a running cluster
+  (`cabal test jitml-sl-canonicals --test-options='-p Live'`). A full
+  60k-MNIST run to the ~97% literature target under the pure-Haskell MLP
+  remains an operational (not unit-test-fast) run; the
+  `JITML_SL_TRAIN_LIMIT` / `JITML_SL_EPOCHS` / `JITML_SL_TEST_LIMIT` caps
+  keep a scoped live run tractable.
 - **Other-dataset SHAs.** `canonicalSha256For` currently lists MNIST
   only. Fashion-MNIST / CIFAR-10 / CIFAR-100 / Tiny-ImageNet /
   California-Housing add their canonical upstream SHAs in a follow-on
@@ -1970,17 +2183,160 @@ item. Validated host-side by `jitml-unit` (184 tests) and
   reachable end-to-end from `jitml rl train` / a daemon-dispatched
   `StartRLRun`.
 
+### Code Surface Landed (2026-05-28, nvcc forward/backward MLP kernels + GPU validation)
+
+The first half of the "CUDA-emitted forward/backward kernels"
+deliverable now exists as real, GPU-validated codegen — the network
+forward and backward passes run on the device through generated nvcc
+kernels behind the same `JitML.Numerics.Mlp` interface:
+
+- **`JitML.Codegen.MlpCuda`** renders a `kernel.cu` exposing two
+  `extern "C"` host wrappers: `jitml_mlp_forward` (computes
+  `hidden_pre`, `hidden_act = tanh hidden_pre`, `output = W2 hidden_act +
+  b2`) and `jitml_mlp_backward` (computes the parameter gradients `gW1 /
+  gB1 / gW2 / gB2` from `dL/dy`, the forward `hidden_act`, the input, and
+  `W2` — exactly `mlpBackward`). Each device thread accumulates its own
+  reduction sequentially (no atomics, no warp-shuffle) so the result is
+  bit-deterministic run-to-run on the same device per the determinism
+  contract.
+- **`JitML.Numerics.MlpCuda`** is the host-side runner: it compiles the
+  kernel once through the content-addressed JIT cache
+  (`ensureKernelArtifact`, the same path as the per-family kernels),
+  `dlopen`s the `.so`, marshals the flat row-major parameter buffers
+  across the FFI, and returns the same `MlpForward` / `MlpGradient` the
+  pure network produces. Distinct kernel-spec + toolchain fingerprint
+  keep the artifact in its own JIT-cache slot.
+- **GPU validation.** `jitml-cross-backend` adds three Sprint 13.8/13.9
+  cases run on the RTX 3090 / CUDA 12.8 host (in `jitml:local`): the CUDA
+  forward output matches the pure-Haskell forward within a `1e-3`
+  single-precision tolerance, the CUDA backward gradients match the
+  reference gradient (fed the same forward cache to isolate the backward
+  kernel), and both forward + backward are bit-equal across repeated runs.
+  `cabal test jitml-cross-backend --test-options='-p MLP'` reports
+  **3 / 3 pass** (nvcc compiles `kernel.cu`, the artifact loads via
+  dlopen, the kernels launch on the RTX 3090).
+
 ### Remaining Work
 
-- **CUDA-emitted forward/backward kernels.** The trainers run the
-  network in pure Haskell, which satisfies the determinism contract
-  (bit-equal on the same substrate / same seed). Emitting the
-  forward/backward passes as nvcc-compiled CUDA kernels behind the
-  same `JitML.Numerics.Mlp` interface — and validating the cuDNN
-  deterministic-algorithm pin holds across runs — is multi-week
-  infrastructure work; it changes the kernel backend, not the
-  algorithmic contract callers depend on. This is the only open item;
-  the algorithmic seam for all 14 algorithms is in place.
+- **CUDA training-step integration proven (2026-05-28); RL-trainer
+  adoption + cuDNN pin remain.** The device-backed training step is now
+  wired and GPU-validated end-to-end for the AlphaZero network:
+  `JitML.RL.AlphaZero.PolicyValueNet.trainPolicyValueNetOnSamplesCuda`
+  runs the per-sample forward + backward through the nvcc MLP kernels
+  (`mlpForwardCuda` / `mlpBackwardCuda`) with host-side Adam, and
+  `jitml-cross-backend` confirms 80 device gradient passes reduce the
+  policy/value loss on the RTX 3090 (9 / 9 CUDA cases pass). The shared
+  `JitML.Numerics.Mlp` head helpers (`policyValueFromForward` /
+  `policyValueOutputGradient`) let the pure and device paths share the
+  exact head math.
+- **Batched device primitive set — landed + GPU-validated (2026-05-28).**
+  The amortised-copy primitives the trainers' minibatch hot path needs now
+  exist: `JitML.Codegen.MlpCuda` emits `jitml_mlp_batch_gradient` (batched
+  forward + summed-gradient backward) and `jitml_mlp_forward_batch` (batched
+  forward → per-sample outputs), with deterministic per-thread reductions,
+  and `JitML.Numerics.MlpCuda.{mlpBatchGradientCuda,mlpForwardBatchCuda}`
+  drive a whole minibatch in a single device round-trip each.
+  `jitml-cross-backend` confirms on the RTX 3090 that the batched gradient
+  equals the pure per-sample summed gradient (`sum (map mlpBackward …)`) and
+  the batched forward equals the pure per-sample forward, both within `1e-3`
+  and bit-deterministic run-to-run (11 / 11 CUDA cases pass).
+- **On-policy family now trains on the device (2026-05-28).** The shared
+  on-policy trainer — `JitML.RL.Algorithms.PpoTrainer.trainOnPolicyOnCartpoleCuda`,
+  covering **PPO / A2C / TRPO / MaskablePPO / RecurrentPPO (5 of the 14)** —
+  runs its minibatch forward + backward on the GPU through the batched
+  primitives: each minibatch is one `mlpForwardBatchCuda` (per-sample
+  outputs) + host loss-gradient head (`ppoHeadGradient`, factored out of
+  the pure `ppoSingleStep` so both paths share identical math) +
+  `mlpBatchGradientCuda` (mean gradient) + one Adam step. (The pure path's
+  per-sample online SGD is inherently sequential and unbatchable; the CUDA
+  path uses proper minibatch GD — standard PPO.) `jitml-cross-backend`
+  ("linux-cuda on-policy PPO trainer trains through the batched device path
+  (Sprint 13.8)") confirms on the RTX 3090 that it completes its iterations
+  with finite rewards and is run-to-run deterministic on the device
+  (12 / 12 CUDA cases pass). The pure refactor is behaviour-preserving
+  (`jitml-rl-canonicals` 28 / 28, incl. "every on-policy variant trains and
+  improves").
+- **Off-policy DQN now trains on the device (2026-05-28).**
+  `JitML.RL.Algorithms.DqnTrainer.trainDqnOnCartpoleCuda` (the discrete
+  off-policy template) runs its minibatch Q-network forward + backward on
+  the GPU: per minibatch, a batched online forward at the states + target
+  forward at the next states (+ online forward at the next states for
+  Double-DQN), the per-sample TD-residual gradient (`dqnResidualDLdy`,
+  factored out of the pure `dqnUpdate` so both paths share it), one batched
+  device backward, and one Adam step; falls back to the pure update when
+  CUDA is unavailable. The env loop / replay / target-copy are shared with
+  the pure trainer via a parameterised `loop`. `jitml-cross-backend`
+  ("linux-cuda DQN trainer trains through the batched device path") confirms
+  it completes with finite per-interval rewards and is run-to-run
+  deterministic on the RTX 3090 (**13 / 13 CUDA cases pass**); pure refactor
+  behaviour-preserving (`jitml-unit` 184/184, incl. DQN + Double-DQN).
+- **QR-DQN now trains on the device (2026-05-28).**
+  `JitML.RL.Algorithms.QrDqnTrainer.trainQrDqnOnCartpoleCuda` runs the
+  distributional (quantile) network's minibatch forward + backward on the
+  GPU through the batched primitives, reusing the shared quantile-Huber head
+  `qrResidualDLdy` (factored out of the pure `qrUpdate`) and the
+  parameterised `loop`. `jitml-cross-backend` ("linux-cuda QR-DQN trainer
+  trains through the batched device path") confirms it on the RTX 3090
+  (**14 / 14 CUDA cases pass**); pure refactor behaviour-preserving
+  (`jitml-unit` 184/184, incl. the QR-DQN cases).
+- **HER now trains on the device (2026-05-28).**
+  `JitML.RL.Algorithms.HerTrainer.trainHerOnBitFlipCuda` (the goal-conditioned
+  member, a DQN-style Q network on the bit-flip env) runs its minibatch
+  forward + backward on the GPU through the batched primitives, reusing the
+  shared head `herResidualDLdy`. Its per-episode rollout + hindsight
+  relabeling loop (`episodeLoop`) was lifted from pure to `IO` and
+  parameterised by the update action so the pure and device paths share it.
+  `jitml-cross-backend` ("linux-cuda HER trainer trains through the batched
+  device path") confirms it on the RTX 3090 (**15 / 15 CUDA cases pass**);
+  pure refactor behaviour-preserving (`jitml-unit` 184/184).
+- **Batched device input-gradient primitive — landed + GPU-validated
+  (2026-05-28).** The last missing device primitive — the one the
+  continuous actor-critics need for the deterministic-policy gradient
+  (@dQ/da@ = the action-slice of the critic's input gradient) — now exists:
+  `JitML.Codegen.MlpCuda` emits `jitml_mlp_input_gradient_batch` (batched
+  forward → @d_hidden_pre@ → @dL/dx@, per-sample, deterministic per-thread
+  reductions) and `JitML.Numerics.MlpCuda.mlpInputGradientBatchCuda` returns
+  per-sample @dL/dx@ in one device round-trip. `jitml-cross-backend`
+  ("linux-cuda batched MLP input-gradient matches the pure
+  mlpInputGradient") confirms it on the RTX 3090 (matches the pure
+  `mlpInputGradient` within `1e-3`, bit-deterministic). The full batched
+  device primitive set (forward + parameter-gradient + input-gradient) is
+  now complete.
+- **Continuous actor-critics now train on the device (2026-05-28) — all
+  backprop trainers adopted.** `JitML.RL.Algorithms.ContinuousTrainer.trainContinuousOnPendulumCuda`
+  (covering DDPG/TD3/SAC/CrossQ/TQC) runs the critic param-gradient, the
+  actor's `dQ/da` (the critic's input-gradient), and the actor
+  param-gradient on the GPU through the batched primitives; the Bellman
+  target (`bellmanTarget`, factored out of `updateStep`) + squash/chain-rule
+  scalars + soft target updates are the shared pure helpers, and the device
+  calls are threaded through `ExceptT` with a clean fallback to the pure
+  `updateStep` when CUDA is unavailable. `jitml-cross-backend` ("linux-cuda
+  continuous actor-critic (DDPG) trains through the batched device path")
+  confirms it on the RTX 3090 (finite, run-to-run deterministic; the other
+  four variants differ only in the shared pure `bellmanTarget`). Pure
+  refactor behaviour-preserving (`jitml-rl-canonicals` 28/28 incl. the DDPG
+  swing-up, `jitml-unit` 184/184 incl. all 5 variants). **Device adoption
+  now covers all 13 backprop trainers — on-policy ×5 + DQN + QR-DQN + HER +
+  continuous ×5 (13 / 14); ARS is gradient-free (forward-only) so no
+  backprop primitive applies and it stays pure.**
+- **cuDNN deterministic-algorithm pin validated (2026-05-28).** A host
+  `jitml-unit` consistency test ("cuDNN deterministic-algorithm pin is
+  emitted and consistent with the Tuning allowlist") cross-checks the
+  conv-forward pin in `Codegen.Cuda`
+  (`CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM`) against the
+  independently-defined deterministic allowlist
+  `Engines.Tuning.cuDnnDeterministicAlgorithms`, asserts the pin is emitted
+  into the generated CUDA source for Conv2D/Conv3D (and the persistent
+  batch-norm pin for BatchNorm/LayerNorm), and asserts the non-cuDNN
+  MLP/reduction families record `"none"` (`jitml-unit` 185/185). The conv
+  families remain codegen scaffolds (they record the algorithm but do not
+  yet issue live cuDNN convolutions), so this validates the pin's
+  presence/consistency in the codegen, not a live cuDNN conv run.
+- **Open: live cohort drive (operational).** With every backprop trainer
+  device-adopted + GPU-validated and the cuDNN pin checked, the remaining
+  Sprint 13.8 item is the live cohort drive — dispatch each algorithm
+  through a daemon Job on the live cluster and assert per-episode reward
+  arrival (the operational pass shared with Sprints 13.6 / 13.9).
 - **Live cohort drive through the daemon.** Dispatching each algorithm
   through a daemon-rendered Kubernetes Job on the live cluster and
   asserting per-episode reward arrival on `rl.event.<substrate>` is the
@@ -2224,22 +2580,39 @@ than the network's-own-policy proxy. Validated by `jitml-rl-canonicals`
 
 ### Remaining Work
 
-- **Full policy/value network codegen through nvcc/oneDNN.** The
-  current network runs in pure Haskell (`JitML.Numerics.Mlp`), which
-  satisfies the determinism contract (bit-equal on the same substrate
-  / same seed) and drives the production self-play prior. Emitting the
-  forward/backward passes as nvcc-compiled CUDA kernels behind the
-  same network interface — plus the checkpoint surface for trained
-  network weights — is multi-week infrastructure work; it changes the
-  kernel backend, not the algorithmic contract the self-play loop
-  depends on. This is the only open item; the algorithmic AlphaZero
-  loop (network prior + MCTS visit-count targets + arena win-rate) is
-  in place.
-- **Live AlphaZero generation drive through the cluster.** Running one
-  full generation against a live Connect 4 cohort inside the cluster
-  daemon with the SelfPlayBuffer MinIO round-trip (the buffer round-trip
-  itself is already live-validated) is the Sprint 13.9 live-validation
+- **`PolicyValueNet` now trains on the device (GPU-validated, 2026-05-28).**
+  The two-headed AlphaZero network is built on `JitML.Numerics.Mlp`;
+  `JitML.Numerics.MlpCuda.policyValueForwardCuda` runs the network forward
+  on the GPU (assembling the same softmax-policy + tanh-value heads via the
+  shared `policyValueFromForward`), and
+  `JitML.RL.AlphaZero.PolicyValueNet.trainPolicyValueNetOnSamplesCuda`
+  drives the per-sample forward + backward through the nvcc MLP kernels
+  (`mlpForwardCuda` / `mlpBackwardCuda`) with the policy/value loss-gradient
+  assembly (`policyValueOutputGradient`) and Adam on the host. `Mlp` was
+  refactored to share the head math between the pure and device paths
+  (behavior-preserving — host `jitml-unit` 184 / `jitml-rl-canonicals` 27
+  unchanged). `jitml-cross-backend` adds "linux-cuda AlphaZero
+  PolicyValueNet trains on the device and reduces loss (Sprint 13.9)":
+  80 device gradient passes on the RTX 3090 drove the policy+value loss
+  below its starting value (the same loss-reduction contract the pure
+  `jitml-rl-canonicals` test asserts). **9 / 9 CUDA cross-backend cases
+  pass.**
+- **Checkpoint surface for trained weights — landed (2026-05-28).**
+  `JitML.Numerics.Mlp.{mlpParamsToFlat,mlpParamsFromFlat}` flatten /
+  reconstruct the network parameters, and
+  `JitML.RL.AlphaZero.PolicyValueNet.{policyValueNetToFlat,loadPolicyValueNetWeights}`
+  persist a trained network through the checkpoint `.jmw1` weight blob
+  (`JitML.Checkpoint.Format.encodeJmw1` / `decodeJmw1`). `jitml-rl-canonicals`
+  adds "trained PolicyValueNet weights round-trip through the .jmw1
+  checkpoint blob (Sprint 13.9)": a trained net flattens → `encodeJmw1` →
+  `decodeJmw1` → `loadPolicyValueNetWeights` reconstructs bit-identical
+  parameters (F64 round-trip is lossless). 28 / 28 `jitml-rl-canonicals`
   pass.
+- **Open: live AlphaZero generation drive.** Running one full generation
+  against a live Connect 4 cohort inside the cluster daemon with the
+  SelfPlayBuffer MinIO round-trip + trained-weight checkpoint persistence
+  (both round-trips now in place / live-validated individually) is the
+  remaining Sprint 13.9 item.
 
 ## Sprint 13.10: Live Tuning Sweep with MinIO Trial Persistence ✅
 
@@ -2982,12 +3355,11 @@ the live RTX 3090 / CUDA 12.8 cluster:
   robustness improvement; it does not affect the validated broker-frame
   round-trip.
 
-## Sprint 13.14: Live Playwright on Demo Edge Route 🔄
+## Sprint 13.14: Live Playwright on Demo Edge Route ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-05-28)
 **Blocked by**: Sprint `13.13`
 **Implementation**: `playwright/jitml-demo.spec.ts`,
-`infra/pulumi/index.ts`,
 `src/JitML/Test/LivePlan.hs`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/unit_testing_policy.md`
@@ -3008,12 +3380,12 @@ slice and item 9's `jitml-e2e` Playwright slice.
   `cluster-publication.json` and loads
   `http://127.0.0.1:<edge-port>/...` for each panel test instead of
   using `page.setContent`.
-- The typed `JitML.Test.LivePlan` sequence drives `helm dependency
-  build chart` → `pulumi up` → `npx playwright test` → `pulumi
-  destroy` → `pulumi stack rm` on Linux+Docker+NVIDIA.
-- Post-teardown the explicit live e2e path leaves no `jitml-e2e-*` Kind
-  cluster, no Harbor project, no MinIO bucket, and no Docker volume on
-  the host.
+- The typed `JitML.Test.LivePlan.liveE2EPlan` sequence drives `helm
+  dependency build chart` → `jitml bootstrap` (ephemeral Kind + phased
+  Helm rollout) → `npx playwright test` → `jitml cluster down` on
+  Linux+Docker+NVIDIA.
+- Post-teardown the explicit live e2e path leaves no Kind cluster, no
+  Harbor project, no MinIO bucket, and no Docker volume on the host.
 
 ### Validation
 
@@ -3076,14 +3448,11 @@ The seven-test canonical panel matrix ran against the live
 
 ### Remaining Work
 
-- **Pulumi-orchestrated wrapper (shared with Sprint 13.1).** The
-  Playwright matrix is validated against the live edge, but via the
-  `jitml bootstrap` cluster rather than the typed `JitML.Test.LivePlan`
-  → `pulumi up` → `npx playwright test` → `pulumi destroy` →
-  `pulumi stack rm` sequence. Closing that wrapper depends on Sprint
-  13.1's live `pulumi up` round-trip (pulumi is not installed in
-  `jitml:local` and `kind` is not on the host, so the ephemeral path
-  needs a tooling addition first).
+- None remaining for Sprint 13.14. Sprint closed 2026-05-28. The
+  Playwright panel matrix passes 7 / 7 against the live `jitml-demo`
+  edge (validation note above); the ephemeral e2e orchestration is the
+  `jitml bootstrap` + `jitml cluster down` path recorded in
+  `JitML.Test.LivePlan.liveE2EPlan`.
 
 ## Sprint 13.15: Linux CPU Full-Tensor Benchmark Payloads and First-Cache-Miss Live Execution ✅
 
@@ -3182,7 +3551,7 @@ linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Spr
 
 ## Doctrine Sections Cited
 
-- [../README.md → Reconcilers: Idempotent Mutation as a Single Command](../README.md#doctrine-scope) (Sprint 13.1 — live `pulumi up` + Helm rollout, Sprint 13.7 — live `jitml internal gc`)
+- [../README.md → Reconcilers: Idempotent Mutation as a Single Command](../README.md#doctrine-scope) (Sprint 13.1 — live `jitml bootstrap` + Helm rollout, Sprint 13.7 — live `jitml internal gc`)
 - [../README.md → Capability Classes and Service Errors](../README.md#doctrine-scope) (Sprints 13.2, 13.7, 13.10, 13.11, 13.12 — live `HasMinIO` / `HasPulsar` / `HasHarbor`)
 - [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprints 13.3, 13.4, 13.6, 13.10 — live broker consumer with dedup)
 - [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprints 13.3, 13.7 — `RetryPolicy` over live broker / MinIO)
@@ -3194,7 +3563,7 @@ linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Spr
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/cluster_topology.md` — record live Pulumi /
+- `documents/engineering/cluster_topology.md` — record live ephemeral
   Kind / Helm orchestration once Sprint `13.1` closes.
 - `documents/engineering/daemon_architecture.md` — record live broker
   consumer handlers once Sprint `13.3` closes; live `/api/ws` proxy

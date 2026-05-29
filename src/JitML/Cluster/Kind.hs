@@ -5,8 +5,6 @@ module JitML.Cluster.Kind
   , defaultKindestNodeImage
   , kindConfigFor
   , kindConfigForEdgePort
-  , kindConfigForEdgePortNamed
-  , kindConfigForNamed
   , renderKindConfig
   )
 where
@@ -33,21 +31,10 @@ kindConfigFor substrate =
   kindConfigForEdgePort substrate (substrateEdgePort substrate)
 
 kindConfigForEdgePort :: Substrate -> Int -> KindConfig
-kindConfigForEdgePort substrate =
-  kindConfigForEdgePortNamed substrate (substrateClusterName substrate)
-
--- | Overrides the cluster name so the Pulumi ephemeral path can produce a
--- per-stack `jitml-e2e-<short-sha>` Kind cluster from the same substrate-shaped
--- config. Sprint 13.1.
-kindConfigForNamed :: Substrate -> Text -> KindConfig
-kindConfigForNamed substrate name =
-  kindConfigForEdgePortNamed substrate name (substrateEdgePort substrate)
-
-kindConfigForEdgePortNamed :: Substrate -> Text -> Int -> KindConfig
-kindConfigForEdgePortNamed substrate name edgePort =
+kindConfigForEdgePort substrate edgePort =
   KindConfig
     { kindConfigSubstrate = substrate
-    , kindConfigName = name
+    , kindConfigName = substrateClusterName substrate
     , kindConfigNodeImage = defaultKindestNodeImage
     , kindConfigEdgePort = edgePort
     , kindConfigGpuLabel = substrate == LinuxCUDA

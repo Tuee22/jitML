@@ -374,30 +374,30 @@ main =
               let ids = fmap nodeId closure
               assertBool "cache miss closure includes tart" (NodeId "container.tart" `elem` ids)
       , testCase "Homebrew remediation nodes carry typed subprocesses" $
-          case find ((== NodeId "toolchain.pulumi") . nodeId) prerequisiteRegistry of
-            Nothing -> assertFailure "missing toolchain.pulumi"
+          case find ((== NodeId "toolchain.spago") . nodeId) prerequisiteRegistry of
+            Nothing -> assertFailure "missing toolchain.spago"
             Just prerequisite ->
               case remediation prerequisite of
-                Nothing -> assertFailure "missing pulumi remediation"
+                Nothing -> assertFailure "missing spago remediation"
                 Just remediationValue ->
-                  renderSubprocess (remediationCommand remediationValue) @?= "brew install pulumi"
+                  renderSubprocess (remediationCommand remediationValue) @?= "brew install spago"
       , testCase "Homebrew remediation plan render matches golden" $ do
           expected <- Text.IO.readFile "test/golden/prerequisite/homebrew-remediation-plan.txt"
           let prerequisite =
                 Prerequisite
-                  { nodeId = NodeId "toolchain.pulumi"
-                  , nodeDescription = "Pulumi is installed."
-                  , remedyHint = Just "brew install pulumi"
+                  { nodeId = NodeId "toolchain.spago"
+                  , nodeDescription = "Spago is installed."
+                  , remedyHint = Just "brew install spago"
                   , dependsOn = []
                   , remediation =
                       Just
                         PrerequisiteRemediation
-                          { remediationDescription = "Install Homebrew package pulumi."
-                          , remediationCommand = subprocess "brew" ["install", "pulumi"]
+                          { remediationDescription = "Install Homebrew package spago."
+                          , remediationCommand = subprocess "brew" ["install", "spago"]
                           }
                   , checkNode = pure False
                   }
-          result <- buildPrerequisitePlan [prerequisite] (NodeId "toolchain.pulumi")
+          result <- buildPrerequisitePlan [prerequisite] (NodeId "toolchain.spago")
           case result of
             Left err -> assertFailure (show err)
             Right plan -> renderPrerequisitePlan plan @?= expected
@@ -766,6 +766,40 @@ main =
                 ("jitml_kernel_output_count" `Text.isInfixOf` contents)
             _ ->
               assertFailure "expected one generated CUDA reduction source file"
+      , testCase
+          "cuDNN deterministic-algorithm pin is emitted and consistent with the Tuning allowlist (Sprint 13.8)"
+          $ do
+            let renderedSource family =
+                  Text.concat
+                    [ contents
+                    | SourceFile _ contents <-
+                        Cuda.renderCudaFamilySource
+                          family
+                          (Cache.KernelSpec "phase-13-kernel:cudnn-pin")
+                          Cache.Training
+                          Cache.defaultTuningChoice
+                    ]
+                convPin = "CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM"
+                pinField algo = "jitml_cudnn_algorithm = \"" <> algo <> "\""
+            -- The conv forward pin in Codegen.Cuda must agree with the
+            -- independently-defined deterministic forward-algorithm allowlist in
+            -- Engines.Tuning (a cross-module consistency check, not a tautology).
+            assertBool
+              "conv forward pin is a deterministic algorithm in the Tuning allowlist"
+              (convPin `elem` Tuning.cuDnnDeterministicAlgorithms)
+            Control.Monad.forM_ [Conv2DKernel, Conv3DKernel] $ \family ->
+              assertBool
+                ("generated CUDA source for " <> show family <> " pins the deterministic conv algorithm")
+                (pinField convPin `Text.isInfixOf` renderedSource family)
+            Control.Monad.forM_ [BatchNormKernel, LayerNormKernel] $ \family ->
+              assertBool
+                ("generated CUDA source for " <> show family <> " pins the persistent batch-norm algorithm")
+                (pinField "CUDNN_BATCHNORM_SPATIAL_PERSISTENT" `Text.isInfixOf` renderedSource family)
+            -- Non-cuDNN families (the MLP/reduction kernels) must not claim a cuDNN
+            -- algorithm, so the deterministic pin stays scoped to the conv/norm path.
+            assertBool
+              "non-cuDNN family records no cuDNN algorithm"
+              (pinField "none" `Text.isInfixOf` renderedSource Reduction)
       , testCase "CUDA reduction host partials finalize in canonical order" $ do
           CudaRuntime.cudaReductionPartialCount 0 @?= Right 0
           CudaRuntime.cudaReductionPartialCount 1 @?= Right 8
@@ -3152,7 +3186,6 @@ canonicalLeafPaths =
   , ["build"]
   , ["kubectl"]
   , ["internal", "materialize-substrate"]
-  , ["internal", "render-kind-config"]
   , ["internal", "list-prereqs"]
   , ["internal", "upload-dataset"]
   , ["internal", "gc"]

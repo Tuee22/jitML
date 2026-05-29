@@ -29,6 +29,8 @@ module JitML.Numerics.Mlp
     MlpShape (..)
   , MlpParams (..)
   , mlpInit
+  , mlpParamsToFlat
+  , mlpParamsFromFlat
 
     -- * Forward / backward
   , MlpForward (..)
@@ -48,6 +50,8 @@ module JitML.Numerics.Mlp
     -- * Policy/value heads (AlphaZero)
   , PolicyValueOutput (..)
   , policyValueForward
+  , policyValueFromForward
+  , policyValueOutputGradient
   , policyValueBackward
 
     -- * Utility
@@ -103,6 +107,49 @@ mlpInit shape seed =
         , paramW2 = w2
         , paramB2 = VU.replicate (mlpOutputs shape) 0.0
         }
+
+-- | Sprint 13.9 — flatten the parameters to a single row-major @Double@
+-- list (@W1 ++ b1 ++ W2 ++ b2@) for the checkpoint @.jmw1@ weight blob.
+-- Pairs with 'mlpParamsFromFlat'; the round-trip is exact (lossless F64).
+mlpParamsToFlat :: MlpParams -> [Double]
+mlpParamsToFlat params =
+  VU.toList (paramW1 params)
+    <> VU.toList (paramB1 params)
+    <> VU.toList (paramW2 params)
+    <> VU.toList (paramB2 params)
+
+-- | Reconstruct parameters from a flat @Double@ list given the network
+-- shape. Fails (with a message) when the list length does not match the
+-- shape's total parameter count.
+mlpParamsFromFlat :: MlpShape -> [Double] -> Either String MlpParams
+mlpParamsFromFlat shape flat
+  | length flat /= expected =
+      Left
+        ( "mlpParamsFromFlat: expected "
+            <> show expected
+            <> " values for shape "
+            <> show shape
+            <> ", got "
+            <> show (length flat)
+        )
+  | otherwise =
+      Right
+        MlpParams
+          { paramShape = shape
+          , paramW1 = VU.fromList w1
+          , paramB1 = VU.fromList b1
+          , paramW2 = VU.fromList w2
+          , paramB2 = VU.fromList b2
+          }
+ where
+  nW1 = mlpHidden shape * mlpInputs shape
+  nB1 = mlpHidden shape
+  nW2 = mlpOutputs shape * mlpHidden shape
+  nB2 = mlpOutputs shape
+  expected = nW1 + nB1 + nW2 + nB2
+  (w1, afterW1) = splitAt nW1 flat
+  (b1, afterB1) = splitAt nB1 afterW1
+  (w2, b2) = splitAt nW2 afterB1
 
 drawUniform :: Int -> Double -> Random.StdGen -> (Vector Double, Random.StdGen)
 drawUniform n limit gen0 =
@@ -338,8 +385,16 @@ data PolicyValueOutput = PolicyValueOutput
 
 policyValueForward :: MlpParams -> Int -> Vector Double -> PolicyValueOutput
 policyValueForward params actionCount input =
-  let fwd = mlpForward params input
-      output = forwardOutput fwd
+  policyValueFromForward actionCount (mlpForward params input)
+
+-- | Build the policy/value heads from a precomputed forward cache. The
+-- policy head softmaxes the first @actionCount@ outputs; the value head
+-- is the tanh of the next output (when present). Factored out so a
+-- device-backed forward (e.g. "JitML.Numerics.MlpCuda") can produce the
+-- same 'PolicyValueOutput' the pure 'policyValueForward' does.
+policyValueFromForward :: Int -> MlpForward -> PolicyValueOutput
+policyValueFromForward actionCount fwd =
+  let output = forwardOutput fwd
       logits = VU.take actionCount output
       valueRaw =
         if VU.length output > actionCount
@@ -350,6 +405,29 @@ policyValueForward params actionCount input =
         , pvPolicy = softmax logits
         , pvValue = tanh valueRaw
         }
+
+-- | Assemble the network's full output gradient @dL/dy@ from the policy
+-- gradient (@dL/dlogits@, one per action) and the value gradient
+-- (scalar), given the total output width. Shared by the pure
+-- 'policyValueBackward' and the device-backed gradient path so both route
+-- the identical @dL/dy@ into their respective backward kernel.
+policyValueOutputGradient
+  :: Int -- total output width (@mlpOutputs@)
+  -> PolicyValueOutput
+  -> Vector Double -- dL/dlogits (length actionCount)
+  -> Double -- dL/dvalue (scalar)
+  -> Vector Double
+policyValueOutputGradient outputs output dLdLogits dLdValue =
+  let actionCount = VU.length dLdLogits
+      valueGradPre =
+        if outputs > actionCount
+          then dLdValue * (1.0 - pvValue output * pvValue output)
+          else 0.0
+      tailGrads =
+        if outputs > actionCount
+          then VU.cons valueGradPre (VU.replicate (outputs - actionCount - 1) 0.0)
+          else VU.empty
+   in dLdLogits VU.++ tailGrads
 
 -- | Backward through policy + value heads given the policy gradient
 -- (one per action) and the value gradient (scalar). Combines the two
@@ -362,19 +440,10 @@ policyValueBackward
   -> Double -- dL/dvalue (scalar)
   -> MlpGradient
 policyValueBackward params output dLdLogits dLdValue =
-  let shape = paramShape params
-      actionCount = VU.length dLdLogits
-      outputs = mlpOutputs shape
-      valueGradPre =
-        if outputs > actionCount
-          then dLdValue * (1.0 - pvValue output * pvValue output)
-          else 0.0
-      tailGrads =
-        if outputs > actionCount
-          then VU.cons valueGradPre (VU.replicate (outputs - actionCount - 1) 0.0)
-          else VU.empty
-      dLdy = dLdLogits VU.++ tailGrads
-   in mlpBackward params (pvForward output) dLdy
+  mlpBackward
+    params
+    (pvForward output)
+    (policyValueOutputGradient (mlpOutputs (paramShape params)) output dLdLogits dLdValue)
 
 -- | @y = M @ x@ where @M@ is @rows × cols@ row-major.
 matVec :: Vector Double -> Int -> Int -> Vector Double -> Vector Double

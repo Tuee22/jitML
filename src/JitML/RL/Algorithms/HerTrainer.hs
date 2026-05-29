@@ -25,6 +25,7 @@ module JitML.RL.Algorithms.HerTrainer
   , HerTrainResult (..)
   , HerIterationStat (..)
   , trainHerOnBitFlip
+  , trainHerOnBitFlipCuda
   )
 where
 
@@ -33,9 +34,11 @@ import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
+import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
+  , MlpGradient (..)
   , MlpParams
   , MlpShape (..)
   , adamInit
@@ -46,6 +49,7 @@ import JitML.Numerics.Mlp
   , mlpForward
   , mlpInit
   )
+import JitML.Numerics.MlpCuda (mlpBatchGradientCuda, mlpForwardBatchCuda)
 import JitML.RL.Algorithms.DqnLoss (dqnBellmanTarget)
 import JitML.RL.Algorithms.HerLoss
   ( HerStrategy (..)
@@ -127,20 +131,21 @@ trainHerOnBitFlip config = do
           , mlpOutputs = n
           }
       initialParams = mlpInit shape (herSeed config)
-  pure $
-    episodeLoop
-      config
-      initialParams
-      initialParams
-      (adamInit shape)
-      (Random.mkStdGen (herSeed config + 1))
-      []
-      0
-      []
-      []
+  episodeLoop
+    config
+    (\online target adam batch -> pure (dqnUpdate config online target adam batch))
+    initialParams
+    initialParams
+    (adamInit shape)
+    (Random.mkStdGen (herSeed config + 1))
+    []
+    0
+    []
+    []
 
 episodeLoop
   :: HerTrainConfig
+  -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (MlpParams, AdamState))
   -> MlpParams
   -> MlpParams
   -> AdamState
@@ -149,15 +154,16 @@ episodeLoop
   -> Int
   -> [Bool] -- recent episode successes
   -> [HerIterationStat]
-  -> HerTrainResult
-episodeLoop config online target adam gen buffer episode successes stats
+  -> IO HerTrainResult
+episodeLoop config update online target adam gen buffer episode successes stats
   | episode >= herEpisodes config =
-      HerTrainResult
-        { herResultStats = reverse stats
-        , herResultFinalParams = online
-        , herResultConfig = config
-        }
-  | otherwise =
+      pure
+        HerTrainResult
+          { herResultStats = reverse stats
+          , herResultFinalParams = online
+          , herResultConfig = config
+          }
+  | otherwise = do
       let n = herNumBits config
           (goal, gen1) = randomBits n gen
           (episodeTransitions, reached, gen2) =
@@ -170,14 +176,14 @@ episodeLoop config online target adam gen buffer episode successes stats
             take
               (herReplayCapacity config)
               (relabeled <> episodeTransitions <> buffer)
-          (onlineNext, adamNext, gen3) =
-            if length newBuffer >= herBatchSize config
-              then
-                let (batch, genB) = sampleBatch (herBatchSize config) newBuffer gen2
-                    (o, a) = dqnUpdate config online target adam batch
-                 in (o, a, genB)
-              else (online, adam, gen2)
-          targetNext =
+      (onlineNext, adamNext, gen3) <-
+        if length newBuffer >= herBatchSize config
+          then do
+            let (batch, genB) = sampleBatch (herBatchSize config) newBuffer gen2
+            (o, a) <- update online target adam batch
+            pure (o, a, genB)
+          else pure (online, adam, gen2)
+      let targetNext =
             if (episode + 1) `mod` herTargetUpdateInterval config == 0
               then onlineNext
               else target
@@ -190,16 +196,17 @@ episodeLoop config online target adam gen buffer episode successes stats
                         / fromIntegral (length newSuccesses)
                  in HerIterationStat (episode + 1) rate : stats
               else stats
-       in episodeLoop
-            config
-            onlineNext
-            targetNext
-            adamNext
-            gen3
-            newBuffer
-            (episode + 1)
-            newSuccesses
-            statsNext
+      episodeLoop
+        config
+        update
+        onlineNext
+        targetNext
+        adamNext
+        gen3
+        newBuffer
+        (episode + 1)
+        newSuccesses
+        statsNext
 
 -- | Roll out one bit-flip episode (epsilon-greedy). Returns the raw
 -- transitions, whether the goal was reached, and the advanced RNG.
@@ -281,20 +288,29 @@ dqnUpdate
   :: HerTrainConfig -> MlpParams -> MlpParams -> AdamState -> [Transition] -> (MlpParams, AdamState)
 dqnUpdate config online target adam batch =
   let adamCfg = defaultAdamConfig {adamLearningRate = herLearningRate config}
-      gamma = herGamma config
       stepUpdate (params, a) trans =
         let fwd = mlpForward params (transInput trans)
             qVec = VU.toList (forwardOutput fwd)
-            actionIx = transAction trans
-            qSa = if actionIx < length qVec then qVec !! actionIx else 0.0
             nextQ = VU.toList (forwardOutput (mlpForward target (transNextInput trans)))
-            maxNextQ = maximum (0 : nextQ)
-            tdTarget = dqnBellmanTarget gamma (transReward trans) (transDone trans) maxNextQ
-            residual = qSa - tdTarget
-            dLdy = VU.generate (length qVec) (\i -> if i == actionIx then residual else 0.0)
+            dLdy = herResidualDLdy config qVec nextQ trans
             grad = mlpBackward params fwd dLdy
          in adamStep adamCfg a params grad
    in Data.List.foldl' stepUpdate (online, adam) batch
+
+-- | The per-transition DQN loss gradient w.r.t. the Q-network output (the
+-- TD residual at the taken-action index). Standard Bellman target over the
+-- target net's next-state Q. Factored out of 'dqnUpdate' so the pure CPU
+-- path and the batched CUDA path ('herUpdateCuda') share the identical
+-- loss gradient.
+herResidualDLdy :: HerTrainConfig -> [Double] -> [Double] -> Transition -> Vector Double
+herResidualDLdy config qVec nextQ trans =
+  VU.generate (length qVec) (\i -> if i == actionIx then residual else 0.0)
+ where
+  actionIx = transAction trans
+  qSa = if actionIx >= 0 && actionIx < length qVec then qVec !! actionIx else 0.0
+  maxNextQ = maximum (0 : nextQ)
+  tdTarget = dqnBellmanTarget (herGamma config) (transReward trans) (transDone trans) maxNextQ
+  residual = qSa - tdTarget
 
 argmax :: (Ord a) => [a] -> Int
 argmax [] = 0
@@ -321,3 +337,72 @@ sampleBatch n buffer gen =
             let (idx, g') = Random.uniformR (0 :: Int, bufLen - 1) g
              in pickN (k - 1) g' (buffer !! idx : acc)
    in pickN n gen []
+
+-- | Sprint 13.8 — train HER on the bit-flip env with the Q-network's
+-- minibatch forward + backward running on the GPU through the batched
+-- device primitives. The per-episode rollout + hindsight relabeling +
+-- replay are unchanged (shared with the pure 'trainHerOnBitFlip' via the
+-- parameterised 'episodeLoop'); only the minibatch gradient update runs on
+-- the device ('herUpdateCuda'), reusing the shared head 'herResidualDLdy'.
+trainHerOnBitFlipCuda :: Env -> HerTrainConfig -> IO HerTrainResult
+trainHerOnBitFlipCuda env config = do
+  let n = herNumBits config
+      shape =
+        MlpShape
+          { mlpInputs = 2 * n
+          , mlpHidden = herHiddenUnits config
+          , mlpOutputs = n
+          }
+      initialParams = mlpInit shape (herSeed config)
+  episodeLoop
+    config
+    (herUpdateCuda env config)
+    initialParams
+    initialParams
+    (adamInit shape)
+    (Random.mkStdGen (herSeed config + 1))
+    []
+    0
+    []
+    []
+
+-- | Minibatch HER/DQN gradient update through the batched CUDA primitives:
+-- batched online forward at the (state||goal) inputs + target forward at
+-- the next inputs, the per-sample TD-residual gradient ('herResidualDLdy'),
+-- one batched device backward (mean gradient), and one Adam step. Falls
+-- back to the pure 'dqnUpdate' if the CUDA runtime/compile is unavailable.
+herUpdateCuda
+  :: Env
+  -> HerTrainConfig
+  -> MlpParams
+  -> MlpParams
+  -> AdamState
+  -> [Transition]
+  -> IO (MlpParams, AdamState)
+herUpdateCuda env config online target adam batch = do
+  onlineQE <- mlpForwardBatchCuda env online (map transInput batch)
+  targetQE <- mlpForwardBatchCuda env target (map transNextInput batch)
+  case (onlineQE, targetQE) of
+    (Right onlineQs, Right targetQs) -> do
+      let pairs =
+            [ (transInput trans, herResidualDLdy config (VU.toList qv) (VU.toList nq) trans)
+            | (trans, qv, nq) <- zip3 batch onlineQs targetQs
+            ]
+      gradResult <- mlpBatchGradientCuda env online pairs
+      case gradResult of
+        Right summed ->
+          let scale = 1.0 / fromIntegral (length batch)
+              meanGradient = scaleGradient scale summed
+              adamCfg = defaultAdamConfig {adamLearningRate = herLearningRate config}
+              (onlineAfter, adamAfter) = adamStep adamCfg adam online meanGradient
+           in pure (onlineAfter, adamAfter)
+        Left _ -> pure (dqnUpdate config online target adam batch)
+    _ -> pure (dqnUpdate config online target adam batch)
+ where
+  scaleGradient sc g =
+    MlpGradient
+      { gradW1 = VU.map (* sc) (gradW1 g)
+      , gradB1 = VU.map (* sc) (gradB1 g)
+      , gradW2 = VU.map (* sc) (gradW2 g)
+      , gradB2 = VU.map (* sc) (gradB2 g)
+      }

@@ -173,7 +173,7 @@ lazy package validation and remediation.
 ### Deliverables
 
 - Toolchain nodes: `ghc-9.14.1`, `cabal-3.16.1.0`, `protoc`, `node`, `poetry`,
-  `purescript`, `spago`, `pulumi`, and Homebrew package nodes as typed values.
+  `purescript`, `spago`, and Homebrew package nodes as typed values.
 - Container nodes: `docker`, `colima` (Apple), `tart` (Apple, lazy first-JIT
   validation/install rather than bootstrap startup).
 - Cluster nodes: `kind`, `kubectl`, `helm`, `kindest-node-pin` (verifies the
@@ -324,7 +324,7 @@ the current command materializes bootstrap inputs only.
   PureScript, spago, architecture-aware `kubectl` / `kind`, `helm`, and the
   Sprint `1.4` style-tools/code-quality image gate, then installs the `jitml`
   and `jitml-demo` executables into `/usr/local/bin`. The full target image still
-  needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, Poetry, and Pulumi hardening before it
+  needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, and Poetry hardening before it
   can serve as the complete Linux CPU / CUDA runtime image.
 - `compose.yaml` declares one service `jitml` with image `jitml:local`,
   bind-mounts the repository at the same absolute path inside the container that

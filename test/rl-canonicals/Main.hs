@@ -9,6 +9,7 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
+import JitML.Checkpoint.Format (decodeJmw1, encodeJmw1)
 import JitML.Proto.Rl
   ( CheckpointDoneRL (..)
   , EpisodeDone (..)
@@ -195,6 +196,9 @@ main =
       , testCase
           "MCTS visit-count target is a valid search-derived distribution (Sprint 13.9 visit targets)"
           assertMctsVisitTargets
+      , testCase
+          "trained PolicyValueNet weights round-trip through the .jmw1 checkpoint blob (Sprint 13.9)"
+          assertPolicyValueWeightsRoundTrip
       , testCase "RL command envelopes parse after render" $ do
           let start =
                 RlStart
@@ -743,6 +747,30 @@ assertPolicyValueTrainingReducesLoss = do
         <> show lossAfter
     )
     (lossAfter < lossBefore)
+
+-- | Sprint 13.9 — a trained network's weights serialize to the flat
+-- checkpoint @.jmw1@ blob and reconstruct bit-identically, so trained
+-- AlphaZero network weights persist through the checkpoint surface.
+assertPolicyValueWeightsRoundTrip :: IO ()
+assertPolicyValueWeightsRoundTrip = do
+  let net = PVN.initPolicyValueNet 43 7 16 22
+      adam = PVN.initAdamFor net
+      target = Data.Vector.Unboxed.fromList [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+      sample = PVN.PolicyValueTrainingSample initialConnect4 target 0.5
+      (trained, _) = PVN.trainPolicyValueNetOnSamples net adam 1.0e-2 5 [sample]
+      flat = PVN.policyValueNetToFlat trained
+      blob = encodeJmw1 flat
+  case decodeJmw1 blob of
+    Left err ->
+      assertBool ("decode .jmw1 failed: " <> Text.unpack err) False
+    Right flat' -> do
+      -- F64 .jmw1 round-trip is lossless.
+      flat' @?= flat
+      case PVN.loadPolicyValueNetWeights net flat' of
+        Left err ->
+          assertBool ("loadPolicyValueNetWeights failed: " <> Text.unpack err) False
+        Right loaded ->
+          PVN.pvnParams loaded @?= PVN.pvnParams trained
 
 -- | Sprint 13.9 — assert two fresh self-play generations with the
 -- same seed produce bit-identical sample counts and arena win rate.

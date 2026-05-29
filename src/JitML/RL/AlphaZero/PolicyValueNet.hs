@@ -42,6 +42,9 @@ module JitML.RL.AlphaZero.PolicyValueNet
   , mctsVisitDistribution
   , PolicyValueTrainingSample (..)
   , trainPolicyValueNetOnSamples
+  , trainPolicyValueNetOnSamplesCuda
+  , policyValueNetToFlat
+  , loadPolicyValueNetWeights
   , generatePolicyValueSamples
   , runOneGenerationOfSelfPlay
   , GenerationResult (..)
@@ -54,11 +57,15 @@ module JitML.RL.AlphaZero.PolicyValueNet
   )
 where
 
+import Control.Monad (foldM)
 import Data.List qualified
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
+import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
@@ -69,10 +76,16 @@ import JitML.Numerics.Mlp
   , adamStep
   , defaultAdamConfig
   , mlpInit
+  , mlpOutputs
+  , mlpParamsFromFlat
+  , mlpParamsToFlat
+  , paramShape
   , policyValueBackward
   , policyValueForward
+  , policyValueOutputGradient
   , sampleCategorical
   )
+import JitML.Numerics.MlpCuda (mlpBackwardCuda, policyValueForwardCuda)
 import JitML.RL.AlphaZero
   ( GameState (..)
   , applyMove
@@ -274,6 +287,66 @@ trainPolicyValueNetOnSamples net0 adam0 lr passes samples =
           (net, adam)
           samples
    in Data.List.foldl' (\(n, a) _ -> onePass (n, a)) (net0, adam0) [1 .. passes]
+
+-- | Sprint 13.8 / 13.9 — the CUDA-backed analogue of
+-- 'trainPolicyValueNetOnSamples'. The per-sample network forward and
+-- backward passes run on the GPU through the generated nvcc MLP kernels
+-- ('JitML.Numerics.MlpCuda'); the policy/value loss-gradient assembly
+-- ('policyValueOutputGradient') and the Adam update stay on the host. The
+-- algorithm, sample contract, and Adam math are identical to the pure
+-- version — only the network forward/backward backend changes. Returns
+-- 'Left' when the CUDA runtime / compile is unavailable so callers can
+-- fall back to 'trainPolicyValueNetOnSamples'.
+trainPolicyValueNetOnSamplesCuda
+  :: Env
+  -> PolicyValueNet
+  -> AdamState
+  -> Double -- learning rate
+  -> Int -- passes
+  -> [PolicyValueTrainingSample]
+  -> IO (Either Text (PolicyValueNet, AdamState))
+trainPolicyValueNetOnSamplesCuda env net0 adam0 lr passes samples =
+  foldM onePass (Right (net0, adam0)) [1 .. passes]
+ where
+  adamConfig = defaultAdamConfig {adamLearningRate = lr}
+  onePass acc _ = foldM stepSample acc samples
+  stepSample (Left e) _ = pure (Left e)
+  stepSample (Right (n, a)) trainingSample = do
+    let params = pvnParams n
+        actionCount = pvnActionCount n
+        input = encodeGameState n (sampleState trainingSample)
+        outputs = mlpOutputs (paramShape params)
+    fwdResult <- policyValueForwardCuda env params actionCount input
+    case fwdResult of
+      Left e -> pure (Left e)
+      Right pv -> do
+        let dLogits = VU.zipWith (-) (pvPolicy pv) (sampleVisitDist trainingSample)
+            dValue = pvValue pv - sampleOutcome trainingSample
+            dLdy = policyValueOutputGradient outputs pv dLogits dValue
+        gradResult <- mlpBackwardCuda env params (pvForward pv) dLdy
+        case gradResult of
+          Left e -> pure (Left e)
+          Right grad ->
+            let (newParams, newAdam) = adamStep adamConfig a params grad
+             in pure (Right (n {pvnParams = newParams}, newAdam))
+
+-- | Sprint 13.9 — serialize a trained network's parameters to the flat
+-- @Double@ list the checkpoint @.jmw1@ weight blob carries
+-- (`JitML.Checkpoint.Format.encodeJmw1`). Round-trips with
+-- 'loadPolicyValueNetWeights' so trained AlphaZero network weights persist
+-- through the checkpoint surface.
+policyValueNetToFlat :: PolicyValueNet -> [Double]
+policyValueNetToFlat = mlpParamsToFlat . pvnParams
+
+-- | Load flat checkpoint weights (decoded from a @.jmw1@ blob) into a
+-- network template, reusing the template's shape / action-count /
+-- observation-size. Fails when the flat list length does not match the
+-- template's parameter count.
+loadPolicyValueNetWeights :: PolicyValueNet -> [Double] -> Either Text PolicyValueNet
+loadPolicyValueNetWeights template flat =
+  case mlpParamsFromFlat (paramShape (pvnParams template)) flat of
+    Left err -> Left (Text.pack err)
+    Right params -> Right template {pvnParams = params}
 
 -- | Generate one self-play game using the current network as the MCTS
 -- prior. Each move runs @sims@ MCTS simulations from the current

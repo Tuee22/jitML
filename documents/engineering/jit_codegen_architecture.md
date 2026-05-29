@@ -265,6 +265,24 @@ reproducibility witness surface; see
   `/usr/local/bin/jitml` binary links against libcublas / libcudnn.
   `compose.yaml` exposes every host NVIDIA GPU to the `jitml` service via
   the modern `gpus: all` shorthand for live in-container validation.
+- **MLP forward/backward network kernels (Sprint 13.8 / 13.9).**
+  `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
+  `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`
+  (`hidden_pre`, `hidden_act = tanh hidden_pre`, `output = W2 hidden_act +
+  b2`) and `jitml_mlp_backward` (parameter gradients `gW1 / gB1 / gW2 /
+  gB2` from `dL/dy`, the forward `hidden_act`, the input, and `W2`). Each
+  device thread accumulates its own reduction sequentially (no atomics, no
+  warp-shuffle) so the result is bit-deterministic run-to-run on the same
+  device. `src/JitML/Numerics/MlpCuda.hs` is the host runner — it compiles
+  the kernel through the same `ensureKernelArtifact` JIT-cache path,
+  `dlopen`s the `.so`, marshals the flat row-major parameter buffers across
+  the FFI, and returns the same `MlpForward` / `MlpGradient` the pure
+  network produces (CUDA `float` vs host `Double`, so agreement is within a
+  single-precision tolerance). `jitml-cross-backend` validates this on the
+  RTX 3090: forward + backward match the pure network within `1e-3` and are
+  bit-equal across repeated runs. Routing the RL trainers and the AlphaZero
+  `PolicyValueNet` through these device kernels (batched) plus the cuDNN
+  deterministic-pin validation is the open Sprint 13.8 / 13.9 integration.
 
 ### `apple-silicon` — Swift + Metal
 

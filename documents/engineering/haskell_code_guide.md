@@ -118,7 +118,7 @@ Per doctrine `Architecture → Subprocesses as Typed Values`, every external
 program invocation flows through the typed `Subprocess` boundary
 (`runStreaming` / `capture` interpreters in `src/JitML/Sub/Stream.hs`):
 
-- `kubectl`, `helm`, `kind`, `docker`, `tart`, `cabal`, `pulumi`,
+- `kubectl`, `helm`, `kind`, `docker`, `tart`, `cabal`,
   `npx playwright`, `spago`, `pulsar-admin`, `mc` (MinIO CLI), `metal`,
   `nvcc`, `g++` (over oneDNN), `swift build` (inside the tart VM via
   `tart exec`), `dhall freeze`, `proto-lens-protoc`.

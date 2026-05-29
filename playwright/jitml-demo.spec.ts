@@ -11,8 +11,8 @@ import * as fs from "fs";
 // pre-cluster development inner loop and for CI environments without
 // Docker/Kind. The fully-live path is owned by the typed
 // `JitML.Test.LivePlan` orchestration that drives `helm dependency
-// build chart` + `pulumi up` + `npx playwright test` + `pulumi destroy`
-// + `pulumi stack rm`.
+// build chart` + `jitml bootstrap` (ephemeral Kind + phased Helm
+// rollout) + `npx playwright test` + `jitml cluster down`.
 
 interface ClusterPublication {
   edge_port: number;

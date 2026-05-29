@@ -19,7 +19,7 @@ import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
 import Data.List (stripPrefix)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -57,7 +57,6 @@ import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
-import JitML.Cluster.Kind (kindConfigForEdgePortNamed, renderKindConfig)
 import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
@@ -117,6 +116,7 @@ import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.SimulatorLoop qualified as SimulatorLoop
 import JitML.SL.Canonicals qualified as SL
+import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities (SubscriptionId)
@@ -136,7 +136,7 @@ import JitML.Service.Runtime qualified as ServiceRuntime
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
-import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Tart.Build qualified as TartBuild
 import JitML.Tart.Exec (tartExecSubprocess)
 import JitML.Tart.Lifecycle (VmName (..))
@@ -267,8 +267,6 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runLintPath parsedPath parsedOptions
   | parsedPath == ["internal", "materialize-substrate"] =
       runMaterializeSubstrate parsedOptions
-  | parsedPath == ["internal", "render-kind-config"] =
-      runRenderKindConfig parsedOptions
   | parsedPath == ["internal", "list-prereqs"] =
       writeText (renderPrerequisiteRegistry prerequisiteRegistry)
   | parsedPath == ["internal", "vm", "exec"] =
@@ -398,33 +396,6 @@ supportedSubstrates =
   , "linux-cpu"
   , "linux-cuda"
   ]
-
--- | `jitml internal render-kind-config --substrate <s> [--name <n>] [--edge-port <p>]`
--- emits the substrate-shaped Kind cluster YAML on stdout. Sprint 13.1 — the
--- Pulumi ephemeral path consumes this to materialize a per-stack
--- `jitml-e2e-<short-sha>` cluster config from the same renderer the substrate
--- bootstrap uses.
-runRenderKindConfig :: [ParsedOption] -> App ()
-runRenderKindConfig parsedOptions =
-  case optionValues "substrate" parsedOptions of
-    [] -> exitWithError (InvalidConfig "missing --substrate value")
-    substrateText : _ -> case parseSubstrate substrateText of
-      Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrateText))
-      Just substrate -> case parseEdgePort substrate of
-        Left err -> exitWithError (InvalidConfig err)
-        Right edgePort ->
-          let name = case optionValues "name" parsedOptions of
-                [] -> "jitml-" <> renderSubstrate substrate
-                value : _ -> value
-           in writeText (renderKindConfig (kindConfigForEdgePortNamed substrate name edgePort))
- where
-  parseEdgePort :: Substrate -> Either Text Int
-  parseEdgePort substrate =
-    case optionValues "edge-port" parsedOptions of
-      [] -> Right (substrateEdgePort substrate)
-      value : _ -> case reads (Text.unpack value) of
-        [(parsed, "")] -> Right parsed
-        _ -> Left ("invalid --edge-port: " <> value)
 
 hasOption :: Text -> [ParsedOption] -> Bool
 hasOption expected =
@@ -975,22 +946,111 @@ runTrain parsedOptions = do
       , "problem: " <> SL.problemName problem
       , "final_loss: " <> Text.pack (show (SL.finalLoss problem))
       ]
-  -- Sprint 13.4 — when this worker runs in cluster context, attempt to
-  -- fetch the canonical training dataset for the problem through
-  -- `fetchDatasetRef`. The result is logged to stderr so live validation
-  -- can observe whether the real bytes landed under
-  -- `jitml-datasets/<name>/train/data.bin`. The canonical SHAs in
-  -- `canonicalDatasets` are still synthetic fixtures; real-MNIST upload
-  -- + canonical SHA replacement is Sprint 13.4 Remaining Work.
-  attemptFetchTrainingDataset problem
+  -- Sprint 13.4 — when this worker runs in cluster context against a
+  -- dataset with canonical image + label artefacts staged in MinIO (MNIST),
+  -- fetch both blobs, gunzip, IDX-parse, and train the real differentiable
+  -- softmax classifier (`JitML.SL.Classifier`) over the bytes. The measured
+  -- train/test accuracy replaces the deterministic synthetic summary as the
+  -- published loss. Datasets without staged real bytes fall back to the
+  -- deterministic fetch-probe + synthetic summary.
+  realLoss <- attemptRealMnistTraining problem
+  case realLoss of
+    Nothing -> attemptFetchTrainingDataset problem
+    Just _ -> pure ()
   -- Sprint 13.3 — when this `jitml train` invocation is running inside a
   -- cluster-dispatched Job (live publication + JITML_EXPERIMENT_HASH
   -- exported in the daemon-rendered Job env), publish a single
   -- `EpochCompleted` event so the dispatch/event loop is observably
-  -- closed end-to-end. The current SL pipeline emits one summary loss
-  -- per problem; the envelope mirrors that summary. Sprint 13.4 widens
-  -- this to per-epoch events once the real training loop drives it.
-  publishWorkerTrainingEvent (SL.finalLoss problem)
+  -- closed end-to-end. The published loss is the live measured value when
+  -- real training ran, else the deterministic per-problem summary.
+  publishWorkerTrainingEvent (fromMaybe (SL.finalLoss problem) realLoss)
+
+-- | Sprint 13.4 — drive the real differentiable SL classifier over the
+-- canonical MNIST bytes staged in MinIO. Returns @Just loss@ (a
+-- loss-shaped scalar, @1 - accuracy@, derived from the live measurement)
+-- when real training ran, or @Nothing@ when the cluster / canonical-label
+-- bytes are absent so the caller falls back to the synthetic summary. The
+-- example count and epoch budget are capped by @JITML_SL_TRAIN_LIMIT@ /
+-- @JITML_SL_EPOCHS@ / @JITML_SL_TEST_LIMIT@ so a live run stays tractable
+-- under the pure-Haskell MLP.
+attemptRealMnistTraining :: SL.CanonicalProblem -> App (Maybe Double)
+attemptRealMnistTraining problem = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  case (cluster, Dataset.datasetForProblem problem) of
+    (Just publication, Just trainRef)
+      | hasCanonicalLabels trainRef -> do
+          let edgePort = Publication.publicationEdgePort publication
+              minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+              run :: MinIOSubprocess.MinIOSubprocess a -> App a
+              run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
+          trainLimit <- liftIO (readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000")
+          epochs <- liftIO (readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3")
+          testLimit <- liftIO (readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000")
+          imagesE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
+          labelsE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
+          case (imagesE, labelsE) of
+            (Right imgGz, Right lblGz) -> do
+              let config =
+                    Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs}
+              case Classifier.trainClassifierFromIdxBounded
+                config
+                (Just (max 1 trainLimit))
+                (Dataset.maybeGunzip imgGz)
+                (Dataset.maybeGunzip lblGz) of
+                Left err -> do
+                  writeText ("train: MNIST classifier error: " <> Text.pack err <> "\n")
+                  pure Nothing
+                Right (trained, trainAcc) -> do
+                  testAcc <- evaluateTestSplit minioSettings trainRef trained testLimit
+                  let reportedAcc = fromMaybe trainAcc testAcc
+                  writeText
+                    ( "train: MNIST trained limit="
+                        <> Text.pack (show (max 1 trainLimit))
+                        <> " epochs="
+                        <> Text.pack (show (max 1 epochs))
+                        <> " train_acc="
+                        <> Text.pack (show trainAcc)
+                        <> maybe "" (\a -> " test_acc=" <> Text.pack (show a)) testAcc
+                        <> "\n"
+                    )
+                  pure (Just (1.0 - reportedAcc))
+            _ -> do
+              writeText "train: MNIST real bytes unavailable in MinIO; using synthetic summary\n"
+              pure Nothing
+    _ -> pure Nothing
+ where
+  hasCanonicalLabels ref =
+    isJust
+      ( Dataset.canonicalArtifactSha256For
+          (Dataset.datasetName ref)
+          Dataset.TrainSplit
+          Dataset.LabelsArtifact
+      )
+
+-- | Fetch the test split images + labels and report the trained
+-- classifier's accuracy over the first @limit@ examples. Returns
+-- 'Nothing' when the test bytes are not staged.
+evaluateTestSplit
+  :: MinIOSubprocess.MinIOSettings
+  -> Dataset.DatasetRef
+  -> Classifier.TrainedClassifier
+  -> Int
+  -> App (Maybe Double)
+evaluateTestSplit minioSettings trainRef trained limit = do
+  let testRef = trainRef {Dataset.datasetSplit = Dataset.TestSplit}
+      run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
+  testImgE <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.ImagesArtifact)
+  testLblE <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.LabelsArtifact)
+  case (testImgE, testLblE) of
+    (Right tiGz, Right tlGz) ->
+      case ( Classifier.parseIdxImages (Dataset.maybeGunzip tiGz)
+           , Classifier.parseIdxLabels (Dataset.maybeGunzip tlGz)
+           ) of
+        (Right (_, images), Right labels) ->
+          let testSet = take (max 1 limit) (Classifier.zipImagesLabels images labels)
+           in pure (Just (Classifier.accuracy trained testSet))
+        _ -> pure Nothing
+    _ -> pure Nothing
 
 attemptFetchTrainingDataset :: SL.CanonicalProblem -> App ()
 attemptFetchTrainingDataset problem = do
@@ -1779,6 +1839,7 @@ runInternalUploadDataset :: [ParsedOption] -> App ()
 runInternalUploadDataset parsedOptions = do
   let name = selectedValue "name" "MNIST" parsedOptions
       splitText = selectedValue "split" "train" parsedOptions
+      artifactText = selectedValue "artifact" "images" parsedOptions
       path = Text.unpack (selectedValue "path" "" parsedOptions)
   split <- case parseDatasetSplit splitText of
     Just s -> pure s
@@ -1790,12 +1851,22 @@ runInternalUploadDataset parsedOptions = do
                 <> " (expected train/validation/test)"
             )
         )
+  artifact <- case parseDatasetArtifact artifactText of
+    Just a -> pure a
+    Nothing ->
+      exitWithError
+        ( InvalidConfig
+            ( "upload-dataset: unknown artifact "
+                <> artifactText
+                <> " (expected images/labels)"
+            )
+        )
   when (null path) $
     exitWithError
       (InvalidConfig "upload-dataset: --path is required")
   bytes <- liftIO (Data.ByteString.readFile path)
   let actualSha = hexEncodeBytes (Crypto.Hash.SHA256.hash bytes)
-      canonicalSha = Dataset.canonicalSha256For name split
+      canonicalSha = Dataset.canonicalArtifactSha256For name split artifact
   case canonicalSha of
     Nothing ->
       writeText
@@ -1803,6 +1874,8 @@ runInternalUploadDataset parsedOptions = do
             <> name
             <> "/"
             <> Dataset.datasetSplitText split
+            <> "/"
+            <> Dataset.datasetArtifactText artifact
             <> "; uploading "
             <> Text.pack (show (Data.ByteString.length bytes))
             <> " bytes with synthetic SHA verification disabled\n"
@@ -1815,6 +1888,8 @@ runInternalUploadDataset parsedOptions = do
                   <> name
                   <> "/"
                   <> Dataset.datasetSplitText split
+                  <> "/"
+                  <> Dataset.datasetArtifactText artifact
                   <> ": expected "
                   <> expected
                   <> ", got "
@@ -1842,7 +1917,7 @@ runInternalUploadDataset parsedOptions = do
           ( MinIOSubprocess.runMinIOSubprocess
               minioSettings
               ( Capabilities.putBlobBytesIfAbsent
-                  (Dataset.datasetObjectRef ref)
+                  (Dataset.datasetArtifactObjectRef ref artifact)
                   bytes
               )
           )
@@ -1853,6 +1928,8 @@ runInternalUploadDataset parsedOptions = do
                 <> name
                 <> "/"
                 <> Dataset.datasetSplitText split
+                <> "/"
+                <> Dataset.datasetArtifactText artifact
                 <> " uploaded ("
                 <> Text.pack (show (Data.ByteString.length bytes))
                 <> " bytes, sha256="
@@ -1870,6 +1947,12 @@ parseDatasetSplit "train" = Just Dataset.TrainSplit
 parseDatasetSplit "validation" = Just Dataset.ValidationSplit
 parseDatasetSplit "test" = Just Dataset.TestSplit
 parseDatasetSplit _ = Nothing
+
+parseDatasetArtifact :: Text -> Maybe Dataset.DatasetArtifact
+parseDatasetArtifact "images" = Just Dataset.ImagesArtifact
+parseDatasetArtifact "data" = Just Dataset.ImagesArtifact
+parseDatasetArtifact "labels" = Just Dataset.LabelsArtifact
+parseDatasetArtifact _ = Nothing
 
 hexEncodeBytes :: Data.ByteString.ByteString -> Text
 hexEncodeBytes =

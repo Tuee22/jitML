@@ -38,18 +38,23 @@ module JitML.RL.Algorithms.ContinuousTrainer
   , ContinuousIterationStat (..)
   , ContTransition (..)
   , trainContinuousOnPendulum
+  , trainContinuousOnPendulumCuda
   )
 where
 
+import Control.Monad.Except (ExceptT (..), runExceptT)
+import Data.Either (fromRight)
 import Data.List qualified
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
+import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
   , MlpForward (..)
+  , MlpGradient (..)
   , MlpParams (..)
   , MlpShape (..)
   , adamInit
@@ -59,6 +64,11 @@ import JitML.Numerics.Mlp
   , mlpForward
   , mlpInit
   , mlpInputGradient
+  )
+import JitML.Numerics.MlpCuda
+  ( mlpBatchGradientCuda
+  , mlpForwardBatchCuda
+  , mlpInputGradientBatchCuda
   )
 import JitML.RL.Algorithms.CrossQLoss (crossQNormalise, crossQTarget)
 import JitML.RL.Algorithms.DdpgLoss (ddpgCriticTarget)
@@ -212,6 +222,7 @@ trainContinuousOnPendulum config = do
           }
   loop
     config
+    (\nets opt batch doActor -> pure (updateStep config nets opt batch doActor))
     nets0
     opt0
     (Random.mkStdGen (ctSeed config + 1))
@@ -225,6 +236,8 @@ trainContinuousOnPendulum config = do
 
 loop
   :: ContinuousTrainConfig
+  -> (ACNets -> ACOpt -> [ContTransition] -> Bool -> IO (ACNets, ACOpt))
+  -- ^ minibatch update: nets → opt → batch → doActor → (nets', opt')
   -> ACNets
   -> ACOpt
   -> Random.StdGen
@@ -236,7 +249,7 @@ loop
   -> [Double]
   -> [ContinuousIterationStat]
   -> IO ContinuousTrainResult
-loop config nets opt gen buffer step state episodeLen episodeReturn episodes stats
+loop config update nets opt gen buffer step state episodeLen episodeReturn episodes stats
   | step >= ctNumSteps config =
       pure
         ContinuousTrainResult
@@ -279,7 +292,7 @@ loop config nets opt gen buffer step state episodeLen episodeReturn episodes sta
           then do
             let (batch, genB) = sampleBatch (ctBatchSize config) newBuffer gen2
                 doActor = (step + 1) `mod` ctPolicyDelay config == 0
-                (netsU, optU) = updateStep config nets opt batch doActor
+            (netsU, optU) <- update nets opt batch doActor
             pure (netsU, optU, genB)
           else pure (nets, opt, gen2)
       let statsNext =
@@ -303,6 +316,7 @@ loop config nets opt gen buffer step state episodeLen episodeReturn episodes sta
               else stats
       loop
         config
+        update
         netsNext
         optNext
         gen3
@@ -325,58 +339,8 @@ updateStep
   -> (ACNets, ACOpt)
 updateStep config nets opt batch doActor =
   let variant = ctVariant config
-      gamma = ctGamma config
-      -- Per-transition Bellman target.
-      targetFor trans =
-        let nObs = contNextObs trans
-            r = contReward trans
-            d = contDone trans
-            targetActorParams =
-              if usesTargetNets variant then acTargetActor nets else acActor nets
-            rawTargetAction = actorAction config targetActorParams nObs
-            -- Target-policy smoothing for TD3/SAC/TQC.
-            smoothedAction =
-              if usesTargetSmoothing variant
-                then
-                  firstOr
-                    rawTargetAction
-                    ( td3SmoothTargetActions
-                        (ctNoiseClip config)
-                        (ctActionLow config)
-                        (ctActionHigh config)
-                        [rawTargetAction]
-                        [ctTargetNoise config * smoothingNoise trans]
-                    )
-                else rawTargetAction
-            (tcA, tcB) =
-              if usesTargetNets variant
-                then (acTargetCriticA nets, acTargetCriticB nets)
-                else (acCriticA nets, acCriticB nets)
-            q1' = criticQ tcA nObs smoothedAction
-            q2' = criticQ tcB nObs smoothedAction
-            logProb' = gaussianLogProb (ctPolicyStd config) smoothedAction rawTargetAction
-            alpha = ctSacAlpha config
-         in case variant of
-              VariantDDPG ->
-                firstOr r (ddpgCriticTarget gamma [r] [d] [q1'])
-              VariantTD3 ->
-                firstOr r (td3ClippedDoubleTarget gamma [r] [d] [q1'] [q2'])
-              VariantSAC ->
-                firstOr r (sacCriticTarget gamma alpha [r] [d] [q1'] [q2'] [logProb'])
-              VariantCrossQ ->
-                let qMin = min q1' q2'
-                    qNorm = firstOr qMin (crossQNormalise 0.0 1.0 1.0e-6 [qMin])
-                 in firstOr r (crossQTarget gamma alpha [r] [d] [qNorm] [logProb'])
-              VariantTQC ->
-                let atoms =
-                      tqcTarget
-                        gamma
-                        (ctTqcDropPerCritic config)
-                        r
-                        d
-                        [[q1'], [q2']]
-                        (alpha * logProb')
-                 in if null atoms then r else sum atoms / fromIntegral (length atoms)
+      -- Per-transition Bellman target (shared with the CUDA path).
+      targetFor = bellmanTarget config nets
       -- Critic gradient step for one critic param block.
       updateCritic params adam =
         let adamCfg = defaultAdamConfig {adamLearningRate = ctCriticLr config}
@@ -445,6 +409,64 @@ updateStep config nets opt batch doActor =
           , acCriticBAdam = criticBAdamNext
           }
       )
+
+-- | Per-transition Bellman target for the critic loss. Computed from the
+-- (target) actor + (target) critics with the variant-specific target
+-- formula (DDPG / TD3 / SAC / CrossQ / TQC). Factored out of 'updateStep'
+-- so the pure CPU path and the batched CUDA path ('updateStepCuda') share
+-- the identical target math.
+bellmanTarget :: ContinuousTrainConfig -> ACNets -> ContTransition -> Double
+bellmanTarget config nets trans =
+  let variant = ctVariant config
+      gamma = ctGamma config
+      nObs = contNextObs trans
+      r = contReward trans
+      d = contDone trans
+      targetActorParams =
+        if usesTargetNets variant then acTargetActor nets else acActor nets
+      rawTargetAction = actorAction config targetActorParams nObs
+      smoothedAction =
+        if usesTargetSmoothing variant
+          then
+            firstOr
+              rawTargetAction
+              ( td3SmoothTargetActions
+                  (ctNoiseClip config)
+                  (ctActionLow config)
+                  (ctActionHigh config)
+                  [rawTargetAction]
+                  [ctTargetNoise config * smoothingNoise trans]
+              )
+          else rawTargetAction
+      (tcA, tcB) =
+        if usesTargetNets variant
+          then (acTargetCriticA nets, acTargetCriticB nets)
+          else (acCriticA nets, acCriticB nets)
+      q1' = criticQ tcA nObs smoothedAction
+      q2' = criticQ tcB nObs smoothedAction
+      logProb' = gaussianLogProb (ctPolicyStd config) smoothedAction rawTargetAction
+      alpha = ctSacAlpha config
+   in case variant of
+        VariantDDPG ->
+          firstOr r (ddpgCriticTarget gamma [r] [d] [q1'])
+        VariantTD3 ->
+          firstOr r (td3ClippedDoubleTarget gamma [r] [d] [q1'] [q2'])
+        VariantSAC ->
+          firstOr r (sacCriticTarget gamma alpha [r] [d] [q1'] [q2'] [logProb'])
+        VariantCrossQ ->
+          let qMin = min q1' q2'
+              qNorm = firstOr qMin (crossQNormalise 0.0 1.0 1.0e-6 [qMin])
+           in firstOr r (crossQTarget gamma alpha [r] [d] [qNorm] [logProb'])
+        VariantTQC ->
+          let atoms =
+                tqcTarget
+                  gamma
+                  (ctTqcDropPerCritic config)
+                  r
+                  d
+                  [[q1'], [q2']]
+                  (alpha * logProb')
+           in if null atoms then r else sum atoms / fromIntegral (length atoms)
 
 -- | Deterministic per-transition smoothing noise (no extra RNG state):
 -- a bounded pseudo-Gaussian from the transition's own observation hash,
@@ -520,3 +542,151 @@ sampleBatch n buffer gen =
             let (idx, g') = Random.uniformR (0 :: Int, bufLen - 1) g
              in pickN (k - 1) g' (buffer !! idx : acc)
    in pickN n gen []
+
+-- | Sprint 13.8 — train any continuous actor-critic variant
+-- (DDPG/TD3/SAC/CrossQ/TQC) on Pendulum with the critic + actor minibatch
+-- gradients running on the GPU through the batched device primitives. The
+-- env loop / replay / exploration are shared with the pure
+-- 'trainContinuousOnPendulum' via the parameterised 'loop'; only the
+-- gradient step ('updateStepCuda') runs on the device.
+trainContinuousOnPendulumCuda :: Env -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousOnPendulumCuda env config = do
+  let actorShape =
+        MlpShape {mlpInputs = ctObsSize config, mlpHidden = ctHidden config, mlpOutputs = 1}
+      criticShape =
+        MlpShape {mlpInputs = ctObsSize config + 1, mlpHidden = ctHidden config, mlpOutputs = 1}
+      actor0 = mlpInit actorShape (ctSeed config)
+      criticA0 = mlpInit criticShape (ctSeed config + 101)
+      criticB0 = mlpInit criticShape (ctSeed config + 202)
+      nets0 =
+        ACNets
+          { acActor = actor0
+          , acCriticA = criticA0
+          , acCriticB = criticB0
+          , acTargetActor = actor0
+          , acTargetCriticA = criticA0
+          , acTargetCriticB = criticB0
+          }
+      opt0 =
+        ACOpt
+          { acActorAdam = adamInit actorShape
+          , acCriticAAdam = adamInit criticShape
+          , acCriticBAdam = adamInit criticShape
+          }
+  loop
+    config
+    (updateStepCuda env config)
+    nets0
+    opt0
+    (Random.mkStdGen (ctSeed config + 1))
+    []
+    0
+    pendulumInitial
+    0
+    0.0
+    []
+    []
+
+-- | Device-backed minibatch actor-critic update. The critic param
+-- gradient, the actor's @dQ/da@ (the critic's input gradient), and the
+-- actor param gradient all run on the GPU through the batched primitives
+-- (`mlpForwardBatchCuda` / `mlpBatchGradientCuda` /
+-- `mlpInputGradientBatchCuda`); the Bellman target ('bellmanTarget'), the
+-- squash/chain-rule scalars, and the soft target updates are the shared
+-- pure helpers. Minibatch GD (one Adam step per batch) vs. the pure path's
+-- per-sample SGD — standard for a batched actor-critic. Falls back to the
+-- pure 'updateStep' if the CUDA runtime/compile is unavailable.
+updateStepCuda
+  :: Env
+  -> ContinuousTrainConfig
+  -> ACNets
+  -> ACOpt
+  -> [ContTransition]
+  -> Bool
+  -> IO (ACNets, ACOpt)
+updateStepCuda env config nets opt batch doActor = do
+  let variant = ctVariant config
+      targets = map (bellmanTarget config nets) batch
+      criticInputs = [criticInput (contObs t) (contAction t) | t <- batch]
+      obsList = [contObs t | t <- batch]
+      n = fromIntegral (max 1 (length batch)) :: Double
+      criticAdamCfg = defaultAdamConfig {adamLearningRate = ctCriticLr config}
+      actorAdamCfg = defaultAdamConfig {adamLearningRate = ctActorLr config}
+      scaleGradient sc g =
+        MlpGradient
+          { gradW1 = VU.map (* sc) (gradW1 g)
+          , gradB1 = VU.map (* sc) (gradB1 g)
+          , gradW2 = VU.map (* sc) (gradW2 g)
+          , gradB2 = VU.map (* sc) (gradB2 g)
+          }
+      criticGrad critic targetVals = do
+        qs <- ExceptT (mlpForwardBatchCuda env critic criticInputs)
+        let residuals = zipWith (\q tgt -> VU.head q - tgt) qs targetVals
+        summed <- ExceptT (mlpBatchGradientCuda env critic (zip criticInputs (map VU.singleton residuals)))
+        pure (scaleGradient (1.0 / n) summed)
+  deviceResult <-
+    runExceptT $ do
+      gradA <- criticGrad (acCriticA nets) targets
+      let (criticANext, criticAAdamNext) =
+            adamStep criticAdamCfg (acCriticAAdam opt) (acCriticA nets) gradA
+      (criticBNext, criticBAdamNext) <-
+        if variant == VariantDDPG
+          then pure (acCriticB nets, acCriticBAdam opt)
+          else do
+            gradB <- criticGrad (acCriticB nets) targets
+            pure (adamStep criticAdamCfg (acCriticBAdam opt) (acCriticB nets) gradB)
+      (actorNext, actorAdamNext) <-
+        if not doActor
+          then pure (acActor nets, acActorAdam opt)
+          else do
+            actorRaws <- ExceptT (mlpForwardBatchCuda env (acActor nets) obsList)
+            let raws = map VU.head actorRaws
+                actions = map (squash config) raws
+                actorCriticInputs = zipWith (criticInput . contObs) batch actions
+            -- dQ/da = action-slice of criticANext's input gradient (dL/dQ = 1).
+            dQdInputs <-
+              ExceptT
+                ( mlpInputGradientBatchCuda
+                    env
+                    criticANext
+                    [(ci, VU.singleton 1.0) | ci <- actorCriticInputs]
+                )
+            let dQdActions = map (VU.! ctObsSize config) dQdInputs
+                dLdRaws =
+                  zipWith
+                    ( \dQda raw ->
+                        negate (dQda * (ctActionHigh config * (1.0 - tanhRaw raw * tanhRaw raw)))
+                    )
+                    dQdActions
+                    raws
+            summed <- ExceptT (mlpBatchGradientCuda env (acActor nets) (zip obsList (map VU.singleton dLdRaws)))
+            pure (adamStep actorAdamCfg (acActorAdam opt) (acActor nets) (scaleGradient (1.0 / n) summed))
+      let tau = ctTau config
+          (tActor, tCriticA, tCriticB)
+            | usesTargetNets variant && doActor =
+                ( softUpdate tau actorNext (acTargetActor nets)
+                , softUpdate tau criticANext (acTargetCriticA nets)
+                , softUpdate tau criticBNext (acTargetCriticB nets)
+                )
+            | usesTargetNets variant =
+                ( acTargetActor nets
+                , softUpdate tau criticANext (acTargetCriticA nets)
+                , softUpdate tau criticBNext (acTargetCriticB nets)
+                )
+            | otherwise = (acTargetActor nets, acTargetCriticA nets, acTargetCriticB nets)
+      pure
+        ( ACNets
+            { acActor = actorNext
+            , acCriticA = criticANext
+            , acCriticB = criticBNext
+            , acTargetActor = tActor
+            , acTargetCriticA = tCriticA
+            , acTargetCriticB = tCriticB
+            }
+        , ACOpt
+            { acActorAdam = actorAdamNext
+            , acCriticAAdam = criticAAdamNext
+            , acCriticBAdam = criticBAdamNext
+            }
+        )
+  pure (fromRight (updateStep config nets opt batch doActor) deviceResult)

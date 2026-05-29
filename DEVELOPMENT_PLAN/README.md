@@ -255,8 +255,8 @@ spin-up path through `kindCreateSubprocess` that creates/exports Kind's
 kubeconfig through an in-container temporary file before copying it to
 `./.build/jitml.kubeconfig` without polluting `~/.kube/config`, the
 post-teardown `no jitml-e2e-* Kind clusters survive` assertion in
-`jitml-e2e` when `kind` is installed, the typed Pulumi ephemeral-Kind
-orchestrator under `infra/pulumi/index.ts`, the typed Tune resume
+`jitml-e2e` when `kind` is installed, the typed `JitML.Test.LivePlan`
+ephemeral-Kind live-plan surface, the typed Tune resume
 surface (`JitML.Tune.Resume.{persistTrialTranscript,replaySweep}`)
 round-tripping through filesystem-backed `HasMinIO`, the TbSidecar
 writer and dispatcher
@@ -306,7 +306,7 @@ same date through `JitML.Engines.TuningBenchmark.cudaBenchmarkCandidateRunner`
 routing through `JitML.Engines.CudaLocal.runCudaKernel`. After the 2026-05-24 refactor, every remaining live-runtime obligation
 (provisioned Apple Tart VM validation, Metal FFI loading, Metal candidate
 runner, first-cache-miss benchmark invocation, live training-to-convergence
-on real hardware, live training/inference service-client effects, Pulumi/
+on real hardware, live training/inference service-client effects,
 Helm/Playwright e2e, populated live report card) is owned by Phases
 `13` (Linux CUDA + Kind cluster + browser session), `14` (Apple Silicon),
 or `15` (cross-substrate parity + handoff). The code-only remaining work
@@ -388,7 +388,7 @@ re-scoped sprint's `### Remaining Work` block per
 | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) | Phase 9: RL algorithm catalog, AlphaZero self-play, hyperparameter tuning |
 | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) | Phase 10: Split-blob checkpoint format, manifest, inference-only read path |
 | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) | Phase 11: PureScript shell, generated browser contracts, demo shim, Playwright scaffold |
-| [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Eight Cabal test stanzas, lint matrix, Pulumi metadata scaffold, report-card knobs |
+| [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Eight Cabal test stanzas, lint matrix, typed live-plan surface, report-card knobs |
 | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) | Phase 13: Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure (one Linux/NVIDIA session) |
 | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) | Phase 14: Apple Silicon Tart VM, Metal FFI, host↔cluster RPC, Metal candidate runner, Apple Metal production weight loading (one Apple session) |
 | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Cross-substrate parity fixtures, populated live `jitml test all` report card, empty legacy ledger |
@@ -656,12 +656,8 @@ rather than synthetic seed iteration: each trial picks a real
 a real JSON parameters payload, and publishes `TuneTrialStarted`
 + `TuneTrialFinished` events with the actual selected combo.
 
-The 2026-05-26 / 2026-05-27 sessions also landed Sprint `13.1`'s
-ephemeral cluster name parameterization
-(`JitML.Cluster.Kind.kindConfigForNamed`,
-`kindConfigForEdgePortNamed`, new `jitml internal render-kind-config`
-CLI command, Pulumi `infra/pulumi/index.ts` renders the per-stack
-config to `./.build/<cluster>-kind.yaml`), Sprint `13.3`'s worker-side
+The 2026-05-26 / 2026-05-27 sessions also landed Sprint `13.3`'s
+worker-side
 event publication (`publishWorkerTrainingEvent` /
 `publishWorkerRlEvent` / `publishWorkerTuneEvent` in `JitML.App`
 publish completion envelopes to `training.event.<substrate>` /
@@ -842,12 +838,64 @@ from it:
   `training.event.linux-cuda` (the broker → bridge → client round-trip),
   with the demo `/` + 236 KB IIFE bundle served through the Envoy edge.
 
+The 2026-05-28 session (continued) advanced the two largest open Sprint
+families with real, GPU-validated work — without fabricating closure
+(13.8 / 13.9 stay 🔄 Active):
+
+- **Sprint 13.4 — `jitml train` over real MNIST (code-surface, host-validated).**
+  Added the MNIST label artefact surface (`DatasetArtifact`, `labels.bin`
+  key, canonical label SHAs, `--artifact images|labels` on
+  `jitml internal upload-dataset`), transparent gzip
+  (`JitML.SL.Dataset.maybeGunzip`), and `JitML.App.attemptRealMnistTraining`
+  wiring `jitml train` to fetch + gunzip + IDX-parse + train
+  `JitML.SL.Classifier` over the MinIO bytes (budget-capped). The four
+  canonical MNIST SHAs were verified against the live CVDF-mirror
+  downloads. Only the operationally-heavy live full-MNIST convergence run
+  remains.
+- **Sprints 13.8 / 13.9 — nvcc forward/backward MLP kernels + device
+  training (GPU-validated).** `JitML.Codegen.MlpCuda` +
+  `JitML.Numerics.MlpCuda` emit and run the MLP forward/backward passes as
+  real CUDA kernels behind the `JitML.Numerics.Mlp` interface, and the
+  AlphaZero network is now wired to them:
+  `PolicyValueNet.trainPolicyValueNetOnSamplesCuda` runs the per-sample
+  forward + backward on the GPU (host Adam), with `Mlp` refactored to share
+  the policy/value head math between the pure and device paths
+  (behavior-preserving). `cabal test jitml-cross-backend
+  --test-options='-p linux-cuda'` reports **9 / 9 pass** on the RTX 3090:
+  the MLP forward/backward match the pure network within `1e-3` and are
+  bit-deterministic, and 80 device gradient passes reduce the AlphaZero
+  policy/value loss. The "emit-the-kernels" item is done and the device
+  training-step integration is proven; what remains is adopting the device
+  step in the 14 RL trainers' batched hot path + the cuDNN deterministic
+  pin + the live cohort/generation drives.
+
+A `jitml bootstrap --linux-cuda` this session initially stalled at the
+`harbor-pg` step on a Docker Hub `429` anonymous-pull rate limit (past the
+helm `--wait` deadline). Applying the workaround — pre-pull all ~19
+docker.io images on the host (not rate-limited) and `kind load` them into
+the node — a fresh bootstrap then **completed the full 113-step rollout**:
+all 9 helm releases deployed, `gateway/jitml-edge` `PROGRAMMED=True`, 0
+non-running pods, with this session's code baked into the rebuilt image.
+(One fix was needed first: the new `--artifact` CLI option drifted the
+tracked-generated CLI artifacts, failing the image's `jitml check-code`;
+`jitml docs generate` regenerated them and `check-code` passed. An earlier
+`manifest unknown` claim about the MinIO client tag was a mis-paired
+pre-pull and is corrected — the chart tags pull fine.) Against the live
+cluster: **Sprint 13.4 live MNIST trained to `test_acc=0.9318`** (train
+0.9905; 10k×10-epoch budget, 5k test) through `jitml train` over
+MinIO-staged real MNIST — a real converging live SL run — and **Sprint
+13.6 live PPO** ran via the rebuilt binary (`avg-reward: 141.2` over a
+short 25-iteration cohort).
+
 The remaining open items across the still-Active sprints are: the
-per-cohort statistical convergence runs (13.6, operationally heavy), the
-`pulumi up` ephemeral wrapper (13.1 / 13.14, blocked on pulumi not being
-in `jitml:local`), real-MNIST training + convergence (13.4,
-operational), and the explicitly-deferred multi-week CUDA/oneDNN
-backward-kernel codegen (13.8 / 13.9).
+*formalised* live SL statistical-convergence assertion in
+`jitml-sl-canonicals` (13.4; the live SL E2E itself is now demonstrated at
+93% test acc), the per-cohort statistical convergence runs across all 13
+RL cohorts (13.6, operationally heavy), and adopting the now-validated
+device training step (`mlpForwardCuda` / `mlpBackwardCuda`, GPU-validated;
+already wired into the AlphaZero `PolicyValueNet`) in the RL trainers'
+batched hot path + the cuDNN deterministic pin + the live AlphaZero
+generation drive (13.8 / 13.9).
 
 The pre-2026-05-28 host suites were: `jitml-unit` (172),
 `jitml-sl-canonicals` (9), `jitml-rl-canonicals` (23),
@@ -967,11 +1015,11 @@ RTX 3090 cluster):
   7/7 against the live `jitml-demo` Envoy edge** with each panel
   mounting from the real bundle. The live `/api/ws` broker-frame
   round-trip (demo `serveDemoWithBridge` wiring + in-cluster
-  broker endpoint) and the Pulumi-orchestrated wrapper remain.
-- **13.1 render surface**: `jitml internal render-kind-config
-  --name jitml-e2e-<sha>` validated live; the `pulumi up`
-  round-trip is environment-blocked (pulumi absent in
-  `jitml:local`, kind absent on host).
+  broker endpoint) was validated 2026-05-28, closing Sprint 13.13.
+- **13.1 ephemeral rollout**: the `jitml bootstrap` phased Helm
+  rollout + `jitml cluster down` teardown is the ephemeral-cluster
+  e2e orchestration (recorded typed in
+  `JitML.Test.LivePlan.liveE2EPlan`); Sprint 13.1 closed 2026-05-28.
 
 The remaining open work in 13.8/13.9 is
 infrastructure: CUDA-emitted backward kernels (multi-week — the
@@ -980,7 +1028,7 @@ meantime per
 [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md))
 and continuous-action env support for the actor-critic
 off-policy algorithms. The remaining unmet obligations against the Exit Definition are:
-the explicit Pulumi-orchestrated ephemeral Kind e2e path
+the explicit ephemeral Kind e2e path
 for Exit 3; Apple Silicon Metal kernel compile/load/execute and the live
 Metal candidate measurement runner (owned by Phase `14`); real SL / RL /
 AlphaZero training loops with statistical convergence assertions and
@@ -988,7 +1036,7 @@ run-to-run reward determinism (no committed reward fixtures per
 [README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets)),
 plus live tuner trial execution / persistence beyond the local TPE
 Dhall render path (Exit 6); the live `/api/ws` WebSocket proxy (Phase
-`13` Sprint `13.13`); the live `jitml-e2e` Pulumi + Helm + Playwright
+`13` Sprint `13.13`); the live `jitml-e2e` Helm + Playwright
 path against an ephemeral Kind stack (Exit 8, 9); and the empty legacy
 ledger that closes after the remaining runtime gates and toolchain
 cleanup close (Exit 18). Each gap is logged in the owning sprint's
@@ -1071,7 +1119,7 @@ checkpoint write/read paths; the PureScript
 scaffold with six panel payload modules under `web/src/Panels/`, the
 generated contracts, and the full typed local demo route manifest; the `jitml-demo` HTTP server; the Playwright
 canonical panel matrix at `playwright/jitml-demo.spec.ts`; the typed
-ephemeral-Kind Pulumi orchestrator at `infra/pulumi/index.ts`; and the
+ephemeral-Kind live plan in `JitML.Test.LivePlan`; and the
 eight Cabal test-suite stanzas with deterministic bodies that
 `jitml test all` invokes through the typed `Subprocess` boundary.
 
@@ -1181,8 +1229,8 @@ This plan is complete only when all of the following are true:
    `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
    `jitml-e2e`) with the report-card knobs pinned in `cabal.project`; style and
    code-quality are separate `jitml lint *` / `jitml check-code` commands; the
-   `jitml-e2e` stanza orchestrates an ephemeral Kind stack via the
-   `infra/pulumi/` TypeScript program.
+   `jitml-e2e` stanza orchestrates an ephemeral Kind stack via
+   `jitml bootstrap` + the typed `JitML.Test.LivePlan` live plan.
 10. The toolchain is pinned at GHC `9.14.1` and Cabal `3.16.1.0`. `jitml.cabal`
     declares `tested-with: ghc ==9.14.1` and `cabal.project` declares
     `with-compiler: ghc-9.14.1`.

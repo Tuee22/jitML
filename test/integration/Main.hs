@@ -38,8 +38,6 @@ import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Cluster.Kind
   ( kindConfigFor
-  , kindConfigForEdgePortNamed
-  , kindConfigForNamed
   , renderKindConfig
   )
 import JitML.Cluster.PostgresRegistry qualified as PostgresRegistry
@@ -53,6 +51,7 @@ import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.Schema qualified as Numerics
+import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
 
 import JitML.Observability.TbSidecar qualified as TbSidecar
@@ -145,24 +144,6 @@ main =
           assertBool
             "the single node has the repo build mount"
             (length (Text.breakOnAll "containerPath: /jitml/.build" cpuConfig) == 1)
-      , testCase "kind config name is overridable for Pulumi ephemeral path (Sprint 13.1)" $ do
-          let named = renderKindConfig (kindConfigForNamed LinuxCUDA "jitml-e2e-abc123")
-              edgeOverride = renderKindConfig (kindConfigForEdgePortNamed LinuxCPU "jitml-e2e-xyz789" 30099)
-          assertBool
-            "named CUDA config emits the override name in the `name:` line"
-            ("name: jitml-e2e-abc123" `Text.isInfixOf` named)
-          assertBool
-            "named CUDA config still carries the NVIDIA containerd patches"
-            ("runtimes.nvidia" `Text.isInfixOf` named)
-          assertBool
-            "named CUDA config still mounts the host driver root"
-            ("containerPath: /run/nvidia/driver" `Text.isInfixOf` named)
-          assertBool
-            "edge-port override is honoured for the ephemeral cluster"
-            ("hostPort: 30099" `Text.isInfixOf` edgeOverride)
-          assertBool
-            "edge-port override carries the override name"
-            ("name: jitml-e2e-xyz789" `Text.isInfixOf` edgeOverride)
       , testCase "linux-cuda Kind config wires NVIDIA runtime handler (Sprint 4.7)" $ do
           let cudaConfig = renderKindConfig (kindConfigFor LinuxCUDA)
           assertBool
@@ -2660,6 +2641,62 @@ main =
                           (BucketName "jitml-checkpoints")
                           (ObjectKey ("jitml-checkpoints/" <> experimentHash <> "/selfplay/" <> contentHash <> ".cbor"))
                       )
+                  pure ()
+          , testCase
+              "live AlphaZero generation drive: self-play + training, then .jmw1 weight checkpoint round-trips through live MinIO (Sprint 13.9)"
+              $ do
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    settings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+                uniqueSuffix <- pickRandomSuffix
+                -- Run one real generation: self-play sample generation +
+                -- gradient training + an arena evaluation against the uniform
+                -- opponent. Small knobs keep it to a few seconds on the live
+                -- cluster while exercising the production generation loop.
+                let net0 = PVN.initPolicyValueNet 43 7 16 29
+                    adam0 = PVN.initAdamFor net0
+                    generation = PVN.runOneGenerationOfSelfPlay net0 adam0 2 6 4 4 4 31
+                    trainedFlat = PVN.policyValueNetToFlat (PVN.genNet generation)
+                    experimentHash = "live-azgen-" <> uniqueSuffix
+                    objectKey = Checkpoint.blobKey experimentHash "azgen-weights"
+                    weightRef = CheckpointStore.checkpointObjectRef objectKey
+                    blob = ByteString.Lazy.toStrict (Checkpoint.encodeJmw1 trainedFlat)
+                assertBool
+                  "generation produced self-play training samples"
+                  (PVN.genSamplesCount generation > 0)
+                assertBool
+                  "arena win rate is a probability in [0, 1]"
+                  ( PVN.genArenaWinRate generation >= 0.0
+                      && PVN.genArenaWinRate generation <= 1.0
+                  )
+                MinIOSubprocess.runMinIOSubprocess settings $ do
+                  writeResult <- putBlobBytesIfAbsent weightRef blob
+                  liftIO $ case writeResult of
+                    Right _ -> pure ()
+                    Left err ->
+                      assertFailure
+                        ("live AlphaZero weight checkpoint write failed: " <> show err)
+                  readResult <- minioReadBytes weightRef
+                  liftIO $ case readResult of
+                    Left err ->
+                      assertFailure
+                        ("live AlphaZero weight checkpoint read failed: " <> show err)
+                    Right bytes ->
+                      case Checkpoint.decodeJmw1 (ByteString.Lazy.fromStrict bytes) of
+                        Left err ->
+                          assertFailure
+                            ("decode .jmw1 from live MinIO failed: " <> Text.unpack err)
+                        Right reloadedFlat -> do
+                          -- The trained weights survive the live MinIO
+                          -- round-trip bit-for-bit and reload into the network.
+                          reloadedFlat @?= trainedFlat
+                          case PVN.loadPolicyValueNetWeights net0 reloadedFlat of
+                            Left err ->
+                              assertFailure
+                                ("loadPolicyValueNetWeights failed: " <> Text.unpack err)
+                            Right loaded ->
+                              PVN.policyValueNetToFlat loaded @?= trainedFlat
+                  _ <- deleteObject weightRef
                   pure ()
           ]
       ]
