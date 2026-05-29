@@ -205,7 +205,7 @@ A reconciler that finds a missing prerequisite fails with exit code `2` (system 
 
 # Cluster topology and Kind
 
-Per-substrate Kind configs at `./kind/cluster-<substrate>.yaml`. Every substrate uses a single-node Kind cluster: one `control-plane` node and no separate `worker` node. Apple Silicon and Linux CPU use that node without substrate-specific labels. Linux CUDA labels the same single node `jitml.runtime/gpu=true` so the NVIDIA runtime class binds there.
+Per-substrate Kind configs at `./kind/cluster-<substrate>.yaml`. Every substrate uses a single-node Kind cluster: one `control-plane` node and no separate `worker` node. Apple Silicon and Linux CPU use that node without substrate-specific labels. Linux CUDA labels the same single node `jitml.runtime/gpu=true` so the NVIDIA runtime class binds there. After `kind create`, the bootstrap reconciler caps that node container's memory and CPU (`docker update --memory/--memory-swap/--cpus`) from the typed `dhall/cluster/` resource profile, so the whole-cluster footprint is bounded and a runaway rollout cannot exhaust the host.
 
 The edge port (Envoy listener) is selected starting at 9090 and incremented until available; recorded as the `edge_port` field of `./.build/runtime/cluster-publication.json` (the single file bootstrap writes; see [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) for its other fields) and reported by `jitml cluster status`. NodePort 30090 is the in-cluster service for the edge gateway.
 
@@ -295,6 +295,8 @@ Naming convention is uniform: **`<k8s-namespace>/<StatefulSet-name>/pv_<replica-
 ```
 
 Corresponding PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookkeeper-pv-1`, etc.; StatefulSet PVs are bound to the per-replica PVC (e.g. `data-minio-0`, `journal-pulsar-bookkeeper-1`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
+
+On the single-node local Kind stack the platform is bounded by a typed Dhall cluster-resource profile (`dhall/cluster/`): the kind node container is memory/CPU capped after creation (so an over-budget cluster OOM-kills its own pods inside the node cgroup rather than taking down the host), the heavy subcharts are right-sized (MinIO `4→1–2`, Pulsar `3→1`, service Postgres `3→1`) with per-pod CPU/memory requests+limits, and a `cluster.host-memory` preflight refuses to bootstrap when host RAM is below the cap. The example layout above reflects the unbounded upstream default; the right-sized local layout has correspondingly fewer PVs.
 
 ## `jitml-service` Deployment, not StatefulSet
 
@@ -910,6 +912,7 @@ Per doctrine §Application Environment and §Long-Running Daemons for the `Reade
 
 - **`BootConfig`** (immutable post-launch): listening port, MinIO endpoint, Pulsar broker URL, Harbor registry, kubeconfig path, drain deadline.
 - **`LiveConfig`** (hot-reloadable via SIGHUP): log level, request-timeout budgets, retry-policy values from [Retry policy](#retry-policy), inference batching/SLO knobs, and per-domain Pulsar dedup cache size/TTL.
+- **`RunConfig`** (per dispatched worker Job): the train/tune/rl run parameters (seed, epochs, batch size, max steps, eval episodes, sampler/scheduler/pruner, trial budgets, SL caps) are handed to worker Jobs as a typed Dhall `RunConfig` decoded through the same `loadBootConfig`-style path — not as `JITML_*` environment variables; worker Jobs mount the service ConfigMap to read `BootConfig` for substrate/Pulsar wiring, and the experiment hash is a CLI argument.
 
 `Env` additionally carries the structured logger, metrics handle, shutdown signal, and explicit test hooks (e.g., a `clock` field so determinism tests can fix time). The lifecycle is exercised by the [`jitml-daemon-lifecycle`](#test-suite-stanzas) test stanza.
 

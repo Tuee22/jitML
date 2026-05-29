@@ -704,9 +704,9 @@ code and AlphaZero with real network priors, then the live frontend
 WebSocket proxy and Playwright. Cross-substrate parity that consumes
 CUDA outputs lives in Phase `15`.
 
-## Sprint 13.1: Ephemeral Kind + Helm Rollout ✅
+## Sprint 13.1: Ephemeral Kind + Helm Rollout 🔄
 
-**Status**: Done (closed 2026-05-28)
+**Status**: Active (reopened 2026-05-29 for live closure of the resource guardrails)
 **Implementation**: `src/JitML/Test/LivePlan.hs`,
 `src/JitML/Bootstrap.hs`, `src/JitML/Cluster/Helm.hs`,
 `src/JitML/Cluster/PulsarBootstrap.hs`, `src/JitML/App.hs`
@@ -852,7 +852,45 @@ deleted the cluster with no orphan container or `jitml-*` Docker volume.
 
 ### Remaining Work
 
-- None remaining for Sprint 13.1. Sprint closed 2026-05-28.
+- **Live closure of the 2026-05-29 resource guardrails (reopened Phases `2` / `3`
+  / `4`).** Re-exercise `jitml bootstrap --<substrate>` with the kind-node cap
+  (Phase `2` Sprint `2.8`) applied: confirm `docker inspect -f
+  '{{.HostConfig.Memory}}' jitml-<substrate>-control-plane` reports the cap; the
+  right-sized stack (Phase `4` Sprint `4.8` limits/replicas; Phase `3` Sprint `3.2`
+  PV layout) reaches all components Ready with no `OOMKilled` loops and `free -h`
+  stays within budget; a forced over-budget cluster OOM-kills pods inside the node
+  cgroup while the host stays up; and the typed-Haskell reconciler steps (Phase `2`
+  Sprint `2.9`) converge as the prior `sh -c` loops did.
+
+  **Live verification (2026-05-29):** a fresh
+  `docker compose run --rm jitml cabal run -v0 jitml -- bootstrap --linux-cpu`
+  was executed against the worktree's new code:
+  - Sprint `2.9` typed `kindCreateSubprocess` brought up
+    `jitml-linux-cpu-control-plane`; `docker inspect` confirmed the Sprint `2.8`
+    node cap fired automatically (`Memory=10737418240` bytes / `NanoCPUs=6000000000`
+    — i.e. 10 GiB + 6 cores), applied by the reconciler from the
+    `dhall/cluster/resources.dhall` profile.
+  - The Sprint `2.9` helm-dependency-build filter
+    (`filterHelmDepBuildWhenArchivesPresent`) skipped the helm step when all
+    subchart `.tgz` archives were already present in `chart/charts/`.
+  - Sprint `4.8` right-sized MinIO, Postgres operator + cluster, and the full
+    Harbor stack reached `Running` under the cap; `free -h` reported
+    `4.5 Gi used / 10 Gi available` — the cluster fits well under the 10 GiB cap.
+  - Sprint `2.9` typed `postgresSchemaGrantIO` succeeded (Harbor reached Ready,
+    which requires the harbor schema grant).
+  - Sprint `4.8` typed `runMinioBucketReadinessIO` succeeded (Harbor's registry
+    bucket existed in MinIO before Harbor installed).
+  - The host stayed healthy throughout (no OOM, no slowdown).
+  Bootstrap completed `18` typed rollout steps before failing on the mirror
+  build (`docker build -t jitml:local -f ./docker/Dockerfile .` runs
+  `cabal build -fcuda`, which is unrelated to the Phase 2 / 3 / 4 / 5 worktree
+  changes — the `-fcuda` build path errors in this container's Docker context
+  and predates the reopened-phase work). The 17 typed reconciler / IO steps
+  that succeeded live cover the host-safety + right-sizing + sh -c→Haskell
+  obligations end-to-end on a live cluster. End-to-end Pulsar topic-create IO
+  (Sprint 4.8), `jitml-service` + `jitml-demo` deploy + Playwright (Sprints
+  13.3+ / 13.13+), and the daemon-dispatch round-trip with `RunConfig` (Sprint
+  5.7) remain pending the mirror-build / image-refresh fix.
 
 ## Sprint 13.2: Live Capability Class Validation (MinIO + Pulsar + Harbor) ✅
 
@@ -981,9 +1019,9 @@ Full Live cohort: 12/12 in 12.53s.
 
 - None remaining for Sprint 13.2. Sprint closed 2026-05-26.
 
-## Sprint 13.3: Daemon Training/RL/Tune Handlers on Live Broker ✅
+## Sprint 13.3: Daemon Training/RL/Tune Handlers on Live Broker 🔄
 
-**Status**: Done (closed 2026-05-27)
+**Status**: Active (reopened 2026-05-29 for live dispatch with typed Dhall `RunConfig`)
 **Blocked by**: Sprint `13.2`
 **Implementation**: `src/JitML/Service/Runtime.hs`,
 `src/JitML/Service/Consumer.hs`,
@@ -1154,7 +1192,11 @@ deploy/jitml-service`.
 
 ### Remaining Work
 
-- None remaining for Sprint 13.3. Sprint closed 2026-05-27.
+- **Live dispatch with the typed Dhall `RunConfig` (reopened Phase `5` Sprint
+  `5.7`).** Re-validate `renderTrainingJob` / `renderRlJob` / `renderTuneJob`
+  dispatch with the `JITML_*` run-parameter env IPC removed: the worker decodes
+  `RunConfig` + `BootConfig` from mounted/loaded Dhall and produces the same live
+  event envelopes on the substrate-scoped topics.
 
 ## Sprint 13.4: Live SL Training E2E with Real Datasets 🔄
 
@@ -1327,6 +1369,10 @@ MNIST bytes; only the operationally-heavy live convergence run remains.
 
 ### Remaining Work
 
+- **Run params from typed Dhall `RunConfig` (reopened Phase `5` Sprint `5.7`).**
+  The SL caps formerly read from `JITML_SL_TRAIN_LIMIT` / `JITML_SL_EPOCHS` /
+  `JITML_SL_TEST_LIMIT` move into the typed `RunConfig`; the live SL run validates
+  with no `JITML_*` env on the Job.
 - **Live statistical-convergence assertion — landed; one live run to
   green it.** The in-code literature threshold table
   (`JitML.SL.ConvergenceThresholds` — per-problem `slLiteratureTarget` /
@@ -2218,6 +2264,10 @@ kernels behind the same `JitML.Numerics.Mlp` interface:
 
 ### Remaining Work
 
+- **Run params from typed Dhall `RunConfig` (reopened Phase `5` Sprint `5.7`).**
+  The RL params formerly read from `JITML_ENVIRONMENT` / `JITML_SEED` /
+  `JITML_MAX_STEPS` / `JITML_EVAL_EPISODES` / `JITML_RL_TRAINER` move into the typed
+  `RunConfig`; the live RL run validates with no `JITML_*` env on the Job.
 - **CUDA training-step integration proven (2026-05-28); RL-trainer
   adoption + cuDNN pin remain.** The device-backed training step is now
   wired and GPU-validated end-to-end for the AlphaZero network:
@@ -2614,9 +2664,9 @@ than the network's-own-policy proxy. Validated by `jitml-rl-canonicals`
   (both round-trips now in place / live-validated individually) is the
   remaining Sprint 13.9 item.
 
-## Sprint 13.10: Live Tuning Sweep with MinIO Trial Persistence ✅
+## Sprint 13.10: Live Tuning Sweep with MinIO Trial Persistence 🔄
 
-**Status**: Done (closed 2026-05-27)
+**Status**: Active (reopened 2026-05-29 for live dispatch with typed Dhall `RunConfig`)
 **Blocked by**: Sprint `13.3`
 **Implementation**: `src/JitML/Tune/Catalog.hs`, `src/JitML/Tune/Resume.hs`,
 `test/hyperparameter/Main.hs`, `test/integration/Main.hs`
@@ -2737,7 +2787,10 @@ cluster.
 
 ### Remaining Work
 
-- None remaining for Sprint 13.10. Sprint closed 2026-05-27.
+- **Run params from typed Dhall `RunConfig` (reopened Phase `5` Sprint `5.7`).**
+  The tuning params formerly read from `JITML_TRIAL_BUDGET` / `JITML_SWEEP_SEED`
+  move into the typed `RunConfig`; the live sweep validates with no `JITML_*` env on
+  the Job.
 
 ## Sprint 13.11: CUDA and Linux CPU Production Weight Loading ✅
 

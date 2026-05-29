@@ -69,9 +69,12 @@ fetches `jitml-datasets/MNIST/{train,test}/{data,labels}.bin`, gunzips
 (`JitML.SL.Dataset.maybeGunzip`), IDX-parses, and trains the real
 differentiable softmax classifier (`JitML.SL.Classifier`, on the
 `JitML.Numerics.Mlp` seam) over the bytes — example count / epochs / test
-size capped by `JITML_SL_TRAIN_LIMIT` / `JITML_SL_EPOCHS` /
-`JITML_SL_TEST_LIMIT` so a live run stays tractable under the pure-Haskell
-MLP. The measured `train_acc` / `test_acc` are reported and the published
+size capped by the typed Dhall `RunConfig` so a live run stays tractable under
+the pure-Haskell MLP. The worker decodes these caps from Dhall, not environment
+variables: Phase `5` Sprint `5.7` retires the former `JITML_SL_TRAIN_LIMIT` /
+`JITML_SL_EPOCHS` / `JITML_SL_TEST_LIMIT` env IPC in favour of the typed
+`RunConfig` per the `Application Environment` doctrine (see
+[Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29)). The measured `train_acc` / `test_acc` are reported and the published
 `EpochCompleted` loss becomes the live measurement. Image + label blobs are
 staged via `jitml internal upload-dataset --name MNIST --split <split>
 --artifact {images,labels} --path <gz>`, SHA-verified against

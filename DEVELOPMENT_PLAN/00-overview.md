@@ -804,8 +804,26 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0`, `1`, `2`, `3`, `4`, `5`, and `6` are `✅ Done` — every Exit-Definition
-obligation those phases own is met. Sprint `1.4` closes the
+Phases `0`, `1`, and `6` are `✅ Done` — every Exit-Definition obligation those
+phases own is met. Phases `2`, `3`, `4`, and `5` previously closed (the closure
+history below remains accurate) but **reopened to `🔄 Active` on 2026-05-29** to
+schedule four workstreams hardening the cluster against host exhaustion and
+aligning run configuration and subprocess control-flow with project doctrine: the
+Dhall `dhall/cluster/` resource profile + kind-node memory/CPU cap + the
+`cluster.host-memory` preflight (Phase `2`), the right-sized manual-PV layout
+(Phase `3`), the per-pod resource limits (Phase `4`), and the typed Dhall
+`RunConfig` + BootConfig-mounted worker dispatch that retires the `JITML_*`
+run-parameter environment-variable IPC (Phase `5`); the reconciler `sh -c`
+control-flow also moves to typed Haskell with `RetryPolicy` (Phases `2`/`4`). The
+originating incident is the 2026-05-29 cluster OOM storm that froze the host. The
+changes implement already-in-scope doctrine (`Application Environment`,
+`Subprocesses as Typed Values`, `Retry Policy as First-Class Values`), so
+[Doctrine Scope](#doctrine-scope) is unchanged. The live exercise of every
+reopened-phase obligation is owned by Phase `13`; the doctrine-deviation removals
+are tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). See
+[README.md → Reopened phases (2026-05-29)](README.md#reopened-phases-2026-05-29).
+Sprint `1.4` closes the
 container-exclusive Haskell style/code-quality rule: the mandatory
 `jitml:local` image build installs the separate style-tools GHC, builds pinned
 Fourmolu / HLint binaries, runs `jitml check-code`, and host lint/check-code

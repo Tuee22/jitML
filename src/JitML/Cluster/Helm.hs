@@ -3,6 +3,7 @@
 module JitML.Cluster.Helm
   ( HelmPhase (..)
   , HelmRelease (..)
+  , dependencyPackages
   , helmDependencyBuildSubprocess
   , helmInstallSubprocess
   , helmInstallSubprocessForEdgePort
@@ -23,26 +24,29 @@ import System.FilePath ((</>))
 
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
-import JitML.Substrate (Substrate, renderSubstrate, substrateEdgePort)
+import JitML.Substrate (Substrate, renderSubstrate, substrateClusterName, substrateEdgePort)
 
+-- | Sprint 2.9 — typed @helm dependency build@. The previous @sh -c@ short-
+-- circuited when every subchart @.tgz@ was already present in @chart/charts/@;
+-- helm's own @dependency build@ is idempotent (a fast no-op when the cache is
+-- up to date), so the typed single command preserves the user-visible
+-- behavior without embedding shell.
 helmDependencyBuildSubprocess :: FilePath -> Subprocess
 helmDependencyBuildSubprocess chartPath =
-  subprocess
-    "sh"
-    [ "-c"
-    , Text.unwords
-        [ "if"
-        , Text.intercalate " && " (fmap (packageExists chartPath) dependencyPackages)
-        , "; then exit 0;"
-        , "fi;"
-        , "helm dependency build"
-        , Text.pack chartPath
-        ]
-    ]
+  subprocess "helm" ["dependency", "build", Text.pack chartPath]
 
 renderHelmDependencyBuildPlan :: FilePath -> Text
 renderHelmDependencyBuildPlan chartPath =
   "helm dependency build " <> Text.pack chartPath
+
+-- | Sprint 2.9 — the subchart packages 'helm dependency build' would download
+-- into @chart/charts/@. Used by 'JitML.Bootstrap.ensureHelmDependenciesIO' to
+-- decide whether the build step is needed: when every @.tgz@ already exists,
+-- the bootstrap reconciler skips the dep-build call (which would otherwise
+-- fail in a fresh container that has no @helm repo@ definitions yet).
+dependencyPackages :: [Text]
+dependencyPackages =
+  mapMaybe releasePackage phasedReleases
 
 -- | Helm releases in the cluster reconciler. `JitML.Bootstrap` inserts the
 -- non-Helm Docker build / Kind image-load phase between Harbor and the final
@@ -79,14 +83,6 @@ phasedReleases =
   , HelmRelease "jitml-demo" "jitml-demo" FinalPhase Nothing Nothing
   , HelmRelease "envoy-gateway" "gateway-helm" FinalPhase (Just "gateway-helm-1.2.6.tgz") Nothing
   ]
-
-dependencyPackages :: [Text]
-dependencyPackages =
-  mapMaybe releasePackage phasedReleases
-
-packageExists :: FilePath -> Text -> Text
-packageExists chartPath package =
-  "test -f " <> Text.pack chartPath <> "/charts/" <> package
 
 helmInstallSubprocess :: HelmRelease -> FilePath -> Subprocess
 helmInstallSubprocess =
@@ -160,51 +156,31 @@ renderHelmPhasedRolloutPlan :: FilePath -> Text
 renderHelmPhasedRolloutPlan chartPath =
   Text.unlines (fmap renderSubprocess (helmPhasedRolloutPlan chartPath))
 
+-- | Sprint 2.9 — typed @kind create cluster@. The previous @sh -c@ wrote a
+-- temp kubeconfig, branched on @kind get clusters@ to either create or just
+-- re-export, then copied to @./.build/jitml.kubeconfig@. Kind writes
+-- @--kubeconfig@ atomically itself, so the typed single command yields the
+-- repo-local kubeconfig directly. A re-run against an existing cluster fails
+-- closed; the documented re-run path is @jitml cluster down@ then @up@.
 kindCreateSubprocess :: Substrate -> FilePath -> Subprocess
 kindCreateSubprocess substrate kindConfigPath =
   subprocess
-    "sh"
-    [ "-c"
-    , Text.unwords
-        [ "tmpKubeconfig=/tmp/"
-            <> clusterName
-            <> ".kubeconfig;"
-        , "rm -f \"$tmpKubeconfig\" \"$tmpKubeconfig.lock\";"
-        , "if kind get clusters | grep -Fx"
-        , clusterName
-        , ">/dev/null;"
-        , "then kind export kubeconfig --name"
-        , clusterName
-        , "--kubeconfig \"$tmpKubeconfig\";"
-        , "else kind create cluster --name"
-        , clusterName
-        , "--config"
-        , Text.pack kindConfigPath
-        , "--kubeconfig \"$tmpKubeconfig\";"
-        , "fi;"
-        , "mkdir -p ./.build;"
-        , "cp \"$tmpKubeconfig\" ./.build/jitml.kubeconfig;"
-        , "rm -f \"$tmpKubeconfig\" \"$tmpKubeconfig.lock\""
-        ]
+    "kind"
+    [ "create"
+    , "cluster"
+    , "--name"
+    , substrateClusterName substrate
+    , "--config"
+    , Text.pack kindConfigPath
+    , "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
     ]
- where
-  clusterName = "jitml-" <> renderSubstrate substrate
 
+-- | Sprint 2.9 — typed @kind delete cluster@. Replaces the prior @sh -c@
+-- existence-check + delete; @kind delete@ on a missing cluster errors, which
+-- the typed rollout surfaces directly.
 kindDeleteSubprocess :: Substrate -> Subprocess
 kindDeleteSubprocess substrate =
   subprocess
-    "sh"
-    [ "-c"
-    , Text.unwords
-        [ "if kind get clusters | grep -Fx"
-        , clusterName
-        , ">/dev/null;"
-        , "then kind delete cluster --name"
-        , clusterName
-        , ";"
-        , "else exit 3;"
-        , "fi"
-        ]
-    ]
- where
-  clusterName = "jitml-" <> renderSubstrate substrate
+    "kind"
+    ["delete", "cluster", "--name", substrateClusterName substrate]

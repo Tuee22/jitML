@@ -61,6 +61,7 @@ library
         JitML.Cluster.Publication
         JitML.Cluster.PulsarBootstrap
         JitML.Cluster.Readiness
+        JitML.Cluster.Resources
         JitML.Cluster.Storage
         JitML.Docs.Check
         JitML.Docs.Generate
@@ -191,6 +192,7 @@ library
         JitML.Service.MinIOSubprocess
         JitML.Service.PulsarWebSocketSubprocess
         JitML.Service.Retry
+        JitML.Service.RunConfig
         JitML.Service.Runtime
         JitML.Service.Signal
         JitML.Service.WebSocket

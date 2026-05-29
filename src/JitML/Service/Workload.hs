@@ -85,6 +85,14 @@ import JitML.Service.Capabilities
   )
 import JitML.Service.Consumer (EventDomain (..))
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Service.RunConfig
+  ( RlRunConfig (..)
+  , TrainingRunConfig (..)
+  , TuneRunConfig (..)
+  , renderRlRunConfigDhall
+  , renderTrainingRunConfigDhall
+  , renderTuneRunConfigDhall
+  )
 import JitML.Substrate (Substrate, renderSubstrate)
 
 data WorkloadEffect
@@ -370,39 +378,81 @@ runInferenceRequestWithWeightedInference runInference request = do
               }
         )
 
+-- | Sprint 5.7 — render a typed 'TrainingRunConfig' from a 'StartTraining'
+-- envelope. SL caps are left absent here: the worker uses sensible defaults
+-- when the RunConfig leaves them as @None@.
+trainingRunConfigFor :: StartTraining -> TrainingRunConfig
+trainingRunConfigFor start =
+  TrainingRunConfig
+    { trcExperimentHash = stExperimentHash start
+    , trcSubstrate = renderSubstrateText (stSubstrate start)
+    , trcSeed = fromIntegral (stSeed start)
+    , trcEpochs = fromIntegral (stEpochs start)
+    , trcBatchSize = fromIntegral (stBatchSize start)
+    , trcPulsarWsUrl = inClusterPulsarWsUrl
+    , trcSlTrainLimit = Nothing
+    , trcSlEpochs = Nothing
+    , trcSlTestLimit = Nothing
+    }
+
+tuneRunConfigFor :: StartSweep -> TuneRunConfig
+tuneRunConfigFor start =
+  TuneRunConfig
+    { turcExperimentHash = ssExperimentHash start
+    , turcSubstrate = renderSubstrateText (ssSubstrate start)
+    , turcSweepSeed = fromIntegral (ssSweepSeed start)
+    , turcTrialBudget = fromIntegral (ssTrialBudget start)
+    , turcBudgetPerTrial = fromIntegral (ssBudgetPerTrial start)
+    , turcSampler = ssSampler start
+    , turcScheduler = ssScheduler start
+    , turcPruner = ssPruner start
+    , turcPulsarWsUrl = inClusterPulsarWsUrl
+    }
+
+rlRunConfigFor :: StartRLRun -> RlRunConfig
+rlRunConfigFor start =
+  RlRunConfig
+    { rlcExperimentHash = srlExperimentHash start
+    , rlcAlgorithm = srlAlgorithm start
+    , rlcEnvironment = srlEnvironment start
+    , rlcSubstrate = renderSubstrateText (srlSubstrate start)
+    , rlcSeed = fromIntegral (srlSeed start)
+    , rlcMaxSteps = fromIntegral (srlMaxSteps start)
+    , rlcEvalEpisodes = fromIntegral (srlEvalEpisodes start)
+    , rlcTrainerKind = rlTrainerForAlgorithm (srlAlgorithm start)
+    , rlcPulsarWsUrl = inClusterPulsarWsUrl
+    }
+
 renderTrainingJob :: StartTraining -> Text
 renderTrainingJob start =
-  renderJob
+  renderJobWithRunConfig
     "training"
     (workloadName "jitml-train" (stExperimentHash start))
     ["train", stDhallObjectKey start]
-    [ ("JITML_EXPERIMENT_HASH", stExperimentHash start)
-    , ("JITML_SUBSTRATE", renderSubstrateText (stSubstrate start))
-    , ("JITML_SEED", Text.pack (show (stSeed start)))
-    , ("JITML_EPOCHS", Text.pack (show (stEpochs start)))
-    , ("JITML_BATCH_SIZE", Text.pack (show (stBatchSize start)))
-    , ("JITML_PULSAR_WS", inClusterPulsarWsUrl)
-    ]
+    (renderTrainingRunConfigDhall (trainingRunConfigFor start))
 
 renderTuneJob :: StartSweep -> Text
 renderTuneJob start =
-  renderJob
+  renderJobWithRunConfig
     "tune"
     (workloadName "jitml-tune" (ssExperimentHash start))
     ["tune", ssDhallObjectKey start]
-    [ ("JITML_EXPERIMENT_HASH", ssExperimentHash start)
-    , ("JITML_SUBSTRATE", renderSubstrateText (ssSubstrate start))
-    , ("JITML_SWEEP_SEED", Text.pack (show (ssSweepSeed start)))
-    , ("JITML_TRIAL_BUDGET", Text.pack (show (ssTrialBudget start)))
-    , ("JITML_BUDGET_PER_TRIAL", Text.pack (show (ssBudgetPerTrial start)))
-    , ("JITML_SAMPLER", ssSampler start)
-    , ("JITML_SCHEDULER", ssScheduler start)
-    , ("JITML_PRUNER", ssPruner start)
-    , ("JITML_PULSAR_WS", inClusterPulsarWsUrl)
-    ]
+    (renderTuneRunConfigDhall (tuneRunConfigFor start))
 
 renderRlJob :: StartRLRun -> Text
 renderRlJob start =
+  renderJobWithRunConfig
+    "rl"
+    (workloadName "jitml-rl" (srlExperimentHash start))
+    ["rl", "train", srlExperimentHash start]
+    (renderRlRunConfigDhall (rlRunConfigFor start))
+
+-- | Sprint 5.7 — kept for the alternate code path that still wants an
+-- env-driven Job manifest (no current callers). The daemon path now uses
+-- 'renderJobWithRunConfig'. Retained as the simple Job renderer so the
+-- typed JSON envelope path can fall back to it if needed.
+_renderRlJobLegacyEnv :: StartRLRun -> Text
+_renderRlJobLegacyEnv start =
   renderJob
     "rl"
     (workloadName "jitml-rl" (srlExperimentHash start))
@@ -486,6 +536,71 @@ renderEnvVar (name, value) =
   [ "            - name: " <> name
   , "              value: " <> yamlString value
   ]
+
+-- | Sprint 5.7 — render two YAML documents: a per-run ConfigMap containing
+-- @RunConfig.dhall@, and a Job whose pod mounts both that ConfigMap (at
+-- @/etc/jitml/run/@) and the shared @jitml-service-config@ ConfigMap (at
+-- @/etc/jitml/service/@). The Job's container takes no @JITML_*@ environment
+-- variables; the worker reads typed Dhall instead.
+renderJobWithRunConfig :: Text -> Text -> [Text] -> Text -> Text
+renderJobWithRunConfig component jobName args runConfigDhall =
+  let configMapName = "runconfig-" <> jobName
+   in renderRunConfigConfigMap configMapName runConfigDhall
+        <> "---\n"
+        <> renderJobMountedRunConfig component jobName configMapName args
+
+renderRunConfigConfigMap :: Text -> Text -> Text
+renderRunConfigConfigMap name dhall =
+  Text.unlines
+    [ "apiVersion: v1"
+    , "kind: ConfigMap"
+    , "metadata:"
+    , "  name: " <> name
+    , "  namespace: platform"
+    , "data:"
+    , "  RunConfig.dhall: |"
+    ]
+    <> indentDhallBlock dhall
+
+indentDhallBlock :: Text -> Text
+indentDhallBlock dhall =
+  Text.unlines (fmap ("    " <>) (Text.lines dhall))
+
+renderJobMountedRunConfig :: Text -> Text -> Text -> [Text] -> Text
+renderJobMountedRunConfig component jobName configMapName args =
+  Text.unlines $
+    [ "apiVersion: batch/v1"
+    , "kind: Job"
+    , "metadata:"
+    , "  name: " <> jobName
+    , "  labels:"
+    , "    app.kubernetes.io/name: jitml"
+    , "    app.kubernetes.io/component: " <> component
+    , "spec:"
+    , "  template:"
+    , "    spec:"
+    , "      restartPolicy: Never"
+    , "      containers:"
+    , "        - name: " <> component
+    , "          image: jitml:local"
+    , "          command:"
+    , "            - " <> yamlString "jitml"
+    , "          args:"
+    ]
+      <> fmap (("            - " <>) . yamlString) args
+      <> [ "          volumeMounts:"
+         , "            - name: jitml-run-config"
+         , "              mountPath: /etc/jitml/run"
+         , "            - name: jitml-service-config"
+         , "              mountPath: /etc/jitml/service"
+         , "      volumes:"
+         , "        - name: jitml-run-config"
+         , "          configMap:"
+         , "            name: " <> configMapName
+         , "        - name: jitml-service-config"
+         , "          configMap:"
+         , "            name: jitml-service-config"
+         ]
 
 workloadName :: Text -> Text -> Text
 workloadName prefix experimentHash =

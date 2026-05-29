@@ -30,7 +30,8 @@ import JitML.Cluster.DockerImage
 import JitML.Cluster.EdgePort qualified as EdgePort
 import JitML.Cluster.Gateway (renderEnvoyProxy, renderGateway, renderGatewayClass)
 import JitML.Cluster.Helm
-  ( helmDependencyBuildSubprocess
+  ( dependencyPackages
+  , helmDependencyBuildSubprocess
   , helmInstallSubprocessForEdgePort
   , kindCreateSubprocess
   , phasedReleases
@@ -48,9 +49,16 @@ import JitML.Cluster.Publication
   , defaultPublication
   , publicationWithLeasedPort
   )
-import JitML.Cluster.PulsarBootstrap (pulsarTopicCreateSubprocesses)
-import JitML.Cluster.Readiness (platformReadinessSubprocesses)
+import JitML.Cluster.PulsarBootstrap (runPulsarTopicCreatesIO)
+import JitML.Cluster.Readiness (platformReadinessSubprocesses, runMinioBucketReadinessIO)
 import JitML.Cluster.Readiness qualified as Readiness
+import JitML.Cluster.Resources
+  ( ClusterResources
+  , clusterNodeCapSubprocess
+  , defaultClusterResources
+  , loadClusterResourcesOrDefault
+  , renderClusterResourcesDhall
+  )
 import JitML.Cluster.Storage
   ( ManualPV (..)
   , manualPVs
@@ -70,7 +78,13 @@ import JitML.Service.ConfigMap (renderServiceConfigMap, renderServiceDeployment,
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
-import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
+import JitML.Sub.Subprocess
+  ( Subprocess
+  , subprocess
+  , subprocessArguments
+  , subprocessPath
+  , subprocessWithStdin
+  )
 import JitML.Substrate (Substrate (..), renderSubstrate, substrateEdgePort)
 
 bootstrapPlanSteps :: Substrate -> [Text]
@@ -120,9 +134,13 @@ materializeBootstrapFiles root substrate = do
   legacyValuesChanged <- removeFileIfExists (chartTemplatesRoot </> "minio-values.yaml")
   standaloneValuesChanged <- removeFileIfExists (chartRoot </> "minio-values.yaml")
   let clusterBoot = defaultBootConfig substrate Cluster
+  clusterResources <- loadClusterResourcesOrDefault root
   configResults <-
     sequence
       [ writeTextFileIfChanged
+          (clusterConfRoot </> "Resources.dhall")
+          (renderClusterResourcesDhall clusterResources)
+      , writeTextFileIfChanged
           (clusterConfRoot </> Text.unpack (renderSubstrate substrate) <> ".dhall")
           (renderBootConfigDhall clusterBoot)
       , writeTextFileIfChanged
@@ -183,11 +201,18 @@ data LiveExecutionResult = LiveExecutionResult
 
 livePhasedRolloutSubprocesses :: Substrate -> FilePath -> [Subprocess]
 livePhasedRolloutSubprocesses substrate =
-  livePhasedRolloutSubprocessesForPort substrate (substrateEdgePort substrate)
+  livePhasedRolloutSubprocessesForPort substrate (substrateEdgePort substrate) defaultClusterResources
 
-livePhasedRolloutSubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
-livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
+-- | Sprint 2.9 — the rollout splits in two around the postgres schema grant:
+-- the pre-grant phase brings the operator + cluster up through readiness, then
+-- the typed Haskell schema grant runs (replacing the former @sh -c@ that used
+-- @$(kubectl ...)@ command substitution), then the post-grant phase continues
+-- with Harbor through Pulsar topics. Each half is still a typed @[Subprocess]@
+-- so the LivePlan/integration dry-run rendering is unchanged.
+livePreGrantSubprocessesForPort :: Substrate -> Int -> ClusterResources -> FilePath -> [Subprocess]
+livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
   [ kindCreateSubprocess substrate kindConfigPath
+  , clusterNodeCapSubprocess substrate resources
   , helmDependencyBuildSubprocess chartPath
   ]
     <> foundationManifestApplySubprocesses chartPath
@@ -196,29 +221,23 @@ livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
     <> concatMap releaseSteps postgresOperatorReleases
     <> postgresClusterApplySubprocesses
     <> Readiness.postgresReadinessSubprocesses
-    <> postgresSchemaGrantSubprocesses
-    <> concatMap releaseSteps harborApplicationReleases
+ where
+  kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
+  releaseSteps release = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
+  postgresOperatorReleases = filter ((== "harbor-pg") . releaseName) phasedReleases
+  minioBootstrapReleases = filter ((== "minio") . releaseName) phasedReleases
+
+livePostGrantSubprocessesForPort :: Substrate -> Int -> FilePath -> [Subprocess]
+livePostGrantSubprocessesForPort substrate edgePort chartPath =
+  concatMap releaseSteps harborApplicationReleases
     <> mirrorBuildSteps substrate
     <> concatMap releaseSteps remainingReleases
     <> observabilityManifestApplySubprocesses chartPath
     <> platformReadinessSubprocesses
     <> edgeManifestApplySubprocesses chartPath
-    <> pulsarTopicCreateSubprocesses
  where
-  kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
-
-  releaseSteps release =
-    [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
-
-  postgresOperatorReleases =
-    filter ((== "harbor-pg") . releaseName) phasedReleases
-
-  minioBootstrapReleases =
-    filter ((== "minio") . releaseName) phasedReleases
-
-  harborApplicationReleases =
-    filter ((== "harbor") . releaseName) phasedReleases
-
+  releaseSteps release = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
+  harborApplicationReleases = filter ((== "harbor") . releaseName) phasedReleases
   remainingReleases =
     filter
       ( \release ->
@@ -227,6 +246,12 @@ livePhasedRolloutSubprocessesForPort substrate edgePort chartPath =
             && releaseName release /= "minio"
       )
       phasedReleases
+
+livePhasedRolloutSubprocessesForPort
+  :: Substrate -> Int -> ClusterResources -> FilePath -> [Subprocess]
+livePhasedRolloutSubprocessesForPort substrate edgePort resources chartPath =
+  livePreGrantSubprocessesForPort substrate edgePort resources chartPath
+    <> livePostGrantSubprocessesForPort substrate edgePort chartPath
 
 -- | The same Dockerfile produces both `jitml` and `jitml-demo`
 -- binaries inside a single image, so build `jitml:local` once and
@@ -292,10 +317,6 @@ postgresClusterApplySubprocesses :: [Subprocess]
 postgresClusterApplySubprocesses =
   fmap postgresClusterApplySubprocess postgresRegistry
 
-postgresSchemaGrantSubprocesses :: [Subprocess]
-postgresSchemaGrantSubprocesses =
-  fmap postgresSchemaGrantSubprocess postgresRegistry
-
 postgresClusterApplySubprocess :: PerconaPGCluster -> Subprocess
 postgresClusterApplySubprocess cluster =
   subprocessWithStdin
@@ -310,28 +331,80 @@ postgresClusterApplySubprocess cluster =
     ]
     (renderPerconaPGCluster cluster)
 
-postgresSchemaGrantSubprocess :: PerconaPGCluster -> Subprocess
-postgresSchemaGrantSubprocess cluster =
-  subprocess
-    "sh"
-    [ "-c"
-    , Text.concat
-        [ "primary=$(kubectl --kubeconfig ./.build/jitml.kubeconfig get pod -n "
-        , perconaNamespace cluster
-        , " -l postgres-operator.crunchydata.com/cluster="
-        , perconaClusterName cluster
-        , ",postgres-operator.crunchydata.com/role=master -o jsonpath='{.items[0].metadata.name}'); "
-        , "kubectl --kubeconfig ./.build/jitml.kubeconfig exec -n "
-        , perconaNamespace cluster
-        , " \"$primary\" -c database -- psql -d "
-        , perconaDatabase cluster
-        , " -c \"GRANT ALL ON SCHEMA public TO "
-        , perconaDatabase cluster
-        , "; ALTER SCHEMA public OWNER TO "
-        , perconaDatabase cluster
-        , ";\""
-        ]
-    ]
+-- | Sprint 2.9 — typed Haskell postgres schema grant. Replaces the prior @sh
+-- -c@ that captured the primary pod name via @$(kubectl ... jsonpath)@ and
+-- then exec'd @psql -c \"GRANT ...\"@. Two typed @kubectl@ subprocesses; the
+-- pod-name capture happens in Haskell via @runStreaming@'s stdout result.
+postgresSchemaGrantIO :: PerconaPGCluster -> IO (Either Text ())
+postgresSchemaGrantIO cluster = do
+  let ns = perconaNamespace cluster
+      cn = perconaClusterName cluster
+      db = perconaDatabase cluster
+      getPodSub =
+        subprocess
+          "kubectl"
+          [ "--kubeconfig"
+          , "./.build/jitml.kubeconfig"
+          , "get"
+          , "pod"
+          , "-n"
+          , ns
+          , "-l"
+          , "postgres-operator.crunchydata.com/cluster="
+              <> cn
+              <> ",postgres-operator.crunchydata.com/role=master"
+          , "-o"
+          , "jsonpath={.items[0].metadata.name}"
+          ]
+  (getCode, getStdout, getStderr) <- runStreaming defaultSubprocessEnv getPodSub
+  case getCode of
+    ExitFailure _ ->
+      pure (Left ("postgres get-primary " <> cn <> ": " <> getStderr))
+    ExitSuccess ->
+      let podName = Text.strip getStdout
+       in if Text.null podName
+            then pure (Left ("postgres get-primary " <> cn <> ": empty pod name"))
+            else do
+              let psqlSub =
+                    subprocess
+                      "kubectl"
+                      [ "--kubeconfig"
+                      , "./.build/jitml.kubeconfig"
+                      , "exec"
+                      , "-n"
+                      , ns
+                      , podName
+                      , "-c"
+                      , "database"
+                      , "--"
+                      , "psql"
+                      , "-d"
+                      , db
+                      , "-c"
+                      , "GRANT ALL ON SCHEMA public TO "
+                          <> db
+                          <> "; ALTER SCHEMA public OWNER TO "
+                          <> db
+                          <> ";"
+                      ]
+              (psqlCode, _, psqlStderr) <- runStreaming defaultSubprocessEnv psqlSub
+              case psqlCode of
+                ExitSuccess -> pure (Right ())
+                ExitFailure _ ->
+                  pure (Left ("postgres schema grant " <> cn <> ": " <> psqlStderr))
+
+-- | Run all postgres schema grants in registry order, returning the first
+-- failure as @Left@. Equivalent to the former @postgresSchemaGrantSubprocesses@
+-- list except that command-substitution lives in Haskell, not @sh -c@.
+runPostgresSchemaGrantsIO :: IO (Either Text ())
+runPostgresSchemaGrantsIO = go postgresRegistry
+ where
+  go [] = pure (Right ())
+  go (cluster : rest) = do
+    result <- postgresSchemaGrantIO cluster
+    case result of
+      Left err -> pure (Left err)
+      Right () -> go rest
 
 pvManifestName :: ManualPV -> FilePath
 pvManifestName pv =
@@ -366,37 +439,116 @@ hostBootConfigForPublication publication =
 -- handling explicit plan/dry-run output.
 liveExecutePhasedRollout :: Substrate -> FilePath -> IO LiveExecutionResult
 liveExecutePhasedRollout substrate chartPath = do
+  resources <- loadClusterResourcesOrDefault "."
   lease <- selectLiveLease substrate
   let publication = publicationWithLeasedPort lease (defaultPublication substrate)
+      port = EdgePort.leasedPort lease
   patchLiveMaterialization substrate lease publication
-  runSteps
-    publication
-    []
-    []
-    (livePhasedRolloutSubprocessesForPort substrate (EdgePort.leasedPort lease) chartPath)
+  -- Sprint 2.9: skip `helm dependency build` when every subchart `.tgz` is
+  -- already present in `chart/charts/` (the previous `sh -c` did this in
+  -- shell). The typed subprocess is still in the rendered plan for
+  -- visibility; this filter only affects live execution.
+  preGrantSubs <-
+    filterHelmDepBuildWhenArchivesPresent
+      chartPath
+      (livePreGrantSubprocessesForPort substrate port resources chartPath)
+  (preExecuted, preFailure) <- runStepList preGrantSubs
+  case preFailure of
+    Just (renderedFail, stderrTxt) ->
+      pure $
+        LiveExecutionResult
+          { liveStepsExecuted = preExecuted
+          , liveStepsFailed = [(renderedFail, stderrTxt)]
+          , livePublication = publication
+          }
+    Nothing -> do
+      bucketsOutcome <- runMinioBucketReadinessIO
+      let bucketsLabel = "minio bucket readiness"
+      case bucketsOutcome of
+        Left err ->
+          pure $
+            LiveExecutionResult
+              { liveStepsExecuted = preExecuted <> [bucketsLabel]
+              , liveStepsFailed = [(bucketsLabel, err)]
+              , livePublication = publication
+              }
+        Right () -> do
+          grantOutcome <- runPostgresSchemaGrantsIO
+          let grantLabel = "postgres schema grant"
+          case grantOutcome of
+            Left err ->
+              pure $
+                LiveExecutionResult
+                  { liveStepsExecuted = preExecuted <> [bucketsLabel, grantLabel]
+                  , liveStepsFailed = [(grantLabel, err)]
+                  , livePublication = publication
+                  }
+            Right () -> do
+              (postExecuted, postFailure) <-
+                runStepList (livePostGrantSubprocessesForPort substrate port chartPath)
+              let prePostExecuted = preExecuted <> [bucketsLabel, grantLabel] <> postExecuted
+              case postFailure of
+                Just (renderedFail, stderrTxt) ->
+                  pure $
+                    LiveExecutionResult
+                      { liveStepsExecuted = prePostExecuted
+                      , liveStepsFailed = [(renderedFail, stderrTxt)]
+                      , livePublication = publication
+                      }
+                Nothing -> do
+                  topicsOutcome <- runPulsarTopicCreatesIO
+                  let topicsLabel = "pulsar topic create"
+                      allExecuted = prePostExecuted <> [topicsLabel]
+                  case topicsOutcome of
+                    Left err ->
+                      pure $
+                        LiveExecutionResult
+                          { liveStepsExecuted = allExecuted
+                          , liveStepsFailed = [(topicsLabel, err)]
+                          , livePublication = publication
+                          }
+                    Right () -> do
+                      measuredPublication <- measureLivePublication publication
+                      _ <- writeLivePublication "." measuredPublication
+                      pure $
+                        LiveExecutionResult
+                          { liveStepsExecuted = allExecuted
+                          , liveStepsFailed = []
+                          , livePublication = measuredPublication
+                          }
  where
-  runSteps :: ClusterPublication -> [Text] -> [(Text, Text)] -> [Subprocess] -> IO LiveExecutionResult
-  runSteps publication executed failed [] = do
-    measuredPublication <- measureLivePublication publication
-    _ <- writeLivePublication "." measuredPublication
-    pure
-      LiveExecutionResult
-        { liveStepsExecuted = reverse executed
-        , liveStepsFailed = reverse failed
-        , livePublication = measuredPublication
-        }
-  runSteps publication executed failed (subprocessValue : rest) = do
-    let rendered = renderSubprocess subprocessValue
-    (exitCode, _stdout, stderrText) <- runStreaming defaultSubprocessEnv subprocessValue
-    case exitCode of
-      ExitSuccess -> runSteps publication (rendered : executed) failed rest
-      ExitFailure _ ->
-        pure
-          LiveExecutionResult
-            { liveStepsExecuted = reverse (rendered : executed)
-            , liveStepsFailed = reverse ((rendered, stderrText) : failed)
-            , livePublication = publication
-            }
+  runStepList :: [Subprocess] -> IO ([Text], Maybe (Text, Text))
+  runStepList = go []
+   where
+    go executed [] = pure (reverse executed, Nothing)
+    go executed (subprocessValue : rest) = do
+      let rendered = renderSubprocess subprocessValue
+      (exitCode, _stdout, stderrText) <- runStreaming defaultSubprocessEnv subprocessValue
+      case exitCode of
+        ExitSuccess -> go (rendered : executed) rest
+        ExitFailure _ ->
+          pure (reverse (rendered : executed), Just (rendered, stderrText))
+
+-- | Sprint 2.9 — replaces the original @sh -c "if test -f ...; then exit 0;
+-- else helm dependency build ...; fi"@ heuristic with a typed Haskell
+-- existence check. When every subchart @.tgz@ Helm would download is already
+-- present in @chart/charts/@, the helm-dependency-build subprocess is filtered
+-- out of the live rollout (it would otherwise fail in a fresh container that
+-- has no @helm repo@ definitions). The rendered plan is unchanged so the
+-- LivePlan and unit tests still observe the typed subprocess.
+filterHelmDepBuildWhenArchivesPresent :: FilePath -> [Subprocess] -> IO [Subprocess]
+filterHelmDepBuildWhenArchivesPresent chartPath subs = do
+  let archivePaths =
+        fmap (\pkg -> chartPath </> "charts" </> Text.unpack pkg) dependencyPackages
+  present <- traverse doesFileExist archivePaths
+  pure $
+    if and present
+      then filter (not . isHelmDepBuild) subs
+      else subs
+ where
+  isHelmDepBuild s =
+    subprocessPath s == "helm"
+      && take 2 (subprocessArguments s) == ["dependency", "build"]
 
 selectLiveLease :: Substrate -> IO EdgePort.EdgePortLease
 selectLiveLease substrate = do

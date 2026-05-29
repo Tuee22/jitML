@@ -132,6 +132,7 @@ import JitML.Service.Consumer
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.Retry (ServiceError)
+import JitML.Service.RunConfig qualified as RunConfig
 import JitML.Service.Runtime qualified as ServiceRuntime
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
@@ -983,9 +984,21 @@ attemptRealMnistTraining problem = do
               minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
               run :: MinIOSubprocess.MinIOSubprocess a -> App a
               run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
-          trainLimit <- liftIO (readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000")
-          epochs <- liftIO (readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3")
-          testLimit <- liftIO (readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000")
+          -- Sprint 5.7 — prefer the typed Dhall `TrainingRunConfig` mount; fall
+          -- back to the legacy env vars when no mount is present.
+          runConfigMaybe <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
+          (trainLimit, epochs, testLimit) <- case runConfigMaybe of
+            Just rc ->
+              pure
+                ( fromMaybe 2000 (RunConfig.trcSlTrainLimit rc)
+                , fromMaybe 3 (RunConfig.trcSlEpochs rc)
+                , fromMaybe 1000 (RunConfig.trcSlTestLimit rc)
+                )
+            Nothing -> liftIO $ do
+              tl <- readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000"
+              ep <- readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3"
+              tt <- readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000"
+              pure (tl, ep, tt)
           imagesE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
           labelsE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
           case (imagesE, labelsE) of
@@ -1095,15 +1108,27 @@ attemptFetchTrainingDataset problem = do
 workerBrokerTarget
   :: App (Maybe (Substrate, PulsarWebSocketSubprocess.PulsarWebSocketSettings))
 workerBrokerTarget = do
+  -- Sprint 5.7 — prefer the typed Dhall config the daemon mounts on the worker
+  -- pod: substrate + Pulsar wiring travel as `BootConfig.dhall` (substrate) and
+  -- the per-run `RunConfig.dhall` (Pulsar WebSocket URL), retiring the
+  -- `JITML_SUBSTRATE` / `JITML_PULSAR_WS` env vars. Falls back to env + the
+  -- leased host-edge publication for developer-side local invocations.
+  bootMaybe <- liftIO (tryLoadBootConfigFromFile serviceBootConfigPath)
+  mountedWs <- liftIO mountedWsFromRunConfig
   pulsarWsEnv <- liftIO (lookupEnv "JITML_PULSAR_WS")
   substrateEnv <- liftIO (lookupEnv "JITML_SUBSTRATE")
   cluster <- liftIO (readExistingLivePublication ".")
+  let mountedSubstrate = fmap BootConfig.bootSubstrate bootMaybe
+      envSubstrate = substrateEnv >>= (parseSubstrate . Text.pack)
+      envWs = fmap Text.pack (pulsarWsEnv >>= nonEmptyString)
+      wsUrl = mountedWs `orElse` envWs
+      substrate = mountedSubstrate `orElse` envSubstrate
   pure $
-    case (pulsarWsEnv >>= nonEmptyString, substrateEnv >>= (parseSubstrate . Text.pack)) of
-      (Just wsUrl, Just substrate) ->
+    case (wsUrl, substrate) of
+      (Just url, Just sub) ->
         Just
-          ( substrate
-          , PulsarWebSocketSubprocess.pulsarSettingsForEndpoint (Text.pack wsUrl)
+          ( sub
+          , PulsarWebSocketSubprocess.pulsarSettingsForEndpoint url
           )
       _ -> case cluster of
         Just publication ->
@@ -1115,6 +1140,36 @@ workerBrokerTarget = do
         Nothing -> Nothing
  where
   nonEmptyString s = if null s then Nothing else Just s
+  orElse :: Maybe a -> Maybe a -> Maybe a
+  orElse first second = case first of
+    Just _ -> first
+    Nothing -> second
+  -- Try each RunConfig variant in turn; pick the first that has a pulsarWsUrl.
+  mountedWsFromRunConfig :: IO (Maybe Text)
+  mountedWsFromRunConfig = do
+    rl <- RunConfig.tryLoadRlRunConfig runConfigPath
+    case rl of
+      Just rc -> pure (Just (RunConfig.rlcPulsarWsUrl rc))
+      Nothing -> do
+        tr <- RunConfig.tryLoadTrainingRunConfig runConfigPath
+        case tr of
+          Just rc -> pure (Just (RunConfig.trcPulsarWsUrl rc))
+          Nothing -> do
+            tu <- RunConfig.tryLoadTuneRunConfig runConfigPath
+            pure (fmap RunConfig.turcPulsarWsUrl tu)
+
+-- | Sprint 5.7 — best-effort load of `BootConfig.dhall` from a mounted path.
+-- Returns 'Nothing' when the file is absent (developer-side CLI runs).
+tryLoadBootConfigFromFile :: FilePath -> IO (Maybe BootConfig.BootConfig)
+tryLoadBootConfigFromFile path = do
+  exists <- doesFileExist path
+  if exists
+    then do
+      attempt <- tryAny (BootConfig.loadBootConfig path)
+      case attempt of
+        Left _ -> pure Nothing
+        Right value -> pure (Just value)
+    else pure Nothing
 
 publishWorkerTrainingEvent :: Double -> App ()
 publishWorkerTrainingEvent finalLoss = do
@@ -1316,37 +1371,58 @@ publishWorkerTuneEvent = do
         )
     pure (persistResult, objective)
 
+  -- Sprint 5.7 — prefer the typed Dhall `TuneRunConfig` mount; fall back to
+  -- the legacy env var when no mount is present (developer-side CLI).
   lookupTrialBudget defaultValue = do
-    raw <- lookupEnv "JITML_TRIAL_BUDGET"
-    pure $ case raw of
-      Just text | [(parsed, "")] <- reads text -> parsed
-      _ -> defaultValue
+    runConfigMaybe <- RunConfig.tryLoadTuneRunConfig runConfigPath
+    case runConfigMaybe of
+      Just rc -> pure (RunConfig.turcTrialBudget rc)
+      Nothing -> do
+        raw <- lookupEnv "JITML_TRIAL_BUDGET"
+        pure $ case raw of
+          Just text | [(parsed, "")] <- reads text -> parsed
+          _ -> defaultValue
 
   lookupSweepSeed defaultValue = do
-    raw <- lookupEnv "JITML_SWEEP_SEED"
-    pure $ case raw of
-      Just text | [(parsed, "")] <- reads text -> parsed
-      _ -> defaultValue
+    runConfigMaybe <- RunConfig.tryLoadTuneRunConfig runConfigPath
+    case runConfigMaybe of
+      Just rc -> pure (RunConfig.turcSweepSeed rc)
+      Nothing -> do
+        raw <- lookupEnv "JITML_SWEEP_SEED"
+        pure $ case raw of
+          Just text | [(parsed, "")] <- reads text -> parsed
+          _ -> defaultValue
 
 runRl :: [Text] -> [ParsedOption] -> App ()
 runRl ["rl", "train"] parsedOptions = do
-  -- Read the RL run parameters the daemon-rendered Job set in the
-  -- container env (Sprint 13.3 `renderRlJob`). Defaults match the
-  -- experiments/cartpole.dhall worked example.
-  envName <-
-    liftIO (envWithDefault "JITML_ENVIRONMENT" "cartpole")
-  seedRaw <-
-    liftIO (envWithDefault "JITML_SEED" "42")
-  maxStepsRaw <-
-    liftIO (envWithDefault "JITML_MAX_STEPS" "200")
-  evalEpisodesRaw <-
-    liftIO (envWithDefault "JITML_EVAL_EPISODES" "4")
-  trainerKindRaw <-
-    liftIO (envWithDefault "JITML_RL_TRAINER" "simulator")
-  let seed = readIntDefault 42 seedRaw
-      maxSteps = max 1 (readIntDefault 200 maxStepsRaw)
-      evalEpisodes = max 1 (readIntDefault 4 evalEpisodesRaw)
-      trainerKind = Text.toLower (Text.strip trainerKindRaw)
+  -- Sprint 5.7 — read the RL run parameters from the typed Dhall
+  -- `RunConfig` the daemon mounted on the dispatched Job pod. Falls back to
+  -- env vars + defaults when no mount is present (e.g., developer-side CLI
+  -- invocation outside the cluster). Defaults match the
+  -- `experiments/cartpole.dhall` worked example.
+  runConfigMaybe <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
+  (envName, seed, maxSteps, evalEpisodes, trainerKind) <- case runConfigMaybe of
+    Just rc ->
+      pure
+        ( RunConfig.rlcEnvironment rc
+        , RunConfig.rlcSeed rc
+        , max 1 (RunConfig.rlcMaxSteps rc)
+        , max 1 (RunConfig.rlcEvalEpisodes rc)
+        , Text.toLower (Text.strip (RunConfig.rlcTrainerKind rc))
+        )
+    Nothing -> liftIO $ do
+      e <- envWithDefault "JITML_ENVIRONMENT" "cartpole"
+      sR <- envWithDefault "JITML_SEED" "42"
+      msR <- envWithDefault "JITML_MAX_STEPS" "200"
+      eeR <- envWithDefault "JITML_EVAL_EPISODES" "4"
+      tkR <- envWithDefault "JITML_RL_TRAINER" "simulator"
+      pure
+        ( e
+        , readIntDefault 42 sR
+        , max 1 (readIntDefault 200 msR)
+        , max 1 (readIntDefault 4 eeR)
+        , Text.toLower (Text.strip tkR)
+        )
   -- Sprint 13.5 — by default, run the deterministic per-episode
   -- simulator loop against the canonical cartpole / mountain-car /
   -- lunar-lander / atari-subset envs. Sprint 13.8 — when
@@ -1538,6 +1614,20 @@ publishWorkerRlEpisode episode = do
                 <> "\n"
             )
     _ -> pure ()
+
+-- | Sprint 5.7 — the mounted per-run Dhall config path inside a
+-- daemon-dispatched worker pod.
+-- 'JitML.Service.Workload.renderJobWithRunConfig' mounts the per-run
+-- ConfigMap at @/etc/jitml/run@.
+runConfigPath :: FilePath
+runConfigPath = "/etc/jitml/run/RunConfig.dhall"
+
+-- | Sprint 5.7 — the mounted service Dhall config path. The shared
+-- @jitml-service-config@ ConfigMap is now mounted on worker Jobs too so the
+-- worker can read 'JitML.Service.BootConfig' instead of @JITML_SUBSTRATE@ /
+-- @JITML_PULSAR_WS@.
+serviceBootConfigPath :: FilePath
+serviceBootConfigPath = "/etc/jitml/service/BootConfig.dhall"
 
 envWithDefault :: String -> Text -> IO Text
 envWithDefault name fallback = do

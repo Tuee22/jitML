@@ -1120,13 +1120,8 @@ main =
               "live rollout creates Kind first"
               ("kind create cluster --name jitml-linux-cpu" `Text.isInfixOf` commandText)
             assertBool
-              "live rollout refreshes the repo kubeconfig when Kind already exists"
-              ( "kind export kubeconfig --name jitml-linux-cpu --kubeconfig \"$tmpKubeconfig\""
-                  `Text.isInfixOf` commandText
-              )
-            assertBool
-              "live rollout copies Kind's temp kubeconfig into the repo-local kubeconfig"
-              ("cp \"$tmpKubeconfig\" ./.build/jitml.kubeconfig" `Text.isInfixOf` commandText)
+              "live rollout writes Kind kubeconfig directly to the repo-local path (Sprint 2.9 typed kind create)"
+              ("--kubeconfig ./.build/jitml.kubeconfig" `Text.isInfixOf` commandText)
             assertBool
               "live rollout applies manual storage manifests"
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml"
@@ -1191,19 +1186,22 @@ main =
             assertBool
               "live rollout installs MinIO before Harbor so the registry bucket exists"
               ("helm upgrade --install minio chart/charts/minio-14.8.5.tgz" `Text.isInfixOf` beforeHarbor)
-            assertBool
-              "live rollout checks the Harbor registry bucket before installing Harbor"
-              ( "/opt/bitnami/minio-client/bin/mc ls jitml-minio/harbor-registry >/dev/null"
-                  `Text.isInfixOf` beforeHarbor
-              )
+            -- Sprint 4.8: the Harbor-registry bucket existence probe moved
+            -- from a `mc ls ... >/dev/null` chain in the rendered subprocess
+            -- list to typed Haskell IO (`runMinioBucketReadinessIO`).
+            -- `liveExecutePhasedRollout` runs the IO step between the
+            -- pre-grant and grant phases, before Harbor installs.
             assertBool
               "live rollout waits for harbor-pg before installing Harbor"
               ( "wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'"
                   `Text.isInfixOf` beforeHarbor
               )
-            assertBool
-              "live rollout grants Harbor ownership of the public schema before installing Harbor"
-              ("GRANT ALL ON SCHEMA public TO harbor" `Text.isInfixOf` beforeHarbor)
+            -- Sprint 2.9: the postgres schema grant moved from an embedded `sh
+            -- -c` subprocess to a typed Haskell IO step in
+            -- `JitML.Bootstrap.postgresSchemaGrantIO`, so it no longer appears
+            -- in the rendered subprocess list. Ordering is preserved by
+            -- `liveExecutePhasedRollout`, which runs the grant between the
+            -- pre-grant and post-grant subprocess phases.
             let (beforeFinalService, _fromFinalService) =
                   Text.breakOn "helm upgrade --install jitml-service chart/local/jitml-service" commandText
             assertBool
@@ -1223,23 +1221,19 @@ main =
               ( "helm upgrade --install jitml-service chart/local/jitml-service"
                   `Text.isInfixOf` beforeObservabilityManifests
               )
+            -- Sprint 4.8: the per-bucket MinIO readiness check and the Pulsar
+            -- topic create loop moved from `sh -c` subprocesses in the rollout
+            -- list to typed Haskell IO (`runMinioBucketReadinessIO` /
+            -- `runPulsarTopicCreatesIO`). `liveExecutePhasedRollout` runs them
+            -- between the pre-grant / grant / post-grant subprocess phases,
+            -- so they no longer appear in the rendered subprocess text.
             assertBool
-              "live rollout pins Pulsar topic creation to repo kubeconfig"
-              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig exec -n platform pulsar-toolset-0"
-                  `Text.isInfixOf` commandText
-              )
-            assertBool
-              "live rollout waits for MinIO readiness before topic bootstrap"
+              "live rollout waits for MinIO deployment readiness before topic bootstrap"
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status deployment/minio --timeout=300s"
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "live rollout verifies MinIO bucket readiness before topic bootstrap"
-              ( "/opt/bitnami/minio-client/bin/mc ls jitml-minio/jitml-checkpoints >/dev/null"
-                  `Text.isInfixOf` commandText
-              )
-            assertBool
-              "live rollout waits for Pulsar broker readiness before topic bootstrap"
+              "live rollout waits for Pulsar broker readiness through the platform readiness phase"
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status statefulset/pulsar-broker --timeout=300s"
                   `Text.isInfixOf` commandText
               )
@@ -1251,12 +1245,6 @@ main =
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready' --timeout=600s"
                   `Text.isInfixOf` commandText
               )
-            assertBool
-              "live rollout uses the explicit Pulsar admin binary path"
-              ("/pulsar/bin/pulsar-admin topics create" `Text.isInfixOf` commandText)
-            assertBool
-              "live rollout makes Pulsar topic creation idempotent"
-              ("/pulsar/bin/pulsar-admin topics list" `Text.isInfixOf` commandText)
             assertBool
               "retired mirror placeholder chart is not executed by the live path"
               (not ("helm upgrade --install jitml-mirror" `Text.isInfixOf` commandText))
@@ -1296,17 +1284,14 @@ main =
           assertBool
             "Harbor tag promotion sends the target tag as JSON"
             ("{\"name\":\"ready\"}" `Text.isInfixOf` renderSubprocess tagCommand)
-      , testCase "cluster down uses an idempotent Kind delete subprocess (Sprint 3.5)" $ do
+      , testCase "cluster down uses the typed Kind delete subprocess (Sprint 2.9)" $ do
           let rendered = renderSubprocess (Helm.kindDeleteSubprocess LinuxCPU)
-          assertBool
-            "cluster down checks for the substrate Kind cluster"
-            ("kind get clusters | grep -Fx jitml-linux-cpu" `Text.isInfixOf` rendered)
+          -- Sprint 2.9: kindDelete is now a typed single command; the prior
+          -- existence-check + exit-3 no-op lived in `sh -c`. The caller (cluster
+          -- down) handles the missing-cluster error path.
           assertBool
             "cluster down deletes the substrate Kind cluster"
             ("kind delete cluster --name jitml-linux-cpu" `Text.isInfixOf` rendered)
-          assertBool
-            "cluster down reports no-op through exit 3"
-            ("else exit 3" `Text.isInfixOf` rendered)
       , testCase "platform readiness checks cover Phase 4 service rollouts" $ do
           let rendered = Text.unlines (fmap renderSubprocess Readiness.platformReadinessSubprocesses)
           assertBool "Harbor readiness" ("rollout status deployment/harbor-core" `Text.isInfixOf` rendered)
@@ -1323,23 +1308,19 @@ main =
             ("wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'" `Text.isInfixOf` rendered)
           assertBool "NVIDIA RuntimeClass check" ("get runtimeclass nvidia" `Text.isInfixOf` rendered)
           assertBool "MinIO bucket readiness exec" ("exec -n platform deploy/minio" `Text.isInfixOf` rendered)
+          -- Sprint 4.8: the typed final-gate `minioBucketReadinessSubprocess`
+          -- runs a single `kubectl exec deploy/minio -- env
+          -- MC_HOST_jitml-minio=... mc ls jitml-minio` (no in-pod shell). The
+          -- bootstrap-time per-bucket retry loop moved to typed Haskell IO in
+          -- `JitML.Cluster.Readiness.runMinioBucketReadinessIO`, called by
+          -- `JitML.Bootstrap.liveExecutePhasedRollout` between the pre-grant
+          -- and grant phases.
           assertBool
-            "MinIO bucket readiness retries transient service startup"
-            ("for attempt in 1 2 3 4 5 6 7 8 9 10" `Text.isInfixOf` Readiness.renderMinioBucketReadinessCommand)
+            "MinIO readiness gate uses the typed env-var alias hand-off"
+            ("MC_HOST_jitml-minio=http://minio:minioadmin@" `Text.isInfixOf` rendered)
           assertBool
-            "MinIO bucket readiness uses the in-pod client"
-            ( "/opt/bitnami/minio-client/bin/mc alias set jitml-minio http://minio.platform.svc.cluster.local:9000 minio minioadmin >/dev/null"
-                `Text.isInfixOf` Readiness.renderMinioBucketReadinessCommand
-            )
-          mapM_
-            ( \bucket ->
-                assertBool
-                  ("MinIO bucket readiness checks " <> Text.unpack bucket)
-                  ( ("/opt/bitnami/minio-client/bin/mc ls jitml-minio/" <> bucket <> " >/dev/null")
-                      `Text.isInfixOf` Readiness.renderMinioBucketReadinessCommand
-                  )
-            )
-            bucketNames
+            "MinIO readiness gate calls mc against jitml-minio"
+            ("/opt/bitnami/minio-client/bin/mc ls jitml-minio" `Text.isInfixOf` rendered)
       , testCase "jitml-service runtimeClassName is linux-cuda only (Sprints 4.7/5.6)" $ do
           let appleDeployment = ServiceConfigMap.renderServiceDeployment AppleSilicon
               cpuDeployment = ServiceConfigMap.renderServiceDeployment LinuxCPU

@@ -118,6 +118,33 @@ The live install still receives a typed
 generated dependency archives installable when the live rollout installs a
 subchart `.tgz` directly instead of installing the umbrella chart.
 
+## Resource Budgets and the Kind-Node Cap
+
+The single Kind node hosts the entire platform stack on one host, so the cluster
+is bounded by a typed Dhall resource profile (`dhall/cluster/`, decoded by
+`JitML.Cluster.Resources`) rather than running unbounded. The profile is the
+single source of truth for two guardrails introduced after the 2026-05-29 host
+OOM-storm incident:
+
+- **Kind-node cap** — after `kind create`, the bootstrap reconciler applies a
+  `docker update --memory/--memory-swap/--cpus` cap to
+  `jitml-<substrate>-control-plane` from the profile's `nodeMemoryMiB` / `nodeCpus`.
+  An over-budget cluster then OOM-kills its own pods inside the node cgroup instead
+  of exhausting the host. A `cluster.host-memory` preflight (`jitml doctor --scope
+  cluster`) fails fast when host RAM is below the cap + reserve.
+- **Per-pod budgets and right-sized replicas** — Harbor, MinIO, Pulsar, service
+  Postgres, and observability carry CPU/memory requests+limits and reduced replica
+  counts (MinIO `4→1–2`, Pulsar zk/bookkeeper/broker/proxy `3→1`, Postgres `3→1`)
+  from the same profile, applied through the typed `helm` `--set` seam and the
+  `chart/values/*.yaml` files; the manual-PV layout (Storage Discipline above)
+  follows the reduced counts. They are sized so the sum of pod limits plus node
+  overhead stays under the kind-node cap.
+
+These guardrails are owned by Phase `2` Sprint `2.8` (profile + cap + preflight),
+Phase `4` Sprint `4.8` (per-pod budgets + replicas), and Phase `3` Sprint `3.2`
+(PV layout); see
+[Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29).
+
 ## Helm Values Ownership
 
 `chart/templates/` contains only Kubernetes manifests rendered by Helm. It must

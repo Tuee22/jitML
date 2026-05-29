@@ -7,9 +7,25 @@ nodeExporter:
 prometheus-node-exporter:
   enabled: false
 
+# Sprint 4.8 — pod resource budgets from dhall/cluster/resources.dhall
+# (`grafana` and `prometheus`).
 grafana:
   enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
 
 prometheus:
   prometheusSpec:
     replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi

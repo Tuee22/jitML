@@ -20,7 +20,12 @@
 
 ## Phase Status
 
-✅ **Done**. The phase owns
+✅ **Done** (re-closed 2026-05-29; Sprints `2.8` and `2.9` landed and validated
+against the container build, unit tests, integration renderer assertions,
+`jitml doctor --scope cluster`, `jitml bootstrap --dry-run`, and
+`jitml docs check`; live re-exercise of the kind-node cap, pod convergence under
+the cap, and the typed reconciler retries is owned by Phase 13 Sprint 13.1's
+Remaining Work). The phase owns
 [Exit Definition](README.md#exit-definition) items 4 (stage-0 entrypoints
 plus the typed Haskell prerequisite DAG that performs all post-stage-0
 reconciliation) and 10 (toolchain pin), and contributes to item 12 (typed
@@ -34,6 +39,16 @@ one-service `compose.yaml` and `jitml:local` image definition exist,
 the Tart command surface is typed, and the script-side `status`, `test`,
 `down`, `purge`, and `purge --full` wrappers are wired without
 intentionally touching global user state.
+
+### Reopened (2026-05-29)
+
+Sprints `2.1`–`2.7` stay closed. The phase reopened to add two sprints after the
+2026-05-29 host lockup (a cluster-wide OOM storm during `jitml bootstrap` made the
+host unresponsive and forced a manual reboot): **Sprint `2.8`** adds the Dhall
+cluster-resource profile, the kind-node memory/CPU cap, and the
+`cluster.host-memory` preflight; **Sprint `2.9`** moves the reconciler's embedded
+`sh -c` control-flow to typed Haskell with `RetryPolicy`. Both are listed below;
+their live exercise is owned by Phase `13`.
 
 ### Current Implementation Scope
 
@@ -520,12 +535,129 @@ substrate image.
 
 None.
 
+## Sprint 2.8: Dhall Cluster-Resource Profile, Kind-Node Cap, and Host-RAM Preflight ✅
+
+**Status**: Done (code-surface closed 2026-05-29; live node-cap exercise owned by Phase 13 Sprint 13.1)
+**Implementation**: `dhall/cluster/Schema.dhall`, `dhall/cluster/resources.dhall`, `src/JitML/Cluster/Resources.hs`, `src/JitML/Bootstrap.hs`, `src/JitML/Prerequisite/Nodes/Cluster.hs`
+**Docs to update**: `documents/engineering/cluster_topology.md`, `system-components.md`
+
+### Objective
+
+Bound the kind cluster's memory and CPU so an over-budget bootstrap can never
+exhaust the host (the 2026-05-29 OOM-storm incident), with the budget expressed as
+typed Dhall rather than environment variables or shell arithmetic. Implements
+doctrine `Application Environment` (typed config) and `Prerequisites as Typed
+Effects`.
+
+### Deliverables
+
+- A typed `ClusterResources` Dhall schema (`dhall/cluster/Schema.dhall`) plus a
+  concrete profile (`dhall/cluster/resources.dhall`) carrying `nodeMemoryMiB`,
+  `nodeCpus`, and per-component `{ replicas, cpuRequest, cpuLimit, memoryRequest,
+  memoryLimit }`, decoded by `JitML.Cluster.Resources.loadClusterResources`
+  (mirrors `JitML.Service.BootConfig.loadBootConfig` and `JitML.Numerics.Schema`).
+- The bootstrap reconciler applies a typed `docker update
+  --memory/--memory-swap/--cpus` cap to `jitml-<substrate>-control-plane` after
+  `kind create`, fail-closed if the cap cannot be applied; the resolved profile is
+  materialized to `./.build/conf/cluster/Resources.dhall`.
+- A `cluster.host-memory` prerequisite added to the Sprint `2.2` registry that fails
+  when host `MemTotal` is below `nodeMemoryMiB` + reserve (returns pass when
+  `/proc/meminfo` is absent).
+
+### Validation
+
+- `jitml doctor --scope cluster` reports the `cluster.host-memory` node and fails
+  with a remedy hint when `nodeMemoryMiB` exceeds host RAM.
+- `jitml bootstrap --<substrate> --dry-run` renders the plan including the node-cap
+  step and exits `0`.
+- Live (owned by Phase `13`): after `kind create`, `docker inspect -f
+  '{{.HostConfig.Memory}}' jitml-<substrate>-control-plane` reports the cap, and a
+  forced over-budget cluster OOM-kills pods inside the node cgroup while the host
+  stays up.
+
+### Current Validation State
+
+- `docker compose run --rm jitml cabal build all` succeeds (2026-05-29) — the new
+  `JitML.Cluster.Resources` module and the wiring changes in
+  `JitML.Bootstrap` / `JitML.Prerequisite.Nodes.Cluster` compile clean.
+- `docker compose run --rm jitml jitml doctor --scope cluster` reports the new
+  `cluster.host-memory` node and exits `0` on this host (15 GiB ≥ 10 GiB node cap +
+  4 GiB reserve).
+- `docker compose run --rm jitml jitml cluster up --substrate linux-cpu` materializes
+  `./.build/conf/cluster/Resources.dhall` from the `dhall/cluster/` source.
+- `cabal test jitml-unit` passes; `cabal test jitml-integration` failures are
+  isolated to pre-existing live-cluster Sprint 13.x tests (Pulsar timeouts —
+  no cluster up).
+- `jitml docs check` exits `0`.
+
+### Remaining Work
+
+- The live node-cap exercise and the host-survives-over-budget validation are owned
+  by Phase `13` Sprint `13.1`'s Remaining Work.
+- The per-pod limits + right-sized replicas that make the stack converge under the
+  cap are owned by Phase `4` Sprint `4.8` (and the PV-layout change by Phase `3`
+  Sprint `3.2`).
+
+## Sprint 2.9: Reconciler `sh -c` Control-Flow → Typed Haskell ✅
+
+**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 13 Sprint 13.1)
+**Implementation**: `src/JitML/Cluster/Helm.hs`, `src/JitML/Bootstrap.hs`
+**Docs to update**: `documents/engineering/daemon_architecture.md`, `documents/engineering/haskell_code_guide.md`, `legacy-tracking-for-deletion.md`
+
+### Objective
+
+Replace the embedded `sh -c` control-flow in the bootstrap reconciler with typed
+multi-step Haskell, reusing the `RetryPolicy` value (Sprint `5.4`). Implements
+doctrine `Subprocesses as Typed Values` and `Retry Policy as First-Class Values`;
+the removed shell is tracked in the legacy ledger.
+
+### Deliverables
+
+- `kindCreateSubprocess` / `kindDeleteSubprocess` / `helmDependencyBuildSubprocess`
+  (`src/JitML/Cluster/Helm.hs`) and the postgres schema-grant step
+  (`src/JitML/Bootstrap.hs`) express their existence checks, branching, and
+  command-substitution as typed Haskell over leaf `subprocess` values instead of
+  `sh -c` strings.
+- The retry/poll loops use `JitML.Service.Retry.RetryPolicy`, not shell
+  `for`/`sleep`.
+
+### Validation
+
+- `jitml bootstrap --<substrate> --dry-run` renders the equivalent typed plan.
+- Live (owned by Phase `13`): bootstrap converges and a forced topic/bucket
+  not-ready path retries and succeeds exactly as the prior shell loops did.
+
+### Current Validation State
+
+- The 4 sh -c blocks (`kindCreate`, `kindDelete`, `helmDependencyBuild`,
+  `postgresSchemaGrant`) are now typed: `JitML.Cluster.Helm` exposes typed
+  `kind create cluster` / `kind delete cluster` / `helm dependency build`
+  single-command subprocesses, and `JitML.Bootstrap` exposes
+  `postgresSchemaGrantIO :: PerconaPGCluster -> IO (Either Text ())` —
+  two typed `kubectl` subprocesses with the pod-name capture done in Haskell
+  via `runStreaming`. `liveExecutePhasedRollout` splits the rollout into
+  `livePreGrantSubprocessesForPort` + IO grants + `livePostGrantSubprocessesForPort`.
+- `docker compose run --rm jitml cabal build all` (2026-05-29) succeeds.
+- `cabal test jitml-unit` — all 185 tests pass.
+- `cabal test jitml-integration` — only pre-existing live-cluster tests fail
+  (Pulsar/MinIO/Harbor timeouts, no cluster up); the renderer assertions
+  (`live phased rollout wires the explicit Kind image load phase`,
+  `cluster down uses ... Kind delete subprocess`) pass against the typed forms.
+- `jitml docs check` and `jitml bootstrap --linux-cpu --dry-run` exit `0`.
+
+### Remaining Work
+
+- Live re-validation of the converted reconciler steps is owned by Phase `13`
+  Sprint `13.1`'s Remaining Work.
+
 ## Doctrine Sections Cited
 
-- [../README.md → Prerequisites as typed effects](../README.md#prerequisites-as-typed-effects) (Sprints 2.1, 2.2)
+- [../README.md → Prerequisites as typed effects](../README.md#prerequisites-as-typed-effects) (Sprints 2.1, 2.2, 2.8)
 - [../README.md → Outer-container Linux builds](../README.md#outer-container-linux-builds) (Sprints 2.4, 2.5)
 - [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprint 2.4)
-- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (every sprint)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (every sprint; Sprint 2.9 retires the embedded `sh -c` blocks)
+- [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprint 2.9)
+- [../README.md → Application Environment](../README.md#doctrine-scope) (Sprint 2.8)
 - [../README.md → Built-artifact and JIT-cache discipline](../README.md#built-artifact-and-jit-cache-discipline) (Sprint 2.5)
 
 ## Documentation Requirements
@@ -534,9 +666,14 @@ None.
 
 - `documents/engineering/cluster_topology.md` — bootstrap surface, hostPath
   layout, the `~/.kube/config` and `~/.docker/config.json` non-touch
-  invariants.
+  invariants, and (Sprint `2.8`) the `dhall/cluster/` resource profile +
+  kind-node memory/CPU cap.
 - `documents/engineering/jit_codegen_architecture.md` — JIT cache layout,
   content-addressing, Apple stable-FFI symlink surface, lazy tart pattern.
+- `documents/engineering/daemon_architecture.md` / `haskell_code_guide.md` —
+  (Sprint `2.9`) the reconciler `sh -c` → typed Haskell + `RetryPolicy`
+  migration under `Subprocesses as Typed Values` / `Retry Policy as First-Class
+  Values`.
 
 **Product docs to create/update:**
 
@@ -547,6 +684,9 @@ None.
 - `system-components.md → Bootstrap Reconciler Subcommands` rows remain aligned
   with the implemented bootstrap scripts and command surfaces.
 - `system-components.md → JIT Codegen Components` cache-related rows likewise.
+- `system-components.md → Cluster Substrate Components` carries the
+  `dhall/cluster/` profile and kind-node-cap rows; `legacy-tracking-for-deletion.md`
+  carries the Sprint `2.9` embedded-`sh -c` removal row.
 
 ## Related Documents
 

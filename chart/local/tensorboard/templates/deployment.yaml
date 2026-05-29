@@ -28,6 +28,14 @@ spec:
           ports:
             - name: http
               containerPort: 6006
+          # Sprint 4.8 — pod budget from dhall/cluster/resources.dhall (`tensorboard`).
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
           readinessProbe:
             httpGet:
               path: /
@@ -43,6 +51,14 @@ spec:
           args:
             - >-
               set -eu; /opt/bitnami/minio-client/bin/mc alias set jitml-minio {{ .Values.minio.endpoint }} {{ .Values.minio.accessKey }} {{ .Values.minio.secretKey }} >/dev/null; while true; do /opt/bitnami/minio-client/bin/mc mirror --overwrite jitml-minio/{{ .Values.minio.bucket }} /tensorboard/logs >/dev/null || true; sleep 5; done
+          # Sprint 4.8 — small budget for the mc-mirror sidecar.
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
           volumeMounts:
             - name: tensorboard-logs
               mountPath: /tensorboard/logs

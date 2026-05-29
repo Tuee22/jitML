@@ -342,6 +342,15 @@ After the 2026-05-24 refactor, the roadmap is strictly phase-ordered:
 each phase closes on a single machine session before the next phase
 begins.
 
+As of 2026-05-29, Phases `2`–`5` reopened for the cluster resource-guardrail and
+Dhall/functional-logic workstreams (see
+[Reopened phases (2026-05-29)](#reopened-phases-2026-05-29)). Their code-surface
+obligations — the `dhall/cluster/` resource profile and kind-node cap, the
+`cluster.host-memory` preflight, the right-sized replica/PV layout, the per-pod
+resource limits, the typed Dhall `RunConfig` + BootConfig-mounted worker dispatch,
+and the reconciler `sh -c`→Haskell migration — land first; their live exercise is
+owned by Phase `13` below.
+
 1. **Finish the code-only Remaining Work in Phases `7`–`12`.** Each
    Active sprint in those phases now lists only code-surface obligations
    (run-to-run determinism + property checks for deterministic stubs,
@@ -450,9 +459,55 @@ obligation exists.
 | 14 | Apple Silicon Closure | 🔄 Active | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Cross-Substrate Parity and Final Handoff | 🔄 Active | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
+## Reopened phases (2026-05-29)
+
+Phases `2`, `3`, `4`, and `5` reopened from `✅ Done` to `🔄 Active` on
+2026-05-29 to schedule four workstreams that harden the cluster against host
+exhaustion and align run configuration and subprocess control-flow with project
+doctrine. The originating incident is the 2026-05-29 host lockup: a cluster-wide
+OOM storm during `jitml bootstrap` (the platform stack ran with no resource
+limits) made the host unresponsive and forced a manual reboot.
+
+- **Phase 2** reopens for the Dhall cluster-resource profile (`dhall/cluster/`),
+  the kind-node memory/CPU cap applied by the bootstrap reconciler, the
+  `cluster.host-memory` preflight added to the prerequisite registry, and the
+  migration of the reconciler's embedded `sh -c` control-flow to typed Haskell
+  with `RetryPolicy` (doctrine: `Subprocesses as Typed Values`, `Retry Policy as
+  First-Class Values`).
+- **Phase 3** reopens for the right-sized manual-PV layout that follows the
+  reduced platform replica counts (MinIO `4→1–2`, Pulsar `3→1`).
+- **Phase 4** reopens for per-pod CPU/memory limits across Harbor, MinIO, Pulsar,
+  service Postgres, and observability (plus the `chart/local/*` charts), driven by
+  the Dhall cluster-resource profile, and the MinIO/Pulsar readiness retries
+  moving from `sh -c` to Haskell.
+- **Phase 5** reopens for the typed Dhall `RunConfig` and BootConfig-mounted
+  worker dispatch that replace the `JITML_*` run-parameter environment-variable
+  IPC, including the worker reading `BootConfig.dhall` instead of duplicate
+  `JITML_SUBSTRATE` / `JITML_PULSAR_WS` and the experiment hash becoming a CLI
+  argument (doctrine: `Application Environment`).
+
+Phases `6`–`12` remain `✅ Done` on their owned surfaces (numerical core, JIT
+codegen, SL/RL framework, RL catalog/AlphaZero/tuning, checkpointing, frontend,
+test stanzas); none of the four workstreams change those surfaces. The live
+exercise of every reopened-phase obligation is owned by Phase `13` (`🔄 Active`).
+The doctrine-deviation removals (the `JITML_*` IPC and the embedded `sh -c`
+blocks) are tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
 ## Current Plan Status
 
-Phases `0`, `1`, `2`, `3`, `4`, `5`, and `6` are `✅ Done`.
+Phases `0`–`6` are `✅ Done`. Phases `2`, `3`, `4`, and `5` reopened then
+**re-closed on 2026-05-29** after the cluster resource-guardrail and
+Dhall/functional-logic workstreams landed: the `dhall/cluster/` resource profile
++ kind-node memory/CPU cap + `cluster.host-memory` preflight (Sprint `2.8`), the
+reconciler + readiness `sh -c` → typed Haskell + `RetryPolicy` migration (Sprints
+`2.9` + `4.8`), the right-sized manual-PV layout (Sprint `3.2`), the per-pod
+limits + right-sized replicas across the platform stack (Sprint `4.8`), and the
+typed Dhall `RunConfig` + BootConfig-mounted worker dispatch that retires the
+`JITML_*` env IPC (Sprint `5.7`). See
+[Reopened phases (2026-05-29)](#reopened-phases-2026-05-29) for the per-phase
+scope. Live re-validation of every reopened-phase obligation is owned by Phase
+`13`.
 Phase `3` reclosed on 2026-05-23 after live Linux CPU bootstrap and teardown
 validated the single-node Kind topology, repo-local kubeconfig discipline,
 Docker build / explicit Kind image-load, ready publication health, the `/api`

@@ -19,12 +19,22 @@
 
 ## Phase Status
 
-✅ **Done**. The phase contributes the stateful-platform-services half of
+✅ **Done** (re-closed 2026-05-29 after Sprint `4.8` landed per-pod CPU/memory
+limits + right-sized replicas across Harbor/MinIO/Pulsar/service-Postgres/
+observability + the `chart/local/*` charts, and migrated the MinIO
+bucket-readiness and Pulsar topic-create `sh -c` loops to typed Haskell IO
+(`runMinioBucketReadinessIO` / `runPulsarTopicCreatesIO`); live re-validation
+of pod convergence under the kind-node cap is owned by Phase 13 Sprint 13.1).
+The phase contributes the stateful-platform-services half of
 [Exit Definition](README.md#exit-definition) item 3 (Harbor up first;
 MinIO, Pulsar, Postgres, observability, TensorBoard, NVIDIA RuntimeClass
 all installed and routable through the single Envoy Gateway socket), and the
 phase-owned live service and CUDA RuntimeClass checks all closed against
-live runtime by 2026-05-23.
+live runtime by 2026-05-23. The phase reopened for **Sprint `4.8`**, which adds
+per-pod CPU/memory limits and right-sized replica counts from the `dhall/cluster/`
+resource profile and moves the MinIO/Pulsar readiness retries off `sh -c` — the
+platform half of the 2026-05-29 cluster resource-guardrail work that keeps the
+stack under the kind-node cap. Its live exercise is owned by Phase `13`.
 **Met today**: typed chart-values, manual-PV templates, route templates,
 deployment templates, the MinIO bucket registry, the Pulsar topic
 registry/command renderer, the Grafana dashboard renderer, the TensorBoard
@@ -708,10 +718,89 @@ activates them at runtime when the pod is scheduled with
    phase `Succeeded`, and `kubectl logs nvidia-smi-probe` reports
    `GPU 0: NVIDIA GeForce RTX 5090 (UUID: GPU-e764ef97-32d7-4981-c348-029983c64073)`.
 
+## Sprint 4.8: Per-Pod Resource Limits and Right-Sized Replicas from the `dhall/cluster/` Profile ✅
+
+**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 13 Sprint 13.1)
+**Implementation**: `chart/values/{harbor,minio,pulsar,kube-prometheus-stack}.yaml`, `chart/local/{jitml-service,jitml-demo,tensorboard}/templates/deployment.yaml`, `src/JitML/Cluster/{Helm,PostgresRegistry,Readiness,PulsarBootstrap}.hs`, `src/JitML/Cluster/Resources.hs`
+**Docs to update**: `documents/engineering/cluster_topology.md`, `system-components.md`, `legacy-tracking-for-deletion.md`
+
+### Objective
+
+Right-size the platform stack so it converges under the Phase `2` Sprint `2.8`
+kind-node cap and no single pod can starve the others: per-pod CPU/memory
+requests+limits and reduced replica counts driven by the typed `dhall/cluster/`
+profile, plus the MinIO/Pulsar readiness retries moving from embedded `sh -c`
+loops to typed Haskell with `RetryPolicy`. Implements doctrine `Application
+Environment`, `Subprocesses as Typed Values`, and `Retry Policy as First-Class
+Values`.
+
+### Deliverables
+
+- Harbor, MinIO, Pulsar, service Postgres, Prometheus, and Grafana carry
+  `resources` requests+limits and reduced replica counts (MinIO `4→1–2`, Pulsar
+  zk/bookkeeper/broker/proxy `3→1`, Postgres `3→1`) sourced from the
+  `ClusterResources` profile (Sprint `2.8`), applied through the typed `helm`
+  `--set` seam and generated `chart/values/*.yaml`; `chart/local/*` deployments
+  gain `resources:` blocks; `JitML.Cluster.PostgresRegistry.renderPerconaPGCluster`
+  emits the reduced replicas + a `resources` block.
+- `JitML.Cluster.Readiness` (MinIO bucket readiness) and
+  `JitML.Cluster.PulsarBootstrap` (topic create) replace their `sh -c` retry loops
+  with typed Haskell over leaf `subprocess` values using `RetryPolicy`.
+
+### Validation
+
+- `jitml lint chart` exits `0`; rendered manifests carry the budgeted `resources`
+  and replica counts.
+- `jitml bootstrap --<substrate> --dry-run` renders the typed readiness retries.
+- Live (owned by Phase `13`): a full `jitml bootstrap --linux-cpu` reaches all
+  components Ready under the kind-node cap with no `OOMKilled` restart loops, and
+  `free -h` stays within budget.
+
+### Current Validation State
+
+- Pod resource limits + right-sized replicas have landed: `chart/values/minio.yaml`,
+  `chart/values/pulsar.yaml`, `chart/values/harbor.yaml`, and
+  `chart/values/kube-prometheus-stack.yaml` now carry `resources` requests/limits
+  matching the `dhall/cluster/` budgets; the local chart deployments
+  (`chart/local/jitml-service`, `chart/local/jitml-demo`,
+  `chart/local/tensorboard`) carry `resources` blocks; `JitML.Cluster.PostgresRegistry`
+  generates the PerconaPGCluster CRD with `replicas: 1` and per-instance
+  `resources` requests/limits.
+- MinIO bucket readiness and Pulsar topic create migrated from `sh -c` to typed
+  Haskell IO: `JitML.Cluster.Readiness.runMinioBucketReadinessIO` and
+  `JitML.Cluster.PulsarBootstrap.runPulsarTopicCreatesIO` perform the retry
+  loops in Haskell over typed leaf `kubectl exec ... mc` / `... pulsar-admin`
+  subprocesses; the final-gate `minioBucketReadinessSubprocess` is now a typed
+  single command using the `MC_HOST_jitml-minio` env hand-off (no in-pod shell).
+  `JitML.Bootstrap.liveExecutePhasedRollout` runs the IO steps between the
+  pre-grant / grant / post-grant subprocess phases.
+- `docker compose run --rm jitml cabal build all` (2026-05-29) succeeds.
+- `cabal test jitml-unit` — all 185 tests pass.
+- `cabal test jitml-integration` — only pre-existing live-cluster tests fail
+  (Pulsar/MinIO/Harbor timeouts, no cluster up); renderer assertions pass.
+- `jitml lint chart` and `jitml check-code` exit `0`.
+- **Live cluster (2026-05-29)** — `docker compose run --rm jitml cabal run -v0
+  jitml -- bootstrap --linux-cpu` brought up MinIO, the Percona Postgres
+  operator + cluster, and the full Harbor stack with the new resource budgets:
+  `kubectl get pods -n platform` reports all Harbor + MinIO + Postgres pods
+  `Running`, and `free -h` reports `4.5 Gi used / 10 Gi available` against the
+  Sprint `2.8` 10 GiB node cap. The right-sized stack fits comfortably under
+  the cap. `runMinioBucketReadinessIO` succeeded live (Harbor's registry bucket
+  existed in MinIO before Harbor installed; Harbor reached Ready).
+
+### Remaining Work
+
+- The live convergence-under-cap run and the readiness-retry re-validation are
+  owned by Phase `13` Sprint `13.1`'s Remaining Work.
+- The matching manual-PV count reduction landed in Phase `3` Sprint `3.2`
+  (closed 2026-05-29).
+
 ## Doctrine Sections Cited
 
 - [../README.md → Reconcilers and No-Op Exit](../README.md#doctrine-scope) (every sprint)
-- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (every sprint)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (every sprint; Sprint 4.8 retires the MinIO/Pulsar readiness `sh -c` loops)
+- [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprint 4.8)
+- [../README.md → Application Environment](../README.md#doctrine-scope) (Sprint 4.8 — resource budgets from typed Dhall)
 - [../README.md → Generated Artifacts](../README.md#generated-documentation-flow) (Sprints 4.4, 4.5, 4.6)
 - [../README.md → Capability classes and the service-error union](../README.md#capability-classes-and-the-service-error-union) (Sprint 4.3 — `If-None-Match` / `If-Match` translation to `SEConflict`)
 
@@ -720,7 +809,9 @@ activates them at runtime when the pod is scheduled with
 **Engineering docs to create/update:**
 
 - `documents/engineering/cluster_topology.md` — Harbor / Postgres / MinIO /
-  Pulsar / Prometheus / TensorBoard / NVIDIA RuntimeClass narrative.
+  Pulsar / Prometheus / TensorBoard / NVIDIA RuntimeClass narrative; (Sprint
+  `4.8`) the per-pod resource budgets and right-sized replica counts (MinIO
+  `4→1–2`, Pulsar `3→1`) from the `dhall/cluster/` profile.
 - `documents/engineering/daemon_architecture.md` — observability surface, the
   typed scrape-target list, the Grafana dashboard renderer.
 - `documents/engineering/checkpoint_format.md` — MinIO conditional-write

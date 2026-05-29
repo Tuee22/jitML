@@ -19,6 +19,14 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["jitml-demo"]
           args: ["--host", "0.0.0.0", "--port", "80"]
+          # Sprint 4.8 — pod budget from dhall/cluster/resources.dhall (`jitmlDemo`).
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
           env:
             # Sprint 13.13 — point the held-open /api/ws bridge at the
             # in-cluster Pulsar broker WebSocket service (the demo pod

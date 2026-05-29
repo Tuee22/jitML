@@ -301,6 +301,15 @@ Docker host socket, and the repo-local Docker config directory; the client does
 not read process environment variables or write to the user's global Docker
 config.
 
+The run parameters a dispatched worker Job needs (train/tune/rl seed, epochs,
+batch size, max steps, eval episodes, sampler/scheduler/pruner, trial budgets, SL
+caps) are carried as a typed Dhall `RunConfig` written by the daemon by experiment
+hash, and the worker also mounts the `jitml-service-config` ConfigMap to read
+`BootConfig.dhall` for substrate / Pulsar wiring. This retires the `JITML_*`
+run-parameter environment-variable IPC per the `Application Environment` doctrine
+(Phase `5` Sprint `5.7`); see
+[Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29).
+
 ## RetryPolicy
 
 `RetryPolicy` is a typed value with named strategies:
@@ -311,7 +320,10 @@ config.
 - `RetryUntil deadline` — retry until the wall-clock deadline.
 
 `retryServiceAction :: RetryPolicy -> (env -> IO a) -> env -> IO (Either
-AppError a)` is the single retry harness.
+AppError a)` is the single retry harness. The same `RetryPolicy` value also backs
+the cluster bootstrap reconciler's readiness retries once its embedded `sh -c`
+retry/poll loops move to typed Haskell (Phase `2` Sprint `2.9`, Phase `4` Sprint
+`4.8`).
 
 Service-error kinds:
 

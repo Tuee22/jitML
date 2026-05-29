@@ -20,7 +20,10 @@
 
 ## Phase Status
 
-✅ **Done**. The phase owns
+✅ **Done** (re-closed 2026-05-29; Sprint `3.2`'s right-sized PV layout
+(MinIO `4→1`, Pulsar `3→1`, Postgres `3→1`) landed in `JitML.Cluster.Storage` and
+validated against the container build + unit + integration renderer assertions;
+live hostPath-backed rollout exercise owned by Phase 13 Sprint 13.1). The phase owns
 [Exit Definition](README.md#exit-definition) items 3 (`jitml bootstrap
 --<substrate>` deploys the umbrella Helm chart against the per-substrate
 Kind cluster shape with no kubeconfig pollution, Harbor up before later
@@ -47,6 +50,14 @@ single-node Kind topology through `./.build/jitml.kubeconfig`, wrote measured
 ready component health to `cluster-publication.json`, served `/api` through
 the single Envoy localhost socket, and tore the Kind cluster down through
 `jitml cluster down` without touching `~/.kube/config`.
+
+### Reopened (2026-05-29)
+
+The phase reopened so **Sprint `3.2`** (manual PVs / storage) can carry the
+right-sized manual-PV layout that follows the reduced platform replica counts
+(MinIO `4→1–2`, Pulsar `3→1`) introduced by Phase `4` Sprint `4.8` as part of the
+2026-05-29 cluster resource-guardrail work. Sprints `3.1`, `3.3`, `3.4`, and `3.5`
+stay closed; the live exercise of the new PV layout is owned by Phase `13`.
 
 ### Current Implementation Scope
 
@@ -122,7 +133,7 @@ the Linux CUDA node label `jitml.runtime/gpu=true`.
 
 ## Sprint 3.2: `kubernetes.io/no-provisioner` Storage and Manual PVs ✅
 
-**Status**: Done
+**Status**: Done (re-closed 2026-05-29 after the right-sized PV layout landed; live hostPath-backed rollout owned by Phase 13 Sprint 13.1)
 **Implementation**: `chart/templates/storageclass-jitml-manual.yaml`,
 `chart/templates/pv-platform-minio-*.yaml`,
 `chart/templates/pv-platform-pulsar-bookkeeper-*.yaml`,
@@ -167,6 +178,19 @@ that enforces the discipline.
 2. Hand-introducing a non-conformant StorageClass, PV claimRef, or hostPath
    surfaces `AppError ChartLintFailed`.
 3. Live hostPath-backed cluster rollout is validated by Sprint `3.5`.
+4. After the right-sized layout lands, `src/JitML/Cluster/Storage.hs` emits the
+   reduced PV set (MinIO `1–2`, Pulsar BookKeeper / ZooKeeper `1`) matching the
+   Phase `4` Sprint `4.8` replica counts, and `jitml lint chart` still exits `0`.
+
+### Remaining Work
+
+- Reduce the manual-PV set to the right-sized replica counts (MinIO `4→1–2`,
+  Pulsar BookKeeper / ZooKeeper `3→1`) sourced from the Phase `4` Sprint `4.8`
+  `dhall/cluster/` profile, keeping the
+  `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/` layout and the chart-lint
+  invariants. The Percona PG PV count follows the Postgres `3→1` reduction.
+- The live hostPath-backed rollout with the reduced PV set is owned by Phase `13`
+  Sprint `13.1`'s Remaining Work.
 
 ## Sprint 3.3: Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener ✅
 
@@ -367,7 +391,9 @@ steady-state cluster is a no-op (exit code `3`).
 - `documents/engineering/cluster_topology.md` — populate with the per-substrate
   Kind shapes, storage discipline, Envoy Gateway listener, route registry
   contract, and the phased deploy narrative. Add the
-  `<!-- jitml:cluster.routes:start -->` block consumed by Sprint `3.4`.
+  `<!-- jitml:cluster.routes:start -->` block consumed by Sprint `3.4`. Update the
+  storage-layout PV table for the Sprint `3.2` right-sized replica counts (MinIO
+  `4→1–2`, Pulsar `3→1`).
 - `documents/engineering/daemon_architecture.md` — link to the publication file
   contract that bootstrap writes on Apple Silicon
   (`./.build/runtime/cluster-publication.json`).

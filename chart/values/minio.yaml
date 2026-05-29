@@ -10,6 +10,15 @@ clientImage:
 
 mode: standalone
 
+# Sprint 4.8 — pod resource budget from dhall/cluster/resources.dhall (`minio`).
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
 auth:
   rootUser: minio
   rootPassword: minioadmin

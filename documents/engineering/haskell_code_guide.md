@@ -126,6 +126,16 @@ program invocation flows through the typed `Subprocess` boundary
 `callProcess`, `readCreateProcess`, `System.Process.*`, `typed-process`
 smart constructors are hlint-forbidden outside the interpreter module.
 
+The bootstrap reconciler's remaining embedded `sh -c` control-flow (kind
+create/delete, helm dependency-build guard, postgres schema grant, and the
+MinIO/Pulsar readiness retry loops) moves to typed multi-step Haskell over leaf
+`subprocess` values, with retries expressed through the typed `RetryPolicy` rather
+than shell `for`/`sleep` — Phase `2` Sprint `2.9` and Phase `4` Sprint `4.8` under
+`Subprocesses as Typed Values` and `Retry Policy as First-Class Values`. Run
+parameters reach worker Jobs as a typed Dhall `RunConfig` (not `JITML_*` env vars)
+under `Application Environment` (Phase `5` Sprint `5.7`). See
+[Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29).
+
 ### Plan/Apply Consumers
 
 Every command that mutates external state is Plan/Apply:

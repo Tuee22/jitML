@@ -36,6 +36,14 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          # Sprint 4.8 — pod budget from dhall/cluster/resources.dhall (`jitmlService`).
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
           {{- if eq .Values.substrate "linux-cuda" }}
           env:
             - name: NVIDIA_VISIBLE_DEVICES

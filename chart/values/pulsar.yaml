@@ -10,6 +10,9 @@ affinity:
 kube-prometheus-stack:
   enabled: false
 
+# Sprint 4.8 — pod resource budgets from dhall/cluster/resources.dhall
+# (`pulsar`; applied uniformly across zk/bookkeeper/broker/proxy on the
+# single-node local stack). Right-sized to `replicaCount: 1` per component.
 zookeeper:
   replicaCount: 1
   podMonitor:
@@ -18,6 +21,13 @@ zookeeper:
     anti_affinity: false
   volumes:
     persistence: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
 
 bookkeeper:
   replicaCount: 1
@@ -27,6 +37,13 @@ bookkeeper:
     anti_affinity: false
   volumes:
     persistence: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
 
 broker:
   replicaCount: 1
@@ -36,6 +53,13 @@ broker:
     enabled: false
   affinity:
     anti_affinity: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
 
 proxy:
   replicaCount: 1
@@ -45,7 +69,21 @@ proxy:
     enabled: false
   affinity:
     anti_affinity: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
 
 autorecovery:
   podMonitor:
     enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
