@@ -53,7 +53,7 @@ load → prereq → acquire → ready → serve → drain → exit
 |-------|-----------|
 | `load` | Read `BootConfig` Dhall; resolve and SHA-hash; resolve `LiveConfig`. |
 | `prereq` | Reconcile the prerequisite DAG via `reconcilePrerequisites`. |
-| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer; on Apple Silicon host instance, validate/install tart and start the VM only on JIT cache miss (lazy). |
+| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer; on Apple Silicon host instance, validate/install tart and start the `jitml-build` VM lazily — only on JIT cache miss, since a cache hit needs no build, but every build that is needed runs in the VM (the host never compiles or runs Xcode). |
 | `ready` | `/readyz` flips to `200`. |
 | `serve` | Process commands at-least-once until SIGTERM / SIGINT / SIGHUP-to-restart-required-field. |
 | `drain` | Stop accepting new commands; finish in-flight; flush TensorBoard shards; final checkpoint flush. |
@@ -480,6 +480,19 @@ deployment surfaces, local HTTP endpoint server, BootConfig-derived client
 settings, and BootConfig-derived daemon subscription plan; live host daemon
 startup and service-loop Pulsar/MinIO flow remain target runtime validation.
 
+Routing every Apple Silicon Swift and Metal kernel build through the
+`jitml-build` Tart VM is a hard architectural requirement, not an optimization —
+it is the only way jitML can truly JIT on Apple Silicon. Full Xcode is **never**
+installed on the host: its first-launch/license UI prompts break the required
+headless workflow, so host Xcode is never an acceptable remediation for a
+missing `metal` compiler or an `xcrun -find metal` failure. The VM ships Xcode 16
+pre-installed and pre-licensed so `swift build` compiles the generated
+`Kernels.metal` resource non-interactively via `tart exec`. The host keeps only
+the Metal framework, used solely to load and execute the VM-produced `.dylib`;
+the host never compiles shaders and never runs Xcode. This holds irrespective of
+the VM image size or download cost. See
+[../engineering/jit_codegen_architecture.md → Apple Silicon Hybrid Pattern](jit_codegen_architecture.md#apple-silicon-hybrid-pattern).
+
 The host daemon's startup path never touches tart. On a JIT cache miss the
 daemon first validates or installs the `tart` Homebrew package through typed
 lazy prerequisite remediation, then calls
@@ -488,9 +501,12 @@ lazy prerequisite remediation, then calls
 plan that follows that handoff and the concrete executor behind it: inspect
 `tart list --source local --format json`, start a stopped VM with
 `tart run --no-graphics`, poll `tart exec <vm> true`, validate
-`swift --version` in the VM, run `swift build` against the generated package,
-publish `libJitMLMetal.dylib` into the content-addressed Apple cache, and
-repoint the stable host FFI symlink. The same module exposes a typed executor
+`swift --version` in the VM, run `swift build` against the generated package
+(compiling the generated `Kernels.metal` resource with the VM's pre-licensed
+Xcode 16 `metal` shader compiler), publish `libJitMLMetal.dylib` into the
+content-addressed Apple cache, and repoint the stable host FFI symlink so the
+host's Metal framework can load and execute that VM-built `.dylib` without ever
+running a compiler. The same module exposes a typed executor
 boundary whose unit tests validate ordered success and failure short-circuiting
 with a synthetic executor. The user-facing `jitml internal vm
 bootstrap|up|down|status` commands now dispatch to the same live Tart lifecycle

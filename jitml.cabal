@@ -75,6 +75,7 @@ library
         JitML.Engines.HasEngine
         JitML.Engines.Loader
         JitML.Engines.Local
+        JitML.Engines.MetalLocal
         JitML.Engines.MetalRuntime
         JitML.Engines.OneDnnRuntime
         JitML.Engines.Rng

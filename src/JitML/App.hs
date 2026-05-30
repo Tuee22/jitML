@@ -62,6 +62,7 @@ import JitML.Cluster.Publication qualified as Publication
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
 import JitML.Engines.CudaLocal (runCudaWeightedCheckpointInference)
+import JitML.Engines.MetalLocal (runMetalWeightedCheckpointInference)
 import JitML.Engines.Engine
   ( compileSubprocess
   , engineForSubstrate
@@ -712,6 +713,12 @@ daemonWorkloadDispatcherForRuntime env runtime =
     (LinuxCUDA, BootConfig.SelfInference) ->
       ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
         liftIO (runCudaWeightedCheckpointInference env manifest weights input)
+    -- Sprint 14.5 — the Apple host-native daemon (`Host + SelfInference`)
+    -- routes inference through the Metal weighted runner so it executes the
+    -- generated `jitml_weighted_kernel` against `.jmw1`-decoded tensors.
+    (AppleSilicon, BootConfig.SelfInference) ->
+      ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
+        liftIO (runMetalWeightedCheckpointInference env manifest weights input)
     _ ->
       ServiceRuntime.daemonWorkloadDispatcher
 
@@ -1751,7 +1758,12 @@ inferenceForSubstrate env substrate experimentHash =
         experimentHash
         [1.0, 2.0]
     AppleSilicon ->
-      CheckpointStore.loadInferenceCheckpoint experimentHash [1.0, 2.0]
+      CheckpointStore.loadInferenceCheckpointWithWeights
+        ( \manifest weights values ->
+            liftIO (runMetalWeightedCheckpointInference env manifest weights values)
+        )
+        experimentHash
+        [1.0, 2.0]
 
 runVerify :: [Text] -> [ParsedOption] -> App ()
 runVerify path parsedOptions =

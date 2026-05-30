@@ -71,6 +71,143 @@ swiftSource family kernelSpec kind tuningChoice =
     , "public func jitmlKernelOutputCount(_ n: UInt) -> UInt {"
     , "  " <> metalOutputCountExpression family
     , "}"
+    , ""
+    , metalRuntimeLauncher
+    , ""
+    , "// Host-callable C ABI mirroring the CUDA / oneDNN substrates:"
+    , "//   jitml_kernel(out, input, n) and"
+    , "//   jitml_weighted_kernel(out, input, n, weights, wn)."
+    , "// The host (Haskell FFI) owns the input / output buffers; the launcher"
+    , "// copies them into shared MTLBuffers, dispatches on the default device in"
+    , "// single-stream launch order, waits, and copies the result back."
+    , "@_cdecl(\"jitml_kernel\")"
+    , "public func jitmlKernel("
+    , "    _ out: UnsafeMutablePointer<Float>,"
+    , "    _ input: UnsafePointer<Float>,"
+    , "    _ n: Int) {"
+    , "  let outCount = Int(jitmlKernelOutputCount(UInt(n)))"
+    , "  JitMLMetalLauncher.shared.run("
+    , "    functionName: \"jitml_kernel\","
+    , "    out: out, outCount: outCount,"
+    , "    input: input, inCount: n,"
+    , "    weights: nil, weightsCount: 0)"
+    , "}"
+    , ""
+    , "@_cdecl(\"jitml_weighted_kernel\")"
+    , "public func jitmlWeightedKernel("
+    , "    _ out: UnsafeMutablePointer<Float>,"
+    , "    _ input: UnsafePointer<Float>,"
+    , "    _ n: Int,"
+    , "    _ weights: UnsafePointer<Float>,"
+    , "    _ wn: Int) {"
+    , "  let outCount = Int(jitmlKernelOutputCount(UInt(n)))"
+    , "  JitMLMetalLauncher.shared.run("
+    , "    functionName: \"jitml_weighted_kernel\","
+    , "    out: out, outCount: outCount,"
+    , "    input: input, inCount: n,"
+    , "    weights: weights, weightsCount: wn)"
+    , "}"
+    ]
+
+-- | The shared Metal launcher rendered into every generated package. It owns a
+-- single `MTLDevice` + `MTLCommandQueue` and resolves compute pipelines from the
+-- SwiftPM-built `default.metallib` bundled alongside the generated `Kernels.metal`.
+-- Kernel launches use one command buffer per call in submission order, honouring
+-- the `single-stream-launch-order` determinism discipline.
+metalRuntimeLauncher :: Text
+metalRuntimeLauncher =
+  Text.unlines
+    [ "final class JitMLMetalLauncher {"
+    , "  static let shared = JitMLMetalLauncher()"
+    , "  private let device: MTLDevice?"
+    , "  private let queue: MTLCommandQueue?"
+    , "  private let library: MTLLibrary?"
+    , "  private var pipelines: [String: MTLComputePipelineState] = [:]"
+    , ""
+    , "  private init() {"
+    , "    device = MTLCreateSystemDefaultDevice()"
+    , "    queue = device?.makeCommandQueue()"
+    , "    library = JitMLMetalLauncher.loadLibrary(device)"
+    , "  }"
+    , ""
+    , "  // The content-addressed `<hash>.metallib` is published next to the"
+    , "  // `<hash>.dylib` by the Tart cache-miss build, and the host FFI caller"
+    , "  // passes its path in JITML_METALLIB_PATH before the first launch. The"
+    , "  // SwiftPM `Bundle.module` default.metallib is the in-place build / test"
+    , "  // fallback when the dylib has not been relocated into the cache."
+    , "  private static func loadLibrary(_ device: MTLDevice?) -> MTLLibrary? {"
+    , "    guard let device = device else { return nil }"
+    , "    if let path = ProcessInfo.processInfo.environment[\"JITML_METALLIB_PATH\"],"
+    , "       FileManager.default.fileExists(atPath: path),"
+    , "       let library = try? device.makeLibrary(URL: URL(fileURLWithPath: path)) {"
+    , "      return library"
+    , "    }"
+    , "    return try? device.makeDefaultLibrary(bundle: Bundle.module)"
+    , "  }"
+    , ""
+    , "  private func pipeline(_ name: String) -> MTLComputePipelineState? {"
+    , "    if let cached = pipelines[name] { return cached }"
+    , "    guard let device = device, let library = library,"
+    , "          let function = library.makeFunction(name: name),"
+    , "          let state = try? device.makeComputePipelineState(function: function)"
+    , "    else { return nil }"
+    , "    pipelines[name] = state"
+    , "    return state"
+    , "  }"
+    , ""
+    , "  func run(functionName: String,"
+    , "           out: UnsafeMutablePointer<Float>, outCount: Int,"
+    , "           input: UnsafePointer<Float>, inCount: Int,"
+    , "           weights: UnsafePointer<Float>?, weightsCount: Int) {"
+    , "    // Fail closed: zero the output so a missing device / pipeline never"
+    , "    // returns uninitialised host memory."
+    , "    for i in 0..<outCount { out[i] = 0 }"
+    , "    guard let device = device, let queue = queue,"
+    , "          let pipeline = pipeline(functionName),"
+    , "          let commandBuffer = queue.makeCommandBuffer(),"
+    , "          let encoder = commandBuffer.makeComputeCommandEncoder()"
+    , "    else { return }"
+    , ""
+    , "    let floatStride = MemoryLayout<Float>.stride"
+    , "    let inBytes = max(inCount, 1) * floatStride"
+    , "    let outBytes = max(outCount, 1) * floatStride"
+    , "    guard let inputBuffer = device.makeBuffer(bytes: input, length: inBytes, options: .storageModeShared),"
+    , "          let outputBuffer = device.makeBuffer(length: outBytes, options: .storageModeShared)"
+    , "    else { encoder.endEncoding(); return }"
+    , ""
+    , "    encoder.setComputePipelineState(pipeline)"
+    , "    encoder.setBuffer(outputBuffer, offset: 0, index: 0)"
+    , "    encoder.setBuffer(inputBuffer, offset: 0, index: 1)"
+    , "    var elementCount = UInt32(inCount)"
+    , "    encoder.setBytes(&elementCount, length: MemoryLayout<UInt32>.stride, index: 3)"
+    , "    if let weights = weights {"
+    , "      let weightBytes = max(weightsCount, 1) * floatStride"
+    , "      if let weightBuffer = device.makeBuffer(bytes: weights, length: weightBytes, options: .storageModeShared) {"
+    , "        encoder.setBuffer(weightBuffer, offset: 0, index: 2)"
+    , "      }"
+    , "      var weightLen = UInt32(weightsCount)"
+    , "      encoder.setBytes(&weightLen, length: MemoryLayout<UInt32>.stride, index: 4)"
+    , "    }"
+    , ""
+    , "    // Dispatch one thread per input element, in full threadgroups whose"
+    , "    // width is a multiple of the 32-lane simd width, so simdgroup"
+    , "    // reductions always tile the grid on 32-lane boundaries; the kernels"
+    , "    // bound-check against the element count passed at buffer index 3."
+    , "    let simdWidth = 32"
+    , "    let maxThreadgroup = max(simdWidth, (pipeline.maxTotalThreadsPerThreadgroup / simdWidth) * simdWidth)"
+    , "    let desired = ((max(inCount, 1) + simdWidth - 1) / simdWidth) * simdWidth"
+    , "    let threadgroupWidth = max(simdWidth, min(maxThreadgroup, desired))"
+    , "    let groups = (max(inCount, 1) + threadgroupWidth - 1) / threadgroupWidth"
+    , "    encoder.dispatchThreadgroups("
+    , "      MTLSize(width: groups, height: 1, depth: 1),"
+    , "      threadsPerThreadgroup: MTLSize(width: threadgroupWidth, height: 1, depth: 1))"
+    , "    encoder.endEncoding()"
+    , "    commandBuffer.commit()"
+    , "    commandBuffer.waitUntilCompleted()"
+    , ""
+    , "    memcpy(out, outputBuffer.contents(), outCount * floatStride)"
+    , "  }"
+    , "}"
     ]
 
 metalKernel :: KernelFamily -> Text
@@ -79,39 +216,151 @@ metalKernel family =
     [ "#include <metal_stdlib>"
     , "using namespace metal;"
     , ""
-    , metalBody family
+    , unweightedBody family
+    , ""
+    , weightedBody family
     ]
 
-metalBody :: KernelFamily -> Text
-metalBody Identity =
-  Text.unlines
-    [ "kernel void jitml_kernel("
-    , "    device float *out [[buffer(0)]],"
-    , "    const device float *input [[buffer(1)]],"
-    , "    uint id [[thread_position_in_grid]]) {"
-    , "  out[id] = input[id];"
-    , "}"
-    ]
-metalBody Reduction =
+-- | Unweighted `jitml_kernel`. Every thread bound-checks against the element
+-- count at buffer index 3 so the launcher can dispatch full (32-aligned)
+-- threadgroups without reading or writing out of range.
+unweightedBody :: KernelFamily -> Text
+unweightedBody Reduction =
   Text.unlines
     [ "// Simdgroup reduction with deterministic single-stream launch order."
+    , "// Padding lanes contribute 0.0f; lane 0 of each simdgroup whose base index"
+    , "// is in range writes one partial, matching ceil(n / 32) outputs."
     , "kernel void jitml_kernel("
     , "    device float *out [[buffer(0)]],"
     , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
     , "    uint id [[thread_position_in_grid]],"
     , "    uint tid_in_simd [[thread_index_in_simdgroup]]) {"
-    , "  float v = input[id];"
+    , "  float v = (id < n) ? input[id] : 0.0f;"
     , "  v = simd_sum(v);"
-    , "  if (tid_in_simd == 0) { out[id / 32u] = v; }"
+    , "  uint base = id - tid_in_simd;"
+    , "  if (tid_in_simd == 0u && base < n) { out[base / 32u] = v; }"
     , "}"
     ]
-metalBody Dense2D = metalBody Identity
-metalBody Conv2DKernel = metalBody Identity
-metalBody Conv3DKernel = metalBody Identity
-metalBody BatchNormKernel = metalBody Identity
-metalBody LayerNormKernel = metalBody Identity
-metalBody MultiHeadAttentionKernel = metalBody Identity
-metalBody EmbeddingKernel = metalBody Identity
+unweightedBody _family =
+  Text.unlines
+    [ "// Identity-class elementwise copy, bounded by the element count."
+    , "kernel void jitml_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , "  out[id] = input[id];"
+    , "}"
+    ]
+
+-- | Weighted `jitml_weighted_kernel`. Sprint 14.5 lands the per-family
+-- weighted Metal bodies, mirroring the CUDA `weightedFamilyImpl` math so the
+-- cross-substrate parity cohort (Phase 15) compares like for like. Every body
+-- shares the same buffer binding contract (out=0, input=1, weights=2, n=3,
+-- wn=4) and per-thread bound check; only the compute differs by family.
+weightedBody :: KernelFamily -> Text
+weightedBody family =
+  Text.unlines
+    [ "kernel void jitml_weighted_kernel("
+    , "    device float *out [[buffer(0)]],"
+    , "    const device float *input [[buffer(1)]],"
+    , "    const device float *weights [[buffer(2)]],"
+    , "    constant uint &n [[buffer(3)]],"
+    , "    constant uint &wn [[buffer(4)]],"
+    , "    uint id [[thread_position_in_grid]]) {"
+    , "  if (id >= n) { return; }"
+    , weightedFamilyCompute family
+    , "}"
+    ]
+
+-- | Per-family weighted compute, mirroring `JitML.Codegen.Cuda.weightedFamilyImpl`.
+weightedFamilyCompute :: KernelFamily -> Text
+weightedFamilyCompute Dense2D =
+  -- out[i] = sum_j input[j] * W[j*n + i] (padded / truncated to n x n).
+  Text.unlines
+    [ "  float acc = 0.0f;"
+    , "  for (uint j = 0u; j < n; ++j) {"
+    , "    uint widx = j * n + id;"
+    , "    float w = (widx < wn) ? weights[widx] : 0.0f;"
+    , "    acc += input[j] * w;"
+    , "  }"
+    , "  out[id] = acc;"
+    ]
+weightedFamilyCompute Conv2DKernel = conv1x1WeightedCompute
+weightedFamilyCompute Conv3DKernel = conv1x1WeightedCompute
+weightedFamilyCompute BatchNormKernel =
+  -- weights = [scale(n), shift(n), mean(n), variance(n)] with no-op defaults.
+  Text.unlines
+    [ "  float scale = (id < wn) ? weights[id] : 1.0f;"
+    , "  float shift = (n + id < wn) ? weights[n + id] : 0.0f;"
+    , "  float mean = (2u * n + id < wn) ? weights[2u * n + id] : 0.0f;"
+    , "  float var = (3u * n + id < wn) ? weights[3u * n + id] : 1.0f;"
+    , "  float eps = 1.0e-5f;"
+    , "  out[id] = (input[id] - mean) / sqrt(var + eps) * scale + shift;"
+    ]
+weightedFamilyCompute LayerNormKernel =
+  -- weights = [scale(n), shift(n)]; normalise over the input's own mean/var.
+  Text.unlines
+    [ "  float sum = 0.0f;"
+    , "  for (uint j = 0u; j < n; ++j) { sum += input[j]; }"
+    , "  float mean = sum / float(n);"
+    , "  float varSum = 0.0f;"
+    , "  for (uint j = 0u; j < n; ++j) { float d = input[j] - mean; varSum += d * d; }"
+    , "  float var = varSum / float(n);"
+    , "  float eps = 1.0e-5f;"
+    , "  float scale = (id < wn) ? weights[id] : 1.0f;"
+    , "  float shift = (n + id < wn) ? weights[n + id] : 0.0f;"
+    , "  out[id] = ((input[id] - mean) / sqrt(var + eps)) * scale + shift;"
+    ]
+weightedFamilyCompute EmbeddingKernel =
+  -- weights = row-major embedding table (table_rows * n); input supplies indices.
+  Text.unlines
+    [ "  if (wn == 0u) { out[id] = input[id]; return; }"
+    , "  uint table_rows = wn / n;"
+    , "  if (table_rows == 0u) { table_rows = 1u; }"
+    , "  float fidx = input[id] < 0.0f ? 0.0f : input[id];"
+    , "  uint row = (uint) fidx % table_rows;"
+    , "  uint off = row * n + id;"
+    , "  out[id] = (off < wn) ? weights[off] : 0.0f;"
+    ]
+weightedFamilyCompute MultiHeadAttentionKernel =
+  -- weights = three n*n blocks (Wq, Wk, Wv);
+  -- out[i] = sum_j (q[j] * k[j] * Wv[j*n+i]), q = input·Wq, k = input·Wk.
+  -- No softmax (determinism contract: fixed-precision reduction only).
+  Text.unlines
+    [ "  uint block_size = n * n;"
+    , "  float v = 0.0f;"
+    , "  for (uint j = 0u; j < n; ++j) {"
+    , "    float qsum = 0.0f;"
+    , "    float ksum = 0.0f;"
+    , "    for (uint k = 0u; k < n; ++k) {"
+    , "      uint qi = k * n + j;"
+    , "      uint ki = block_size + k * n + j;"
+    , "      float wq = (qi < wn) ? weights[qi] : 0.0f;"
+    , "      float wk = (ki < wn) ? weights[ki] : 0.0f;"
+    , "      qsum += input[k] * wq;"
+    , "      ksum += input[k] * wk;"
+    , "    }"
+    , "    uint vi = 2u * block_size + j * n + id;"
+    , "    float wv = (vi < wn) ? weights[vi] : 0.0f;"
+    , "    v += qsum * ksum * wv;"
+    , "  }"
+    , "  out[id] = v;"
+    ]
+weightedFamilyCompute _family =
+  -- Identity / Reduction have no natural weight parameter: copy input through.
+  "  out[id] = input[id];"
+
+-- | 1x1 convolution: scale every position by the single filter coefficient
+-- (defaulting to 1.0 when no weights are supplied). Shared by Conv2D / Conv3D.
+conv1x1WeightedCompute :: Text
+conv1x1WeightedCompute =
+  Text.unlines
+    [ "  float w = (wn > 0u) ? weights[0] : 1.0f;"
+    , "  out[id] = input[id] * w;"
+    ]
 
 threadgroupSizeFor :: KernelFamily -> Int
 threadgroupSizeFor Identity = 256

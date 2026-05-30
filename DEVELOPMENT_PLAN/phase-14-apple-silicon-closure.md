@@ -34,23 +34,57 @@ machine session with Xcode Command Line Tools, Tart, and a routable Kind
 cluster (either local Apple-Silicon Kind, or remote against the cluster
 brought up under Phase `13`).
 
-**Met today**: nothing — the phase has not yet been exercised. The
-upstream code surfaces are in place under Sprint `7.5`
-(`renderMetalPackage`, `JitML.Tart.Build`, `JitML.Tart.Lifecycle`,
-`JitML.Engines.MetalRuntime`, `JitML.Service.AppleInferenceRpc`), Sprint
-`7.6` (`metalBenchmarkCandidateRunner` guarded preflight), and Sprint
-`10.4` (`loadInferenceCheckpointWithWeights`, the typed checkpoint→runner
-hook), all validated against synthetic broker / runner stand-ins.
+**Met today (code surface, 2026-05-30)**: the Sprint `14.2` Metal FFI
+loader and the Sprint `14.5` weighted runner code surfaces are
+implemented and compile host-native on Apple Silicon (GHC `9.14.1`):
+`JitML.Codegen.Metal` now emits the host-callable `@_cdecl` C ABI
+(`jitml_kernel`, `jitml_weighted_kernel`) backed by a real `MTLDevice` /
+`MTLCommandQueue` / `MTLComputePipelineState` launcher in single-stream,
+simd-aligned-threadgroup launch order with bounded shaders;
+`JitML.Engines.MetalLocal` (`runMetalKernel` / `runMetalWeightedKernel`
+and the family / checkpoint variants) `dlopen`s the cached `.dylib`,
+resolves the C ABI, and marshals buffers across the FFI exactly as
+`JitML.Engines.CudaLocal` does; `JitML.Engines.HasEngine` dispatches
+`apple-silicon` through `LocalAppleSiliconEngine`; `JitML.Tart.Build`
+publishes the content-addressed `<hash>.metallib` next to the
+`<hash>.dylib` so the relocated dylib loads its Metal library by URL
+(`JITML_METALLIB_PATH`); and `jitml-cross-backend` carries the Apple
+same-host bit-equality cases (unweighted + weighted Dense2D) that skip
+cleanly unless a Metal device is visible **and** the `jitml-build` VM is
+running. The default `jitml-build` Tart VM is cloned and present
+(`ghcr.io/cirruslabs/macos-sequoia-xcode:16`, `tart 2.32.1`). Sprint
+`14.3`'s `metalBenchmarkCandidateRunner` is de-stubbed (drives
+`MetalLocal.runMetalKernel`, measures latency, digests output), Sprint
+`14.5`'s per-family weighted Metal bodies (Dense2D / Conv2D / Conv3D /
+BatchNorm / LayerNorm / MHA / Embedding) mirror the CUDA
+`weightedFamilyImpl`, and the Apple daemon + `jitml inference run`
+dispatch is wired through the Metal weighted runner. All 185 `jitml-unit`
+tests pass and both Apple `jitml-cross-backend` cases pass (skip-clean
+without a booted VM).
 
-**Unmet today**: every live obligation in the sprint bodies below.
+**Unmet today (live)**: every live obligation below. The live boot of
+the macOS `jitml-build` guest is **blocked in a headless/background
+execution context**: `tart run` fails with
+`VZErrorDomain Code=-9 … Failed to create new HostKey` because the
+Virtualization framework requires Secure Enclave access from an
+interactive Aqua GUI session (`launchctl managername` reports
+`Background` here). Live closure therefore requires running
+`tart run --no-graphics jitml-build` (and the subsequent validations)
+from a Terminal in the logged-in GUI session.
 
 ### Current Implementation Scope
 
-Nothing in this phase is implemented yet against a real Apple Silicon
-host. The Haskell-side scaffolding is the worktree's Phase `7.5` / `7.6` /
-`10.4` baseline. The phase closes only after the validation commands in
-each sprint pass on a real Apple Silicon machine with Metal-capable
-hardware and the project-owned Tart workflow.
+The Sprint `14.2` Metal FFI loader, the Apple `HasEngine` dispatch, the
+Sprint `14.3` live Metal benchmark candidate runner, and the Sprint
+`14.5` per-family weighted runner / metallib publication / daemon +
+inference dispatch are all implemented and host-compile-validated (see
+**Met today** above); the `jitml-build` VM image is provisioned. What
+remains is the **live exercise** of the build-in-VM → `dlopen` → Metal
+launch → copy-back path on a real Apple Silicon GUI session (Sprints
+`14.1` / `14.2` / `14.3` / `14.5`), and the Sprint `14.4` host↔cluster
+RPC (which additionally needs the cluster up). The phase closes only
+after the validation commands in each sprint pass on a real Apple
+Silicon machine with a bootable VM.
 
 ## Phase Summary
 
@@ -113,8 +147,21 @@ Typed Effects` from [../README.md](../README.md).
 
 ### Remaining Work
 
-- Execute Validation step 3 on a real Apple Silicon host with Xcode 16
-  installed.
+- The default `jitml-build` VM is **cloned and present** (2026-05-30,
+  `tart 2.32.1`, `ghcr.io/cirruslabs/macos-sequoia-xcode:16`, 84 GB
+  on-disk). `jitml internal vm bootstrap` is therefore a no-op /
+  update path.
+- `jitml internal vm up` and Validation steps 2–3 are **blocked in a
+  headless context**: `tart run --no-graphics jitml-build` fails with
+  `VZErrorDomain Code=-9 … Failed to create new HostKey` (the macOS
+  guest needs Secure Enclave access from an interactive Aqua GUI
+  session). Execute `jitml internal vm up` and the first-cache-miss
+  build from a Terminal in the logged-in GUI session to close this
+  sprint.
+- The VM ships the pre-installed, pre-licensed Xcode 16; Xcode is never
+  installed on the host itself, which carries only the Xcode Command
+  Line Tools plus the Metal framework that loads the VM-produced
+  `.dylib`.
 
 ## Sprint 14.2: Metal FFI Loading and Host Kernel Launch 🔄
 
@@ -157,14 +204,38 @@ the FFI. Adopts `Capability Classes` from [../README.md](../README.md).
 2. `JitML.Engines.MetalRuntime.probeMetalRuntime` reports Metal device
    visibility on the same host.
 
+### Code Surface Landed (2026-05-30)
+
+- `JitML.Engines.MetalLocal.runMetalKernel` is implemented: it drives
+  `ensureKernelArtifact` (Apple path → Tart build), `dlopen`s the cached
+  `<hash>.dylib`, resolves `jitml_kernel_family_name` /
+  `jitml_kernel_output_count` / `jitml_kernel`, and marshals the input /
+  output buffers across the FFI — the mirror of
+  `JitML.Engines.CudaLocal.runCudaKernel`.
+- `JitML.Codegen.Metal` emits the host-callable launcher: a singleton
+  `JitMLMetalLauncher` owning the `MTLDevice` / `MTLCommandQueue`, loading
+  the `MTLLibrary` from `JITML_METALLIB_PATH` (the relocated metallib) with
+  a `Bundle.module` fallback, and dispatching simd-aligned full
+  threadgroups in single-stream launch order with bounded `jitml_kernel`
+  shaders.
+- `JitML.Engines.HasEngine` adds `LocalAppleSiliconEngine` +
+  `runAppleSiliconEngine`, dispatching `apple-silicon` through
+  `MetalLocal.runMetalFamilyKernel` when the Metal device is visible.
+- `jitml-cross-backend` adds the Apple same-host bit-equality case
+  ("apple-silicon kernel output is bit-equal across repeated runs
+  (Sprint 14.2)"); it skips unless a Metal device is visible **and** the
+  `jitml-build` VM is running.
+- All of the above compile host-native (`cabal build lib:jitml` +
+  `cabal build jitml-cross-backend`, GHC `9.14.1`, exit 0).
+
 ### Remaining Work
 
-- Implement `JitML.Engines.MetalLocal.runMetalKernel` against a real
-  `MTLDevice` (pipeline state, command buffer encode, dispatch,
-  synchronize, output buffer copy-back).
-- Add the Metal branch to `JitML.Engines.HasEngine` dispatch.
-- Extend `jitml-cross-backend` with the Apple-side same-host equality
-  test.
+- Execute Validation steps 1–2 **live** on a booted `jitml-build` VM from
+  an interactive GUI session (blocked headless — see Sprint `14.1`):
+  `cabal test jitml-cross-backend --test-options='-p apple-silicon'`
+  must drive the real build-in-VM → `dlopen` → Metal launch → copy-back
+  path and assert three bit-identical identity-kernel runs (currently the
+  case skips because the VM cannot boot in a background session).
 
 ## Sprint 14.3: Metal Benchmark Candidate Runner Live Execution 🔄
 
@@ -204,10 +275,26 @@ persists it via `Engines.TuningStore`.
    build of the same kernel reads the persisted choice (cache hit on
    the tuned key).
 
+### Code Surface Landed (2026-05-30)
+
+- `JitML.Engines.TuningBenchmark.metalBenchmarkCandidateRunner` is
+  de-stubbed: it now takes `Env`, renders the tuned Metal package for the
+  candidate, drives the Tart build + FFI launch through
+  `MetalLocal.runMetalKernel`, times the round-trip with
+  `getMonotonicTimeNSec`, and records the SHA-256 of the float output —
+  the mirror of `cudaBenchmarkCandidateRunner`. `candidateRunnerForSubstrate
+  AppleSilicon` routes to it directly.
+- The `jitml-unit` "CUDA and Metal runners preflight runtime availability"
+  case is updated for the new arity and passes; the live FFI measurement is
+  exercised through `jitml-cross-backend` on a booted Apple host. Compiles
+  host-native.
+
 ### Remaining Work
 
-- Implement the live Metal runner.
-- Validate the persisted selection round-trip on Apple Silicon.
+- Validate the persisted `TuningChoice` round-trip live on a booted
+  `jitml-build` VM from a GUI session (blocked headless — see Sprint
+  `14.1`): a controlled first cache miss must select via the live Metal
+  runner and the next build of the same kernel must hit the tuned key.
 
 ## Sprint 14.4: Apple Host↔Cluster Pulsar RPC Live Flow 🔄
 
@@ -305,10 +392,40 @@ loading per substrate).
 2. The weighted output matches the cross-substrate ULP tolerance band
    pinned by Phase `15` Sprint `15.1`.
 
+### Code Surface Landed (2026-05-30)
+
+- `JitML.Engines.MetalLocal.runMetalWeightedKernel` /
+  `runMetalWeightedFamilyKernel` / `runMetalWeightedCheckpointInference`
+  are implemented (mirror of the CUDA weighted path): they resolve
+  `jitml_weighted_kernel` and thread the input + flattened weight buffers
+  across the FFI to the generated launcher.
+- `JitML.Codegen.Metal` emits the **per-family** weighted shaders mirroring
+  `JitML.Codegen.Cuda.weightedFamilyImpl`: Dense2D GEMM
+  (`out[i] = sum_j input[j] * W[j*n + i]`), Conv2D / Conv3D 1×1 scaling,
+  BatchNorm (`[scale, shift, mean, var]`), LayerNorm (input-mean/var +
+  `[scale, shift]`), Embedding (row-major table lookup), and MHA
+  (`Wq`/`Wk`/`Wv` blocks, no softmax). The `weighted-bodies=all-families`
+  fingerprint tag invalidates the prior Dense2D-baseline cache entries.
+- `JitML.App.daemonWorkloadDispatcherForRuntime` routes
+  `(AppleSilicon, SelfInference)` through
+  `daemonWorkloadDispatcherWithWeightedInference` →
+  `runMetalWeightedCheckpointInference`; `JitML.App.inferenceForSubstrate`
+  routes the `apple-silicon` `jitml inference run` CLI path through
+  `loadInferenceCheckpointWithWeights` + the Metal weighted runner.
+- `JitML.Tart.Build` publishes the per-hash `<hash>.metallib` next to the
+  cached dylib so the relocated weighted dylib loads its Metal library.
+- `jitml-cross-backend` adds the weighted Dense2D bit-determinism case
+  (skips unless device visible + VM running); all 185 `jitml-unit` tests
+  pass (cache-key golden + Tart-plan step list regenerated for the new
+  metallib step). Compiles host-native.
+
 ### Remaining Work
 
-- Implement `runMetalWeightedKernel`.
-- Wire the daemon dispatch in `JitML.Service.Runtime.daemonWorkloadDispatcherWithInference`.
+- Validate the weighted inference live (bit-identical repeat + Phase `15`
+  cross-substrate tolerance) on a booted `jitml-build` VM from a GUI
+  session (blocked headless — see Sprint `14.1`). The
+  `(AppleSilicon, ForwardToHost)` cluster-side path is owned by Sprint
+  `14.4`.
 
 ## Doctrine Sections Cited
 

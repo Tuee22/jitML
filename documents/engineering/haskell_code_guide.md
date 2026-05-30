@@ -119,9 +119,10 @@ program invocation flows through the typed `Subprocess` boundary
 (`runStreaming` / `capture` interpreters in `src/JitML/Sub/Stream.hs`):
 
 - `kubectl`, `helm`, `kind`, `docker`, `tart`, `cabal`,
-  `npx playwright`, `spago`, `pulsar-admin`, `mc` (MinIO CLI), `metal`,
-  `nvcc`, `g++` (over oneDNN), `swift build` (inside the tart VM via
-  `tart exec`), `dhall freeze`, `proto-lens-protoc`.
+  `npx playwright`, `spago`, `pulsar-admin`, `mc` (MinIO CLI),
+  `nvcc`, `g++` (over oneDNN), `metal` and `swift build` (invoked exclusively
+  inside the `jitml-build` tart VM via `tart exec` — the host never runs Xcode
+  or the `metal` shader compiler), `dhall freeze`, `proto-lens-protoc`.
 
 `callProcess`, `readCreateProcess`, `System.Process.*`, `typed-process`
 smart constructors are hlint-forbidden outside the interpreter module.
@@ -160,7 +161,10 @@ Package validation and installation lives in the typed prerequisite DAG:
   re-validates each postcondition before dependent nodes run.
 - Ad hoc `brew install` calls in shell scripts or command runners are forbidden.
   `tart` follows this path lazily on the first Apple JIT cache miss, not during
-  bootstrap or host-daemon startup.
+  bootstrap or host-daemon startup. The Apple prerequisite set is intentionally
+  limited to `tart`; full Xcode is never a host prerequisite or remediation,
+  because the `metal` shader compiler runs only inside the pre-licensed
+  `jitml-build` VM.
 
 ### Reconcilers (exit `3` on no-op)
 

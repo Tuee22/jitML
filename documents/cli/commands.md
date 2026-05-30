@@ -1187,7 +1187,7 @@ Apply retention to an experiment.
 
 Bootstrap the VM.
 
-Creates or updates the Tart VM image.
+Creates or updates the jitml-build Tart VM image -- the mandatory headless build environment that ships Xcode 16 pre-installed and pre-licensed so swift build compiles generated Metal shaders via tart exec without any first-launch or license prompt. The host never runs Xcode.
 
 ```text
 jitml internal vm bootstrap

@@ -41,6 +41,7 @@ import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Engine (engineForSubstrate)
 import JitML.Engines.Loader (KernelArtifact, ensureKernelArtifact)
 import JitML.Engines.Local qualified as Local
+import JitML.Engines.MetalLocal qualified as MetalLocal
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.Tuning
   ( BenchmarkMeasurement (..)
@@ -165,8 +166,16 @@ cudaBenchmarkCandidateRunnerWithProbe probeRuntime env kernelSpec kind input can
       (runtimeSourcePayload source)
       tuningChoice
 
+-- | Sprint 14.3 — live Metal benchmark candidate runner. Mirror of
+-- `cudaBenchmarkCandidateRunner`: render the tuned Metal package for the
+-- candidate, drive the Tart build + FFI launch through
+-- `MetalLocal.runMetalKernel`, time the round-trip, and digest the float
+-- output. Gated on host Metal device visibility (the build itself runs in
+-- the `jitml-build` VM; the host only needs a visible device to execute the
+-- produced dylib).
 metalBenchmarkCandidateRunner
-  :: Cache.KernelSpec
+  :: Env
+  -> Cache.KernelSpec
   -> Cache.Kind
   -> [Float]
   -> TuningResult
@@ -176,12 +185,13 @@ metalBenchmarkCandidateRunner =
 
 metalBenchmarkCandidateRunnerWithProbe
   :: IO MetalRuntime.MetalRuntimeProbe
+  -> Env
   -> Cache.KernelSpec
   -> Cache.Kind
   -> [Float]
   -> TuningResult
   -> IO (Either Text BenchmarkObservation)
-metalBenchmarkCandidateRunnerWithProbe probeRuntime _kernelSpec _kind _input candidate
+metalBenchmarkCandidateRunnerWithProbe probeRuntime env kernelSpec kind input candidate
   | tuningSubstrate candidate /= AppleSilicon =
       pure $
         Left
@@ -191,16 +201,43 @@ metalBenchmarkCandidateRunnerWithProbe probeRuntime _kernelSpec _kind _input can
           )
   | otherwise = do
       probe <- probeRuntime
-      pure $
-        if MetalRuntime.metalRuntimeAvailable probe
-          then
-            Left
-              "apple-silicon benchmark runner reached an available runtime, but Metal FFI candidate execution is not implemented yet"
-          else
+      if not (MetalRuntime.metalRuntimeDeviceVisible probe)
+        then
+          pure $
             Left
               ( "apple-silicon benchmark runner unavailable: "
                   <> renderMetalBenchmarkProbeSummary probe
               )
+        else do
+          start <- getMonotonicTimeNSec
+          kernelResult <- MetalLocal.runMetalKernel env source hash input
+          end <- getMonotonicTimeNSec
+          pure $
+            case kernelResult of
+              Left err -> Left err
+              Right kernelRun ->
+                Right
+                  BenchmarkObservation
+                    { benchmarkObservationLatencyMicros = elapsedMicros start end
+                    , benchmarkObservationOutputDigest =
+                        digestFloatOutput (MetalLocal.metalKernelOutput kernelRun)
+                    }
+ where
+  tuningChoice = tuningChoiceForResult candidate
+  source =
+    renderRuntimeSource
+      kernelSpec
+      kind
+      Cache.AppleSilicon
+      tuningChoice
+  hash =
+    Cache.cacheKey
+      kernelSpec
+      kind
+      Cache.AppleSilicon
+      MetalLocal.metalToolchainFingerprint
+      (runtimeSourcePayload source)
+      tuningChoice
 
 collectAndPersistBenchmarkSelection
   :: FilePath
@@ -225,8 +262,7 @@ type BenchmarkCandidateRunner =
 candidateRunnerForSubstrate :: Substrate -> BenchmarkCandidateRunner
 candidateRunnerForSubstrate LinuxCPU = linuxCpuBenchmarkCandidateRunner
 candidateRunnerForSubstrate LinuxCUDA = cudaBenchmarkCandidateRunner
-candidateRunnerForSubstrate AppleSilicon =
-  \_env kernelSpec kind input -> metalBenchmarkCandidateRunner kernelSpec kind input
+candidateRunnerForSubstrate AppleSilicon = metalBenchmarkCandidateRunner
 
 -- | Ensure the JIT cache artifact for @substrate@ exists, invoking the typed
 -- benchmark candidate runner on the first cache miss so the persisted tuning

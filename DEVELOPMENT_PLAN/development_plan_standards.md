@@ -77,7 +77,17 @@ project management summaries.
   is generated on demand by the Haskell `jitml` binary into the content-addressed
   build/cache tree. Checked-in code may contain Haskell renderers, typed
   templates, and tests for those renderers, but not ready-to-run kernel source
-  files or build scripts.
+  files or build scripts. On `apple-silicon`, the generated Swift package and
+  `Kernels.metal` resource are never compiled on the host: every Swift/Metal
+  build runs inside the `jitml-build` Tart VM (which ships Xcode 16 pre-installed
+  and pre-licensed) driven non-interactively via `tart exec`, irrespective of VM
+  image size or download cost. Full Xcode is never installed on the host because
+  its first-launch/license UI breaks the headless workflow; the host retains only
+  the Metal framework, used solely to load and execute the VM-produced `.dylib`.
+  Routing every Apple Silicon Swift/Metal build through Tart is a hard
+  architectural requirement — the only way jitML can truly JIT on Apple Silicon —
+  not an optimization to trade away. Full detail lives in
+  [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md).
 - Deprecated aliases or legacy command paths belong only in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 

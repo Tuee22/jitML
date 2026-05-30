@@ -1019,6 +1019,7 @@ main =
                 , "prepare-cache-dirs"
                 , "copy-build-product"
                 , "publish-cache-artifact"
+                , "publish-cache-metallib"
                 , "repoint-stable-ffi-symlink"
                 ]
           executionResult <- TartBuild.executeTartCacheMissBuildPlanWith executor plan
@@ -1040,6 +1041,11 @@ main =
                     <> expectedArtifact
                     <> ".tmp "
                     <> expectedArtifact
+                , "publish-cache-metallib: JitML.Tart.publishMetallib "
+                    <> expectedSourceDir
+                    <> "/.build/release .build/jit/apple-silicon/"
+                    <> Cache.hashHex sampleCacheHash
+                    <> ".metallib"
                 , "repoint-stable-ffi-symlink: JitML.Cache.Symlink.repointSymlink .build mnist-linear "
                     <> Cache.hashHex sampleCacheHash
                     <> " dylib"
@@ -1427,9 +1433,17 @@ main =
           -- only used by the `unavailableCudaProbe` field-update form
           -- above so the synthetic library-visible/positive shape stays
           -- expressed in this case.
+          -- Sprint 14.3 — the Metal benchmark runner now drives the real
+          -- Metal FFI candidate through `MetalLocal.runMetalKernel` (build in
+          -- the `jitml-build` VM → dlopen → launch). The live measurement is
+          -- exercised through `jitml-cross-backend` on a booted Apple host;
+          -- here we keep the deterministic wrong-substrate and
+          -- device-not-visible branches. `availableMetalProbe` is retained for
+          -- the `unavailableMetalProbe` field-update form above.
           metalWrong <-
             TuningBenchmark.metalBenchmarkCandidateRunnerWithProbe
               (pure unavailableMetalProbe)
+              cudaEnv
               kernelSpec
               Cache.Training
               []
@@ -1439,6 +1453,7 @@ main =
           metalUnavailable <-
             TuningBenchmark.metalBenchmarkCandidateRunnerWithProbe
               (pure unavailableMetalProbe)
+              cudaEnv
               kernelSpec
               Cache.Training
               []
@@ -1446,16 +1461,6 @@ main =
           metalUnavailable
             @?= Left
               "apple-silicon benchmark runner unavailable: swift=missing metal=missing swiftc=present device=no"
-          metalAvailable <-
-            TuningBenchmark.metalBenchmarkCandidateRunnerWithProbe
-              (pure availableMetalProbe)
-              kernelSpec
-              Cache.Training
-              []
-              appleCandidate
-          metalAvailable
-            @?= Left
-              "apple-silicon benchmark runner reached an available runtime, but Metal FFI candidate execution is not implemented yet"
       , testCase "cachePath resolves under the substrate cache root" $
           withSystemTempDirectory "jitml-cache-layout" $ \dir -> do
             root <- resolveDir' (dir </> ".build")

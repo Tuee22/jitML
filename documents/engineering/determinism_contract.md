@@ -47,9 +47,15 @@ own floating-point determinism contract.
   (`ceil(n / 32)`), so future Metal FFI loading can size host buffers from the
   generated `jitml_kernel_output_count` symbol instead of duplicating shape
   logic outside the renderer.
-- `JitML.Engines.MetalRuntime` probes the host Swift/Xcode tool paths and Metal
-  device visibility through typed subprocesses before the future host FFI
-  launcher consumes that runtime surface.
+- Metal compute kernels are built inside the `jitml-build` Tart VM (which ships
+  Xcode 16 pre-installed and pre-licensed) and execute on the host GPU through
+  the host's Metal framework. `JitML.Engines.MetalRuntime` probes host Metal
+  device visibility and the loadable VM-built `.dylib` through typed
+  subprocesses; the host has no Swift/Xcode build toolchain and never compiles
+  shaders — all `swift build` / `metal` shader compilation happens in the VM via
+  `tart exec`. Full Xcode is never installed on the host (its first-launch/license
+  UI breaks the headless workflow), so a host `xcrun -find metal` failure is by
+  design and is never remediated by installing host Xcode.
 - RNG state lives in the host daemon (`Host + SelfInference`).
 - Kernel-launch ordering is single-stream by default. Single MTLCommandQueue
   with FIFO ordering; explicit barriers prevent kernel reordering.
@@ -133,7 +139,9 @@ where:
 - `substrate` ∈ `apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
   `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN) plus loader-relevant ABI
-  facts for local FFI artifacts. The current Linux CPU local fingerprint carries
+  facts for local FFI artifacts. The Apple `Xcode/Metal` pin is the Xcode 16
+  that ships pre-installed and pre-licensed inside the `jitml-build` Tart VM —
+  never a host Xcode, which is never installed. The current Linux CPU local fingerprint carries
   `artifact-abi=<os>-<arch>` so Darwin host artifacts and Linux container
   artifacts do not share a cache key.
 - `rendered-source-payload` is the canonical Haskell-rendered source bundle

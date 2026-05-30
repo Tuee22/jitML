@@ -9,7 +9,11 @@
 > content-addressed cache, the per-substrate compilers (Metal, oneDNN,
 > CUDA), the current typed engine handle/envelope surface, the target FFI
 > boundary, the Apple Silicon hybrid pattern with lazy tart spin-up, and the
-> hardware auto-tuning surface.
+> hardware auto-tuning surface — where routing every Apple Silicon Swift/Metal
+> build through the `jitml-build` Tart VM (Xcode 16 pre-installed and
+> pre-licensed) is a hard requirement, the only way jitML can truly JIT on
+> Apple Silicon; the host keeps only the Metal framework to load the VM-produced
+> `.dylib` and never installs or runs Xcode.
 
 ## Cache Layout
 
@@ -293,7 +297,12 @@ reproducibility witness surface; see
   loader. The generated reduction metadata reports `ceil(n / 32)` outputs,
   matching the current `simd_sum` simdgroup partial-output kernel shape.
 - The build plan runs `swift build` inside the `jitml-build` tart VM via
-  `tart exec`, against the generated package directory.
+  `tart exec`, against the generated package directory. The VM ships Xcode 16
+  pre-installed and pre-licensed, so compiling the generated `Kernels.metal`
+  resource through Xcode's `metal` shader compiler runs fully non-interactively
+  under `tart exec` — no first-launch or license UI can break the headless
+  workflow. ALL Apple Silicon Swift and Metal builds run in this VM regardless
+  of VM image size or download cost; full Xcode is never installed on the host.
 - The produced `.dylib` is copied atomically to
   `./.build/jit/apple-silicon/<hash>.dylib` and the stable-FFI symlink at
   `./.build/host/apple-silicon/<model-id>.dylib` is repointed.
@@ -301,13 +310,30 @@ reproducibility witness surface; see
   it checks `swift --version`, `xcrun -find metal`, `xcrun -find swiftc`, and
   `system_profiler SPDisplaysDataType` through the typed subprocess boundary,
   parses Swift version/tool paths and Metal device visibility, and renders the
-  availability summary for the future host FFI launcher.
+  availability summary for the future host FFI launcher. A failing
+  `xcrun -find metal` on the host is never remediated by installing Xcode on the
+  host — the `metal` shader compiler exists only inside the `jitml-build` VM.
+  The host probe is informational; the host keeps solely the Metal framework to
+  load and execute the VM-produced `.dylib` and never compiles shaders.
 - The current local engine envelope names the `.dylib` artifact path and Tart
   `swift build` command through `tart exec`. `JitML.Engines.Loader` now routes
   Apple cache misses through the concrete `JitML.Tart.Build`
-  first-cache-miss executor. An `AppleSilicon.HasEngine` instance that loads
-  the `.dylib` via the FFI loader remains target runtime work. The current
-  local recheck has Tart `2.31.0`, but no `jitml-build` VM is present.
+  first-cache-miss executor.
+- `JitML.Engines.MetalLocal` (Sprint `14.2` / `14.5`, code landed 2026-05-30)
+  implements the host-side runner: `runMetalKernel` / `runMetalWeightedKernel`
+  `dlopen` the cached `<hash>.dylib`, resolve the host-callable
+  `jitml_kernel` / `jitml_weighted_kernel` / `jitml_kernel_family_name` /
+  `jitml_kernel_output_count` C ABI emitted by `JitML.Codegen.Metal`, and
+  marshal buffers across the FFI to the generated `MTLDevice` launcher.
+  `JitML.Engines.HasEngine` dispatches `apple-silicon` through
+  `LocalAppleSiliconEngine`. The generated Swift launcher loads its
+  `MTLLibrary` from the content-addressed `<hash>.metallib` that
+  `JitML.Tart.Build` publishes beside the relocated dylib
+  (`JITML_METALLIB_PATH`). Live exercise of the build-in-VM → `dlopen` →
+  Metal launch path requires booting the `jitml-build` VM from an
+  interactive GUI session (the macOS guest cannot boot headless — Secure
+  Enclave / Aqua-session requirement) and is the remaining Phase `14`
+  closure gate.
 - `JitML.Tart.Build` renders the current first-cache-miss plan for Apple:
   ensure `jitml-build`, validate `swift --version` inside the VM, run
   `swift build` against the generated package, copy
@@ -324,6 +350,20 @@ reproducibility witness surface; see
   explicit barriers prevent kernel reordering.
 
 ## Apple Silicon Hybrid Pattern
+
+Routing every Apple Silicon Swift and Metal kernel build through the
+`jitml-build` Tart VM is a hard architectural requirement, not an optimization.
+It is the only way jitML can truly JIT on Apple Silicon: the VM ships Xcode 16
+pre-installed and pre-licensed, so `swift build` compiles the generated
+`Kernels.metal` resource through Xcode's `metal` shader compiler
+non-interactively via `tart exec` — no first-launch or license UI can break the
+headless workflow. Full Xcode is **never** installed on the host: its
+first-launch license/UI prompts break the required headless workflow, and host
+Xcode is never an acceptable remediation for a missing `metal` compiler or an
+`xcrun -find metal` failure. The host retains only the Metal framework, used
+solely to load and execute the VM-produced `.dylib`; the host never compiles
+shaders and never runs Xcode. This holds irrespective of the VM image size or
+download cost.
 
 Bootstrap and the host daemon's startup path never touch tart. On a JIT cache
 miss, the host daemon first validates or installs the `tart` Homebrew package

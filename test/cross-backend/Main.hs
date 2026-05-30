@@ -22,6 +22,13 @@ import JitML.Engines.CudaLocal
 import JitML.Engines.CudaLocal qualified as Cuda
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.CudnnBindings qualified as Cudnn
+import JitML.Engines.MetalLocal qualified as Metal
+import JitML.Engines.MetalRuntime qualified as MetalRuntime
+import JitML.Tart.Lifecycle
+  ( TartVmStatus (TartVmRunning)
+  , VmName (VmName)
+  , queryTartVmStatus
+  )
 import JitML.Engines.Engine (deterministicFlags, engineForSubstrate)
 import JitML.Engines.HasEngine
   ( EngineRequest (..)
@@ -333,6 +340,63 @@ main =
                     Cuda.cudaWeightedKernelOutput a @?= [1.0, 4.0, 9.0]
                   _ ->
                     assertBool "all three linux-cuda weighted kernel runs succeed" False
+      , testCase "apple-silicon kernel output is bit-equal across repeated runs (Sprint 14.2)" $ do
+          -- Same-host bit-equality test for the Metal path. Mirrors the
+          -- linux-cpu / linux-cuda siblings: three successive invocations of
+          -- the generated identity kernel through the live `dlopen` + Metal
+          -- launcher FFI must produce bit-identical output. The build runs
+          -- inside the `jitml-build` Tart VM; the host loads and executes the
+          -- VM-produced dylib through its Metal framework. The test requires a
+          -- visible Metal device and a running `jitml-build` Tart VM (the build
+          -- runs inside it); on hosts without both (Linux CI, or an Apple host
+          -- where the VM is not booted) the test logs a skip.
+          ready <- appleLiveReady
+          if not ready
+            then
+              assertBool
+                "Metal device + running jitml-build VM unavailable; live apple-silicon determinism check skipped"
+                True
+            else do
+              env <- buildEnv defaultGlobalFlags
+              let payload = [0.0, 1.5, -2.25, 3.875, -4.125]
+              first <- Metal.runMetalFamilyKernel env Identity payload
+              second <- Metal.runMetalFamilyKernel env Identity payload
+              third <- Metal.runMetalFamilyKernel env Identity payload
+              case (first, second, third) of
+                (Right a, Right b, Right c) -> do
+                  Metal.metalKernelOutput a @?= Metal.metalKernelOutput b
+                  Metal.metalKernelOutput b @?= Metal.metalKernelOutput c
+                  Metal.metalKernelOutput a @?= payload
+                _ ->
+                  assertBool "all three apple-silicon kernel runs succeed" False
+      , testCase
+          "apple-silicon weighted Dense2D kernel runs bit-deterministically (Sprint 14.5)"
+          $ do
+            -- Sprint 14.5 — same-host bit-equality for the weighted Metal ABI.
+            -- Three runs of the Dense2D GEMM against the same input + weights
+            -- must be bit-identical and match the diagonal-scaling expectation
+            -- shared with the linux-cpu / linux-cuda weighted siblings.
+            ready <- appleLiveReady
+            if not ready
+              then
+                assertBool
+                  "Metal device + running jitml-build VM unavailable; weighted apple-silicon Dense2D test skipped"
+                  True
+              else do
+                env <- buildEnv defaultGlobalFlags
+                let input = [1.0, 2.0, 3.0]
+                    -- 3×3 diagonal matrix: input × diag(1,2,3) = [1,4,9].
+                    weights = [1, 0, 0, 0, 2, 0, 0, 0, 3]
+                first <- Metal.runMetalWeightedFamilyKernel env Dense2D input weights
+                second <- Metal.runMetalWeightedFamilyKernel env Dense2D input weights
+                third <- Metal.runMetalWeightedFamilyKernel env Dense2D input weights
+                case (first, second, third) of
+                  (Right a, Right b, Right c) -> do
+                    Metal.metalWeightedKernelOutput a @?= Metal.metalWeightedKernelOutput b
+                    Metal.metalWeightedKernelOutput b @?= Metal.metalWeightedKernelOutput c
+                    Metal.metalWeightedKernelOutput a @?= [1.0, 4.0, 9.0]
+                  _ ->
+                    assertBool "all three apple-silicon weighted kernel runs succeed" False
       , testCase "cuBLAS bindings initialize and report a version (Sprint 7.4)" $ do
           probe <- CudaRuntime.probeCudaRuntime
           if not (CudaRuntime.cudaRuntimeAvailable probe)
@@ -1036,6 +1100,20 @@ assertFamilySmoke env family = do
 finiteFloat :: Float -> Bool
 finiteFloat value =
   not (isNaN value) && not (isInfinite value)
+
+-- | The live apple-silicon Metal path is exercisable only when the host has a
+-- visible Metal device AND the `jitml-build` Tart VM is running (the kernel
+-- build runs inside the VM via `tart exec`; booting a macOS guest requires an
+-- interactive GUI session, so a headless context cannot start it). When either
+-- is missing the cross-backend Apple cases skip rather than fail.
+appleLiveReady :: IO Bool
+appleLiveReady = do
+  probe <- MetalRuntime.probeMetalRuntime
+  if not (MetalRuntime.metalRuntimeDeviceVisible probe)
+    then pure False
+    else do
+      status <- queryTartVmStatus (VmName "jitml-build")
+      pure (status == Right TartVmRunning)
 
 assertOneDnnOutput :: Env -> KernelFamily -> [Float] -> [Float] -> IO ()
 assertOneDnnOutput env family input expected = do

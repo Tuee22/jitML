@@ -267,7 +267,14 @@ jitml internal vm exec -- <cmd>
 ```
 
 Pass-through to `tart exec`. Apple-only escape hatch for debugging Swift build
-failures. Rejected on Linux substrates with `AppError UnknownCommand`.
+failures. Rejected on Linux substrates with `AppError UnknownCommand`. The
+`jitml-build` VM is not optional: every Apple Silicon Swift and Metal shader
+build is routed through it because the host deliberately never installs full
+Xcode (its first-launch/license UI breaks the headless workflow). The VM ships
+Xcode 16 pre-installed and pre-licensed so `swift build` compiles the generated
+`Kernels.metal` via `tart exec` non-interactively. The host keeps only the Metal
+framework to load/execute the VM-produced `.dylib`; routing every build through
+Tart is the only way jitML truly JITs on Apple Silicon.
 
 ### `jitml internal cache`
 

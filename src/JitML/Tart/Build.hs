@@ -14,11 +14,20 @@ module JitML.Tart.Build
   )
 where
 
-import Control.Monad (void)
+import Control.Monad (filterM, void)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Path (Abs, Dir, Path)
+import System.Directory
+  ( copyFile
+  , createDirectoryIfMissing
+  , doesDirectoryExist
+  , doesFileExist
+  , listDirectory
+  , renameFile
+  )
 import System.Exit (ExitCode (..))
+import System.FilePath (takeDirectory, takeFileName, (</>))
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Cache.Symlink qualified as CacheSymlink
@@ -51,6 +60,12 @@ data TartCacheMissBuildStep
 data TartHostAction
   = EnsureTartVmUp VmName
   | RepointStableFfiSymlink Cache.ModelId Cache.Hash Cache.Extension
+  | -- | Find the @default.metallib@ produced by @swift build@ under the first
+    -- argument (the package @.build/release@ tree) and publish it atomically to
+    -- the content-addressed @<hash>.metallib@ path (second argument) next to the
+    -- cached @<hash>.dylib@, so the generated Metal launcher can load it by URL
+    -- after the dylib is relocated out of its SwiftPM resource bundle.
+    PublishMetallib Text Text
   deriving stock (Eq, Show)
 
 data TartCacheMissBuildExecutor m = TartCacheMissBuildExecutor
@@ -77,6 +92,8 @@ liveTartCacheMissBuildExecutor buildRoot =
             void <$> ensureVmUpLive vmName
           RepointStableFfiSymlink modelId hash extension ->
             Right () <$ CacheSymlink.repointSymlink buildRoot modelId hash extension
+          PublishMetallib releaseDir destPath ->
+            publishMetallib (Text.unpack releaseDir) (Text.unpack destPath)
     , executeTartCommand = \_stepName command -> do
         (exitCode, _stdoutText, stderrText) <- runStreaming defaultSubprocessEnv command
         pure $
@@ -116,6 +133,9 @@ tartCacheMissBuildPlan vmName modelId source hash =
             "publish-cache-artifact"
             (subprocess "mv" [artifactTempPath, artifactPath])
         , TartHostStep
+            "publish-cache-metallib"
+            (PublishMetallib releaseDir metallibPath)
+        , TartHostStep
             "repoint-stable-ffi-symlink"
             (RepointStableFfiSymlink modelId hash (Cache.Extension "dylib"))
         ]
@@ -124,9 +144,11 @@ tartCacheMissBuildPlan vmName modelId source hash =
   sourceDir = Text.pack (runtimeSourceRelativeDirectory source hash)
   appleJitDir = ".build/jit/apple-silicon"
   appleHostDir = ".build/host/apple-silicon"
-  buildProduct = sourceDir <> "/.build/release/libJitMLMetal.dylib"
+  releaseDir = sourceDir <> "/.build/release"
+  buildProduct = releaseDir <> "/libJitMLMetal.dylib"
   artifactPath = appleJitDir <> "/" <> Cache.hashHex hash <> ".dylib"
   artifactTempPath = artifactPath <> ".tmp"
+  metallibPath = appleJitDir <> "/" <> Cache.hashHex hash <> ".metallib"
   stableSymlinkPath = appleHostDir <> "/" <> Cache.unModelId modelId <> ".dylib"
 
 executeTartCacheMissBuildPlanWith
@@ -186,3 +208,51 @@ renderTartHostAction (RepointStableFfiSymlink modelId hash extension) =
     <> Cache.hashHex hash
     <> " "
     <> Cache.unExtension extension
+renderTartHostAction (PublishMetallib releaseDir destPath) =
+  "JitML.Tart.publishMetallib " <> releaseDir <> " " <> destPath
+
+-- | Locate the @default.metallib@ emitted by @swift build@'s `.process`
+-- resource rule anywhere under the package @.build/release@ tree (the exact
+-- SwiftPM resource-bundle layout varies by toolchain), and copy it atomically
+-- to the content-addressed destination next to the cached dylib.
+publishMetallib :: FilePath -> FilePath -> IO (Either Text ())
+publishMetallib releaseDir destPath = do
+  found <- findFileNamed "default.metallib" releaseDir
+  case found of
+    Nothing ->
+      pure
+        ( Left
+            ( "default.metallib not found under "
+                <> Text.pack releaseDir
+                <> " (swift build did not produce a Metal library resource)"
+            )
+        )
+    Just metallib -> do
+      createDirectoryIfMissing True (takeDirectory destPath)
+      let tmpPath = destPath <> ".tmp"
+      copyFile metallib tmpPath
+      renameFile tmpPath destPath
+      pure (Right ())
+
+-- | Depth-first search for the first file with the given name under a root.
+findFileNamed :: String -> FilePath -> IO (Maybe FilePath)
+findFileNamed name root = do
+  isDir <- doesDirectoryExist root
+  if not isDir
+    then pure Nothing
+    else do
+      entries <- listDirectory root
+      let paths = fmap (root </>) entries
+      files <- filterM doesFileExist paths
+      case filter ((== name) . takeFileName) files of
+        (match : _) -> pure (Just match)
+        [] -> do
+          dirs <- filterM doesDirectoryExist paths
+          searchSubdirs dirs
+ where
+  searchSubdirs [] = pure Nothing
+  searchSubdirs (dir : rest) = do
+    result <- findFileNamed name dir
+    case result of
+      Just match -> pure (Just match)
+      Nothing -> searchSubdirs rest
