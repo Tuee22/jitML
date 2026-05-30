@@ -53,6 +53,11 @@ import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.Schema qualified as Numerics
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
+import JitML.RL.ConvergenceThresholds
+  ( ConvergenceThreshold (..)
+  , cohortThreshold
+  , passesConvergence
+  )
 
 import JitML.Observability.TbSidecar qualified as TbSidecar
 import JitML.Observability.TensorBoard qualified as TensorBoard
@@ -84,7 +89,6 @@ import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.Retry (ServiceError (..))
 import JitML.Service.Runtime qualified as Runtime
-import JitML.Storage.Buckets (bucketNames)
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
@@ -1986,6 +1990,105 @@ main =
                   (nonDecreasingInts episodes)
                 _ <- deleteJob expectedJobName
                 pure ()
+          , testCase
+              "live PPO cartpole convergence through daemon dispatch clears the literature threshold (Sprint 13.6)"
+              $ do
+                -- Sprint 13.6 closure for the PPO/cartpole cohort. Publishes a
+                -- StartRLRun with a real convergence budget (80 PPO iterations
+                -- × 1024 rollout steps), waits for the daemon-dispatched Job to
+                -- complete, collects per-iteration EpisodeDone rewards off
+                -- rl.event.<substrate>, and asserts the median of the latter
+                -- half clears the in-code literature threshold − slack for
+                -- (PPO, cartpole). No committed reward fixtures — the bar is
+                -- the in-code threshold table and the data is the live
+                -- daemon-dispatched run.
+                publication <- requireLivePublication
+                let edgePort = Publication.publicationEdgePort publication
+                    pulsarSettings =
+                      PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+                    substrate = Publication.publicationSubstrate publication
+                    segment = substrateUrlSegment substrate
+                    commandTopic =
+                      TopicName ("persistent://public/default/rl.command." <> segment)
+                    eventTopic =
+                      TopicName ("persistent://public/default/rl.event." <> segment)
+                uniqueSuffix <- pickRandomSuffix
+                let experimentHash =
+                      Text.take 16 ("livecv" <> uniqueSuffix <> "abcdef0123456789")
+                    subscription = "live-rl-convergence-sub-" <> uniqueSuffix
+                    evalEpisodes = 200 :: Int
+                    maxSteps = 2048 :: Int
+                    commandPayload =
+                      Text.unlines
+                        [ "kind: StartRLRun"
+                        , "experiment-hash: " <> experimentHash
+                        , "algorithm: PPO"
+                        , "environment: cartpole"
+                        , "substrate: " <> segment
+                        , "seed: 42"
+                        , "max-steps: " <> Text.pack (show maxSteps)
+                        , "eval-episodes: " <> Text.pack (show evalEpisodes)
+                        ]
+                    expectedJobName = "jitml-rl-" <> experimentHash
+                threshold <-
+                  case cohortThreshold "PPO" "cartpole" of
+                    Just t -> pure t
+                    Nothing ->
+                      assertFailure
+                        "missing PPO/cartpole entry in JitML.RL.ConvergenceThresholds"
+                        >> pure (ConvergenceThreshold 0 0)
+                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
+                  subscribeResult <- pulsarSubscribe eventTopic subscription
+                  case subscribeResult of
+                    Right _ -> pure ()
+                    Left err ->
+                      liftIO
+                        (assertFailure ("rl.event subscribe failed live: " <> show err))
+                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
+                  publishResult <- pulsarPublish commandTopic commandPayload
+                  liftIO $ case publishResult of
+                    Right _ -> pure ()
+                    Left err ->
+                      assertFailure
+                        ("pulsarPublish StartRLRun (convergence) failed live: " <> show err)
+                jobAppeared <- waitForJob expectedJobName 30
+                assertBool
+                  ( "expected Job "
+                      <> Text.unpack expectedJobName
+                      <> " to be applied by the daemon"
+                  )
+                  jobAppeared
+                -- Allow plenty of consume attempts: 80 PPO iterations on the
+                -- pure-Haskell MLP take longer than the 2-iteration smoke test.
+                rewards <-
+                  collectRlEpisodeRewards
+                    pulsarSettings
+                    eventTopic
+                    subscription
+                    experimentHash
+                    evalEpisodes
+                    1200
+                _ <- deleteJob expectedJobName
+                assertBool
+                  ( "expected at least "
+                      <> show (evalEpisodes `div` 2)
+                      <> " EpisodeDone rewards on rl.event; got "
+                      <> show (length rewards)
+                  )
+                  (length rewards >= evalEpisodes `div` 2)
+                let medianTail =
+                      medianDouble
+                        (drop (length rewards - max 1 (length rewards `div` 2)) rewards)
+                assertBool
+                  ( "live PPO/cartpole median(tail) = "
+                      <> show medianTail
+                      <> " must clear "
+                      <> show (literatureTarget threshold - slack threshold)
+                      <> " ("
+                      <> show (length rewards)
+                      <> " iterations collected)"
+                  )
+                  (passesConvergence threshold medianTail)
           , testCase "live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
@@ -2792,6 +2895,81 @@ parseEpisodeIndex payload =
       [(idx, "")] -> Just idx
       _ -> Nothing
     [] -> Nothing
+
+-- | Extract the @reward: <value>@ from a rendered @EpisodeDone@ frame.
+parseEpisodeReward :: Text -> Maybe Double
+parseEpisodeReward payload =
+  case [ Text.strip (Text.drop (Text.length "reward:") stripped)
+       | line <- Text.lines payload
+       , let stripped = Text.strip line
+       , "reward:" `Text.isPrefixOf` stripped
+       ] of
+    (value : _) -> case reads (Text.unpack value) of
+      [(r, "")] -> Just r
+      _ -> Nothing
+    [] -> Nothing
+
+-- | Sprint 13.6 — collect the per-iteration rewards from the worker's
+-- @EpisodeDone@ envelopes, in arrival order, up to @wanted@. Each consume
+-- waits up to the consumer's timeout; on a timeout we retry until @wanted@
+-- matching rewards are collected or @attempts@ run out. Non-matching frames
+-- are acked and skipped.
+collectRlEpisodeRewards
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> TopicName
+  -> Text
+  -> Text
+  -> Int
+  -> Int
+  -> IO [Double]
+collectRlEpisodeRewards settings topic subscription experimentHash wanted attempts =
+  go attempts []
+ where
+  subId = SubscriptionId (unTopicName topic <> "\n" <> subscription)
+  go n acc
+    | n <= 0 = pure (reverse acc)
+    | length acc >= wanted = pure (reverse acc)
+    | otherwise = do
+        consumed <-
+          PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+            settings
+            (pulsarConsume subId)
+        case consumed of
+          Left _ -> go (n - 1) acc
+          Right (_topicBack, payload) -> do
+            _ <-
+              PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+                settings
+                (pulsarAcknowledge topic payload)
+            let matches =
+                  "kind: EpisodeDone"
+                    `Text.isInfixOf` payload
+                    && ("experiment-hash: " <> experimentHash) `Text.isInfixOf` payload
+            if matches
+              then case parseEpisodeReward payload of
+                Just r -> go (n - 1) (r : acc)
+                Nothing -> go (n - 1) acc
+              else go (n - 1) acc
+
+-- | Median of a list of Doubles, sorted ascending. Empty list returns 0.0.
+medianDouble :: [Double] -> Double
+medianDouble [] = 0.0
+medianDouble xs =
+  let sorted = sortOnSafe id xs
+      n = length sorted
+      mid = n `div` 2
+   in if even n
+        then (sorted !! (mid - 1) + sorted !! mid) / 2
+        else sorted !! mid
+
+-- | Local insertion sort to avoid pulling Data.List.sortOn / Data.Ord into
+-- this test module's already-large import surface.
+sortOnSafe :: (Ord b) => (a -> b) -> [a] -> [a]
+sortOnSafe _ [] = []
+sortOnSafe f (x : xs) =
+  let smaller = [y | y <- xs, f y < f x]
+      larger = [y | y <- xs, f y >= f x]
+   in sortOnSafe f smaller ++ [x] ++ sortOnSafe f larger
 
 kubectlJobExists :: Text -> IO Bool
 kubectlJobExists jobName = do

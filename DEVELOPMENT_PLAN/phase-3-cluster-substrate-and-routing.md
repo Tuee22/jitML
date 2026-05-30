@@ -184,13 +184,17 @@ that enforces the discipline.
 
 ### Remaining Work
 
-- Reduce the manual-PV set to the right-sized replica counts (MinIO `4→1–2`,
-  Pulsar BookKeeper / ZooKeeper `3→1`) sourced from the Phase `4` Sprint `4.8`
-  `dhall/cluster/` profile, keeping the
-  `./.data/<namespace>/<StatefulSet>/pv_<replica-int>/` layout and the chart-lint
-  invariants. The Percona PG PV count follows the Postgres `3→1` reduction.
-- The live hostPath-backed rollout with the reduced PV set is owned by Phase `13`
-  Sprint `13.1`'s Remaining Work.
+- The manual-PV set was reduced to the right-sized replica counts in
+  `JitML.Cluster.Storage` (MinIO `4→1`, Pulsar BookKeeper / ZooKeeper `3→1`,
+  Postgres `3→1`), and the orphan `chart/templates/pv-*.yaml` files left from
+  the larger replica set were deleted from the worktree. A new
+  `JitML.Bootstrap.sweepStalePvManifests` runs during materialization, deleting
+  any `pv-*.yaml` that is not in the current `manualPVs` list so future
+  replica re-tunes never leave stale PV manifests behind (caught live when
+  `jitml check-code` inside the Dockerfile rejected the orphan PVs as missing
+  `claimRef`).
+- The live hostPath-backed rollout with the reduced PV set is owned by Phase
+  `13` Sprint `13.1`'s Remaining Work.
 
 ## Sprint 3.3: Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener ✅
 

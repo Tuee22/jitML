@@ -13,12 +13,19 @@ where
 
 import Data.Aeson (FromJSON (..), eitherDecode, encode, withObject, (.:))
 import Data.ByteString.Lazy qualified as LazyByteString
+import Data.List (isPrefixOf, isSuffixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.IO qualified as Text.IO
-import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile, renameFile)
+import System.Directory
+  ( createDirectoryIfMissing
+  , doesFileExist
+  , listDirectory
+  , removeFile
+  , renameFile
+  )
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
@@ -130,6 +137,11 @@ materializeBootstrapFiles root substrate = do
           renderEnvoyProxy (substrateEdgePort substrate)
       ]
   pvResults <- traverse (materializePv chartTemplatesRoot) manualPVs
+  -- Sprint 3.2 (reopened): when the manualPVs list shrinks (e.g., MinIO
+  -- distributed→standalone), any chart/templates/pv-*.yaml files that no longer
+  -- correspond to a registered PV would lint-fail with "manual PV must declare
+  -- claimRef". Sweep stale PV manifests on materialize.
+  stalePvResults <- sweepStalePvManifests chartTemplatesRoot manualPVs
   routeResults <- traverse (writeRoute chartTemplatesRoot) routeRegistry
   legacyValuesChanged <- removeFileIfExists (chartTemplatesRoot </> "minio-values.yaml")
   standaloneValuesChanged <- removeFileIfExists (chartRoot </> "minio-values.yaml")
@@ -165,6 +177,7 @@ materializeBootstrapFiles root substrate = do
     ( or
         ( results
             <> pvResults
+            <> stalePvResults
             <> routeResults
             <> configResults
             <> hostResults
@@ -484,8 +497,10 @@ liveExecutePhasedRollout substrate chartPath = do
                   , livePublication = publication
                   }
             Right () -> do
-              (postExecuted, postFailure) <-
-                runStepList (livePostGrantSubprocessesForPort substrate port chartPath)
+              postGrantSubs <-
+                filterDockerBuildWhenImageExists
+                  (livePostGrantSubprocessesForPort substrate port chartPath)
+              (postExecuted, postFailure) <- runStepList postGrantSubs
               let prePostExecuted = preExecuted <> [bucketsLabel, grantLabel] <> postExecuted
               case postFailure of
                 Just (renderedFail, stderrTxt) ->
@@ -549,6 +564,36 @@ filterHelmDepBuildWhenArchivesPresent chartPath subs = do
   isHelmDepBuild s =
     subprocessPath s == "helm"
       && take 2 (subprocessArguments s) == ["dependency", "build"]
+
+-- | Sprint 13.1 (re-verification) — skip in-bootstrap @docker build -t jitml:local@
+-- when the host Docker daemon already has the @jitml:local@ tag. The
+-- in-bootstrap rebuild repeats the (already-host-cached) 12-minute layered
+-- build because the bootstrap container does not share the host's buildkit
+-- cache. The reconciler runs the host Docker daemon over the mounted
+-- @/var/run/docker.sock@, so a host-side @docker image inspect jitml:local@
+-- hit means the subsequent @kind load docker-image jitml:local@ already has
+-- a target. Falls back to running the build subprocess when the image is
+-- absent.
+filterDockerBuildWhenImageExists :: [Subprocess] -> IO [Subprocess]
+filterDockerBuildWhenImageExists subs = do
+  hasImage <- imageExistsLocally "jitml:local"
+  pure $
+    if hasImage
+      then filter (not . isJitmlLocalBuild) subs
+      else subs
+ where
+  isJitmlLocalBuild s =
+    subprocessPath s == "docker"
+      && take 3 (subprocessArguments s) == ["build", "-t", "jitml:local"]
+
+imageExistsLocally :: Text -> IO Bool
+imageExistsLocally tag = do
+  let probe =
+        subprocess "docker" ["image", "inspect", tag]
+  (exitCode, _stdoutText, _stderrText) <- runStreaming defaultSubprocessEnv probe
+  case exitCode of
+    ExitSuccess -> pure True
+    ExitFailure _ -> pure False
 
 selectLiveLease :: Substrate -> IO EdgePort.EdgePortLease
 selectLiveLease substrate = do
@@ -728,3 +773,22 @@ removeFileIfExists path = do
       removeFile path
       pure True
     else pure False
+
+-- | Sprint 3.2 (reopened) — delete any @chart/templates/pv-*.yaml@ file that
+-- does not correspond to a current 'ManualPV'. When the manualPVs registry
+-- shrinks (e.g., MinIO distributed→standalone), the orphaned PV manifests
+-- would lint-fail with "manual PV must declare claimRef". Returns one 'Bool'
+-- per file actually deleted so the caller's change-detection 'or' reports a
+-- materialization change.
+sweepStalePvManifests :: FilePath -> [ManualPV] -> IO [Bool]
+sweepStalePvManifests chartTemplatesRoot currentPVs = do
+  let expected = fmap pvManifestName currentPVs
+  entries <- listDirectory chartTemplatesRoot
+  let stale =
+        [ entry
+        | entry <- entries
+        , "pv-" `isPrefixOf` entry
+        , ".yaml" `isSuffixOf` entry
+        , entry `notElem` expected
+        ]
+  traverse (\entry -> removeFileIfExists (chartTemplatesRoot </> entry)) stale

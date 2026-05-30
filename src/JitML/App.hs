@@ -1171,14 +1171,37 @@ tryLoadBootConfigFromFile path = do
         Right value -> pure (Just value)
     else pure Nothing
 
+-- | Sprint 5.7 (worker side) — return the experiment hash the daemon wrote to
+-- the per-run @RunConfig.dhall@ mounted at 'runConfigPath'. Tries each
+-- RunConfig variant in turn (RL, training, tune) and falls back to the
+-- legacy @JITML_EXPERIMENT_HASH@ env var for developer-side local invocations
+-- that have not staged a mounted RunConfig.
+workerExperimentHash :: IO (Maybe Text)
+workerExperimentHash = do
+  rl <- RunConfig.tryLoadRlRunConfig runConfigPath
+  case fmap RunConfig.rlcExperimentHash rl of
+    Just h | not (Text.null h) -> pure (Just h)
+    _ -> do
+      tr <- RunConfig.tryLoadTrainingRunConfig runConfigPath
+      case fmap RunConfig.trcExperimentHash tr of
+        Just h | not (Text.null h) -> pure (Just h)
+        _ -> do
+          tu <- RunConfig.tryLoadTuneRunConfig runConfigPath
+          case fmap RunConfig.turcExperimentHash tu of
+            Just h | not (Text.null h) -> pure (Just h)
+            _ -> do
+              raw <- lookupEnv "JITML_EXPERIMENT_HASH"
+              pure $ case raw of
+                Just value | not (null value) -> Just (Text.pack value)
+                _ -> Nothing
+
 publishWorkerTrainingEvent :: Double -> App ()
 publishWorkerTrainingEvent finalLoss = do
   target <- workerBrokerTarget
-  experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
-  case (target, experimentHashEnv) of
-    (Just (substrate, pulsarSettings), Just hashRaw) | not (null hashRaw) -> do
-      let experimentHash = Text.pack hashRaw
-          topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
+  experimentHashMaybe <- liftIO workerExperimentHash
+  case (target, experimentHashMaybe) of
+    (Just (substrate, pulsarSettings), Just experimentHash) -> do
+      let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
       timestampNs <- liftIO currentTimestampNs
       let envelope =
             ProtoTraining.TrainingEpoch
@@ -1251,11 +1274,10 @@ runTune parsedOptions = do
 publishWorkerTuneEvent :: App ()
 publishWorkerTuneEvent = do
   cluster <- liftIO (readExistingLivePublication ".")
-  experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
-  case (cluster, experimentHashEnv) of
-    (Just publication, Just hashRaw) | not (null hashRaw) -> do
-      let experimentHash = Text.pack hashRaw
-          substrate = Publication.publicationSubstrate publication
+  experimentHashMaybe <- liftIO workerExperimentHash
+  case (cluster, experimentHashMaybe) of
+    (Just publication, Just experimentHash) -> do
+      let substrate = Publication.publicationSubstrate publication
           edgePort = Publication.publicationEdgePort publication
           pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
           topic = Capabilities.TopicName (ProtoTune.tuneEventTopic substrate)
@@ -1578,11 +1600,10 @@ runTrainerEpisodes trainerKind envName seed evalEpisodes maxStepsPerEpisode =
 publishWorkerRlEpisode :: SimulatorLoop.SimulatedEpisode -> App ()
 publishWorkerRlEpisode episode = do
   target <- workerBrokerTarget
-  experimentHashEnv <- liftIO (lookupEnv "JITML_EXPERIMENT_HASH")
-  case (target, experimentHashEnv) of
-    (Just (substrate, pulsarSettings), Just hashRaw) | not (null hashRaw) -> do
-      let experimentHash = Text.pack hashRaw
-          topic = Capabilities.TopicName (ProtoRl.rlEventTopic substrate)
+  experimentHashMaybe <- liftIO workerExperimentHash
+  case (target, experimentHashMaybe) of
+    (Just (substrate, pulsarSettings), Just experimentHash) -> do
+      let topic = Capabilities.TopicName (ProtoRl.rlEventTopic substrate)
       timestampNs <- liftIO currentTimestampNs
       let envelope =
             ProtoRl.RlEpisode

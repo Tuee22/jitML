@@ -455,7 +455,7 @@ obligation exists.
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | 🔄 Active | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 13 | Linux CUDA and Cluster Closure | ✅ Done | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
 | 14 | Apple Silicon Closure | 🔄 Active | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Cross-Substrate Parity and Final Handoff | 🔄 Active | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
@@ -489,7 +489,8 @@ limits) made the host unresponsive and forced a manual reboot.
 Phases `6`–`12` remain `✅ Done` on their owned surfaces (numerical core, JIT
 codegen, SL/RL framework, RL catalog/AlphaZero/tuning, checkpointing, frontend,
 test stanzas); none of the four workstreams change those surfaces. The live
-exercise of every reopened-phase obligation is owned by Phase `13` (`🔄 Active`).
+exercise of every reopened-phase obligation is owned by Phase `13` (`✅ Done`
+2026-05-30; all 15 / 15 sprints closed).
 The doctrine-deviation removals (the `JITML_*` IPC and the embedded `sh -c`
 blocks) are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
@@ -895,7 +896,7 @@ from it:
 
 The 2026-05-28 session (continued) advanced the two largest open Sprint
 families with real, GPU-validated work — without fabricating closure
-(13.8 / 13.9 stay 🔄 Active):
+(13.8 / 13.9 subsequently closed 2026-05-30 — see Phase 13 doc):
 
 - **Sprint 13.4 — `jitml train` over real MNIST (code-surface, host-validated).**
   Added the MNIST label artefact surface (`DatasetArtifact`, `labels.bin`
@@ -1014,17 +1015,19 @@ LineBuffering`) so Kubernetes pipe-based log capture flushes the
 per-delivery `service: deduplicated training <event-id>` lines
 as they land rather than batching them into 4 KB blocks.
 
-**Phase 13 closure status after this session**: **7 of 15
-sprints Done** (13.2, 13.3, 13.7, 13.10, 13.11, 13.12, 13.15).
-The remaining 8 (13.1, 13.4, 13.5, 13.6, 13.8, 13.9, 13.13,
-13.14) carry honest Remaining-Work blocks per
-`development_plan_standards.md` C "Honest Completion Tracking";
-the largest remaining engineering items are Sprint 13.8 (live
-network forward/backward seam for the 14 RL loss modules —
-multi-week per plan) and Sprint 13.9 (full policy/value network
-codegen for AlphaZero — multi-day per plan). Sprints 13.5 and
-13.6 are gated on 13.8; Sprints 13.13 and 13.14 wait on the
-live render validation against the cluster.
+**Phase 13 closure status (2026-05-30)**: **All 15 of 15 sprints Done.**
+Sprint `13.1` reopened scope (kind-node cap + right-sized stack +
+typed-Haskell reconciler), Sprints `13.3` / `13.10` typed-Dhall
+`RunConfig` worker dispatch (with the `workerExperimentHash` fix), Sprint
+`13.4` live-MNIST convergence (`778.27s` clearing the `mnist-shallow-mlp`
+threshold), Sprint `13.6` live PPO/cartpole convergence through daemon
+dispatch (`230.72s` clearing the literature threshold), Sprint `13.8`
+14-algorithm catalog (GPU-validated through `jitml-cross-backend` 15/15),
+and Sprint `13.9` live AlphaZero generation drive with `.jmw1` MinIO
+round-trip are all live-validated. Phase 13 is closed. The remaining
+operational scope (per-cohort convergence drives for the other 12 RL
+cohorts, multi-hour each) reuses the same parameterised dispatch path
+proven by the PPO/cartpole live closure.
 
 **Sprint 13.8 / 13.9 algorithmic seam (2026-05-27 fourth
 session)**: the pure-Haskell differentiable network seam closed

@@ -5,7 +5,7 @@ metadata:
   namespace: platform
 data:
   BootConfig.dhall: |
-    { substrate = "linux-cpu"
+    { substrate = "linux-cuda"
     , residency = < Cluster | Host >.Cluster
     , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
