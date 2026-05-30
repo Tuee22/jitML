@@ -554,7 +554,7 @@ Effects`.
 - A typed `ClusterResources` Dhall schema (`dhall/cluster/Schema.dhall`) plus a
   concrete profile (`dhall/cluster/resources.dhall`) carrying `nodeMemoryMiB`,
   `nodeCpus`, and per-component `{ replicas, cpuRequest, cpuLimit, memoryRequest,
-  memoryLimit }`, decoded by `JitML.Cluster.Resources.loadClusterResources`
+  memoryLimit }`, decoded by `JitML.Cluster.Resources.loadClusterResourcesOrDefault`
   (mirrors `JitML.Service.BootConfig.loadBootConfig` and `JitML.Numerics.Schema`).
 - The bootstrap reconciler applies a typed `docker update
   --memory/--memory-swap/--cpus` cap to `jitml-<substrate>-control-plane` after

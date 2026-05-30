@@ -789,6 +789,9 @@ each constraint.
 | 10 | Phase 9 | Checkpointing serialises the trained models from Phases 8/9; the inference-only read path consumes the same wire format and flows back through the daemon |
 | 11 | Phase 10 | The target PureScript frontend REST surfaces consume the inference-only read path established in Phase 10; current Phase `11` owns the minimal frontend/contract/demo shim scaffold and local HTTP server before the compiled bundle and live WebSocket proxy land |
 | 12 | Phase 11 | The eight Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
+| 13 | Phase 12 | The Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure consumes every code-surface obligation from Phases `1`–`12` and exercises them through one Linux/NVIDIA session against an ephemeral Kind cluster |
+| 14 | Phase 12 | The Apple Silicon Tart VM, Metal FFI, host↔cluster RPC, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
+| 15 | Phase 13, Phase 14 | Cross-substrate parity fixtures, populated live `jitml test all` report card, and the empty legacy ledger require live outputs from both Phase `13` (Linux CUDA) and Phase `14` (Apple Silicon) |
 
 ## Status Vocabulary
 
@@ -804,22 +807,26 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0`, `1`, and `6` are `✅ Done` — every Exit-Definition obligation those
-phases own is met. Phases `2`, `3`, `4`, and `5` previously closed (the closure
-history below remains accurate) but **reopened to `🔄 Active` on 2026-05-29** to
-schedule four workstreams hardening the cluster against host exhaustion and
-aligning run configuration and subprocess control-flow with project doctrine: the
-Dhall `dhall/cluster/` resource profile + kind-node memory/CPU cap + the
-`cluster.host-memory` preflight (Phase `2`), the right-sized manual-PV layout
-(Phase `3`), the per-pod resource limits (Phase `4`), and the typed Dhall
-`RunConfig` + BootConfig-mounted worker dispatch that retires the `JITML_*`
-run-parameter environment-variable IPC (Phase `5`); the reconciler `sh -c`
-control-flow also moves to typed Haskell with `RetryPolicy` (Phases `2`/`4`). The
-originating incident is the 2026-05-29 cluster OOM storm that froze the host. The
-changes implement already-in-scope doctrine (`Application Environment`,
-`Subprocesses as Typed Values`, `Retry Policy as First-Class Values`), so
-[Doctrine Scope](#doctrine-scope) is unchanged. The live exercise of every
-reopened-phase obligation is owned by Phase `13`; the doctrine-deviation removals
+Phases `0`–`13` are `✅ Done` — every Exit-Definition obligation those phases
+own is met. Phases `14` (Apple Silicon closure) and `15` (cross-substrate
+parity + final handoff) are `🔄 Active`. Phases `2`, `3`, `4`, and `5`
+**reopened then re-closed on 2026-05-29** after four workstreams hardening
+the cluster against host exhaustion and aligning run configuration and
+subprocess control-flow with project doctrine landed: the Dhall
+`dhall/cluster/` resource profile + kind-node memory/CPU cap + the
+`cluster.host-memory` preflight (Phase `2` Sprint `2.8`), the right-sized
+manual-PV layout (Phase `3` Sprint `3.2`), the per-pod resource limits and
+right-sized replicas across the platform stack (Phase `4` Sprint `4.8`), and
+the typed Dhall `RunConfig` + BootConfig-mounted worker dispatch that retires
+the `JITML_*` run-parameter environment-variable IPC (Phase `5` Sprint
+`5.7`); the reconciler + readiness `sh -c` control-flow also moved to typed
+Haskell with `RetryPolicy` (Phases `2` Sprint `2.9` / `4` Sprint `4.8`). The
+originating incident is the 2026-05-29 cluster OOM storm that froze the
+host. The changes implement already-in-scope doctrine (`Application
+Environment`, `Subprocesses as Typed Values`, `Retry Policy as First-Class
+Values`), so [Doctrine Scope](#doctrine-scope) is unchanged. The live
+re-validation of every reopened-phase obligation is owned by Phase `13`
+(closed 2026-05-30, 15 / 15 sprints Done); the doctrine-deviation removals
 are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). See
 [README.md → Reopened phases (2026-05-29)](README.md#reopened-phases-2026-05-29).

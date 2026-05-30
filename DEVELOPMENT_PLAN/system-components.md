@@ -32,25 +32,35 @@
 > frontend, and the Cabal test stanzas.
 
 The inventory documents the authoritative target end state and the present
-checked-in implementation. Phases `0`, `1`, `2`, `3`, `4`, `5`, and `6` are
-`✅ Done`. Sprint `1.4` closes the container-exclusive Haskell style/code-quality
-gate: `jitml:local` image construction installs the separate style GHC/tools and
-runs `jitml check-code`; host lint/check-code execution is unsupported.
-Phase `4` reclosed on 2026-05-23 after the live Linux CUDA `RuntimeClass/nvidia`
-probe ran on a GPU validation host (NVIDIA GeForce RTX 5090, CUDA 12.8, compute
-capability `12.0`): the single-node CUDA Kind cluster brings up
-`jitml-linux-cuda-control-plane` with the GPU node label, the containerd
-`nvidia` runtime handler, the read-only `/run/nvidia/driver` mount, and the
-repo-owned NVIDIA runtime config; the `nvidia-smi-probe` pod reaches
-`Succeeded` and reports the RTX 5090. Phase `3` reclosed on 2026-05-23 after
-live Linux CPU bootstrap and teardown validated that topology. Phase `5`
-Sprint `5.6` closed on 2026-05-23 against the single-node topology: Linux CPU
-replacement rollout, Linux CUDA service-pod `RuntimeClass/nvidia`, and Apple
-Silicon host-Dhall subscription validation all passed. Phases `7`, `8`, `9`,
-`10`, `11`, and `12`
-are `🔄 Active` because at least one owned Exit-Definition obligation requires
-live runtime behaviour that the worktree does not yet exercise. Components move from
-`🔄 Active` to `✅ Done` as each owning sprint closes per
+checked-in implementation. Phases `0`–`13` are `✅ Done`; Phases `14` (Apple
+Silicon closure) and `15` (cross-substrate parity + final handoff) are
+`🔄 Active`. Sprint `1.4` closes the container-exclusive Haskell style/
+code-quality gate: `jitml:local` image construction installs the separate
+style GHC/tools and runs `jitml check-code`; host lint/check-code execution
+is unsupported.
+Phase `4` reclosed on 2026-05-23 after the live Linux CUDA
+`RuntimeClass/nvidia` probe ran on a GPU validation host (NVIDIA GeForce RTX
+5090, CUDA 12.8, compute capability `12.0`): the single-node CUDA Kind
+cluster brings up `jitml-linux-cuda-control-plane` with the GPU node label,
+the containerd `nvidia` runtime handler, the read-only `/run/nvidia/driver`
+mount, and the repo-owned NVIDIA runtime config; the `nvidia-smi-probe` pod
+reaches `Succeeded` and reports the RTX 5090. Phase `3` reclosed on
+2026-05-23 after live Linux CPU bootstrap and teardown validated that
+topology. Phase `5` Sprint `5.6` closed on 2026-05-23 against the single-node
+topology: Linux CPU replacement rollout, Linux CUDA service-pod
+`RuntimeClass/nvidia`, and Apple Silicon host-Dhall subscription validation
+all passed. Phases `7`–`12` closed on 2026-05-25 (every owned code-surface
+obligation landed; live obligations migrated to Phases `13` / `14` / `15`).
+Phases `2`, `3`, `4`, and `5` reopened and re-closed on 2026-05-29 after the
+cluster-guardrail + typed-Dhall `RunConfig` + `sh -c` → typed-Haskell
+workstreams landed (see
+[README.md → Reopened phases (2026-05-29)](README.md#reopened-phases-2026-05-29)).
+Phase `13` (Linux CUDA + Kind cluster + Helm + live broker + live MinIO +
+live Playwright closure) closed 2026-05-30 with all 15 / 15 sprints Done.
+Per-row component cells below remain mixed (`✅ Done` / `🔄 Active`)
+according to whether each cell's *target* end state is reached;
+`🔄 Active` cells under closed phases mark deferred follow-ups owned by
+Phases `14` / `15` per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
 A component row is `✅ Done` only when every Exit-Definition obligation that
@@ -256,7 +266,7 @@ internal-RPC pair.
 | Training loops as typed pipelines | Plan/Apply command rendering in `src/JitML/Plan/Plan.hs` and `src/JitML/App.hs`; deterministic `SL.Loop` / `SL.Train` and `RL.Loop.{RLLoop,RLConfig,runRLLoop}` surfaces are checked in, with local RL rollout transitions recorded in `ReplayBuffer`. 2026-05-27 fifth session added the real differentiable SL classifier seam `JitML.SL.Classifier` (softmax-cross-entropy MLP + Adam + canonical MNIST IDX3/IDX1 parsers) that converges on a separable task in `jitml-sl-canonicals`. 2026-05-28 wired `jitml train` (`JitML.App.attemptRealMnistTraining`) to fetch + gunzip + IDX-parse + train the classifier over MinIO-staged MNIST (live `test_acc=0.9318` at a 10k×10-epoch budget on the RTX 3090 cluster), added the in-code `JitML.SL.ConvergenceThresholds` table, and added the formalised `Live`-tagged `jitml-sl-canonicals` convergence assertion (`passesSlConvergence`). | 🔄 Active; missing: executing the formalised Live SL convergence case against a running cluster + the full-dataset convergence run (operational) | Sprints 8.6, 13.4 |
 | RL algorithm catalog (15 entries: 5 OnPolicy — PPO, A2C, TRPO, MaskablePPO, RecurrentPPO; 5 OffPolicy — DQN, QR-DQN, DDPG, TD3, SAC; 4 Specialized — CrossQ, TQC, ARS, HER; 1 SelfPlay — AlphaZero) | `src/JitML/RL/Algorithms.hs` (catalog); one module per algorithm under `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}.hs` aggregated by `Registry.algorithmModuleRegistry`. 2026-05-27 fourth session added the algorithmic seam: `JitML.Numerics.Mlp` (differentiable MLP, forward + manual reverse-mode backprop + Adam), `JitML.RL.Algorithms.PpoTrainer` (real on-policy PPO/A2C/TRPO/MaskablePPO/RecurrentPPO clearing the cartpole literature target of 475 by iteration 15+ on `defaultPpoTrainConfig`), `JitML.RL.Algorithms.DqnTrainer` (real off-policy DQN/Double-DQN with replay buffer + target net + epsilon-greedy), and `JitML.RL.AlphaZero.PolicyValueNet` (two-headed policy/value net for connect4 with real 4-in-a-row terminal evaluator + arena win-rate against uniform-random baseline). 2026-05-28 session completed the catalog: `JitML.RL.Algorithms.ContinuousTrainer` (DDPG/TD3/SAC/CrossQ/TQC on the new `Pendulum-v1` continuous-action env in `JitML.RL.Simulator`, via `Mlp.mlpInputGradient`-driven deterministic-policy gradients), `JitML.RL.Algorithms.QrDqnTrainer` (quantile head), `JitML.RL.Algorithms.ArsTrainer` (gradient-free finite-difference), `JitML.RL.Algorithms.HerTrainer` (bit-flip goal-conditioned + hindsight relabel), all wired into `jitml rl train` via `Workload.rlTrainerForAlgorithm` + `App.runTrainerEpisodes`; `PolicyValueNet.mctsVisitDistribution` trains the AlphaZero policy head on true MCTS visit counts. 2026-05-28 session landed nvcc forward/backward CUDA kernels for the `JitML.Numerics.Mlp` interface (`JitML.Codegen.MlpCuda` + `JitML.Numerics.MlpCuda`), GPU-validated 3/3 in `jitml-cross-backend` on the RTX 3090. | 🔄 Active; missing: routing the trainers/`PolicyValueNet` through the now-validated device kernels (batched) + cuDNN deterministic pin + the live-cluster RL episode-arrival / AlphaZero generation validation pass | Sprints 9.1–9.3, 9.5, 13.8, 13.9 |
 | RL correctness checks (run-to-run determinism + statistical convergence + property tests) | deterministic local tests in `test/rl-canonicals/Main.hs` comparing two fresh runs against each other on the same substrate/seed plus property assertions (no committed trajectory or reward-distribution files per [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets)) | 🔄 Active; missing: per-algorithm run-to-run determinism plus statistical convergence assertions against live training, real rl_steps/rl_eval_episodes consumption | Sprint 9.4 |
-| AlphaZero-style self-play and persistent MCTS state | `src/JitML/RL/AlphaZero.hs` provides game state/move helpers and deterministic transcript summaries; `src/JitML/RL/AlphaZero/{Mcts,SelfPlay,Arena}.hs` carry the typed persistent search tree (UCB + visit-count), self-play buffer with `bufferTranscriptHash`, and arena win-rate promotion gate | 🔄 Active; missing: real network evaluation through the JIT engine inside the prior function, live MinIO checkpoint round-trip of the self-play buffer | Sprint 9.5 |
+| AlphaZero-style self-play and persistent MCTS state | `src/JitML/RL/AlphaZero.hs` provides game state/move helpers and deterministic transcript summaries; `src/JitML/RL/AlphaZero/{Mcts,SelfPlay,Arena,PolicyValueNet,EnginePrior}.hs` carry the typed persistent search tree (UCB + visit-count + transposition table), self-play buffer with `bufferTranscriptHash` and CBOR round-trip, arena win-rate promotion gate, the two-headed policy/value network (`networkPolicyValue`, `mctsVisitDistribution`, `trainPolicyValueNetOnSamples`), and `buildLinuxCpuPriorOracle` driving MCTS priors from the real network forward pass via `runSelfPlayWithOracleFactory` | 🔄 Active; missing: full policy/value network *codegen* through nvcc/Metal (multi-week), live MinIO checkpoint round-trip of the self-play buffer through the user-facing CLI | Sprint 9.5 |
 | Perfect-information game, two-headed network, and arena summary surface | `src/JitML/RL/AlphaZero.hs`; canonical game catalog, Connect 4 two-headed network metadata, and arena summary helpers | 🔄 Active; missing: real two-headed network training, real arena evaluation against measured win rates | Sprint 9.5 |
 | Canonical adversarial games (Connect 4, Othello, Hex, Gomoku) | `src/JitML/RL/AlphaZero.hs` `canonicalGames` lists all four; `initialConnect4`, `initialOthello`, `initialHex`, `initialGomoku` plus per-game `applyMove` rules + per-game two-headed network metadata (`connect4Network`, `othelloNetwork`, `hexNetwork`, `gomokuNetwork`); the typeclass `PerfectInformation` admits all four games; per-game self-play is exercised by `jitml-rl-canonicals` as run-to-run determinism plus rule-conformance properties (every emitted move is legal under `nextLegalMove`, terminal states match `gameTerminal`); no per-game transcript files are committed per [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets) | 🔄 Active; missing: real position-evaluator network forward pass per game and rule-complete arena-promotion assertions | Sprint 9.6 |
 | Hyperparameter tuning (sampler × scheduler × pruner) | `src/JitML/Tune/Catalog.hs` covers the full target sampler catalog (`Grid`, `Sobol`, `Random`, `TPE`, `GPBO`, `GeneticAlgorithm`, `NSGA2`, `MuLambdaES`, `CMAES`, `EvolutionStrategies`, `PBT`), Fifo/SuccessiveHalving/Hyperband/ASHA, and none/median/percentile catalogs; `experiments/mnist-tune.dhall` decodes to the local TPE / ASHA / MedianPruner ADT and drives the current `jitml tune` plan renderer; `JitML.Proto.Tune` covers text command-envelope render/parse | 🔄 Active; missing: real proto bindings and live tuner trial execution | Sprint 9.7 |

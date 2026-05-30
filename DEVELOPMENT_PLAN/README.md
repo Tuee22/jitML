@@ -1077,7 +1077,10 @@ RTX 3090 cluster):
 - **13.1 ephemeral rollout**: the `jitml bootstrap` phased Helm
   rollout + `jitml cluster down` teardown is the ephemeral-cluster
   e2e orchestration (recorded typed in
-  `JitML.Test.LivePlan.liveE2EPlan`); Sprint 13.1 closed 2026-05-28.
+  `JitML.Test.LivePlan.liveE2EPlan`); Sprint 13.1 initially closed
+  2026-05-28 and re-closed 2026-05-29 after the reopened-scope
+  (kind-node cap + right-sized stack + typed-Haskell reconciler)
+  live re-verification.
 
 The remaining open work in 13.8/13.9 is
 infrastructure: CUDA-emitted backward kernels (multi-week — the

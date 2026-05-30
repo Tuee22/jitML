@@ -1328,7 +1328,7 @@ Remaining Work.)
 **Blocked by**: Sprint `13.3`
 **Implementation**: `src/JitML/SL/Dataset.hs`, `src/JitML/SL/Loop.hs`,
 `src/JitML/App.hs`,
-`src/JitML/Service/Handlers/Training.hs`
+`src/JitML/Service/Workload.hs`, `src/JitML/Service/Runtime.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/checkpoint_format.md`
 
@@ -1567,7 +1567,7 @@ gap.
 `src/JitML/RL/Simulator.hs`,
 `src/JitML/RL/SimulatorLoop.hs`,
 `src/JitML/App.hs`,
-`src/JitML/Service/Handlers/Rl.hs`
+`src/JitML/Service/Workload.hs`, `src/JitML/Service/Runtime.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
 ### Objective
@@ -1692,7 +1692,7 @@ in-code literature threshold − slack through full daemon dispatch in
 Remaining Work. Remaining 12 cohorts are operational scope.)
 **Blocked by**: Sprint `13.5`
 **Implementation**: `src/JitML/RL/Loop.hs`,
-`src/JitML/Service/Handlers/Rl.hs`,
+`src/JitML/Service/Workload.hs`, `src/JitML/Service/Runtime.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 

@@ -31,12 +31,16 @@ live report card surfaces real measurements), plus the cross-cohort
 slice of `jitml-cross-backend` (Sprint 12.6) and the live report-card
 slice of `jitml test all` (Sprint 12.9).
 
-**Blocked by**: Phase `13` Sprints `13.4` / `13.6` / `13.8` / `13.11`
-(live Linux CUDA outputs); Phase `14` Sprints `14.2` / `14.5` (live
-Apple Metal outputs).
+**Blocked by**: Phase `14` Sprints `14.2` / `14.5` (live Apple Metal
+outputs). Phase `13` closed 2026-05-30 (15 / 15 sprints Done) — the
+Linux CPU + CUDA live outputs required by Sprints `15.1` / `15.2` are
+available.
 
-**Met today**: nothing — this phase fires after Phases `13` and `14`
-each produce at least one live measurement.
+**Met today**: Phase `13` live outputs (Linux CUDA SL convergence
+2026-05-29 `778.27s`, PPO/cartpole RL convergence 2026-05-30 `230.72s`,
+weighted inference / `gc.event.<substrate>` / live `jitml-integration`
+12 / 12 Live cohort) are available; this phase fires once Phase `14`
+produces at least one Apple Metal live measurement.
 
 ### Current Implementation Scope
 
@@ -57,9 +61,10 @@ sweep-up.
 ## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands 🔄
 
 **Status**: Active
-**Blocked by**: Phase `13` Sprint `13.11` (Linux CPU + CUDA weighted
-inference live), Phase `14` Sprint `14.5` (Apple Metal weighted inference
-live)
+**Blocked by**: Phase `14` Sprint `14.5` (Apple Metal weighted inference
+live). Phase `13` Sprint `13.11` (Linux CPU + CUDA weighted inference
+live) closed 2026-05-27 — the Linux CPU + CUDA half of the cross-substrate
+cohort is available.
 **Implementation**: `test/cross-backend/Main.hs`,
 `src/JitML/Engines/Tolerance.hs`,
 `src/JitML/Test/Report.hs`
@@ -120,10 +125,12 @@ authoritatively encode whichever substrate ran the calibration first.
 ### Remaining Work
 
 - Add the cross-substrate drift assertion that consumes the in-code
-  band (no committed `.bin` / `.json` fixtures). Requires Phase `13`
-  Sprint `13.11` (Linux CPU + CUDA weighted inference live) and Phase
-  `14` Sprint `14.5` (Apple Metal weighted inference live) to produce
-  the cross-substrate tensors first.
+  band (no committed `.bin` / `.json` fixtures). The Linux CPU + CUDA
+  weighted inference outputs from Phase `13` Sprint `13.11` (closed
+  2026-05-27) are available; still requires Phase `14` Sprint `14.5`
+  (Apple Metal weighted inference live) to produce the Apple-side
+  tensors before the `(linux-cpu, linux-cuda, apple-silicon)` triple
+  cohort can be asserted.
 - Update `documents/engineering/determinism_contract.md` to point at
   the in-code table.
 
@@ -183,9 +190,9 @@ Closes Exit Definition item 9's live report-card slice.
 ## Sprint 15.3: Empty Legacy Ledger and Final Handoff 🔄
 
 **Status**: Active
-**Blocked by**: Sprint `15.1`, Sprint `15.2`, Phase `13` Sprint `13.9`
-(MCTS prior stub retirement), every other ledger row's owning sprint
-closure
+**Blocked by**: Sprint `15.1`, Sprint `15.2`, every remaining ledger
+row's owning sprint closure. Phase `13` Sprint `13.9` (MCTS prior stub
+retirement) closed 2026-05-30.
 **Implementation**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
 `cabal.project`, `src/JitML/Codegen/{Cuda,Metal}.hs`,
 `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`,

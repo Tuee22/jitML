@@ -812,7 +812,10 @@ ledger.
   the `JITML_*` run-parameter env vars.
 - `JitML.App` (`runRl` / `runTune` / SL `attemptRealMnistTraining`) decodes the
   `RunConfig` via `Dhall.inputFile` and reads `BootConfig` via `loadBootConfig`
-  instead of `envWithDefault`; the experiment hash is passed as a CLI argument.
+  instead of `envWithDefault`; the experiment hash travels in the typed
+  `RunConfig` record (`workerExperimentHash` reads it from the mounted
+  `RunConfig.dhall` first, with the legacy `JITML_EXPERIMENT_HASH` env retained
+  only as a developer-side fallback for non-Job invocations).
 
 ### Validation
 
