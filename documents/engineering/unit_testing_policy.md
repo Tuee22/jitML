@@ -138,12 +138,12 @@ available-runtime fail-closed behavior; `jitml-integration` owns the live probe
 attempt through typed subprocesses. The same split covers the Metal runtime
 probe snapshots for Swift, `xcrun`, and `system_profiler` and the guarded
 Metal benchmark-runner preflight checks. On `apple-silicon` the live Metal/Swift
-compile-and-execute path these probes guard runs inside the `jitml-build` Tart
-VM (Xcode 16 pre-installed/pre-licensed, invoked via `tart exec`), never against
-a host Xcode toolchain; the host carries only the Metal framework to load the
-VM-produced `.dylib`. A missing host `metal` compiler (`xcrun -find metal`
-failure) is by design and is never remediated by installing Xcode on the host.
-See [../engineering/jit_codegen_architecture.md → Apple Silicon Hybrid Pattern](../engineering/jit_codegen_architecture.md#apple-silicon-hybrid-pattern).
+compile-and-execute path these probes guard runs **headless on the host**: the
+CommandLineTools `swift build` produces the glue dylib and the launcher
+JIT-compiles the Metal shader at runtime via `MTLDevice.makeLibrary(source:)` —
+no Tart VM, no full Xcode. The cross-backend Apple cases skip unless a Metal
+device is usable headless. See
+[../engineering/jit_codegen_architecture.md → Apple Silicon Headless JIT](../engineering/jit_codegen_architecture.md#apple-silicon-headless-jit).
 Live cross-substrate graph-kernel launches assert per-tensor drift
 against a tolerance band declared **in code** (`src/JitML/Engines/Tolerance.hs`)
 rather than against committed `.json` / `.bin` fixtures. The band is a

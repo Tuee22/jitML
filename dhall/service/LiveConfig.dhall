@@ -5,7 +5,6 @@
     | ExponentialN : { attempts : Natural, baseMillis : Natural, capMillis : Natural }
     | RetryUntil : { deadlineMillis : Natural }
     >
-, tartIdleTimeout : Optional Natural
 , inferenceBatchSize : Natural
 , inferenceMaxLatencyMillis : Natural
 , dedupCacheSize : Natural

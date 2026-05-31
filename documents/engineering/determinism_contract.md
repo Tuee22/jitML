@@ -47,15 +47,16 @@ own floating-point determinism contract.
   (`ceil(n / 32)`), so future Metal FFI loading can size host buffers from the
   generated `jitml_kernel_output_count` symbol instead of duplicating shape
   logic outside the renderer.
-- Metal compute kernels are built inside the `jitml-build` Tart VM (which ships
-  Xcode 16 pre-installed and pre-licensed) and execute on the host GPU through
-  the host's Metal framework. `JitML.Engines.MetalRuntime` probes host Metal
-  device visibility and the loadable VM-built `.dylib` through typed
-  subprocesses; the host has no Swift/Xcode build toolchain and never compiles
-  shaders — all `swift build` / `metal` shader compilation happens in the VM via
-  `tart exec`. Full Xcode is never installed on the host (its first-launch/license
-  UI breaks the headless workflow), so a host `xcrun -find metal` failure is by
-  design and is never remediated by installing host Xcode.
+- Metal compute kernels are built **on the host** with the CommandLineTools
+  `swift build` (no Tart VM, no full Xcode) and JIT-compiled at runtime via
+  `MTLDevice.makeLibrary(source:options:)` with `fastMathEnabled = false`, then
+  executed on the host GPU through the Metal framework. Determinism is fixed by
+  the shader source plus the fast-math-off compile option, independent of
+  offline-vs-runtime compilation. `JitML.Engines.MetalRuntime` probes host Metal
+  device visibility (which gates execution); the host uses only the
+  CommandLineTools `swiftc` and the OS Metal framework, never full Xcode (its
+  first-launch/license UI breaks the headless workflow), and the offline `metal`
+  CLI compiler is never invoked.
 - RNG state lives in the host daemon (`Host + SelfInference`).
 - Kernel-launch ordering is single-stream by default. Single MTLCommandQueue
   with FIFO ordering; explicit barriers prevent kernel reordering.
@@ -138,10 +139,11 @@ where:
   enabled.
 - `substrate` ∈ `apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN) plus loader-relevant ABI
-  facts for local FFI artifacts. The Apple `Xcode/Metal` pin is the Xcode 16
-  that ships pre-installed and pre-licensed inside the `jitml-build` Tart VM —
-  never a host Xcode, which is never installed. The current Linux CPU local fingerprint carries
+  `cabal.project` (LLVM, NVCC, Metal/`swiftc`, oneDNN) plus loader-relevant ABI
+  facts for local FFI artifacts. The Apple `Metal/swiftc` pin is the host
+  CommandLineTools `swiftc` plus the OS Metal framework (which provides the
+  runtime `makeLibrary` shader compiler) — no Tart VM and no host Xcode. The
+  current Linux CPU local fingerprint carries
   `artifact-abi=<os>-<arch>` so Darwin host artifacts and Linux container
   artifacts do not share a cache key.
 - `rendered-source-payload` is the canonical Haskell-rendered source bundle
@@ -163,7 +165,7 @@ reproducibility witnesses:
 
 | Substrate | Envelope fields |
 |-----------|-----------------|
-| `apple-silicon` | GPU device id, Metal version, Xcode version |
+| `apple-silicon` | GPU device id, Metal version, CommandLineTools `swiftc` version |
 | `linux-cpu` | Detected ISA (AVX2 / AVX-512), oneDNN version, glibc version, CPU model |
 | `linux-cuda` | cuDNN version, cuBLAS version, CUDA driver version, GPU compute capability, NVCC version |
 

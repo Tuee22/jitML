@@ -3,13 +3,14 @@
 
 -- | Apple Silicon local Metal engine (Sprint 14.2 / 14.5).
 --
--- Mirrors "JitML.Engines.CudaLocal": the first cache miss drives the
--- Swift/Metal build inside the @jitml-build@ Tart VM (the host never runs
--- Xcode or the @metal@ shader compiler), the produced @libJitMLMetal.dylib@ is
--- published into the content-addressed Apple cache, and this module @dlopen@s
--- that dylib, resolves the host-callable @jitml_kernel@ /
--- @jitml_weighted_kernel@ C ABI emitted by "JitML.Codegen.Metal", and launches
--- the kernel against the host's Metal GPU through the generated launcher.
+-- Mirrors "JitML.Engines.CudaLocal": the first cache miss drives the Swift glue
+-- build on the host with the CommandLineTools @swift build@ (no Tart VM, no full
+-- Xcode), the produced @libJitMLMetal.dylib@ is published into the
+-- content-addressed Apple cache, and this module @dlopen@s that dylib, resolves
+-- the host-callable @jitml_kernel@ / @jitml_weighted_kernel@ C ABI emitted by
+-- "JitML.Codegen.Metal", and launches the kernel against the host's Metal GPU
+-- through the generated launcher (which JIT-compiles the embedded MSL at runtime
+-- via @MTLDevice.makeLibrary(source:)@).
 module JitML.Engines.MetalLocal
   ( MetalKernelRun (..)
   , MetalWeightedKernelRun (..)
@@ -33,8 +34,6 @@ import Foreign.C.String (CString, peekCString)
 import Foreign.C.Types (CFloat (..), CSize (..))
 import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
 import Foreign.Ptr (FunPtr, Ptr)
-import System.Environment (setEnv)
-import System.FilePath (replaceExtension)
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
@@ -226,7 +225,6 @@ runMetalWeightedKernel env source hash input weights = do
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
           artifactPath = Text.unpack (kernelHandleArtifactPath handle)
-      publishMetallibPathEnv artifactPath
       (reportedFamily, output) <- loadAndRunWeighted artifactPath input weights
       pure
         ( Right
@@ -253,7 +251,6 @@ runMetalKernel env source hash input = do
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
           artifactPath = Text.unpack (kernelHandleArtifactPath handle)
-      publishMetallibPathEnv artifactPath
       (reportedFamily, output) <- loadAndRun artifactPath input
       pure
         ( Right
@@ -268,14 +265,6 @@ runMetalKernel env source hash input = do
         )
  where
   engine = engineForSubstrate AppleSilicon
-
--- | Point the generated Metal launcher at the content-addressed
--- @<hash>.metallib@ that the Tart cache-miss build publishes next to the
--- @<hash>.dylib@. The launcher reads @JITML_METALLIB_PATH@ when it first
--- loads its `MTLLibrary`, so the env var must be set before the FFI call.
-publishMetallibPathEnv :: FilePath -> IO ()
-publishMetallibPathEnv artifactPath =
-  setEnv "JITML_METALLIB_PATH" (replaceExtension artifactPath "metallib")
 
 loadAndRun :: FilePath -> [Float] -> IO (Text, [Float])
 loadAndRun artifactPath input =
@@ -328,7 +317,7 @@ metalToolchainFingerprint =
         ";"
         [ "swiftpm-metal-dynamic"
         , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "metal-offline-metallib-in-vm"
+        , "metal-runtime-makelibrary-host"
         , "single-stream-launch-order"
         , "simd-aligned-threadgroups"
         , "abi=extern-c-cdecl-launcher"

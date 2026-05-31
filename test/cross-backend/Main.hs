@@ -8,7 +8,9 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import Control.Exception qualified
+import Data.Either (isRight)
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import System.Environment (lookupEnv)
 import Data.Vector.Unboxed qualified as VU
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (TensorBlob (..), emptyManifest, inferFromManifest)
@@ -24,11 +26,6 @@ import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.CudnnBindings qualified as Cudnn
 import JitML.Engines.MetalLocal qualified as Metal
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
-import JitML.Tart.Lifecycle
-  ( TartVmStatus (TartVmRunning)
-  , VmName (VmName)
-  , queryTartVmStatus
-  )
 import JitML.Engines.Engine (deterministicFlags, engineForSubstrate)
 import JitML.Engines.HasEngine
   ( EngineRequest (..)
@@ -354,7 +351,7 @@ main =
           if not ready
             then
               assertBool
-                "Metal device + running jitml-build VM unavailable; live apple-silicon determinism check skipped"
+                "Metal device unavailable on this host; live apple-silicon determinism check skipped"
                 True
             else do
               env <- buildEnv defaultGlobalFlags
@@ -380,7 +377,7 @@ main =
             if not ready
               then
                 assertBool
-                  "Metal device + running jitml-build VM unavailable; weighted apple-silicon Dense2D test skipped"
+                  "Metal device unavailable on this host; weighted apple-silicon Dense2D test skipped"
                   True
               else do
                 env <- buildEnv defaultGlobalFlags
@@ -397,6 +394,97 @@ main =
                     Metal.metalWeightedKernelOutput a @?= [1.0, 4.0, 9.0]
                   _ ->
                     assertBool "all three apple-silicon weighted kernel runs succeed" False
+      , testCase "apple-silicon live Metal benchmark candidate runner produces a measurement (Sprint 14.3)" $ do
+          -- Sprint 14.3 — the de-stubbed metalBenchmarkCandidateRunner drives the
+          -- real host swift build -> dlopen -> runtime makeLibrary -> Metal launch
+          -- path, times the round-trip, and digests the float output. One
+          -- candidate keeps this fast; the full sweep is the gated test below.
+          ready <- appleLiveReady
+          if not ready
+            then
+              assertBool
+                "Metal device unavailable on this host; live apple-silicon benchmark runner skipped"
+                True
+            else do
+              env <- buildEnv defaultGlobalFlags
+              let input = [0.0, 1.0, 2.0, 3.0]
+              measured <-
+                TuningBenchmark.metalBenchmarkCandidateRunner
+                  env
+                  (Cache.KernelSpec "jitml-apple:benchmark")
+                  Cache.Inference
+                  input
+                  (Tuning.selectDeterministic Tuning.appleSiliconKnobs)
+              case measured of
+                Left err -> assertBool ("apple-silicon benchmark runner failed: " <> show err) False
+                Right observation -> do
+                  TuningBenchmark.benchmarkObservationOutputDigest observation
+                    @?= TuningBenchmark.digestFloatOutput input
+                  assertBool
+                    "benchmark latency is non-negative"
+                    (TuningBenchmark.benchmarkObservationLatencyMicros observation >= 0)
+              wrongSubstrate <-
+                TuningBenchmark.metalBenchmarkCandidateRunner
+                  env
+                  (Cache.KernelSpec "jitml-apple:benchmark")
+                  Cache.Inference
+                  input
+                  (Tuning.selectDeterministic Tuning.linuxCpuKnobs)
+              wrongSubstrate
+                @?= Left "apple-silicon benchmark runner cannot execute linux-cpu candidate"
+      , testCase
+          "apple-silicon first cache-miss persists and reuses a TuningChoice via the live runner (Sprint 14.3)"
+          $ do
+            -- Full benchmark-tuning round-trip through the live Metal runner. The
+            -- Apple knob space is a 4x3x2x1 cross-product (24 candidates, each a
+            -- separate host swift build, ~10 min), so this is gated behind
+            -- JITML_TUNING_LIVE to keep the routine suite fast; it skips unless a
+            -- Metal device is visible AND that variable is set.
+            ready <- appleLiveReady
+            liveTuning <- lookupEnv "JITML_TUNING_LIVE"
+            case (ready, liveTuning) of
+              (True, Just _) -> do
+                env <- buildEnv defaultGlobalFlags
+                let buildRoot = toFilePath (envCacheDir env)
+                    tuningDir = buildRoot </> "jit" </> "tuning" </> "apple-silicon"
+                    fingerprint = Cache.ToolchainFingerprint "14.3-fingerprint"
+                uniqueSuffix <- pickRandomSuffix
+                let kernelSpec = Cache.KernelSpec ("jitml-apple:14.3-cache-miss-" <> uniqueSuffix)
+                preExisting <-
+                  listDirectory tuningDir
+                    `Control.Exception.catch` \(_ :: Control.Exception.IOException) -> pure []
+                firstResult <-
+                  TuningBenchmark.ensureKernelArtifactWithBenchmarkTuning
+                    env
+                    Substrate.AppleSilicon
+                    kernelSpec
+                    Cache.Inference
+                    fingerprint
+                    [0.0]
+                assertBool
+                  ("first benchmark-tuning build succeeds: " <> show firstResult)
+                  (isRight firstResult)
+                afterFirst <- listDirectory tuningDir
+                let newFiles = filter (`notElem` preExisting) afterFirst
+                assertBool
+                  ("a new TuningChoice JSON is persisted under " <> tuningDir)
+                  (not (null newFiles))
+                -- The second build reads the persisted choice (no re-sweep).
+                secondResult <-
+                  TuningBenchmark.ensureKernelArtifactWithBenchmarkTuning
+                    env
+                    Substrate.AppleSilicon
+                    kernelSpec
+                    Cache.Inference
+                    fingerprint
+                    [0.0]
+                assertBool
+                  ("second benchmark-tuning build reuses the persisted choice: " <> show secondResult)
+                  (isRight secondResult)
+              _ ->
+                assertBool
+                  "Metal device + JITML_TUNING_LIVE unavailable; live apple-silicon tuning round-trip skipped"
+                  True
       , testCase "cuBLAS bindings initialize and report a version (Sprint 7.4)" $ do
           probe <- CudaRuntime.probeCudaRuntime
           if not (CudaRuntime.cudaRuntimeAvailable probe)
@@ -1101,19 +1189,14 @@ finiteFloat :: Float -> Bool
 finiteFloat value =
   not (isNaN value) && not (isInfinite value)
 
--- | The live apple-silicon Metal path is exercisable only when the host has a
--- visible Metal device AND the `jitml-build` Tart VM is running (the kernel
--- build runs inside the VM via `tart exec`; booting a macOS guest requires an
--- interactive GUI session, so a headless context cannot start it). When either
--- is missing the cross-backend Apple cases skip rather than fail.
+-- | The live apple-silicon Metal path is exercisable whenever the host has a
+-- visible Metal device. The Swift glue dylib is built on the host with the
+-- CommandLineTools `swift build` and the Metal shader is JIT-compiled at runtime
+-- via `MTLDevice.makeLibrary(source:)` — fully headless, no Tart VM. On hosts
+-- with no visible Metal device (e.g. Linux CI) the cross-backend Apple cases
+-- skip rather than fail.
 appleLiveReady :: IO Bool
-appleLiveReady = do
-  probe <- MetalRuntime.probeMetalRuntime
-  if not (MetalRuntime.metalRuntimeDeviceVisible probe)
-    then pure False
-    else do
-      status <- queryTartVmStatus (VmName "jitml-build")
-      pure (status == Right TartVmRunning)
+appleLiveReady = MetalRuntime.metalRuntimeDeviceVisible <$> MetalRuntime.probeMetalRuntime
 
 assertOneDnnOutput :: Env -> KernelFamily -> [Float] -> [Float] -> IO ()
 assertOneDnnOutput env family input expected = do

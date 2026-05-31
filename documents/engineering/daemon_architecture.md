@@ -53,7 +53,7 @@ load → prereq → acquire → ready → serve → drain → exit
 |-------|-----------|
 | `load` | Read `BootConfig` Dhall; resolve and SHA-hash; resolve `LiveConfig`. |
 | `prereq` | Reconcile the prerequisite DAG via `reconcilePrerequisites`. |
-| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer; on Apple Silicon host instance, validate/install tart and start the `jitml-build` VM lazily — only on JIT cache miss, since a cache hit needs no build, but every build that is needed runs in the VM (the host never compiles or runs Xcode). |
+| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer. On Apple Silicon the host JIT builds the Metal dylib with the CommandLineTools `swift build` on the first cache miss (no Tart VM); cache hits need no build. |
 | `ready` | `/readyz` flips to `200`. |
 | `serve` | Process commands at-least-once until SIGTERM / SIGINT / SIGHUP-to-restart-required-field. |
 | `drain` | Stop accepting new commands; finish in-flight; flush TensorBoard shards; final checkpoint flush. |
@@ -92,7 +92,7 @@ restart):
 |-------|------|---------|
 | `logLevel` | `LogLevel` | `Debug \| Info \| Warn \| Error` |
 | `retryPolicy` | `RetryPolicy` | Typed retry strategy |
-| `tartIdleTimeout` | `Optional Natural` | Apple host-native only; default `1800` s |
+| `tartIdleTimeout` | `Optional Natural` | **Removal scheduled** (Phase 5 Sprint `5.8`) — the headless host Metal build needs no VM idle timeout; see [legacy ledger](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md) |
 | `inferenceBatchSize` | `Natural` | Per-batch inference budget |
 | `inferenceMaxLatencyMillis` | `Natural` | Inference SLO |
 | `dedupCacheSize` | `Natural` | Per-domain at-least-once dedup cache capacity |
@@ -151,9 +151,10 @@ is seeded.
 
 The live `chart/local/jitml-service` ConfigMap carries the same current Dhall
 surface: residency and inference mode use typed union constructors, and
-`LiveConfig` uses `logLevel`, `retryPolicy`, `tartIdleTimeout`,
-`inferenceBatchSize`, `inferenceMaxLatencyMillis`, `dedupCacheSize`,
-`dedupCacheTtlSeconds`, and `drainDeadlineSeconds`.
+`LiveConfig` uses `logLevel`, `retryPolicy`, `tartIdleTimeout` (removal
+scheduled — Phase 5 Sprint `5.8`), `inferenceBatchSize`,
+`inferenceMaxLatencyMillis`, `dedupCacheSize`, `dedupCacheTtlSeconds`, and
+`drainDeadlineSeconds`.
 
 ## Hot Reload
 
@@ -480,38 +481,21 @@ deployment surfaces, local HTTP endpoint server, BootConfig-derived client
 settings, and BootConfig-derived daemon subscription plan; live host daemon
 startup and service-loop Pulsar/MinIO flow remain target runtime validation.
 
-Routing every Apple Silicon Swift and Metal kernel build through the
-`jitml-build` Tart VM is a hard architectural requirement, not an optimization —
-it is the only way jitML can truly JIT on Apple Silicon. Full Xcode is **never**
-installed on the host: its first-launch/license UI prompts break the required
-headless workflow, so host Xcode is never an acceptable remediation for a
-missing `metal` compiler or an `xcrun -find metal` failure. The VM ships Xcode 16
-pre-installed and pre-licensed so `swift build` compiles the generated
-`Kernels.metal` resource non-interactively via `tart exec`. The host keeps only
-the Metal framework, used solely to load and execute the VM-produced `.dylib`;
-the host never compiles shaders and never runs Xcode. This holds irrespective of
-the VM image size or download cost. See
-[../engineering/jit_codegen_architecture.md → Apple Silicon Hybrid Pattern](jit_codegen_architecture.md#apple-silicon-hybrid-pattern).
+The Apple Silicon Metal JIT is fully headless — no Tart VM and no full Xcode.
+Full Xcode is **never** installed on the host (its first-launch/license UI breaks
+the headless workflow); only the CommandLineTools `swiftc` and the OS Metal
+framework are used. See
+[jit_codegen_architecture.md → Apple Silicon Headless JIT](jit_codegen_architecture.md#apple-silicon-headless-jit).
 
-The host daemon's startup path never touches tart. On a JIT cache miss the
-daemon first validates or installs the `tart` Homebrew package through typed
-lazy prerequisite remediation, then calls
-`JitML.Tart.ensureVmUpLive jitml-build`, which is idempotent.
-`JitML.Tart.Build` now renders the ordered cache-miss
-plan that follows that handoff and the concrete executor behind it: inspect
-`tart list --source local --format json`, start a stopped VM with
-`tart run --no-graphics`, poll `tart exec <vm> true`, validate
-`swift --version` in the VM, run `swift build` against the generated package
-(compiling the generated `Kernels.metal` resource with the VM's pre-licensed
-Xcode 16 `metal` shader compiler), publish `libJitMLMetal.dylib` into the
-content-addressed Apple cache, and repoint the stable host FFI symlink so the
-host's Metal framework can load and execute that VM-built `.dylib` without ever
-running a compiler. The same module exposes a typed executor
-boundary whose unit tests validate ordered success and failure short-circuiting
-with a synthetic executor. The user-facing `jitml internal vm
-bootstrap|up|down|status` commands now dispatch to the same live Tart lifecycle
-module for clone/status/start/stop operations. The live host daemon still needs
-a provisioned or bootstrapped `jitml-build` VM and the Metal launch path.
+On a JIT cache miss the host daemon builds the generated Swift glue dylib with a
+host `swift build --package-path <dir> -c release` through the typed `Subprocess`
+boundary, publishes `libJitMLMetal.dylib` into the content-addressed Apple cache,
+repoints the stable host FFI symlink, and `dlopen`s it; the generated launcher
+JIT-compiles the embedded Metal shader at runtime via
+`MTLDevice.makeLibrary(source:)` with fast-math off. Subsequent cache hits skip
+the build. The prior Tart VM lifecycle and `jitml internal vm` commands are
+retired (2026-05-30 reopen of Phases `7` / `2` / `5`; see
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)).
 
 Direct k8s API access from the host is hlint-forbidden.
 
@@ -524,7 +508,7 @@ Direct k8s API access from the host is hlint-forbidden.
 | `/readyz` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime with ready/not-ready status |
 | `/metrics` | `JitML.Service.Runtime.daemonHttpRoutes` | Served by the in-binary HTTP runtime as Prometheus text |
 | `BootConfig` | `JitML.Service.BootConfig` and `dhall/service/BootConfig.dhall` | Cluster/host residency, inference mode, Pulsar, MinIO, Harbor, HTTP listener fields |
-| `LiveConfig` | `JitML.Service.LiveConfig` and `dhall/service/LiveConfig.dhall` | Log level, retry policy, tart idle timeout, inference batching/SLO, dedup cache size/TTL, drain deadline fields |
+| `LiveConfig` | `JitML.Service.LiveConfig` and `dhall/service/LiveConfig.dhall` | Log level, retry policy, inference batching/SLO, dedup cache size/TTL, drain deadline fields |
 | SIGHUP reload decision | `JitML.Service.HotReload` | Pure reload/ignore/restart-required decision surface |
 | POSIX signal wiring | `JitML.Service.Signal` and `JitML.Service.Runtime` | SIGHUP increments reload generation; SIGINT/SIGTERM begin graceful drain and drop readiness |
 | Consumer idempotency | `JitML.Service.Consumer` | Pure payload-hash deduplication surface |

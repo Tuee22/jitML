@@ -49,8 +49,10 @@ has added `jitml bootstrap`, `jitml doctor`, `internal materialize-substrate`,
 generated CLI docs for the expanded command surface, and the stage-0 script
 handoff into `jitml bootstrap --<substrate>`. Sprint `2.2` has landed typed
 toolchain/container/cluster prerequisite nodes, `jitml doctor --remediate`,
-Homebrew remediation apply with postcondition validation, and the lazy
-Apple-`tart` cache-miss prerequisite root. The `bootstrap` parser leaf validates
+Homebrew remediation apply with postcondition validation, and the Apple
+host-build cache-miss prerequisite root (CommandLineTools `swift`; the
+`container.tart` node is removal-scheduled — Phase 2 Sprint `2.10`). The
+`bootstrap` parser leaf validates
 substrate selection; the full cluster apply body continues in the later Phase
 `3` rollout work. Command implementations that perform daemon, cluster,
 training, and substrate work remain blocked on their owning later sprints.
@@ -256,25 +258,16 @@ Passthrough pre-bound to `./.build/jitml.kubeconfig`.
 Non-doctrine-shaped helpers for substrate materialization and bootstrap
 prerequisite introspection.
 
-### `jitml internal vm` (Apple Silicon only)
+### `jitml internal vm` (Apple Silicon) — **removed (Sprint 2.10, 2026-05-30)**
 
-```
-jitml internal vm bootstrap
-jitml internal vm up
-jitml internal vm down
-jitml internal vm status
-jitml internal vm exec -- <cmd>
-```
-
-Pass-through to `tart exec`. Apple-only escape hatch for debugging Swift build
-failures. Rejected on Linux substrates with `AppError UnknownCommand`. The
-`jitml-build` VM is not optional: every Apple Silicon Swift and Metal shader
-build is routed through it because the host deliberately never installs full
-Xcode (its first-launch/license UI breaks the headless workflow). The VM ships
-Xcode 16 pre-installed and pre-licensed so `swift build` compiles the generated
-`Kernels.metal` via `tart exec` non-interactively. The host keeps only the Metal
-framework to load/execute the VM-produced `.dylib`; routing every build through
-Tart is the only way jitML truly JITs on Apple Silicon.
+This command group (`bootstrap|up|down|status|exec`) managed the Tart build VM
+and was **removed** under Phase 2 Sprint `2.10` (see
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md → Completed](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md#completed)).
+The headless Apple Metal JIT builds the Swift glue dylib **on the host** with the
+CommandLineTools `swift build` and JIT-compiles the Metal shader at runtime via
+`MTLDevice.makeLibrary(source:)` — there is no Tart VM to provision, start, stop,
+or exec into. See
+[jit_codegen_architecture.md → Apple Silicon Headless JIT](jit_codegen_architecture.md#apple-silicon-headless-jit).
 
 ### `jitml internal cache`
 
@@ -1383,103 +1376,6 @@ Options:
 Examples:
   jitml internal gc exp123
       Apply retention to an experiment.
-```
-
-### `jitml internal vm bootstrap`
-
-```text
-jitml internal vm bootstrap
-
-Bootstrap the VM.
-
-Creates or updates the Tart VM image.
-
-Usage:
-  jitml internal vm bootstrap
-
-
-
-Examples:
-  jitml internal vm bootstrap
-      Bootstrap the VM.
-```
-
-### `jitml internal vm up`
-
-```text
-jitml internal vm up
-
-Start the VM.
-
-Starts the Apple Silicon VM.
-
-Usage:
-  jitml internal vm up
-
-
-
-Examples:
-  jitml internal vm up
-      Start the VM.
-```
-
-### `jitml internal vm down`
-
-```text
-jitml internal vm down
-
-Stop the VM.
-
-Stops the Apple Silicon VM.
-
-Usage:
-  jitml internal vm down
-
-
-
-Examples:
-  jitml internal vm down
-      Stop the VM.
-```
-
-### `jitml internal vm status`
-
-```text
-jitml internal vm status
-
-Report VM status.
-
-Prints VM status.
-
-Usage:
-  jitml internal vm status
-
-
-
-Examples:
-  jitml internal vm status
-      Inspect VM status.
-```
-
-### `jitml internal vm exec`
-
-```text
-jitml internal vm exec
-
-Run a command in the VM.
-
-Passes a command through to the Apple Silicon VM.
-
-Usage:
-  jitml internal vm exec -- <cmd...>
-
-Options:
-  -- <cmd...>  Command and arguments to execute.
-
-
-Examples:
-  jitml internal vm exec -- uname -a
-      Run a VM debugging command.
 ```
 
 ### `jitml internal cache stat`

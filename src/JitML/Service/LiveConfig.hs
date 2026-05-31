@@ -24,7 +24,6 @@ data LogLevel
 data LiveConfig = LiveConfig
   { liveLogLevel :: LogLevel
   , liveRetryPolicy :: RetryPolicy
-  , liveTartIdleTimeoutSeconds :: Maybe Int
   , liveInferenceBatchSize :: Int
   , liveInferenceMaxLatencyMillis :: Int
   , liveDedupCacheSize :: Int
@@ -38,7 +37,6 @@ defaultLiveConfig =
   LiveConfig
     { liveLogLevel = Info
     , liveRetryPolicy = ExponentialN 5 50 2000
-    , liveTartIdleTimeoutSeconds = Just 1800
     , liveInferenceBatchSize = 64
     , liveInferenceMaxLatencyMillis = 25
     , liveDedupCacheSize = 4096
@@ -51,7 +49,6 @@ renderLiveConfigDhall config =
   Text.unlines
     [ "{ logLevel = " <> renderLogLevel (liveLogLevel config)
     , ", retryPolicy = " <> renderRetryPolicyDhall (liveRetryPolicy config)
-    , ", tartIdleTimeout = " <> renderOptionalNatural (liveTartIdleTimeoutSeconds config)
     , ", inferenceBatchSize = " <> Text.pack (show (liveInferenceBatchSize config))
     , ", inferenceMaxLatencyMillis = " <> Text.pack (show (liveInferenceMaxLatencyMillis config))
     , ", dedupCacheSize = " <> Text.pack (show (liveDedupCacheSize config))
@@ -65,7 +62,3 @@ renderLogLevel Debug = "Debug"
 renderLogLevel Info = "Info"
 renderLogLevel Warn = "Warn"
 renderLogLevel Error = "Error"
-
-renderOptionalNatural :: Maybe Int -> Text
-renderOptionalNatural Nothing = "None Natural"
-renderOptionalNatural (Just value) = "Some " <> Text.pack (show value)

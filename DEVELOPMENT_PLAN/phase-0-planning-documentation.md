@@ -239,7 +239,7 @@ per standards rule L.
   - **Toolchain pinning**: `GHC 9.14.1`, `Cabal 3.16.1.0`,
     `tested-with: ghc ==9.14.1`, `with-compiler: ghc-9.14.1`. Per-substrate
     codegen pins: LLVM, NVCC (`--use_fast_math=false`, baseline `sm_70`),
-    Xcode/Metal, oneDNN (AVX2 baseline), `kindest/node` pinned in the Kind
+    Metal/`swiftc`, oneDNN (AVX2 baseline), `kindest/node` pinned in the Kind
     config and mirror-pinned as a comment in `cabal.project`.
   - **Project Structure**: `app/Main.hs` thin shim, `app/Demo.hs` thin shim,
     `src/JitML/` library-first layout.
@@ -411,7 +411,7 @@ below returns at least the cited file:line evidence; no owner gaps, new sprint
 blocks, or cleanup-ledger rows are required.
 
 - Toolchain pinning:
-  `grep -RInE 'GHC|9\.14\.1|Cabal|3\.16\.1\.0|tested-with: ghc ==9\.14\.1|with-compiler: ghc-9\.14\.1|LLVM|NVCC|--use_fast_math=false|sm_70|Xcode/Metal|oneDNN|AVX2|kindest/node' DEVELOPMENT_PLAN documents/engineering`
+  `grep -RInE 'GHC|9\.14\.1|Cabal|3\.16\.1\.0|tested-with: ghc ==9\.14\.1|with-compiler: ghc-9\.14\.1|LLVM|NVCC|--use_fast_math=false|sm_70|Xcode/Metal|Metal/swiftc|oneDNN|AVX2|kindest/node' DEVELOPMENT_PLAN documents/engineering`
   Evidence: [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) lines
   `57` and `62`-`65`; [system-components.md](system-components.md) lines `360`-`366`.
 - Project structure:

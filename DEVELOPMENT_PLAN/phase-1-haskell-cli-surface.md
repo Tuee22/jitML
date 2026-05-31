@@ -94,7 +94,7 @@ library set per doctrine `Overview → standardized stack`.
   named in [system-components.md → Test
   Stanzas](system-components.md#test-stanzas) (each `type: exitcode-stdio-1.0`).
 - `cabal.project` declares `with-compiler: ghc-9.14.1`, records codegen-toolchain
-  pin comments (LLVM, NVCC, Xcode/Metal, oneDNN), the `kindest/node` mirror-pin
+  pin comments (LLVM, NVCC, Metal/`swiftc`, oneDNN), the `kindest/node` mirror-pin
   comment, and the report-card knob list from [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs).
 - `cabal.project` carries a narrow GHC `9.14.1` compatibility override for Dhall's

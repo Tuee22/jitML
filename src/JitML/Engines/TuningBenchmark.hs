@@ -168,11 +168,10 @@ cudaBenchmarkCandidateRunnerWithProbe probeRuntime env kernelSpec kind input can
 
 -- | Sprint 14.3 — live Metal benchmark candidate runner. Mirror of
 -- `cudaBenchmarkCandidateRunner`: render the tuned Metal package for the
--- candidate, drive the Tart build + FFI launch through
+-- candidate, drive the host `swift build` + FFI launch through
 -- `MetalLocal.runMetalKernel`, time the round-trip, and digest the float
--- output. Gated on host Metal device visibility (the build itself runs in
--- the `jitml-build` VM; the host only needs a visible device to execute the
--- produced dylib).
+-- output. Gated on host Metal device visibility (the build runs on the host
+-- with CommandLineTools `swift build`; the shader JIT-compiles at runtime).
 metalBenchmarkCandidateRunner
   :: Env
   -> Cache.KernelSpec

@@ -120,6 +120,7 @@ import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
 import JitML.Service.BootConfig qualified as BootConfig
+import JitML.Proto.Inference qualified as Inference
 import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.Clients qualified as ServiceClients
@@ -139,10 +140,6 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
-import JitML.Tart.Build qualified as TartBuild
-import JitML.Tart.Exec (tartExecSubprocess)
-import JitML.Tart.Lifecycle (VmName (..))
-import JitML.Tart.Lifecycle qualified as TartLifecycle
 import JitML.Test.Report
   ( ReportCard (..)
   , loadReportCardKnobs
@@ -271,16 +268,6 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runMaterializeSubstrate parsedOptions
   | parsedPath == ["internal", "list-prereqs"] =
       writeText (renderPrerequisiteRegistry prerequisiteRegistry)
-  | parsedPath == ["internal", "vm", "exec"] =
-      runInternalVmExec parsedOptions
-  | parsedPath == ["internal", "vm", "bootstrap"] =
-      runInternalVmLifecycle "bootstrap"
-  | parsedPath == ["internal", "vm", "up"] =
-      runInternalVmLifecycle "up"
-  | parsedPath == ["internal", "vm", "down"] =
-      runInternalVmLifecycle "down"
-  | parsedPath == ["internal", "vm", "status"] =
-      runInternalVmLifecycle "status"
   | take 2 parsedPath == ["internal", "cache"] =
       runInternalCache parsedPath parsedOptions
   | parsedPath == ["internal", "gc"] =
@@ -716,11 +703,58 @@ daemonWorkloadDispatcherForRuntime env runtime =
     -- Sprint 14.5 — the Apple host-native daemon (`Host + SelfInference`)
     -- routes inference through the Metal weighted runner so it executes the
     -- generated `jitml_weighted_kernel` against `.jmw1`-decoded tensors.
+    -- Sprint 14.4 — the host-native Apple daemon (`Host + SelfInference`) also
+    -- serves `AppleInferenceCommand` forwards off `inference.command.apple-silicon`:
+    -- it runs the Metal weighted kernel, stages the output to MinIO, and publishes
+    -- the `AppleInferenceEvent` reply. Direct `RunInference` payloads still route
+    -- to the weighted self-inference path.
     (AppleSilicon, BootConfig.SelfInference) ->
-      ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
-        liftIO (runMetalWeightedCheckpointInference env manifest weights input)
+      ServiceRuntime.daemonWorkloadDispatcherHostingAppleInference
+        (appleHostInferenceRunner env)
+        (\manifest weights input -> liftIO (runMetalWeightedCheckpointInference env manifest weights input))
+    -- Sprint 14.4 — the in-cluster Apple daemon (`Cluster + ForwardToHost`)
+    -- forwards inference to the host-native daemon: it publishes an
+    -- `AppleInferenceCommand` on `inference.command.apple-silicon` rather than
+    -- running Metal in-pod (Metal cannot be containerized).
+    (AppleSilicon, BootConfig.ForwardToHost) ->
+      ServiceRuntime.daemonWorkloadDispatcherForwardingInference
     _ ->
       ServiceRuntime.daemonWorkloadDispatcher
+
+-- | Sprint 14.4 — host-native runner for an `AppleInferenceCommand`: parse the
+-- command's inputs, run the substrate's Metal weighted checkpoint inference for
+-- the requested model, stage the float output to a `call-id`-keyed MinIO object,
+-- and return that object reference for the `AppleInferenceEvent` reply.
+appleHostInferenceRunner
+  :: Env
+  -> Inference.AppleInferenceCommand
+  -> ServiceClients.DaemonServiceClient (Either Text [Text])
+appleHostInferenceRunner env command = do
+  let inputs = fromMaybe [] (Inference.parseInferenceInput (Inference.appleCommandInputs command))
+  result <-
+    CheckpointStore.loadInferenceCheckpointWithWeights
+      (\manifest weights vals -> liftIO (runMetalWeightedCheckpointInference env manifest weights vals))
+      (Inference.appleCommandModelId command)
+      inputs
+  case result of
+    Left err -> pure (Left err)
+    Right outputs -> do
+      let outputRef =
+            Capabilities.ObjectRef
+              (Capabilities.BucketName "jitml-checkpoints")
+              ( Capabilities.ObjectKey
+                  ("inference/" <> Inference.appleCommandCallId command <> "/output.json")
+              )
+      staged <- Capabilities.putBlobIfAbsent outputRef (Inference.renderInferenceInput outputs)
+      pure $
+        case staged of
+          Left err -> Left ("apple host inference output stage failed: " <> Text.pack (show err))
+          Right _ ->
+            Right
+              [ Capabilities.unBucketName (Capabilities.objectBucket outputRef)
+                  <> "/"
+                  <> Capabilities.unObjectKey (Capabilities.objectKey outputRef)
+              ]
 
 loadDaemonRuntime :: Text -> Bool -> App ServiceRuntime.DaemonRuntime
 loadDaemonRuntime configPath explicitConfig = do
@@ -812,17 +846,6 @@ runBuild parsedOptions =
             , "tuning_selection: " <> TuningCache.tuningCacheSelectionSource tuningPlan
             , renderBuildPlan engine runtimeSource hash
             ]
-              <> case substrate of
-                AppleSilicon ->
-                  [ TartBuild.renderTartCacheMissBuildPlan
-                      ( TartBuild.tartCacheMissBuildPlan
-                          (VmName "jitml-build")
-                          (Cache.ModelId "jitml-build")
-                          runtimeSource
-                          hash
-                      )
-                  ]
-                _ -> []
           rendered = Text.unlines buildPlanSections
       case optionValues "plan-file" parsedOptions of
         [] -> pure ()
@@ -1898,50 +1921,6 @@ passedCount = length
 
 targetStanzas :: [Text] -> [Text]
 targetStanzas targets = targets
-
-runInternalVmExec :: [ParsedOption] -> App ()
-runInternalVmExec parsedOptions =
-  writeLine
-    (renderSubprocess (tartExecSubprocess jitmlBuildVm (optionValues "cmd" parsedOptions)))
-
-runInternalVmLifecycle :: Text -> App ()
-runInternalVmLifecycle "bootstrap" = do
-  result <-
-    liftIO
-      ( TartLifecycle.bootstrapTartVmLive
-          TartLifecycle.defaultTartBaseImage
-          jitmlBuildVm
-      )
-  reportInternalVmLifecycleResult "bootstrap" result
-runInternalVmLifecycle "up" = do
-  result <- liftIO (TartLifecycle.ensureVmUpLive jitmlBuildVm)
-  reportInternalVmLifecycleResult "up" result
-runInternalVmLifecycle "down" = do
-  result <- liftIO (TartLifecycle.stopTartVmLive jitmlBuildVm)
-  reportInternalVmLifecycleResult "down" result
-runInternalVmLifecycle "status" = do
-  result <- liftIO (TartLifecycle.queryTartVmStatus jitmlBuildVm)
-  reportInternalVmLifecycleResult "status" result
-runInternalVmLifecycle action =
-  exitWithError (UnknownCommand ("unknown vm lifecycle action: " <> action))
-
-reportInternalVmLifecycleResult :: Text -> Either Text TartLifecycle.TartVmStatus -> App ()
-reportInternalVmLifecycleResult action result =
-  case result of
-    Left err ->
-      exitWithError (InvalidConfig ("internal vm " <> action <> ": " <> err))
-    Right status ->
-      writeLine
-        ( "vm "
-            <> action
-            <> ": "
-            <> unVmName jitmlBuildVm
-            <> " "
-            <> TartLifecycle.renderTartVmStatus status
-        )
-
-jitmlBuildVm :: VmName
-jitmlBuildVm = VmName "jitml-build"
 
 -- | `jitml internal gc <experiment-hash>` reconciler. When a live
 -- `cluster-publication.json` is present, walks the live MinIO bucket

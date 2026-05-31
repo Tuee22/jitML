@@ -24,6 +24,14 @@
 
 ## Phase Status
 
+✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
+**re-closed the same day** after Sprint `5.8` removed `LiveConfig.tartIdleTimeout`
+and the Tart spin-up from the daemon `acquire` lifecycle — the Apple Metal build
+is a host CommandLineTools `swift build` with no VM to manage). See
+[Reopened phases (2026-05-30)](README.md#reopened-phases-2026-05-30) and
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The status
+text below predates the reopen.
+
 ✅ **Done** (re-closed 2026-05-29 after Sprint `5.7` landed the typed Dhall
 `RunConfig` + BootConfig-mounted worker dispatch and retired the `JITML_*`
 run-parameter IPC; live re-validation of the daemon→worker dispatch with the env
@@ -859,6 +867,47 @@ ledger.
 
 - The live daemon→worker dispatch validation with the env IPC removed is owned by
   Phase `13` Sprints `13.3` / `13.4` / `13.8` / `13.10`'s Remaining Work.
+
+## Sprint 5.8: Retire Tart VM Lifecycle from the Daemon ✅
+
+**Status**: Done (2026-05-30)
+**Implementation**: `dhall/service/LiveConfig.dhall`,
+`src/JitML/Service/LiveConfig.hs`, `src/JitML/App.hs` (daemon `acquire`
+lifecycle), `src/JitML/Service/Runtime.hs`
+**Docs to update**: `../documents/engineering/daemon_architecture.md`
+
+### Objective
+
+With the Apple Metal build moving to a host CommandLineTools `swift build` +
+runtime `MTLDevice.makeLibrary(source:)` (Phase `7` Sprint `7.8`), the daemon no
+longer provisions or manages a Tart VM. Remove `LiveConfig.tartIdleTimeout` and
+the Tart spin-up step from the `acquire` lifecycle. Adopts `Long-Running Daemons
+in the Same Binary` and `Application Environment` from [../README.md](../README.md).
+
+### Deliverables
+
+- `LiveConfig.tartIdleTimeout` removed from `dhall/service/LiveConfig.dhall` and
+  the Haskell `LiveConfig` record + the generated `daemon.surface` table.
+- The Apple-host `acquire` step no longer validates/installs `tart` or spins a VM
+  up; the first Apple JIT cache miss simply runs the host `swift build` through
+  the typed `Subprocess` boundary.
+- Removal tracked in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
+### Validation
+
+1. `cabal build all` clean; `cabal test jitml-unit` green (LiveConfig
+   round-trip + daemon-surface golden updated).
+2. `grep -rn "tartIdleTimeout" src dhall documents` returns nothing outside the
+   legacy-ledger Completed record after closure.
+
+### Remaining Work
+
+- None. Landed 2026-05-30: `tartIdleTimeout` removed from
+  `dhall/service/LiveConfig.dhall`, the `LiveConfig` Haskell record + renderer,
+  and the `daemon.surface` generated table; the daemon `acquire` step has no Tart
+  spin-up (the first Apple cache miss runs the host `swift build`). 30
+  `jitml-daemon-lifecycle` + 183 `jitml-unit` pass; `cabal build all` clean.
 
 ## Doctrine Sections Cited
 

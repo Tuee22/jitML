@@ -160,9 +160,6 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
-import JitML.Tart.Build qualified as TartBuild
-import JitML.Tart.Lifecycle (VmName (..))
-import JitML.Tart.Lifecycle qualified as TartLifecycle
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.Bundle qualified as WebBundle
 import JitML.Web.Contracts qualified as WebContracts
@@ -226,10 +223,6 @@ main =
             ,
               ( ["build", "--dry-run", "--substrate", "linux-cuda"]
               , ParsedCommand ["build"] [ParsedOption "substrate" ["linux-cuda"], ParsedOption "dry-run" []]
-              )
-            ,
-              ( ["internal", "vm", "exec", "--", "uname", "-a"]
-              , ParsedCommand ["internal", "vm", "exec"] [ParsedOption "cmd" ["uname", "-a"]]
               )
             ,
               ( ["help", "cluster", "up"]
@@ -362,17 +355,19 @@ main =
               assertBool "kind is in cluster closure" (NodeId "cluster.kind" `elem` ids)
               assertBool "kubectl is in cluster closure" (NodeId "cluster.kubectl" `elem` ids)
               assertBool "helm is in cluster closure" (NodeId "cluster.helm" `elem` ids)
-      , testCase "tart is lazy until the Apple JIT cache-miss prerequisite root" $ do
-          case transitiveClosure prerequisiteRegistry (NodeId "container.apple-silicon") of
-            Left err -> assertFailure (show err)
-            Right closure -> do
-              let ids = fmap nodeId closure
-              assertBool "apple bootstrap closure skips tart" (NodeId "container.tart" `notElem` ids)
+      , testCase "Apple JIT cache-miss prerequisite root needs no Tart VM (headless host build)" $ do
+          -- Sprint 2.10 — the Apple Metal JIT builds the Swift glue dylib on the
+          -- host with CommandLineTools `swift build`, so there is no
+          -- `container.tart` prerequisite anywhere in the registry.
+          assertBool
+            "container.tart is removed from the registry"
+            (NodeId "container.tart" `notElem` fmap nodeId prerequisiteRegistry)
           case transitiveClosure prerequisiteRegistry (NodeId "container.apple-silicon.jit-cache-miss") of
             Left err -> assertFailure (show err)
-            Right closure -> do
-              let ids = fmap nodeId closure
-              assertBool "cache miss closure includes tart" (NodeId "container.tart" `elem` ids)
+            Right closure ->
+              assertBool
+                "cache miss closure no longer references tart"
+                (NodeId "container.tart" `notElem` fmap nodeId closure)
       , testCase "Homebrew remediation nodes carry typed subprocesses" $
           case find ((== NodeId "toolchain.spago") . nodeId) prerequisiteRegistry of
             Nothing -> assertFailure "missing toolchain.spago"
@@ -954,163 +949,6 @@ main =
           assertBool
             "rendered Metal probe records compiler path"
             ("metal_compiler: /Applications/Xcode.app" `Text.isInfixOf` rendered)
-      , testCase "Apple Tart cache-miss build plan orders VM, Swift build, cache publish, and symlink" $ do
-          let source =
-                renderRuntimeSource
-                  (Cache.KernelSpec "phase-7-kernel:metal-cache-miss")
-                  Cache.Inference
-                  Cache.AppleSilicon
-                  Cache.defaultTuningChoice
-              plan =
-                TartBuild.tartCacheMissBuildPlan
-                  (VmName "jitml-build")
-                  (Cache.ModelId "mnist-linear")
-                  source
-                  sampleCacheHash
-              rendered = TartBuild.renderTartCacheMissBuildPlan plan
-              expectedSourceDir =
-                ".build/jit-src/apple-silicon/" <> Cache.hashHex sampleCacheHash
-              expectedArtifact =
-                ".build/jit/apple-silicon/" <> Cache.hashHex sampleCacheHash <> ".dylib"
-          TartBuild.tartCacheMissSourceDir plan @?= expectedSourceDir
-          TartBuild.tartCacheMissBuildProduct plan
-            @?= expectedSourceDir
-            <> "/.build/release/libJitMLMetal.dylib"
-          TartBuild.tartCacheMissArtifactPath plan @?= expectedArtifact
-          TartBuild.tartCacheMissStableSymlinkPath plan
-            @?= ".build/host/apple-silicon/mnist-linear.dylib"
-          assertBool
-            "plan validates the Swift toolchain inside the VM"
-            ("validate-swift-toolchain: tart exec jitml-build swift --version" `Text.isInfixOf` rendered)
-          assertBool
-            "plan builds the generated Swift package inside the VM"
-            ( ( "build-metal-package: tart exec jitml-build swift build --package-path "
-                  <> expectedSourceDir
-                  <> " -c release"
-              )
-                `Text.isInfixOf` rendered
-            )
-          assertBool
-            "plan publishes the dynamic library into the content-addressed cache"
-            ( ("publish-cache-artifact: mv " <> expectedArtifact <> ".tmp " <> expectedArtifact)
-                `Text.isInfixOf` rendered
-            )
-          assertBool
-            "plan repoints the host-stable FFI symlink through the Haskell helper"
-            ( "repoint-stable-ffi-symlink: host-action JitML.Cache.Symlink.repointSymlink .build mnist-linear "
-                `Text.isInfixOf` rendered
-            )
-          observedSteps <- newIORef []
-          let record stepName detail =
-                modifyIORef' observedSteps (<> [stepName <> ": " <> detail])
-              executor =
-                TartBuild.TartCacheMissBuildExecutor
-                  { TartBuild.executeTartHostAction = \stepName action -> do
-                      record stepName (TartBuild.renderTartHostAction action)
-                      pure (Right ())
-                  , TartBuild.executeTartCommand = \stepName command -> do
-                      record stepName (renderSubprocess command)
-                      pure (Right ())
-                  }
-              expectedStepNames =
-                [ "ensure-vm-up"
-                , "validate-swift-toolchain"
-                , "build-metal-package"
-                , "prepare-cache-dirs"
-                , "copy-build-product"
-                , "publish-cache-artifact"
-                , "publish-cache-metallib"
-                , "repoint-stable-ffi-symlink"
-                ]
-          executionResult <- TartBuild.executeTartCacheMissBuildPlanWith executor plan
-          executionResult @?= Right (TartBuild.TartCacheMissBuildResult expectedStepNames)
-          observedExecution <- readIORef observedSteps
-          observedExecution
-            @?= [ "ensure-vm-up: JitML.Tart.ensureVmUpLive jitml-build"
-                , "validate-swift-toolchain: tart exec jitml-build swift --version"
-                , "build-metal-package: tart exec jitml-build swift build --package-path "
-                    <> expectedSourceDir
-                    <> " -c release"
-                , "prepare-cache-dirs: mkdir -p .build/jit/apple-silicon .build/host/apple-silicon"
-                , "copy-build-product: cp "
-                    <> expectedSourceDir
-                    <> "/.build/release/libJitMLMetal.dylib "
-                    <> expectedArtifact
-                    <> ".tmp"
-                , "publish-cache-artifact: mv "
-                    <> expectedArtifact
-                    <> ".tmp "
-                    <> expectedArtifact
-                , "publish-cache-metallib: JitML.Tart.publishMetallib "
-                    <> expectedSourceDir
-                    <> "/.build/release .build/jit/apple-silicon/"
-                    <> Cache.hashHex sampleCacheHash
-                    <> ".metallib"
-                , "repoint-stable-ffi-symlink: JitML.Cache.Symlink.repointSymlink .build mnist-linear "
-                    <> Cache.hashHex sampleCacheHash
-                    <> " dylib"
-                ]
-          failedSteps <- newIORef []
-          let failingExecutor =
-                TartBuild.TartCacheMissBuildExecutor
-                  { TartBuild.executeTartHostAction = \stepName _action -> do
-                      modifyIORef' failedSteps (<> [stepName])
-                      pure (Right ())
-                  , TartBuild.executeTartCommand = \stepName _command -> do
-                      modifyIORef' failedSteps (<> [stepName])
-                      pure $
-                        if stepName == "copy-build-product"
-                          then Left "missing dylib"
-                          else Right ()
-                  }
-          failureResult <- TartBuild.executeTartCacheMissBuildPlanWith failingExecutor plan
-          failureResult @?= Left "copy-build-product: missing dylib"
-          observedFailure <- readIORef failedSteps
-          observedFailure
-            @?= [ "ensure-vm-up"
-                , "validate-swift-toolchain"
-                , "build-metal-package"
-                , "prepare-cache-dirs"
-                , "copy-build-product"
-                ]
-      , testCase "Tart VM status parser recognizes missing, stopped, and running VMs" $ do
-          let stoppedJson =
-                Text.unlines
-                  [ "["
-                  , "  {"
-                  , "    \"Name\": \"jitml-build\","
-                  , "    \"Running\": false,"
-                  , "    \"State\": \"stopped\""
-                  , "  }"
-                  , "]"
-                  ]
-              runningJson =
-                Text.unlines
-                  [ "["
-                  , "  {"
-                  , "    \"Name\": \"jitml-build\","
-                  , "    \"Running\": true,"
-                  , "    \"State\": \"running\""
-                  , "  }"
-                  , "]"
-                  ]
-          TartLifecycle.parseTartListStatus (VmName "jitml-build") "[]" @?= Right TartLifecycle.TartVmMissing
-          TartLifecycle.parseTartListStatus (VmName "jitml-build") stoppedJson
-            @?= Right TartLifecycle.TartVmStopped
-          TartLifecycle.parseTartListStatus (VmName "jitml-build") runningJson
-            @?= Right TartLifecycle.TartVmRunning
-          TartLifecycle.renderTartVmStatus TartLifecycle.TartVmMissing @?= "missing"
-          TartLifecycle.renderTartVmStatus TartLifecycle.TartVmStopped @?= "stopped"
-          TartLifecycle.renderTartVmStatus TartLifecycle.TartVmRunning @?= "running"
-          renderSubprocess
-            (TartLifecycle.tartCloneSubprocess TartLifecycle.defaultTartBaseImage (VmName "jitml-build"))
-            @?= "tart clone ghcr.io/cirruslabs/macos-sequoia-xcode:16 jitml-build"
-          renderSubprocess TartLifecycle.tartListSubprocess
-            @?= "tart list --source local --format json"
-          renderSubprocess (TartLifecycle.tartRunSubprocess (VmName "jitml-build"))
-            @?= "tart run --no-graphics jitml-build"
-          renderSubprocess (TartLifecycle.tartStopSubprocess (VmName "jitml-build"))
-            @?= "tart stop jitml-build"
       , testCase "hardware auto-tuning benchmark plan enumerates deterministic candidates" $ do
           let plan = Tuning.benchmarkPlan Tuning.linuxCudaKnobs
               deterministicDefault = Tuning.selectDeterministic Tuning.linuxCudaKnobs
@@ -1434,11 +1272,11 @@ main =
           -- above so the synthetic library-visible/positive shape stays
           -- expressed in this case.
           -- Sprint 14.3 — the Metal benchmark runner now drives the real
-          -- Metal FFI candidate through `MetalLocal.runMetalKernel` (build in
-          -- the `jitml-build` VM → dlopen → launch). The live measurement is
-          -- exercised through `jitml-cross-backend` on a booted Apple host;
-          -- here we keep the deterministic wrong-substrate and
-          -- device-not-visible branches. `availableMetalProbe` is retained for
+          -- Metal FFI candidate through `MetalLocal.runMetalKernel` (host
+          -- `swift build` -> dlopen -> runtime makeLibrary -> launch). The live
+          -- measurement is exercised through `jitml-cross-backend` headless on a
+          -- Metal-capable Apple host; here we keep the deterministic
+          -- wrong-substrate and device-not-visible branches. `availableMetalProbe` is retained for
           -- the `unavailableMetalProbe` field-update form above.
           metalWrong <-
             TuningBenchmark.metalBenchmarkCandidateRunnerWithProbe
@@ -3194,11 +3032,6 @@ canonicalLeafPaths =
   , ["internal", "list-prereqs"]
   , ["internal", "upload-dataset"]
   , ["internal", "gc"]
-  , ["internal", "vm", "bootstrap"]
-  , ["internal", "vm", "up"]
-  , ["internal", "vm", "down"]
-  , ["internal", "vm", "status"]
-  , ["internal", "vm", "exec"]
   , ["internal", "cache", "stat"]
   , ["internal", "cache", "list"]
   , ["internal", "cache", "evict"]

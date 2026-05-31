@@ -4,6 +4,8 @@ module JitML.Service.AppleInferenceRpc
   ( AppleInferenceRpcPlan (..)
   , appleInferenceRpcPlan
   , correlateAppleInferenceEvent
+  , handleAppleInferenceCommand
+  , publishAppleInferenceEvent
   , publishAppleInferenceRpcCommand
   , renderAppleInferenceRpcPlan
   )
@@ -21,6 +23,7 @@ import JitML.Proto.Inference
   , appleInferenceCommandTopic
   , appleInferenceEventTopic
   , renderAppleInferenceCommand
+  , renderAppleInferenceEvent
   , renderInferenceInput
   )
 import JitML.Service.Capabilities
@@ -64,6 +67,47 @@ publishAppleInferenceRpcCommand
   -> m (Either ServiceError Text)
 publishAppleInferenceRpcCommand plan =
   pulsarPublish (appleRpcCommandTopic plan) (appleRpcCommandPayload plan)
+
+-- | Sprint 14.4 — host-native side of the RPC. Given a runner that executes the
+-- command's inference on Metal and stages its outputs (returning the MinIO output
+-- references, or an error), build the `AppleInferenceEvent` reply. A successful
+-- run yields an `AppleEventCompleted` carrying the output refs; a failure yields
+-- an `AppleEventError` with the message. The reply always echoes the command's
+-- `call-id` so the cluster side can correlate it.
+handleAppleInferenceCommand
+  :: (Monad m)
+  => (AppleInferenceCommand -> m (Either Text [Text]))
+  -> AppleInferenceCommand
+  -> m AppleInferenceEvent
+handleAppleInferenceCommand runCommand command = do
+  outcome <- runCommand command
+  pure $
+    case outcome of
+      Right outputRefs ->
+        AppleInferenceEvent
+          { appleEventCallId = appleCommandCallId command
+          , appleEventKind = AppleEventCompleted
+          , appleEventOutputRefs = outputRefs
+          , appleEventErrorCode = Nothing
+          , appleEventMessage = Nothing
+          }
+      Left err ->
+        AppleInferenceEvent
+          { appleEventCallId = appleCommandCallId command
+          , appleEventKind = AppleEventError
+          , appleEventOutputRefs = []
+          , appleEventErrorCode = Just "inference-failed"
+          , appleEventMessage = Just err
+          }
+
+-- | Publish a host-produced `AppleInferenceEvent` reply on
+-- `inference.event.apple-silicon` for the cluster daemon to correlate.
+publishAppleInferenceEvent
+  :: (HasPulsar m)
+  => AppleInferenceEvent
+  -> m (Either ServiceError Text)
+publishAppleInferenceEvent event =
+  pulsarPublish (TopicName appleInferenceEventTopic) (renderAppleInferenceEvent event)
 
 correlateAppleInferenceEvent
   :: AppleInferenceCommand

@@ -559,7 +559,6 @@ internalCommand =
         , planFileOption
         ]
         [Example "jitml internal gc exp123" "Apply retention to an experiment."]
-    , vmCommand
     , cacheCommand
     ]
 
@@ -582,44 +581,6 @@ helpCommand =
     "Prints the same help text as passing --help to a subcommand."
     [remainder "subcommand" False "Subcommand path to show help for."]
     [Example "jitml help cluster up" "Print help for cluster up."]
-
-vmCommand :: CommandSpec
-vmCommand =
-  group
-    "vm"
-    "Manage the Apple Silicon VM."
-    "Apple-only Tart VM lifecycle and debugging commands."
-    [ leaf
-        "bootstrap"
-        "Bootstrap the VM."
-        "Creates or updates the jitml-build Tart VM image -- the mandatory headless build environment that ships Xcode 16 pre-installed and pre-licensed so swift build compiles generated Metal shaders via tart exec without any first-launch or license prompt. The host never runs Xcode."
-        []
-        [Example "jitml internal vm bootstrap" "Bootstrap the VM."]
-    , leaf
-        "up"
-        "Start the VM."
-        "Starts the Apple Silicon VM."
-        []
-        [Example "jitml internal vm up" "Start the VM."]
-    , leaf
-        "down"
-        "Stop the VM."
-        "Stops the Apple Silicon VM."
-        []
-        [Example "jitml internal vm down" "Stop the VM."]
-    , leaf
-        "status"
-        "Report VM status."
-        "Prints VM status."
-        []
-        [Example "jitml internal vm status" "Inspect VM status."]
-    , leaf
-        "exec"
-        "Run a command in the VM."
-        "Passes a command through to the Apple Silicon VM."
-        [remainder "cmd" True "Command and arguments to execute."]
-        [Example "jitml internal vm exec -- uname -a" "Run a VM debugging command."]
-    ]
 
 cacheCommand :: CommandSpec
 cacheCommand =

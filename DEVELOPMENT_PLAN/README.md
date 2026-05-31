@@ -39,6 +39,15 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Reopen note (2026-05-30)**: Phases `2`, `5`, and `7` are `🔄 Active` again for
+the headless Apple Metal JIT workstream (runtime `MTLDevice.makeLibrary(source:)`
++ host CommandLineTools `swift build`, retiring the Tart VM that cannot run
+headless). Where the historical narrative below still describes Phases `2` / `5` /
+`7` as `✅ Done` or describes the Apple build as Tart-VM-based, the authoritative
+current status is the
+[Reopened phases (2026-05-30)](#reopened-phases-2026-05-30) section and those
+phases' `### Remaining Work` blocks.
+
 **Refactor note (2026-05-24)**: The plan now batches every live-runtime
 obligation by machine-affinity into Phases `13` (Linux/CUDA + Kind
 cluster + broker + browser), `14` (Apple Silicon + Tart + Metal), and
@@ -459,6 +468,60 @@ obligation exists.
 | 14 | Apple Silicon Closure | 🔄 Active | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Cross-Substrate Parity and Final Handoff | 🔄 Active | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
+## Reopened phases (2026-05-30)
+
+Phases `2`, `5`, and `7` reopened from `✅ Done` to `🔄 Active` on 2026-05-30 to
+schedule the **headless Apple Metal JIT** workstream. The originating finding is
+that the committed Apple Silicon design — compiling Metal kernels ahead-of-time
+inside the `jitml-build` Tart macOS VM (Xcode's offline `metal` compiler is not in
+CommandLineTools) — **cannot run headless**: `tart run` of a macOS guest fails with
+`VZErrorDomain Code=-9 … Failed to create new HostKey` because the Virtualization
+framework needs Secure Enclave access from an interactive Aqua GUI session. That
+blocks the headless JIT workflow jitML requires on every substrate and blocks
+Phase `14` live closure.
+
+The replacement architecture compiles the Metal shader **at runtime, in-process**
+via `MTLDevice.makeLibrary(source:options:)` (only the OS `Metal.framework`; no
+Xcode, no `metal` CLI, no `.metallib`, no Tart) and builds the small Swift glue
+dylib **on the host with CommandLineTools `swiftc`** (headless). Determinism is
+preserved by `MTLCompileOptions.fastMathEnabled = false`. The "full Xcode is never
+installed on the host" principle survives; the "Tart-mandatory / host never
+compiles shaders" framing is retired. **All three reopened phases re-closed on
+2026-05-30** after the workstream landed and validated headless on Apple M1
+(`cabal run jitml-cross-backend -p apple-silicon` passes via host `swift build`
+→ `dlopen` → runtime `makeLibrary` → Metal dispatch); see the per-phase notes
+below.
+
+- **Phase 7** reopened for the runtime `makeLibrary(source:)` Metal codegen and the
+  host CommandLineTools `swift build`, retiring the Tart `compileSubprocess` /
+  `Loader` cache-miss branch and the `.process("Kernels.metal")` offline-metallib /
+  `JITML_METALLIB_PATH` path (doctrine: `Subprocesses as Typed Values`,
+  `Generated Artifacts`). **Re-closed 2026-05-30** — Sprint `7.8` landed and
+  validated headless on Apple M1 (`cabal run jitml-cross-backend -p apple-silicon`
+  passes via host `swift build` → `dlopen` → runtime `makeLibrary` → Metal
+  dispatch; 185 / 185 `jitml-unit`).
+- **Phase 2** reopened to remove the `container.tart` prerequisite node, the
+  `jitml internal vm` command group, and the lazy-tart prerequisite contract
+  (doctrine: `Prerequisites as Typed Effects`, `CommandSpec`). **Re-closed
+  2026-05-30** (Sprint `2.10`): `src/JitML/Tart/*` deleted, command group removed,
+  generated docs regenerated, 183 `jitml-unit` pass.
+- **Phase 5** reopened to remove `LiveConfig.tartIdleTimeout` and the Tart spin-up
+  from the daemon `acquire` lifecycle (doctrine: `Long-Running Daemons in the Same
+  Binary`, `Application Environment`). **Re-closed 2026-05-30** (Sprint `5.8`):
+  field removed from Dhall + Haskell + `daemon.surface`, 30
+  `jitml-daemon-lifecycle` pass.
+
+Phase `14` (Apple Silicon Closure) stays `🔄 Active` but is re-scoped: Sprint `14.1`
+moves from "provision the Tart VM" to "host CLT Swift toolchain + headless Metal
+device probe", and the `14.2` / `14.3` / `14.5` live gates move from "VM running" to
+"Metal device usable headless". Phase `15` stays `🔄 Active`; only its **Blocked by**
+text changes (Apple Metal live outputs now come from the headless host build).
+Phases `0`, `1`, `3`, `4`, `6`, and `8`–`13` remain `✅ Done` on their owned
+surfaces — none of the headless-Metal obligations change them; the toolchain-pin
+wording is a harmony edit in `README.md` / `system-components.md`, not a reopen. The
+Tart removals are tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
 ## Reopened phases (2026-05-29)
 
 Phases `2`, `3`, `4`, and `5` reopened from `✅ Done` to `🔄 Active` on
@@ -509,6 +572,19 @@ typed Dhall `RunConfig` + BootConfig-mounted worker dispatch that retires the
 [Reopened phases (2026-05-29)](#reopened-phases-2026-05-29) for the per-phase
 scope. Live re-validation of every reopened-phase obligation is owned by Phase
 `13`.
+
+Phases `2`, `5`, and `7` **reopened again on 2026-05-30** for the headless Apple
+Metal JIT workstream: runtime `MTLDevice.makeLibrary(source:)` shader compilation
+plus a host CommandLineTools `swift build`, replacing the Tart-VM ahead-of-time
+build that cannot run headless. Phase `7` owns the runtime-compile codegen + host
+build; Phase `2` owns retiring `container.tart` and the `jitml internal vm`
+commands; Phase `5` owns retiring `LiveConfig.tartIdleTimeout` and the daemon
+tart spin-up. Phase `14` is re-scoped (Sprint `14.1` → host Swift toolchain +
+headless Metal probe; the `14.2` / `14.3` / `14.5` live gates → "Metal device
+usable headless"). See
+[Reopened phases (2026-05-30)](#reopened-phases-2026-05-30) for the per-phase
+scope; the Tart removals are tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 Phase `3` reclosed on 2026-05-23 after live Linux CPU bootstrap and teardown
 validated the single-node Kind topology, repo-local kubeconfig discipline,
 Docker build / explicit Kind image-load, ready publication health, the `/api`

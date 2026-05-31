@@ -118,11 +118,12 @@ Per doctrine `Architecture → Subprocesses as Typed Values`, every external
 program invocation flows through the typed `Subprocess` boundary
 (`runStreaming` / `capture` interpreters in `src/JitML/Sub/Stream.hs`):
 
-- `kubectl`, `helm`, `kind`, `docker`, `tart`, `cabal`,
+- `kubectl`, `helm`, `kind`, `docker`, `cabal`,
   `npx playwright`, `spago`, `pulsar-admin`, `mc` (MinIO CLI),
-  `nvcc`, `g++` (over oneDNN), `metal` and `swift build` (invoked exclusively
-  inside the `jitml-build` tart VM via `tart exec` — the host never runs Xcode
-  or the `metal` shader compiler), `dhall freeze`, `proto-lens-protoc`.
+  `nvcc`, `g++` (over oneDNN), host `swift build` (the Apple Metal glue dylib,
+  via the CommandLineTools — the Metal shader itself is JIT-compiled in-process
+  by `MTLDevice.makeLibrary(source:)`, not a subprocess), `dhall freeze`,
+  `proto-lens-protoc`.
 
 `callProcess`, `readCreateProcess`, `System.Process.*`, `typed-process`
 smart constructors are hlint-forbidden outside the interpreter module.
@@ -160,11 +161,11 @@ Package validation and installation lives in the typed prerequisite DAG:
 - The apply phase executes through the typed `Subprocess` interpreter and then
   re-validates each postcondition before dependent nodes run.
 - Ad hoc `brew install` calls in shell scripts or command runners are forbidden.
-  `tart` follows this path lazily on the first Apple JIT cache miss, not during
-  bootstrap or host-daemon startup. The Apple prerequisite set is intentionally
-  limited to `tart`; full Xcode is never a host prerequisite or remediation,
-  because the `metal` shader compiler runs only inside the pre-licensed
-  `jitml-build` VM.
+  The Apple JIT cache miss builds the Swift glue dylib with the host
+  CommandLineTools `swift build` (no Tart VM, no `container.tart` prerequisite).
+  Full Xcode is never a host prerequisite or remediation; only the
+  CommandLineTools `swiftc` and the OS Metal framework are used, and the Metal
+  shader JIT-compiles in-process via `MTLDevice.makeLibrary(source:)`.
 
 ### Reconcilers (exit `3` on no-op)
 
@@ -180,8 +181,9 @@ Per doctrine `Long-Running Daemons in the Same Binary`, `jitml service`:
 
 - `BootConfig` Dhall: `substrate`, `residency`, `inferenceMode`, Pulsar /
   MinIO / Harbor connection info, HTTP listener.
-- `LiveConfig` Dhall: log level, `RetryPolicy`, `tartIdleTimeout` (Apple),
-  inference batch / latency, dedup cache size / TTL, `drainDeadlineSeconds`.
+- `LiveConfig` Dhall: log level, `RetryPolicy`, `tartIdleTimeout` (Apple;
+  removal scheduled — Phase 5 Sprint `5.8`), inference batch / latency, dedup
+  cache size / TTL, `drainDeadlineSeconds`.
 - SIGHUP triggers `LiveConfig` reload; restart-required field changes emit
   `AppError InvalidConfig` with exit `2`.
 - `/healthz`, `/readyz`, `/metrics` are mandatory.

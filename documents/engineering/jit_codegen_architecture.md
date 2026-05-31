@@ -7,13 +7,11 @@
 
 > **Purpose**: Project-specific JIT codegen architecture for jitML — the
 > content-addressed cache, the per-substrate compilers (Metal, oneDNN,
-> CUDA), the current typed engine handle/envelope surface, the target FFI
-> boundary, the Apple Silicon hybrid pattern with lazy tart spin-up, and the
-> hardware auto-tuning surface — where routing every Apple Silicon Swift/Metal
-> build through the `jitml-build` Tart VM (Xcode 16 pre-installed and
-> pre-licensed) is a hard requirement, the only way jitML can truly JIT on
-> Apple Silicon; the host keeps only the Metal framework to load the VM-produced
-> `.dylib` and never installs or runs Xcode.
+> CUDA), the typed engine handle/envelope surface, the FFI boundary, the
+> headless Apple Silicon Metal JIT (host CommandLineTools `swift build` of the
+> Swift glue dylib + runtime `MTLDevice.makeLibrary(source:)` shader
+> compilation, no Tart VM and no full Xcode), and the hardware auto-tuning
+> surface.
 
 ## Cache Layout
 
@@ -94,7 +92,7 @@ where:
 - `kind ∈ Training | Inference`.
 - `substrate ∈ apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, Xcode/Metal, oneDNN) plus loader-relevant ABI
+  `cabal.project` (LLVM, NVCC, Metal/`swiftc`, oneDNN) plus loader-relevant ABI
   facts for local FFI paths.
 - `rendered-source-payload` is the canonical payload emitted by
   `renderRuntimeSource`.
@@ -290,116 +288,70 @@ reproducibility witness surface; see
 
 ### `apple-silicon` — Swift + Metal
 
-- `src/JitML/Codegen/Metal.hs` renders the generated Swift package and Metal
-  kernel input under `./.build/jit-src/apple-silicon/<hash>/`.
-- Generated Swift source exports `jitml_kernel_family_name` and
-  `jitml_kernel_output_count` metadata symbols for the future Metal FFI
-  loader. The generated reduction metadata reports `ceil(n / 32)` outputs,
-  matching the current `simd_sum` simdgroup partial-output kernel shape.
-- The build plan runs `swift build` inside the `jitml-build` tart VM via
-  `tart exec`, against the generated package directory. The VM ships Xcode 16
-  pre-installed and pre-licensed, so compiling the generated `Kernels.metal`
-  resource through Xcode's `metal` shader compiler runs fully non-interactively
-  under `tart exec` — no first-launch or license UI can break the headless
-  workflow. ALL Apple Silicon Swift and Metal builds run in this VM regardless
-  of VM image size or download cost; full Xcode is never installed on the host.
-- The produced `.dylib` is copied atomically to
-  `./.build/jit/apple-silicon/<hash>.dylib` and the stable-FFI symlink at
-  `./.build/host/apple-silicon/<model-id>.dylib` is repointed.
-- `src/JitML/Engines/MetalRuntime.hs` owns the typed host Metal runtime probe:
-  it checks `swift --version`, `xcrun -find metal`, `xcrun -find swiftc`, and
-  `system_profiler SPDisplaysDataType` through the typed subprocess boundary,
-  parses Swift version/tool paths and Metal device visibility, and renders the
-  availability summary for the future host FFI launcher. A failing
-  `xcrun -find metal` on the host is never remediated by installing Xcode on the
-  host — the `metal` shader compiler exists only inside the `jitml-build` VM.
-  The host probe is informational; the host keeps solely the Metal framework to
-  load and execute the VM-produced `.dylib` and never compiles shaders.
-- The current local engine envelope names the `.dylib` artifact path and Tart
-  `swift build` command through `tart exec`. `JitML.Engines.Loader` now routes
-  Apple cache misses through the concrete `JitML.Tart.Build`
-  first-cache-miss executor.
-- `JitML.Engines.MetalLocal` (Sprint `14.2` / `14.5`, code landed 2026-05-30)
-  implements the host-side runner: `runMetalKernel` / `runMetalWeightedKernel`
-  `dlopen` the cached `<hash>.dylib`, resolve the host-callable
-  `jitml_kernel` / `jitml_weighted_kernel` / `jitml_kernel_family_name` /
-  `jitml_kernel_output_count` C ABI emitted by `JitML.Codegen.Metal`, and
-  marshal buffers across the FFI to the generated `MTLDevice` launcher.
-  `JitML.Engines.HasEngine` dispatches `apple-silicon` through
-  `LocalAppleSiliconEngine`. The generated Swift launcher loads its
-  `MTLLibrary` from the content-addressed `<hash>.metallib` that
-  `JitML.Tart.Build` publishes beside the relocated dylib
-  (`JITML_METALLIB_PATH`). Live exercise of the build-in-VM → `dlopen` →
-  Metal launch path requires booting the `jitml-build` VM from an
-  interactive GUI session (the macOS guest cannot boot headless — Secure
-  Enclave / Aqua-session requirement) and is the remaining Phase `14`
-  closure gate.
-- `JitML.Tart.Build` renders the current first-cache-miss plan for Apple:
-  ensure `jitml-build`, validate `swift --version` inside the VM, run
-  `swift build` against the generated package, copy
-  `libJitMLMetal.dylib` into `./.build/jit/apple-silicon/<hash>.dylib`, and
-  repoint the stable host FFI symlink through
-  `JitML.Cache.Symlink.repointSymlink`. The same module exposes
-  `executeTartCacheMissBuildPlan`, which performs real `tart list`,
-  `tart run --no-graphics`, readiness probing through `tart exec <vm> true`,
-  Swift validation/build commands, cache publication, and symlink repointing.
-  `executeTartCacheMissBuildPlanWith` remains the typed host-action/subprocess
-  boundary that unit tests validate with synthetic ordered-success and
-  failure-short-circuit executors.
+- `src/JitML/Codegen/Metal.hs` renders the generated Swift package under
+  `./.build/jit-src/apple-silicon/<hash>/`. The generated Swift embeds the Metal
+  Shading Language as a string and JIT-compiles it **at runtime, in-process**
+  via `MTLDevice.makeLibrary(source:options:)` with
+  `MTLCompileOptions.fastMathEnabled = false` — no offline `metal` compiler, no
+  `.metallib`, no SwiftPM resource bundle.
+- Generated Swift exports the host-callable C ABI `jitml_kernel` /
+  `jitml_weighted_kernel` plus the `jitml_kernel_family_name` /
+  `jitml_kernel_output_count` metadata (`@_cdecl`). The reduction metadata
+  reports `ceil(n / 32)` outputs, matching the `simd_sum` simdgroup partials.
+- The build runs **on the host** through `swift build --package-path <dir> -c
+  release` using the Xcode CommandLineTools `swiftc` (no full Xcode, no Tart VM);
+  `JitML.Engines.Engine.compileSubprocess` renders it as a typed `Subprocess`.
+  `JitML.Engines.Loader.ensureKernelArtifact` runs it on the first cache miss,
+  copies the produced `libJitMLMetal.dylib` to
+  `./.build/jit/apple-silicon/<hash>.dylib`, and repoints the stable-FFI symlink
+  at `./.build/host/apple-silicon/<model-id>.dylib`.
+- `src/JitML/Engines/MetalLocal.hs` `dlopen`s the cached `.dylib`, resolves the
+  C ABI, and marshals input / output / weight buffers across the FFI to the
+  generated `MTLDevice` launcher (single `MTLCommandQueue`, FIFO order,
+  simd-aligned full threadgroups, bounded shaders). `runMetalWeightedKernel`
+  drives the per-family weighted bodies (Dense2D / Conv2D / Conv3D / BatchNorm /
+  LayerNorm / MHA / Embedding) mirroring
+  `JitML.Codegen.Cuda.weightedFamilyImpl`. `JitML.Engines.HasEngine` dispatches
+  `apple-silicon` through `LocalAppleSiliconEngine` when the host Metal device
+  is visible.
+- `src/JitML/Engines/MetalRuntime.hs` probes `swift --version` and Metal device
+  visibility (`system_profiler SPDisplaysDataType`); device visibility gates
+  host execution. The `xcrun -find metal` probe is informational only — the
+  offline `metal` compiler is never invoked by the runtime-compile path.
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
+- The runtime-compile codegen + host build is the work of the reopened Phase `7`
+  Sprint `7.8`; the FFI runner, `HasEngine` dispatch, per-family weighted bodies,
+  benchmark candidate runner, and daemon dispatch are landed and host-compile
+  clean. Live headless validation is the remaining Phase `14` gate.
 
-## Apple Silicon Hybrid Pattern
+## Apple Silicon Headless JIT
 
-Routing every Apple Silicon Swift and Metal kernel build through the
-`jitml-build` Tart VM is a hard architectural requirement, not an optimization.
-It is the only way jitML can truly JIT on Apple Silicon: the VM ships Xcode 16
-pre-installed and pre-licensed, so `swift build` compiles the generated
-`Kernels.metal` resource through Xcode's `metal` shader compiler
-non-interactively via `tart exec` — no first-launch or license UI can break the
-headless workflow. Full Xcode is **never** installed on the host: its
-first-launch license/UI prompts break the required headless workflow, and host
-Xcode is never an acceptable remediation for a missing `metal` compiler or an
-`xcrun -find metal` failure. The host retains only the Metal framework, used
-solely to load and execute the VM-produced `.dylib`; the host never compiles
-shaders and never runs Xcode. This holds irrespective of the VM image size or
-download cost.
+The Apple Silicon Metal JIT is **fully headless**: it needs no Tart VM and no
+full Xcode. The host builds the small Swift glue dylib with the CommandLineTools
+`swift build`, and the generated launcher compiles the embedded Metal shader at
+runtime, in-process, via `MTLDevice.makeLibrary(source:options:)` (Metal's OS
+runtime compiler) with fast-math off. Full Xcode is **never** installed on the
+host — its first-launch/license UI breaks the headless workflow — and the
+offline `metal` / `metallib` CLI compiler (Xcode-only) is never invoked. Only
+the CommandLineTools `swiftc` and the OS Metal framework are used. This is the
+only JIT path jitML uses on Apple Silicon.
 
-Bootstrap and the host daemon's startup path never touch tart. On a JIT cache
-miss, the host daemon first validates or installs the `tart` Homebrew package
-through typed lazy prerequisite remediation, then calls
-`JitML.Tart.ensureVmUpLive jitml-build`:
+On a JIT cache miss the host daemon runs the host `swift build` through the
+typed `Subprocess` boundary, writes the artifact into
+`./.build/jit/apple-silicon/<hash>.dylib` atomically (`tmp + rename`), repoints
+the stable-named symlink under `./.build/host/apple-silicon/`, and `dlopen`s it
+through the Metal FFI runner. Subsequent cache hits skip the build entirely.
+There is no VM lifecycle, idle timeout, or `jitml internal vm` command involved;
+those were retired in the 2026-05-30 reopen of Phases `7` / `2` / `5` (see
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)).
 
-- If the VM is up, no-op.
-- If down, start `tart run --no-graphics jitml-build` through the typed
-  detached subprocess boundary and poll until reachable.
+## Cache Survives Purge
 
-The daemon then dispatches the Swift build inside the VM via `tart exec`,
-writes the artifact into `./.build/jit/apple-silicon/<hash>.dylib`
-atomically (`tmp + rename`), repoints the stable-named symlink under
-`./.build/host/apple-silicon/`, and loads via FFI. The checked-in
-`JitML.Tart.Build` executor now performs the real Tart status/run/readiness
-steps and cache publication. The user-facing lifecycle commands call the same
-Tart boundary: `jitml internal vm bootstrap` clones the default source image
-into `jitml-build` when missing, `status` reports the parsed Tart state, and
-`down` stops a running VM through `tart stop`. Provisioning/bootstrapping the
-`jitml-build` VM on Apple hardware and performing the Metal FFI launch remain
-target runtime work.
-
-The VM stays up for the daemon's lifetime once spun up; an idle timeout
-(default `30 min`, configurable in `LiveConfig.tartIdleTimeout`) brings it
-down again. Subsequent cache hits skip the spin-up entirely.
-
-Manual VM access is available via `jitml internal vm bootstrap|up|down|status`
-and `jitml internal vm exec -- <cmd>` (Apple-only Tart operations).
-
-## Cache Survives VM Teardown
-
-`./bootstrap/apple-silicon.sh purge` destroys the tart VM (along with the
-Swift incremental build cache *inside* the VM) but **preserves** `./.build/`.
-After `purge`, every previously compiled kernel is still on disk under
-`./.build/jit/apple-silicon/`, so the next bootstrap plus any inference command
-can resolve from cache without spinning tart up at all.
+`./bootstrap/apple-silicon.sh purge` clears runtime state but **preserves**
+`./.build/`. After `purge`, every previously compiled kernel is still on disk
+under `./.build/jit/apple-silicon/`, so the next bootstrap plus any inference
+command resolves from cache without rebuilding.
 
 `purge --full` is `purge` plus `rm -rf ./.build/` (and on Linux,
 `docker compose down --rmi local --volumes` to drop the substrate image).
