@@ -8,8 +8,8 @@ module JitML.Engines.Loader
 where
 
 import Control.Exception (bracket)
+import Control.Exception.Safe (displayException, tryAny)
 import Control.Monad (void)
-import Control.Exception.Safe (tryAny, displayException)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Foreign.Ptr (FunPtr)

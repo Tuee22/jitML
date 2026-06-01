@@ -120,6 +120,18 @@ daemonSubscriptionsForBootConfig bootConfig =
   case (bootSubstrate bootConfig, bootResidency bootConfig) of
     (AppleSilicon, Host) ->
       [daemonSubscription "inference.command" AppleSilicon "jitml-host"]
+    -- Sprint 14.4 — the Apple in-cluster (`ForwardToHost`) daemon also subscribes
+    -- to `inference.event.apple-silicon` so it receives the host's reply events
+    -- and republishes the correlated result on the client result topic.
+    (AppleSilicon, Cluster) ->
+      fmap
+        (\prefix -> daemonSubscription prefix AppleSilicon "jitml-service")
+        [ "training.command"
+        , "tune.command"
+        , "rl.command"
+        , "inference.request"
+        , "inference.event"
+        ]
     _ ->
       fmap
         (\prefix -> daemonSubscription prefix (bootSubstrate bootConfig) "jitml-service")

@@ -39,18 +39,21 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**Reopen note (2026-05-30)**: Phases `2`, `5`, and `7` are `🔄 Active` again for
-the headless Apple Metal JIT workstream (runtime `MTLDevice.makeLibrary(source:)`
-+ host CommandLineTools `swift build`, retiring the Tart VM that cannot run
-headless). Where the historical narrative below still describes Phases `2` / `5` /
-`7` as `✅ Done` or describes the Apple build as Tart-VM-based, the authoritative
-current status is the
-[Reopened phases (2026-05-30)](#reopened-phases-2026-05-30) section and those
-phases' `### Remaining Work` blocks.
+**Reopen note (2026-05-30, re-closed 2026-05-31)**: Phases `2`, `5`, and `7` were
+reopened `🔄 Active` for the headless Apple Metal JIT workstream (runtime
+`MTLDevice.makeLibrary(source:)` + host CommandLineTools `swift build`, retiring
+the Tart VM that cannot run headless) and are now **re-closed `✅ Done`** — the new
+sprints all landed and validated: `7.8` (runtime-`makeLibrary` codegen + host
+`swift build`), `2.10` (retire `container.tart` / `jitml internal vm` / the Tart
+modules), and `5.8` (remove `LiveConfig.tartIdleTimeout`), with the `jitml:local`
+image `check-code` gate and the unit / daemon-lifecycle suites green. Where the
+historical narrative below describes the Apple build as Tart-VM-based, the
+authoritative current status is the headless path (host `swift build` + runtime
+`makeLibrary`, no Tart, no full Xcode).
 
 **Refactor note (2026-05-24)**: The plan now batches every live-runtime
 obligation by machine-affinity into Phases `13` (Linux/CUDA + Kind
-cluster + broker + browser), `14` (Apple Silicon + Tart + Metal), and
+cluster + broker + browser), `14` (Apple Silicon + headless Metal), and
 `15` (cross-substrate parity + populated report card + empty legacy
 ledger). Phases `7`–`12` keep their original topical ownership but are
 now scoped to code-surface obligations only; every live-runtime bullet
@@ -373,9 +376,11 @@ owned by Phase `13` below.
    daemon handlers, train SL/RL/AlphaZero/tune end-to-end on real CUDA,
    serve the live demo behind Playwright. One Linux/NVIDIA session.
 3. **Phase `14` — Apple Silicon Closure (Exit 1 Metal half, 5 Apple, 7
-   Apple Metal, 8 Apple Playwright).** Provision the Tart VM, load the
-   Metal dylib, run the candidate runner, exercise host↔cluster RPC,
-   load Apple Metal production weights. One Apple session.
+   Apple Metal, 8 Apple Playwright).** Build the Metal glue dylib headless
+   on the host with CommandLineTools `swift build`, runtime-compile the
+   Metal shader via `MTLDevice.makeLibrary(source:)`, load the dylib over
+   FFI, run the candidate runner, exercise host↔cluster RPC, load Apple
+   Metal production weights. One Apple session.
 4. **Phase `15` — Cross-Substrate Parity and Final Handoff (Exit 5
    cross, 9 live report card, 18).** Capture per-substrate tensor
    outputs from Phases `13` and `14`, commit tolerance fixtures, drive
@@ -465,7 +470,7 @@ obligation exists.
 | 11 | PureScript Frontend and Demo | ✅ Done | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | Linux CUDA and Cluster Closure | ✅ Done | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | 🔄 Active | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 14 | Apple Silicon Closure | ✅ Done | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Cross-Substrate Parity and Final Handoff | 🔄 Active | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Reopened phases (2026-05-30)
@@ -511,11 +516,15 @@ below.
   field removed from Dhall + Haskell + `daemon.surface`, 30
   `jitml-daemon-lifecycle` pass.
 
-Phase `14` (Apple Silicon Closure) stays `🔄 Active` but is re-scoped: Sprint `14.1`
-moves from "provision the Tart VM" to "host CLT Swift toolchain + headless Metal
-device probe", and the `14.2` / `14.3` / `14.5` live gates move from "VM running" to
-"Metal device usable headless". Phase `15` stays `🔄 Active`; only its **Blocked by**
-text changes (Apple Metal live outputs now come from the headless host build).
+Phase `14` (Apple Silicon Closure) was re-scoped — Sprint `14.1` moved from
+"provision the Tart VM" to "host CLT Swift toolchain + headless Metal device
+probe", and the `14.2` / `14.3` / `14.5` live gates moved from "VM running" to
+"Metal device usable headless" — and is now **✅ Done**: all sprints (`14.1`–`14.5`)
+plus item-8's Apple-host Playwright panel matrix were live-validated headless on an
+Apple M1 / macOS 26 host (2026-05-30/31), including the full host↔cluster RPC
+round-trip through two running daemon processes. Phase `15` stays `🔄 Active`; only
+its **Blocked by** text changes (Apple Metal live outputs now come from the headless
+host build).
 Phases `0`, `1`, `3`, `4`, `6`, and `8`–`13` remain `✅ Done` on their owned
 surfaces — none of the headless-Metal obligations change them; the toolchain-pin
 wording is a harmony edit in `README.md` / `system-components.md`, not a reopen. The
@@ -573,15 +582,23 @@ typed Dhall `RunConfig` + BootConfig-mounted worker dispatch that retires the
 scope. Live re-validation of every reopened-phase obligation is owned by Phase
 `13`.
 
-Phases `2`, `5`, and `7` **reopened again on 2026-05-30** for the headless Apple
-Metal JIT workstream: runtime `MTLDevice.makeLibrary(source:)` shader compilation
-plus a host CommandLineTools `swift build`, replacing the Tart-VM ahead-of-time
-build that cannot run headless. Phase `7` owns the runtime-compile codegen + host
-build; Phase `2` owns retiring `container.tart` and the `jitml internal vm`
-commands; Phase `5` owns retiring `LiveConfig.tartIdleTimeout` and the daemon
-tart spin-up. Phase `14` is re-scoped (Sprint `14.1` → host Swift toolchain +
-headless Metal probe; the `14.2` / `14.3` / `14.5` live gates → "Metal device
-usable headless"). See
+Phases `2`, `5`, and `7` **reopened on 2026-05-30 and re-closed `✅ Done` on
+2026-05-31** for the headless Apple Metal JIT workstream: runtime
+`MTLDevice.makeLibrary(source:)` shader compilation plus a host CommandLineTools
+`swift build`, replacing the Tart-VM ahead-of-time build that cannot run headless.
+Phase `7` (Sprint `7.8`) landed the runtime-compile codegen + host build; Phase
+`2` (Sprint `2.10`) retired `container.tart` and the `jitml internal vm` commands;
+Phase `5` (Sprint `5.8`) retired `LiveConfig.tartIdleTimeout` and the daemon tart
+spin-up. **Phase `14` is now `✅ Done`** — re-scoped to the headless toolchain
+(host Swift toolchain + headless Metal probe; the `14.2` / `14.3` / `14.5` live
+gates became "Metal device usable headless"), all five sprints plus item-8's
+Apple-host Playwright panel matrix live-validated on Apple M1 / macOS 26
+(2026-05-30/31), including the full host↔cluster RPC round-trip through two
+running daemon processes. The sole remaining open phase is `15`
+(cross-substrate parity + report card + empty ledger), which is **inherently
+multi-host** — the apple-involving cross-substrate drift cannot be computed
+at-test-time on a single machine (see that phase's Sprint `15.1` Remaining Work).
+See
 [Reopened phases (2026-05-30)](#reopened-phases-2026-05-30) for the per-phase
 scope; the Tart removals are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).

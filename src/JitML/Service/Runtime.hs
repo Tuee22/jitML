@@ -62,6 +62,7 @@ import JitML.Service.Capabilities
   , harborListImages
   , kubectlGet
   , listObjects
+  , pulsarPublish
   )
 import JitML.Service.Clients
   ( DaemonClientSettings
@@ -115,7 +116,9 @@ import JitML.Substrate (Substrate (..))
 import JitML.Proto.Inference
   ( AppleInferenceCommand
   , InferenceRequest (..)
+  , inferenceResultTopic
   , parseAppleInferenceCommand
+  , parseAppleInferenceEvent
   , parseInferenceRequest
   )
 import JitML.Service.AppleInferenceRpc qualified as AppleRpc
@@ -596,12 +599,20 @@ daemonWorkloadDispatcherForwardingInference
   -> Text
   -> m (Either ServiceError ())
 daemonWorkloadDispatcherForwardingInference domain eventId payload =
-  case parseInferenceRequest payload of
-    Just request -> do
-      let plan = AppleRpc.appleInferenceRpcPlan (irExperimentHash request) request
-      void <$> AppleRpc.publishAppleInferenceRpcCommand plan
+  case parseAppleInferenceEvent payload of
+    -- Closing leg: a host reply event arriving on inference.event.apple-silicon
+    -- is correlated (it self-identifies by call-id) and republished to the
+    -- client result topic for the frontend. Stateless — the event carries its
+    -- own call-id and output references.
+    Just _event ->
+      void <$> pulsarPublish (TopicName (inferenceResultTopic AppleSilicon)) payload
     Nothing ->
-      daemonWorkloadDispatcher domain eventId payload
+      case parseInferenceRequest payload of
+        Just request -> do
+          let plan = AppleRpc.appleInferenceRpcPlan (irExperimentHash request) request
+          void <$> AppleRpc.publishAppleInferenceRpcCommand plan
+        Nothing ->
+          daemonWorkloadDispatcher domain eventId payload
 
 -- | Sprint 14.4 — host-native Apple daemon dispatch. When a message off
 -- `inference.command.apple-silicon` parses as an `AppleInferenceCommand` (a

@@ -62,7 +62,6 @@ import JitML.Cluster.Publication qualified as Publication
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
 import JitML.Engines.CudaLocal (runCudaWeightedCheckpointInference)
-import JitML.Engines.MetalLocal (runMetalWeightedCheckpointInference)
 import JitML.Engines.Engine
   ( compileSubprocess
   , engineForSubstrate
@@ -76,6 +75,7 @@ import JitML.Engines.Local
   , runLinuxCpuKernel
   , runLinuxCpuWeightedCheckpointInference
   )
+import JitML.Engines.MetalLocal (runMetalWeightedCheckpointInference)
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Engines.TuningCache qualified as TuningCache
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
@@ -105,6 +105,7 @@ import JitML.Prerequisite.Registry
   , scopeRootNodeId
   )
 import JitML.Proto.Gc qualified as ProtoGc
+import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as ProtoRl
 import JitML.Proto.Training qualified as ProtoTraining
 import JitML.Proto.Tune qualified as ProtoTune
@@ -120,7 +121,6 @@ import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
 import JitML.Service.BootConfig qualified as BootConfig
-import JitML.Proto.Inference qualified as Inference
 import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.Clients qualified as ServiceClients

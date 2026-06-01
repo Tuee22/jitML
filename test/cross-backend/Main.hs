@@ -10,7 +10,6 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Control.Exception qualified
 import Data.Either (isRight)
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import System.Environment (lookupEnv)
 import Data.Vector.Unboxed qualified as VU
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (TensorBlob (..), emptyManifest, inferFromManifest)
@@ -24,8 +23,6 @@ import JitML.Engines.CudaLocal
 import JitML.Engines.CudaLocal qualified as Cuda
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.CudnnBindings qualified as Cudnn
-import JitML.Engines.MetalLocal qualified as Metal
-import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.Engine (deterministicFlags, engineForSubstrate)
 import JitML.Engines.HasEngine
   ( EngineRequest (..)
@@ -40,6 +37,8 @@ import JitML.Engines.Local
   , runLinuxCpuIdentityKernel
   )
 import JitML.Engines.Local qualified as Local
+import JitML.Engines.MetalLocal qualified as Metal
+import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
@@ -103,6 +102,7 @@ import JitML.Substrate (Substrate (..), allSubstrates)
 import JitML.Substrate qualified as Substrate
 import Path (toFilePath)
 import System.Directory (listDirectory)
+import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
 main :: IO ()

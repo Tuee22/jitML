@@ -278,42 +278,44 @@ main =
             @?= Left "apple inference event call-id mismatch: expected call-apple-rpc, got different-call"
           AppleRpc.correlateAppleInferenceEvent command errorEvent
             @?= Left "apple inference event error stale-starting-snapshot: latest pointer advanced"
-      , testCase "Apple host<->cluster RPC round-trip: command -> host handle -> event -> correlate (Sprint 14.4)" $ do
-          -- Sprint 14.4 — the full RPC dispatch logic, exercised deterministically
-          -- through the synthetic broker: the cluster builds an
-          -- AppleInferenceCommand, the host handler runs inference (stub) and
-          -- emits the AppleInferenceEvent reply, and the cluster correlates it
-          -- back to the staged output refs. The host also publishes the reply on
-          -- inference.event.apple-silicon through HasPulsar.
-          eventLogRef <- newIORef []
-          let request =
-                Inference.InferenceRequest
-                  { Inference.irCallId = "call-14-4"
-                  , Inference.irExperimentHash = "exp-14-4"
-                  , Inference.irReplyTopic = "inference.result.apple-silicon"
-                  , Inference.irInput = [0.5, 1.5]
-                  }
-              plan = AppleRpc.appleInferenceRpcPlan "exp-14-4" request
-              command = AppleRpc.appleRpcCommand plan
-              stubRun cmd =
-                pure (Right ["minio://jitml-checkpoints/out/" <> Inference.appleCommandCallId cmd])
-              failRun _cmd = pure (Left "metal launch failed")
-          completed <- AppleRpc.handleAppleInferenceCommand stubRun command
-          Inference.appleEventCallId completed @?= "call-14-4"
-          Inference.appleEventKind completed @?= Inference.AppleEventCompleted
-          AppleRpc.correlateAppleInferenceEvent command completed
-            @?= Right ["minio://jitml-checkpoints/out/call-14-4"]
-          failed <- AppleRpc.handleAppleInferenceCommand failRun command
-          Inference.appleEventKind failed @?= Inference.AppleEventError
-          AppleRpc.correlateAppleInferenceEvent command failed
-            @?= Left "apple inference event error inference-failed: metal launch failed"
-          publishedEvent <-
-            evalStateT
-              (AppleRpc.publishAppleInferenceEvent completed)
-              (SyntheticClientState eventLogRef)
-          publishedEvent @?= Right "synthetic-message-id"
-          eventLog <- readIORef eventLogRef
-          eventLog @?= ["pulsar:publish:inference.event.apple-silicon"]
+      , testCase
+          "Apple host<->cluster RPC round-trip: command -> host handle -> event -> correlate (Sprint 14.4)"
+          $ do
+            -- Sprint 14.4 — the full RPC dispatch logic, exercised deterministically
+            -- through the synthetic broker: the cluster builds an
+            -- AppleInferenceCommand, the host handler runs inference (stub) and
+            -- emits the AppleInferenceEvent reply, and the cluster correlates it
+            -- back to the staged output refs. The host also publishes the reply on
+            -- inference.event.apple-silicon through HasPulsar.
+            eventLogRef <- newIORef []
+            let request =
+                  Inference.InferenceRequest
+                    { Inference.irCallId = "call-14-4"
+                    , Inference.irExperimentHash = "exp-14-4"
+                    , Inference.irReplyTopic = "inference.result.apple-silicon"
+                    , Inference.irInput = [0.5, 1.5]
+                    }
+                plan = AppleRpc.appleInferenceRpcPlan "exp-14-4" request
+                command = AppleRpc.appleRpcCommand plan
+                stubRun cmd =
+                  pure (Right ["minio://jitml-checkpoints/out/" <> Inference.appleCommandCallId cmd])
+                failRun _cmd = pure (Left "metal launch failed")
+            completed <- AppleRpc.handleAppleInferenceCommand stubRun command
+            Inference.appleEventCallId completed @?= "call-14-4"
+            Inference.appleEventKind completed @?= Inference.AppleEventCompleted
+            AppleRpc.correlateAppleInferenceEvent command completed
+              @?= Right ["minio://jitml-checkpoints/out/call-14-4"]
+            failed <- AppleRpc.handleAppleInferenceCommand failRun command
+            Inference.appleEventKind failed @?= Inference.AppleEventError
+            AppleRpc.correlateAppleInferenceEvent command failed
+              @?= Left "apple inference event error inference-failed: metal launch failed"
+            publishedEvent <-
+              evalStateT
+                (AppleRpc.publishAppleInferenceEvent completed)
+                (SyntheticClientState eventLogRef)
+            publishedEvent @?= Right "synthetic-message-id"
+            eventLog <- readIORef eventLogRef
+            eventLog @?= ["pulsar:publish:inference.event.apple-silicon"]
       , testCase "domainFor accepts fully-qualified Pulsar topics (Sprint 5.5)" $ do
           domainFor "persistent://public/default/training.command.linux-cpu" @?= Just TrainingDomain
           domainFor "persistent://public/default/tune.command.linux-cuda" @?= Just TuneDomain
@@ -337,6 +339,18 @@ main =
           fmap (unTopicName . daemonSubscriptionTopic) hostSubscriptions
             @?= ["persistent://public/default/inference.command.apple-silicon"]
           fmap daemonSubscriptionName hostSubscriptions @?= ["jitml-host"]
+          -- Sprint 14.4 — the Apple in-cluster (ForwardToHost) daemon also
+          -- subscribes to inference.event.apple-silicon to receive host replies.
+          let appleClusterSubscriptions =
+                daemonSubscriptionsForBootConfig
+                  (BootConfig.defaultBootConfig AppleSilicon BootConfig.Cluster)
+          fmap (unTopicName . daemonSubscriptionTopic) appleClusterSubscriptions
+            @?= [ "persistent://public/default/training.command.apple-silicon"
+                , "persistent://public/default/tune.command.apple-silicon"
+                , "persistent://public/default/rl.command.apple-silicon"
+                , "persistent://public/default/inference.request.apple-silicon"
+                , "persistent://public/default/inference.event.apple-silicon"
+                ]
       , testCase "one-shot daemon HTTP server exposes healthz" $
           withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (daemonHttpRoutes defaultDaemonRuntime) $ \port -> do
             response <- httpGet port "/healthz"

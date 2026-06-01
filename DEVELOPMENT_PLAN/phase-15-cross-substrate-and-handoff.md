@@ -125,12 +125,26 @@ authoritatively encode whichever substrate ran the calibration first.
 ### Remaining Work
 
 - Add the cross-substrate drift assertion that consumes the in-code
-  band (no committed `.bin` / `.json` fixtures). The Linux CPU + CUDA
-  weighted inference outputs from Phase `13` Sprint `13.11` (closed
-  2026-05-27) are available; still requires Phase `14` Sprint `14.5`
-  (Apple Metal weighted inference live) to produce the Apple-side
-  tensors before the `(linux-cpu, linux-cuda, apple-silicon)` triple
-  cohort can be asserted.
+  band (no committed `.bin` / `.json` fixtures). Phase `14` Sprint `14.5`
+  is now **Done** (the Apple-side weighted tensors are producible
+  headless), so all three substrates can produce live weighted outputs —
+  but **this assertion is inherently multi-host** and cannot run
+  at-test-time on a single machine: the design computes per-tensor drift
+  *at test time* by running the cohort on every substrate in the same
+  process, yet no single host runs all three weighted kernels. Confirmed
+  2026-05-31 on the Apple M1 host: `apple-silicon` weighted Dense2D runs
+  (Metal), but `linux-cpu` weighted Dense2D returns `Left` (the GEMM-class
+  weighted body is the Linux/oneDNN path — the self-contained
+  identity/reduction kernels do run on macOS) and `linux-cuda` needs an
+  NVIDIA GPU. Symmetrically, a Linux/NVIDIA host runs the
+  `(linux-cpu, linux-cuda)` pair but has no Metal device. So the
+  apple-involving drift requires either a shared cross-host output channel
+  (in tension with the
+  [numerical-fixture prohibition](../README.md#snapshot-targets)) or a
+  documented manual cross-host comparison. The `(linux-cpu, linux-cuda)`
+  pair assertion remains runnable on a single Linux/NVIDIA host. The
+  in-code `LayerFamilyTolerance` table + its `jitml-unit` band tests are
+  already landed (see *Code Surface Landed*).
 - Update `documents/engineering/determinism_contract.md` to point at
   the in-code table.
 

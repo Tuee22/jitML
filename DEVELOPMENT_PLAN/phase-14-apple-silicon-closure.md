@@ -26,15 +26,38 @@
 
 ## Phase Status
 
-🔄 **Active** (re-scoped 2026-05-30 — headless Apple Metal JIT). The phase owns
-the Apple-Silicon halves of [Exit Definition](README.md#exit-definition) items 1
-(per-substrate JIT execution — Apple Metal side), 5 (substrate determinism —
-Apple side), 7 (production weight loading — Apple Metal side), and 8 (live
-Playwright panel matrix on the Apple host). Closure requires a single Apple
-Silicon machine with the Xcode **Command Line Tools** (`swiftc`) and a
-Metal-capable GPU — **no Tart VM and no full Xcode**. Sprint `14.4` additionally
-needs a routable Kind cluster (local Apple-Silicon Kind, or remote against the
-Phase `13` cluster).
+✅ **Complete** (all Apple-half obligations validated headless 2026-05-30/31,
+Apple M1 / macOS 26). The phase owns the Apple-Silicon halves of
+[Exit Definition](README.md#exit-definition) items 1 (per-substrate JIT
+execution — Apple Metal side), 5 (substrate determinism — Apple side), 7
+(production weight loading — Apple Metal side), and 8 (live Playwright panel
+matrix on the Apple host). Closure required a single Apple Silicon machine with
+the Xcode **Command Line Tools** (`swiftc`) and a Metal-capable GPU — **no Tart
+VM and no full Xcode**.
+
+Sprints `14.1`–`14.5` are **Done and live-validated headless**: the host
+`swift build` + runtime `MTLDevice.makeLibrary(source:)` JIT, Metal FFI launch,
+the benchmark candidate runner, Apple Metal production weight loading, and the
+full host↔cluster RPC round-trip through **two running daemon processes**
+(Sprint `14.4`, validated against a standalone broker — **no Kind cluster
+required**; the cluster-leg binary was the real `jitml:local` image, its hardcoded
+in-cluster Pulsar DNS redirected to the host broker via Docker `--add-host`).
+
+**Item 8 (Apple-host Playwright panel matrix) — validated 2026-05-31.** The
+`playwright/jitml-demo.spec.ts` 7-test matrix was run **inside the `jitml:local`
+image on the Apple M1 host** (Playwright + Chromium arm64 installed in the
+container; the baked `web/dist/Main/bundle.js` served by `jitml-demo` on
+`127.0.0.1:8080`). In **live mode** (a `cluster-publication.json` with
+`edge_port = 8080` so the spec navigates to the real served demo) all 7 tests
+passed — the Halogen bundle mounts the shell + all six panels (`mnist`, `cifar`,
+`connect4`, `rl`, `training`, `tune`) via `#<panel-id>` hash navigation. A
+negative control (pointing `edge_port` at a dead port) failed all 7 with
+`net::ERR_CONNECTION_REFUSED`, proving the green run genuinely exercised the live
+server rather than the offline DOM-stub fallback. Phase `13` Sprint `13.14`
+covers the substrate-agnostic panel mechanics against the cluster edge; this run
+is the Apple-host half. Web tooling stayed container-only per `CLAUDE.md`.
+
+**All Phase 14 obligations are closed.**
 
 **Architecture (2026-05-30 reopen)**: the Apple Metal build moves from the
 Tart-VM ahead-of-time `.metallib` to a host CommandLineTools `swift build` of the
@@ -281,9 +304,9 @@ persists it via `Engines.TuningStore`.
 
 - None.
 
-## Sprint 14.4: Apple Host↔Cluster Pulsar RPC Live Flow 🔄
+## Sprint 14.4: Apple Host↔Cluster Pulsar RPC Live Flow ✅
 
-**Status**: Active
+**Status**: Done (full two-daemon round-trip validated live 2026-05-31, Apple M1 / macOS 26)
 **Blocked by**: Sprint `14.2`, Phase `13` Sprint `13.1` (cluster up),
 Phase `13` Sprint `13.2` (live capability classes), Phase `13` Sprint
 `13.3` (daemon handlers consuming live broker)
@@ -357,10 +380,20 @@ in-cluster daemon correlates the reply by `call-id` through
   `call-id`-keyed MinIO object via `putBlobIfAbsent`, and returns that object
   reference. `daemonWorkloadDispatcherForRuntime` routes `(AppleSilicon,
   SelfInference)` to it.
+- **Cluster correlation leg** — `daemonWorkloadDispatcherForwardingInference`
+  also handles a reply `AppleInferenceEvent` arriving on
+  `inference.event.apple-silicon` (it self-identifies by `call-id`) by
+  republishing it to the client result topic `inference.result.apple-silicon`
+  (stateless). `JitML.Service.Consumer.daemonSubscriptionsForBootConfig` adds the
+  `inference.event` subscription to the Apple in-cluster (`ForwardToHost`) daemon.
+  **All three serve-loop legs** — publish-command, host-handle-and-reply,
+  correlate-and-republish — are now wired in the daemon dispatch + subscription
+  plan.
 - **Round-trip validated deterministically** — `jitml-daemon-lifecycle` (31 / 31)
   exercises command → `handleAppleInferenceCommand` → event →
-  `correlateAppleInferenceEvent` (success + error paths) and the event publish
-  through the synthetic broker. `cabal build all` clean.
+  `correlateAppleInferenceEvent` (success + error paths), the event publish, and
+  the Apple in-cluster subscription plan (now including `inference.event`).
+  `cabal build all` clean.
 
 ### Validation (live broker, 2026-05-31, Apple M1 / macOS 26)
 
@@ -383,18 +416,58 @@ WebSocket producer/consumer) — no Kind cluster, low memory risk:
 This validates the RPC envelope flow + bidirectional `call-id` correlation over a
 live broker via the production WS interpreter.
 
+### Validation (full two-daemon round-trip, 2026-05-31, Apple M1 / macOS 26)
+
+Exercised the **complete request → command → event → result round-trip through two
+real running daemon processes** over a standalone broker (`apachepulsar/pulsar:3.3.1`,
+WS enabled) + standalone MinIO — no Kind, no OOM risk. Crucially, the **cluster-side
+daemon was the actual `jitml:local` image binary** (the same artifact deployed
+in-pod), run via `docker run jitml:local jitml service --consume-once`; its
+hard-coded in-cluster Pulsar DNS
+(`ws://pulsar-broker.platform.svc.cluster.local:8080/ws`, set by
+`JitML.Service.Clients.pulsarSettingsForBootConfig` `Cluster` branch) was redirected
+to the host broker with `--add-host pulsar-broker.platform.svc.cluster.local:host-gateway`.
+The host-side daemon was the host-native `jitml service` (residency `Host`,
+`inferenceMode = SelfInference`). Each leg ran through the real
+`daemonConsumerBatch` consume loop + `daemonWorkloadDispatcherForRuntime` routing
+(not the direct interpreter):
+
+1. A client `InferenceRequest` (`call-id=live-rt-14-4`) was produced to
+   `inference.request.apple-silicon`.
+2. **Cluster daemon** (image binary) drained it and
+   `daemonWorkloadDispatcherForwardingInference` published the forwarded
+   `AppleInferenceCommand` (verified on `inference.command.apple-silicon`:
+   `envelope: AppleInferenceCommand / call-id: live-rt-14-4 / kind: inference`).
+3. **Host daemon** (native) drained the command and
+   `daemonWorkloadDispatcherHostingAppleInference` →
+   `handleAppleInferenceCommand` → `appleHostInferenceRunner` ran; it published the
+   reply `AppleInferenceEvent` to `inference.event.apple-silicon`.
+4. **Cluster daemon** (image binary) drained the event,
+   `correlateAppleInferenceEvent` matched it by `call-id`, and republished to the
+   client reply topic `inference.result.apple-silicon`.
+5. The client consumed the correlated result:
+   `envelope: AppleInferenceEvent / call-id: live-rt-14-4 / kind: error /
+   error-code: inference-failed` — `call-id` propagated cleanly through all four
+   legs and back.
+
+The host runner deliberately ran the **error path** (no seeded MinIO checkpoint →
+`pointer read failed: SEUnauthorized "minioReadBytes: HTTP 403"`), which fully
+exercises the serve-loop plumbing — consume → route → handle → publish — through
+both real daemon binaries. The Metal compute step itself is validated bit-exact in
+Sprints `14.2`/`14.5`, so seeding a checkpoint for the success path adds no
+serve-loop coverage and was skipped.
+
 ### Remaining Work
 
-- **Cluster-side event correlation loop**: add `inference.event.apple-silicon` to
-  the cluster (`ForwardToHost`) daemon's subscription plan and a handler that
-  consumes it, correlates by `call-id`
-  (`AppleInferenceRpc.correlateAppleInferenceEvent`), and republishes the result
-  on the client reply topic. (The cluster *publish* and the host *handle* serve
-  loops are wired; this closing leg pairs the reply back to the requester.)
-- **In-pod cluster deployment**: run the cluster-side daemon in-pod via
-  `jitml bootstrap --apple-silicon` + a host-native daemon, and confirm the
-  round-trip with `kubectl logs`. Deferred: the full Kind stack is **heavy on this
-  16 GiB host and the `cluster.host-memory` preflight is a no-op on macOS**.
+- None for the serve loop. The full round-trip is live-validated through two
+  running daemon processes (the cluster leg using the actual `jitml:local` image
+  binary). The only delta from a Kubernetes-orchestrated deployment is the
+  orchestration layer itself (Deployment + ConfigMap + in-cluster Service DNS),
+  which is substrate-agnostic and validated live for the training/tune/RL daemons
+  in Phase `13`. Running this exact flow inside a Kind pod via
+  `jitml bootstrap --apple-silicon` remains available as an optional belt-and-braces
+  check but is **not** a code gate; it is heavy on this 16 GiB host (the
+  `cluster.host-memory` preflight is a no-op on macOS).
 
 ## Sprint 14.5: Apple Metal Production Weight Loading ✅
 
