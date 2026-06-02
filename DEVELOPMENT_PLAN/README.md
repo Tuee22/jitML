@@ -382,10 +382,10 @@ owned by Phase `13` below.
    FFI, run the candidate runner, exercise host↔cluster RPC, load Apple
    Metal production weights. One Apple session.
 4. **Phase `15` — Cross-Substrate Parity and Final Handoff (Exit 5
-   cross, 9 live report card, 18).** Capture per-substrate tensor
-   outputs from Phases `13` and `14`, commit tolerance fixtures, drive
-   `jitml test all --live`, populate the report card, and walk every
-   legacy-ledger Pending Removal row to Completed.
+   cross, 9 live report card, 18).** Compare live per-substrate tensor
+   outputs from Phases `13` and `14` against the in-code tolerance
+   bands, drive `jitml test all --live`, populate the report card, and
+   walk every legacy-ledger Pending Removal row to Completed.
 
 The full machine-affinity mapping of each historical live-runtime
 Remaining-Work bullet to its new owner is enumerated in each
@@ -413,8 +413,8 @@ re-scoped sprint's `### Remaining Work` block per
 | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) | Phase 11: PureScript shell, generated browser contracts, demo shim, Playwright scaffold |
 | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Eight Cabal test stanzas, lint matrix, typed live-plan surface, report-card knobs |
 | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) | Phase 13: Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure (one Linux/NVIDIA session) |
-| [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) | Phase 14: Apple Silicon Tart VM, Metal FFI, host↔cluster RPC, Metal candidate runner, Apple Metal production weight loading (one Apple session) |
-| [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Cross-substrate parity fixtures, populated live `jitml test all` report card, empty legacy ledger |
+| [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) | Phase 14: Apple Silicon headless Metal FFI, host↔cluster RPC, Metal candidate runner, Apple Metal production weight loading (one Apple session) |
+| [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Cross-substrate parity cohort, populated live `jitml test all` report card, empty legacy ledger |
 | [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) | Cleanup ledger |
 
 ## Status Vocabulary
@@ -523,8 +523,8 @@ probe", and the `14.2` / `14.3` / `14.5` live gates moved from "VM running" to
 plus item-8's Apple-host Playwright panel matrix were live-validated headless on an
 Apple M1 / macOS 26 host (2026-05-30/31), including the full host↔cluster RPC
 round-trip through two running daemon processes. Phase `15` stays `🔄 Active`; only
-its **Blocked by** text changes (Apple Metal live outputs now come from the headless
-host build).
+the `linux-cpu` / `linux-cuda` half of Sprint `15.1` is locally validated, while
+the apple-involving comparison remains a multi-host parity gate.
 Phases `0`, `1`, `3`, `4`, `6`, and `8`–`13` remain `✅ Done` on their owned
 surfaces — none of the headless-Metal obligations change them; the toolchain-pin
 wording is a harmony edit in `README.md` / `system-components.md`, not a reopen. The
@@ -595,9 +595,13 @@ gates became "Metal device usable headless"), all five sprints plus item-8's
 Apple-host Playwright panel matrix live-validated on Apple M1 / macOS 26
 (2026-05-30/31), including the full host↔cluster RPC round-trip through two
 running daemon processes. The sole remaining open phase is `15`
-(cross-substrate parity + report card + empty ledger), which is **inherently
-multi-host** — the apple-involving cross-substrate drift cannot be computed
-at-test-time on a single machine (see that phase's Sprint `15.1` Remaining Work).
+(cross-substrate parity + report card + empty ledger): the
+`linux-cpu` / `linux-cuda` weighted drift assertion passed on the
+Linux/NVIDIA host on 2026-06-01, and `jitml verify cross-backend`
+now provides ephemeral `--export` / `--compare` report bundles for the
+multi-host handoff. The apple-involving cross-substrate drift remains
+**inherently multi-host** and cannot be computed at-test-time on a
+single machine (see that phase's Sprint `15.1` Remaining Work).
 See
 [Reopened phases (2026-05-30)](#reopened-phases-2026-05-30) for the per-phase
 scope; the Tart removals are tracked in

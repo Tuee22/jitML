@@ -130,7 +130,15 @@ verifies the reported family and output length, and asserts three successive
 FFI runs return bit-identical output (run-to-run determinism only — no
 stored output bytes). It also dispatches a generated family kernel through
 the local Linux CPU `HasEngine` interpreter and checks the loaded family
-metadata at that boundary.
+metadata at that boundary. The `CrossSubstrate` group runs the weighted
+kernel-family cohort against the in-code tolerance table: on a Linux/NVIDIA
+host it compares `linux-cpu` to `linux-cuda`, and the
+`linux-cpu` / `apple-silicon` case is encoded behind the headless Metal
+readiness probe so the same assertion path is used when real Apple output is
+available. The cohort and drift math live in `JitML.CrossBackend.Parity`,
+which is also consumed by `jitml verify cross-backend --export/--compare`
+for ephemeral cross-host report-bundle validation.
+
 `jitml-unit` owns the CUDA runtime-probe parser snapshots for `nvcc`,
 `nvidia-smi`, and `ldconfig`, plus the guarded CUDA benchmark-runner preflight
 checks for wrong-substrate rejection, unavailable runtime summaries, and
@@ -150,7 +158,11 @@ rather than against committed `.json` / `.bin` fixtures. The band is a
 per-layer-family L∞ bound calibrated empirically from the public literature
 on cuDNN / Metal / oneDNN drift; per-substrate empirical floats are
 **not** stored, since they would harden host-specific FP behavior into
-the repository and falsely authorize whichever host wrote them first.
+the repository and falsely authorize whichever host wrote them first. A
+controlled over-band perturbation in `jitml-cross-backend` verifies the
+predicate rejects drift larger than the declared family bound. Exported
+cross-host report bundles are runtime handoff artifacts; they are not
+committed test fixtures.
 See [determinism_contract.md → Cross-Substrate Tolerance Methodology](determinism_contract.md#cross-substrate-tolerance-methodology).
 
 ### `jitml-daemon-lifecycle`

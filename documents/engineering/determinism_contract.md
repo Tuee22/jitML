@@ -229,10 +229,21 @@ The tolerance methodology:
   literature on cuDNN / Metal / oneDNN drift, not from an empirical
   per-substrate measurement on whichever host happened to write the
   fixture first.
-- The `jitml-cross-backend` stanza (Sprint `12.6`) runs the canonical
-  workloads on multiple substrates the host can exercise (subset), captures
-  per-tensor outputs at fixed checkpoints, and asserts the L∞ drift fits
-  inside the in-code band.
+- The `jitml-cross-backend` stanza (Sprint `12.6`) runs the weighted
+  kernel-family cohort on the substrate pairs the host can exercise,
+  captures per-tensor outputs at fixed inputs, and asserts the L∞ drift
+  fits inside the in-code band. On a Linux/NVIDIA host the
+  `linux-cpu` / `linux-cuda` pair runs live under the `CrossSubstrate`
+  test group. The `linux-cpu` / `apple-silicon` assertion is encoded
+  through the same tolerance path, but remains non-closing unless both
+  real outputs are visible to the test run or a documented cross-host
+  comparison records the same drift calculation.
+- `JitML.CrossBackend.Parity` is the shared implementation for the
+  cohort, the ephemeral JSON report bundle, and the drift comparison.
+  `jitml verify cross-backend --export <path>` writes a host-local
+  report bundle; `jitml verify cross-backend --compare <paths>` compares
+  two or more such bundles. These files are transfer artifacts for a
+  validation session, not repository fixtures.
 - A drift exceeding the tolerance band fails the stanza with a structured
   diagnostic naming the offending tensor, the layer, and the measured
   versus declared bound.

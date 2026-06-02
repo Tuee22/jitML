@@ -294,13 +294,21 @@ verifyCommand =
     , leaf
         "cross-backend"
         "Verify cross-backend parity."
-        "Runs an experiment across backend substrates and checks configured tolerances."
+        "Runs or compares the Sprint 15.1 weighted cross-substrate cohort and checks configured tolerances."
         [ value "experiment" Nothing "experiment-dhall" True "Experiment Dhall file."
-        , value "backends" Nothing "list" True "Comma-separated backend list."
+        , value "backends" Nothing "list" False "Comma-separated substrate list to run locally."
+        , value "export" Nothing "path" False "Write the local cohort report bundle to this path."
+        , value "compare" Nothing "paths" False "Comma-separated cross-host report bundle paths to compare."
         ]
         [ Example
-            "jitml verify cross-backend --experiment experiments/mnist.dhall --backends cpu,cuda"
+            "jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu,linux-cuda"
             "Verify backend parity."
+        , Example
+            "jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json"
+            "Export an ephemeral Apple Silicon cohort report for cross-host comparison."
+        , Example
+            "jitml verify cross-backend --experiment experiments/mnist.dhall --compare /tmp/jitml-linux.json,/tmp/jitml-apple.json"
+            "Compare ephemeral cross-host cohort reports."
         ]
     , leaf
         "replay"

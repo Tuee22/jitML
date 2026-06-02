@@ -746,7 +746,7 @@ mindmap
 | `jitml rl eval` | Evaluate an RL policy. | `jitml rl eval <rl-experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml rl rollout` | Run a fixed-seed rollout. | `jitml rl rollout <rl-experiment-dhall> [--seed <word64>]` |
 | `jitml verify same-run` | Verify same-run determinism. | `jitml verify same-run --experiment <experiment-dhall> --runs <int>` |
-| `jitml verify cross-backend` | Verify cross-backend parity. | `jitml verify cross-backend --experiment <experiment-dhall> --backends <list>` |
+| `jitml verify cross-backend` | Verify cross-backend parity. | `jitml verify cross-backend --experiment <experiment-dhall> [--backends <list>] [--export <path>] [--compare <paths>]` |
 | `jitml verify replay` | Verify checkpoint replay. | `jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>` |
 | `jitml inspect list` | List cached manifests. | `jitml inspect list` |
 | `jitml inspect show` | Show a manifest. | `jitml inspect show <manifest-sha> [--with-equity]` |

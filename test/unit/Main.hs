@@ -217,6 +217,24 @@ main =
                   [ParsedOption "experiment" ["experiments/mnist.dhall"], ParsedOption "runs" ["2"]]
               )
             ,
+              (
+                [ "verify"
+                , "cross-backend"
+                , "--experiment"
+                , "experiments/mnist.dhall"
+                , "--backends"
+                , "linux-cpu,linux-cuda"
+                , "--export"
+                , "/tmp/jitml-linux.json"
+                ]
+              , ParsedCommand
+                  ["verify", "cross-backend"]
+                  [ ParsedOption "experiment" ["experiments/mnist.dhall"]
+                  , ParsedOption "backends" ["linux-cpu,linux-cuda"]
+                  , ParsedOption "export" ["/tmp/jitml-linux.json"]
+                  ]
+              )
+            ,
               ( ["test", "jitml-unit"]
               , ParsedCommand ["test", "jitml-unit"] []
               )

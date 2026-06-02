@@ -628,19 +628,25 @@ jitml verify cross-backend
 
 Verify cross-backend parity.
 
-Runs an experiment across backend substrates and checks configured tolerances.
+Runs or compares the Sprint 15.1 weighted cross-substrate cohort and checks configured tolerances.
 
 Usage:
-  jitml verify cross-backend --experiment <experiment-dhall> --backends <list>
+  jitml verify cross-backend --experiment <experiment-dhall> [--backends <list>] [--export <path>] [--compare <paths>]
 
 Options:
   --experiment <experiment-dhall>  Experiment Dhall file.
-  --backends <list>                Comma-separated backend list.
+  --backends <list>                Comma-separated substrate list to run locally.
+  --export <path>                  Write the local cohort report bundle to this path.
+  --compare <paths>                Comma-separated cross-host report bundle paths to compare.
 
 
 Examples:
-  jitml verify cross-backend --experiment experiments/mnist.dhall --backends cpu,cuda
+  jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu,linux-cuda
       Verify backend parity.
+  jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json
+      Export an ephemeral Apple Silicon cohort report for cross-host comparison.
+  jitml verify cross-backend --experiment experiments/mnist.dhall --compare /tmp/jitml-linux.json,/tmp/jitml-apple.json
+      Compare ephemeral cross-host cohort reports.
 ```
 
 ### `jitml verify replay`

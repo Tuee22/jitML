@@ -14,6 +14,7 @@ import Data.Vector.Unboxed qualified as VU
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (TensorBlob (..), emptyManifest, inferFromManifest)
 import JitML.Codegen.KernelFamily (KernelFamily (..), familyName, kernelFamilies)
+import JitML.CrossBackend.Parity qualified as CrossBackend
 import JitML.Engines.CublasBindings qualified as Cublas
 import JitML.Engines.CudaLocal
   ( cudaKernelOutput
@@ -394,6 +395,60 @@ main =
                     Metal.metalWeightedKernelOutput a @?= [1.0, 4.0, 9.0]
                   _ ->
                     assertBool "all three apple-silicon weighted kernel runs succeed" False
+      , testGroup
+          "CrossSubstrate weighted drift assertions (Sprint 15.1)"
+          [ testCase "linux-cpu/linux-cuda weighted cohort fits in-code tolerance (CrossSubstrate Sprint 15.1)" $ do
+              probe <- CudaRuntime.probeCudaRuntime
+              if not (CudaRuntime.cudaRuntimeAvailable probe)
+                then
+                  assertBool
+                    "CUDA runtime unavailable on this host; linux-cpu/linux-cuda CrossSubstrate cohort skipped"
+                    True
+                else do
+                  env <- buildEnv defaultGlobalFlags
+                  cpuReport <- CrossBackend.runWeightedCohortForSubstrate env LinuxCPU
+                  cudaReport <- CrossBackend.runWeightedCohortForSubstrate env LinuxCUDA
+                  assertCrossBackendReportsPass cpuReport cudaReport
+          , testCase
+              "linux-cpu/apple-silicon weighted cohort fits in-code tolerance when both runtimes are visible (CrossSubstrate Sprint 15.1)"
+              $ do
+                -- No single validation host is expected to provide both the
+                -- Linux oneDNN weighted runtime and a Metal device. This case
+                -- still encodes the pair assertion so a future same-host or
+                -- remote-mounted validation setup compares through the same
+                -- in-code tolerance path rather than silently relying on
+                -- fixture files.
+                ready <- appleLiveReady
+                if not ready
+                  then
+                    assertBool
+                      "Metal device unavailable on this host; linux-cpu/apple-silicon CrossSubstrate cohort skipped"
+                      True
+                  else do
+                    env <- buildEnv defaultGlobalFlags
+                    cpuReport <- CrossBackend.runWeightedCohortForSubstrate env LinuxCPU
+                    metalReport <- CrossBackend.runWeightedCohortForSubstrate env AppleSilicon
+                    assertCrossBackendReportsPass cpuReport metalReport
+          , testCase
+              "over-band perturbation is rejected by the tolerance predicate (CrossSubstrate Sprint 15.1)"
+              $ do
+                let reference =
+                      CrossBackend.CrossBackendReport
+                        LinuxCPU
+                        (fmap cohortReferenceTensor CrossBackend.weightedCrossSubstrateCohort)
+                    perturbed =
+                      CrossBackend.CrossBackendReport
+                        AppleSilicon
+                        (fmap cohortPerturbedTensor CrossBackend.weightedCrossSubstrateCohort)
+                    bundle = CrossBackend.CrossBackendReportBundle [reference, perturbed]
+                case CrossBackend.compareReportBundle bundle of
+                  Left err ->
+                    assertBool ("synthetic CrossSubstrate comparison failed: " <> Text.unpack err) False
+                  Right drifts ->
+                    assertBool
+                      "controlled over-band perturbation should exceed the Dense2D tolerance"
+                      (not (CrossBackend.allDriftsPass drifts))
+          ]
       , testCase "apple-silicon live Metal benchmark candidate runner produces a measurement (Sprint 14.3)" $ do
           -- Sprint 14.3 — the de-stubbed metalBenchmarkCandidateRunner drives the
           -- real host swift build -> dlopen -> runtime makeLibrary -> Metal launch
@@ -1188,6 +1243,53 @@ assertFamilySmoke env family = do
 finiteFloat :: Float -> Bool
 finiteFloat value =
   not (isNaN value) && not (isInfinite value)
+
+assertCrossBackendReportsPass
+  :: Either Text.Text CrossBackend.CrossBackendReport
+  -> Either Text.Text CrossBackend.CrossBackendReport
+  -> IO ()
+assertCrossBackendReportsPass leftResult rightResult =
+  case (leftResult, rightResult) of
+    (Right left, Right right) ->
+      case CrossBackend.compareReportBundle (CrossBackend.CrossBackendReportBundle [left, right]) of
+        Left err ->
+          assertBool ("CrossSubstrate comparison failed: " <> Text.unpack err) False
+        Right drifts ->
+          assertBool
+            (Text.unpack (CrossBackend.renderDriftSummary drifts))
+            (CrossBackend.allDriftsPass drifts)
+    (Left err, _) ->
+      assertBool ("left CrossSubstrate run failed: " <> Text.unpack err) False
+    (_, Left err) ->
+      assertBool ("right CrossSubstrate run failed: " <> Text.unpack err) False
+
+cohortReferenceTensor :: CrossBackend.WeightedCohortCase -> CrossBackend.CrossBackendTensor
+cohortReferenceTensor cohort =
+  CrossBackend.CrossBackendTensor
+    (CrossBackend.cohortFamily cohort)
+    (CrossBackend.cohortInput cohort)
+    (CrossBackend.cohortWeights cohort)
+    (cohortSyntheticOutput cohort)
+
+cohortPerturbedTensor :: CrossBackend.WeightedCohortCase -> CrossBackend.CrossBackendTensor
+cohortPerturbedTensor cohort =
+  let output = cohortSyntheticOutput cohort
+   in CrossBackend.CrossBackendTensor
+        (CrossBackend.cohortFamily cohort)
+        (CrossBackend.cohortInput cohort)
+        (CrossBackend.cohortWeights cohort)
+        ( if CrossBackend.cohortFamily cohort == Dense2D
+            then perturbFirst output
+            else output
+        )
+
+cohortSyntheticOutput :: CrossBackend.WeightedCohortCase -> [Float]
+cohortSyntheticOutput cohort =
+  0.0 : CrossBackend.cohortInput cohort
+
+perturbFirst :: [Float] -> [Float]
+perturbFirst [] = [1.0]
+perturbFirst (value : rest) = value + 1.0 : rest
 
 -- | The live apple-silicon Metal path is exercisable whenever the host has a
 -- visible Metal device. The Swift glue dylib is built on the host with the

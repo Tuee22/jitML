@@ -63,6 +63,7 @@ library
         JitML.Cluster.Readiness
         JitML.Cluster.Resources
         JitML.Cluster.Storage
+        JitML.CrossBackend.Parity
         JitML.Docs.Check
         JitML.Docs.Generate
         JitML.Docs.Render
