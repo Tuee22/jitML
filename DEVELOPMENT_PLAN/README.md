@@ -385,7 +385,16 @@ owned by Phase `13` below.
    cross, 9 live report card, 18).** Compare live per-substrate tensor
    outputs from Phases `13` and `14` against the in-code tolerance
    bands, drive `jitml test all --live`, populate the report card, and
-   walk every legacy-ledger Pending Removal row to Completed.
+   walk every legacy-ledger Pending Removal row to Completed. The
+   2026-06-03 pass landed the `--live` report-card code surface,
+   added daemon edge telemetry probes for cache and health fields,
+   removed three local cleanup residues, produced the Apple weighted
+   bundle, and passed the Linux/Apple report-bundle comparison;
+   the rebuilt `jitml:local` image passed `jitml check-code`. The
+   live-cluster report-card run remains open after a 2026-06-03 Apple
+   bootstrap attempt was blocked by Docker Hub pull-rate limiting on
+   `percona/percona-postgresql-operator:2.5.1`; scoped `allow-newer`,
+   demo-placeholder, and ALE-stub rows also remain open.
 
 The full machine-affinity mapping of each historical live-runtime
 Remaining-Work bullet to its new owner is enumerated in each
@@ -522,9 +531,14 @@ probe", and the `14.2` / `14.3` / `14.5` live gates moved from "VM running" to
 "Metal device usable headless" — and is now **✅ Done**: all sprints (`14.1`–`14.5`)
 plus item-8's Apple-host Playwright panel matrix were live-validated headless on an
 Apple M1 / macOS 26 host (2026-05-30/31), including the full host↔cluster RPC
-round-trip through two running daemon processes. Phase `15` stays `🔄 Active`; only
-the `linux-cpu` / `linux-cuda` half of Sprint `15.1` is locally validated, while
-the apple-involving comparison remains a multi-host parity gate.
+round-trip through two running daemon processes. Phase `15` stays `🔄 Active`
+because the live-cluster report-card run and final legacy-ledger rows remain;
+Sprint `15.1` is `✅ Done` after the 2026-06-03 Linux/Apple report-bundle
+comparison passed. The 2026-06-03 `jitml:local` rebuild passed the
+container-only `jitml check-code` gate; the same-day live Apple bootstrap
+attempt reached the `harbor-pg` Helm rollout and then blocked on Docker Hub
+`429 Too Many Requests` while pulling
+`percona/percona-postgresql-operator:2.5.1`.
 Phases `0`, `1`, `3`, `4`, `6`, and `8`–`13` remain `✅ Done` on their owned
 surfaces — none of the headless-Metal obligations change them; the toolchain-pin
 wording is a harmony edit in `README.md` / `system-components.md`, not a reopen. The
@@ -597,11 +611,18 @@ Apple-host Playwright panel matrix live-validated on Apple M1 / macOS 26
 running daemon processes. The sole remaining open phase is `15`
 (cross-substrate parity + report card + empty ledger): the
 `linux-cpu` / `linux-cuda` weighted drift assertion passed on the
-Linux/NVIDIA host on 2026-06-01, and `jitml verify cross-backend`
-now provides ephemeral `--export` / `--compare` report bundles for the
-multi-host handoff. The apple-involving cross-substrate drift remains
-**inherently multi-host** and cannot be computed at-test-time on a
-single machine (see that phase's Sprint `15.1` Remaining Work).
+Linux/NVIDIA host on 2026-06-01, `jitml verify cross-backend` now
+provides ephemeral `--export` / `--compare` report bundles for the
+multi-host handoff, the 2026-06-03 Apple host export produced all eight
+weighted tensor families, and the 2026-06-03 Linux/Apple report-bundle
+comparison passed every weighted family against the in-code tolerance
+table. `jitml test all --live` has landed but still needs full
+live-cluster execution after registry pull access is available; the
+2026-06-03 `jitml:local` rebuild passed `jitml check-code`, and the
+first live Apple bootstrap attempt blocked on Docker Hub `429 Too Many
+Requests` for `percona/percona-postgresql-operator:2.5.1`. The legacy
+ledger retains the scoped `allow-newer`, demo-placeholder, and
+ALE-stub rows (see that phase's Remaining Work blocks).
 See
 [Reopened phases (2026-05-30)](#reopened-phases-2026-05-30) for the per-phase
 scope; the Tart removals are tracked in

@@ -26,6 +26,9 @@ routeRegistry =
   [ Route "demo-root" "/" "jitml-demo" 80 Nothing False
   , Route "demo-api" "/api" "jitml-demo" 80 Nothing False
   , Route "demo-ws" "/api/ws" "jitml-demo" 80 Nothing True
+  , Route "jitml-service-healthz" "/healthz" "jitml-service" 8080 Nothing False
+  , Route "jitml-service-readyz" "/readyz" "jitml-service" 8080 Nothing False
+  , Route "jitml-service-metrics" "/metrics" "jitml-service" 8080 Nothing False
   , Route "tensorboard" "/tensorboard" "tensorboard" 80 (Just "/") False
   , Route "grafana" "/grafana" "kube-prometheus-stack-grafana" 80 (Just "/") False
   , Route "prometheus" "/prometheus" "kube-prometheus-stack-prometheus" 9090 (Just "/") False

@@ -238,8 +238,7 @@ selfPlayTranscript = selfPlayTranscriptFor "connect4"
 -- state depend on the named game; the move sequence is seeded by `seed` and
 -- advances past illegal candidates by incrementing the candidate cell modulo
 -- the per-game action count until a legal candidate is found. Used by
--- `jitml-rl-canonicals` to bind per-game golden replay fixtures under
--- `test/golden/alphazero/<game>-transcript.txt`.
+-- `jitml-rl-canonicals` for same-seed run-to-run transcript assertions.
 selfPlayTranscriptFor :: Text -> Int -> [GameState]
 selfPlayTranscriptFor gameId seed =
   take 8 (initial : go initial (seed `mod` modulus) (7 :: Int))

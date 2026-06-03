@@ -621,9 +621,14 @@ allTestCommand =
   leaf
     "all"
     "Run all test stanzas."
-    "Runs every test-only Cabal stanza and renders the target-stanza report card."
-    [dryRunOption, planFileOption]
-    [Example "jitml test all --dry-run" "Print the aggregate test plan."]
+    "Runs every test-only Cabal stanza and renders the report card."
+    [ flag "live" Nothing False "Collect live report-card measurements after the Cabal stanzas pass."
+    , dryRunOption
+    , planFileOption
+    ]
+    [ Example "jitml test all --dry-run" "Print the aggregate test plan."
+    , Example "jitml test all --live" "Run the stanzas and append live report-card measurements."
+    ]
 
 testStanzaCommand :: Text -> CommandSpec
 testStanzaCommand stanzaName =

@@ -757,7 +757,7 @@ mindmap
 | `jitml bench inference` | Benchmark inference. | `jitml bench inference <experiment-dhall> --checkpoint <checkpoint-id>` |
 | `jitml bench env` | Benchmark environment stepping. | `jitml bench env <rl-experiment-dhall>` |
 | `jitml inference run` | Run inference at any point. | `jitml inference run [<experiment-dhall>] [--checkpoint <latest\|best/<metric>\|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]` |
-| `jitml test all` | Run all test stanzas. | `jitml test all [--dry-run] [--plan-file <path>]` |
+| `jitml test all` | Run all test stanzas. | `jitml test all [--live] [--dry-run] [--plan-file <path>]` |
 | `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit` |
 | `jitml test jitml-integration` | Run jitml-integration. | `jitml test jitml-integration` |
 | `jitml test jitml-sl-canonicals` | Run jitml-sl-canonicals. | `jitml test jitml-sl-canonicals` |
@@ -2343,11 +2343,15 @@ Every entry has a paired `--write` mode per doctrine §Paired check and write se
 
 The canonical test command. `cabal test` is the real test runner; `jitml test
 all` is a thin wrapper that runs the explicit test-only stanza list and then
-prints a typed report-card summary. Three phases:
+prints a typed report-card summary. Four phases when `--live` is selected:
 
 1. **Delegates to `cabal test`.** Runs every test-only `test-suite` stanza above.
 2. **Reads the report-card knobs.** The local wrapper parses the pinned knob block in `cabal.project` and records the target stanza list that actually ran.
-3. **Prints a single tidy summary block** on stdout.
+3. **Collects live measurements when requested.** `--live` appends SL final loss,
+   RL final reward, AlphaZero arena win rate, tuning objective, daemon health,
+   JIT cache hit-rate, and cross-substrate parity fields. A source that is not
+   reachable on the current host is rendered as `unavailable`.
+4. **Prints a single tidy summary block** on stdout.
 
 Current local example:
 
@@ -2373,9 +2377,13 @@ cabal_test:
 by a pure function over a typed `ReportCard` value and the target stanza names.
 The current non-dry-run wrapper invokes `cabal test` with the explicit eight
 test-only stanza names, parses the `cabal.project` report-card knob block, and
-prints the target-stanza report card after Cabal succeeds.
-
-The live report-card extension will add measured SL/RL/AlphaZero/tuning/daemon/cross-substrate values once the live e2e path produces them. These values are reported as the run's measured per-host telemetry; they are not stored as cross-run reference fixtures (see [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets)). The full local matrices are exercised by `cabal test jitml-sl-canonicals` and `cabal test jitml-rl-canonicals` — see [Canonical supervised learning problems](#canonical-supervised-learning-problems) and [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl).
+prints the report card after Cabal succeeds. `--live` keeps those values as
+per-host telemetry; they are not stored as cross-run reference fixtures (see
+[Snapshot targets → Numerical-fixture prohibition](#snapshot-targets)). The full
+local matrices are exercised by `cabal test jitml-sl-canonicals` and
+`cabal test jitml-rl-canonicals` — see
+[Canonical supervised learning problems](#canonical-supervised-learning-problems)
+and [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl).
 
 ---
 
@@ -2486,8 +2494,8 @@ jitML/
   experiments/                  -- canonical experiment Dhall files
   test/                         -- per-stanza test trees
     test/snapshots/cli/         -- CommandSpec + help text snapshots (pure renderers)
-    test/snapshots/routes/      -- route-table render snapshot
-    test/snapshots/grafana/     -- dashboard JSON snapshots
+    test/snapshots/cluster/     -- route-table render snapshot
+    test/snapshots/observability/-- Grafana/daemon-health render snapshots
     test/snapshots/cache/       -- cache-key snapshot (SHA-256 of rendered runtime source)
     test/snapshots/prerequisite/-- prerequisite-render snapshots
                                 -- (no test/golden/ — numerical fixtures forbidden;

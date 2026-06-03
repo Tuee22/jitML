@@ -103,6 +103,9 @@ doctrine's set with:
 - Hand-edited Grafana dashboard ConfigMaps, generated HTTPRoute manifests,
   generated Prometheus scrape config, or `web/src/Generated/Contracts.purs`
   outside the active `trackingGeneratedPaths` renderer.
+- `test/golden/`. Pure renderer snapshots live under `test/snapshots/`;
+  numerical outputs are covered by run-to-run determinism, statistical,
+  and property assertions instead of committed numeric fixture files.
 
 ### `trackingGeneratedPaths` (jitML scope)
 

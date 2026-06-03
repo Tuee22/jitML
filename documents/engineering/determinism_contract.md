@@ -234,10 +234,11 @@ The tolerance methodology:
   captures per-tensor outputs at fixed inputs, and asserts the L∞ drift
   fits inside the in-code band. On a Linux/NVIDIA host the
   `linux-cpu` / `linux-cuda` pair runs live under the `CrossSubstrate`
-  test group. The `linux-cpu` / `apple-silicon` assertion is encoded
-  through the same tolerance path, but remains non-closing unless both
-  real outputs are visible to the test run or a documented cross-host
-  comparison records the same drift calculation.
+  test group. The `linux-cpu` / `apple-silicon` assertion uses the
+  same tolerance path through cross-host report bundles; the
+  2026-06-03 comparison passed all eight weighted tensor families
+  (`identity`, `dense`, `conv2d`, `conv3d`, `batchnorm`, `layernorm`,
+  `mha`, `embedding`) against the in-code bands.
 - `JitML.CrossBackend.Parity` is the shared implementation for the
   cohort, the ephemeral JSON report bundle, and the drift comparison.
   `jitml verify cross-backend --export <path>` writes a host-local

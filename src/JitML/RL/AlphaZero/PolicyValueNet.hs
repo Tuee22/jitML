@@ -208,9 +208,7 @@ networkPriorOracle net stateAt seed action =
 -- 'JitML.RL.AlphaZero.SelfPlay.runSelfPlayWithOracleFactory'. For each board
 -- position the factory ignores the MCTS search seed and returns the network's
 -- policy-head distribution for that exact position — the AlphaZero contract
--- that the prior depends on the position, not the search seed. This replaces
--- the deterministic 'JitML.RL.AlphaZero.Mcts.priorFor' stub at the production
--- self-play callsite.
+-- that the prior depends on the position, not the search seed.
 netOracleFactory :: PolicyValueNet -> GameState -> PriorOracle
 netOracleFactory net state = networkPriorOracle net (const state)
 

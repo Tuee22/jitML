@@ -18,15 +18,13 @@
 -- @seed * stride + action@ with a large coprime stride to avoid action-bias
 -- patterns. The resulting oracle is bit-deterministic on the same substrate
 -- (per the [determinism contract](../documents/engineering/determinism_contract.md))
--- and replaces the deterministic 'priorFor' stub the legacy ledger row
--- tracks.
+-- and keeps the MCTS prior input backed by a real JIT kernel.
 --
 -- This bridge is intentionally simpler than a full policy/value network
 -- (per-position observation tensors, head splitting, value backup). A real
 -- AlphaZero loop with policy/value network codegen plus checkpoint surface
 -- is multi-day work tracked in the Sprint 13.9 'Remaining Work' block.
--- What this module gives the plan is: the MCTS prior input is no longer
--- the synthetic 'priorFor' constant — it now comes from a real JIT kernel.
+-- What this module gives the plan is a MCTS prior input from a real JIT kernel.
 module JitML.RL.AlphaZero.EnginePrior
   ( buildLinuxCpuPriorOracle
   , linuxCpuPriorTable

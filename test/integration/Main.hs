@@ -181,7 +181,7 @@ main =
       , testCase "route registry renders HTTPRoute manifests" $
           length (fmap renderHTTPRoute routeRegistry) @?= length routeRegistry
       , testCase "route table matches golden fixture" $ do
-          expected <- Text.IO.readFile "test/golden/cluster/route-table.md"
+          expected <- Text.IO.readFile "test/snapshots/cluster/route-table.md"
           renderRouteTable @?= expected
       , testCase "filesystem HasMinIO honours putBlobIfAbsent and pointer CAS" $
           withSystemTempDirectory "jitml-fs-minio" $ \root ->

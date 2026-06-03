@@ -374,6 +374,18 @@ at-least-once `TuneHandler`; the current proto mirror covers local text command
 envelopes plus proto3-compatible byte envelopes for the command and event
 oneofs.
 
+## Report-Card Measurements
+
+`jitml test all --live` appends workload measurements to the typed
+`JitML.Test.Report.ReportCard`: SL final loss, RL final reward, AlphaZero arena
+win rate, and tuning best objective, plus daemon/cache/parity fields owned by
+the runtime and test surfaces. Cache hit rate comes from the daemon's
+`jitml_jit_cache_hits` / `jitml_jit_cache_misses` Prometheus counters on the
+published `/metrics` edge route, and daemon health comes from the published
+`/healthz` edge route. These values are telemetry from the current host or
+cluster session. They are rendered as `unavailable` when a source is not
+reachable and are never committed as numerical fixtures.
+
 ### Worked Example
 
 The `Some Tuning::{ … }` Dhall constructor matches the worked example in

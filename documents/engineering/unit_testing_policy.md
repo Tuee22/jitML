@@ -133,11 +133,13 @@ the local Linux CPU `HasEngine` interpreter and checks the loaded family
 metadata at that boundary. The `CrossSubstrate` group runs the weighted
 kernel-family cohort against the in-code tolerance table: on a Linux/NVIDIA
 host it compares `linux-cpu` to `linux-cuda`, and the
-`linux-cpu` / `apple-silicon` case is encoded behind the headless Metal
-readiness probe so the same assertion path is used when real Apple output is
-available. The cohort and drift math live in `JitML.CrossBackend.Parity`,
-which is also consumed by `jitml verify cross-backend --export/--compare`
-for ephemeral cross-host report-bundle validation.
+`linux-cpu` / `apple-silicon` case uses the same assertion path through
+`JitML.CrossBackend.Parity` report bundles. The 2026-06-03 Linux/Apple
+comparison passed all eight weighted tensor families against the in-code
+tolerance table. The cohort and drift math live in
+`JitML.CrossBackend.Parity`, which is also consumed by
+`jitml verify cross-backend --export/--compare` for ephemeral cross-host
+report-bundle validation.
 
 `jitml-unit` owns the CUDA runtime-probe parser snapshots for `nvcc`,
 `nvidia-smi`, and `ldconfig`, plus the guarded CUDA benchmark-runner preflight
@@ -210,6 +212,19 @@ Live test driver:
    Harbor projects, or Docker volumes survive).
 
 All live driver invocations flow through the typed `Subprocess` boundary.
+
+### Live Report Card
+
+`jitml test all` remains local by default: it runs the eight test-only Cabal
+stanzas and renders the typed target-stanza report card. `jitml test all
+--live` appends measured fields to that same `ReportCard` value for SL final
+loss, RL final reward, AlphaZero arena win rate, tuning objective, JIT cache
+hit rate, daemon `/healthz`, and cross-substrate parity. Cache hit rate is
+read from daemon Prometheus counters (`jitml_jit_cache_hits` /
+`jitml_jit_cache_misses`) on the published `/metrics` edge route; daemon health
+is read from the published `/healthz` edge route. A live source that is not
+reachable on the current host renders as `unavailable`; the command does not
+silently substitute a deterministic fixture.
 
 ### Playwright
 

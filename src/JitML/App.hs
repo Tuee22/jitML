@@ -8,18 +8,19 @@ where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
-import Control.Exception.Safe (displayException, finally, tryAny)
+import Control.Exception.Safe (bracket, displayException, finally, tryAny)
 import Control.Monad (forever, unless, when)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Crypto.Hash.SHA256 qualified
 import Data.Aeson (decode, encode)
 import Data.ByteString qualified
+import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
 import Data.List (stripPrefix)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Time.Clock.POSIX (getPOSIXTime)
@@ -31,6 +32,20 @@ import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO qualified
+import Text.Read (readMaybe)
+
+import Network.Socket
+  ( AddrInfo (..)
+  , Socket
+  , SocketType (Stream)
+  , close
+  , connect
+  , defaultHints
+  , getAddrInfo
+  , socket
+  , withSocketsDo
+  )
+import Network.Socket.ByteString (recv, sendAll)
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Bootstrap
@@ -117,6 +132,7 @@ import JitML.RL.Algorithms.DqnTrainer qualified as DqnTrainer
 import JitML.RL.Algorithms.HerTrainer qualified as HerTrainer
 import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
+import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
 import JitML.RL.SimulatorLoop qualified as SimulatorLoop
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
@@ -143,6 +159,9 @@ import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
   ( ReportCard (..)
+  , ReportMeasurement (..)
+  , ReportMeasurements (..)
+  , emptyReportMeasurements
   , loadReportCardKnobs
   , renderReportCardForTargets
   , reportStanzas
@@ -254,7 +273,7 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
   | take 1 parsedPath == ["inspect"] =
       runInspect parsedPath parsedOptions
   | take 1 parsedPath == ["test"] =
-      runTest parsedPath
+      runTest parsedPath parsedOptions
   | parsedPath == ["help"] =
       printHelp (optionValues "subcommand" parsedOptions)
   | parsedPath == ["docs", "check"] =
@@ -1962,19 +1981,19 @@ classifyCheckpointLoadError experimentHash err
       InferenceCheckpointMissing experimentHash
   | otherwise = InvalidConfig ("inference: " <> err)
 
-runTest :: [Text] -> App ()
-runTest ["test", "all"] =
-  runCabalTest reportStanzas
-runTest ["test", stanza]
+runTest :: [Text] -> [ParsedOption] -> App ()
+runTest ["test", "all"] parsedOptions =
+  runCabalTest parsedOptions reportStanzas
+runTest ["test", stanza] parsedOptions
   | stanza `elem` reportStanzas =
-      runCabalTest [stanza]
+      runCabalTest parsedOptions [stanza]
   | otherwise =
       exitWithError (UnknownCommand ("unknown test stanza: " <> stanza))
-runTest path =
+runTest path _ =
   exitWithError (UnknownCommand ("unknown test command: " <> commandPathText path))
 
-runCabalTest :: [Text] -> App ()
-runCabalTest targets = do
+runCabalTest :: [ParsedOption] -> [Text] -> App ()
+runCabalTest parsedOptions targets = do
   let command = subprocess "cabal" ("test" : targets)
   (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
   case exitCode of
@@ -1983,15 +2002,237 @@ runCabalTest targets = do
       loadedKnobs <- liftIO (loadReportCardKnobs "cabal.project")
       case loadedKnobs of
         Left err -> exitWithError (InvalidConfig err)
-        Right knobs ->
+        Right knobs -> do
+          measurements <-
+            if hasOption "live" parsedOptions
+              then collectLiveReportMeasurements
+              else pure emptyReportMeasurements
           writeText
             ( renderReportCardForTargets
                 knobs
                 (targetStanzas targets)
-                (ReportCard (passedCount targets) 0 0)
+                (ReportCard (passedCount targets) 0 0 measurements)
             )
     ExitFailure _ ->
       exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
+
+collectLiveReportMeasurements :: App ReportMeasurements
+collectLiveReportMeasurements = do
+  slLoss <- measureSlFinalLoss
+  rlReward <- measureRlFinalReward
+  alphaZeroWinRate <- measureAlphaZeroArenaWinRate
+  tuneObjective <- measureTuneBestObjective
+  cacheHitRate <- measureJitCacheHitRate
+  daemonHealth <- measureDaemonHealthz
+  parity <- measureCrossSubstrateParity
+  pure
+    ReportMeasurements
+      { measuredSlFinalLoss = Just slLoss
+      , measuredRlFinalReward = Just rlReward
+      , measuredAlphaZeroArenaWinRate = Just alphaZeroWinRate
+      , measuredTuneBestObjective = Just tuneObjective
+      , measuredJitCacheHitRate = Just cacheHitRate
+      , measuredDaemonHealthz = Just daemonHealth
+      , measuredCrossSubstrateParity = Just parity
+      }
+
+measureSlFinalLoss :: App ReportMeasurement
+measureSlFinalLoss = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  case (cluster, SL.canonicalProblems) of
+    (Just _, problem : _) -> do
+      result <- attemptRealMnistTraining problem
+      pure $
+        case result of
+          Just loss -> measuredShow (SL.problemName problem <> "=") loss
+          Nothing -> MeasurementUnavailable
+    _ -> pure MeasurementUnavailable
+
+measureRlFinalReward :: App ReportMeasurement
+measureRlFinalReward = do
+  episodes <- liftIO (runTrainerEpisodes "ppo" "cartpole" 42 4 200)
+  let reward =
+        if null episodes
+          then Nothing
+          else
+            Just
+              ( sum (fmap SimulatorLoop.simEpisodeReward episodes)
+                  / fromIntegral (length episodes)
+              )
+  pure $
+    case reward of
+      Nothing -> MeasurementUnavailable
+      Just value -> measuredShow "ppo/cartpole=" value
+
+measureAlphaZeroArenaWinRate :: App ReportMeasurement
+measureAlphaZeroArenaWinRate =
+  let net = PolicyValueNet.initPolicyValueNet 43 7 16 31
+      adam = PolicyValueNet.initAdamFor net
+      result = PolicyValueNet.runOneGenerationOfSelfPlay net adam 2 16 8 4 4 99
+   in pure (measuredShow "connect4/gen0=" (PolicyValueNet.genArenaWinRate result))
+
+measureTuneBestObjective :: App ReportMeasurement
+measureTuneBestObjective = do
+  loaded <- liftIO (Tune.loadTuningExperiment "experiments/mnist-tune.dhall")
+  pure $
+    case loaded >>= maybe (Left "missing tuning block") Right . Tune.tuningExperimentConfig of
+      Left _ -> MeasurementUnavailable
+      Right config ->
+        let sampler = Tune.tuningSamplerKind (Tune.tuningConfigSampler config)
+            trialCount = fromIntegral (Tune.tuningConfigTrials config)
+            values = Tune.deterministicTrials sampler trialCount
+         in case values of
+              [] -> MeasurementUnavailable
+              _ -> measuredShow (Text.pack (show sampler) <> "=") (maximum values)
+
+measureJitCacheHitRate :: App ReportMeasurement
+measureJitCacheHitRate = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  case cluster of
+    Nothing -> pure MeasurementUnavailable
+    Just publication -> do
+      response <- liftIO (httpGetLocal (Publication.publicationEdgePort publication) "/metrics")
+      pure $
+        case response >>= httpOkBody >>= readCacheHitRate of
+          Left _ -> MeasurementUnavailable
+          Right rendered -> MeasurementAvailable rendered
+
+measureDaemonHealthz :: App ReportMeasurement
+measureDaemonHealthz = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  case cluster of
+    Nothing -> pure MeasurementUnavailable
+    Just publication -> do
+      let edgePort = Publication.publicationEdgePort publication
+      response <- liftIO (httpGetLocal edgePort "/healthz")
+      pure $
+        case response >>= httpOkBody of
+          Right body
+            | Text.strip body == "ok" ->
+                MeasurementAvailable
+                  ("http://127.0.0.1:" <> Text.pack (show edgePort) <> "/healthz status=200")
+          _ -> MeasurementUnavailable
+
+measureCrossSubstrateParity :: App ReportMeasurement
+measureCrossSubstrateParity = do
+  env <- ask
+  reportResults <-
+    liftIO (traverse (CrossBackend.runWeightedCohortForSubstrate env) [LinuxCPU, AppleSilicon])
+  case sequence reportResults of
+    Left _ -> pure MeasurementUnavailable
+    Right reports ->
+      pure $
+        case CrossBackend.compareReportBundle (CrossBackend.CrossBackendReportBundle reports) of
+          Left _ -> MeasurementUnavailable
+          Right drifts ->
+            if CrossBackend.allDriftsPass drifts
+              then
+                MeasurementAvailable
+                  ( "pairs=linux-cpu/apple-silicon tensors="
+                      <> Text.pack (show (length drifts))
+                      <> " max_observed="
+                      <> Text.pack (show (maximum (0.0 : fmap CrossBackend.driftObserved drifts)))
+                  )
+              else MeasurementUnavailable
+
+measuredShow :: (Show a) => Text -> a -> ReportMeasurement
+measuredShow prefix value =
+  MeasurementAvailable (prefix <> Text.pack (show value))
+
+httpGetLocal :: Int -> Text -> IO (Either Text Text)
+httpGetLocal port path = do
+  result <-
+    tryAny $
+      withSocketsDo $ do
+        addresses <-
+          getAddrInfo
+            (Just defaultHints {addrSocketType = Stream})
+            (Just "127.0.0.1")
+            (Just (show port))
+        case addresses of
+          [] -> ioError (userError "no address for jitml live report probe")
+          addr : _ ->
+            bracket (openLocalSocket addr) close $ \client -> do
+              sendAll client (httpGetRequest path)
+              Text.pack . ByteString.Char8.unpack <$> recvAll client
+  pure $
+    case result of
+      Left err -> Left (Text.pack (displayException err))
+      Right response -> Right response
+
+openLocalSocket :: AddrInfo -> IO Socket
+openLocalSocket addr = do
+  client <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
+  connect client (addrAddress addr)
+  pure client
+
+httpGetRequest :: Text -> Data.ByteString.ByteString
+httpGetRequest path =
+  ByteString.Char8.pack $
+    "GET "
+      <> Text.unpack path
+      <> " HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+
+recvAll :: Socket -> IO Data.ByteString.ByteString
+recvAll client = do
+  chunk <- recv client 65536
+  if Data.ByteString.null chunk
+    then pure Data.ByteString.empty
+    else (chunk <>) <$> recvAll client
+
+httpOkBody :: Text -> Either Text Text
+httpOkBody response =
+  case httpResponseStatus response of
+    Just 200 -> Right (httpResponseBody response)
+    Just status -> Left ("HTTP status " <> Text.pack (show status))
+    Nothing -> Left "HTTP response missing status"
+
+httpResponseStatus :: Text -> Maybe Int
+httpResponseStatus response =
+  case Text.words <$> listToMaybe (Text.lines response) of
+    Just (_version : statusText : _) -> readMaybe (Text.unpack statusText)
+    _ -> Nothing
+
+httpResponseBody :: Text -> Text
+httpResponseBody response =
+  case Text.splitOn "\r\n\r\n" response of
+    _headers : bodyParts -> Text.intercalate "\r\n\r\n" bodyParts
+    [] -> ""
+
+readCacheHitRate :: Text -> Either Text Text
+readCacheHitRate body = do
+  hits <-
+    maybe (Left "jitml_jit_cache_hits missing") Right (prometheusMetricInt "jitml_jit_cache_hits" body)
+  misses <-
+    maybe
+      (Left "jitml_jit_cache_misses missing")
+      Right
+      (prometheusMetricInt "jitml_jit_cache_misses" body)
+  let total = hits + misses
+  if total <= 0
+    then Left "jit cache counters are empty"
+    else
+      let rate = fromIntegral hits / (fromIntegral total :: Double)
+       in Right $
+            "prometheus="
+              <> Text.pack (show rate)
+              <> " hits="
+              <> Text.pack (show hits)
+              <> " misses="
+              <> Text.pack (show misses)
+
+prometheusMetricInt :: Text -> Text -> Maybe Int
+prometheusMetricInt metricName body =
+  firstMatch (Text.lines body)
+ where
+  firstMatch [] = Nothing
+  firstMatch (line : rest)
+    | "#" `Text.isPrefixOf` Text.stripStart line = firstMatch rest
+    | otherwise =
+        case Text.words line of
+          metric : value : _
+            | metric == metricName -> readMaybe (Text.unpack value)
+          _ -> firstMatch rest
 
 passedCount :: [Text] -> Int
 passedCount = length

@@ -1,0 +1,19 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: jitml-service-healthz
+  namespace: platform
+  labels:
+    app.kubernetes.io/part-of: jitml
+spec:
+  parentRefs:
+    - name: jitml-edge
+      namespace: platform
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /healthz
+      backendRefs:
+        - name: jitml-service
+          port: 8080

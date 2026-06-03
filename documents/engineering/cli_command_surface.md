@@ -190,7 +190,7 @@ jitml inference run <experiment-dhall>
 Plan/Apply test orchestrator.
 
 ```
-jitml test all [--dry-run | --plan-file <path>]
+jitml test all [--live] [--dry-run | --plan-file <path>]
 jitml test <stanza>
 ```
 
@@ -876,12 +876,13 @@ jitml test all
 
 Run all test stanzas.
 
-Runs every test-only Cabal stanza and renders the target-stanza report card.
+Runs every test-only Cabal stanza and renders the report card.
 
 Usage:
-  jitml test all [--dry-run] [--plan-file <path>]
+  jitml test all [--live] [--dry-run] [--plan-file <path>]
 
 Options:
+  --live              Collect live report-card measurements after the Cabal stanzas pass.
   --dry-run           Print the plan without applying it.
   --plan-file <path>  Write the plan to a file.
 
@@ -889,6 +890,8 @@ Options:
 Examples:
   jitml test all --dry-run
       Print the aggregate test plan.
+  jitml test all --live
+      Run the stanzas and append live report-card measurements.
 ```
 
 ### `jitml test jitml-unit`

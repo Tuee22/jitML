@@ -239,6 +239,10 @@ main =
               , ParsedCommand ["test", "jitml-unit"] []
               )
             ,
+              ( ["test", "all", "--live"]
+              , ParsedCommand ["test", "all"] [ParsedOption "live" []]
+              )
+            ,
               ( ["build", "--dry-run", "--substrate", "linux-cuda"]
               , ParsedCommand ["build"] [ParsedOption "substrate" ["linux-cuda"], ParsedOption "dry-run" []]
               )
@@ -293,7 +297,7 @@ main =
           validateRlCatalogSchema catalog @?= Right ()
           checkDhallRL >>= (@?= [])
       , testCase "AppError render golden covers canonical variants" $ do
-          expected <- Text.IO.readFile "test/golden/cli/app-error-render.txt"
+          expected <- Text.IO.readFile "test/snapshots/cli/app-error-render.txt"
           Text.intercalate "---\n" (fmap renderError canonicalErrors) @?= expected
       , testCase "plan render is deterministic" $
           case buildCommandPlan ["train"] [("experiment-dhall", ["experiments/mnist.dhall"]), ("dry-run", [])] of
@@ -395,7 +399,7 @@ main =
                 Just remediationValue ->
                   renderSubprocess (remediationCommand remediationValue) @?= "brew install spago"
       , testCase "Homebrew remediation plan render matches golden" $ do
-          expected <- Text.IO.readFile "test/golden/prerequisite/homebrew-remediation-plan.txt"
+          expected <- Text.IO.readFile "test/snapshots/prerequisite/homebrew-remediation-plan.txt"
           let prerequisite =
                 Prerequisite
                   { nodeId = NodeId "toolchain.spago"
@@ -439,7 +443,7 @@ main =
                 applyResult @?= Right ()
                 doesFileExist marker >>= (@?= True)
       , testCase "cacheKey is deterministic and matches golden" $ do
-          expected <- Text.IO.readFile "test/golden/cache/kernel-key.txt"
+          expected <- Text.IO.readFile "test/snapshots/cache/kernel-key.txt"
           let first = sampleCacheHash
               second =
                 Cache.cacheKey
@@ -1737,24 +1741,22 @@ main =
             "distinct move sequences hash differently"
             (Mcts.transpositionKey [0, 1, 2] /= Mcts.transpositionKey [0, 1, 3])
       , testCase "MCTS PriorOracle plumbing routes through expand and simulate (Sprint 13.9)" $ do
-          -- Sprint 13.9 closure: confirm that supplying a custom
-          -- `PriorOracle` actually changes the search output. Default
-          -- oracle (deterministic stub) produces an asymmetric prior
-          -- distribution; a constant oracle produces uniform priors.
+          -- Confirm that supplying a custom `PriorOracle` actually
+          -- changes the search output. The neutral default produces
+          -- uniform priors; a biased oracle produces asymmetric priors.
           -- The visit-weighted edge values therefore differ, proving the
-          -- oracle threads through `expandWithPrior` and
-          -- `simulateWithPrior` rather than being silently dropped.
+          -- oracle threads through `expandWithPrior` and `simulateWithPrior`.
           let cfg = Mcts.defaultMctsConfig 4
               defaultTree = Mcts.runSearch cfg 17
-              uniformTree = Mcts.runSearchWithPrior (\_ _ -> 1.0) cfg 17
+              biasedTree = Mcts.runSearchWithPrior (\_ action -> fromIntegral (action + 1)) cfg 17
               defaultPriors = map Mcts.edgePrior (Mcts.nodeChildren defaultTree)
-              uniformPriors = map Mcts.edgePrior (Mcts.nodeChildren uniformTree)
+              biasedPriors = map Mcts.edgePrior (Mcts.nodeChildren biasedTree)
           assertBool
-            "default oracle does not produce uniform priors"
-            (any (\p -> abs (p - 0.25) > 0.001) defaultPriors)
+            "default oracle produces uniform priors"
+            (all (\p -> abs (p - 0.25) < 0.001) defaultPriors)
           assertBool
-            "uniform oracle produces uniform priors"
-            (all (\p -> abs (p - 0.25) < 0.001) uniformPriors)
+            "biased oracle does not produce uniform priors"
+            (any (\p -> abs (p - 0.25) > 0.001) biasedPriors)
       , testCase "tuning trial storage and resume summary are deterministic" $ do
           Tune.trialStorageKey "exp-a" 42 @?= "jitml-trials/exp-a/42/transcript.cbor"
           Tune.resumeMatchesFullRun Tune.Sobol 3 8 @?= True
@@ -1911,7 +1913,7 @@ main =
                 StrictByteString.take 4 (StrictByteString.drop payloadOffset frame)
           extractedPayload @?= payload
       , testCase "Grafana daemon-health dashboard matches golden fixture" $ do
-          expected <- Text.IO.readFile "test/golden/observability/grafana-daemon-health.yaml"
+          expected <- Text.IO.readFile "test/snapshots/observability/grafana-daemon-health.yaml"
           case find ((== "daemon-health") . Grafana.dashboardName) Grafana.dashboards of
             Nothing -> assertFailure "missing daemon-health dashboard"
             Just dashboard -> Grafana.renderDashboardConfigMap dashboard @?= expected

@@ -36,7 +36,10 @@ import JitML.Substrate (Substrate (..))
 import JitML.Test.LivePlan (liveE2EPlan, renderLivePlan)
 import JitML.Test.Report
   ( ReportCard (..)
+  , ReportMeasurement (..)
+  , ReportMeasurements (..)
   , defaultReportCardKnobs
+  , emptyReportMeasurements
   , parseReportCardKnobs
   , renderReportCard
   , reportStanzas
@@ -114,7 +117,7 @@ main =
             ("args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]" `Text.isInfixOf` deployment)
       , testCase "report card renders aggregate suite summary" $ do
           length reportStanzas @?= 8
-          let rendered = renderReportCard (ReportCard 8 0 0)
+          let rendered = renderReportCard (ReportCard 8 0 0 emptyReportMeasurements)
           assertBool "report card title" ("jitML POC report card" `isInfixOf` Text.unpack rendered)
           assertBool "report card passed count" ("passed: 8" `isInfixOf` Text.unpack rendered)
           assertBool "report card default knobs" ("rl_steps: 100000" `isInfixOf` Text.unpack rendered)
@@ -122,6 +125,20 @@ main =
           assertBool
             "report card lists e2e stanza"
             ("jitml-e2e: PASS" `isInfixOf` Text.unpack rendered)
+      , testCase "live report card renders measured values and unavailable sources (Sprint 15.2)" $ do
+          let measurements =
+                emptyReportMeasurements
+                  { measuredSlFinalLoss = Just (MeasurementAvailable "mnist-shallow-mlp=0.125")
+                  , measuredDaemonHealthz = Just MeasurementUnavailable
+                  }
+              rendered = renderReportCard (ReportCard 8 0 0 measurements)
+          assertBool "measurements block" ("measurements:" `isInfixOf` Text.unpack rendered)
+          assertBool
+            "available measurement"
+            ("sl_final_loss: mnist-shallow-mlp=0.125" `isInfixOf` Text.unpack rendered)
+          assertBool
+            "unavailable measurement"
+            ("daemon_healthz: unavailable" `isInfixOf` Text.unpack rendered)
       , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
           cabalProject <- Text.IO.readFile "cabal.project"
           parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs

@@ -652,14 +652,15 @@ Live-MinIO inference run against a known experiment hash.
 
 Run all test stanzas.
 
-Runs every test-only Cabal stanza and renders the target-stanza report card.
+Runs every test-only Cabal stanza and renders the report card.
 
 ```text
-jitml test all [--dry-run] [--plan-file <path>]
+jitml test all [--live] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--live` | flag | no | Collect live report-card measurements after the Cabal stanzas pass. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -670,6 +671,12 @@ jitml test all --dry-run
 ```
 
 Print the aggregate test plan.
+
+```text
+jitml test all --live
+```
+
+Run the stanzas and append live report-card measurements.
 
 
 ## `jitml test jitml-unit`

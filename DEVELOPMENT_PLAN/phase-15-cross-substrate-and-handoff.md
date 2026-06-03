@@ -31,21 +31,25 @@ live report card surfaces real measurements), plus the cross-cohort
 slice of `jitml-cross-backend` (Sprint 12.6) and the live report-card
 slice of `jitml test all` (Sprint 12.9).
 
-**Blocked by**: Sprint `15.1`'s apple-involving cross-substrate drift
-comparison. Phase `13` closed 2026-05-30 (15 / 15 sprints Done) and
-Phase `14` closed 2026-05-31 (5 / 5 sprints Done), so each substrate can
-produce its weighted outputs on its owning host. The remaining parity
-gap is cross-host: no single validation host runs Linux oneDNN, NVIDIA
-CUDA, and Apple Metal weighted kernels in one process.
+**Blocked by**: Sprint `15.2`'s live-cluster report-card run and the
+remaining legacy-ledger rows owned by external/upstream or live-runtime
+surfaces. Phase `13` closed 2026-05-30 (15 / 15 sprints Done) and
+Phase `14` closed 2026-05-31 (5 / 5 sprints Done), so each substrate
+can produce its weighted outputs on its owning host; Sprint `15.1`
+closed the cross-host Linux/Apple report-bundle comparison on
+2026-06-03.
 
 **Current validation evidence**: Phase `13` live outputs (Linux CUDA SL convergence
 2026-05-29 `778.27s`, PPO/cartpole RL convergence 2026-05-30 `230.72s`,
 weighted inference / `gc.event.<substrate>` / live `jitml-integration`
 12 / 12 Live cohort) are available; Phase `14` Apple Metal weighted
-inference is available from the headless host path; and the
-`linux-cpu` / `linux-cuda` weighted cross-substrate cohort passed the
-Sprint `15.1` in-code tolerance assertion on the Linux/NVIDIA host on
-2026-06-01 and again on 2026-06-03.
+inference is available from the headless host path; the 2026-06-03
+Apple export bundle contains all eight weighted tensor families; and
+the `linux-cpu` / `linux-cuda` weighted cross-substrate cohort passed
+the Sprint `15.1` in-code tolerance assertion on the Linux/NVIDIA host
+on 2026-06-01 and again on 2026-06-03. The 2026-06-03 Linux/Apple
+report-bundle comparison passed across all eight weighted tensor
+families against the same in-code tolerance table.
 
 ### Current Implementation Scope
 
@@ -54,9 +58,8 @@ renders the eight-stanza summary, `test/cross-backend/Main.hs` exercises
 the engine-flag + inference-summary surface, the Linux CPU FFI kernel
 path, and the locally runnable weighted cross-substrate drift assertion,
 and `JitML.Test.Report.parseReportCardKnobs` reads `cabal.project`. The
-closure of this phase requires the remaining apple-involving measured
-cross-substrate values plus the populated live report card and final
-legacy-ledger sweep.
+closure of this phase requires the populated live-cluster report card
+and the final legacy-ledger sweep.
 
 ## Phase Summary
 
@@ -65,15 +68,9 @@ least their inference-producing sprints. The work is live cohort
 execution + tolerance assertion + final report-card population + ledger
 sweep-up.
 
-## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands 🔄
+## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands ✅
 
-**Status**: Active
-**Blocked by**: Apple-involving cross-substrate comparison. Phase `13`
-Sprint `13.11` (Linux CPU + CUDA weighted inference live) closed
-2026-05-27 and Phase `14` Sprint `14.5` (Apple Metal weighted inference
-live) closed 2026-05-31, but the assertion remains multi-host for the
-`linux-cpu` / `apple-silicon` pair because no single host runs both the
-Linux oneDNN weighted path and Metal.
+**Status**: Done
 **Implementation**: `src/JitML/CrossBackend/Parity.hs`,
 `src/JitML/App.hs`, `src/JitML/CLI/Spec.hs`,
 `test/cross-backend/Main.hs`,
@@ -133,7 +130,7 @@ authoritatively encode whichever substrate ran the calibration first.
   `5e-4` (GEMM-class reduction), `Conv2DKernel` at `1e-3`,
   `Conv3DKernel` and `MultiHeadAttentionKernel` at `2e-3`. The
   `withinTolerance family observed` helper is the assertion consumed
-  by `jitml-cross-backend` once cross-substrate live outputs land.
+  by `jitml-cross-backend` and the report-bundle comparison path.
 - `jitml-unit` adds 4 new tests under the "Cross-substrate tolerance
   bands (Sprint 15.1)" group asserting positive bounds, the
   Identity/Embedding-tightest invariant, MHA ≥ Dense, and the
@@ -149,9 +146,9 @@ authoritatively encode whichever substrate ran the calibration first.
   `EmbeddingKernel`, computes each per-tensor L∞ drift, and asserts the
   value through `JitML.Engines.Tolerance.withinTolerance`.
 - The same group encodes the `linux-cpu` / `apple-silicon` assertion
-  behind the existing headless Metal readiness probe so a future
-  same-host or cross-host validation path consumes the same in-code
-  tolerance table instead of committed numerical fixtures.
+  behind the existing headless Metal readiness probe; the 2026-06-03
+  report-bundle comparison consumed the same in-code tolerance table
+  instead of committed numerical fixtures.
 - The group includes a controlled over-band perturbation check that
   rejects a `Dense2D` output delta larger than the in-code tolerance
   band.
@@ -192,47 +189,33 @@ authoritatively encode whichever substrate ran the calibration first.
   `docker compose run --rm -v /tmp:/tmp jitml jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu --export /tmp/jitml-linux-cpu.json`.
   The bundle is `version` 1, `cohort` `sprint-15.1-weighted`, with a
   single `linux-cpu` report.
-- The Apple export command
-  `docker compose run --rm -v /tmp:/tmp jitml jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json`
-  failed on this Linux host with
-  `invalid config: apple-silicon Metal device not visible: swift=missing device_visible=no`.
-  A follow-up 2026-06-03 validation re-ran the same local
-  `jitml-cross-backend` CrossSubstrate test suite successfully
-  (3 / 3 tests) and re-ran the Apple export gate with the same
-  fail-closed Metal-device preflight result.
-  Sprint `15.1` therefore remains Active until an Apple Metal host
-  produces `/tmp/jitml-apple.json` for the cross-host comparison.
+- The Apple host export command
+  `cabal run exe:jitml -- verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json`
+  passed on 2026-06-03. The ephemeral report bundle is `version` 1,
+  `cohort` `sprint-15.1-weighted`, with one `apple-silicon` report and
+  8 weighted tensor families (`identity`, `dense`, `conv2d`, `conv3d`,
+  `batchnorm`, `layernorm`, `mha`, `embedding`). The prior Linux-host
+  Apple export gate remains fail-closed when no Metal device is visible;
+  that is expected and not a Sprint `15.1` failure.
+- The cross-host Linux/Apple report-bundle comparison passed on
+  2026-06-03 using ignored build-output copies under
+  `dist-newstyle/phase15/`. The Linux CPU bundle was regenerated in
+  `jitml:local`, then compared with the Apple host bundle:
+  `docker run --rm -v "$PWD:/work" -w /work jitml:local sh -lc 'jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu --export dist-newstyle/phase15/jitml-linux-cpu.json && jitml verify cross-backend --experiment experiments/mnist.dhall --compare dist-newstyle/phase15/jitml-linux-cpu.json,dist-newstyle/phase15/jitml-apple.json'`.
+  Drift summary: `identity` `0.0` / `1e-6`, `dense` `0.0` / `5e-4`,
+  `conv2d` `0.0` / `1e-3`, `conv3d` `0.0` / `2e-3`, `batchnorm`
+  `2.384185791015625e-7` / `5e-4`, `layernorm` `0.0` / `5e-4`, `mha`
+  `0.0` / `2e-3`, and `embedding` `0.0` / `1e-6`; every family passed.
 
-### Remaining Work
+## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics 🔄
 
-- Validate the `linux-cpu` / `apple-silicon` weighted drift with real
-  Apple Metal output against the same in-code tolerance table. The
-  implementation path is now the documented cross-host handoff:
-  run `jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json`
-  on the Apple host, run
-  `jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu --export /tmp/jitml-linux-cpu.json`
-  on a Linux oneDNN host, then run
-  `jitml verify cross-backend --experiment experiments/mnist.dhall --compare /tmp/jitml-linux-cpu.json,/tmp/jitml-apple.json`
-  with both ephemeral report bundles visible. This remains
-  **inherently multi-host** under the current runtime split: no single
-  host runs both the Linux oneDNN weighted path and Metal. Confirmed
-  2026-05-31 on the Apple M1 host: `apple-silicon` weighted Dense2D
-  runs (Metal), but `linux-cpu` weighted Dense2D returns `Left` (the
-  GEMM-class weighted body is the Linux/oneDNN path — the
-  self-contained identity/reduction kernels do run on macOS) and
-  `linux-cuda` needs an NVIDIA GPU. Symmetrically, the 2026-06-01
-  Linux/NVIDIA host validates the `(linux-cpu, linux-cuda)` pair and
-  the report-bundle handoff path but has no Metal device.
-
-## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics ⏸️
-
-**Status**: Blocked
-**Blocked by**: Sprint `15.1`, every preceding live sprint in Phases
-`13` and `14` that emits a report-card metric.
+**Status**: Active
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Test/Report.hs`,
-`cabal.project`
+`src/JitML/CLI/Spec.hs`, `cabal.project`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
-`documents/engineering/training_workloads.md`
+`documents/engineering/training_workloads.md`,
+`documents/engineering/cli_command_surface.md`, `README.md`,
+`documents/cli/commands.md`, `share/man/man1/jitml.1`
 
 ### Objective
 
@@ -260,33 +243,86 @@ Closes Exit Definition item 9's live report-card slice.
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
   moves from `Pending Removal` to `Completed`.
 
+### Code Surface Landed (2026-06-03)
+
+- `jitml test all --live` is part of `CommandSpec`, the parser accepts
+  it, and the generated CLI docs/manpage include the flag.
+- `runTest` passes the parsed options through the test runner. After
+  the eight Cabal test-only stanzas pass, `--live` collects
+  `ReportMeasurements` and renders them in the same typed report card.
+- `ReportMeasurements` carries SL final loss, RL final reward,
+  AlphaZero arena win rate, tuning best objective, JIT cache hit rate,
+  daemon health, and cross-substrate parity fields. A missing or
+  unreachable source renders as `unavailable`.
+- Local deterministic collectors exist for the SL/RL/AlphaZero/tune
+  and cross-substrate surfaces where the current host can run them.
+  Live JIT cache hit-rate now reads the daemon Prometheus counters
+  (`jitml_jit_cache_hits` / `jitml_jit_cache_misses`) from `/metrics`
+  through the published edge port, and daemon health now probes
+  `/healthz` through the same edge route. Stale or missing
+  `cluster-publication.json` state, failed HTTP probes, missing
+  counters, and zero-total cache counters render as `unavailable`
+  rather than silently falling back.
+- The edge route registry now publishes `/healthz`, `/readyz`, and
+  `/metrics` to `jitml-service:8080`; the generated HTTPRoute
+  manifests and route-table snapshots were updated with those paths.
+- `jitml-e2e` covers available and unavailable measurement rendering,
+  and `jitml-unit` covers the `jitml test all --live` parser path. The
+  "Target-stanza-only report card" legacy row has moved to Completed.
+
 ### Validation
 
-1. `jitml test all --live` against an up cluster (Phase `13` Sprint
-   `13.1` + Phase `14` Sprint `14.1` at minimum) prints a report card
-   with non-empty measured fields.
-2. A controlled regression — disabling one live source — surfaces
+1. `cabal build lib:jitml` passed on 2026-06-03 after the live
+   telemetry changes and again after the full-response socket read plus
+   fourmolu wrapping fix.
+2. `jitml test all --live` against an up cluster (Phase `13` Sprint
+   `13.1` + Phase `14` Sprint `14.1` at minimum) must still print a
+   report card with non-empty measured fields.
+3. A controlled regression — disabling one live source — surfaces
    `unavailable` in the corresponding measured field rather than a
    silent fallback to a deterministic-stub value.
+4. Host-side `docker ps` and `kind get clusters` were empty on
+   2026-06-03, so no existing live cluster was available for the full
+   measurement pass before rebuilding `jitml:local`.
+5. `docker compose build jitml` passed on 2026-06-03 after the route
+   snapshot and fourmolu fixes. The image-local `jitml check-code`
+   gate reported `check-code: ok`, and the web bundle build completed
+   with the existing PureScript `runSpec` deprecation warning only.
+6. A live Apple Silicon bootstrap/report-card attempt on 2026-06-03
+   used the freshly built `jitml:local` image with host networking
+   (`docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock jitml:local sh -lc 'jitml bootstrap --apple-silicon && jitml test all --live'`).
+   The run created the Kind control plane, reached the phased Helm
+   rollout, and then failed at `harbor-pg` because Docker Hub returned
+   unauthenticated pull-rate `429 Too Many Requests` for
+   `percona/percona-postgresql-operator:2.5.1`; Helm exited with
+   `context deadline exceeded`. The partial `jitml-apple-silicon`
+   Kind cluster was deleted after the failed validation.
+7. `docker run --rm -v "$PWD:/work" -w /work jitml:local jitml check-code`
+   passed on 2026-06-03 after the final Phase `15` plan and ledger
+   updates.
 
 ### Remaining Work
 
-- Extend `jitml test all` with an explicit `--live` mode that runs the
-  live e2e path.
-- Wire each measured value through the report card.
-- Add the live integration test.
-- Retire the legacy ledger row.
+- Run full `jitml test all --live` against an up cluster with the live
+  SL/RL/AlphaZero/tune, daemon, cache, and cross-substrate sources
+  reachable, then record the non-empty measured fields here. The next
+  attempt needs registry pull access or a cached mirror for
+  `percona/percona-postgresql-operator:2.5.1` so the `harbor-pg`
+  operator can roll out.
+- Validate the new `/healthz`, `/readyz`, and `/metrics` edge routes
+  against the live published cluster after the chart is applied.
 
 ## Sprint 15.3: Empty Legacy Ledger and Final Handoff ⏸️
 
 **Status**: Blocked
-**Blocked by**: Sprint `15.1`, Sprint `15.2`, every remaining ledger
-row's owning sprint closure. Phase `13` Sprint `13.9` (MCTS prior stub
-retirement) closed 2026-05-30.
+**Blocked by**: Sprint `15.2`, the upstream Dhall/CBOR bound refresh
+required to remove scoped `allow-newer`, the live demo/browser
+validation that retires the demo placeholder row, and the real ALE
+binding work that retires the deterministic Atari-subset RAM-state stub.
 **Implementation**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
 `cabal.project`, `src/JitML/Codegen/{Cuda,Metal}.hs`,
 `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`,
-`test/e2e/Main.hs`
+`test/e2e/Main.hs`, `test/snapshots/`
 **Docs to update**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
 `DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`
 
@@ -302,16 +338,29 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
   Dhall/CBOR releases support GHC `9.14.1`'s `base-4.22`. If the
   upstream releases remain blocking, this row stays in Pending Removal
   and Phase `15` cannot close until they land.
-- Non-production CUDA/Metal kernel-family scaffolds replaced by real
-  cuBLAS/cuDNN GEMM/conv and Metal kernels once Phase `13` Sprint
-  `13.11` and Phase `14` Sprint `14.5` close.
-- Deterministic MCTS prior stub removed once Phase `13` Sprint `13.9`
-  closes.
 - Demo placeholder shell + inline DOM stubs removed once Phase `13`
   Sprints `13.13` / `13.14` close.
-- Target-stanza-only report card surface superseded by Sprint `15.2`.
 - The ledger Pending Removal section is empty; every row lives in
   Completed.
+
+### Cleanup Landed (2026-06-03)
+
+- The Metal kernel-family validation residue moved to Completed after
+  the Apple host exported the Sprint `15.1` weighted bundle with all
+  eight tensor families.
+- The deterministic MCTS `priorFor` helper was removed; the default
+  mechanics oracle is neutral uniform and production self-play consumes
+  the policy/value network oracle.
+- The target-stanza-only report-card row moved to Completed. `ReportCard`
+  now carries `ReportMeasurements`, and `jitml test all --live` renders
+  measured or `unavailable` fields.
+- The Sprint `15.2` cache and daemon live-report probes now use
+  host-reachable daemon edge routes instead of a cache placeholder or a
+  publication-file-only health check.
+- The committed numerical fixture tree under `test/golden/` was deleted.
+  Pure renderer snapshots moved to `test/snapshots/`, numerical tests
+  now use run-to-run/property assertions, and lint rejects
+  `test/golden/`.
 
 ### Validation
 
@@ -325,9 +374,15 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
 
 ### Remaining Work
 
-- Walk every Pending Removal row in dependency order and apply the
-  removal once the owning sprint closes.
-- Update the README and overview to reflect the final handoff state.
+- Remove the scoped `allow-newer` block once Hackage releases solve
+  under pinned GHC `9.14.1` without overrides.
+- Remove the demo placeholder shell, local stream frames, and inline DOM
+  stubs after the live browser cluster pass proves the panels populate
+  from real broker frames.
+- Replace the deterministic Atari-subset RAM-state stub with the real
+  ALE FFI binding, including ROM handling and container packages.
+- Update the README and overview to reflect the final handoff state
+  only after the Pending Removal table is empty.
 
 ## Doctrine Sections Cited
 
@@ -341,18 +396,21 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
 **Engineering docs to create/update:**
 
 - `documents/engineering/determinism_contract.md` — record the
-  in-code per-layer-family tolerance methodology, the locally runnable
-  `linux-cpu` / `linux-cuda` assertion, and the remaining
-  apple-involving validation path for Sprint `15.1`.
+  in-code per-layer-family tolerance methodology and the validated
+  `linux-cpu` / `linux-cuda` plus `linux-cpu` / `apple-silicon`
+  assertions for Sprint `15.1`.
 - `documents/engineering/unit_testing_policy.md` — record the
   `jitml-cross-backend` CrossSubstrate tolerance tests for Sprint
-  `15.1`; record the live report-card surface once Sprint `15.2`
-  closes.
+  `15.1`; record the `jitml test all --live` report-card surface and
+  missing-source `unavailable` behavior while full live-cluster
+  validation remains in Sprint `15.2` Remaining Work.
 - `documents/engineering/cli_command_surface.md` — generated command
   surface records `jitml verify cross-backend --export/--compare` for
   the Sprint `15.1` cross-host handoff.
-- `documents/engineering/training_workloads.md` — append measured live
-  summaries for SL / RL / AlphaZero / tune once Sprint `15.2` closes.
+- `documents/engineering/training_workloads.md` — document the
+  report-card measurement fields for SL / RL / AlphaZero / tune and
+  keep full live-cluster measurement capture in Sprint `15.2`
+  Remaining Work.
 
 **Product docs to create/update:**
 
@@ -360,11 +418,11 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
 
 **Cross-references to add:**
 
-- `system-components.md → POC Report-Card Knobs` row reflects the
-  populated live measured fields once Sprint `15.2` closes.
+- `system-components.md → Test runner` row reflects the `--live`
+  measured fields and the remaining live-cluster validation gap.
 - `system-components.md → Test Stanzas` row for `jitml-cross-backend`
-  records the 2026-06-01 `linux-cpu` / `linux-cuda` validation and
-  flips to Done once the apple-involving comparison closes.
+  records the 2026-06-01 `linux-cpu` / `linux-cuda` validation and the
+  2026-06-03 `linux-cpu` / `apple-silicon` report-bundle comparison.
 
 ## Related Documents
 

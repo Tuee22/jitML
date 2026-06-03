@@ -27,6 +27,10 @@ forbiddenPathRegistry =
   , ForbiddenPathRule "Makefile" "Makefile" "jitml build"
   , ForbiddenPathRule "justfile" "justfile" "jitml commands"
   , ForbiddenPathRule "Taskfile.yml" "Taskfile.yml" "jitml commands"
+  , ForbiddenPathRule
+      "test/golden"
+      "test/golden/"
+      "test/snapshots/ for pure renderers; statistical assertions for numerical outputs"
   ]
 
 matchForbiddenPath :: FilePath -> Maybe ForbiddenPathRule

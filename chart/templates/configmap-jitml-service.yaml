@@ -5,9 +5,9 @@ metadata:
   namespace: platform
 data:
   BootConfig.dhall: |
-    { substrate = "linux-cuda"
+    { substrate = "apple-silicon"
     , residency = < Cluster | Host >.Cluster
-    , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
+    , inferenceMode = < SelfInference | ForwardToHost >.ForwardToHost
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
     , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
@@ -17,7 +17,6 @@ data:
   LiveConfig.dhall: |
     { logLevel = Info
     , retryPolicy = ExponentialN { attempts = 5, baseMillis = 50, capMillis = 2000 }
-    , tartIdleTimeout = Some 1800
     , inferenceBatchSize = 64
     , inferenceMaxLatencyMillis = 25
     , dedupCacheSize = 4096

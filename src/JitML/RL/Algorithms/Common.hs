@@ -4,12 +4,10 @@ module JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter (..)
   , AlgorithmModule (..)
   , AlgorithmRollout (..)
-  , goldenTrajectoryPath
   , hyperparameterRow
   , renderAlgorithmModule
   , renderHyperparameters
   , renderRollout
-  , rolloutGoldenLines
   , trajectoryRollout
   )
 where
@@ -77,23 +75,6 @@ renderAlgorithmModule m =
   renderFamily OffPolicy = "off-policy"
   renderFamily Specialized = "specialised"
   renderFamily SelfPlay = "self-play"
-
-goldenTrajectoryPath :: AlgorithmRollout -> FilePath
-goldenTrajectoryPath rollout =
-  "test/golden/rl/"
-    <> Text.unpack (Text.toLower (rolloutAlgorithm rollout))
-    <> "/"
-    <> Text.unpack (rolloutEnvironment rollout)
-    <> "/trajectory.txt"
-
-rolloutGoldenLines :: AlgorithmRollout -> [Text]
-rolloutGoldenLines rollout =
-  [ "# " <> rolloutAlgorithm rollout <> "/" <> rolloutEnvironment rollout
-  , "# seed=" <> Text.pack (show (rolloutSeed rollout))
-  ]
-    <> [ Text.pack (show a) <> " " <> Text.pack (show r)
-       | (a, r) <- zip (rolloutActions rollout) (rolloutRewards rollout)
-       ]
 
 -- | Default rollout generator used by every algorithm module. The per-algorithm
 -- module derives its own seed perturbation (added in `seed` argument) so each

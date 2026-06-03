@@ -2,8 +2,11 @@
 
 module JitML.Test.Report
   ( ReportCard (..)
+  , ReportMeasurement (..)
+  , ReportMeasurements (..)
   , ReportCardKnobs (..)
   , defaultReportCardKnobs
+  , emptyReportMeasurements
   , loadReportCardKnobs
   , parseReportCardKnobs
   , renderReportCardForTargets
@@ -21,6 +24,23 @@ data ReportCard = ReportCard
   { reportPassed :: Int
   , reportFailed :: Int
   , reportDurationSeconds :: Int
+  , reportMeasurements :: ReportMeasurements
+  }
+  deriving stock (Eq, Show)
+
+data ReportMeasurement
+  = MeasurementAvailable Text
+  | MeasurementUnavailable
+  deriving stock (Eq, Show)
+
+data ReportMeasurements = ReportMeasurements
+  { measuredSlFinalLoss :: Maybe ReportMeasurement
+  , measuredRlFinalReward :: Maybe ReportMeasurement
+  , measuredAlphaZeroArenaWinRate :: Maybe ReportMeasurement
+  , measuredTuneBestObjective :: Maybe ReportMeasurement
+  , measuredJitCacheHitRate :: Maybe ReportMeasurement
+  , measuredDaemonHealthz :: Maybe ReportMeasurement
+  , measuredCrossSubstrateParity :: Maybe ReportMeasurement
   }
   deriving stock (Eq, Show)
 
@@ -49,6 +69,18 @@ defaultReportCardKnobs =
     , knobTuneTrials = 64
     , knobTuneBudgetPerTrial = 1000
     , knobCrossClusterKindNodes = 2
+    }
+
+emptyReportMeasurements :: ReportMeasurements
+emptyReportMeasurements =
+  ReportMeasurements
+    { measuredSlFinalLoss = Nothing
+    , measuredRlFinalReward = Nothing
+    , measuredAlphaZeroArenaWinRate = Nothing
+    , measuredTuneBestObjective = Nothing
+    , measuredJitCacheHitRate = Nothing
+    , measuredDaemonHealthz = Nothing
+    , measuredCrossSubstrateParity = Nothing
     }
 
 reportStanzas :: [Text]
@@ -123,6 +155,7 @@ renderReportCardForTargets knobs targets report =
       , "stanzas:"
       ]
         <> fmap renderTarget targets
+        <> renderMeasurements (reportMeasurements report)
         <> [ "cabal_test:"
            , "  passed: " <> showText (reportPassed report)
            , "  failed: " <> showText (reportFailed report)
@@ -132,6 +165,45 @@ renderReportCardForTargets knobs targets report =
  where
   renderTarget target =
     "  " <> target <> ": PASS"
+
+renderMeasurements :: ReportMeasurements -> [Text]
+renderMeasurements measurements
+  | not (hasMeasurements measurements) = []
+  | otherwise =
+      [ "measurements:"
+      ]
+        <> measurementLine "sl_final_loss" (measuredSlFinalLoss measurements)
+        <> measurementLine "rl_final_reward" (measuredRlFinalReward measurements)
+        <> measurementLine "alphazero_arena_win_rate" (measuredAlphaZeroArenaWinRate measurements)
+        <> measurementLine "tune_best_objective" (measuredTuneBestObjective measurements)
+        <> measurementLine "jit_cache_hit_rate" (measuredJitCacheHitRate measurements)
+        <> measurementLine "daemon_healthz" (measuredDaemonHealthz measurements)
+        <> measurementLine "cross_substrate_parity" (measuredCrossSubstrateParity measurements)
+
+hasMeasurements :: ReportMeasurements -> Bool
+hasMeasurements measurements =
+  any
+    isMeasured
+    [ measuredSlFinalLoss measurements
+    , measuredRlFinalReward measurements
+    , measuredAlphaZeroArenaWinRate measurements
+    , measuredTuneBestObjective measurements
+    , measuredJitCacheHitRate measurements
+    , measuredDaemonHealthz measurements
+    , measuredCrossSubstrateParity measurements
+    ]
+ where
+  isMeasured Nothing = False
+  isMeasured (Just _) = True
+
+measurementLine :: Text -> Maybe ReportMeasurement -> [Text]
+measurementLine _ Nothing = []
+measurementLine label (Just measurement) =
+  ["  " <> label <> ": " <> renderMeasurement measurement]
+
+renderMeasurement :: ReportMeasurement -> Text
+renderMeasurement (MeasurementAvailable value) = value
+renderMeasurement MeasurementUnavailable = "unavailable"
 
 showText :: (Show a) => a -> Text
 showText = Text.pack . show

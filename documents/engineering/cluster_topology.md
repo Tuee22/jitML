@@ -329,6 +329,9 @@ Hand-written HTTPRoute YAML is hlint-forbidden.
 | `/` | `jitml-demo` | 80 | `-` | no |
 | `/api` | `jitml-demo` | 80 | `-` | no |
 | `/api/ws` | `jitml-demo` | 80 | `-` | yes |
+| `/healthz` | `jitml-service` | 8080 | `-` | no |
+| `/readyz` | `jitml-service` | 8080 | `-` | no |
+| `/metrics` | `jitml-service` | 8080 | `-` | no |
 | `/tensorboard` | `tensorboard` | 80 | `/` | no |
 | `/grafana` | `kube-prometheus-stack-grafana` | 80 | `/` | no |
 | `/prometheus` | `kube-prometheus-stack-prometheus` | 9090 | `/` | no |

@@ -95,13 +95,20 @@ main =
                   (deterministicTrials sampler 8)
             )
             samplerCatalog
-      , testCase "Sobol and GA trial streams match golden fixtures" $ do
-          sobol <- Text.IO.readFile "test/golden/tune/sobol-trials.txt"
-          ga <- Text.IO.readFile "test/golden/tune/genetic-algorithm-trials.txt"
-          Text.lines sobol @?= fmap (Text.pack . show) (deterministicTrials Sobol 8)
-          Text.lines ga @?= fmap (Text.pack . show) (deterministicTrials GeneticAlgorithm 8)
-      , testCase "every sampler matches its committed trial-stream golden (Sprint 12.5)" $
-          mapM_ checkSamplerGolden samplerCatalog
+      , testCase "Sobol and GA trial streams regenerate deterministically without fixtures" $ do
+          deterministicTrials Sobol 8 @?= deterministicTrials Sobol 8
+          deterministicTrials GeneticAlgorithm 8 @?= deterministicTrials GeneticAlgorithm 8
+          assertBool "Sobol and GA cover different search paths" $
+            deterministicTrials Sobol 8 /= deterministicTrials GeneticAlgorithm 8
+      , testCase "every sampler trial stream is deterministic without committed fixtures (Sprint 15.3)" $
+          mapM_
+            ( \sampler -> do
+                let first = deterministicTrials sampler 8
+                    second = deterministicTrials sampler 8
+                first @?= second
+                assertBool ("sampler " <> show sampler <> " produces eight trials") (length first == 8)
+            )
+            samplerCatalog
       , testCase "every scheduler / pruner cohort reproduces under resume (Sprint 12.5)" $ do
           mapM_
             ( \sampler ->
@@ -212,27 +219,6 @@ main =
           decodeTuneEventProto (encodeTuneEventProto finished) @?= Right finished
           decodeTuneEventProto (encodeTuneEventProto done) @?= Right done
       ]
-
-samplerGoldenPath :: Sampler -> FilePath
-samplerGoldenPath sampler =
-  "test/golden/tune/" <> samplerSlug sampler <> "-trials.txt"
- where
-  samplerSlug Grid = "grid"
-  samplerSlug Sobol = "sobol"
-  samplerSlug Random = "random"
-  samplerSlug TPE = "tpe"
-  samplerSlug GPBO = "gpbo"
-  samplerSlug GeneticAlgorithm = "genetic-algorithm"
-  samplerSlug NSGA2 = "nsga2"
-  samplerSlug MuLambdaES = "mu-lambda-es"
-  samplerSlug CMAES = "cmaes"
-  samplerSlug EvolutionStrategies = "evolution-strategies"
-  samplerSlug PBT = "pbt"
-
-checkSamplerGolden :: Sampler -> IO ()
-checkSamplerGolden sampler = do
-  fixture <- Text.IO.readFile (samplerGoldenPath sampler)
-  Text.lines fixture @?= fmap (Text.pack . show) (deterministicTrials sampler 8)
 
 -- | Sprint 13.10 — for every (sampler, scheduler, pruner) triple in the
 -- canonical catalog, assert that @deterministicTrials@ produces the

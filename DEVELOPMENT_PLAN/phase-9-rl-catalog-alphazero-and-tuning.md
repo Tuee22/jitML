@@ -386,8 +386,9 @@ AlphaZero summary.
   columns `0` through `6`.
 - `src/JitML/RL/AlphaZero/Mcts.hs` declares `MctsConfig`, `MctsNode`,
   `MctsEdge`, `runSearch` (walking `mctsSimulations` rollouts), and
-  `selectAction` (UCB with `cpuct`). The prior is deterministic via
-  `priorFor seed action`.
+  `selectAction` (UCB with `cpuct`). Network-free mechanics tests use
+  a neutral uniform default prior; production AlphaZero supplies a
+  position-dependent `PriorOracle`.
 - `JitML.RL.AlphaZero.Mcts.TranspositionTable`,
   `transpositionKey`, and `runSearchWithTable` cache canonical
   node-per-position entries so equivalent move sequences de-duplicate

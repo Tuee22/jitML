@@ -2628,13 +2628,14 @@ the arena promotion path with the real network's win rate. Closes the
 1. End-to-end live: one AlphaZero generation runs against a real
    Connect 4 cohort, the buffer round-trips through MinIO, and the
    arena promotion decision matches the committed expected outcome.
-2. The deterministic stub is removed from `priorFor` (or the stub is
-   replaced by a typed network call).
+2. The deterministic prior stub is removed; network-free MCTS mechanics
+   tests use the neutral uniform `defaultPriorOracle`, and production
+   self-play supplies a typed network oracle.
 
 ### Code Surface Landed (2026-05-27, PriorOracle parameterization + SelfPlayBuffer MinIO)
 
 - `JitML.RL.AlphaZero.Mcts` adds `type PriorOracle = Int -> Int -> Double`
-  and `defaultPriorOracle = priorFor`, plus parallel `expandWithPrior`,
+  and a default mechanics oracle, plus parallel `expandWithPrior`,
   `simulateWithPrior`, `runSearchWithPrior`, and
   `runSearchWithTableAndPrior` that route through the supplied oracle.
   The existing `expand`, `simulate`, `runSearch`, and `runSearchWithTable`
@@ -2714,18 +2715,8 @@ Three new tests in `jitml-rl-canonicals` cover the new surface:
   produce bit-identical sample count and win rate, and that the win
   rate lies in `[0, 1]`.
 
-What remains for full 13.9 closure:
+Follow-on scope outside full 13.9 closure:
 
-- **Wire `PolicyValueNet` into the production self-play loop.** The
-  deterministic `priorFor` is still `defaultPriorOracle` in
-  `JitML.RL.AlphaZero.Mcts`. Flipping the production default would
-  break the deterministic-transcript golden fixtures in
-  `jitml-rl-canonicals` (`AlphaZero Connect 4/Othello/Hex/Gomoku
-  transcript matches golden fixture`). Per
-  [../README.md → Snapshot targets → Numerical-fixture
-  prohibition](../README.md#snapshot-targets), those fixtures are
-  themselves slated for removal; flipping the default and removing
-  the fixture-coupled assertions is the natural follow-on closure.
 - **Per-game richer encoders.** `encodeGameState` currently falls back
   to the Connect 4 encoder for othello / hex / gomoku. Bespoke
   per-game encoders (8×8 Othello board, 11×11 Hex board, 15×15
@@ -2743,8 +2734,8 @@ What remains for full 13.9 closure:
   (search loop normalises by sum); outputs are bit-deterministic per
   the [determinism contract](../documents/engineering/determinism_contract.md).
   Callers swap this for `defaultPriorOracle` to drive the search tree
-  from real JIT-compiled output rather than the synthetic `priorFor`
-  stub.
+  from real JIT-compiled output rather than the network-free mechanics
+  oracle.
 - `src/JitML/RL/AlphaZero/SelfPlay.hs` adds
   `runSelfPlayWithPrior :: PriorOracle -> SelfPlayConfig ->
   SelfPlayBuffer` and routes `runSelfPlay` through
@@ -2795,9 +2786,9 @@ callsites switch to the engine-backed oracle" obligation:
 The earlier claim that the flip was blocked on the
 `selfPlayTranscript` golden fixtures was incorrect — those transcripts
 come from the oracle-independent `selfPlayTranscriptFor` move
-generator (their removal is owned by the `test/golden/` fixture ledger
-row, a separate Phase 12 cleanup). `priorFor` survives only as
-`defaultPriorOracle` for the network-free MCTS mechanics unit tests.
+generator. The Phase `15` cleanup later deleted the committed
+`test/golden/` fixture tree and removed `priorFor`; network-free MCTS
+mechanics unit tests now use a neutral uniform `defaultPriorOracle`.
 
 ### Code Surface Landed (2026-05-28, MCTS visit-count training targets)
 
@@ -3328,7 +3319,7 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   (`inference checkpoint missing: <experiment-hash>` and
   `inference manifest sha mismatch: <experiment-hash>: requested
   <sha>`); the canonical render golden at
-  `test/golden/cli/app-error-render.txt` is updated to include them.
+  `test/snapshots/cli/app-error-render.txt` is updated to include them.
 - `JitML.App.runInference` now routes a `loadInferenceCheckpoint`
   failure through `classifyCheckpointLoadError` which maps the
   underlying `pointer read failed` / `manifest read failed` cases to

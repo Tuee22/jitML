@@ -124,16 +124,15 @@ runSelfPlay = runSelfPlayWithPrior defaultPriorOracle
 -- | Sprint 13.9 — run self-play with a caller-supplied prior oracle. The
 -- production AlphaZero loop passes
 -- 'JitML.RL.AlphaZero.EnginePrior.buildLinuxCpuPriorOracle' here so the
--- search tree's prior input comes from a real JIT-compiled forward pass
--- rather than the deterministic stub.
+-- search tree's prior input comes from a real JIT-compiled forward pass.
 runSelfPlayWithPrior :: PriorOracle -> SelfPlayConfig -> SelfPlayBuffer
 runSelfPlayWithPrior oracle = runSelfPlayWithOracleFactory (const oracle)
 
 -- | Sprint 13.9 — run self-play with a per-position oracle factory. At each
 -- ply the factory is applied to the current 'GameState' to produce the
 -- 'PriorOracle' the MCTS search consumes, so a real policy/value network can
--- emit position-dependent priors (the AlphaZero contract) rather than a
--- search-seed-only stub. The production AlphaZero loop passes
+-- emit position-dependent priors (the AlphaZero contract). The production
+-- AlphaZero loop passes
 -- @\\state -> 'JitML.RL.AlphaZero.PolicyValueNet.networkPriorOracle' net
 -- (const state)@ here. A fixed factory @const oracle@ recovers the
 -- 'runSelfPlayWithPrior' behaviour.

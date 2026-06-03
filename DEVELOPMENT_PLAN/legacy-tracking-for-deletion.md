@@ -37,18 +37,13 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-Seven cleanup rows are currently active. The scoped `allow-newer` block in
+Three cleanup rows are currently active. The scoped `allow-newer` block in
 `cabal.project` keeps Dhall's transitive CBOR stack building under pinned
-GHC `9.14.1` while upstream package bounds catch up; five rows record
+GHC `9.14.1` while upstream package bounds catch up; two rows record
 checked-in stand-ins that are deliberately keeping local test coverage
-green until their owning live-runtime surfaces land (CUDA/Metal kernel
-scaffolds, deterministic MCTS prior, demo placeholder shell, target
-report-card stanza-only mode, and deterministic atari-subset RAM-state
-stub awaiting a real ALE FFI binding); the seventh row schedules
-deletion of the committed numerical fixture tree under `test/golden/`
-and migration of its consumers to statistical / run-to-run / property
-assertions per [../README.md → Snapshot targets → Numerical-fixture
-prohibition](../README.md#snapshot-targets). Three rows added 2026-05-29 record
+green until their owning live-runtime surfaces land (demo placeholder shell
+and deterministic atari-subset RAM-state stub awaiting a real ALE FFI
+binding). Three rows added 2026-05-29 record
 doctrine deviations scheduled by the reopened Phases `2` / `4` / `5` after the
 cluster OOM-storm incident: the `JITML_*` run-parameter env IPC and the duplicate
 `JITML_SUBSTRATE` / `JITML_PULSAR_WS` reads (both retired by the typed Dhall
@@ -59,7 +54,7 @@ the `jitml internal vm` command group, the `container.tart` prerequisite node,
 `LiveConfig.tartIdleTimeout`, and the offline `.metallib` codegen path — **closed
 the same day** (Sprints `7.8` / `2.10` / `5.8`) and now live in the `Completed`
 table.
-Twelve cleanup rows have
+Fifteen cleanup rows have
 closed and live in the `Completed` table:
 Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
 style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
@@ -72,11 +67,16 @@ removed the static checked-in JIT source/build scaffold (JIT compiler inputs
 are generated on demand by the Haskell binary) and removed the default
 runtime-source placeholder fixture; Sprint `8.7` replaced the flat `RunPhase`
 enum with the phase-indexed `RLRunLifecycle` GADT so all three jitML
-lifecycles share doctrine-aligned shape; and the 2026-05-28 Pulumi-removal
-cleanup deleted the `infra/pulumi/` ephemeral-Kind orchestrator (added in
-error), its `toolchain.pulumi` prerequisite, and the Pulumi-only Kind
-name-override surface, leaving the `jitml bootstrap` + `jitml cluster down`
-path as the ephemeral-cluster e2e orchestration.
+lifecycles share doctrine-aligned shape; the 2026-06-03 Phase `15` pass
+removed the synthetic MCTS `priorFor`, replaced the target-stanza-only report
+card with `jitml test all --live` measured fields, deleted the committed
+numerical fixture tree under `test/golden/`, and closed the Metal
+kernel-family validation residue with a headless Apple weighted export; and
+the 2026-05-28 Pulumi-removal cleanup deleted the `infra/pulumi/`
+ephemeral-Kind orchestrator (added in error), its `toolchain.pulumi`
+prerequisite, and the Pulumi-only Kind name-override surface, leaving the
+`jitml bootstrap` + `jitml cluster down` path as the ephemeral-cluster e2e
+orchestration.
 
 Two classes of entries populate this ledger over time:
 
@@ -99,11 +99,7 @@ opening event itself enqueues a row here naming the originating sprint.
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
 | Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Phase 15 Sprint `15.3` (final handoff toolchain refresh) |
-| Non-production Metal kernel-family scaffolds | `src/JitML/Codegen/Metal.hs` | Apple-side per-family weighted Metal bodies landed 2026-05-30 (mirroring the CUDA `weightedFamilyImpl`) but await the headless Apple Silicon validation pass — host CommandLineTools `swift build` + runtime `MTLDevice.makeLibrary(source:)`, no Tart VM. The CUDA half closed 2026-05-27 (Sprint 13.11): `JitML.Codegen.Cuda.weightedFamilyImpl` now routes Dense2D / Conv2D / Conv3D / BatchNorm / LayerNorm / Embedding / MHA to real per-family weighted device kernels via `jitml_cuda_copy_and_launch_weighted`, validated by `cabal test jitml-cross-backend -p weighted` inside `jitml:local`. Metal-side closure waits on the headless Phase 14 Apple Silicon validation pass (Phase 7 Sprint `7.8` host build + runtime compile); no Tart VM and no full Xcode. | Phase 14 Sprint `14.5` (Metal) |
-| Deterministic MCTS prior stub | `src/JitML/RL/AlphaZero/Mcts.hs` | `priorFor` stands in for the real policy/value network call so the bare MCTS / transposition-table *mechanics* unit tests stay deterministic without a network. Sprint 13.9 (2026-05-27 third → fifth sessions) closed the production self-play path against the real network: `JitML.RL.AlphaZero.PolicyValueNet` ships the two-headed policy/value network (`networkPolicyValue`), a real Connect-4 4-in-a-row terminal evaluator (`evaluateTerminal`), a differentiable forward + backward + Adam loop (`trainPolicyValueNetOnSamples`), and an arena win-rate loop against a uniform-random baseline (`arenaWinRateAgainstUniform`). `SelfPlay.runSelfPlayWithOracleFactory` threads a *per-position* oracle so `PolicyValueNet.runNetworkSelfPlay` drives the MCTS prior from the network's policy-head forward pass at every board position — the production AlphaZero self-play callsite no longer uses `priorFor`. (The earlier claim that this flip was blocked on `selfPlayTranscript` golden fixtures was incorrect: those transcripts come from the oracle-independent `selfPlayTranscriptFor` move generator; their removal is owned by the separate `test/golden/` fixture row, not this one.) `priorFor` survives only as `defaultPriorOracle` for the network-free MCTS mechanics tests. | Phase 13 Sprint `13.9` (production path closed; remaining residue is the `priorFor` default kept for network-free MCTS unit tests + full policy/value network *codegen* through nvcc, multi-week) |
-| Demo placeholder shell, local stream frames, and inline DOM stubs | `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs` | Sprint 13.13 (2026-05-27) closed the bulk of the demo Halogen + bridge work: all six panels (`Mnist`, `Cifar`, `Connect4`, `Rl`, `Training`, `Tune`) carry typed `State` / `Action` / `handleAction` / `render` machinery; the held-open WebSocket-upgrade bridge in `JitML.Service.WebSocket` + `JitML.Service.Http` (`WebSocketRoute`) + `JitML.Web.Server.liveDemoWebSocketRoutes` forwards live Pulsar event-topic deliveries through a single TCP connection. Playwright's `loadLiveEdge()` reads `cluster-publication.json` and falls back to inline DOM stubs offline. What remains: a live render validation pass against the cluster (Sprint 13.14) confirming the panels populate from real broker frames, plus the small bundle-side glue that connects the browser's WebSocket `onmessage` handler to the typed `Action` values. | Phase 13 Sprints `13.13`, `13.14` |
-| Target-stanza-only report card | `src/JitML/Test/Report.hs`, `src/JitML/App.hs` | `jitml test all` now renders the actual target stanza names after Cabal succeeds, but live SL/RL/AlphaZero/tuning/daemon/cross-substrate measurements are still absent; extend the report with measured values from the live e2e path | Phase 15 Sprint `15.2` |
-| Numerical-content golden fixtures under `test/golden/` | `test/golden/{sl,rl,alphazero,tune,cross-backend}/`, any consumers under `test/*-canonicals/Main.hs`, `test/cross-backend/Main.hs` | The repo previously committed per-substrate numerical fixtures (SL convergence curves, RL trajectories, AlphaZero transcripts, sampler trial values, per-tensor cross-substrate deltas). These hardcode whichever host wrote the calibration into the repository as authoritative; jitML is a numerical-methods project where RNG and FP-reduction order vary across substrates, so committed fixtures give a false sense of correctness. Delete the directories, port consumers to statistical / run-to-run / property assertions per [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets), and add a `jitml lint files` rule that fails on any new file under `test/golden/`. Pure-renderer snapshot fixtures move to `test/snapshots/{cli,routes,grafana,cache,prerequisite,cluster,observability}/`. | Phase 12 Sprint `12.1` (rule + directory rename) and Sprint `12.3`–`12.6` (numerical-stanza ports) |
+| Demo placeholder shell, local stream frames, and inline DOM stubs | `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs` | Sprint 13.13 (2026-05-27) closed the bulk of the demo Halogen + bridge work: all six panels (`Mnist`, `Cifar`, `Connect4`, `Rl`, `Training`, `Tune`) carry typed `State` / `Action` / `handleAction` / `render` machinery; the held-open WebSocket-upgrade bridge in `JitML.Service.WebSocket` + `JitML.Service.Http` (`WebSocketRoute`) + `JitML.Web.Server.liveDemoWebSocketRoutes` forwards live Pulsar event-topic deliveries through a single TCP connection, and `web/src/Panels/Stream.{purs,js}` connects browser `WebSocket.onmessage` payloads to typed Halogen actions. Playwright's `loadLiveEdge()` reads `cluster-publication.json` and falls back to inline DOM stubs offline. What remains: a live render validation pass against the cluster (Sprint 13.14) confirming the panels populate from real broker frames, then removal of the placeholder shell/local stream-frame/offline DOM fallback paths. | Phase 13 Sprints `13.13`, `13.14` |
 | Deterministic atari-subset RAM-state stub | `src/JitML/RL/Simulator.hs` (`atariSubsetEnvironment`, `atariSubsetStep`, `AtariSubsetState`) | Sprint `8.3` (closed 2026-05-25) ships a deterministic 128-byte RAM-state stub matching the canonical Atari action/obs surface while a real Arcade Learning Environment binding waits on (a) C++ FFI bindings via `inline-c-cpp` against `libale.so`, (b) ROM licensing handling for Atari 2600 titles (Stella ROMs are not redistributable; an `autorom`-style download flow or a single permissively-licensed homebrew ROM such as `tetris` must land alongside), and (c) baking `libale-dev`, `libsdl2-dev`, and `zlib1g-dev` into `jitml:local`. The deterministic stub preserves the action/obs contract so upstream RL primitives (`AlgorithmModule`, `VecEnv`, `RLLoop`) consume the real binding identically when it lands. | Phase 13 Sprint `13.6` (live RL training) or a successor cross-substrate cleanup sprint |
 
 
@@ -115,11 +111,19 @@ upstream release still name the originating sprint, but resolve at the final
 handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
-Current `allow-newer` validation: after `cabal update` set Hackage index-state
-`2026-05-21T09:04:39Z`, a temporary project file with the scoped
-`allow-newer` block removed still fails dependency solving under pinned GHC
-`9.14.1`, because `serialise-0.2.6.1` excludes the installed `base-4.22`.
-The row remains pending.
+Current `allow-newer` validation: on 2026-06-03, a temporary project file
+under `dist-newstyle/phase15/` with the scoped `allow-newer` block removed
+still fails dependency solving under pinned GHC `9.14.1`, because
+`serialise-0.2.6.1` excludes the installed `base-4.22`. A same-day
+Hackage check still lists `serialise` at `0.2.6.1` with
+`base >=4.11 && <4.22`, so the row remains pending.
+
+Current ALE package validation: on 2026-06-03, `apt-cache policy` inside
+`ubuntu:24.04` on arm64 found candidates for `libsdl2-dev` and
+`zlib1g-dev`, but no `libale-dev` candidate; `apt-cache search` for
+`arcade learning environment`, `libale`, and `ale` returned no matching
+Ubuntu package. The real ALE binding row remains pending until the C++
+binding and package/ROM acquisition path are available.
 
 This ledger never holds primary unmet Exit-Definition obligations. Live
 Kind/Helm rollout, real Pulsar/MinIO/Harbor clients, real per-substrate
@@ -145,6 +149,10 @@ explicitly schedules their deletion.
 | Default runtime-source placeholder | Sprint 7.7 | Removed `defaultRuntimeSourcePayload` and the `runtime-source:phase-2-placeholder` marker from `src/JitML/Cache/Key.hs`; cache-key snapshot now derives its `RuntimeSourcePayload` from `renderRuntimeSource`, and `test/snapshots/cache/kernel-key.txt` was refreshed to the rendered-source-backed hash. |
 | Standalone MinIO values fragment | Sprint 4.3 | Folded MinIO subchart values into `chart/values.yaml`, removed `chart/minio-values.yaml`, and made bootstrap delete legacy standalone values files during materialization. |
 | RL run sequencing as a `RunPhase` enum instead of an `RLRunLifecycle` GADT | Sprint 8.7 | Replaced the flat `RunPhase` enum with the `RLRunPhase` data kind plus the phase-indexed singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`; updated `rlRunPlan`, `renderRLRunPhase`, and the `jitml-unit` consumer; `cabal test jitml-unit` keeps 57/57 passing. |
+| Non-production Metal kernel-family scaffolds | Phase 14 Sprint `14.5` / Phase 15 validation sweep (2026-06-03) | Apple-side per-family weighted Metal bodies now run through the headless host path: CommandLineTools `swift build`, runtime `MTLDevice.makeLibrary(source:)`, no Tart VM and no full Xcode. The Apple export `jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json` produced the Sprint `15.1` weighted bundle with 8 tensor families (`identity`, `dense`, `conv2d`, `conv3d`, `batchnorm`, `layernorm`, `mha`, `embedding`), and the 2026-06-03 Linux/Apple report-bundle comparison passed every weighted family against the in-code tolerance table. |
+| Deterministic MCTS prior stub | Phase 15 Sprint `15.3` cleanup (2026-06-03) | Removed `priorFor` from `JitML.RL.AlphaZero.Mcts`. `defaultPriorOracle` is now a neutral uniform mechanics oracle; production self-play and engine-backed paths continue to consume the position-dependent policy/value `netOracleFactory`. Unit coverage now asserts neutral default priors separately from a biased custom oracle. |
+| Target-stanza-only report card | Phase 15 Sprint `15.2` implementation (2026-06-03) | `JitML.Test.Report.ReportCard` now carries typed `ReportMeasurements`, and `jitml test all --live` appends SL/RL/AlphaZero/tune/cache/daemon/cross-substrate fields after Cabal stanzas pass. Unreachable live sources render as `unavailable`; parser/e2e coverage and generated CLI docs/manpage were updated. Full live-cluster validation remains Sprint `15.2` primary Remaining Work. |
+| Numerical-content golden fixtures under `test/golden/` | Phase 15 Sprint `15.3` cleanup (2026-06-03) | Deleted the committed numerical fixture tree under `test/golden/{sl,rl,alphazero,tune}` and moved pure renderer snapshots to `test/snapshots/{cache,cli,cluster,observability,prerequisite}/`. SL/RL/AlphaZero/tune tests now assert run-to-run determinism, finite/non-empty summaries, and property invariants instead of golden numeric files; `forbiddenPathRegistry` rejects `test/golden/`. |
 | `JITML_*` run-parameter env-var IPC | Sprint `5.7` (closed 2026-05-29) | The daemon round-tripped typed run records (`StartTraining` / `StartSweep` / `StartRLRun`) through ~20 stringly-typed `JITML_*` Job env vars. Sprint `5.7` introduced typed `dhall/run/Schema.dhall` + `JitML.Service.RunConfig` and changed `JitML.Service.Workload.renderTrainingJob` / `renderTuneJob` / `renderRlJob` to emit a per-run ConfigMap + Job pair: the Job mounts `RunConfig.dhall` at `/etc/jitml/run/`. The worker (`JitML.App.runRl` / `runTune` / `attemptRealMnistTraining`) loads the typed config via `RunConfig.tryLoad{Rl,Tune,Training}RunConfig`, falling back to the legacy env vars for developer-side CLI runs outside a Job pod. Application Environment doctrine alignment. |
 | Duplicate `JITML_SUBSTRATE` / `JITML_PULSAR_WS` env reads vs `BootConfig` | Sprint `5.7` (closed 2026-05-29) | `JitML.App.workerBrokerTarget` now mounts the shared `jitml-service-config` ConfigMap at `/etc/jitml/service/`, loads `BootConfig.dhall` for the substrate, and reads the Pulsar WebSocket URL from any mounted `RunConfig.dhall` variant. The legacy `JITML_SUBSTRATE` / `JITML_PULSAR_WS` env reads survive only as the developer-side CLI fallback. |
 | Embedded `sh -c` retry/poll/existence control-flow (reconciler + readiness halves) | Sprints `2.9` + `4.8` (closed 2026-05-29) | Sprint `2.9` retired the reconciler half: `JitML.Cluster.Helm.kindCreateSubprocess` / `kindDeleteSubprocess` / `helmDependencyBuildSubprocess` became typed single-command subprocesses, and the postgres schema grant moved to typed Haskell IO in `JitML.Bootstrap.postgresSchemaGrantIO` (typed `kubectl` capture + typed `psql` exec). Sprint `4.8` retired the readiness half: `JitML.Cluster.Readiness.runMinioBucketReadinessIO` + `JitML.Cluster.PulsarBootstrap.runPulsarTopicCreatesIO` perform bounded retries in Haskell over typed leaf `kubectl exec ... mc` / `... pulsar-admin` subprocesses; the final-gate `minioBucketReadinessSubprocess` is a typed single command using the `MC_HOST_jitml-minio` env hand-off. `JitML.Bootstrap.liveExecutePhasedRollout` runs all four IO steps (minio buckets / postgres grants / pulsar topics) between the typed subprocess phases. |

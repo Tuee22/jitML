@@ -491,6 +491,7 @@ forbiddenDirectoryCandidates =
   [ ".github/workflows/"
   , ".husky/"
   , ".githooks/"
+  , "test/golden/"
   ]
 
 forbiddenExists :: FilePath -> IO Bool
@@ -624,8 +625,7 @@ staticJitArtefactFindings = do
 
 isStaticJitArtefact :: FilePath -> Bool
 isStaticJitArtefact path =
-  not ("test/golden/" `isPrefixOf` path)
-    && (FilePath.takeFileName path == "build.sh" || FilePath.takeExtension path `elem` staticJitExtensions)
+  FilePath.takeFileName path == "build.sh" || FilePath.takeExtension path `elem` staticJitExtensions
 
 staticJitExtensions :: [String]
 staticJitExtensions =
