@@ -38,14 +38,14 @@ produce its weighted outputs on its owning host. The remaining parity
 gap is cross-host: no single validation host runs Linux oneDNN, NVIDIA
 CUDA, and Apple Metal weighted kernels in one process.
 
-**Met today**: Phase `13` live outputs (Linux CUDA SL convergence
+**Current validation evidence**: Phase `13` live outputs (Linux CUDA SL convergence
 2026-05-29 `778.27s`, PPO/cartpole RL convergence 2026-05-30 `230.72s`,
 weighted inference / `gc.event.<substrate>` / live `jitml-integration`
 12 / 12 Live cohort) are available; Phase `14` Apple Metal weighted
 inference is available from the headless host path; and the
 `linux-cpu` / `linux-cuda` weighted cross-substrate cohort passed the
 Sprint `15.1` in-code tolerance assertion on the Linux/NVIDIA host on
-2026-06-01.
+2026-06-01 and again on 2026-06-03.
 
 ### Current Implementation Scope
 
@@ -177,6 +177,31 @@ authoritatively encode whichever substrate ran the calibration first.
   and the file handoff path using separate `/tmp/jitml-linux-cpu.json`
   and `/tmp/jitml-linux-cuda.json` exports followed by
   `--compare /tmp/jitml-linux-cpu.json,/tmp/jitml-linux-cuda.json`.
+
+### Validation Re-run (2026-06-03)
+
+- Linux/NVIDIA validation passed:
+  `docker compose run --rm jitml cabal test -fcuda jitml-cross-backend --test-options='-p CrossSubstrate'`.
+  The run passed 3 / 3 CrossSubstrate tests: the
+  `linux-cpu` / `linux-cuda` weighted cohort, the conditional
+  `linux-cpu` / `apple-silicon` tolerance assertion, and the over-band
+  perturbation rejection.
+- The image build performed by that validation passed the container-only
+  `jitml check-code` gate before running the test.
+- The host-visible Linux report bundle was regenerated with
+  `docker compose run --rm -v /tmp:/tmp jitml jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu --export /tmp/jitml-linux-cpu.json`.
+  The bundle is `version` 1, `cohort` `sprint-15.1-weighted`, with a
+  single `linux-cpu` report.
+- The Apple export command
+  `docker compose run --rm -v /tmp:/tmp jitml jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json`
+  failed on this Linux host with
+  `invalid config: apple-silicon Metal device not visible: swift=missing device_visible=no`.
+  A follow-up 2026-06-03 validation re-ran the same local
+  `jitml-cross-backend` CrossSubstrate test suite successfully
+  (3 / 3 tests) and re-ran the Apple export gate with the same
+  fail-closed Metal-device preflight result.
+  Sprint `15.1` therefore remains Active until an Apple Metal host
+  produces `/tmp/jitml-apple.json` for the cross-host comparison.
 
 ### Remaining Work
 
