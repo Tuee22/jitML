@@ -9,6 +9,7 @@ module JitML.Cluster.Helm
   , helmInstallSubprocessForEdgePort
   , helmInstallSubprocessForSubstrate
   , helmPhasedRolloutPlan
+  , kindCreateKubeconfigPath
   , kindCreateSubprocess
   , kindDeleteSubprocess
   , phasedReleases
@@ -156,12 +157,16 @@ renderHelmPhasedRolloutPlan :: FilePath -> Text
 renderHelmPhasedRolloutPlan chartPath =
   Text.unlines (fmap renderSubprocess (helmPhasedRolloutPlan chartPath))
 
+kindCreateKubeconfigPath :: Substrate -> FilePath
+kindCreateKubeconfigPath substrate =
+  "/tmp/jitml-kind-create-" <> Text.unpack (renderSubstrate substrate) <> ".kubeconfig"
+
 -- | Sprint 2.9 — typed @kind create cluster@. The previous @sh -c@ wrote a
 -- temp kubeconfig, branched on @kind get clusters@ to either create or just
--- re-export, then copied to @./.build/jitml.kubeconfig@. Kind writes
--- @--kubeconfig@ atomically itself, so the typed single command yields the
--- repo-local kubeconfig directly. A re-run against an existing cluster fails
--- closed; the documented re-run path is @jitml cluster down@ then @up@.
+-- re-export, then copied to @./.build/jitml.kubeconfig@. The typed command now
+-- asks Kind to write its create-time kubeconfig under @/tmp@; the live executor
+-- captures @kind get kubeconfig@ and writes the repo-local kubeconfig itself so
+-- Kind never has to lock a macOS bind-mounted @.build@ path.
 kindCreateSubprocess :: Substrate -> FilePath -> Subprocess
 kindCreateSubprocess substrate kindConfigPath =
   subprocess
@@ -173,7 +178,7 @@ kindCreateSubprocess substrate kindConfigPath =
     , "--config"
     , Text.pack kindConfigPath
     , "--kubeconfig"
-    , "./.build/jitml.kubeconfig"
+    , Text.pack (kindCreateKubeconfigPath substrate)
     ]
 
 -- | Sprint 2.9 — typed @kind delete cluster@. Replaces the prior @sh -c@

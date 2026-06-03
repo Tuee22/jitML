@@ -117,6 +117,8 @@ main =
                 , "render kind/cluster-linux-cpu.yaml"
                 , "prepare Helm dependencies with helm dependency build chart"
                 , "create/export Kind kubeconfig and copy it to ./.build/jitml.kubeconfig"
+                , "raise Kind-node inotify caps for multi-cluster host readiness"
+                , "normalize Percona PV ownership for qemu-run Postgres"
                 , "apply jitml-manual StorageClass and manual PVs"
                 , "install MinIO and Percona storage for Harbor"
                 , "install Harbor bootstrap phase"
@@ -1124,8 +1126,36 @@ main =
               "live rollout creates Kind first"
               ("kind create cluster --name jitml-linux-cpu" `Text.isInfixOf` commandText)
             assertBool
-              "live rollout writes Kind kubeconfig directly to the repo-local path (Sprint 2.9 typed kind create)"
+              "live rollout writes the Kind create-time kubeconfig outside the repo-local bind mount"
+              ("--kubeconfig /tmp/jitml-kind-create-linux-cpu.kubeconfig" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout uses the repo-local kubeconfig for downstream kubectl steps"
               ("--kubeconfig ./.build/jitml.kubeconfig" `Text.isInfixOf` commandText)
+            assertBool
+              "live rollout raises the Kind node inotify cap before Helm waits"
+              ( "docker exec jitml-linux-cpu-control-plane sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_queued_events=65536"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout restarts kube-proxy after the inotify cap is applied"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig delete pod -n kube-system -l k8s-app=kube-proxy --ignore-not-found"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout normalizes Percona PV ownership for qemu-run Postgres"
+              ( "docker exec jitml-linux-cpu-control-plane chown -R 26:26 /jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg-repo1/pv_0/"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout can warm-load the cached Percona operator image before Helm waits"
+              ( "kind load docker-image percona/percona-postgresql-operator:2.5.1 --name jitml-linux-cpu"
+                  `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout can warm-load the cached Harbor component images before Helm waits"
+              ( "kind load docker-image goharbor/harbor-core:v2.12.2 --name jitml-linux-cpu"
+                  `Text.isInfixOf` commandText
+              )
             assertBool
               "live rollout applies manual storage manifests"
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml"
@@ -1190,6 +1220,25 @@ main =
             assertBool
               "live rollout installs MinIO before Harbor so the registry bucket exists"
               ("helm upgrade --install minio chart/charts/minio-14.8.5.tgz" `Text.isInfixOf` beforeHarbor)
+            assertBool
+              "live rollout warm-loads cached third-party images before the first Helm release"
+              ( "kind load docker-image percona/percona-postgresql-operator:2.5.1 --name jitml-linux-cpu"
+                  `Text.isInfixOf` beforeHarbor
+              )
+            assertBool
+              "live rollout applies the inotify cap before the first Helm release"
+              ( "docker exec jitml-linux-cpu-control-plane sysctl -w fs.inotify.max_user_instances=1024"
+                  `Text.isInfixOf` beforeHarbor
+              )
+            let (beforeManualStorage, _fromManualStorage) =
+                  Text.breakOn
+                    "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml"
+                    commandText
+            assertBool
+              "live rollout normalizes Percona PV ownership before applying manual storage"
+              ( "docker exec jitml-linux-cpu-control-plane chown -R 26:26 /jitml/.data/platform/harbor-pg/pv_0/"
+                  `Text.isInfixOf` beforeManualStorage
+              )
             -- Sprint 4.8: the Harbor-registry bucket existence probe moved
             -- from a `mc ls ... >/dev/null` chain in the rendered subprocess
             -- list to typed Haskell IO (`runMinioBucketReadinessIO`).
@@ -1199,6 +1248,16 @@ main =
               "live rollout waits for harbor-pg before installing Harbor"
               ( "wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'"
                   `Text.isInfixOf` beforeHarbor
+              )
+            let postgresReadyWait =
+                  "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready' --timeout=600s"
+                (_beforePostgresReady, fromPostgresReady) = Text.breakOn postgresReadyWait commandText
+                (betweenPostgresReadyAndHarbor, _afterPostgresReadyHarbor) =
+                  Text.breakOn "helm upgrade --install harbor chart/charts/harbor-1.16.2.tgz" fromPostgresReady
+            assertBool
+              "live rollout re-normalizes Percona PV ownership after postgres init and before Harbor"
+              ( "docker exec jitml-linux-cpu-control-plane chown -R 26:26 /jitml/.data/platform/harbor-pg/pv_0/"
+                  `Text.isInfixOf` betweenPostgresReadyAndHarbor
               )
             -- Sprint 2.9: the postgres schema grant moved from an embedded `sh
             -- -c` subprocess to a typed Haskell IO step in

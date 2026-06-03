@@ -4,6 +4,7 @@ module JitML.Cluster.Storage
   ( ManualPV (..)
   , manualPVs
   , pvLocalDataPath
+  , pvNodeDataPath
   , renderManualPV
   , renderStorageClass
   )
@@ -64,7 +65,7 @@ renderManualPV pv =
     , "  persistentVolumeReclaimPolicy: Retain"
     , "  storageClassName: jitml-manual"
     , "  local:"
-    , "    path: " <> pvHostPath pv
+    , "    path: " <> pvNodeDataPath pv
     , "  nodeAffinity:"
     , "    required:"
     , "      nodeSelectorTerms:"
@@ -78,8 +79,8 @@ pvName :: ManualPV -> Text
 pvName pv =
   pvNamespace pv <> "-" <> pvStatefulSet pv <> "-pv-" <> Text.pack (show (pvReplica pv))
 
-pvHostPath :: ManualPV -> Text
-pvHostPath pv =
+pvNodeDataPath :: ManualPV -> Text
+pvNodeDataPath pv =
   "/jitml/.data/"
     <> pvNamespace pv
     <> "/"

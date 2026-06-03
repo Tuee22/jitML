@@ -19,7 +19,7 @@ harbor:
   database:
     type: external
     external:
-      host: harbor-pg-pgbouncer.platform.svc
+      host: harbor-pg-primary.platform.svc
       port: "5432"
       username: harbor
       coreDatabase: harbor

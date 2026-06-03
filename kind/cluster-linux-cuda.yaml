@@ -12,7 +12,7 @@ containerdConfigPatches:
       SystemdCgroup = true
 nodes:
   - role: control-plane
-    image: kindest/node:v1.32.2
+    image: kindest/node:v1.34.0
     extraPortMappings:
       - containerPort: 30090
         hostPort: 9092

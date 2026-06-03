@@ -11,10 +11,11 @@ module JitML.Bootstrap
   )
 where
 
+import Control.Monad (filterM, when)
 import Data.Aeson (FromJSON (..), eitherDecode, encode, withObject, (.:))
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (isPrefixOf, isSuffixOf)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -40,6 +41,7 @@ import JitML.Cluster.Helm
   ( dependencyPackages
   , helmDependencyBuildSubprocess
   , helmInstallSubprocessForEdgePort
+  , kindCreateKubeconfigPath
   , kindCreateSubprocess
   , phasedReleases
   , releaseName
@@ -70,6 +72,7 @@ import JitML.Cluster.Storage
   ( ManualPV (..)
   , manualPVs
   , pvLocalDataPath
+  , pvNodeDataPath
   , renderManualPV
   , renderStorageClass
   )
@@ -92,7 +95,7 @@ import JitML.Sub.Subprocess
   , subprocessPath
   , subprocessWithStdin
   )
-import JitML.Substrate (Substrate (..), renderSubstrate, substrateEdgePort)
+import JitML.Substrate (Substrate (..), renderSubstrate, substrateClusterName, substrateEdgePort)
 
 bootstrapPlanSteps :: Substrate -> [Text]
 bootstrapPlanSteps substrate =
@@ -100,6 +103,8 @@ bootstrapPlanSteps substrate =
   , "render kind/cluster-" <> renderSubstrate substrate <> ".yaml"
   , "prepare Helm dependencies with " <> renderHelmDependencyBuildPlan "chart"
   , "create/export Kind kubeconfig and copy it to ./.build/jitml.kubeconfig"
+  , "raise Kind-node inotify caps for multi-cluster host readiness"
+  , "normalize Percona PV ownership for qemu-run Postgres"
   , "apply jitml-manual StorageClass and manual PVs"
   , "install MinIO and Percona storage for Harbor"
   , "install Harbor bootstrap phase"
@@ -225,15 +230,21 @@ livePhasedRolloutSubprocesses substrate =
 livePreGrantSubprocessesForPort :: Substrate -> Int -> ClusterResources -> FilePath -> [Subprocess]
 livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
   [ kindCreateSubprocess substrate kindConfigPath
+  , kindNodeInotifyCapSubprocess substrate
+  , kubectlRestartPodsByLabelSubprocess "kube-system" "k8s-app=kube-proxy"
+  , kubectlRestartPodsByLabelSubprocess "local-path-storage" "app=local-path-provisioner"
+  , kindNormalizePostgresPvOwnershipSubprocess substrate
   , clusterNodeCapSubprocess substrate resources
   , helmDependencyBuildSubprocess chartPath
   ]
+    <> cachedThirdPartyImageLoadSteps substrate
     <> foundationManifestApplySubprocesses chartPath
     <> concatMap releaseSteps minioBootstrapReleases
     <> Readiness.minioBootstrapReadinessSubprocesses
     <> concatMap releaseSteps postgresOperatorReleases
     <> postgresClusterApplySubprocesses
     <> Readiness.postgresReadinessSubprocesses
+    <> [kindNormalizePostgresPvOwnershipSubprocess substrate]
  where
   kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
   releaseSteps release = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
@@ -277,6 +288,97 @@ mirrorBuildSteps substrate =
     ++ [ dockerTagSubprocess "jitml:local" "jitml-demo:local"
        , kindLoadDockerImageSubprocess substrate "jitml-demo:local"
        ]
+
+-- | Optional warm-cache image loads for third-party chart images. The live
+-- executor filters these out when the image is not present in the host Docker
+-- cache, so first-run behavior still falls back to Kubernetes pulls while
+-- warm hosts avoid Docker Hub rate limits during Helm waits.
+cachedThirdPartyImageLoadSteps :: Substrate -> [Subprocess]
+cachedThirdPartyImageLoadSteps substrate =
+  fmap (kindLoadDockerImageSubprocess substrate) cachedThirdPartyRolloutImages
+
+cachedThirdPartyRolloutImages :: [Text]
+cachedThirdPartyRolloutImages =
+  [ "percona/percona-postgresql-operator:2.5.1"
+  , "percona/percona-postgresql-operator:2.5.1-ppg16.8-postgres"
+  , "percona/percona-postgresql-operator:2.5.1-ppg16.8-pgbackrest2.54.2"
+  , "percona/percona-postgresql-operator:2.5.1-ppg16.8-pgbouncer1.24.0"
+  , "docker.io/bitnamilegacy/minio:2024.11.7-debian-12-r0"
+  , "bitnamilegacy/minio-client:2024.10.29-debian-12-r1"
+  , "apachepulsar/pulsar-all:3.0.7"
+  , "goharbor/harbor-core:v2.12.2"
+  , "goharbor/harbor-jobservice:v2.12.2"
+  , "goharbor/nginx-photon:v2.12.2"
+  , "goharbor/harbor-portal:v2.12.2"
+  , "goharbor/registry-photon:v2.12.2"
+  , "goharbor/harbor-registryctl:v2.12.2"
+  , "goharbor/redis-photon:v2.12.2"
+  , "goharbor/trivy-adapter-photon:v2.12.2"
+  , "docker.io/envoyproxy/gateway:v1.2.6"
+  , "docker.io/envoyproxy/ratelimit:49af5cca"
+  , "docker.io/envoyproxy/envoy:v1.31.4"
+  , "quay.io/kiwigrid/k8s-sidecar:1.30.0"
+  , "docker.io/grafana/grafana:11.6.0"
+  , "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.15.0"
+  , "quay.io/prometheus-operator/prometheus-operator:v0.81.0"
+  , "quay.io/prometheus/prometheus:v3.2.1"
+  , "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.5.2"
+  , "python:3.11-slim"
+  ]
+
+kindNodeInotifyCapSubprocess :: Substrate -> Subprocess
+kindNodeInotifyCapSubprocess substrate =
+  subprocess
+    "docker"
+    [ "exec"
+    , substrateClusterName substrate <> "-control-plane"
+    , "sysctl"
+    , "-w"
+    , "fs.inotify.max_user_instances=1024"
+    , "fs.inotify.max_queued_events=65536"
+    ]
+
+kubectlRestartPodsByLabelSubprocess :: Text -> Text -> Subprocess
+kubectlRestartPodsByLabelSubprocess namespace selector =
+  subprocess
+    "kubectl"
+    [ "--kubeconfig"
+    , "./.build/jitml.kubeconfig"
+    , "delete"
+    , "pod"
+    , "-n"
+    , namespace
+    , "-l"
+    , selector
+    , "--ignore-not-found"
+    ]
+
+kindNormalizePostgresPvOwnershipSubprocess :: Substrate -> Subprocess
+kindNormalizePostgresPvOwnershipSubprocess substrate =
+  subprocess
+    "docker"
+    ( [ "exec"
+      , substrateClusterName substrate <> "-control-plane"
+      , "chown"
+      , "-R"
+      , "26:26"
+      ]
+        <> fmap pvNodeDataPath postgresManualPVs
+    )
+
+postgresManualPVs :: [ManualPV]
+postgresManualPVs =
+  filter isPostgresPV manualPVs
+ where
+  isPostgresPV pv =
+    any
+      ( \cluster ->
+          pvNamespace pv == perconaNamespace cluster
+            && ( pvStatefulSet pv == perconaClusterName cluster
+                   || pvStatefulSet pv == perconaClusterName cluster <> "-repo1"
+               )
+      )
+      postgresRegistry
 
 foundationManifestApplySubprocesses :: FilePath -> [Subprocess]
 foundationManifestApplySubprocesses chartPath =
@@ -457,81 +559,110 @@ liveExecutePhasedRollout substrate chartPath = do
   let publication = publicationWithLeasedPort lease (defaultPublication substrate)
       port = EdgePort.leasedPort lease
   patchLiveMaterialization substrate lease publication
+  prepareKindKubeconfigFiles substrate
   -- Sprint 2.9: skip `helm dependency build` when every subchart `.tgz` is
   -- already present in `chart/charts/` (the previous `sh -c` did this in
   -- shell). The typed subprocess is still in the rendered plan for
   -- visibility; this filter only affects live execution.
   preGrantSubs <-
-    filterHelmDepBuildWhenArchivesPresent
-      chartPath
-      (livePreGrantSubprocessesForPort substrate port resources chartPath)
-  (preExecuted, preFailure) <- runStepList preGrantSubs
-  case preFailure of
-    Just (renderedFail, stderrTxt) ->
-      pure $
-        LiveExecutionResult
-          { liveStepsExecuted = preExecuted
-          , liveStepsFailed = [(renderedFail, stderrTxt)]
-          , livePublication = publication
-          }
-    Nothing -> do
-      bucketsOutcome <- runMinioBucketReadinessIO
-      let bucketsLabel = "minio bucket readiness"
-      case bucketsOutcome of
-        Left err ->
+    filterCachedThirdPartyImageLoads
+      =<< filterHelmDepBuildWhenArchivesPresent
+        chartPath
+        (livePreGrantSubprocessesForPort substrate port resources chartPath)
+  case preGrantSubs of
+    [] -> runAfterPreGrant port publication []
+    kindSub : remainingPreGrantSubs -> do
+      (kindExecuted, kindFailure) <- runStepList [kindSub]
+      case kindFailure of
+        Just (renderedFail, stderrTxt) ->
           pure $
             LiveExecutionResult
-              { liveStepsExecuted = preExecuted <> [bucketsLabel]
-              , liveStepsFailed = [(bucketsLabel, err)]
+              { liveStepsExecuted = kindExecuted
+              , liveStepsFailed = [(renderedFail, stderrTxt)]
               , livePublication = publication
               }
-        Right () -> do
-          grantOutcome <- runPostgresSchemaGrantsIO
-          let grantLabel = "postgres schema grant"
-          case grantOutcome of
+        Nothing -> do
+          kubeconfigOutcome <- writeKindKubeconfigIO substrate
+          let kubeconfigLabel = "kind kubeconfig export"
+          case kubeconfigOutcome of
             Left err ->
               pure $
                 LiveExecutionResult
-                  { liveStepsExecuted = preExecuted <> [bucketsLabel, grantLabel]
-                  , liveStepsFailed = [(grantLabel, err)]
+                  { liveStepsExecuted = kindExecuted <> [kubeconfigLabel]
+                  , liveStepsFailed = [(kubeconfigLabel, err)]
                   , livePublication = publication
                   }
             Right () -> do
-              postGrantSubs <-
-                filterDockerBuildWhenImageExists
-                  (livePostGrantSubprocessesForPort substrate port chartPath)
-              (postExecuted, postFailure) <- runStepList postGrantSubs
-              let prePostExecuted = preExecuted <> [bucketsLabel, grantLabel] <> postExecuted
-              case postFailure of
+              (preRestExecuted, preFailure) <- runStepList remainingPreGrantSubs
+              let preExecuted = kindExecuted <> [kubeconfigLabel] <> preRestExecuted
+              case preFailure of
                 Just (renderedFail, stderrTxt) ->
                   pure $
                     LiveExecutionResult
-                      { liveStepsExecuted = prePostExecuted
+                      { liveStepsExecuted = preExecuted
                       , liveStepsFailed = [(renderedFail, stderrTxt)]
                       , livePublication = publication
                       }
-                Nothing -> do
-                  topicsOutcome <- runPulsarTopicCreatesIO
-                  let topicsLabel = "pulsar topic create"
-                      allExecuted = prePostExecuted <> [topicsLabel]
-                  case topicsOutcome of
-                    Left err ->
-                      pure $
-                        LiveExecutionResult
-                          { liveStepsExecuted = allExecuted
-                          , liveStepsFailed = [(topicsLabel, err)]
-                          , livePublication = publication
-                          }
-                    Right () -> do
-                      measuredPublication <- measureLivePublication publication
-                      _ <- writeLivePublication "." measuredPublication
-                      pure $
-                        LiveExecutionResult
-                          { liveStepsExecuted = allExecuted
-                          , liveStepsFailed = []
-                          , livePublication = measuredPublication
-                          }
+                Nothing -> runAfterPreGrant port publication preExecuted
  where
+  runAfterPreGrant port publication preExecuted = do
+    bucketsOutcome <- runMinioBucketReadinessIO
+    let bucketsLabel = "minio bucket readiness"
+    case bucketsOutcome of
+      Left err ->
+        pure $
+          LiveExecutionResult
+            { liveStepsExecuted = preExecuted <> [bucketsLabel]
+            , liveStepsFailed = [(bucketsLabel, err)]
+            , livePublication = publication
+            }
+      Right () -> do
+        grantOutcome <- runPostgresSchemaGrantsIO
+        let grantLabel = "postgres schema grant"
+        case grantOutcome of
+          Left err ->
+            pure $
+              LiveExecutionResult
+                { liveStepsExecuted = preExecuted <> [bucketsLabel, grantLabel]
+                , liveStepsFailed = [(grantLabel, err)]
+                , livePublication = publication
+                }
+          Right () -> do
+            postGrantSubs <-
+              filterDockerBuildWhenImageExists
+                (livePostGrantSubprocessesForPort substrate port chartPath)
+            (postExecuted, postFailure) <- runStepList postGrantSubs
+            let prePostExecuted = preExecuted <> [bucketsLabel, grantLabel] <> postExecuted
+            case postFailure of
+              Just (renderedFail, stderrTxt) ->
+                pure $
+                  LiveExecutionResult
+                    { liveStepsExecuted = prePostExecuted
+                    , liveStepsFailed = [(renderedFail, stderrTxt)]
+                    , livePublication = publication
+                    }
+              Nothing -> do
+                topicsOutcome <- runPulsarTopicCreatesIO
+                let topicsLabel = "pulsar topic create"
+                    allExecuted = prePostExecuted <> [topicsLabel]
+                case topicsOutcome of
+                  Left err ->
+                    pure $
+                      LiveExecutionResult
+                        { liveStepsExecuted = allExecuted
+                        , liveStepsFailed = [(topicsLabel, err)]
+                        , livePublication = publication
+                        }
+                  Right () -> do
+                    measuredPublication <- measureLivePublication publication
+                    _ <- writeLivePublication "." measuredPublication
+                    pure $
+                      LiveExecutionResult
+                        { liveStepsExecuted = allExecuted
+                        , liveStepsFailed = []
+                        , livePublication = measuredPublication
+                        }
+
   runStepList :: [Subprocess] -> IO ([Text], Maybe (Text, Text))
   runStepList = go []
    where
@@ -541,8 +672,37 @@ liveExecutePhasedRollout substrate chartPath = do
       (exitCode, _stdout, stderrText) <- runStreaming defaultSubprocessEnv subprocessValue
       case exitCode of
         ExitSuccess -> go (rendered : executed) rest
+        ExitFailure _
+          | isCachedThirdPartyImageLoad subprocessValue ->
+              go ((rendered <> " (optional warm-cache load skipped)") : executed) rest
         ExitFailure _ ->
           pure (reverse (rendered : executed), Just (rendered, stderrText))
+
+prepareKindKubeconfigFiles :: Substrate -> IO ()
+prepareKindKubeconfigFiles substrate = do
+  createDirectoryIfMissing True ".build"
+  removeIfExists (".build" </> "jitml.kubeconfig.lock")
+  removeIfExists (kindCreateKubeconfigPath substrate <> ".lock")
+ where
+  removeIfExists path = do
+    pathExists <- doesFileExist path
+    when pathExists (removeFile path)
+
+writeKindKubeconfigIO :: Substrate -> IO (Either Text ())
+writeKindKubeconfigIO substrate = do
+  (exitCode, stdoutText, stderrText) <-
+    runStreaming
+      defaultSubprocessEnv
+      (subprocess "kind" ["get", "kubeconfig", "--name", substrateClusterName substrate])
+  case exitCode of
+    ExitFailure _ -> pure (Left ("kind get kubeconfig: " <> stderrText))
+    ExitSuccess ->
+      if Text.null (Text.strip stdoutText)
+        then pure (Left "kind get kubeconfig: empty kubeconfig")
+        else do
+          createDirectoryIfMissing True ".build"
+          Text.IO.writeFile (".build" </> "jitml.kubeconfig") stdoutText
+          pure (Right ())
 
 -- | Sprint 2.9 — replaces the original @sh -c "if test -f ...; then exit 0;
 -- else helm dependency build ...; fi"@ heuristic with a typed Haskell
@@ -564,6 +724,26 @@ filterHelmDepBuildWhenArchivesPresent chartPath subs = do
   isHelmDepBuild s =
     subprocessPath s == "helm"
       && take 2 (subprocessArguments s) == ["dependency", "build"]
+
+filterCachedThirdPartyImageLoads :: [Subprocess] -> IO [Subprocess]
+filterCachedThirdPartyImageLoads =
+  filterM keep
+ where
+  keep sub =
+    case cachedThirdPartyImageFromLoad sub of
+      Nothing -> pure True
+      Just tag -> imageExistsLocally tag
+
+cachedThirdPartyImageFromLoad :: Subprocess -> Maybe Text
+cachedThirdPartyImageFromLoad sub =
+  case subprocessArguments sub of
+    ["load", "docker-image", tag, "--name", _]
+      | subprocessPath sub == "kind" && tag `elem` cachedThirdPartyRolloutImages ->
+          Just tag
+    _ -> Nothing
+
+isCachedThirdPartyImageLoad :: Subprocess -> Bool
+isCachedThirdPartyImageLoad = isJust . cachedThirdPartyImageFromLoad
 
 -- | Sprint 13.1 (re-verification) — skip in-bootstrap @docker build -t jitml:local@
 -- when the host Docker daemon already has the @jitml:local@ tag. The

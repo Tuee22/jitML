@@ -8,7 +8,7 @@ externalURL: http://127.0.0.1:9090
 database:
   type: external
   external:
-    host: harbor-pg-pgbouncer.platform.svc
+    host: harbor-pg-primary.platform.svc
     port: "5432"
     username: harbor
     coreDatabase: harbor

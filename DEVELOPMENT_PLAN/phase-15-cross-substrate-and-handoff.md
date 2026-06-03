@@ -31,12 +31,12 @@ live report card surfaces real measurements), plus the cross-cohort
 slice of `jitml-cross-backend` (Sprint 12.6) and the live report-card
 slice of `jitml test all` (Sprint 12.9).
 
-**Blocked by**: Sprint `15.2`'s live-cluster report-card run and the
-remaining legacy-ledger rows owned by external/upstream or live-runtime
-surfaces. Phase `13` closed 2026-05-30 (15 / 15 sprints Done) and
-Phase `14` closed 2026-05-31 (5 / 5 sprints Done), so each substrate
-can produce its weighted outputs on its owning host; Sprint `15.1`
-closed the cross-host Linux/Apple report-bundle comparison on
+**Blocked by**: Sprint `15.2`'s clean full-aggregate live report-card
+run and the remaining legacy-ledger rows owned by external/upstream or
+live-runtime surfaces. Phase `13` closed 2026-05-30 (15 / 15 sprints
+Done) and Phase `14` closed 2026-05-31 (5 / 5 sprints Done), so each
+substrate can produce its weighted outputs on its owning host; Sprint
+`15.1` closed the cross-host Linux/Apple report-bundle comparison on
 2026-06-03.
 
 **Current validation evidence**: Phase `13` live outputs (Linux CUDA SL convergence
@@ -49,7 +49,14 @@ the `linux-cpu` / `linux-cuda` weighted cross-substrate cohort passed
 the Sprint `15.1` in-code tolerance assertion on the Linux/NVIDIA host
 on 2026-06-01 and again on 2026-06-03. The 2026-06-03 Linux/Apple
 report-bundle comparison passed across all eight weighted tensor
-families against the same in-code tolerance table.
+families against the same in-code tolerance table. The 2026-06-03 Apple
+live bootstrap now reaches a healthy published cluster after the
+Kind-node inotify-cap and Percona PV-ownership fixes; the edge
+`/healthz`, `/readyz`, and `/metrics` routes return `200`, and targeted
+live integration reruns passed the StartRLRun event-dispatch smoke case
+and the PPO/cartpole convergence case. The full `jitml test all --live`
+aggregate still needs a clean rerun to capture the final populated
+report card.
 
 ### Current Implementation Scope
 
@@ -289,28 +296,45 @@ Closes Exit Definition item 9's live report-card slice.
    gate reported `check-code: ok`, and the web bundle build completed
    with the existing PureScript `runSpec` deprecation warning only.
 6. A live Apple Silicon bootstrap/report-card attempt on 2026-06-03
-   used the freshly built `jitml:local` image with host networking
-   (`docker run --rm --network host -v /var/run/docker.sock:/var/run/docker.sock jitml:local sh -lc 'jitml bootstrap --apple-silicon && jitml test all --live'`).
-   The run created the Kind control plane, reached the phased Helm
-   rollout, and then failed at `harbor-pg` because Docker Hub returned
-   unauthenticated pull-rate `429 Too Many Requests` for
-   `percona/percona-postgresql-operator:2.5.1`; Helm exited with
-   `context deadline exceeded`. The partial `jitml-apple-silicon`
-   Kind cluster was deleted after the failed validation.
-7. `docker run --rm -v "$PWD:/work" -w /work jitml:local jitml check-code`
-   passed on 2026-06-03 after the final Phase `15` plan and ledger
-   updates.
+   used the rebuilt `jitml:local` image with host networking and a
+   repo-local Cabal build directory:
+   `docker run --rm --name jitml-phase15-live --network host -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:$PWD" -w "$PWD" jitml:local sh -lc 'mkdir -p /tmp/jitml-cache && export XDG_CACHE_HOME=/tmp/jitml-cache && cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- bootstrap --apple-silicon && cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- test all --live'`.
+   Bootstrap completed and reported `bootstrap: live phased rollout
+   executed 85 steps`; the generated
+   `.build/runtime/cluster-publication.json` reported Harbor, MinIO,
+   Pulsar, PostgreSQL, observability, `jitml-service`, and `jitml-demo`
+   as ready on `edge_port` `9090`. The subsequent aggregate
+   `jitml test all --live` reached the Cabal test fan-out but exited `1`
+   because `jitml-integration` failed in that aggregate run; this keeps
+   Sprint `15.2` Active until the full aggregate is rerun cleanly and
+   the report card is captured.
+7. The same live cluster's edge routes were validated on 2026-06-03:
+   `curl -sS -i http://127.0.0.1:9090/healthz` returned `200` with
+   body `ok`; `/readyz` returned `200` with body `ready`; `/metrics`
+   returned `200` Prometheus text including `jitml_jit_cache_hits 1`,
+   `jitml_jit_cache_misses 0`, and `jitml_pulsar_consumer_lag 0`.
+8. Targeted live integration reruns against the published cluster passed
+   after the aggregate failure was isolated: the StartRLRun dispatch
+   smoke case passed in `1.78s`, and the PPO/cartpole convergence case
+   passed in `205.83s`. The PPO worker Job `jitml-rl-livecv1780529861`
+   completed with `episodes: 200` and `avg-reward:
+   658.4104921102621`, clearing the in-code threshold.
+9. `docker run --rm -v "$PWD:/work" -w /work jitml:local jitml check-code`
+   passed on 2026-06-03 after the Phase `15` source edits preceding
+   this documentation refresh.
 
 ### Remaining Work
 
-- Run full `jitml test all --live` against an up cluster with the live
-  SL/RL/AlphaZero/tune, daemon, cache, and cross-substrate sources
-  reachable, then record the non-empty measured fields here. The next
-  attempt needs registry pull access or a cached mirror for
-  `percona/percona-postgresql-operator:2.5.1` so the `harbor-pg`
-  operator can roll out.
-- Validate the new `/healthz`, `/readyz`, and `/metrics` edge routes
-  against the live published cluster after the chart is applied.
+- Rerun the full aggregate `jitml test all --live` against the current
+  live Apple Silicon cluster or a fresh equivalent cluster, with the
+  live SL/RL/AlphaZero/tune, daemon, cache, and cross-substrate sources
+  reachable. The previous aggregate reached the live Cabal fan-out and
+  then exited `1` in `jitml-integration`; targeted reruns for the
+  StartRLRun and PPO/cartpole convergence cases now pass, so the next
+  session should rerun the aggregate and capture the final report card
+  rather than re-debugging rollout.
+- Record the populated non-empty report-card measured fields here after
+  the clean aggregate pass.
 
 ## Sprint 15.3: Empty Legacy Ledger and Final Handoff ⏸️
 

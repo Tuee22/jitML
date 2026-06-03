@@ -116,7 +116,7 @@ RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
     && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
     && rm -f /tmp/node.tar.xz \
     && npm install -g purescript spago purs-tidy \
-    && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.32.2/bin/linux/${tool_arch}/kubectl" \
+    && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.34.0/bin/linux/${tool_arch}/kubectl" \
     && chmod 0755 /usr/local/bin/kubectl \
     && curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
     && curl -fsSL -o /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-${tool_arch}" \

@@ -24,7 +24,7 @@ data KindConfig = KindConfig
   deriving stock (Eq, Show)
 
 defaultKindestNodeImage :: Text
-defaultKindestNodeImage = "kindest/node:v1.32.2"
+defaultKindestNodeImage = "kindest/node:v1.34.0"
 
 kindConfigFor :: Substrate -> KindConfig
 kindConfigFor substrate =

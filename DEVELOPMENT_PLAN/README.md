@@ -390,10 +390,12 @@ owned by Phase `13` below.
    added daemon edge telemetry probes for cache and health fields,
    removed three local cleanup residues, produced the Apple weighted
    bundle, and passed the Linux/Apple report-bundle comparison;
-   the rebuilt `jitml:local` image passed `jitml check-code`. The
-   live-cluster report-card run remains open after a 2026-06-03 Apple
-   bootstrap attempt was blocked by Docker Hub pull-rate limiting on
-   `percona/percona-postgresql-operator:2.5.1`; scoped `allow-newer`,
+   the rebuilt `jitml:local` image passed `jitml check-code`. A
+   2026-06-03 Apple live bootstrap now reaches a healthy published
+   cluster and validates `/healthz`, `/readyz`, `/metrics`, StartRLRun
+   dispatch, and PPO/cartpole convergence; the full
+   `jitml test all --live` aggregate still needs a clean rerun to
+   capture the populated report card. Scoped `allow-newer`,
    demo-placeholder, and ALE-stub rows also remain open.
 
 The full machine-affinity mapping of each historical live-runtime
@@ -535,10 +537,12 @@ round-trip through two running daemon processes. Phase `15` stays `🔄 Active`
 because the live-cluster report-card run and final legacy-ledger rows remain;
 Sprint `15.1` is `✅ Done` after the 2026-06-03 Linux/Apple report-bundle
 comparison passed. The 2026-06-03 `jitml:local` rebuild passed the
-container-only `jitml check-code` gate; the same-day live Apple bootstrap
-attempt reached the `harbor-pg` Helm rollout and then blocked on Docker Hub
-`429 Too Many Requests` while pulling
-`percona/percona-postgresql-operator:2.5.1`.
+container-only `jitml check-code` gate. The same-day live Apple bootstrap
+now completes to a healthy published cluster after the Kind-node
+inotify-cap and Percona PV-ownership fixes; edge `/healthz`, `/readyz`,
+and `/metrics` return `200`, and targeted live integration reruns pass
+StartRLRun dispatch plus PPO/cartpole convergence. The full
+`jitml test all --live` aggregate remains the open Sprint `15.2` gate.
 Phases `0`, `1`, `3`, `4`, `6`, and `8`–`13` remain `✅ Done` on their owned
 surfaces — none of the headless-Metal obligations change them; the toolchain-pin
 wording is a harmony edit in `README.md` / `system-components.md`, not a reopen. The
@@ -616,11 +620,12 @@ provides ephemeral `--export` / `--compare` report bundles for the
 multi-host handoff, the 2026-06-03 Apple host export produced all eight
 weighted tensor families, and the 2026-06-03 Linux/Apple report-bundle
 comparison passed every weighted family against the in-code tolerance
-table. `jitml test all --live` has landed but still needs full
-live-cluster execution after registry pull access is available; the
-2026-06-03 `jitml:local` rebuild passed `jitml check-code`, and the
-first live Apple bootstrap attempt blocked on Docker Hub `429 Too Many
-Requests` for `percona/percona-postgresql-operator:2.5.1`. The legacy
+table. `jitml test all --live` has landed, the Apple live cluster now
+publishes healthy `/healthz`, `/readyz`, and `/metrics` edge routes, and
+targeted live integration reruns pass StartRLRun dispatch plus
+PPO/cartpole convergence; the full aggregate report-card run still needs
+a clean rerun and measured-field capture. The 2026-06-03 `jitml:local`
+rebuild passed `jitml check-code`. The legacy
 ledger retains the scoped `allow-newer`, demo-placeholder, and
 ALE-stub rows (see that phase's Remaining Work blocks).
 See
