@@ -140,6 +140,18 @@ declarations.
 - Current `src/JitML/RL/Environments.hs` provides local metadata and a
   deterministic step helper for cartpole, mountain-car, lunar-lander, and an
   atari-subset row.
+- `atari-subset` currently routes through the ledger-tracked deterministic
+  128-byte RAM-state stub in `src/JitML/RL/Simulator.hs`. Reopened Phase `8`
+  Sprint `8.8` owns the real ALE replacement: build ALE from a pinned upstream
+  tag or source SHA inside `jitml:local`, expose only a small C ABI shim to
+  Haskell (`create`, `destroy`, `load_rom`, `reset`, `act`, `game_over`,
+  `get_ram`, `get_screen`, `legal_actions`, `seed`), place the Haskell adapter
+  behind `JitML.RL.ALE`, and keep ROM bytes out of the repository. Mandatory
+  tests need either a verified redistributable test ROM or an explicit ignored
+  user-provided ROM path/object; commercial Atari ROMs must not be committed.
+  The stub moves to test-only scope or is deleted once the ALE path validates
+  same-seed determinism, legal actions, RAM/screen dimensions, and a short
+  daemon-backed episode.
 
 ### Buffers
 

@@ -1,15 +1,13 @@
 import { test, expect } from "@playwright/test";
 import * as fs from "fs";
 
-// Canonical panel matrix for the demo bundle. Each test prefers the live
-// `jitml-demo` HTTP server (read from
-// `./.build/runtime/cluster-publication.json`) when a cluster is up;
-// otherwise it falls back to the previous `page.setContent` DOM stub so
-// the matrix continues to exercise the locator surface offline.
+// Canonical live panel matrix for the demo bundle. Each test reads the
+// published live `jitml-demo` edge from
+// `./.build/runtime/cluster-publication.json` and navigates through the
+// real browser bundle.
 //
-// Sprint 13.14 — live edge selection. The fallback stays for the
-// pre-cluster development inner loop and for CI environments without
-// Docker/Kind. The fully-live path is owned by the typed
+// Sprint 15.3 — the previous inline DOM fallback is retired; this matrix
+// now requires the typed
 // `JitML.Test.LivePlan` orchestration that drives `helm dependency
 // build chart` + `jitml bootstrap` (ephemeral Kind + phased Helm
 // rollout) + `npx playwright test` + `jitml cluster down`.
@@ -19,129 +17,81 @@ interface ClusterPublication {
   substrate: string;
 }
 
-function loadLiveEdge(): string | null {
+function loadLiveEdge(): string {
   const path = "./.build/runtime/cluster-publication.json";
   if (!fs.existsSync(path)) {
-    return null;
+    throw new Error("live demo Playwright requires ./.build/runtime/cluster-publication.json");
   }
   try {
     const raw = fs.readFileSync(path, "utf-8");
     const parsed = JSON.parse(raw) as ClusterPublication;
     if (typeof parsed.edge_port !== "number") {
-      return null;
+      throw new Error("cluster-publication.json is missing numeric edge_port");
     }
     return `http://127.0.0.1:${parsed.edge_port}/`;
-  } catch (_) {
-    return null;
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error("failed to read cluster-publication.json");
   }
 }
 
 const LIVE_DEMO_URL = loadLiveEdge();
 
+async function loadShell(page: import("@playwright/test").Page): Promise<void> {
+  await page.goto(LIVE_DEMO_URL);
+  await page
+    .locator("main#app")
+    .waitFor({ state: "attached", timeout: 10000 });
+}
+
 async function loadPanel(
   page: import("@playwright/test").Page,
-  inlineStub: string,
   panelId: string
 ): Promise<void> {
-  if (LIVE_DEMO_URL) {
-    // `Main.main` mounts the panel selected by `location.hash`; the bare
-    // demo URL mounts only the MNIST panel, so each test navigates to its
-    // own `#<panel-id>` hash to drive the matching `Panels.*` mount
-    // (Sprint 13.13 + 13.14). The Halogen render machinery populates
-    // `#<panel-id>` inside `<main id="app">` once mounted.
-    await page.goto(`${LIVE_DEMO_URL}#${panelId}`);
-    await page
-      .locator(`#${panelId}`)
-      .waitFor({ state: "attached", timeout: 10000 });
-  } else {
-    await page.setContent(inlineStub);
-  }
+  // `Main.main` mounts the panel selected by `location.hash`; the bare
+  // demo URL mounts only the MNIST panel, so each test navigates to its
+  // own `#<panel-id>` hash to drive the matching `Panels.*` mount.
+  await page.goto(`${LIVE_DEMO_URL}#${panelId}`);
+  await page
+    .locator(`#${panelId}`)
+    .waitFor({ state: "attached", timeout: 10000 });
 }
 
 test("demo shell responds", async ({ page }) => {
-  await loadPanel(page, "<main id=\"app\">jitML demo</main>", "app");
-  if (LIVE_DEMO_URL) {
-    await expect(page.locator("main#app")).toBeVisible();
-  } else {
-    await expect(page.locator("#app")).toContainText("jitML demo");
-  }
+  await loadShell(page);
+  await expect(page.locator("main#app")).toBeAttached();
+  await expect(page.locator("#mnist-live-inference")).toBeVisible();
 });
 
 test("mnist panel renders an inference canvas", async ({ page }) => {
-  await loadPanel(
-    page,
-    "<main id=\"app\"><section id=\"mnist-live-inference\"><canvas id=\"draw\"></canvas></section></main>",
-    "mnist-live-inference"
-  );
-  if (LIVE_DEMO_URL) {
-    await expect(page.locator("#mnist-live-inference")).toBeVisible();
-    await expect(page.locator("#mnist-live-inference canvas")).toHaveCount(1);
-  } else {
-    await expect(page.locator("section#mnist-live-inference canvas#draw")).toHaveCount(1);
-  }
+  await loadPanel(page, "mnist-live-inference");
+  await expect(page.locator("#mnist-live-inference")).toBeVisible();
+  await expect(page.locator("#mnist-live-inference canvas")).toHaveCount(1);
 });
 
 test("cifar panel renders an upload control", async ({ page }) => {
-  await loadPanel(
-    page,
-    "<main id=\"app\"><section id=\"cifar-imagenet-upload\"><input type=\"file\" id=\"image\"></section></main>",
-    "cifar-imagenet-upload"
-  );
-  if (LIVE_DEMO_URL) {
-    await expect(page.locator("#cifar-imagenet-upload")).toBeVisible();
-  } else {
-    await expect(page.locator("section#cifar-imagenet-upload input[type=file]")).toHaveCount(1);
-  }
+  await loadPanel(page, "cifar-imagenet-upload");
+  await expect(page.locator("#cifar-imagenet-upload")).toBeVisible();
 });
 
 test("connect4 panel renders the board", async ({ page }) => {
-  await loadPanel(
-    page,
-    "<main id=\"app\"><section id=\"connect4-human-vs-alphazero\"><div class=\"board\"></div></section></main>",
-    "connect4-human-vs-alphazero"
-  );
-  if (LIVE_DEMO_URL) {
-    await expect(page.locator("#connect4-human-vs-alphazero")).toBeVisible();
-  } else {
-    await expect(page.locator("section#connect4-human-vs-alphazero .board")).toHaveCount(1);
-  }
+  await loadPanel(page, "connect4-human-vs-alphazero");
+  await expect(page.locator("#connect4-human-vs-alphazero")).toBeVisible();
 });
 
 test("rl panel renders an episode timeline", async ({ page }) => {
-  await loadPanel(
-    page,
-    "<main id=\"app\"><section id=\"rl-trajectory\"><ol class=\"episodes\"></ol></section></main>",
-    "rl-trajectory"
-  );
-  if (LIVE_DEMO_URL) {
-    await expect(page.locator("#rl-trajectory")).toBeVisible();
-  } else {
-    await expect(page.locator("section#rl-trajectory ol.episodes")).toHaveCount(1);
-  }
+  await loadPanel(page, "rl-trajectory");
+  await expect(page.locator("#rl-trajectory")).toBeVisible();
 });
 
 test("training panel renders a loss curve", async ({ page }) => {
-  await loadPanel(
-    page,
-    "<main id=\"app\"><section id=\"training-progress\"><svg class=\"loss\"></svg></section></main>",
-    "training-progress"
-  );
-  if (LIVE_DEMO_URL) {
-    await expect(page.locator("#training-progress")).toBeVisible();
-  } else {
-    await expect(page.locator("section#training-progress svg.loss")).toHaveCount(1);
-  }
+  await loadPanel(page, "training-progress");
+  await expect(page.locator("#training-progress")).toBeVisible();
 });
 
 test("tune panel renders the trial heatmap", async ({ page }) => {
-  await loadPanel(
-    page,
-    "<main id=\"app\"><section id=\"hyperparameter-sweep\"><table class=\"trials\"></table></section></main>",
-    "hyperparameter-sweep"
-  );
-  if (LIVE_DEMO_URL) {
-    await expect(page.locator("#hyperparameter-sweep")).toBeVisible();
-  } else {
-    await expect(page.locator("section#hyperparameter-sweep table.trials")).toHaveCount(1);
-  }
+  await loadPanel(page, "hyperparameter-sweep");
+  await expect(page.locator("#hyperparameter-sweep")).toBeVisible();
 });

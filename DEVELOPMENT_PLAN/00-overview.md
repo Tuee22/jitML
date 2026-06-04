@@ -97,17 +97,19 @@ fingerprint includes `artifact-abi=<os>-<arch>` and `reduction-block=256` so
 host/container artifacts and fixed reduction-block changes do not collide in
 the shared cache. `JitML.Engines.OneDnnRuntime` probes `pkg-config` package
 metadata, readable oneDNN headers, and dynamic-linker `libdnnl` visibility
-through typed subprocesses for the production Linux CPU path. CUDA generated
-source and guarded local loader plumbing are present, while live Linux CUDA
-GPU-host execution remains Phase `7` Active work alongside Apple Metal loading.
+through typed subprocesses for the production Linux CPU path. CUDA and Apple
+Metal execution are validated through the Phase `13` / Phase `14` live closure
+paths; Phase `15` consumes their weighted outputs for parity and final handoff.
 
 The SL/RL surfaces ship today as deterministic catalogs and summaries:
 canonical SL cells, RL algorithm rows, deterministic trajectory generation,
 AlphaZero Connect 4 helpers, text command-envelope parsers for the current
 training/RL/tuning proto mirrors, and hyperparameter trial sequences. Real
 daemon-backed SL/RL/AlphaZero training loops, real env stepping, real
-checkpoint persistence, and Pulsar/MinIO-backed hyperparameter sweeps are
-owned by Phase `8` and Phase `9`'s Active sprints.
+checkpoint persistence, and Pulsar/MinIO-backed hyperparameter sweeps migrated
+to Phases `13` / `14` / `15` during the 2026-05-24 refactor. The only reopened
+SL/RL framework obligation is Phase `8` Sprint `8.8`'s real ALE replacement for
+the deterministic `atari-subset` stand-in.
 The checked-in `experiments/mnist-tune.dhall` file carries the
 `Some Tuning::{ ... }` fixture using a TPE sampler; the current Haskell catalog
 in `src/JitML/Tune/Catalog.hs` includes the full target sampler set (`Grid`,
@@ -131,9 +133,9 @@ minimal PureScript entrypoint, generated contract file from
 `src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route metadata from
 `src/JitML/Web/Bundle.hs`, and the `jitml-demo` HTTP server in
 `src/JitML/Web/Server.hs`; the typed demo route manifest covers the full
-current local API route family. Checkpoint-store validation through the live MinIO
-client, real kernel-handle loading, and the compiled Halogen bundle + live
-WebSocket proxy are owned by Phase `10` and Phase `11`'s Active sprints.
+current local API route family. The live frontend handoff now requires the
+compiled browser bundle and live WebSocket routes; Phase `15` retired the demo
+placeholder and local stream fallbacks on 2026-06-04.
 
 `jitml test all --dry-run` renders the aggregate test plan and non-dry-run
 `jitml test all` invokes every test-only Cabal test-suite stanza (`jitml-unit`,
@@ -143,8 +145,9 @@ WebSocket proxy are owned by Phase `10` and Phase `11`'s Active sprints.
 report-card summary. Style and code-quality gates run separately through
 `jitml lint *` and `jitml check-code`. The
 report-card knobs are pinned in `cabal.project`. `jitml test all --live`
-adds the live measured report-card fields; the current open gate is
-Sprint `15.2`'s clean full-aggregate live run and measured-field capture.
+adds the live measured report-card fields; the 2026-06-04 fresh Apple
+live validation passed the full aggregate and captured populated RL,
+AlphaZero, tune, JIT-cache, and daemon-health measurements.
 
 Haskell style and code-quality execution is container-exclusive. The
 `jitml:local` image is required on every substrate, including Apple Silicon for
@@ -453,10 +456,11 @@ moves to Done and the legacy ledger is empty.
   suite, the canonical seven-test Playwright matrix at
   `playwright/jitml-demo.spec.ts`, `jitml-demo` executable shim,
   `src/JitML/Web/Server.hs` HTTP serving, and demo deployment template.
-  The Halogen mount machinery, compiled bundle output, live REST/WS
-  proxying against real daemon Pulsar topics, `purescript-spec` execution,
-  and Playwright against the live edge route rather than inline DOM stubs
-  are owned by Sprints `11.3` / `11.4` / `11.5` / `11.6`'s Remaining Work.
+  The Halogen mount machinery, compiled bundle output, and
+  `purescript-spec` execution landed in Sprints `11.3` / `11.4` /
+  `11.5`; the live REST/WS proxy and live-edge Playwright surfaces
+  later closed in Phase `13`, and Phase `15` removed the offline
+  fallback paths.
   The default `purs-tidy check 'src/**/*.purs'` invocation in `web/` lands
   through `jitml lint purescript` (Sprint `11.3`). Phase:
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
@@ -797,7 +801,7 @@ each constraint.
 | 12 | Phase 11 | The eight Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
 | 13 | Phase 12 | The Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure consumes every code-surface obligation from Phases `1`–`12` and exercises them through one Linux/NVIDIA session against an ephemeral Kind cluster |
 | 14 | Phase 12 | The headless Apple Silicon Metal JIT (host CommandLineTools `swift build` + runtime `MTLDevice.makeLibrary(source:)` shader compilation, no Tart VM), Metal FFI, host↔cluster RPC, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
-| 15 | Phase 13, Phase 14 | Cross-substrate parity cohort, populated live `jitml test all` report card, and the empty legacy ledger require live outputs from both Phase `13` (Linux CUDA) and Phase `14` (Apple Silicon); the 2026-06-03 Apple weighted bundle, Linux/Apple report-bundle comparison, `--live` code surface, container `jitml check-code` gate, live Apple cluster publication, edge `/healthz` / `/readyz` / `/metrics` validation, and targeted StartRLRun + PPO/cartpole convergence reruns are present, while the clean full-aggregate `jitml test all --live` report-card capture and remaining ledger rows stay open |
+| 15 | Phase 13, Phase 14, reopened Phase 1 Sprint `1.10`, reopened Phase 8 Sprint `8.8` | Cross-substrate parity cohort, populated live `jitml test all` report card, and the empty legacy ledger require live outputs from both Phase `13` (Linux CUDA) and Phase `14` (Apple Silicon); the 2026-06-03 Apple weighted bundle, Linux/Apple report-bundle comparison, `--live` code surface, container `jitml check-code` gate, the 2026-06-04 fresh Apple live full-aggregate `jitml test all --live` report-card pass, and the demo-placeholder cleanup are present, while the scoped `allow-newer` and ALE-stub ledger rows stay open through the reopened owner sprints |
 
 ## Status Vocabulary
 
@@ -813,9 +817,12 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0`–`14` are `✅ Done` — every Exit-Definition obligation those phases
-own is met. Phase `15` (cross-substrate parity + final handoff) is
-`🔄 Active`. Phases `2`, `3`, `4`, and `5`
+Phases `0`, `2`–`7`, and `9`–`14` are `✅ Done` — every Exit-Definition
+obligation those phases own is met. Phases `1` and `8` reopened on
+2026-06-04 only for the scoped `allow-newer` and real-ALE cleanup gates,
+respectively; their original code surfaces remain closed. Phase `15`
+(cross-substrate parity + final handoff) is `🔄 Active` until those two
+ledger rows move to Completed. Phases `2`, `3`, `4`, and `5`
 **reopened then re-closed on 2026-05-29** after four workstreams hardening
 the cluster against host exhaustion and aligning run configuration and
 subprocess control-flow with project doctrine landed: the Dhall
@@ -867,10 +874,10 @@ validation host. Phases `8` (supervised learning + RL framework),
 `12` (test stanzas, lint matrix, cross-cluster parity) closed on
 2026-05-25 — every owned code-surface obligation landed in the worktree;
 each phase's live obligations migrated to Phases `13` / `14` / `15`.
-Phase `8` Sprint `8.3` (lunar-lander + atari-subset simulators) closed
-through pure-Haskell ports in `src/JitML/RL/Simulator.hs` rather than
-Box2D / ALE FFI, matching the README's "native Haskell envs are
-allowed" envelope and the jitML determinism contract.
+Phase `8` Sprint `8.3` (lunar-lander + atari-subset simulators) originally
+closed through pure-Haskell ports in `src/JitML/RL/Simulator.hs`; Sprint `8.8`
+now owns replacing the deterministic `atari-subset` stand-in with real ALE and
+explicit ROM handling.
 Per-sprint Remaining Work blocks list the open work; the dependency-ordered
 sequence lives in
 [README.md → Execution Roadmap](README.md#execution-roadmap).
@@ -880,8 +887,8 @@ sequence lives in
 | Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, Tart, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `compose.yaml`, `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
 | Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; non-dry-run `jitml build` routes the selected JIT artifact through `JitML.Engines.Loader`; `jitml-cross-backend` validates generated Linux CPU libdnnl-linked oneDNN primitive compile/load/run paths plus exported family/output-count metadata, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests; `jitml-unit` validates the CUDA host-callable wrapper/source ABI and guarded local CUDA runner fail-closed path | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
 | CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference deterministic summaries, test report rendering, internal substrate materialization, VM subprocess rendering, generated-source build-plan rendering, and cache stubs. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
-| Test stanzas | Eight Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, linkable oneDNN probing, local checkpoint inference through a Linux CPU generated oneDNN kernel, and live daemon/event dispatch cases, `jitml-cross-backend` includes generated Linux CPU oneDNN primitive compile/load/run, family/output-count symbol checks, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement, the `CrossSubstrate` weighted `linux-cpu` / `linux-cuda` drift assertion against the in-code tolerance table, and the 2026-06-03 `linux-cpu` / `apple-silicon` report-bundle comparison path through `jitml verify cross-backend --export/--compare`, `jitml-daemon-lifecycle` covers injected engine-backed daemon inference dispatch, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. The current open test-runner obligation is Sprint `15.2`'s clean full-aggregate `jitml test all --live` pass and populated measured report-card capture. | Eight Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e` |
-| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`, records the codegen-toolchain comments and report-card knobs, carries a ledger-tracked scoped `allow-newer` for Dhall/CBOR package bounds under GHC `9.14.1`, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, host Metal framework + CommandLineTools `swiftc` pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml` |
+| Test stanzas | Eight Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, linkable oneDNN probing, local checkpoint inference through a Linux CPU generated oneDNN kernel, and live daemon/event dispatch cases, `jitml-cross-backend` includes generated Linux CPU oneDNN primitive compile/load/run, family/output-count symbol checks, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement, the `CrossSubstrate` weighted `linux-cpu` / `linux-cuda` drift assertion against the in-code tolerance table, and the 2026-06-03 `linux-cpu` / `apple-silicon` report-bundle comparison path through `jitml verify cross-backend --export/--compare`, `jitml-daemon-lifecycle` covers injected engine-backed daemon inference dispatch, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. The 2026-06-04 fresh Apple live aggregate passed all eight `jitml test all --live` report stanzas and captured populated report-card measurements. | Eight Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e` |
+| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`, records the codegen-toolchain comments and report-card knobs, carries a ledger-tracked scoped `allow-newer` for Dhall/CBOR package bounds under GHC `9.14.1`, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Reopened Phase `1` Sprint `1.10` owns removing the compatibility block once the dependency solver succeeds without overrides. | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, host Metal framework + CommandLineTools `swiftc` pinned, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override after upstream Dhall/CBOR bounds catch up |
 | Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU oneDNN primitive execution, local Linux CPU `HasEngine` dispatch, CUDA host-wrapper source ABI, guarded CUDA runtime preflight, `linux-cpu` / `linux-cuda` weighted drift against `src/JitML/Engines/Tolerance.hs`, and the 2026-06-03 `linux-cpu` / `apple-silicon` ephemeral report-bundle comparison are covered by dedicated Cabal stanzas / CLI validation | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
 | Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, and six panel payload modules under `web/src/Panels/`; `src/JitML/Web/Server.hs` serves the demo/API surface; the Playwright scaffold is present. Halogen mount machinery, compiled bundle, live WebSocket proxy, and Playwright against the live edge route are owned by Sprints `11.3`–`11.6`'s Remaining Work | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel payload modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
 

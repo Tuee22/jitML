@@ -258,9 +258,11 @@ checkPureScriptPanelCoverage =
 
 panelContractEndpoints :: [Contracts.ApiEndpoint]
 panelContractEndpoints =
-  case Contracts.apiEndpoints of
-    _runCommandEndpoint : rest -> rest
-    [] -> []
+  [ endpoint
+  | panel <- panelSurfaces
+  , endpoint <- Contracts.apiEndpoints
+  , Contracts.endpointPath endpoint == panelEndpoint panel
+  ]
 
 checkPureScriptToolSubprocesses :: [LintFinding]
 checkPureScriptToolSubprocesses =

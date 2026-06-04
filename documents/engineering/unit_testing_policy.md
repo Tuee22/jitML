@@ -105,6 +105,14 @@ fixed-seed pool clears a literature-derived threshold computed at test
 time. No per-substrate trajectory, reward-distribution, or AlphaZero
 transcript files are committed.
 
+The future ALE-backed `atari-subset` coverage follows the same rule. Mandatory
+tests may use only a verified redistributable test ROM or an explicit ignored
+user-provided ROM path/object; commercial ROM bytes are never committed. The
+real ALE test gate must compare two same-seed runs against each other, verify
+legal actions plus RAM/screen dimensions, and exercise a short episode through
+the daemon-backed `VecEnv` path before the deterministic RAM-state stub can move
+to test-only scope or be deleted.
+
 ### `jitml-hyperparameter` — sampler / scheduler / pruner reproducibility
 
 The current body checks the local `Grid`, `Sobol`, `Random`, `TPE`, `GPBO`,
@@ -230,12 +238,13 @@ silently substitute a deterministic fixture.
 
 Playwright belongs to the doctrine's target Ephemeral-Cluster Infrastructure
 test category. The current repository has `playwright/jitml-demo.spec.ts` as a
-scaffold. The default `jitml-e2e` body validates the typed Playwright plan and
-the current inline DOM stub spec without invoking the live stack. Live
-edge-route Playwright execution waits until panels
-consume fixture-backed or live-backed state through `jitml-demo`; static
-route/API scaffold checks stay in the local Haskell e2e and PureScript-style
-stanzas.
+live-only seven-panel matrix: it reads
+`.build/runtime/cluster-publication.json`, drives the published edge route, and
+fails fast when no live publication exists. The default `jitml-e2e` body
+validates the typed Playwright plan and server-side route/concurrency
+invariants without invoking the live stack; live edge-route Playwright
+execution stays on the explicit live orchestration path. Static route/API
+scaffold checks stay in the local Haskell e2e and PureScript-style stanzas.
 
 ### Property Invariants
 

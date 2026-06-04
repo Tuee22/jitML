@@ -10,5 +10,6 @@ endpoints =
   , { name: "Connect4Move", method: "POST", path: "/api/connect4/move" }
   , { name: "MetricsStream", method: "GET", path: "/api/ws" }
   , { name: "TrainingStream", method: "GET", path: "/api/ws/training" }
+  , { name: "RlStream", method: "GET", path: "/api/ws/rl" }
   , { name: "TuneStream", method: "GET", path: "/api/ws/tune" }
   ]

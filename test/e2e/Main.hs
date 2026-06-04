@@ -2,7 +2,8 @@
 
 module Main where
 
-import Control.Exception (bracket)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (bracket, finally)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Foldable (traverse_)
 import Data.List (isInfixOf)
@@ -22,13 +23,20 @@ import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (doesPathExist, findExecutable)
 import System.Exit (ExitCode (..))
+import System.Timeout (timeout)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import JitML.Cluster.Publication (defaultPublication, publicationEdgePort)
 import JitML.Routes (routeRegistry, routeServiceName)
 import JitML.Service.BootConfig (HttpListener (..))
-import JitML.Service.Http (HttpRoute (..), withHttpRoutesOnce)
+import JitML.Service.Endpoints (EndpointResponse (..))
+import JitML.Service.Http
+  ( HttpRoute (..)
+  , WebSocketRoute (..)
+  , withHttpRoutesOnce
+  , withHttpRoutesWithWebSockets
+  )
 import JitML.Storage.Buckets (bucketNames)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
@@ -73,7 +81,7 @@ main =
       , testCase "publication leases stable per-substrate edge ports" $
           publicationEdgePort (defaultPublication LinuxCUDA) @?= 9092
       , testCase "browser contracts expose interactive surfaces" $
-          length apiEndpoints @?= 7
+          length apiEndpoints @?= 8
       , testCase "demo route manifest covers edge listener paths" $
           fmap demoRoutePath demoRoutes
             @?= [ "/"
@@ -83,6 +91,7 @@ main =
                 , "/api/connect4/move"
                 , "/api/ws"
                 , "/api/ws/training"
+                , "/api/ws/rl"
                 , "/api/ws/tune"
                 ]
       , testCase "demo HTTP routes cover generated stream endpoints" $
@@ -94,6 +103,7 @@ main =
                 , "/api/connect4/move"
                 , "/api/ws"
                 , "/api/ws/training"
+                , "/api/ws/rl"
                 , "/api/ws/tune"
                 ]
       , testCase "gateway class attaches the local EnvoyProxy service shape" $ do
@@ -154,10 +164,49 @@ main =
             response <- httpGet port "/api"
             assertBool "HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` response)
             assertBool "InferenceRun in API index" ("InferenceRun" `isInfixOf` response)
+      , testCase "plain demo stream HTTP route requires WebSocket upgrade (Sprint 15.3)" $
+          withHttpRoutesOnce (HttpListener "127.0.0.1" 0) demoHttpRoutes $ \port -> do
+            response <- httpGet port "/api/ws"
+            assertBool "HTTP 503" ("HTTP/1.1 503 Service Unavailable" `isInfixOf` response)
+            assertBool "upgrade required" ("live stream requires WebSocket upgrade" `isInfixOf` response)
+      , testCase "open WebSocket bridge does not block HTTP routes (Sprint 15.3)" $ do
+          release <- newEmptyMVar
+          let routes =
+                [ HttpRoute
+                    { httpRouteMethod = "GET"
+                    , httpRoutePath = "/fast"
+                    , httpRouteContentType = "text/plain; charset=utf-8"
+                    , httpRouteResponse = EndpointResponse 200 "fast\n"
+                    }
+                ]
+              wsRoutes =
+                [ WebSocketRoute
+                    { webSocketRoutePath = "/api/ws"
+                    , webSocketRouteHandler = \writeFrame -> do
+                        _ <- writeFrame "event: open\n\n"
+                        takeMVar release
+                    }
+                ]
+          withHttpRoutesWithWebSockets (HttpListener "127.0.0.1" 0) routes wsRoutes $ \port ->
+            bracket (openWebSocketClient port "/api/ws") close $ \client ->
+              ( do
+                  handshake <- timeout 2000000 (ByteString.unpack <$> recv client 4096)
+                  case handshake of
+                    Nothing -> assertFailure "timed out waiting for WebSocket upgrade"
+                    Just response ->
+                      assertBool "WebSocket 101" ("HTTP/1.1 101 Switching Protocols" `isInfixOf` response)
+                  httpResponse <- timeout 2000000 (httpGet port "/fast")
+                  case httpResponse of
+                    Nothing -> assertFailure "HTTP route blocked behind an open WebSocket bridge"
+                    Just response -> do
+                      assertBool "HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` response)
+                      assertBool "HTTP body" ("fast" `isInfixOf` response)
+              )
+                `finally` putMVar release ()
       , testCase "demo server serves the compiled Halogen bundle when present (Sprint 11.5)" $ do
-          -- Read the bundle entry from web/dist/Main/index.js; if spago
-          -- has built it, the demo routes include the /bundle/main.js
-          -- route serving the JS bytes.
+          -- Read the browser-loadable bundle entry; if the Docker/web
+          -- build has produced it, the demo routes include the
+          -- /bundle/main.js route serving the JS bytes.
           bundle <- loadBundleEntry
           let routes = demoHttpRoutesWithBundle bundle
           case bundle of
@@ -166,11 +215,11 @@ main =
                 "demo route table includes /bundle/main.js when bundle present"
                 (length routes > length demoHttpRoutes)
               assertBool
-                "bundle entry path is the canonical Halogen Main module"
-                ("web/dist/Main/index.js" `isInfixOf` bundleEntryPath)
+                "bundle entry path is the canonical browser-loadable Halogen bundle"
+                ("web/dist/Main/bundle.js" `isInfixOf` bundleEntryPath)
             Nothing ->
               assertBool
-                "demo route table falls back to placeholder when bundle missing"
+                "demo route table omits /bundle/main.js when bundle is missing"
                 (length routes == length demoHttpRoutes)
       , testCase "post-teardown leaves no jitml-e2e Kind clusters" $ do
           -- Asserts the deterministic-teardown property from Sprint 12.8
@@ -215,3 +264,22 @@ openSocket addr = do
   client <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
   connect client (addrAddress addr)
   pure client
+
+openWebSocketClient :: Int -> String -> IO Socket
+openWebSocketClient port path =
+  withSocketsDo $ do
+    addresses <-
+      getAddrInfo (Just defaultHints {addrSocketType = Stream}) (Just "127.0.0.1") (Just (show port))
+    case addresses of
+      [] -> ioError (userError "no address for WebSocket test client")
+      addr : _ -> do
+        client <- openSocket addr
+        sendAll
+          client
+          ( ByteString.pack
+              ( "GET "
+                  <> path
+                  <> " HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+              )
+          )
+        pure client

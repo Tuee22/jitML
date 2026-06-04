@@ -331,6 +331,7 @@ test-suite jitml-integration
         filepath,
         jitml,
         mtl,
+        network,
         safe-exceptions,
         tasty,
         tasty-hunit,

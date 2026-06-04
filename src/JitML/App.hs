@@ -189,8 +189,9 @@ demoMain = do
       --     topic family;
       --   * local run — the bridge derives host-edge settings from the
       --     leased edge port in `./.build/runtime/cluster-publication.json`.
-      -- With no live cluster the bridge still completes the `/api/ws`
-      -- handshake and emits the deterministic fallback frame.
+      -- With no live publication the bridge completes the `/api/ws`
+      -- handshake and emits one terminal error frame instead of a
+      -- local stream stand-in.
       inClusterEndpoint <- lookupEnv "JITML_DEMO_PULSAR_WS"
       substrateEnv <- lookupEnv "JITML_SUBSTRATE"
       localPublication <- readExistingLivePublication "."

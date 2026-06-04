@@ -47,7 +47,7 @@ panelSurfaces =
   [ PanelSurface "mnist-live-inference" "/api/inference" "MNIST inference"
   , PanelSurface "cifar-imagenet-upload" "/api/images" "CIFAR/ImageNet upload"
   , PanelSurface "connect4-human-vs-alphazero" "/api/connect4/move" "Connect 4 moves"
-  , PanelSurface "rl-trajectory" "/api/ws" "RL trajectory stream"
+  , PanelSurface "rl-trajectory" "/api/ws/rl" "RL trajectory stream"
   , PanelSurface "training-progress" "/api/ws/training" "Training metric stream"
   , PanelSurface "hyperparameter-sweep" "/api/ws/tune" "Tuner trial stream"
   ]
@@ -65,6 +65,7 @@ demoRoutes =
   , DemoRoute "/api/connect4/move" "connect4-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/ws" "metrics-stream-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/ws/training" "training-stream-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/ws/rl" "rl-stream-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/ws/tune" "tune-stream-contract" "src/JitML/Web/Contracts.hs"
   ]
 

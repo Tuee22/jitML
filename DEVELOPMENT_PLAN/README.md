@@ -63,18 +63,28 @@ phase closes on its own machine session before the next one begins. No
 obligation was dropped; the mapping is enumerated in each sprint's
 re-scoped `### Remaining Work` block.
 
-The plan is mid-build. Phases `0` (planning and documentation topology), `1`
-(Haskell CLI surface, lint stack, and code-quality gate), `2` (bootstrap
-reconciler, prerequisite DAG, JIT cache, outer-container builds), `3`
+**Reopen note (2026-06-04)**: Phases `1` and `8` reopened narrowly for the two
+remaining Phase `15` final-handoff blockers. Phase `1` Sprint `1.10` owns
+retiring the scoped `allow-newer` block after upstream Dhall / CBOR bounds solve
+under GHC `9.14.1` / `base-4.22`. Phase `8` Sprint `8.8` owns replacing the
+deterministic atari-subset RAM-state stub with a source-built ALE adapter plus
+explicit uncommitted ROM handling. Their original code-surface obligations
+remain closed; the reopened sprints are tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal)
+and gate Phase `15` Sprint `15.3`.
+
+The plan is mid-build. Phases `0` (planning and documentation topology), `2`
+(bootstrap reconciler, prerequisite DAG, JIT cache, outer-container builds), `3`
 (cluster substrate and routing), `4` (stateful platform services), `5`
 (`jitml service` daemon), `6` (numerical core), `7` (JIT codegen and
-per-substrate execution), `8` (supervised learning and RL framework),
-`9` (RL algorithm catalog, AlphaZero, and hyperparameter tuning),
-`10` (checkpointing and inference-only read path), `11` (PureScript
-frontend and demo), and `12` (test stanzas, lint matrix, cross-cluster
-parity) are `✅ Done` — every Exit Definition obligation those phases
-own is met in the worktree and validated by their sprints'
-`### Validation` blocks. Sprint `1.4` now owns the
+per-substrate execution), `9` (RL algorithm catalog, AlphaZero, and
+hyperparameter tuning), `10` (checkpointing and inference-only read path), `11`
+(PureScript frontend and demo), `12` (test stanzas, lint matrix, cross-cluster
+parity), `13` (Linux CUDA and cluster closure), and `14` (Apple Silicon
+closure) are `✅ Done` — every Exit Definition obligation those phases own is
+met in the worktree and validated by their sprints' `### Validation` blocks.
+Phases `1`, `8`, and `15` are open only for the two ledger-backed handoff
+blockers described above and the final empty-ledger gate. Sprint `1.4` now owns the
 container-exclusive code-quality rule: `jitml:local` image construction
 installs the separate style GHC/tools and runs `jitml check-code`; host
 lint/check-code execution is unsupported and no host style-tool override exists.
@@ -110,12 +120,10 @@ Phases `8`, `9`, `10`, `11`, and `12` all closed on 2026-05-25 after
 every owned code-surface obligation landed; their live obligations
 migrated to Phases `13` / `14` / `15` per
 [Execution Roadmap](#execution-roadmap). Phase `8` Sprint `8.3`'s
-remaining open work (real simulator bindings for `lunar-lander` and
-`atari-subset`) closed through pure-Haskell ports rather than Box2D /
-ALE FFI; the choice is consistent with the README's "native Haskell
-envs are allowed" envelope and the jitML determinism contract, which
-disfavours cross-version float drift in third-party physics
-libraries. The current baseline also includes the family-aware JIT
+original simulator work closed through pure-Haskell ports rather than
+Box2D / ALE FFI; the 2026-06-04 reopen adds Sprint `8.8` solely to replace
+the deterministic `atari-subset` stand-in with real ALE once the source-built
+binding and ROM policy are in place. The current baseline also includes the family-aware JIT
 codegen surface
 (`JitML.Codegen.KernelFamily`), the per-substrate knob spaces
 and deterministic benchmark candidate plans plus measured-result selection,
@@ -254,12 +262,12 @@ TensorBoard Service renderer
 (`JitML.Observability.TensorBoard.renderTensorBoardService`) plus the
 checked-in `chart/local/tensorboard/templates/service.yaml`, the six
 PureScript panel payload modules under `web/src/Panels/`, the seven-test
-Playwright matrix represented in `jitml-e2e` through the typed
-`Subprocess` boundary against inline DOM stubs, the `spago test` and
+live-only Playwright matrix represented in `JitML.Test.LivePlan` and
+validated through the live edge route, the `spago test` and
 `purs-tidy check` command shapes represented from `jitml lint purescript`
 through typed `Subprocess` values, the demo route logic that serves
-`web/dist/Main/index.js` when a local `spago build --output web/dist`
-has produced it, the real-binary `./.build/jitml` spawn matrix
+`web/dist/Main/bundle.js` when the PureScript/esbuild build has
+produced it, the real-binary `./.build/jitml` spawn matrix
 (`--help`, `bootstrap --linux-cpu --dry-run`, `cluster up --substrate
 linux-cpu --dry-run`, `internal gc <hash>` exiting `3`) through the
 typed boundary in a temp workdir covered by `jitml-integration`, the
@@ -283,7 +291,7 @@ surfacing typed `AppError` from the consumer outcome batch, the
 single-node Kind renderer (`JitML.Cluster.Kind.renderKindConfig`) that emits
 one control-plane node with no worker node for every substrate, the
 demo bundle-serving path (`JitML.Web.Server.{loadBundleEntry,demoHttpRoutesWithBundle}`)
-serving the compiled Halogen `web/dist/Main/index.js` when
+serving the compiled Halogen `web/dist/Main/bundle.js` when
 present, the `loadInferenceCheckpointWith` hook plus
 `JitML.Engines.Local.runLinuxCpuCheckpointInference` validating the local
 latest-pointer → manifest → generated-kernel FFI path, the
@@ -391,12 +399,13 @@ owned by Phase `13` below.
    removed three local cleanup residues, produced the Apple weighted
    bundle, and passed the Linux/Apple report-bundle comparison;
    the rebuilt `jitml:local` image passed `jitml check-code`. A
-   2026-06-03 Apple live bootstrap now reaches a healthy published
-   cluster and validates `/healthz`, `/readyz`, `/metrics`, StartRLRun
-   dispatch, and PPO/cartpole convergence; the full
-   `jitml test all --live` aggregate still needs a clean rerun to
-   capture the populated report card. Scoped `allow-newer`,
-   demo-placeholder, and ALE-stub rows also remain open.
+   2026-06-04 Apple live validation brought up a fresh cluster on
+   fallback `edge_port: 9091`, passed the full
+   `jitml test all --live` aggregate across all eight report stanzas,
+   and captured the populated live report card. Scoped `allow-newer`
+   and ALE-stub rows remain open through reopened Phase `1` Sprint `1.10`
+   and reopened Phase `8` Sprint `8.8`; the demo-placeholder row retired on
+   2026-06-04 after live Playwright 7 / 7 and fallback removal.
 
 The full machine-affinity mapping of each historical live-runtime
 Remaining-Work bullet to its new owner is enumerated in each
@@ -468,14 +477,14 @@ obligation exists.
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | 🔄 Active | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
 | 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | ✅ Done | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 8 | Supervised Learning and RL Framework | 🔄 Active | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
@@ -483,6 +492,27 @@ obligation exists.
 | 13 | Linux CUDA and Cluster Closure | ✅ Done | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
 | 14 | Apple Silicon Closure | ✅ Done | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Cross-Substrate Parity and Final Handoff | 🔄 Active | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+
+## Reopened phases (2026-06-04)
+
+Phases `1` and `8` reopened from `✅ Done` to `🔄 Active` on 2026-06-04 because
+the final Phase `15` ledger sweep left two blockers that belong to those earlier
+topical surfaces:
+
+- **Phase 1** reopens for Sprint `1.10`, the scoped `allow-newer` retirement
+  gate. The project compiler remains GHC `9.14.1`; the unblock path is upstream
+  Dhall / CBOR bound relaxation or Hackage metadata revision, followed by a
+  no-override solver check and the container-only `jitml check-code` gate.
+- **Phase 8** reopens for Sprint `8.8`, the real ALE binding and ROM-acquisition
+  gate. The unblock path is a pinned source-built ALE library inside
+  `jitml:local`, a small C ABI shim consumed from Haskell, explicit uncommitted
+  ROM inputs, and retirement or test-scoping of the deterministic
+  `atari-subset` RAM-state stub.
+
+Phases `13` and `14` remain `✅ Done` on their substrate-owned live surfaces.
+Phase `15` remains `🔄 Active` and cannot close until the two reopened sprints
+move their Pending Removal rows to Completed in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Reopened phases (2026-05-30)
 
@@ -534,19 +564,18 @@ probe", and the `14.2` / `14.3` / `14.5` live gates moved from "VM running" to
 plus item-8's Apple-host Playwright panel matrix were live-validated headless on an
 Apple M1 / macOS 26 host (2026-05-30/31), including the full host↔cluster RPC
 round-trip through two running daemon processes. Phase `15` stays `🔄 Active`
-because the live-cluster report-card run and final legacy-ledger rows remain;
+because the final legacy-ledger rows remain;
 Sprint `15.1` is `✅ Done` after the 2026-06-03 Linux/Apple report-bundle
-comparison passed. The 2026-06-03 `jitml:local` rebuild passed the
-container-only `jitml check-code` gate. The same-day live Apple bootstrap
-now completes to a healthy published cluster after the Kind-node
-inotify-cap and Percona PV-ownership fixes; edge `/healthz`, `/readyz`,
-and `/metrics` return `200`, and targeted live integration reruns pass
-StartRLRun dispatch plus PPO/cartpole convergence. The full
-`jitml test all --live` aggregate remains the open Sprint `15.2` gate.
-Phases `0`, `1`, `3`, `4`, `6`, and `8`–`13` remain `✅ Done` on their owned
-surfaces — none of the headless-Metal obligations change them; the toolchain-pin
-wording is a harmony edit in `README.md` / `system-components.md`, not a reopen. The
-Tart removals are tracked in
+comparison passed. Sprint `15.2` is `✅ Done` after the 2026-06-04
+fresh Apple live cluster validation: bootstrap selected fallback
+`edge_port: 9091`, all eight `jitml test all --live` report stanzas
+passed, and the report card captured RL reward, AlphaZero win rate,
+tuning objective, JIT cache hit rate, and daemon health measurements.
+Phases `0`, `3`, `4`, `6`, and `9`–`13` remain `✅ Done` on their owned
+surfaces — none of the headless-Metal obligations change them. Phases `1` and
+`8` later reopened on 2026-06-04 for the two remaining final-handoff ledger
+rows; that reopen is independent of the headless-Metal workstream. The Tart
+removals are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Reopened phases (2026-05-29)
@@ -612,23 +641,27 @@ spin-up. **Phase `14` is now `✅ Done`** — re-scoped to the headless toolchai
 gates became "Metal device usable headless"), all five sprints plus item-8's
 Apple-host Playwright panel matrix live-validated on Apple M1 / macOS 26
 (2026-05-30/31), including the full host↔cluster RPC round-trip through two
-running daemon processes. The sole remaining open phase is `15`
-(cross-substrate parity + report card + empty ledger): the
+running daemon processes. The remaining open plan scope is Phase `15`
+(cross-substrate parity + report card + empty ledger) plus the two reopened
+owner sprints that gate its final ledger sweep (Phase `1` Sprint `1.10` and
+Phase `8` Sprint `8.8`): the
 `linux-cpu` / `linux-cuda` weighted drift assertion passed on the
 Linux/NVIDIA host on 2026-06-01, `jitml verify cross-backend` now
 provides ephemeral `--export` / `--compare` report bundles for the
 multi-host handoff, the 2026-06-03 Apple host export produced all eight
 weighted tensor families, and the 2026-06-03 Linux/Apple report-bundle
 comparison passed every weighted family against the in-code tolerance
-table. `jitml test all --live` has landed, the Apple live cluster now
-publishes healthy `/healthz`, `/readyz`, and `/metrics` edge routes, and
-targeted live integration reruns pass StartRLRun dispatch plus
-PPO/cartpole convergence; the full aggregate report-card run still needs
-a clean rerun and measured-field capture. The 2026-06-03 `jitml:local`
-rebuild passed `jitml check-code`. The legacy
-ledger retains the scoped `allow-newer`, demo-placeholder, and
-ALE-stub rows (see that phase's Remaining Work blocks).
-See
+table. `jitml test all --live` has landed, and the 2026-06-04 fresh
+Apple live cluster validation passed the full aggregate across all
+eight report stanzas with measured RL reward, AlphaZero win rate,
+tuning objective, JIT cache hit rate, and daemon health fields. The
+2026-06-03 `jitml:local` rebuild passed `jitml check-code`. The legacy
+ledger retains the scoped `allow-newer` and ALE-stub rows through those
+reopened sprints; the
+demo-placeholder row retired on 2026-06-04 (see that phase's
+Remaining Work blocks).
+See [Reopened phases (2026-06-04)](#reopened-phases-2026-06-04) for the
+allow-newer/ALE blocker ownership and
 [Reopened phases (2026-05-30)](#reopened-phases-2026-05-30) for the per-phase
 scope; the Tart removals are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
@@ -692,8 +725,10 @@ stanzas and cross-cluster) closed on 2026-05-25 after every owned
 code-surface obligation landed in the worktree; each phase's live
 obligations migrated to Phases `13` / `14` / `15` per
 [Execution Roadmap](#execution-roadmap). Phase `8` Sprint `8.3`'s
-lunar-lander and atari-subset environments closed through pure-Haskell
-ports in `src/JitML/RL/Simulator.hs` rather than Box2D / ALE FFI.
+lunar-lander and atari-subset environments originally closed through
+pure-Haskell ports in `src/JitML/RL/Simulator.hs`; the 2026-06-04
+Sprint `8.8` reopen now owns replacing the `atari-subset` stand-in with real
+ALE and explicit ROM handling.
 Phase `13` Sprints `13.1` / `13.2` / `13.3` / `13.7` / `13.10` /
 `13.12` partially validated on 2026-05-25 against a Linux+NVIDIA host (RTX 3090, CUDA 12.8, Ubuntu
 24.04, Docker 29.5.0). The validation set covers: a live `jitml
@@ -873,10 +908,11 @@ Sprint `13.13`) — see each sprint's `### Remaining Work` block in
 `phase-13-linux-cuda-and-cluster-closure.md` and
 `phase-15-cross-substrate-and-handoff.md`. The 2026-05-27 session
 re-scoped Sprint `13.5` to the pure-Haskell-simulator approach Phase
-8 Sprint `8.3` chose (real Box2D/ALE FFI rejected per the
-determinism contract) and landed the simulator-loop wiring through
-the worker `jitml rl train`; the daemon-side dispatch already routes
-StartRLRun envelopes into a Job that invokes that wiring.
+8 Sprint `8.3` chose at the time and landed the simulator-loop wiring
+through the worker `jitml rl train`; the daemon-side dispatch already routes
+StartRLRun envelopes into a Job that invokes that wiring. The later
+2026-06-04 Sprint `8.8` reopen supersedes the ALE half of that decision by
+scheduling a real source-built ALE adapter plus ROM policy for `atari-subset`.
 
 The 2026-05-27 code-only session also landed: a live dedup assertion
 for Sprint `13.3` (`live duplicate StartTraining produces one
@@ -1066,15 +1102,12 @@ MinIO-staged real MNIST — a real converging live SL run — and **Sprint
 13.6 live PPO** ran via the rebuilt binary (`avg-reward: 141.2` over a
 short 25-iteration cohort).
 
-The remaining open items across the still-Active sprints are: the
-*formalised* live SL statistical-convergence assertion in
-`jitml-sl-canonicals` (13.4; the live SL E2E itself is now demonstrated at
-93% test acc), the per-cohort statistical convergence runs across all 13
-RL cohorts (13.6, operationally heavy), and adopting the now-validated
-device training step (`mlpForwardCuda` / `mlpBackwardCuda`, GPU-validated;
-already wired into the AlphaZero `PolicyValueNet`) in the RL trainers'
-batched hot path + the cuDNN deterministic pin + the live AlphaZero
-generation drive (13.8 / 13.9).
+At that point the remaining open Phase `13` items were the formalised live SL
+statistical-convergence assertion, the heavier RL cohort convergence runs, and
+the batched device-training hot path. Phase `13` later closed all 15 / 15
+sprints on 2026-05-30. The current open items are the two ledger-backed
+handoff blockers owned by reopened Phase `1` Sprint `1.10` and reopened Phase
+`8` Sprint `8.8`, plus Phase `15` Sprint `15.3`'s empty-ledger gate.
 
 The pre-2026-05-28 host suites were: `jitml-unit` (172),
 `jitml-sl-canonicals` (9), `jitml-rl-canonicals` (23),

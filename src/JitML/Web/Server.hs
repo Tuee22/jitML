@@ -26,9 +26,7 @@ import System.Directory (doesFileExist)
 
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Cluster.Publication qualified as Publication
-import JitML.RL.Algorithms qualified as RL
 import JitML.RL.AlphaZero qualified as AlphaZero
-import JitML.SL.Canonicals qualified as SL
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Capabilities
   ( HasPulsar (..)
@@ -44,8 +42,6 @@ import JitML.Service.Http
   )
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Substrate (Substrate, renderSubstrate)
-import JitML.Tune.Catalog qualified as Tune
-import JitML.Web.Bundle qualified as Bundle
 import JitML.Web.Contracts qualified as Contracts
 
 demoListener :: Text -> Int -> HttpListener
@@ -92,9 +88,8 @@ serveDemoWithBridgeEndpoint host port livePublication endpointOverride = do
 
 -- | Build the WebSocket route table for the demo. With a live
 -- publication the bridges open Pulsar consumers; without one they
--- return a single SSE-shaped 'event: ... \ndata: ... \n\n' frame
--- derived from 'liveEventSnapshotResponse'\'s deterministic
--- fallback so the WebSocket handshake still completes.
+-- return a terminal error frame so the WebSocket handshake still
+-- completes while making the missing live publication explicit.
 liveDemoWebSocketRoutes
   :: Maybe Publication.ClusterPublication -> Maybe Text -> [WebSocketRoute]
 liveDemoWebSocketRoutes publication endpointOverride =
@@ -119,10 +114,7 @@ bridgeHandler
   -> (Text -> IO Bool)
   -> IO ()
 bridgeHandler domain Nothing _ writeFrame = do
-  -- No live cluster — write the deterministic fallback frame once
-  -- so the upgrade is observable even offline, then exit. The
-  -- client treats the close frame as end-of-stream.
-  _ <- writeFrame (fallbackFrame domain)
+  _ <- writeFrame (liveStreamUnavailableFrame domain)
   pure ()
 bridgeHandler domain (Just publication) endpointOverride writeFrame = do
   let substrate = Publication.publicationSubstrate publication
@@ -189,24 +181,11 @@ eventTopicFor domain substrate =
 bundleEntryPath :: FilePath
 bundleEntryPath = "web/dist/Main/bundle.js"
 
--- | The pre-esbuild per-module CommonJS entry. Kept as a fallback for
--- environments that ran `spago build` without the esbuild bundling
--- step; it is not browser-loadable on its own (the `require` calls do
--- not resolve in a browser) but lets the offline demo shell still
--- script-tag a path that exists.
-bundleEntryFallbackPath :: FilePath
-bundleEntryFallbackPath = "web/dist/Main/index.js"
-
 -- | Read the compiled Halogen bundle if a build has produced it,
--- preferring the browser-loadable esbuild output and falling back to
--- the per-module entry; returns Nothing otherwise so the demo falls
--- back to the placeholder HTML shell.
+-- returning Nothing otherwise so the bundle route is omitted.
 loadBundleEntry :: IO (Maybe Text)
-loadBundleEntry = do
-  bundled <- readIfExists bundleEntryPath
-  case bundled of
-    Just _ -> pure bundled
-    Nothing -> readIfExists bundleEntryFallbackPath
+loadBundleEntry =
+  readIfExists bundleEntryPath
  where
   readIfExists path = do
     exists <- doesFileExist path
@@ -220,10 +199,9 @@ demoHttpRoutes :: [HttpRoute]
 demoHttpRoutes = demoHttpRoutesWithBundle Nothing
 
 -- | Build the demo HTTP route table, optionally embedding the compiled
--- Halogen bundle. When `Just <js>` is passed, `/` serves an HTML shell
--- that script-tags `/bundle/main.js`, and `/bundle/main.js` serves the
--- bundle bytes; otherwise the route table falls back to the placeholder
--- HTML shell.
+-- Halogen bundle. `/` always serves the browser shell that loads
+-- `/bundle/main.js`; when `Just <js>` is passed, `/bundle/main.js`
+-- serves the bundle bytes.
 demoHttpRoutesWithBundle :: Maybe Text -> [HttpRoute]
 demoHttpRoutesWithBundle bundle =
   [ htmlRoute "GET" "/" (EndpointResponse 200 (renderDemoIndexWithBundle bundle))
@@ -231,9 +209,10 @@ demoHttpRoutesWithBundle bundle =
   , textRoute "POST" "/api/inference" (EndpointResponse 200 renderInferenceResponse)
   , textRoute "POST" "/api/images" (EndpointResponse 200 "accepted image upload contract\n")
   , textRoute "POST" "/api/connect4/move" (EndpointResponse 200 renderConnect4Response)
-  , textRoute "GET" "/api/ws" (EndpointResponse 200 renderMetricsStream)
-  , textRoute "GET" "/api/ws/training" (EndpointResponse 200 renderTrainingStream)
-  , textRoute "GET" "/api/ws/tune" (EndpointResponse 200 renderTuneStream)
+  , textRoute "GET" "/api/ws" liveStreamUpgradeRequired
+  , textRoute "GET" "/api/ws/training" liveStreamUpgradeRequired
+  , textRoute "GET" "/api/ws/rl" liveStreamUpgradeRequired
+  , textRoute "GET" "/api/ws/tune" liveStreamUpgradeRequired
   ]
     <> case bundle of
       Just js ->
@@ -249,25 +228,18 @@ demoHttpRoutesWithBundle bundle =
 renderDemoIndex :: Text
 renderDemoIndex = renderDemoIndexWithBundle Nothing
 
--- | HTML shell for the demo `/` route. When `Just <js>` is supplied, a
--- `<script src="/bundle/main.js">` tag is included that loads the
--- compiled Halogen bundle; otherwise the page renders the placeholder
--- bundle manifest.
+-- | HTML shell for the demo `/` route. The compiled Halogen bundle is
+-- loaded from `/bundle/main.js`; the Kind image bakes that file into
+-- the container.
 renderDemoIndexWithBundle :: Maybe Text -> Text
-renderDemoIndexWithBundle bundle =
+renderDemoIndexWithBundle _bundle =
   Text.unlines
     [ "<!doctype html>"
     , "<html lang=\"en\">"
     , "<head><meta charset=\"utf-8\"><title>jitML Demo</title></head>"
     , "<body>"
     , "<main id=\"app\">"
-    , "<h1>jitML Demo</h1>"
-    , "<pre>"
-    , Bundle.renderBundleManifest
-    , "</pre>"
-    , case bundle of
-        Just _ -> "<script type=\"module\" src=\"/bundle/main.js\"></script>"
-        Nothing -> "<!-- bundle not built: run `spago build --output web/dist/` -->"
+    , "<script type=\"module\" src=\"/bundle/main.js\"></script>"
     , "</main>"
     , "</body>"
     , "</html>"
@@ -308,42 +280,11 @@ renderConnect4Response =
       move : _ -> move
       [] -> 0
 
-renderMetricsStream :: Text
-renderMetricsStream =
-  Text.unlines
-    [ "event: metrics"
-    , "data: algorithms=" <> Text.pack (show (length RL.algorithmCatalog))
-    , "data: canonicalProblems=" <> Text.pack (show (length SL.canonicalProblems))
-    ]
-
-renderTrainingStream :: Text
-renderTrainingStream =
-  Text.unlines
-    [ "event: training"
-    , "data: problem=" <> problemName
-    , "data: finalLoss=" <> Text.pack (show finalLoss)
-    ]
- where
-  (problemName, finalLoss) =
-    case SL.canonicalProblems of
-      problem : _ -> (SL.problemName problem, SL.finalLoss problem)
-      [] -> ("empty", 0.0)
-
-renderTuneStream :: Text
-renderTuneStream =
-  Text.unlines
-    [ "event: tune"
-    , "data: samplers=" <> Text.pack (show (length Tune.samplerCatalog))
-    , "data: schedulers=" <> Text.pack (show (length Tune.schedulerCatalog))
-    , "data: pruners=" <> Text.pack (show (length Tune.prunerCatalog))
-    ]
-
 -- | Sprint 13.13 — render a Server-Sent-Events-shaped frame from a live
 -- broker event payload. The browser receives @event: <domain>@ +
 -- @data: <payload>@ lines and the panel JS parses them into a typed
--- 'MetricFrame'. The function is pure so the demo route table can
--- emit the same shape regardless of whether the payload came from a
--- live Pulsar consume or from a deterministic fallback frame.
+-- 'MetricFrame'. Without a live broker payload the response is a
+-- visible 503 instead of a deterministic local frame.
 --
 -- Bridges the current one-request-one-response HTTP server (no
 -- chunked transfer) to a polling pattern: the browser fires GET
@@ -355,7 +296,7 @@ renderTuneStream =
 -- Sprint 13.13.
 liveEventSnapshotResponse :: Text -> Maybe Text -> EndpointResponse
 liveEventSnapshotResponse domain Nothing =
-  EndpointResponse 200 (fallbackFrame domain)
+  EndpointResponse 503 (liveStreamUnavailableText domain)
 liveEventSnapshotResponse domain (Just payload) =
   EndpointResponse
     200
@@ -365,10 +306,22 @@ liveEventSnapshotResponse domain (Just payload) =
         ]
     )
 
-fallbackFrame :: Text -> Text
-fallbackFrame "training" = renderTrainingStream
-fallbackFrame "tune" = renderTuneStream
-fallbackFrame _ = renderMetricsStream
+liveStreamUpgradeRequired :: EndpointResponse
+liveStreamUpgradeRequired =
+  EndpointResponse 503 "live stream requires WebSocket upgrade\n"
+
+liveStreamUnavailableFrame :: Text -> Text
+liveStreamUnavailableFrame domain =
+  Text.unlines
+    [ "event: error"
+    , "data: " <> Text.replace "\n" " " (liveStreamUnavailableText domain)
+    ]
+
+liveStreamUnavailableText :: Text -> Text
+liveStreamUnavailableText domain =
+  "live stream unavailable for "
+    <> domain
+    <> ": cluster publication required\n"
 
 textRoute :: Text -> Text -> EndpointResponse -> HttpRoute
 textRoute method path response =

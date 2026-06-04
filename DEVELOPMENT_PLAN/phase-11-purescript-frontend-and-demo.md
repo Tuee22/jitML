@@ -26,13 +26,15 @@ PureScript scaffold, generated browser contracts under
 `web/src/Generated/Contracts.purs`, six typed panel modules under
 `web/src/Panels/`, Halogen dependency + render machinery on each panel,
 `purescript-spec` smoke suite invoked through `jitml lint purescript`,
-demo HTTP server (with deterministic local stream frames), compiled
-bundle baked into `jitml:local`, and Playwright DOM-shape matrix at
-`playwright/jitml-demo.spec.ts`. The remaining live work — `/api/ws`
+demo HTTP server (the deterministic local stream-frame stand-in later
+retired by Phase `15` Sprint `15.3`), compiled bundle baked into
+`jitml:local`, and Playwright DOM-shape matrix at
+`playwright/jitml-demo.spec.ts`. The later live work — `/api/ws`
 WebSocket proxy bridging the demo server to Pulsar event topics, and
-Playwright against the live edge route — is owned by
+Playwright against the live edge route — closed in
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprints `13.13` and `13.14`.
+Sprints `13.13` / `13.14`; Phase `15` Sprint `15.3` removed the
+offline Playwright and local stream fallbacks on 2026-06-04.
 
 The phase owns
 [Exit Definition](README.md#exit-definition) item 8 (PureScript frontend
@@ -51,12 +53,14 @@ modules now live under `web/src/Panels/`:
 typed request/response payload shape for its endpoint. `web/test/Main.purs`
 smokes every panel name + the generated contracts surface.
 `playwright/jitml-demo.spec.ts` covers the seven-test canonical panel
-matrix. `JitML.Web.Bundle.panelSurfaces` lists all six panel names, and
+matrix through the live edge route. `JitML.Web.Bundle.panelSurfaces`
+lists all six panel names, and
 `JitML.Web.Bundle.demoRoutes` now names the full local demo HTTP surface
 (`/`, `/api`, `/api/inference`, `/api/images`, `/api/connect4/move`,
-`/api/ws`, `/api/ws/training`, `/api/ws/tune`). `JitML.Web.Server.demoHttpRoutes`
-serves the same route family, including deterministic local responses for
-the generated stream contracts.
+`/api/ws`, `/api/ws/training`, `/api/ws/rl`, `/api/ws/tune`).
+`JitML.Web.Server.demoHttpRoutes` serves the same route family; stream
+GETs require a WebSocket upgrade and return `503` when requested as
+plain HTTP.
 **Met on 2026-05-24**: Sprint `11.3` closed by adding `spec` to the
 `web/spago.yaml` test deps, rewriting `web/test/Main.purs` as a
 `describe`/`it` block that touches every typed `Panels.*` payload-shape
@@ -69,24 +73,25 @@ wiring `JitML.Lint.Stack.runPureScriptSpecSuite` to invoke
 `web/src/Panels/*.purs` module as a typed Halogen `H.component` plus
 `mount` driver, and updating `web/src/Main.purs` to dispatch on the URL
 hash. The 2026-05-24 in-container `docker compose build jitml` produced
-the compiled Halogen bundle (`web/dist/Main/index.js`), and
+the initial PureScript output; later Phase `13` bundling emits the
+browser-loadable `web/dist/Main/bundle.js`, and
 `docker compose run --rm jitml jitml lint purescript` returned `ok`.
-**Unmet today**: Sprint `11.4` owes the live `/api/ws` proxy against
-real daemon Pulsar topics; Sprint `11.5` owes serving the compiled
-bundle against real daemon state; Sprint `11.6` owes Playwright against
-the live `jitml-demo` edge route rather than inline DOM stubs. Detailed
-remaining work lives in each sprint's `### Remaining Work` block below.
+**Later closure**: the live `/api/ws` proxy against real daemon Pulsar
+topics, compiled bundle serving from the Kind-deployed demo pod, and
+Playwright against the live `jitml-demo` edge route closed in Phase `13`.
+Phase `15` Sprint `15.3` retired the offline DOM and deterministic stream
+fallbacks.
 
 ### Current Implementation Scope
 
 The worktree implements a minimal PureScript entrypoint, generated
 contract file, typed bundle/panel/demo-route metadata,
 `web/package.json` script surface, `web/test/Main.purs`, six
-`web/src/Panels/*.purs` payload modules, Playwright spec scaffold,
+`web/src/Panels/*.purs` payload modules, live-only Playwright spec,
 `jitml-demo` executable shim, and demo deployment template. Halogen
-dependency/mount machinery, external `purescript-bridge` package
-dependency, checked-in compiled browser bundle output, and live
-WebSocket proxying live in the sprints' `### Remaining Work` blocks below.
+dependency/mount machinery, the browser-loadable bundle output, and live
+WebSocket proxying have landed in later phase work; no Phase `11`
+code-surface obligation remains open.
 `jitml-demo` serves the present route/API surface through
 `src/JitML/Web/Server.hs`.
 
@@ -228,9 +233,9 @@ returned `ok` on 2026-05-24.
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. The Halogen
 dependency + render machinery (slot + state + DOM diff) on each
-`Panels.*` module closed on 2026-05-24; `spago build --output web/dist`
-runs in `docker/Dockerfile` and compiles 536 PureScript modules to
-`web/dist/Main/index.js`. `JitML.Web.Server.loadBundleEntry` +
+`Panels.*` module closed on 2026-05-24; the Dockerfile runs the
+PureScript build and esbuild bundle step to produce
+`web/dist/Main/bundle.js`. `JitML.Web.Server.loadBundleEntry` +
 `demoHttpRoutesWithBundle` serve the compiled bundle when present.
 `playwright/jitml-demo.spec.ts` covers the canonical six-panel
 DOM-shape matrix. The live `/api/ws` WebSocket proxy migrated to
@@ -297,9 +302,9 @@ remains target runtime validation.
   render plus a `mount :: Effect Unit` that drives `Halogen.Aff` +
   `Halogen.VDom.Driver.runUI`. `web/src/Main.purs` dispatches on the
   `location.hash` and mounts the matching panel (default: MNIST).
-  `spago build --output dist` runs in `docker/Dockerfile` and the
-  2026-05-24 in-container build compiled 536 PureScript modules and
-  produced `web/dist/Main/index.js` for the demo image.
+  `spago build --output dist` runs in `docker/Dockerfile`; Phase `13`
+  adds the esbuild step that emits `web/dist/Main/bundle.js` for the
+  demo image.
 - The live `/api/ws` WebSocket proxy that bridges the demo server to
   the daemon's metric/event Pulsar topics is owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
@@ -350,42 +355,25 @@ HTTP server, and chart deployment surface.
    the typed demo route manifest covers the current local API surface.
 4. 2026-05-23 validation: `docker run --rm jitml:local jitml-demo --host
    0.0.0.0 --port 8080` serves `/` with the bundle-script-tagged shell and
-   `/bundle/main.js` with `web/dist/Main/index.js` from the baked image.
-5. Live validation (target): the live `/api/ws` proxy is connected to the
-   daemon's metric/event Pulsar topics, and each panel renders against
-   real daemon state.
+   `/bundle/main.js` from the baked image.
+5. Later live validation: Phase `13` validated the live `/api/ws` proxy
+   against daemon metric/event Pulsar topics and Phase `15` validated the
+   live-only Playwright matrix after removing offline fallbacks.
 
 ### Remaining Work
 
-- The compiled Halogen bundle now bakes into the `jitml:local` image:
-  `docker/Dockerfile` runs `RUN cd /jitml/web && spago build --output dist`
-  after `cabal build` + `jitml check-code`, driven by the checked-in
-  `web/spago.yaml` (registry package set `77.3.1`, deps `console` /
-  `effect` / `prelude`). 2026-05-23 validation in the rebuilt image: `docker
-  run --rm jitml:local jitml-demo --host 0.0.0.0 --port 8080` serves `/`
-  with the `<script type="module" src="/bundle/main.js">` shell and
-  `/bundle/main.js` with the compiled `web/dist/Main/index.js` payload, so
-  the Kind-deployed `jitml-demo` container (no host bind mount) serves the
-  bundle without any host-side build step.
-- `JitML.Web.Server.loadBundleEntry` reads the file from the canonical path
-  (`bundleEntryPath = "web/dist/Main/index.js"`), and
-  `demoHttpRoutesWithBundle :: Maybe Text -> [HttpRoute]` appends a
-  `/bundle/main.js` route serving the JS bytes whenever the bundle is on
-  disk; without it, the routes fall back to the placeholder shim.
-  Validated by `jitml-e2e`: when the bundle is present, the route table is
-  one entry larger than `demoHttpRoutes`; when absent, it matches the
-  placeholder length.
-- The live `/api/ws` proxy bridging browser WebSocket clients to Pulsar
-  event topics is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.13`.
+- None remaining for Sprint `11.4`. The browser-loadable bundle path is
+  `web/dist/Main/bundle.js`, the demo route appends `/bundle/main.js`
+  when that file exists, and later Phase `13` / Phase `15` work closed
+  the live WebSocket and fallback-removal surfaces.
 
 ## Sprint 11.6: Playwright E2E Suite ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live edge-route
-Playwright execution against the running cluster (replacing the inline
-`page.setContent` DOM stubs) migrated to Phase `13` Sprint `13.14`.
+Playwright execution against the running cluster migrated to Phase `13`
+Sprint `13.14`; Phase `15` Sprint `15.3` removed the inline
+`page.setContent` DOM fallback.
 **Implementation**: `playwright/jitml-demo.spec.ts`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/unit_testing_policy.md`
@@ -411,29 +399,17 @@ Land the Playwright scaffold for the future interactive panel suite.
 1. `playwright/jitml-demo.spec.ts` remains present for the E2E runner.
 2. `jitml-e2e` validates route, bucket, publication, contract, and
    report-card surfaces.
-3. Live validation (target): the explicit live `jitml-e2e` orchestration path
-   invokes Playwright against the live `jitml-demo` HTTP listener and
-   each canonical panel (MNIST, CIFAR/ImageNet, Connect 4, RL
-   trajectory, training, tuning) passes its end-to-end flow against
-   real daemon state.
+3. Later live validation: the explicit live orchestration path invokes
+   Playwright against the live `jitml-demo` HTTP listener, and the
+   canonical panel matrix passed 7 / 7 against the Apple Silicon edge
+   route on 2026-06-04 after the offline fallback was removed.
 
 ### Remaining Work
 
-- `playwright/jitml-demo.spec.ts` now covers the full canonical panel
-  matrix: the smoke shell test plus six per-panel DOM-shape tests
-  (`mnist-live-inference`, `cifar-imagenet-upload`,
-  `connect4-human-vs-alphazero`, `rl-trajectory`,
-  `training-progress`, `hyperparameter-sweep`). The `jitml-e2e`
-  stanza validates the typed `npx playwright test` plan; the checked-in spec
-  still drives inline `page.setContent` DOM stubs rather than the live edge
-  route.
-- Feeding Playwright the live edge port from `cluster-publication.json`
-  so the panels load against `jitml-demo` rather than inline
-  `page.setContent` stubs is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.14`.
-- Playwright stays out of the default `cabal test all` matrix (the
-  live invocation is explicit).
+- None remaining for Sprint `11.6`. `playwright/jitml-demo.spec.ts` now
+  reads the live edge port from `cluster-publication.json`, fails fast
+  when no live publication exists, and stays out of the default
+  `cabal test all` matrix unless the live invocation is explicit.
 
 ## Doctrine Sections Cited
 

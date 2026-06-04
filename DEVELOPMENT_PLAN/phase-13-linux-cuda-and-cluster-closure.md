@@ -337,9 +337,10 @@ environmental issue, not a code one. Against the live cluster:
   RFC-6455-framed `event: metrics` text frame — proving `demoMain` now
   serves the held-open `serveDemoWithBridgeEndpoint` bridge (not plain
   HTTP). `GET /` returns 200 and `GET /bundle/main.js` returns the
-  236 KB browser-loadable esbuild IIFE. The only open 13.13 item is the
-  live-broker frame (vs. the deterministic fallback), which needs
-  `JITML_DEMO_PULSAR_WS` set on the `jitml-demo` Deployment.
+  236 KB browser-loadable esbuild IIFE. The later Sprint `13.13` live
+  broker-frame pass closed the in-cluster endpoint wiring; Phase `15`
+  Sprint `15.3` subsequently removed the no-publication deterministic
+  fallback path.
 
 All fast host stanzas are green (`jitml-unit` 184, `jitml-rl-canonicals`
 27, `jitml-hyperparameter` 12, `jitml-daemon-lifecycle` 30,
@@ -3405,12 +3406,13 @@ daemon state. Closes Exit Definition item 8's live-panel slice.
 
 ### Deliverables
 
-- `JitML.Web.Server` accepts `/api/ws`, `/api/ws/training`, and
-  `/api/ws/tune` upgrade requests, opens a Pulsar WebSocket subscription
-  to the matching event topic, and forwards frames downstream.
+- `JitML.Web.Server` accepts `/api/ws`, `/api/ws/training`,
+  `/api/ws/rl`, and `/api/ws/tune` upgrade requests, opens a Pulsar
+  WebSocket subscription to the matching event topic, and forwards
+  frames downstream.
 - The six Halogen panels (`Panels.{Mnist,Cifar,Connect4,Rl,Training,Tune}`)
   render against live frames received through the proxy.
-- The demo `web/dist/Main/index.js` baked into `jitml:local` renders
+- The demo `web/dist/Main/bundle.js` baked into `jitml:local` renders
   against the live `/api/ws` proxy when served from the cluster
   `jitml-demo` pod.
 
@@ -3428,12 +3430,11 @@ daemon state. Closes Exit Definition item 8's live-panel slice.
 - `JitML.Web.Server.liveEventSnapshotResponse :: Text -> Maybe Text
   -> EndpointResponse` renders a Server-Sent-Events-shaped frame
   (`event: <domain>`/`data: <payload>` lines) from a live broker
-  payload, falling back to the deterministic per-domain frame
-  (`renderTrainingStream` / `renderTuneStream` / `renderMetricsStream`)
-  when no live payload is supplied. This is the polling-shaped
-  bridge that the demo's `/api/ws*` route renders against; the
-  fully-held-open WebSocket upgrade is the larger remaining work
-  below.
+  payload. The initial 2026-05-27 polling snapshot fell back to
+  deterministic per-domain frames when no live payload was supplied;
+  Phase `15` Sprint `15.3` later removed those local stream frames and
+  made plain HTTP stream requests return `503` unless the client uses a
+  WebSocket upgrade.
 - `web/src/Panels/Mnist.purs` gains real Halogen render machinery:
   - typed `State` carrying `lastPrediction`, `pendingInference`, and
     `lastError`
@@ -3503,8 +3504,9 @@ daemon state. Closes Exit Definition item 8's live-panel slice.
   `PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess` and
   forwards each consumed delivery as a WebSocket text frame
   (ack-after-write per at-least-once doctrine). Without a live
-  publication the handler emits the deterministic fallback frame
-  once. New `serveDemoWithBridge` entrypoint exposes the bridge
+  publication the original handler emitted the deterministic fallback
+  frame once; Phase `15` Sprint `15.3` replaced that with a terminal
+  error frame. New `serveDemoWithBridge` entrypoint exposes the bridge
   surface to the demo binary.
 
 ### Live Validation Note (2026-05-27, fifth session — diagnosed bundler gap)
@@ -3530,8 +3532,8 @@ is validated:
   --outfile=dist/Main/bundle.js` after `spago build` and appends
   `jitmlDemo.main();`, producing a 225 KB self-contained browser
   bundle. `JitML.Web.Server.bundleEntryPath` points at
-  `web/dist/Main/bundle.js` with `bundleEntryFallbackPath` retaining
-  the per-module entry for offline shells.
+  `web/dist/Main/bundle.js`; Phase `15` Sprint `15.3` removed the
+  per-module fallback entry for offline shells.
 - **Per-panel hash navigation.** `playwright/jitml-demo.spec.ts`'s
   `loadPanel` now navigates to `LIVE_DEMO_URL#<panel-id>` so
   `Main.main` mounts the matching `Panels.*` component.
@@ -3549,8 +3551,9 @@ host for Haskell; `spago build` inside `jitml:local` for PureScript):
 - **(a) `demoMain` activates the bridge.** `JitML.App.demoMain` now
   calls `WebServer.serveDemoWithBridgeEndpoint` (not plain
   `serveDemo`), so the held-open Pulsar→WebSocket bridge is live in the
-  running demo. With no cluster the `/api/ws` handshake still completes
-  and emits the deterministic fallback frame.
+  running demo. With no cluster the `/api/ws` handshake now completes
+  and emits a terminal error frame instead of a deterministic local
+  stream.
 - **(b) in-cluster broker endpoint.** New
   `JitML.Web.Server.serveDemoWithBridgeEndpoint` threads an optional
   Pulsar WebSocket endpoint override through
@@ -3589,7 +3592,7 @@ the live RTX 3090 / CUDA 12.8 cluster:
   `GET /bundle/main.js` serves the 236 KB browser IIFE; the Playwright
   panel matrix (Sprint 13.14) mounts all six panels from that bundle.
 
-### Remaining Work
+### Follow-On Note
 
 - **Idle-stream keepalive (minor refinement).** The bridge's
   `consumeLoop` exits after one 15-second idle `pulsarConsume` timeout,
@@ -3642,17 +3645,13 @@ slice and item 9's `jitml-e2e` Playwright slice.
 ### Code Surface Landed (2026-05-27, live edge selection)
 
 - `playwright/jitml-demo.spec.ts` adds `loadLiveEdge()` that reads
-  `./.build/runtime/cluster-publication.json` when present, returns
-  `http://127.0.0.1:<edge-port>/`, and falls back to `null`
-  otherwise. A new `loadPanel(page, inlineStub, panelId)` helper
-  drives `page.goto(LIVE_DEMO_URL)` when the publication exists and
-  waits for the named panel to attach to the DOM (Halogen mount);
-  it falls back to `page.setContent(inlineStub)` otherwise so the
-  matrix continues to exercise locator surfaces offline.
-- Each of the seven panel tests now branches: live →
-  `await expect(page.locator('#<panel-id>')).toBeVisible()`;
-  offline → the existing inline-DOM-stub locator. This keeps the
-  matrix shape stable across both modes.
+  `./.build/runtime/cluster-publication.json` and returns
+  `http://127.0.0.1:<edge-port>/`. Phase `15` Sprint `15.3` removed
+  the offline fallback, so the current spec fails fast when the live
+  publication is absent.
+- Each of the seven panel tests now navigates to the live edge route
+  and waits for the named panel to attach to the DOM (Halogen mount).
+  The earlier inline-DOM branch was retired on 2026-06-04.
 
 ### Live Validation Note (2026-05-27, fifth session — Playwright passes against the live cluster edge)
 

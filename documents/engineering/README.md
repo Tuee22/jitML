@@ -19,7 +19,7 @@ docs (which own their content outright with no doctrine overlap).
 | Doc | Defers to doctrine sections | Project-specific surface |
 |-----|------------------------------|--------------------------|
 | [cli_command_surface.md](cli_command_surface.md) | Command Topology; CommandSpec; Progressive Introspection; Output Rules; Standard Flag Families | jitML's command tree |
-| [code_quality.md](code_quality.md) | Lint, Format, and Code-Quality Stack; Forbidden Surfaces; Generated Artifacts | Container-exclusive Haskell style/code-quality gate; chart-shape lint; route-registry drift |
+| [code_quality.md](code_quality.md) | Lint, Format, and Code-Quality Stack; Forbidden Surfaces; Generated Artifacts | Container-exclusive Haskell style/code-quality gate; chart-shape lint; route-registry drift; scoped `allow-newer` retirement gate |
 | [unit_testing_policy.md](unit_testing_policy.md) | Testing Doctrine; Standard Testing Stack; Test Categories; Test Organization | Eight jitML test stanzas including local SL/RL/HPO/cross-backend Integration extensions, Linux CPU generated-kernel execution, and the current `jitml-e2e` scaffold/live-plan surface |
 | [haskell_code_guide.md](haskell_code_guide.md) | GADT-Indexed State Machines; Subprocesses as Typed Values; Plan / Apply; Prerequisites as Typed Effects; Application Environment; Error Handling; Capability Classes; Retry Policy; Long-Running Daemons; At-Least-Once Event Processing; Reconcilers | jitML's lifecycle ADTs and capability classes; the 17-variant `AppError` enumeration |
 
@@ -32,7 +32,7 @@ docs (which own their content outright with no doctrine overlap).
 | [daemon_architecture.md](daemon_architecture.md) | `jitml service` lifecycle, BootConfig / LiveConfig, hot reload, healthz/readyz/metrics, structured logging, recoverable vs fatal errors, at-least-once Pulsar consumer |
 | [jit_codegen_architecture.md](jit_codegen_architecture.md) | Content-addressed cache, per-substrate compilers (Metal/oneDNN/CUDA), local kernel handle/envelope surface, Linux CPU libdnnl-linked FFI and `HasEngine` execution, guarded CUDA FFI runner boundary, Apple Silicon headless Metal JIT, hardware auto-tuning, target Metal/live CUDA validation boundary; on Apple Silicon the host builds the Swift glue dylib with CommandLineTools `swift build` and JIT-compiles the Metal shader at runtime via `MTLDevice.makeLibrary(source:)` (no Tart VM, no full Xcode) |
 | [numerical_core.md](numerical_core.md) | Current local numerical catalog, Dhall mirrors, and cross-type audit |
-| [training_workloads.md](training_workloads.md) | Current local SL/RL/AlphaZero/tuning catalogs, RL Dhall mirror, statistical convergence-assertion methodology, plus target daemon-backed workloads |
+| [training_workloads.md](training_workloads.md) | Current local SL/RL/AlphaZero/tuning catalogs, RL Dhall mirror, ALE replacement path for `atari-subset`, statistical convergence-assertion methodology, plus target daemon-backed workloads |
 | [checkpoint_format.md](checkpoint_format.md) | Current local checkpoint key/CAS/store/inference helpers plus target split-blob format and retention reconciler |
 | [purescript_frontend.md](purescript_frontend.md) | Current PureScript shell, generated contracts, panel/demo-route metadata, demo shim, Playwright scaffold, and typed live-plan step plus target Halogen/REST/HTTP surfaces |
 

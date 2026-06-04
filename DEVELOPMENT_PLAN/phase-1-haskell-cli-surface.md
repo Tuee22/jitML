@@ -20,13 +20,24 @@
 
 ## Phase Status
 
-✅ **Done**. The phase owns
+🔄 **Active** (reopened 2026-06-04 for Sprint `1.10`). The original
+CLI, `CommandSpec`, lint, prerequisite, environment, and error-surface
+obligations remain closed; the only reopened scope is the
+toolchain-compatibility cleanup needed to remove the scoped
+`allow-newer` block from `cabal.project` once upstream Dhall / CBOR
+package bounds solve under pinned GHC `9.14.1` / `base-4.22`.
+The compatibility helper is tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal)
+and gates Phase `15` Sprint `15.3`.
+
+The phase owns
 [Exit Definition](README.md#exit-definition) items 11 (Plan/Apply
 `--dry-run` / `--plan-file`), 12 (typed `Subprocess` boundary), 13 (one
 `prerequisiteRegistry`), 14 (single `AppError` ADT and `renderError`), 15
 (`fourmolu.yaml` + lint targets), 16 (`CommandSpec` as implementation
 source) and contributes to item 4 (stage-0 entrypoints + typed prerequisite
-DAG). Sprints `1.1`–`1.9` are closed. Sprint `1.4` includes the
+DAG). Sprints `1.1`–`1.9` are closed. Sprint `1.10` is blocked on
+upstream package-bound availability. Sprint `1.4` includes the
 container-exclusive style/code-quality rule: `docker/Dockerfile` installs the
 separate style-tools GHC and pinned Fourmolu / HLint binaries for `jitml:local`,
 runs the Haskell style/code-quality gate during image construction, and rejects
@@ -68,7 +79,9 @@ execution enters the plan renderer only when `--dry-run` or `--plan-file` is
 requested on selected plan-capable leaves. Phase `1`'s Haskell lint and
 code-quality gate is container-exclusive: the mandatory `jitml:local` image
 build installs the style-tools GHC, builds pinned Fourmolu / HLint binaries,
-and runs `jitml check-code`.
+and runs `jitml check-code`. The only open Phase `1` work is Sprint `1.10`:
+retiring the scoped `allow-newer` compatibility block after upstream packages
+support the pinned compiler without overrides.
 
 ## Sprint 1.1: Toolchain Pin and Library-First Cabal Project ✅
 
@@ -578,9 +591,70 @@ and the doctrine-mandated output flags `--format` and `--color`.
 
 None.
 
+## Sprint 1.10: Scoped `allow-newer` Retirement Gate ⏸️
+
+**Status**: Blocked
+**Blocked by**: upstream Hackage package bounds for Dhall's transitive CBOR
+stack under pinned GHC `9.14.1` / `base-4.22`; the 2026-06-04
+no-override solver check still fails because `serialise-0.2.6.1` excludes
+`base-4.22`. Re-running after `cabal update` refreshed Hackage to
+index-state `2026-06-04T13:02:57Z` and produced the same conflict.
+**Implementation**: `cabal.project`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
+**Docs to update**: `README.md`, `documents/engineering/code_quality.md`,
+`DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
+`DEVELOPMENT_PLAN/system-components.md`
+
+### Objective
+
+Remove the scoped `allow-newer` block from `cabal.project` without changing
+the project compiler pin. This is a compatibility cleanup only: GHC `9.14.1`
+and Cabal `3.16.1.0` remain normative.
+
+### Deliverables
+
+- A recurring no-override solver check exists for the pinned compiler: a
+  temporary `cabal.project` without the scoped `allow-newer` block must solve
+  before the block is removed.
+- Upstream issues, PRs, or Hackage metadata-revision requests are filed for
+  the affected packages (`serialise`, `cborg`, `cborg-json`, and any remaining
+  Dhall-bound packages) with GHC `9.14.1` / `base-4.22` CI evidence when tests
+  pass.
+- `cabal.project` drops only the compatibility override after the dependency
+  solver succeeds under the pinned toolchain.
+- The `Scoped allow-newer for Dhall / CBOR transitive package bounds` row moves
+  from Pending Removal to Completed in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
+### Validation
+
+1. A temporary project file with the scoped `allow-newer` block removed solves
+   under GHC `9.14.1`.
+2. `docker compose build jitml` passes and the image build runs the
+   container-only `jitml check-code` gate.
+3. `docker compose run --rm jitml jitml check-code` passes after the block is
+   removed.
+
+### Remaining Work
+
+- Keep the compatibility block in place while upstream package bounds exclude
+  the pinned compiler's `base`.
+- File or track upstream bound-relaxation issues / PRs / metadata revisions for
+  the Dhall / CBOR stack.
+- Re-run the no-override solver check before every final-handoff retry.
+
+### Current Validation State
+
+- 2026-06-04 retry: `cabal update` refreshed Hackage to index-state
+  `2026-06-04T13:02:57Z`; a temporary `.build/phase1/cabal.project.no-allow-newer`
+  with the scoped `allow-newer` block removed still fails
+  `cabal build all --project-file=.build/phase1/cabal.project.no-allow-newer --dry-run`
+  because `serialise-0.2.6.1` requires `base >=4.11 && <4.22` while the
+  pinned compiler provides `base-4.22.0.0`.
+
 ## Doctrine Sections Cited
 
-- [../README.md → Toolchain pinning](../README.md#toolchain-pinning) (Sprint 1.1)
+- [../README.md → Toolchain pinning](../README.md#toolchain-pinning) (Sprints 1.1, 1.10)
 - [../README.md → Repository layout (target)](../README.md#repository-layout-target) (Sprint 1.1)
 - [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (Sprint 1.2)
 - [../README.md → Generated documentation flow](../README.md#generated-documentation-flow) (Sprints 1.2, 1.3)
@@ -604,7 +678,8 @@ None.
   `GeneratedSectionRule` registry.
 - `documents/engineering/code_quality.md` — name the thirteen `fourmolu` settings,
   the project-specific hlint rules, the `forbiddenPathRegistry`, the
-  container-exclusive style/code-quality gate, and the chart-shape lint.
+  container-exclusive style/code-quality gate, the chart-shape lint, and the
+  scoped `allow-newer` retirement gate from Sprint `1.10`.
 - `documents/engineering/unit_testing_policy.md` — record that
   `jitml lint haskell` runs inside `jitml:local`.
 - `documents/engineering/cluster_topology.md` — record that the `jitml:local`

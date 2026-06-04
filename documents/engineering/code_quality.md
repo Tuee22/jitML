@@ -50,7 +50,15 @@ image construction, and host lint/check-code execution is rejected before
 linting.
 `cabal.project` currently carries a scoped `allow-newer` block for
 Dhall / CBOR package bounds under GHC `9.14.1`; its removal is tracked in
-[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)
+and reopened Phase `1` Sprint `1.10`. The compatibility block is not a
+host-tooling issue and is not solved by changing the project compiler pin. The
+retirement gate is: remove the block in a temporary project file, prove the
+dependency solver succeeds under GHC `9.14.1`, then remove it from
+`cabal.project` and run the container-only `jitml check-code` gate. Until
+upstream `serialise` / `cborg` / `cborg-json` / Dhall bounds admit
+`base-4.22`, keep the scoped override and track upstream PRs or Hackage metadata
+revisions.
 
 ## jitML Project-Specific Lint Rules
 

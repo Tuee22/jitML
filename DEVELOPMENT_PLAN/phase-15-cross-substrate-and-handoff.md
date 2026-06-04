@@ -31,13 +31,17 @@ live report card surfaces real measurements), plus the cross-cohort
 slice of `jitml-cross-backend` (Sprint 12.6) and the live report-card
 slice of `jitml test all` (Sprint 12.9).
 
-**Blocked by**: Sprint `15.2`'s clean full-aggregate live report-card
-run and the remaining legacy-ledger rows owned by external/upstream or
-live-runtime surfaces. Phase `13` closed 2026-05-30 (15 / 15 sprints
-Done) and Phase `14` closed 2026-05-31 (5 / 5 sprints Done), so each
-substrate can produce its weighted outputs on its owning host; Sprint
-`15.1` closed the cross-host Linux/Apple report-bundle comparison on
-2026-06-03.
+**Blocked by**: the remaining legacy-ledger rows owned by
+external/upstream surfaces. Phase `13` closed
+2026-05-30 (15 / 15 sprints Done) and Phase `14` closed 2026-05-31 (5 /
+5 sprints Done), so each substrate can produce its weighted outputs on
+its owning host; Sprint `15.1` closed the cross-host Linux/Apple
+report-bundle comparison on 2026-06-03, and Sprint `15.2` closed the
+full live report-card aggregate on 2026-06-04. Sprint `15.3` retired
+the demo placeholder row on 2026-06-04; the scoped `allow-newer` row
+and deterministic Atari-subset RAM-state stub row now block final
+handoff through reopened Phase `1` Sprint `1.10` and reopened Phase `8`
+Sprint `8.8`.
 
 **Current validation evidence**: Phase `13` live outputs (Linux CUDA SL convergence
 2026-05-29 `778.27s`, PPO/cartpole RL convergence 2026-05-30 `230.72s`,
@@ -54,9 +58,11 @@ live bootstrap now reaches a healthy published cluster after the
 Kind-node inotify-cap and Percona PV-ownership fixes; the edge
 `/healthz`, `/readyz`, and `/metrics` routes return `200`, and targeted
 live integration reruns passed the StartRLRun event-dispatch smoke case
-and the PPO/cartpole convergence case. The full `jitml test all --live`
-aggregate still needs a clean rerun to capture the final populated
-report card.
+and the PPO/cartpole convergence case. On 2026-06-04, a fresh Apple
+Silicon live cluster published on fallback `edge_port` `9091`; the full
+`jitml test all --live` aggregate passed all eight report stanzas and
+rendered populated measured fields for RL reward, AlphaZero arena win
+rate, tuning objective, JIT cache hit rate, and daemon `/healthz`.
 
 ### Current Implementation Scope
 
@@ -65,8 +71,7 @@ renders the eight-stanza summary, `test/cross-backend/Main.hs` exercises
 the engine-flag + inference-summary surface, the Linux CPU FFI kernel
 path, and the locally runnable weighted cross-substrate drift assertion,
 and `JitML.Test.Report.parseReportCardKnobs` reads `cabal.project`. The
-closure of this phase requires the populated live-cluster report card
-and the final legacy-ledger sweep.
+closure of this phase requires the final legacy-ledger sweep.
 
 ## Phase Summary
 
@@ -214,9 +219,9 @@ authoritatively encode whichever substrate ran the calibration first.
   `2.384185791015625e-7` / `5e-4`, `layernorm` `0.0` / `5e-4`, `mha`
   `0.0` / `2e-3`, and `embedding` `0.0` / `1e-6`; every family passed.
 
-## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics 🔄
+## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Test/Report.hs`,
 `src/JitML/CLI/Spec.hs`, `cabal.project`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -276,6 +281,12 @@ Closes Exit Definition item 9's live report-card slice.
 - `jitml-e2e` covers available and unavailable measurement rendering,
   and `jitml-unit` covers the `jitml test all --live` parser path. The
   "Target-stanza-only report card" legacy row has moved to Completed.
+- The 2026-06-04 live-aggregate closure fixed two Apple live-runner
+  issues discovered by the full gate: live bootstrap no longer trusts a
+  stale publication's occupied edge port, and the live integration test
+  keeps `jitml inference run` fail-closed for Apple Metal while skipping
+  only that single CLI invocation when the Linux container cannot see
+  host Metal.
 
 ### Validation
 
@@ -305,9 +316,9 @@ Closes Exit Definition item 9's live report-card slice.
    Pulsar, PostgreSQL, observability, `jitml-service`, and `jitml-demo`
    as ready on `edge_port` `9090`. The subsequent aggregate
    `jitml test all --live` reached the Cabal test fan-out but exited `1`
-   because `jitml-integration` failed in that aggregate run; this keeps
-   Sprint `15.2` Active until the full aggregate is rerun cleanly and
-   the report card is captured.
+   because `jitml-integration` failed in that aggregate run; the
+   2026-06-04 validation below closed that failure with a clean full
+   aggregate pass and populated report card.
 7. The same live cluster's edge routes were validated on 2026-06-03:
    `curl -sS -i http://127.0.0.1:9090/healthz` returned `200` with
    body `ok`; `/readyz` returned `200` with body `ready`; `/metrics`
@@ -322,33 +333,46 @@ Closes Exit Definition item 9's live report-card slice.
 9. `docker run --rm -v "$PWD:/work" -w /work jitml:local jitml check-code`
    passed on 2026-06-03 after the Phase `15` source edits preceding
    this documentation refresh.
-
-### Remaining Work
-
-- Rerun the full aggregate `jitml test all --live` against the current
-  live Apple Silicon cluster or a fresh equivalent cluster, with the
-  live SL/RL/AlphaZero/tune, daemon, cache, and cross-substrate sources
-  reachable. The previous aggregate reached the live Cabal fan-out and
-  then exited `1` in `jitml-integration`; targeted reruns for the
-  StartRLRun and PPO/cartpole convergence cases now pass, so the next
-  session should rerun the aggregate and capture the final report card
-  rather than re-debugging rollout.
-- Record the populated non-empty report-card measured fields here after
-  the clean aggregate pass.
+10. The full live aggregate passed on 2026-06-04 against a fresh
+    Apple Silicon cluster published at `edge_port` `9091`. Setup:
+    `docker compose build jitml` produced `jitml:local`; the first live
+    run exposed the stale-publication edge-port bug (`9090` occupied by
+    another Kind cluster), then a second run exposed stale retained
+    `.data/platform/harbor-pg` state. After `jitml cluster down` and
+    clearing `.data/`, bootstrap selected `9091`, executed 84 rollout
+    steps, wrote a ready publication, and `/healthz` returned `200 ok`.
+    Focused `jitml-integration` live reruns passed 19 / 19 before the
+    aggregate was rerun.
+11. `docker run --rm --name jitml-report-card --network host -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:$PWD" -w "$PWD" jitml:local cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- test all --live`
+    exited `0` on 2026-06-04. All report stanzas passed:
+    `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
+    `jitml-rl-canonicals`, `jitml-hyperparameter`,
+    `jitml-cross-backend`, `jitml-daemon-lifecycle`, and `jitml-e2e`.
+    Populated measured fields: `rl_final_reward:
+    ppo/cartpole=20.06118881118881`,
+    `alphazero_arena_win_rate: connect4/gen0=0.625`,
+    `tune_best_objective: TPE=0.9792`, `jit_cache_hit_rate:
+    prometheus=1.0 hits=1 misses=0`, and `daemon_healthz:
+    http://127.0.0.1:9091/healthz status=200`. `sl_final_loss` and
+    `cross_substrate_parity` rendered `unavailable` because those live
+    sources were not present in the cluster/report-card probe.
 
 ## Sprint 15.3: Empty Legacy Ledger and Final Handoff ⏸️
 
 **Status**: Blocked
-**Blocked by**: Sprint `15.2`, the upstream Dhall/CBOR bound refresh
-required to remove scoped `allow-newer`, the live demo/browser
-validation that retires the demo placeholder row, and the real ALE
-binding work that retires the deterministic Atari-subset RAM-state stub.
+**Blocked by**: reopened Phase `1` Sprint `1.10` (upstream Dhall / CBOR
+bound refresh required to remove scoped `allow-newer`) and reopened Phase `8`
+Sprint `8.8` (real ALE binding plus explicit ROM handling required to retire
+the deterministic Atari-subset RAM-state stub).
 **Implementation**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
 `cabal.project`, `src/JitML/Codegen/{Cuda,Metal}.hs`,
 `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`,
 `test/e2e/Main.hs`, `test/snapshots/`
 **Docs to update**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
-`DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`
+`DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
+`DEVELOPMENT_PLAN/system-components.md`,
+`documents/engineering/purescript_frontend.md`,
+`documents/engineering/unit_testing_policy.md`
 
 ### Objective
 
@@ -358,12 +382,18 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
 
 ### Deliverables
 
-- Scoped `allow-newer` block removed from `cabal.project` once upstream
-  Dhall/CBOR releases support GHC `9.14.1`'s `base-4.22`. If the
-  upstream releases remain blocking, this row stays in Pending Removal
-  and Phase `15` cannot close until they land.
-- Demo placeholder shell + inline DOM stubs removed once Phase `13`
-  Sprints `13.13` / `13.14` close.
+- Scoped `allow-newer` block removed from `cabal.project` by reopened
+  Phase `1` Sprint `1.10` once upstream Dhall/CBOR releases support GHC
+  `9.14.1`'s `base-4.22`. If the upstream releases remain blocking, this row
+  stays in Pending Removal and Phase `15` cannot close until they land.
+- Deterministic Atari-subset RAM-state stub replaced by the real ALE binding
+  and explicit ROM handling from reopened Phase `8` Sprint `8.8`. If the ROM
+  policy or ALE binding remains blocking, this row stays in Pending Removal and
+  Phase `15` cannot close.
+- Demo placeholder shell, local stream frames, and inline DOM stubs are
+  removed. Plain HTTP stream routes now require a WebSocket upgrade,
+  no-publication WebSocket bridges emit a terminal error frame, and
+  Playwright requires the live cluster publication.
 - The ledger Pending Removal section is empty; every row lives in
   Completed.
 
@@ -386,6 +416,26 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
   now use run-to-run/property assertions, and lint rejects
   `test/golden/`.
 
+### Cleanup Landed (2026-06-04)
+
+- The demo placeholder shell/local stream/offline Playwright fallback
+  row moved to Completed. `JitML.Web.Server` now serves the minimal
+  compiled-bundle shell, loads only `web/dist/Main/bundle.js`, returns
+  `503 live stream requires WebSocket upgrade` for plain HTTP
+  `/api/ws*` requests, and emits a terminal error frame instead of a
+  deterministic stream when no live publication exists.
+- `playwright/jitml-demo.spec.ts` is live-only: it reads
+  `.build/runtime/cluster-publication.json`, fails fast when the
+  publication is absent, and navigates each panel through the live
+  Envoy edge route.
+- `JitML.Service.Http.serveHttpRoutesWithWebSockets` forks one worker
+  per accepted connection; a held-open WebSocket bridge no longer
+  serializes and blocks later HTTP or bundle requests. `jitml-e2e`
+  covers both the plain HTTP 503 stream response and the non-blocking
+  held-open WebSocket case.
+- The browser-contract and route metadata include the live
+  `/api/ws/rl` route used by the RL panel.
+
 ### Validation
 
 1. `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md` Pending Removal
@@ -395,16 +445,28 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
 3. The Closure Status section in
    [README.md](README.md) records the final handoff date and host
    details.
+4. 2026-06-04 demo cleanup validation: mounted-container
+   `jitml-e2e` passed 19 / 19; `jitml check-code` passed; the rebuilt
+   image was loaded into the live Apple Silicon cluster as
+   `jitml-demo:local`; the live Playwright matrix passed 7 / 7 against
+   the published `127.0.0.1:9091` edge route.
+5. 2026-06-04 `allow-newer` validation: after `cabal update` refreshed
+   Hackage to index-state `2026-06-04T13:02:57Z`, a temporary
+   `.build/phase1/cabal.project.no-allow-newer` file with the scoped
+   `allow-newer` block removed still fails solving under GHC `9.14.1`
+   because `serialise-0.2.6.1` excludes `base-4.22`.
+6. 2026-06-04 ALE validation: the `jitml:local` Ubuntu 24.04 APT
+   metadata has candidates for `libsdl2-dev` and `zlib1g-dev`, but no
+   `libale-dev` package; `apt-cache search` for ALE/libale returns no
+   matching package.
 
 ### Remaining Work
 
-- Remove the scoped `allow-newer` block once Hackage releases solve
-  under pinned GHC `9.14.1` without overrides.
-- Remove the demo placeholder shell, local stream frames, and inline DOM
-  stubs after the live browser cluster pass proves the panels populate
-  from real broker frames.
-- Replace the deterministic Atari-subset RAM-state stub with the real
-  ALE FFI binding, including ROM handling and container packages.
+- Close reopened Phase `1` Sprint `1.10`: remove the scoped `allow-newer` block
+  once Hackage releases solve under pinned GHC `9.14.1` without overrides.
+- Close reopened Phase `8` Sprint `8.8`: replace the deterministic
+  Atari-subset RAM-state stub with the real source-built ALE adapter and
+  explicit ROM handling.
 - Update the README and overview to reflect the final handoff state
   only after the Pending Removal table is empty.
 
@@ -425,16 +487,15 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
   assertions for Sprint `15.1`.
 - `documents/engineering/unit_testing_policy.md` — record the
   `jitml-cross-backend` CrossSubstrate tolerance tests for Sprint
-  `15.1`; record the `jitml test all --live` report-card surface and
-  missing-source `unavailable` behavior while full live-cluster
-  validation remains in Sprint `15.2` Remaining Work.
+  `15.1`; record the `jitml test all --live` report-card surface,
+  missing-source `unavailable` behavior, and the 2026-06-04 full
+  live-cluster validation.
 - `documents/engineering/cli_command_surface.md` — generated command
   surface records `jitml verify cross-backend --export/--compare` for
   the Sprint `15.1` cross-host handoff.
 - `documents/engineering/training_workloads.md` — document the
   report-card measurement fields for SL / RL / AlphaZero / tune and
-  keep full live-cluster measurement capture in Sprint `15.2`
-  Remaining Work.
+  the 2026-06-04 measured live aggregate.
 
 **Product docs to create/update:**
 
@@ -443,7 +504,7 @@ Pending Removal so the ledger is empty. Closes Exit Definition item 18.
 **Cross-references to add:**
 
 - `system-components.md → Test runner` row reflects the `--live`
-  measured fields and the remaining live-cluster validation gap.
+  measured fields and the 2026-06-04 full live aggregate pass.
 - `system-components.md → Test Stanzas` row for `jitml-cross-backend`
   records the 2026-06-01 `linux-cpu` / `linux-cuda` validation and the
   2026-06-03 `linux-cpu` / `apple-silicon` report-bundle comparison.

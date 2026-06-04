@@ -8,6 +8,7 @@ module JitML.Bootstrap
   , liveExecutePhasedRollout
   , materializeBootstrapFiles
   , readExistingLivePublication
+  , selectLiveLease
   )
 where
 
@@ -555,7 +556,7 @@ hostBootConfigForPublication publication =
 liveExecutePhasedRollout :: Substrate -> FilePath -> IO LiveExecutionResult
 liveExecutePhasedRollout substrate chartPath = do
   resources <- loadClusterResourcesOrDefault "."
-  lease <- selectLiveLease substrate
+  lease <- selectLiveLease "." substrate
   let publication = publicationWithLeasedPort lease (defaultPublication substrate)
       port = EdgePort.leasedPort lease
   patchLiveMaterialization substrate lease publication
@@ -775,22 +776,29 @@ imageExistsLocally tag = do
     ExitSuccess -> pure True
     ExitFailure _ -> pure False
 
-selectLiveLease :: Substrate -> IO EdgePort.EdgePortLease
-selectLiveLease substrate = do
-  existing <- readExistingLivePublication "."
-  case existing of
-    Just publication
-      | publicationSubstrate publication == substrate ->
-          pure
-            EdgePort.EdgePortLease
-              { EdgePort.leasedPort = publicationEdgePort publication
-              , EdgePort.leasedHost = "127.0.0.1"
-              }
-    _ ->
-      fromMaybe defaultLease
-        <$> EdgePort.leaseEdgePort
-          (substrateEdgePort substrate : filter (/= substrateEdgePort substrate) EdgePort.defaultPortCandidates)
+selectLiveLease :: FilePath -> Substrate -> IO EdgePort.EdgePortLease
+selectLiveLease root substrate = do
+  existing <- readExistingLivePublication root
+  fromMaybe defaultLease <$> EdgePort.leaseEdgePort (candidatePorts existing)
  where
+  candidatePorts existing =
+    uniquePorts $
+      existingPublicationPorts existing
+        <> [substrateEdgePort substrate]
+        <> EdgePort.defaultPortCandidates
+
+  existingPublicationPorts (Just publication)
+    | publicationSubstrate publication == substrate =
+        [publicationEdgePort publication]
+  existingPublicationPorts _ = []
+
+  uniquePorts = go []
+   where
+    go _ [] = []
+    go seen (port : rest)
+      | port `elem` seen = go seen rest
+      | otherwise = port : go (port : seen) rest
+
   defaultLease =
     EdgePort.EdgePortLease
       { EdgePort.leasedPort = substrateEdgePort substrate

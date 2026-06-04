@@ -30,6 +30,7 @@ import JitML.Bootstrap
   ( bootstrapPlanSteps
   , hostBootConfigForPublication
   , livePhasedRolloutSubprocesses
+  , selectLiveLease
   )
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
@@ -96,7 +97,8 @@ import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..))
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Tune.Resume qualified as TuneResume
-import System.Directory (doesFileExist, listDirectory, makeAbsolute)
+import Network.Socket qualified as Socket
+import System.Directory (createDirectoryIfMissing, doesFileExist, listDirectory, makeAbsolute)
 import System.FilePath ((</>))
 import System.Info qualified as SystemInfo
 
@@ -904,6 +906,28 @@ main =
             (":9092/minio/s3" `Text.isInfixOf` Publication.publicationMinioUrl relocated)
           -- Substrate identity preserved.
           Publication.publicationSubstrate relocated @?= LinuxCPU
+      , testCase "selectLiveLease skips a stale occupied publication port (Sprint 15.2)" $
+          withOccupiedLoopbackPort $ \stalePort ->
+            withSystemTempDirectory "jitml-stale-publication" $ \root -> do
+              let staleLease =
+                    EdgePort.EdgePortLease
+                      { EdgePort.leasedPort = stalePort
+                      , EdgePort.leasedHost = "127.0.0.1"
+                      }
+                  stalePublication =
+                    Publication.publicationWithLeasedPort
+                      staleLease
+                      (Publication.defaultPublication AppleSilicon)
+                  runtimeRoot = root </> ".build" </> "runtime"
+              createDirectoryIfMissing True runtimeRoot
+              ByteString.Lazy.writeFile
+                (runtimeRoot </> "cluster-publication.json")
+                (Aeson.encode stalePublication)
+              lease <- selectLiveLease root AppleSilicon
+              assertBool
+                "selected lease must not trust an occupied stale publication port"
+                (EdgePort.leasedPort lease /= stalePort)
+              EdgePort.leasedHost lease @?= "127.0.0.1"
       , testCase "dispatchCheckpointDone routes a marker through HasMinIO (Sprint 4.6)" $
           -- The Consumer-domain entry point: given a typed
           -- `TbCheckpointMarker` (the in-memory shape of a CheckpointDone
@@ -2581,27 +2605,34 @@ main =
                     "jitml binary not found — needed for Sprint 13.12 live invocation"
                 Just binary -> do
                   repoRoot <- makeAbsolute "."
-                  let inferenceCmd =
-                        (subprocess binary ["inference", "run", "--experiment-hash", experimentHash])
-                          { JitML.Sub.Subprocess.subprocessWorkingDirectory = Just repoRoot
-                          }
-                  (exitCode, stdoutText, stderrText) <- runStreaming defaultSubprocessEnv inferenceCmd
-                  case exitCode of
-                    ExitSuccess -> do
+                  inferenceRunnable <- liveInferenceCliRunnable publication
+                  if not inferenceRunnable
+                    then
                       assertBool
-                        ( "expected `inference: experiment=` prefix in stdout; got: "
-                            <> Text.unpack stdoutText
-                        )
-                        ( "inference: experiment=" `Text.isInfixOf` stdoutText
-                            && experimentHash `Text.isInfixOf` stdoutText
-                        )
-                    ExitFailure code ->
-                      assertFailure
-                        ( "jitml inference run failed exit "
-                            <> show code
-                            <> " stderr: "
-                            <> Text.unpack stderrText
-                        )
+                        "Apple Silicon live inference run skipped because this runner cannot see host Metal"
+                        True
+                    else do
+                      let inferenceCmd =
+                            (subprocess binary ["inference", "run", "--experiment-hash", experimentHash])
+                              { JitML.Sub.Subprocess.subprocessWorkingDirectory = Just repoRoot
+                              }
+                      (exitCode, stdoutText, stderrText) <- runStreaming defaultSubprocessEnv inferenceCmd
+                      case exitCode of
+                        ExitSuccess -> do
+                          assertBool
+                            ( "expected `inference: experiment=` prefix in stdout; got: "
+                                <> Text.unpack stdoutText
+                            )
+                            ( "inference: experiment=" `Text.isInfixOf` stdoutText
+                                && experimentHash `Text.isInfixOf` stdoutText
+                            )
+                        ExitFailure code ->
+                          assertFailure
+                            ( "jitml inference run failed exit "
+                                <> show code
+                                <> " stderr: "
+                                <> Text.unpack stderrText
+                            )
                   -- jitml inspect replay <sha> reads the manifest by SHA
                   -- from live MinIO and prints the deterministic summary.
                   let manifestSha = Checkpoint.manifestContentSha manifest
@@ -2867,6 +2898,13 @@ requireLivePublication = do
       case eitherDecode bytes of
         Left err -> assertFailureWithIO ("failed to decode cluster-publication.json: " <> err)
         Right publication -> pure publication
+
+liveInferenceCliRunnable :: Publication.ClusterPublication -> IO Bool
+liveInferenceCliRunnable publication =
+  case Publication.publicationSubstrate publication of
+    AppleSilicon ->
+      MetalRuntime.metalRuntimeDeviceVisible <$> MetalRuntime.probeMetalRuntime
+    _ -> pure True
 
 -- | Per-run unique suffix so a re-run on the same cluster does not collide
 -- with a still-present object/subscription from a prior run.
@@ -3223,6 +3261,21 @@ locateJitmlBinary = do
 
 installedBinaryPath :: FilePath
 installedBinaryPath = "/usr/local/bin/jitml"
+
+withOccupiedLoopbackPort :: (Int -> IO a) -> IO a
+withOccupiedLoopbackPort action =
+  Control.Exception.bracket openSocket Socket.close $ \sock -> do
+    socketName <- Socket.getSocketName sock
+    case socketName of
+      Socket.SockAddrInet port _ ->
+        action (fromIntegral port)
+      other ->
+        assertFailure ("expected IPv4 loopback socket, got: " <> show other)
+ where
+  openSocket = do
+    sock <- Socket.socket Socket.AF_INET Socket.Stream Socket.defaultProtocol
+    Socket.bind sock (Socket.SockAddrInet 0 (Socket.tupleToHostAddress (127, 0, 0, 1)))
+    pure sock
 
 -- | Cabal's @dist-newstyle@ arch directory suffix for the current host.
 -- macOS reports @darwin@ from 'SystemInfo.os', but cabal writes @osx@; Linux

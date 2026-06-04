@@ -21,7 +21,8 @@
 
 ## Phase Status
 
-✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
+🔄 **Active** (reopened 2026-06-04 for Sprint `8.8`). The original
+SL/RL framework code-surface obligations closed on 2026-05-25:
 the deterministic SL canonical summaries, the typed dataset / loop /
 training pipeline (`src/JitML/SL/{Dataset,Loop,Train}.hs`), the RL
 framework metadata catalog and primitives
@@ -37,12 +38,13 @@ determinism (no per-substrate reward fixtures per
 [../README.md → Snapshot targets → Numerical-fixture
 prohibition](../README.md#snapshot-targets)) are owned by
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprints `13.3` / `13.4` / `13.5` / `13.6`. A future real ALE FFI for
-atari-subset is filed in
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) as
-a cross-substrate cleanup; the deterministic stub preserves the
-action/obs contract so the upstream RL primitives consume it
-identically when the real binding lands.
+Sprints `13.3` / `13.4` / `13.5` / `13.6`. Sprint `8.8` is the only
+reopened scope: replace the deterministic atari-subset RAM-state stub
+with a real Arcade Learning Environment binding, source-built in the
+project image and gated by explicit ROM handling. The stand-in row is
+tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal)
+and gates Phase `15` Sprint `15.3`.
 
 ### Current Implementation Scope
 
@@ -64,7 +66,8 @@ round-trip the current command and event envelopes through proto3-compatible
 bytes.
 Live MinIO dataset fetch, live
 Pulsar publish/consume, and real-hardware convergence assertions are
-the open work in the per-sprint `### Remaining Work` blocks below.
+owned by Phase `13`; the only open Phase `8` work is Sprint `8.8`'s
+ALE replacement for the deterministic atari-subset stand-in.
 
 ## Phase Summary
 
@@ -249,14 +252,12 @@ classical-control physics closed on 2026-05-24; lunar-lander
 (LunarLander-v2 simplified rigid-body port) and atari-subset
 (deterministic 128-byte RAM-state stub matching the Atari
 action/obs surface) closed on 2026-05-25 through
-`src/JitML/RL/Simulator.hs`. The pure-Haskell route was chosen over a
-Box2D / ALE FFI because the README explicitly admits "native Haskell"
-envs and re-implementing "the dynamics in Haskell from the published
-equations" matches the jitML determinism contract (Box2D float
-reductions vary across vendor versions; ALE additionally requires
-non-redistributable Atari ROMs and a multi-hour C++ FFI binding
-effort). The daemon-backed environment loop migrated to Phase `13`
-Sprint `13.5`.
+`src/JitML/RL/Simulator.hs`. Sprint `8.3` originally chose the pure-Haskell
+route over Box2D / ALE FFI because the README admits native Haskell envs and
+the determinism contract disfavors cross-version float drift in third-party
+physics libraries; the 2026-06-04 Sprint `8.8` reopen supersedes the ALE half
+of that choice and keeps ROM handling explicit. The daemon-backed environment
+loop migrated to Phase `13` Sprint `13.5`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`,
 `src/JitML/RL/Simulator.hs`,
@@ -283,9 +284,9 @@ canonical RL stanza.
 - `src/JitML/RL/VecEnv.hs` declares `VecEnv` and `vecEnvStep`, which
   fan the existing deterministic per-environment step helper across N
   parallel replicas with per-replica seed offsets.
-- Full simulator bindings (real cartpole physics, real lunar-lander
-  Box2D physics, ALE atari-subset bindings) and render-frame access
-  remain target runtime work.
+- Full simulator bindings for cartpole, mountain-car, and lunar-lander now live
+  in `JitML.RL.Simulator`. Real ALE-backed `atari-subset` binding and
+  render-frame access are owned by reopened Sprint `8.8`.
 
 ### Validation
 
@@ -327,9 +328,9 @@ canonical RL stanza.
   `SimulatedEnvironment` value. Reward is the normalised low byte of
   the RAM hash; episodes terminate after 250 steps. `jitml-unit`
   covers run-to-run determinism, distinct-action distinctness, and
-  the termination boundary. A real ALE binding (full Atari emulator
-  + ROM licensing handling + C++ FFI) is filed in the legacy ledger
-  as a future cross-substrate cleanup; the deterministic stub
+  the termination boundary. Reopened Sprint `8.8` owns replacing this
+  stand-in with a real ALE binding (full Atari emulator, explicit ROM
+  handling, source-built library, and C ABI shim); the deterministic stub
   preserves the action/obs contract so upstream RL primitives consume
   it identically when the real binding lands.
 - The daemon-backed environment loop driven by the Phase `5` Pulsar
@@ -561,6 +562,70 @@ so all three jitML lifecycles (`TrainingLifecycle`, `RLRunLifecycle`,
 
 None.
 
+## Sprint 8.8: Real ALE Binding and ROM Acquisition ⏸️
+
+**Status**: Blocked
+**Blocked by**: an approved ROM acquisition and test policy. Commercial Atari
+2600 ROMs must not be committed; the mandatory test path needs either a
+verified redistributable homebrew/test ROM or an explicit ignored,
+user-provided ROM directory/object input.
+**Implementation**: `docker/Dockerfile`, `src/JitML/RL/ALE.hs`,
+`src/JitML/RL/Simulator.hs`, `src/JitML/RL/Environments.hs`,
+`test/rl-canonicals/Main.hs`, `test/integration/Main.hs`
+**Docs to update**: `README.md`,
+`documents/engineering/training_workloads.md`,
+`documents/engineering/unit_testing_policy.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
+`DEVELOPMENT_PLAN/system-components.md`
+
+### Objective
+
+Replace the deterministic `atari-subset` RAM-state stub with a real Arcade
+Learning Environment runtime while preserving the current action/observation
+contract consumed by `AlgorithmModule`, `VecEnv`, `RLLoop`, and the daemon-backed
+RL path.
+
+### Deliverables
+
+- `jitml:local` builds ALE from a pinned upstream tag or source SHA during image
+  construction with the C++ library enabled; do not depend on an Ubuntu
+  `libale-dev` package, because the 2026-06-04 Ubuntu 24.04 image validation
+  found no such package candidate.
+- A tiny C ABI shim exposes the operations Haskell needs from ALE:
+  create/destroy, load ROM, reset, act, game-over, get RAM, get screen, legal
+  actions, and seed. The Haskell FFI adapter lives behind a new
+  `JitML.RL.ALE` module rather than binding directly to C++ symbols from
+  simulator code.
+- ROM inputs are explicit and uncommitted: either a typed local path / object
+  reference accepted by the run config, or a documented ignored developer path
+  for local tests. No commercial ROM bytes enter the repository.
+- `atari-subset` in the production environment registry uses the real ALE
+  adapter. The deterministic RAM-state implementation is either moved to
+  test-only fixtures or deleted when no longer needed.
+- The `Deterministic atari-subset RAM-state stub` row moves from Pending
+  Removal to Completed in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
+### Validation
+
+1. `docker compose build jitml` builds ALE from the pinned source and then runs
+   the container-only `jitml check-code` gate.
+2. `jitml-rl-canonicals` validates same-seed determinism, legal action
+   reporting, RAM dimension, screen dimension, reset, and a short episode
+   against the approved ROM path.
+3. `jitml-integration` or the live RL cohort exercises `atari-subset` through
+   the daemon-backed `VecEnv` path.
+
+### Remaining Work
+
+- Choose and document the ROM policy: redistributable test ROM or explicit
+  user-provided ignored input.
+- Add the pinned ALE source build to `jitml:local`.
+- Implement the C ABI shim and `JitML.RL.ALE` adapter.
+- Switch the production `atari-subset` registry entry from the RAM-state stub
+  to real ALE, then remove or test-scope the stub.
+- Run the validation set above and retire the legacy-ledger row.
+
 ## Doctrine Sections Cited
 
 - [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (Sprints 8.2, 8.5 — `jitml train` and `jitml rl *` command leaves)
@@ -568,6 +633,7 @@ None.
 - [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprints 8.2, 8.6 — payload-hash deduplication helper)
 - [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 8.1, 8.3, 8.4 — dedicated local `jitml-sl-canonicals` and `jitml-rl-canonicals` bodies)
 - [../README.md → GADT-Indexed State Machines](../README.md#doctrine-scope) (Sprint 8.7 — `RLRunLifecycle` joins `TrainingLifecycle` and `TuneSweepLifecycle` as phase-indexed singleton GADTs)
+- [../README.md → Canonical reinforcement learning environments](../README.md#canonical-reinforcement-learning-environments) (Sprint 8.8 — real ALE-backed `atari-subset` replacement and ROM handling)
 
 ## Documentation Requirements
 
@@ -577,9 +643,13 @@ None.
   summaries, RL algorithm metadata hooks, deterministic trajectory
   helper, `jitml train` / `jitml rl train` summary surfaces, and the
   command-envelope render/parse surfaces plus the `RLRunLifecycle` GADT
-  bound to `src/JitML/RL/Framework.hs` after Sprint 8.7; target training
-  loops and environment runtime work owned by per-sprint `### Remaining
-  Work` blocks.
+  bound to `src/JitML/RL/Framework.hs` after Sprint 8.7; Sprint `8.8`
+  records the source-built ALE adapter, C ABI shim, ROM handling, and
+  `atari-subset` stub retirement gate.
+- `documents/engineering/unit_testing_policy.md` — ALE-backed
+  `atari-subset` validation requires same-seed determinism, legal actions,
+  RAM/screen dimensions, short daemon-backed episode coverage, and an
+  approved uncommitted ROM path.
 - `documents/engineering/daemon_architecture.md` — payload-hash
   deduplication helper; target at-least-once `TrainingHandler` and
   `RlHandler` owned by Sprints `8.2` / `8.6` Remaining Work after Sprint

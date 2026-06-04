@@ -7,10 +7,11 @@ module JitML.Service.Http
   , serveHttpRoutesOnce
   , serveHttpRoutesWithWebSockets
   , withHttpRoutesOnce
+  , withHttpRoutesWithWebSockets
   )
 where
 
-import Control.Concurrent (forkFinally)
+import Control.Concurrent (forkFinally, killThread)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (bracket)
 import Control.Exception qualified
@@ -85,7 +86,7 @@ serveHttpRoutesWithWebSockets
   :: HttpListener -> [HttpRoute] -> [WebSocketRoute] -> IO ()
 serveHttpRoutesWithWebSockets listener routes wsRoutes =
   withListener listener $ \(listenerSocket, _actualPort) ->
-    forever (serveAcceptedConnection listenerSocket routes wsRoutes)
+    forever (serveAcceptedConnectionForked listenerSocket routes wsRoutes)
 
 serveHttpRoutesOnce :: HttpListener -> [HttpRoute] -> IO ()
 serveHttpRoutesOnce listener routes =
@@ -103,6 +104,18 @@ withHttpRoutesOnce listener routes action =
     result <- action actualPort
     takeMVar done
     pure result
+
+withHttpRoutesWithWebSockets
+  :: HttpListener -> [HttpRoute] -> [WebSocketRoute] -> (Int -> IO a) -> IO a
+withHttpRoutesWithWebSockets listener routes wsRoutes action =
+  withListener listener $ \(listenerSocket, actualPort) ->
+    bracket
+      ( forkFinally
+          (forever (serveAcceptedConnectionForked listenerSocket routes wsRoutes))
+          (const (pure ()))
+      )
+      killThread
+      (const (action actualPort))
 
 withListener :: HttpListener -> ((Socket, Int) -> IO a) -> IO a
 withListener listener =
@@ -150,14 +163,26 @@ portNumberToInt =
 
 serveAcceptedConnection :: Socket -> [HttpRoute] -> [WebSocketRoute] -> IO ()
 serveAcceptedConnection listenerSocket routes wsRoutes =
-  bracket (accept listenerSocket) (close . fst) $ \(connection, _peer) -> do
-    request <- recv connection 4096
-    case wsRouteFor request wsRoutes of
-      Just (route, acceptKey) -> do
-        sendAll connection (renderUpgradeAccept acceptKey)
-        runWebSocketHandler connection route
-      Nothing ->
-        sendAll connection (responseFor routes request)
+  bracket (accept listenerSocket) (close . fst) $ \(connection, _peer) ->
+    serveConnection connection routes wsRoutes
+
+serveAcceptedConnectionForked :: Socket -> [HttpRoute] -> [WebSocketRoute] -> IO ()
+serveAcceptedConnectionForked listenerSocket routes wsRoutes = do
+  (connection, _peer) <- accept listenerSocket
+  void $
+    forkFinally
+      (serveConnection connection routes wsRoutes)
+      (const (close connection))
+
+serveConnection :: Socket -> [HttpRoute] -> [WebSocketRoute] -> IO ()
+serveConnection connection routes wsRoutes = do
+  request <- recv connection 4096
+  case wsRouteFor request wsRoutes of
+    Just (route, acceptKey) -> do
+      sendAll connection (renderUpgradeAccept acceptKey)
+      runWebSocketHandler connection route
+    Nothing ->
+      sendAll connection (responseFor routes request)
 
 wsRouteFor
   :: ByteString.ByteString -> [WebSocketRoute] -> Maybe (WebSocketRoute, ByteString.ByteString)

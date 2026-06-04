@@ -77,6 +77,14 @@ Per doctrine §Overview → Toolchain pinning, these versions are normative, not
 | Node.js, Poetry | pinned | Haskell prerequisite DAG |
 | Formatter GHC | `9.12.4`, separate from project GHC | `docker/Dockerfile` style-tool build stage for `jitml:local`; container-exclusive code-quality stack only, never the project compiler |
 
+`cabal.project` currently carries a scoped `allow-newer` compatibility block for
+Dhall's transitive CBOR stack under GHC `9.14.1` / `base-4.22`. That block is
+temporary and tracked in
+[`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md);
+it is not a reason to change the compiler pin or install host tooling. The
+unblock path is upstream package-bound relaxation or Hackage metadata revision,
+then a no-override solver check and the container-only `jitml check-code` gate.
+
 The full per-target codegen detail (build flags, RTS options, fast-math discipline) lives under [Compiler, runtime, and backend tuning](#compiler-runtime-and-backend-tuning).
 
 ---
@@ -1305,9 +1313,18 @@ Own implementations in Haskell (no Gymnasium dependency at the env layer; jitML 
 | Acrobot-v1 | Discrete(3) | Box(6) | tip above height or 500 steps |
 | Pendulum-v1 | Box(1) | Box(3) | 200 steps |
 | LunarLander-v2 (discrete) | Discrete(4) | Box(8) | crash, land, or 1000 steps |
+| AtariSubset-v0 | Discrete(18) | RAM(128) + optional screen frame | emulator terminal state or step cap |
 | GridWorld-Deterministic-v0 | Discrete(4) | Discrete(N) | reach goal or 100 steps |
 
 GridWorld is jitML-original and serves as a deterministic-by-construction unit-level anchor — its trajectory is a pure function of `(seed, policy)` and the test compares two fresh runs against each other rather than against any committed trajectory file. For each non-jitML-original env, the dynamics are re-implemented in Haskell from the published equations.
+
+`atari-subset` currently uses a deterministic 128-byte RAM-state stand-in in
+`src/JitML/RL/Simulator.hs` so the rest of the RL framework can consume the
+Atari action/observation contract. The target runtime is a real ALE-backed
+environment built from pinned source inside `jitml:local`, exposed to Haskell
+through a small C ABI shim, and driven by explicit uncommitted ROM inputs. The
+cleanup is owned by reopened Phase 8 Sprint 8.8 and tracked in the legacy
+ledger.
 
 ---
 
@@ -2151,7 +2168,7 @@ Source at `./web/`; spago + `purs` + esbuild bundle to `./web/dist/app.js`. UI f
 
 ## Stance
 
-The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Target training runs are started, paused, resumed, and stopped from the UI; inference is invoked against any checkpoint by direct human input — drawing, uploading, or playing. Playwright coverage belongs to the target live `jitml-e2e` orchestration path once panels consume fixture-backed or live-backed state through `jitml-demo`; the current local e2e surface covers route/API, deployment, contract, report-card, typed live-plan scaffolds, and explicit Playwright command shape against inline DOM stubs.
+The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Target training runs are started, paused, resumed, and stopped from the UI; inference is invoked against any checkpoint by direct human input — drawing, uploading, or playing. Playwright coverage belongs to the explicit live `jitml-e2e` orchestration path; the current local e2e surface covers route/API, deployment, contract, report-card, typed live-plan scaffolds, stream-upgrade behavior, and WebSocket concurrency without invoking the live browser matrix.
 
 ## Panels
 

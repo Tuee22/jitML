@@ -26,6 +26,7 @@ apiEndpoints =
   , ApiEndpoint "Connect4Move" "POST" "/api/connect4/move"
   , ApiEndpoint "MetricsStream" "GET" "/api/ws"
   , ApiEndpoint "TrainingStream" "GET" "/api/ws/training"
+  , ApiEndpoint "RlStream" "GET" "/api/ws/rl"
   , ApiEndpoint "TuneStream" "GET" "/api/ws/tune"
   ]
 

@@ -8,30 +8,30 @@
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
 > current local PureScript shell, browser-contract renderer, bundle/panel
 > metadata, demo-route manifest, Playwright scaffold, demo deployment template,
-> and `jitml-demo` HTTP server, plus the target Halogen / live WebSocket /
-> compiled-bundle work that has not landed yet.
+> and `jitml-demo` HTTP server, including the Halogen panels, compiled bundle,
+> live WebSocket proxy, and live-only Playwright matrix.
 
 ## Stack
 
 | Component | Current status | Owning module / path |
 |-----------|----------------|----------------------|
-| PureScript entrypoint | Minimal shell | `web/src/Main.purs` |
-| npm scripts | `build`, `test`, `format` wrappers declared; no checked-in `spago.yaml` yet | `web/package.json` |
+| PureScript entrypoint | Halogen panel dispatcher keyed by URL hash | `web/src/Main.purs` |
+| npm scripts | `build`, `test`, `format` wrappers plus checked-in Spago project | `web/package.json`, `web/spago.yaml` |
 | Contract renderer | Local bridge-compatible renderer | `src/JitML/Web/Contracts.hs` |
 | Generated contracts | Checked-in generated file protected by `trackingGeneratedPaths` | `web/src/Generated/Contracts.purs` |
 | Bundle/panel/demo-route metadata | Local Haskell metadata | `src/JitML/Web/Bundle.hs` |
-| Demo HTTP routes | Local Haskell HTTP server for the current route/API surface | `src/JitML/Web/Server.hs` |
-| PureScript smoke file | Minimal shell | `web/test/Main.purs` |
-| Panel payload modules | Six typed request/response and stream payload modules; Halogen mount/rendering remains target work | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Scaffold spec plus typed live-plan step; the default stanza validates the command shape against inline DOM stubs, while the live edge-route run remains target work | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
-| Demo executable | Status line plus HTTP server | `app/Demo.hs`, `src/JitML/App.hs` |
+| Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
+| PureScript smoke file | Spec smoke file covering generated contracts and panel modules | `web/test/Main.purs` |
+| Panel payload modules | Six typed Halogen panels with REST or live WebSocket actions | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
+| Playwright | Live-only seven-panel spec plus typed live-plan step; no inline DOM fallback remains | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Demo executable | Status line plus HTTP/WebSocket server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
-browser-side code). Target npm / spago / Playwright invocations flow through
+browser-side code). Npm / Spago / Playwright invocations flow through
 the typed `Subprocess` boundary from doctrine `Architecture → Subprocesses as
-Typed Values`; the current checked-in Cabal bodies perform local smoke checks
-and validate the `spago test`, `purs-tidy check`, and Playwright command shapes
-without process-environment gates.
+Typed Values`; the checked-in Cabal bodies perform local smoke checks,
+validate the `spago test`, `purs-tidy check`, and Playwright command shapes,
+and keep the live browser run on the explicit live orchestration path.
 
 ## Layout
 
@@ -39,6 +39,7 @@ Current checked-in layout:
 
 ```text
 web/
+├── spago.yaml
 ├── package.json
 ├── src/
 │   ├── Main.purs
@@ -58,23 +59,22 @@ playwright/
 └── jitml-demo.spec.ts
 ```
 
-Target layout adds `web/spago.yaml`, Halogen root/router modules that mount the
-existing panel payload modules, compiled bundle output under `web/dist/`, and a
-fuller Playwright project once the live panel flows exist.
+Build output under `web/dist/` is generated, not checked in. The Docker image
+build runs `spago build --output dist` and esbuilds `dist/Main/index.js` into
+the browser-loadable `web/dist/Main/bundle.js` served by `jitml-demo`.
 
 ## Current Local Surface
 
-The current worktree contains a minimal `web/src/Main.purs`, generated
-`web/src/Generated/Contracts.purs`, six payload-shape modules under
+The current worktree contains `web/src/Main.purs`, generated
+`web/src/Generated/Contracts.purs`, six Halogen panel modules under
 `web/src/Panels/`, `web/test/Main.purs`, `src/JitML/Web/Contracts.hs`, and
 `src/JitML/Web/Bundle.hs`. `Web.Bundle` records the bundle output paths, the
-six canonical panel surfaces, the `demoStatusLine`, and the local demo route
+six canonical panel surfaces, the `demoStatusLine`, and the demo route
 manifest for `/`, `/api`, `/api/inference`, `/api/images`,
-`/api/connect4/move`, `/api/ws`, `/api/ws/training`, and `/api/ws/tune`.
-`src/JitML/Web/Server.hs` serves the same current local HTTP surface.
-The three stream routes return deterministic local scaffold frames today. A
-compiled `web/dist/` bundle, Halogen mount/rendering modules, and live
-WebSocket proxying remain target runtime work.
+`/api/connect4/move`, `/api/ws`, `/api/ws/training`, `/api/ws/rl`, and
+`/api/ws/tune`. `src/JitML/Web/Server.hs` serves the same HTTP surface,
+returns `503` for plain stream GETs that do not upgrade to WebSocket, and
+bridges upgraded `/api/ws*` clients to live Pulsar event topics.
 
 ## Browser-Contract ADTs
 
@@ -92,6 +92,7 @@ The current endpoint metadata covers:
 - `Connect4Move` at `POST /api/connect4/move`
 - `MetricsStream` at `GET /api/ws`
 - `TrainingStream` at `GET /api/ws/training`
+- `RlStream` at `GET /api/ws/rl`
 - `TuneStream` at `GET /api/ws/tune`
 
 Richer typed training, RL, AlphaZero, inference, image-upload, Connect 4, and
@@ -104,24 +105,24 @@ tuning payload ADTs remain target browser-contract work.
 | MNIST | `/mnist` | `POST /api/inference` | — |
 | CIFAR / ImageNet | `/cifar`, `/imagenet` | `POST /api/images` | — |
 | Connect 4 | `/connect4` | `POST /api/connect4/move` | — |
-| RL trajectory | `/rl/<run-id>` | — | `/api/ws` (proxies `rl.event.<mode>`) |
-| Training | `/training/<run-id>` | — | `/api/ws` (proxies `training.event.<mode>`) |
-| Tune | `/tune/<sweep-id>` | — | `/api/ws` (proxies `tune.event.<mode>`) |
+| RL trajectory | `/rl/<run-id>` | — | `/api/ws/rl` (proxies `rl.event.<mode>`) |
+| Training | `/training/<run-id>` | — | `/api/ws/training` (proxies `training.event.<mode>`) |
+| Tune | `/tune/<sweep-id>` | — | `/api/ws/tune` (proxies `tune.event.<mode>`) |
 
 ## REST and WebSocket Surface
 
-The current local HTTP handlers live in `src/JitML/Web/Server.hs`; they provide
-deterministic responses for the API index, inference, upload acknowledgement,
-Connect 4 move, and metrics stream routes. The current worktree does not
-contain a dedicated live `src/JitML/Web/Ws.hs` proxy; live WebSocket forwarding
-from Pulsar event topics remains target runtime validation.
+The HTTP handlers live in `src/JitML/Web/Server.hs`; they provide responses for
+the API index, inference, upload acknowledgement, Connect 4 move, compiled
+bundle serving, and live stream routes. A stream route requested as plain HTTP
+returns `503 live stream requires WebSocket upgrade`; upgraded clients are
+bridged to Pulsar event topics by `liveDemoWebSocketRoutes`.
 
 | Surface | Method | Path | Payload type |
 |---------|--------|------|--------------|
 | Inference | POST | `/api/inference` | `InferenceRun` |
 | Image upload | POST | `/api/images` | `UploadImage` |
 | Connect 4 move | POST | `/api/connect4/move` | `Connect4Move` |
-| Live event WS | GET | `/api/ws?topic=…&substrate=…` | typed event envelopes |
+| Live event WS | GET | `/api/ws`, `/api/ws/training`, `/api/ws/rl`, `/api/ws/tune` | typed event envelopes |
 | Checkpoint browse | GET | `/api/checkpoints/<experiment-hash>` | manifest list (cross-link to TB sidecars) |
 
 ## `jitml-demo` HTTP Server
@@ -129,10 +130,11 @@ from Pulsar event topics remains target runtime validation.
 `app/Demo.hs` is a six-line shim into `App.demoMain`. The current `demoMain`
 prints `demoStatusLine` from `src/JitML/Web/Bundle.hs`:
 `jitml-demo: serving generated frontend contract surface`, then starts the
-low-level HTTP listener from `src/JitML/Web/Server.hs`. It serves the current
-local route/API surface, and `Web.Bundle.demoRoutes` names the same local
-routes for tests and docs. Target work swaps in the compiled bundle from
-`web/dist/` and a live WebSocket proxy at `/api/ws`.
+low-level HTTP/WebSocket listener from `src/JitML/Web/Server.hs`. It serves the
+current route/API surface, `/bundle/main.js` from `web/dist/Main/bundle.js`
+when the bundle exists, and the held-open `/api/ws*` WebSocket bridge. When no
+live publication exists the bridge sends a terminal error frame instead of an
+offline deterministic stream.
 
 The `Deployment/jitml-demo` template (Sprint `4.1`) is populated with the
 demo image, `jitml-demo` command, and explicit `--host 0.0.0.0 --port 80`
@@ -144,31 +146,24 @@ arguments so Envoy can reach the pod IP. HTTPRoutes for `/`, `/api`, `/api/ws`
 `playwright/jitml-demo.spec.ts` is the current TypeScript Playwright scaffold.
 `JitML.Test.LivePlan` records the target `npx playwright test` step after the
 Helm dependency build and the `jitml bootstrap` ephemeral-cluster rollout. The
-current default `jitml-e2e`
-Cabal body validates that typed Playwright command shape without starting the
-live stack.
-The checked-in spec currently validates seven inline DOM stub flows rather
-than the live edge route. Target work grows this into one spec per panel
-covering the primary user flow:
+default `jitml-e2e` Cabal body validates that typed Playwright command shape
+without starting the live stack. The checked-in spec is live-only: it reads
+`.build/runtime/cluster-publication.json`, navigates to the published edge
+route, and fails fast when no live publication exists. The matrix covers the
+smoke shell plus the six canonical panels:
 
-- MNIST: draw a digit, assert top-1 matches the expected class against a
-  fixture model.
-- CIFAR: upload a fixture image, assert classification.
-- Connect 4: play a scripted game against the AlphaZero policy and assert
-  every engine reply is a legal move for the resulting board (no committed
-  move-sequence fixture — engine moves depend on substrate float behavior).
-- RL trajectory: trigger a synthetic RL run and assert the trajectory panel
-  renders frames.
-- Training / Tune: trigger a synthetic training run and assert the live
-  metric panel updates.
+- MNIST: load the inference panel and assert its canvas mounts.
+- CIFAR: load the upload panel and assert the upload control surface mounts.
+- Connect 4: load the AlphaZero-vs-human panel and assert the board mounts.
+- RL trajectory: load the trajectory panel through the live edge route.
+- Training / Tune: load the streaming metric panels through the live edge
+  route.
 
-Target Playwright execution runs through the typed `Subprocess` boundary. The
-target `jitml-e2e` stanza invokes the Playwright suite as part of its
-end-to-end run; Playwright belongs to the doctrine's Ephemeral-Cluster
-Infrastructure test category and does not have its own Cabal stanza.
-Playwright execution waits until panels consume fixture-backed or live-backed
-state through `jitml-demo`; static route/API scaffold checks stay in the local
-Haskell e2e and PureScript lint targets.
+Playwright execution runs through the typed `Subprocess` boundary on the
+explicit live orchestration path; it belongs to the doctrine's
+Ephemeral-Cluster Infrastructure test category and does not have its own Cabal
+stanza. Static route/API scaffold checks stay in the local Haskell e2e and
+PureScript lint targets.
 
 ## Cross-References
 

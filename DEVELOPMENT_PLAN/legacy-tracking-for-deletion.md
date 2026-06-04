@@ -37,13 +37,13 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-Three cleanup rows are currently active. The scoped `allow-newer` block in
+Two cleanup rows are currently active. The scoped `allow-newer` block in
 `cabal.project` keeps Dhall's transitive CBOR stack building under pinned
-GHC `9.14.1` while upstream package bounds catch up; two rows record
-checked-in stand-ins that are deliberately keeping local test coverage
-green until their owning live-runtime surfaces land (demo placeholder shell
-and deterministic atari-subset RAM-state stub awaiting a real ALE FFI
-binding). Three rows added 2026-05-29 record
+GHC `9.14.1` while upstream package bounds catch up; this reopened Phase `1`
+Sprint `1.10` on 2026-06-04. The remaining stand-in row records the
+deterministic atari-subset RAM-state stub awaiting a real ALE binding plus
+explicit ROM handling; this reopened Phase `8` Sprint `8.8` on 2026-06-04.
+Both rows gate Phase `15` Sprint `15.3`. Three rows added 2026-05-29 record
 doctrine deviations scheduled by the reopened Phases `2` / `4` / `5` after the
 cluster OOM-storm incident: the `JITML_*` run-parameter env IPC and the duplicate
 `JITML_SUBSTRATE` / `JITML_PULSAR_WS` reads (both retired by the typed Dhall
@@ -54,7 +54,7 @@ the `jitml internal vm` command group, the `container.tart` prerequisite node,
 `LiveConfig.tartIdleTimeout`, and the offline `.metallib` codegen path — **closed
 the same day** (Sprints `7.8` / `2.10` / `5.8`) and now live in the `Completed`
 table.
-Fifteen cleanup rows have
+Sixteen cleanup rows have
 closed and live in the `Completed` table:
 Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
 style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
@@ -70,8 +70,10 @@ enum with the phase-indexed `RLRunLifecycle` GADT so all three jitML
 lifecycles share doctrine-aligned shape; the 2026-06-03 Phase `15` pass
 removed the synthetic MCTS `priorFor`, replaced the target-stanza-only report
 card with `jitml test all --live` measured fields, deleted the committed
-numerical fixture tree under `test/golden/`, and closed the Metal
-kernel-family validation residue with a headless Apple weighted export; and
+numerical fixture tree under `test/golden/`, closed the Metal
+kernel-family validation residue with a headless Apple weighted export, and
+retired the demo placeholder shell/local stream/offline Playwright fallback
+paths after live Playwright validation; and
 the 2026-05-28 Pulumi-removal cleanup deleted the `infra/pulumi/`
 ephemeral-Kind orchestrator (added in error), its `toolchain.pulumi`
 prerequisite, and the Pulumi-only Kind name-override surface, leaving the
@@ -98,9 +100,8 @@ opening event itself enqueues a row here naming the originating sprint.
 
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
-| Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Phase 15 Sprint `15.3` (final handoff toolchain refresh) |
-| Demo placeholder shell, local stream frames, and inline DOM stubs | `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs` | Sprint 13.13 (2026-05-27) closed the bulk of the demo Halogen + bridge work: all six panels (`Mnist`, `Cifar`, `Connect4`, `Rl`, `Training`, `Tune`) carry typed `State` / `Action` / `handleAction` / `render` machinery; the held-open WebSocket-upgrade bridge in `JitML.Service.WebSocket` + `JitML.Service.Http` (`WebSocketRoute`) + `JitML.Web.Server.liveDemoWebSocketRoutes` forwards live Pulsar event-topic deliveries through a single TCP connection, and `web/src/Panels/Stream.{purs,js}` connects browser `WebSocket.onmessage` payloads to typed Halogen actions. Playwright's `loadLiveEdge()` reads `cluster-publication.json` and falls back to inline DOM stubs offline. What remains: a live render validation pass against the cluster (Sprint 13.14) confirming the panels populate from real broker frames, then removal of the placeholder shell/local stream-frame/offline DOM fallback paths. | Phase 13 Sprints `13.13`, `13.14` |
-| Deterministic atari-subset RAM-state stub | `src/JitML/RL/Simulator.hs` (`atariSubsetEnvironment`, `atariSubsetStep`, `AtariSubsetState`) | Sprint `8.3` (closed 2026-05-25) ships a deterministic 128-byte RAM-state stub matching the canonical Atari action/obs surface while a real Arcade Learning Environment binding waits on (a) C++ FFI bindings via `inline-c-cpp` against `libale.so`, (b) ROM licensing handling for Atari 2600 titles (Stella ROMs are not redistributable; an `autorom`-style download flow or a single permissively-licensed homebrew ROM such as `tetris` must land alongside), and (c) baking `libale-dev`, `libsdl2-dev`, and `zlib1g-dev` into `jitml:local`. The deterministic stub preserves the action/obs contract so upstream RL primitives (`AlgorithmModule`, `VecEnv`, `RLLoop`) consume the real binding identically when it lands. | Phase 13 Sprint `13.6` (live RL training) or a successor cross-substrate cleanup sprint |
+| Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Reopened Phase 1 Sprint `1.10`; Phase 15 Sprint `15.3` final handoff gate |
+| Deterministic atari-subset RAM-state stub | `src/JitML/RL/Simulator.hs` (`atariSubsetEnvironment`, `atariSubsetStep`, `AtariSubsetState`) | Sprint `8.3` (closed 2026-05-25) ships a deterministic 128-byte RAM-state stub matching the canonical Atari action/obs surface while a real Arcade Learning Environment binding lands. The replacement path is a pinned source-built ALE library in `jitml:local`, a small C ABI shim consumed by `JitML.RL.ALE`, and explicit uncommitted ROM handling; do not depend on Ubuntu `libale-dev`. The deterministic stub preserves the action/obs contract so upstream RL primitives (`AlgorithmModule`, `VecEnv`, `RLLoop`) consume the real binding identically when it lands. | Reopened Phase 8 Sprint `8.8`; Phase 15 Sprint `15.3` final handoff gate |
 
 
 ## Pending Removal Notes
@@ -111,19 +112,29 @@ upstream release still name the originating sprint, but resolve at the final
 handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
-Current `allow-newer` validation: on 2026-06-03, a temporary project file
-under `dist-newstyle/phase15/` with the scoped `allow-newer` block removed
-still fails dependency solving under pinned GHC `9.14.1`, because
-`serialise-0.2.6.1` excludes the installed `base-4.22`. A same-day
-Hackage check still lists `serialise` at `0.2.6.1` with
-`base >=4.11 && <4.22`, so the row remains pending.
+Current `allow-newer` validation: on 2026-06-04, a temporary project file
+under `.build/phase1/` with the scoped `allow-newer` block removed still fails
+dependency solving under pinned GHC `9.14.1` after `cabal update` refreshed
+Hackage to index-state `2026-06-04T13:02:57Z`: `serialise-0.2.6.1` excludes
+the installed `base-4.22` (`base >=4.11 && <4.22`). The row remains pending
+until upstream releases solve under the pinned toolchain without overrides.
+Recommended unblock: keep the scoped override in place, file or track upstream
+bound-relaxation issues / PRs / Hackage metadata revisions for `serialise`,
+`cborg`, `cborg-json`, and the Dhall stack with GHC `9.14.1` / `base-4.22`
+evidence, and re-run the no-override solver check before each final-handoff
+retry. Do not downgrade the project compiler to clear this row.
 
-Current ALE package validation: on 2026-06-03, `apt-cache policy` inside
-`ubuntu:24.04` on arm64 found candidates for `libsdl2-dev` and
-`zlib1g-dev`, but no `libale-dev` candidate; `apt-cache search` for
-`arcade learning environment`, `libale`, and `ale` returned no matching
-Ubuntu package. The real ALE binding row remains pending until the C++
-binding and package/ROM acquisition path are available.
+Current ALE package validation: on 2026-06-04, `apt-get update` plus
+`apt-cache policy` inside the `jitml:local` Ubuntu 24.04 image found
+candidates for `libsdl2-dev` and `zlib1g-dev`, but no `libale-dev`
+candidate; `apt-cache search` for `arcade learning environment` and
+`libale` returned no matching Ubuntu package. The real ALE binding row should
+therefore not wait on Ubuntu packaging. Recommended unblock: build ALE from a
+pinned upstream tag or source SHA in `jitml:local`, enable the C++ library,
+expose only a small C ABI to Haskell (`create`, `destroy`, `load_rom`, `reset`,
+`act`, `game_over`, `get_ram`, `get_screen`, `legal_actions`, `seed`), and make
+ROM inputs explicit and uncommitted. The row remains pending until that binding
+and the ROM acquisition/test path are verified.
 
 This ledger never holds primary unmet Exit-Definition obligations. Live
 Kind/Helm rollout, real Pulsar/MinIO/Harbor clients, real per-substrate
@@ -151,8 +162,9 @@ explicitly schedules their deletion.
 | RL run sequencing as a `RunPhase` enum instead of an `RLRunLifecycle` GADT | Sprint 8.7 | Replaced the flat `RunPhase` enum with the `RLRunPhase` data kind plus the phase-indexed singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`; updated `rlRunPlan`, `renderRLRunPhase`, and the `jitml-unit` consumer; `cabal test jitml-unit` keeps 57/57 passing. |
 | Non-production Metal kernel-family scaffolds | Phase 14 Sprint `14.5` / Phase 15 validation sweep (2026-06-03) | Apple-side per-family weighted Metal bodies now run through the headless host path: CommandLineTools `swift build`, runtime `MTLDevice.makeLibrary(source:)`, no Tart VM and no full Xcode. The Apple export `jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json` produced the Sprint `15.1` weighted bundle with 8 tensor families (`identity`, `dense`, `conv2d`, `conv3d`, `batchnorm`, `layernorm`, `mha`, `embedding`), and the 2026-06-03 Linux/Apple report-bundle comparison passed every weighted family against the in-code tolerance table. |
 | Deterministic MCTS prior stub | Phase 15 Sprint `15.3` cleanup (2026-06-03) | Removed `priorFor` from `JitML.RL.AlphaZero.Mcts`. `defaultPriorOracle` is now a neutral uniform mechanics oracle; production self-play and engine-backed paths continue to consume the position-dependent policy/value `netOracleFactory`. Unit coverage now asserts neutral default priors separately from a biased custom oracle. |
-| Target-stanza-only report card | Phase 15 Sprint `15.2` implementation (2026-06-03) | `JitML.Test.Report.ReportCard` now carries typed `ReportMeasurements`, and `jitml test all --live` appends SL/RL/AlphaZero/tune/cache/daemon/cross-substrate fields after Cabal stanzas pass. Unreachable live sources render as `unavailable`; parser/e2e coverage and generated CLI docs/manpage were updated. Full live-cluster validation remains Sprint `15.2` primary Remaining Work. |
+| Target-stanza-only report card | Phase 15 Sprint `15.2` implementation (2026-06-03 / validated 2026-06-04) | `JitML.Test.Report.ReportCard` now carries typed `ReportMeasurements`, and `jitml test all --live` appends SL/RL/AlphaZero/tune/cache/daemon/cross-substrate fields after Cabal stanzas pass. Unreachable live sources render as `unavailable`; parser/e2e coverage and generated CLI docs/manpage were updated. The 2026-06-04 fresh Apple live aggregate passed all eight report stanzas and captured populated measured fields for RL reward, AlphaZero win rate, tuning objective, JIT cache hit rate, and daemon health. |
 | Numerical-content golden fixtures under `test/golden/` | Phase 15 Sprint `15.3` cleanup (2026-06-03) | Deleted the committed numerical fixture tree under `test/golden/{sl,rl,alphazero,tune}` and moved pure renderer snapshots to `test/snapshots/{cache,cli,cluster,observability,prerequisite}/`. SL/RL/AlphaZero/tune tests now assert run-to-run determinism, finite/non-empty summaries, and property invariants instead of golden numeric files; `forbiddenPathRegistry` rejects `test/golden/`. |
+| Demo placeholder shell, local stream frames, and inline DOM stubs | Phase 15 Sprint `15.3` cleanup (2026-06-04) | Removed Playwright's inline DOM fallback; `playwright/jitml-demo.spec.ts` now requires live `cluster-publication.json` and drives the real browser bundle through the published edge route. `JitML.Web.Server` no longer renders the placeholder manifest shell, no longer serves deterministic `/api/ws*` HTTP frames, serves only the browser-loadable `web/dist/Main/bundle.js`, returns `503` for plain HTTP stream GETs that lack a WebSocket upgrade, and emits a terminal error frame when no live publication exists. `JitML.Service.Http` now forks one worker per accepted connection so held-open stream sockets do not block HTTP/bundle routes. Validation: `jitml-e2e` passed 19 / 19, `jitml check-code` passed, `jitml:local` rebuilt, `jitml-demo:local` was loaded into the live Apple Silicon Kind cluster, and the live Playwright matrix passed 7 / 7 against `127.0.0.1:9091`. |
 | `JITML_*` run-parameter env-var IPC | Sprint `5.7` (closed 2026-05-29) | The daemon round-tripped typed run records (`StartTraining` / `StartSweep` / `StartRLRun`) through ~20 stringly-typed `JITML_*` Job env vars. Sprint `5.7` introduced typed `dhall/run/Schema.dhall` + `JitML.Service.RunConfig` and changed `JitML.Service.Workload.renderTrainingJob` / `renderTuneJob` / `renderRlJob` to emit a per-run ConfigMap + Job pair: the Job mounts `RunConfig.dhall` at `/etc/jitml/run/`. The worker (`JitML.App.runRl` / `runTune` / `attemptRealMnistTraining`) loads the typed config via `RunConfig.tryLoad{Rl,Tune,Training}RunConfig`, falling back to the legacy env vars for developer-side CLI runs outside a Job pod. Application Environment doctrine alignment. |
 | Duplicate `JITML_SUBSTRATE` / `JITML_PULSAR_WS` env reads vs `BootConfig` | Sprint `5.7` (closed 2026-05-29) | `JitML.App.workerBrokerTarget` now mounts the shared `jitml-service-config` ConfigMap at `/etc/jitml/service/`, loads `BootConfig.dhall` for the substrate, and reads the Pulsar WebSocket URL from any mounted `RunConfig.dhall` variant. The legacy `JITML_SUBSTRATE` / `JITML_PULSAR_WS` env reads survive only as the developer-side CLI fallback. |
 | Embedded `sh -c` retry/poll/existence control-flow (reconciler + readiness halves) | Sprints `2.9` + `4.8` (closed 2026-05-29) | Sprint `2.9` retired the reconciler half: `JitML.Cluster.Helm.kindCreateSubprocess` / `kindDeleteSubprocess` / `helmDependencyBuildSubprocess` became typed single-command subprocesses, and the postgres schema grant moved to typed Haskell IO in `JitML.Bootstrap.postgresSchemaGrantIO` (typed `kubectl` capture + typed `psql` exec). Sprint `4.8` retired the readiness half: `JitML.Cluster.Readiness.runMinioBucketReadinessIO` + `JitML.Cluster.PulsarBootstrap.runPulsarTopicCreatesIO` perform bounded retries in Haskell over typed leaf `kubectl exec ... mc` / `... pulsar-admin` subprocesses; the final-gate `minioBucketReadinessSubprocess` is a typed single command using the `MC_HOST_jitml-minio` env hand-off. `JitML.Bootstrap.liveExecutePhasedRollout` runs all four IO steps (minio buckets / postgres grants / pulsar topics) between the typed subprocess phases. |
