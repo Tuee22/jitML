@@ -21,7 +21,7 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-04 for Sprint `9.8`). Every original
+✅ **Done** (re-closed 2026-06-04 after Sprint `9.8`). Every original
 code-surface obligation closed on 2026-05-25:
 the 14 algorithm modules' deterministic-stub run-to-run determinism +
 rule-conformance properties, the real Othello/Hex/Gomoku rule engines,
@@ -33,12 +33,9 @@ owned by
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
 Sprints `13.8` and `13.9`. Live tuner execution is owned by Phase `13`
 Sprint `13.10`.
-The current reopen retargets the RL algorithm/convergence matrix away from
-`atari-subset` and onto copyright-free environments after Phase `8` Sprint
-`8.9` adds `KeyDoorGrid-v0`. The active development row lives in
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md#pending-development).
-
-**Blocked by**: Phase `8` Sprint `8.9`.
+Sprint `9.8` retargeted the RL algorithm/convergence matrix away from
+`atari-subset` and onto the copyright-free Phase `8` Sprint `8.9`
+`KeyDoorGrid-v0` environment. The development ledger row moved to Completed.
 
 The phase owns the catalog/AlphaZero/tuning half of
 [Exit Definition](README.md#exit-definition) item 6 (`jitml rl train`
@@ -62,14 +59,11 @@ and `PBT`); `JitML.Tune.Catalog.loadTuningExperiment` decodes the worked
 example into the local tuning ADT, `jitml tune` renders a TPE plan, and
 `JitML.Proto.Tune` round-trips the current deterministic text and
 proto3-compatible byte command and event envelopes.
-**Unmet today**:
+**Owned elsewhere**:
 real on-hardware training to canonical reward thresholds,
 real network forward / back passes through the JIT engine layer, live MinIO
-trial transcript persistence/resume, generated proto-lens tune bindings /
-cross-language interop, and live Pulsar handlers — all gated by the absent
-cluster infra or remaining tuner work.
-Detailed remaining work lives in each sprint's `### Remaining Work` block
-below.
+trial transcript persistence/resume, and live Pulsar handlers are owned by
+Phase `13` and are not open Phase `9` obligations.
 
 ### Current Implementation Scope
 
@@ -113,9 +107,9 @@ helpers, a local AlphaZero MCTS/self-play/arena substack, and deterministic
 tuning catalogs. The target runtime grows those surfaces into real
 JIT-backed network updates and a typed sweep manager that drives SL, RL, or
 AlphaZero training under a sampler × scheduler × pruner Dhall.
-Sprint `9.8` keeps the catalog aligned with the copyright-free demo policy by
-using `KeyDoorGrid-v0` for visual discrete-control coverage and removing
-`atari-subset` from required convergence cohorts.
+Sprint `9.8` keeps the catalog aligned with the copyright-free demo policy:
+required visual discrete-control coverage uses `KeyDoorGrid-v0`, and
+`atari-subset` is absent from required convergence cohorts.
 
 ## Sprint 9.1: On-Policy Algorithm Metadata ✅
 
@@ -611,10 +605,9 @@ summary.
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.10`.
 
-## Sprint 9.8: Copyright-Free RL Matrix Retargeting ⏸️
+## Sprint 9.8: Copyright-Free RL Matrix Retargeting ✅
 
-**Status**: Blocked
-**Blocked by**: Phase `8` Sprint `8.9` (`KeyDoorGrid-v0` environment surface)
+**Status**: Done
 **Implementation**: `src/JitML/RL/ConvergenceThresholds.hs`,
 `src/JitML/RL/Algorithms/Registry.hs`, `test/rl-canonicals/Main.hs`,
 `documents/engineering/training_workloads.md`,
@@ -653,12 +646,19 @@ assets.
    convergence/demo wording.
 4. `docker compose run --rm jitml jitml check-code` passes.
 
+### Validation Re-run (2026-06-04)
+
+- Phase `8` Sprint `8.9` validation passed in the same container session.
+- `docker compose run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' jitml cabal test jitml-unit jitml-rl-canonicals --jobs=2`
+  passed: `jitml-unit` 184 / 184 and `jitml-rl-canonicals` 27 / 27.
+  The `jitml-rl-canonicals` pass includes the retargeted convergence
+  threshold lookup and the `KeyDoorGrid-v0` maskable canonical case.
+- `docker compose run --rm jitml jitml check-code` passed during
+  `jitml:local` image construction with `check-code: ok`.
+
 ### Remaining Work
 
-- Wait for Phase `8` Sprint `8.9` to land `KeyDoorGrid-v0`.
-- Replace `atari-subset` thresholds and canonical matrix rows with
-  `KeyDoorGrid-v0`.
-- Validate that no required tests or default examples need ROM material.
+None.
 
 ## Doctrine Sections Cited
 

@@ -2,20 +2,21 @@
 
 -- | In-code per-(algorithm, environment) convergence threshold table for the
 -- canonical RL cohort. Each entry declares a `literatureTarget` (the mean
--- final return reported in the public literature) and a `slack` (the
--- additive tolerance below that mean which a `jitml rl train` median over
--- k seeds must still clear). The convergence assertion in Sprint 13.6 is
+-- final return reported in the public literature or native jitML target) and
+-- a `slack` (the additive tolerance below that mean which a `jitml rl train`
+-- median over k seeds must still clear). The convergence assertion in Sprint
+-- 13.6 is
 --
 --   median(final_reward over k seeds) >= literatureTarget - slack
 --
 -- The values come from the published Stable-Baselines3 zoo benchmarks
 -- (`rl-baselines3-zoo` v2.5) and the standard envs (Gymnasium classic
--- control + Box2D; Atari values use the canonical Mnih-2015 baseline
--- adjusted down for the 1M-step canonical budget). Where a particular
--- algorithm doesn't naturally apply to a given environment (e.g. DQN on
--- continuous action spaces, HER on non-goal-conditioned envs), the cohort
--- is omitted — `cohortThreshold` returns `Nothing` and the test stanza
--- skips it.
+-- control + Box2D) or from the repo-owned KeyDoorGrid-v0 success reward.
+-- Where a particular algorithm doesn't naturally apply to a given environment
+-- (e.g. DQN on continuous action spaces, HER on non-goal-conditioned envs),
+-- the cohort is omitted — `cohortThreshold` returns `Nothing` and the test
+-- stanza skips it. Atari/ALE remains optional runtime support and is not part
+-- of the required convergence matrix.
 --
 -- These are literature anchors, not per-host empirical curves. They do
 -- not vary by substrate (linux-cpu / linux-cuda / apple-silicon). No
@@ -48,7 +49,7 @@ data ConvergenceThreshold = ConvergenceThreshold
 
 -- | Decide whether a measured median final reward passes the convergence
 -- assertion for a cohort. Higher is better for cartpole / lunar-lander /
--- atari-subset; mountain-car uses negative rewards so the comparison is the
+-- key-door-grid; mountain-car uses negative rewards so the comparison is the
 -- same (less negative = better, and target -110 with slack 20 means -130
 -- still passes).
 passesConvergence :: ConvergenceThreshold -> Double -> Bool
@@ -72,10 +73,10 @@ cohortThreshold algorithmName environmentName =
 -- * On-policy (PPO, A2C, TRPO, MaskablePPO, RecurrentPPO) — all four
 --   canonical envs.
 -- * Off-policy discrete (DQN, QR-DQN) — discrete-action envs only
---   (cartpole, mountain-car, atari-subset). Lunar-lander uses the
+--   (cartpole, mountain-car, key-door-grid). Lunar-lander uses the
 --   continuous variant by default and is omitted.
 -- * Off-policy continuous (DDPG, TD3, SAC, CrossQ, TQC) — continuous /
---   Box2D envs only (lunar-lander). Classic control + atari are
+--   Box2D envs only (lunar-lander). Classic control + KeyDoorGrid are
 --   discrete-action and are omitted.
 -- * ARS (evolution strategies) — all four envs; it does not care about
 --   action-space continuity in jitML's setup.
@@ -90,37 +91,38 @@ cohortThresholds =
   [ (("PPO", "cartpole"), ConvergenceThreshold 475.0 25.0)
   , (("PPO", "mountain-car"), ConvergenceThreshold (-110.0) 30.0)
   , (("PPO", "lunar-lander"), ConvergenceThreshold 200.0 40.0)
-  , (("PPO", "atari-subset"), ConvergenceThreshold 20.0 8.0)
+  , (("PPO", "key-door-grid"), ConvergenceThreshold 1.0 0.20)
   , -- A2C (synchronous A3C; higher variance than PPO).
     (("A2C", "cartpole"), ConvergenceThreshold 475.0 40.0)
   , (("A2C", "mountain-car"), ConvergenceThreshold (-110.0) 40.0)
   , (("A2C", "lunar-lander"), ConvergenceThreshold 200.0 60.0)
-  , (("A2C", "atari-subset"), ConvergenceThreshold 20.0 10.0)
+  , (("A2C", "key-door-grid"), ConvergenceThreshold 1.0 0.30)
   , -- TRPO (trust-region, conservative updates → similar variance to PPO).
     (("TRPO", "cartpole"), ConvergenceThreshold 475.0 30.0)
   , (("TRPO", "mountain-car"), ConvergenceThreshold (-110.0) 35.0)
   , (("TRPO", "lunar-lander"), ConvergenceThreshold 200.0 45.0)
-  , (("TRPO", "atari-subset"), ConvergenceThreshold 20.0 10.0)
+  , (("TRPO", "key-door-grid"), ConvergenceThreshold 1.0 0.25)
   , -- MaskablePPO (PPO + action masking; classic control envs don't use
-    -- masks but the algorithm degrades gracefully).
+    -- masks but the algorithm degrades gracefully; KeyDoorGrid exercises
+    -- the canonical legal-action mask path).
     (("MaskablePPO", "cartpole"), ConvergenceThreshold 475.0 25.0)
   , (("MaskablePPO", "mountain-car"), ConvergenceThreshold (-110.0) 35.0)
   , (("MaskablePPO", "lunar-lander"), ConvergenceThreshold 200.0 40.0)
-  , (("MaskablePPO", "atari-subset"), ConvergenceThreshold 20.0 8.0)
+  , (("MaskablePPO", "key-door-grid"), ConvergenceThreshold 1.0 0.15)
   , -- RecurrentPPO (LSTM policy; needs more env steps; wider slack).
     (("RecurrentPPO", "cartpole"), ConvergenceThreshold 475.0 40.0)
   , (("RecurrentPPO", "mountain-car"), ConvergenceThreshold (-110.0) 50.0)
   , (("RecurrentPPO", "lunar-lander"), ConvergenceThreshold 200.0 60.0)
-  , (("RecurrentPPO", "atari-subset"), ConvergenceThreshold 20.0 12.0)
-  , -- DQN (discrete-only; cartpole + mountain-car + atari).
+  , (("RecurrentPPO", "key-door-grid"), ConvergenceThreshold 1.0 0.35)
+  , -- DQN (discrete-only; cartpole + mountain-car + KeyDoorGrid).
     (("DQN", "cartpole"), ConvergenceThreshold 475.0 30.0)
   , (("DQN", "mountain-car"), ConvergenceThreshold (-110.0) 40.0)
-  , (("DQN", "atari-subset"), ConvergenceThreshold 20.0 10.0)
+  , (("DQN", "key-door-grid"), ConvergenceThreshold 1.0 0.30)
   , -- QR-DQN (quantile DQN; similar variance to DQN with marginally
     -- tighter cartpole convergence).
     (("QR-DQN", "cartpole"), ConvergenceThreshold 475.0 25.0)
   , (("QR-DQN", "mountain-car"), ConvergenceThreshold (-110.0) 35.0)
-  , (("QR-DQN", "atari-subset"), ConvergenceThreshold 25.0 10.0)
+  , (("QR-DQN", "key-door-grid"), ConvergenceThreshold 1.0 0.25)
   , -- DDPG / TD3 / SAC / CrossQ / TQC (continuous-only; lunar-lander).
     (("DDPG", "lunar-lander"), ConvergenceThreshold 200.0 80.0)
   , (("TD3", "lunar-lander"), ConvergenceThreshold 200.0 60.0)
@@ -131,5 +133,5 @@ cohortThresholds =
     (("ARS", "cartpole"), ConvergenceThreshold 475.0 75.0)
   , (("ARS", "mountain-car"), ConvergenceThreshold (-110.0) 80.0)
   , (("ARS", "lunar-lander"), ConvergenceThreshold 200.0 120.0)
-  , (("ARS", "atari-subset"), ConvergenceThreshold 15.0 12.0)
+  , (("ARS", "key-door-grid"), ConvergenceThreshold 1.0 0.45)
   ]

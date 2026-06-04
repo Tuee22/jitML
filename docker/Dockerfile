@@ -23,6 +23,7 @@ ENV PATH=/root/.ghcup/bin:/root/.cabal/bin:/usr/local/cuda/bin:/usr/local/bin:$P
 # explicit `-L` in the JIT compile command — not on LD_LIBRARY_PATH.
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 ENV JITML_STYLE_TOOLS_ROOT=/opt/jitml-style-tools
+ENV CABAL_CONFIG=/root/.cabal/config
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -99,6 +100,12 @@ RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
     # explicit `-L/usr/local/cuda/lib64/stubs` we pass during JIT compile.
     && printf '/usr/local/cuda/lib64\n' > /etc/ld.so.conf.d/cuda.conf \
     && ldconfig
+
+# Cabal's default Hackage endpoint can consult mirror metadata during `update`;
+# stale mirror entries have broken otherwise reproducible image bootstraps.
+# hackage-content serves the canonical secure Hackage repository directly.
+RUN mkdir -p /root/.cabal \
+    && printf 'repository hackage.haskell.org\n  url: https://hackage-content.haskell.org/\n' > /root/.cabal/config
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
     | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_GHC_VERSION=${GHC_VERSION} BOOTSTRAP_HASKELL_CABAL_VERSION=${CABAL_VERSION} sh

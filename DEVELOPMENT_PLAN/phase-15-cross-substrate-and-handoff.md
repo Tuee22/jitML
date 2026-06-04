@@ -31,9 +31,8 @@ live report card surfaces real measurements), plus the cross-cohort
 slice of `jitml-cross-backend` (Sprint 12.6) and the live report-card
 slice of `jitml test all` (Sprint 12.9).
 
-**Blocked by**: Phase `8` Sprint `8.9`, Phase `9` Sprint `9.8`, and the
-remaining legacy-ledger rows owned by external/upstream or successor cleanup
-surfaces. Phase `13` closed
+**Blocked by**: the dependency source-pin/vendor helper introduced by Phase
+`1` Sprint `1.10` after removing scoped `allow-newer`. Phase `13` closed
 2026-05-30 (15 / 15 sprints Done) and Phase `14` closed 2026-05-31 (5 /
 5 sprints Done), so each substrate can produce its weighted outputs on
 its owning host; Sprint `15.1` closed the cross-host Linux/Apple
@@ -42,10 +41,9 @@ full live report-card aggregate on 2026-06-04. Sprint `15.3` retired
 the demo placeholder row on 2026-06-04; Phase `1` Sprint `1.10`
 removed the scoped `allow-newer` block on 2026-06-04; and Phase `8`
 Sprint `8.8` retired the deterministic Atari-subset RAM-state stub row on
-2026-06-04. Final handoff is now blocked by the copyright-free RL demo
-replacement tracked in
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md) and by
-the narrower dependency source-pin/vendor helper tracked in
+2026-06-04. Phase `8` Sprint `8.9` and Phase `9` Sprint `9.8` closed the
+copyright-free `KeyDoorGrid-v0` development row on 2026-06-04. Final handoff is
+now blocked only by the narrower dependency source-pin/vendor helper tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 **Current validation evidence**: Phase `13` live outputs (Linux CUDA SL convergence
@@ -365,9 +363,8 @@ Closes Exit Definition item 9's live report-card slice.
 ## Sprint 15.3: Empty Legacy Ledger and Final Handoff ⏸️
 
 **Status**: Blocked
-**Blocked by**: Phase `8` Sprint `8.9`, Phase `9` Sprint `9.8`, and the
-dependency source-pin/vendor helper introduced by Phase `1` Sprint `1.10`
-after removing scoped `allow-newer`.
+**Blocked by**: dependency source-pin/vendor helper introduced by Phase `1`
+Sprint `1.10` after removing scoped `allow-newer`.
 **Implementation**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-development.md`,
 `cabal.project`, `src/JitML/Codegen/{Cuda,Metal}.hs`,
@@ -455,6 +452,11 @@ Definition item 18 plus the reopened development handoff gate.
   later static-foreign-source correction removed the checked-in ALE C++ shim,
   Dockerfile compile step, and lint allowlist; any future project-owned adapter
   must be Haskell-generated or supplied outside the repository.
+- The copyright-free RL demo replacement row moved to Completed. Phase `8`
+  Sprint `8.9` landed `KeyDoorGrid-v0`, the checked-in
+  `experiments/key-door-grid.dhall` demo path, and unit/canonical coverage;
+  Phase `9` Sprint `9.8` retargeted the required RL algorithm/convergence
+  matrix away from `atari-subset`.
 
 ### Validation
 
@@ -484,28 +486,30 @@ Definition item 18 plus the reopened development handoff gate.
 6. 2026-06-04 ALE/foreign-source validation: `docker compose build jitml`
    passed with image-local `check-code: ok` and a rebuilt PureScript bundle;
    `docker compose run --rm jitml jitml check-code` passed; focused
-   `jitml-unit` / `jitml-rl-canonicals` tests passed 183 / 183 and 26 / 26;
-   `jitml rl train` with `JITML_ENVIRONMENT=atari-subset` and no ROM env
-   failed closed with the ROM-policy diagnostic; and the static C++ shim was
-   removed from the repository. ROM-backed ALE smoke is optional/manual and was
-   not part of required validation.
-7. 2026-06-04 source-pin/vendor recheck: Hackage index-state
-   `2026-06-04T16:46:08Z` still does not solve warning-clean under GHC
-   `9.14.1` without the helper. Removing all pins/vendor packages fails on
-   Hackage `serialise-0.2.6.1` requiring `base <4.22`; keeping cborg/dhall
-   pins but removing the vendored `lens-family` packages fails on Hackage
+  `jitml-unit` / `jitml-rl-canonicals` tests passed 184 / 184 and 27 / 27;
+  `jitml rl train` with `JITML_ENVIRONMENT=atari-subset` and no ROM env
+  failed closed with the ROM-policy diagnostic; and the static C++ shim was
+  removed from the repository. ROM-backed ALE smoke is optional/manual and was
+  not part of required validation.
+7. 2026-06-04 KeyDoorGrid validation: `docker compose run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' jitml cabal test jitml-unit jitml-rl-canonicals --jobs=2`
+   passed, and `docker compose run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' -e JITML_ENVIRONMENT=key-door-grid jitml jitml rl train experiments/key-door-grid.dhall`
+   exited `0` with `environment: key-door-grid`.
+8. 2026-06-04 source-pin/vendor recheck: temporary project files under
+   `/tmp` in the container still do not solve warning-clean under GHC `9.14.1`
+   without the helper. Removing all pins/vendor packages fails on Hackage
+   `serialise-0.2.6.1` requiring `base <4.22`; keeping cborg/dhall pins but
+   removing the vendored `lens-family` packages fails on Hackage
    `lens-family-2.1.3` requiring `containers <0.8`; keeping cborg pins and
    vendored `lens-family` but removing the `dhall` source pin fails on Hackage
    `dhall-1.42.3` requiring `template-haskell <2.24`.
 
 ### Remaining Work
 
-- Close Phase `8` Sprint `8.9` and Phase `9` Sprint `9.8` so the
-  copyright-free RL demo replacement row moves to Completed.
 - Remove the dependency source-pin/vendor helper once Hackage releases or
   metadata revisions solve and build warning-clean under pinned GHC `9.14.1`
   without source pins or local package patches.
-- Keep Phase `15` blocked until both legacy ledgers have no pending rows.
+- Keep Phase `15` blocked until the deletion ledger has no pending rows. The
+  development ledger is empty.
 
 ## Doctrine Sections Cited
 

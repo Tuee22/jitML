@@ -84,17 +84,16 @@ source-pin/vendor helper is tracked in
 and gates Phase `15` Sprint `15.3`.
 
 **Reopen note (2026-06-04, copyright-free RL demos)**: Phase `8` reopened
-again for Sprint `8.9`, which replaces ROM-dependent default RL examples with
+again for Sprint `8.9`, which replaced ROM-dependent default RL examples with
 the repo-owned `KeyDoorGrid-v0` environment. Phase `9` reopened for Sprint
-`9.8`, which retargets the required algorithm/convergence matrix away from
-`atari-subset`; Sprint `9.8` is blocked until Sprint `8.9` lands. The active
-development row lives in
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md#pending-development).
+`9.8`, which retargeted the required algorithm/convergence matrix away from
+`atari-subset`. Both phases re-closed on 2026-06-04, and the development row
+moved to
+[legacy-tracking-for-development.md](legacy-tracking-for-development.md#completed).
 
-The plan is mid-build. Phases `0` through `7` and `10` through `14` are
-`✅ Done`; Phase `8` is `🔄 Active`, Phase `9` is `⏸️ Blocked` on Phase `8`,
-and Phase `15` is blocked by the copyright-free RL demo replacement plus the
-dependency source-pin/vendor cleanup that gates the final empty-ledger handoff.
+The plan is mid-build. Phases `0` through `14` are `✅ Done`; Phase `15` is
+blocked by the dependency source-pin/vendor cleanup that gates the final
+empty-deletion-ledger handoff.
 Sprint
 `1.4` now owns the
 container-exclusive code-quality rule: `jitml:local` image construction
@@ -131,9 +130,9 @@ kubeconfig settings, passes read-only client probes, and acquires
 Phases `8`, `9`, `10`, `11`, and `12` all closed on 2026-05-25 after
 every owned code-surface obligation landed; their live obligations
 migrated to Phases `13` / `14` / `15` per
-[Execution Roadmap](#execution-roadmap). Phase `8` and Phase `9` are now
-reopened for the copyright-free RL demo replacement (`8.9`) and matrix
-retargeting (`9.8`). Phase `8` Sprint `8.3`'s
+[Execution Roadmap](#execution-roadmap). Phase `8` and Phase `9` briefly
+reopened on 2026-06-04 for the copyright-free RL demo replacement (`8.9`) and
+matrix retargeting (`9.8`), then re-closed after validation. Phase `8` Sprint `8.3`'s
 original simulator work closed through pure-Haskell ports rather than
 Box2D / ALE FFI; the 2026-06-04 reopen adds Sprint `8.8` solely to retire
 the deterministic `atari-subset` stand-in behind an explicit ROM policy and
@@ -423,7 +422,7 @@ owned by Phase `13` below.
    and captured the populated live report card. Phase `1` Sprint `1.10`
    removed the scoped `allow-newer` block on 2026-06-04 and re-closed
    Phase `1`; the narrower source-pin/vendor cleanup row remains open in
-   Phase `15`, and the copyright-free RL demo development row remains open in
+   Phase `15`, and the copyright-free RL demo development row completed in
    Phase `8` / Phase `9`, while the ALE-stub row retired when reopened
    Phase `8` Sprint `8.8` re-closed after current-image validation. The
    demo-placeholder row retired on 2026-06-04
@@ -518,10 +517,8 @@ obligation exists.
 
 ## Reopened phases (2026-06-04)
 
-Phases `1`, `8`, and `9` reopened from `✅ Done` on 2026-06-04. Phase `1`
-re-closed the same day after Sprint `1.10` removed the scoped `allow-newer`
-override; Phase `8` re-closed Sprint `8.8` but remains open for Sprint `8.9`;
-Phase `9` is blocked on that environment work for Sprint `9.8`:
+Phases `1`, `8`, and `9` reopened from `✅ Done` on 2026-06-04 and
+re-closed the same day after their scoped work validated:
 
 - **Phase 1** re-opened for Sprint `1.10`, the scoped `allow-newer`
   retirement gate, and re-closed on 2026-06-04. The project compiler remains
@@ -537,17 +534,14 @@ Phase `9` is blocked on that environment work for Sprint `9.8`:
   Dockerfile compile step, and lint allowlist; optional ALE execution now
   requires a Haskell-generated or externally supplied runtime shim.
 - **Phase 8 / Phase 9** reopened for the copyright-free RL demo replacement.
-  Sprint `8.9` adds `KeyDoorGrid-v0` and moves default examples away from
-  `atari-subset`; Sprint `9.8` retargets the required algorithm/convergence
-  matrix after `8.9` lands. The row is tracked in
+  Sprint `8.9` added `KeyDoorGrid-v0` and moved default examples away from
+  `atari-subset`; Sprint `9.8` retargeted the required algorithm/convergence
+  matrix. The row is completed in
   [legacy-tracking-for-development.md](legacy-tracking-for-development.md).
 
 Phases `13` and `14` remain `✅ Done` on their substrate-owned live surfaces.
-Phase `8` is `🔄 Active` for Sprint `8.9`; Phase `9` is `⏸️ Blocked` on that
-environment work for Sprint `9.8`. Phase `15` remains `⏸️ Blocked` and cannot
-close until the copyright-free RL demo row moves to Completed in
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md) and
-the source-pin/vendor helper moves to Completed in
+Phases `8` and `9` are re-closed. Phase `15` remains `⏸️ Blocked` and cannot
+close until the source-pin/vendor helper moves to Completed in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Reopened phases (2026-05-30)
@@ -1144,10 +1138,9 @@ short 25-iteration cohort).
 At that point the remaining open Phase `13` items were the formalised live SL
 statistical-convergence assertion, the heavier RL cohort convergence runs, and
 the batched device-training hot path. Phase `13` later closed all 15 / 15
-sprints on 2026-05-30. The current open items are the `KeyDoorGrid-v0`
-development row owned by reopened Phase `8` Sprint `8.9` and Phase `9` Sprint
-`9.8`, the dependency source-pin/vendor cleanup row owned by Phase `15`, and
-Phase `15` Sprint `15.3`'s empty-ledger gate.
+sprints on 2026-05-30. The current open item is the dependency
+source-pin/vendor cleanup row owned by Phase `15`, which gates Phase `15`
+Sprint `15.3`'s empty-ledger handoff.
 
 The pre-2026-05-28 host suites were: `jitml-unit` (172),
 `jitml-sl-canonicals` (9), `jitml-rl-canonicals` (23),

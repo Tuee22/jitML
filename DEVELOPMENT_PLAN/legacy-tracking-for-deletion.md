@@ -125,9 +125,9 @@ the image-local `jitml check-code` gate, and a fresh
 command with `check-code: ok` after the headless/GPU compose split and vendored
 warning-clean source hygiene. The old `allow-newer` row is Completed.
 
-Phase `15` rechecked the remaining helper on 2026-06-04 against Hackage
-index-state `2026-06-04T16:46:08Z`. A temporary project with only
-`packages: .` and no source pins/vendor packages still failed because Hackage
+Phase `15` rechecked the remaining helper on 2026-06-04 using temporary
+container-local project files under `/tmp`. A temporary project with only the
+root package and no source pins/vendor packages still failed because Hackage
 `serialise-0.2.6.1` requires `base >=4.11 && <4.22` while GHC `9.14.1`
 provides `base-4.22.0.0`. A temporary project that kept the cborg/dhall source
 pins but removed the vendored `lens-family` packages still failed because

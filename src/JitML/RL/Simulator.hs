@@ -5,7 +5,8 @@
 -- initial / step boundaries for the canonical @cartpole@
 -- (CartPole-v1), @mountain-car@ (MountainCar-v0), @lunar-lander@
 -- (LunarLander-v2, simplified rigid-body port of the Gym Box2D
--- reference) environments plus a deterministic render-frame projection.
+-- reference), and @key-door-grid@ (jitML-owned visual discrete control)
+-- environments plus a deterministic render-frame projection.
 --
 -- The lunar-lander port is a pure-Haskell rigid-body simulation in
 -- the style of OpenAI Gym's @lunar_lander.py@ but written from the
@@ -17,6 +18,9 @@ module JitML.RL.Simulator
   ( CartPoleState (..)
   , ContinuousEnvironment (..)
   , ContinuousSimStep (..)
+  , KeyDoorGridAction (..)
+  , KeyDoorGridPosition (..)
+  , KeyDoorGridState (..)
   , LunarLanderState (..)
   , MountainCarState (..)
   , PendulumState (..)
@@ -27,6 +31,12 @@ module JitML.RL.Simulator
   , cartPoleInitial
   , cartPoleRenderFrame
   , cartPoleStep
+  , keyDoorGridEnvironment
+  , keyDoorGridInitial
+  , keyDoorGridLegalActionMask
+  , keyDoorGridObservation
+  , keyDoorGridRenderFrame
+  , keyDoorGridStep
   , lunarLanderEnvironment
   , lunarLanderInitial
   , lunarLanderRenderFrame
@@ -587,3 +597,231 @@ showDouble = Text.pack . show
 boolToDouble :: Bool -> Double
 boolToDouble True = 1.0
 boolToDouble False = 0.0
+
+-- * KeyDoorGrid-v0
+
+-- | A cell coordinate in the deterministic 5x5 KeyDoorGrid map.
+data KeyDoorGridPosition = KeyDoorGridPosition
+  { keyDoorGridRow :: Int
+  , keyDoorGridCol :: Int
+  }
+  deriving stock (Eq, Show)
+
+-- | Discrete action surface for KeyDoorGrid-v0.
+data KeyDoorGridAction
+  = KeyDoorGridNorth
+  | KeyDoorGridSouth
+  | KeyDoorGridWest
+  | KeyDoorGridEast
+  | KeyDoorGridPickUpKey
+  | KeyDoorGridOpenDoor
+  deriving stock (Bounded, Enum, Eq, Show)
+
+-- | Native jitML visual discrete-control state. The seed determines the key
+-- location and wall rotation while preserving a solvable corridor through key,
+-- door, and goal.
+data KeyDoorGridState = KeyDoorGridState
+  { keyDoorGridSeed :: Int
+  , keyDoorGridAgent :: KeyDoorGridPosition
+  , keyDoorGridKey :: KeyDoorGridPosition
+  , keyDoorGridDoor :: KeyDoorGridPosition
+  , keyDoorGridGoal :: KeyDoorGridPosition
+  , keyDoorGridWalls :: [KeyDoorGridPosition]
+  , keyDoorGridHasKey :: Bool
+  , keyDoorGridDoorOpen :: Bool
+  , keyDoorGridStepCount :: Int
+  }
+  deriving stock (Eq, Show)
+
+keyDoorGridEnvironment :: SimulatedEnvironment KeyDoorGridState
+keyDoorGridEnvironment =
+  SimulatedEnvironment
+    { envName = "key-door-grid"
+    , envInitial = keyDoorGridInitial 0
+    , envStep = keyDoorGridStep
+    , envRenderFrame = keyDoorGridRenderFrame
+    , envActionCount = keyDoorGridActionCount
+    , envObservationSize = keyDoorGridObservationSize
+    }
+
+keyDoorGridInitial :: Int -> KeyDoorGridState
+keyDoorGridInitial seed =
+  KeyDoorGridState
+    { keyDoorGridSeed = seed
+    , keyDoorGridAgent = KeyDoorGridPosition 0 0
+    , keyDoorGridKey = keyPosition
+    , keyDoorGridDoor = KeyDoorGridPosition 3 4
+    , keyDoorGridGoal = KeyDoorGridPosition 4 4
+    , keyDoorGridWalls = take 3 (rotateList (abs seed) wallCandidates)
+    , keyDoorGridHasKey = False
+    , keyDoorGridDoorOpen = False
+    , keyDoorGridStepCount = 0
+    }
+ where
+  keyPosition = keyCandidates !! (abs seed `mod` length keyCandidates)
+
+keyDoorGridLegalActionMask :: KeyDoorGridState -> [Bool]
+keyDoorGridLegalActionMask state =
+  [ canMove KeyDoorGridNorth
+  , canMove KeyDoorGridSouth
+  , canMove KeyDoorGridWest
+  , canMove KeyDoorGridEast
+  , keyDoorGridAgent state == keyDoorGridKey state && not (keyDoorGridHasKey state)
+  , keyDoorGridHasKey state
+      && not (keyDoorGridDoorOpen state)
+      && adjacent (keyDoorGridAgent state) (keyDoorGridDoor state)
+  ]
+ where
+  canMove action =
+    case moveTarget action (keyDoorGridAgent state) of
+      Nothing -> False
+      Just pos -> keyDoorGridCanEnter state pos
+
+keyDoorGridStep :: KeyDoorGridState -> Int -> SimStep KeyDoorGridState
+keyDoorGridStep state rawAction =
+  case keyDoorGridActionFromInt rawAction of
+    Nothing -> invalidStep
+    Just action ->
+      if not (keyDoorGridLegalActionMask state !! fromEnum action)
+        then invalidStep
+        else applyAction action
+ where
+  nextStepCount = keyDoorGridStepCount state + 1
+  withTick next = next {keyDoorGridStepCount = nextStepCount}
+  doneFor next =
+    nextStepCount >= keyDoorGridMaxSteps
+      || ( keyDoorGridAgent next == keyDoorGridGoal next
+             && keyDoorGridHasKey next
+             && keyDoorGridDoorOpen next
+         )
+  invalidStep =
+    let next = withTick state
+     in SimStep next (-0.05) (doneFor next)
+  applyAction KeyDoorGridPickUpKey =
+    let next = withTick state {keyDoorGridHasKey = True}
+     in SimStep next 0.20 (doneFor next)
+  applyAction KeyDoorGridOpenDoor =
+    let next = withTick state {keyDoorGridDoorOpen = True}
+     in SimStep next 0.30 (doneFor next)
+  applyAction action =
+    case moveTarget action (keyDoorGridAgent state) of
+      Nothing -> invalidStep
+      Just pos ->
+        let next = withTick state {keyDoorGridAgent = pos}
+            reachedGoal =
+              pos == keyDoorGridGoal state
+                && keyDoorGridHasKey state
+                && keyDoorGridDoorOpen state
+            reward = if reachedGoal then 1.0 else -0.01
+         in SimStep next reward (doneFor next)
+
+keyDoorGridObservation :: KeyDoorGridState -> [Double]
+keyDoorGridObservation state =
+  concatMap channelsFor gridPositions
+    <> [ boolToDouble (keyDoorGridHasKey state)
+       , boolToDouble (keyDoorGridDoorOpen state)
+       ]
+ where
+  channelsFor pos =
+    [ boolToDouble (pos `elem` keyDoorGridWalls state)
+    , boolToDouble (pos == keyDoorGridKey state && not (keyDoorGridHasKey state))
+    , boolToDouble (pos == keyDoorGridDoor state && not (keyDoorGridDoorOpen state))
+    , boolToDouble (pos == keyDoorGridGoal state)
+    , boolToDouble (pos == keyDoorGridAgent state)
+    ]
+
+keyDoorGridRenderFrame :: KeyDoorGridState -> RenderFrame
+keyDoorGridRenderFrame state =
+  RenderFrame
+    { renderObservation = keyDoorGridObservation state
+    , renderCaption =
+        Text.unlines
+          ( [ "key-door-grid step="
+                <> Text.pack (show (keyDoorGridStepCount state))
+                <> " key="
+                <> (if keyDoorGridHasKey state then "carried" else "free")
+                <> " door="
+                <> (if keyDoorGridDoorOpen state then "open" else "locked")
+            ]
+              <> [ Text.pack [cellChar (KeyDoorGridPosition row col) | col <- [0 .. keyDoorGridWidth - 1]]
+                 | row <- [0 .. keyDoorGridHeight - 1]
+                 ]
+          )
+    }
+ where
+  cellChar pos
+    | pos == keyDoorGridAgent state = '@'
+    | pos `elem` keyDoorGridWalls state = '#'
+    | pos == keyDoorGridKey state && not (keyDoorGridHasKey state) = 'k'
+    | pos == keyDoorGridDoor state && keyDoorGridDoorOpen state = 'd'
+    | pos == keyDoorGridDoor state = 'D'
+    | pos == keyDoorGridGoal state = 'G'
+    | otherwise = '.'
+
+keyDoorGridCanEnter :: KeyDoorGridState -> KeyDoorGridPosition -> Bool
+keyDoorGridCanEnter state pos =
+  inGrid pos
+    && pos `notElem` keyDoorGridWalls state
+    && (pos /= keyDoorGridDoor state || keyDoorGridDoorOpen state)
+
+keyDoorGridActionFromInt :: Int -> Maybe KeyDoorGridAction
+keyDoorGridActionFromInt raw
+  | raw < 0 || raw >= keyDoorGridActionCount = Nothing
+  | otherwise = Just (toEnum raw)
+
+moveTarget :: KeyDoorGridAction -> KeyDoorGridPosition -> Maybe KeyDoorGridPosition
+moveTarget action (KeyDoorGridPosition row col) =
+  case action of
+    KeyDoorGridNorth -> Just (KeyDoorGridPosition (row - 1) col)
+    KeyDoorGridSouth -> Just (KeyDoorGridPosition (row + 1) col)
+    KeyDoorGridWest -> Just (KeyDoorGridPosition row (col - 1))
+    KeyDoorGridEast -> Just (KeyDoorGridPosition row (col + 1))
+    KeyDoorGridPickUpKey -> Nothing
+    KeyDoorGridOpenDoor -> Nothing
+
+adjacent :: KeyDoorGridPosition -> KeyDoorGridPosition -> Bool
+adjacent (KeyDoorGridPosition aRow aCol) (KeyDoorGridPosition bRow bCol) =
+  abs (aRow - bRow) + abs (aCol - bCol) == 1
+
+inGrid :: KeyDoorGridPosition -> Bool
+inGrid (KeyDoorGridPosition row col) =
+  row >= 0 && row < keyDoorGridHeight && col >= 0 && col < keyDoorGridWidth
+
+rotateList :: Int -> [a] -> [a]
+rotateList _ [] = []
+rotateList n xs =
+  let k = n `mod` length xs
+   in drop k xs <> take k xs
+
+gridPositions :: [KeyDoorGridPosition]
+gridPositions =
+  [ KeyDoorGridPosition row col
+  | row <- [0 .. keyDoorGridHeight - 1]
+  , col <- [0 .. keyDoorGridWidth - 1]
+  ]
+
+keyCandidates :: [KeyDoorGridPosition]
+keyCandidates =
+  [ KeyDoorGridPosition 0 2
+  , KeyDoorGridPosition 1 4
+  , KeyDoorGridPosition 2 0
+  , KeyDoorGridPosition 3 1
+  , KeyDoorGridPosition 2 3
+  ]
+
+wallCandidates :: [KeyDoorGridPosition]
+wallCandidates =
+  [ KeyDoorGridPosition 1 1
+  , KeyDoorGridPosition 1 3
+  , KeyDoorGridPosition 2 2
+  , KeyDoorGridPosition 3 2
+  ]
+
+keyDoorGridWidth, keyDoorGridHeight, keyDoorGridActionCount, keyDoorGridMaxSteps :: Int
+keyDoorGridWidth = 5
+keyDoorGridHeight = 5
+keyDoorGridActionCount = 6
+keyDoorGridMaxSteps = 64
+
+keyDoorGridObservationSize :: Int
+keyDoorGridObservationSize = keyDoorGridWidth * keyDoorGridHeight * 5 + 2

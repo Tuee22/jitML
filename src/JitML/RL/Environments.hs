@@ -16,6 +16,7 @@ import Data.Text qualified as Text
 data EnvironmentKind
   = ClassicControl
   | Box2D
+  | GridWorld
   | Atari
   deriving stock (Eq, Show)
 
@@ -40,6 +41,7 @@ canonicalEnvironments =
   [ RLEnvironment "cartpole" ClassicControl 4 2 475.0
   , RLEnvironment "mountain-car" ClassicControl 2 3 (-110.0)
   , RLEnvironment "lunar-lander" Box2D 8 4 200.0
+  , RLEnvironment "key-door-grid" GridWorld 127 6 1.0
   , RLEnvironment "atari-subset" Atari 128 18 20.0
   ]
 

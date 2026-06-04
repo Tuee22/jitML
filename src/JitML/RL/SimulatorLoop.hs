@@ -4,9 +4,10 @@
 -- | Episode driver for the pure-Haskell simulators under
 -- "JitML.RL.Simulator". Sprint 13.5 — the worker-side @jitml rl train@
 -- entry point runs this loop against the simulator chosen by the
--- @JITML_ENVIRONMENT@ env var for cartpole / mountain-car / lunar-lander,
--- publishes a per-episode @RlEpisode@ event to the broker, and prints the
--- summary. The @atari-subset@ environment is ALE-backed in "JitML.RL.ALE".
+-- @JITML_ENVIRONMENT@ env var for cartpole / mountain-car / lunar-lander /
+-- key-door-grid, publishes a per-episode @RlEpisode@ event to the broker, and
+-- prints the summary. The @atari-subset@ environment is ALE-backed in
+-- "JitML.RL.ALE".
 -- The policy is the
 -- deterministic
 -- @action = (stepIx + episodeId + seed) `mod` actionCount@ rule from the
@@ -29,6 +30,7 @@ import JitML.RL.Simulator
   ( SimStep (..)
   , SimulatedEnvironment (..)
   , cartPoleEnvironment
+  , keyDoorGridEnvironment
   , lunarLanderEnvironment
   , mountainCarEnvironment
   )
@@ -41,7 +43,7 @@ data SimulatedEpisode = SimulatedEpisode
   }
   deriving stock (Eq, Show)
 
--- | Existential wrapper around the three pure-Haskell canonical simulators so callers
+-- | Existential wrapper around the native pure-Haskell canonical simulators so callers
 -- look an environment up by name without having to plumb the per-env
 -- state type through their own signatures.
 data SimulatedEnvByName
@@ -52,6 +54,8 @@ simulatedEnvCatalog =
   [ ("cartpole", SimulatedEnvByName "cartpole" cartPoleEnvironment)
   , ("mountain-car", SimulatedEnvByName "mountain-car" mountainCarEnvironment)
   , ("lunar-lander", SimulatedEnvByName "lunar-lander" lunarLanderEnvironment)
+  , ("key-door-grid", SimulatedEnvByName "key-door-grid" keyDoorGridEnvironment)
+  , ("KeyDoorGrid-v0", SimulatedEnvByName "key-door-grid" keyDoorGridEnvironment)
   ]
 
 lookupSimulatedEnvByName :: Text -> Maybe SimulatedEnvByName

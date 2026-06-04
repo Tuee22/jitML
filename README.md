@@ -1343,8 +1343,8 @@ observations, and generated render frames. For each non-jitML-original env, the
 dynamics are re-implemented in Haskell from the published equations.
 
 Default examples, demos, and required canonical tests must not need copyrighted
-runtime assets. The active replacement work is tracked in
-[DEVELOPMENT_PLAN/legacy-tracking-for-development.md](DEVELOPMENT_PLAN/legacy-tracking-for-development.md):
+runtime assets. The completed replacement work is recorded in
+[DEVELOPMENT_PLAN/legacy-tracking-for-development.md](DEVELOPMENT_PLAN/legacy-tracking-for-development.md#completed):
 Phase `8` Sprint `8.9` implements `KeyDoorGrid-v0` and swaps default RL
 examples away from `atari-subset`; Phase `9` Sprint `9.8` retargets the
 algorithm/convergence matrix. Any remaining `atari-subset` support is optional

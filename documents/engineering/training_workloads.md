@@ -141,11 +141,11 @@ declarations.
   active repo-owned visual discrete-control replacement for the former
   Atari-backed demo target.
 - Current `src/JitML/RL/Environments.hs` provides local metadata and a
-  deterministic step helper for cartpole, mountain-car, lunar-lander, and the
-  current `atari-subset` row. Phase `8` Sprint `8.9` replaces default RL
-  examples with `KeyDoorGrid-v0`: a deterministic seeded grid/key/locked-door
-  environment with legal-action masks, vector/grid observations, generated
-  render frames, and no external assets.
+  deterministic step helper for cartpole, mountain-car, lunar-lander,
+  `KeyDoorGrid-v0`, and the optional `atari-subset` row. `KeyDoorGrid-v0` is a
+  deterministic seeded grid/key/locked-door environment with legal-action
+  masks, vector/grid observations, generated render frames, and no external
+  assets.
 - `atari-subset` routes through `JitML.RL.ALE` only as optional runtime
   support. The project image may carry the pinned ALE library/runtime, but the
   repository no longer carries or compiles a checked-in C/C++ adapter shim. Any

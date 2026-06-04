@@ -33,12 +33,12 @@
 > frontend, and the Cabal test stanzas.
 
 The inventory documents the authoritative target end state and the present
-checked-in implementation. Phases `0`–`7` and `10`–`14` are `✅ Done`; Phase
+checked-in implementation. Phases `0`–`14` are `✅ Done`; Phase
 `1` reopened and re-closed on 2026-06-04 after Sprint `1.10` removed the scoped
-`allow-newer` block, Phase `8` is `🔄 Active` for Sprint `8.9`
-(`KeyDoorGrid-v0` copyright-free visual RL demo), Phase `9` is `⏸️ Blocked` on
-that environment work for Sprint `9.8`, and Phase `15` remains `⏸️ Blocked`
-until both legacy ledgers have no pending rows. Sprint `8.8` replaced the
+`allow-newer` block, Phase `8` re-closed after Sprint `8.9` added
+`KeyDoorGrid-v0`, Phase `9` re-closed after Sprint `9.8` retargeted the
+required RL matrix, and Phase `15` remains `⏸️ Blocked` until the dependency
+source-pin/vendor helper moves to Completed in the deletion ledger. Sprint `8.8` replaced the
 deterministic `atari-subset` stand-in with an explicit ROM-policy boundary, and
 the static-foreign-source correction removed the checked-in ALE C++ shim and
 lint exception. Sprint `1.4` closes the container-exclusive Haskell style/
@@ -266,7 +266,7 @@ internal-RPC pair.
 |-----------|----------------|--------|---------------|
 | Supervised training summaries | `src/JitML/SL/Canonicals.hs`; command surface in `src/JitML/App.hs` renders deterministic canonical-problem summaries; `test/sl-canonicals/Main.hs` exercises each canonical problem as property tests over the local `SL.Train` convergence pipeline (finite-and-monotone loss, run-to-run determinism, and median over a fixed-seed pool ≥ literature-derived in-code threshold) with no per-substrate `.txt` curve fixtures per [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets) | 🔄 Active; missing: real dataset loaders, daemon-backed training loops, and live statistical convergence assertions against real datasets | Sprint 8.1 |
 | Canonical SL problem set | `src/JitML/SL/Canonicals.hs`; deterministic coverage in `test/sl-canonicals/Main.hs` | 🔄 Active; missing: real training runs against MNIST/Fashion-MNIST/CIFAR-10/Tiny-ImageNet/California Housing with measured convergence | Sprint 8.1 |
-| Canonical RL environments (cartpole, mountain-car, lunar-lander, KeyDoorGrid target; optional atari-subset) | `src/JitML/RL/Environments.hs`; `src/JitML/RL/Simulator.hs`; `src/JitML/RL/ALE.hs`; deterministic local step surface and catalog renderer for native simulators. Sprint `8.9` adds `KeyDoorGrid-v0` as the repo-owned visual discrete-control environment for default demos and required canonical examples. `atari-subset` remains optional runtime support only when a generated or externally supplied ALE runtime shim is available, with ROMs supplied explicitly through `RunConfig.atariRomPath`, `JITML_ATARI_ROM`, or `JITML_ALE_ROM`; local ROM files belong under ignored `./.roms/`. The repository has no checked-in C/C++ ALE adapter source; all project-owned native/JIT compiler inputs are Haskell-generated into the build/cache tree. | 🔄 Active; missing: `KeyDoorGrid-v0` implementation, tests, and default-example migration. Sprint `8.8` no-ROM validation and static shim removal are Done. | Sprint 8.3 / Sprint 8.8 / Sprint 8.9 |
+| Canonical RL environments (cartpole, mountain-car, lunar-lander, KeyDoorGrid; optional atari-subset) | `src/JitML/RL/Environments.hs`; `src/JitML/RL/Simulator.hs`; `src/JitML/RL/SimulatorLoop.hs`; `src/JitML/RL/ALE.hs`; deterministic local step surface and catalog renderer for native simulators. `KeyDoorGrid-v0` is the repo-owned visual discrete-control environment for default demos and required canonical examples, with deterministic seeded maps, legal-action masks, vector/grid observations, generated render frames, and checked-in `experiments/key-door-grid.dhall` coverage. `atari-subset` remains optional runtime support only when a generated or externally supplied ALE runtime shim is available, with ROMs supplied explicitly through `RunConfig.atariRomPath`, `JITML_ATARI_ROM`, or `JITML_ALE_ROM`; local ROM files belong under ignored `./.roms/`. The repository has no checked-in C/C++ ALE adapter source; all project-owned native/JIT compiler inputs are Haskell-generated into the build/cache tree. | ✅ Done for native canonical environments and default copyright-free visual demo coverage; optional ALE execution remains manual/runtime-only. | Sprint 8.3 / Sprint 8.8 / Sprint 8.9 |
 | RL Algorithm catalog and local trajectory surface | `src/JitML/RL/Algorithms.hs`; `dhall/rl/Schema.dhall` mirror/audit; deterministic command summaries in `src/JitML/App.hs`; typed runtime primitives in `src/JitML/RL/{Policy,VecEnv,Buffer,AsyncBuffer,Loop}.hs` with filesystem-backed async-sink coverage | 🔄 Active; missing: live HTTP-backed `HasMinIO` transcript writes and daemon-backed environment execution | Sprint 8.4 |
 | Replay/rollout trajectory determinism | `src/JitML/RL/Algorithms.hs`; `deterministicTrajectory` | 🔄 Active; missing: trajectory determinism validated under real env stepping | Sprint 8.4 |
 | Schedules, action distributions, action noise, target networks, GAE, callbacks, logger, evaluator | `src/JitML/RL/Framework.hs`; typed framework catalog, run plan, evaluator, and callback surfaces | ✅ Done | Sprint 8.5 |

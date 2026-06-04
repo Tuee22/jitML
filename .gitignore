@@ -6,6 +6,12 @@
 /.hlint-output
 chart/charts/
 *.lock
+*.cc
+*.cpp
+*.cu
+*.cxx
+*.metal
+*.swift
 /node_modules/
 /package.json
 /playwright-report/

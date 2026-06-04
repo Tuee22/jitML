@@ -7,6 +7,12 @@ dist-newstyle/
 .hlint-output
 chart/charts/
 *.lock
+*.cc
+*.cpp
+*.cu
+*.cxx
+*.metal
+*.swift
 core
 *.core
 core.[0-9]*

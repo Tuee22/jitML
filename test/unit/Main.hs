@@ -1579,7 +1579,7 @@ main =
           pending @?= 0
       , testCase "canonical RL environments and framework surfaces are deterministic" $ do
           fmap RLEnvironments.environmentName RLEnvironments.canonicalEnvironments
-            @?= ["cartpole", "mountain-car", "lunar-lander", "atari-subset"]
+            @?= ["cartpole", "mountain-car", "lunar-lander", "key-door-grid", "atari-subset"]
           case RLEnvironments.canonicalEnvironments of
             [] -> assertFailure "missing canonical environments"
             environment : _ ->
@@ -1680,6 +1680,52 @@ main =
           (obs, _, _) <-
             Sim.stepEnvironmentIO Sim.lunarLanderEnvironment Sim.lunarLanderInitial 0
           length obs @?= 8
+      , testCase
+          "key-door-grid exposes deterministic maps, masks, renders, and goal termination (Sprint 8.9)"
+          $ do
+            Sim.keyDoorGridInitial 3 @?= Sim.keyDoorGridInitial 3
+            assertBool
+              "different seeds move key or wall layout"
+              (Sim.keyDoorGridInitial 3 /= Sim.keyDoorGridInitial 4)
+            let start = Sim.keyDoorGridInitial 0
+            Sim.keyDoorGridLegalActionMask start
+              @?= [False, True, False, True, False, False]
+            length (Sim.keyDoorGridObservation start) @?= 127
+            Sim.keyDoorGridRenderFrame start @?= Sim.keyDoorGridRenderFrame start
+            assertBool
+              "render frame is generated from Haskell state"
+              ("key-door-grid" `Text.isInfixOf` Sim.renderCaption (Sim.keyDoorGridRenderFrame start))
+            let east1 = Sim.keyDoorGridStep start (fromEnum Sim.KeyDoorGridEast)
+                east2 = Sim.keyDoorGridStep (Sim.simStepState east1) (fromEnum Sim.KeyDoorGridEast)
+                onKey = Sim.simStepState east2
+            Sim.keyDoorGridAgent onKey @?= Sim.keyDoorGridKey onKey
+            Sim.keyDoorGridLegalActionMask onKey
+              @?= [False, True, True, True, True, False]
+            let picked = Sim.keyDoorGridStep onKey (fromEnum Sim.KeyDoorGridPickUpKey)
+                carried = Sim.simStepState picked
+            Sim.keyDoorGridHasKey carried @?= True
+            assertBool "key pickup gives positive reward" (Sim.simStepReward picked > 0)
+            let routeToDoor =
+                  foldl
+                    (\state action -> Sim.simStepState (Sim.keyDoorGridStep state (fromEnum action)))
+                    carried
+                    [ Sim.KeyDoorGridEast
+                    , Sim.KeyDoorGridEast
+                    , Sim.KeyDoorGridSouth
+                    , Sim.KeyDoorGridSouth
+                    ]
+            Sim.keyDoorGridAgent routeToDoor @?= Sim.KeyDoorGridPosition 2 4
+            assertBool
+              "open-door action is legal next to the locked door after key pickup"
+              (Sim.keyDoorGridLegalActionMask routeToDoor !! fromEnum Sim.KeyDoorGridOpenDoor)
+            let opened = Sim.keyDoorGridStep routeToDoor (fromEnum Sim.KeyDoorGridOpenDoor)
+                openedState = Sim.simStepState opened
+            Sim.keyDoorGridDoorOpen openedState @?= True
+            let throughDoor = Sim.keyDoorGridStep openedState (fromEnum Sim.KeyDoorGridSouth)
+                goal = Sim.keyDoorGridStep (Sim.simStepState throughDoor) (fromEnum Sim.KeyDoorGridSouth)
+            Sim.keyDoorGridAgent (Sim.simStepState goal) @?= Sim.keyDoorGridGoal (Sim.simStepState goal)
+            Sim.simStepDone goal @?= True
+            assertBool "goal reward is positive" (Sim.simStepReward goal > 0)
       , testCase "atari-subset requires an explicit uncommitted ROM path (Sprint 8.8)" $ do
           result <- ALE.resolveAtariRomPath (Just "/jitml/nonexistent-atari-rom.bin")
           case result of

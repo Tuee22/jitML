@@ -72,6 +72,7 @@ import JitML.RL.Loop
   , runRLLoop
   )
 import JitML.RL.Policy (defaultPolicy)
+import JitML.RL.Simulator qualified as Sim
 import JitML.RL.SimulatorLoop qualified as SimulatorLoop
 import JitML.Substrate (Substrate (..))
 import JitML.Test.Report
@@ -151,6 +152,9 @@ main =
       , testCase
           "simulator loop is run-to-run deterministic across the canonical env catalog (Sprint 13.6 + 13.5)"
           $ mapM_ assertSimulatorLoopDeterminism SimulatorLoop.simulatedEnvCatalog
+      , testCase
+          "KeyDoorGrid-v0 canonical coverage is deterministic and maskable (Sprint 8.9 + 9.8)"
+          assertKeyDoorGridCanonicals
       , testCase
           "atari-subset uses explicit ROM policy and optional ALE smoke validation (Sprint 8.8)"
           assertAleAtariPolicy
@@ -316,7 +320,7 @@ algorithmRolloutCohorts =
   [ ("PPO", "cartpole")
   , ("A2C", "cartpole")
   , ("TRPO", "cartpole")
-  , ("MaskablePPO", "cartpole")
+  , ("MaskablePPO", "key-door-grid")
   , ("RecurrentPPO", "cartpole")
   , ("DQN", "cartpole")
   , ("QR-DQN", "cartpole")
@@ -379,6 +383,24 @@ assertSimulatorLoopDeterminism (envName, handle) = do
     )
     (length first == episodes)
   first @?= second
+
+assertKeyDoorGridCanonicals :: IO ()
+assertKeyDoorGridCanonicals = do
+  let state = Sim.keyDoorGridInitial 0
+      mask = Sim.keyDoorGridLegalActionMask state
+      masked = MaskablePpoLoss.applyActionMask mask (replicate 6 (1.0 / 6.0))
+  mask @?= [False, True, False, True, False, False]
+  masked @?= [0.0, 0.5, 0.0, 0.5, 0.0, 0.0]
+  Sim.keyDoorGridInitial 11 @?= Sim.keyDoorGridInitial 11
+  Sim.keyDoorGridRenderFrame state @?= Sim.keyDoorGridRenderFrame state
+  let handle =
+        case SimulatorLoop.lookupSimulatedEnvByName "key-door-grid" of
+          Just envHandle -> envHandle
+          Nothing -> error "missing key-door-grid simulator"
+      first = SimulatorLoop.runSimulatedEpisodesByName handle 17 3 32
+      second = SimulatorLoop.runSimulatedEpisodesByName handle 17 3 32
+  first @?= second
+  assertBool "key-door-grid simulator returns requested episodes" (length first == 3)
 
 assertAleAtariPolicy :: IO ()
 assertAleAtariPolicy = do
