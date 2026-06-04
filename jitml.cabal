@@ -158,6 +158,7 @@ library
         JitML.RL.Algorithms.TqcLoss
         JitML.RL.Algorithms.Trpo
         JitML.RL.Algorithms.TrpoLoss
+        JitML.RL.ALE
         JitML.RL.AlphaZero
         JitML.RL.AlphaZero.Arena
         JitML.RL.AlphaZero.EnginePrior

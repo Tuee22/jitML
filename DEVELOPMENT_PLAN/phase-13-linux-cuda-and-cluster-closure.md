@@ -630,8 +630,8 @@ empty post-teardown.
   `HandlerRouter.routeByKindAt` dedup-skip on the second consume.
 - Sprint 13.5 simulator-loop wiring: new
   `JitML.RL.SimulatorLoop` module with an existential
-  `SimulatedEnvByName` wrapper over the four canonical Phase 8
-  pure-Haskell simulators, plus `runSimulatedEpisode` /
+  `SimulatedEnvByName` wrapper over the four Phase 8 simulator-loop
+  entries that were current on 2026-05-27, plus `runSimulatedEpisode` /
   `runSimulatedEpisodes` driver. `JitML.App.runRl ["rl", "train"]`
   reads `JITML_ENVIRONMENT` / `JITML_SEED` / `JITML_MAX_STEPS` /
   `JITML_EVAL_EPISODES` from the daemon-rendered Job env, runs the
@@ -1584,10 +1584,12 @@ under the daemon's dispatch chain.
 
 ### Deliverables
 
-- Real simulator bindings for `cartpole`, `mountain-car`,
-  `lunar-lander`, and `atari-subset` in `JitML.RL.Simulator` —
-  pure-Haskell ports following the Gym reference equations rather
-  than Box2D/ALE FFI per the determinism contract.
+- Real simulator bindings for `cartpole`, `mountain-car`, `lunar-lander`, and
+  the then-current `atari-subset` stand-in in `JitML.RL.Simulator` —
+  pure-Haskell ports following the Gym reference equations rather than
+  Box2D/ALE FFI per the determinism contract. Phase `8` Sprint `8.8`
+  superseded the `atari-subset` stand-in with optional ALE support, and Sprint
+  `8.9` now owns the copyright-free `KeyDoorGrid-v0` default demo replacement.
 - `step :: Env -> Action -> IO (Obs, Reward, Done)` exposed through the
   typed boundary, including render-frame access for the demo.
 - The daemon-backed environment loop drives the simulator-loop
@@ -1608,8 +1610,9 @@ under the daemon's dispatch chain.
 ### Code Surface Landed (2026-05-27, simulator loop wiring)
 
 - `src/JitML/RL/SimulatorLoop.hs` adds an existential
-  `SimulatedEnvByName` wrapper around the four canonical simulators
-  (cartpole / mountain-car / lunar-lander / atari-subset) plus the
+  `SimulatedEnvByName` wrapper around the four simulator entries that were
+  current at landing time (cartpole / mountain-car / lunar-lander /
+  atari-subset) plus the
   deterministic `runSimulatedEpisode` / `runSimulatedEpisodes` driver
   using the same `(stepIx + episodeId + seed) `mod` actionCount`
   policy the existing `JitML.RL.Loop.runRLLoop` used. The real

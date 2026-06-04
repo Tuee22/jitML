@@ -125,6 +125,7 @@ import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as ProtoRl
 import JitML.Proto.Training qualified as ProtoTraining
 import JitML.Proto.Tune qualified as ProtoTune
+import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms qualified as RL
 import JitML.RL.Algorithms.ArsTrainer qualified as ArsTrainer
 import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
@@ -1474,7 +1475,7 @@ runRl ["rl", "train"] parsedOptions = do
   -- invocation outside the cluster). Defaults match the
   -- `experiments/cartpole.dhall` worked example.
   runConfigMaybe <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
-  (envName, seed, maxSteps, evalEpisodes, trainerKind) <- case runConfigMaybe of
+  (envName, seed, maxSteps, evalEpisodes, trainerKind, atariRomPath) <- case runConfigMaybe of
     Just rc ->
       pure
         ( RunConfig.rlcEnvironment rc
@@ -1482,6 +1483,7 @@ runRl ["rl", "train"] parsedOptions = do
         , max 1 (RunConfig.rlcMaxSteps rc)
         , max 1 (RunConfig.rlcEvalEpisodes rc)
         , Text.toLower (Text.strip (RunConfig.rlcTrainerKind rc))
+        , RunConfig.rlcAtariRomPath rc
         )
     Nothing -> liftIO $ do
       e <- envWithDefault "JITML_ENVIRONMENT" "cartpole"
@@ -1495,16 +1497,18 @@ runRl ["rl", "train"] parsedOptions = do
         , max 1 (readIntDefault 200 msR)
         , max 1 (readIntDefault 4 eeR)
         , Text.toLower (Text.strip tkR)
+        , Nothing
         )
   -- Sprint 13.5 — by default, run the deterministic per-episode
   -- simulator loop against the canonical cartpole / mountain-car /
-  -- lunar-lander / atari-subset envs. Sprint 13.8 — when
+  -- lunar-lander envs. Sprint 8.8 routes atari-subset through the
+  -- runtime-loaded ALE adapter and an explicit uncommitted ROM path. Sprint 13.8 — when
   -- @JITML_RL_TRAINER@ names a catalog algorithm the worker drives that
   -- algorithm's real MLP-backed trainer instead, producing real
   -- convergence statistics through the network seam; the per-iteration
   -- summary is projected into the @EpisodeDone@ envelope shape so the
   -- dispatch chain stays observable end-to-end.
-  episodes <- liftIO (runTrainerEpisodes trainerKind envName seed evalEpisodes maxSteps)
+  episodes <- liftIO (runTrainerEpisodes atariRomPath trainerKind envName seed evalEpisodes maxSteps)
   let averageReward =
         if null episodes
           then 0.0
@@ -1537,32 +1541,46 @@ runRl path _ =
 -- (Sprint 13.5) stay unchanged. Every trainer is bit-deterministic on
 -- the same substrate / same seed per
 -- [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
--- An unrecognised @trainerKind@ falls back to the deterministic
--- per-episode simulator loop against the named environment.
+-- The @atari-subset@ environment always routes through ALE first; an
+-- unrecognised @trainerKind@ for other environments falls back to the
+-- deterministic per-episode simulator loop.
 runTrainerEpisodes
-  :: Text -> Text -> Int -> Int -> Int -> IO [SimulatorLoop.SimulatedEpisode]
-runTrainerEpisodes trainerKind envName seed evalEpisodes maxStepsPerEpisode =
-  case trainerKind of
-    "ppo" -> onPolicyEpisodes PpoTrainer.VariantPPO
-    "a2c" -> onPolicyEpisodes PpoTrainer.VariantA2C
-    "trpo" -> onPolicyEpisodes PpoTrainer.VariantTRPO
-    "maskableppo" -> onPolicyEpisodes PpoTrainer.VariantMaskablePPO
-    "recurrentppo" -> onPolicyEpisodes PpoTrainer.VariantRecurrentPPO
-    "dqn" -> dqnEpisodes False
-    "qrdqn" -> qrDqnEpisodes
-    "ddpg" -> continuousEpisodes ContinuousTrainer.VariantDDPG
-    "td3" -> continuousEpisodes ContinuousTrainer.VariantTD3
-    "sac" -> continuousEpisodes ContinuousTrainer.VariantSAC
-    "crossq" -> continuousEpisodes ContinuousTrainer.VariantCrossQ
-    "tqc" -> continuousEpisodes ContinuousTrainer.VariantTQC
-    "ars" -> arsEpisodes
-    "her" -> herEpisodes
-    _ ->
-      pure $ case SimulatorLoop.lookupSimulatedEnvByName envName of
-        Just envHandle ->
-          SimulatorLoop.runSimulatedEpisodesByName envHandle seed evalEpisodes maxStepsPerEpisode
-        Nothing -> []
+  :: Maybe Text -> Text -> Text -> Int -> Int -> Int -> IO [SimulatorLoop.SimulatedEpisode]
+runTrainerEpisodes atariRomPath trainerKind envName seed evalEpisodes maxStepsPerEpisode
+  | Text.toLower envName == "atari-subset" = do
+      result <- ALE.runAtariSubsetEpisodes atariRomPath seed evalEpisodes maxStepsPerEpisode
+      case result of
+        Left err -> fail (Text.unpack err)
+        Right episodes -> pure (fmap fromAleEpisode episodes)
+  | otherwise =
+      case trainerKind of
+        "ppo" -> onPolicyEpisodes PpoTrainer.VariantPPO
+        "a2c" -> onPolicyEpisodes PpoTrainer.VariantA2C
+        "trpo" -> onPolicyEpisodes PpoTrainer.VariantTRPO
+        "maskableppo" -> onPolicyEpisodes PpoTrainer.VariantMaskablePPO
+        "recurrentppo" -> onPolicyEpisodes PpoTrainer.VariantRecurrentPPO
+        "dqn" -> dqnEpisodes False
+        "qrdqn" -> qrDqnEpisodes
+        "ddpg" -> continuousEpisodes ContinuousTrainer.VariantDDPG
+        "td3" -> continuousEpisodes ContinuousTrainer.VariantTD3
+        "sac" -> continuousEpisodes ContinuousTrainer.VariantSAC
+        "crossq" -> continuousEpisodes ContinuousTrainer.VariantCrossQ
+        "tqc" -> continuousEpisodes ContinuousTrainer.VariantTQC
+        "ars" -> arsEpisodes
+        "her" -> herEpisodes
+        _ ->
+          pure $ case SimulatorLoop.lookupSimulatedEnvByName envName of
+            Just envHandle ->
+              SimulatorLoop.runSimulatedEpisodesByName envHandle seed evalEpisodes maxStepsPerEpisode
+            Nothing -> []
  where
+  fromAleEpisode episode =
+    SimulatorLoop.SimulatedEpisode
+      { SimulatorLoop.simEpisodeIndex = ALE.aleEpisodeIndex episode
+      , SimulatorLoop.simEpisodeSteps = ALE.aleEpisodeSteps episode
+      , SimulatorLoop.simEpisodeReward = ALE.aleEpisodeReward episode
+      , SimulatorLoop.simEpisodeDone = ALE.aleEpisodeDone episode
+      }
   asEpisode index reward =
     SimulatorLoop.SimulatedEpisode
       { SimulatorLoop.simEpisodeIndex = index
@@ -2051,7 +2069,7 @@ measureSlFinalLoss = do
 
 measureRlFinalReward :: App ReportMeasurement
 measureRlFinalReward = do
-  episodes <- liftIO (runTrainerEpisodes "ppo" "cartpole" 42 4 200)
+  episodes <- liftIO (runTrainerEpisodes Nothing "ppo" "cartpole" 42 4 200)
   let reward =
         if null episodes
           then Nothing

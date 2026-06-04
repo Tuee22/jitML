@@ -68,6 +68,7 @@ data RlRunConfig = RlRunConfig
   , rlcMaxSteps :: Int
   , rlcEvalEpisodes :: Int
   , rlcTrainerKind :: Text
+  , rlcAtariRomPath :: Maybe Text
   , rlcPulsarWsUrl :: Text
   }
   deriving stock (Eq, Show)
@@ -115,6 +116,7 @@ rlRunConfigDecoder =
       <*> fmap naturalToInt (Dhall.field "maxSteps" Dhall.natural)
       <*> fmap naturalToInt (Dhall.field "evalEpisodes" Dhall.natural)
       <*> Dhall.field "trainerKind" Dhall.strictText
+      <*> Dhall.field "atariRomPath" (Dhall.maybe Dhall.strictText)
       <*> Dhall.field "pulsarWsUrl" Dhall.strictText
 
 loadTrainingRunConfig :: FilePath -> IO TrainingRunConfig
@@ -153,6 +155,10 @@ tryLoadFile decoder path = do
 renderOptionalNatural :: Maybe Int -> Text
 renderOptionalNatural Nothing = "None Natural"
 renderOptionalNatural (Just n) = "Some " <> Text.pack (show (max 0 n))
+
+renderOptionalText :: Maybe Text -> Text
+renderOptionalText Nothing = "None Text"
+renderOptionalText (Just t) = "Some " <> quote t
 
 quote :: Text -> Text
 quote t = "\"" <> t <> "\""
@@ -198,6 +204,7 @@ renderRlRunConfigDhall c =
     , ", maxSteps = " <> Text.pack (show (rlcMaxSteps c))
     , ", evalEpisodes = " <> Text.pack (show (rlcEvalEpisodes c))
     , ", trainerKind = " <> quote (rlcTrainerKind c)
+    , ", atariRomPath = " <> renderOptionalText (rlcAtariRomPath c)
     , ", pulsarWsUrl = " <> quote (rlcPulsarWsUrl c)
     , "}"
     ]

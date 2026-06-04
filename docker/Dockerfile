@@ -6,6 +6,8 @@ ARG CABAL_VERSION=3.16.1.0
 ARG NODE_VERSION=22.16.0
 ARG CUDA_TOOLKIT_PACKAGE=cuda-toolkit-12-8
 ARG CUDNN_PACKAGE=libcudnn9-dev-cuda-12
+ARG ALE_VERSION=v0.12.0
+ARG ALE_COMMIT=94c24368664b8539c53857522e50652ddcc44b20
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -25,6 +27,7 @@ ENV JITML_STYLE_TOOLS_ROOT=/opt/jitml-style-tools
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        cmake \
         curl \
         docker.io \
         g++ \
@@ -47,6 +50,26 @@ RUN apt-get update \
         wget \
         zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Build Arcade Learning Environment from a pinned upstream source commit. Ubuntu
+# 24.04 does not provide `libale-dev`, and commercial ROM bytes are never baked
+# into the image; callers provide an explicit uncommitted ROM path at runtime.
+RUN git clone --depth 1 --branch "${ALE_VERSION}" \
+        https://github.com/Farama-Foundation/Arcade-Learning-Environment.git \
+        /tmp/arcade-learning-environment \
+    && cd /tmp/arcade-learning-environment \
+    && test "$(git rev-parse HEAD)" = "${ALE_COMMIT}" \
+    && cmake -S . -B build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_CPP_LIB=ON \
+        -DBUILD_PYTHON_LIB=OFF \
+        -DBUILD_VECTOR_LIB=OFF \
+        -DBUILD_VECTOR_XLA_LIB=OFF \
+        -DBUILD_WASM_LIB=OFF \
+        -DSDL_SUPPORT=OFF \
+    && cmake --build build --target install --parallel 2 \
+    && ldconfig \
+    && rm -rf /tmp/arcade-learning-environment
 
 # Install the CUDA 12.8 toolkit + matching cuDNN 9 dev headers so the
 # Haskell-rendered `kernel.cu` from `JitML.Codegen.Cuda` can compile and link

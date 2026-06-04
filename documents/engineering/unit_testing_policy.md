@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../README.md, determinism_contract.md, training_workloads.md, jit_codegen_architecture.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-13-linux-cuda-and-cluster-closure.md, ../../DEVELOPMENT_PLAN/phase-15-cross-substrate-and-handoff.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../README.md, determinism_contract.md, training_workloads.md, jit_codegen_architecture.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-13-linux-cuda-and-cluster-closure.md, ../../DEVELOPMENT_PLAN/phase-15-cross-substrate-and-handoff.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific testing policy for jitML. Defers to the
@@ -74,7 +74,9 @@ invoking `cabal test` with the explicit eight test-only stanza names through
 the typed `Subprocess` boundary, then renders a target-stanza report card after
 Cabal succeeds. `jitml test <stanza>` renders the same report shape for the
 selected stanza only. Style and code-quality commands are deliberately
-separate; use `jitml lint *` and `jitml check-code` inside `jitml:local`.
+separate; use `docker compose run --rm jitml jitml lint *` and
+`docker compose run --rm jitml jitml check-code` inside the headless
+`jitml:local` service.
 `jitml test <stanza>` invokes one Cabal stanza through the same boundary.
 
 ## Project-Specific Stanza Notes
@@ -105,13 +107,20 @@ fixed-seed pool clears a literature-derived threshold computed at test
 time. No per-substrate trajectory, reward-distribution, or AlphaZero
 transcript files are committed.
 
-The future ALE-backed `atari-subset` coverage follows the same rule. Mandatory
-tests may use only a verified redistributable test ROM or an explicit ignored
-user-provided ROM path/object; commercial ROM bytes are never committed. The
-real ALE test gate must compare two same-seed runs against each other, verify
-legal actions plus RAM/screen dimensions, and exercise a short episode through
-the daemon-backed `VecEnv` path before the deterministic RAM-state stub can move
-to test-only scope or be deleted.
+`KeyDoorGrid-v0` is the required visual discrete-control canonical demo target
+for the reopened Phase `8` / Phase `9` replacement work. Its tests assert
+same-seed map generation, legal-action masks, key pickup, locked-door
+transition behavior, goal termination, render-frame determinism, and run-to-run
+trajectory equality without committed trajectory fixtures.
+
+The ALE-backed `atari-subset` path is optional runtime support only, not a
+required canonical demo dependency. Mandatory tests may assert the no-ROM
+fail-closed diagnostic without possessing ROM bytes. Any real ALE smoke run is
+manual/opportunistic and requires an explicit ignored user-provided ROM
+path/object plus a generated or externally supplied runtime shim; commercial
+ROM bytes and C/C++ adapter sources are never committed or baked into images.
+JIT compiler inputs and project-owned native adapter sources remain generated
+only by Haskell renderers.
 
 ### `jitml-hyperparameter` — sampler / scheduler / pruner reproducibility
 

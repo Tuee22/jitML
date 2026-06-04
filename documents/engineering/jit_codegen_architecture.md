@@ -23,6 +23,7 @@
 ├── runtime/cluster-publication.json          -- routed cluster coordinates
 ├── kind/<substrate>/                         -- Kind metadata/config for later compose-run commands
 ├── host/apple-silicon/                      -- Apple-only stable-named dlopen() targets
+├── jit-src/<substrate>/<hash>/               -- generated compiler inputs emitted by Haskell renderers
 └── jit/
     ├── manifest.json                        -- index keyed on (model-id, kind, substrate, toolchain)
     └── <substrate>/<hash>.<ext>             -- one file per cached kernel
@@ -38,6 +39,15 @@ Generated compiler inputs live alongside the cache under:
 materialization discipline. `src/JitML/Codegen/{Cuda,OneDnn,Metal}.hs` render the
 per-substrate source bundles. The repository does not keep checked-in
 substrate-source directories for generated compiler inputs.
+
+The generated-source rule applies to every source file that participates in a
+JIT cache miss. Checked-in CUDA `.cu`, C/C++ `.cc` / `.cpp`, Metal / Swift
+package sources, native adapter shims, and per-substrate build scripts are
+forbidden as JIT compiler inputs; Haskell renderers must emit them under
+`./.build/jit-src/` instead. The repository has no checked-in native-source
+exception for runtime adapters. If a runtime path needs adapter code, the
+Haskell engine generates and materializes it into the build/cache tree, or the
+operator supplies it outside the repository.
 
 `./.build/` is the host root for compiled artefacts, generated Dhall,
 kubeconfig, cluster publication, Kind metadata, and JIT-compiled kernels.
@@ -265,8 +275,10 @@ reproducibility witness surface; see
   `/usr/local/cuda/lib64` on `LD_LIBRARY_PATH`, and runs
   `cabal build -fcuda exe:jitml exe:jitml-demo` so the installed
   `/usr/local/bin/jitml` binary links against libcublas / libcudnn.
-  `compose.yaml` exposes every host NVIDIA GPU to the `jitml` service via
-  the modern `gpus: all` shorthand for live in-container validation.
+  `compose.yaml` keeps the default `jitml` service headless for bootstrap and
+  code-quality runs, and exposes every host NVIDIA GPU only through the
+  `jitml-cuda` companion service via the modern `gpus: all` shorthand for live
+  in-container CUDA validation.
 - **MLP forward/backward network kernels (Sprint 13.8 / 13.9).**
   `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
   `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`

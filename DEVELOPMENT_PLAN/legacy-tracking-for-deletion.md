@@ -21,6 +21,7 @@
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
 [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
+[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -37,13 +38,11 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-Two cleanup rows are currently active. The scoped `allow-newer` block in
-`cabal.project` keeps Dhall's transitive CBOR stack building under pinned
-GHC `9.14.1` while upstream package bounds catch up; this reopened Phase `1`
-Sprint `1.10` on 2026-06-04. The remaining stand-in row records the
-deterministic atari-subset RAM-state stub awaiting a real ALE binding plus
-explicit ROM handling; this reopened Phase `8` Sprint `8.8` on 2026-06-04.
-Both rows gate Phase `15` Sprint `15.3`. Three rows added 2026-05-29 record
+One cleanup row is currently active. The dependency source-pin/vendor row
+records the post-`allow-newer` GHC `9.14.1` compatibility helper:
+exact upstream `dhall-haskell` / `cborg` source pins plus the vendored
+`lens-family` compatibility patch under `third_party/haskell/`. This row gates
+Phase `15` Sprint `15.3`. Three rows added 2026-05-29 record
 doctrine deviations scheduled by the reopened Phases `2` / `4` / `5` after the
 cluster OOM-storm incident: the `JITML_*` run-parameter env IPC and the duplicate
 `JITML_SUBSTRATE` / `JITML_PULSAR_WS` reads (both retired by the typed Dhall
@@ -54,7 +53,7 @@ the `jitml internal vm` command group, the `container.tart` prerequisite node,
 `LiveConfig.tartIdleTimeout`, and the offline `.metallib` codegen path — **closed
 the same day** (Sprints `7.8` / `2.10` / `5.8`) and now live in the `Completed`
 table.
-Sixteen cleanup rows have
+Nineteen cleanup rows have
 closed and live in the `Completed` table:
 Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
 style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
@@ -64,10 +63,14 @@ Sprint `3.5` removed the
 image-load phase directly in the live typed rollout; Sprint `4.3` folded the
 standalone MinIO values fragment into `chart/values.yaml`; Sprint `7.7`
 removed the static checked-in JIT source/build scaffold (JIT compiler inputs
-are generated on demand by the Haskell binary) and removed the default
-runtime-source placeholder fixture; Sprint `8.7` replaced the flat `RunPhase`
+are generated on demand by the Haskell binary; documented non-JIT runtime
+adapters are not JIT compiler inputs) and removed the default runtime-source
+placeholder fixture; Sprint `8.7` replaced the flat `RunPhase`
 enum with the phase-indexed `RLRunLifecycle` GADT so all three jitML
-lifecycles share doctrine-aligned shape; the 2026-06-03 Phase `15` pass
+lifecycles share doctrine-aligned shape; Sprint `8.8` retired the
+deterministic atari-subset RAM-state stub with an explicit ROM-policy boundary,
+and the later 2026-06-04 static-foreign-source correction removed the checked-in
+ALE C++ shim and its Dockerfile/lint exception; the 2026-06-03 Phase `15` pass
 removed the synthetic MCTS `priorFor`, replaced the target-stanza-only report
 card with `jitml test all --live` measured fields, deleted the committed
 numerical fixture tree under `test/golden/`, closed the Metal
@@ -100,8 +103,7 @@ opening event itself enqueues a row here naming the originating sprint.
 
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
-| Scoped `allow-newer` for Dhall / CBOR transitive package bounds | `cabal.project` | Upstream `dhall`, `cborg`, `cborg-json`, and `serialise` releases have not yet relaxed bounds for GHC `9.14.1`'s `base`, `template-haskell`, `containers`, `bytestring`, and `time`; remove once Hackage releases support the pinned toolchain without overrides | Reopened Phase 1 Sprint `1.10`; Phase 15 Sprint `15.3` final handoff gate |
-| Deterministic atari-subset RAM-state stub | `src/JitML/RL/Simulator.hs` (`atariSubsetEnvironment`, `atariSubsetStep`, `AtariSubsetState`) | Sprint `8.3` (closed 2026-05-25) ships a deterministic 128-byte RAM-state stub matching the canonical Atari action/obs surface while a real Arcade Learning Environment binding lands. The replacement path is a pinned source-built ALE library in `jitml:local`, a small C ABI shim consumed by `JitML.RL.ALE`, and explicit uncommitted ROM handling; do not depend on Ubuntu `libale-dev`. The deterministic stub preserves the action/obs contract so upstream RL primitives (`AlgorithmModule`, `VecEnv`, `RLLoop`) consume the real binding identically when it lands. | Reopened Phase 8 Sprint `8.8`; Phase 15 Sprint `15.3` final handoff gate |
+| Dependency source-pin/vendor helper for GHC `9.14.1` bounds | `cabal.project`, `third_party/haskell/lens-family-2.1.3`, `third_party/haskell/lens-family-core-2.1.3` | Sprint `1.10` removed the scoped `allow-newer` block by pinning upstream `dhall-haskell` commit `adca92b4f06a76dc00b28787a7c042b1d2685c07`, upstream `cborg` commit `6ef2791ca41b397a3e36c868ad3e66a0d09f19b2`, and vendoring the two small BSD-licensed `lens-family` packages with `containers` relaxed from `<0.8` to `<0.9` plus minimal GHC `9.14.1` warning-clean source hygiene in `lens-family-core`. Remove this helper once Hackage releases or metadata revisions solve and build warning-clean under GHC `9.14.1` without source pins or local package patches. | Phase 15 Sprint `15.3` final handoff gate |
 
 
 ## Pending Removal Notes
@@ -112,29 +114,30 @@ upstream release still name the originating sprint, but resolve at the final
 handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
-Current `allow-newer` validation: on 2026-06-04, a temporary project file
-under `.build/phase1/` with the scoped `allow-newer` block removed still fails
-dependency solving under pinned GHC `9.14.1` after `cabal update` refreshed
-Hackage to index-state `2026-06-04T13:02:57Z`: `serialise-0.2.6.1` excludes
-the installed `base-4.22` (`base >=4.11 && <4.22`). The row remains pending
-until upstream releases solve under the pinned toolchain without overrides.
-Recommended unblock: keep the scoped override in place, file or track upstream
-bound-relaxation issues / PRs / Hackage metadata revisions for `serialise`,
-`cborg`, `cborg-json`, and the Dhall stack with GHC `9.14.1` / `base-4.22`
-evidence, and re-run the no-override solver check before each final-handoff
-retry. Do not downgrade the project compiler to clear this row.
+Current dependency source-pin validation: on 2026-06-04, `cabal.project`
+contains no `allow-newer` stanza. `cabal build all --dry-run` solves under
+GHC `9.14.1`, and `cabal build lib:jitml --jobs=2` completes with the pinned
+upstream `dhall-haskell` / `cborg` source snapshots and the vendored
+`lens-family` compatibility patch. `docker compose build jitml` completed with
+the image-local `jitml check-code` gate, and a fresh
+`docker compose run --rm jitml jitml check-code` rebuilt/exported
+`jitml:local`, built the PureScript bundle, and completed the final headless
+command with `check-code: ok` after the headless/GPU compose split and vendored
+warning-clean source hygiene. The old `allow-newer` row is Completed.
 
-Current ALE package validation: on 2026-06-04, `apt-get update` plus
-`apt-cache policy` inside the `jitml:local` Ubuntu 24.04 image found
-candidates for `libsdl2-dev` and `zlib1g-dev`, but no `libale-dev`
-candidate; `apt-cache search` for `arcade learning environment` and
-`libale` returned no matching Ubuntu package. The real ALE binding row should
-therefore not wait on Ubuntu packaging. Recommended unblock: build ALE from a
-pinned upstream tag or source SHA in `jitml:local`, enable the C++ library,
-expose only a small C ABI to Haskell (`create`, `destroy`, `load_rom`, `reset`,
-`act`, `game_over`, `get_ram`, `get_screen`, `legal_actions`, `seed`), and make
-ROM inputs explicit and uncommitted. The row remains pending until that binding
-and the ROM acquisition/test path are verified.
+Phase `15` rechecked the remaining helper on 2026-06-04 against Hackage
+index-state `2026-06-04T16:46:08Z`. A temporary project with only
+`packages: .` and no source pins/vendor packages still failed because Hackage
+`serialise-0.2.6.1` requires `base >=4.11 && <4.22` while GHC `9.14.1`
+provides `base-4.22.0.0`. A temporary project that kept the cborg/dhall source
+pins but removed the vendored `lens-family` packages still failed because
+Hackage `lens-family-2.1.3` requires `containers >=0.5.8 && <0.8` while GHC
+`9.14.1` brings `containers-0.8`. A temporary project that kept the cborg source
+pin and vendored `lens-family` packages but removed the `dhall` source pin
+still failed because Hackage `dhall-1.42.3` requires
+`template-haskell >=2.13.0.0 && <2.24` while GHC `9.14.1` brings
+`template-haskell-2.24.0.0`. This row remains pending until the source pins and
+local package patch are no longer needed.
 
 This ledger never holds primary unmet Exit-Definition obligations. Live
 Kind/Helm rollout, real Pulsar/MinIO/Harbor clients, real per-substrate
@@ -155,9 +158,12 @@ explicitly schedules their deletion.
 |------|------------|-------|
 | Tart VM build/lifecycle/exec modules, `jitml internal vm` command group, `container.tart` prerequisite, `LiveConfig.tartIdleTimeout`, and the offline `.metallib` codegen path | Sprints `7.8` + `2.10` + `5.8` (2026-05-30) | The headless Apple Metal JIT (host CommandLineTools `swift build` + runtime `MTLDevice.makeLibrary(source:)`, validated headless on Apple M1) superseded the Tart-VM build. Deleted `src/JitML/Tart/{Build,Lifecycle,Exec}.hs`; removed the `jitml internal vm bootstrap\|up\|down\|status\|exec` command group from `CommandSpec` + `App.hs` handlers (commands.md/man/completions regenerated); removed the `container.tart` prerequisite node + its `jit-cache-miss` dependency; removed `LiveConfig.tartIdleTimeout` from the Dhall schema + Haskell record + `daemon.surface` table; dropped the `.process("Kernels.metal")` resource, the `<hash>.metallib` publication, and the `JITML_METALLIB_PATH` env hand-off. `cabal build all` clean; 183 `jitml-unit` + 30 `jitml-daemon-lifecycle` + the Apple `jitml-cross-backend` cases pass. |
 | Lint-time host `ghcup` style-tool bootstrap | Sprint 1.4 | Removed runtime `ensureStyleTools` / `installStyleToolsSubprocess` bootstrap from `src/JitML/Lint/Stack.hs`; `docker/Dockerfile` now installs the style-tools GHC plus pinned `fourmolu` / `hlint`, stamps the `jitml:local` code-quality domain, and runs `jitml check-code` during image construction. |
+| Scoped `allow-newer` for Dhall / CBOR / lens-family transitive package bounds | Sprint `1.10` (2026-06-04) | Removed the `allow-newer` stanza from `cabal.project` without changing GHC `9.14.1` / Cabal `3.16.1.0`. Replacement: source-pin `cborg`, `cborg-json`, and `serialise` to upstream `well-typed/cborg` commit `6ef2791ca41b397a3e36c868ad3e66a0d09f19b2`; source-pin `dhall` to upstream `dhall-lang/dhall-haskell` commit `adca92b4f06a76dc00b28787a7c042b1d2685c07`; vendor BSD-licensed `lens-family-2.1.3` and `lens-family-core-2.1.3` with `containers` relaxed from `<0.8` to `<0.9` plus minimal GHC `9.14.1` warning-clean source hygiene in `lens-family-core`. Validation: `cabal build all --dry-run` solves with no `allow-newer`; `cabal build lib:jitml --jobs=2` passes. The remaining source-pin/vendor helper is tracked in Pending Removal. |
 | `jitml-mirror` Helm release placeholder | Sprint 3.5 | Removed the stand-in `HelmRelease "jitml-mirror" "jitml-images"` row from `JitML.Cluster.Helm.phasedReleases`; `JitML.Bootstrap.livePhasedRolloutSubprocesses` now inserts the Docker build / explicit Kind image-load subprocesses directly before final services. |
-| Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/` |
+| Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/`. The static-source lint rejects future native compiler inputs and adapter shims; there is no checked-in foreign-source allowlist. |
 | Default runtime-source placeholder | Sprint 7.7 | Removed `defaultRuntimeSourcePayload` and the `runtime-source:phase-2-placeholder` marker from `src/JitML/Cache/Key.hs`; cache-key snapshot now derives its `RuntimeSourcePayload` from `renderRuntimeSource`, and `test/snapshots/cache/kernel-key.txt` was refreshed to the rendered-source-backed hash. |
+| Deterministic atari-subset RAM-state stub | Reopened Phase 8 Sprint `8.8` (2026-06-04) | Removed the deterministic 128-byte RAM-state production stand-in from `src/JitML/RL/Simulator.hs` and routed `atari-subset` through `JitML.RL.ALE` with typed `RunConfig.atariRomPath`, explicit `JITML_ATARI_ROM` / `JITML_ALE_ROM` fallbacks, ignored `./.roms/` local ROM storage, and a fail-closed no-ROM diagnostic. The checked-in C++ adapter used during the first ALE validation was later removed by the static-foreign-source correction below. ROM-backed ALE smoke is optional/manual and was not part of required validation. |
+| Checked-in ALE C++ shim and lint exception | Static-foreign-source correction (2026-06-04) | Deleted `csrc/jitml_ale_shim.cpp`, removed the Dockerfile compile step that produced `/usr/local/lib/libjitml_ale_shim.so` from checked-in source, removed the one-file `src/JitML/Lint/Stack.hs` allowlist, and updated `src/JitML/RL/ALE.hs` to describe a generated or externally supplied runtime shim. The repository now has no checked-in C/C++ ALE adapter source; any future project-owned adapter must be generated by Haskell into the build/cache tree. Validation: `docker compose run --rm jitml jitml check-code` passes after this correction. |
 | Standalone MinIO values fragment | Sprint 4.3 | Folded MinIO subchart values into `chart/values.yaml`, removed `chart/minio-values.yaml`, and made bootstrap delete legacy standalone values files during materialization. |
 | RL run sequencing as a `RunPhase` enum instead of an `RLRunLifecycle` GADT | Sprint 8.7 | Replaced the flat `RunPhase` enum with the `RLRunPhase` data kind plus the phase-indexed singleton GADT `RLRunLifecycle` in `src/JitML/RL/Framework.hs`; updated `rlRunPlan`, `renderRLRunPhase`, and the `jitml-unit` consumer; `cabal test jitml-unit` keeps 57/57 passing. |
 | Non-production Metal kernel-family scaffolds | Phase 14 Sprint `14.5` / Phase 15 validation sweep (2026-06-03) | Apple-side per-family weighted Metal bodies now run through the headless host path: CommandLineTools `swift build`, runtime `MTLDevice.makeLibrary(source:)`, no Tart VM and no full Xcode. The Apple export `jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json` produced the Sprint `15.1` weighted bundle with 8 tensor families (`identity`, `dense`, `conv2d`, `conv3d`, `batchnorm`, `layernorm`, `mha`, `embedding`), and the 2026-06-03 Linux/Apple report-bundle comparison passed every weighted family against the in-code tolerance table. |

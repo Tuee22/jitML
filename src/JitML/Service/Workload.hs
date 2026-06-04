@@ -420,6 +420,7 @@ rlRunConfigFor start =
     , rlcMaxSteps = fromIntegral (srlMaxSteps start)
     , rlcEvalEpisodes = fromIntegral (srlEvalEpisodes start)
     , rlcTrainerKind = rlTrainerForAlgorithm (srlAlgorithm start)
+    , rlcAtariRomPath = Nothing
     , rlcPulsarWsUrl = inClusterPulsarWsUrl
     }
 

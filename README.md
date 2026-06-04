@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/numerical_core.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
+**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, DEVELOPMENT_PLAN/legacy-tracking-for-development.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/numerical_core.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
 **Generated sections**: command-tree, command-registry
 
 > **Purpose**: Operator-facing project intent and authoritative high-level architecture for jitML.
@@ -77,13 +77,22 @@ Per doctrine §Overview → Toolchain pinning, these versions are normative, not
 | Node.js, Poetry | pinned | Haskell prerequisite DAG |
 | Formatter GHC | `9.12.4`, separate from project GHC | `docker/Dockerfile` style-tool build stage for `jitml:local`; container-exclusive code-quality stack only, never the project compiler |
 
-`cabal.project` currently carries a scoped `allow-newer` compatibility block for
-Dhall's transitive CBOR stack under GHC `9.14.1` / `base-4.22`. That block is
-temporary and tracked in
-[`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md);
-it is not a reason to change the compiler pin or install host tooling. The
-unblock path is upstream package-bound relaxation or Hackage metadata revision,
-then a no-override solver check and the container-only `jitml check-code` gate.
+`cabal.project` carries no `allow-newer` override. GHC `9.14.1` / `base-4.22`
+compatibility is handled by exact source pins for upstream `dhall` and
+`cborg` snapshots whose bounds already admit the pinned compiler, plus the
+small BSD-licensed `third_party/haskell/lens-family-*` source packages with
+their `containers` upper bound relaxed from `<0.8` to `<0.9` plus minimal GHC
+`9.14.1` warning-clean source hygiene in `lens-family-core`. That
+replacement removed the former scoped `allow-newer` block; the remaining
+source-pin/vendor cleanup is tracked in
+[`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)
+until Hackage releases or metadata revisions make the local dependency pin
+unnecessary.
+As of the 2026-06-04 Hackage index-state `2026-06-04T16:46:08Z`, the helper
+is still required: unpinned Hackage `serialise` / `cborg-json` reject
+`base-4.22`, unpinned Hackage `dhall` rejects GHC `9.14.1`'s
+`template-haskell-2.24`, and unvendored Hackage `lens-family` rejects
+`containers-0.8`.
 
 The full per-target codegen detail (build flags, RTS options, fast-math discipline) lives under [Compiler, runtime, and backend tuning](#compiler-runtime-and-backend-tuning).
 
@@ -149,7 +158,7 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 - `apple-silicon.sh` checks that the host is macOS on Apple Silicon, Xcode Command Line Tools are available, and Homebrew is installed. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local` / `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; the host-native daemon is then started with `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install style tools or code-quality tooling during bootstrap. Only the Xcode Command Line Tools are ever installed on the host — full Xcode is deliberately never installed, because its first-launch license/EULA UI prompt cannot be satisfied in the required headless workflow. Apple Silicon Metal kernels build **on the host** with the CommandLineTools `swift build` and JIT-compile at runtime via `MTLDevice.makeLibrary(source:)` — no Tart VM (see [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) and [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)).
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically and the root `compose.yaml` runs that service with host networking so the outer-container Kind kubeconfig loopback endpoint is reachable. The in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
-- `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast before any CUDA Kind cluster is created. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU label on the single Kind node, node-local containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap.
+- `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast before any CUDA Kind cluster is created. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same headless, host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU label on the single Kind node, node-local containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap. Direct live CUDA tests that need the outer container itself to see NVIDIA devices use the companion `jitml-cuda` compose service.
 
 Cleanup semantics matter:
 
@@ -180,6 +189,14 @@ Forbidden: anything that touches `~/.kube/config`, `~/.docker/config.json`, or g
     ├── manifest.json                        -- cache index keyed on (model-id, kind, substrate, toolchain)
     └── <substrate>/<hash>.<ext>             -- one file per cached kernel (content-addressed; the canonical location of every kernel artifact)
 ```
+
+**JIT source boundary.** Every native/foreign source file used by the JIT path is
+generated by Haskell renderers under `src/JitML/Codegen/` and materialized under
+`./.build/jit-src/<substrate>/<hash>/` on cache miss. The repository does not
+accept checked-in CUDA `.cu`, C/C++ `.cc` / `.cpp`, Metal / Swift package
+sources, native adapter shims, or JIT build scripts. If jitML needs a native
+compiler input or adapter for a runtime path, the Haskell engine renders it into
+the build/cache tree; otherwise `jitml lint files` rejects it as static source.
 
 **Role split.** `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache — every cached kernel lives there, on every substrate. `host/apple-silicon/` is *only* on Apple, and holds **stable-named symlinks** into `jit/apple-silicon/`: the Haskell FFI `dlopen()`s `host/apple-silicon/<model-id>.dylib`, which resolves through the symlink to `jit/apple-silicon/<hash>.dylib`. The indirection lets the FFI path stay stable across re-JITs (a new hash repoints the symlink; the FFI key never changes). Linux substrates don't need this — the pod loads directly out of `jit/<substrate>/` because there is no host↔VM artifact-copy step. The current local Linux CPU validation path uses `JitML.Engines.Loader` to materialize generated source, fill cache misses with `g++ ... -ldnnl`, and expose the `dlopen` symbol helper; `JitML.Engines.Local` runs generated oneDNN reorder, reduction, matmul, convolution, normalization, attention, and embedding primitives through that boundary and verifies the exported `jitml_kernel_family_name` and `jitml_kernel_output_count` ABI symbols. Generated CUDA now exports a host-callable `jitml_kernel` wrapper plus the same family/output-count metadata ABI; `JitML.Engines.CudaLocal` consumes a positive CUDA runtime probe before compile/load/launch and fails closed before compile when `nvcc`/GPU runtime is unavailable. Swift/Metal source exports the same family/output-count metadata contract for its future host FFI loader. The local Linux CPU toolchain fingerprint includes `artifact-abi=<os>-<arch>`, so a Darwin host and the Linux `jitml:local` container do not reuse the same `.build/jit/linux-cpu/<hash>.so` path for loader-incompatible artifacts.
 
@@ -642,7 +659,7 @@ The dashboards are gated by lint just like the route registry: `jitml docs check
 
 # Outer-container Linux builds
 
-On Linux substrates, *all* builds happen inside `docker compose run --rm jitml jitml ...` against the single substrate image `jitml:local`. The repo has **one Dockerfile** under `docker/`, **one host-networked compose service named `jitml`**, and **one image tag `jitml:local`** — no substrate-suffixed variants. The image carries ghcup, Poetry, Node.js 22+, Kind/kubectl/Helm/Docker toolbelt, LLVM, NVCC + cuBLAS + cuDNN (the CUDA bits are baked unconditionally; they activate at runtime only when the pod is scheduled with `runtimeClassName: nvidia`), Playwright, and the pinned Haskell style tools. The root `compose.yaml` mounts the repository at the same absolute path inside the container that it has on the host, so Kind node `extraMounts` resolve host `./.build/` and `./.data/` correctly. Linux CUDA's single Kind node additionally mounts the host NVIDIA driver root read-only at `/run/nvidia/driver` and uses the repo-owned NVIDIA runtime config to run the node-local toolkit binary against those host driver files. Substrate selection (linux-cpu vs linux-cuda) happens at runtime via the Dhall config passed to `jitml service`, not via the image or the compose service.
+On Linux substrates, *all* builds happen inside `docker compose run --rm jitml jitml ...` against the single substrate image `jitml:local`. The repo has **one Dockerfile** under `docker/`, **one image tag `jitml:local`**, and two host-networked compose service wrappers over that image: `jitml` for headless code-quality, bootstrap, and non-GPU command runs, plus `jitml-cuda` for live in-container CUDA validation that requires the outer container to receive `gpus: all`. There are no substrate-suffixed images. The image carries ghcup, Poetry, Node.js 22+, Kind/kubectl/Helm/Docker toolbelt, LLVM, NVCC + cuBLAS + cuDNN (the CUDA bits are baked unconditionally; they activate at runtime only when the pod is scheduled with `runtimeClassName: nvidia` or when `jitml-cuda` is used for direct live CUDA tests), the pinned ALE library/runtime for any future generated or externally supplied Atari adapter, Playwright, and the pinned Haskell style tools. The root `compose.yaml` mounts the repository at the same absolute path inside the container that it has on the host, so Kind node `extraMounts` resolve host `./.build/` and `./.data/` correctly. Linux CUDA's single Kind node additionally mounts the host NVIDIA driver root read-only at `/run/nvidia/driver` and uses the repo-owned NVIDIA runtime config to run the node-local toolkit binary against those host driver files. Substrate selection (linux-cpu vs linux-cuda) happens at runtime via the Dhall config passed to `jitml service`, not via the image tag.
 
 On Apple Silicon, `cabal install` runs directly on the host because the host is the GPU. The asymmetry is intentional: the inner container ensures the Linux build is bit-reproducible across hosts; the Apple host build is reproducible because the host GHC and Cabal versions are pinned by the bootstrap script.
 
@@ -1313,18 +1330,28 @@ Own implementations in Haskell (no Gymnasium dependency at the env layer; jitML 
 | Acrobot-v1 | Discrete(3) | Box(6) | tip above height or 500 steps |
 | Pendulum-v1 | Box(1) | Box(3) | 200 steps |
 | LunarLander-v2 (discrete) | Discrete(4) | Box(8) | crash, land, or 1000 steps |
-| AtariSubset-v0 | Discrete(18) | RAM(128) + optional screen frame | emulator terminal state or step cap |
+| KeyDoorGrid-v0 | Discrete(6) + action mask | Grid channels + agent inventory | reach goal after collecting key and opening door or step cap |
 | GridWorld-Deterministic-v0 | Discrete(4) | Discrete(N) | reach goal or 100 steps |
 
-GridWorld is jitML-original and serves as a deterministic-by-construction unit-level anchor — its trajectory is a pure function of `(seed, policy)` and the test compares two fresh runs against each other rather than against any committed trajectory file. For each non-jitML-original env, the dynamics are re-implemented in Haskell from the published equations.
+GridWorld and KeyDoorGrid are jitML-original and serve as deterministic
+repo-owned anchors. GridWorld is the unit-level minimal environment; its
+trajectory is a pure function of `(seed, policy)` and tests compare two fresh
+runs against each other rather than against any committed trajectory file.
+KeyDoorGrid is the default visual discrete-control demo target: a seeded grid
+map with walls, key, locked door, goal, legal-action masks, vector/grid
+observations, and generated render frames. For each non-jitML-original env, the
+dynamics are re-implemented in Haskell from the published equations.
 
-`atari-subset` currently uses a deterministic 128-byte RAM-state stand-in in
-`src/JitML/RL/Simulator.hs` so the rest of the RL framework can consume the
-Atari action/observation contract. The target runtime is a real ALE-backed
-environment built from pinned source inside `jitml:local`, exposed to Haskell
-through a small C ABI shim, and driven by explicit uncommitted ROM inputs. The
-cleanup is owned by reopened Phase 8 Sprint 8.8 and tracked in the legacy
-ledger.
+Default examples, demos, and required canonical tests must not need copyrighted
+runtime assets. The active replacement work is tracked in
+[DEVELOPMENT_PLAN/legacy-tracking-for-development.md](DEVELOPMENT_PLAN/legacy-tracking-for-development.md):
+Phase `8` Sprint `8.9` implements `KeyDoorGrid-v0` and swaps default RL
+examples away from `atari-subset`; Phase `9` Sprint `9.8` retargets the
+algorithm/convergence matrix. Any remaining `atari-subset` support is optional
+runtime support only: the repository keeps no checked-in C/C++ shim source, and
+any ALE adapter must be generated by Haskell into the build/cache tree or
+supplied explicitly outside the repository. Atari ROM bytes are never committed,
+baked into images, or required for the demo path.
 
 ---
 
@@ -1715,7 +1742,7 @@ The framing for this section is *"we're not reimplementing PyTorch."* The list b
 - **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: the daemon is single-node by design; multi-node distributed SGD is an explicit non-goal. Cross-substrate determinism is the headline distributed-execution property, not multi-GPU SGD.
 - **The default multi-sink logger** that fans out to stdout, csv, log, and tensorboard simultaneously. Replaced with `Semigroup` composition over typed `Logger` and `Callback` values, so the developer states the fan-out explicitly.
 
-Patterns we *do* borrow, contrary to "out of scope" language that earlier drafts of this section included: Atari-style env wrappers (`NoopResetEnv`, `FireResetEnv`, `MaxAndSkipEnv`, `WarpFrame`, `EpisodicLifeEnv`) live alongside the standard six wrappers and admit Atari envs whenever the canonical-env table chooses to populate one; gSDE is a first-class `ActionDistribution` variant; every SB3-contrib algorithm (TRPO, MaskablePPO, RecurrentPPO, QR-DQN, CrossQ, TQC, ARS) is a first-class `AlgoSpec` case in [RL algorithm catalog](#rl-algorithm-catalog).
+Patterns we *do* borrow, contrary to "out of scope" language that earlier drafts of this section included: standard RL wrappers such as no-op reset, frame skip, frame warp, frame stack, time limits, reward clipping, and action masking live alongside the native envs without making Atari ROMs part of the default demo surface; gSDE is a first-class `ActionDistribution` variant; every SB3-contrib algorithm (TRPO, MaskablePPO, RecurrentPPO, QR-DQN, CrossQ, TQC, ARS) is a first-class `AlgoSpec` case in [RL algorithm catalog](#rl-algorithm-catalog).
 
 ---
 
@@ -2506,7 +2533,7 @@ jitML/
     templates/                  -- GatewayClass, Gateway, HTTPRoutes, EnvoyProxy, ...
   kind/                         -- per-substrate Kind configs
   bootstrap/                    -- stage-0 idempotent reconcilers
-  compose.yaml                  -- one Compose service: jitml
+    compose.yaml                  -- one image, headless jitml service, GPU jitml-cuda companion
   docker/                       -- one Dockerfile (jitml:local + style-tool gate), playwright.Dockerfile
   experiments/                  -- canonical experiment Dhall files
   test/                         -- per-stanza test trees

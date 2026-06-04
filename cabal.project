@@ -1,21 +1,32 @@
 with-compiler: ghc-9.14.1
-packages: .
+packages:
+    .
+    third_party/haskell/lens-family-2.1.3
+    third_party/haskell/lens-family-core-2.1.3
 
-allow-newer:
-    dhall:base,
-    dhall:bytestring,
-    dhall:containers,
-    dhall:template-haskell,
-    dhall:time,
-    cborg:base,
-    cborg:bytestring,
-    cborg:containers,
-    cborg-json:base,
-    serialise:base,
-    serialise:containers,
-    lens-family:base,
-    lens-family:containers,
-    lens-family-core:containers
+source-repository-package
+    type: git
+    location: https://github.com/well-typed/cborg.git
+    tag: 6ef2791ca41b397a3e36c868ad3e66a0d09f19b2
+    subdir: cborg
+
+source-repository-package
+    type: git
+    location: https://github.com/well-typed/cborg.git
+    tag: 6ef2791ca41b397a3e36c868ad3e66a0d09f19b2
+    subdir: cborg-json
+
+source-repository-package
+    type: git
+    location: https://github.com/well-typed/cborg.git
+    tag: 6ef2791ca41b397a3e36c868ad3e66a0d09f19b2
+    subdir: serialise
+
+source-repository-package
+    type: git
+    location: https://github.com/dhall-lang/dhall-haskell.git
+    tag: adca92b4f06a76dc00b28787a7c042b1d2685c07
+    subdir: dhall
 
 -- Codegen toolchain pins recorded for the deterministic JIT cache key:
 -- LLVM: pinned with the GHC 9.14.1 toolchain

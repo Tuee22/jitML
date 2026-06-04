@@ -122,6 +122,7 @@ import JitML.Prerequisite.Registry
   )
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.Proto.Gc qualified as ProtoGc
+import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms qualified as RLAlgorithms
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
 import JitML.RL.Algorithms.ArsLoss qualified as ArsLoss
@@ -1679,28 +1680,17 @@ main =
           (obs, _, _) <-
             Sim.stepEnvironmentIO Sim.lunarLanderEnvironment Sim.lunarLanderInitial 0
           length obs @?= 8
-      , testCase "atari-subset deterministic stub steps reproducibly (Sprint 8.3)" $ do
-          -- Two same-state same-action invocations are bit-identical.
-          let first = Sim.atariSubsetStep Sim.atariSubsetInitial 5
-          Sim.atariSubsetStep Sim.atariSubsetInitial 5 @?= first
-          -- Different actions produce different successor RAM hashes.
-          let other = Sim.atariSubsetStep Sim.atariSubsetInitial 6
-          assertBool
-            "distinct actions update the stub RAM hash distinctly"
-            (Sim.atariRamHash (Sim.simStepState first) /= Sim.atariRamHash (Sim.simStepState other))
-          -- Each step advances the step counter by one.
-          Sim.atariStep (Sim.simStepState first) @?= 1
-          -- Reward stays in [0, 1).
-          let r = Sim.simStepReward first
-          assertBool "reward stays normalised in [0, 1)" (r >= 0 && r < 1)
-          -- Render-frame matches the 128-byte canonical RAM-state width.
-          length (Sim.renderObservation (Sim.atariSubsetRenderFrame Sim.atariSubsetInitial))
-            @?= 128
-          -- Step boundary advances to termination at the documented length.
-          let walk s
-                | Sim.simStepDone (Sim.atariSubsetStep s 0) = Sim.atariStep s + 1
-                | otherwise = walk (Sim.simStepState (Sim.atariSubsetStep s 0))
-          walk Sim.atariSubsetInitial @?= 250
+      , testCase "atari-subset requires an explicit uncommitted ROM path (Sprint 8.8)" $ do
+          result <- ALE.resolveAtariRomPath (Just "/jitml/nonexistent-atari-rom.bin")
+          case result of
+            Left err ->
+              assertBool
+                "missing-ROM policy names JITML_ATARI_ROM"
+                ("JITML_ATARI_ROM" `Text.isInfixOf` err)
+            Right path ->
+              assertBool
+                ("unexpected ambient Atari ROM path during unit test: " <> path)
+                False
       , testCase "AlphaZero rule engines reject illegal moves per game" $ do
           -- Othello: cell 19 (D3) flips one stone for opening Black; the
           -- canonical centre cells 27, 28, 35, 36 are pre-occupied.
@@ -1934,6 +1924,7 @@ main =
                 , "/api/connect4/move"
                 , "/api/ws"
                 , "/api/ws/training"
+                , "/api/ws/rl"
                 , "/api/ws/tune"
                 ]
           WebBundle.renderDemoRouteManifest
@@ -1946,6 +1937,7 @@ main =
               , "- /api/connect4/move connect4-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/ws metrics-stream-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/ws/training training-stream-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/ws/rl rl-stream-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/ws/tune tune-stream-contract <- src/JitML/Web/Contracts.hs"
               ]
           WebContracts.contractGeneratorName @?= "local-purescript-bridge-compatible-renderer"

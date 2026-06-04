@@ -6,6 +6,7 @@
 [development_plan_standards.md](development_plan_standards.md),
 [00-overview.md](00-overview.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
+[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md),
@@ -32,10 +33,15 @@
 > frontend, and the Cabal test stanzas.
 
 The inventory documents the authoritative target end state and the present
-checked-in implementation. Phases `0`, `2`–`7`, and `9`–`14` are `✅ Done`;
-Phases `1` and `8` reopened on 2026-06-04 only for the scoped `allow-newer`
-and real-ALE cleanup gates, and Phase `15` remains `🔄 Active` until the legacy
-ledger is empty. Sprint `1.4` closes the container-exclusive Haskell style/
+checked-in implementation. Phases `0`–`7` and `10`–`14` are `✅ Done`; Phase
+`1` reopened and re-closed on 2026-06-04 after Sprint `1.10` removed the scoped
+`allow-newer` block, Phase `8` is `🔄 Active` for Sprint `8.9`
+(`KeyDoorGrid-v0` copyright-free visual RL demo), Phase `9` is `⏸️ Blocked` on
+that environment work for Sprint `9.8`, and Phase `15` remains `⏸️ Blocked`
+until both legacy ledgers have no pending rows. Sprint `8.8` replaced the
+deterministic `atari-subset` stand-in with an explicit ROM-policy boundary, and
+the static-foreign-source correction removed the checked-in ALE C++ shim and
+lint exception. Sprint `1.4` closes the container-exclusive Haskell style/
 code-quality gate: `jitml:local` image construction installs the separate
 style GHC/tools and runs `jitml check-code`; host lint/check-code execution
 is unsupported.
@@ -61,7 +67,7 @@ live Playwright closure) closed 2026-05-30 with all 15 / 15 sprints Done.
 Per-row component cells below remain mixed (`✅ Done` / `🔄 Active`)
 according to whether each cell's *target* end state is reached;
 `🔄 Active` cells under closed phases mark deferred follow-ups owned by
-reopened Phase `1`, reopened Phase `8`, or Phase `15` per
+reopened Phase `1`, reopened Phase `8`, reopened Phase `9`, or Phase `15` per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
 A component row is `✅ Done` only when every Exit-Definition obligation that
@@ -260,7 +266,7 @@ internal-RPC pair.
 |-----------|----------------|--------|---------------|
 | Supervised training summaries | `src/JitML/SL/Canonicals.hs`; command surface in `src/JitML/App.hs` renders deterministic canonical-problem summaries; `test/sl-canonicals/Main.hs` exercises each canonical problem as property tests over the local `SL.Train` convergence pipeline (finite-and-monotone loss, run-to-run determinism, and median over a fixed-seed pool ≥ literature-derived in-code threshold) with no per-substrate `.txt` curve fixtures per [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets) | 🔄 Active; missing: real dataset loaders, daemon-backed training loops, and live statistical convergence assertions against real datasets | Sprint 8.1 |
 | Canonical SL problem set | `src/JitML/SL/Canonicals.hs`; deterministic coverage in `test/sl-canonicals/Main.hs` | 🔄 Active; missing: real training runs against MNIST/Fashion-MNIST/CIFAR-10/Tiny-ImageNet/California Housing with measured convergence | Sprint 8.1 |
-| Canonical RL environments (cartpole, mountain-car, lunar-lander, atari-subset) | `src/JitML/RL/Environments.hs`; `src/JitML/RL/Simulator.hs`; deterministic local step surface and catalog renderer. `atari-subset` currently uses the ledger-tracked RAM-state stand-in; reopened Phase `8` Sprint `8.8` owns the source-built ALE adapter, C ABI shim, explicit ROM handling, and stub retirement/test-scoping. | 🔄 Active; missing: real ALE-backed `atari-subset` binding and ROM acquisition/test path | Sprint 8.3 / Sprint 8.8 |
+| Canonical RL environments (cartpole, mountain-car, lunar-lander, KeyDoorGrid target; optional atari-subset) | `src/JitML/RL/Environments.hs`; `src/JitML/RL/Simulator.hs`; `src/JitML/RL/ALE.hs`; deterministic local step surface and catalog renderer for native simulators. Sprint `8.9` adds `KeyDoorGrid-v0` as the repo-owned visual discrete-control environment for default demos and required canonical examples. `atari-subset` remains optional runtime support only when a generated or externally supplied ALE runtime shim is available, with ROMs supplied explicitly through `RunConfig.atariRomPath`, `JITML_ATARI_ROM`, or `JITML_ALE_ROM`; local ROM files belong under ignored `./.roms/`. The repository has no checked-in C/C++ ALE adapter source; all project-owned native/JIT compiler inputs are Haskell-generated into the build/cache tree. | 🔄 Active; missing: `KeyDoorGrid-v0` implementation, tests, and default-example migration. Sprint `8.8` no-ROM validation and static shim removal are Done. | Sprint 8.3 / Sprint 8.8 / Sprint 8.9 |
 | RL Algorithm catalog and local trajectory surface | `src/JitML/RL/Algorithms.hs`; `dhall/rl/Schema.dhall` mirror/audit; deterministic command summaries in `src/JitML/App.hs`; typed runtime primitives in `src/JitML/RL/{Policy,VecEnv,Buffer,AsyncBuffer,Loop}.hs` with filesystem-backed async-sink coverage | 🔄 Active; missing: live HTTP-backed `HasMinIO` transcript writes and daemon-backed environment execution | Sprint 8.4 |
 | Replay/rollout trajectory determinism | `src/JitML/RL/Algorithms.hs`; `deterministicTrajectory` | 🔄 Active; missing: trajectory determinism validated under real env stepping | Sprint 8.4 |
 | Schedules, action distributions, action noise, target networks, GAE, callbacks, logger, evaluator | `src/JitML/RL/Framework.hs`; typed framework catalog, run plan, evaluator, and callback surfaces | ✅ Done | Sprint 8.5 |
@@ -346,7 +352,7 @@ standards rule L.
 | Long-running daemon shape (`BootConfig` / `LiveConfig`, SIGHUP, `/healthz`, `/readyz`, `/metrics`, structured JSON stderr logging) | Long-Running Daemons in the Same Binary | ✅ Done; local lifecycle, endpoint, logging, signal, and held-open worker surfaces are implemented and validated, with live Linux CPU, Linux CUDA, and Apple Silicon validations passing on the single-node substrate topology | Sprints 5.2, 5.3, 5.6 |
 | Implemented reconciler discipline (`jitml docs generate`, `jitml lint --write`, `jitml bootstrap`, `jitml cluster up`, `--dry-run` / `--plan-file` plan rendering, no-op exit code `3`) | Reconcilers: Idempotent Mutation as a Single Command; Plan / Apply | ✅ Done | Sprints 1.3, 1.4, 1.5, 1.9, 2.1, 3.5 |
 | Mutating reconciler effects (`jitml bootstrap` live Kind/Helm apply, `jitml internal gc` live MinIO deletion) | Reconcilers: Idempotent Mutation as a Single Command | 🔄 Active; `jitml bootstrap` Kind/Helm apply is live-validated for Sprint `3.5` on the single-node topology, but live `jitml internal gc` HTTP MinIO deletion and `gc_reaped` Pulsar events remain open | Sprints 3.5, 10.3 |
-| Cabal-manifest toolchain pin (`tested-with: ghc ==9.14.1` in `jitml.cabal`, `with-compiler: ghc-9.14.1` in `cabal.project`, codegen toolchains pinned in `cabal.project`) plus the temporary scoped `allow-newer` retirement gate | Toolchain pinning | 🔄 Active; pin is done, but the ledger-tracked Dhall/CBOR compatibility override remains until reopened Sprint `1.10` can remove it without changing GHC | Sprint 1.1 / Sprint 1.10 |
+| Cabal-manifest toolchain pin (`tested-with: ghc ==9.14.1` in `jitml.cabal`, `with-compiler: ghc-9.14.1` in `cabal.project`, codegen toolchains pinned in `cabal.project`) with no `allow-newer` override | Toolchain pinning | ✅ Done; Sprint `1.10` removed the ledger-tracked scoped override without changing GHC | Sprint 1.1 / Sprint 1.10 |
 | Library-first layout audit (thin `app/Main.hs` and `app/Demo.hs`, logic in `src/JitML/`) | Project Structure | ✅ Done | Sprint 1.1 |
 | Durable CLI documentation artefacts (`documents/cli/commands.md`, `share/man/man1/jitml*.1`, `share/completion/{bash,zsh,fish}/`) | Automatically Generated Documentation | ✅ Done | Sprint 1.3 |
 | Standardized library set audit in `jitml.cabal` (`optparse-applicative`, `text`, `bytestring`, `aeson`, `prettyprinter*`, `ansi-terminal`, `path`, `path-io`, `typed-process`, `safe-exceptions`, `dhall`, `tasty*`, `temporary`) | Overview → standardized stack | ✅ Done | Sprint 1.1 |
@@ -403,8 +409,10 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 |-----------|----------------|---------|--------|---------------|
 | GHC | `9.14.1` | Haskell compiler for the CLI binary, the daemon, and every library module | ✅ Done | Sprint 1.1 |
 | Cabal | `3.16.1.0` | Haskell build tool; per-stanza `type: exitcode-stdio-1.0` | ✅ Done | Sprint 1.1 |
+| Haskell dependency source pins | upstream `well-typed/cborg` commit `6ef2791ca41b397a3e36c868ad3e66a0d09f19b2`, upstream `dhall-lang/dhall-haskell` commit `adca92b4f06a76dc00b28787a7c042b1d2685c07`, and local BSD-licensed `third_party/haskell/lens-family-*` bounds / warning-clean compatibility patch | GHC `9.14.1` / `base-4.22` compatibility without any `allow-newer` override; final source-pin/vendor cleanup is tracked in the legacy ledger | ✅ Done for Sprint 1.10; cleanup row blocks Phase 15 until Hackage metadata/releases solve without the helper | Sprint 1.10 / Sprint 15.3 |
 | LLVM | pinned in `cabal.project` | Shared by GHC `-fllvm` and JIT codegen | ✅ Done | Sprint 1.1 |
 | NVCC | pinned in `cabal.project` (`--use_fast_math=false`, baseline `sm_70`) | CUDA kernel codegen for `linux-cuda` | ✅ Done | Sprint 7.4 |
+| ALE | upstream `v0.12.0` commit `94c24368664b8539c53857522e50652ddcc44b20` library/runtime prerequisite in `docker/Dockerfile` | Optional Arcade Learning Environment runtime for `atari-subset`; Haskell loads `JitML.RL.ALE` only when an explicit ROM path is supplied, and any native adapter must be generated into the build/cache tree or supplied externally via `JITML_ALE_SHIM_PATH`. Default examples and required canonical tests use copyright-free environments. | ✅ Done for no-ROM fail-closed policy and static C++ shim removal; real ALE smoke is optional/manual and requires generated/external adapter support | Sprint 8.8 |
 | Metal (Apple) | host Metal framework (OS) + CommandLineTools `swiftc`, pinned in `cabal.project` | `apple-silicon` Metal kernel codegen: host `swift build` of the Swift glue dylib + runtime `MTLDevice.makeLibrary(source:)` shader compilation (headless, no Tart VM, no Xcode); validated headless on Apple M1 2026-05-30 | ✅ Done | Sprint 7.8 |
 | oneDNN | `libdnnl-dev` installed in `docker/Dockerfile`; AVX2 baseline, AVX-512 detected at JIT time | CPU kernel codegen and local FFI execution for `linux-cpu` | ✅ Done | Sprint 7.3 |
 | `kindest/node` | pinned in `./kind/cluster-<substrate>.yaml`; mirrored as a comment in `cabal.project` | Kind node image; the comment-mirror is a single-source-of-toolchain-truth record (`jitml lint chart` rejects drift) | ✅ Done | Sprint 3.1 |
@@ -455,7 +463,7 @@ The current concrete worktree is summarized in
 | Formatter config | `fourmolu.yaml` | Pinned 13 doctrine-mandated settings at repo root |
 | Per-substrate Kind configs | `./kind/cluster-{apple-silicon,linux-cpu,linux-cuda}.yaml` rendered by `JitML.Cluster.Kind` | Checked-in configs use one `control-plane` node and no worker node for every substrate; the single node bind-mounts `./.build/` and `./.data/` via `extraMounts`; Linux CUDA also wires that node's containerd `nvidia` runtime handler and read-only host driver-root mount for `RuntimeClass/nvidia` |
 | Bootstrap scripts | `./bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh` | Stage-0 idempotent reconcilers |
-| Docker assets | `docker/Dockerfile`, `compose.yaml` | One Dockerfile producing one image (`jitml:local`) with `jitml`, `jitml-demo`, and the style-tool/code-quality gate; one host-networked compose service (`jitml`) that bind-mounts the repo at the same absolute path as the host so Kind node mounts resolve correctly |
+| Docker assets | `docker/Dockerfile`, `compose.yaml` | One Dockerfile producing one image (`jitml:local`) with `jitml`, `jitml-demo`, and the style-tool/code-quality gate; two host-networked compose service wrappers over that image: headless `jitml` for bootstrap/code-quality/non-GPU command runs, and GPU-enabled `jitml-cuda` for direct live CUDA validation |
 | Helm umbrella chart | `chart/Chart.yaml`, `chart/values.yaml`, `chart/values/`, `chart/templates/`, `chart/local/` | Subchart deps for Harbor, Pulsar, MinIO, Postgres, Envoy Gateway, Prometheus; checked-in local charts for TensorBoard, `jitml-service`, and `jitml-demo`; typed per-release values for direct dependency installs; templates for GatewayClass / Gateway / HTTPRoutes / EnvoyProxy / manual PVs / Deployments / RuntimeClass / dashboards; umbrella values live in `chart/values.yaml` unless a typed Helm subprocess passes a file from `chart/values/` |
 | JIT source generation | `src/JitML/Codegen/{RuntimeSource,Cuda,MlpCuda,OneDnn,Metal,SourceFile}.hs`, `src/JitML/Engines/{CudaLocal,HasEngine,Local}.hs`, `./.build/jit-src/<substrate>/<hash>/` | Haskell-generated compiler inputs for CUDA, oneDNN C++, and Metal / Swift; local Linux CPU oneDNN primitive compile/load/run plus family/output-count symbol validation, local Linux CPU `HasEngine` dispatch, guarded CUDA local loader / `LocalCudaEngine` preflight dispatch, and host/container artifact ABI separation in the Linux CPU fingerprint |
 | Protobuf contracts | `proto/tensorboard/event.proto`, `proto/jitml/{training,rl,tune,inference}.proto` | TensorBoard scalar Event schema plus jitML command/event envelopes |

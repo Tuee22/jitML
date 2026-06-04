@@ -1,16 +1,22 @@
+x-jitml-service: &jitml-service
+  image: jitml:local
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  network_mode: host
+  working_dir: ${PWD}
+  volumes:
+    - .:${PWD}
+    - /var/run/docker.sock:/var/run/docker.sock
+
 services:
   jitml:
-    image: jitml:local
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    network_mode: host
-    working_dir: ${PWD}
-    volumes:
-      - .:${PWD}
-      - /var/run/docker.sock:/var/run/docker.sock
+    <<: *jitml-service
+
+  jitml-cuda:
+    <<: *jitml-service
     # Expose every NVIDIA GPU on the host through the NVIDIA Container
-    # Runtime so the CUDA path validated by Sprint 7.4 can launch real
-    # kernels (`jitml service`, `cabal test jitml-cross-backend`'s CUDA
-    # cases). Hosts without an NVIDIA GPU simply ignore this stanza.
+    # Runtime so live CUDA validation can launch real kernels (`jitml service`,
+    # `cabal test jitml-cross-backend`'s CUDA cases). Use the default `jitml`
+    # service for headless code-quality and non-GPU command runs.
     gpus: all

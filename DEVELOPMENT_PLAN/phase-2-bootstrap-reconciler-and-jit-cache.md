@@ -336,26 +336,29 @@ at `./.build/host/apple-silicon/<model-id>.<ext>`.
 
 ### Objective
 
-Deliver one Dockerfile producing one image (`jitml:local`) and one compose
-service (`jitml`). Substrate is a runtime Dhall choice — there is no
-`jitml-linux-cpu`, `jitml-linux-cuda`, etc. tag dimension. Target Harbor upload
-is owned by `jitml bootstrap --<substrate>`, not by a stage-0 shell `push` verb;
-the current command materializes bootstrap inputs only.
+Deliver one Dockerfile producing one image (`jitml:local`) and host-networked
+compose wrappers over that image: headless `jitml` for bootstrap/code-quality
+and non-GPU command runs, plus GPU-enabled `jitml-cuda` for direct live CUDA
+validation. Substrate is a runtime Dhall choice — there is no `jitml-linux-cpu`,
+`jitml-linux-cuda`, etc. tag dimension. Target Harbor upload is owned by
+`jitml bootstrap --<substrate>`, not by a stage-0 shell `push` verb; the current
+command materializes bootstrap inputs only.
 
 ### Deliverables
 
 - `docker/Dockerfile` currently builds on `ubuntu:24.04` with pinned GHC
   `9.14.1`, Cabal `3.16.1.0`, GCC/G++, LLVM, Docker CLI, Node.js/npm, Python,
-  PureScript, spago, architecture-aware `kubectl` / `kind`, `helm`, and the
-  Sprint `1.4` style-tools/code-quality image gate, then installs the `jitml`
-  and `jitml-demo` executables into `/usr/local/bin`. The full target image still
-  needs CUDA/NVCC/cuBLAS/cuDNN, oneDNN, and Poetry hardening before it
-  can serve as the complete Linux CPU / CUDA runtime image.
-- `compose.yaml` declares one service `jitml` with image `jitml:local`,
-  bind-mounts the repository at the same absolute path inside the container that
-  it has on the host, runs with host networking so the outer-container Kind
-  kubeconfig loopback endpoint is reachable, and sets the same path as its
-  working directory with no entrypoint default.
+  Poetry, PureScript, spago, architecture-aware `kubectl` / `kind`, `helm`,
+  CUDA/NVCC/cuBLAS/cuDNN, oneDNN, and the Sprint `1.4`
+  style-tools/code-quality image gate, then installs the `jitml` and
+  `jitml-demo` executables into `/usr/local/bin`.
+- `compose.yaml` declares the shared `jitml:local` image/build/mount/network
+  shape once, exposes it as the default headless `jitml` service, and adds a
+  `jitml-cuda` companion with `gpus: all` for direct live CUDA tests. Both
+  services bind-mount the repository at the same absolute path inside the
+  container that it has on the host, run with host networking so the
+  outer-container Kind kubeconfig loopback endpoint is reachable, and set the
+  same path as the working directory with no entrypoint default.
 - `linux-cpu.sh` and `linux-cuda.sh` enter the image through
   `docker compose run --rm jitml ...`; Compose builds `jitml:local`
   automatically when needed.

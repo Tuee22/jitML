@@ -21,6 +21,10 @@
 
 ## Phase Status
 
+✅ **Done** (reopened 2026-06-04 for the compose service split; **re-closed the
+same day** after Sprint `7.9` moved GPU exposure to `jitml-cuda` while keeping
+the default `jitml` service headless for code-quality and bootstrap commands).
+
 ✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
 **re-closed the same day** after Sprint `7.8` landed and validated headless on
 Apple M1). The Apple Silicon Metal build now uses a host CommandLineTools
@@ -66,7 +70,7 @@ oneDNN C++ headers, the compile plan links `-ldnnl`, and the local
 primitive launches behind the stable FFI metadata ABI. Sprint `7.4` closes
 the live Linux CUDA runtime path: `jitml:local` installs `cuda-toolkit-12-8`
 and `libcudnn9-dev-cuda-12`, `compose.yaml` exposes every host NVIDIA GPU
-through `gpus: all`, the CUDA compile plan now links the produced `.so`
+through the `jitml-cuda` service's `gpus: all` mapping, the CUDA compile plan now links the produced `.so`
 against `libcudart` / `libcublas` / `libcudnn` (DT_NEEDED resolves at
 `dlopen` time), `JitML.Engines.CublasBindings` / `CudnnBindings` provide
 the typed Haskell binding surface behind the `cuda` cabal flag, and the
@@ -490,10 +494,11 @@ sections from [../README.md](../README.md).
   `/usr/local/cuda/lib64` on `PATH` / `LD_LIBRARY_PATH`, and runs
   `cabal build -fcuda exe:jitml exe:jitml-demo` so the installed
   `/usr/local/bin/jitml` binary carries the real cuBLAS/cuDNN bindings.
-- `compose.yaml` exposes every host NVIDIA GPU to the `jitml`
-  service via the modern `gpus: all` shorthand so live in-container
-  validation (`docker compose run --rm jitml cabal test ...`) can launch
-  real device kernels through `nvidia-container-toolkit`.
+- `compose.yaml` keeps the default `jitml` service headless for code-quality,
+  bootstrap, and non-GPU command runs, and exposes every host NVIDIA GPU to the
+  `jitml-cuda` companion service via the modern `gpus: all` shorthand so live
+  in-container CUDA validation (`docker compose run --rm jitml-cuda cabal test
+  ...`) can launch real device kernels through `nvidia-container-toolkit`.
 - The single-node live CUDA `RuntimeClass/nvidia` and pod-visible GPU
   validation closed on 2026-05-23 in Phase `4` Sprint `4.7` and Phase
   `5` Sprint `5.6` against a Linux CUDA host (NVIDIA GeForce RTX 5090,
@@ -532,7 +537,7 @@ sections from [../README.md](../README.md).
    identity bit-equality and reduction sums, and exercise
    `verifyCublasRuntime` / `verifyCudnnRuntime` to confirm libcublas
    and libcudnn are linked and initialize.
-6. `docker compose build jitml` + `docker compose run --rm jitml cabal
+6. `docker compose build jitml` + `docker compose run --rm jitml-cuda cabal
    test -fcuda jitml-cross-backend` on 2026-05-24 against a Linux
    CUDA validation host (NVIDIA GeForce RTX 3090, CUDA 12.8 driver,
    `cuda-toolkit-12-8` + `libcudnn9-dev-cuda-12` inside `jitml:local`)
@@ -872,10 +877,12 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
 
 ### Objective
 
-Make the Haskell `jitml` binary the only source of JIT compiler inputs. Static
-checked-in JIT build scripts and kernel source files are forbidden: no
-checked-in CUDA `.cu`, no checked-in oneDNN C/C++ source, and no checked-in
-Metal / Swift package source participates in a JIT build.
+Make the Haskell `jitml` binary the only source of JIT compiler inputs and
+project-owned native adapter source. Static checked-in JIT build scripts,
+kernel source files, and native adapter shims are forbidden: no checked-in CUDA
+`.cu`, no checked-in oneDNN C/C++ source, no checked-in C/C++ adapter source,
+and no checked-in Metal / Swift package source participates in a JIT build or
+runtime adapter path.
 
 ### Deliverables
 
@@ -895,10 +902,9 @@ Metal / Swift package source participates in a JIT build.
   gone from the worktree.
 - Static source/script scaffolds are removed, as tracked in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed).
-- `jitml lint files` rejects future checked-in JIT build scripts and checked-in
-  substrate source extensions unless they are explicit pure-renderer
-  snapshots under `test/snapshots/`. It additionally rejects any new
-  file under `test/golden/` per
+- `jitml lint files` rejects future checked-in JIT build scripts, checked-in
+  substrate source extensions, and native adapter shims. It additionally
+  rejects any new file under `test/golden/` per
   [../README.md → Snapshot targets → Numerical-fixture
   prohibition](../README.md#snapshot-targets).
 
@@ -933,7 +939,8 @@ Metal / Swift package source participates in a JIT build.
 - [x] Route every JIT compile plan through generated source under
   `./.build/jit-src/<substrate>/<hash>/`.
 - [x] Remove checked-in JIT build scripts, checked-in `.cu`, checked-in `.cc`
-  / `.cpp`, and checked-in Metal / Swift package inputs from the build path.
+  / `.cpp`, checked-in native adapter shims, and checked-in Metal / Swift
+  package inputs from the build path.
 - [x] Add lint coverage that rejects future static JIT source/build artefacts.
 - [x] Move the static-codegen pending-removal ledger row to `Completed` once
   the generated-source path validates.
@@ -1011,6 +1018,41 @@ Artifacts → generated-on-demand` from [../README.md](../README.md).
 
 - None. The Tart-VM build path is superseded; its module/CLI/config removal is
   owned by Phase `2` Sprint `2.10` and Phase `5` Sprint `5.8`.
+
+## Sprint 7.9: Compose GPU Service Split ✅
+
+**Status**: Done (reopened and re-closed 2026-06-04).
+
+### Intent
+
+Keep the container-only code-quality path runnable on non-NVIDIA hosts while
+preserving live in-container CUDA validation. The default `jitml` service is the
+headless host-networked command wrapper; `jitml-cuda` is the GPU-enabled
+companion for direct CUDA tests.
+
+### Implementation
+
+- `compose.yaml` now factors the shared `jitml:local` image/build/mount/network
+  settings into one service template.
+- `jitml` uses the shared template with no GPU request, so
+  `docker compose run --rm jitml jitml check-code` reaches the CLI on CPU-only
+  hosts.
+- `jitml-cuda` uses the same image and mounts plus `gpus: all`, preserving the
+  live CUDA validation path for commands that need device exposure in the outer
+  container.
+
+### Validation
+
+1. `docker compose build jitml` passes after the no-`allow-newer` dependency
+   replacement and runs `jitml check-code` during image construction.
+2. A fresh `docker compose run --rm jitml jitml check-code` rebuilds/exports
+   `jitml:local`, builds the PureScript bundle, and completes the final
+   headless command with `check-code: ok` without requesting a GPU device
+   driver.
+
+### Remaining Work
+
+- None.
 
 ## Doctrine Sections Cited
 

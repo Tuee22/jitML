@@ -8,6 +8,7 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
+[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -20,7 +21,8 @@
 
 ## Phase Status
 
-✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
+⏸️ **Blocked** (reopened 2026-06-04 for Sprint `9.8`). Every original
+code-surface obligation closed on 2026-05-25:
 the 14 algorithm modules' deterministic-stub run-to-run determinism +
 rule-conformance properties, the real Othello/Hex/Gomoku rule engines,
 the full sampler/scheduler/pruner catalog, the AlphaZero MCTS / SelfPlay
@@ -31,6 +33,12 @@ owned by
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
 Sprints `13.8` and `13.9`. Live tuner execution is owned by Phase `13`
 Sprint `13.10`.
+The current reopen retargets the RL algorithm/convergence matrix away from
+`atari-subset` and onto copyright-free environments after Phase `8` Sprint
+`8.9` adds `KeyDoorGrid-v0`. The active development row lives in
+[legacy-tracking-for-development.md](legacy-tracking-for-development.md#pending-development).
+
+**Blocked by**: Phase `8` Sprint `8.9`.
 
 The phase owns the catalog/AlphaZero/tuning half of
 [Exit Definition](README.md#exit-definition) item 6 (`jitml rl train`
@@ -105,6 +113,9 @@ helpers, a local AlphaZero MCTS/self-play/arena substack, and deterministic
 tuning catalogs. The target runtime grows those surfaces into real
 JIT-backed network updates and a typed sweep manager that drives SL, RL, or
 AlphaZero training under a sampler × scheduler × pruner Dhall.
+Sprint `9.8` keeps the catalog aligned with the copyright-free demo policy by
+using `KeyDoorGrid-v0` for visual discrete-control coverage and removing
+`atari-subset` from required convergence cohorts.
 
 ## Sprint 9.1: On-Policy Algorithm Metadata ✅
 
@@ -600,11 +611,60 @@ summary.
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
   Sprint `13.10`.
 
+## Sprint 9.8: Copyright-Free RL Matrix Retargeting ⏸️
+
+**Status**: Blocked
+**Blocked by**: Phase `8` Sprint `8.9` (`KeyDoorGrid-v0` environment surface)
+**Implementation**: `src/JitML/RL/ConvergenceThresholds.hs`,
+`src/JitML/RL/Algorithms/Registry.hs`, `test/rl-canonicals/Main.hs`,
+`documents/engineering/training_workloads.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-development.md`
+**Docs to update**: `README.md`,
+`documents/engineering/training_workloads.md`,
+`documents/engineering/unit_testing_policy.md`,
+`DEVELOPMENT_PLAN/system-components.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-development.md`
+
+### Objective
+
+Retarget the required RL algorithm/convergence matrix so visual
+discrete-control coverage uses `KeyDoorGrid-v0` rather than `atari-subset`,
+keeping all required demos and canonical checks free of copyrighted runtime
+assets.
+
+### Deliverables
+
+- `JitML.RL.ConvergenceThresholds` replaces `atari-subset` cohorts with
+  `key-door-grid` / `KeyDoorGrid-v0` cohorts where a visual discrete-action
+  environment is needed.
+- `jitml-rl-canonicals` covers the algorithm × environment matrix without
+  requiring Atari ROM bytes.
+- Maskable algorithms exercise `KeyDoorGrid-v0` legal-action masks.
+- Required docs and report-card language refer to Atari/ALE only as optional
+  runtime support, not canonical demo coverage.
+
+### Validation
+
+1. Phase `8` Sprint `8.9` validation has passed.
+2. `docker compose run --rm jitml cabal test jitml-rl-canonicals --jobs=2`
+   passes with the retargeted matrix.
+3. `rg -n 'atari-subset' src/JitML/RL/ConvergenceThresholds.hs
+   test/rl-canonicals/Main.hs README.md documents` shows no required
+   convergence/demo wording.
+4. `docker compose run --rm jitml jitml check-code` passes.
+
+### Remaining Work
+
+- Wait for Phase `8` Sprint `8.9` to land `KeyDoorGrid-v0`.
+- Replace `atari-subset` thresholds and canonical matrix rows with
+  `KeyDoorGrid-v0`.
+- Validate that no required tests or default examples need ROM material.
+
 ## Doctrine Sections Cited
 
 - [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (Sprint 9.7 — `jitml tune` command leaf)
 - [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprint 9.7 — current dry-run / plan-file surface)
-- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 9.4, 9.7 — dedicated local RL and hyperparameter stanzas)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 9.4, 9.7, 9.8 — dedicated local RL and hyperparameter stanzas plus copyright-free RL matrix retargeting)
 
 ## Documentation Requirements
 
@@ -619,7 +679,8 @@ summary.
   AlphaZero/MCTS runtime, adversarial games, target sampler decode, and
   full tuner storage/resume surface. The doc also distinguishes the
   current tune text/proto3-compatible command and event envelope codecs from
-  target generated proto-lens bindings.
+  target generated proto-lens bindings, and records `KeyDoorGrid-v0` as the
+  required visual discrete-control replacement for `atari-subset` cohorts.
 - `documents/engineering/determinism_contract.md` — current deterministic
   local trajectory/transcript helpers and target AlphaZero
   deterministic-stochasticity narrative.
@@ -639,5 +700,6 @@ summary.
 - [README.md](README.md)
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
+- [legacy-tracking-for-development.md](legacy-tracking-for-development.md)
 - [development_plan_standards.md](development_plan_standards.md)
 - [../README.md](../README.md)

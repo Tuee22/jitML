@@ -421,6 +421,7 @@ shouldSkipPath path =
     [ ".git/"
     , ".build/"
     , ".data/"
+    , ".roms/"
     , "dist-newstyle/"
     , ".dist-newstyle/"
     , "gen/"
@@ -627,7 +628,8 @@ staticJitArtefactFindings = do
 
 isStaticJitArtefact :: FilePath -> Bool
 isStaticJitArtefact path =
-  FilePath.takeFileName path == "build.sh" || FilePath.takeExtension path `elem` staticJitExtensions
+  FilePath.takeFileName path == "build.sh"
+    || FilePath.takeExtension path `elem` staticJitExtensions
 
 staticJitExtensions :: [String]
 staticJitExtensions =

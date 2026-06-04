@@ -25,6 +25,7 @@ import JitML.Proto.Rl
   , parseRlCommand
   , renderRlCommand
   )
+import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms (algorithmCatalog, algorithmName, deterministicTrajectory)
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
 import JitML.RL.Algorithms.ArsLoss qualified as ArsLoss
@@ -150,6 +151,9 @@ main =
       , testCase
           "simulator loop is run-to-run deterministic across the canonical env catalog (Sprint 13.6 + 13.5)"
           $ mapM_ assertSimulatorLoopDeterminism SimulatorLoop.simulatedEnvCatalog
+      , testCase
+          "atari-subset uses explicit ROM policy and optional ALE smoke validation (Sprint 8.8)"
+          assertAleAtariPolicy
       , testCase
           "PPO real loss math runs deterministically against the canonical PPO/cartpole rollout (Sprint 13.8)"
           assertPpoLossDeterminism
@@ -375,6 +379,22 @@ assertSimulatorLoopDeterminism (envName, handle) = do
     )
     (length first == episodes)
   first @?= second
+
+assertAleAtariPolicy :: IO ()
+assertAleAtariPolicy = do
+  smoke <- ALE.runAleSmoke Nothing
+  case smoke of
+    Left err ->
+      assertBool
+        "missing-ROM path explains explicit Atari ROM policy"
+        ("JITML_ATARI_ROM" `Text.isInfixOf` err)
+    Right result -> do
+      ALE.aleSmokeRamBytes result @?= 128
+      assertBool "ALE legal actions are reported" (ALE.aleSmokeActionCount result > 0)
+      assertBool "ALE screen has positive width" (ALE.aleSmokeScreenWidth result > 0)
+      assertBool "ALE screen has positive height" (ALE.aleSmokeScreenHeight result > 0)
+      assertBool "ALE screen bytes are populated" (ALE.aleSmokeScreenBytes result > 0)
+      assertBool "ALE smoke episode is deterministic" (ALE.aleSmokeDeterministic result)
 
 -- | Sprint 13.8 — drive the real PPO loss math against the canonical
 -- deterministic PPO/cartpole rollout from

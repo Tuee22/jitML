@@ -5,21 +5,16 @@
 -- initial / step boundaries for the canonical @cartpole@
 -- (CartPole-v1), @mountain-car@ (MountainCar-v0), @lunar-lander@
 -- (LunarLander-v2, simplified rigid-body port of the Gym Box2D
--- reference), and @atari-subset@ (deterministic 128-byte RAM-state
--- stub matching the Atari action/obs surface) environments plus a
--- deterministic render-frame projection.
+-- reference) environments plus a deterministic render-frame projection.
 --
 -- The lunar-lander port is a pure-Haskell rigid-body simulation in
 -- the style of OpenAI Gym's @lunar_lander.py@ but written from the
 -- documented equations rather than depending on Box2D — bit-for-bit
 -- equivalence with Box2D is explicitly *not* a goal; same-substrate,
--- same-seed reproducibility is. Real Box2D / ALE FFI bindings would
--- introduce cross-version float drift and a 32 GB image rebuild for
--- limited deterministic-contract win; see Phase 8 Sprint 8.3 closure
--- notes for the chosen approach.
+-- same-seed reproducibility is. Atari 2600 execution is owned by
+-- "JitML.RL.ALE" so ROM bytes remain explicit and uncommitted.
 module JitML.RL.Simulator
-  ( AtariSubsetState (..)
-  , CartPoleState (..)
+  ( CartPoleState (..)
   , ContinuousEnvironment (..)
   , ContinuousSimStep (..)
   , LunarLanderState (..)
@@ -28,10 +23,6 @@ module JitML.RL.Simulator
   , RenderFrame (..)
   , SimStep (..)
   , SimulatedEnvironment (..)
-  , atariSubsetEnvironment
-  , atariSubsetInitial
-  , atariSubsetRenderFrame
-  , atariSubsetStep
   , cartPoleEnvironment
   , cartPoleInitial
   , cartPoleRenderFrame
@@ -465,74 +456,6 @@ lunarLanderTau = 0.0167
 lunarLanderCrashSpeed = 1.5
 lunarLanderUprightTolerance = 0.4
 lunarLanderOutOfBounds = 1.0
-
--- * Atari-subset deterministic stub
-
--- | Atari-subset state mirrors the Atari 2600 RAM-state observation
--- shape: a 128-byte buffer plus a step counter. This is *not* a real
--- Atari emulation — full ALE FFI plus per-game ROM licensing
--- handling is a much larger project tracked in the legacy ledger.
--- The deterministic-stub shape preserves the Atari action/obs
--- contract so upstream RL primitives (algorithm catalog, VecEnv) can
--- hook against it without code changes when the real ALE binding
--- lands.
-data AtariSubsetState = AtariSubsetState
-  { atariStep :: Int
-  , atariRamHash :: Int
-  }
-  deriving stock (Eq, Show)
-
-atariSubsetInitial :: AtariSubsetState
-atariSubsetInitial = AtariSubsetState 0 1
-
-atariSubsetEnvironment :: SimulatedEnvironment AtariSubsetState
-atariSubsetEnvironment =
-  SimulatedEnvironment
-    { envName = "atari-subset"
-    , envInitial = atariSubsetInitial
-    , envStep = atariSubsetStep
-    , envRenderFrame = atariSubsetRenderFrame
-    , envActionCount = 18
-    , envObservationSize = 128
-    }
-
--- | Advance the deterministic stub by one tick. The RAM hash mixes the
--- previous hash with the action through a splitmix-style integer
--- update so two invocations with the same @(state, action)@ produce
--- bit-identical successors. Reward is the low byte of the RAM hash
--- divided by 256 so it stays in @[0.0, 1.0)@. The episode terminates
--- deterministically at @atariSubsetEpisodeLength@ steps.
-atariSubsetStep :: AtariSubsetState -> Int -> SimStep AtariSubsetState
-atariSubsetStep state action =
-  let normalizedAction = action `mod` 18
-      mixed =
-        ( atariRamHash state * 6364136223846793005
-            + fromIntegral (normalizedAction + 1) * 1442695040888963407
-        )
-          `mod` 4294967296
-      stepNext = atariStep state + 1
-      next = AtariSubsetState stepNext mixed
-      done = stepNext >= atariSubsetEpisodeLength
-      reward = fromIntegral (mixed `mod` 256) / 256.0
-   in SimStep next reward done
-
-atariSubsetRenderFrame :: AtariSubsetState -> RenderFrame
-atariSubsetRenderFrame state =
-  RenderFrame
-    { renderObservation =
-        let baseHash = atariRamHash state
-            byteAt i =
-              fromIntegral ((baseHash + i * 31) `mod` 256) / 255.0
-         in fmap byteAt [0 .. 127]
-    , renderCaption =
-        "atari-subset step="
-          <> Text.pack (show (atariStep state))
-          <> " ram="
-          <> Text.pack (show (atariRamHash state))
-    }
-
-atariSubsetEpisodeLength :: Int
-atariSubsetEpisodeLength = 250
 
 -- * Pendulum-v1 (continuous action)
 

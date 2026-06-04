@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-15-cross-substrate-and-handoff.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific code quality and lint stack for jitML. Defers
@@ -48,22 +48,43 @@ Sprint `1.4` also owns the container-exclusive code-quality domain:
 code-quality execution domain, runs Haskell style/code-quality checks during
 image construction, and host lint/check-code execution is rejected before
 linting.
-`cabal.project` currently carries a scoped `allow-newer` block for
-Dhall / CBOR package bounds under GHC `9.14.1`; its removal is tracked in
-[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)
-and reopened Phase `1` Sprint `1.10`. The compatibility block is not a
-host-tooling issue and is not solved by changing the project compiler pin. The
-retirement gate is: remove the block in a temporary project file, prove the
-dependency solver succeeds under GHC `9.14.1`, then remove it from
-`cabal.project` and run the container-only `jitml check-code` gate. Until
-upstream `serialise` / `cborg` / `cborg-json` / Dhall bounds admit
-`base-4.22`, keep the scoped override and track upstream PRs or Hackage metadata
-revisions.
+`cabal.project` carries no `allow-newer` block. Sprint `1.10` removed the
+former scoped Dhall / CBOR override by pinning upstream `dhall-haskell` and
+`cborg` source snapshots with GHC `9.14.1`-compatible bounds and by vendoring
+the two small BSD-licensed `lens-family` source packages with their
+`containers <0.8` metadata bound relaxed to `<0.9` plus minimal GHC `9.14.1`
+warning-clean source hygiene in `lens-family-core`. This remains a dependency
+compatibility surface, not a host-tooling issue and not a reason to change the
+project compiler pin. The remaining cleanup is tracked in
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md):
+when Hackage releases or metadata revisions solve and build warning-clean under
+GHC `9.14.1` without source pins or local package patches, remove the
+source-pin/vendor helper and rerun the container-only `jitml check-code` gate.
+The latest Phase `15` recheck on 2026-06-04 used Hackage index-state
+`2026-06-04T16:46:08Z`; the helper remained necessary because unpinned
+Hackage `serialise` / `cborg-json` still reject `base-4.22`, unpinned Hackage
+`dhall` rejects GHC `9.14.1`'s `template-haskell-2.24`, and unvendored
+Hackage `lens-family` rejects `containers-0.8`.
+The file-lint traversal also skips `./.roms/`, matching `.gitignore` and
+`.dockerignore`, so explicit developer-supplied Atari ROM files can exist
+locally for optional manual ALE runs without entering Git, images, or text-file
+hygiene checks. Default examples and required canonical tests must remain
+copyright-free, and no native C/C++ ALE adapter source is checked in.
 
 ## jitML Project-Specific Lint Rules
 
 The doctrine doesn't address the chart, the route registry, or the
 PureScript frontend. The project-specific rules below extend the lint stack.
+
+### Static JIT Source Rejection (`jitml lint files`)
+
+Owned by `src/JitML/Lint/Stack.hs` (Sprint `7.7`). The file lint rejects
+checked-in CUDA `.cu`, C/C++ `.cc` / `.cpp`, Metal `.metal`, Swift `.swift`,
+and `build.sh` files. Native/JIT source belongs in Haskell `RuntimeSource`
+renderers and is materialized only under
+`./.build/jit-src/<substrate>/<hash>/` on cache miss. There is no checked-in
+foreign-language source allowlist; runtime adapter shims must also be generated
+by Haskell into the build/cache tree or supplied outside the repository.
 
 ### Chart-Shape Lint (`jitml lint chart`)
 
@@ -159,7 +180,9 @@ drift checks, required lint config checks, optional-directory checks for
 forbidden subprocess/terminal primitive scans. It also runs the external
 Haskell style stack through the typed `Subprocess` boundary and adds the
 warning-clean build gate. The `jitml:local` image construction path runs this
-same gate, and runtime use is supported only inside that image.
+same gate, and runtime use is supported only inside that image through the
+headless `docker compose run --rm jitml ...` service. The GPU-enabled
+`jitml-cuda` service is reserved for live CUDA tests, not code-quality runs.
 
 Sprint `1.4` closes with `jitml check-code` and the Docker image build running
 the full target stack:

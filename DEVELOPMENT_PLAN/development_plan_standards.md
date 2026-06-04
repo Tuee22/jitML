@@ -5,6 +5,7 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md),
 [system-components.md](system-components.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
+[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md),
@@ -26,8 +27,8 @@
 **Generated sections**: none
 
 > **Purpose**: Define the maintenance rules for the jitML development plan so the
-> repository keeps one coherent, execution-ordered plan and one explicit ledger of
-> cleanup work across the CLI bootstrap, the three-substrate cluster buildout, the
+> repository keeps one coherent, execution-ordered plan plus explicit cleanup and
+> development ledgers across the CLI bootstrap, the three-substrate cluster buildout, the
 > training and inference workloads, and the parity-validated test surface.
 
 ## Core Principles
@@ -73,11 +74,14 @@ project management summaries.
   or pluralised in plan or doctrine prose.
 - JIT build source is not checked in as static substrate files. Any source code
   artefact needed to compile a JIT kernel, including CUDA `.cu`, C/C++ `.cc` /
-  `.cpp`, Metal / Swift package sources, and per-substrate build `.sh` scripts,
-  is generated on demand by the Haskell `jitml` binary into the content-addressed
-  build/cache tree. Checked-in code may contain Haskell renderers, typed
-  templates, and tests for those renderers, but not ready-to-run kernel source
-  files or build scripts. On `apple-silicon`, the generated Swift package is
+  `.cpp`, Metal / Swift package sources, native adapter shims, and
+  per-substrate build `.sh` scripts, is generated on demand by the Haskell
+  `jitml` binary into the content-addressed build/cache tree. Checked-in code
+  may contain Haskell renderers, typed templates, and tests for those renderers,
+  but not ready-to-run native/JIT source files, adapter shims, or build scripts.
+  If a runtime path needs a native adapter, it belongs in a Haskell renderer and
+  is materialized under the generated build/cache tree; otherwise file lint
+  rejects it. On `apple-silicon`, the generated Swift package is
   built **on the host** with the Xcode CommandLineTools `swift build` (no full
   Xcode, no Tart VM) and the generated launcher JIT-compiles the embedded Metal
   Shading Language **at runtime, in-process**, via
@@ -152,6 +156,7 @@ DEVELOPMENT_PLAN/
 ├── 00-overview.md
 ├── system-components.md
 ├── legacy-tracking-for-deletion.md
+├── legacy-tracking-for-development.md
 ├── phase-0-planning-documentation.md
 ├── phase-1-haskell-cli-surface.md
 ├── phase-2-bootstrap-reconciler-and-jit-cache.md
@@ -276,6 +281,16 @@ removal.
   helpers, deprecated paths, and stand-ins are listed under `Pending Removal`, and
   completed removals are moved to `Completed`.
 
+[legacy-tracking-for-development.md](legacy-tracking-for-development.md) is the
+companion ledger for newly identified development obligations that reopen a
+previously closed phase but are not cleanup/deletion rows. Use it when the
+project intentionally expands or redirects an implemented surface, such as
+replacing a demo environment with a new repo-owned implementation. Each row must
+name the target surface, the current gap, the owning sprint(s), and the
+validation gate that moves the row to `Completed`. Do not use this ledger for
+temporary compatibility helpers or deprecated paths; those remain in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
 ### J. Documentation Harmony
 
 The plan and governed documents must agree.
@@ -349,6 +364,7 @@ Structure`).
 - [README.md](README.md)
 - [00-overview.md](00-overview.md)
 - [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
+- [legacy-tracking-for-development.md](legacy-tracking-for-development.md)
 - [../README.md](../README.md)
 - [../documents/documentation_standards.md](../documents/documentation_standards.md)
 
@@ -368,8 +384,11 @@ Structure`).
 3. Update the governed engineering docs listed in `Docs to update`.
 4. Update [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) whenever
    cleanup scope changes.
-5. Run `jitml check-code` inside `jitml:local` before closing the work (once Phase
+5. Update [legacy-tracking-for-development.md](legacy-tracking-for-development.md)
+   whenever reopened-phase development scope changes but no cleanup/deletion row
+   exists.
+6. Run `jitml check-code` inside `jitml:local` before closing the work (once Phase
    1 lands the command; until then, run `fourmolu --mode check`, `hlint`, and
    `cabal format` manually inside the container).
-6. If the change touched Mermaid, render every Mermaid block in `DEVELOPMENT_PLAN/`
+7. If the change touched Mermaid, render every Mermaid block in `DEVELOPMENT_PLAN/`
    and verify the edited diagram in the target viewer before closing the work.

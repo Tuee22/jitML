@@ -39,6 +39,7 @@ let RlRunConfig : Type =
       , maxSteps : Natural
       , evalEpisodes : Natural
       , trainerKind : Text
+      , atariRomPath : Optional Text
       , pulsarWsUrl : Text
       }
 

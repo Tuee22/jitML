@@ -384,10 +384,12 @@ prerequisite DAG. Homebrew packages may be installed lazily by `jitml` through
 Plan/Apply prerequisite remediation; shell scripts never install them.
 Current validation on 2026-05-23 runs the live cluster toolchain from the
 `jitml:local` image with the repository mounted at the same absolute host path;
-the root `compose.yaml` pins the `jitml` service to host networking so Kind
-kubeconfig loopback endpoints are reachable from the outer container. The Linux
-CPU bootstrap completes the 110-step live rollout and publishes all platform
-components as ready on edge port `9091`.
+the root `compose.yaml` pins the headless `jitml` service to host networking so
+Kind kubeconfig loopback endpoints are reachable from the outer container. The
+GPU-enabled `jitml-cuda` companion service uses the same image and mount shape,
+adding only `gpus: all` for direct live CUDA tests that need device exposure in
+the outer container. The Linux CPU bootstrap completes the 110-step live
+rollout and publishes all platform components as ready on edge port `9091`.
 
 2026-05-23 Linux CUDA live validation on a GPU host (NVIDIA GeForce RTX 5090,
 CUDA 12.8) closes both Phase `4` Sprint `4.7` and the CUDA portion of Phase
