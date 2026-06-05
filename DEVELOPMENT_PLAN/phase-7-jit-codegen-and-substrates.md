@@ -15,8 +15,8 @@
 > **Purpose**: Stand up the per-substrate Haskell JIT source renderers (Metal,
 > oneDNN C++, CUDA), the engine ABI between the Haskell daemon and the
 > substrate-specific kernels, the content-addressed cache key inputs from the
-> numerical core, the Apple Silicon hybrid pattern (host daemon + lazy tart
-> spin-up + cluster RPC envelope), and the hardware auto-tuning surface that
+> numerical core, the Apple Silicon hybrid pattern (host daemon + headless
+> Swift/Metal build + cluster RPC envelope), and the hardware auto-tuning surface that
 > preserves the per-substrate determinism contract.
 
 ## Phase Status
@@ -130,25 +130,10 @@ hash, and renders the final runtime source/cache key from the selected
 `TuningChoice`. `JitML.Engines.TuningBenchmark` also exposes guarded
 `cudaBenchmarkCandidateRunner` and `metalBenchmarkCandidateRunner` boundaries:
 they reject wrong-substrate candidates, probe CUDA/Metal runtime availability,
-and fail closed until the live FFI candidate execution paths exist.
-**Unmet today**:
-Sprint `7.5` owes Metal FFI loading + live host↔cluster RPC
-(`JitML.Tart.Build` now renders and executes the ordered Apple cache-miss
-plan from VM ensure/postcondition validation through Swift build, cache
-publication, and stable symlink repointing; `JitML.Tart.Lifecycle` probes
-`tart list --source local --format json`, starts stopped VMs with
-`tart run --no-graphics`, and polls `tart exec <vm> true`; the
-synthetic executor tests still validate ordered success and failure
-short-circuiting; generated Swift metadata symbols are present;
-`JitML.Engines.MetalRuntime` probes host Swift / `xcrun` compiler tools and
-Metal device visibility; local Tart `2.31.0` is present, but no `jitml-build`
-VM exists and the live Metal FFI / RPC runtime is still absent);
-Sprint `7.6` owes the live Metal candidate measurement implementation
-behind the Metal preflight runner boundary, first-cache-miss benchmark
-invocation, and cross-substrate equality once the Apple Silicon runtime
-exists; the live CUDA candidate measurement closed on 2026-05-24 alongside
-Sprint `7.4`. Detailed remaining work lives in each sprint's
-`### Remaining Work` block below.
+and run only when the local host exposes the matching runtime. Sprint `7.8`
+replaced the former Tart VM cache-miss path with host CommandLineTools
+`swift build` plus runtime `MTLDevice.makeLibrary(source:)`; Phase `14` and
+Phase `15` live validation consumed that current Apple path.
 
 ## Phase Summary
 
@@ -161,9 +146,7 @@ measured tuning selections, generic benchmark measurement collection with
 output-digest capture, persisted-choice cache-key derivation, and a shared
 `JitML.Engines.Loader` artifact path that materializes source, fills cache
 misses through typed compile subprocesses, reports cache hits, and provides the
-local `dlopen` symbol boundary, plus
-Tart command/state helpers and the Apple cache-miss build plan/executor
-boundary. The local build
+local `dlopen` symbol boundary. The local build
 plan surface renders CUDA / oneDNN C++ / Metal-Swift compiler inputs under
 `./.build/jit-src/<substrate>/<hash>/` and routes the compile command through
 typed `Subprocess` values. `src/JitML/Engines/Local.hs` provides the first
@@ -574,15 +557,14 @@ sections from [../README.md](../README.md).
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Every live
-Apple-Silicon obligation (Tart VM provisioning, Metal FFI loading,
+Apple-Silicon obligation (retired Tart provisioning, Metal FFI loading,
 host↔cluster Pulsar RPC, Apple Metal candidate runner, Apple Metal
 production weight loading) migrated to Phase `14`. See
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md).
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalRuntime.hs`,
-`src/JitML/Service/AppleInferenceRpc.hs`,
-`src/JitML/Tart/Build.hs`, `src/JitML/Tart/Lifecycle.hs`,
-`src/JitML/Tart/Exec.hs`
+`src/JitML/Engines/MetalLocal.hs`,
+`src/JitML/Service/AppleInferenceRpc.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`,
 `documents/engineering/daemon_architecture.md`
@@ -590,18 +572,22 @@ production weight loading) migrated to Phase `14`. See
 ### Objective
 
 Land the `apple-silicon` engine metadata, generated Swift/Metal package
-renderer, Tart subprocess rendering, and Apple RPC topic names; grow real
-Metal execution, Tart spin-up, and host↔cluster message flow per
-`### Remaining Work` below.
+renderer, host CommandLineTools `swift build` cache-miss path, runtime
+`MTLDevice.makeLibrary(source:)` shader compilation, and Apple RPC topic names.
+The deleted Tart VM executor and `jitml internal vm` command group are no
+longer part of this surface.
 
 ### Deliverables
 
 - `engineForSubstrate AppleSilicon` records backend `metal` and artifact
   extension `.dylib`.
-- `renderMetalPackage` emits `Package.swift`, a Swift source file, and
-  `Kernels.metal` into the runtime source bundle.
-- `compileSubprocess` renders `tart exec jitml-build swift build
-  --package-path <generated-source-dir> -c release`.
+- `renderMetalPackage` emits `Package.swift` and
+  `Sources/JitMLMetal/JitMLMetal.swift`; the Swift source embeds the MSL string
+  instead of writing a separate `Kernels.metal` resource.
+- `compileSubprocess` renders host CommandLineTools `swift build
+  --package-path <generated-source-dir> -c release`; the generated Swift
+  launcher embeds the MSL source and compiles it at runtime with
+  `MTLDevice.makeLibrary(source:)` and fast-math disabled.
 - The route/topic documentation records `inference.command.apple-silicon` and
   `inference.event.apple-silicon` as the target host↔cluster RPC topics.
   `JitML.Proto.Inference` defines typed Apple-only command/event envelopes for
@@ -615,36 +601,19 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
   uses `simd_sum` with single-stream launch ordering). The threadgroup
   axis is enumerated by `Engines.Tuning.appleSiliconKnobs`.
 - Generated Swift source exports `jitml_kernel_family_name` and
-  `jitml_kernel_output_count` metadata symbols so future Metal FFI loading can
-  inspect the loaded family and output shape through the same metadata contract
-  used by the Linux CPU local runner. Reduction metadata reports the
-  deterministic simdgroup partial-output count (`ceil(n / 32)`).
-- `JitML.Tart.Build.tartCacheMissBuildPlan` renders the ordered Apple
-  first-cache-miss plan: ensure the `jitml-build` VM, validate the VM Swift
-  toolchain with `tart exec jitml-build swift --version`, run `swift build`
-  against the generated package, copy the produced
+  `jitml_kernel_output_count` metadata symbols so Metal FFI loading can inspect
+  the loaded family and output shape through the same metadata contract used by
+  the Linux CPU local runner. Reduction metadata reports the deterministic
+  simdgroup partial-output count (`ceil(n / 32)`).
+- `JitML.Engines.Loader.ensureKernelArtifact` runs the ordered Apple
+  first-cache-miss plan on the host: validate the CommandLineTools Swift
+  toolchain, run `swift build` against the generated package, publish
   `libJitMLMetal.dylib` into `./.build/jit/apple-silicon/<hash>.dylib`, and
   repoint the host-stable FFI symlink through
-  `JitML.Cache.Symlink.repointSymlink`. The companion
-  `executeTartCacheMissBuildPlan` API supplies the concrete IO executor used
-  by `JitML.Engines.Loader.ensureKernelArtifact` for Apple cache misses:
-  `JitML.Tart.Lifecycle.ensureVmUpLive` inspects `tart list --source local
-  --format json`, starts a stopped VM with `tart run --no-graphics`, polls
-  `tart exec <vm> true` for readiness, then executes the Swift validation /
-  build / cache-publish subprocesses and repoints the stable symlink. The
-  lower-level `executeTartCacheMissBuildPlanWith` API remains available for
-  synthetic unit tests and alternate executors.
-- `JitML.Tart.Lifecycle` also owns the user-facing live VM lifecycle helpers:
-  `bootstrapTartVmLive` clones the default Tart source image
-  (`ghcr.io/cirruslabs/macos-sequoia-xcode:16`) into `jitml-build` when
-  missing, `queryTartVmStatus` reports missing/stopped/running from
-  `tart list --source local --format json`, and `stopTartVmLive` stops a
-  running VM through `tart stop`. `jitml internal vm bootstrap|up|down|status`
-  now dispatch to those helpers and report the resulting status instead of
-  writing the old repo-local VM state marker.
+  `JitML.Cache.Symlink.repointSymlink`.
 - `JitML.Engines.MetalRuntime.probeMetalRuntime` establishes the typed host
-  Metal runtime availability boundary for the future host FFI launcher: it
-  probes `swift --version`, `xcrun -find metal`, `xcrun -find swiftc`, and
+  Metal runtime availability boundary for the host FFI launcher: it probes
+  `swift --version`, `xcrun -find metal`, `xcrun -find swiftc`, and
   `system_profiler SPDisplaysDataType` through typed subprocesses, parses Swift
   version/tool paths and Metal device visibility, and renders a stable probe
   summary.
@@ -654,34 +623,28 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
   reply topics, publishes the command through `HasPulsar.pulsarPublish`, and
   correlates completed/error `AppleInferenceEvent` envelopes back to the
   original call id.
-- Metal FFI loading, MinIO tensor handoff, and live Pulsar RPC are owned
+- Metal FFI loading, MinIO tensor handoff, and live Pulsar RPC are live-closed
   by [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
-  Sprints `14.2` and `14.4` after the refactor; this sprint's code-surface
-  obligations (Swift package renderer, Tart command plan, lifecycle helpers,
-  Metal probe, RPC planning surface) are met.
+  Sprints `14.2` and `14.4`; this sprint's current code-surface obligations
+  (Swift package renderer, host build plan, Metal probe, RPC planning surface)
+  are met.
 
 ### Validation
 
 1. `docker compose run --rm jitml jitml build --dry-run --substrate
-   apple-silicon` on 2026-05-22 renders a generated Swift/Metal source
-   directory and Tart `swift build` subprocess.
+   apple-silicon` renders a generated Swift/Metal source directory and host
+   `swift build` subprocess.
 2. `docker compose run --rm jitml cabal test jitml-unit` on 2026-05-22
    validates that the generated Swift package exports
    `jitml_kernel_family_name` and `jitml_kernel_output_count`, that reduction
    output-count metadata matches the simdgroup partial-output shape, and that
    the Apple Silicon rendered-source cache-key snapshot changes when the Swift
-   payload changes. The same test stanza validates the typed
-   `JitML.Tart.Build` executor boundary by checking ordered host/command
-   execution and failure short-circuiting at the copy step.
-   `docker compose run --rm jitml cabal test jitml-unit
-   --test-options='-p Tart'` on 2026-05-22 also validates the
-   `JitML.Tart.Lifecycle` parser for missing/stopped/running VM states and
-   the rendered live `tart clone`, `tart list`, `tart run --no-graphics`, and
-   `tart stop` command boundaries plus status rendering.
+   payload changes. The same test stanza validates the host build/cache
+   publication boundary and the absence of the retired Tart prerequisite.
 3. `docker compose build jitml` and
    `docker compose run --rm jitml jitml build --dry-run --substrate
    apple-silicon` on 2026-05-22 validate the installed container CLI renders
-   the `apple_cache_miss` plan with VM Swift-version validation, generated
+   the `apple_cache_miss` plan with host Swift-version validation, generated
    package build, content-addressed `.dylib` publish, and stable FFI symlink
    repoint steps.
 4. `docker compose run --rm jitml cabal test jitml-daemon-lifecycle` on
@@ -695,11 +658,10 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
    jitml-integration --test-options='-p Metal'` validates the live typed
    subprocess probe logs Swift, `xcrun`, and `system_profiler` attempts even
    when the local validation environment is not macOS.
-6. Live validation (target): on the first JIT cache miss for `apple-silicon`,
-   the typed lifecycle spins up the `jitml-build` Tart VM, runs
-   `swift build` inside it, atomically writes the resulting `.dylib` under
-   `./.build/jit/apple-silicon/`, repoints the host-stable symlink, and
-   the host daemon loads the kernel through the FFI. The cluster orchestrator
+6. Live validation: on the first JIT cache miss for `apple-silicon`, the host
+   CommandLineTools build atomically writes the resulting `.dylib` under
+   `./.build/jit/apple-silicon/`, repoints the host-stable symlink, and the
+   host daemon loads the kernel through FFI. The cluster orchestrator
    round-trips a typed `(call-id, kind, model-id, inputs)` envelope on
    `inference.command.apple-silicon` and gets a typed reply on
    `inference.event.apple-silicon`.
@@ -707,9 +669,8 @@ Metal execution, Tart spin-up, and host↔cluster message flow per
 ### Remaining Work
 
 - No sprint-owned code-surface Remaining Work remains for Sprint `7.5`.
-  Apple Silicon live validation (Tart VM provisioning + first-cache-miss
-  build, Metal FFI loading, host↔cluster Pulsar RPC, full host-resident
-  inference) is owned by
+  Apple Silicon live validation (first-cache-miss host build, Metal FFI
+  loading, host↔cluster Pulsar RPC, full host-resident inference) is closed by
   [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
   Sprints `14.1`, `14.2`, `14.4`.
 
@@ -851,10 +812,9 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
   drives the deterministic benchmark plan, persists the lowest-latency
   selection through `TuningStore`, and re-resolves the tuned
   `TuningCachePlan` before invoking `ensureKernelArtifact`. `jitml build`
-  now routes Linux CPU and Linux CUDA non-dry-run builds through the
-  tuned ensure path, leaving the apple-silicon Tart cache-miss path on
-  the direct ensure boundary until Phase `14` Sprint `14.3` fills in the
-  Metal candidate runner. The 2026-05-24 in-container
+  routes Linux CPU and Linux CUDA non-dry-run builds through the tuned ensure
+  path; Phase `14` Sprint `14.3` closed the Apple Metal candidate-runner live
+  path on top of the same headless Swift/Metal build surface. The 2026-05-24 in-container
   `cabal test jitml-unit -p "ensureTuningSelection"` validates the
   synthetic runner is invoked exactly once per candidate on first call
   and is not invoked again on the cached re-resolution. The live runtime
@@ -915,9 +875,9 @@ runtime adapter path.
 2. `jitml build --dry-run --substrate linux-cpu` shows oneDNN C++ generated
    under `./.build/jit-src/linux-cpu/<hash>/`.
 3. `jitml build --dry-run --substrate apple-silicon` shows Swift / Metal
-   generated under `./.build/jit-src/apple-silicon/<hash>/` before the
-   `tart exec jitml-build swift build` command; revalidated on 2026-05-21
-   against local Tart `2.31.0`.
+   generated under `./.build/jit-src/apple-silicon/<hash>/` before the host
+   CommandLineTools `swift build --package-path <generated-source-dir> -c release`
+   command; the former Tart executor path is retired.
 4. Removing documentation-only substrate folders does not change any JIT build
    plan or cache key.
 5. `jitml-unit` snapshot tests prove `renderRuntimeSource` is deterministic and

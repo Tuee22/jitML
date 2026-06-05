@@ -524,7 +524,7 @@ internalCommand =
   group
     "internal"
     "Run internal support commands."
-    "Internal commands used by bootstrap, substrate, cache, VM, and GC workflows."
+    "Internal commands used by bootstrap, substrate, dataset upload, cache, and GC workflows."
     [ leaf
         "materialize-substrate"
         "Materialize substrate files."

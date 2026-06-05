@@ -344,7 +344,6 @@ Dhall schema files, renderers, and the local SIGHUP reload-decision surface.
 - `LiveConfig` carries:
   - `logLevel : LogLevel`
   - `retryPolicy : RetryPolicy`
-  - `tartIdleTimeout : Optional Natural` (Apple host-native only)
   - `inferenceBatchSize`, `inferenceMaxLatencyMillis`
   - `dedupCacheSize`, `dedupCacheTtlSeconds`
   - `drainDeadlineSeconds`
@@ -898,8 +897,8 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
 
 1. `cabal build all` clean; `cabal test jitml-unit` green (LiveConfig
    round-trip + daemon-surface golden updated).
-2. `grep -rn "tartIdleTimeout" src dhall documents` returns nothing outside the
-   legacy-ledger Completed record after closure.
+2. `grep -rn "tartIdleTimeout" src dhall chart` returns nothing after closure;
+   governed docs keep only historical removal notes.
 
 ### Remaining Work
 

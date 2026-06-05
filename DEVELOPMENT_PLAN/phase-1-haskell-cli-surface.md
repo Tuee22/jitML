@@ -179,7 +179,7 @@ Generated Documentation`.
   `lint files|docs|proto|chart|haskell|purescript|all`, `docs check`,
   `docs generate`, `check-code`, `build`, `kubectl`,
   `internal materialize-substrate`, `internal list-prereqs`, `internal gc`,
-  `internal vm bootstrap|up|down|status|exec`, `internal cache stat|list|evict`,
+  `internal upload-dataset`, `internal cache stat|list|evict`,
   `commands`, and `help`. Each leaf carries at least one `Example`.
 - The parser in `src/JitML/CLI/Parser.hs` is generated from the registry — it is
   a renderer of the spec, not its own source. Hand-written

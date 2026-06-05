@@ -181,9 +181,8 @@ Per doctrine `Long-Running Daemons in the Same Binary`, `jitml service`:
 
 - `BootConfig` Dhall: `substrate`, `residency`, `inferenceMode`, Pulsar /
   MinIO / Harbor connection info, HTTP listener.
-- `LiveConfig` Dhall: log level, `RetryPolicy`, `tartIdleTimeout` (Apple;
-  removal scheduled — Phase 5 Sprint `5.8`), inference batch / latency, dedup
-  cache size / TTL, `drainDeadlineSeconds`.
+- `LiveConfig` Dhall: log level, `RetryPolicy`, inference batch / latency,
+  dedup cache size / TTL, `drainDeadlineSeconds`.
 - SIGHUP triggers `LiveConfig` reload; restart-required field changes emit
   `AppError InvalidConfig` with exit `2`.
 - `/healthz`, `/readyz`, `/metrics` are mandatory.

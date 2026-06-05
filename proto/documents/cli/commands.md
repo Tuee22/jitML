@@ -368,24 +368,38 @@ Verify same-run determinism.
 
 Verify cross-backend parity.
 
-Runs an experiment across backend substrates and checks configured tolerances.
+Runs or compares the Sprint 15.1 weighted cross-substrate cohort and checks configured tolerances.
 
 ```text
-jitml verify cross-backend --experiment <experiment-dhall> --backends <list>
+jitml verify cross-backend --experiment <experiment-dhall> [--backends <list>] [--export <path>] [--compare <paths>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `--experiment <experiment-dhall>` | value | yes | Experiment Dhall file. |
-| `--backends <list>` | value | yes | Comma-separated backend list. |
+| `--backends <list>` | value | no | Comma-separated substrate list to run locally. |
+| `--export <path>` | value | no | Write the local cohort report bundle to this path. |
+| `--compare <paths>` | value | no | Comma-separated cross-host report bundle paths to compare. |
 
 Examples:
 
 ```text
-jitml verify cross-backend --experiment experiments/mnist.dhall --backends cpu,cuda
+jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu,linux-cuda
 ```
 
 Verify backend parity.
+
+```text
+jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json
+```
+
+Export an ephemeral Apple Silicon cohort report for cross-host comparison.
+
+```text
+jitml verify cross-backend --experiment experiments/mnist.dhall --compare /tmp/jitml-linux.json,/tmp/jitml-apple.json
+```
+
+Compare ephemeral cross-host cohort reports.
 
 
 ## `jitml verify replay`
@@ -462,12 +476,14 @@ Replay a manifest.
 Replays a cached manifest transcript.
 
 ```text
-jitml inspect replay <manifest-sha>
+jitml inspect replay [<manifest-sha>] [--manifest-sha <manifest-sha>] [--experiment-hash <experiment-hash>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
-| `<manifest-sha>` | positional | yes | Manifest SHA. |
+| `<manifest-sha>` | positional | no | Manifest SHA (omit when using --manifest-sha + --experiment-hash). |
+| `--manifest-sha <manifest-sha>` | value | no | Manifest SHA (alternative to the positional). |
+| `--experiment-hash <experiment-hash>` | value | no | Override the experiment hash directly (live MinIO lookup). |
 
 Examples:
 
@@ -475,7 +491,13 @@ Examples:
 jitml inspect replay abc123
 ```
 
-Replay a cached manifest.
+Replay a cached manifest from the local store.
+
+```text
+jitml inspect replay --manifest-sha abc123 --experiment-hash live-test-1
+```
+
+Replay a live-MinIO manifest by SHA.
 
 
 ## `jitml inspect trial`
@@ -601,14 +623,15 @@ Run inference at any point.
 Runs inference against latest, best/<metric>, or a manifest SHA checkpoint.
 
 ```text
-jitml inference run <experiment-dhall> --checkpoint <latest|best/<metric>|manifest-sha> [--trial <trial-hash>]
+jitml inference run [<experiment-dhall>] [--checkpoint <latest|best/<metric>|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
-| `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
-| `--checkpoint <latest\|best/<metric>\|manifest-sha>` | value | yes | Checkpoint selector. |
+| `<experiment-dhall>` | positional | no | Experiment Dhall file. |
+| `--checkpoint <latest\|best/<metric>\|manifest-sha>` | value | no | Checkpoint selector. |
 | `--trial <trial-hash>` | value | no | Optional tuning trial hash. |
+| `--experiment-hash <experiment-hash>` | value | no | Override the experiment hash directly (live MinIO lookup). |
 
 Examples:
 
@@ -618,19 +641,26 @@ jitml inference run experiments/mnist.dhall --checkpoint latest
 
 Run inference using the latest checkpoint.
 
+```text
+jitml inference run --experiment-hash abc123
+```
+
+Live-MinIO inference run against a known experiment hash.
+
 
 ## `jitml test all`
 
 Run all test stanzas.
 
-Runs every test-only Cabal stanza and renders the target-stanza report card.
+Runs every test-only Cabal stanza and renders the report card.
 
 ```text
-jitml test all [--dry-run] [--plan-file <path>]
+jitml test all [--live] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--live` | flag | no | Collect live report-card measurements after the Cabal stanzas pass. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -641,6 +671,12 @@ jitml test all --dry-run
 ```
 
 Print the aggregate test plan.
+
+```text
+jitml test all --live
+```
+
+Run the stanzas and append live report-card measurements.
 
 
 ## `jitml test jitml-unit`
@@ -1109,6 +1145,40 @@ jitml internal list-prereqs
 List prerequisite checks.
 
 
+## `jitml internal upload-dataset`
+
+Upload a real dataset blob to MinIO.
+
+Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/<data|labels>.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin) or labels (labels.bin).
+
+```text
+jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]
+```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--name <name>` | value | no | Dataset name (e.g., MNIST). |
+| `--split <split>` | value | no | Dataset split (train/validation/test). |
+| `--artifact <artifact>` | value | no | Artifact kind (images/labels); defaults to images. |
+| `--path <path>` | value | no | Local file path to upload. |
+| `--dry-run` | flag | no | Print the plan without applying it. |
+| `--plan-file <path>` | value | no | Write the plan to a file. |
+
+Examples:
+
+```text
+jitml internal upload-dataset --name MNIST --split train --path /tmp/train-images-idx3-ubyte.gz
+```
+
+Upload the canonical MNIST training images to the live MinIO bucket.
+
+```text
+jitml internal upload-dataset --name MNIST --split train --artifact labels --path /tmp/train-labels-idx1-ubyte.gz
+```
+
+Upload the canonical MNIST training labels alongside the images.
+
+
 ## `jitml internal gc`
 
 Apply checkpoint retention.
@@ -1132,105 +1202,6 @@ jitml internal gc exp123
 ```
 
 Apply retention to an experiment.
-
-
-## `jitml internal vm bootstrap`
-
-Bootstrap the VM.
-
-Creates or updates the Tart VM image.
-
-```text
-jitml internal vm bootstrap
-```
-
-Examples:
-
-```text
-jitml internal vm bootstrap
-```
-
-Bootstrap the VM.
-
-
-## `jitml internal vm up`
-
-Start the VM.
-
-Starts the Apple Silicon VM.
-
-```text
-jitml internal vm up
-```
-
-Examples:
-
-```text
-jitml internal vm up
-```
-
-Start the VM.
-
-
-## `jitml internal vm down`
-
-Stop the VM.
-
-Stops the Apple Silicon VM.
-
-```text
-jitml internal vm down
-```
-
-Examples:
-
-```text
-jitml internal vm down
-```
-
-Stop the VM.
-
-
-## `jitml internal vm status`
-
-Report VM status.
-
-Prints VM status.
-
-```text
-jitml internal vm status
-```
-
-Examples:
-
-```text
-jitml internal vm status
-```
-
-Inspect VM status.
-
-
-## `jitml internal vm exec`
-
-Run a command in the VM.
-
-Passes a command through to the Apple Silicon VM.
-
-```text
-jitml internal vm exec -- <cmd...>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `-- <cmd...>` | remainder | yes | Command and arguments to execute. |
-
-Examples:
-
-```text
-jitml internal vm exec -- uname -a
-```
-
-Run a VM debugging command.
 
 
 ## `jitml internal cache stat`

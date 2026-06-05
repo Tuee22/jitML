@@ -15,8 +15,8 @@
 > **Purpose**: Stand up the three stage-0 substrate bootstrap entrypoints, the
 > Haskell `jitml bootstrap --<substrate>` reconciler, the typed prerequisite DAG
 > that performs lazy package validation/remediation, the content-addressed JIT
-> cache discipline, the Apple Silicon stable-FFI symlink surface and lazy tart
-> spin-up, and the outer-container Linux build flow.
+> cache discipline, the Apple Silicon stable-FFI symlink surface and headless
+> host Swift/Metal build, and the outer-container Linux build flow.
 
 ## Phase Status
 
@@ -45,10 +45,10 @@ the stage-0 scripts fail fast on host gates and delegate to
 `jitml bootstrap --<substrate>`, the typed prerequisite DAG performs
 renderable/applicable Homebrew remediation with postcondition validation,
 the typed JIT cache key/layout/manifest/symlink layer is in place, the
-one-service `compose.yaml` and `jitml:local` image definition exist,
-the Tart command surface is typed, and the script-side `status`, `test`,
-`down`, `purge`, and `purge --full` wrappers are wired without
-intentionally touching global user state.
+single `jitml:local` image plus the `jitml` / `jitml-cuda` compose wrappers
+exist, the retired Tart/VM command surface is absent, and the script-side
+`status`, `test`, `down`, `purge`, and `purge --full` wrappers are wired
+without intentionally touching global user state.
 
 ### Reopened (2026-05-29)
 
@@ -98,11 +98,11 @@ toolchain-fingerprint, rendered-source-payload, tuning-choice)`, the generated
 compiler-input source root at
 `./.build/jit-src/<substrate>/<hash>/`, the `manifest.json` index, and the Apple
 Silicon `./.build/host/apple-silicon/` stable-FFI symlink surface. The phase also
-owns the local Tart command/state scaffold, the single Dockerfile producing the
-baseline `jitml:local` image, and the one-service compose file. The substrate
-image is **always**
+owns the single Dockerfile producing the baseline `jitml:local` image and the
+root compose wrappers over that image. The substrate image is **always**
 `jitml:local` — substrate is a runtime Dhall choice, never an image-name
-dimension.
+dimension. The former local Tart command/state scaffold was retired by Sprint
+`2.10`.
 
 ## Sprint 2.1: Stage-0 Bootstrap Gates and Delegation ✅
 
@@ -235,8 +235,9 @@ lazy package validation and remediation.
   with the Sprint `2.2` toolchain prerequisites installed.
 - [x] Add typed Homebrew package prerequisite/remediation nodes and
   snapshot plan-render tests.
-- [x] Ensure `tart` is validated/installed only on first Apple JIT cache miss,
-  never during stage-0 bootstrap or host-daemon startup.
+- [x] Ensure Apple JIT cache-miss prerequisites are absent from stage-0
+  bootstrap and host-daemon startup; the old Tart node was later deleted by
+  Sprint `2.10`.
 
 ### Closure Validation
 
@@ -244,10 +245,10 @@ lazy package validation and remediation.
   package nodes through typed remediation actions and postcondition validation.
 - `jitml doctor --scope toolchain` exits `0` on this Apple Silicon host after
   stage-0 `bootstrap/apple-silicon.sh doctor`.
-- `container.tart` remains registered, but it is reachable only from
-  `container.apple-silicon.jit-cache-miss`; the Apple bootstrap/container
-  prerequisite closure does not validate tart during stage-0 bootstrap or
-  host-daemon startup.
+- The Apple bootstrap/container prerequisite closure does not validate any
+  cache-miss-only Apple build prerequisite during stage-0 bootstrap or
+  host-daemon startup. The later Sprint `2.10` deletion removed the old
+  `container.tart` node entirely.
 
 ## Sprint 2.3: JIT Cache Layout and Content Addressing ✅
 
@@ -399,57 +400,43 @@ command materializes bootstrap inputs only.
 
 None.
 
-## Sprint 2.5: Apple Silicon Lazy Tart Spin-Up and `internal vm exec` ✅
+## Sprint 2.5: Superseded Apple Silicon VM Scaffold ✅
 
 **Status**: Done
-**Implementation**: `src/JitML/Tart/Lifecycle.hs`, `src/JitML/Tart/Exec.hs`,
-`src/JitML/App.hs`
+**Implementation**: Superseded by Sprint `2.10`; no current `src/JitML/Tart/*`
+modules or `jitml internal vm` commands remain
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`
 
 ### Objective
 
-Deliver the local Tart command/state scaffold that the target lazy VM contract
-will consume. The target contract is that the host daemon's startup path never
-touches tart; on a JIT cache miss the daemon calls `ensureVmUp jitml-build`; the
-VM stays up for the daemon's lifetime once spun up; an idle timeout (default
-30 min, configurable in `LiveConfig`) brings it down again.
+This sprint originally delivered a local VM scaffold for the then-planned Apple
+cache-miss build path. The current repository no longer uses that path:
+Sprint `7.8` moved Apple Metal to a host CommandLineTools `swift build` plus
+runtime `MTLDevice.makeLibrary(source:)`, and Sprint `2.10` deleted the VM
+prerequisite, CLI, and modules.
 
 ### Deliverables
 
-- Current `ensureVmUp :: FilePath -> VmName -> IO ()` materializes
-  `./.build/runtime/<vm>.state` with `up` for the original scaffold. Sprint
-  `7.5` has since added the live Tart lifecycle path:
-  `bootstrapTartVmLive` clones the default source image into `jitml-build` when
-  missing, `queryTartVmStatus` parses `tart list --source local --format json`,
-  `ensureVmUpLive` starts stopped VMs with `tart run --no-graphics` and polls
-  `tart exec <vm> true`, and `stopTartVmLive` stops running VMs with
-  `tart stop`.
-- Current `tartExecSubprocess` renders the typed `tart exec <vm> <cmd>`
-  command used by `jitml internal vm exec -- <cmd>`.
-- Target Swift-build dispatch will render the Swift / Metal package under
-  `./.build/jit-src/apple-silicon/<hash>/`, run `swift build` through the typed
-  subprocess boundary, atomically write the produced `.dylib` into
-  `./.build/jit/apple-silicon/`, and repoint the stable symlink per Sprint `2.3`.
-- Target `LiveConfig.tartIdleTimeout : Optional Natural` (seconds; default
-  `1800`) controls VM idle shutdown once the real host daemon exists.
+- No current deliverable remains in this sprint. The current Apple path renders
+  Swift / Metal package inputs under `./.build/jit-src/apple-silicon/<hash>/`,
+  runs host `swift build` through the typed subprocess boundary, atomically
+  writes the produced `.dylib` into `./.build/jit/apple-silicon/`, repoints the
+  stable symlink per Sprint `2.3`, and compiles MSL at runtime in-process.
+- The removed VM command group and prerequisite are recorded in
+  [legacy-tracking-for-deletion.md → Completed](legacy-tracking-for-deletion.md#completed).
 
 ### Validation
 
-- `JitML.Tart.Lifecycle.ensureVmUp` materializes repo-local VM state under
-  `./.build/runtime/` without touching global state.
-- `jitml internal vm bootstrap|up|down|status` now dispatch to the live Tart
-  lifecycle helpers and report missing/stopped/running status.
-- `jitml internal vm exec -- <cmd>` renders the typed `tart exec` subprocess.
-- Cabal test stanzas exercise the local daemon lifecycle and subprocess
-  boundaries.
+- Sprint `2.10` validation is the current closure gate for this superseded
+  surface: no `jitml internal vm` commands exist in `CommandSpec`, no
+  `src/JitML/Tart/*` modules are present, generated CLI docs/manpages/
+  completions omit VM commands, and `container.tart` is absent from the
+  prerequisite registry.
 
 ### Target Integration Notes
 
-- First-cache-miss Tart startup and `swift --version` validation are wired in
-  Sprint `7.5`; provisioned-VM validation, reuse timing, idle shutdown, and
-  live Apple hardware execution remain target runtime work.
-- Cache-preserving `purge` plus subsequent inference cache resolution depends on
-  the future inference/JIT runtime path, not the local state scaffold.
+- First-cache-miss Apple execution now belongs to the headless host build path
+  in Sprint `7.8` and Phase `14`.
 
 ### Remaining Work
 
@@ -730,7 +717,8 @@ from [../README.md](../README.md).
   invariants, and (Sprint `2.8`) the `dhall/cluster/` resource profile +
   kind-node memory/CPU cap.
 - `documents/engineering/jit_codegen_architecture.md` — JIT cache layout,
-  content-addressing, Apple stable-FFI symlink surface, lazy tart pattern.
+  content-addressing, Apple stable-FFI symlink surface, and headless host
+  Swift/Metal build pattern.
 - `documents/engineering/daemon_architecture.md` / `haskell_code_guide.md` —
   (Sprint `2.9`) the reconciler `sh -c` → typed Haskell + `RetryPolicy`
   migration under `Subprocesses as Typed Values` / `Retry Policy as First-Class

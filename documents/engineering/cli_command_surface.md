@@ -51,7 +51,7 @@ handoff into `jitml bootstrap --<substrate>`. Sprint `2.2` has landed typed
 toolchain/container/cluster prerequisite nodes, `jitml doctor --remediate`,
 Homebrew remediation apply with postcondition validation, and the Apple
 host-build cache-miss prerequisite root (CommandLineTools `swift`; the
-`container.tart` node is removal-scheduled — Phase 2 Sprint `2.10`). The
+former `container.tart` node was removed by Phase 2 Sprint `2.10`). The
 `bootstrap` parser leaf validates
 substrate selection; the full cluster apply body continues in the later Phase
 `3` rollout work. Command implementations that perform daemon, cluster,

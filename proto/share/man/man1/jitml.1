@@ -66,7 +66,7 @@ Verify same\\-run determinism.
 .SS JITML VERIFY CROSS-BACKEND
 Verify cross\\-backend parity.
 .PP
-.B jitml verify cross\\-backend \\-\\-experiment <experiment\\-dhall> \\-\\-backends <list>
+.B jitml verify cross\\-backend \\-\\-experiment <experiment\\-dhall> [\\-\\-backends <list>] [\\-\\-export <path>] [\\-\\-compare <paths>]
 .SS JITML VERIFY REPLAY
 Verify checkpoint replay.
 .PP
@@ -82,7 +82,7 @@ Show a manifest.
 .SS JITML INSPECT REPLAY
 Replay a manifest.
 .PP
-.B jitml inspect replay <manifest\\-sha>
+.B jitml inspect replay [<manifest\\-sha>] [\\-\\-manifest\\-sha <manifest\\-sha>] [\\-\\-experiment\\-hash <experiment\\-hash>]
 .SS JITML INSPECT TRIAL
 Inspect a trial.
 .PP
@@ -106,11 +106,11 @@ Benchmark environment stepping.
 .SS JITML INFERENCE RUN
 Run inference at any point.
 .PP
-.B jitml inference run <experiment\\-dhall> \\-\\-checkpoint <latest|best/<metric>|manifest\\-sha> [\\-\\-trial <trial\\-hash>]
+.B jitml inference run [<experiment\\-dhall>] [\\-\\-checkpoint <latest|best/<metric>|manifest\\-sha>] [\\-\\-trial <trial\\-hash>] [\\-\\-experiment\\-hash <experiment\\-hash>]
 .SS JITML TEST ALL
 Run all test stanzas.
 .PP
-.B jitml test all [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.B jitml test all [\\-\\-live] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML TEST JITML-UNIT
 Run jitml\\-unit.
 .PP
@@ -199,30 +199,14 @@ Materialize substrate files.
 List prerequisite checks.
 .PP
 .B jitml internal list\\-prereqs
+.SS JITML INTERNAL UPLOAD-DATASET
+Upload a real dataset blob to MinIO.
+.PP
+.B jitml internal upload\\-dataset [\\-\\-name <name>] [\\-\\-split <split>] [\\-\\-artifact <artifact>] [\\-\\-path <path>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML INTERNAL GC
 Apply checkpoint retention.
 .PP
 .B jitml internal gc <experiment\\-hash> [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
-.SS JITML INTERNAL VM BOOTSTRAP
-Bootstrap the VM.
-.PP
-.B jitml internal vm bootstrap
-.SS JITML INTERNAL VM UP
-Start the VM.
-.PP
-.B jitml internal vm up
-.SS JITML INTERNAL VM DOWN
-Stop the VM.
-.PP
-.B jitml internal vm down
-.SS JITML INTERNAL VM STATUS
-Report VM status.
-.PP
-.B jitml internal vm status
-.SS JITML INTERNAL VM EXEC
-Run a command in the VM.
-.PP
-.B jitml internal vm exec \\-\\- <cmd...>
 .SS JITML INTERNAL CACHE STAT
 Print cache stats.
 .PP

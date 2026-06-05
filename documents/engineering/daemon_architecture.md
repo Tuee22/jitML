@@ -92,7 +92,6 @@ restart):
 |-------|------|---------|
 | `logLevel` | `LogLevel` | `Debug \| Info \| Warn \| Error` |
 | `retryPolicy` | `RetryPolicy` | Typed retry strategy |
-| `tartIdleTimeout` | `Optional Natural` | **Removal scheduled** (Phase 5 Sprint `5.8`) — the headless host Metal build needs no VM idle timeout; see [legacy ledger](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md) |
 | `inferenceBatchSize` | `Natural` | Per-batch inference budget |
 | `inferenceMaxLatencyMillis` | `Natural` | Inference SLO |
 | `dedupCacheSize` | `Natural` | Per-domain at-least-once dedup cache capacity |
@@ -151,10 +150,10 @@ is seeded.
 
 The live `chart/local/jitml-service` ConfigMap carries the same current Dhall
 surface: residency and inference mode use typed union constructors, and
-`LiveConfig` uses `logLevel`, `retryPolicy`, `tartIdleTimeout` (removal
-scheduled — Phase 5 Sprint `5.8`), `inferenceBatchSize`,
+`LiveConfig` uses `logLevel`, `retryPolicy`, `inferenceBatchSize`,
 `inferenceMaxLatencyMillis`, `dedupCacheSize`, `dedupCacheTtlSeconds`, and
-`drainDeadlineSeconds`.
+`drainDeadlineSeconds`; the former `tartIdleTimeout` field was removed by
+Phase 5 Sprint `5.8`.
 
 ## Hot Reload
 
