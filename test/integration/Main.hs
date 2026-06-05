@@ -655,6 +655,63 @@ main =
                 assertBool
                   "tune renders the TPE sampler from Dhall"
                   ("sampler: TPE" `Text.isInfixOf` tuneStdout)
+                -- Sprint 1.12 — train with --substrate / --seed Dhall
+                -- overrides emits the resolved values in the printed
+                -- summary so the override path is observable end-to-end.
+                (trainOverrideExit, trainOverrideStdout, _) <-
+                  runJitml
+                    [ "train"
+                    , Text.pack experimentPath
+                    , "--substrate"
+                    , "linux-cpu"
+                    , "--seed"
+                    , "42"
+                    ]
+                trainOverrideExit @?= ExitSuccess
+                assertBool
+                  "train override summary lists substrate"
+                  ("substrate=linux-cpu" `Text.isInfixOf` trainOverrideStdout)
+                assertBool
+                  "train override summary lists seed"
+                  ("seed=42" `Text.isInfixOf` trainOverrideStdout)
+                -- Sprint 1.12 — tune with --sampler / --trials Dhall
+                -- overrides emits the resolved values alongside the
+                -- decoded TPE Dhall (override never replaces; both surfaces
+                -- appear in output).
+                (tuneOverrideExit, tuneOverrideStdout, _) <-
+                  runJitml
+                    [ "tune"
+                    , Text.pack tunePath
+                    , "--sampler"
+                    , "Sobol"
+                    , "--trials"
+                    , "16"
+                    ]
+                tuneOverrideExit @?= ExitSuccess
+                assertBool
+                  "tune override summary lists sampler"
+                  ("sampler=Sobol" `Text.isInfixOf` tuneOverrideStdout)
+                assertBool
+                  "tune override summary lists trials"
+                  ("trials=16" `Text.isInfixOf` tuneOverrideStdout)
+                -- Sprint 1.12 — bare substrate aliases (cpu, cuda) fail
+                -- closed with a typed diagnostic naming the canonical
+                -- identifiers per Plan Standards rule B.
+                (badSubstrateExit, _, badSubstrateStderr) <-
+                  runJitml
+                    [ "train"
+                    , Text.pack experimentPath
+                    , "--substrate"
+                    , "cpu"
+                    ]
+                assertBool
+                  "invalid --substrate exits non-zero"
+                  (badSubstrateExit /= ExitSuccess)
+                assertBool
+                  "invalid --substrate diagnostic names canonical identifiers"
+                  ( "apple-silicon" `Text.isInfixOf` badSubstrateStderr
+                      || "linux-cpu" `Text.isInfixOf` badSubstrateStderr
+                  )
       , testCase "SelfPlayBuffer round-trips through filesystem HasMinIO (Sprint 9.5)" $
           -- Writes a deterministic SelfPlayBuffer to the typed `HasMinIO`
           -- filesystem instance, reads it back, and asserts the

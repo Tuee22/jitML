@@ -21,7 +21,16 @@ This doc defers to [../../README.md](../../README.md) for:
   `jitml help <subcommand>`.
 - **Standard Flag Families** — Plan/Apply (`--dry-run`, `--plan-file`),
   Daemon (`--config`, `--no-daemon`), Output (`--format`, `--color`,
-  `--no-color`).
+  `--no-color`), Dhall Overrides (Sprint 1.12; on `train` / `rl train`:
+  `--substrate`, `--seed`; on `tune`: `--sampler`, `--scheduler`,
+  `--pruner`, `--trials`, `--parallelism`) — overrides substitute on the
+  named axis only and never replace the surrounding Dhall record, per
+  [../../README.md → Why this exists](../../README.md#why-this-exists)
+  pillar 2 and
+  [../../README.md → Hyperparameter tuning, first-class](../../README.md#hyperparameter-tuning-first-class)
+  line 1050. Substrate-name values reject bare `cpu` / `cuda` aliases
+  (canonical identifiers `apple-silicon` / `linux-cpu` / `linux-cuda`
+  only). Implementation: `JitML.Experiment.Overrides.applyOverrides`.
 - **Output Rules** — stdout primary, stderr diagnostics; default `table` on
   TTY else `plain`.
 - **Generated Artifacts** — paired `jitml docs check` /
@@ -471,11 +480,13 @@ Run a supervised training job.
 Plans and applies a training job described by an experiment Dhall file.
 
 Usage:
-  jitml train <experiment-dhall> [--resume <checkpoint-id>] [--dry-run] [--plan-file <path>]
+  jitml train <experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]
 
 Options:
   <experiment-dhall>        Experiment Dhall file.
   --resume <checkpoint-id>  Checkpoint identifier to resume from.
+  --substrate <substrate>   Override the experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda).
+  --seed <word64>           Override the experiment Dhall's seed.
   --dry-run                 Print the plan without applying it.
   --plan-file <path>        Write the plan to a file.
 
@@ -483,6 +494,8 @@ Options:
 Examples:
   jitml train experiments/mnist.dhall
       Run a supervised training experiment.
+  jitml train experiments/mnist.dhall --substrate linux-cpu --seed 42
+      Run with a CLI substrate/seed override of the experiment Dhall.
 ```
 
 ### `jitml eval`
@@ -517,18 +530,27 @@ Run a hyperparameter sweep.
 Plans and applies a hyperparameter sweep described by a tuning Dhall file.
 
 Usage:
-  jitml tune <tune-dhall> [--resume <sweep-id>] [--dry-run] [--plan-file <path>]
+  jitml tune <tune-dhall> [--resume <sweep-id>] [--sampler <name>] [--scheduler <name>] [--pruner <name>] [--trials <natural>] [--parallelism <natural>] [--dry-run] [--plan-file <path>]
 
 Options:
-  <tune-dhall>         Tuning Dhall file.
-  --resume <sweep-id>  Sweep identifier to resume.
-  --dry-run            Print the plan without applying it.
-  --plan-file <path>   Write the plan to a file.
+  <tune-dhall>             Tuning Dhall file.
+  --resume <sweep-id>      Sweep identifier to resume.
+  --sampler <name>         Override the tuning sampler axis (Grid, Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES, CMAES, EvolutionStrategies, PBT).
+  --scheduler <name>       Override the tuning scheduler axis (Fifo, SuccessiveHalving, Hyperband, ASHA).
+  --pruner <name>          Override the tuning pruner axis (NoPruner, MedianPruner, PercentilePruner).
+  --trials <natural>       Override the tuning trial budget.
+  --parallelism <natural>  Override the tuning parallelism.
+  --dry-run                Print the plan without applying it.
+  --plan-file <path>       Write the plan to a file.
 
 
 Examples:
   jitml tune experiments/mnist-tune.dhall
       Run a tuning sweep.
+  jitml tune experiments/mnist-tune.dhall --sampler Sobol --trials 64 --parallelism 8
+      Override sampler, trial budget, and parallelism from the CLI.
+  jitml tune experiments/mnist-tune.dhall --sampler TPE --scheduler ASHA --pruner MedianPruner
+      Override every tuning axis from the CLI.
 ```
 
 ### `jitml rl train`
@@ -541,11 +563,13 @@ Train an RL policy.
 Plans and applies an RL training job.
 
 Usage:
-  jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--dry-run] [--plan-file <path>]
+  jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]
 
 Options:
   <rl-experiment-dhall>     RL experiment Dhall file.
   --resume <checkpoint-id>  Checkpoint identifier to resume from.
+  --substrate <substrate>   Override the RL experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda).
+  --seed <word64>           Override the RL experiment Dhall's seed.
   --dry-run                 Print the plan without applying it.
   --plan-file <path>        Write the plan to a file.
 
@@ -553,6 +577,8 @@ Options:
 Examples:
   jitml rl train experiments/cartpole.dhall
       Train an RL policy.
+  jitml rl train experiments/cartpole.dhall --substrate apple-silicon --seed 1729
+      Train with a CLI substrate/seed override of the RL Dhall.
 ```
 
 ### `jitml rl eval`

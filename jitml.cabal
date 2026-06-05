@@ -87,6 +87,7 @@ library
         JitML.Engines.TuningStore
         JitML.Env.Build
         JitML.Env.Env
+        JitML.Experiment.Overrides
         JitML.Generated.Paths
         JitML.Generated.Registry
         JitML.Lint.Chart

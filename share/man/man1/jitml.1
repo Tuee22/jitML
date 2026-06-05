@@ -38,7 +38,7 @@ Destructively reset cluster state.
 .SS JITML TRAIN
 Run a supervised training job.
 .PP
-.B jitml train <experiment\\-dhall> [\\-\\-resume <checkpoint\\-id>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.B jitml train <experiment\\-dhall> [\\-\\-resume <checkpoint\\-id>] [\\-\\-substrate <substrate>] [\\-\\-seed <word64>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML EVAL
 Run deterministic evaluation.
 .PP
@@ -46,11 +46,11 @@ Run deterministic evaluation.
 .SS JITML TUNE
 Run a hyperparameter sweep.
 .PP
-.B jitml tune <tune\\-dhall> [\\-\\-resume <sweep\\-id>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.B jitml tune <tune\\-dhall> [\\-\\-resume <sweep\\-id>] [\\-\\-sampler <name>] [\\-\\-scheduler <name>] [\\-\\-pruner <name>] [\\-\\-trials <natural>] [\\-\\-parallelism <natural>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML RL TRAIN
 Train an RL policy.
 .PP
-.B jitml rl train <rl\\-experiment\\-dhall> [\\-\\-resume <checkpoint\\-id>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.B jitml rl train <rl\\-experiment\\-dhall> [\\-\\-resume <checkpoint\\-id>] [\\-\\-substrate <substrate>] [\\-\\-seed <word64>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML RL EVAL
 Evaluate an RL policy.
 .PP

@@ -832,7 +832,21 @@ for the governing rule.
 ## Current Baseline
 
 Phases `0` through `15` are `✅ Done` — every Exit-Definition obligation those
-phases own is met. Phase `1` reopened and re-closed on 2026-06-04 after Sprint
+phases own is met. Phase `1` reopened then re-closed on 2026-06-04 after
+Sprint `1.12` landed the CLI Dhall override surface
+(`train --substrate / --seed`, `rl train --substrate / --seed`,
+`tune --sampler / --scheduler / --pruner / --trials / --parallelism`) honoring
+[../README.md → Hyperparameter tuning, first-class](../README.md#hyperparameter-tuning-first-class)
+line 1050 and pillar 2 at
+[../README.md → Why this exists](../README.md#why-this-exists). The
+pure `JitML.Experiment.Overrides.applyOverrides` resolver substitutes CLI
+values into the parsed experiment Dhall before validation; the README
+registry/tree, `documents/cli/commands.md`,
+`documents/engineering/cli_command_surface.md`, the manpage, and the shell
+completions were regenerated via `jitml docs generate`; the doctrine-deviation
+row in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
+moved to `Completed`. Phase `1` previously also reopened and re-closed on
+2026-06-04 after Sprint
 `1.10` removed the scoped `allow-newer` block and Sprint `1.11` moved the
 project to a single GHC `9.12.4` baseline with no source pins, no local
 dependency packages, and no reopened-phase development ledger. Phase `8` and

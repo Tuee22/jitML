@@ -82,6 +82,7 @@ import JitML.Engines.TuningCache qualified as TuningCache
 import JitML.Engines.TuningStore qualified as TuningStore
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env (..), OutputFormat (..))
+import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Generated.Paths
   ( TrackedGeneratedPath (..)
   , trackingGeneratedPaths
@@ -247,6 +248,52 @@ main =
               ( ["build", "--dry-run", "--substrate", "linux-cuda"]
               , ParsedCommand ["build"] [ParsedOption "substrate" ["linux-cuda"], ParsedOption "dry-run" []]
               )
+            , -- Sprint 1.12 — train --substrate / --seed Dhall overrides.
+
+              ( ["train", "experiments/mnist.dhall", "--substrate", "linux-cpu", "--seed", "42"]
+              , ParsedCommand
+                  ["train"]
+                  [ ParsedOption "experiment-dhall" ["experiments/mnist.dhall"]
+                  , ParsedOption "substrate" ["linux-cpu"]
+                  , ParsedOption "seed" ["42"]
+                  ]
+              )
+            , -- Sprint 1.12 — rl train --substrate / --seed Dhall overrides.
+
+              ( ["rl", "train", "experiments/cartpole.dhall", "--substrate", "apple-silicon", "--seed", "1729"]
+              , ParsedCommand
+                  ["rl", "train"]
+                  [ ParsedOption "rl-experiment-dhall" ["experiments/cartpole.dhall"]
+                  , ParsedOption "substrate" ["apple-silicon"]
+                  , ParsedOption "seed" ["1729"]
+                  ]
+              )
+            , -- Sprint 1.12 — tune --sampler / --scheduler / --pruner / --trials / --parallelism overrides.
+
+              (
+                [ "tune"
+                , "experiments/mnist-tune.dhall"
+                , "--sampler"
+                , "Sobol"
+                , "--scheduler"
+                , "ASHA"
+                , "--pruner"
+                , "MedianPruner"
+                , "--trials"
+                , "64"
+                , "--parallelism"
+                , "8"
+                ]
+              , ParsedCommand
+                  ["tune"]
+                  [ ParsedOption "tune-dhall" ["experiments/mnist-tune.dhall"]
+                  , ParsedOption "sampler" ["Sobol"]
+                  , ParsedOption "scheduler" ["ASHA"]
+                  , ParsedOption "pruner" ["MedianPruner"]
+                  , ParsedOption "trials" ["64"]
+                  , ParsedOption "parallelism" ["8"]
+                  ]
+              )
             ,
               ( ["help", "cluster", "up"]
               , ParsedCommand ["help"] [ParsedOption "subcommand" ["cluster", "up"]]
@@ -323,6 +370,97 @@ main =
                 writePlanFile path (renderPlan plan)
                 second <- Text.IO.readFile path
                 second @?= first
+      , testCase "Sprint 1.12 — substrate parser accepts canonical identifiers only" $ do
+          Substrate.parseSubstrate "apple-silicon" @?= Just Substrate.AppleSilicon
+          Substrate.parseSubstrate "linux-cpu" @?= Just Substrate.LinuxCPU
+          Substrate.parseSubstrate "linux-cuda" @?= Just Substrate.LinuxCUDA
+          -- Bare aliases must not parse — README.md:880 used `cpu,cuda`,
+          -- which is the contradiction Sprint 1.12 closes.
+          Substrate.parseSubstrate "cpu" @?= Nothing
+          Substrate.parseSubstrate "cuda" @?= Nothing
+          Substrate.parseSubstrate "apple" @?= Nothing
+          Substrate.parseSubstrate "linux" @?= Nothing
+          Substrate.parseSubstrate "" @?= Nothing
+      , testCase "Sprint 1.12 — train CLI overrides parse" $ do
+          let parsed =
+                Overrides.parseExperimentOverrides
+                  [ ParsedOption "substrate" ["linux-cpu"]
+                  , ParsedOption "seed" ["42"]
+                  ]
+          parsed
+            @?= Right
+              Overrides.ExperimentOverrides
+                { Overrides.eoSubstrate = Just Substrate.LinuxCPU
+                , Overrides.eoSeed = Just 42
+                }
+      , testCase "Sprint 1.12 — train CLI overrides default to empty" $ do
+          let parsed = Overrides.parseExperimentOverrides []
+          parsed @?= Right Overrides.emptyExperimentOverrides
+          Overrides.hasExperimentOverrides Overrides.emptyExperimentOverrides @?= False
+      , testCase "Sprint 1.12 — invalid --substrate value surfaces a typed error" $ do
+          let parsed = Overrides.parseExperimentOverrides [ParsedOption "substrate" ["cpu"]]
+          parsed @?= Left (Overrides.InvalidSubstrate "cpu")
+      , testCase "Sprint 1.12 — invalid --seed value surfaces a typed error" $ do
+          let parsed = Overrides.parseExperimentOverrides [ParsedOption "seed" ["not-a-number"]]
+          parsed @?= Left (Overrides.InvalidSeed "not-a-number")
+      , testCase "Sprint 1.12 — tune CLI overrides parse for every catalog axis" $ do
+          let parsed =
+                Overrides.parseTuningOverrides
+                  [ ParsedOption "sampler" ["TPE"]
+                  , ParsedOption "scheduler" ["ASHA"]
+                  , ParsedOption "pruner" ["MedianPruner"]
+                  , ParsedOption "trials" ["128"]
+                  , ParsedOption "parallelism" ["8"]
+                  ]
+          parsed
+            @?= Right
+              Overrides.TuningOverrides
+                { Overrides.toSampler = Just Tune.TPE
+                , Overrides.toScheduler = Just Tune.ASHA
+                , Overrides.toPruner = Just Tune.MedianPruner
+                , Overrides.toTrials = Just 128
+                , Overrides.toParallelism = Just 8
+                }
+      , testCase "Sprint 1.12 — invalid --sampler surfaces a typed error" $ do
+          let parsed = Overrides.parseTuningOverrides [ParsedOption "sampler" ["Bogus"]]
+          parsed @?= Left (Overrides.InvalidSampler "Bogus")
+      , testCase "Sprint 1.12 — invalid --trials surfaces a typed error" $ do
+          let parsed = Overrides.parseTuningOverrides [ParsedOption "trials" ["-3"]]
+          parsed @?= Left (Overrides.InvalidTrials "-3")
+      , testCase "Sprint 1.12 — overrides substitute on named axis only (pillar 2)" $ do
+          let ovr =
+                Overrides.TuningOverrides
+                  { Overrides.toSampler = Just Tune.PBT
+                  , Overrides.toScheduler = Nothing
+                  , Overrides.toPruner = Nothing
+                  , Overrides.toTrials = Nothing
+                  , Overrides.toParallelism = Nothing
+                  }
+          -- Sampler override substitutes; other axes preserve the base.
+          Overrides.overrideSampler ovr Tune.Grid @?= Tune.PBT
+          Overrides.overrideScheduler ovr Tune.Fifo @?= Tune.Fifo
+          Overrides.overridePruner ovr Tune.NoPruner @?= Tune.NoPruner
+          Overrides.overrideTrials ovr 64 @?= 64
+          Overrides.overrideParallelism ovr 4 @?= 4
+      , testCase "Sprint 1.12 — empty overrides preserve every Dhall value" $ do
+          let empty = Overrides.emptyTuningOverrides
+          Overrides.overrideSampler empty Tune.Grid @?= Tune.Grid
+          Overrides.overrideScheduler empty Tune.Hyperband @?= Tune.Hyperband
+          Overrides.overridePruner empty Tune.PercentilePruner @?= Tune.PercentilePruner
+          Overrides.overrideTrials empty 256 @?= 256
+          Overrides.overrideParallelism empty 16 @?= 16
+          Overrides.overrideSubstrate Overrides.emptyExperimentOverrides Substrate.AppleSilicon
+            @?= Substrate.AppleSilicon
+          Overrides.overrideSeed Overrides.emptyExperimentOverrides 1729 @?= 1729
+      , testCase "Sprint 1.12 — render override summary lists only present axes" $ do
+          Overrides.renderExperimentOverrides Overrides.emptyExperimentOverrides @?= "(none)"
+          Overrides.renderTuningOverrides Overrides.emptyTuningOverrides @?= "(none)"
+          let ovr =
+                Overrides.ExperimentOverrides
+                  { Overrides.eoSubstrate = Just Substrate.LinuxCPU
+                  , Overrides.eoSeed = Just 42
+                  }
+          Overrides.renderExperimentOverrides ovr @?= "substrate=linux-cpu, seed=42"
       , testCase "renderSubprocess golden cases" $ do
           renderSubprocess (subprocess "kubectl" ["get", "pods"]) @?= "kubectl get pods"
           renderSubprocess (subprocess "npx" ["playwright", "test"]) @?= "npx playwright test"

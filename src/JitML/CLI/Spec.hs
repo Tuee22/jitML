@@ -211,10 +211,21 @@ trainCommand =
     "Plans and applies a training job described by an experiment Dhall file."
     [ positional "experiment-dhall" True "Experiment Dhall file."
     , value "resume" Nothing "checkpoint-id" False "Checkpoint identifier to resume from."
+    , value
+        "substrate"
+        Nothing
+        "substrate"
+        False
+        "Override the experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda)."
+    , value "seed" Nothing "word64" False "Override the experiment Dhall's seed."
     , dryRunOption
     , planFileOption
     ]
-    [Example "jitml train experiments/mnist.dhall" "Run a supervised training experiment."]
+    [ Example "jitml train experiments/mnist.dhall" "Run a supervised training experiment."
+    , Example
+        "jitml train experiments/mnist.dhall --substrate linux-cpu --seed 42"
+        "Run with a CLI substrate/seed override of the experiment Dhall."
+    ]
 
 evalCommand :: CommandSpec
 evalCommand =
@@ -235,10 +246,37 @@ tuneCommand =
     "Plans and applies a hyperparameter sweep described by a tuning Dhall file."
     [ positional "tune-dhall" True "Tuning Dhall file."
     , value "resume" Nothing "sweep-id" False "Sweep identifier to resume."
+    , value
+        "sampler"
+        Nothing
+        "name"
+        False
+        "Override the tuning sampler axis (Grid, Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES, CMAES, EvolutionStrategies, PBT)."
+    , value
+        "scheduler"
+        Nothing
+        "name"
+        False
+        "Override the tuning scheduler axis (Fifo, SuccessiveHalving, Hyperband, ASHA)."
+    , value
+        "pruner"
+        Nothing
+        "name"
+        False
+        "Override the tuning pruner axis (NoPruner, MedianPruner, PercentilePruner)."
+    , value "trials" Nothing "natural" False "Override the tuning trial budget."
+    , value "parallelism" Nothing "natural" False "Override the tuning parallelism."
     , dryRunOption
     , planFileOption
     ]
-    [Example "jitml tune experiments/mnist-tune.dhall" "Run a tuning sweep."]
+    [ Example "jitml tune experiments/mnist-tune.dhall" "Run a tuning sweep."
+    , Example
+        "jitml tune experiments/mnist-tune.dhall --sampler Sobol --trials 64 --parallelism 8"
+        "Override sampler, trial budget, and parallelism from the CLI."
+    , Example
+        "jitml tune experiments/mnist-tune.dhall --sampler TPE --scheduler ASHA --pruner MedianPruner"
+        "Override every tuning axis from the CLI."
+    ]
 
 rlCommand :: CommandSpec
 rlCommand =
@@ -252,10 +290,21 @@ rlCommand =
         "Plans and applies an RL training job."
         [ positional "rl-experiment-dhall" True "RL experiment Dhall file."
         , value "resume" Nothing "checkpoint-id" False "Checkpoint identifier to resume from."
+        , value
+            "substrate"
+            Nothing
+            "substrate"
+            False
+            "Override the RL experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda)."
+        , value "seed" Nothing "word64" False "Override the RL experiment Dhall's seed."
         , dryRunOption
         , planFileOption
         ]
-        [Example "jitml rl train experiments/cartpole.dhall" "Train an RL policy."]
+        [ Example "jitml rl train experiments/cartpole.dhall" "Train an RL policy."
+        , Example
+            "jitml rl train experiments/cartpole.dhall --substrate apple-silicon --seed 1729"
+            "Train with a CLI substrate/seed override of the RL Dhall."
+        ]
     , leaf
         "eval"
         "Evaluate an RL policy."

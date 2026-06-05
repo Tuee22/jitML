@@ -16,12 +16,14 @@ module JitML.Tune.Catalog
   , deterministicTrials
   , loadTuningExperiment
   , prunerCatalog
+  , prunerFromText
   , renderTuningPlan
   , renderTrialResumeSummary
   , resumeMatchesFullRun
   , samplerCatalog
   , samplerFromText
   , schedulerCatalog
+  , schedulerFromText
   , trialStorageKey
   )
 where

@@ -7,6 +7,8 @@ import Data.Text.IO qualified as Text.IO
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
+import JitML.CLI.Parser (ParsedOption (..))
+import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Proto.Tune
   ( StartSweep (..)
   , StopSweep (..)
@@ -34,11 +36,13 @@ import JitML.Tune.Catalog
   , deterministicTrials
   , loadTuningExperiment
   , prunerCatalog
+  , prunerFromText
   , renderTrialResumeSummary
   , resumeMatchesFullRun
   , samplerCatalog
   , samplerFromText
   , schedulerCatalog
+  , schedulerFromText
   , tuningConfigPruner
   , tuningConfigSampler
   , tuningConfigScheduler
@@ -218,7 +222,67 @@ main =
           decodeTuneEventProto (encodeTuneEventProto started) @?= Right started
           decodeTuneEventProto (encodeTuneEventProto finished) @?= Right finished
           decodeTuneEventProto (encodeTuneEventProto done) @?= Right done
+      , testCase "Sprint 1.12 — every catalog axis round-trips through CLI override decode" $ do
+          -- Every sampler in the catalog decodes via its show-name through
+          -- the CLI override parser; the resolver lifts that value into a
+          -- TuningOverrides record whose sampler field is the matching
+          -- constructor.
+          mapM_ assertSamplerRoundTrip samplerCatalog
+          mapM_ assertSchedulerRoundTrip schedulerCatalog
+          mapM_ assertPrunerRoundTrip prunerCatalog
+      , testCase "Sprint 1.12 — CLI overrides act on the named axis only (pillar 2)" $ do
+          -- Pillar 2 at README.md → Why this exists: CLI flags layered on
+          -- top override the Dhall on each axis, never replace the
+          -- surrounding record. With only --sampler set, the other four
+          -- tuning axes preserve their Dhall values.
+          let parsed = Overrides.parseTuningOverrides [ParsedOption "sampler" ["TPE"]]
+          case parsed of
+            Left err ->
+              error ("expected --sampler TPE to parse, got: " <> Text.unpack (Overrides.renderOverrideError err))
+            Right ovr -> do
+              Overrides.overrideSampler ovr Grid @?= TPE
+              Overrides.overrideScheduler ovr Fifo @?= Fifo
+              Overrides.overridePruner ovr NoPruner @?= NoPruner
+              Overrides.overrideTrials ovr 64 @?= 64
+              Overrides.overrideParallelism ovr 4 @?= 4
       ]
+ where
+  assertSamplerRoundTrip sampler =
+    let raw = Text.pack (show sampler)
+        parsed = Overrides.parseTuningOverrides [ParsedOption "sampler" [raw]]
+     in case parsed of
+          Left err ->
+            error
+              ( "sampler round-trip failed for "
+                  <> show sampler
+                  <> ": "
+                  <> Text.unpack (Overrides.renderOverrideError err)
+              )
+          Right ovr -> Overrides.toSampler ovr @?= Just sampler
+  assertSchedulerRoundTrip scheduler =
+    let raw = Text.pack (show scheduler)
+        parsed = Overrides.parseTuningOverrides [ParsedOption "scheduler" [raw]]
+     in case parsed of
+          Left err ->
+            error
+              ( "scheduler round-trip failed for "
+                  <> show scheduler
+                  <> ": "
+                  <> Text.unpack (Overrides.renderOverrideError err)
+              )
+          Right ovr -> Overrides.toScheduler ovr @?= Just scheduler
+  assertPrunerRoundTrip pruner =
+    let raw = Text.pack (show pruner)
+        parsed = Overrides.parseTuningOverrides [ParsedOption "pruner" [raw]]
+     in case parsed of
+          Left err ->
+            error
+              ( "pruner round-trip failed for "
+                  <> show pruner
+                  <> ": "
+                  <> Text.unpack (Overrides.renderOverrideError err)
+              )
+          Right ovr -> Overrides.toPruner ovr @?= Just pruner
 
 -- | Sprint 13.10 — for every (sampler, scheduler, pruner) triple in the
 -- canonical catalog, assert that @deterministicTrials@ produces the

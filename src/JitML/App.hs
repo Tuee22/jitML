@@ -96,6 +96,7 @@ import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Engines.TuningCache qualified as TuningCache
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (App, ColorMode (..), Env (..), OutputFormat (..))
+import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Lint.Stack
   ( LintFinding
   , LintMode (..)
@@ -988,6 +989,13 @@ runKubectl parsedOptions =
 
 runTrain :: [ParsedOption] -> App ()
 runTrain parsedOptions = do
+  -- Sprint 1.12 — parse CLI Dhall overrides (--substrate / --seed) per
+  -- README.md → Why this exists pillar 2. The pure resolver returns an
+  -- OverrideError on invalid flag values; we surface that through the
+  -- existing AppError/exit-code path before any downstream work runs.
+  overrides <- case Overrides.parseExperimentOverrides parsedOptions of
+    Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
+    Right ovr -> pure ovr
   let experiment = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
       problem =
         case SL.canonicalProblems of
@@ -998,6 +1006,7 @@ runTrain parsedOptions = do
       [ "train: " <> experiment
       , "problem: " <> SL.problemName problem
       , "final_loss: " <> Text.pack (show (SL.finalLoss problem))
+      , "overrides: " <> Overrides.renderExperimentOverrides overrides
       ]
   -- Sprint 13.4 — when this worker runs in cluster context against a
   -- dataset with canonical image + label artefacts staged in MinIO (MNIST),
@@ -1290,6 +1299,13 @@ runEval parsedOptions =
 
 runTune :: [ParsedOption] -> App ()
 runTune parsedOptions = do
+  -- Sprint 1.12 — parse the tuning CLI overrides
+  -- (--sampler / --scheduler / --pruner / --trials / --parallelism) per
+  -- README.md → Hyperparameter tuning, first-class. Each axis is
+  -- independently optional; absent overrides leave the Dhall untouched.
+  overrides <- case Overrides.parseTuningOverrides parsedOptions of
+    Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
+    Right ovr -> pure ovr
   let tunePath = Text.unpack (selectedValue "tune-dhall" "experiments/mnist-tune.dhall" parsedOptions)
   loaded <- liftIO (Tune.loadTuningExperiment tunePath)
   case loaded of
@@ -1297,10 +1313,12 @@ runTune parsedOptions = do
       exitWithError (DhallTypeError message)
     Right experiment -> do
       let rendered = Tune.renderTuningPlan tunePath experiment
+          renderedWithOverrides =
+            rendered <> "overrides: " <> Overrides.renderTuningOverrides overrides <> "\n"
       case optionValues "plan-file" parsedOptions of
         [] -> pure ()
-        planPath : _ -> liftIO (writePlanFile (Text.unpack planPath) rendered)
-      writeText rendered
+        planPath : _ -> liftIO (writePlanFile (Text.unpack planPath) renderedWithOverrides)
+      writeText renderedWithOverrides
       -- Sprint 13.3 — publish a `TuneSweepDone` envelope so the dispatch
       -- → worker → broker event loop is observably closed for the tune
       -- domain. Sprint 13.10 widens this to per-trial events when the
@@ -1469,6 +1487,11 @@ publishWorkerTuneEvent = do
 
 runRl :: [Text] -> [ParsedOption] -> App ()
 runRl ["rl", "train"] parsedOptions = do
+  -- Sprint 1.12 — parse the CLI overrides (--substrate / --seed) per
+  -- README.md → Why this exists pillar 2 before any worker dispatch.
+  overrides <- case Overrides.parseExperimentOverrides parsedOptions of
+    Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
+    Right ovr -> pure ovr
   -- Sprint 5.7 — read the RL run parameters from the typed Dhall
   -- `RunConfig` the daemon mounted on the dispatched Job pod. Falls back to
   -- env vars + defaults when no mount is present (e.g., developer-side CLI
@@ -1499,6 +1522,12 @@ runRl ["rl", "train"] parsedOptions = do
         , Text.toLower (Text.strip tkR)
         , Nothing
         )
+  -- Sprint 1.12 — apply the CLI seed override before dispatch so the
+  -- override governs deterministic trajectory generation. Substrate
+  -- override is recorded in the summary; it flows through to deeper RL
+  -- worker dispatch in follow-up work when RunConfig generation reads
+  -- the resolved value.
+  let resolvedSeed = fromIntegral (Overrides.overrideSeed overrides (fromIntegral seed)) :: Int
   -- Sprint 13.5 — by default, run the deterministic per-episode
   -- simulator loop against the canonical cartpole / mountain-car /
   -- lunar-lander envs. Sprint 8.8 routes atari-subset through the
@@ -1508,7 +1537,8 @@ runRl ["rl", "train"] parsedOptions = do
   -- convergence statistics through the network seam; the per-iteration
   -- summary is projected into the @EpisodeDone@ envelope shape so the
   -- dispatch chain stays observable end-to-end.
-  episodes <- liftIO (runTrainerEpisodes atariRomPath trainerKind envName seed evalEpisodes maxSteps)
+  episodes <-
+    liftIO (runTrainerEpisodes atariRomPath trainerKind envName resolvedSeed evalEpisodes maxSteps)
   let averageReward =
         if null episodes
           then 0.0
@@ -1521,6 +1551,7 @@ runRl ["rl", "train"] parsedOptions = do
       , "trainer: " <> trainerKind
       , "episodes: " <> Text.pack (show (length episodes))
       , "avg-reward: " <> Text.pack (show averageReward)
+      , "overrides: " <> Overrides.renderExperimentOverrides overrides
       ]
   traverse_ publishWorkerRlEpisode episodes
 runRl ["rl", "eval"] parsedOptions =

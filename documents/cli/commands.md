@@ -197,13 +197,15 @@ Run a supervised training job.
 Plans and applies a training job described by an experiment Dhall file.
 
 ```text
-jitml train <experiment-dhall> [--resume <checkpoint-id>] [--dry-run] [--plan-file <path>]
+jitml train <experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
 | `--resume <checkpoint-id>` | value | no | Checkpoint identifier to resume from. |
+| `--substrate <substrate>` | value | no | Override the experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda). |
+| `--seed <word64>` | value | no | Override the experiment Dhall's seed. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -214,6 +216,12 @@ jitml train experiments/mnist.dhall
 ```
 
 Run a supervised training experiment.
+
+```text
+jitml train experiments/mnist.dhall --substrate linux-cpu --seed 42
+```
+
+Run with a CLI substrate/seed override of the experiment Dhall.
 
 
 ## `jitml eval`
@@ -247,13 +255,18 @@ Run a hyperparameter sweep.
 Plans and applies a hyperparameter sweep described by a tuning Dhall file.
 
 ```text
-jitml tune <tune-dhall> [--resume <sweep-id>] [--dry-run] [--plan-file <path>]
+jitml tune <tune-dhall> [--resume <sweep-id>] [--sampler <name>] [--scheduler <name>] [--pruner <name>] [--trials <natural>] [--parallelism <natural>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `<tune-dhall>` | positional | yes | Tuning Dhall file. |
 | `--resume <sweep-id>` | value | no | Sweep identifier to resume. |
+| `--sampler <name>` | value | no | Override the tuning sampler axis (Grid, Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES, CMAES, EvolutionStrategies, PBT). |
+| `--scheduler <name>` | value | no | Override the tuning scheduler axis (Fifo, SuccessiveHalving, Hyperband, ASHA). |
+| `--pruner <name>` | value | no | Override the tuning pruner axis (NoPruner, MedianPruner, PercentilePruner). |
+| `--trials <natural>` | value | no | Override the tuning trial budget. |
+| `--parallelism <natural>` | value | no | Override the tuning parallelism. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -265,6 +278,18 @@ jitml tune experiments/mnist-tune.dhall
 
 Run a tuning sweep.
 
+```text
+jitml tune experiments/mnist-tune.dhall --sampler Sobol --trials 64 --parallelism 8
+```
+
+Override sampler, trial budget, and parallelism from the CLI.
+
+```text
+jitml tune experiments/mnist-tune.dhall --sampler TPE --scheduler ASHA --pruner MedianPruner
+```
+
+Override every tuning axis from the CLI.
+
 
 ## `jitml rl train`
 
@@ -273,13 +298,15 @@ Train an RL policy.
 Plans and applies an RL training job.
 
 ```text
-jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--dry-run] [--plan-file <path>]
+jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `<rl-experiment-dhall>` | positional | yes | RL experiment Dhall file. |
 | `--resume <checkpoint-id>` | value | no | Checkpoint identifier to resume from. |
+| `--substrate <substrate>` | value | no | Override the RL experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda). |
+| `--seed <word64>` | value | no | Override the RL experiment Dhall's seed. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -290,6 +317,12 @@ jitml rl train experiments/cartpole.dhall
 ```
 
 Train an RL policy.
+
+```text
+jitml rl train experiments/cartpole.dhall --substrate apple-silicon --seed 1729
+```
+
+Train with a CLI substrate/seed override of the RL Dhall.
 
 
 ## `jitml rl eval`

@@ -755,10 +755,10 @@ mindmap
 | `jitml cluster down` | Bring the cluster down. | `jitml cluster down` |
 | `jitml cluster status` | Report cluster status. | `jitml cluster status` |
 | `jitml cluster reset` | Destructively reset cluster state. | `jitml cluster reset --yes` |
-| `jitml train` | Run a supervised training job. | `jitml train <experiment-dhall> [--resume <checkpoint-id>] [--dry-run] [--plan-file <path>]` |
+| `jitml train` | Run a supervised training job. | `jitml train <experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]` |
 | `jitml eval` | Run deterministic evaluation. | `jitml eval <experiment-dhall> [--checkpoint <checkpoint-id>]` |
-| `jitml tune` | Run a hyperparameter sweep. | `jitml tune <tune-dhall> [--resume <sweep-id>] [--dry-run] [--plan-file <path>]` |
-| `jitml rl train` | Train an RL policy. | `jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--dry-run] [--plan-file <path>]` |
+| `jitml tune` | Run a hyperparameter sweep. | `jitml tune <tune-dhall> [--resume <sweep-id>] [--sampler <name>] [--scheduler <name>] [--pruner <name>] [--trials <natural>] [--parallelism <natural>] [--dry-run] [--plan-file <path>]` |
+| `jitml rl train` | Train an RL policy. | `jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]` |
 | `jitml rl eval` | Evaluate an RL policy. | `jitml rl eval <rl-experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml rl rollout` | Run a fixed-seed rollout. | `jitml rl rollout <rl-experiment-dhall> [--seed <word64>]` |
 | `jitml verify same-run` | Verify same-run determinism. | `jitml verify same-run --experiment <experiment-dhall> --runs <int>` |
@@ -877,8 +877,8 @@ Concrete invocations:
 ./.build/jitml tune   experiments/mnist-mlp.dhall --sampler tpe --scheduler asha --trials 256 --parallelism 8
 ./.build/jitml rl     train experiments/cartpole-ppo.dhall --substrate apple-silicon --seed 42
 ./.build/jitml verify same-run     --experiment experiments/mnist-mlp.dhall --runs 3
-./.build/jitml verify cross-backend --experiment experiments/mnist-mlp.dhall --backends cpu,cuda
-./.build/jitml inspect frontier --tuning-run <ref> --pareto valLoss params
+./.build/jitml verify cross-backend --experiment experiments/mnist-mlp.dhall --backends linux-cpu,linux-cuda
+./.build/jitml inspect frontier <sweep-id>
 ./.build/jitml test   all
 ```
 

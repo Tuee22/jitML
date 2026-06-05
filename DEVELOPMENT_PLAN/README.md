@@ -39,6 +39,24 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Reopen note (2026-06-04, re-closed 2026-06-04)**: Phase `1` re-opened for
+Sprint `1.12` (CLI Dhall overrides on `train`, `rl train`, `tune`) and is
+now **re-closed `✅ Done`** the same day. The new sprint landed
+`JitML.Experiment.Overrides.applyOverrides` and the
+`--substrate / --seed / --sampler / --scheduler / --pruner / --trials / --parallelism`
+flag surface on `CommandSpec`; the README registry/tree and the generated
+CLI mirror (`documents/cli/commands.md`,
+`documents/engineering/cli_command_surface.md`, manpage, completions)
+regenerated cleanly via `jitml docs generate`; the two stale README
+examples (`inspect frontier --tuning-run/--pareto`, `--backends cpu,cuda`)
+were repaired; validation passed `jitml docs check`, 195/195 `jitml-unit`,
+14/14 `jitml-hyperparameter`, the non-live `jitml-integration` matrix
+(including the spawned-binary override coverage), and the container
+`jitml check-code` gate. The doctrine-deviation row in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) moved
+to `Completed`. See
+[Reopened phases (2026-06-04) — Sprint 1.12](#reopened-phases-2026-06-04--sprint-112-cli-dhall-overrides).
+
 **Reopen note (2026-05-30, re-closed 2026-05-31)**: Phases `2`, `5`, and `7` were
 reopened `🔄 Active` for the headless Apple Metal JIT workstream (runtime
 `MTLDevice.makeLibrary(source:)` + host CommandLineTools `swift build`, retiring
@@ -540,6 +558,41 @@ Phases `8` and `9` are re-closed. Phase `15` is re-closed after the
 source-pin/vendor helper and the superseded development ledger moved to
 Completed in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
+## Reopened phases (2026-06-04) — Sprint 1.12 CLI Dhall Overrides
+
+Phase `1` re-opens from `✅ Done` to `🔄 Active` on 2026-06-04 to honor the
+doctrine prescription at
+[../README.md → Hyperparameter tuning, first-class](../README.md#hyperparameter-tuning-first-class)
+(line 1050): *"CLI flags (`--sampler …`, `--scheduler …`, `--pruner …`)
+override the Dhall on each axis, never replace it."* The owned `CommandSpec`
+registry today accepts none of those override flags, leaving five README
+example fences (the `train` / `rl train` / `tune` quickstart commands)
+violating
+[../documents/documentation_standards.md → §6 Current-Surface Examples Only](../documents/documentation_standards.md#6-code-examples-markdown).
+Per Plan Standards rule L ("Closing the gap silently without a sprint
+binding is forbidden"), the gap is scheduled through Sprint `1.12`.
+
+- **Phase 1** re-opens for Sprint `1.12`, which adds optional
+  `--substrate <substrate>` and `--seed <word64>` overrides to
+  `trainCommand` and `rl train`, plus
+  `--sampler / --scheduler / --pruner / --trials / --parallelism`
+  overrides to `tuneCommand`. The sprint introduces the pure
+  `JitML.Experiment.Overrides.applyOverrides` resolver that substitutes
+  CLI values into the parsed experiment Dhall before validation, then
+  regenerates the README registry/tree, `documents/cli/commands.md`,
+  `documents/engineering/cli_command_surface.md`, the manpage, and the
+  shell completions via `jitml docs generate`. The same sprint repairs
+  the two stale README example forms (`inspect frontier --tuning-run/--pareto`
+  → positional `<sweep-id>`; `--backends cpu,cuda` → `linux-cpu,linux-cuda`)
+  that are not load-bearing on any doctrine.
+
+Phases `2`–`15` remain `✅ Done` on their owned surfaces. CLI-surface ownership
+lives in Phase `1` only per Plan Standards rule E; the reopen does not ripple.
+The doctrine-deviation interval is tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) as
+"Missing CLI Dhall overrides on `train`, `rl train`, `tune`" and retires when
+Sprint `1.12` closes.
+
 ## Reopened phases (2026-05-30)
 
 Phases `2`, `5`, and `7` reopened from `✅ Done` to `🔄 Active` on 2026-05-30 to
@@ -642,7 +695,14 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-Phases `0`–`15` are `✅ Done`. Phases `2`, `3`, `4`, and `5` reopened then
+Phases `0`–`15` are `✅ Done`. Phase `1` reopened then re-closed on
+2026-06-04 after Sprint `1.12` landed the CLI Dhall override surface on
+`train`, `rl train`, and `tune` — closing the doctrine-versus-implementation
+gap at [../README.md → Hyperparameter tuning, first-class](../README.md#hyperparameter-tuning-first-class)
+(line 1050). The doctrine-deviation row moved to `Completed` in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md); the
+regenerated registry table, manpage, completions, and engineering CLI
+mirror all match the new `CommandSpec`. Phases `2`, `3`, `4`, and `5` reopened then
 **re-closed on 2026-05-29** after the cluster resource-guardrail and
 Dhall/functional-logic workstreams landed: the `dhall/cluster/` resource profile
 + kind-node memory/CPU cap + `cluster.host-memory` preflight (Sprint `2.8`), the

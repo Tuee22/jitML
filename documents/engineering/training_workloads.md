@@ -315,6 +315,21 @@ proto-lens output remains target work.
 `TuneSweepLifecycle` GADT (`Sampled → Scheduled → Running → Pruned →
 Reported → Finished`) is the typed lifecycle.
 
+CLI Dhall overrides land in Sprint `1.12`: `jitml tune --sampler …
+--scheduler … --pruner … --trials … --parallelism …` substitute on the
+named axis only and never replace the surrounding `Tuning` record per
+[../../README.md → Hyperparameter tuning, first-class](../../README.md#hyperparameter-tuning-first-class)
+line 1050. The pure resolver
+`JitML.Experiment.Overrides.applyOverrides` consumes `ParsedOption`
+values, returning a typed `OverrideError` on invalid flag values that the
+CLI boundary surfaces through the existing `AppError` /
+`exitWithError` path. `jitml train` and `jitml rl train` accept the
+analogous `--substrate` / `--seed` overrides for the experiment-Dhall
+substrate and seed fields. See
+[../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md → Sprint 1.12](../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md#sprint-112-cli-dhall-overrides-)
+for the owning sprint and the doctrine-deviation interval recorded in
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+
 ### Samplers
 
 <!-- jitml:training.tune.samplers:start -->

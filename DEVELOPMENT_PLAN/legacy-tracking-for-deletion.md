@@ -37,7 +37,12 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-No cleanup rows are currently active. Sprint `1.11` downgraded the project to
+No cleanup rows are currently active. The Sprint `1.12` doctrine-deviation
+row that opened 2026-06-04 (missing CLI Dhall overrides on `train`,
+`rl train`, `tune`) closed the same day after the
+`JitML.Experiment.Overrides.applyOverrides` resolver, the new flag surface
+on `CommandSpec`, and the regenerated CLI mirror landed; the row now lives
+in the `Completed` table below. Sprint `1.11` downgraded the project to
 the single GHC `9.12.4` baseline, removed the source-repository package pins
 and local `third_party/haskell/lens-family-*` compatibility packages, and
 validated a plain-Hackage solve. The former dependency source-pin/vendor helper
@@ -140,6 +145,7 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Missing CLI Dhall overrides on `train`, `rl train`, `tune` | Reopened Phase 1 Sprint `1.12` (2026-06-04) | `src/JitML/CLI/Spec.hs` now accepts `--substrate` / `--seed` on `trainCommand` and the `rl train` subcommand, and `--sampler` / `--scheduler` / `--pruner` / `--trials` / `--parallelism` on `tuneCommand`. Values resolve through the pure `JitML.Experiment.Overrides.applyOverrides` (new module `src/JitML/Experiment/Overrides.hs`) before validation, substituting on the named axis only per README pillar 2. The substrate parser at `src/JitML/Substrate.hs` rejects bare `cpu` / `cuda` aliases; the canonical identifiers `apple-silicon` / `linux-cpu` / `linux-cuda` are the only accepted forms. `jitml docs generate` regenerated the README registry/tree blocks, `documents/cli/commands.md`, the `cli-commands.help-blocks` and `cli-commands.reference` sections in `documents/engineering/cli_command_surface.md`, `share/man/man1/jitml.1`, and the bash/zsh/fish completions. The two stale README example forms (`inspect frontier --tuning-run/--pareto`, `--backends cpu,cuda`) were repaired in the same change. Validation: `jitml docs check` exits 0; 195/195 `jitml-unit` (11 new Sprint 1.12 cases); 14/14 `jitml-hyperparameter` (2 new cases including the catalog round-trip and pillar-2 axis-only substitution); the `jitml-integration` spawned-binary matrix exercises `train`/`tune` override summaries and rejects bare `--substrate cpu`; the container `jitml check-code` gate passes. |
 | Tart VM build/lifecycle/exec modules, `jitml internal vm` command group, `container.tart` prerequisite, `LiveConfig.tartIdleTimeout`, and the offline `.metallib` codegen path | Sprints `7.8` + `2.10` + `5.8` (2026-05-30) | The headless Apple Metal JIT (host CommandLineTools `swift build` + runtime `MTLDevice.makeLibrary(source:)`, validated headless on Apple M1) superseded the Tart-VM build. Deleted `src/JitML/Tart/{Build,Lifecycle,Exec}.hs`; removed the `jitml internal vm bootstrap\|up\|down\|status\|exec` command group from `CommandSpec` + `App.hs` handlers (commands.md/man/completions regenerated); removed the `container.tart` prerequisite node + its `jit-cache-miss` dependency; removed `LiveConfig.tartIdleTimeout` from the Dhall schema + Haskell record + `daemon.surface` table; dropped the `.process("Kernels.metal")` resource, the `<hash>.metallib` publication, and the `JITML_METALLIB_PATH` env hand-off. `cabal build all` clean; 183 `jitml-unit` + 30 `jitml-daemon-lifecycle` + the Apple `jitml-cross-backend` cases pass. |
 | Lint-time host `ghcup` style-tool bootstrap | Sprint 1.4 | Removed runtime `ensureStyleTools` / `installStyleToolsSubprocess` bootstrap from `src/JitML/Lint/Stack.hs`; `docker/Dockerfile` now builds pinned `fourmolu` / `hlint` with the same image-local GHC `9.12.4`, stamps the `jitml:local` code-quality domain, and runs `jitml check-code` during image construction. |
 | Scoped `allow-newer` for Dhall / CBOR / lens-family transitive package bounds | Sprint `1.10` (2026-06-04) | Removed the `allow-newer` stanza from `cabal.project`. The temporary source-pin/vendor replacement used to keep the package set solving was removed by Sprint `1.11`; the current `cabal.project` solves from plain Hackage under GHC `9.12.4`. |
