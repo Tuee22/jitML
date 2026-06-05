@@ -43,33 +43,26 @@ docs, the manpage, and shell completions. Sprint `1.4` has landed
 `jitml check-code`, external `fourmolu`, `hlint`, `cabal format` round-trip
 checks, and the warning-clean build runner.
 Sprint `1.4` also owns the container-exclusive code-quality domain:
-`docker/Dockerfile` installs the separate style-tools GHC and pinned
-`fourmolu` / `hlint` binaries for `jitml:local`, stamps the image as the
-code-quality execution domain, runs Haskell style/code-quality checks during
-image construction, and host lint/check-code execution is rejected before
-linting.
-`cabal.project` carries no `allow-newer` block. Sprint `1.10` removed the
-former scoped Dhall / CBOR override by pinning upstream `dhall-haskell` and
-`cborg` source snapshots with GHC `9.14.1`-compatible bounds and by vendoring
-the two small BSD-licensed `lens-family` source packages with their
-`containers <0.8` metadata bound relaxed to `<0.9` plus minimal GHC `9.14.1`
-warning-clean source hygiene in `lens-family-core`. This remains a dependency
-compatibility surface, not a host-tooling issue and not a reason to change the
-project compiler pin. The remaining cleanup is tracked in
-[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md):
-when Hackage releases or metadata revisions solve and build warning-clean under
-GHC `9.14.1` without source pins or local package patches, remove the
-source-pin/vendor helper and rerun the container-only `jitml check-code` gate.
-The latest Phase `15` recheck on 2026-06-04 used Hackage index-state
-`2026-06-04T16:46:08Z`; the helper remained necessary because unpinned
-Hackage `serialise` / `cborg-json` still reject `base-4.22`, unpinned Hackage
-`dhall` rejects GHC `9.14.1`'s `template-haskell-2.24`, and unvendored
-Hackage `lens-family` rejects `containers-0.8`.
+`docker/Dockerfile` installs pinned `fourmolu` / `hlint` binaries under the
+same image-local GHC `9.12.4` used for the project build, stamps the image as
+the code-quality execution domain, runs Haskell style/code-quality checks
+during image construction, and host lint/check-code execution is rejected
+before linting.
+`cabal.project` carries no `allow-newer` block, no source-repository package
+pins, and no local dependency packages. Sprint `1.11` downgraded the project to
+the GHC `9.12.4` / `base-4.21` family, allowing `serialise`, `cborg`, `dhall`,
+and `lens-family` to solve from plain Hackage. The earlier source-pin/vendor
+compatibility helper is removed and tracked as completed cleanup in
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 The file-lint traversal also skips `./.roms/`, matching `.gitignore` and
 `.dockerignore`, so explicit developer-supplied Atari ROM files can exist
 locally for optional manual ALE runs without entering Git, images, or text-file
 hygiene checks. Default examples and required canonical tests must remain
 copyright-free, and no native C/C++ ALE adapter source is checked in.
+Phase `11` Sprint `11.3` also keeps the PureScript smoke suite warning-clean:
+`web/test/Main.purs` runs `purescript-spec` through the Node `spec-node`
+`runSpecAndExitProcess` runner, `web/spago.yaml` declares `spec-node` as a test
+dependency, and `web/.gitignore` excludes the runner's `.spec-results` state.
 
 ## jitML Project-Specific Lint Rules
 
@@ -159,8 +152,8 @@ The mandatory `jitml:local` image is built on every substrate, including Apple
 Silicon for the cluster daemon. That image build is the only supported Haskell
 style and code-quality execution point:
 
-1. Install a separate style-tools GHC (`9.12.4`) that never becomes the project
-   compiler.
+1. Use the same pinned image-local GHC (`9.12.4`) for the project build and the
+   Haskell style tools.
 2. Build pinned `fourmolu` / `hlint` binaries into a deterministic image-owned
    tool location.
 3. Stamp the image with the code-quality domain marker consumed by
@@ -198,7 +191,9 @@ the full target stack:
 7. `jitml lint chart`.
 8. `jitml lint haskell` (forbidden subprocess and IO primitives).
 9. `jitml docs check` (generated-section drift).
-10. `docker compose build jitml` proves the same gate runs
+10. `jitml lint purescript` / `spago test` keep the PureScript smoke suite on
+    the `spec-node` runner rather than the deprecated generic `runSpec` alias.
+11. `docker compose build jitml` proves the same gate runs
     as part of the mandatory image build.
 
 ## Cross-References

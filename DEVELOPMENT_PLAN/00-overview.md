@@ -6,7 +6,6 @@
 [development_plan_standards.md](development_plan_standards.md),
 [system-components.md](system-components.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md),
@@ -54,7 +53,7 @@ The jitML runtime closes on three properties simultaneously:
 
 ## Target Outcome
 
-One `jitml` Haskell CLI binary, built by Cabal under GHC `9.14.1` and Cabal
+One `jitml` Haskell CLI binary, built by Cabal under GHC `9.12.4` and Cabal
 `3.16.1.0`, drives three substrates (`apple-silicon`, `linux-cpu`, `linux-cuda`)
 behind a uniform command surface, plus one bundled `jitml-demo` HTTP server shim that
 serves the PureScript frontend bundle. The CLI is library-first per
@@ -158,7 +157,7 @@ AlphaZero, tune, JIT-cache, and daemon-health measurements.
 
 Haskell style and code-quality execution is container-exclusive. The
 `jitml:local` image is required on every substrate, including Apple Silicon for
-the in-cluster daemon, so the Dockerfile owns the separate style-tools GHC plus
+the in-cluster daemon, so the Dockerfile owns the separate toolchain plus
 pinned `fourmolu` / `hlint` binaries and runs the Haskell style/code-quality
 gate during image construction. Runtime lint/check-code commands run inside that
 image or fail before linting; they never install, discover, or override host
@@ -166,11 +165,11 @@ style tools.
 
 ## Execution Roadmap
 
-The dependency-ordered execution roadmap for the remaining Exit-Definition
-obligations lives in [README.md → Execution Roadmap](README.md#execution-roadmap).
-Each item there links to the owning sprint's `### Remaining Work` block,
-where the validation gate lives. The roadmap closes when every Active or
-Blocked phase moves to Done and both legacy ledgers have no pending rows.
+The dependency-ordered execution roadmap lives in
+[README.md → Execution Roadmap](README.md#execution-roadmap). Each item there
+links to the owning sprint's `### Remaining Work` block, where the validation
+gate lives. The roadmap closes when every Active or Blocked phase moves to Done
+and the deletion ledger has no pending rows.
 
 ## Architecture Overview
 
@@ -466,7 +465,8 @@ Blocked phase moves to Done and both legacy ledgers have no pending rows.
   `playwright/jitml-demo.spec.ts`, `jitml-demo` executable shim,
   `src/JitML/Web/Server.hs` HTTP serving, and demo deployment template.
   The Halogen mount machinery, compiled bundle output, and
-  `purescript-spec` execution landed in Sprints `11.3` / `11.4` /
+  `purescript-spec` execution through the Node `spec-node` runner landed in
+  Sprints `11.3` / `11.4` /
   `11.5`; the live REST/WS proxy and live-edge Playwright surfaces
   later closed in Phase `13`, and Phase `15` removed the offline
   fallback paths.
@@ -512,7 +512,7 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
 **In scope (binding) from `README.md`, in doctrine order:**
 
 - Overview (toolchain pinning — instantiated by [../README.md → Toolchain
-  pinning](../README.md#toolchain-pinning)): GHC `9.14.1`, Cabal `3.16.1.0`.
+  pinning](../README.md#toolchain-pinning)): GHC `9.12.4`, Cabal `3.16.1.0`.
 - Project Structure (library-first; instantiated by [../README.md → Repository
   layout (target)](../README.md#repository-layout-target)): `app/Main.hs` and
   `app/Demo.hs` thin, logic in `src/JitML/`.
@@ -567,11 +567,12 @@ split verbatim. No sprint may schedule adoption of an out-of-scope section.
 - Lint, Format, and Code-Quality Stack — `fourmolu` + `hlint` + `cabal format`;
   pinned `fourmolu.yaml` at repo root with the thirteen doctrine-mandated settings;
   jitML adopts the doctrine with a container-exclusive code-quality domain: the
-  `jitml:local` Docker image installs the separate style-tools GHC and pinned
+  `jitml:local` Docker image installs the same pinned GHC `9.12.4` and pinned
   `fourmolu` / `hlint` binaries, image construction runs the Haskell style gate,
   `jitml lint haskell` runs only inside the container-owned gate, and
   `jitml lint purescript` covers generated-contract, whitespace,
-  panel-contract, and typed frontend-tool command checks.
+  panel-contract, typed frontend-tool command checks, and the `spec-node`
+  `purescript-spec` smoke suite.
 - Testing Doctrine.
 - Standard Testing Stack — Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit +
   tasty-quickcheck + typed-process + temporary. Snapshot
@@ -600,10 +601,11 @@ surface at write time. The full doctrine-mandated
 standardized library set (including `dhall`, used as the configuration source for
 both `BootConfig` / `LiveConfig` and every experiment / sweep / cluster-topology
 file) is in scope. The PureScript stack (Halogen, `purescript-bridge`,
-`purescript-spec`, Playwright) is a project-specific target owned by Phase `11`
+`purescript-spec`, `spec-node`, Playwright) is a project-specific target owned by Phase `11`
 and is not a doctrine deviation because the doctrine does not address browser-side
-code; the current worktree implements only the minimal PureScript shell, generated
-contract file, and Playwright scaffold.
+code; the current worktree implements the PureScript shell, generated contract
+file, `spec-node` smoke suite, Halogen panel modules, demo server, and live-only
+Playwright scaffold.
 
 ## Hard Constraints
 
@@ -616,7 +618,7 @@ Numbered for referenceability. Cross-references to
 each constraint.
 
 1. One Haskell CLI binary named `jitml`, plus one bundled HTTP server shim named
-   `jitml-demo`. Both are built by Cabal under GHC `9.14.1` and Cabal `3.16.1.0`.
+   `jitml-demo`. Both are built by Cabal under GHC `9.12.4` and Cabal `3.16.1.0`.
 2. Library-first layout per doctrine
    [§Project Structure](../README.md): `app/Main.hs` and `app/Demo.hs`
    are six-line shims into `App.main`; nearly all logic lives under `src/JitML/`.
@@ -699,7 +701,7 @@ each constraint.
 21. The substrate image is always `jitml:local`. Substrate is a runtime Dhall
     choice, never an image-name dimension. There is one Dockerfile, one image,
     and two compose service wrappers: headless `jitml` plus GPU-enabled
-    `jitml-cuda`. The image build owns the style-tools GHC/tool bootstrap and is
+    `jitml-cuda`. The image build owns the style-tool bootstrap and is
     the exclusive Haskell style/code-quality gate on every substrate.
 22. `jitml service` is a long-running daemon parameterised by Dhall `BootConfig`
     / `LiveConfig`. SIGHUP triggers `LiveConfig` hot reload; restart-required
@@ -768,7 +770,7 @@ each constraint.
     the bundle/panel/demo-route metadata. The generated contract file is
     protected by the active `trackingGeneratedPaths` registry.
 32. `fourmolu.yaml` at repo root pins the thirteen doctrine-mandated settings.
-    `docker/Dockerfile` installs the separate style-tools GHC and pinned
+    `docker/Dockerfile` installs the same pinned GHC `9.12.4` and pinned
     `fourmolu` / `hlint` binaries for `jitml:local`; the image build runs the
     Haskell style/code-quality gate; `jitml lint haskell` runs only inside
     `jitml:local`; and `cabal format` is enforced by
@@ -789,9 +791,9 @@ each constraint.
 35. Report-card knobs are pinned in `cabal.project` and surfaced through `jitml
     test all`. The exact knob list is owned by Sprint `12.9` and recorded in
     [system-components.md](system-components.md).
-36. The toolchain is pinned at GHC `9.14.1` and Cabal `3.16.1.0`. `jitml.cabal`
-    declares `tested-with: ghc ==9.14.1`; `cabal.project` declares
-    `with-compiler: ghc-9.14.1`. Codegen toolchains (LLVM, NVCC, the host Metal
+36. The toolchain is pinned at GHC `9.12.4` and Cabal `3.16.1.0`. `jitml.cabal`
+    declares `tested-with: ghc ==9.12.4`; `cabal.project` declares
+    `with-compiler: ghc-9.12.4`. Codegen toolchains (LLVM, NVCC, the host Metal
     framework + CommandLineTools `swiftc`, oneDNN, `kindest/node`) are pinned in
     `cabal.project`.
 
@@ -814,7 +816,7 @@ each constraint.
 | 12 | Phase 11 | The eight Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
 | 13 | Phase 12 | The Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure consumes every code-surface obligation from Phases `1`–`12` and exercises them through one Linux/NVIDIA session against an ephemeral Kind cluster |
 | 14 | Phase 12 | The headless Apple Silicon Metal JIT (host CommandLineTools `swift build` + runtime `MTLDevice.makeLibrary(source:)` shader compilation, no Tart VM), Metal FFI, host↔cluster RPC, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
-| 15 | Phase 13, Phase 14, Phase 1 Sprint `1.10` | Cross-substrate parity cohort, populated live `jitml test all` report card, and empty legacy ledgers require live outputs from both Phase `13` (Linux CUDA) and Phase `14` (Apple Silicon); the 2026-06-03 Apple weighted bundle, Linux/Apple report-bundle comparison, `--live` code surface, container `jitml check-code` gate, the 2026-06-04 fresh Apple live full-aggregate `jitml test all --live` report-card pass, the demo-placeholder cleanup, the scoped `allow-newer` removal, optional ALE support, the `KeyDoorGrid-v0` replacement, and the RL matrix retargeting are present, while the dependency source-pin/vendor helper keeps Phase `15` blocked |
+| 15 | Phase 13, Phase 14, Phase 1 Sprint `1.11` | Cross-substrate parity cohort, populated live `jitml test all` report card, and an empty deletion ledger require live outputs from both Phase `13` (Linux CUDA) and Phase `14` (Apple Silicon); the 2026-06-03 Apple weighted bundle, Linux/Apple report-bundle comparison, `--live` code surface, container `jitml check-code` gate, the 2026-06-04 fresh Apple live full-aggregate `jitml test all --live` report-card pass, the demo-placeholder cleanup, the scoped `allow-newer` removal, optional ALE support, the `KeyDoorGrid-v0` replacement, the RL matrix retargeting, and the GHC `9.12.4` source-pin/vendor helper retirement are present, leaving no active legacy-ledger rows |
 
 ## Status Vocabulary
 
@@ -830,14 +832,13 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0` through `7` and `10` through `14` are `✅ Done` — every
-Exit-Definition obligation those phases own is met. Phase `1` reopened and
-re-closed on 2026-06-04 after Sprint `1.10` removed the scoped `allow-newer`
-block; the remaining dependency source-pin/vendor cleanup is now a Phase `15`
-legacy-deletion ledger row. Phase `8` and Phase `9` re-closed on 2026-06-04
-after `KeyDoorGrid-v0` landed and the required RL matrix retargeted away from
-`atari-subset`. Phase `15` (cross-substrate parity + final handoff) is
-`⏸️ Blocked` until the source-pin/vendor helper moves to Completed. Phases `2`,
+Phases `0` through `15` are `✅ Done` — every Exit-Definition obligation those
+phases own is met. Phase `1` reopened and re-closed on 2026-06-04 after Sprint
+`1.10` removed the scoped `allow-newer` block and Sprint `1.11` moved the
+project to a single GHC `9.12.4` baseline with no source pins, no local
+dependency packages, and no reopened-phase development ledger. Phase `8` and
+Phase `9` re-closed on 2026-06-04 after `KeyDoorGrid-v0` landed and the
+required RL matrix retargeted away from `atari-subset`. Phases `2`,
 `3`, `4`, and `5`
 **reopened then re-closed on 2026-05-29** after four workstreams hardening
 the cluster against host exhaustion and aligning run configuration and
@@ -861,7 +862,7 @@ are tracked in
 [README.md → Reopened phases (2026-05-29)](README.md#reopened-phases-2026-05-29).
 Sprint `1.4` closes the
 container-exclusive Haskell style/code-quality rule: the mandatory
-`jitml:local` image build installs the separate style-tools GHC, builds pinned
+`jitml:local` image build uses the same pinned GHC `9.12.4` to build pinned
 Fourmolu / HLint binaries, runs `jitml check-code`, and host lint/check-code
 execution is unsupported.
 Phase `4` reclosed on 2026-05-23 against a Linux CUDA validation host
@@ -907,9 +908,9 @@ sequence lives in
 | Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; non-dry-run `jitml build` routes the selected JIT artifact through `JitML.Engines.Loader`; `jitml-cross-backend` validates generated Linux CPU libdnnl-linked oneDNN primitive compile/load/run paths plus exported family/output-count metadata, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests; `jitml-unit` validates the CUDA host-callable wrapper/source ABI and guarded local CUDA runner fail-closed path | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
 | CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference deterministic summaries, test report rendering, internal substrate materialization, VM subprocess rendering, generated-source build-plan rendering, and cache stubs. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,cross-backend,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,gc,vm,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
 | Test stanzas | Eight Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, linkable oneDNN probing, local checkpoint inference through a Linux CPU generated oneDNN kernel, and live daemon/event dispatch cases, `jitml-cross-backend` includes generated Linux CPU oneDNN primitive compile/load/run, family/output-count symbol checks, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement, the `CrossSubstrate` weighted `linux-cpu` / `linux-cuda` drift assertion against the in-code tolerance table, and the 2026-06-03 `linux-cpu` / `apple-silicon` report-bundle comparison path through `jitml verify cross-backend --export/--compare`, `jitml-daemon-lifecycle` covers injected engine-backed daemon inference dispatch, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. The 2026-06-04 fresh Apple live aggregate passed all eight `jitml test all --live` report stanzas and captured populated report-card measurements. | Eight Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e` |
-| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, pins upstream `dhall-haskell` / `cborg` source snapshots for GHC `9.14.1`-compatible bounds, includes the small vendored `lens-family` bounds / warning-clean compatibility patch under `third_party/haskell/`, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Phase `15` owns retiring the source-pin/vendor helper once Hackage releases or metadata revisions make it unnecessary; the 2026-06-04 Hackage recheck still fails without the helper on `serialise`, `dhall`, and `lens-family` bounds. Phase `8` Sprint `8.8` leaves only pinned ALE library/runtime prerequisites for optional external/generated `atari-subset` adapter experiments, while Sprint `8.9` moved default demos to `KeyDoorGrid-v0`. | GHC `9.14.1`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, optional ALE library/runtime pinned in `docker/Dockerfile`, host Metal framework + CommandLineTools `swiftc`, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
+| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, no `source-repository-package` pins, and no local dependency packages, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Plain Hackage solves under the GHC `9.12.4` / `base-4.21` baseline. Phase `8` Sprint `8.8` leaves only pinned ALE library/runtime prerequisites for optional external/generated `atari-subset` adapter experiments, while Sprint `8.9` moved default demos to `KeyDoorGrid-v0`. | GHC `9.12.4`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, optional ALE library/runtime pinned in `docker/Dockerfile`, host Metal framework + CommandLineTools `swiftc`, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
 | Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU oneDNN primitive execution, local Linux CPU `HasEngine` dispatch, CUDA host-wrapper source ABI, guarded CUDA runtime preflight, `linux-cpu` / `linux-cuda` weighted drift against `src/JitML/Engines/Tolerance.hs`, and the 2026-06-03 `linux-cpu` / `apple-silicon` ephemeral report-bundle comparison are covered by dedicated Cabal stanzas / CLI validation | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
-| Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, and six panel payload modules under `web/src/Panels/`; `src/JitML/Web/Server.hs` serves the demo/API surface; the Playwright scaffold is present. Halogen mount machinery, compiled bundle, live WebSocket proxy, and Playwright against the live edge route are owned by Sprints `11.3`–`11.6`'s Remaining Work | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel payload modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
+| Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, six Halogen panel modules under `web/src/Panels/`, and a `spec-node` `purescript-spec` smoke suite under `web/test/`; `src/JitML/Web/Server.hs` serves the demo/API/WebSocket surface; the live-only Playwright scaffold drives the published edge route | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
 
 ## Related Documents
 

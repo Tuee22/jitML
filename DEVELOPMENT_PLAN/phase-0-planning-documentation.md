@@ -236,8 +236,8 @@ per standards rule L.
 - A grep audit of [../README.md](../README.md) enumerates
   every prescriptive identifier from the in-scope sections. The expected
   identifier list (non-exhaustive) is:
-  - **Toolchain pinning**: `GHC 9.14.1`, `Cabal 3.16.1.0`,
-    `tested-with: ghc ==9.14.1`, `with-compiler: ghc-9.14.1`. Per-substrate
+  - **Toolchain pinning**: `GHC 9.12.4`, `Cabal 3.16.1.0`,
+    `tested-with: ghc ==9.12.4`, `with-compiler: ghc-9.12.4`. Per-substrate
     codegen pins: LLVM, NVCC (`--use_fast_math=false`, baseline `sm_70`),
     Metal/`swiftc`, oneDNN (AVX2 baseline), `kindest/node` pinned in the Kind
     config and mirror-pinned as a comment in `cabal.project`.

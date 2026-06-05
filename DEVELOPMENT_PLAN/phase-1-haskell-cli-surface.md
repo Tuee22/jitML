@@ -20,17 +20,14 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-04 after Sprint `1.10`). The original
+✅ **Done** (re-closed 2026-06-04 after Sprint `1.11`). The original
 CLI, `CommandSpec`, lint, prerequisite, environment, and error-surface
 obligations remain closed, and the narrow reopened
-toolchain-compatibility cleanup removed the scoped `allow-newer` block
-from `cabal.project` without changing the pinned GHC `9.14.1` /
-Cabal `3.16.1.0` toolchain. The replacement uses exact upstream
-`dhall-haskell` / `cborg` source pins plus the small vendored
-`third_party/haskell/lens-family-*` metadata patch; that remaining
-source-pin/vendor helper is tracked in
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal)
-as a Phase `15` final-handoff cleanup row.
+toolchain-compatibility cleanup removed the scoped `allow-newer` block,
+downgraded the project to the single pinned GHC `9.12.4` / Cabal
+`3.16.1.0` toolchain, removed the upstream source pins and local
+`third_party/haskell/lens-family-*` compatibility packages, and validated a
+plain-Hackage solve.
 
 The phase owns
 [Exit Definition](README.md#exit-definition) items 11 (Plan/Apply
@@ -38,16 +35,16 @@ The phase owns
 `prerequisiteRegistry`), 14 (single `AppError` ADT and `renderError`), 15
 (`fourmolu.yaml` + lint targets), 16 (`CommandSpec` as implementation
 source) and contributes to item 4 (stage-0 entrypoints + typed prerequisite
-DAG). Sprints `1.1`–`1.10` are closed. Sprint `1.4` includes the
-container-exclusive style/code-quality rule: `docker/Dockerfile` installs the
-separate style-tools GHC and pinned Fourmolu / HLint binaries for `jitml:local`,
-runs the Haskell style/code-quality gate during image construction, and rejects
-host lint/check-code execution before linting.
+DAG). Sprints `1.1`–`1.11` are closed. Sprint `1.4` includes the
+container-exclusive style/code-quality rule: `docker/Dockerfile` installs
+pinned Fourmolu / HLint binaries with the same image-local GHC `9.12.4` used
+for the project build, runs the Haskell style/code-quality gate during image
+construction, and rejects host lint/check-code execution before linting.
 
 ## Phase Summary
 
 This phase delivers the single-binary `jitml` CLI built by Cabal under the pinned
-toolchain (GHC `9.14.1`, Cabal `3.16.1.0`), with the library-first layout (`app/`
+toolchain (GHC `9.12.4`, Cabal `3.16.1.0`), with the library-first layout (`app/`
 shims, `src/JitML/`), the `CommandSpec` registry as the code source for the
 parser and every generated artefact (markdown command reference, manpages, shell
 completions, JSON command schema, tree output), the typed `Subprocess` / `Plan` /
@@ -79,10 +76,11 @@ Plan/Apply `apply` interpreter is currently a no-op, and normal command
 execution enters the plan renderer only when `--dry-run` or `--plan-file` is
 requested on selected plan-capable leaves. Phase `1`'s Haskell lint and
 code-quality gate is container-exclusive: the mandatory `jitml:local` image
-build installs the style-tools GHC, builds pinned Fourmolu / HLint binaries,
-and runs `jitml check-code`. Sprint `1.10` retired the scoped
-`allow-newer` compatibility block; the remaining dependency source-pin
-cleanup is now a Phase `15` legacy-ledger handoff row.
+build uses the same pinned GHC `9.12.4` for the project and pinned Fourmolu /
+HLint binaries, then runs `jitml check-code`. Sprint `1.10` retired the scoped
+`allow-newer` compatibility block, and Sprint `1.11` removed the old
+source-pin/vendor helper by downgrading to the GHC `9.12.4` / `base-4.21`
+baseline that solves from plain Hackage.
 
 ## Sprint 1.1: Toolchain Pin and Library-First Cabal Project ✅
 
@@ -95,27 +93,25 @@ cleanup is now a Phase `15` legacy-ledger handoff row.
 
 ### Objective
 
-Pin GHC `9.14.1` and Cabal `3.16.1.0` in the cabal manifest and project files,
+Pin GHC `9.12.4` and Cabal `3.16.1.0` in the cabal manifest and project files,
 declare both `jitml` and `jitml-demo` executables as six-line shims into
 `App.main`, and lay down the library-first source tree with the standardized
 library set per doctrine `Overview → standardized stack`.
 
 ### Deliverables
 
-- `jitml.cabal` declares `cabal-version: 3.16`, `tested-with: ghc ==9.14.1`, the
+- `jitml.cabal` declares `cabal-version: 3.16`, `tested-with: ghc ==9.12.4`, the
   `jitml` library exposing `src/JitML/`, the two executables `jitml` and
   `jitml-demo` as six-line shims into `App.main`, and the ten test-suite stanzas
   named in [system-components.md → Test
   Stanzas](system-components.md#test-stanzas) (each `type: exitcode-stdio-1.0`).
-- `cabal.project` declares `with-compiler: ghc-9.14.1`, records codegen-toolchain
+- `cabal.project` declares `with-compiler: ghc-9.12.4`, records codegen-toolchain
   pin comments (LLVM, NVCC, Metal/`swiftc`, oneDNN), the `kindest/node` mirror-pin
   comment, and the report-card knob list from [system-components.md → POC Report-Card
   Knobs](system-components.md#poc-report-card-knobs).
-- `cabal.project` carries no `allow-newer` override. It pins upstream
-  `dhall-haskell` and `cborg` source snapshots whose bounds support GHC
-  `9.14.1`, and includes the small vendored `lens-family` source packages
-  whose bounds and warning-clean compatibility patch is tracked in
-  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal).
+- `cabal.project` carries no `allow-newer` override, no source-repository
+  package pins, and no local dependency packages. The GHC `9.12.4` /
+  `base-4.21` package set solves from plain Hackage.
 - `app/Main.hs` and `app/Demo.hs` are six-line shims into `App.main` and
   `App.demoMain`. No business logic in `app/`.
 - `src/JitML/App.hs` exports `main` and `demoMain` and is the single composition
@@ -137,11 +133,11 @@ library set per doctrine `Overview → standardized stack`.
 ### Validation
 
 1. `cabal build all` builds the `jitml` and `jitml-demo` shells under GHC
-   `9.14.1`.
+   `9.12.4`.
 2. `cabal test all` runs the eight declared test stanzas; Phase `12` now supplies the
    dedicated deterministic bodies.
-3. `grep '^tested-with' jitml.cabal` returns `tested-with: ghc ==9.14.1`.
-4. `grep '^with-compiler' cabal.project` returns `with-compiler: ghc-9.14.1`.
+3. `grep '^tested-with' jitml.cabal` returns `tested-with:   ghc ==9.12.4`.
+4. `grep '^with-compiler' cabal.project` returns `with-compiler: ghc-9.12.4`.
 5. Every report-card knob from [system-components.md → POC Report-Card
    Knobs](system-components.md#poc-report-card-knobs) is grep-findable in
    `cabal.project`.
@@ -300,9 +296,9 @@ on top, declare the `forbiddenPathRegistry`, register the chart-shape lint, and
 wire the entire stack into the `jitml lint` / `jitml check-code` commands per
 doctrine `Lint, Format, and Code-Quality Stack`. Style and code-quality
 execution is container-exclusive and separate from `jitml test`:
-`jitml:local` image construction installs the style-tools GHC and pinned
-external tools, runs the Haskell style/code-quality gate, and runtime
-lint/check-code rejects host execution before linting.
+`jitml:local` image construction uses the pinned project GHC `9.12.4` to build
+the pinned external style tools, runs the Haskell style/code-quality gate, and
+runtime lint/check-code rejects host execution before linting.
 
 ### Deliverables
 
@@ -331,10 +327,10 @@ lint/check-code rejects host execution before linting.
 - `cabal format` round-trip byte-equality writes the output to a temp file and
   compares against `jitml.cabal`; `jitml lint haskell --write` formats the
   manifest in place.
-- `docker/Dockerfile` installs a separate style-tools GHC (`9.12.4`) and builds
-  pinned `fourmolu` / `hlint` binaries for `jitml:local`; image construction
-  runs the Haskell style gate before publishing the image used by every
-  substrate, including Apple Silicon's in-cluster daemon.
+- `docker/Dockerfile` installs one pinned GHC (`9.12.4`) and builds pinned
+  `fourmolu` / `hlint` binaries for `jitml:local`; image construction runs the
+  Haskell style gate before publishing the image used by every substrate,
+  including Apple Silicon's in-cluster daemon.
 - `jitml lint haskell` runs the same lint stack inside `jitml:local`.
   External tools are called through the typed `Subprocess`
   boundary introduced in Sprint `1.6`.
@@ -364,19 +360,18 @@ lint/check-code rejects host execution before linting.
   forbidden subprocess primitives through the in-repo lint stack.
 - [x] Replace the initial `JitML.Lint.Chart` body with chart-shape checks
   once `chart/` lands.
-- [x] Record the current external style-tool resolver blocker:
-  `fourmolu-0.19.0.1` requires `ghc-lib-parser <9.13`, whose available
-  `base` bounds reject the pinned GHC `9.14.1` project compiler.
+- [x] Record and close the external style-tool resolver blocker by using the
+  pinned GHC `9.12.4` project compiler for both the project build and style
+  tools.
 - [x] Run `fourmolu --mode check` over `src/`, `app/`, and `test/` through the
-  typed `Subprocess` boundary using the doctrine's separate style-tools GHC.
+  typed `Subprocess` boundary using the image-local GHC `9.12.4`.
 - [x] Run `hlint --with-group=default --with-group=extra --hint .hlint.yaml`
-  through the typed `Subprocess` boundary using the doctrine's separate
-  style-tools GHC.
+  through the typed `Subprocess` boundary using the image-local GHC `9.12.4`.
 - [x] Implement `cabal format` temp-file round-trip byte-equality on
   `jitml.cabal`.
 - [x] Add the warning-clean `cabal build all --ghc-options=-Werror` gate to `jitml
   check-code`.
-- [x] Move style GHC/tool installation into `docker/Dockerfile` for `jitml:local`.
+- [x] Move style-tool installation into `docker/Dockerfile` for `jitml:local`.
 - [x] Run Haskell style/code-quality checks during image construction.
 - [x] Remove the `jitml lint haskell` path that bootstraps missing style tools
   through host `ghcup`; replace it with a container-domain check and
@@ -597,8 +592,6 @@ None.
 
 **Status**: Done
 **Implementation**: `cabal.project`,
-`third_party/haskell/lens-family-2.1.3`,
-`third_party/haskell/lens-family-core-2.1.3`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
 **Docs to update**: `README.md`, `documents/engineering/code_quality.md`,
 `DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
@@ -606,75 +599,85 @@ None.
 
 ### Objective
 
-Remove the scoped `allow-newer` block from `cabal.project` without changing
-the project compiler pin. This is a compatibility cleanup only: GHC `9.14.1`
-and Cabal `3.16.1.0` remain normative.
+Remove the scoped `allow-newer` block from `cabal.project`. This sprint first
+closed the override by using temporary upstream source pins and local
+`lens-family` compatibility packages; Sprint `1.11` later removed that helper
+when the project baseline moved to GHC `9.12.4`.
 
 ### Deliverables
 
 - `cabal.project` drops the compatibility override entirely.
-- `cabal.project` pins upstream `cborg`, `cborg-json`, and `serialise` to
-  `well-typed/cborg` commit `6ef2791ca41b397a3e36c868ad3e66a0d09f19b2`,
-  where the package metadata admits `base-4.22`.
-- `cabal.project` pins `dhall` to `dhall-lang/dhall-haskell` commit
-  `adca92b4f06a76dc00b28787a7c042b1d2685c07`, where the package metadata
-  admits GHC `9.14.1`'s `template-haskell`, `containers`, and `time` versions.
-- The BSD-licensed `lens-family-2.1.3` and `lens-family-core-2.1.3` source
-  packages live under `third_party/haskell/`, with their `containers` upper
-  bound relaxed from `<0.8` to `<0.9` and the minimal GHC `9.14.1`
-  warning-clean source hygiene needed by `lens-family-core`.
 - The `Scoped allow-newer for Dhall / CBOR transitive package bounds` row moves
   from Pending Removal to Completed in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+- The source-pin/vendor helper introduced during this sprint is no longer part
+  of the current package set; Sprint `1.11` deletes it.
 
 ### Validation
 
-1. `cabal build all --dry-run` solves under GHC `9.14.1` with no
-   `allow-newer` stanza in `cabal.project`.
-2. `cabal build lib:jitml` passes under GHC `9.14.1` with the source pins and
-   vendored lens-family compatibility patch.
-3. `docker compose build jitml` passes and the image build runs the
+1. `cabal build all --dry-run` solves with no `allow-newer` stanza in
+   `cabal.project`.
+2. `docker compose build jitml` passes and the image build runs the
    container-only `jitml check-code` gate.
-4. `docker compose run --rm jitml jitml check-code` passes after the block is
+3. `docker compose run --rm jitml jitml check-code` passes after the block is
    removed.
 
 ### Remaining Work
 
-None. The source-pin/vendor cleanup that remains after the block removal is
-tracked by Phase `15` Sprint `15.3`, not as open Phase `1` work.
+None.
 
-### Current Validation State
+## Sprint 1.11: GHC 9.12.4 Baseline and Dependency Helper Retirement ✅
 
-- 2026-06-04 retry: `cabal update` refreshed Hackage to index-state
-  `2026-06-04T13:02:57Z`; a temporary `.build/phase1/cabal.project.no-allow-newer`
-  with the scoped `allow-newer` block removed still fails
-  `cabal build all --project-file=.build/phase1/cabal.project.no-allow-newer --dry-run`
-  because `serialise-0.2.6.1` requires `base >=4.11 && <4.22` while the
-  pinned compiler provides `base-4.22.0.0`.
-- 2026-06-04 Phase `15` recheck: Hackage index-state
-  `2026-06-04T16:46:08Z` still does not allow the remaining helper to be
-  removed. Removing all pins/vendor packages fails on Hackage
-  `serialise-0.2.6.1` requiring `base <4.22`; keeping cborg/dhall pins but
-  removing the vendored `lens-family` packages fails on Hackage
-  `lens-family-2.1.3` requiring `containers <0.8`; keeping cborg pins and
-  vendored `lens-family` but removing the `dhall` source pin fails on Hackage
-  `dhall-1.42.3` requiring `template-haskell <2.24`.
-- 2026-06-04 closure: the real `cabal.project` no longer contains
-  `allow-newer`; `cabal build all --dry-run` solves under GHC `9.14.1`
-  using the pinned upstream `cborg` / `dhall` source snapshots plus the
-  vendored lens-family packages, and `cabal build lib:jitml --jobs=2`
-  completed successfully.
-- 2026-06-04 container closure: `docker compose build jitml` completed and ran
-  the image-local `jitml check-code` gate; after Phase `7` Sprint `7.9` split
-  GPU exposure into `jitml-cuda` and `lens-family-core` received the minimal
-  warning-clean source hygiene patch, a fresh
-  `docker compose run --rm jitml jitml check-code` rebuilt/exported
-  `jitml:local`, built the PureScript bundle, and completed the final headless
-  command with `check-code: ok`.
+**Status**: Done
+**Implementation**: `jitml.cabal`, `cabal.project`, `docker/Dockerfile`,
+`src/JitML/Prerequisite/Nodes/Toolchain.hs`,
+`test/snapshots/cli/app-error-render.txt`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
+**Docs to update**: `README.md`, `documents/engineering/code_quality.md`,
+`DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
+`DEVELOPMENT_PLAN/system-components.md`,
+`DEVELOPMENT_PLAN/development_plan_standards.md`
+
+### Objective
+
+Use one Haskell compiler version across the project and the code-quality image:
+GHC `9.12.4`. Remove the post-`allow-newer` source-pin/vendor dependency helper
+and the superseded reopened-phase development ledger.
+
+### Deliverables
+
+- `jitml.cabal` declares `tested-with:   ghc ==9.12.4` and all package targets
+  use `base >=4.21 && <4.22`.
+- `cabal.project` declares `with-compiler: ghc-9.12.4`, keeps the codegen
+  comments and report-card knobs, and contains no `allow-newer`, no
+  `source-repository-package`, and no local dependency packages.
+- `docker/Dockerfile` installs only `GHC_VERSION=9.12.4`; the pinned
+  Fourmolu / HLint tools are built with that same compiler.
+- `third_party/haskell/lens-family-*` is deleted, and plain Hackage provides
+  `serialise`, `cborg`, `dhall`, `lens-family`, and `lens-family-core`.
+- The toolchain prerequisite node, CLI error snapshot, and cache-key
+  fingerprint fixtures use `ghc-9.12.4`.
+- The superseded reopened-phase development ledger is deleted, and reopened
+  phase scope is tracked only in owning phase documents plus the deletion
+  ledger when cleanup residue exists.
+
+### Validation
+
+1. `ghcup run --ghc 9.12.4 -- cabal build all --dry-run --jobs=2` solves
+   against plain Hackage with no source pins or vendor packages.
+2. `docker compose build jitml` passes and runs the image-local
+   `jitml check-code` gate.
+3. `docker compose run --rm jitml cabal test jitml-unit jitml-rl-canonicals --jobs=2`
+   passes under the pinned compiler.
+4. `docker compose run --rm jitml jitml check-code` passes.
+
+### Remaining Work
+
+None.
 
 ## Doctrine Sections Cited
 
-- [../README.md → Toolchain pinning](../README.md#toolchain-pinning) (Sprints 1.1, 1.10)
+- [../README.md → Toolchain pinning](../README.md#toolchain-pinning) (Sprints 1.1, 1.10, 1.11)
 - [../README.md → Repository layout (target)](../README.md#repository-layout-target) (Sprint 1.1)
 - [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (Sprint 1.2)
 - [../README.md → Generated documentation flow](../README.md#generated-documentation-flow) (Sprints 1.2, 1.3)
@@ -698,8 +701,9 @@ tracked by Phase `15` Sprint `15.3`, not as open Phase `1` work.
   `GeneratedSectionRule` registry.
 - `documents/engineering/code_quality.md` — name the thirteen `fourmolu` settings,
   the project-specific hlint rules, the `forbiddenPathRegistry`, the
-  container-exclusive style/code-quality gate, the chart-shape lint, and the
-  no-`allow-newer` dependency source-pin cleanup from Sprint `1.10`.
+  container-exclusive style/code-quality gate, the chart-shape lint, the
+  no-`allow-newer` package set, and the single-GHC `9.12.4` code-quality image
+  from Sprint `1.11`.
 - `documents/engineering/unit_testing_policy.md` — record that
   `jitml lint haskell` runs inside `jitml:local`.
 - `documents/engineering/cluster_topology.md` — record that the `jitml:local`
@@ -715,7 +719,7 @@ tracked by Phase `15` Sprint `15.3`, not as open Phase `1` work.
 
 **Cross-references to add:**
 
-- `system-components.md → CLI Doctrine Components` rows for Sprint `1.1`–`1.9`
+- `system-components.md → CLI Doctrine Components` rows for Sprint `1.1`–`1.11`
   remain aligned with the implemented command, lint, parser, subprocess,
   plan/apply, prerequisite, env, and error-rendering surfaces.
 - `legacy-tracking-for-deletion.md` enqueues a row only if Sprint `0.2`'s audit

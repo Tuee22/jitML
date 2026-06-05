@@ -8,7 +8,6 @@ import Prelude
 
 import Data.Array (length)
 import Effect (Effect)
-import Effect.Aff (launchAff_)
 import Generated.Contracts as Contracts
 import Panels.Cifar as Cifar
 import Panels.Connect4 as Connect4
@@ -19,10 +18,10 @@ import Panels.Tune as Tune
 import Test.Spec (describe, it)
 import Test.Spec.Assertions (shouldEqual, shouldSatisfy)
 import Test.Spec.Reporter (consoleReporter)
-import Test.Spec.Runner (runSpec)
+import Test.Spec.Runner.Node (runSpecAndExitProcess)
 
 main :: Effect Unit
-main = launchAff_ $ runSpec [ consoleReporter ] do
+main = runSpecAndExitProcess [ consoleReporter ] do
   describe "panel typed contracts" do
     it "MNIST renderRequest pins the panel name and model id" do
       let req = Mnist.renderRequest [ 1, 2, 3 ]

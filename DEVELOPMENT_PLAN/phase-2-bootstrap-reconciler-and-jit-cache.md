@@ -197,7 +197,7 @@ lazy package validation and remediation.
 
 ### Deliverables
 
-- Toolchain nodes: `ghc-9.14.1`, `cabal-3.16.1.0`, `protoc`, `node`, `poetry`,
+- Toolchain nodes: `ghc-9.12.4`, `cabal-3.16.1.0`, `protoc`, `node`, `poetry`,
   `purescript`, `spago`, and Homebrew package nodes as typed values.
 - Container nodes: `docker`, `colima` (Apple), `tart` (Apple, lazy first-JIT
   validation/install rather than bootstrap startup).
@@ -347,7 +347,7 @@ command materializes bootstrap inputs only.
 ### Deliverables
 
 - `docker/Dockerfile` currently builds on `ubuntu:24.04` with pinned GHC
-  `9.14.1`, Cabal `3.16.1.0`, GCC/G++, LLVM, Docker CLI, Node.js/npm, Python,
+  `9.12.4`, Cabal `3.16.1.0`, GCC/G++, LLVM, Docker CLI, Node.js/npm, Python,
   Poetry, PureScript, spago, architecture-aware `kubectl` / `kind`, `helm`,
   CUDA/NVCC/cuBLAS/cuDNN, oneDNN, and the Sprint `1.4`
   style-tools/code-quality image gate, then installs the `jitml` and

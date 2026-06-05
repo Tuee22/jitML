@@ -20,7 +20,7 @@ toolchainPrerequisites =
   [ purePrerequisite
       (NodeId "toolchain")
       "Toolchain prerequisite root."
-      [ NodeId "toolchain.ghc-9.14.1"
+      [ NodeId "toolchain.ghc-9.12.4"
       , NodeId "toolchain.cabal-3.16.1.0"
       , NodeId "toolchain.protoc"
       , NodeId "toolchain.node"
@@ -50,9 +50,9 @@ toolchainPrerequisites =
 ghcPrerequisite :: Prerequisite
 ghcPrerequisite =
   Prerequisite
-    { nodeId = NodeId "toolchain.ghc-9.14.1"
-    , nodeDescription = "GHC 9.14.1 is installed."
-    , remedyHint = Just "run `ghcup install ghc 9.14.1`"
+    { nodeId = NodeId "toolchain.ghc-9.12.4"
+    , nodeDescription = "GHC 9.12.4 is installed."
+    , remedyHint = Just "run `ghcup install ghc 9.12.4`"
     , dependsOn = []
     , remediation = Nothing
     , checkNode = checkPinnedGhc
@@ -71,9 +71,9 @@ cabalPrerequisite =
 
 checkPinnedGhc :: IO Bool
 checkPinnedGhc = do
-  commandPresent <- checkAnyExecutable ["ghc-9.14.1"]
+  commandPresent <- checkAnyExecutable ["ghc-9.12.4"]
   home <- getHomeDirectory
-  homePresent <- doesFileExist (home </> ".ghcup" </> "ghc" </> "9.14.1" </> "bin" </> "ghc")
+  homePresent <- doesFileExist (home </> ".ghcup" </> "ghc" </> "9.12.4" </> "bin" </> "ghc")
   pure (commandPresent || homePresent)
 
 checkPinnedCabal :: IO Bool

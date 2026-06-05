@@ -8,7 +8,6 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -35,7 +34,7 @@ Sprints `13.8` and `13.9`. Live tuner execution is owned by Phase `13`
 Sprint `13.10`.
 Sprint `9.8` retargeted the RL algorithm/convergence matrix away from
 `atari-subset` and onto the copyright-free Phase `8` Sprint `8.9`
-`KeyDoorGrid-v0` environment. The development ledger row moved to Completed.
+`KeyDoorGrid-v0` environment.
 
 The phase owns the catalog/AlphaZero/tuning half of
 [Exit Definition](README.md#exit-definition) item 6 (`jitml rl train`
@@ -610,13 +609,11 @@ summary.
 **Status**: Done
 **Implementation**: `src/JitML/RL/ConvergenceThresholds.hs`,
 `src/JitML/RL/Algorithms/Registry.hs`, `test/rl-canonicals/Main.hs`,
-`documents/engineering/training_workloads.md`,
-`DEVELOPMENT_PLAN/legacy-tracking-for-development.md`
+`documents/engineering/training_workloads.md`
 **Docs to update**: `README.md`,
 `documents/engineering/training_workloads.md`,
 `documents/engineering/unit_testing_policy.md`,
-`DEVELOPMENT_PLAN/system-components.md`,
-`DEVELOPMENT_PLAN/legacy-tracking-for-development.md`
+`DEVELOPMENT_PLAN/system-components.md`
 
 ### Objective
 
@@ -700,6 +697,5 @@ None.
 - [README.md](README.md)
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
-- [legacy-tracking-for-development.md](legacy-tracking-for-development.md)
 - [development_plan_standards.md](development_plan_standards.md)
 - [../README.md](../README.md)

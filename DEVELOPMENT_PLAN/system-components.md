@@ -6,7 +6,6 @@
 [development_plan_standards.md](development_plan_standards.md),
 [00-overview.md](00-overview.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md),
@@ -33,17 +32,18 @@
 > frontend, and the Cabal test stanzas.
 
 The inventory documents the authoritative target end state and the present
-checked-in implementation. Phases `0`–`14` are `✅ Done`; Phase
+checked-in implementation. Phases `0`–`15` are `✅ Done`; Phase
 `1` reopened and re-closed on 2026-06-04 after Sprint `1.10` removed the scoped
-`allow-newer` block, Phase `8` re-closed after Sprint `8.9` added
-`KeyDoorGrid-v0`, Phase `9` re-closed after Sprint `9.8` retargeted the
-required RL matrix, and Phase `15` remains `⏸️ Blocked` until the dependency
-source-pin/vendor helper moves to Completed in the deletion ledger. Sprint `8.8` replaced the
+`allow-newer` block and Sprint `1.11` moved the project to a single GHC
+`9.12.4` baseline with no source pins or local dependency packages. Phase `8`
+re-closed after Sprint `8.9` added `KeyDoorGrid-v0`, Phase `9` re-closed after
+Sprint `9.8` retargeted the required RL matrix, and Phase `15` re-closed after
+the final deletion-ledger rows moved to Completed. Sprint `8.8` replaced the
 deterministic `atari-subset` stand-in with an explicit ROM-policy boundary, and
 the static-foreign-source correction removed the checked-in ALE C++ shim and
 lint exception. Sprint `1.4` closes the container-exclusive Haskell style/
-code-quality gate: `jitml:local` image construction installs the separate
-style GHC/tools and runs `jitml check-code`; host lint/check-code execution
+code-quality gate: `jitml:local` image construction uses the same pinned GHC
+`9.12.4` for the project and style tools and runs `jitml check-code`; host lint/check-code execution
 is unsupported.
 Phase `4` reclosed on 2026-05-23 after the live Linux CUDA
 `RuntimeClass/nvidia` probe ran on a GPU validation host (NVIDIA GeForce RTX
@@ -300,12 +300,12 @@ internal-RPC pair.
 | Minimal PureScript application | `web/src/Main.purs` | ✅ Done | Sprint 11.1 |
 | Browser-contract source ADTs | `src/JitML/Web/Contracts.hs` renders `web/src/Generated/Contracts.purs` through the local bridge-compatible renderer | ✅ Done | Sprint 11.2 |
 | Generated PureScript contracts | `web/src/Generated/Contracts.purs`; the contract renderer is covered by the PureScript lint target | ✅ Done | Sprint 11.2 |
-| PureScript lint checks | `web/test/`, `src/JitML/Lint/Stack.hs`; current lint target checks generated-contract presence, recursive checked-in source whitespace shape, panel-contract coverage, and explicit typed `spago test` + `purs-tidy check` command shapes | 🔄 Active; missing: default `purs format` round-trip and `purescript-spec` invocation from inside `jitml lint purescript` | Sprint 11.3 |
+| PureScript lint checks | `web/test/`, `web/spago.yaml`, `src/JitML/Lint/Stack.hs`; current lint target checks generated-contract presence, recursive checked-in source whitespace shape, panel-contract coverage, explicit typed `spago test` + `purs-tidy check` command shapes, and the `spec-node` `purescript-spec` smoke suite | ✅ Done; 2026-06-04 `spago test` passed 7 / 7 with zero PureScript warnings after replacing the deprecated `runSpec` alias | Sprint 11.3 |
 | Playwright scaffold | `playwright/jitml-demo.spec.ts`; the spec reads `.build/runtime/cluster-publication.json`, fails fast when no live publication exists, and drives the canonical seven-panel matrix through the real edge route; `jitml-e2e` validates the typed Playwright plan and server-side route/concurrency invariants | ✅ Done; 2026-06-04 live Apple Silicon Playwright passed 7 / 7 against `127.0.0.1:9091` | Sprint 11.6 / Sprint 13.14 / Sprint 15.3 |
 | Bundle output | `src/JitML/Web/Bundle.hs`; typed bundle asset manifest and full demo route manifest for the generated PureScript bundle output paths; `src/JitML/Web/Server.hs` serves `web/dist/Main/bundle.js` as `/bundle/main.js` when the file exists and routes `/api/ws`, `/api/ws/training`, `/api/ws/rl`, and `/api/ws/tune` through the WebSocket bridge | ✅ Done; `jitml-e2e` covers the bundle route and plain HTTP stream 503s, and 2026-06-04 live Playwright validated the baked bundle through the edge route | Sprint 11.4 / Sprint 13.13 / Sprint 15.3 |
-| MNIST live inference panel | `src/JitML/Web/Bundle.hs`; panel metadata bound to `InferenceRun`; `web/src/Panels/Mnist.purs` carries the typed request/response payload shape | 🔄 Active; missing: Halogen mount/rendering and real inference round-trip against the daemon | Sprint 11.4 |
-| CIFAR/ImageNet upload panel | `src/JitML/Web/Bundle.hs`; panel metadata bound to `UploadImage`; `web/src/Panels/Cifar.purs` carries the typed request/response payload shape | 🔄 Active; missing: Halogen mount/rendering and real upload+inference round-trip | Sprint 11.4 |
-| AlphaZero-vs-human Connect 4 panel | `src/JitML/Web/Bundle.hs`; panel metadata bound to `Connect4Move`; `web/src/Panels/Connect4.purs` carries the typed `Connect4MoveRequest` / `Connect4MoveResponse` payload shapes | 🔄 Active; missing: Halogen mount + real MCTS move suggestions from the daemon | Sprint 11.4 |
+| MNIST live inference panel | `src/JitML/Web/Bundle.hs`; panel metadata bound to `InferenceRun`; `web/src/Panels/Mnist.purs` carries the typed request/response payload shape and Halogen mount | ✅ Done; live-edge Playwright validates the panel route, while production model semantics are owned by the daemon/inference phases | Sprint 11.4 / Sprint 13.14 |
+| CIFAR/ImageNet upload panel | `src/JitML/Web/Bundle.hs`; panel metadata bound to `UploadImage`; `web/src/Panels/Cifar.purs` carries the typed request/response payload shape and Halogen mount | ✅ Done; live-edge Playwright validates the panel route, while production image-inference semantics are owned by the daemon/inference phases | Sprint 11.4 / Sprint 13.14 |
+| AlphaZero-vs-human Connect 4 panel | `src/JitML/Web/Bundle.hs`; panel metadata bound to `Connect4Move`; `web/src/Panels/Connect4.purs` carries the typed `Connect4MoveRequest` / `Connect4MoveResponse` payload shapes and Halogen mount | ✅ Done; live-edge Playwright validates the panel route, while production MCTS move quality is owned by the RL/daemon phases | Sprint 11.4 / Sprint 13.14 |
 | RL trajectory render panel | `src/JitML/Web/Bundle.hs`; panel metadata bound to `RlStream`; `web/src/Panels/Rl.purs` carries the typed stream payload shape and subscribes to the live `/api/ws/rl` bridge | ✅ Done; Halogen mount/rendering and live route are covered by the Sprint 13.13 broker-frame validation plus 2026-06-04 live Playwright visibility pass | Sprint 11.4 / Sprint 13.13 |
 | Training metrics panel | `src/JitML/Web/Bundle.hs`; `web/src/Panels/Training.purs` carries the typed `TrainingStream` payload shape and subscribes to the live `/api/ws/training` bridge | ✅ Done; Halogen mount/rendering and live route are covered by the Sprint 13.13 broker-frame validation plus 2026-06-04 live Playwright visibility pass | Sprint 11.4 / Sprint 13.13 |
 | Tuning frontier panel | `src/JitML/Web/Bundle.hs`; `web/src/Panels/Tune.purs` carries the typed `TuneStream` payload shape and subscribes to the live `/api/ws/tune` bridge | ✅ Done; Halogen mount/rendering and live route are covered by the Sprint 13.13 broker-frame validation plus 2026-06-04 live Playwright visibility pass | Sprint 11.4 / Sprint 13.13 |
@@ -352,7 +352,7 @@ standards rule L.
 | Long-running daemon shape (`BootConfig` / `LiveConfig`, SIGHUP, `/healthz`, `/readyz`, `/metrics`, structured JSON stderr logging) | Long-Running Daemons in the Same Binary | ✅ Done; local lifecycle, endpoint, logging, signal, and held-open worker surfaces are implemented and validated, with live Linux CPU, Linux CUDA, and Apple Silicon validations passing on the single-node substrate topology | Sprints 5.2, 5.3, 5.6 |
 | Implemented reconciler discipline (`jitml docs generate`, `jitml lint --write`, `jitml bootstrap`, `jitml cluster up`, `--dry-run` / `--plan-file` plan rendering, no-op exit code `3`) | Reconcilers: Idempotent Mutation as a Single Command; Plan / Apply | ✅ Done | Sprints 1.3, 1.4, 1.5, 1.9, 2.1, 3.5 |
 | Mutating reconciler effects (`jitml bootstrap` live Kind/Helm apply, `jitml internal gc` live MinIO deletion) | Reconcilers: Idempotent Mutation as a Single Command | 🔄 Active; `jitml bootstrap` Kind/Helm apply is live-validated for Sprint `3.5` on the single-node topology, but live `jitml internal gc` HTTP MinIO deletion and `gc_reaped` Pulsar events remain open | Sprints 3.5, 10.3 |
-| Cabal-manifest toolchain pin (`tested-with: ghc ==9.14.1` in `jitml.cabal`, `with-compiler: ghc-9.14.1` in `cabal.project`, codegen toolchains pinned in `cabal.project`) with no `allow-newer` override | Toolchain pinning | ✅ Done; Sprint `1.10` removed the ledger-tracked scoped override without changing GHC | Sprint 1.1 / Sprint 1.10 |
+| Cabal-manifest toolchain pin (`tested-with: ghc ==9.12.4` in `jitml.cabal`, `with-compiler: ghc-9.12.4` in `cabal.project`, codegen toolchains pinned in `cabal.project`) with no `allow-newer` override and no dependency helper pins | Toolchain pinning | ✅ Done; Sprint `1.11` keeps one GHC `9.12.4` baseline for the project and style tools | Sprint 1.1 / Sprint 1.11 |
 | Library-first layout audit (thin `app/Main.hs` and `app/Demo.hs`, logic in `src/JitML/`) | Project Structure | ✅ Done | Sprint 1.1 |
 | Durable CLI documentation artefacts (`documents/cli/commands.md`, `share/man/man1/jitml*.1`, `share/completion/{bash,zsh,fish}/`) | Automatically Generated Documentation | ✅ Done | Sprint 1.3 |
 | Standardized library set audit in `jitml.cabal` (`optparse-applicative`, `text`, `bytestring`, `aeson`, `prettyprinter*`, `ansi-terminal`, `path`, `path-io`, `typed-process`, `safe-exceptions`, `dhall`, `tasty*`, `temporary`) | Overview → standardized stack | ✅ Done | Sprint 1.1 |
@@ -407,9 +407,9 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 
 | Component | Pinned Version | Purpose | Status | Owning Sprint |
 |-----------|----------------|---------|--------|---------------|
-| GHC | `9.14.1` | Haskell compiler for the CLI binary, the daemon, and every library module | ✅ Done | Sprint 1.1 |
+| GHC | `9.12.4` | Haskell compiler for the CLI binary, the daemon, and every library module | ✅ Done | Sprint 1.1 |
 | Cabal | `3.16.1.0` | Haskell build tool; per-stanza `type: exitcode-stdio-1.0` | ✅ Done | Sprint 1.1 |
-| Haskell dependency source pins | upstream `well-typed/cborg` commit `6ef2791ca41b397a3e36c868ad3e66a0d09f19b2`, upstream `dhall-lang/dhall-haskell` commit `adca92b4f06a76dc00b28787a7c042b1d2685c07`, and local BSD-licensed `third_party/haskell/lens-family-*` bounds / warning-clean compatibility patch | GHC `9.14.1` / `base-4.22` compatibility without any `allow-newer` override; final source-pin/vendor cleanup is tracked in the legacy ledger | ✅ Done for Sprint 1.10; cleanup row blocks Phase 15 until Hackage metadata/releases solve without the helper | Sprint 1.10 / Sprint 15.3 |
+| Haskell dependency helper pins | _removed_ | The project now solves from plain Hackage under GHC `9.12.4` / `base-4.21`; `cabal.project` has no `allow-newer`, no `source-repository-package` entries, and no local dependency packages | ✅ Removed | Sprint 1.11 / Sprint 15.3 |
 | LLVM | pinned in `cabal.project` | Shared by GHC `-fllvm` and JIT codegen | ✅ Done | Sprint 1.1 |
 | NVCC | pinned in `cabal.project` (`--use_fast_math=false`, baseline `sm_70`) | CUDA kernel codegen for `linux-cuda` | ✅ Done | Sprint 7.4 |
 | ALE | upstream `v0.12.0` commit `94c24368664b8539c53857522e50652ddcc44b20` library/runtime prerequisite in `docker/Dockerfile` | Optional Arcade Learning Environment runtime for `atari-subset`; Haskell loads `JitML.RL.ALE` only when an explicit ROM path is supplied, and any native adapter must be generated into the build/cache tree or supplied externally via `JITML_ALE_SHIM_PATH`. Default examples and required canonical tests use copyright-free environments. | ✅ Done for no-ROM fail-closed policy and static C++ shim removal; real ALE smoke is optional/manual and requires generated/external adapter support | Sprint 8.8 |
@@ -423,7 +423,7 @@ Pinned in `cabal.project` for reproducibility across hosts; see
 | `docker` | stage-0 Linux gate plus Haskell prerequisite DAG | Container runtime; the only host runtime touched on Linux | ✅ Done | Sprint 2.2 |
 | Node.js | Haskell prerequisite DAG | Required by the PureScript toolchain (`spago`, `purescript`) | ✅ Done | Sprint 2.2 |
 | Poetry | Haskell prerequisite DAG | Required for ancillary Python tooling (none on the supported runtime path; only present for codegen support tools) | ✅ Done | Sprint 2.2 |
-| Formatter GHC | separate isolated `9.12.4` install built by `docker/Dockerfile` for `jitml:local` | Container-exclusive lint stack only; never affects the project compiler; host lint/check-code execution is unsupported | ✅ Done | Sprint 1.4 |
+| Haskell style tools | built with GHC `9.12.4` | Container-exclusive lint stack built with the same pinned compiler as the project; host lint/check-code execution is unsupported | ✅ Done | Sprint 1.4 / Sprint 1.11 |
 | PureScript contract generator | local renderer in `src/JitML/Web/Contracts.hs` | Bridge-compatible endpoint renderer for `web/src/Generated/Contracts.purs`; no external `purescript-bridge` package is required for the current implementation | ✅ Done | Sprint 11.2 |
 | Target platforms | `arm64` macOS (Apple Silicon), `amd64` Linux, optional `arm64` Linux | Three substrates × supported host arches | ✅ Done | Phases 3, 7 |
 
@@ -458,8 +458,8 @@ The current concrete worktree is summarized in
 |------|----------|---------|
 | Haskell application entrypoints | `app/Main.hs`, `app/Demo.hs` | Six-line shims into `App.main` per the library-first layout |
 | Haskell source modules | `src/JitML/` | CLI, cluster, daemon, runtime, SL/RL/AlphaZero/tuning, proto, engines, codegen, numerics, storage, inference, web, observability, generated-artifact tracking, checkpointing, `Test.{LivePlan,Report}`, bootstrap live rollout, and typed `Subprocess` support |
-| Cabal package definition | `jitml.cabal` | Build, test, and dependency definition with `tested-with: ghc ==9.14.1`; declares both `jitml` and `jitml-demo` executables and the eight test-suite stanzas |
-| Cabal project definition | `cabal.project` | Repository-wide Cabal package-set definition with `with-compiler: ghc-9.14.1`, the codegen-toolchain pins, and the report-card knobs |
+| Cabal package definition | `jitml.cabal` | Build, test, and dependency definition with `tested-with: ghc ==9.12.4`; declares both `jitml` and `jitml-demo` executables and the eight test-suite stanzas |
+| Cabal project definition | `cabal.project` | Repository-wide Cabal package-set definition with `with-compiler: ghc-9.12.4`, the codegen-toolchain pins, and the report-card knobs |
 | Formatter config | `fourmolu.yaml` | Pinned 13 doctrine-mandated settings at repo root |
 | Per-substrate Kind configs | `./kind/cluster-{apple-silicon,linux-cpu,linux-cuda}.yaml` rendered by `JitML.Cluster.Kind` | Checked-in configs use one `control-plane` node and no worker node for every substrate; the single node bind-mounts `./.build/` and `./.data/` via `extraMounts`; Linux CUDA also wires that node's containerd `nvidia` runtime handler and read-only host driver-root mount for `RuntimeClass/nvidia` |
 | Bootstrap scripts | `./bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh` | Stage-0 idempotent reconcilers |
@@ -467,7 +467,7 @@ The current concrete worktree is summarized in
 | Helm umbrella chart | `chart/Chart.yaml`, `chart/values.yaml`, `chart/values/`, `chart/templates/`, `chart/local/` | Subchart deps for Harbor, Pulsar, MinIO, Postgres, Envoy Gateway, Prometheus; checked-in local charts for TensorBoard, `jitml-service`, and `jitml-demo`; typed per-release values for direct dependency installs; templates for GatewayClass / Gateway / HTTPRoutes / EnvoyProxy / manual PVs / Deployments / RuntimeClass / dashboards; umbrella values live in `chart/values.yaml` unless a typed Helm subprocess passes a file from `chart/values/` |
 | JIT source generation | `src/JitML/Codegen/{RuntimeSource,Cuda,MlpCuda,OneDnn,Metal,SourceFile}.hs`, `src/JitML/Engines/{CudaLocal,HasEngine,Local}.hs`, `./.build/jit-src/<substrate>/<hash>/` | Haskell-generated compiler inputs for CUDA, oneDNN C++, and Metal / Swift; local Linux CPU oneDNN primitive compile/load/run plus family/output-count symbol validation, local Linux CPU `HasEngine` dispatch, guarded CUDA local loader / `LocalCudaEngine` preflight dispatch, and host/container artifact ABI separation in the Linux CPU fingerprint |
 | Protobuf contracts | `proto/tensorboard/event.proto`, `proto/jitml/{training,rl,tune,inference}.proto` | TensorBoard scalar Event schema plus jitML command/event envelopes |
-| PureScript frontend | `web/package.json`, `web/src/`, `web/test/`, `playwright/` | Minimal PureScript shell, generated contract file, smoke tests, and Playwright scaffold |
+| PureScript frontend | `web/package.json`, `web/spago.yaml`, `web/src/`, `web/test/`, `playwright/` | PureScript shell, generated contract file, `spec-node` smoke tests, Halogen panels, live-only Playwright scaffold, and `jitml-demo` route surface |
 | Experiments | `experiments/` | Canonical experiment Dhall files (the "configuration is code" surface) |
 | Cluster + run config Dhall | `dhall/cluster/` (resource budgets: kind-node cap + per-pod limits/replicas), `dhall/run/` (typed `RunConfig` worker parameters) | Typed Dhall sources decoded at bootstrap / worker dispatch; replace ad-hoc resource defaults and the `JITML_*` run-parameter env IPC |
 | Tests | `test/` | Per-stanza test trees (`test/unit/`, `test/integration/`, `test/sl-canonicals/`, `test/rl-canonicals/`, `test/hyperparameter/`, `test/cross-backend/`, `test/daemon-lifecycle/`, `test/e2e/`) and pure-renderer snapshot fixtures under `test/snapshots/{cache,cli,cluster,observability,prerequisite}/`. No `test/golden/` directory — numerical fixtures (per-substrate training curves, RL trajectories, AlphaZero transcripts, per-tensor cross-backend deltas, sampler trial values, etc.) are forbidden per [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets). |

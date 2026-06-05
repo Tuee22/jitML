@@ -21,7 +21,6 @@
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
 [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -38,11 +37,15 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-One cleanup row is currently active. The dependency source-pin/vendor row
-records the post-`allow-newer` GHC `9.14.1` compatibility helper:
-exact upstream `dhall-haskell` / `cborg` source pins plus the vendored
-`lens-family` compatibility patch under `third_party/haskell/`. This row gates
-Phase `15` Sprint `15.3`. Three rows added 2026-05-29 record
+No cleanup rows are currently active. Sprint `1.11` downgraded the project to
+the single GHC `9.12.4` baseline, removed the source-repository package pins
+and local `third_party/haskell/lens-family-*` compatibility packages, and
+validated a plain-Hackage solve. The former dependency source-pin/vendor helper
+and the superseded reopened-phase development ledger now live in the
+`Completed` table. Reopened Phase `11` Sprint `11.3` retired the deprecated
+PureScript generic `runSpec` Node runner alias on 2026-06-04 by moving
+`web/test/Main.purs` to the `spec-node` `runSpecAndExitProcess` API. Three rows
+added 2026-05-29 record
 doctrine deviations scheduled by the reopened Phases `2` / `4` / `5` after the
 cluster OOM-storm incident: the `JITML_*` run-parameter env IPC and the duplicate
 `JITML_SUBSTRATE` / `JITML_PULSAR_WS` reads (both retired by the typed Dhall
@@ -53,8 +56,7 @@ the `jitml internal vm` command group, the `container.tart` prerequisite node,
 `LiveConfig.tartIdleTimeout`, and the offline `.metallib` codegen path — **closed
 the same day** (Sprints `7.8` / `2.10` / `5.8`) and now live in the `Completed`
 table.
-Nineteen cleanup rows have
-closed and live in the `Completed` table:
+Cleanup rows have closed and live in the `Completed` table:
 Sprint `1.4` removed lint-time host `ghcup` style-tool bootstrap and moved the
 style GHC/tool install plus `jitml check-code` gate into `jitml:local` image
 construction and made lint/check-code execution container-only;
@@ -103,7 +105,7 @@ opening event itself enqueues a row here naming the originating sprint.
 
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
-| Dependency source-pin/vendor helper for GHC `9.14.1` bounds | `cabal.project`, `third_party/haskell/lens-family-2.1.3`, `third_party/haskell/lens-family-core-2.1.3` | Sprint `1.10` removed the scoped `allow-newer` block by pinning upstream `dhall-haskell` commit `adca92b4f06a76dc00b28787a7c042b1d2685c07`, upstream `cborg` commit `6ef2791ca41b397a3e36c868ad3e66a0d09f19b2`, and vendoring the two small BSD-licensed `lens-family` packages with `containers` relaxed from `<0.8` to `<0.9` plus minimal GHC `9.14.1` warning-clean source hygiene in `lens-family-core`. Remove this helper once Hackage releases or metadata revisions solve and build warning-clean under GHC `9.14.1` without source pins or local package patches. | Phase 15 Sprint `15.3` final handoff gate |
+| _None_ | _N/A_ | _No known compatibility helpers, deprecated paths, duplicate surfaces, or stale tooling residue are pending removal._ | _N/A_ |
 
 
 ## Pending Removal Notes
@@ -114,30 +116,12 @@ upstream release still name the originating sprint, but resolve at the final
 handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
-Current dependency source-pin validation: on 2026-06-04, `cabal.project`
-contains no `allow-newer` stanza. `cabal build all --dry-run` solves under
-GHC `9.14.1`, and `cabal build lib:jitml --jobs=2` completes with the pinned
-upstream `dhall-haskell` / `cborg` source snapshots and the vendored
-`lens-family` compatibility patch. `docker compose build jitml` completed with
-the image-local `jitml check-code` gate, and a fresh
-`docker compose run --rm jitml jitml check-code` rebuilt/exported
-`jitml:local`, built the PureScript bundle, and completed the final headless
-command with `check-code: ok` after the headless/GPU compose split and vendored
-warning-clean source hygiene. The old `allow-newer` row is Completed.
-
-Phase `15` rechecked the remaining helper on 2026-06-04 using temporary
-container-local project files under `/tmp`. A temporary project with only the
-root package and no source pins/vendor packages still failed because Hackage
-`serialise-0.2.6.1` requires `base >=4.11 && <4.22` while GHC `9.14.1`
-provides `base-4.22.0.0`. A temporary project that kept the cborg/dhall source
-pins but removed the vendored `lens-family` packages still failed because
-Hackage `lens-family-2.1.3` requires `containers >=0.5.8 && <0.8` while GHC
-`9.14.1` brings `containers-0.8`. A temporary project that kept the cborg source
-pin and vendored `lens-family` packages but removed the `dhall` source pin
-still failed because Hackage `dhall-1.42.3` requires
-`template-haskell >=2.13.0.0 && <2.24` while GHC `9.14.1` brings
-`template-haskell-2.24.0.0`. This row remains pending until the source pins and
-local package patch are no longer needed.
+Current dependency validation: on 2026-06-04, the project uses GHC `9.12.4`,
+`cabal.project` contains no `allow-newer` stanza and no `source-repository-package`
+entries, and the local `third_party/haskell/lens-family-*` packages have been
+removed. A container-local `cabal build all --dry-run --jobs=2` solves against
+plain Hackage with `serialise-0.2.6.1`, `cborg-0.2.10.0`, `dhall-1.42.3`,
+`lens-family-2.1.3`, and `lens-family-core-2.1.3`.
 
 This ledger never holds primary unmet Exit-Definition obligations. Live
 Kind/Helm rollout, real Pulsar/MinIO/Harbor clients, real per-substrate
@@ -157,8 +141,11 @@ explicitly schedules their deletion.
 | Item | Removed In | Notes |
 |------|------------|-------|
 | Tart VM build/lifecycle/exec modules, `jitml internal vm` command group, `container.tart` prerequisite, `LiveConfig.tartIdleTimeout`, and the offline `.metallib` codegen path | Sprints `7.8` + `2.10` + `5.8` (2026-05-30) | The headless Apple Metal JIT (host CommandLineTools `swift build` + runtime `MTLDevice.makeLibrary(source:)`, validated headless on Apple M1) superseded the Tart-VM build. Deleted `src/JitML/Tart/{Build,Lifecycle,Exec}.hs`; removed the `jitml internal vm bootstrap\|up\|down\|status\|exec` command group from `CommandSpec` + `App.hs` handlers (commands.md/man/completions regenerated); removed the `container.tart` prerequisite node + its `jit-cache-miss` dependency; removed `LiveConfig.tartIdleTimeout` from the Dhall schema + Haskell record + `daemon.surface` table; dropped the `.process("Kernels.metal")` resource, the `<hash>.metallib` publication, and the `JITML_METALLIB_PATH` env hand-off. `cabal build all` clean; 183 `jitml-unit` + 30 `jitml-daemon-lifecycle` + the Apple `jitml-cross-backend` cases pass. |
-| Lint-time host `ghcup` style-tool bootstrap | Sprint 1.4 | Removed runtime `ensureStyleTools` / `installStyleToolsSubprocess` bootstrap from `src/JitML/Lint/Stack.hs`; `docker/Dockerfile` now installs the style-tools GHC plus pinned `fourmolu` / `hlint`, stamps the `jitml:local` code-quality domain, and runs `jitml check-code` during image construction. |
-| Scoped `allow-newer` for Dhall / CBOR / lens-family transitive package bounds | Sprint `1.10` (2026-06-04) | Removed the `allow-newer` stanza from `cabal.project` without changing GHC `9.14.1` / Cabal `3.16.1.0`. Replacement: source-pin `cborg`, `cborg-json`, and `serialise` to upstream `well-typed/cborg` commit `6ef2791ca41b397a3e36c868ad3e66a0d09f19b2`; source-pin `dhall` to upstream `dhall-lang/dhall-haskell` commit `adca92b4f06a76dc00b28787a7c042b1d2685c07`; vendor BSD-licensed `lens-family-2.1.3` and `lens-family-core-2.1.3` with `containers` relaxed from `<0.8` to `<0.9` plus minimal GHC `9.14.1` warning-clean source hygiene in `lens-family-core`. Validation: `cabal build all --dry-run` solves with no `allow-newer`; `cabal build lib:jitml --jobs=2` passes. The remaining source-pin/vendor helper is tracked in Pending Removal. |
+| Lint-time host `ghcup` style-tool bootstrap | Sprint 1.4 | Removed runtime `ensureStyleTools` / `installStyleToolsSubprocess` bootstrap from `src/JitML/Lint/Stack.hs`; `docker/Dockerfile` now builds pinned `fourmolu` / `hlint` with the same image-local GHC `9.12.4`, stamps the `jitml:local` code-quality domain, and runs `jitml check-code` during image construction. |
+| Scoped `allow-newer` for Dhall / CBOR / lens-family transitive package bounds | Sprint `1.10` (2026-06-04) | Removed the `allow-newer` stanza from `cabal.project`. The temporary source-pin/vendor replacement used to keep the package set solving was removed by Sprint `1.11`; the current `cabal.project` solves from plain Hackage under GHC `9.12.4`. |
+| Dependency source-pin/vendor helper for the GHC `9.12.4` downgrade | Sprint `1.11` / Phase `15` Sprint `15.3` (2026-06-04) | Removed the upstream `cborg` / `dhall-haskell` source-repository pins from `cabal.project`, deleted the local `third_party/haskell/lens-family-*` packages, and changed the package baseline to GHC `9.12.4` / `base-4.21`. Plain Hackage now solves for `serialise`, `cborg`, `dhall`, and `lens-family`; the helper no longer gates final handoff. |
+| Reopened-phase development ledger | Sprint `1.11` / Phase `15` Sprint `15.3` (2026-06-04) | Deleted the superseded development ledger and folded reopened-phase status back into the owning phase documents and the top-level plan. The deletion ledger remains the only explicit legacy ledger. |
+| Deprecated PureScript generic `runSpec` Node runner alias | Reopened Phase `11` Sprint `11.3` (2026-06-04) | Replaced `Test.Spec.Runner.runSpec` plus `launchAff_` in `web/test/Main.purs` with `Test.Spec.Runner.Node.runSpecAndExitProcess`, added `spec-node` to `web/spago.yaml`, ignored the runner's `.spec-results` state in `web/.gitignore`, and validated `docker compose run --rm jitml sh -lc 'cd web && spago test'` at 7 / 7 with zero PureScript warnings. |
 | `jitml-mirror` Helm release placeholder | Sprint 3.5 | Removed the stand-in `HelmRelease "jitml-mirror" "jitml-images"` row from `JitML.Cluster.Helm.phasedReleases`; `JitML.Bootstrap.livePhasedRolloutSubprocesses` now inserts the Docker build / explicit Kind image-load subprocesses directly before final services. |
 | Static JIT source/build scaffolds | Sprint 7.7 | Removed checked-in substrate build scripts and kernel source scaffolds; Haskell renderers emit compiler inputs under `./.build/jit-src/<substrate>/<hash>/`. The static-source lint rejects future native compiler inputs and adapter shims; there is no checked-in foreign-source allowlist. |
 | Default runtime-source placeholder | Sprint 7.7 | Removed `defaultRuntimeSourcePayload` and the `runtime-source:phase-2-placeholder` marker from `src/JitML/Cache/Key.hs`; cache-key snapshot now derives its `RuntimeSourcePayload` from `renderRuntimeSource`, and `test/snapshots/cache/kernel-key.txt` was refreshed to the rendered-source-backed hash. |

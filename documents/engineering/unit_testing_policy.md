@@ -253,7 +253,8 @@ fails fast when no live publication exists. The default `jitml-e2e` body
 validates the typed Playwright plan and server-side route/concurrency
 invariants without invoking the live stack; live edge-route Playwright
 execution stays on the explicit live orchestration path. Static route/API
-scaffold checks stay in the local Haskell e2e and PureScript-style stanzas.
+scaffold checks stay in the local Haskell e2e and the `purescript-spec` smoke
+suite run by `spago test` through the Node `spec-node` runner.
 
 ### Property Invariants
 

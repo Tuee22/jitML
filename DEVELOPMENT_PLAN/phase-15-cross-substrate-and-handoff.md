@@ -6,7 +6,6 @@
 [development_plan_standards.md](development_plan_standards.md),
 [system-components.md](system-components.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
@@ -23,7 +22,8 @@
 
 ## Phase Status
 
-⏸️ **Blocked**. The phase owns [Exit Definition](README.md#exit-definition)
+✅ **Done** (re-closed 2026-06-04 after Sprint `15.3` and Phase `1` Sprint
+`1.11`). The phase owns [Exit Definition](README.md#exit-definition)
 item 18 (legacy ledger empty), the cross-substrate slices of items 5
 (per-substrate determinism contract — cross-substrate tolerance
 methodology) and 9 (`jitml test all` schedules every stanza and the
@@ -31,20 +31,18 @@ live report card surfaces real measurements), plus the cross-cohort
 slice of `jitml-cross-backend` (Sprint 12.6) and the live report-card
 slice of `jitml test all` (Sprint 12.9).
 
-**Blocked by**: the dependency source-pin/vendor helper introduced by Phase
-`1` Sprint `1.10` after removing scoped `allow-newer`. Phase `13` closed
-2026-05-30 (15 / 15 sprints Done) and Phase `14` closed 2026-05-31 (5 /
-5 sprints Done), so each substrate can produce its weighted outputs on
-its owning host; Sprint `15.1` closed the cross-host Linux/Apple
-report-bundle comparison on 2026-06-03, and Sprint `15.2` closed the
-full live report-card aggregate on 2026-06-04. Sprint `15.3` retired
-the demo placeholder row on 2026-06-04; Phase `1` Sprint `1.10`
-removed the scoped `allow-newer` block on 2026-06-04; and Phase `8`
-Sprint `8.8` retired the deterministic Atari-subset RAM-state stub row on
-2026-06-04. Phase `8` Sprint `8.9` and Phase `9` Sprint `9.8` closed the
-copyright-free `KeyDoorGrid-v0` development row on 2026-06-04. Final handoff is
-now blocked only by the narrower dependency source-pin/vendor helper tracked in
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+Phase `13` closed 2026-05-30 (15 / 15 sprints Done) and Phase `14` closed
+2026-05-31 (5 / 5 sprints Done), so each substrate produced its weighted
+outputs on its owning host; Sprint `15.1` closed the cross-host Linux/Apple
+report-bundle comparison on 2026-06-03, and Sprint `15.2` closed the full live
+report-card aggregate on 2026-06-04. Sprint `15.3` retired the demo placeholder
+row on 2026-06-04; Phase `1` Sprint `1.10` removed the scoped `allow-newer`
+block; Phase `1` Sprint `1.11` retired the source-pin/vendor helper by
+downgrading to the single GHC `9.12.4` baseline; and the superseded
+development ledger was deleted. Phase `8` Sprint `8.8` retired the deterministic
+Atari-subset RAM-state stub row, and Phase `8` Sprint `8.9` plus Phase `9`
+Sprint `9.8` closed the copyright-free `KeyDoorGrid-v0` replacement on
+2026-06-04. Final handoff has no active legacy-ledger rows.
 
 **Current validation evidence**: Phase `13` live outputs (Linux CUDA SL convergence
 2026-05-29 `778.27s`, PPO/cartpole RL convergence 2026-05-30 `230.72s`,
@@ -74,7 +72,7 @@ renders the eight-stanza summary, `test/cross-backend/Main.hs` exercises
 the engine-flag + inference-summary surface, the Linux CPU FFI kernel
 path, and the locally runnable weighted cross-substrate drift assertion,
 and `JitML.Test.Report.parseReportCardKnobs` reads `cabal.project`. The
-closure of this phase requires both legacy ledgers to have no pending rows.
+closure of this phase requires the deletion ledger to have no pending rows.
 
 ## Phase Summary
 
@@ -308,7 +306,9 @@ Closes Exit Definition item 9's live report-card slice.
 5. `docker compose build jitml` passed on 2026-06-03 after the route
    snapshot and fourmolu fixes. The image-local `jitml check-code`
    gate reported `check-code: ok`, and the web bundle build completed
-   with the existing PureScript `runSpec` deprecation warning only.
+   with only the then-existing PureScript test-runner warning. Reopened
+   Phase `11` Sprint `11.3` retired that warning on 2026-06-04 by switching
+   the smoke suite to `spec-node`.
 6. A live Apple Silicon bootstrap/report-card attempt on 2026-06-03
    used the rebuilt `jitml:local` image with host networking and a
    repo-local Cabal build directory:
@@ -360,19 +360,15 @@ Closes Exit Definition item 9's live report-card slice.
     `cross_substrate_parity` rendered `unavailable` because those live
     sources were not present in the cluster/report-card probe.
 
-## Sprint 15.3: Empty Legacy Ledger and Final Handoff ⏸️
+## Sprint 15.3: Empty Legacy Ledger and Final Handoff ✅
 
-**Status**: Blocked
-**Blocked by**: dependency source-pin/vendor helper introduced by Phase `1`
-Sprint `1.10` after removing scoped `allow-newer`.
+**Status**: Done
 **Implementation**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
-`DEVELOPMENT_PLAN/legacy-tracking-for-development.md`,
 `cabal.project`, `src/JitML/Codegen/{Cuda,Metal}.hs`,
 `src/JitML/Web/Server.hs`, `playwright/jitml-demo.spec.ts`,
 `test/e2e/Main.hs`, `test/snapshots/`
 **Docs to update**: `README.md`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
-`DEVELOPMENT_PLAN/legacy-tracking-for-development.md`,
 `DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
 `DEVELOPMENT_PLAN/system-components.md`,
 `documents/engineering/code_quality.md`,
@@ -383,16 +379,14 @@ Sprint `1.10` after removing scoped `allow-newer`.
 
 Resolve every remaining row in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
-Pending Removal and
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md)
-Pending Development so the final handoff has no open legacy rows. Closes Exit
-Definition item 18 plus the reopened development handoff gate.
+Pending Removal so the final handoff has no open legacy rows. Closes Exit
+Definition item 18.
 
 ### Deliverables
 
 - The dependency source-pin/vendor helper introduced by Phase `1` Sprint
-  `1.10` is retired once Hackage releases or metadata revisions solve and build
-  warning-clean under GHC `9.14.1` without source pins or local package patches.
+  `1.10` is retired by Phase `1` Sprint `1.11`: GHC `9.12.4` / `base-4.21`
+  solves from plain Hackage without source pins or local package patches.
 - The copyright-free RL demo replacement row is completed: `KeyDoorGrid-v0`
   owns default visual discrete-control demos and the required algorithm matrix,
   while Atari/ALE is optional runtime support only and requires generated or
@@ -401,8 +395,8 @@ Definition item 18 plus the reopened development handoff gate.
   removed. Plain HTTP stream routes now require a WebSocket upgrade,
   no-publication WebSocket bridges emit a terminal error frame, and
   Playwright requires the live cluster publication.
-- The deletion ledger Pending Removal section and development ledger Pending
-  Development section are empty; every row lives in Completed.
+- The deletion ledger Pending Removal section is empty; every cleanup row lives
+  in Completed. The superseded development ledger is deleted.
 
 ### Cleanup Landed (2026-06-03)
 
@@ -426,9 +420,14 @@ Definition item 18 plus the reopened development handoff gate.
 ### Cleanup Landed (2026-06-04)
 
 - The scoped `allow-newer` row moved to Completed. `cabal.project` now has no
-  `allow-newer` stanza; it source-pins upstream `cborg` / `dhall` snapshots and
-  includes the vendored `lens-family` compatibility patch tracked by the narrower
-  Pending Removal row.
+  `allow-newer` stanza.
+- The source-pin/vendor helper moved to Completed. Phase `1` Sprint `1.11`
+  changed the project baseline to GHC `9.12.4` / `base-4.21`, removed the
+  upstream source pins and local `third_party/haskell/lens-family-*` packages,
+  and validated a plain-Hackage solve.
+- The superseded reopened-phase development ledger was deleted; reopened-phase
+  closure now lives in the owning phase documents, with cleanup residue tracked
+  only in the deletion ledger.
 - The demo placeholder shell/local stream/offline Playwright fallback
   row moved to Completed. `JitML.Web.Server` now serves the minimal
   compiled-bundle shell, loads only `web/dist/Main/bundle.js`, returns
@@ -461,9 +460,8 @@ Definition item 18 plus the reopened development handoff gate.
 ### Validation
 
 1. `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md` Pending Removal
-   table is empty, and
-   `DEVELOPMENT_PLAN/legacy-tracking-for-development.md` Pending Development
-   table is empty.
+   table is empty, and the superseded reopened-phase development ledger has
+   been removed.
 2. `docker compose run --rm jitml jitml check-code` passes after every
    ledger removal.
 3. The Closure Status section in
@@ -474,15 +472,11 @@ Definition item 18 plus the reopened development handoff gate.
    image was loaded into the live Apple Silicon cluster as
    `jitml-demo:local`; the live Playwright matrix passed 7 / 7 against
    the published `127.0.0.1:9091` edge route.
-5. 2026-06-04 dependency validation: after removing the scoped
-   `allow-newer` block, `cabal build all --dry-run` solves under GHC
-   `9.14.1` with the pinned upstream `cborg` / `dhall` source snapshots and
-   vendored `lens-family` compatibility patch; `cabal build lib:jitml --jobs=2`
-   passes; `docker compose build jitml` passed with the image-local
-   `jitml check-code` gate; a fresh
-   `docker compose run --rm jitml jitml check-code` rebuilt/exported
-   `jitml:local`, built the PureScript bundle, and completed the final headless
-   command with `check-code: ok` after the headless/GPU compose service split.
+5. 2026-06-04 dependency validation: after downgrading to GHC `9.12.4`,
+   `cabal.project` has no `allow-newer`, no `source-repository-package`
+   entries, and no local dependency packages. A container-local
+   `ghcup run --ghc 9.12.4 -- cabal build all --dry-run --jobs=2` solves
+   against plain Hackage.
 6. 2026-06-04 ALE/foreign-source validation: `docker compose build jitml`
    passed with image-local `check-code: ok` and a rebuilt PureScript bundle;
    `docker compose run --rm jitml jitml check-code` passed; focused
@@ -494,22 +488,14 @@ Definition item 18 plus the reopened development handoff gate.
 7. 2026-06-04 KeyDoorGrid validation: `docker compose run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' jitml cabal test jitml-unit jitml-rl-canonicals --jobs=2`
    passed, and `docker compose run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' -e JITML_ENVIRONMENT=key-door-grid jitml jitml rl train experiments/key-door-grid.dhall`
    exited `0` with `environment: key-door-grid`.
-8. 2026-06-04 source-pin/vendor recheck: temporary project files under
-   `/tmp` in the container still do not solve warning-clean under GHC `9.14.1`
-   without the helper. Removing all pins/vendor packages fails on Hackage
-   `serialise-0.2.6.1` requiring `base <4.22`; keeping cborg/dhall pins but
-   removing the vendored `lens-family` packages fails on Hackage
-   `lens-family-2.1.3` requiring `containers <0.8`; keeping cborg pins and
-   vendored `lens-family` but removing the `dhall` source pin fails on Hackage
-   `dhall-1.42.3` requiring `template-haskell <2.24`.
+8. 2026-06-04 source-pin/vendor retirement validation: `third_party/` is
+   deleted, `cabal.project` references only the root package, and the plain
+   Hackage solve selects `serialise-0.2.6.1`, `cborg-0.2.10.0`,
+   `dhall-1.42.3`, `lens-family-2.1.3`, and `lens-family-core-2.1.3`.
 
 ### Remaining Work
 
-- Remove the dependency source-pin/vendor helper once Hackage releases or
-  metadata revisions solve and build warning-clean under pinned GHC `9.14.1`
-  without source pins or local package patches.
-- Keep Phase `15` blocked until the deletion ledger has no pending rows. The
-  development ledger is empty.
+None.
 
 ## Doctrine Sections Cited
 
@@ -556,7 +542,6 @@ Definition item 18 plus the reopened development handoff gate.
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
 - [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
-- [legacy-tracking-for-development.md](legacy-tracking-for-development.md)
 - [development_plan_standards.md](development_plan_standards.md)
 - [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
 - [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)

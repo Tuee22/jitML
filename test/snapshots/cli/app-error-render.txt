@@ -1,6 +1,6 @@
-prerequisite unmet: ghc-9.14.1
-description: GHC 9.14.1 is required.
-remedy: ghcup install ghc 9.14.1
+prerequisite unmet: ghc-9.12.4
+description: GHC 9.12.4 is required.
+remedy: ghcup install ghc 9.12.4
 ---
 subprocess failed: kubectl get pods
 exit: 1

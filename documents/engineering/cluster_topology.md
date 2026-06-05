@@ -183,8 +183,8 @@ The target `jitml bootstrap --<substrate>` runs the phased rollout:
 2. **Image build/load phase**: the `jitml:local` image and the
    `jitml-demo:local` image are built locally, then loaded explicitly into the
    selected Kind cluster with `kind load docker-image`. The `jitml:local` build
-   is also the exclusive Haskell style/code-quality gate: it installs the
-   separate style-tools GHC plus pinned Fourmolu / HLint binaries and fails the
+   is also the exclusive Haskell style/code-quality gate: it uses the same
+   pinned GHC `9.12.4` to build pinned Fourmolu / HLint binaries and fails the
    image build on Haskell style or warning-clean build drift.
 3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
 TensorBoard, the `jitml-service` workload (all substrates: Linux

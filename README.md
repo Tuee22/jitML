@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, DEVELOPMENT_PLAN/legacy-tracking-for-development.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/numerical_core.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
+**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/numerical_core.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
 **Generated sections**: command-tree, command-registry
 
 > **Purpose**: Operator-facing project intent and authoritative high-level architecture for jitML.
@@ -63,11 +63,11 @@ We want a runtime that is:
 
 # Toolchain pinning
 
-Per doctrine §Overview → Toolchain pinning, these versions are normative, not recommendations. The `.cabal` file declares `tested-with: ghc ==9.14.1`; `cabal.project` pins `with-compiler: ghc-9.14.1`; CI uses the same versions. Codegen toolchains (LLVM, NVCC, the host Metal framework + CommandLineTools `swiftc`, oneDNN) are pinned in `cabal.project` so kernel output is reproducible across hosts.
+Per doctrine §Overview → Toolchain pinning, these versions are normative, not recommendations. The `.cabal` file declares `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`; CI uses the same versions. Codegen toolchains (LLVM, NVCC, the host Metal framework + CommandLineTools `swiftc`, oneDNN) are pinned in `cabal.project` so kernel output is reproducible across hosts.
 
 | Tool | Pinned version | Where it's pinned |
 |---|---|---|
-| GHC | `9.14.1` | `.cabal` (`tested-with`) and `cabal.project` (`with-compiler`) |
+| GHC | `9.12.4` | `.cabal` (`tested-with`) and `cabal.project` (`with-compiler`) |
 | Cabal | `3.16.1.0` | `cabal.project` |
 | LLVM | pinned across GHC's `-fllvm` and JIT codegen | `cabal.project` |
 | NVCC | pinned | `cabal.project` (`--use_fast_math=false`, baseline `sm_70`) |
@@ -75,24 +75,15 @@ Per doctrine §Overview → Toolchain pinning, these versions are normative, not
 | oneDNN | pinned | `cabal.project` (AVX2 baseline, AVX-512 detected at JIT time) |
 | `kindest/node` | pinned | `./kind/cluster-<substrate>.yaml` (canonical); mirrored as a comment in `cabal.project` for the toolchain-truth record |
 | Node.js, Poetry | pinned | Haskell prerequisite DAG |
-| Formatter GHC | `9.12.4`, separate from project GHC | `docker/Dockerfile` style-tool build stage for `jitml:local`; container-exclusive code-quality stack only, never the project compiler |
+| Haskell style tools | built with `9.12.4` | `docker/Dockerfile`; the code-quality stack uses the same pinned compiler inside `jitml:local` |
 
-`cabal.project` carries no `allow-newer` override. GHC `9.14.1` / `base-4.22`
-compatibility is handled by exact source pins for upstream `dhall` and
-`cborg` snapshots whose bounds already admit the pinned compiler, plus the
-small BSD-licensed `third_party/haskell/lens-family-*` source packages with
-their `containers` upper bound relaxed from `<0.8` to `<0.9` plus minimal GHC
-`9.14.1` warning-clean source hygiene in `lens-family-core`. That
-replacement removed the former scoped `allow-newer` block; the remaining
-source-pin/vendor cleanup is tracked in
-[`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)
-until Hackage releases or metadata revisions make the local dependency pin
-unnecessary.
-As of the 2026-06-04 Hackage index-state `2026-06-04T16:46:08Z`, the helper
-is still required: unpinned Hackage `serialise` / `cborg-json` reject
-`base-4.22`, unpinned Hackage `dhall` rejects GHC `9.14.1`'s
-`template-haskell-2.24`, and unvendored Hackage `lens-family` rejects
-`containers-0.8`.
+`cabal.project` carries no `allow-newer` override, no source-repository
+package pins, and no local dependency packages. GHC `9.12.4` provides the
+`base-4.21` family used by the package bounds, and the dependency set solves
+against plain Hackage (`serialise`, `cborg`, `dhall`, and `lens-family`
+included). The former source-pin/vendor compatibility helper has
+been removed and recorded as completed cleanup in
+[`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 The full per-target codegen detail (build flags, RTS options, fast-math discipline) lives under [Compiler, runtime, and backend tuning](#compiler-runtime-and-backend-tuning).
 
@@ -665,7 +656,7 @@ On Apple Silicon, `cabal install` runs directly on the host because the host is 
 
 The code-quality rule is intentionally symmetric despite the Apple runtime split:
 `jitml:local` is mandatory on every substrate because it runs the in-cluster daemon.
-`docker/Dockerfile` therefore installs the separate style-tools GHC, builds pinned
+`docker/Dockerfile` therefore uses the same pinned GHC `9.12.4` to build pinned
 `fourmolu` / `hlint` binaries, and runs the Haskell lint/style/code-quality gate during
 image construction. All `jitml lint *` and `jitml check-code` executions are
 supported only inside `jitml:local`; the host has no style-tool override or
@@ -1343,15 +1334,13 @@ observations, and generated render frames. For each non-jitML-original env, the
 dynamics are re-implemented in Haskell from the published equations.
 
 Default examples, demos, and required canonical tests must not need copyrighted
-runtime assets. The completed replacement work is recorded in
-[DEVELOPMENT_PLAN/legacy-tracking-for-development.md](DEVELOPMENT_PLAN/legacy-tracking-for-development.md#completed):
-Phase `8` Sprint `8.9` implements `KeyDoorGrid-v0` and swaps default RL
-examples away from `atari-subset`; Phase `9` Sprint `9.8` retargets the
-algorithm/convergence matrix. Any remaining `atari-subset` support is optional
-runtime support only: the repository keeps no checked-in C/C++ shim source, and
-any ALE adapter must be generated by Haskell into the build/cache tree or
-supplied explicitly outside the repository. Atari ROM bytes are never committed,
-baked into images, or required for the demo path.
+runtime assets. Phase `8` Sprint `8.9` implements `KeyDoorGrid-v0` and swaps
+default RL examples away from `atari-subset`; Phase `9` Sprint `9.8` retargets
+the algorithm/convergence matrix. Any remaining `atari-subset` support is
+optional runtime support only: the repository keeps no checked-in C/C++ shim
+source, and any ALE adapter must be generated by Haskell into the build/cache
+tree or supplied explicitly outside the repository. Atari ROM bytes are never
+committed, baked into images, or required for the demo path.
 
 ---
 
@@ -2182,7 +2171,9 @@ flowchart TD
 
 # PureScript frontend
 
-Source at `./web/`; spago + `purs` + esbuild bundle to `./web/dist/app.js`. UI framework: **Halogen** (mature reactive PureScript framework, signals model fits live-events well).
+Source at `./web/`; spago + `purs` + esbuild bundle to
+`./web/dist/Main/bundle.js`. UI framework: **Halogen** (mature reactive
+PureScript framework, signals model fits live-events well).
 
 ## Generated contracts
 
@@ -2224,12 +2215,14 @@ Every interactive panel maps to a small REST + WebSocket pair, all under `/api` 
 
 Current local frontend checks are split by purpose. `jitml lint purescript`
 validates generated contracts, whitespace, panel coverage, and the explicit
-typed Subprocess shapes for `spago test` and `purs-tidy check`. The
-`jitml-e2e` test stanza validates demo HTTP routing, report-card output,
-Playwright plan shape, and the local browser scaffold. Target
-`purescript-spec` unit tests live in `./web/test/`, and target Playwright E2E
-runs through the explicit live `jitml-e2e` orchestration path against the real
-Envoy route surface.
+typed Subprocess shapes for `spago test` and `purs-tidy check`. `spago test`
+runs the `purescript-spec` smoke suite in `./web/test/` through the Node
+`spec-node` runner (`runSpecAndExitProcess`), so the test process exits with
+the real suite status and does not use the deprecated generic `runSpec` alias.
+The `jitml-e2e` test stanza validates demo HTTP routing, report-card output,
+Playwright plan shape, and the local browser scaffold. Live Playwright E2E runs
+through the explicit live `jitml-e2e` orchestration path against the real Envoy
+route surface.
 
 ## Deployment
 
@@ -2376,7 +2369,7 @@ tools.
 | `lint proto` | `protoc` round-trip | wire schemas in `proto/jitml/` |
 | `lint chart` | repo-internal | Helm structural invariants (no dynamic provisioning, every PV with explicit `claimRef` or registered Percona `volumeName`, no freestanding PVCs) |
 | `lint haskell` | container-exclusive `fourmolu --mode check` + `hlint` + `cabal format` round-trip | per doctrine §Lint stack |
-| `lint purescript` | repo-internal | generated contract presence/header, PureScript whitespace, panel-contract coverage, and typed frontend-tool subprocess shapes |
+| `lint purescript` | repo-internal | generated contract presence/header, PureScript whitespace, panel-contract coverage, typed frontend-tool subprocess shapes, and the `spec-node` `purescript-spec` smoke suite |
 | `lint all` | aggregate | every row above |
 
 Every entry has a paired `--write` mode per doctrine §Paired check and write semantics; `--write` fixes what is auto-fixable and exits `3` when there is nothing to do.
@@ -2447,7 +2440,7 @@ The clock is `Data.Time.Clock.getMonotonicTimeNSec`, started just before the fir
 
 Per-target codegen stack:
 
-- **GHC:** 9.14.1, Cabal 3.16.1.0, `-O2 -fllvm -funbox-strict-fields -fspecialise-aggressively -fexpose-all-unfoldings`, RTS `-A64m -n4m -qg1 -qb -T`.
+- **GHC:** 9.12.4, Cabal 3.16.1.0, `-O2 -fllvm -funbox-strict-fields -fspecialise-aggressively -fexpose-all-unfoldings`, RTS `-A64m -n4m -qg1 -qb -T`.
 - **CUDA codegen:** pinned NVCC, `-O3 --use_fast_math=false` (bit-determinism), `--gpu-architecture=sm_70` baseline + per-host detection at JIT time.
 - **Metal codegen:** host CommandLineTools `swiftc` + runtime `MTLDevice.makeLibrary(source:)` (no Tart VM, no full Xcode), `MTLCompileOptions.fastMathEnabled = false`.
 - **CPU oneDNN:** pinned version, AVX2 baseline + AVX-512 detection at JIT time.
@@ -2524,7 +2517,7 @@ jitML/
     spago.yaml
     src/                        -- handwritten PureScript (Halogen components)
     src/Generated/Contracts.purs -- generated from src/JitML/Web/Contracts.hs
-    test/                       -- purescript-spec
+    test/                       -- purescript-spec smoke suite via spec-node
     playwright/                 -- E2E suite
     dist/                       -- bundle output
   chart/                        -- single umbrella Helm chart

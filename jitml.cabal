@@ -5,7 +5,7 @@ license:       MIT
 license-file:  LICENSE
 maintainer:    maintainers@example.invalid
 author:        jitML contributors
-tested-with:   ghc ==9.14.1
+tested-with:   ghc ==9.12.4
 synopsis:
     Deterministic, reproducible, JIT-compiled machine learning for Haskell
 
@@ -231,7 +231,7 @@ library
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         text,
         async,
         bytestring,
@@ -283,7 +283,7 @@ executable jitml
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         jitml
 
 executable jitml-demo
@@ -292,7 +292,7 @@ executable jitml-demo
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         jitml
 
 test-suite jitml-unit
@@ -302,7 +302,7 @@ test-suite jitml-unit
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         aeson,
         bytestring,
         directory,
@@ -326,7 +326,7 @@ test-suite jitml-integration
     ghc-options:      -Wall -Wcompat
     build-depends:
         aeson,
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         bytestring,
         directory,
         filepath,
@@ -347,7 +347,7 @@ test-suite jitml-sl-canonicals
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         bytestring,
         jitml,
         mtl,
@@ -365,7 +365,7 @@ test-suite jitml-rl-canonicals
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         jitml,
         text,
         tasty,
@@ -379,7 +379,7 @@ test-suite jitml-hyperparameter
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         jitml,
         tasty,
         tasty-hunit,
@@ -392,7 +392,7 @@ test-suite jitml-cross-backend
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         directory,
         filepath,
         jitml,
@@ -411,7 +411,7 @@ test-suite jitml-daemon-lifecycle
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         bytestring,
         jitml,
         lens-family,
@@ -430,7 +430,7 @@ test-suite jitml-e2e
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
-        base >=4.22 && <4.23,
+        base >=4.21 && <4.22,
         bytestring,
         directory,
         jitml,

@@ -25,7 +25,8 @@
 PureScript scaffold, generated browser contracts under
 `web/src/Generated/Contracts.purs`, six typed panel modules under
 `web/src/Panels/`, Halogen dependency + render machinery on each panel,
-`purescript-spec` smoke suite invoked through `jitml lint purescript`,
+`purescript-spec` smoke suite invoked through `jitml lint purescript` and the
+Node `spec-node` runner,
 demo HTTP server (the deterministic local stream-frame stand-in later
 retired by Phase `15` Sprint `15.3`), compiled bundle baked into
 `jitml:local`, and Playwright DOM-shape matrix at
@@ -35,6 +36,11 @@ Playwright against the live edge route — closed in
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
 Sprints `13.13` / `13.14`; Phase `15` Sprint `15.3` removed the
 offline Playwright and local stream fallbacks on 2026-06-04.
+Phase `11` reopened and reclosed on 2026-06-04 for Sprint `11.3` runner
+cleanup: `web/test/Main.purs` now uses
+`Test.Spec.Runner.Node.runSpecAndExitProcess`, `web/spago.yaml` adds
+`spec-node` to the test dependencies, and the deprecated generic `runSpec`
+compatibility alias is removed.
 
 The phase owns
 [Exit Definition](README.md#exit-definition) item 8 (PureScript frontend
@@ -44,7 +50,7 @@ panel, and AlphaZero-vs-human Connect 4 panel exercised end-to-end by
 Playwright; `jitml-demo` serves the bundle) and contributes the
 PureScript lint half of item 15 (the `jitml lint purescript` target
 currently covering generated-contract, whitespace, panel-contract, and typed
-frontend-tool command checks).
+frontend-tool command checks plus the `purescript-spec` smoke suite).
 **Met today**: Sprints `11.1` and `11.2` close the minimal PureScript
 scaffold and the typed contract renderer that produces
 `web/src/Generated/Contracts.purs`. The six canonical panel payload
@@ -61,13 +67,16 @@ lists all six panel names, and
 `JitML.Web.Server.demoHttpRoutes` serves the same route family; stream
 GETs require a WebSocket upgrade and return `503` when requested as
 plain HTTP.
-**Met on 2026-05-24**: Sprint `11.3` closed by adding `spec` to the
-`web/spago.yaml` test deps, rewriting `web/test/Main.purs` as a
-`describe`/`it` block that touches every typed `Panels.*` payload-shape
-contract and the generated `Generated.Contracts` endpoint catalog, and
-wiring `JitML.Lint.Stack.runPureScriptSpecSuite` to invoke
+**Met on 2026-05-24 / refreshed on 2026-06-04**: Sprint `11.3` closed by
+adding `spec` to the `web/spago.yaml` test deps, rewriting
+`web/test/Main.purs` as a `describe`/`it` block that touches every typed
+`Panels.*` payload-shape contract and the generated `Generated.Contracts`
+endpoint catalog, and wiring `JitML.Lint.Stack.runPureScriptSpecSuite` to invoke
 `/usr/local/bin/spago test` through the typed `Subprocess` on the default
-`jitml lint purescript` path. Sprint `11.4` closed by adding `halogen`,
+`jitml lint purescript` path. The 2026-06-04 refresh adds `spec-node` and
+uses `runSpecAndExitProcess`, so Node-local `spago test` exits via the current
+runner API and no longer emits the `runSpec` deprecation warning. Sprint
+`11.4` closed by adding `halogen`,
 `halogen-vdom`, `aff`, `web-html`, `arrays`, `foldable-traversable`,
 `maybe`, and `tuples` to `web/spago.yaml`, rewriting every
 `web/src/Panels/*.purs` module as a typed Halogen `H.component` plus
@@ -175,12 +184,16 @@ local renderer that produces `web/src/Generated/Contracts.purs`. The external
 ### Objective
 
 Keep `jitml lint purescript` as the generated-contract, whitespace,
-panel-contract, and `purs-tidy`-formatting smoke target. The target
-`purescript-spec` panel tests remain future work.
+panel-contract, `purs-tidy`-formatting, and `purescript-spec` smoke target.
+The smoke suite runs under Node through `spec-node`.
 
 ### Deliverables
 
-- `web/test/Main.purs` is present as a minimal PureScript test entrypoint.
+- `web/test/Main.purs` is present as a `purescript-spec` test entrypoint.
+- `web/spago.yaml` declares both `spec` and `spec-node` for the test target.
+- `web/test/Main.purs` uses
+  `Test.Spec.Runner.Node.runSpecAndExitProcess`, not the deprecated generic
+  `Test.Spec.Runner.runSpec` compatibility alias.
 - `src/JitML/Lint/Stack.hs` verifies
   `web/src/Generated/Contracts.purs` exists and names the expected endpoint
   surface.
@@ -197,7 +210,8 @@ panel-contract, and `purs-tidy`-formatting smoke target. The target
   `npm install -g` line in `docker/Dockerfile`). When the binary is missing
   (host invocation or a partial image), `runPureScriptTidyCheck` reports a
   `purescript.tools.missing` finding instead of silently skipping.
-- It does not currently run a `purescript-spec` smoke suite.
+- `web/.gitignore` excludes `.spec-results`, the persistent Node runner state
+  emitted by `spec-node`.
 
 ### Validation
 
@@ -215,18 +229,22 @@ panel-contract, and `purs-tidy`-formatting smoke target. The target
 6. Target validation: the default style path adds a `purescript-spec` smoke
    suite that touches every typed panel contract through
    `/usr/local/bin/spago test` in `web/`.
+7. 2026-06-04 validation:
+   `docker compose run --rm jitml sh -lc 'cd web && spago test'` passes
+   7 / 7 with zero PureScript warnings after the `spec-node` runner update.
 
 ### Remaining Work
 
-None. The `purescript-spec` smoke suite closed on 2026-05-24: `spec` is a
-`web/spago.yaml` test dependency, `web/test/Main.purs` is a
-`describe`/`it` block that touches every typed `Panels.*` payload-shape
-contract and the generated `Generated.Contracts` endpoint catalog, and
-`JitML.Lint.Stack.runPureScriptSpecSuite` invokes
-`/usr/local/bin/spago test` through the typed `Subprocess` boundary on
-the default `jitml lint purescript` path. The in-container
-`docker compose run --rm jitml jitml lint purescript` validation
-returned `ok` on 2026-05-24.
+None. The `purescript-spec` smoke suite closed on 2026-05-24 and was refreshed
+on 2026-06-04 to use the current Node runner API: `spec` and `spec-node` are
+`web/spago.yaml` test dependencies, `web/test/Main.purs` is a `describe`/`it`
+block that touches every typed `Panels.*` payload-shape contract and the
+generated `Generated.Contracts` endpoint catalog, and
+`JitML.Lint.Stack.runPureScriptSpecSuite` invokes `/usr/local/bin/spago test`
+through the typed `Subprocess` boundary on the default
+`jitml lint purescript` path. The in-container
+`docker compose run --rm jitml sh -lc 'cd web && spago test'` validation
+passed 7 / 7 with no PureScript warnings on 2026-06-04.
 
 ## Sprint 11.4: Interactive Endpoint Contract Surface ✅
 
@@ -435,8 +453,8 @@ Land the Playwright scaffold for the future interactive panel suite.
 - `documents/engineering/unit_testing_policy.md` — Playwright belongs to
   the doctrine's target Ephemeral-Cluster Infrastructure test category and
   is scaffolded for `jitml-e2e`; the current PureScript generated-contract
-  smoke checks are owned by the `jitml lint purescript` target (Sprint
-  `11.3`).
+  smoke checks are owned by the `jitml lint purescript` target and run through
+  `spec-node` (Sprint `11.3`).
 
 **Product docs to create/update:**
 

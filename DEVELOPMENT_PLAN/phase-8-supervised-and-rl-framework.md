@@ -9,7 +9,6 @@
 [phase-6-numerical-core.md](phase-6-numerical-core.md),
 [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
 [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md),
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -48,8 +47,8 @@ the build/cache tree or supplied outside the repository. The stand-in row moved
 to Completed in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed).
 Sprint `8.9` replaced ROM-dependent default/canonical RL examples with
-the copyright-free repo-owned `KeyDoorGrid-v0` environment and moved the
-development ledger row to Completed.
+the copyright-free repo-owned `KeyDoorGrid-v0` environment; the closure lives
+in this phase and Phase `9` Sprint `9.8`.
 
 ### Current Implementation Scope
 
@@ -165,8 +164,8 @@ prohibition](../README.md#snapshot-targets)).
 **Owned obligations after refactor**: code-surface only. The
 `proto-lens-protoc` binding generation closed on 2026-05-24 (modules
 `Proto.Jitml.Training` and `Proto.Jitml.Training_Fields` under `gen/`,
-cabal library re-exports them, `cabal.project` includes the local
-`lens-family` / `lens-family-core` metadata patch for GHC 9.14.1, and
+cabal library re-exports them, `cabal.project` resolves `lens-family` /
+`lens-family-core` from plain Hackage under GHC `9.12.4`, and
 `jitml-daemon-lifecycle` validates the cross-language wire-byte
 equivalence). Daemon-side `TrainingHandler` against live broker and
 the live publish/consume integration test migrated to Phase `13`
@@ -234,9 +233,8 @@ local summary body. Pulsar command/event publication remains target daemon work.
 - The `proto-lens-protoc` bindings closed on 2026-05-24: generated
   modules `Proto.Jitml.Training` and `Proto.Jitml.Training_Fields`
   live under `gen/`, the cabal library exposes them, and the
-  `proto-lens` / `proto-lens-runtime` deps resolve through the local
-  `third_party/haskell/lens-family-*` metadata patch on the GHC
-  9.14.1 / containers 0.8 baseline. The `gen/` tree is
+  `proto-lens` / `proto-lens-runtime` deps resolve through plain Hackage
+  under the GHC `9.12.4` / `base-4.21` baseline. The `gen/` tree is
   excluded from the whitespace lint so regeneration via
   `protoc --plugin=protoc-gen-haskell=$(which proto-lens-protoc)
   --haskell_out=../gen jitml/*.proto` from `proto/` produces a
@@ -557,7 +555,7 @@ so all three jitML lifecycles (`TrainingLifecycle`, `RLRunLifecycle`,
 
 1. `cabal build all` succeeds with the renamed `RLRunPhase` data kind and the
    `RLRunLifecycle` singleton GADT compiling under the existing GHC
-   `9.14.1` / Cabal `3.16.1.0` toolchain.
+   `9.12.4` / Cabal `3.16.1.0` toolchain.
 2. `cabal test jitml-unit` passes; the
    `canonical RL environments and framework surfaces are deterministic` case
    continues to assert
@@ -669,7 +667,6 @@ None.
 `documents/engineering/training_workloads.md`,
 `documents/engineering/unit_testing_policy.md`,
 `documents/engineering/code_quality.md`,
-`DEVELOPMENT_PLAN/legacy-tracking-for-development.md`,
 `DEVELOPMENT_PLAN/system-components.md`
 
 ### Objective
@@ -712,10 +709,13 @@ canonical tests never require copyrighted Atari ROM bytes.
 - `docker compose run --rm jitml jitml check-code` passed during
   `jitml:local` image construction with `check-code: ok`.
 - `docker compose run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' jitml cabal test jitml-unit jitml-rl-canonicals --jobs=2`
-  passed: `jitml-unit` 184 / 184 and `jitml-rl-canonicals` 27 / 27.
-  The process-local Git `safe.directory=*` setting allows Cabal's
-  source-repository-package checkouts under the mounted `dist-newstyle/src/`
-  directory inside the container; it does not change repository state.
+  ran after the GHC `9.12.4` downgrade; `jitml-rl-canonicals` passed 27 / 27,
+  and `jitml-unit` exposed only the cache-key golden drift caused by the new
+  toolchain fingerprint.
+- `docker compose run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' jitml cabal test jitml-unit --jobs=2`
+  passed 184 / 184 after refreshing the deterministic cache-key snapshot. The
+  process-local Git `safe.directory=*` setting is scoped to the mounted
+  worktree inside the container; it does not change repository state.
 - `docker compose run --rm -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' -e JITML_ENVIRONMENT=key-door-grid jitml jitml rl train experiments/key-door-grid.dhall`
   exited `0` and rendered `environment: key-door-grid` with no ROM path.
 
@@ -777,6 +777,5 @@ None.
 - [README.md](README.md)
 - [00-overview.md](00-overview.md)
 - [system-components.md](system-components.md)
-- [legacy-tracking-for-development.md](legacy-tracking-for-development.md)
 - [development_plan_standards.md](development_plan_standards.md)
 - [../README.md](../README.md)

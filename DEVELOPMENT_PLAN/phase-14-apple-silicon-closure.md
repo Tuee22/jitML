@@ -222,7 +222,7 @@ the FFI. Adopts `Capability Classes` from [../README.md](../README.md).
   ("apple-silicon kernel output is bit-equal across repeated runs
   (Sprint 14.2)"); it skips unless a Metal device is usable headless.
 - All of the above compile host-native (`cabal build lib:jitml` +
-  `cabal build jitml-cross-backend`, GHC `9.14.1`, exit 0).
+  `cabal build jitml-cross-backend`, GHC `9.12.4`, exit 0).
 
 ### Remaining Work
 

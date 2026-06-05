@@ -17,6 +17,7 @@ package:
     dependencies:
       - aff
       - spec
+      - spec-node
 workspace:
   packageSet:
     registry: 77.3.1

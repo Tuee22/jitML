@@ -451,7 +451,7 @@ main =
                   (Cache.KernelSpec "phase-2-kernel:linear")
                   Cache.Training
                   Cache.AppleSilicon
-                  (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")
+                  (Cache.ToolchainFingerprint "llvm=ghc-9.12.4;xcode-metal=pinned;tuning=default")
                   sampleRuntimeSourcePayload
                   Cache.defaultTuningChoice
           first @?= second
@@ -1340,7 +1340,7 @@ main =
                     , CacheManifest.manifestEntryKind = Cache.Training
                     , CacheManifest.manifestEntrySubstrate = Cache.AppleSilicon
                     , CacheManifest.manifestEntryToolchain =
-                        Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default"
+                        Cache.ToolchainFingerprint "llvm=ghc-9.12.4;xcode-metal=pinned;tuning=default"
                     , CacheManifest.manifestEntryHash = sampleCacheHash
                     }
                 manifest = CacheManifest.upsertManifest entry CacheManifest.emptyManifest
@@ -1360,7 +1360,7 @@ main =
                     (Cache.KernelSpec "phase-2-kernel:conv")
                     Cache.Inference
                     Cache.AppleSilicon
-                    (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")
+                    (Cache.ToolchainFingerprint "llvm=ghc-9.12.4;xcode-metal=pinned;tuning=default")
                     ( renderedRuntimeSourcePayload
                         (Cache.KernelSpec "phase-2-kernel:conv")
                         Cache.Inference
@@ -2803,7 +2803,7 @@ sampleCacheHash =
     (Cache.KernelSpec "phase-2-kernel:linear")
     Cache.Training
     Cache.AppleSilicon
-    (Cache.ToolchainFingerprint "llvm=ghc-9.14.1;xcode-metal=pinned;tuning=default")
+    (Cache.ToolchainFingerprint "llvm=ghc-9.12.4;xcode-metal=pinned;tuning=default")
     sampleRuntimeSourcePayload
     Cache.defaultTuningChoice
 
@@ -2827,9 +2827,9 @@ renderedRuntimeSourcePayload kernelSpec kind substrate =
 canonicalErrors :: [AppError]
 canonicalErrors =
   [ AppError.PrerequisiteUnmet
-      "ghc-9.14.1"
-      "GHC 9.14.1 is required."
-      (Just "ghcup install ghc 9.14.1")
+      "ghc-9.12.4"
+      "GHC 9.12.4 is required."
+      (Just "ghcup install ghc 9.12.4")
   , AppError.SubprocessFailed "kubectl get pods" (ExitFailure 1) "kubectl failed"
   , AppError.MinIOFailed "bucket unavailable"
   , AppError.PulsarFailed "broker unavailable"

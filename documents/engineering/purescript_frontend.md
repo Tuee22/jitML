@@ -21,7 +21,7 @@
 | Generated contracts | Checked-in generated file protected by `trackingGeneratedPaths` | `web/src/Generated/Contracts.purs` |
 | Bundle/panel/demo-route metadata | Local Haskell metadata | `src/JitML/Web/Bundle.hs` |
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
-| PureScript smoke file | Spec smoke file covering generated contracts and panel modules | `web/test/Main.purs` |
+| PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Six typed Halogen panels with REST or live WebSocket actions | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
 | Playwright | Live-only seven-panel spec plus typed live-plan step; no inline DOM fallback remains | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Demo executable | Status line plus HTTP/WebSocket server | `app/Demo.hs`, `src/JitML/App.hs` |
@@ -32,6 +32,11 @@ the typed `Subprocess` boundary from doctrine `Architecture → Subprocesses as
 Typed Values`; the checked-in Cabal bodies perform local smoke checks,
 validate the `spago test`, `purs-tidy check`, and Playwright command shapes,
 and keep the live browser run on the explicit live orchestration path.
+`web/spago.yaml` keeps `spec` and `spec-node` in the test dependency set, and
+`web/test/Main.purs` uses `Test.Spec.Runner.Node.runSpecAndExitProcess` so
+Node-local smoke runs exit with the real test status without the deprecated
+generic `runSpec` compatibility alias. The runner's `.spec-results` file is
+ignored under `web/.gitignore`.
 
 ## Layout
 
@@ -164,6 +169,9 @@ explicit live orchestration path; it belongs to the doctrine's
 Ephemeral-Cluster Infrastructure test category and does not have its own Cabal
 stanza. Static route/API scaffold checks stay in the local Haskell e2e and
 PureScript lint targets.
+The local PureScript smoke suite is `purescript-spec` executed through
+`spec-node` by `spago test`; Playwright remains live-only and separate from the
+default Cabal matrix.
 
 ## Cross-References
 

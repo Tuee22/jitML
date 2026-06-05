@@ -1,7 +1,6 @@
 FROM ubuntu:24.04
 
-ARG GHC_VERSION=9.14.1
-ARG STYLE_GHC_VERSION=9.12.4
+ARG GHC_VERSION=9.12.4
 ARG CABAL_VERSION=3.16.1.0
 ARG NODE_VERSION=22.16.0
 ARG CUDA_TOOLKIT_PACKAGE=cuda-toolkit-12-8
@@ -110,22 +109,21 @@ RUN mkdir -p /root/.cabal \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
     | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_GHC_VERSION=${GHC_VERSION} BOOTSTRAP_HASKELL_CABAL_VERSION=${CABAL_VERSION} sh
 
-RUN ghcup install ghc "${STYLE_GHC_VERSION}" \
-    && mkdir -p "${JITML_STYLE_TOOLS_ROOT}/bin" \
+RUN mkdir -p "${JITML_STYLE_TOOLS_ROOT}/bin" \
     && printf 'jitml:local\n' > /opt/jitml-code-quality-domain \
     && cabal update \
     # Install a known-good happy first so the ghc-lib-parser build picks
     # it up via PATH rather than building its own which has hit version-
     # detection failures under Docker. Pin happy-1.20.1.1 (the canonical
     # version range for ghc-lib-parser 9.12.x).
-    && ghcup run --ghc "${STYLE_GHC_VERSION}" -- cabal install \
+    && ghcup run --ghc "${GHC_VERSION}" -- cabal install \
         --ignore-project \
         --installdir "${JITML_STYLE_TOOLS_ROOT}/bin" \
         --install-method=copy \
         --jobs=1 \
         happy-1.20.1.1 \
     && export PATH="${JITML_STYLE_TOOLS_ROOT}/bin:${PATH}" \
-    && ghcup run --ghc "${STYLE_GHC_VERSION}" -- cabal install \
+    && ghcup run --ghc "${GHC_VERSION}" -- cabal install \
         --ignore-project \
         --installdir "${JITML_STYLE_TOOLS_ROOT}/bin" \
         --install-method=copy \

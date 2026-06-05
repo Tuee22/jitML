@@ -7,7 +7,6 @@
 [development_plan_standards.md](development_plan_standards.md),
 [00-overview.md](00-overview.md), [system-components.md](system-components.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md),
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md),
@@ -66,10 +65,11 @@ re-scoped `### Remaining Work` block.
 
 **Reopen note (2026-06-04)**: Phases `1`, `7`, and `8` reopened narrowly for the
 remaining Phase `15` final-handoff blockers and their validation fallout. Phase
-`1` Sprint `1.10` retired the scoped `allow-newer` block by pinning upstream
-`dhall-haskell` / `cborg` source snapshots and vendoring the small
-`lens-family` compatibility patch; Phase `1` is re-closed, while the narrower
-source-pin/vendor cleanup now lives as a Phase `15` ledger row. Phase `7`
+`1` Sprint `1.10` retired the scoped `allow-newer` block; Sprint `1.11`
+downgraded the project and style-tool baseline to the single GHC `9.12.4`
+compiler, removed the source-repository package pins and local
+`third_party/haskell/lens-family-*` packages, and deleted the superseded
+reopened-phase development ledger. Phase `7`
 Sprint `7.9` split the root compose service wrappers so the default `jitml`
 service is headless for code-quality/bootstrap runs and the GPU-enabled
 `jitml-cuda` companion preserves direct live CUDA validation; Phase `7` is
@@ -78,26 +78,25 @@ RAM-state stub behind an explicit ROM-policy boundary. The later static
 foreign-source correction removed the checked-in ALE C++ shim, its Dockerfile
 compile step, and its lint allowlist; any future project-owned ALE adapter must
 be Haskell-generated into the build/cache tree or supplied outside the
-repository. The remaining
-source-pin/vendor helper is tracked in
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal)
-and gates Phase `15` Sprint `15.3`.
+repository. The final cleanup rows are completed in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed), so
+Phase `15` Sprint `15.3` is unblocked.
 
 **Reopen note (2026-06-04, copyright-free RL demos)**: Phase `8` reopened
 again for Sprint `8.9`, which replaced ROM-dependent default RL examples with
 the repo-owned `KeyDoorGrid-v0` environment. Phase `9` reopened for Sprint
 `9.8`, which retargeted the required algorithm/convergence matrix away from
 `atari-subset`. Both phases re-closed on 2026-06-04, and the development row
-moved to
-[legacy-tracking-for-development.md](legacy-tracking-for-development.md#completed).
+moved into the owning phase docs before the superseded development ledger was
+deleted by Sprint `1.11`.
 
-The plan is mid-build. Phases `0` through `14` are `✅ Done`; Phase `15` is
-blocked by the dependency source-pin/vendor cleanup that gates the final
-empty-deletion-ledger handoff.
+The plan is closed. Phases `0` through `15` are `✅ Done`; the deletion ledger
+has no Pending Removal rows.
 Sprint
 `1.4` now owns the
 container-exclusive code-quality rule: `jitml:local` image construction
-installs the separate style GHC/tools and runs `jitml check-code`; host
+uses the same pinned GHC `9.12.4` for the project and style tools and runs
+`jitml check-code`; host
 lint/check-code execution is unsupported and no host style-tool override exists.
 Phase `4` Sprint `4.7` closed on 2026-05-23 against a Linux CUDA validation
 host (NVIDIA GeForce RTX 5090, CUDA 12.8, compute capability `12.0`): the
@@ -279,7 +278,8 @@ PureScript panel payload modules under `web/src/Panels/`, the seven-test
 live-only Playwright matrix represented in `JitML.Test.LivePlan` and
 validated through the live edge route, the `spago test` and
 `purs-tidy check` command shapes represented from `jitml lint purescript`
-through typed `Subprocess` values, the demo route logic that serves
+through typed `Subprocess` values, the `spec-node` `purescript-spec` smoke
+runner used by `web/test/Main.purs`, the demo route logic that serves
 `web/dist/Main/bundle.js` when the PureScript/esbuild build has
 produced it, the real-binary `./.build/jitml` spawn matrix
 (`--help`, `bootstrap --linux-cpu --dry-run`, `cluster up --substrate
@@ -350,7 +350,7 @@ Gomoku rule engines, cartpole/mountain-car/lunar-lander simulator bindings,
 the `KeyDoorGrid-v0` replacement for formerly Atari-backed default demo
 coverage, run-to-run determinism and property checks for deterministic stubs,
 knob-block parsing,
-Halogen render machinery, `purescript-spec` smoke bodies, benchmark-driver
+benchmark-driver
 wiring into `ensureKernelArtifact`) closes on a single laptop with
 container builds and no hardware. The `Some Tuning::{ ... }` Dhall worked
 example decodes through the local tuning ADT and `jitml tune
@@ -409,8 +409,7 @@ owned by Phase `13` below.
    cross, 9 live report card, 18).** Compare live per-substrate tensor
    outputs from Phases `13` and `14` against the in-code tolerance
    bands, drive `jitml test all --live`, populate the report card, and
-   walk every legacy-ledger Pending Removal / Pending Development row to
-   Completed. The
+   walk every legacy-ledger Pending Removal row to Completed. The
    2026-06-03 pass landed the `--live` report-card code surface,
    added daemon edge telemetry probes for cache and health fields,
    removed three local cleanup residues, produced the Apple weighted
@@ -419,14 +418,13 @@ owned by Phase `13` below.
    2026-06-04 Apple live validation brought up a fresh cluster on
    fallback `edge_port: 9091`, passed the full
    `jitml test all --live` aggregate across all eight report stanzas,
-   and captured the populated live report card. Phase `1` Sprint `1.10`
-   removed the scoped `allow-newer` block on 2026-06-04 and re-closed
-   Phase `1`; the narrower source-pin/vendor cleanup row remains open in
-   Phase `15`, and the copyright-free RL demo development row completed in
-   Phase `8` / Phase `9`, while the ALE-stub row retired when reopened
-   Phase `8` Sprint `8.8` re-closed after current-image validation. The
-   demo-placeholder row retired on 2026-06-04
-   after live Playwright 7 / 7 and fallback removal.
+   and captured the populated live report card. Phase `1` Sprints `1.10`
+   and `1.11` removed the scoped `allow-newer` block, retired the
+   source-pin/vendor helper, and re-closed Phase `1`; the copyright-free RL
+   demo row completed in Phase `8` / Phase `9`, the ALE-stub row retired when
+   reopened Phase `8` Sprint `8.8` re-closed after current-image validation,
+   and the demo-placeholder row retired on 2026-06-04 after live Playwright
+   7 / 7 and fallback removal.
 
 The full machine-affinity mapping of each historical live-runtime
 Remaining-Work bullet to its new owner is enumerated in each
@@ -455,9 +453,8 @@ re-scoped sprint's `### Remaining Work` block per
 | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Eight Cabal test stanzas, lint matrix, typed live-plan surface, report-card knobs |
 | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) | Phase 13: Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure (one Linux/NVIDIA session) |
 | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) | Phase 14: Apple Silicon headless Metal FFI, host↔cluster RPC, Metal candidate runner, Apple Metal production weight loading (one Apple session) |
-| [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Cross-substrate parity cohort, populated live `jitml test all` report card, empty legacy ledgers |
+| [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Cross-substrate parity cohort, populated live `jitml test all` report card, empty deletion ledger |
 | [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) | Cleanup ledger |
-| [legacy-tracking-for-development.md](legacy-tracking-for-development.md) | Reopened-phase development ledger |
 
 ## Status Vocabulary
 
@@ -506,14 +503,14 @@ obligation exists.
 | 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | 🔄 Active | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ⏸️ Blocked | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 8 | Supervised Learning and RL Framework | ✅ Done | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | Linux CUDA and Cluster Closure | ✅ Done | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
 | 14 | Apple Silicon Closure | ✅ Done | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Cross-Substrate Parity and Final Handoff | ⏸️ Blocked | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 15 | Cross-Substrate Parity and Final Handoff | ✅ Done | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Reopened phases (2026-06-04)
 
@@ -521,11 +518,10 @@ Phases `1`, `8`, and `9` reopened from `✅ Done` on 2026-06-04 and
 re-closed the same day after their scoped work validated:
 
 - **Phase 1** re-opened for Sprint `1.10`, the scoped `allow-newer`
-  retirement gate, and re-closed on 2026-06-04. The project compiler remains
-  GHC `9.14.1`; `cabal.project` now has no `allow-newer` stanza, pins
-  upstream `dhall-haskell` / `cborg` source snapshots, and carries the small
-  local `lens-family` compatibility patch. The remaining source-pin/vendor cleanup
-  is now a Phase `15` ledger row.
+  retirement gate, and Sprint `1.11`, the GHC `9.12.4` single-compiler
+  downgrade. `cabal.project` now has no `allow-newer`, no
+  `source-repository-package` entries, and no local dependency packages; the
+  code-quality image uses the same pinned GHC as the project build.
 - **Phase 8** re-opened for Sprint `8.8`, the Atari ROM-policy gate and
   deterministic `atari-subset` RAM-state stub retirement. The path keeps
   explicit uncommitted ROM inputs under ignored `./.roms/` or through run
@@ -536,13 +532,13 @@ re-closed the same day after their scoped work validated:
 - **Phase 8 / Phase 9** reopened for the copyright-free RL demo replacement.
   Sprint `8.9` added `KeyDoorGrid-v0` and moved default examples away from
   `atari-subset`; Sprint `9.8` retargeted the required algorithm/convergence
-  matrix. The row is completed in
-  [legacy-tracking-for-development.md](legacy-tracking-for-development.md).
+  matrix. The deleted development ledger no longer carries reopened-phase rows;
+  owning phase documents hold the closure details.
 
 Phases `13` and `14` remain `✅ Done` on their substrate-owned live surfaces.
-Phases `8` and `9` are re-closed. Phase `15` remains `⏸️ Blocked` and cannot
-close until the source-pin/vendor helper moves to Completed in
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+Phases `8` and `9` are re-closed. Phase `15` is re-closed after the
+source-pin/vendor helper and the superseded development ledger moved to
+Completed in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Reopened phases (2026-05-30)
 
@@ -593,8 +589,8 @@ probe", and the `14.2` / `14.3` / `14.5` live gates moved from "VM running" to
 "Metal device usable headless" — and is now **✅ Done**: all sprints (`14.1`–`14.5`)
 plus item-8's Apple-host Playwright panel matrix were live-validated headless on an
 Apple M1 / macOS 26 host (2026-05-30/31), including the full host↔cluster RPC
-round-trip through two running daemon processes. Phase `15` stays `⏸️ Blocked`
-because the final source-pin/vendor legacy-ledger row remains;
+round-trip through two running daemon processes. Phase `15` later re-closed on
+2026-06-04 after Sprint `1.11` retired the final source-pin/vendor helper;
 Sprint `15.1` is `✅ Done` after the 2026-06-03 Linux/Apple report-bundle
 comparison passed. Sprint `15.2` is `✅ Done` after the 2026-06-04
 fresh Apple live cluster validation: bootstrap selected fallback
@@ -646,7 +642,7 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-Phases `0`–`6` are `✅ Done`. Phases `2`, `3`, `4`, and `5` reopened then
+Phases `0`–`15` are `✅ Done`. Phases `2`, `3`, `4`, and `5` reopened then
 **re-closed on 2026-05-29** after the cluster resource-guardrail and
 Dhall/functional-logic workstreams landed: the `dhall/cluster/` resource profile
 + kind-node memory/CPU cap + `cluster.host-memory` preflight (Sprint `2.8`), the
@@ -671,9 +667,9 @@ spin-up. **Phase `14` is now `✅ Done`** — re-scoped to the headless toolchai
 gates became "Metal device usable headless"), all five sprints plus item-8's
 Apple-host Playwright panel matrix live-validated on Apple M1 / macOS 26
 (2026-05-30/31), including the full host↔cluster RPC round-trip through two
-running daemon processes. The remaining open plan scope is Phase `15`
-  (cross-substrate parity + report card + empty ledger) plus the Phase `15`
-  source-pin/vendor cleanup row that gates its final ledger sweep: the
+running daemon processes. The later Phase `15` scope
+  (cross-substrate parity + report card + empty ledger) closed after Sprint
+  `1.11` retired the source-pin/vendor helper: the
 `linux-cpu` / `linux-cuda` weighted drift assertion passed on the
 Linux/NVIDIA host on 2026-06-01, `jitml verify cross-backend` now
 provides ephemeral `--export` / `--compare` report bundles for the
@@ -685,12 +681,11 @@ Apple live cluster validation passed the full aggregate across all
 eight report stanzas with measured RL reward, AlphaZero win rate,
 tuning objective, JIT cache hit rate, and daemon health fields. The
 2026-06-03 `jitml:local` rebuild passed `jitml check-code`. The deletion
-ledger retains only the source-pin/vendor cleanup row, and the development
-ledger tracks the `KeyDoorGrid-v0` replacement; the demo-placeholder row,
-ALE-stub row, and checked-in ALE C++ shim row retired on 2026-06-04 (see that
-phase's Remaining Work blocks).
+ledger has no Pending Removal rows after the source-pin/vendor helper and the
+superseded development ledger moved to Completed; the demo-placeholder row,
+ALE-stub row, and checked-in ALE C++ shim row retired on 2026-06-04.
 See [Reopened phases (2026-06-04)](#reopened-phases-2026-06-04) for the
-source-pin/vendor cleanup ownership and
+single-GHC cleanup ownership and
 [Reopened phases (2026-05-30)](#reopened-phases-2026-05-30) for the per-phase
 scope; the Tart removals are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
@@ -1138,9 +1133,8 @@ short 25-iteration cohort).
 At that point the remaining open Phase `13` items were the formalised live SL
 statistical-convergence assertion, the heavier RL cohort convergence runs, and
 the batched device-training hot path. Phase `13` later closed all 15 / 15
-sprints on 2026-05-30. The current open item is the dependency
-source-pin/vendor cleanup row owned by Phase `15`, which gates Phase `15`
-Sprint `15.3`'s empty-ledger handoff.
+sprints on 2026-05-30. The later dependency source-pin/vendor cleanup row owned
+by Phase `15` closed through Phase `1` Sprint `1.11` on 2026-06-04.
 
 The pre-2026-05-28 host suites were: `jitml-unit` (172),
 `jitml-sl-canonicals` (9), `jitml-rl-canonicals` (23),
@@ -1424,7 +1418,7 @@ code surface. After the 2026-05-24 refactor, Phases `7`–`12` each carry only
 their code-surface obligations; every live-runtime obligation migrated to
 Phase `13` (Linux CUDA + Kind cluster + browser session), Phase `14` (Apple
 Silicon session), or Phase `15` (cross-substrate parity + populated report
-card + empty legacy ledgers). Phases `13` and `14` are independent and may
+card + empty deletion ledger). Phases `13` and `14` are independent and may
 close in either order; Phase `15` requires both.
 
 ## Exit Definition
@@ -1432,7 +1426,7 @@ close in either order; Phase `15` requires both.
 This plan is complete only when all of the following are true:
 
 1. The repository holds three substrate-specific JIT source renderers behind one
-   `jitml` Haskell binary built by Cabal under GHC `9.14.1` and Cabal `3.16.1.0`:
+   `jitml` Haskell binary built by Cabal under GHC `9.12.4` and Cabal `3.16.1.0`:
    `apple-silicon` via generated Metal / Swift sources, `linux-cpu` via
    generated oneDNN C++ sources, and `linux-cuda` via generated CUDA sources.
 2. `jitml service` is the canonical long-running daemon, parameterised by Dhall
@@ -1482,9 +1476,9 @@ This plan is complete only when all of the following are true:
    code-quality are separate `jitml lint *` / `jitml check-code` commands; the
    `jitml-e2e` stanza orchestrates an ephemeral Kind stack via
    `jitml bootstrap` + the typed `JitML.Test.LivePlan` live plan.
-10. The toolchain is pinned at GHC `9.14.1` and Cabal `3.16.1.0`. `jitml.cabal`
-    declares `tested-with: ghc ==9.14.1` and `cabal.project` declares
-    `with-compiler: ghc-9.14.1`.
+10. The toolchain is pinned at GHC `9.12.4` and Cabal `3.16.1.0`. `jitml.cabal`
+    declares `tested-with: ghc ==9.12.4` and `cabal.project` declares
+    `with-compiler: ghc-9.12.4`.
 11. Every Plan/Apply command (`jitml bootstrap`, `jitml train`, `jitml tune`,
     `jitml rl train`, `jitml cluster up`, `jitml test all`, `jitml service`
     startup-as-plan, `jitml internal gc`) supports `--dry-run` and
@@ -1500,21 +1494,20 @@ This plan is complete only when all of the following are true:
     Components](system-components.md#cli-doctrine-components) and instantiated by
     Sprint `1.9`.
 15. `fourmolu.yaml` at repo root pins the thirteen doctrine-mandated settings;
-    `docker/Dockerfile` installs the separate style-tools GHC and pinned
+    `docker/Dockerfile` uses the same pinned GHC `9.12.4` to build pinned
     `fourmolu` / `hlint` binaries for `jitml:local`; the image build runs the
     Haskell style/code-quality gate; `jitml lint haskell` runs only inside the
     container-owned gate; and `jitml lint purescript` extends the lint surface
-    to PureScript generated-contract, whitespace, panel-contract, and typed
-    frontend-tool command checks.
+    to PureScript generated-contract, whitespace, panel-contract, typed
+    frontend-tool command checks, and the `spec-node` `purescript-spec` smoke
+    suite.
 16. `CommandSpec` is the implementation source for the parser, the command tree
     (`jitml commands --tree`), the JSON command schema (`jitml commands --json`),
     the markdown command reference, the manpages, and the shell completion scripts.
 17. The route registry `src/JitML/Routes.hs` is the source of truth for every
     HTTPRoute resource emitted by the umbrella chart's renderer.
-18. [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) and
-    [legacy-tracking-for-development.md](legacy-tracking-for-development.md)
-    contain no unresolved cleanup or reopened-phase development rows once the
-    final handoff gate closes.
+18. [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
+    contains no unresolved cleanup rows once the final handoff gate closes.
 
 ## Related Documents
 
@@ -1522,6 +1515,5 @@ This plan is complete only when all of the following are true:
 - [development_plan_standards.md](development_plan_standards.md)
 - [system-components.md](system-components.md)
 - [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
-- [legacy-tracking-for-development.md](legacy-tracking-for-development.md)
 - [../README.md](../README.md)
 - [../documents/documentation_standards.md](../documents/documentation_standards.md)

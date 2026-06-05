@@ -3246,7 +3246,7 @@ locateJitmlBinary = do
       let preferred =
             "dist-newstyle/build/"
               <> currentArchDir
-              <> "/ghc-9.14.1/jitml-0.1.0.0/x/jitml/build/jitml/jitml"
+              <> "/ghc-9.12.4/jitml-0.1.0.0/x/jitml/build/jitml/jitml"
       exists <- doesFileExist preferred
       if exists
         then Just <$> makeAbsolute preferred
@@ -3296,7 +3296,7 @@ matchesCurrentPlatform arch = arch == currentArchDir
 searchForBinary :: [FilePath] -> IO (Maybe FilePath)
 searchForBinary [] = pure Nothing
 searchForBinary (arch : rest) = do
-  let path = "dist-newstyle/build" </> arch </> "ghc-9.14.1/jitml-0.1.0.0/x/jitml/build/jitml/jitml"
+  let path = "dist-newstyle/build" </> arch </> "ghc-9.12.4/jitml-0.1.0.0/x/jitml/build/jitml/jitml"
   exists <- doesFileExist path
   if exists
     then Just <$> makeAbsolute path
