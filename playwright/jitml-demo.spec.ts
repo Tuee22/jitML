@@ -51,7 +51,7 @@ async function loadPanel(
   panelId: string
 ): Promise<void> {
   // `Main.main` mounts the panel selected by `location.hash`; the bare
-  // demo URL mounts only the MNIST panel, so each test navigates to its
+  // demo URL mounts the portals home, so each test navigates to its
   // own `#<panel-id>` hash to drive the matching `Panels.*` mount.
   await page.goto(`${LIVE_DEMO_URL}#${panelId}`);
   await page
@@ -59,10 +59,46 @@ async function loadPanel(
     .waitFor({ state: "attached", timeout: 10000 });
 }
 
-test("demo shell responds", async ({ page }) => {
+test("demo shell responds and renders the portals home", async ({ page }) => {
   await loadShell(page);
   await expect(page.locator("main#app")).toBeAttached();
-  await expect(page.locator("#mnist-live-inference")).toBeVisible();
+  await expect(page.locator("#portals")).toBeVisible();
+  await expect(page.locator("#jitml-portals-panels")).toBeVisible();
+  await expect(page.locator("#jitml-portals-admin")).toBeVisible();
+});
+
+test("portals home links to every bundled admin portal", async ({ page }) => {
+  await loadShell(page);
+  const expected: ReadonlyArray<readonly [string, string]> = [
+    ["jitml-portals-admin-grafana", "/grafana"],
+    ["jitml-portals-admin-prometheus", "/prometheus"],
+    ["jitml-portals-admin-tensorboard", "/tensorboard"],
+    ["jitml-portals-admin-harbor-portal", "/harbor"],
+    ["jitml-portals-admin-minio-console", "/minio/console"],
+    ["jitml-portals-admin-pulsar-admin", "/pulsar/admin"],
+  ];
+  for (const [id, href] of expected) {
+    await expect(page.locator(`#${id}`)).toHaveAttribute("href", href);
+  }
+});
+
+test("shared header is present on every panel", async ({ page }) => {
+  const panels = [
+    "mnist-live-inference",
+    "cifar-imagenet-upload",
+    "training-progress",
+    "hyperparameter-sweep",
+    "rl-trajectory",
+    "connect4-human-vs-alphazero",
+  ];
+  for (const panelId of panels) {
+    await loadPanel(page, panelId);
+    await expect(page.locator("#jitml-chrome")).toBeVisible();
+    await expect(page.locator("#jitml-chrome-home")).toHaveAttribute(
+      "href",
+      "#portals",
+    );
+  }
 });
 
 test("mnist panel renders an inference canvas", async ({ page }) => {

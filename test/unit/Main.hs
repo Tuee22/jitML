@@ -154,6 +154,7 @@ import JitML.RL.Environments qualified as RLEnvironments
 import JitML.RL.Framework qualified as RLFramework
 import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
 import JitML.RL.Simulator qualified as Sim
+import JitML.Routes qualified as Routes
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.HotReload qualified as HotReload
 import JitML.Service.LiveConfig qualified as LiveConfig
@@ -163,6 +164,7 @@ import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
 import JitML.Tune.Catalog qualified as Tune
+import JitML.Web.AdminPortals qualified as WebAdminPortals
 import JitML.Web.Bundle qualified as WebBundle
 import JitML.Web.Contracts qualified as WebContracts
 
@@ -332,6 +334,7 @@ main =
                   (path `elem` trackedPaths)
             )
             [ "web/src/Generated/Contracts.purs"
+            , "web/src/Generated/AdminPortals.purs"
             , "chart/templates/httproute-demo-root.yaml"
             , "chart/templates/grafana-dashboard-daemon-health.yaml"
             , "chart/templates/prometheus-scrapeconfig-jitml.yaml"
@@ -2125,6 +2128,17 @@ main =
               , "- /api/ws/tune tune-stream-contract <- src/JitML/Web/Contracts.hs"
               ]
           WebContracts.contractGeneratorName @?= "local-purescript-bridge-compatible-renderer"
+          fmap (Routes.routeName . fst) Routes.adminPortalRoutes
+            @?= [ "grafana"
+                , "prometheus"
+                , "tensorboard"
+                , "harbor-portal"
+                , "minio-console"
+                , "pulsar-admin"
+                ]
+          assertBool
+            "admin portal renderer emits the generated module"
+            ("module Generated.AdminPortals where" `Text.isInfixOf` WebAdminPortals.renderPureScriptAdminPortals)
       , -- Sprint 13.6 — convergence threshold table sanity.
         testGroup
           "RL convergence threshold table (Sprint 13.6)"

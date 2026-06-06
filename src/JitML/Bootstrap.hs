@@ -105,7 +105,7 @@ bootstrapPlanSteps substrate =
   , "prepare Helm dependencies with " <> renderHelmDependencyBuildPlan "chart"
   , "create/export Kind kubeconfig and copy it to ./.build/jitml.kubeconfig"
   , "raise Kind-node inotify caps for multi-cluster host readiness"
-  , "normalize Percona PV ownership for qemu-run Postgres"
+  , "prepare substrate-specific Percona PV storage"
   , "apply jitml-manual StorageClass and manual PVs"
   , "install MinIO and Percona storage for Harbor"
   , "install Harbor bootstrap phase"
@@ -234,10 +234,10 @@ livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
   , kindNodeInotifyCapSubprocess substrate
   , kubectlRestartPodsByLabelSubprocess "kube-system" "k8s-app=kube-proxy"
   , kubectlRestartPodsByLabelSubprocess "local-path-storage" "app=local-path-provisioner"
-  , kindNormalizePostgresPvOwnershipSubprocess substrate
   , clusterNodeCapSubprocess substrate resources
   , helmDependencyBuildSubprocess chartPath
   ]
+    <> kindPreparePostgresPvSubprocesses substrate
     <> cachedThirdPartyImageLoadSteps substrate
     <> foundationManifestApplySubprocesses chartPath
     <> concatMap releaseSteps minioBootstrapReleases
@@ -245,7 +245,6 @@ livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
     <> concatMap releaseSteps postgresOperatorReleases
     <> postgresClusterApplySubprocesses
     <> Readiness.postgresReadinessSubprocesses
-    <> [kindNormalizePostgresPvOwnershipSubprocess substrate]
  where
   kindConfigPath = "kind/cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
   releaseSteps release = [helmInstallSubprocessForEdgePort substrate edgePort release chartPath]
@@ -366,6 +365,42 @@ kindNormalizePostgresPvOwnershipSubprocess substrate =
       ]
         <> fmap pvNodeDataPath postgresManualPVs
     )
+
+kindPreparePostgresPvSubprocesses :: Substrate -> [Subprocess]
+kindPreparePostgresPvSubprocesses AppleSilicon =
+  [kindMountPostgresPvNodeLocalSubprocess AppleSilicon]
+kindPreparePostgresPvSubprocesses substrate =
+  [kindNormalizePostgresPvOwnershipSubprocess substrate]
+
+kindMountPostgresPvNodeLocalSubprocess :: Substrate -> Subprocess
+kindMountPostgresPvNodeLocalSubprocess substrate =
+  subprocess
+    "docker"
+    [ "exec"
+    , substrateClusterName substrate <> "-control-plane"
+    , "sh"
+    , "-c"
+    , Text.unwords
+        ( ["set -e;"]
+            <> fmap mountOne postgresManualPVs
+        )
+    ]
+ where
+  mountOne pv =
+    let nodePath = pvNodeDataPath pv
+        localPath = "/var/local/jitml-postgres-pv" <> nodePath
+     in Text.unwords
+          [ "mkdir -p"
+          , localPath
+          , nodePath <> ";"
+          , "mountpoint -q"
+          , nodePath
+          , "|| mount --bind"
+          , localPath
+          , nodePath <> ";"
+          , "chown -R 26:26"
+          , localPath <> ";"
+          ]
 
 postgresManualPVs :: [ManualPV]
 postgresManualPVs =

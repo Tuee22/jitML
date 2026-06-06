@@ -16,14 +16,16 @@ Stage-0 contract:
   Delegates: ./.build/jitml bootstrap --apple-silicon
 
 Commands:
-  help      Print this help.
-  doctor    Check the Apple Silicon stage-0 host gates.
-  build     Build ./.build/jitml host-native.
-  up        Build ./.build/jitml and delegate to the Haskell bootstrap.
-  status    Print local stack status from ./.build/runtime/cluster-publication.json.
-  test      Run the canonical jitML test surface.
-  down      Tear the local stack down while preserving state.
-  purge     Remove runtime state; --full also removes build artifacts.
+  help        Print this help.
+  doctor      Check the Apple Silicon stage-0 host gates.
+  build       Build ./.build/jitml host-native.
+  up          Build ./.build/jitml and delegate to the Haskell bootstrap.
+  run-daemon  Run the host-native jitml service daemon in the foreground
+              (long-running; required for Metal inference after 'up').
+  status      Print local stack status from ./.build/runtime/cluster-publication.json.
+  test        Run the canonical jitML test surface.
+  down        Tear the local stack down while preserving state.
+  purge       Remove runtime state; --full also removes build artifacts.
 EOF
 }
 
@@ -42,6 +44,16 @@ build() {
 up() {
   build
   run_apple_bootstrap "$@"
+}
+
+run_daemon() {
+  build
+  local host_config="$script_dir/../.build/conf/host/apple-silicon.dhall"
+  if [ ! -f "$host_config" ]; then
+    die 3 "host config missing at $host_config; run bootstrap/apple-silicon.sh up first"
+  fi
+  info "starting host-native jitml service (Ctrl-C to stop)"
+  exec "$script_dir/../.build/jitml" service --config "$host_config" "$@"
 }
 
 main() {
@@ -66,6 +78,9 @@ main() {
       ;;
     up)
       up "$@"
+      ;;
+    run-daemon)
+      run_daemon "$@"
       ;;
     status)
       print_cluster_status "$substrate"

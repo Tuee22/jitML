@@ -187,6 +187,10 @@ build_host_jitml() {
   fi
   cp "$built_binary" "$root/.build/jitml"
   chmod 0755 "$root/.build/jitml"
+  if [ "$(host_uname_s)" = "Darwin" ]; then
+    require_command "codesign" "install Xcode Command Line Tools before building ./.build/jitml"
+    run_command codesign --force --sign - "$root/.build/jitml" >/dev/null
+  fi
   info "wrote ./.build/jitml"
 }
 

@@ -2,6 +2,17 @@
 .data/
 .roms/
 .git/
+node_modules/
+playwright-report/
+playwright/node_modules/
+playwright/package-lock.json
+playwright/test-results/
+test-results/
+web/node_modules/
+web/output/
+web/dist/
+web/.spago/
+web/package-lock.json
 dist-newstyle/
 .dist-newstyle/
 .hlint-output

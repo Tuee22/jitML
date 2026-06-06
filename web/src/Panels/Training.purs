@@ -10,13 +10,14 @@ import Prelude
 
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
-import Effect (Effect)
+import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
-import Halogen.Aff (awaitBody, runHalogenAff)
+import Halogen.Aff (awaitBody)
 import Halogen.HTML as HH
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
+import Chrome.Header as Header
 import Panels.Stream (subscribeStream)
 
 type TrainingFrame =
@@ -89,7 +90,8 @@ component =
   render state =
     HH.div
       [ HP.id panelName, HP.classes [ H.ClassName "jitml-panel" ] ]
-      [ HH.h2_ [ HH.text "Training progress" ]
+      [ Header.render
+      , HH.h2_ [ HH.text "Training progress" ]
       , HH.canvas
           [ HP.id (panelName <> "-curve")
           , HP.width 640
@@ -131,7 +133,8 @@ component =
           ]
           [ HH.text ("stream error: " <> message) ]
 
-mount :: Effect Unit
-mount = runHalogenAff do
+mount :: Aff (Aff Unit)
+mount = do
   body <- awaitBody
-  void (runUI component unit body)
+  ui <- runUI component unit body
+  pure ui.dispose

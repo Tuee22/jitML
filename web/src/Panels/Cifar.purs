@@ -16,14 +16,15 @@ import Prelude
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
-import Effect (Effect)
+import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
-import Halogen.Aff (awaitBody, runHalogenAff)
+import Halogen.Aff (awaitBody)
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
+import Chrome.Header as Header
 
 type CifarUploadRequest =
   { panel :: String
@@ -99,7 +100,8 @@ component =
   render state =
     HH.div
       [ HP.id panelName, HP.classes [ H.ClassName "jitml-panel" ] ]
-      [ HH.h2_ [ HH.text "CIFAR / ImageNet upload" ]
+      [ Header.render
+      , HH.h2_ [ HH.text "CIFAR / ImageNet upload" ]
       , HH.input
           [ HP.id (panelName <> "-file")
           , HP.type_ HP.InputFile
@@ -147,10 +149,11 @@ component =
           ]
           [ HH.text ("upload error: " <> message) ]
 
-mount :: Effect Unit
-mount = runHalogenAff do
+mount :: Aff (Aff Unit)
+mount = do
   body <- awaitBody
-  void (runUI component unit body)
+  ui <- runUI component unit body
+  pure ui.dispose
 
 renderTopKSnapshot :: Maybe CifarInferenceResponse -> String
 renderTopKSnapshot response =

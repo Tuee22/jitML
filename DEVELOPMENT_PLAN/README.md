@@ -39,6 +39,28 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Reopen note (2026-06-05, re-closed 2026-06-05)**: Phase `11`
+reopened from `✅ Done` for Sprint `11.7` (SPA portals home and shared
+header) to close the discoverability gap against the route registry: the six
+bundled admin portals declared in `src/JitML/Routes.hs` (Grafana,
+Prometheus, TensorBoard, Harbor, MinIO console, Pulsar admin) have no
+in-app surface today, so a user loading the demo bundle cannot reach
+any adjacent platform UI without external knowledge of
+[../README.md → Routes Published at the Edge](../README.md#envoy-gateway-api-a-single-localhost-socket).
+Per Plan Standards rule L the gap was scheduled through Sprint `11.7`,
+which extends the route registry with a `routeAdminPortalLabel` metadata
+field, emits a tracked `web/src/Generated/AdminPortals.purs` artifact
+from a new `JitML.Web.AdminPortals` emitter, and adds the
+`Chrome.Header` / `PanelRegistry` / `Panels.Portals` PureScript modules
+that compose into a default-landing home page with a slim shared header
+on every panel. `web/src/Main.purs` now disposes the previous Halogen root
+when hash navigation mounts a new panel. The "MNIST as default
+empty-hash landing; absent SPA discoverability for the Envoy-routed admin
+portals" row in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) now
+lives in `Completed`. See
+[Reopened phases (2026-06-05) — Sprint 11.7](#reopened-phases-2026-06-05--sprint-117-spa-portals-home-and-shared-header).
+
 **Reopen note (2026-06-04, re-closed 2026-06-04)**: Phase `1` re-opened for
 Sprint `1.12` (CLI Dhall overrides on `train`, `rl train`, `tune`) and is
 now **re-closed `✅ Done`** the same day. The new sprint landed
@@ -108,8 +130,11 @@ the repo-owned `KeyDoorGrid-v0` environment. Phase `9` reopened for Sprint
 moved into the owning phase docs before the superseded development ledger was
 deleted by Sprint `1.11`.
 
-The plan is closed. Phases `0` through `15` are `✅ Done`; the deletion ledger
-has no Pending Removal rows.
+The plan is currently `✅ Done` across Phases `0`–`15`; the deletion ledger
+has no Pending Removal rows. Phase `11` reopened and re-closed on
+2026-06-05 after Sprint `11.7` landed the SPA portals home, shared header,
+generated admin-portal artifact, hash-router disposal path, and live
+Playwright coverage against the Apple Silicon edge route.
 Sprint
 `1.4` now owns the
 container-exclusive code-quality rule: `jitml:local` image construction
@@ -524,7 +549,7 @@ obligation exists.
 | 8 | Supervised Learning and RL Framework | ✅ Done | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
-| 11 | PureScript Frontend and Demo | ✅ Done | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
+| 11 | PureScript Frontend and Demo | ✅ Done (reopened and re-closed 2026-06-05, Sprint 11.7) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | Linux CUDA and Cluster Closure | ✅ Done | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
 | 14 | Apple Silicon Closure | ✅ Done | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
@@ -557,6 +582,64 @@ Phases `13` and `14` remain `✅ Done` on their substrate-owned live surfaces.
 Phases `8` and `9` are re-closed. Phase `15` is re-closed after the
 source-pin/vendor helper and the superseded development ledger moved to
 Completed in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
+## Reopened phases (2026-06-05) — Sprint 11.7 SPA Portals Home and Shared Header
+
+Phase `11` reopened from `✅ Done` and re-closed on 2026-06-05 to honor
+the doctrine prescription at
+[../README.md → Routes Published at the Edge](../README.md#envoy-gateway-api-a-single-localhost-socket),
+which makes the demo bundle the single localhost surface and lists six
+clickable admin portals routed through Envoy. The SPA exposes none of
+those portals to the user, and the bundle's empty-hash landing mounts
+MNIST — so the only discoverability path for `127.0.0.1:<edge-port>/`
+visitors was `../README.md` prose. Per Plan Standards rule L
+("Closing the gap silently without a sprint binding is forbidden"), the
+gap was scheduled and closed through Sprint `11.7`.
+
+- **Phase 11** re-opened for Sprint `11.7`, which added an explicit
+  `routeAdminPortalLabel :: Maybe Text` metadata field on the
+  `JitML.Routes.Route` record, tags the six portal entries with display
+  labels, and exposes `adminPortalRoutes` returning the labelled subset
+  in display order. A new emitter
+  `JitML.Web.AdminPortals.renderPureScriptAdminPortals` mirrors
+  `JitML.Web.Contracts.renderPureScriptContracts` and is registered in
+  `JitML.Generated.Paths.trackingGeneratedPaths` so the resulting
+  `web/src/Generated/AdminPortals.purs` artifact is drift-gated by
+  `jitml docs check`. On the PureScript side the sprint adds
+  `web/src/Chrome/Header.purs` (slim shared header — `jitML` wordmark
+  plus `[home]` link to `#portals`), `web/src/PanelRegistry.purs`
+  (single SPA-side panel list consumed by both `Main.purs` and the new
+  home), and `web/src/Panels/Portals.purs` (the home panel composing the
+  header with two columns — `PanelRegistry.panels` and
+  `Generated.AdminPortals.adminPortals`). `web/src/Main.purs` adds a
+  `#portals` case and flips the unmatched / empty-hash fallback from
+  `Mnist.mount` to `Portals.mount`; it also runs the previous Halogen
+  disposer before mounting a newly selected hash route. Every existing
+  panel (`Panels.{Mnist,Cifar,Training,Tune,Rl,Connect4}`) prepends
+  `Chrome.Header.render` to its render tree. `web/test/Main.purs` covers
+  the generated portals array (length + six expected name/path pairs);
+  `playwright/jitml-demo.spec.ts` covers the home page, the shared
+  `[home]` link on every panel page, and each portal's `href` against
+  the registered edge prefix.
+
+Validation on 2026-06-05: `docker compose build jitml`,
+`docker compose run --rm jitml jitml docs check`, `jitml-unit`,
+`jitml-integration`, `spago test`, and `jitml check-code` all pass in
+the container workflow. A fresh Apple Silicon live bootstrap completed
+the phased rollout on fallback `edge_port: 9091`; the host daemon started
+with `./bootstrap/apple-silicon.sh run-daemon`; the live Playwright
+matrix passed 9 / 9 against `http://127.0.0.1:9091`.
+
+Phases `0`–`10` and `12`–`15` remained `✅ Done` on their owned surfaces.
+Frontend-and-demo ownership lives in Phase `11` only per Plan Standards
+rule E; the reopen did not ripple. The route-table generated section in
+`documents/engineering/cluster_topology.md` regenerates clean because the
+new `routeAdminPortalLabel` field is metadata only and does not project
+into `renderRouteTable`. The doctrine-deviation row is tracked in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) as
+"MNIST as default empty-hash landing; absent SPA discoverability for
+Envoy-routed admin portals" and moved to `Completed` when Sprint `11.7`
+closed.
 
 ## Reopened phases (2026-06-04) — Sprint 1.12 CLI Dhall Overrides
 
@@ -695,10 +778,17 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-Phases `0`–`15` are `✅ Done`. Phase `1` reopened then re-closed on
-2026-06-04 after Sprint `1.12` landed the CLI Dhall override surface on
-`train`, `rl train`, and `tune` — closing the doctrine-versus-implementation
-gap at [../README.md → Hyperparameter tuning, first-class](../README.md#hyperparameter-tuning-first-class)
+All phases are **`✅ Done`** on their owned surfaces. Phase `11`
+reopened and re-closed on 2026-06-05 for Sprint `11.7` — SPA portals
+home and shared header — exposing the bundled admin portals declared in
+the route registry as the demo bundle's default landing and moving the
+matching row in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) to
+`Completed`. Phase `1` reopened
+then re-closed on 2026-06-04 after Sprint `1.12` landed the CLI Dhall
+override surface on `train`, `rl train`, and `tune` — closing the
+doctrine-versus-implementation gap at
+[../README.md → Hyperparameter tuning, first-class](../README.md#hyperparameter-tuning-first-class)
 (line 1050). The doctrine-deviation row moved to `Completed` in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md); the
 regenerated registry table, manpage, completions, and engineering CLI

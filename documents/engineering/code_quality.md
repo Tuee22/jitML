@@ -123,7 +123,8 @@ doctrine's set with:
   prerequisite remediation, with pure plan construction, typed `Subprocess`
   apply, and postcondition validation.
 - Hand-edited Grafana dashboard ConfigMaps, generated HTTPRoute manifests,
-  generated Prometheus scrape config, or `web/src/Generated/Contracts.purs`
+  generated Prometheus scrape config, `web/src/Generated/Contracts.purs`,
+  or `web/src/Generated/AdminPortals.purs`
   outside the active `trackingGeneratedPaths` renderer.
 - `test/golden/`. Pure renderer snapshots live under `test/snapshots/`;
   numerical outputs are covered by run-to-run determinism, statistical,
@@ -138,6 +139,7 @@ The active project-specific tracked-generated-paths registry currently covers:
 - `share/completion/bash/jitml`, `share/completion/zsh/_jitml`,
   `share/completion/fish/jitml.fish`
 - `web/src/Generated/Contracts.purs`
+- `web/src/Generated/AdminPortals.purs`
 - `chart/templates/httproute-*.yaml`
 - `chart/templates/grafana-dashboard-*.yaml`
 - `chart/templates/prometheus-scrapeconfig-jitml.yaml`

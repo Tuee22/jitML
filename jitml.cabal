@@ -216,6 +216,7 @@ library
         JitML.Test.Report
         JitML.Tune.Catalog
         JitML.Tune.Resume
+        JitML.Web.AdminPortals
         JitML.Web.Bundle
         JitML.Web.Contracts
         JitML.Web.Server

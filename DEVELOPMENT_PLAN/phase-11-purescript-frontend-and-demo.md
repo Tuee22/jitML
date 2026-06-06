@@ -21,8 +21,11 @@
 
 ## Phase Status
 
-✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
-PureScript scaffold, generated browser contracts under
+✅ **Done** (reopened and re-closed 2026-06-05 after Sprint `11.7` —
+SPA portals home and shared header; previously ✅ Done 2026-05-25 and
+re-closed 2026-06-04 after Sprint `11.3`). Every prior owned
+code-surface obligation remains closed: PureScript scaffold, generated
+browser contracts under
 `web/src/Generated/Contracts.purs`, six typed panel modules under
 `web/src/Panels/`, Halogen dependency + render machinery on each panel,
 `purescript-spec` smoke suite invoked through `jitml lint purescript` and the
@@ -40,7 +43,13 @@ Phase `11` reopened and reclosed on 2026-06-04 for Sprint `11.3` runner
 cleanup: `web/test/Main.purs` now uses
 `Test.Spec.Runner.Node.runSpecAndExitProcess`, `web/spago.yaml` adds
 `spec-node` to the test dependencies, and the deprecated generic `runSpec`
-compatibility alias is removed.
+compatibility alias is removed. The 2026-06-05 Sprint `11.7` closure
+exposes the bundled admin portals declared in the route registry as a
+default-landing portals home plus a slim shared header on every panel,
+generated from `src/JitML/Routes.hs` so the registry remains the single
+source of truth. `Main.purs` now routes empty / unmatched hashes to
+`Panels.Portals`, dispatches panel mounts through `PanelRegistry`, and
+disposes the previous Halogen root before mounting the next hash route.
 
 The phase owns
 [Exit Definition](README.md#exit-definition) item 8 (PureScript frontend
@@ -89,7 +98,9 @@ browser-loadable `web/dist/Main/bundle.js`, and
 topics, compiled bundle serving from the Kind-deployed demo pod, and
 Playwright against the live `jitml-demo` edge route closed in Phase `13`.
 Phase `15` Sprint `15.3` retired the offline DOM and deterministic stream
-fallbacks.
+fallbacks. Sprint `11.7` adds `Generated.AdminPortals`, the portals home,
+the shared header, and live Playwright coverage for the portals/header
+matrix.
 
 ### Current Implementation Scope
 
@@ -429,6 +440,98 @@ Land the Playwright scaffold for the future interactive panel suite.
   when no live publication exists, and stays out of the default
   `cabal test all` matrix unless the live invocation is explicit.
 
+## Sprint 11.7: SPA Portals Home and Shared Header ✅
+
+**Status**: Done
+**Implementation**: `src/JitML/Routes.hs`,
+`src/JitML/Web/AdminPortals.hs`, `src/JitML/Generated/Paths.hs`,
+`web/src/Generated/AdminPortals.purs`, `web/src/Chrome/Header.purs`,
+`web/src/PanelRegistry.purs`, `web/src/Panels/Portals.purs`,
+`web/src/Main.purs`, `web/src/Panels/{Mnist,Cifar,Training,Tune,Rl,Connect4}.purs`,
+`web/test/Main.purs`, `playwright/jitml-demo.spec.ts`
+**Docs to update**: `documents/engineering/purescript_frontend.md`,
+`../README.md` (Panels section), `legacy-tracking-for-deletion.md`
+
+### Objective
+
+Close the SPA discoverability gap against the route registry. The six
+bundled admin portals declared in `src/JitML/Routes.hs` (Grafana,
+Prometheus, TensorBoard, Harbor, MinIO console, Pulsar admin) have no
+in-app surface; the bundle's empty-hash landing currently mounts MNIST,
+so a user opening `127.0.0.1:<edge-port>/` cannot reach any adjacent
+platform UI without external knowledge of `../README.md` edge prefixes.
+Per Plan Standards rule L, the doctrine prescription at
+[../README.md → Routes Published at the Edge](../README.md#envoy-gateway-api-a-single-localhost-socket)
+makes the demo bundle the single localhost surface; the bundle is
+therefore the right place to host the directory.
+
+### Deliverables
+
+- Extend the `Route` record with `routeAdminPortalLabel :: Maybe Text`,
+  tag the six portal entries with display labels, and expose
+  `adminPortalRoutes` returning the labelled subset in display order
+  (`src/JitML/Routes.hs`).
+- New `src/JitML/Web/AdminPortals.hs` emitter `renderPureScriptAdminPortals`,
+  mirroring `JitML.Web.Contracts.renderPureScriptContracts`; register the
+  resulting `web/src/Generated/AdminPortals.purs` artifact in
+  `JitML.Generated.Paths.trackingGeneratedPaths` so `jitml docs check`
+  gates drift. The module is added to the library `exposed-modules`.
+- New `web/src/Chrome/Header.purs` (slim shared header — wordmark plus a
+  `[home]` link to `#portals`), `web/src/PanelRegistry.purs` (single
+  hand-maintained list of demo panels), and `web/src/Panels/Portals.purs`
+  (the home panel: header + two-column directory composed from
+  `PanelRegistry.panels` and `Generated.AdminPortals.adminPortals`).
+- `web/src/Main.purs` adds a `#portals` case and flips the unmatched /
+  empty-hash fallback from `Mnist.mount` to `Portals.mount`. The named
+  `#mnist-live-inference` route continues to work. Hash transitions run
+  the previous Halogen disposer before mounting the new panel, so only
+  one root remains attached.
+- Each existing panel
+  (`Panels.{Mnist,Cifar,Training,Tune,Rl,Connect4}`) prepends
+  `Chrome.Header.render` to its top-level render tree.
+- `web/test/Main.purs` covers the generated `AdminPortals` array (length
+  + six expected `name`/`path` pairs).
+- `playwright/jitml-demo.spec.ts` covers (a) empty-hash → portals home
+  with both columns visible, (b) `[home]` header link present on every
+  panel page, (c) every portal link carries the expected `href`.
+
+### Validation
+
+2026-06-05 validation:
+
+1. `docker compose build jitml` exits 0 and bakes the current
+   PureScript bundle plus `jitml check-code` into `jitml:local`.
+2. `docker compose run --rm jitml jitml docs check` exits 0 — the new
+   `web.admin-portals.purescript` tracked path matches the rendered
+   `Generated.AdminPortals` and the `cluster.routes` block in
+   `documents/engineering/cluster_topology.md` regenerates clean (the
+   new `Route` field is metadata only and does not project into
+   `renderRouteTable`).
+3. `docker compose run --rm jitml cabal test jitml-unit --jobs=2`
+   passes.
+4. `docker compose run --rm jitml cabal test jitml-integration --jobs=2`
+   passes, including the Apple Silicon node-local Postgres PV overlay
+   rollout-plan assertion.
+5. `docker compose run --rm jitml sh -lc 'cd web && spago test'`
+   passes with the existing suite plus the `Generated.AdminPortals`
+   round-trip.
+6. `docker compose run --rm jitml jitml check-code` passes.
+7. Live Apple Silicon Kind cluster: `./bootstrap/apple-silicon.sh up`
+   completes the phased rollout with all publication components ready on
+   the leased `edge_port: 9091`; `./bootstrap/apple-silicon.sh
+   run-daemon` starts the host daemon, derives routed Pulsar/MinIO/Harbor
+   settings from `./.build/conf/host/apple-silicon.dhall`, passes client
+   probes, and subscribes to
+   `persistent://public/default/inference.command.apple-silicon`.
+8. Live Playwright passes 9 / 9 against
+   `http://127.0.0.1:9091`: empty-hash portals home, portal link hrefs,
+   shared header on every panel, and the six canonical panel hashes.
+
+### Remaining Work
+
+None. Sprint `11.7` closed on 2026-06-05; the matching
+legacy-ledger row moved to `Completed`.
+
 ## Doctrine Sections Cited
 
 - [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (target frontend tool invocations flow through `Subprocess`; current checked-in bodies are local smoke tests)
@@ -437,6 +540,7 @@ Land the Playwright scaffold for the future interactive panel suite.
 - [../README.md → Application Environment](../README.md#doctrine-scope) (target demo server uses the full `Env`; current `demoMain` reads explicit `--port`, prints `demoStatusLine`, and starts the local HTTP server)
 - [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 11.6 — Playwright scaffold belongs to the target Ephemeral-Cluster Infrastructure category via `jitml-e2e`)
 - [../README.md → Lint matrix](../README.md#lint-matrix) (Sprint 11.3 — local project-specific lint target via `jitml lint purescript`)
+- [../README.md → Routes Published at the Edge](../README.md#envoy-gateway-api-a-single-localhost-socket) (Sprint 11.7 — the demo bundle is the single localhost surface; the SPA owns the in-app directory for the bundled admin portals declared in the route registry)
 
 ## Documentation Requirements
 
@@ -455,6 +559,13 @@ Land the Playwright scaffold for the future interactive panel suite.
   is scaffolded for `jitml-e2e`; the current PureScript generated-contract
   smoke checks are owned by the `jitml lint purescript` target and run through
   `spec-node` (Sprint `11.3`).
+- `documents/engineering/purescript_frontend.md` — Sprint `11.7` adds the
+  `Chrome.Header` shared chrome, the `PanelRegistry` SPA-side panel list,
+  the `Panels.Portals` default-landing home, and the generated
+  `Generated.AdminPortals` artifact paired with
+  `src/JitML/Web/AdminPortals.hs`. Update Stack / Layout / Panels and
+  cross-link `src/JitML/Routes.hs` as the upstream source for the portal
+  display labels.
 
 **Product docs to create/update:**
 

@@ -6,8 +6,9 @@ module Test.Main where
 
 import Prelude
 
-import Data.Array (length)
+import Data.Array (any, length)
 import Effect (Effect)
+import Generated.AdminPortals as AdminPortals
 import Generated.Contracts as Contracts
 import Panels.Cifar as Cifar
 import Panels.Connect4 as Connect4
@@ -62,3 +63,18 @@ main = runSpecAndExitProcess [ consoleReporter ] do
   describe "generated browser contracts" do
     it "generated endpoints catalog is non-empty" do
       Contracts.endpoints `shouldSatisfy` (\eps -> length eps > 0)
+
+    it "generated admin portals catalog covers the six bundled portals" do
+      length AdminPortals.adminPortals `shouldEqual` 6
+      AdminPortals.adminPortals `shouldSatisfy`
+        any (\p -> p.name == "grafana" && p.path == "/grafana")
+      AdminPortals.adminPortals `shouldSatisfy`
+        any (\p -> p.name == "prometheus" && p.path == "/prometheus")
+      AdminPortals.adminPortals `shouldSatisfy`
+        any (\p -> p.name == "tensorboard" && p.path == "/tensorboard")
+      AdminPortals.adminPortals `shouldSatisfy`
+        any (\p -> p.name == "harbor-portal" && p.path == "/harbor")
+      AdminPortals.adminPortals `shouldSatisfy`
+        any (\p -> p.name == "minio-console" && p.path == "/minio/console")
+      AdminPortals.adminPortals `shouldSatisfy`
+        any (\p -> p.name == "pulsar-admin" && p.path == "/pulsar/admin")

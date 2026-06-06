@@ -20,6 +20,7 @@ import JitML.Docs.Render
 import JitML.Observability.Grafana qualified as Grafana
 import JitML.Observability.Prometheus (renderPrometheusScrapeConfig)
 import JitML.Routes qualified as Routes
+import JitML.Web.AdminPortals (renderPureScriptAdminPortals)
 import JitML.Web.Contracts (renderPureScriptContracts)
 
 data TrackedGeneratedPath = TrackedGeneratedPath
@@ -61,6 +62,11 @@ trackingGeneratedPaths =
            { trackedKey = "web.contracts.purescript"
            , trackedPath = "web/src/Generated/Contracts.purs"
            , trackedRendered = renderPureScriptContracts
+           }
+       , TrackedGeneratedPath
+           { trackedKey = "web.admin-portals.purescript"
+           , trackedPath = "web/src/Generated/AdminPortals.purs"
+           , trackedRendered = renderPureScriptAdminPortals
            }
        ]
     <> fmap trackedRoute Routes.routeRegistry

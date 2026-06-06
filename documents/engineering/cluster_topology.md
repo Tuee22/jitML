@@ -44,6 +44,16 @@ node at `/jitml/.data`; `.data` is strictly for these manual PV bind mounts.
 Kind metadata, runtime coordinates, kubeconfig, generated Dhall, and JIT
 artifacts live under `./.build/`.
 
+Apple Silicon uses a node-local bind overlay for the registered Percona
+Postgres PVs before the `harbor-pg` cluster starts: bootstrap creates
+`/var/local/jitml-postgres-pv/...` inside the Kind node, bind-mounts those
+directories over the corresponding `/jitml/.data/.../harbor-pg*` paths, and
+normalizes the node-local directories to uid/gid `26:26`. The checked-in PV
+identity and chart paths remain the repo-local `.data` layout, but the live
+Postgres relation files are written to node-local storage on Apple Silicon to
+avoid macOS bind-mount ownership drift. Linux substrates use the `.data`
+hostPath directly with ownership normalization.
+
 Every PVC is created **only** by a StatefulSet's `volumeClaimTemplates`;
 freestanding PVCs are a chart-lint failure. StatefulSet PVs carry
 `claimRef.namespace` and `claimRef.name` to bind each PV to one PVC so a

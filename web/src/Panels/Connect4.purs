@@ -12,14 +12,15 @@ import Prelude
 import Data.Array (range)
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
-import Effect (Effect)
+import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
-import Halogen.Aff (awaitBody, runHalogenAff)
+import Halogen.Aff (awaitBody)
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
+import Chrome.Header as Header
 
 type Connect4MoveRequest =
   { panel :: String
@@ -113,7 +114,8 @@ component =
   render state =
     HH.div
       [ HP.id panelName, HP.classes [ H.ClassName "jitml-panel" ] ]
-      [ HH.h2_ [ HH.text "Connect 4 (human vs AlphaZero)" ]
+      [ Header.render
+      , HH.h2_ [ HH.text "Connect 4 (human vs AlphaZero)" ]
       , HH.div
           [ HP.id (panelName <> "-board")
           , HP.classes [ H.ClassName "connect4-board" ]
@@ -151,7 +153,8 @@ component =
           ]
           [ HH.text ("move error: " <> message) ]
 
-mount :: Effect Unit
-mount = runHalogenAff do
+mount :: Aff (Aff Unit)
+mount = do
   body <- awaitBody
-  void (runUI component unit body)
+  ui <- runUI component unit body
+  pure ui.dispose

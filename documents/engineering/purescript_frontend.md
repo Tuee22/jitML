@@ -15,15 +15,20 @@
 
 | Component | Current status | Owning module / path |
 |-----------|----------------|----------------------|
-| PureScript entrypoint | Halogen panel dispatcher keyed by URL hash | `web/src/Main.purs` |
+| PureScript entrypoint | Halogen panel dispatcher keyed by URL hash; empty / unmatched hash routes to the portals home; hash transitions dispose the previous Halogen root before mounting the next panel | `web/src/Main.purs` |
 | npm scripts | `build`, `test`, `format` wrappers plus checked-in Spago project | `web/package.json`, `web/spago.yaml` |
 | Contract renderer | Local bridge-compatible renderer | `src/JitML/Web/Contracts.hs` |
 | Generated contracts | Checked-in generated file protected by `trackingGeneratedPaths` | `web/src/Generated/Contracts.purs` |
+| Admin-portal emitter | Bridge-compatible emitter for the bundled admin-portal directory; derived from the `routeAdminPortalLabel` metadata on the route registry | `src/JitML/Web/AdminPortals.hs` |
+| Generated admin portals | Checked-in generated file protected by `trackingGeneratedPaths` | `web/src/Generated/AdminPortals.purs` |
 | Bundle/panel/demo-route metadata | Local Haskell metadata | `src/JitML/Web/Bundle.hs` |
+| Shared chrome | Slim header (`jitML` wordmark + `[home]` link to `#portals`) rendered by every panel | `web/src/Chrome/Header.purs` |
+| SPA panel registry | Single hand-maintained list of demo panels consumed by both `Main.purs` and the portals home | `web/src/PanelRegistry.purs` |
+| Portals home panel | Two-column directory composing `PanelRegistry.panels` with `Generated.AdminPortals.adminPortals`; default empty-hash landing | `web/src/Panels/Portals.purs` |
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Six typed Halogen panels with REST or live WebSocket actions | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Live-only seven-panel spec plus typed live-plan step; no inline DOM fallback remains | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Live-only spec covering the portals home, the per-panel shared header, every admin-portal link, and the six canonical panels; no inline DOM fallback remains | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Demo executable | Status line plus HTTP/WebSocket server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -48,14 +53,19 @@ web/
 ├── package.json
 ├── src/
 │   ├── Main.purs
+│   ├── PanelRegistry.purs
+│   ├── Chrome/
+│   │   └── Header.purs
 │   ├── Panels/
 │   │   ├── Cifar.purs
 │   │   ├── Connect4.purs
 │   │   ├── Mnist.purs
+│   │   ├── Portals.purs
 │   │   ├── Rl.purs
 │   │   ├── Training.purs
 │   │   └── Tune.purs
 │   └── Generated/
+│       ├── AdminPortals.purs
 │       └── Contracts.purs
 └── test/
     └── Main.purs
@@ -77,7 +87,10 @@ The current worktree contains `web/src/Main.purs`, generated
 six canonical panel surfaces, the `demoStatusLine`, and the demo route
 manifest for `/`, `/api`, `/api/inference`, `/api/images`,
 `/api/connect4/move`, `/api/ws`, `/api/ws/training`, `/api/ws/rl`, and
-`/api/ws/tune`. `src/JitML/Web/Server.hs` serves the same HTTP surface,
+`/api/ws/tune`. `web/src/Main.purs` dispatches through the SPA
+`PanelRegistry`, stores the active Halogen disposer, and runs it before
+mounting the next hash-selected panel so navigation does not leave
+duplicate roots attached. `src/JitML/Web/Server.hs` serves the same HTTP surface,
 returns `503` for plain stream GETs that do not upgrade to WebSocket, and
 bridges upgraded `/api/ws*` clients to live Pulsar event topics.
 
@@ -105,14 +118,17 @@ tuning payload ADTs remain target browser-contract work.
 
 ## Panels
 
-| Panel | URL | REST handler | WebSocket subscription |
-|-------|-----|--------------|------------------------|
-| MNIST | `/mnist` | `POST /api/inference` | — |
-| CIFAR / ImageNet | `/cifar`, `/imagenet` | `POST /api/images` | — |
-| Connect 4 | `/connect4` | `POST /api/connect4/move` | — |
-| RL trajectory | `/rl/<run-id>` | — | `/api/ws/rl` (proxies `rl.event.<mode>`) |
-| Training | `/training/<run-id>` | — | `/api/ws/training` (proxies `training.event.<mode>`) |
-| Tune | `/tune/<sweep-id>` | — | `/api/ws/tune` (proxies `tune.event.<mode>`) |
+Every panel renders inside `Chrome.Header.render` (the slim shared header — `jitML` wordmark plus `[home]` link to `#portals`), so the directory is one click away from any panel view. `Main.purs`'s empty-hash fallback routes to the portals home; the named hashes below continue to address each panel directly. Panel mounts return their Halogen disposer to the hash dispatcher, which runs the previous disposer before mounting a new route. The portals home is itself a `Panels.Portals` Halogen component composing `PanelRegistry.panels` (left column) with `Generated.AdminPortals.adminPortals` (right column), the latter generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` so the registry remains the single source of truth.
+
+| Panel | URL hash | REST handler | WebSocket subscription |
+|-------|----------|--------------|------------------------|
+| Portals home (default) | `#portals` (empty hash) | — | — |
+| MNIST | `#mnist-live-inference` | `POST /api/inference` | — |
+| CIFAR / ImageNet | `#cifar-imagenet-upload` | `POST /api/images` | — |
+| Connect 4 | `#connect4-human-vs-alphazero` | `POST /api/connect4/move` | — |
+| RL trajectory | `#rl-trajectory` | — | `/api/ws/rl` (proxies `rl.event.<mode>`) |
+| Training | `#training-progress` | — | `/api/ws/training` (proxies `training.event.<mode>`) |
+| Tune | `#hyperparameter-sweep` | — | `/api/ws/tune` (proxies `tune.event.<mode>`) |
 
 ## REST and WebSocket Surface
 
@@ -157,6 +173,12 @@ without starting the live stack. The checked-in spec is live-only: it reads
 route, and fails fast when no live publication exists. The matrix covers the
 smoke shell plus the six canonical panels:
 
+- Portals home: load the empty-hash root and assert both the panels
+  column (`#jitml-portals-panels`) and the admin-portals column
+  (`#jitml-portals-admin`) mount, plus every admin-portal link carries
+  the expected root-relative `href` matching the route registry.
+- Shared header: for each named panel hash, assert `#jitml-chrome`
+  mounts and the `#jitml-chrome-home` anchor links to `#portals`.
 - MNIST: load the inference panel and assert its canvas mounts.
 - CIFAR: load the upload panel and assert the upload control surface mounts.
 - Connect 4: load the AlphaZero-vs-human panel and assert the board mounts.
@@ -176,6 +198,9 @@ default Cabal matrix.
 ## Cross-References
 
 - [../../README.md → PureScript frontend](../../README.md#purescript-frontend)
+- [../../README.md → Panels](../../README.md#panels)
+- [../../README.md → Envoy Gateway API: a single localhost socket](../../README.md#envoy-gateway-api-a-single-localhost-socket) (`src/JitML/Routes.hs` is the upstream source for the generated `Generated.AdminPortals` artifact; the routes-published-at-the-edge table in that section is rendered from the same registry)
+- [cluster_topology.md → Routes Published at the Edge](cluster_topology.md#routes-published-at-the-edge) (the canonical regenerated table)
 - [daemon_architecture.md](daemon_architecture.md)
 - [../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md](../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md)
 - [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)

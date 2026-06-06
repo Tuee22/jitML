@@ -2,6 +2,7 @@
 
 module JitML.Routes
   ( Route (..)
+  , adminPortalRoutes
   , renderHTTPRoute
   , renderRouteTable
   , routeRegistry
@@ -18,28 +19,57 @@ data Route = Route
   , routeServicePort :: Int
   , routeRewritePrefix :: Maybe Text
   , routeWebSocket :: Bool
+  , routeAdminPortalLabel :: Maybe Text
   }
   deriving stock (Eq, Show)
 
 routeRegistry :: [Route]
 routeRegistry =
-  [ Route "demo-root" "/" "jitml-demo" 80 Nothing False
-  , Route "demo-api" "/api" "jitml-demo" 80 Nothing False
-  , Route "demo-ws" "/api/ws" "jitml-demo" 80 Nothing True
-  , Route "jitml-service-healthz" "/healthz" "jitml-service" 8080 Nothing False
-  , Route "jitml-service-readyz" "/readyz" "jitml-service" 8080 Nothing False
-  , Route "jitml-service-metrics" "/metrics" "jitml-service" 8080 Nothing False
-  , Route "tensorboard" "/tensorboard" "tensorboard" 80 (Just "/") False
-  , Route "grafana" "/grafana" "kube-prometheus-stack-grafana" 80 (Just "/") False
-  , Route "prometheus" "/prometheus" "kube-prometheus-stack-prometheus" 9090 (Just "/") False
-  , Route "harbor-portal" "/harbor" "harbor" 80 (Just "/") False
-  , Route "harbor-api" "/harbor/api" "harbor" 80 (Just "/api") False
-  , Route "harbor-registry" "/v2" "harbor" 80 Nothing False
-  , Route "harbor-service" "/service" "harbor" 80 Nothing False
-  , Route "minio-console" "/minio/console" "minio" 9001 (Just "/") False
-  , Route "minio-s3" "/minio/s3" "minio" 9000 (Just "/") False
-  , Route "pulsar-admin" "/pulsar/admin" "pulsar-proxy" 80 (Just "/admin") False
-  , Route "pulsar-ws" "/pulsar/ws" "pulsar-broker" 8080 (Just "/ws") True
+  [ Route "demo-root" "/" "jitml-demo" 80 Nothing False Nothing
+  , Route "demo-api" "/api" "jitml-demo" 80 Nothing False Nothing
+  , Route "demo-ws" "/api/ws" "jitml-demo" 80 Nothing True Nothing
+  , Route "jitml-service-healthz" "/healthz" "jitml-service" 8080 Nothing False Nothing
+  , Route "jitml-service-readyz" "/readyz" "jitml-service" 8080 Nothing False Nothing
+  , Route "jitml-service-metrics" "/metrics" "jitml-service" 8080 Nothing False Nothing
+  , Route "tensorboard" "/tensorboard" "tensorboard" 80 (Just "/") False (Just "TensorBoard")
+  , Route "grafana" "/grafana" "kube-prometheus-stack-grafana" 80 (Just "/") False (Just "Grafana")
+  , Route
+      "prometheus"
+      "/prometheus"
+      "kube-prometheus-stack-prometheus"
+      9090
+      (Just "/")
+      False
+      (Just "Prometheus")
+  , Route "harbor-portal" "/harbor" "harbor" 80 (Just "/") False (Just "Harbor")
+  , Route "harbor-api" "/harbor/api" "harbor" 80 (Just "/api") False Nothing
+  , Route "harbor-registry" "/v2" "harbor" 80 Nothing False Nothing
+  , Route "harbor-service" "/service" "harbor" 80 Nothing False Nothing
+  , Route "minio-console" "/minio/console" "minio" 9001 (Just "/") False (Just "MinIO console")
+  , Route "minio-s3" "/minio/s3" "minio" 9000 (Just "/") False Nothing
+  , Route "pulsar-admin" "/pulsar/admin" "pulsar-proxy" 80 (Just "/admin") False (Just "Pulsar admin")
+  , Route "pulsar-ws" "/pulsar/ws" "pulsar-broker" 8080 (Just "/ws") True Nothing
+  ]
+
+-- | Route registry entries that surface as user-facing admin portals.
+-- Order is the display order on the SPA portals home page.
+adminPortalRoutes :: [(Route, Text)]
+adminPortalRoutes =
+  [ (route, label)
+  | portalName <- adminPortalDisplayOrder
+  , route <- routeRegistry
+  , routeName route == portalName
+  , Just label <- [routeAdminPortalLabel route]
+  ]
+
+adminPortalDisplayOrder :: [Text]
+adminPortalDisplayOrder =
+  [ "grafana"
+  , "prometheus"
+  , "tensorboard"
+  , "harbor-portal"
+  , "minio-console"
+  , "pulsar-admin"
   ]
 
 renderRouteTable :: Text

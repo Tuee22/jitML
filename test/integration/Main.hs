@@ -120,7 +120,7 @@ main =
                 , "prepare Helm dependencies with helm dependency build chart"
                 , "create/export Kind kubeconfig and copy it to ./.build/jitml.kubeconfig"
                 , "raise Kind-node inotify caps for multi-cluster host readiness"
-                , "normalize Percona PV ownership for qemu-run Postgres"
+                , "prepare substrate-specific Percona PV storage"
                 , "apply jitml-manual StorageClass and manual PVs"
                 , "install MinIO and Percona storage for Harbor"
                 , "install Harbor bootstrap phase"
@@ -1203,6 +1203,8 @@ main =
           $ do
             let rendered = fmap renderSubprocess (livePhasedRolloutSubprocesses LinuxCPU "chart")
                 commandText = Text.unlines rendered
+                appleCommandText =
+                  Text.unlines (fmap renderSubprocess (livePhasedRolloutSubprocesses AppleSilicon "chart"))
             assertBool
               "live rollout creates Kind first"
               ("kind create cluster --name jitml-linux-cpu" `Text.isInfixOf` commandText)
@@ -1223,9 +1225,14 @@ main =
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "live rollout normalizes Percona PV ownership for qemu-run Postgres"
+              "live rollout normalizes Percona PV ownership for Linux Postgres"
               ( "docker exec jitml-linux-cpu-control-plane chown -R 26:26 /jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg-repo1/pv_0/"
                   `Text.isInfixOf` commandText
+              )
+            assertBool
+              "apple-silicon live rollout binds Postgres PVs to node-local storage before Harbor"
+              ( "docker exec jitml-apple-silicon-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; mountpoint -q /jitml/.data/platform/harbor-pg/pv_0/ || mount --bind /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; chown -R 26:26 /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/;"
+                  `Text.isInfixOf` appleCommandText
               )
             assertBool
               "live rollout can warm-load the cached Percona operator image before Helm waits"
@@ -1329,16 +1336,6 @@ main =
               "live rollout waits for harbor-pg before installing Harbor"
               ( "wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'"
                   `Text.isInfixOf` beforeHarbor
-              )
-            let postgresReadyWait =
-                  "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready' --timeout=600s"
-                (_beforePostgresReady, fromPostgresReady) = Text.breakOn postgresReadyWait commandText
-                (betweenPostgresReadyAndHarbor, _afterPostgresReadyHarbor) =
-                  Text.breakOn "helm upgrade --install harbor chart/charts/harbor-1.16.2.tgz" fromPostgresReady
-            assertBool
-              "live rollout re-normalizes Percona PV ownership after postgres init and before Harbor"
-              ( "docker exec jitml-linux-cpu-control-plane chown -R 26:26 /jitml/.data/platform/harbor-pg/pv_0/"
-                  `Text.isInfixOf` betweenPostgresReadyAndHarbor
               )
             -- Sprint 2.9: the postgres schema grant moved from an embedded `sh
             -- -c` subprocess to a typed Haskell IO step in
@@ -1762,9 +1759,8 @@ main =
                   subscribeResult <- pulsarSubscribe topic subscription
                   case subscribeResult of
                     Right sid -> pure sid
-                    Left err -> do
+                    Left err ->
                       liftIO (assertFailure ("pulsarSubscribe failed live: " <> show err))
-                      error "unreachable"
                 publishResult <- pulsarPublish topic payload
                 liftIO $ case publishResult of
                   Right _ -> pure ()

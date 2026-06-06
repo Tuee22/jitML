@@ -21,14 +21,15 @@ import Prelude
 
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
-import Effect (Effect)
+import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
-import Halogen.Aff (awaitBody, runHalogenAff)
+import Halogen.Aff (awaitBody)
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
+import Chrome.Header as Header
 
 type MnistInferenceRequest =
   { panel :: String
@@ -106,7 +107,8 @@ component =
   render state =
     HH.div
       [ HP.id panelName, HP.classes [ H.ClassName "jitml-panel" ] ]
-      [ HH.h2_ [ HH.text "MNIST live inference" ]
+      [ Header.render
+      , HH.h2_ [ HH.text "MNIST live inference" ]
       , HH.canvas
           [ HP.id (panelName <> "-canvas")
           , HP.width 280
@@ -154,10 +156,11 @@ component =
 -- | Top-level mount used by `web/src/Main.purs` to attach the component
 -- | to the demo page's `<main id="app">` element. The Halogen driver
 -- | owns DOM diffing from here on.
-mount :: Effect Unit
-mount = runHalogenAff do
+mount :: Aff (Aff Unit)
+mount = do
   body <- awaitBody
-  void (runUI component unit body)
+  ui <- runUI component unit body
+  pure ui.dispose
 
 -- | Provide a deterministic textual snapshot of the predicted-class
 -- | badge so the Playwright stub can assert against a pure string. Once
