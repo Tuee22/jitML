@@ -2287,13 +2287,55 @@ Notes on the mapping:
 - Single `tasty` trees across stanzas are forbidden (doctrine §Test Organization): separate stanzas give Cabal-native parallelism, let CI and developers target one tier (`cabal test jitml-unit`), and isolate dependency creep so heavy integration deps do not leak into the unit suite.
 
 **Local by default, live by explicit command.** Default `cabal test all` remains
-local and deterministic. Live infrastructure work is reached by explicit command
+local and deterministic — here "local" means *no live cluster is required*, **not**
+that the suite runs on a bare host. On Linux the native-kernel stanzas compile
+against the in-image toolchain, so the suite runs inside `jitml:local` (see
+[Execution venue](#execution-venue-linux-runs-in-the-container)). Live
+infrastructure work is reached by explicit command
 paths, not process environment variables: `jitml bootstrap --<substrate>` applies
 the local Kind/Helm stack directly, and the target Kind/Helm/Playwright
 e2e path is a separately invoked orchestration path that creates an ephemeral
 cluster, builds Helm dependencies, mutates image/runtime state, polls live
 routes, and tears everything down via `bracket`. `JitML.Test.LivePlan` records
 that typed sequence without running it by default.
+
+### Execution venue (Linux: runs in the container)
+
+On Linux the full suite runs **inside `jitml:local`**, for the same reason the
+code-quality stack does: the JIT/native toolchain the tests compile against is in
+the image, not on the host. The image installs oneDNN (`libdnnl-dev`), the CUDA
+toolkit, and cuDNN and builds `-fcuda` (`docker/Dockerfile`); a bare Linux host
+typically has **none** of `nvcc`, the CUDA runtime libraries, or
+`oneapi/dnnl/dnnl.hpp`. A bare-host `cabal test all` is therefore misleading
+rather than green:
+
+- the oneDNN `linux-cpu` cases (`jitml-cross-backend`, two `jitml-integration`
+  cases) **fail** — the generated `kernel.cc` cannot find `oneapi/dnnl/dnnl.hpp`;
+- the `linux-cuda` cases **pass vacuously** — with no `nvcc`, no GPU libraries,
+  and no `-fcuda`, they take the no-CUDA degradation path instead of launching a
+  real kernel.
+
+Only the toolchain-free stanzas — `jitml-unit`, `jitml-sl-canonicals`,
+`jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-daemon-lifecycle`,
+`jitml-e2e` — are meaningful on the bare host. Run the full suite in the
+container:
+
+| Host | Full-suite command |
+|---|---|
+| Linux + NVIDIA GPU | `docker compose run --rm jitml-cuda cabal test all -fcuda` |
+| Linux, CPU only | `docker compose run --rm jitml cabal test all` |
+
+The `jitml-cuda` compose service attaches the GPU through the NVIDIA Container
+Runtime so the `linux-cuda` kernels launch for real; `-fcuda` additionally links
+the direct cuBLAS/cuDNN bindings (`JitML.Engines.CublasBindings` /
+`CudnnBindings`). The default `jitml` service has no GPU and is for CPU-only test
+runs and headless code-quality. As with code-quality, the only host prerequisite
+is Docker. (Apple Silicon is the exception: Metal cannot be containerized and
+JITs headless on the host, so its Metal cases run host-native.)
+
+The 18 `jitml-integration` `-p Live` cases additionally require a running cluster
+— bring it up with `jitml bootstrap --<substrate>` first, or they fail fast
+naming the missing `.build/runtime/cluster-publication.json`.
 
 ### E2E cohorts
 

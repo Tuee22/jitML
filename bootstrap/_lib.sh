@@ -214,6 +214,16 @@ run_linux_compose_jitml() {
   (cd "$root" && run_command docker compose run --rm jitml jitml "$@")
 }
 
+# CUDA substrate variant: runs the jitml CLI through the GPU-attached
+# `jitml-cuda` compose service (NVIDIA Container Runtime) so in-process CUDA
+# paths — e.g. the `jitml inference run` live test — see a real device. The
+# default `jitml` service has no GPU, which is correct for linux-cpu.
+run_linux_cuda_compose_jitml() {
+  local root
+  root=$(repo_root)
+  (cd "$root" && run_command docker compose run --rm jitml-cuda jitml "$@")
+}
+
 build_linux_image() {
   require_docker_without_sudo
   local root
