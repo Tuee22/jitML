@@ -26,14 +26,75 @@
 
 ## Phase Status
 
-✅ **Done** (closed 2026-05-30). The phase owns the cluster + CUDA + browser halves of
+✅ **Done** (re-validated 2026-06-06 on the current **NVIDIA GeForce RTX 5090**
+host; previously Done 2026-05-30 on an RTX 3090). This phase consolidates every
+live Linux/NVIDIA obligation into a single machine session (Plan Standards rule
+E). It reopened 2026-06-06 because the host that produced its closure evidence
+changed (RTX 3090 → RTX 5090, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`,
+CUDA 12.8, driver `570.211.01`, compute capability `12.0`, Ubuntu 24.04, Docker
+29.5.1); per Plan Standards rule C the live-runtime obligations reverted to
+Active until re-exercised, and all six were reproduced on this host (see the
+re-validation evidence below). The RTX 3090 notes retained throughout this
+document are dated historical records and are not rewritten as RTX 5090 evidence.
+
+**Re-validation evidence (2026-06-06, RTX 5090).** Run inside `jitml:local` via
+the GPU-exposed `jitml-cuda` compose service (host `nvcc` is never installed, see
+[../CLAUDE.md](../CLAUDE.md)):
+
+1. `jitml bootstrap --linux-cuda` — fresh ephemeral Kind + phased Helm rollout
+   executed **84 steps**; all seven publication components Ready on
+   `edge_port 9092`; `gateway/jitml-edge` `PROGRAMMED=True`; `RuntimeClass/nvidia`
+   present; `jitml-service` runs with `runtimeClassName: nvidia` and
+   `nvidia-smi -L` inside the pod reports the RTX 5090 (matching UUID); the daemon
+   acquired all four `*.command.linux-cuda` subscriptions; edge `/healthz`,
+   `/readyz` return `200` and `/metrics` serves the JIT-cache counters (Sprints
+   13.1–13.3, 13.7, 13.13).
+2. `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend`
+   — **38 / 38 passed** (28.56s): generated CUDA kernels compile through `nvcc`,
+   load, and run bit-deterministically (Sprint 7.4 identity/reduction/determinism,
+   13.8 RL-trainer MLP + PPO/DQN/QR-DQN/HER/DDPG device trainers, 13.9 AlphaZero
+   `PolicyValueNet` device training, 13.11 weighted Dense2D GEMM, 7.6 benchmark
+   runners, 13.15 first-cache-miss `TuningChoice` persistence, plus cuBLAS/cuDNN
+   binding init).
+3. The same run's `CrossSubstrate` group — `linux-cpu` / `linux-cuda` weighted
+   drift within the in-code tolerance table and the over-band perturbation
+   rejection (Phase 15 Sprint 15.1).
+4. `cabal test -fcuda jitml-integration --test-options='-p Live'` — **19 / 19
+   Live passed** (227.38s): MinIO/Pulsar/Harbor round-trips, subscription
+   acquisition, daemon Training/RL/Tune dispatch + dedup-skip, `rl.event` arrival,
+   checkpoint GC + `gc.event.<substrate>`, `jitml inference run` CUDA path, tune
+   persist/replay + TuneHandler, SelfPlayBuffer + AlphaZero generation `.jmw1`
+   round-trip. The full integration suite is **67 / 67** inside `jitml test all`.
+5. `cabal test -fcuda jitml-sl-canonicals --test-options='-p Live'` — **PASS**
+   (711.61s): live MNIST SL training over MinIO-fetched bytes (staged via
+   `jitml internal upload-dataset`, all four canonical SHAs verified) cleared the
+   `mnist-shallow-mlp` convergence threshold (Sprint 13.4).
+6. PPO/cartpole live RL convergence through daemon dispatch cleared the
+   literature threshold in **206.38s** (within the live integration cohort,
+   Sprint 13.6).
+
+**Re-validation risk resolved.** `JitML.Engines.Engine.compileSubprocess` emits
+`nvcc … -arch=sm_70` for `linux-cuda`. The RTX 5090 is Blackwell (compute
+capability `12.0` / `sm_120`). Confirmed on this host that `-arch=sm_70` embeds
+both `sm_70` SASS and `compute_70` PTX, and the CUDA 12.8 driver JIT-compiles
+that PTX onto Blackwell at launch — the live `jitml-cross-backend` CUDA cases
+(identity, warp-shuffle reduction, weighted device GEMM, MLP trainers, AlphaZero)
+all run correctly, so **no `-arch` bump is required**. (CUDA 12.8 prints a
+deprecation warning that offline compilation for pre-`sm_75` targets will be
+removed in a future release — noted for future-proofing, not a current blocker.)
+
+**Remaining Work**: None. All six live-runtime obligations were reproduced on
+the RTX 5090 on 2026-06-06; each sprint is re-closed below.
+
+Previously ✅ **Done** (closed 2026-05-30 on the RTX 3090). The phase owns the
+cluster + CUDA + browser halves of
 [Exit Definition](README.md#exit-definition) items 1 (per-substrate JIT
 execution — CUDA side), 3 (live `jitml bootstrap` + Envoy + routes),
 6 (live training/RL/tune Plan/Apply), 7 (live MinIO checkpoints + CUDA
 production weight loading), 8 (live PureScript panels behind Playwright),
 9 (live `jitml-e2e` ephemeral Kind/Helm orchestration).
 
-**Closed sprints (✅ Done)**: 13.1 (ephemeral Kind + phased Helm rollout
+**Re-closed sprints (✅ Done — re-validated 2026-06-06 on the RTX 5090; previously ✅ Done on the RTX 3090)**: 13.1 (ephemeral Kind + phased Helm rollout
 via `jitml bootstrap` + `jitml cluster down` teardown — re-validated
 2026-05-29 with the resource-guardrail reopened scope), 13.2 (live
 capability classes), 13.3 (daemon training/RL/tune handlers, dedup
@@ -63,7 +124,9 @@ Halogen bundle), 13.14 (Playwright panel matrix against the live demo
 edge), 13.15 (Linux CPU full-tensor benchmark payloads +
 first-cache-miss persistence assertion).
 
-**Active sprints (🔄)**: none — all 15 sprints closed.
+**Done sprints (✅)**: all 15 — re-validated 2026-06-06 on the RTX 5090 host
+(see the re-validation evidence above); previously 15 / 15 closed on the
+RTX 3090 as of 2026-05-30.
 
 **Original Active sprints (now closed)**:
 (daemon-driven RL dispatch/arrival validated live for
@@ -716,7 +779,7 @@ CUDA outputs lives in Phase `15`.
 
 ## Sprint 13.1: Ephemeral Kind + Helm Rollout ✅
 
-**Status**: Done (closed 2026-05-29 after the reopened-scope live re-verification
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-29 after the reopened-scope live re-verification
 on `linux-cuda` — see the **Live re-verification (2026-05-29 …)** block in the
 Remaining Work section. The 75-step typed phased rollout converged with all 39
 pods Running/Completed under the 10 GiB / 6-core node cap, `jitml-service` and
@@ -968,7 +1031,7 @@ deleted the cluster with no orphan container or `jitml-*` Docker volume.
 
 ## Sprint 13.2: Live Capability Class Validation (MinIO + Pulsar + Harbor) ✅
 
-**Status**: Done (closed 2026-05-26)
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-26)
 **Blocked by**: Sprint `13.1`
 **Implementation**: `src/JitML/Service/MinIOSubprocess.hs`,
 `src/JitML/Service/PulsarWebSocketSubprocess.hs`,
@@ -1095,7 +1158,7 @@ Full Live cohort: 12/12 in 12.53s.
 
 ## Sprint 13.3: Daemon Training/RL/Tune Handlers on Live Broker ✅
 
-**Status**: Done (closed 2026-05-29 — the reopened scope for typed Dhall
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-29 — the reopened scope for typed Dhall
 `RunConfig` dispatch was live-validated end-to-end. See the **Live re-verification
 (2026-05-29, post `workerExperimentHash` fix)** block below.)
 **Blocked by**: Sprint `13.2`
@@ -1322,7 +1385,7 @@ live-validated end-to-end:
 
 ## Sprint 13.4: Live SL Training E2E with Real Datasets ✅
 
-**Status**: Done (closed 2026-05-29 — the live MNIST SL training cleared the
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-29 — the live MNIST SL training cleared the
 literature-derived convergence threshold against the bootstrapped `linux-cuda`
 cluster in `778.27s`. See the **Live re-verification (2026-05-29)** block in
 Remaining Work.)
@@ -1561,7 +1624,7 @@ gap.
 
 ## Sprint 13.5: Real RL Environment Simulators and Daemon Env Loop ✅
 
-**Status**: Done (closed 2026-05-28)
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-28)
 **Blocked by**: Sprint `13.3`
 **Implementation**: `src/JitML/RL/Environments.hs`,
 `src/JitML/RL/Loop.hs`,
@@ -1690,7 +1753,7 @@ Full Live cohort: 16 / 16 pass.
 
 ## Sprint 13.6: Live RL Training E2E with Statistical Convergence Assertions ✅
 
-**Status**: Done (closed 2026-05-30 — the PPO/cartpole cohort cleared the
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-30 — the PPO/cartpole cohort cleared the
 in-code literature threshold − slack through full daemon dispatch in
 `230.72s`. See the **Live re-verification (2026-05-30)** block in
 Remaining Work. Remaining 12 cohorts are operational scope.)
@@ -1845,7 +1908,7 @@ the substantive proof-of-concept.
 
 ## Sprint 13.7: Live MinIO Checkpoint Round-Trip and Retention ✅
 
-**Status**: Done (closed 2026-05-26)
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-26)
 **Blocked by**: Sprint `13.2`
 **Implementation**: `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/App.hs`, `test/integration/Main.hs`
@@ -2046,7 +2109,7 @@ bring-up). The full Live cohort is 10/10 in ~2.92s.
 
 ## Sprint 13.8: Real CUDA RL Algorithm Losses Through JIT Engine ✅
 
-**Status**: Done (closed 2026-05-30 — every catalog trainer is GPU-validated
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-30 — every catalog trainer is GPU-validated
 through the nvcc forward/backward MLP kernels via `jitml-cross-backend`
 (15 / 15 CUDA cases pass), the cuDNN deterministic pin is validated, the
 14-algorithm catalog is fully wired through `rlTrainerForAlgorithm` and
@@ -2585,7 +2648,7 @@ kernels behind the same `JitML.Numerics.Mlp` interface:
 
 ## Sprint 13.9: AlphaZero with Real Network Priors ✅
 
-**Status**: Done (closed 2026-05-30 — `JitML.RL.AlphaZero.Mcts` routes its
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-30 — `JitML.RL.AlphaZero.Mcts` routes its
 prior through the real network forward pass via `PriorOracle` /
 `runSearchWithPrior`; `SelfPlay.runSelfPlayWithOracleFactory` drives the
 oracle in production self-play; `JitML.RL.AlphaZero.PolicyValueNet` trains
@@ -2856,7 +2919,7 @@ than the network's-own-policy proxy. Validated by `jitml-rl-canonicals`
 
 ## Sprint 13.10: Live Tuning Sweep with MinIO Trial Persistence ✅
 
-**Status**: Done (closed 2026-05-29 — the reopened scope for typed Dhall
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-29 — the reopened scope for typed Dhall
 `RunConfig` dispatch was live-validated alongside Sprint `13.3`; the
 `lookupTrialBudget` / `lookupSweepSeed` lookups already prefer the mounted
 `TuneRunConfig` over the legacy `JITML_TRIAL_BUDGET` / `JITML_SWEEP_SEED` env
@@ -2991,7 +3054,7 @@ cluster.
 
 ## Sprint 13.11: CUDA and Linux CPU Production Weight Loading ✅
 
-**Status**: Done (closed 2026-05-27)
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-27)
 **Blocked by**: Sprint `13.7`
 **Implementation**: `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/Engines/CudaLocal.hs`,
@@ -3223,7 +3286,7 @@ cross-substrate parity folds into Phase 15's parity matrix.
 
 ## Sprint 13.12: Live `jitml inference run` and `jitml inspect replay` ✅
 
-**Status**: Done (closed 2026-05-27)
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-27)
 **Blocked by**: Sprint `13.11`
 **Implementation**: `src/JitML/App.hs`,
 `src/JitML/Checkpoint/Store.hs`,
@@ -3391,7 +3454,7 @@ against a Sprint 13.4-written manifest.
 
 ## Sprint 13.13: Live `/api/ws` WebSocket Proxy and Compiled Halogen Bundle ✅
 
-**Status**: Done (closed 2026-05-28)
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-28)
 **Blocked by**: Sprint `13.3`
 **Implementation**: `src/JitML/Web/Server.hs`,
 `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs`,
@@ -3609,7 +3672,7 @@ the live RTX 3090 / CUDA 12.8 cluster:
 
 ## Sprint 13.14: Live Playwright on Demo Edge Route ✅
 
-**Status**: Done (closed 2026-05-28)
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-28)
 **Blocked by**: Sprint `13.13`
 **Implementation**: `playwright/jitml-demo.spec.ts`,
 `src/JitML/Test/LivePlan.hs`
@@ -3704,7 +3767,7 @@ The seven-test canonical panel matrix ran against the live
 
 ## Sprint 13.15: Linux CPU Full-Tensor Benchmark Payloads and First-Cache-Miss Live Execution ✅
 
-**Status**: Done (closed 2026-05-27)
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-27)
 **Blocked by**: Sprint `13.11`
 **Implementation**: `src/JitML/Engines/TuningBenchmark.hs`,
 `src/JitML/Engines/Loader.hs`,

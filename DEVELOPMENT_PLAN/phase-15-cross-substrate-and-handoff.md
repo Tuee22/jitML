@@ -22,8 +22,48 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-04 after Sprint `15.3` and Phase `1` Sprint
-`1.11`). The phase owns [Exit Definition](README.md#exit-definition)
+✅ **Done** (re-validated 2026-06-06 on the current **RTX 5090** host; Sprints
+`15.1` and `15.2` reopened 2026-06-06 and re-closed the same day). These two
+sprints consume Phase `13`'s live Linux/NVIDIA outputs; Phase `13` reopened
+2026-06-06 for full re-validation on the RTX 5090 (UUID
+`GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8, driver `570.211.01`,
+compute capability `12.0`) — every prior closure ran on an **RTX 3090** host —
+and re-closed the same day, so the dependent obligations were re-exercised here:
+
+- **Sprint `15.1`** (`linux-cpu` / `linux-cuda` weighted cross-substrate
+  tolerance) re-validated 2026-06-06:
+  `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend`
+  passed **38 / 38**, including the `CrossSubstrate` group (weighted cohort
+  within the in-code tolerance table plus the over-band perturbation rejection).
+- **Sprint `15.2`** (the final test suite — live `jitml test all` report card
+  with measured metrics) re-validated 2026-06-06: against the fresh
+  `linux-cuda` cluster,
+  `docker compose run --rm jitml-cuda cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- test all --live`
+  exited `0` with **all eight stanzas green** (`cabal_test: passed: 8, failed:
+  0`) and a populated report card — `sl_final_loss: mnist-shallow-mlp=0.119`,
+  `rl_final_reward: ppo/cartpole=20.06118881118881`,
+  `alphazero_arena_win_rate: connect4/gen0=0.625`, `tune_best_objective:
+  TPE=0.9792`, `jit_cache_hit_rate: prometheus=1.0 hits=1 misses=0`,
+  `daemon_healthz: http://127.0.0.1:9092/healthz status=200`;
+  `cross_substrate_parity: unavailable` (expected — no Apple host on this
+  Linux/NVIDIA session). Note: on a CUDA host the aggregate must run through
+  the **GPU-exposed** `jitml-cuda` service (the documented plain `docker run`
+  omits `--gpus all`, whose prior closure ran on Apple where Metal cases skip);
+  without GPU visibility the Sprint 13.12 `jitml inference run` case fails
+  closed with `linux-cuda runtime unavailable: … gpu_devices=0`. The SL final
+  loss is populated because the four canonical MNIST blobs were staged into the
+  cluster MinIO via `jitml internal upload-dataset` (SHAs verified).
+
+**Sprint `15.3` remained ✅ Done on its owned surface** (the legacy ledger is
+empty — Exit Definition item 18); reopening `15.1`/`15.2` did not reopen the
+ledger sweep. The RTX 3090 evidence below is retained as a dated historical
+record and is not rewritten as RTX 5090 evidence.
+
+**Remaining Work**: None. Sprints `15.1` and `15.2` were re-exercised on the
+RTX 5090 on 2026-06-06 with the evidence above.
+
+Previously ✅ **Done** (re-closed 2026-06-04 after Sprint `15.3` and Phase `1`
+Sprint `1.11`). The phase owns [Exit Definition](README.md#exit-definition)
 item 18 (legacy ledger empty), the cross-substrate slices of items 5
 (per-substrate determinism contract — cross-substrate tolerance
 methodology) and 9 (`jitml test all` schedules every stanza and the
@@ -83,7 +123,7 @@ sweep-up.
 
 ## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands ✅
 
-**Status**: Done
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090)
 **Implementation**: `src/JitML/CrossBackend/Parity.hs`,
 `src/JitML/App.hs`, `src/JitML/CLI/Spec.hs`,
 `test/cross-backend/Main.hs`,
@@ -222,7 +262,7 @@ authoritatively encode whichever substrate ran the calibration first.
 
 ## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics ✅
 
-**Status**: Done
+**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090, 2026-06-04)
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Test/Report.hs`,
 `src/JitML/CLI/Spec.hs`, `cabal.project`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,

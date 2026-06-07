@@ -831,8 +831,22 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0` through `15` are `✅ Done` — every Exit-Definition obligation those
-phases own is met. Phase `1` reopened then re-closed on 2026-06-04 after
+All phases `0` through `15` are `✅ Done` — every Exit-Definition
+obligation is met. **Phase `13` (all 15 sprints) and Phase `15` Sprints
+`15.1`/`15.2` reopened `🔄 Active` on 2026-06-06 and re-closed `✅ Done` the
+same day** (Sprint `15.3` stayed `✅ Done`) after re-validating the live CUDA,
+GPU-training, cross-substrate, and final-`jitml test all` obligations on the
+current **RTX 5090** host (UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`,
+CUDA 12.8, driver `570.211.01`, compute capability `12.0`); the original
+evidence ran on an RTX 3090 (Plan Standards rule C). The re-validation passed
+`jitml-cross-backend -fcuda` 38 / 38 (incl. `CrossSubstrate`), a fresh
+`jitml bootstrap --linux-cuda` with the in-pod `nvidia-smi` reporting the
+RTX 5090, the live `jitml-integration` cohort 19 / 19, live MNIST SL
+convergence, PPO/cartpole RL convergence, and `jitml test all --live` 8 / 8
+stanzas with a populated report card; the flagged `nvcc -arch=sm_70` →
+Blackwell `sm_120` PTX forward-JIT was confirmed (no `-arch` bump). See
+[README.md → Reopened phases (2026-06-06)](README.md#reopened-phases-2026-06-06).
+Phase `1` reopened then re-closed on 2026-06-04 after
 Sprint `1.12` landed the CLI Dhall override surface
 (`train --substrate / --seed`, `rl train --substrate / --seed`,
 `tune --sampler / --scheduler / --pruner / --trials / --parallelism`) honoring
@@ -869,8 +883,9 @@ host. The changes implement already-in-scope doctrine (`Application
 Environment`, `Subprocesses as Typed Values`, `Retry Policy as First-Class
 Values`), so [Doctrine Scope](#doctrine-scope) is unchanged. The live
 re-validation of every reopened-phase obligation is owned by Phase `13`
-(closed 2026-05-30, 15 / 15 sprints Done); the doctrine-deviation removals
-are tracked in
+(closed 2026-05-30 on the RTX 3090, 15 / 15 sprints Done; reopened and
+re-closed 2026-06-06 after re-validation on the RTX 5090); the
+doctrine-deviation removals are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). See
 [README.md → Reopened phases (2026-05-29)](README.md#reopened-phases-2026-05-29).
 Sprint `1.4` closes the
@@ -897,8 +912,10 @@ Silicon host-Dhall path completes `./bootstrap/apple-silicon.sh up` on
 `inference.command.apple-silicon` as `jitml-host`.
 Phase `3` reclosed on 2026-05-23 after live Linux CPU bootstrap and teardown
 validated the single-node topology.
-Phase `7` (JIT codegen) closed on 2026-05-24 against an RTX 3090 + CUDA 12.8
-validation host. Phases `8` (supervised learning + RL framework),
+Phase `7` (JIT codegen) closed its code surface on 2026-05-24 against an
+RTX 3090 + CUDA 12.8 validation host; the live CUDA execution obligation it
+fed migrated to Phase `13`, which reopened 2026-06-06 for re-validation on the
+RTX 5090 (the RTX 3090 record here is retained as dated history). Phases `8` (supervised learning + RL framework),
 `9` (RL catalog + AlphaZero + tuning),
 `10` (checkpointing + inference), `11` (PureScript frontend + demo), and
 `12` (test stanzas, lint matrix, cross-cluster parity) closed on

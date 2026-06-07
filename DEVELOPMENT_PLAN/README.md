@@ -39,6 +39,31 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Reopen note (2026-06-06, re-closed 2026-06-06)**: Phase `13` (Linux CUDA and
+cluster closure) reopened from `✅ Done` to `🔄 Active` — all 15 sprints — and
+Phase `15` Sprints `15.1` (cross-substrate `linux-cpu` / `linux-cuda` tolerance)
+and `15.2` (the final `jitml test all --live` report card) reopened with it,
+then **all re-closed `✅ Done` the same day** after re-validation on the current
+host. Every prior closure of these obligations was validated on an **RTX 3090 /
+CUDA 12.8** host (2026-05-24 → 2026-06-04). The repository now runs on an
+**NVIDIA GeForce RTX 5090** (UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`,
+CUDA 12.8, driver `570.211.01`, compute capability `12.0`, Ubuntu 24.04,
+Docker 29.5.1); the live CUDA-kernel, GPU-training, cross-substrate, and
+final-test-suite obligations were re-exercised on it (Plan Standards rule C):
+`jitml-cross-backend -fcuda` 38 / 38 (incl. `CrossSubstrate`), a fresh
+`jitml bootstrap --linux-cuda` (84 steps, all 7 components Ready, `nvidia-smi`
+reports the RTX 5090 inside the `jitml-service` pod), the live `jitml-integration`
+cohort 19 / 19, live MNIST SL convergence (711.61s), PPO/cartpole RL convergence
+(206.38s), and `jitml test all --live` 8 / 8 stanzas with a populated report
+card. Phases `3`/`4`/`5` substrate-detection already ran on this RTX 5090
+(matching UUID) and stay `✅ Done`; Phase `15` Sprint `15.3` (empty legacy
+ledger) likewise stays `✅ Done`. The RTX 3090 evidence in the phase docs is
+kept as dated history and is not rewritten as RTX 5090 evidence. The flagged
+re-validation risk is resolved: `nvcc -arch=sm_70` embeds `compute_70` PTX that
+the CUDA 12.8 driver JIT-compiles onto Blackwell `sm_120` at launch, so no
+`-arch` bump is required. See
+[Reopened phases (2026-06-06)](#reopened-phases-2026-06-06).
+
 **Reopen note (2026-06-05, re-closed 2026-06-05)**: Phase `11`
 reopened from `✅ Done` for Sprint `11.7` (SPA portals home and shared
 header) to close the discoverability gap against the route registry: the six
@@ -130,8 +155,12 @@ the repo-owned `KeyDoorGrid-v0` environment. Phase `9` reopened for Sprint
 moved into the owning phase docs before the superseded development ledger was
 deleted by Sprint `1.11`.
 
-The plan is currently `✅ Done` across Phases `0`–`15`; the deletion ledger
-has no Pending Removal rows. Phase `11` reopened and re-closed on
+The plan is `✅ Done` across all phases `0`–`15`; the deletion ledger
+has no Pending Removal rows. Phase `13` (all 15 sprints) and Phase `15`
+Sprints `15.1`/`15.2` reopened 2026-06-06 and re-closed the same day after
+re-validation of the live CUDA and final-test-suite obligations on the current
+RTX 5090 host (Sprint `15.3` stayed `✅ Done` throughout). Phase
+`11` reopened and re-closed on
 2026-06-05 after Sprint `11.7` landed the SPA portals home, shared header,
 generated admin-portal artifact, hash-router disposal path, and live
 Playwright coverage against the Apple Silicon edge route.
@@ -551,9 +580,9 @@ obligation exists.
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (reopened and re-closed 2026-06-05, Sprint 11.7) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | ✅ Done | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 13 | Linux CUDA and Cluster Closure | ✅ Done (reopened and re-closed 2026-06-06 — RTX 5090 re-validation, all 15 sprints) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
 | 14 | Apple Silicon Closure | ✅ Done | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Cross-Substrate Parity and Final Handoff | ✅ Done | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 15 | Cross-Substrate Parity and Final Handoff | ✅ Done (reopened and re-closed 2026-06-06 — Sprints 15.1/15.2 re-validated on RTX 5090; 15.3 ✅ Done) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Reopened phases (2026-06-04)
 
@@ -582,6 +611,61 @@ Phases `13` and `14` remain `✅ Done` on their substrate-owned live surfaces.
 Phases `8` and `9` are re-closed. Phase `15` is re-closed after the
 source-pin/vendor helper and the superseded development ledger moved to
 Completed in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
+## Reopened phases (2026-06-06)
+
+Phases `13` and `15` reopened from `✅ Done` on 2026-06-06 to re-validate every
+live CUDA, GPU-training, cross-substrate, and final-test-suite obligation on
+the current host, and **re-closed `✅ Done` the same day**. The repository moved
+from the **RTX 3090 / CUDA 12.8** host that produced the original evidence
+(2026-05-24 → 2026-06-04) to an **NVIDIA GeForce RTX 5090** (UUID
+`GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8, driver `570.211.01`,
+compute capability `12.0`, Ubuntu 24.04, Docker 29.5.1).
+
+- **Phase 13** (all 15 sprints re-closed `✅ Done`). The phase is the single
+  Linux/NVIDIA machine session (Plan Standards rule E), so the whole session
+  re-opened and was re-validated inside `jitml:local` via the GPU-exposed
+  `jitml-cuda` compose service (host `nvcc` is never installed):
+  - `jitml bootstrap --linux-cuda` — fresh Kind + phased Helm rollout, **84
+    steps**, all 7 publication components Ready on `edge_port 9092`,
+    `gateway/jitml-edge` `PROGRAMMED=True`, `RuntimeClass/nvidia` present,
+    `jitml-service` runs `runtimeClassName: nvidia` and `nvidia-smi -L` inside
+    the pod reports the RTX 5090, all four `*.command.linux-cuda` subscriptions
+    acquired, edge `/healthz`+`/readyz`=`200`.
+  - `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend`
+    — **38 / 38**: CUDA kernels compile/load/run bit-deterministically (Sprints
+    7.4, 13.8, 13.9, 13.11).
+  - `cabal test -fcuda jitml-integration --test-options='-p Live'` — **19 / 19**
+    live cohort (67 / 67 full suite in the aggregate).
+  - `cabal test -fcuda jitml-sl-canonicals --test-options='-p Live'` — live MNIST
+    SL convergence **PASS (711.61s)** (Sprint 13.4); PPO/cartpole live RL
+    convergence cleared the threshold in **206.38s** (13.6).
+- **Phase 15** Sprints `15.1` and `15.2` re-closed `✅ Done`; Sprint `15.3`
+  (empty legacy ledger, Exit Definition item 18) stayed `✅ Done`.
+  - `15.1`: the `jitml-cross-backend` `CrossSubstrate` group passed within the
+    38 / 38 run above.
+  - `15.2` (the final test suite): against the fresh `linux-cuda` cluster,
+    `docker compose run --rm jitml-cuda cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- test all --live`
+    exited `0` with all eight stanzas green (`passed: 8, failed: 0`) and a
+    populated report card (`sl_final_loss=0.119`, `rl_final_reward≈20.06`,
+    `alphazero_arena_win_rate=0.625`, `tune_best_objective=0.9792`,
+    `jit_cache_hit_rate=1.0`, `daemon_healthz=200`; `cross_substrate_parity`
+    `unavailable`, expected without an Apple host). On a CUDA host the aggregate
+    must run through the **GPU-exposed** `jitml-cuda` service; the documented
+    plain `docker run` (no `--gpus all`) was validated on Apple, where Metal
+    cases skip.
+- **Phase 7** stays `✅ Done` on its owned code-surface obligations; its
+  historical RTX 3090 live-CUDA validation record is superseded by the
+  re-closed Phase 13 live obligation.
+
+**Re-validation risk resolved**: `JitML.Engines.Engine.compileSubprocess` emits
+`nvcc … -arch=sm_70`. The RTX 5090 is Blackwell (`sm_120` / compute capability
+`12.0`); confirmed on this host that `-arch=sm_70` embeds `compute_70` PTX which
+the CUDA 12.8 driver JIT-compiles onto Blackwell at launch (the live
+`jitml-cross-backend` CUDA cases run correctly), so **no `-arch` bump is
+required**. Phases `3`/`4`/`5` substrate-detection already ran on this RTX 5090
+(matching UUID) and stay closed; the fresh `jitml bootstrap --linux-cuda`
+re-confirmed the GPU runtime handler.
 
 ## Reopened phases (2026-06-05) — Sprint 11.7 SPA Portals Home and Shared Header
 
@@ -771,7 +855,8 @@ Phases `6`–`12` remain `✅ Done` on their owned surfaces (numerical core, JIT
 codegen, SL/RL framework, RL catalog/AlphaZero/tuning, checkpointing, frontend,
 test stanzas); none of the four workstreams change those surfaces. The live
 exercise of every reopened-phase obligation is owned by Phase `13` (`✅ Done`
-2026-05-30; all 15 / 15 sprints closed).
+2026-05-30 on the RTX 3090; all 15 / 15 sprints closed — then reopened
+`🔄 Active` 2026-06-06 for re-validation on the RTX 5090).
 The doctrine-deviation removals (the `JITML_*` IPC and the embedded `sh -c`
 blocks) are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).

@@ -21,6 +21,19 @@
 
 ## Phase Status
 
+**Re-validation note (2026-06-06)**: this phase stays ✅ **Done** on its owned
+code-surface obligations (the per-substrate source renderers, cache, typed
+Subprocess plans, runtime probes), which are unchanged. The historical
+RTX 3090 live-CUDA validation records in Sprint `7.4` and below (the
+`nvcc → .so → dlopen → kernel launch → copy-back` path proven on
+2026-05-24) are retained as dated history but no longer reflect the current
+hardware: the live Linux CUDA execution obligation is owned by
+[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
+which reopened 2026-06-06 for full re-validation on the current **RTX 5090**
+host. See that phase's `## Phase Status` for the re-validation surface and the
+`-arch=sm_70` / Blackwell `sm_120` risk that `JitML.Engines.Engine`'s CUDA
+compile plan must re-clear.
+
 ✅ **Done** (reopened 2026-06-04 for the compose service split; **re-closed the
 same day** after Sprint `7.9` moved GPU exposure to `jitml-cuda` while keeping
 the default `jitml` service headless for code-quality and bootstrap commands).
