@@ -78,10 +78,14 @@ re-validated for real on the NVIDIA GeForce RTX 5090 host** (UUID
 `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
 --test-options='-p linux-cuda'` passed **19 / 19 (12.26s, no skip-sentinels)** —
 every within-substrate CUDA case a real device PASS (`-fcuda` is the `cabal`
-build flag that compiles the real cuBLAS / cuDNN bindings; the GPU lane is driven
-through the GPU container's `cabal test -fcuda` form per the `jitml-cuda`
-compose-service contract, while the flag-free `jitml test` orchestrator owns the
-apple-silicon / linux-cpu lanes). With that run, **Phases `12`, `13`, and `15`
+build flag that compiles the real cuBLAS / cuDNN bindings; that run drove the GPU
+lane through the GPU container's raw `cabal test -fcuda` form. **Superseded
+2026-06-09 (later that day): the `jitml test` orchestrator now owns all three
+lanes directly via an explicit `--apple-silicon | --linux-cpu | --linux-cuda`
+flag — it restricts the partitioned `jitml-backends` stanza to the chosen lane,
+runs pure-logic stanzas in full, and on `--linux-cuda` adds `-fcuda` itself — so
+`bootstrap/<substrate>.sh test` runs each lane end-to-end without a hand-passed
+cabal flag**). With that run, **Phases `12`, `13`, and `15`
 re-closed `✅ Done`**, so all Phases `0`–`15` are now `✅ Done`; the `linux-cuda`
 half of the skip-guard removal row moved to `Completed` (the other five
 parity-removal rows were already `Completed`), the legacy ledger is empty, **Exit

@@ -116,18 +116,27 @@ commandUsage :: [Text] -> CommandSpec -> Text
 commandUsage path spec =
   Text.unwords (("jitml" : path) <> fmap optionUsage (options spec))
 
+-- | The explicit substrate selector flags shared by @bootstrap@ and @test@.
+-- Exactly one must be supplied; callers reject zero or many. Keeping a single
+-- definition keeps the two command surfaces in lockstep.
+substrateFlags :: [OptionSpec]
+substrateFlags =
+  [ flag "apple-silicon" Nothing False "Select the Apple Silicon substrate."
+  , flag "linux-cpu" Nothing False "Select the Linux CPU substrate."
+  , flag "linux-cuda" Nothing False "Select the Linux CUDA substrate."
+  ]
+
 bootstrapCommand :: CommandSpec
 bootstrapCommand =
   leaf
     "bootstrap"
     "Bootstrap a substrate stack."
     "Plans and applies full substrate bootstrap: generated Dhall, Kind, Harbor-first rollout, platform services, cluster daemon, demo, and Apple host-daemon handoff."
-    [ flag "apple-silicon" Nothing False "Bootstrap the Apple Silicon substrate."
-    , flag "linux-cpu" Nothing False "Bootstrap the Linux CPU substrate."
-    , flag "linux-cuda" Nothing False "Bootstrap the Linux CUDA substrate."
-    , dryRunOption
-    , planFileOption
-    ]
+    ( substrateFlags
+        <> [ dryRunOption
+           , planFileOption
+           ]
+    )
     [ Example "jitml bootstrap --apple-silicon" "Bootstrap the Apple Silicon stack."
     , Example "jitml bootstrap --linux-cpu" "Bootstrap the Linux CPU stack."
     , Example "jitml bootstrap --linux-cuda" "Bootstrap the Linux CUDA stack."
@@ -651,13 +660,19 @@ allTestCommand =
   leaf
     "all"
     "Run all test stanzas."
-    "Runs every test-only Cabal stanza and renders the report card."
-    [ flag "live" Nothing False "Collect live report-card measurements after the Cabal stanzas pass."
-    , testOptionsOption
-    , dryRunOption
-    , planFileOption
-    ]
+    "Runs every test-only Cabal stanza and renders the report card. With a substrate flag, substrate-partitioned stanzas run only that substrate's lane (and linux-cuda builds with -fcuda); pure-logic stanzas always run in full."
+    ( [flag "live" Nothing False "Collect live report-card measurements after the Cabal stanzas pass."]
+        <> substrateFlags
+        <> [ testOptionsOption
+           , dryRunOption
+           , planFileOption
+           ]
+    )
     [ Example "jitml test all --dry-run" "Print the aggregate test plan."
+    , Example
+        "jitml test all --linux-cuda"
+        "Run the linux-cuda lane (auto -fcuda); pure-logic stanzas run in full."
+    , Example "jitml test all --linux-cpu" "Run the linux-cpu lane."
     , Example "jitml test all --live" "Run the stanzas and append live report-card measurements."
     ]
 
@@ -667,11 +682,11 @@ testStanzaCommand stanzaName =
     stanzaName
     ("Run " <> stanzaName <> ".")
     ("Runs the " <> stanzaName <> " Cabal test stanza.")
-    [testOptionsOption]
+    (substrateFlags <> [testOptionsOption])
     [ Example ("jitml test " <> stanzaName) ("Run " <> stanzaName <> ".")
     , Example
-        ("jitml test " <> stanzaName <> " --test-options='-p linux-cuda'")
-        "Select a substrate-partitioned tasty lane via a cabal test passthrough."
+        ("jitml test " <> stanzaName <> " --linux-cuda")
+        "Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda)."
     ]
 
 -- | Optional passthrough that forwards an opaque argument string to

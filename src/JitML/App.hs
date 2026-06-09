@@ -77,6 +77,7 @@ import JitML.Cluster.Publication qualified as Publication
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
 import JitML.Engines.CudaLocal (runCudaWeightedCheckpointInference)
+import JitML.Engines.CudaRuntime (cudaRuntimeAvailable, probeCudaRuntime)
 import JitML.Engines.Engine
   ( compileSubprocess
   , engineForSubstrate
@@ -91,6 +92,8 @@ import JitML.Engines.Local
   , runLinuxCpuWeightedCheckpointInference
   )
 import JitML.Engines.MetalLocal (runMetalWeightedCheckpointInference)
+import JitML.Engines.MetalRuntime (metalRuntimeAvailable, probeMetalRuntime)
+import JitML.Engines.OneDnnRuntime (oneDnnRuntimeAvailable, probeOneDnnRuntime)
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Engines.TuningCache qualified as TuningCache
 import JitML.Env.Build (GlobalFlags (..), buildEnv, defaultGlobalFlags)
@@ -166,6 +169,8 @@ import JitML.Test.Report
   , loadReportCardKnobs
   , renderReportCardForTargets
   , reportStanzas
+  , substratePartitionedStanzas
+  , substrateTestInvocations
   )
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Tune.Resume qualified as Tune
@@ -1965,36 +1970,93 @@ runTest ["test", stanza] parsedOptions
 runTest path _ =
   exitWithError (UnknownCommand ("unknown test command: " <> commandPathText path))
 
+-- | Run the requested Cabal test stanzas, optionally restricted to one
+-- substrate's lane. Without a substrate flag this is a single
+-- @cabal test \<targets\>@ with the opaque @--test-options@ passthrough (the
+-- legacy behavior). With exactly one substrate flag the
+-- 'substratePartitionedStanzas' run under @-p \<substrate\>@ (and @-fcuda@ on
+-- @linux-cuda@) while pure-logic stanzas run in full; a precondition probe
+-- first asserts the substrate's runtime is really present so a missing-hardware
+-- run fails by design instead of silently degrading.
 runCabalTest :: [ParsedOption] -> [Text] -> App ()
-runCabalTest parsedOptions targets = do
-  -- `--test-options` is an opaque passthrough: the value (e.g. `-p linux-cuda`)
-  -- is forwarded verbatim to `cabal test` so a bootstrap can select a
-  -- substrate-partitioned tasty lane. jitML does not interpret it.
-  let testOptionsArgs =
-        case selectedValue "test-options" "" parsedOptions of
-          "" -> []
-          opts -> ["--test-options", opts]
-      command = subprocess "cabal" ("test" : targets <> testOptionsArgs)
-  (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
-  case exitCode of
-    ExitSuccess -> do
-      writeText stdoutText
-      loadedKnobs <- liftIO (loadReportCardKnobs "cabal.project")
-      case loadedKnobs of
-        Left err -> exitWithError (InvalidConfig err)
-        Right knobs -> do
-          measurements <-
-            if hasOption "live" parsedOptions
-              then collectLiveReportMeasurements
-              else pure emptyReportMeasurements
-          writeText
-            ( renderReportCardForTargets
-                knobs
-                (targetStanzas targets)
-                (ReportCard (passedCount targets) 0 0 measurements)
-            )
-    ExitFailure _ ->
-      exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
+runCabalTest parsedOptions targets =
+  case bootstrapSubstrates parsedOptions of
+    [] ->
+      runCabalInvocations
+        parsedOptions
+        targets
+        (substrateTestInvocations Nothing targets userOptions)
+    [substrateName] ->
+      case parseSubstrate substrateName of
+        Nothing -> exitWithError (InvalidConfig ("unknown substrate: " <> substrateName))
+        Just substrate -> do
+          ensureSubstrateRuntimeFor substrate targets
+          runCabalInvocations
+            parsedOptions
+            targets
+            (substrateTestInvocations (Just substrate) targets userOptions)
+    _ -> exitWithError (InvalidConfig "test accepts at most one substrate flag")
+ where
+  -- `--test-options` is an opaque passthrough forwarded verbatim to
+  -- `cabal test`; under a substrate flag it is appended after the synthesized
+  -- `-p <substrate>` lane selector.
+  userOptions =
+    case selectedValue "test-options" "" parsedOptions of
+      "" -> Nothing
+      opts -> Just opts
+
+-- | Fail fast when a substrate lane is requested but its runtime is absent,
+-- but only when the run actually includes a substrate-partitioned stanza
+-- (pure-logic-only runs do not need the hardware).
+ensureSubstrateRuntimeFor :: Substrate -> [Text] -> App ()
+ensureSubstrateRuntimeFor substrate targets
+  | not (any (`elem` substratePartitionedStanzas) targets) = pure ()
+  | otherwise =
+      case substrate of
+        LinuxCUDA ->
+          guardRuntime
+            (cudaRuntimeAvailable <$> probeCudaRuntime)
+            "test --linux-cuda requires an NVIDIA GPU and the CUDA toolkit (nvcc + libcublas/libcudnn); none detected"
+        LinuxCPU ->
+          guardRuntime
+            (oneDnnRuntimeAvailable <$> probeOneDnnRuntime)
+            "test --linux-cpu requires oneDNN (libdnnl plus headers); none detected"
+        AppleSilicon ->
+          guardRuntime
+            (metalRuntimeAvailable <$> probeMetalRuntime)
+            "test --apple-silicon requires the Metal toolchain (swiftc + metal) and a visible Metal device; none detected"
+ where
+  guardRuntime probe message = do
+    available <- liftIO probe
+    unless available (exitWithError (InvalidConfig message))
+
+-- | Run each planned @cabal test@ invocation in order, stopping at the first
+-- failure, then render the report card once over the full target set.
+runCabalInvocations :: [ParsedOption] -> [Text] -> [[Text]] -> App ()
+runCabalInvocations parsedOptions targets invocations = do
+  mapM_ runOne invocations
+  loadedKnobs <- liftIO (loadReportCardKnobs "cabal.project")
+  case loadedKnobs of
+    Left err -> exitWithError (InvalidConfig err)
+    Right knobs -> do
+      measurements <-
+        if hasOption "live" parsedOptions
+          then collectLiveReportMeasurements
+          else pure emptyReportMeasurements
+      writeText
+        ( renderReportCardForTargets
+            knobs
+            (targetStanzas targets)
+            (ReportCard (passedCount targets) 0 0 measurements)
+        )
+ where
+  runOne args = do
+    let command = subprocess "cabal" args
+    (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
+    case exitCode of
+      ExitSuccess -> writeText stdoutText
+      ExitFailure _ ->
+        exitWithError (SubprocessFailed (renderSubprocess command) exitCode stderrText)
 
 collectLiveReportMeasurements :: App ReportMeasurements
 collectLiveReportMeasurements = do

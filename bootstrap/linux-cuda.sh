@@ -66,7 +66,7 @@ main() {
       print_cluster_status "$substrate"
       ;;
     test)
-      run_linux_cuda_compose_jitml test all "$@"
+      run_linux_cuda_compose_jitml test all --linux-cuda "$@"
       ;;
     down)
       kind_down "$substrate"

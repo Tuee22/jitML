@@ -87,7 +87,7 @@ main() {
       ;;
     test)
       build
-      "$script_dir/../.build/jitml" test all "$@"
+      "$script_dir/../.build/jitml" test all --apple-silicon "$@"
       ;;
     down)
       kind_down "$substrate"

@@ -12,6 +12,8 @@ module JitML.Test.Report
   , renderReportCardForTargets
   , renderReportCardWithKnobs
   , reportStanzas
+  , substratePartitionedStanzas
+  , substrateTestInvocations
   , renderReportCard
   )
 where
@@ -19,6 +21,8 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+
+import JitML.Substrate (Substrate (..), renderSubstrate)
 
 data ReportCard = ReportCard
   { reportPassed :: Int
@@ -92,6 +96,51 @@ reportStanzas =
   , "jitml-daemon-lifecycle"
   , "jitml-e2e"
   ]
+
+-- | Stanzas whose cases are partitioned into per-substrate tasty lanes (named
+-- @linux-cpu …@ / @linux-cuda …@ / @apple-silicon …@) and that fail when run on
+-- the wrong substrate. Under an explicit substrate selector these run with
+-- @--test-options '-p <substrate>'@; every other stanza runs in full so that a
+-- substrate selector never silently drops pure-logic coverage.
+substratePartitionedStanzas :: [Text]
+substratePartitionedStanzas =
+  ["jitml-backends"]
+
+-- | Build the ordered list of @cabal test@ argument vectors for a run. Each
+-- element is the arguments passed after the @cabal@ executable.
+--
+-- Without a substrate selector, one invocation runs every target with the
+-- optional user @--test-options@ string (the legacy behavior). With a
+-- substrate, 'substratePartitionedStanzas' run under @-p \<substrate\>@ (and
+-- @-fcuda@ on @linux-cuda@, so the cuBLAS/cuDNN bindings link) while every other
+-- stanza runs unfiltered — this keeps pure-logic coverage instead of letting a
+-- substrate-wide @-p@ vacuously match zero tests. Either group is omitted when
+-- it has no targets, so single-stanza commands work too.
+substrateTestInvocations :: Maybe Substrate -> [Text] -> Maybe Text -> [[Text]]
+substrateTestInvocations Nothing targets userOptions =
+  ["test" : targets <> testOptionArgs userOptions]
+substrateTestInvocations (Just substrate) targets userOptions =
+  restInvocation <> partitionedInvocation
+ where
+  cudaArgs = ["-fcuda" | substrate == LinuxCUDA]
+  partitioned = filter (`elem` substratePartitionedStanzas) targets
+  rest = filter (`notElem` substratePartitionedStanzas) targets
+  restInvocation = ["test" : cudaArgs <> rest | not (null rest)]
+  laneOption = "-p " <> renderSubstrate substrate
+  partitionedOptions =
+    case userOptions of
+      Just opts | not (Text.null opts) -> laneOption <> " " <> opts
+      _ -> laneOption
+  partitionedInvocation =
+    [ "test" : cudaArgs <> partitioned <> ["--test-options", partitionedOptions]
+    | not (null partitioned)
+    ]
+
+testOptionArgs :: Maybe Text -> [Text]
+testOptionArgs Nothing = []
+testOptionArgs (Just opts)
+  | Text.null opts = []
+  | otherwise = ["--test-options", opts]
 
 renderReportCard :: ReportCard -> Text
 renderReportCard =

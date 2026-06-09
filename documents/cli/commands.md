@@ -21,9 +21,9 @@ jitml bootstrap [--apple-silicon] [--linux-cpu] [--linux-cuda] [--dry-run] [--pl
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
-| `--apple-silicon` | flag | no | Bootstrap the Apple Silicon substrate. |
-| `--linux-cpu` | flag | no | Bootstrap the Linux CPU substrate. |
-| `--linux-cuda` | flag | no | Bootstrap the Linux CUDA substrate. |
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -647,15 +647,18 @@ Live-MinIO inference run against a known experiment hash.
 
 Run all test stanzas.
 
-Runs every test-only Cabal stanza and renders the report card.
+Runs every test-only Cabal stanza and renders the report card. With a substrate flag, substrate-partitioned stanzas run only that substrate's lane (and linux-cuda builds with -fcuda); pure-logic stanzas always run in full.
 
 ```text
-jitml test all [--live] [--test-options <text>] [--dry-run] [--plan-file <path>]
+jitml test all [--live] [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `--live` | flag | no | Collect live report-card measurements after the Cabal stanzas pass. |
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
@@ -667,6 +670,18 @@ jitml test all --dry-run
 ```
 
 Print the aggregate test plan.
+
+```text
+jitml test all --linux-cuda
+```
+
+Run the linux-cuda lane (auto -fcuda); pure-logic stanzas run in full.
+
+```text
+jitml test all --linux-cpu
+```
+
+Run the linux-cpu lane.
 
 ```text
 jitml test all --live
@@ -682,11 +697,14 @@ Run jitml-unit.
 Runs the jitml-unit Cabal test stanza.
 
 ```text
-jitml test jitml-unit [--test-options <text>]
+jitml test jitml-unit [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
@@ -698,10 +716,10 @@ jitml test jitml-unit
 Run jitml-unit.
 
 ```text
-jitml test jitml-unit --test-options='-p linux-cuda'
+jitml test jitml-unit --linux-cuda
 ```
 
-Select a substrate-partitioned tasty lane via a cabal test passthrough.
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-integration`
@@ -711,11 +729,14 @@ Run jitml-integration.
 Runs the jitml-integration Cabal test stanza.
 
 ```text
-jitml test jitml-integration [--test-options <text>]
+jitml test jitml-integration [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
@@ -727,10 +748,10 @@ jitml test jitml-integration
 Run jitml-integration.
 
 ```text
-jitml test jitml-integration --test-options='-p linux-cuda'
+jitml test jitml-integration --linux-cuda
 ```
 
-Select a substrate-partitioned tasty lane via a cabal test passthrough.
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-sl-canonicals`
@@ -740,11 +761,14 @@ Run jitml-sl-canonicals.
 Runs the jitml-sl-canonicals Cabal test stanza.
 
 ```text
-jitml test jitml-sl-canonicals [--test-options <text>]
+jitml test jitml-sl-canonicals [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
@@ -756,10 +780,10 @@ jitml test jitml-sl-canonicals
 Run jitml-sl-canonicals.
 
 ```text
-jitml test jitml-sl-canonicals --test-options='-p linux-cuda'
+jitml test jitml-sl-canonicals --linux-cuda
 ```
 
-Select a substrate-partitioned tasty lane via a cabal test passthrough.
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-rl-canonicals`
@@ -769,11 +793,14 @@ Run jitml-rl-canonicals.
 Runs the jitml-rl-canonicals Cabal test stanza.
 
 ```text
-jitml test jitml-rl-canonicals [--test-options <text>]
+jitml test jitml-rl-canonicals [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
@@ -785,10 +812,10 @@ jitml test jitml-rl-canonicals
 Run jitml-rl-canonicals.
 
 ```text
-jitml test jitml-rl-canonicals --test-options='-p linux-cuda'
+jitml test jitml-rl-canonicals --linux-cuda
 ```
 
-Select a substrate-partitioned tasty lane via a cabal test passthrough.
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-hyperparameter`
@@ -798,11 +825,14 @@ Run jitml-hyperparameter.
 Runs the jitml-hyperparameter Cabal test stanza.
 
 ```text
-jitml test jitml-hyperparameter [--test-options <text>]
+jitml test jitml-hyperparameter [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
@@ -814,10 +844,10 @@ jitml test jitml-hyperparameter
 Run jitml-hyperparameter.
 
 ```text
-jitml test jitml-hyperparameter --test-options='-p linux-cuda'
+jitml test jitml-hyperparameter --linux-cuda
 ```
 
-Select a substrate-partitioned tasty lane via a cabal test passthrough.
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-backends`
@@ -827,11 +857,14 @@ Run jitml-backends.
 Runs the jitml-backends Cabal test stanza.
 
 ```text
-jitml test jitml-backends [--test-options <text>]
+jitml test jitml-backends [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
@@ -843,10 +876,10 @@ jitml test jitml-backends
 Run jitml-backends.
 
 ```text
-jitml test jitml-backends --test-options='-p linux-cuda'
+jitml test jitml-backends --linux-cuda
 ```
 
-Select a substrate-partitioned tasty lane via a cabal test passthrough.
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-daemon-lifecycle`
@@ -856,11 +889,14 @@ Run jitml-daemon-lifecycle.
 Runs the jitml-daemon-lifecycle Cabal test stanza.
 
 ```text
-jitml test jitml-daemon-lifecycle [--test-options <text>]
+jitml test jitml-daemon-lifecycle [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
@@ -872,10 +908,10 @@ jitml test jitml-daemon-lifecycle
 Run jitml-daemon-lifecycle.
 
 ```text
-jitml test jitml-daemon-lifecycle --test-options='-p linux-cuda'
+jitml test jitml-daemon-lifecycle --linux-cuda
 ```
 
-Select a substrate-partitioned tasty lane via a cabal test passthrough.
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-e2e`
@@ -885,11 +921,14 @@ Run jitml-e2e.
 Runs the jitml-e2e Cabal test stanza.
 
 ```text
-jitml test jitml-e2e [--test-options <text>]
+jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
@@ -901,10 +940,10 @@ jitml test jitml-e2e
 Run jitml-e2e.
 
 ```text
-jitml test jitml-e2e --test-options='-p linux-cuda'
+jitml test jitml-e2e --linux-cuda
 ```
 
-Select a substrate-partitioned tasty lane via a cabal test passthrough.
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml lint files`

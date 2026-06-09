@@ -780,15 +780,15 @@ mindmap
 | `jitml bench inference` | Benchmark inference. | `jitml bench inference <experiment-dhall> --checkpoint <checkpoint-id>` |
 | `jitml bench env` | Benchmark environment stepping. | `jitml bench env <rl-experiment-dhall>` |
 | `jitml inference run` | Run inference at any point. | `jitml inference run [<experiment-dhall>] [--checkpoint <latest\|best/<metric>\|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]` |
-| `jitml test all` | Run all test stanzas. | `jitml test all [--live] [--test-options <text>] [--dry-run] [--plan-file <path>]` |
-| `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit [--test-options <text>]` |
-| `jitml test jitml-integration` | Run jitml-integration. | `jitml test jitml-integration [--test-options <text>]` |
-| `jitml test jitml-sl-canonicals` | Run jitml-sl-canonicals. | `jitml test jitml-sl-canonicals [--test-options <text>]` |
-| `jitml test jitml-rl-canonicals` | Run jitml-rl-canonicals. | `jitml test jitml-rl-canonicals [--test-options <text>]` |
-| `jitml test jitml-hyperparameter` | Run jitml-hyperparameter. | `jitml test jitml-hyperparameter [--test-options <text>]` |
-| `jitml test jitml-backends` | Run jitml-backends. | `jitml test jitml-backends [--test-options <text>]` |
-| `jitml test jitml-daemon-lifecycle` | Run jitml-daemon-lifecycle. | `jitml test jitml-daemon-lifecycle [--test-options <text>]` |
-| `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e [--test-options <text>]` |
+| `jitml test all` | Run all test stanzas. | `jitml test all [--live] [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>] [--dry-run] [--plan-file <path>]` |
+| `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-integration` | Run jitml-integration. | `jitml test jitml-integration [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-sl-canonicals` | Run jitml-sl-canonicals. | `jitml test jitml-sl-canonicals [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-rl-canonicals` | Run jitml-rl-canonicals. | `jitml test jitml-rl-canonicals [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-hyperparameter` | Run jitml-hyperparameter. | `jitml test jitml-hyperparameter [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-backends` | Run jitml-backends. | `jitml test jitml-backends [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-daemon-lifecycle` | Run jitml-daemon-lifecycle. | `jitml test jitml-daemon-lifecycle [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
+| `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml lint files` | Run file hygiene checks. | `jitml lint files [--write]` |
 | `jitml lint docs` | Run generated documentation checks. | `jitml lint docs [--write]` |
 | `jitml lint proto` | Run protobuf schema lint checks. | `jitml lint proto [--write]` |
@@ -2279,8 +2279,13 @@ that typed sequence without running it by default.
 Each substrate's cases run **for real in their own lane**, against real
 hardware and a real toolchain. There are **no skipped substrate tests**: a lane
 is only run where its hardware/toolchain is real, and running a lane without its
-hardware **fails by design** — it does not vacuously pass. Lanes are selected per
-stanza with `jitml test <stanza> --test-options='-p <substrate>'`.
+hardware **fails by design** — it does not vacuously pass. Select a lane with the
+explicit substrate flag — `jitml test <stanza> --<substrate>` (e.g.
+`jitml test all --linux-cuda`). The orchestrator restricts the
+substrate-partitioned stanzas (`jitml-backends`) to that lane, runs the
+pure-logic stanzas in full, adds `-fcuda` automatically on `linux-cuda`, and
+fails fast if the substrate's runtime is not actually present. The lower-level
+`--test-options='-p <substrate>'` tasty passthrough still works for ad-hoc runs.
 
 - **apple-silicon** runs **host-native**: Metal cannot be containerized and JITs
   headless on the host, so the `apple-silicon` cases plus the six pure-logic
@@ -2295,9 +2300,9 @@ stanza with `jitml test <stanza> --test-options='-p <substrate>'`.
 
 | Lane | Venue | Command |
 |---|---|---|
-| apple-silicon | host-native (Mac) | `jitml test <stanza> --test-options='-p apple-silicon'` |
-| linux-cpu | `jitml` container | `docker compose run --rm jitml jitml test <stanza> --test-options='-p linux-cpu'` |
-| linux-cuda | `jitml-cuda` GPU container (`-fcuda`) | `docker compose run --rm jitml-cuda jitml test <stanza> --test-options='-p linux-cuda'` |
+| apple-silicon | host-native (Mac) | `jitml test <stanza> --apple-silicon` |
+| linux-cpu | `jitml` container | `docker compose run --rm jitml jitml test <stanza> --linux-cpu` |
+| linux-cuda | `jitml-cuda` GPU container | `docker compose run --rm jitml-cuda jitml test <stanza> --linux-cuda` |
 
 The `jitml-cuda` compose service attaches the GPU through the NVIDIA Container
 Runtime so the `linux-cuda` kernels launch for real; `-fcuda` additionally links
@@ -2440,7 +2445,20 @@ cabal_test:
 by a pure function over a typed `ReportCard` value and the target stanza names.
 The current non-dry-run wrapper invokes `cabal test` with the explicit eight
 test-only stanza names, parses the `cabal.project` report-card knob block, and
-prints the report card after Cabal succeeds. `--live` keeps those values as
+prints the report card after Cabal succeeds.
+
+**Substrate selection.** Passing one of `--apple-silicon | --linux-cpu |
+--linux-cuda` (mirroring `jitml bootstrap`) restricts the substrate-partitioned
+stanzas (`jitml-backends`) to that substrate's tasty lane while the pure-logic
+stanzas still run in full, so a substrate selector never silently drops
+coverage. On `--linux-cuda` the wrapper builds with `-fcuda` automatically (the
+cuBLAS/cuDNN bindings link in), so no one hand-passes the cabal flag. Before
+running a hardware lane it probes the substrate's runtime (GPU+CUDA toolkit /
+oneDNN / Metal) and aborts with a clear message if it is absent — a
+missing-hardware run fails by design rather than degrading. Without a substrate
+flag the wrapper keeps its legacy single-`cabal test` behavior. The
+`bootstrap/<substrate>.sh test` scripts pass the matching flag, so they are now
+the supported one-shot way to run a substrate's full surface. `--live` keeps those values as
 per-host telemetry; they are not stored as cross-run reference fixtures (see
 [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets)). The full
 local matrices are exercised by `cabal test jitml-sl-canonicals` and

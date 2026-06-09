@@ -48,22 +48,27 @@ Use the project container instead:
 Each substrate's tests run **for real in their own lane**, against real hardware
 and a real toolchain. There are **no skipped substrate tests**: a lane is only
 run where its hardware/toolchain is real, and running a lane without its hardware
-**fails by design** — it does not vacuously pass. Lanes are selected per stanza
-with `jitml test <stanza> --test-options='-p <substrate>'`.
+**fails by design** — it does not vacuously pass. Select a lane with the explicit
+substrate flag — `jitml test <stanza|all> --<substrate>`. The orchestrator
+restricts the substrate-partitioned stanzas (`jitml-backends`) to that lane, runs
+the pure-logic stanzas in full, adds `-fcuda` automatically on `linux-cuda`, and
+aborts up front if the substrate's runtime is absent. `bootstrap/<substrate>.sh
+test` already passes the right flag, so it is the supported one-shot path. (The
+lower-level `--test-options='-p <substrate>'` tasty passthrough still works.)
 
 - **apple-silicon** runs **host-native**: Metal JITs headless on the host, so the
   apple-silicon cases plus the six pure-logic stanzas (`jitml-unit`,
   `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
   `jitml-daemon-lifecycle`, `jitml-e2e`) run on the Mac:
-  `jitml test <stanza> --test-options='-p apple-silicon'`.
+  `jitml test <stanza> --apple-silicon`.
 - **linux-cpu** runs in the `jitml` container, where oneDNN (`libdnnl`,
   `oneapi/dnnl/dnnl.hpp`) is present:
-  `docker compose run --rm jitml jitml test <stanza> --test-options='-p linux-cpu'`.
-- **linux-cuda** runs in the `jitml-cuda` GPU container built `-fcuda`, where the
-  CUDA toolkit, cuDNN, and an attached GPU are all real (the `jitml-cuda` service
-  attaches the GPU via the NVIDIA Container Runtime; `-fcuda` links the real
-  cuBLAS/cuDNN bindings):
-  `docker compose run --rm jitml-cuda jitml test <stanza> --test-options='-p linux-cuda'`.
+  `docker compose run --rm jitml jitml test <stanza> --linux-cpu`.
+- **linux-cuda** runs in the `jitml-cuda` GPU container (the `jitml-cuda` service
+  attaches the GPU via the NVIDIA Container Runtime); the `--linux-cuda` flag
+  builds with `-fcuda` so the real cuBLAS/cuDNN bindings link and the CUDA
+  toolkit, cuDNN, and attached GPU are all exercised:
+  `docker compose run --rm jitml-cuda jitml test <stanza> --linux-cuda`.
 
 The 18 `jitml-integration` `-p Live` tests additionally need a running cluster
 (`jitml bootstrap --<substrate>`); without it they fail fast naming the missing

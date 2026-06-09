@@ -162,6 +162,7 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
+import JitML.Test.Report (substrateTestInvocations)
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.AdminPortals qualified as WebAdminPortals
 import JitML.Web.Bundle qualified as WebBundle
@@ -231,6 +232,16 @@ main =
                   ["test", "jitml-backends"]
                   [ParsedOption "test-options" ["-p linux-cuda"]]
               )
+            , -- Explicit substrate selectors on `test` (mirror `bootstrap`):
+              -- the orchestrator restricts partitioned stanzas to that lane.
+
+              ( ["test", "all", "--linux-cuda"]
+              , ParsedCommand ["test", "all"] [ParsedOption "linux-cuda" []]
+              )
+            ,
+              ( ["test", "jitml-backends", "--linux-cpu"]
+              , ParsedCommand ["test", "jitml-backends"] [ParsedOption "linux-cpu" []]
+              )
             ,
               ( ["test", "all", "--live"]
               , ParsedCommand ["test", "all"] [ParsedOption "live" []]
@@ -290,6 +301,34 @@ main =
               , ParsedCommand ["help"] [ParsedOption "subcommand" ["cluster", "up"]]
               )
             ]
+      , testCase "substrateTestInvocations builds the right cabal lanes" $ do
+          -- No substrate: one legacy invocation over all targets, with the
+          -- opaque --test-options forwarded verbatim.
+          substrateTestInvocations Nothing ["jitml-unit", "jitml-backends"] Nothing
+            @?= [["test", "jitml-unit", "jitml-backends"]]
+          substrateTestInvocations Nothing ["jitml-backends"] (Just "-p Live")
+            @?= [["test", "jitml-backends", "--test-options", "-p Live"]]
+          -- linux-cpu: pure-logic stanza runs in full; the partitioned stanza
+          -- is restricted to the linux-cpu lane. No -fcuda.
+          substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-backends"] Nothing
+            @?= [ ["test", "jitml-unit"]
+                , ["test", "jitml-backends", "--test-options", "-p linux-cpu"]
+                ]
+          -- linux-cuda: -fcuda on every invocation (one consistent build) and
+          -- the backends lane selected with -p linux-cuda.
+          substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-unit", "jitml-backends"] Nothing
+            @?= [ ["test", "-fcuda", "jitml-unit"]
+                , ["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda"]
+                ]
+          -- A single partitioned stanza omits the (empty) pure-logic invocation.
+          substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-backends"] Nothing
+            @?= [["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda"]]
+          -- A pure-logic-only run omits the (empty) partitioned invocation.
+          substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-e2e"] Nothing
+            @?= [["test", "jitml-unit", "jitml-e2e"]]
+          -- User --test-options are appended after the synthesized lane selector.
+          substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-backends"] (Just "--num-threads=1")
+            @?= [["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda --num-threads=1"]]
       , testCase "json renderer is deterministic" $
           renderCommandJson commandRegistry @?= renderCommandJson commandRegistry
       , testCase "json output is non-empty" $
