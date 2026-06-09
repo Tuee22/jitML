@@ -37,7 +37,16 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-No cleanup row is currently active. The 2026-06-05 Sprint `11.7`
+On 2026-06-08 the cross-substrate numeric parity surface removal reopened
+Phases `1` / `12` / `13` / `14` / `15` and enqueued the six Pending Removal rows
+below: the cross-substrate per-layer-family tolerance band, the cross-substrate
+parity cohort / drift / report-bundle module, the `jitml verify cross-backend`
+CLI command, the report-card `cross_substrate_parity` field, the
+`CrossSubstrate` weighted-drift and cross-substrate tolerance-band test groups,
+and the test skip-antipattern guards. The reproducibility contract is now
+within-substrate bit-for-bit reproducible with no cross-substrate equivalence
+asserted; these rows move to `Completed` when the removal lands and
+`jitml docs check` / `jitml test all` are green. The 2026-06-05 Sprint `11.7`
 doctrine-deviation row covering the SPA discoverability gap closed the
 same day: the generated `Generated.AdminPortals` artifact, the
 `Chrome.Header` / `PanelRegistry` / `Panels.Portals` modules, the
@@ -116,7 +125,12 @@ opening event itself enqueues a row here naming the originating sprint.
 
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
-| _None_ | _N/A_ | No pending-removal rows are active after Sprint `11.7` closed on 2026-06-05. | _N/A_ |
+| Cross-substrate per-layer-family tolerance band | `src/JitML/Engines/Tolerance.hs` | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `15.4` |
+| Cross-substrate parity cohort / drift / report-bundle module | `src/JitML/CrossBackend/Parity.hs` | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `15.4` |
+| `jitml verify cross-backend` CLI command | `src/JitML/CLI/Spec.hs` (verify cross-backend leaf), `src/JitML/App.hs` (runVerifyCrossBackend + helpers) | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `1.13` |
+| Report-card `cross_substrate_parity` field | `src/JitML/Test/Report.hs` (`ReportMeasurements`), `src/JitML/App.hs` (`measureCrossSubstrateParity`) | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `12.10` |
+| `CrossSubstrate` weighted-drift test group + cross-substrate tolerance-band unit test group | `test/cross-backend/Main.hs`, `test/unit/Main.hs` | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `12.10` |
+| Test skip-antipattern guards (probeCudaRuntime/cudaRuntimeAvailable, appleLiveReady, cublasBindingsCompiledIn/cudnnBindingsCompiledIn skip branches; oneDNN-availability assertion in the integration probe test) | `test/cross-backend/Main.hs`, `test/integration/Main.hs` | doctrine-driven: each substrate's cases now run for real per lane with no skipped tests | Sprint `12.10` (re-validated by `13.16` / `14.6`) |
 
 
 ## Pending Removal Notes
@@ -127,7 +141,15 @@ upstream release still name the originating sprint, but resolve at the final
 handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
-No pending-removal rows are active at this time.
+On 2026-06-08 the cross-substrate numeric parity surface removal reopened
+Phases `1` / `12` / `13` / `14` / `15` and enqueued the six Pending Removal rows
+above. The reproducibility contract is clarified to within-substrate bit-for-bit
+reproducible with no cross-substrate equivalence asserted, so the cross-substrate
+numeric parity surface (tolerance band, parity module, `jitml verify
+cross-backend`, the report-card `cross_substrate_parity` field, the weighted-drift
+and tolerance-band test groups, and the test skip-antipattern guards) leaves the
+contract. These rows move to `Completed` when the removal lands and
+`jitml docs check` / `jitml test all` are green.
 
 Current dependency validation: on 2026-06-04, the project uses GHC `9.12.4`,
 `cabal.project` contains no `allow-newer` stanza and no `source-repository-package`

@@ -26,7 +26,23 @@
 
 ## Phase Status
 
-✅ **Done** (re-validated 2026-06-06 on the current **NVIDIA GeForce RTX 5090**
+🔄 **Active** (reopened 2026-06-08 for Sprint 13.16 — re-validate the
+linux-cuda lane runs for real with the skip guards removed). The
+reproducibility contract is now "within a substrate: bit-for-bit
+reproducible; across substrates: NO guarantee"; the cross-substrate numeric
+parity surface is removed and the test suite is partitioned so each
+substrate's cases run **for real** in its own lane with **no skipped tests**.
+The skip-antipattern guards in the test bodies
+(`probeCudaRuntime` / `cudaRuntimeAvailable`,
+`cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn`) are removed from
+`test/cross-backend/Main.hs` — a missing toolchain now **fails** rather than
+skips. Within-substrate bit-for-bit reproducibility tests **stay** (CUDA is
+**not** removed). Per Plan Standards rule C the linux-cuda live-test execution
+obligation reverts to Active until re-exercised under the guards-removed lane;
+Sprint 13.16 owns the re-validation. All historical dated evidence below
+(RTX 3090, RTX 5090) is retained intact as a dated record.
+
+Previously ✅ **Done** (re-validated 2026-06-06 on the current **NVIDIA GeForce RTX 5090**
 host; previously Done 2026-05-30 on an RTX 3090). This phase consolidates every
 live Linux/NVIDIA obligation into a single machine session (Plan Standards rule
 E). It reopened 2026-06-06 because the host that produced its closure evidence
@@ -3860,6 +3876,50 @@ linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Spr
 
 - None remaining for Sprint 13.15. Sprint closed 2026-05-27.
 
+## Sprint 13.16: Re-validate the linux-cuda lane runs for real with the skip guards removed [🔄 Active]
+
+**Status**: Active
+**Implementation**: `test/cross-backend/Main.hs`
+**Docs to update**: `documents/engineering/determinism_contract.md`,
+`documents/engineering/unit_testing_policy.md`
+
+### Objective
+
+With the `probeCudaRuntime` / `cudaRuntimeAvailable` and
+`cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn` skip guards removed from
+`test/cross-backend/Main.hs`, re-validate that the linux-cuda
+within-substrate cases run **for real** in the `jitml-cuda` GPU container: the
+nvcc compile + FFI load path, the warp-shuffle reduction kernel, kernel
+bit-equality across repeated runs, the MLP / RL / AlphaZero device-determinism
+cases, and the cuBLAS / cuDNN version/binding init. A missing GPU now **fails**,
+it does not skip. Within-substrate bit-for-bit reproducibility is the retained
+contract (across substrates carries **no** parity guarantee); CUDA is **not**
+removed.
+
+### Deliverables
+
+- The linux-cuda lane (`-p linux-cuda`) of `jitml-cross-backend` runs every
+  within-substrate CUDA case as a real PASS with **no skip-sentinels** — the
+  removed guards mean a missing `nvcc` / GPU / cuBLAS / cuDNN toolchain now
+  produces a hard FAIL.
+- The within-substrate bit-for-bit reproducibility cases (kernel bit-equality,
+  MLP / RL / AlphaZero device-determinism) stay green under the guards-removed
+  lane.
+
+### Validation
+
+1. `docker compose run --rm jitml-cuda jitml test jitml-cross-backend --test-options='-p linux-cuda' -fcuda`
+   runs every linux-cuda case as a real PASS (no skip-sentinels) in the
+   GPU-attached `jitml-cuda` container; absence of the GPU/toolchain fails the
+   lane rather than skipping it.
+
+### Remaining Work
+
+- Re-validation pending the code landing (the guard removal + suite
+  partitioning are a separate approved plan). Once that lands, run the
+  validation command above on the `jitml-cuda` GPU container and record the
+  dated PASS evidence here.
+
 ## Doctrine Sections Cited
 
 - [../README.md → Reconcilers: Idempotent Mutation as a Single Command](../README.md#doctrine-scope) (Sprint 13.1 — live `jitml bootstrap` + Helm rollout, Sprint 13.7 — live `jitml internal gc`)
@@ -3892,10 +3952,15 @@ linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Spr
   bundle + WebSocket proxy + Playwright closure once Sprints `13.13`
   and `13.14` close.
 - `documents/engineering/determinism_contract.md` — record real CUDA
-  bit-equality once Sprint `13.8` closes; cross-substrate ULP work
-  lives in Phase `15`.
+  bit-equality once Sprint `13.8` closes; record the clarified contract
+  ("within a substrate: bit-for-bit reproducible; across substrates: NO
+  guarantee") and the removed cross-substrate numeric parity surface once
+  Sprint `13.16` closes; cross-substrate ULP work lives in Phase `15`.
 - `documents/engineering/unit_testing_policy.md` — note live `jitml-e2e`
-  closure once Sprint `13.14` closes.
+  closure once Sprint `13.14` closes; record the partitioned per-substrate
+  lanes and the removal of the `probeCudaRuntime` / `cudaRuntimeAvailable` /
+  `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn` skip guards (a
+  missing toolchain now fails rather than skips) once Sprint `13.16` closes.
 
 **Product docs to create/update:**
 

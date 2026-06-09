@@ -111,7 +111,7 @@ Each substrate carries its own determinism contract:
 - **`linux-cpu`** — oneDNN dispatches to a per-host vector ISA detected at JIT time; reductions are blocked with a fixed block size so the accumulation tree is host-independent; RNG state lives in the clustered service pod.
 - **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; generated artifacts expose a host-callable `jitml_kernel` wrapper that owns device-buffer allocation, deterministic launch, synchronization, and output copyback; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
 
-Cross-substrate equality is not guaranteed bit-for-bit — float reductions reassociate across vendor BLAS/DNN libraries and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so per-tensor drift compounds through the forward + backward pass. *Same-substrate equality is guaranteed* (see [Bit-determinism contract](#bit-determinism-contract)); cross-substrate drift is bounded by a per-tensor tolerance band measured by the [Cross-substrate tolerance methodology](#cross-substrate-tolerance-methodology) and enforced by the [`jitml-cross-backend`](#test-suite-stanzas) stanza.
+*Within a substrate, equality is guaranteed bit-for-bit* (see [Bit-determinism contract](#bit-determinism-contract)). **Across substrates, equivalence is not guaranteed and is not asserted — there is no tolerance band.** RNG draws and float reduction order differ between vendor BLAS/DNN libraries: float reductions reassociate and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so cross-substrate numeric equivalence is explicitly out of contract.
 
 ---
 
@@ -886,7 +886,6 @@ Concrete invocations:
 ./.build/jitml tune   experiments/mnist-mlp.dhall --sampler tpe --scheduler asha --trials 256 --parallelism 8
 ./.build/jitml rl     train experiments/cartpole-ppo.dhall --substrate apple-silicon --seed 42
 ./.build/jitml verify same-run     --experiment experiments/mnist-mlp.dhall --runs 3
-./.build/jitml verify cross-backend --experiment experiments/mnist-mlp.dhall --backends linux-cpu,linux-cuda
 ./.build/jitml inspect frontier <sweep-id>
 ./.build/jitml test   all
 ```
@@ -1737,7 +1736,7 @@ The framing for this section is *"we're not reimplementing PyTorch."* The list b
 - **Python class hierarchy** (`BaseAlgorithm` → `OnPolicyAlgorithm` → `PPO`). Replaced with ADTs + GADTs. Inheritance is not an idiomatic Haskell tool here.
 - **Pickle-based save/load** (`model.save()` / `model.load()`). Replaced with Dhall-described configuration + MinIO-checkpointed weights, optimizer state, RNG state, buffer state, and normalisation stats. The full state is reconstructible from `(experiment.dhall, seed, checkpoint blob)`.
 - **`gym.make()` env registry.** Replaced with explicit Dhall env declarations referencing typed envs in `src/JitML/Env/`. No global registry; no string-keyed env lookup.
-- **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: the daemon is single-node by design; multi-node distributed SGD is an explicit non-goal. Cross-substrate determinism is the headline distributed-execution property, not multi-GPU SGD.
+- **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: the daemon is single-node by design; multi-node distributed SGD is an explicit non-goal. Within-substrate bit-for-bit reproducibility is the headline execution property, not multi-GPU SGD.
 - **The default multi-sink logger** that fans out to stdout, csv, log, and tensorboard simultaneously. Replaced with `Semigroup` composition over typed `Logger` and `Callback` values, so the developer states the fan-out explicitly.
 
 Patterns we *do* borrow, contrary to "out of scope" language that earlier drafts of this section included: standard RL wrappers such as no-op reset, frame skip, frame warp, frame stack, time limits, reward clipping, and action masking live alongside the native envs without making Atari ROMs part of the default demo surface; gSDE is a first-class `ActionDistribution` variant; every SB3-contrib algorithm (TRPO, MaskablePPO, RecurrentPPO, QR-DQN, CrossQ, TQC, ARS) is a first-class `AlgoSpec` case in [RL algorithm catalog](#rl-algorithm-catalog).
@@ -1993,7 +1992,7 @@ data JmwHeader = JmwHeader
   , jmwGraphShapeHash :: !Hash32     -- sha256 over canonicalised (path,dtype,shape) list — locked at experiment start
   , jmwStep           :: !Word64
   , jmwEpoch          :: !Word64
-  , jmwSubstrate      :: !Substrate  -- substrate that produced these bytes (for cross-substrate equality tests)
+  , jmwSubstrate      :: !Substrate  -- substrate that produced these bytes (recorded for provenance; no cross-substrate equality is asserted)
   , jmwDtypeMap       :: !DtypeMap   -- self-contained enum-to-byte mapping
   , jmwTensors        :: ![TensorEntry]
                                      -- canonical-ordered by `path` ascending bytewise
@@ -2044,29 +2043,7 @@ data CheckpointPart = CheckpointPart
 
 For two runs on the same substrate, `sha256(weights.bin)` is byte-identical when seed, resolved Dhall, step, data ordering, kernel reduction order, RNG state, and optimizer state all agree. This is the same-substrate-equality contract declared earlier in the README, now *checkable by SHA-equality* rather than by tolerant numeric comparison.
 
-Cross-substrate, the weight blobs are not byte-equal — float reductions reassociate across vendor libraries, transcendentals (`exp`, `log`, `sqrt`, `tanh`) differ between cuDNN/Metal/oneDNN, and the drift compounds through forward + backward. The [`jitml-cross-backend`](#test-suite-stanzas) stanza measures per-tensor max-abs-delta against a committed tolerance band — see [Cross-substrate tolerance methodology](#cross-substrate-tolerance-methodology) below — rather than asserting byte equality.
-
-### Cross-substrate tolerance methodology
-
-ε is declared **in Haskell code** at `src/JitML/Engines/Tolerance.hs`
-as a `LayerFamilyTolerance` table — per-layer-family L∞ bounds
-calibrated from the public literature on cuDNN / Metal / oneDNN
-floating-point drift, not from an empirical measurement on whichever
-host happened to write the fixture first. The `jitml-cross-backend`
-stanza runs the canonical workloads on multiple substrates the host
-can exercise (subset), computes per-tensor `max-abs(delta)` at fixed
-checkpoints, and asserts every tensor's drift falls within the
-in-code band for its layer family.
-
-Per-substrate empirical fixture files (e.g. `test/golden/cross-backend/<pair>/<tensor>.json`)
-are explicitly **not** committed. jitML is a numerical-methods repo;
-checking in a host's measured 95th-percentile delta would harden that
-substrate / toolchain pin into the repository as authoritative,
-giving a false sense of correctness while masking real drift on any
-substrate the calibration host did not exercise. Widening a tolerance
-constant requires a code change with a Why justification; tightening
-is a free win and a code change. See [Snapshot targets → Numerical-fixture
-prohibition](#snapshot-targets) and [`documents/engineering/unit_testing_policy.md`](documents/engineering/unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+Cross-substrate, the weight blobs are **not** byte-equal, and no byte-equality or bounded-tolerance equivalence is claimed across substrates. RNG draws and float reduction order differ between vendor libraries — reductions reassociate, transcendentals (`exp`, `log`, `sqrt`, `tanh`) differ between cuDNN/Metal/oneDNN — so cross-substrate numeric equivalence is explicitly out of contract. There is no tolerance band and no cross-substrate parity assertion.
 
 ## No Postgres on jitML's data path
 
@@ -2268,7 +2245,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): run-to-run determinism, statistical convergence against a literature-derived threshold, and per-epoch property checks — no committed numerical fixtures |
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: run-to-run determinism, statistical convergence (median over k seeds ≥ in-code threshold), replay-from-checkpoint determinism, and per-evaluation curve property checks — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
-| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | current local engine flags, checkpoint inference parity, Linux CPU oneDNN primitive compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests (run-to-run); target cohort `(cpu, cuda)` and `(cpu, metal)` on the SL canon with tolerance from the in-code per-layer-family bands at `src/JitML/Engines/Tolerance.hs` (no per-tensor committed fixtures) |
+| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | per-substrate engine behaviour run for real in its own lane: current local engine flags, within-substrate checkpoint inference reproducibility, Linux CPU oneDNN primitive compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests (run-to-run). No cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, and tears down via `jitml cluster down`; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 
@@ -2299,39 +2276,37 @@ cluster, builds Helm dependencies, mutates image/runtime state, polls live
 routes, and tears everything down via `bracket`. `JitML.Test.LivePlan` records
 that typed sequence without running it by default.
 
-### Execution venue (Linux: runs in the container)
+### Execution venue (one real lane per substrate)
 
-On Linux the full suite runs **inside `jitml:local`**, for the same reason the
-code-quality stack does: the JIT/native toolchain the tests compile against is in
-the image, not on the host. The image installs oneDNN (`libdnnl-dev`), the CUDA
-toolkit, and cuDNN and builds `-fcuda` (`docker/Dockerfile`); a bare Linux host
-typically has **none** of `nvcc`, the CUDA runtime libraries, or
-`oneapi/dnnl/dnnl.hpp`. A bare-host `cabal test all` is therefore misleading
-rather than green:
+Each substrate's cases run **for real in their own lane**, against real
+hardware and a real toolchain. There are **no skipped substrate tests**: a lane
+is only run where its hardware/toolchain is real, and running a lane without its
+hardware **fails by design** — it does not vacuously pass. Lanes are selected per
+stanza with `jitml test <stanza> --test-options='-p <substrate>'`.
 
-- the oneDNN `linux-cpu` cases (`jitml-cross-backend`, two `jitml-integration`
-  cases) **fail** — the generated `kernel.cc` cannot find `oneapi/dnnl/dnnl.hpp`;
-- the `linux-cuda` cases **pass vacuously** — with no `nvcc`, no GPU libraries,
-  and no `-fcuda`, they take the no-CUDA degradation path instead of launching a
-  real kernel.
+- **apple-silicon** runs **host-native**: Metal cannot be containerized and JITs
+  headless on the host, so the `apple-silicon` cases plus the six pure-logic
+  stanzas (`jitml-unit`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
+  `jitml-hyperparameter`, `jitml-daemon-lifecycle`, `jitml-e2e`) run on the Mac.
+- **linux-cpu** runs inside the `jitml` container, where oneDNN (`libdnnl-dev`,
+  `oneapi/dnnl/dnnl.hpp`) is present so the generated `kernel.cc` compiles and the
+  primitives load and run.
+- **linux-cuda** runs inside the `jitml-cuda` GPU container built `-fcuda`, where
+  the CUDA toolkit (`nvcc`), cuDNN, and an attached GPU are all real so the
+  kernels launch for real.
 
-Only the toolchain-free stanzas — `jitml-unit`, `jitml-sl-canonicals`,
-`jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-daemon-lifecycle`,
-`jitml-e2e` — are meaningful on the bare host. Run the full suite in the
-container:
-
-| Host | Full-suite command |
-|---|---|
-| Linux + NVIDIA GPU | `docker compose run --rm jitml-cuda cabal test all -fcuda` |
-| Linux, CPU only | `docker compose run --rm jitml cabal test all` |
+| Lane | Venue | Command |
+|---|---|---|
+| apple-silicon | host-native (Mac) | `jitml test <stanza> --test-options='-p apple-silicon'` |
+| linux-cpu | `jitml` container | `docker compose run --rm jitml jitml test <stanza> --test-options='-p linux-cpu'` |
+| linux-cuda | `jitml-cuda` GPU container (`-fcuda`) | `docker compose run --rm jitml-cuda jitml test <stanza> --test-options='-p linux-cuda'` |
 
 The `jitml-cuda` compose service attaches the GPU through the NVIDIA Container
 Runtime so the `linux-cuda` kernels launch for real; `-fcuda` additionally links
 the direct cuBLAS/cuDNN bindings (`JitML.Engines.CublasBindings` /
-`CudnnBindings`). The default `jitml` service has no GPU and is for CPU-only test
-runs and headless code-quality. As with code-quality, the only host prerequisite
-is Docker. (Apple Silicon is the exception: Metal cannot be containerized and
-JITs headless on the host, so its Metal cases run host-native.)
+`CudnnBindings`). The default `jitml` service has no GPU and is for the
+`linux-cpu` lane and headless code-quality. As with code-quality, the only host
+prerequisite is Docker.
 
 The 18 `jitml-integration` `-p Live` cases additionally require a running cluster
 — bring it up with `jitml bootstrap --<substrate>` first, or they fail fast
@@ -2385,8 +2360,7 @@ other substrate. Numerical correctness is asserted three ways instead:
    constant. See [Threshold methodology](#threshold-methodology).
 3. **Property tests** — finite gradients, monotonically-decreasing
    training loss, monotone evaluator reward modulo a noise window,
-   codec round-trips, legal-move generation, terminal-state detection,
-   in-code tolerance bands for cross-substrate drift.
+   codec round-trips, legal-move generation, and terminal-state detection.
 
 The full statement of the policy, with concrete examples and
 substitutions per stanza, is at
@@ -2440,7 +2414,7 @@ prints a typed report-card summary. Four phases when `--live` is selected:
 2. **Reads the report-card knobs.** The local wrapper parses the pinned knob block in `cabal.project` and records the target stanza list that actually ran.
 3. **Collects live measurements when requested.** `--live` appends SL final loss,
    RL final reward, AlphaZero arena win rate, tuning objective, daemon health,
-   JIT cache hit-rate, and cross-substrate parity fields. A source that is not
+   and JIT cache hit-rate. A source that is not
    reachable on the current host is rendered as `unavailable`.
 4. **Prints a single tidy summary block** on stdout.
 

@@ -1,4 +1,22 @@
-# Phase 15: Cross-Substrate Parity and Final Handoff
+# Phase 15: Substrate Reproducibility and Final Handoff
+
+> **Reopened 🔄 Active 2026-06-08 for Sprint `15.4`.** The cross-substrate
+> numeric parity surface is being **removed** because cross-substrate
+> equivalence is **out of contract**: the reproducibility contract is
+> "within a substrate: bit-for-bit reproducible; across substrates: NO
+> guarantee" (RNG draw order and float reduction order differ between
+> substrates). The tolerance-band + weighted-cohort + drift-test +
+> `verify cross-backend` surface (Sprint `15.1`) and the report-card
+> `cross_substrate_parity` field (Sprint `15.2`) asserted a guarantee the
+> project does not make and are superseded by Sprint `15.4`. The phase's
+> remaining obligations are: within-substrate bit-for-bit reproducibility
+> (validated **per substrate** by Phases `13`/`14`), a populated live
+> report card, and an empty legacy ledger.
+>
+> **Filename note**: this file deliberately retains the historical
+> `phase-15-cross-substrate-and-handoff.md` filename by exception.
+> Renaming it would cascade link updates across the plan suite; the H1
+> title and scope are reframed instead.
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -14,13 +32,26 @@
 [../README.md](../README.md)
 **Generated sections**: none
 
-> **Purpose**: Close the cross-substrate parity obligations that consume
-> outputs from both Phase `13` (Linux CUDA) and Phase `14` (Apple Silicon),
-> populate the live `jitml test all` report card with measured metrics
-> from every preceding live phase, and reach the empty legacy-ledger state
-> required by Exit Definition item 18 and final handoff.
+> **Purpose**: Establish **within-substrate** bit-for-bit reproducibility
+> as the determinism contract (each substrate validated on its own host by
+> Phases `13`/`14`), **remove** the out-of-contract cross-substrate numeric
+> parity surface, populate the live `jitml test all` report card with
+> measured metrics from every preceding live phase, and reach the empty
+> legacy-ledger state required by Exit Definition item 18 and final handoff.
 
 ## Phase Status
+
+🔄 **Active** (reopened 2026-06-08 for Sprint `15.4`). The cross-substrate
+numeric parity surface delivered by Sprints `15.1` and `15.2` is being
+removed because cross-substrate equivalence is out of contract; see Sprint
+`15.4` for the deletions and the determinism-contract reframe. Sprints
+`15.1` and `15.2` are reframed to `🔄 Active — surface removed by Sprint
+15.4`; their historical dated evidence is retained as a dated record below.
+The phase stays Active until the Sprint `15.4` deletions land and the
+`legacy-tracking-for-deletion.md` Pending Removal rows it owns close.
+
+The pre-reopen ✅ Done evidence is retained verbatim below as the dated
+historical record.
 
 ✅ **Done** (re-validated 2026-06-06 on the current **RTX 5090** host; Sprints
 `15.1` and `15.2` reopened 2026-06-06 and re-closed the same day). These two
@@ -121,9 +152,17 @@ least their inference-producing sprints. The work is live cohort
 execution + tolerance assertion + final report-card population + ledger
 sweep-up.
 
-## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands ✅
+## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands 🔄
 
-**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090)
+> **SUPERSEDED — surface removed by Sprint `15.4`.** The surface this
+> sprint delivered (the `src/JitML/Engines/Tolerance.hs` per-layer-family
+> L∞ tolerance band, the `JitML.CrossBackend.Parity` weighted cohort, the
+> `CrossSubstrate` drift tests, and the `jitml verify cross-backend`
+> command) is **removed** because cross-substrate numeric parity left the
+> determinism contract (cross-substrate equivalence is not guaranteed). The
+> content below is retained as a dated historical record only.
+
+**Status**: 🔄 Active — surface removed by Sprint `15.4` (was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090)
 **Implementation**: `src/JitML/CrossBackend/Parity.hs`,
 `src/JitML/App.hs`, `src/JitML/CLI/Spec.hs`,
 `test/cross-backend/Main.hs`,
@@ -260,9 +299,17 @@ authoritatively encode whichever substrate ran the calibration first.
   `2.384185791015625e-7` / `5e-4`, `layernorm` `0.0` / `5e-4`, `mha`
   `0.0` / `2e-3`, and `embedding` `0.0` / `1e-6`; every family passed.
 
-## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics ✅
+## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics 🔄
 
-**Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090, 2026-06-04)
+> **PARTIALLY SUPERSEDED — `cross_substrate_parity` field removed by Sprint
+> `15.4`.** The report-card `cross_substrate_parity` measured field this
+> sprint added is **removed** because cross-substrate numeric parity left
+> the determinism contract. The rest of the live report card (SL final
+> loss, RL reward, AlphaZero arena win rate, tune objective, JIT cache hit
+> rate, daemon health) survives as a within-substrate obligation. The
+> content below is retained as a dated historical record only.
+
+**Status**: 🔄 Active — `cross_substrate_parity` field removed by Sprint `15.4` (was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090, 2026-06-04)
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Test/Report.hs`,
 `src/JitML/CLI/Spec.hs`, `cabal.project`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -537,6 +584,68 @@ Definition item 18.
 
 None.
 
+## Sprint 15.4: Remove the cross-substrate parity surface; reframe the determinism contract to within-substrate-only [🔄 Active]
+
+**Status**: 🔄 Active
+**Implementation**: deletions in `src/JitML/Engines/Tolerance.hs`,
+`src/JitML/CrossBackend/Parity.hs`,
+`test/cross-backend/Main.hs` (the `CrossSubstrate` drift group),
+`test/unit/Main.hs` (the tolerance-band group),
+`src/JitML/Test/Report.hs` + `src/JitML/App.hs` (the report-card
+`cross_substrate_parity` field + `measureCrossSubstrateParity` +
+`verify cross-backend` handlers), and `src/JitML/CLI/Spec.hs` (the
+`verify cross-backend` leaf)
+**Docs to update**: `documents/engineering/determinism_contract.md`,
+`../README.md`, `documents/engineering/unit_testing_policy.md`,
+`system-components.md`
+
+### Objective
+
+Delete the cross-substrate numeric parity surface and reframe the
+determinism contract + [Exit Definition](README.md#exit-definition) to
+within-substrate-only. Cross-substrate equivalence is out of contract
+(RNG draw order and float reduction order differ between substrates), so
+the tolerance band, the weighted cohort, the drift tests, the
+`verify cross-backend` command, and the report-card
+`cross_substrate_parity` field all assert a guarantee the project does not
+make and must be removed. The surviving contract is: **within a
+substrate, bit-for-bit reproducible** (validated per substrate by Phases
+`13`/`14`); **across substrates, no guarantee**.
+
+### Deliverables
+
+- The deletions listed under **Implementation** land: `Tolerance.hs` and
+  `CrossBackend/Parity.hs` are removed; the `CrossSubstrate` drift group
+  in `test/cross-backend/Main.hs` and the tolerance-band group in
+  `test/unit/Main.hs` are removed; the `cross_substrate_parity` field,
+  `measureCrossSubstrateParity`, and the `verify cross-backend` handlers
+  are removed from `src/JitML/Test/Report.hs` and `src/JitML/App.hs`; and
+  the `verify cross-backend` leaf is removed from `src/JitML/CLI/Spec.hs`.
+- `documents/engineering/determinism_contract.md` has its "Cross-Substrate
+  Tolerance Methodology" section **removed**, and the contract is reframed
+  to within-substrate bit-for-bit reproducibility with an explicit
+  no-cross-substrate-guarantee statement.
+- The [Exit Definition](README.md#exit-definition) items are reworded:
+  within-substrate bit-for-bit reproducibility is the determinism claim;
+  no cross-substrate numeric-parity claim remains.
+
+### Validation
+
+1. `jitml docs check` is clean after the doc cascade.
+2. `jitml test all` passes on the per-substrate lanes (the cross-substrate
+   drift/tolerance groups no longer exist).
+3. Container `jitml check-code` passes after the source deletions.
+
+### Remaining Work
+
+- The code deletions and the doc cascade are **not yet all landed** (they
+  proceed under a separate approved code plan); this sprint stays Active
+  until they do.
+- Exit Definition item 18 (empty legacy ledger) is **unmet** while the
+  `legacy-tracking-for-deletion.md` Pending Removal rows owned by this
+  sprint (`Tolerance.hs`, `CrossBackend.Parity`) are open. The sprint
+  stays Active until those rows close.
+
 ## Doctrine Sections Cited
 
 - [../README.md → Determinism Contract](../README.md#doctrine-scope) (Sprint 15.1 — cross-substrate ULP tolerance methodology)
@@ -546,23 +655,36 @@ None.
 
 ## Documentation Requirements
 
+The reframe (Sprint `15.4`) removes the cross-substrate numeric-parity
+documentation surface and replaces it with the within-substrate-only
+determinism contract. The Sprint `15.1`/`15.2` doc rows below are retained
+as a dated historical record; the live actions are the Sprint `15.4`
+removals.
+
 **Engineering docs to create/update:**
 
-- `documents/engineering/determinism_contract.md` — record the
-  in-code per-layer-family tolerance methodology and the validated
-  `linux-cpu` / `linux-cuda` plus `linux-cpu` / `apple-silicon`
-  assertions for Sprint `15.1`.
-- `documents/engineering/unit_testing_policy.md` — record the
-  `jitml-cross-backend` CrossSubstrate tolerance tests for Sprint
-  `15.1`; record the `jitml test all --live` report-card surface,
+- `documents/engineering/determinism_contract.md` — **remove** the
+  "Cross-Substrate Tolerance Methodology" section (Sprint `15.4`) and
+  reframe the contract to within-substrate bit-for-bit reproducibility
+  with an explicit no-cross-substrate-guarantee statement. (Historical:
+  Sprint `15.1` had recorded the in-code per-layer-family tolerance
+  methodology and the `linux-cpu` / `linux-cuda` plus
+  `linux-cpu` / `apple-silicon` assertions.)
+- `documents/engineering/unit_testing_policy.md` — **remove** the
+  `jitml-cross-backend` CrossSubstrate tolerance-test and tolerance-band
+  documentation (Sprint `15.4`); keep the `jitml test all --live`
+  report-card surface (minus the `cross_substrate_parity` field),
   missing-source `unavailable` behavior, and the 2026-06-04 full
   live-cluster validation.
-- `documents/engineering/cli_command_surface.md` — generated command
-  surface records `jitml verify cross-backend --export/--compare` for
-  the Sprint `15.1` cross-host handoff.
+- `documents/engineering/cli_command_surface.md` — **remove** the
+  `jitml verify cross-backend --export/--compare` generated command-surface
+  rows (Sprint `15.4`); this leaf is deleted.
 - `documents/engineering/training_workloads.md` — document the
   report-card measurement fields for SL / RL / AlphaZero / tune and
-  the 2026-06-04 measured live aggregate.
+  the 2026-06-04 measured live aggregate (the `cross_substrate_parity`
+  field is dropped per Sprint `15.4`).
+- `../README.md` — reframe the determinism doctrine to
+  within-substrate-only (Sprint `15.4`).
 
 **Product docs to create/update:**
 
@@ -571,10 +693,21 @@ None.
 **Cross-references to add:**
 
 - `system-components.md → Test runner` row reflects the `--live`
-  measured fields and the 2026-06-04 full live aggregate pass.
-- `system-components.md → Test Stanzas` row for `jitml-cross-backend`
-  records the 2026-06-01 `linux-cpu` / `linux-cuda` validation and the
-  2026-06-03 `linux-cpu` / `apple-silicon` report-bundle comparison.
+  measured fields (minus `cross_substrate_parity`, removed by Sprint
+  `15.4`) and the 2026-06-04 full live aggregate pass.
+- `system-components.md → Test Stanzas` row for `jitml-cross-backend` —
+  **remove** the CrossSubstrate tolerance/drift cross-reference (Sprint
+  `15.4`). (Historical: it had recorded the 2026-06-01
+  `linux-cpu` / `linux-cuda` validation and the 2026-06-03
+  `linux-cpu` / `apple-silicon` report-bundle comparison.)
+
+**Legacy ledger (rule G — Pending Removal rows owned by this phase):**
+
+- `legacy-tracking-for-deletion.md` Pending Removal rows owned by Sprint
+  `15.4`: `src/JitML/Engines/Tolerance.hs` (per-layer-family tolerance
+  band) and `src/JitML/CrossBackend/Parity.hs` (weighted cross-substrate
+  cohort). These rows must move to Completed before Exit Definition item
+  18 (empty legacy ledger) is met and the phase can re-close.
 
 ## Related Documents
 

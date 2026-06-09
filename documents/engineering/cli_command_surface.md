@@ -158,7 +158,6 @@ Determinism verification.
 
 ```
 jitml verify same-run --experiment <experiment-dhall> --runs <int>
-jitml verify cross-backend --experiment <experiment-dhall> --backends <list>
 jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>
 ```
 

@@ -26,7 +26,21 @@
 
 ## Phase Status
 
-✅ **Complete** (all Apple-half obligations validated headless 2026-05-30/31,
+🔄 **Active** (reopened 2026-06-08 for Sprint 14.6 — re-validate the
+apple-silicon lane runs for real with the skip guards removed). The
+reproducibility contract is now "within a substrate: bit-for-bit
+reproducible; across substrates: NO guarantee"; the cross-substrate numeric
+parity surface is removed and the test suite is partitioned so each
+substrate's cases run **for real** in its own lane with **no skipped tests**.
+The `appleLiveReady` skip guards in the apple-silicon test bodies are removed —
+a missing Metal device now **fails** rather than skips. Within-substrate
+bit-for-bit reproducibility tests **stay**. Per Plan Standards rule C the
+apple-silicon live-test execution obligation reverts to Active until
+re-exercised under the guards-removed lane; Sprint 14.6 owns the
+re-validation. All historical dated evidence below (Apple M1, macOS 26) is
+retained intact as a dated record.
+
+Previously ✅ **Complete** (all Apple-half obligations validated headless 2026-05-30/31,
 Apple M1 / macOS 26). The phase owns the Apple-Silicon halves of
 [Exit Definition](README.md#exit-definition) items 1 (per-substrate JIT
 execution — Apple Metal side), 5 (substrate determinism — Apple side), 7
@@ -539,6 +553,46 @@ loading per substrate).
   owned by Phase `15` Sprint `15.1`; the `(AppleSilicon, ForwardToHost)`
   cluster-side dispatch is owned by Sprint `14.4`.
 
+## Sprint 14.6: Re-validate the apple-silicon lane runs for real with the skip guards removed [🔄 Active]
+
+**Status**: Active
+**Implementation**: `test/cross-backend/Main.hs`
+**Docs to update**: `documents/engineering/determinism_contract.md`,
+`documents/engineering/jit_codegen_architecture.md`
+
+### Objective
+
+With the `appleLiveReady` skip guards removed, re-validate the apple-silicon
+within-substrate cases run **for real** host-native: the Metal kernel
+bit-equality case (Sprint `14.2`), the weighted Dense2D determinism case
+(Sprint `14.5`), and the live Metal benchmark candidate runner (Sprint `14.3`).
+A missing Metal device now **fails**, it does not skip. Within-substrate
+bit-for-bit reproducibility is the retained contract (across substrates carries
+**no** parity guarantee).
+
+### Deliverables
+
+- The apple-silicon lane (`-p apple-silicon`) of `jitml-cross-backend` runs
+  every within-substrate Metal case as a real PASS with **no skip-sentinels** —
+  the removed `appleLiveReady` guards mean an unusable / absent Metal device
+  now produces a hard FAIL.
+- The apple-silicon lane plus the pure-logic stanzas run host-native and invoke
+  **no** oneDNN / nvcc compiles.
+
+### Validation
+
+1. `bootstrap/apple-silicon.sh test` runs the apple-silicon lane
+   (`-p apple-silicon`) together with the pure-logic stanzas as real PASSes,
+   invoking no oneDNN / nvcc compiles; absence of a usable Metal device fails
+   the lane rather than skipping it.
+
+### Remaining Work
+
+- Re-validation pending the code landing (the `appleLiveReady` guard removal +
+  suite partitioning are a separate approved plan). Once that lands, run the
+  validation command above host-native on a Metal-capable Apple Silicon machine
+  and record the dated PASS evidence here.
+
 ## Doctrine Sections Cited
 
 - [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 14.1, 14.3, 14.4 — host `swift build`, MinIO and Pulsar WebSocket subprocesses)
@@ -553,7 +607,10 @@ loading per substrate).
 
 - `documents/engineering/jit_codegen_architecture.md` — record Metal FFI
   loader, live Metal candidate runner, and the Apple Metal weighted
-  runner path once Sprints `14.2`, `14.3`, and `14.5` close.
+  runner path once Sprints `14.2`, `14.3`, and `14.5` close; record the
+  partitioned apple-silicon lane and the removal of the `appleLiveReady`
+  skip guards (a missing Metal device now fails rather than skips) once
+  Sprint `14.6` closes.
 - `documents/engineering/daemon_architecture.md` — record the live
   Apple host↔cluster RPC flow once Sprint `14.4` closes.
 - `documents/engineering/cluster_topology.md` — note the host-native
@@ -561,8 +618,11 @@ loading per substrate).
 - `documents/engineering/checkpoint_format.md` — Apple Metal weighted
   inference path once Sprint `14.5` closes.
 - `documents/engineering/determinism_contract.md` — Apple Metal
-  same-host bit-equality observation once Sprint `14.2` closes;
-  cross-substrate ULP work lives in Phase `15`.
+  same-host bit-equality observation once Sprint `14.2` closes; record the
+  clarified contract ("within a substrate: bit-for-bit reproducible; across
+  substrates: NO guarantee") and the removed cross-substrate numeric parity
+  surface once Sprint `14.6` closes; cross-substrate ULP work lives in
+  Phase `15`.
 
 **Product docs to create/update:**
 

@@ -39,6 +39,33 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Reopen note (2026-06-08, open)**: Phases `1`, `12`, `13`, `14`, and `15`
+reopened from `✅ Done` to `🔄 Active` after the project owner clarified the
+reproducibility contract: **within a substrate the contract is bit-for-bit
+reproducibility; across substrates there is no guarantee** (RNG draws and float
+reduction order differ between vendor BLAS/DNN libraries). The cross-substrate
+*numeric parity / tolerance* surface delivered by Phase `15` Sprints `15.1`
+(`src/JitML/Engines/Tolerance.hs`, `JitML.CrossBackend.Parity`, the
+`CrossSubstrate` weighted-drift tests, the `jitml verify cross-backend` command)
+and `15.2` (the report-card `cross_substrate_parity` field) asserts a guarantee
+the project does not make and is being removed. The reopened sprints are: Phase
+`1` Sprint `1.13` (remove `verify cross-backend` from `CommandSpec`; add the
+`--test-options` passthrough to `jitml test`), Phase `12` Sprint `12.10`
+(realign `jitml-cross-backend` to within-substrate cases, relocate the two
+substrate-agnostic cases to `jitml-unit`, remove the unit tolerance-band group
+and the report-card field, wire substrate-partitioned `jitml test` lanes with no
+skipped tests), Phase `13` Sprint `13.16` and Phase `14` Sprint `14.6`
+(re-validate the linux-cuda and apple-silicon lanes run for real with the
+`probeCudaRuntime` / `appleLiveReady` / `cublasBindingsCompiledIn` skip guards
+removed — a missing toolchain now fails rather than skips), and Phase `15`
+Sprint `15.4` (delete the cross-substrate parity surface and reframe the
+determinism contract + Exit Definition to within-substrate-only). Phases `0` and
+`2`–`11` remain `✅ Done` on their owned surfaces. Final handoff is incomplete
+until these five phases re-close: Exit Definition item 18 (empty legacy ledger)
+is no longer met because the doctrine-driven removals now occupy `Pending
+Removal` rows in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
 **Reopen note (2026-06-06, re-closed 2026-06-06)**: Phase `13` (Linux CUDA and
 cluster closure) reopened from `✅ Done` to `🔄 Active` — all 15 sprints — and
 Phase `15` Sprints `15.1` (cross-substrate `linux-cpu` / `linux-cuda` tolerance)
@@ -155,9 +182,13 @@ the repo-owned `KeyDoorGrid-v0` environment. Phase `9` reopened for Sprint
 moved into the owning phase docs before the superseded development ledger was
 deleted by Sprint `1.11`.
 
-The plan is `✅ Done` across all phases `0`–`15`; the deletion ledger
-has no Pending Removal rows. Phase `13` (all 15 sprints) and Phase `15`
-Sprints `15.1`/`15.2` reopened 2026-06-06 and re-closed the same day after
+Phases `0` and `2`–`11` are `✅ Done`; Phases `1`, `12`, `13`, `14`, and `15`
+reopened `🔄 Active` on 2026-06-08 to remove the cross-substrate numeric parity
+surface after the reproducibility contract was clarified to within-substrate
+bit-for-bit only (see the 2026-06-08 reopen note above), so the deletion ledger
+again carries `Pending Removal` rows and final handoff is incomplete. Phase
+`13` (all 15 sprints) and Phase `15`
+Sprints `15.1`/`15.2` previously reopened 2026-06-06 and re-closed the same day after
 re-validation of the live CUDA and final-test-suite obligations on the current
 RTX 5090 host (Sprint `15.3` stayed `✅ Done` throughout). Phase
 `11` reopened and re-closed on
@@ -477,11 +508,14 @@ owned by Phase `13` below.
    Metal shader via `MTLDevice.makeLibrary(source:)`, load the dylib over
    FFI, run the candidate runner, exercise host↔cluster RPC, load Apple
    Metal production weights. One Apple session.
-4. **Phase `15` — Cross-Substrate Parity and Final Handoff (Exit 5
-   cross, 9 live report card, 18).** Compare live per-substrate tensor
-   outputs from Phases `13` and `14` against the in-code tolerance
-   bands, drive `jitml test all --live`, populate the report card, and
-   walk every legacy-ledger Pending Removal row to Completed. The
+4. **Phase `15` — Substrate Reproducibility and Final Handoff (Exit 5
+   within-substrate, 9 live report card, 18).** Validate within-substrate
+   bit-for-bit reproducibility in each substrate's own lane, drive
+   `jitml test all --live`, populate the report card, and
+   walk every legacy-ledger Pending Removal row to Completed. **Reopened
+   2026-06-08 (Sprint `15.4`)** to remove the cross-substrate numeric parity
+   surface after the contract was clarified to within-substrate bit-for-bit
+   only; no cross-substrate tensor comparison remains. The
    2026-06-03 pass landed the `--live` report-card code surface,
    added daemon edge telemetry probes for cache and health fields,
    removed three local cleanup residues, produced the Apple weighted
@@ -525,7 +559,7 @@ re-scoped sprint's `### Remaining Work` block per
 | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Eight Cabal test stanzas, lint matrix, typed live-plan surface, report-card knobs |
 | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) | Phase 13: Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure (one Linux/NVIDIA session) |
 | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) | Phase 14: Apple Silicon headless Metal FFI, host↔cluster RPC, Metal candidate runner, Apple Metal production weight loading (one Apple session) |
-| [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Cross-substrate parity cohort, populated live `jitml test all` report card, empty deletion ledger |
+| [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Within-substrate reproducibility, populated live `jitml test all` report card, empty deletion ledger |
 | [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) | Cleanup ledger |
 
 ## Status Vocabulary
@@ -568,7 +602,7 @@ obligation exists.
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | 🔄 Active (reopened 2026-06-08, Sprint 1.13) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
@@ -579,10 +613,10 @@ obligation exists.
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (reopened and re-closed 2026-06-05, Sprint 11.7) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | ✅ Done (reopened and re-closed 2026-06-06 — RTX 5090 re-validation, all 15 sprints) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ✅ Done | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Cross-Substrate Parity and Final Handoff | ✅ Done (reopened and re-closed 2026-06-06 — Sprints 15.1/15.2 re-validated on RTX 5090; 15.3 ✅ Done) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | 🔄 Active (reopened 2026-06-08, Sprint 12.10) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 13 | Linux CUDA and Cluster Closure | 🔄 Active (reopened 2026-06-08, Sprint 13.16) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 14 | Apple Silicon Closure | 🔄 Active (reopened 2026-06-08, Sprint 14.6) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 15 | Substrate Reproducibility and Final Handoff | 🔄 Active (reopened 2026-06-08, Sprint 15.4) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Reopened phases (2026-06-04)
 
@@ -1622,7 +1656,7 @@ flowchart TB
     P12[Phase 12: Test Stanzas Code Surface]
     P13[Phase 13: Linux CUDA + Cluster Live Closure]
     P14[Phase 14: Apple Silicon Live Closure]
-    P15[Phase 15: Cross-Substrate + Handoff]
+    P15[Phase 15: Substrate Reproducibility + Handoff]
     P0 --> P1
     P1 --> P2
     P2 --> P3
@@ -1685,9 +1719,10 @@ This plan is complete only when all of the following are true:
    schedulers, losses, spectral ops) is exposed in Dhall, the Haskell-owned JIT
    source renderers are content-addressed by `(model shape, kind, substrate,
    toolchain)`, no static JIT source/build files are checked in, and the
-   per-substrate determinism contract from
+   within-substrate determinism contract from
    [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md)
-   holds.
+   holds — each substrate is bit-for-bit reproducible against itself; no
+   cross-substrate numeric equivalence is claimed.
 6. `jitml train`, `jitml rl train`, and `jitml tune` Plan/Apply commands run the
    full SL/RL/AlphaZero workloads, hyperparameter tuning is `Some Tuning::{ … }`-shaped per the worked
    Dhall example in [../README.md → Concrete Dhall worked
@@ -1698,8 +1733,9 @@ This plan is complete only when all of the following are true:
    committed per [../README.md → Snapshot targets → Numerical-fixture
    prohibition](../README.md#snapshot-targets).
 7. Checkpoints write the split-blob `.jmw1` format with the typed manifest and the
-   inference-only read path; the bit-determinism contract holds within the per-
-   substrate ULP tolerance methodology.
+   inference-only read path; the bit-determinism contract holds — a checkpoint
+   reproduced on the same substrate against the same toolchain pin is
+   bit-identical, and no cross-substrate byte-equality is claimed.
 8. The PureScript frontend under `web/` is generated from
    `src/JitML/Web/Contracts.hs` via `purescript-bridge`, the live MNIST handwriting
    panel, CIFAR/ImageNet upload panel, and the AlphaZero-vs-human Connect 4 panel

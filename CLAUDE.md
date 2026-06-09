@@ -45,30 +45,31 @@ Use the project container instead:
 
 ## Test execution
 
-Running the test suite on Linux is a **container workflow**, like code-quality
-and for the same reason: the JIT/native toolchain the tests compile against —
-oneDNN (`libdnnl`), the CUDA toolkit, cuDNN — lives in `jitml:local`, **not** on
-the host. A bare Linux host has no `nvcc`, no CUDA runtime libraries, and no
-`oneapi/dnnl/dnnl.hpp`, so a host `cabal test all` is misleading rather than a
-pass: the `linux-cpu` oneDNN stanzas (`jitml-cross-backend`, parts of
-`jitml-integration`) **fail** on the missing header, and the `linux-cuda` cases
-**pass vacuously** via the no-CUDA path instead of exercising a real kernel. Only
-the pure-logic stanzas (`jitml-unit`, `jitml-sl-canonicals`,
-`jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-daemon-lifecycle`,
-`jitml-e2e`) mean anything on the bare host.
+Each substrate's tests run **for real in their own lane**, against real hardware
+and a real toolchain. There are **no skipped substrate tests**: a lane is only
+run where its hardware/toolchain is real, and running a lane without its hardware
+**fails by design** — it does not vacuously pass. Lanes are selected per stanza
+with `jitml test <stanza> --test-options='-p <substrate>'`.
 
-Run the full suite in the container:
-
-- Linux + NVIDIA GPU: `docker compose run --rm jitml-cuda cabal test all -fcuda`
-  (the `jitml-cuda` service attaches the GPU via the NVIDIA Container Runtime;
-  `-fcuda` links the real cuBLAS/cuDNN bindings)
-- Linux, CPU only: `docker compose run --rm jitml cabal test all`
+- **apple-silicon** runs **host-native**: Metal JITs headless on the host, so the
+  apple-silicon cases plus the six pure-logic stanzas (`jitml-unit`,
+  `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
+  `jitml-daemon-lifecycle`, `jitml-e2e`) run on the Mac:
+  `jitml test <stanza> --test-options='-p apple-silicon'`.
+- **linux-cpu** runs in the `jitml` container, where oneDNN (`libdnnl`,
+  `oneapi/dnnl/dnnl.hpp`) is present:
+  `docker compose run --rm jitml jitml test <stanza> --test-options='-p linux-cpu'`.
+- **linux-cuda** runs in the `jitml-cuda` GPU container built `-fcuda`, where the
+  CUDA toolkit, cuDNN, and an attached GPU are all real (the `jitml-cuda` service
+  attaches the GPU via the NVIDIA Container Runtime; `-fcuda` links the real
+  cuBLAS/cuDNN bindings):
+  `docker compose run --rm jitml-cuda jitml test <stanza> --test-options='-p linux-cuda'`.
 
 The 18 `jitml-integration` `-p Live` tests additionally need a running cluster
 (`jitml bootstrap --<substrate>`); without it they fail fast naming the missing
 `cluster-publication.json`. As with code-quality, the only host prerequisite for
-tests is Docker. Apple Silicon is the exception: Metal JITs headless on the host,
-so the suite runs host-native there.
+tests is Docker (Apple Silicon is the exception: its host-native Metal lane needs
+only the host).
 
 ## Apple Silicon Swift / Metal builds
 

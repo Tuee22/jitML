@@ -7,8 +7,7 @@
 
 > **Purpose**: Project-specific bit-determinism contract for jitML — the per-
 > substrate floating-point semantics, the RNG split and per-experiment seed
-> derivation, the JIT cache content-addressing, the engine envelope shape, and
-> the cross-substrate tolerance methodology.
+> derivation, the JIT cache content-addressing, and the engine envelope shape.
 
 ## The Contract
 
@@ -16,8 +15,10 @@ jitML guarantees **same-substrate bit-equality**: a transcript or checkpoint
 produced on `<substrate>` is bit-identical when reproduced on the same
 `<substrate>` against the same toolchain pin (every codegen-toolchain
 fingerprint from `cabal.project` plus the substrate-specific kernel-compiler
-version). Cross-substrate bit-equality is **not** guaranteed; cross-substrate
-drift is bounded by a per-tensor tolerance band.
+version). Cross-substrate bit-equality is **not** guaranteed — RNG draws and
+float reduction order differ across substrates — and cross-substrate
+equivalence is **not asserted**: there is no numeric-parity check and no
+tolerance band.
 
 Reproducibility is an architectural invariant, not a debugging aid. The
 contract holds across:
@@ -210,51 +211,7 @@ now exports the same `jitml_kernel` / family / output-count ABI and the guarded
 compile/load/launch; in unavailable environments it fails closed before compile.
 Swift/Metal source bundles export the same family/output-count metadata
 contract for their future FFI loaders. The remaining same-substrate runtime
-proof is live CUDA and Metal graph-kernel execution plus cross-substrate
-tolerance.
-
-## Cross-Substrate Tolerance Methodology
-
-Cross-substrate equality is not bit-for-bit because float reductions
-reassociate across vendor BLAS/DNN libraries and transcendentals (`exp`,
-`log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and
-oneDNN, so per-tensor drift compounds through the forward + backward pass.
-
-The tolerance methodology:
-
-- Per layer family, a tolerance band is declared **in Haskell code** at
-  `src/JitML/Engines/Tolerance.hs` as a `LayerFamilyTolerance` record
-  (e.g., dense layer dot products are tighter than attention block
-  outputs after softmax). The bands are calibrated from the public
-  literature on cuDNN / Metal / oneDNN drift, not from an empirical
-  per-substrate measurement on whichever host happened to write the
-  fixture first.
-- The `jitml-cross-backend` stanza (Sprint `12.6`) runs the weighted
-  kernel-family cohort on the substrate pairs the host can exercise,
-  captures per-tensor outputs at fixed inputs, and asserts the L∞ drift
-  fits inside the in-code band. On a Linux/NVIDIA host the
-  `linux-cpu` / `linux-cuda` pair runs live under the `CrossSubstrate`
-  test group. The `linux-cpu` / `apple-silicon` assertion uses the
-  same tolerance path through cross-host report bundles; the
-  2026-06-03 comparison passed all eight weighted tensor families
-  (`identity`, `dense`, `conv2d`, `conv3d`, `batchnorm`, `layernorm`,
-  `mha`, `embedding`) against the in-code bands.
-- `JitML.CrossBackend.Parity` is the shared implementation for the
-  cohort, the ephemeral JSON report bundle, and the drift comparison.
-  `jitml verify cross-backend --export <path>` writes a host-local
-  report bundle; `jitml verify cross-backend --compare <paths>` compares
-  two or more such bundles. These files are transfer artifacts for a
-  validation session, not repository fixtures.
-- A drift exceeding the tolerance band fails the stanza with a structured
-  diagnostic naming the offending tensor, the layer, and the measured
-  versus declared bound.
-- Per-tensor empirical fixture files (e.g. `test/golden/cross-backend/<pair>/<tensor>.json`)
-  are explicitly **not** committed. They would harden whichever host
-  executed the calibration run into the repository as authoritative,
-  giving a false sense of correctness while masking real drift on any
-  substrate / toolchain pin the calibration host did not exercise.
-  Widening a tolerance constant requires a code change with a Why
-  justification; tightening is a free win and a code change.
+proof is live CUDA and Metal graph-kernel execution.
 
 ## Determinism Caveats
 

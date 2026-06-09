@@ -45,7 +45,7 @@ cluster validation remains phase-gated:
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix as property tests over the typed `TrainingLifecycle` — loss is finite, decreases monotonically over the budget, and the median over `k` seeds clears a literature-derived sanity threshold computed at test time — dataset fetch verification, and Training command/event envelope round-trips. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 12.3 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog as property tests (finite-and-decreasing loss, finite gradients, monotone evaluator reward over a sliding window, run-to-run bit-identical trajectory on the same substrate / same seed), the canonical-game RL surface (legal-move generation, terminal detection, draw conditions), and RL command/event envelope round-trips. No per-substrate trajectory or reward-distribution fixtures are committed. | Integration (project-specific) | Sprint 12.4 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), and Tune command/event envelope round-trips. Sampler trial values are checked as properties (e.g. resume equality, sampler-state purity, scheduler ordering invariants) rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
-| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate engine determinism flags, checkpoint inference parity, generated Linux CPU oneDNN primitive kernel compile/load/run, exported family/output-count symbol verification, and local Linux CPU `HasEngine` dispatch | Integration (project-specific) | Sprint 12.6 |
+| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate **within-substrate** determinism: engine determinism flags, checkpoint inference summaries, generated kernel compile/load/run, exported family/output-count symbol verification, and `HasEngine` dispatch — each substrate's cases run **for real** in their own lane (Apple host-native; linux-cpu in the `jitml` container; linux-cuda in the `jitml-cuda` GPU container), selected via `--test-options='-p <substrate>'`, with **no skipped tests** and no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, inference request/result protobuf byte round-trips, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, and typed live-plan surfaces | Ephemeral-Cluster Infrastructure | Sprint 12.8 |
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
@@ -136,27 +136,28 @@ sampler-label parsing, the `experiments/mnist-tune.dhall` TPE
 worked-example decode, and Tune command/event envelope round-trips. No
 committed numerical trial-value fixtures.
 
-### `jitml-cross-backend` and the Tolerance Band
+### `jitml-cross-backend` — per-substrate within-substrate determinism
 
 The current body checks that every local substrate has deterministic engine
 flags and that the local `inferFromManifest` helper returns the same summary
-for every substrate. It also routes the generated Linux CPU oneDNN primitive
+for every substrate. It also routes the generated oneDNN/CUDA/Metal primitive
 kernels through the shared cache artifact loader, loads `jitml_kernel` and
 `jitml_kernel_family_name` / `jitml_kernel_output_count` with `dlopen`,
 verifies the reported family and output length, and asserts three successive
 FFI runs return bit-identical output (run-to-run determinism only — no
 stored output bytes). It also dispatches a generated family kernel through
-the local Linux CPU `HasEngine` interpreter and checks the loaded family
-metadata at that boundary. The `CrossSubstrate` group runs the weighted
-kernel-family cohort against the in-code tolerance table: on a Linux/NVIDIA
-host it compares `linux-cpu` to `linux-cuda`, and the
-`linux-cpu` / `apple-silicon` case uses the same assertion path through
-`JitML.CrossBackend.Parity` report bundles. The 2026-06-03 Linux/Apple
-comparison passed all eight weighted tensor families against the in-code
-tolerance table. The cohort and drift math live in
-`JitML.CrossBackend.Parity`, which is also consumed by
-`jitml verify cross-backend --export/--compare` for ephemeral cross-host
-report-bundle validation.
+the local `HasEngine` interpreter and checks the loaded family metadata at
+that boundary. There is **no cross-substrate cohort, no tolerance band, and
+no `jitml verify cross-backend` command**: cross-substrate equivalence is not
+asserted (RNG draws + float reduction order differ across substrates per
+[determinism_contract.md → The Contract](determinism_contract.md#the-contract)).
+
+Each substrate's cases run **for real** in their own lane and **none are
+skipped**: Apple Metal runs host-native, `linux-cpu` oneDNN runs in the
+`jitml` container, and `linux-cuda` runs in the `jitml-cuda` GPU container.
+A lane is selected with `jitml test jitml-cross-backend
+--test-options='-p <substrate>'`. Within-substrate bit-for-bit
+reproducibility is the only equality asserted here.
 
 `jitml-unit` owns the CUDA runtime-probe parser snapshots for `nvcc`,
 `nvidia-smi`, and `ldconfig`, plus the guarded CUDA benchmark-runner preflight
@@ -168,21 +169,13 @@ Metal benchmark-runner preflight checks. On `apple-silicon` the live Metal/Swift
 compile-and-execute path these probes guard runs **headless on the host**: the
 CommandLineTools `swift build` produces the glue dylib and the launcher
 JIT-compiles the Metal shader at runtime via `MTLDevice.makeLibrary(source:)` —
-no Tart VM, no full Xcode. The cross-backend Apple cases skip unless a Metal
-device is usable headless. See
+no Tart VM, no full Xcode. The Apple `jitml-cross-backend` lane runs
+host-native on `apple-silicon` where a Metal device is usable headless; each
+substrate's lane runs its own cases for real with no skipped tests. See
 [../engineering/jit_codegen_architecture.md → Apple Silicon Headless JIT](../engineering/jit_codegen_architecture.md#apple-silicon-headless-jit).
-Live cross-substrate graph-kernel launches assert per-tensor drift
-against a tolerance band declared **in code** (`src/JitML/Engines/Tolerance.hs`)
-rather than against committed `.json` / `.bin` fixtures. The band is a
-per-layer-family L∞ bound calibrated empirically from the public literature
-on cuDNN / Metal / oneDNN drift; per-substrate empirical floats are
-**not** stored, since they would harden host-specific FP behavior into
-the repository and falsely authorize whichever host wrote them first. A
-controlled over-band perturbation in `jitml-cross-backend` verifies the
-predicate rejects drift larger than the declared family bound. Exported
-cross-host report bundles are runtime handoff artifacts; they are not
-committed test fixtures.
-See [determinism_contract.md → Cross-Substrate Tolerance Methodology](determinism_contract.md#cross-substrate-tolerance-methodology).
+Only within-substrate bit-for-bit reproducibility is asserted; there is no
+cross-substrate drift check and no tolerance band. See
+[determinism_contract.md → The Contract](determinism_contract.md#the-contract).
 
 ### `jitml-daemon-lifecycle`
 
@@ -236,7 +229,7 @@ All live driver invocations flow through the typed `Subprocess` boundary.
 stanzas and renders the typed target-stanza report card. `jitml test all
 --live` appends measured fields to that same `ReportCard` value for SL final
 loss, RL final reward, AlphaZero arena win rate, tuning objective, JIT cache
-hit rate, daemon `/healthz`, and cross-substrate parity. Cache hit rate is
+hit rate, and daemon `/healthz`. Cache hit rate is
 read from daemon Prometheus counters (`jitml_jit_cache_hits` /
 `jitml_jit_cache_misses`) on the published `/metrics` edge route; daemon health
 is read from the published `/healthz` edge route. A live source that is not
@@ -302,8 +295,10 @@ through:
 - **Property tests** — finite gradients, monotonically-decreasing training
   loss, monotone evaluator reward over a sliding window, codec round-trips,
   legal-move generation, terminal detection.
-- **In-code tolerance bands** for cross-substrate drift — declared as
-  Haskell constants per layer family, not per-tensor stored fixtures.
+
+Cross-substrate equivalence is **not** asserted at all — neither by fixtures
+nor by a tolerance band. RNG draws and float reduction order differ across
+substrates, so each substrate is validated for real within its own lane.
 
 ## Cross-References
 

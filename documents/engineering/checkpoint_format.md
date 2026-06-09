@@ -338,9 +338,9 @@ validation on 2026-05-19 also writes a marker through
 
 Target same-substrate same-toolchain reproduction of a checkpoint produces a
 byte-identical `.jmw1` payload and a byte-identical manifest SHA. Cross-substrate
-drift is bounded by the per-tensor tolerance band per
-[determinism_contract.md → Cross-Substrate Tolerance
-Methodology](determinism_contract.md#cross-substrate-tolerance-methodology).
+bit-equality is **not** guaranteed and not asserted (RNG draws + float reduction
+order differ across substrates) per
+[determinism_contract.md → The Contract](determinism_contract.md#the-contract).
 
 ## Cross-References
 
