@@ -45,14 +45,15 @@ command, the report-card `cross_substrate_parity` field, the `CrossSubstrate`
 weighted-drift and cross-substrate tolerance-band test groups, and the test
 skip-antipattern guards. The reproducibility contract is now within-substrate
 bit-for-bit reproducible with no cross-substrate equivalence asserted. On
-2026-06-09 the full source/code removal landed and **five of the six rows moved
-to `Completed`** (validated by a clean host + container build, `jitml check-code`,
+2026-06-09 the full source/code removal landed and **all six rows moved to
+`Completed`** (validated by a clean host + container build, `jitml check-code`,
 `jitml docs check`, `jitml-unit` 193 / 193, the `apple-silicon` lane 4 / 4, and
-the `linux-cpu` lane 10 / 10). The remaining row — the `linux-cuda` half of the
-skip-guard removal — has its guard code deleted but awaits a live GPU re-run on
-NVIDIA hardware (Sprint `13.16`) the Apple Silicon development host does not
-provide; it moves to `Completed` when that lane is re-exercised, at which point
-Exit Definition item 18 (empty legacy ledger) is met. The 2026-06-05 Sprint `11.7`
+the `linux-cpu` lane 10 / 10). The last of the six — the `linux-cuda` half of the
+skip-guard removal — closed the same day when its live GPU re-run landed on the
+NVIDIA GeForce RTX 5090 host (Sprint `13.16`): `docker compose run --rm jitml-cuda
+cabal test -fcuda jitml-cross-backend --test-options '-p linux-cuda'` passed
+19 / 19 with no skip-sentinels. **The ledger is now empty and Exit Definition
+item 18 (empty legacy ledger) is met; the final handoff is complete.** The 2026-06-05 Sprint `11.7`
 doctrine-deviation row covering the SPA discoverability gap closed the
 same day: the generated `Generated.AdminPortals` artifact, the
 `Chrome.Header` / `PanelRegistry` / `Panels.Portals` modules, the
@@ -129,9 +130,13 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-| Item | Location | Reason | Owning Sprint / Gate |
-|------|----------|--------|----------------------|
-| Test skip-antipattern guards — `linux-cuda` half re-validation | `test/cross-backend/Main.hs` | The skip branches (probeCudaRuntime/cudaRuntimeAvailable, appleLiveReady, cublasBindingsCompiledIn/cudnnBindingsCompiledIn) and the integration-probe oneDNN-availability assertion are **already deleted** (2026-06-09); the `apple-silicon` and `linux-cpu` lanes were re-validated for real with no skip-sentinels. The remaining gate is the live `linux-cuda` re-run on NVIDIA GPU hardware, which the current Apple Silicon development host cannot provide. | Sprint `13.16` (linux-cuda live re-validation) |
+_Empty._ As of 2026-06-09 every tracked doctrine-deviation and stand-in row has
+moved to `Completed`. The last open row — the `linux-cuda` half of the test
+skip-antipattern guard removal — closed when the live `linux-cuda` lane was
+re-validated for real on the NVIDIA GeForce RTX 5090 host (Sprint `13.16`). Exit
+Definition item 18 (empty legacy ledger) is therefore met and the final handoff
+is complete. New rows are enqueued here only when a future sprint introduces a
+doctrine deviation or a temporary stand-in (per standards rule I / L).
 
 
 ## Pending Removal Notes
@@ -150,18 +155,18 @@ numeric parity surface (tolerance band, parity module, `jitml verify
 cross-backend`, the report-card `cross_substrate_parity` field, the weighted-drift
 and tolerance-band test groups, and the test skip-antipattern guards) leaves the
 contract. On 2026-06-09 the **entire source/code removal landed and was
-validated** on the two lanes the Apple Silicon development host can run: five of
-the six rows moved to `Completed` (tolerance band, parity module,
-`jitml verify cross-backend`, the report-card field, and the weighted-drift /
-tolerance-band test groups), each verified by a clean host + container build,
-`jitml check-code`, `jitml docs check`, `jitml-unit` 193 / 193, the
-`apple-silicon` lane (4 / 4) and the `linux-cpu` lane (10 / 10). The **one
-remaining row** is the `linux-cuda` half of the skip-guard removal: the guard
-code is already deleted, but its live re-run requires NVIDIA GPU hardware (owned
-by Sprint `13.16`) the development host does not provide, so it moves to
-`Completed` only when that GPU lane is re-exercised. Until then Exit Definition
-item 18 (empty legacy ledger) is not yet met and final handoff stays
-incomplete.
+validated**: five of the six rows moved to `Completed` (tolerance band, parity
+module, `jitml verify cross-backend`, the report-card field, and the
+weighted-drift / tolerance-band test groups), each verified by a clean host +
+container build, `jitml check-code`, `jitml docs check`, `jitml-unit` 193 / 193,
+the `apple-silicon` lane (4 / 4) and the `linux-cpu` lane (10 / 10). The **sixth
+and final row** — the `linux-cuda` half of the skip-guard removal — closed the
+same day (Sprint `13.16`): the live GPU re-run landed on the NVIDIA GeForce RTX
+5090 host via the GPU-attached `jitml-cuda` compose service
+(`docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
+--test-options '-p linux-cuda'` → 19 / 19, no skip-sentinels). **All six rows are
+`Completed`, the ledger is empty, Exit Definition item 18 is met, and the final
+handoff is complete.**
 
 Current dependency validation: on 2026-06-04, the project uses GHC `9.12.4`,
 `cabal.project` contains no `allow-newer` stanza and no `source-repository-package`
@@ -187,6 +192,7 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Test skip-antipattern guards — `linux-cuda` half re-validation | Sprint `13.16` (2026-06-09) | The skip branches (`probeCudaRuntime` / `cudaRuntimeAvailable`, `appleLiveReady`, `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn`) and the integration-probe oneDNN-availability assertion were deleted from `test/cross-backend/Main.hs` and `test/integration/Main.hs` on 2026-06-08/09; a missing toolchain now fails by design. The final gate — the live `linux-cuda` re-run on real NVIDIA hardware — landed 2026-06-09 on the NVIDIA GeForce RTX 5090 host (UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`) via the GPU-attached `jitml-cuda` compose service: `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend --test-options '-p linux-cuda'` passed **19 / 19 (12.26s, no skip-sentinels)**, every within-substrate CUDA case a real device PASS (`nvidia-smi -L` reported the matching RTX 5090). With the guards removed, a build without `-fcuda` would hard-FAIL the cuBLAS / cuDNN cases rather than skip them. This was the last open Pending Removal row; with it closed the ledger is empty and Exit Definition item 18 is met. |
 | Cross-substrate per-layer-family tolerance band | Sprint `15.4` (2026-06-09) | `src/JitML/Engines/Tolerance.hs` deleted and removed from `jitml.cabal`. Cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). Validation: project + all test stanzas compile/link clean host-native and under the in-container `-fcuda` library build; container `jitml check-code` and `jitml docs check` green. |
 | Cross-substrate parity cohort / drift / report-bundle module | Sprint `15.4` (2026-06-09) | `src/JitML/CrossBackend/Parity.hs` deleted and removed from `jitml.cabal`; the last consumers (`App.hs` `measureCrossSubstrateParity`, the cross-backend `CrossSubstrate` group) were removed in the same change. Validation: `jitml check-code` + `jitml docs check` green; `jitml-unit` 193 / 193. |
 | `jitml verify cross-backend` CLI command | Sprint `1.13` (2026-06-09) | The `verify` → `cross-backend` leaf removed from `src/JitML/CLI/Spec.hs` and `runVerifyCrossBackend` + helpers removed from `src/JitML/App.hs`. `jitml docs generate` regenerated the README registry/tree, `documents/cli/commands.md`, `documents/engineering/cli_command_surface.md`, the manpage, and the bash/zsh/fish completions with no `verify cross-backend` leaf. Validation: `jitml docs check` (host + container) and container `jitml check-code` green; `jitml-unit` 193 / 193 (leaf-path enumeration drops the leaf). |

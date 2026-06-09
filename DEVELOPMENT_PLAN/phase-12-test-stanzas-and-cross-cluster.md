@@ -25,31 +25,30 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-08 for Sprint `12.10`). The reproducibility
-contract is clarified to "within a substrate: bit-for-bit reproducible;
-across substrates: NO guarantee", so the cross-substrate numeric parity
-surface is removed. Sprint `12.10` realigns `jitml-cross-backend` to
-within-substrate cases only, relocates the two substrate-agnostic
-cross-backend cases into `jitml-unit`, deletes the cross-substrate
-tolerance-band test group from `jitml-unit`, removes the report-card
-`cross_substrate_parity` field, wires substrate-partitioned `jitml test`
-lanes (each substrate's cases run for real in its own
-`--test-options='-p <substrate>'` lane; the six pure-logic stanzas run in
-every lane; NO skipped tests — a missing toolchain fails by design), and
-removes the skip-antipattern guards from the cross-backend / integration
-test bodies. ALL linux-cuda within-substrate cases STAY (CUDA is NOT being
-removed). **The Sprint `12.10` test/report code edits all landed 2026-06-09**
-and were validated on the two lanes the development host can run: the
-`apple-silicon` lane (4 / 4 host-native Metal cases) and the `linux-cpu` lane
-(10 / 10 oneDNN cases in the `jitml` container) each selected exactly their
-substrate's cases with no skip-sentinels, `jitml-unit` passes 193 / 193
-(including the relocated backend-agnostic group), and the container
-`jitml check-code` + `jitml docs check` are green. The phase **stays
-`🔄 Active`** on its one remaining obligation: the `linux-cuda` lane
-(`--test-options='-p linux-cuda' -fcuda` in the `jitml-cuda` GPU container)
-requires NVIDIA GPU hardware the current Apple Silicon development host does
-not provide; it is owned jointly with Sprint `13.16`. The historical
-2026-05-25 closure record is preserved below.
+✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host after
+Sprint `12.10`'s live `linux-cuda` lane re-validation). The phase reopened
+2026-06-08 for Sprint `12.10`. The reproducibility contract is clarified to
+"within a substrate: bit-for-bit reproducible; across substrates: NO
+guarantee", so the cross-substrate numeric parity surface is removed. Sprint
+`12.10` realigns `jitml-cross-backend` to within-substrate cases only,
+relocates the two substrate-agnostic cross-backend cases into `jitml-unit`,
+deletes the cross-substrate tolerance-band test group from `jitml-unit`,
+removes the report-card `cross_substrate_parity` field, wires
+substrate-partitioned `jitml test` lanes (each substrate's cases run for real
+in its own `--test-options='-p <substrate>'` lane; the six pure-logic stanzas
+run in every lane; NO skipped tests — a missing toolchain fails by design), and
+removes the skip-antipattern guards from the cross-backend / integration test
+bodies. ALL linux-cuda within-substrate cases STAY (CUDA is NOT being removed).
+**The Sprint `12.10` test/report code edits all landed 2026-06-09** and were
+validated on every lane: the `apple-silicon` lane (4 / 4 host-native Metal
+cases) and the `linux-cpu` lane (10 / 10 oneDNN cases in the `jitml` container)
+each selected exactly their substrate's cases with no skip-sentinels,
+`jitml-unit` passes 193 / 193 (including the relocated backend-agnostic group),
+the container `jitml check-code` + `jitml docs check` are green, and on
+**2026-06-09 the `linux-cuda` lane was re-validated for real on the RTX 5090**
+(`docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
+--test-options '-p linux-cuda'` → 19 / 19, 12.26s, no skip-sentinels). The
+historical 2026-05-25 closure record is preserved below.
 
 ✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
 eight Cabal test-suite stanzas with deterministic bodies, real-binary
@@ -738,9 +737,9 @@ health, cross-substrate parity tolerance).
   [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
   Sprint `15.2`.
 
-## Sprint 12.10: Substrate-partitioned test lanes; remove the cross-substrate parity test surface [🔄 Active]
+## Sprint 12.10: Substrate-partitioned test lanes; remove the cross-substrate parity test surface ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host after the live `linux-cuda` lane re-validation)
 **Implementation**: `test/cross-backend/Main.hs`, `test/unit/Main.hs`,
 `test/integration/Main.hs`, `src/JitML/Test/Report.hs`, `src/JitML/App.hs`,
 `jitml.cabal` (the `jitml-cross-backend` / `jitml-unit` / `jitml-integration`
@@ -834,12 +833,19 @@ skip-sentinels):
   `--test-options` parse case); the whole edited suite compiles + links clean
   host-native; `jitml docs check` is green. The `linux-cpu` lane and the
   container `jitml check-code` gate run in the `jitml` container.
-- **Outstanding:** the `linux-cuda` lane
-  (`docker compose run --rm jitml-cuda jitml test jitml-cross-backend
-  --test-options='-p linux-cuda' -fcuda`) requires an NVIDIA GPU host, which
-  the current Apple Silicon development host does not provide; it is owned
-  jointly with Sprint `13.16`. The sprint stays `🔄 Active` until that GPU
-  lane is re-validated.
+- **linux-cuda lane re-validated (2026-06-09, RTX 5090):** on the NVIDIA
+  GeForce RTX 5090 host (UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`) the
+  GPU-attached `jitml-cuda` compose service ran the lane for real —
+  `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
+  --test-options '-p linux-cuda'` passed **19 / 19 (12.26s, no skip-sentinels)**,
+  selecting exactly the within-substrate CUDA cases (the `-fcuda` cabal build
+  flag compiles the real cuBLAS / cuDNN bindings, and the GPU lane is driven
+  through the GPU container's `cabal test -fcuda` form per the `jitml-cuda`
+  compose-service contract and every historical CUDA evidence line; the
+  flag-free `jitml test` orchestrator owns the apple-silicon / linux-cpu lanes).
+  This closes the sprint's one remaining obligation — owned jointly with Sprint
+  `13.16`, whose [GPU Re-validation Evidence](phase-13-linux-cuda-and-cluster-closure.md#gpu-re-validation-evidence-2026-06-09-rtx-5090)
+  records the full case list. Sprint `12.10` is `✅ Done`.
 
 ## Doctrine Sections Cited
 

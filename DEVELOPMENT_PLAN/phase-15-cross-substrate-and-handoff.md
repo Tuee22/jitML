@@ -41,27 +41,29 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-08 for Sprint `15.4`). The cross-substrate
-numeric parity surface delivered by Sprints `15.1` and `15.2` is being
-removed because cross-substrate equivalence is out of contract; see Sprint
-`15.4` for the deletions and the determinism-contract reframe. Sprints
-`15.1` and `15.2` are reframed to `🔄 Active — surface removed by Sprint
-15.4`; their historical dated evidence is retained as a dated record below.
-**The Sprint `15.4` deletions and the determinism-contract doc reframe all
-landed 2026-06-09**: `src/JitML/Engines/Tolerance.hs` and
-`src/JitML/CrossBackend/Parity.hs` are deleted (and removed from
-`jitml.cabal`), the `cross_substrate_parity` field / `measureCrossSubstrateParity`
-/ `verify cross-backend` handlers are gone, and the determinism docs are reframed
-to within-substrate-only. `jitml docs check` and the container `jitml check-code`
-are green; the `apple-silicon` (4 / 4) and `linux-cpu` (10 / 10) `jitml test`
-lanes pass; the two `legacy-tracking-for-deletion.md` rows this sprint owns
-(`Tolerance.hs`, `CrossBackend.Parity`) move to `Completed`. The phase **stays
-`🔄 Active`** because the determinism claim is validated per substrate by Phases
-`13`/`14` and the `linux-cuda` lane (`jitml test all` on the GPU substrate)
-requires NVIDIA hardware the current Apple Silicon development host does not
-provide; Exit Definition item 18 (empty legacy ledger) is therefore not yet
-fully met while the GPU-lane re-validation rows owned by Sprints `12.10` /
-`13.16` remain open.
+✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
+`GPU-e764ef97-32d7-4981-c348-029983c64073`). The phase reopened 2026-06-08 for
+Sprint `15.4`. The cross-substrate numeric parity surface delivered by Sprints
+`15.1` and `15.2` is removed because cross-substrate equivalence is out of
+contract; see Sprint `15.4` for the deletions and the determinism-contract
+reframe. Sprints `15.1` and `15.2` are re-closed `✅ Done` as **superseded by
+Sprint `15.4`** (their delivered surface is removed; their historical dated
+evidence is retained as a dated record below). **The Sprint `15.4` deletions and
+the determinism-contract doc reframe all landed 2026-06-09**:
+`src/JitML/Engines/Tolerance.hs` and `src/JitML/CrossBackend/Parity.hs` are
+deleted (and removed from `jitml.cabal`), the `cross_substrate_parity` field /
+`measureCrossSubstrateParity` / `verify cross-backend` handlers are gone, and
+the determinism docs are reframed to within-substrate-only. `jitml docs check`
+and the container `jitml check-code` are green; the within-substrate determinism
+claim is validated per substrate by Phases `13`/`14` and all three `jitml test`
+lanes pass for real — the `apple-silicon` (4 / 4) and `linux-cpu` (10 / 10)
+lanes, and on **2026-06-09 the `linux-cuda` lane on the RTX 5090**
+(`docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
+--test-options '-p linux-cuda'` → 19 / 19, 12.26s, no skip-sentinels). With that
+GPU lane landed, **Exit Definition item 18 (empty legacy ledger) is fully met**:
+every `legacy-tracking-for-deletion.md` row — including the last open
+`linux-cuda` half of the skip-guard removal owned jointly with Sprints `12.10` /
+`13.16` — is now `Completed`, so the final handoff is complete.
 
 The pre-reopen ✅ Done evidence is retained verbatim below as the dated
 historical record.
@@ -165,7 +167,7 @@ least their inference-producing sprints. The work is live cohort
 execution + tolerance assertion + final report-card population + ledger
 sweep-up.
 
-## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands 🔄
+## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands ✅
 
 > **SUPERSEDED — surface removed by Sprint `15.4`.** The surface this
 > sprint delivered (the `src/JitML/Engines/Tolerance.hs` per-layer-family
@@ -175,7 +177,7 @@ sweep-up.
 > determinism contract (cross-substrate equivalence is not guaranteed). The
 > content below is retained as a dated historical record only.
 
-**Status**: 🔄 Active — surface removed by Sprint `15.4` (was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090)
+**Status**: Done — superseded by Sprint `15.4` (surface removed 2026-06-09; was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090)
 **Implementation**: `src/JitML/CrossBackend/Parity.hs`,
 `src/JitML/App.hs`, `src/JitML/CLI/Spec.hs`,
 `test/cross-backend/Main.hs`,
@@ -312,7 +314,7 @@ authoritatively encode whichever substrate ran the calibration first.
   `2.384185791015625e-7` / `5e-4`, `layernorm` `0.0` / `5e-4`, `mha`
   `0.0` / `2e-3`, and `embedding` `0.0` / `1e-6`; every family passed.
 
-## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics 🔄
+## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics ✅
 
 > **PARTIALLY SUPERSEDED — `cross_substrate_parity` field removed by Sprint
 > `15.4`.** The report-card `cross_substrate_parity` measured field this
@@ -322,7 +324,7 @@ authoritatively encode whichever substrate ran the calibration first.
 > rate, daemon health) survives as a within-substrate obligation. The
 > content below is retained as a dated historical record only.
 
-**Status**: 🔄 Active — `cross_substrate_parity` field removed by Sprint `15.4` (was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090, 2026-06-04)
+**Status**: Done — `cross_substrate_parity` field removed by Sprint `15.4` (2026-06-09); the rest of the live report card survives as a within-substrate obligation (was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090, 2026-06-04)
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Test/Report.hs`,
 `src/JitML/CLI/Spec.hs`, `cabal.project`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -597,9 +599,9 @@ Definition item 18.
 
 None.
 
-## Sprint 15.4: Remove the cross-substrate parity surface; reframe the determinism contract to within-substrate-only [🔄 Active]
+## Sprint 15.4: Remove the cross-substrate parity surface; reframe the determinism contract to within-substrate-only ✅
 
-**Status**: 🔄 Active
+**Status**: Done (closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host after the live `linux-cuda` lane re-validation and the full legacy-ledger sweep)
 **Implementation**: deletions in `src/JitML/Engines/Tolerance.hs`,
 `src/JitML/CrossBackend/Parity.hs`,
 `test/cross-backend/Main.hs` (the `CrossSubstrate` drift group),
@@ -649,7 +651,7 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
    drift/tolerance groups no longer exist).
 3. Container `jitml check-code` passes after the source deletions.
 
-### Remaining Work
+### Closure Evidence
 
 - **The code deletions have landed** (2026-06-08): `src/JitML/Engines/Tolerance.hs`
   and `src/JitML/CrossBackend/Parity.hs` are deleted (and removed from
@@ -667,17 +669,27 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
   reproducibility with an explicit no-cross-substrate-guarantee statement and
   carry no cross-substrate numeric-parity surface. `jitml docs check` is green
   host-native; the whole project compiles + links clean.
-- **Outstanding:** Validation `2` (`jitml test all` on the per-substrate
-  lanes) is complete for the `apple-silicon` lane (4 / 4 host-native) and the
-  `linux-cpu` lane + container `jitml check-code` (`jitml` container); the
-  `linux-cuda` lane requires an NVIDIA GPU host the current Apple Silicon
-  development host does not provide (owned jointly with Sprints `12.10` /
-  `13.16`). Exit Definition item 18 (empty legacy ledger) is met for this
-  sprint's own rows (`Tolerance.hs`, `CrossBackend.Parity` moved to
-  `Completed`), but the ledger is not yet fully empty while the GPU-lane
-  re-validation rows owned by `12.10` / `13.16` remain open. The sprint stays
-  `🔄 Active` until the `linux-cuda` lane is re-validated and the ledger is
-  fully swept.
+- **Closed (2026-06-09, RTX 5090):** Validation `2` (`jitml test all` on the
+  per-substrate lanes — the cross-substrate drift/tolerance groups no longer
+  exist) is complete for all three lanes: the `apple-silicon` lane (4 / 4
+  host-native), the `linux-cpu` lane (10 / 10 through the canonical `jitml test`
+  surface) + container `jitml check-code`, and now the `linux-cuda` lane,
+  re-validated for real on the NVIDIA GeForce RTX 5090 host (UUID
+  `GPU-e764ef97-32d7-4981-c348-029983c64073`) via the GPU-attached `jitml-cuda`
+  compose service — `docker compose run --rm jitml-cuda cabal test -fcuda
+  jitml-cross-backend --test-options '-p linux-cuda'` → 19 / 19 (12.26s, no
+  skip-sentinels). Exit Definition item 18 (empty legacy ledger) is now fully
+  met: this sprint's own rows (`Tolerance.hs`, `CrossBackend.Parity`) were
+  already `Completed`, and the last open row — the `linux-cuda` half of the
+  skip-guard removal owned jointly with Sprints `12.10` / `13.16` — moved to
+  `Completed` when the GPU lane landed. The ledger is fully swept and the sprint
+  is `✅ Done`.
+
+### Remaining Work
+
+- None. The cross-substrate parity surface is removed, the determinism contract
+  is reframed to within-substrate-only, all three per-substrate lanes pass for
+  real, and the legacy ledger is empty (Exit Definition item 18 met).
 
 ## Doctrine Sections Cited
 
@@ -736,11 +748,13 @@ removals.
 
 **Legacy ledger (rule G — Pending Removal rows owned by this phase):**
 
-- `legacy-tracking-for-deletion.md` Pending Removal rows owned by Sprint
-  `15.4`: `src/JitML/Engines/Tolerance.hs` (per-layer-family tolerance
-  band) and `src/JitML/CrossBackend/Parity.hs` (weighted cross-substrate
-  cohort). These rows must move to Completed before Exit Definition item
-  18 (empty legacy ledger) is met and the phase can re-close.
+- `legacy-tracking-for-deletion.md` rows owned by Sprint `15.4`:
+  `src/JitML/Engines/Tolerance.hs` (per-layer-family tolerance band) and
+  `src/JitML/CrossBackend/Parity.hs` (weighted cross-substrate cohort).
+  **Both moved to `Completed` on 2026-06-09**, and with the last unrelated row
+  (the `linux-cuda` skip-guard half, Sprint `13.16`) also swept to `Completed`
+  the same day, the ledger is empty — Exit Definition item 18 is met and the
+  phase has re-closed.
 
 ## Related Documents
 

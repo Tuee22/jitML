@@ -26,28 +26,27 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-08 for Sprint 13.16 — re-validate the
-linux-cuda lane runs for real with the skip guards removed). The
-reproducibility contract is now "within a substrate: bit-for-bit
+✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
+`GPU-e764ef97-32d7-4981-c348-029983c64073`, after Sprint 13.16's live
+`linux-cuda` lane re-validation). The phase reopened 2026-06-08 for Sprint
+13.16 — re-validate the linux-cuda lane runs for real with the skip guards
+removed. The reproducibility contract is now "within a substrate: bit-for-bit
 reproducible; across substrates: NO guarantee"; the cross-substrate numeric
-parity surface is removed and the test suite is partitioned so each
-substrate's cases run **for real** in its own lane with **no skipped tests**.
-The skip-antipattern guards in the test bodies
-(`probeCudaRuntime` / `cudaRuntimeAvailable`,
-`cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn`) are removed from
-`test/cross-backend/Main.hs` — a missing toolchain now **fails** rather than
-skips. Within-substrate bit-for-bit reproducibility tests **stay** (CUDA is
-**not** removed). **The guard-removal + suite-partitioning code landed
-2026-06-09** (the cuBLAS / cuDNN cases are renamed with the `linux-cuda` lane
-prefix so `-p linux-cuda` selects them; the whole stanza compiles + links clean
-host-native and under the in-container `-fcuda` library build), so Sprint 13.16's
-only remaining obligation is the live GPU re-run. Per Plan Standards rule C the
-linux-cuda live-test execution obligation stays Active until that lane is
-re-exercised on real NVIDIA hardware (the
-`docker compose run --rm jitml-cuda jitml test jitml-cross-backend
---test-options='-p linux-cuda' -fcuda` command), which the current Apple Silicon
-development host cannot provide. All historical dated evidence below
-(RTX 3090, RTX 5090) is retained intact as a dated record.
+parity surface is removed and the test suite is partitioned so each substrate's
+cases run **for real** in its own lane with **no skipped tests**. The
+skip-antipattern guards in the test bodies (`probeCudaRuntime` /
+`cudaRuntimeAvailable`, `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn`)
+are removed from `test/cross-backend/Main.hs` — a missing toolchain now
+**fails** rather than skips. Within-substrate bit-for-bit reproducibility tests
+**stay** (CUDA is **not** removed). The guard-removal + suite-partitioning code
+landed 2026-06-09 (the cuBLAS / cuDNN cases are renamed with the `linux-cuda`
+lane prefix so `-p linux-cuda` selects them), and on **2026-06-09 the live GPU
+re-run landed on this RTX 5090 host**:
+`docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
+--test-options '-p linux-cuda'` passed **19 / 19 (12.26s, no skip-sentinels)`.
+See [Sprint 13.16 → GPU Re-validation Evidence](#gpu-re-validation-evidence-2026-06-09-rtx-5090)
+for the full evidence. All historical dated evidence below (RTX 3090, RTX 5090)
+is retained intact as a dated record.
 
 Previously ✅ **Done** (re-validated 2026-06-06 on the current **NVIDIA GeForce RTX 5090**
 host; previously Done 2026-05-30 on an RTX 3090). This phase consolidates every
@@ -3883,9 +3882,9 @@ linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Spr
 
 - None remaining for Sprint 13.15. Sprint closed 2026-05-27.
 
-## Sprint 13.16: Re-validate the linux-cuda lane runs for real with the skip guards removed [🔄 Active]
+## Sprint 13.16: Re-validate the linux-cuda lane runs for real with the skip guards removed ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`)
 **Implementation**: `test/cross-backend/Main.hs`
 **Docs to update**: `documents/engineering/determinism_contract.md`,
 `documents/engineering/unit_testing_policy.md`
@@ -3915,29 +3914,57 @@ removed.
 
 ### Validation
 
-1. `docker compose run --rm jitml-cuda jitml test jitml-cross-backend --test-options='-p linux-cuda' -fcuda`
+1. `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend --test-options '-p linux-cuda'`
    runs every linux-cuda case as a real PASS (no skip-sentinels) in the
    GPU-attached `jitml-cuda` container; absence of the GPU/toolchain fails the
-   lane rather than skipping it.
+   lane rather than skipping it. (`-fcuda` is the `cabal` build flag that
+   compiles the real cuBLAS / cuDNN bindings — off by default to keep the
+   headless `jitml` baseline warning-clean — so the GPU lane is driven through
+   the GPU container's `cabal test -fcuda` form per the `jitml-cuda`
+   compose-service contract, not through the flag-free `jitml test` orchestrator
+   that owns the apple-silicon / linux-cpu lanes.)
+
+### GPU Re-validation Evidence (2026-06-09, RTX 5090)
+
+The sole remaining obligation — the live `linux-cuda` lane on real NVIDIA
+hardware — was exercised and **passed** on the NVIDIA GeForce RTX 5090 host
+(UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8, Ubuntu 24.04,
+Docker 29.5.1). The lane was run in the GPU-attached `jitml-cuda` compose
+service (which exposes the host GPU via the NVIDIA Container Runtime; host
+`nvcc` is never installed, see [../CLAUDE.md](../CLAUDE.md)). `nvidia-smi -L`
+inside the service reported the RTX 5090 (matching UUID) before the run.
+
+The `-fcuda` build flag is a `cabal` build flag (it sets
+`-DJITML_CUDA_BINDINGS=1`, compiling the real cuBLAS / cuDNN Haskell bindings;
+it is off by default so the headless `jitml` baseline stays warning-clean and
+CUDA-free), so the lane is driven through the GPU container's `cabal test
+-fcuda` form — the same methodology every historical CUDA evidence line in this
+plan and the `jitml-cuda` compose-service comment use — rather than through the
+flag-free `jitml test` orchestrator that owns the apple-silicon / linux-cpu
+lanes:
+
+```
+docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend --test-options '-p linux-cuda'
+```
+
+Result: **All 19 tests passed (12.26s)**, `Test suite jitml-cross-backend:
+PASS`, with **no skip-sentinels** — every selected case is a real device PASS:
+the nvcc generated-kernel compile + FFI load, the warp-shuffle reduction
+kernel, kernel bit-equality across repeated runs, the weighted Dense2D device
+GEMM, cuBLAS and cuDNN binding version init, the benchmark candidate runner, MLP
+forward / backward / batched-gradient kernels, the PPO / DQN / QR-DQN / HER /
+DDPG batched device trainers, and AlphaZero `PolicyValueNet` device training.
+With the `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn` guards removed, a
+build without `-fcuda` would now hard-FAIL the cuBLAS / cuDNN cases
+(`verifyCublasRuntime` / `verifyCudnnRuntime` return `Left (-2)` when
+`JITML_CUDA_BINDINGS` is absent) rather than skip them — the fail-by-design
+contract holds.
 
 ### Remaining Work
 
-- **The code has landed** (2026-06-08): the `probeCudaRuntime` /
-  `cudaRuntimeAvailable` and `cublasBindingsCompiledIn` /
-  `cudnnBindingsCompiledIn` skip-guard branches are removed from
-  `test/cross-backend/Main.hs`, the cuBLAS / cuDNN cases are renamed with the
-  `linux-cuda` lane prefix so `-p linux-cuda` selects them, and the suite is
-  partitioned by substrate id. The whole stanza compiles and links clean
-  host-native (CUDA-stub build) and the apple-silicon + linux-cpu lanes were
-  re-validated for real (Sprints `14.6` / `12.10`).
-- **GPU re-validation is outstanding** and is the sole remaining obligation:
-  it requires an NVIDIA GPU host with the CUDA toolkit + cuDNN + an attached
-  device through the `jitml-cuda` compose service, which the current Apple
-  Silicon development host does not provide. On that hardware, run
-  `docker compose run --rm jitml-cuda jitml test jitml-cross-backend --test-options='-p linux-cuda' -fcuda`
-  and record the dated PASS evidence here; absence of the GPU/toolchain must
-  fail the lane rather than skip it. The sprint stays `🔄 Active` until that
-  run lands.
+- None. The `linux-cuda` lane was re-validated for real on the RTX 5090 on
+  2026-06-09 (19 / 19, no skip-sentinels); the skip-guard removal is complete
+  and the sprint is `✅ Done`.
 
 ## Doctrine Sections Cited
 

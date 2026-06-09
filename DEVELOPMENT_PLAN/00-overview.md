@@ -831,8 +831,8 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0`–`11` and `14` are `✅ Done`; **Phases `12`, `13`, and `15` remain
-`🔄 Active`.** All five reopened `🔄 Active` on 2026-06-08 to remove the
+**All Phases `0`–`15` are `✅ Done`.** Phases `1`, `12`, `13`, `14`, and `15`
+reopened `🔄 Active` on 2026-06-08 to remove the
 cross-substrate numeric parity surface after the reproducibility contract was
 clarified to within-substrate bit-for-bit only (across substrates there is no
 guarantee — RNG draws and float reduction order differ). The reopened sprints are
@@ -847,13 +847,22 @@ only). **On 2026-06-09 the full source/code removal landed and was validated** o
 the `apple-silicon` lane (4 / 4 host-native) and the `linux-cpu` lane (10 / 10 in
 the `jitml` container), plus `jitml-unit` 193 / 193, container `jitml check-code`,
 and `jitml docs check` — all green. Sprints `1.13` and `14.6` re-closed `✅ Done`.
-Sprints `12.10` / `13.16` / `15.4` stay `🔄 Active` on one shared remaining
-obligation: the live `linux-cuda` lane (`--test-options='-p linux-cuda' -fcuda`
-in the `jitml-cuda` GPU container) needs NVIDIA hardware the Apple Silicon
-development host does not provide. Final handoff is incomplete until that lane is
-re-exercised (Exit item 18: one `Pending Removal` row — the `linux-cuda` half of
-the skip-guard removal — remains; the other five parity-removal rows moved to
-`Completed`). The earlier reopen history stands
+Sprints `12.10` / `13.16` / `15.4` then closed their one shared remaining
+obligation on **2026-06-09**: the live `linux-cuda` lane was re-validated for
+real on the NVIDIA GeForce RTX 5090 host (UUID
+`GPU-e764ef97-32d7-4981-c348-029983c64073`) via the GPU-attached `jitml-cuda`
+compose service —
+`docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
+--test-options '-p linux-cuda'` passed **19 / 19 (12.26s, no skip-sentinels)**,
+every within-substrate CUDA case a real device PASS. (`-fcuda` is the `cabal`
+build flag compiling the real cuBLAS / cuDNN bindings — off by default to keep
+the headless `jitml` baseline warning-clean — so the GPU lane runs through the
+GPU container's `cabal test -fcuda` form, while the flag-free `jitml test`
+orchestrator owns the apple-silicon / linux-cpu lanes.) With that run, **Sprints
+`12.10` / `13.16` / `15.4` re-closed `✅ Done`, the last `Pending Removal` row
+(the `linux-cuda` half of the skip-guard removal) moved to `Completed`, the
+legacy ledger is empty, Exit Definition item 18 is met, and final handoff is
+complete.** The earlier reopen history stands
 as dated record: **Phase `13` (all 15 sprints) and Phase `15` Sprints
 `15.1`/`15.2` reopened `🔄 Active` on 2026-06-06 and re-closed `✅ Done` the
 same day** (Sprint `15.3` stayed `✅ Done`) after re-validating the live CUDA,
