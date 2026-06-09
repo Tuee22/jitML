@@ -46,7 +46,12 @@ module JitML.RL.Algorithms.PpoTrainer
   , trainPpoOnCartpole
   , trainOnPolicyOnCartpole
   , trainPpoOnCartpoleCuda
+  , trainPpoOnCartpoleOneDnn
+  , trainPpoOnCartpoleMetal
   , trainOnPolicyOnCartpoleCuda
+  , trainOnPolicyOnCartpoleOneDnn
+  , trainOnPolicyOnCartpoleMetal
+  , trainOnPolicyOnDevice
   , collectRollout
   , rolloutSummary
 
@@ -81,7 +86,10 @@ import JitML.Numerics.Mlp
   , sampleCategorical
   , softmax
   )
-import JitML.Numerics.MlpCuda (mlpBatchGradientCuda, mlpForwardBatchCuda)
+import JitML.Numerics.MlpCuda (cudaMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..))
+import JitML.Numerics.MlpMetal (metalMlpDevice)
+import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Simulator
   ( CartPoleState (..)
   , SimStep (..)
@@ -363,8 +371,8 @@ ppoSingleStep config params adam step advantage target =
 -- | The per-sample policy/value loss-gradient head: given the network's
 -- softmax policy and tanh value for one rollout step, plus the step's
 -- advantage and value target, return @(dL/dlogits, dL/dvalue)@. Factored
--- out of 'ppoSingleStep' so the pure CPU path and the batched CUDA path
--- ('ppoUpdateCuda') compute the identical loss-gradient head; only the
+-- out of 'ppoSingleStep' so the pure CPU path and the batched device path
+-- ('ppoUpdateDevice') compute the identical loss-gradient head; only the
 -- backward kernel backend differs. Behaviour-preserving for the pure path.
 ppoHeadGradient
   :: PpoTrainConfig
@@ -469,22 +477,54 @@ trainPpoOnCartpole config = do
       }
 
 -- | Sprint 13.8 — train any on-policy variant on cartpole with the
--- network forward + backward running on the GPU through the batched device
--- primitives (`mlpForwardBatchCuda` / `mlpBatchGradientCuda`). Unlike the
--- pure 'ppoUpdate' (per-sample online SGD, inherently sequential), the
--- CUDA path uses proper /minibatch/ gradients — fixed params over a
--- minibatch, one batched device forward + one batched device backward, one
--- Adam step — so each minibatch is a single host↔device round-trip. The
--- loss-gradient head ('ppoHeadGradient') is shared with the pure path; only
--- the kernel backend differs. Returns 'Left' when the CUDA runtime/compile
--- is unavailable so callers can fall back to 'trainOnPolicyOnCartpole'.
+-- network forward + backward running on the GPU through the batched CUDA
+-- device ('cudaMlpDevice'). Unlike the pure 'ppoUpdate' (per-sample online
+-- SGD, inherently sequential), the device path uses proper /minibatch/
+-- gradients — fixed params over a minibatch, one batched device forward + one
+-- batched device backward, one Adam step — so each minibatch is a single
+-- host↔device round-trip. The loss-gradient head ('ppoHeadGradient') is shared
+-- with the pure path; only the kernel backend differs. Returns 'Left' when the
+-- CUDA runtime/compile is unavailable so callers can fall back to
+-- 'trainOnPolicyOnCartpole'.
 trainOnPolicyOnCartpoleCuda
   :: Env -> OnPolicyVariant -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
-trainOnPolicyOnCartpoleCuda env variant config =
-  trainPpoOnCartpoleCuda env config {ppoVariant = variant}
+trainOnPolicyOnCartpoleCuda env = trainOnPolicyOnDevice (cudaMlpDevice env)
+
+-- | Train any on-policy variant on cartpole through the oneDNN (linux-cpu)
+-- MLP device.
+trainOnPolicyOnCartpoleOneDnn
+  :: Env -> OnPolicyVariant -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainOnPolicyOnCartpoleOneDnn env = trainOnPolicyOnDevice (oneDnnMlpDevice env)
+
+-- | Train any on-policy variant on cartpole through the Metal (apple-silicon)
+-- MLP device.
+trainOnPolicyOnCartpoleMetal
+  :: Env -> OnPolicyVariant -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainOnPolicyOnCartpoleMetal env = trainOnPolicyOnDevice (metalMlpDevice env)
+
+-- | Train any on-policy variant on cartpole through an injected MLP device
+-- backend. The rollout collection, GAE, and Adam loop are shared with the pure
+-- 'trainOnPolicyOnCartpole'; only the minibatch gradient update runs on the
+-- device ('ppoUpdateDevice'). The loss-gradient head ('ppoHeadGradient') is
+-- shared with the pure path.
+trainOnPolicyOnDevice
+  :: MlpDevice -> OnPolicyVariant -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainOnPolicyOnDevice device variant config =
+  trainPpoOnDevice device config {ppoVariant = variant}
 
 trainPpoOnCartpoleCuda :: Env -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
-trainPpoOnCartpoleCuda env config = do
+trainPpoOnCartpoleCuda env = trainPpoOnDevice (cudaMlpDevice env)
+
+-- | Train PPO on cartpole through the oneDNN (linux-cpu) MLP device.
+trainPpoOnCartpoleOneDnn :: Env -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainPpoOnCartpoleOneDnn env = trainPpoOnDevice (oneDnnMlpDevice env)
+
+-- | Train PPO on cartpole through the Metal (apple-silicon) MLP device.
+trainPpoOnCartpoleMetal :: Env -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainPpoOnCartpoleMetal env = trainPpoOnDevice (metalMlpDevice env)
+
+trainPpoOnDevice :: MlpDevice -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
+trainPpoOnDevice device config = do
   let shape =
         MlpShape
           { mlpInputs = ppoObsSize config
@@ -523,7 +563,7 @@ trainPpoOnCartpoleCuda env config = do
     let (advs, targets) = computeAdvantages config rollout
         normAdvs = standardise advs
         triples = zip3 (rolloutSteps rollout) normAdvs targets
-    updated <- ppoUpdateCuda env config params adam triples
+    updated <- ppoUpdateDevice device config params adam triples
     case updated of
       Left e -> pure (Left e)
       Right (paramsAfter, adamAfter) ->
@@ -533,20 +573,21 @@ trainPpoOnCartpoleCuda env config = do
                   (nextState, nextGen, paramsAfter, adamAfter, stats <> [stat], paramsAfter)
               )
 
--- | Minibatch on-policy update through the batched CUDA primitives. For
+-- | Minibatch on-policy update through an injected MLP device's batched
+-- primitives. For
 -- each epoch, the rollout is split into minibatches; each minibatch runs
 -- one batched device forward (to obtain the per-sample policy/value
 -- outputs), computes the per-sample loss-gradient head on the host, runs
 -- one batched device backward (the mean gradient over the minibatch), and
 -- applies one Adam step. TRPO's per-epoch KL trust-region gate is honoured.
-ppoUpdateCuda
-  :: Env
+ppoUpdateDevice
+  :: MlpDevice
   -> PpoTrainConfig
   -> MlpParams
   -> AdamState
   -> [(RolloutStep, Double, Double)]
   -> IO (Either Text (MlpParams, AdamState))
-ppoUpdateCuda env config params0 adam0 batch =
+ppoUpdateDevice device config params0 adam0 batch =
   foldM runEpoch (Right (params0, adam0)) [1 .. ppoEpochsPerUpdate config]
  where
   adamConfig = defaultAdamConfig {adamLearningRate = ppoLearningRate config}
@@ -562,7 +603,7 @@ ppoUpdateCuda env config params0 adam0 batch =
   runMinibatch (Left e) _ = pure (Left e)
   runMinibatch (Right (params, adam)) [] = pure (Right (params, adam))
   runMinibatch (Right (params, adam)) mb = do
-    forwardResult <- mlpForwardBatchCuda env params [rsObs s | (s, _, _) <- mb]
+    forwardResult <- mlpdForwardBatch device params [rsObs s | (s, _, _) <- mb]
     case forwardResult of
       Left e -> pure (Left e)
       Right outs -> do
@@ -570,7 +611,7 @@ ppoUpdateCuda env config params0 adam0 batch =
               [ (rsObs s, fullOutputGradient out s adv target)
               | ((s, adv, target), out) <- zip mb outs
               ]
-        gradResult <- mlpBatchGradientCuda env params pairs
+        gradResult <- mlpdBatchGradient device params pairs
         case gradResult of
           Left e -> pure (Left e)
           Right summed ->

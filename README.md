@@ -722,7 +722,7 @@ mindmap
       jitml-sl-canonicals
       jitml-rl-canonicals
       jitml-hyperparameter
-      jitml-cross-backend
+      jitml-backends
       jitml-daemon-lifecycle
       jitml-e2e
     lint
@@ -786,7 +786,7 @@ mindmap
 | `jitml test jitml-sl-canonicals` | Run jitml-sl-canonicals. | `jitml test jitml-sl-canonicals [--test-options <text>]` |
 | `jitml test jitml-rl-canonicals` | Run jitml-rl-canonicals. | `jitml test jitml-rl-canonicals [--test-options <text>]` |
 | `jitml test jitml-hyperparameter` | Run jitml-hyperparameter. | `jitml test jitml-hyperparameter [--test-options <text>]` |
-| `jitml test jitml-cross-backend` | Run jitml-cross-backend. | `jitml test jitml-cross-backend [--test-options <text>]` |
+| `jitml test jitml-backends` | Run jitml-backends. | `jitml test jitml-backends [--test-options <text>]` |
 | `jitml test jitml-daemon-lifecycle` | Run jitml-daemon-lifecycle. | `jitml test jitml-daemon-lifecycle [--test-options <text>]` |
 | `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e [--test-options <text>]` |
 | `jitml lint files` | Run file hygiene checks. | `jitml lint files [--write]` |
@@ -2230,7 +2230,7 @@ under `jitml lint *` / `jitml check-code`.
 | Parser | `jitml-unit` |
 | Property | `jitml-unit` |
 | Snapshot (pure-renderer output only) | `jitml-unit` |
-| Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` (the four `*-canonicals` and the HPO stanza are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
+| Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends` (the four `*-canonicals` and the HPO stanza are project-specific Integration per doctrine §Test Organization → project-specific stanzas) |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
 | Ephemeral-Cluster Infrastructure | `jitml-e2e` |
 
@@ -2243,7 +2243,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): run-to-run determinism, statistical convergence against a literature-derived threshold, and per-epoch property checks — no committed numerical fixtures |
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: run-to-run determinism, statistical convergence (median over k seeds ≥ in-code threshold), replay-from-checkpoint determinism, and per-evaluation curve property checks — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
-| `jitml-cross-backend` | Integration (project-specific) | `TestCrossBackend` | per-substrate engine behaviour run for real in its own lane: current local engine flags, within-substrate checkpoint inference reproducibility, Linux CPU oneDNN primitive compile/load/run, exported family/output-count symbol verification, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests (run-to-run). No cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
+| `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon host-native Metal; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected via `--test-options='-p <substrate>'`, **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, and tears down via `jitml cluster down`; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
 
@@ -2257,7 +2257,7 @@ typed report-card block. The canonical code-quality gate runs separately inside
 
 Notes on the mapping:
 
-- jitML's project-specific stanzas (`sl-canonicals`, `rl-canonicals`, `hyperparameter`, `cross-backend`) are **Integration extensions**, not parallel test systems.
+- jitML's project-specific stanzas (`sl-canonicals`, `rl-canonicals`, `hyperparameter`, `backends`) are **Integration extensions**, not parallel test systems.
 - Every stanza uses `type: exitcode-stdio-1.0` (doctrine §Standard Testing Stack): the test binary signals pass/fail by exit code, which is the only contract Cabal needs to schedule and aggregate stanzas in parallel. Each stanza's `main-is` is a thin `Main.hs` calling into a library module where the tests live.
 - Single `tasty` trees across stanzas are forbidden (doctrine §Test Organization): separate stanzas give Cabal-native parallelism, let CI and developers target one tier (`cabal test jitml-unit`), and isolate dependency creep so heavy integration deps do not leak into the unit suite.
 

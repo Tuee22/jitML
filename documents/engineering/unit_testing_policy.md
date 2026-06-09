@@ -45,7 +45,7 @@ cluster validation remains phase-gated:
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix as property tests over the typed `TrainingLifecycle` — loss is finite, decreases monotonically over the budget, and the median over `k` seeds clears a literature-derived sanity threshold computed at test time — dataset fetch verification, and Training command/event envelope round-trips. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 12.3 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog as property tests (finite-and-decreasing loss, finite gradients, monotone evaluator reward over a sliding window, run-to-run bit-identical trajectory on the same substrate / same seed), the canonical-game RL surface (legal-move generation, terminal detection, draw conditions), and RL command/event envelope round-trips. No per-substrate trajectory or reward-distribution fixtures are committed. | Integration (project-specific) | Sprint 12.4 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), and Tune command/event envelope round-trips. Sampler trial values are checked as properties (e.g. resume equality, sampler-state purity, scheduler ordering invariants) rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
-| `jitml-cross-backend` | `test/cross-backend/Main.hs` covers per-substrate **within-substrate** determinism: engine determinism flags, checkpoint inference summaries, generated kernel compile/load/run, exported family/output-count symbol verification, and `HasEngine` dispatch — each substrate's cases run **for real** in their own lane (Apple host-native; linux-cpu in the `jitml` container; linux-cuda in the `jitml-cuda` GPU container), selected via `--test-options='-p <substrate>'`, with **no skipped tests** and no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
+| `jitml-backends` | `test/backends/Main.hs` covers per-substrate JIT backend validation, **symmetric across all three backends**: generated kernel compile/load/run + family/output-count symbols, weighted-family numeric correctness vs the pure `JitML.Numerics.FamilyReference` oracle, MLP forward/backward/batched-gradient/input-gradient vs the pure `JitML.Numerics.Mlp` network, the PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence — each substrate's cases run **for real** in their own lane (Apple host-native Metal; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA in the `jitml-cuda` GPU container), selected via `--test-options='-p <substrate>'`, with **no skipped tests**. Correctness is asserted within-lane against the in-process pure-Haskell oracle within `1e-3`; no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, inference request/result protobuf byte round-trips, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
 | `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, and typed live-plan surfaces | Ephemeral-Cluster Infrastructure | Sprint 12.8 |
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
@@ -60,11 +60,11 @@ runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 | Parser | `jitml-unit` |
 | Property | `jitml-unit` |
 | Snapshot (pure-renderer output only) | `jitml-unit` |
-| Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend` |
+| Integration | `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends` |
 | Daemon Lifecycle | `jitml-daemon-lifecycle` |
 | Ephemeral-Cluster Infrastructure | `jitml-e2e` |
 
-The four `*-canonicals`/HPO/cross-backend rows are **project-specific
+The four `*-canonicals`/HPO/backends rows are **project-specific
 Integration** stanzas under doctrine §Test Organization's project-specific
 stanzas allowance — extensions of the Integration category, not parallel
 test systems.
@@ -136,7 +136,7 @@ sampler-label parsing, the `experiments/mnist-tune.dhall` TPE
 worked-example decode, and Tune command/event envelope round-trips. No
 committed numerical trial-value fixtures.
 
-### `jitml-cross-backend` — per-substrate within-substrate determinism
+### `jitml-backends` — per-substrate within-substrate determinism
 
 The current body checks that every local substrate has deterministic engine
 flags and that the local `inferFromManifest` helper returns the same summary
@@ -155,7 +155,7 @@ asserted (RNG draws + float reduction order differ across substrates per
 Each substrate's cases run **for real** in their own lane and **none are
 skipped**: Apple Metal runs host-native, `linux-cpu` oneDNN runs in the
 `jitml` container, and `linux-cuda` runs in the `jitml-cuda` GPU container.
-A lane is selected with `jitml test jitml-cross-backend
+A lane is selected with `jitml test jitml-backends
 --test-options='-p <substrate>'`. Within-substrate bit-for-bit
 reproducibility is the only equality asserted here.
 
@@ -169,7 +169,7 @@ Metal benchmark-runner preflight checks. On `apple-silicon` the live Metal/Swift
 compile-and-execute path these probes guard runs **headless on the host**: the
 CommandLineTools `swift build` produces the glue dylib and the launcher
 JIT-compiles the Metal shader at runtime via `MTLDevice.makeLibrary(source:)` —
-no Tart VM, no full Xcode. The Apple `jitml-cross-backend` lane runs
+no Tart VM, no full Xcode. The Apple `jitml-backends` lane runs
 host-native on `apple-silicon` where a Metal device is usable headless; each
 substrate's lane runs its own cases for real with no skipped tests. See
 [../engineering/jit_codegen_architecture.md → Apple Silicon Headless JIT](../engineering/jit_codegen_architecture.md#apple-silicon-headless-jit).

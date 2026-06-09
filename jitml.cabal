@@ -47,6 +47,8 @@ library
         JitML.Codegen.KernelFamily
         JitML.Codegen.Metal
         JitML.Codegen.MlpCuda
+        JitML.Codegen.MlpMetal
+        JitML.Codegen.MlpOneDnn
         JitML.Codegen.OneDnn
         JitML.Codegen.RuntimeSource
         JitML.Codegen.SourceFile
@@ -95,8 +97,12 @@ library
         JitML.Lint.Stack
         JitML.Lint.Stack.Types
         JitML.Numerics.Catalog
+        JitML.Numerics.FamilyReference
         JitML.Numerics.Mlp
         JitML.Numerics.MlpCuda
+        JitML.Numerics.MlpDevice
+        JitML.Numerics.MlpMetal
+        JitML.Numerics.MlpOneDnn
         JitML.Numerics.Schema
         JitML.Observability.Grafana
         JitML.Observability.Prometheus
@@ -385,10 +391,10 @@ test-suite jitml-hyperparameter
         tasty-hunit,
         text
 
-test-suite jitml-cross-backend
+test-suite jitml-backends
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
-    hs-source-dirs:   test/cross-backend
+    hs-source-dirs:   test/backends
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:

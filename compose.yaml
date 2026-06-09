@@ -17,6 +17,6 @@ services:
     <<: *jitml-service
     # Expose every NVIDIA GPU on the host through the NVIDIA Container
     # Runtime so live CUDA validation can launch real kernels (`jitml service`,
-    # `cabal test jitml-cross-backend`'s CUDA cases). Use the default `jitml`
+    # `cabal test jitml-backends`'s CUDA cases). Use the default `jitml`
     # service for headless code-quality and non-GPU command runs.
     gpus: all

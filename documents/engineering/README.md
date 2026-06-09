@@ -20,7 +20,7 @@ docs (which own their content outright with no doctrine overlap).
 |-----|------------------------------|--------------------------|
 | [cli_command_surface.md](cli_command_surface.md) | Command Topology; CommandSpec; Progressive Introspection; Output Rules; Standard Flag Families | jitML's command tree |
 | [code_quality.md](code_quality.md) | Lint, Format, and Code-Quality Stack; Forbidden Surfaces; Generated Artifacts | Container-exclusive Haskell style/code-quality gate; chart-shape lint; route-registry drift; no-`allow-newer` plain-Hackage dependency model |
-| [unit_testing_policy.md](unit_testing_policy.md) | Testing Doctrine; Standard Testing Stack; Test Categories; Test Organization | Eight jitML test stanzas including local SL/RL/HPO/cross-backend Integration extensions, Linux CPU generated-kernel execution, and the current `jitml-e2e` scaffold/live-plan surface |
+| [unit_testing_policy.md](unit_testing_policy.md) | Testing Doctrine; Standard Testing Stack; Test Categories; Test Organization | Eight jitML test stanzas including local SL/RL/HPO/backends Integration extensions, Linux CPU generated-kernel execution, and the current `jitml-e2e` scaffold/live-plan surface |
 | [haskell_code_guide.md](haskell_code_guide.md) | GADT-Indexed State Machines; Subprocesses as Typed Values; Plan / Apply; Prerequisites as Typed Effects; Application Environment; Error Handling; Capability Classes; Retry Policy; Long-Running Daemons; At-Least-Once Event Processing; Reconcilers | jitML's lifecycle ADTs and capability classes; the 17-variant `AppError` enumeration |
 
 ### Project-Specific

@@ -693,7 +693,7 @@ testStanzas =
   , "jitml-sl-canonicals"
   , "jitml-rl-canonicals"
   , "jitml-hyperparameter"
-  , "jitml-cross-backend"
+  , "jitml-backends"
   , "jitml-daemon-lifecycle"
   , "jitml-e2e"
   ]

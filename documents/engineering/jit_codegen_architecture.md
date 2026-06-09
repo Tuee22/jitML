@@ -292,11 +292,11 @@ reproducibility witness surface; see
   `dlopen`s the `.so`, marshals the flat row-major parameter buffers across
   the FFI, and returns the same `MlpForward` / `MlpGradient` the pure
   network produces (CUDA `float` vs host `Double`, so agreement is within a
-  single-precision tolerance). `jitml-cross-backend` validates this on the
+  single-precision tolerance). `jitml-backends` validates this on the
   RTX 3090: forward + backward match the pure network within `1e-3` and are
   bit-equal across repeated runs. Routing the RL trainers and the AlphaZero
   `PolicyValueNet` through these device kernels (batched) plus the cuDNN
-  deterministic-pin are validated (Sprints 13.8 / 13.9 closed). Re-validated 2026-06-06 on an RTX 5090 / Blackwell `sm_120` — `nvcc -arch=sm_70` PTX forward-JITs at launch, `jitml-cross-backend -fcuda` 38 / 38.
+  deterministic-pin are validated (Sprints 13.8 / 13.9 closed). Re-validated 2026-06-06 on an RTX 5090 / Blackwell `sm_120` — `nvcc -arch=sm_70` PTX forward-JITs at launch, `jitml-backends -fcuda` 38 / 38.
 
 ### `apple-silicon` — Swift + Metal
 

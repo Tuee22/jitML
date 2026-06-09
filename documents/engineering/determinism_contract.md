@@ -200,7 +200,7 @@ For AlphaZero self-play, per-game bit-equality holds (deterministic
 stochasticity).
 
 The current local Phase 7 executable anchor proves the Linux CPU side of the
-runtime contract: `jitml-cross-backend` runs the Linux CPU oneDNN reorder,
+runtime contract: `jitml-backends` runs the Linux CPU oneDNN reorder,
 reduction, matmul, convolution, normalization, attention, and embedding kernels
 through `JitML.Engines.Local`, verifies the loaded artifact reports the expected
 `jitml_kernel_family_name` and `jitml_kernel_output_count`, and asserts

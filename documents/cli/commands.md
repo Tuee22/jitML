@@ -820,14 +820,14 @@ jitml test jitml-hyperparameter --test-options='-p linux-cuda'
 Select a substrate-partitioned tasty lane via a cabal test passthrough.
 
 
-## `jitml test jitml-cross-backend`
+## `jitml test jitml-backends`
 
-Run jitml-cross-backend.
+Run jitml-backends.
 
-Runs the jitml-cross-backend Cabal test stanza.
+Runs the jitml-backends Cabal test stanza.
 
 ```text
-jitml test jitml-cross-backend [--test-options <text>]
+jitml test jitml-backends [--test-options <text>]
 ```
 
 | Option | Kind | Required | Description |
@@ -837,13 +837,13 @@ jitml test jitml-cross-backend [--test-options <text>]
 Examples:
 
 ```text
-jitml test jitml-cross-backend
+jitml test jitml-backends
 ```
 
-Run jitml-cross-backend.
+Run jitml-backends.
 
 ```text
-jitml test jitml-cross-backend --test-options='-p linux-cuda'
+jitml test jitml-backends --test-options='-p linux-cuda'
 ```
 
 Select a substrate-partitioned tasty lane via a cabal test passthrough.

@@ -1007,26 +1007,26 @@ Examples:
       Select a substrate-partitioned tasty lane via a cabal test passthrough.
 ```
 
-### `jitml test jitml-cross-backend`
+### `jitml test jitml-backends`
 
 ```text
-jitml test jitml-cross-backend
+jitml test jitml-backends
 
-Run jitml-cross-backend.
+Run jitml-backends.
 
-Runs the jitml-cross-backend Cabal test stanza.
+Runs the jitml-backends Cabal test stanza.
 
 Usage:
-  jitml test jitml-cross-backend [--test-options <text>]
+  jitml test jitml-backends [--test-options <text>]
 
 Options:
   --test-options <text>  Forward an opaque argument string to cabal test (e.g. -p linux-cuda).
 
 
 Examples:
-  jitml test jitml-cross-backend
-      Run jitml-cross-backend.
-  jitml test jitml-cross-backend --test-options='-p linux-cuda'
+  jitml test jitml-backends
+      Run jitml-backends.
+  jitml test jitml-backends --test-options='-p linux-cuda'
       Select a substrate-partitioned tasty lane via a cabal test passthrough.
 ```
 

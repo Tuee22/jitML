@@ -26,6 +26,9 @@ module JitML.RL.Algorithms.HerTrainer
   , HerIterationStat (..)
   , trainHerOnBitFlip
   , trainHerOnBitFlipCuda
+  , trainHerOnBitFlipOneDnn
+  , trainHerOnBitFlipMetal
+  , trainHerOnDevice
   )
 where
 
@@ -49,7 +52,10 @@ import JitML.Numerics.Mlp
   , mlpForward
   , mlpInit
   )
-import JitML.Numerics.MlpCuda (mlpBatchGradientCuda, mlpForwardBatchCuda)
+import JitML.Numerics.MlpCuda (cudaMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..))
+import JitML.Numerics.MlpMetal (metalMlpDevice)
+import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.DqnLoss (dqnBellmanTarget)
 import JitML.RL.Algorithms.HerLoss
   ( HerStrategy (..)
@@ -300,7 +306,7 @@ dqnUpdate config online target adam batch =
 -- | The per-transition DQN loss gradient w.r.t. the Q-network output (the
 -- TD residual at the taken-action index). Standard Bellman target over the
 -- target net's next-state Q. Factored out of 'dqnUpdate' so the pure CPU
--- path and the batched CUDA path ('herUpdateCuda') share the identical
+-- path and the batched device path ('herUpdateDevice') share the identical
 -- loss gradient.
 herResidualDLdy :: HerTrainConfig -> [Double] -> [Double] -> Transition -> Vector Double
 herResidualDLdy config qVec nextQ trans =
@@ -343,9 +349,24 @@ sampleBatch n buffer gen =
 -- device primitives. The per-episode rollout + hindsight relabeling +
 -- replay are unchanged (shared with the pure 'trainHerOnBitFlip' via the
 -- parameterised 'episodeLoop'); only the minibatch gradient update runs on
--- the device ('herUpdateCuda'), reusing the shared head 'herResidualDLdy'.
+-- the device ('herUpdateDevice'), reusing the shared head 'herResidualDLdy'.
 trainHerOnBitFlipCuda :: Env -> HerTrainConfig -> IO HerTrainResult
-trainHerOnBitFlipCuda env config = do
+trainHerOnBitFlipCuda env = trainHerOnDevice (cudaMlpDevice env)
+
+-- | HER training through the oneDNN (linux-cpu) MLP device.
+trainHerOnBitFlipOneDnn :: Env -> HerTrainConfig -> IO HerTrainResult
+trainHerOnBitFlipOneDnn env = trainHerOnDevice (oneDnnMlpDevice env)
+
+-- | HER training through the Metal (apple-silicon) MLP device.
+trainHerOnBitFlipMetal :: Env -> HerTrainConfig -> IO HerTrainResult
+trainHerOnBitFlipMetal env = trainHerOnDevice (metalMlpDevice env)
+
+-- | HER training through an injected MLP device backend. The per-episode
+-- rollout + hindsight relabeling + replay are shared with the pure
+-- 'trainHerOnBitFlip' via the parameterised 'episodeLoop'; only the minibatch
+-- gradient update runs on the device ('herUpdateDevice').
+trainHerOnDevice :: MlpDevice -> HerTrainConfig -> IO HerTrainResult
+trainHerOnDevice device config = do
   let n = herNumBits config
       shape =
         MlpShape
@@ -356,7 +377,7 @@ trainHerOnBitFlipCuda env config = do
       initialParams = mlpInit shape (herSeed config)
   episodeLoop
     config
-    (herUpdateCuda env config)
+    (herUpdateDevice device config)
     initialParams
     initialParams
     (adamInit shape)
@@ -366,29 +387,29 @@ trainHerOnBitFlipCuda env config = do
     []
     []
 
--- | Minibatch HER/DQN gradient update through the batched CUDA primitives:
+-- | Minibatch HER/DQN gradient update through the batched device primitives:
 -- batched online forward at the (state||goal) inputs + target forward at
 -- the next inputs, the per-sample TD-residual gradient ('herResidualDLdy'),
 -- one batched device backward (mean gradient), and one Adam step. Falls
--- back to the pure 'dqnUpdate' if the CUDA runtime/compile is unavailable.
-herUpdateCuda
-  :: Env
+-- back to the pure 'dqnUpdate' if the device runtime/compile is unavailable.
+herUpdateDevice
+  :: MlpDevice
   -> HerTrainConfig
   -> MlpParams
   -> MlpParams
   -> AdamState
   -> [Transition]
   -> IO (MlpParams, AdamState)
-herUpdateCuda env config online target adam batch = do
-  onlineQE <- mlpForwardBatchCuda env online (map transInput batch)
-  targetQE <- mlpForwardBatchCuda env target (map transNextInput batch)
+herUpdateDevice device config online target adam batch = do
+  onlineQE <- mlpdForwardBatch device online (map transInput batch)
+  targetQE <- mlpdForwardBatch device target (map transNextInput batch)
   case (onlineQE, targetQE) of
     (Right onlineQs, Right targetQs) -> do
       let pairs =
             [ (transInput trans, herResidualDLdy config (VU.toList qv) (VU.toList nq) trans)
             | (trans, qv, nq) <- zip3 batch onlineQs targetQs
             ]
-      gradResult <- mlpBatchGradientCuda env online pairs
+      gradResult <- mlpdBatchGradient device online pairs
       case gradResult of
         Right summed ->
           let scale = 1.0 / fromIntegral (length batch)

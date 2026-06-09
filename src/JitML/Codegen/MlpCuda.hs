@@ -21,7 +21,7 @@
 -- (no atomics, no warp-shuffle), so the result is bit-deterministic
 -- run-to-run on the same device per the determinism contract. CUDA
 -- single-precision arithmetic does not reproduce the host's @Double@
--- bit-for-bit; the cross-backend test asserts agreement within a float
+-- bit-for-bit; the backends test asserts agreement within a float
 -- tolerance, and run-to-run device determinism exactly.
 module JitML.Codegen.MlpCuda
   ( mlpCudaKernelSpec

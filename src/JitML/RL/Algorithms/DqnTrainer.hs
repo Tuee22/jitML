@@ -28,6 +28,9 @@ module JitML.RL.Algorithms.DqnTrainer
   , Transition (..)
   , trainDqnOnCartpole
   , trainDqnOnCartpoleCuda
+  , trainDqnOnCartpoleOneDnn
+  , trainDqnOnCartpoleMetal
+  , trainDqnOnDevice
   )
 where
 
@@ -51,7 +54,10 @@ import JitML.Numerics.Mlp
   , mlpForward
   , mlpInit
   )
-import JitML.Numerics.MlpCuda (mlpBatchGradientCuda, mlpForwardBatchCuda)
+import JitML.Numerics.MlpCuda (cudaMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..))
+import JitML.Numerics.MlpMetal (metalMlpDevice)
+import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
 import JitML.RL.Simulator
   ( CartPoleState (..)
@@ -423,7 +429,22 @@ obsVector state =
 -- minibatch gradient update runs on the device ('dqnUpdateCuda'). The
 -- loss-gradient head ('dqnResidualDLdy') is shared with the pure path.
 trainDqnOnCartpoleCuda :: Env -> DqnTrainConfig -> IO DqnTrainResult
-trainDqnOnCartpoleCuda env config = do
+trainDqnOnCartpoleCuda env = trainDqnOnDevice (cudaMlpDevice env)
+
+-- | DQN training through the oneDNN (linux-cpu) MLP device.
+trainDqnOnCartpoleOneDnn :: Env -> DqnTrainConfig -> IO DqnTrainResult
+trainDqnOnCartpoleOneDnn env = trainDqnOnDevice (oneDnnMlpDevice env)
+
+-- | DQN training through the Metal (apple-silicon) MLP device.
+trainDqnOnCartpoleMetal :: Env -> DqnTrainConfig -> IO DqnTrainResult
+trainDqnOnCartpoleMetal env = trainDqnOnDevice (metalMlpDevice env)
+
+-- | DQN training through an injected MLP device backend. The env loop, replay
+-- buffer, epsilon-greedy, and target-net copy are shared with the pure
+-- 'trainDqnOnCartpole' via the parameterised 'loop'; only the minibatch
+-- gradient update runs on the device ('dqnUpdateDevice').
+trainDqnOnDevice :: MlpDevice -> DqnTrainConfig -> IO DqnTrainResult
+trainDqnOnDevice device config = do
   let shape =
         MlpShape
           { mlpInputs = dqnObsSize config
@@ -433,7 +454,7 @@ trainDqnOnCartpoleCuda env config = do
       initialParams = mlpInit shape (dqnSeed config)
   loop
     config
-    (dqnUpdateCuda env config)
+    (dqnUpdateDevice device config)
     initialParams
     initialParams
     (adamInit shape)
@@ -455,22 +476,22 @@ trainDqnOnCartpoleCuda env config = do
 -- 'dqnUpdate' if the CUDA runtime/compile is unavailable so non-GPU hosts
 -- still train. (Minibatch GD vs. the pure path's per-sample online SGD —
 -- standard for a batched DQN.)
-dqnUpdateCuda
-  :: Env
+dqnUpdateDevice
+  :: MlpDevice
   -> DqnTrainConfig
   -> MlpParams
   -> MlpParams
   -> AdamState
   -> [Transition]
   -> IO (MlpParams, AdamState)
-dqnUpdateCuda env config online target adam batch = do
+dqnUpdateDevice device config online target adam batch = do
   let obsList = map transObs batch
       nextObsList = map transNextObs batch
-  onlineQE <- mlpForwardBatchCuda env online obsList
-  targetQE <- mlpForwardBatchCuda env target nextObsList
+  onlineQE <- mlpdForwardBatch device online obsList
+  targetQE <- mlpdForwardBatch device target nextObsList
   onlineNextQE <-
     if dqnUseDouble config
-      then mlpForwardBatchCuda env online nextObsList
+      then mlpdForwardBatch device online nextObsList
       else pure (Right (map (const VU.empty) batch))
   case (onlineQE, targetQE, onlineNextQE) of
     (Right onlineQs, Right targetQs, Right onlineNextQs) -> do
@@ -480,7 +501,7 @@ dqnUpdateCuda env config online target adam batch = do
               )
             | (trans, qv, nq, onq) <- Data.List.zip4 batch onlineQs targetQs onlineNextQs
             ]
-      gradResult <- mlpBatchGradientCuda env online pairs
+      gradResult <- mlpdBatchGradient device online pairs
       case gradResult of
         Right summed ->
           let scale = 1.0 / fromIntegral (length batch)

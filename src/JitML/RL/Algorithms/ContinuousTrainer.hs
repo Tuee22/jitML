@@ -39,6 +39,9 @@ module JitML.RL.Algorithms.ContinuousTrainer
   , ContTransition (..)
   , trainContinuousOnPendulum
   , trainContinuousOnPendulumCuda
+  , trainContinuousOnPendulumOneDnn
+  , trainContinuousOnPendulumMetal
+  , trainContinuousOnDevice
   )
 where
 
@@ -65,11 +68,10 @@ import JitML.Numerics.Mlp
   , mlpInit
   , mlpInputGradient
   )
-import JitML.Numerics.MlpCuda
-  ( mlpBatchGradientCuda
-  , mlpForwardBatchCuda
-  , mlpInputGradientBatchCuda
-  )
+import JitML.Numerics.MlpCuda (cudaMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..))
+import JitML.Numerics.MlpMetal (metalMlpDevice)
+import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.CrossQLoss (crossQNormalise, crossQTarget)
 import JitML.RL.Algorithms.DdpgLoss (ddpgCriticTarget)
 import JitML.RL.Algorithms.SacLoss (sacCriticTarget)
@@ -413,7 +415,7 @@ updateStep config nets opt batch doActor =
 -- | Per-transition Bellman target for the critic loss. Computed from the
 -- (target) actor + (target) critics with the variant-specific target
 -- formula (DDPG / TD3 / SAC / CrossQ / TQC). Factored out of 'updateStep'
--- so the pure CPU path and the batched CUDA path ('updateStepCuda') share
+-- so the pure CPU path and the batched device path ('updateStepDevice') share
 -- the identical target math.
 bellmanTarget :: ContinuousTrainConfig -> ACNets -> ContTransition -> Double
 bellmanTarget config nets trans =
@@ -548,9 +550,24 @@ sampleBatch n buffer gen =
 -- gradients running on the GPU through the batched device primitives. The
 -- env loop / replay / exploration are shared with the pure
 -- 'trainContinuousOnPendulum' via the parameterised 'loop'; only the
--- gradient step ('updateStepCuda') runs on the device.
+-- gradient step ('updateStepDevice') runs on the device.
 trainContinuousOnPendulumCuda :: Env -> ContinuousTrainConfig -> IO ContinuousTrainResult
-trainContinuousOnPendulumCuda env config = do
+trainContinuousOnPendulumCuda env = trainContinuousOnDevice (cudaMlpDevice env)
+
+-- | Continuous actor-critic training through the oneDNN (linux-cpu) MLP device.
+trainContinuousOnPendulumOneDnn :: Env -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousOnPendulumOneDnn env = trainContinuousOnDevice (oneDnnMlpDevice env)
+
+-- | Continuous actor-critic training through the Metal (apple-silicon) MLP device.
+trainContinuousOnPendulumMetal :: Env -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousOnPendulumMetal env = trainContinuousOnDevice (metalMlpDevice env)
+
+-- | Continuous actor-critic training through an injected MLP device backend.
+-- The env loop / replay / exploration are shared with the pure
+-- 'trainContinuousOnPendulum' via the parameterised 'loop'; only the
+-- gradient step ('updateStepDevice') runs on the device.
+trainContinuousOnDevice :: MlpDevice -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousOnDevice device config = do
   let actorShape =
         MlpShape {mlpInputs = ctObsSize config, mlpHidden = ctHidden config, mlpOutputs = 1}
       criticShape =
@@ -575,7 +592,7 @@ trainContinuousOnPendulumCuda env config = do
           }
   loop
     config
-    (updateStepCuda env config)
+    (updateStepDevice device config)
     nets0
     opt0
     (Random.mkStdGen (ctSeed config + 1))
@@ -589,22 +606,22 @@ trainContinuousOnPendulumCuda env config = do
 
 -- | Device-backed minibatch actor-critic update. The critic param
 -- gradient, the actor's @dQ/da@ (the critic's input gradient), and the
--- actor param gradient all run on the GPU through the batched primitives
--- (`mlpForwardBatchCuda` / `mlpBatchGradientCuda` /
--- `mlpInputGradientBatchCuda`); the Bellman target ('bellmanTarget'), the
--- squash/chain-rule scalars, and the soft target updates are the shared
--- pure helpers. Minibatch GD (one Adam step per batch) vs. the pure path's
--- per-sample SGD — standard for a batched actor-critic. Falls back to the
--- pure 'updateStep' if the CUDA runtime/compile is unavailable.
-updateStepCuda
-  :: Env
+-- actor param gradient all run on the device through the batched primitives
+-- (`mlpdForwardBatch` / `mlpdBatchGradient` / `mlpdInputGradientBatch`); the
+-- Bellman target ('bellmanTarget'), the squash/chain-rule scalars, and the
+-- soft target updates are the shared pure helpers. Minibatch GD (one Adam
+-- step per batch) vs. the pure path's per-sample SGD — standard for a
+-- batched actor-critic. Falls back to the pure 'updateStep' if the device
+-- runtime/compile is unavailable.
+updateStepDevice
+  :: MlpDevice
   -> ContinuousTrainConfig
   -> ACNets
   -> ACOpt
   -> [ContTransition]
   -> Bool
   -> IO (ACNets, ACOpt)
-updateStepCuda env config nets opt batch doActor = do
+updateStepDevice device config nets opt batch doActor = do
   let variant = ctVariant config
       targets = map (bellmanTarget config nets) batch
       criticInputs = [criticInput (contObs t) (contAction t) | t <- batch]
@@ -620,9 +637,9 @@ updateStepCuda env config nets opt batch doActor = do
           , gradB2 = VU.map (* sc) (gradB2 g)
           }
       criticGrad critic targetVals = do
-        qs <- ExceptT (mlpForwardBatchCuda env critic criticInputs)
+        qs <- ExceptT (mlpdForwardBatch device critic criticInputs)
         let residuals = zipWith (\q tgt -> VU.head q - tgt) qs targetVals
-        summed <- ExceptT (mlpBatchGradientCuda env critic (zip criticInputs (map VU.singleton residuals)))
+        summed <- ExceptT (mlpdBatchGradient device critic (zip criticInputs (map VU.singleton residuals)))
         pure (scaleGradient (1.0 / n) summed)
   deviceResult <-
     runExceptT $ do
@@ -639,15 +656,15 @@ updateStepCuda env config nets opt batch doActor = do
         if not doActor
           then pure (acActor nets, acActorAdam opt)
           else do
-            actorRaws <- ExceptT (mlpForwardBatchCuda env (acActor nets) obsList)
+            actorRaws <- ExceptT (mlpdForwardBatch device (acActor nets) obsList)
             let raws = map VU.head actorRaws
                 actions = map (squash config) raws
                 actorCriticInputs = zipWith (criticInput . contObs) batch actions
             -- dQ/da = action-slice of criticANext's input gradient (dL/dQ = 1).
             dQdInputs <-
               ExceptT
-                ( mlpInputGradientBatchCuda
-                    env
+                ( mlpdInputGradientBatch
+                    device
                     criticANext
                     [(ci, VU.singleton 1.0) | ci <- actorCriticInputs]
                 )
@@ -659,7 +676,7 @@ updateStepCuda env config nets opt batch doActor = do
                     )
                     dQdActions
                     raws
-            summed <- ExceptT (mlpBatchGradientCuda env (acActor nets) (zip obsList (map VU.singleton dLdRaws)))
+            summed <- ExceptT (mlpdBatchGradient device (acActor nets) (zip obsList (map VU.singleton dLdRaws)))
             pure (adamStep actorAdamCfg (acActorAdam opt) (acActor nets) (scaleGradient (1.0 / n) summed))
       let tau = ctTau config
           (tActor, tCriticA, tCriticB)

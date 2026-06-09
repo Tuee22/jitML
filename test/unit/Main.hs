@@ -226,9 +226,9 @@ main =
             , -- Sprint 1.13 — the --test-options passthrough forwards an opaque
               -- argument string (e.g. a tasty -p substrate lane) to cabal test.
 
-              ( ["test", "jitml-cross-backend", "--test-options", "-p linux-cuda"]
+              ( ["test", "jitml-backends", "--test-options", "-p linux-cuda"]
               , ParsedCommand
-                  ["test", "jitml-cross-backend"]
+                  ["test", "jitml-backends"]
                   [ParsedOption "test-options" ["-p linux-cuda"]]
               )
             ,
@@ -1008,7 +1008,7 @@ main =
           -- `CudnnStatus (-2)` on every entrypoint. This protects
           -- downstream callers from a silent no-op path on hosts where
           -- libcublas/libcudnn are unavailable. The `+cuda` validation
-          -- exercises the real FFI path through `jitml-cross-backend`.
+          -- exercises the real FFI path through `jitml-backends`.
           let unavailable = Cublas.CublasStatus (-2)
           if Cublas.cublasBindingsCompiledIn
             then
@@ -1418,7 +1418,7 @@ main =
           -- When the runtime is available (synthetic probe) the runner
           -- now drives the real CUDA kernel through the loader. The
           -- live FFI candidate measurement is exercised through
-          -- `jitml-cross-backend` on a CUDA host; here we keep the
+          -- `jitml-backends` on a CUDA host; here we keep the
           -- deterministic path that only covers wrong-substrate and
           -- unavailable cases. `availableCudaProbe` is intentionally
           -- only used by the `unavailableCudaProbe` field-update form
@@ -1427,7 +1427,7 @@ main =
           -- Sprint 14.3 — the Metal benchmark runner now drives the real
           -- Metal FFI candidate through `MetalLocal.runMetalKernel` (host
           -- `swift build` -> dlopen -> runtime makeLibrary -> launch). The live
-          -- measurement is exercised through `jitml-cross-backend` headless on a
+          -- measurement is exercised through `jitml-backends` headless on a
           -- Metal-capable Apple host; here we keep the deterministic
           -- wrong-substrate and device-not-visible branches. `availableMetalProbe` is retained for
           -- the `unavailableMetalProbe` field-update form above.
@@ -2181,7 +2181,7 @@ main =
                 ConvergenceThresholds.cohortThresholds
           ]
       , -- Sprint 12.10 — backend-agnostic invariants relocated out of
-        -- jitml-cross-backend (which is now a per-substrate live lane). These
+        -- jitml-backends (which is now a per-substrate live lane). These
         -- assert pure, substrate-independent properties, so they belong in the
         -- substrate-agnostic unit stanza that runs in every lane.
         testGroup
@@ -3189,7 +3189,7 @@ canonicalLeafPaths =
   , ["test", "jitml-sl-canonicals"]
   , ["test", "jitml-rl-canonicals"]
   , ["test", "jitml-hyperparameter"]
-  , ["test", "jitml-cross-backend"]
+  , ["test", "jitml-backends"]
   , ["test", "jitml-daemon-lifecycle"]
   , ["test", "jitml-e2e"]
   , ["lint", "files"]

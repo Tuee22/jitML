@@ -40,6 +40,7 @@ import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Env.Env (Env, envCacheDir)
+import JitML.Numerics.FamilyReference (familyReference)
 import JitML.Numerics.Mlp
   ( MlpForward (..)
   , MlpGradient (..)
@@ -56,6 +57,20 @@ import JitML.Numerics.MlpCuda
   , mlpForwardCuda
   , mlpInputGradientBatchCuda
   )
+import JitML.Numerics.MlpMetal
+  ( mlpBackwardMetal
+  , mlpBatchGradientMetal
+  , mlpForwardBatchMetal
+  , mlpForwardMetal
+  , mlpInputGradientBatchMetal
+  )
+import JitML.Numerics.MlpOneDnn
+  ( mlpBackwardOneDnn
+  , mlpBatchGradientOneDnn
+  , mlpForwardBatchOneDnn
+  , mlpForwardOneDnn
+  , mlpInputGradientBatchOneDnn
+  )
 import JitML.RL.Algorithms.ContinuousTrainer
   ( ContinuousIterationStat (..)
   , ContinuousTrainConfig (..)
@@ -63,6 +78,8 @@ import JitML.RL.Algorithms.ContinuousTrainer
   , ContinuousVariant (..)
   , defaultContinuousTrainConfig
   , trainContinuousOnPendulumCuda
+  , trainContinuousOnPendulumMetal
+  , trainContinuousOnPendulumOneDnn
   )
 import JitML.RL.Algorithms.DqnTrainer
   ( DqnIterationStat (..)
@@ -70,6 +87,8 @@ import JitML.RL.Algorithms.DqnTrainer
   , DqnTrainResult (..)
   , defaultDqnTrainConfig
   , trainDqnOnCartpoleCuda
+  , trainDqnOnCartpoleMetal
+  , trainDqnOnCartpoleOneDnn
   )
 import JitML.RL.Algorithms.HerTrainer
   ( HerIterationStat (..)
@@ -77,6 +96,8 @@ import JitML.RL.Algorithms.HerTrainer
   , HerTrainResult (..)
   , defaultHerTrainConfig
   , trainHerOnBitFlipCuda
+  , trainHerOnBitFlipMetal
+  , trainHerOnBitFlipOneDnn
   )
 import JitML.RL.Algorithms.PpoTrainer
   ( OnPolicyVariant (..)
@@ -85,6 +106,8 @@ import JitML.RL.Algorithms.PpoTrainer
   , PpoTrainResult (..)
   , defaultPpoTrainConfig
   , trainOnPolicyOnCartpoleCuda
+  , trainOnPolicyOnCartpoleMetal
+  , trainOnPolicyOnCartpoleOneDnn
   )
 import JitML.RL.Algorithms.QrDqnTrainer
   ( QrDqnIterationStat (..)
@@ -92,6 +115,8 @@ import JitML.RL.Algorithms.QrDqnTrainer
   , QrDqnTrainResult (..)
   , defaultQrDqnTrainConfig
   , trainQrDqnOnCartpoleCuda
+  , trainQrDqnOnCartpoleMetal
+  , trainQrDqnOnCartpoleOneDnn
   )
 import JitML.RL.AlphaZero (initialConnect4)
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
@@ -105,7 +130,7 @@ main :: IO ()
 main =
   defaultMain $
     testGroup
-      "jitml-cross-backend"
+      "jitml-backends"
       [ testCase "linux-cpu JIT compile/load/run executes the generated identity kernel" $ do
           env <- buildEnv defaultGlobalFlags
           result <- runLinuxCpuIdentityKernel env [1.25, 2.5, -3.75]
@@ -217,6 +242,235 @@ main =
                         <> " kernel must produce deterministic output"
                     )
                     False
+      , testCase
+          "linux-cpu weighted families match the pure reference within 1e-3 (Phase 1 rebalance)"
+          $ do
+            -- Numeric-correctness check (not just determinism): every weighted
+            -- family's oneDNN output must agree with the pure-Haskell
+            -- `familyReference` oracle within single-precision tolerance. A
+            -- deterministically-wrong kernel passes the determinism cases above
+            -- but fails here. Backend-vs-oracle, in-process — not a
+            -- cross-substrate parity assertion.
+            env <- buildEnv defaultGlobalFlags
+            for_ weightedFamilyFixtures $ \(family, input, weights) -> do
+              result <- Local.runLinuxCpuWeightedFamilyKernel env family input weights
+              case result of
+                Right run ->
+                  assertWeightedMatchesReference
+                    "linux-cpu"
+                    family
+                    input
+                    weights
+                    (Local.linuxCpuWeightedKernelOutput run)
+                Left message ->
+                  assertBool
+                    ("linux-cpu weighted " <> show family <> " run failed: " <> show message)
+                    False
+      , testCase
+          "linux-cuda weighted families match the pure reference within 1e-3 (Phase 1 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            for_ weightedFamilyFixtures $ \(family, input, weights) -> do
+              result <- Cuda.runCudaWeightedFamilyKernel env family input weights
+              case result of
+                Right run ->
+                  assertWeightedMatchesReference
+                    "linux-cuda"
+                    family
+                    input
+                    weights
+                    (Cuda.cudaWeightedKernelOutput run)
+                Left message ->
+                  assertBool
+                    ("linux-cuda weighted " <> show family <> " run failed: " <> show message)
+                    False
+      , testCase
+          "apple-silicon weighted families match the pure reference within 1e-3 (Phase 1 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            for_ weightedFamilyFixtures $ \(family, input, weights) -> do
+              result <- Metal.runMetalWeightedFamilyKernel env family input weights
+              case result of
+                Right run ->
+                  assertWeightedMatchesReference
+                    "apple-silicon"
+                    family
+                    input
+                    weights
+                    (Metal.metalWeightedKernelOutput run)
+                Left message ->
+                  assertBool
+                    ("apple-silicon weighted " <> show family <> " run failed: " <> show message)
+                    False
+      , testCase
+          "linux-cpu MLP forward kernel matches the pure-Haskell network (Phase 2 rebalance)"
+          $ do
+            -- Phase 2 parity: the oneDNN-lane MLP forward kernel
+            -- (JitML.Codegen.MlpOneDnn) must reproduce the pure-Haskell
+            -- forward pass within single precision — the same depth the
+            -- linux-cuda lane already has. CPU runs float32 vs the Double
+            -- reference, so agreement is close, not bit-equal (run-to-run
+            -- bit-equality is the determinism case below).
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                refForward = mlpForward params input
+            result <- mlpForwardOneDnn env params input
+            case result of
+              Left message ->
+                assertBool ("MLP forward oneDNN run failed: " <> Text.unpack message) False
+              Right fwd -> do
+                assertBool
+                  "oneDNN hidden_pre within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (forwardHiddenPre fwd) (forwardHiddenPre refForward))
+                assertBool
+                  "oneDNN hidden_act within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (forwardHiddenAct fwd) (forwardHiddenAct refForward))
+                assertBool
+                  ( "oneDNN output within tolerance of reference: got="
+                      <> show (VU.toList (forwardOutput fwd))
+                      <> " ref="
+                      <> show (VU.toList (forwardOutput refForward))
+                  )
+                  (approxEqualVec 1.0e-3 (forwardOutput fwd) (forwardOutput refForward))
+      , testCase
+          "linux-cpu MLP backward kernel matches the pure-Haskell gradient (Phase 2 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                refForward = mlpForward params input
+                dLdy = VU.fromList [0.2, -0.4, 0.6]
+                refGrad = mlpBackward params refForward dLdy
+            result <- mlpBackwardOneDnn env params refForward dLdy
+            case result of
+              Left message ->
+                assertBool ("MLP backward oneDNN run failed: " <> Text.unpack message) False
+              Right grad -> do
+                assertBool
+                  "oneDNN gradW1 within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (gradW1 grad) (gradW1 refGrad))
+                assertBool
+                  "oneDNN gradB1 within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (gradB1 grad) (gradB1 refGrad))
+                assertBool
+                  "oneDNN gradW2 within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (gradW2 grad) (gradW2 refGrad))
+                assertBool
+                  "oneDNN gradB2 within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (gradB2 grad) (gradB2 refGrad))
+      , testCase
+          "linux-cpu MLP kernels are bit-deterministic across repeated runs (Phase 2 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                dLdy = VU.fromList [0.2, -0.4, 0.6]
+            first <- mlpForwardOneDnn env params input
+            second <- mlpForwardOneDnn env params input
+            case (first, second) of
+              (Right a, Right b) -> do
+                forwardOutput a @?= forwardOutput b
+                forwardHiddenAct a @?= forwardHiddenAct b
+                gradA <- mlpBackwardOneDnn env params a dLdy
+                gradB <- mlpBackwardOneDnn env params b dLdy
+                case (gradA, gradB) of
+                  (Right ga, Right gb) -> do
+                    gradW1 ga @?= gradW1 gb
+                    gradW2 ga @?= gradW2 gb
+                  _ -> assertBool "both MLP backward oneDNN runs succeed" False
+              _ -> assertBool "both MLP forward oneDNN runs succeed" False
+      , testCase
+          "linux-cpu batched MLP gradient matches the pure summed gradient (Phase 2 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                batch =
+                  [ (VU.fromList [0.5, -0.25, 1.0, -0.75], VU.fromList [0.2, -0.4, 0.6])
+                  , (VU.fromList [-0.1, 0.3, -0.5, 0.2], VU.fromList [-0.3, 0.5, 0.1])
+                  , (VU.fromList [0.9, 0.1, -0.2, 0.4], VU.fromList [0.05, -0.15, 0.25])
+                  ]
+                perSample (i, dy) = mlpBackward params (mlpForward params i) dy
+                sumGrad a b =
+                  MlpGradient
+                    { gradW1 = VU.zipWith (+) (gradW1 a) (gradW1 b)
+                    , gradB1 = VU.zipWith (+) (gradB1 a) (gradB1 b)
+                    , gradW2 = VU.zipWith (+) (gradW2 a) (gradW2 b)
+                    , gradB2 = VU.zipWith (+) (gradB2 a) (gradB2 b)
+                    }
+                refGrad = foldl1 sumGrad (map perSample batch)
+            first <- mlpBatchGradientOneDnn env params batch
+            second <- mlpBatchGradientOneDnn env params batch
+            case (first, second) of
+              (Right g, Right g2) -> do
+                assertBool
+                  "batched oneDNN gradW1 within tolerance of the pure summed gradient"
+                  (approxEqualVec 1.0e-3 (gradW1 g) (gradW1 refGrad))
+                assertBool
+                  "batched oneDNN gradB1 within tolerance"
+                  (approxEqualVec 1.0e-3 (gradB1 g) (gradB1 refGrad))
+                assertBool
+                  "batched oneDNN gradW2 within tolerance"
+                  (approxEqualVec 1.0e-3 (gradW2 g) (gradW2 refGrad))
+                assertBool
+                  "batched oneDNN gradB2 within tolerance"
+                  (approxEqualVec 1.0e-3 (gradB2 g) (gradB2 refGrad))
+                gradW1 g @?= gradW1 g2
+                gradW2 g @?= gradW2 g2
+              _ -> assertBool "both batched MLP gradient oneDNN runs succeed" False
+      , testCase
+          "linux-cpu batched MLP forward matches the pure per-sample forward (Phase 2 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                inputs =
+                  [ VU.fromList [0.5, -0.25, 1.0, -0.75]
+                  , VU.fromList [-0.1, 0.3, -0.5, 0.2]
+                  , VU.fromList [0.9, 0.1, -0.2, 0.4]
+                  ]
+                refOutputs = map (forwardOutput . mlpForward params) inputs
+            first <- mlpForwardBatchOneDnn env params inputs
+            second <- mlpForwardBatchOneDnn env params inputs
+            case (first, second) of
+              (Right outs, Right outs2) -> do
+                assertBool
+                  ("batched oneDNN forward returns " <> show (length inputs) <> " outputs")
+                  (length outs == length inputs)
+                assertBool
+                  "each batched oneDNN forward output is within tolerance of the pure forward"
+                  (and (zipWith (approxEqualVec 1.0e-3) outs refOutputs))
+                outs @?= outs2
+              _ -> assertBool "both batched MLP forward oneDNN runs succeed" False
+      , testCase
+          "linux-cpu batched MLP input-gradient matches the pure mlpInputGradient (Phase 2 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                batch =
+                  [ (VU.fromList [0.5, -0.25, 1.0, -0.75], VU.fromList [0.2, -0.4, 0.6])
+                  , (VU.fromList [-0.1, 0.3, -0.5, 0.2], VU.fromList [-0.3, 0.5, 0.1])
+                  , (VU.fromList [0.9, 0.1, -0.2, 0.4], VU.fromList [0.05, -0.15, 0.25])
+                  ]
+                refDx (i, dy) = mlpInputGradient params (mlpForward params i) dy
+                refs = map refDx batch
+            first <- mlpInputGradientBatchOneDnn env params batch
+            second <- mlpInputGradientBatchOneDnn env params batch
+            case (first, second) of
+              (Right dxs, Right dxs2) -> do
+                assertBool
+                  ("batched oneDNN input-gradient returns " <> show (length batch) <> " vectors")
+                  (length dxs == length batch)
+                assertBool
+                  "each batched oneDNN dL/dx is within tolerance of the pure mlpInputGradient"
+                  (and (zipWith (approxEqualVec 1.0e-3) dxs refs))
+                dxs @?= dxs2
+              _ -> assertBool "both batched MLP input-gradient oneDNN runs succeed" False
       , testCase "linux-cuda generated kernel compiles and runs through nvcc + FFI (Sprint 7.4)" $ do
           -- Live CUDA validation: Sprint 7.4 closure. When the host
           -- has nvcc + libcublas + libcudnn visible and an NVIDIA GPU
@@ -971,6 +1225,447 @@ main =
                       <> show after
                   )
                   (after < before)
+      , -- ════ Phase 4 rebalance: linux-cpu (oneDNN) RL trainers ════
+        testCase
+          "linux-cpu on-policy PPO trainer trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  defaultPpoTrainConfig
+                    { ppoNumIterations = 3
+                    , ppoRolloutSteps = 128
+                    , ppoEpochsPerUpdate = 2
+                    , ppoMiniBatchSize = 32
+                    , ppoHiddenUnits = 16
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainOnPolicyOnCartpoleOneDnn env VariantPPO config
+            r2 <- trainOnPolicyOnCartpoleOneDnn env VariantPPO config
+            case (r1, r2) of
+              (Right res1, Right res2) -> do
+                length (resultIterations res1) @?= 3
+                assertBool
+                  "per-iteration mean rewards are finite"
+                  (all (finite . iterMeanReward) (resultIterations res1))
+                map iterMeanReward (resultIterations res1)
+                  @?= map iterMeanReward (resultIterations res2)
+              (Left e, _) ->
+                assertBool ("oneDNN on-policy trainer failed: " <> Text.unpack e) False
+              _ -> assertBool "both oneDNN on-policy trainer runs succeed" False
+      , testCase
+          "linux-cpu DQN trainer trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  defaultDqnTrainConfig
+                    { dqnNumSteps = 600
+                    , dqnTrainStart = 100
+                    , dqnBatchSize = 16
+                    , dqnHiddenUnits = 16
+                    , dqnStatInterval = 200
+                    , dqnTargetUpdateInterval = 200
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainDqnOnCartpoleOneDnn env config
+            r2 <- trainDqnOnCartpoleOneDnn env config
+            assertBool
+              "DQN run produced at least one interval stat"
+              (not (null (dqnResultStats r1)))
+            assertBool
+              "per-interval mean rewards are finite"
+              (all (finite . dqnIterMeanReward) (dqnResultStats r1))
+            map dqnIterMeanReward (dqnResultStats r1)
+              @?= map dqnIterMeanReward (dqnResultStats r2)
+      , testCase
+          "linux-cpu QR-DQN trainer trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  defaultQrDqnTrainConfig
+                    { qrNumSteps = 600
+                    , qrTrainStart = 100
+                    , qrBatchSize = 16
+                    , qrHiddenUnits = 16
+                    , qrNumQuantiles = 4
+                    , qrStatInterval = 200
+                    , qrTargetUpdateInterval = 200
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainQrDqnOnCartpoleOneDnn env config
+            r2 <- trainQrDqnOnCartpoleOneDnn env config
+            assertBool
+              "QR-DQN run produced at least one interval stat"
+              (not (null (qrResultStats r1)))
+            assertBool
+              "per-interval mean rewards are finite"
+              (all (finite . qrIterMeanReward) (qrResultStats r1))
+            map qrIterMeanReward (qrResultStats r1)
+              @?= map qrIterMeanReward (qrResultStats r2)
+      , testCase
+          "linux-cpu HER trainer trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  defaultHerTrainConfig
+                    { herNumBits = 4
+                    , herEpisodes = 60
+                    , herHiddenUnits = 16
+                    , herBatchSize = 16
+                    , herStatInterval = 20
+                    , herTargetUpdateInterval = 20
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainHerOnBitFlipOneDnn env config
+            r2 <- trainHerOnBitFlipOneDnn env config
+            assertBool
+              "HER run produced at least one interval stat"
+              (not (null (herResultStats r1)))
+            assertBool
+              "per-interval success rates are finite in [0,1]"
+              ( all
+                  (\s -> finite (herIterSuccessRate s) && herIterSuccessRate s >= 0 && herIterSuccessRate s <= 1)
+                  (herResultStats r1)
+              )
+            map herIterSuccessRate (herResultStats r1)
+              @?= map herIterSuccessRate (herResultStats r2)
+      , testCase
+          "linux-cpu continuous actor-critic (DDPG) trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  (defaultContinuousTrainConfig VariantDDPG)
+                    { ctNumSteps = 400
+                    , ctTrainStart = 100
+                    , ctStartSteps = 100
+                    , ctBatchSize = 16
+                    , ctHidden = 16
+                    , ctStatInterval = 200
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainContinuousOnPendulumOneDnn env config
+            r2 <- trainContinuousOnPendulumOneDnn env config
+            assertBool
+              "continuous run produced at least one interval stat"
+              (not (null (contResultStats r1)))
+            assertBool
+              "per-interval mean rewards are finite"
+              (all (finite . contIterMeanReward) (contResultStats r1))
+            map contIterMeanReward (contResultStats r1)
+              @?= map contIterMeanReward (contResultStats r2)
+      , testCase
+          "linux-cpu AlphaZero PolicyValueNet trains on the device and reduces loss (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let net0 = PVN.initPolicyValueNet 43 7 16 22
+                adam0 = PVN.initAdamFor net0
+                target = VU.fromList [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+                sample =
+                  PVN.PolicyValueTrainingSample
+                    { PVN.sampleState = initialConnect4
+                    , PVN.sampleVisitDist = target
+                    , PVN.sampleOutcome = 0.5
+                    }
+                logSafe x = if x <= 0 then -1.0e9 else log x
+                lossOf net =
+                  let pv = PVN.networkPolicyValue net (PVN.sampleState sample)
+                      policy = PVN.pvPolicy pv
+                      policyLoss =
+                        negate
+                          ( sum
+                              [ (PVN.sampleVisitDist sample VU.! i) * logSafe (policy VU.! i)
+                              | i <- [0 .. VU.length policy - 1]
+                              ]
+                          )
+                      valueLoss = 0.5 * (PVN.pvValue pv - PVN.sampleOutcome sample) ^ (2 :: Int)
+                   in policyLoss + valueLoss
+            trained <- PVN.trainPolicyValueNetOnSamplesOneDnn env net0 adam0 1.0e-2 80 [sample]
+            case trained of
+              Left message ->
+                assertBool ("PolicyValueNet oneDNN training failed: " <> Text.unpack message) False
+              Right (netN, _) ->
+                assertBool
+                  "device-trained policy/value loss should decrease"
+                  (lossOf netN < lossOf net0)
+      , -- ════ Phase 4 rebalance: apple-silicon (Metal) MLP — UNVERIFIED until run on a Mac ════
+        testCase
+          "apple-silicon MLP forward kernel matches the pure-Haskell network (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                refForward = mlpForward params input
+            result <- mlpForwardMetal env params input
+            case result of
+              Left message ->
+                assertBool ("MLP forward Metal run failed: " <> Text.unpack message) False
+              Right fwd -> do
+                assertBool
+                  "Metal hidden_act within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (forwardHiddenAct fwd) (forwardHiddenAct refForward))
+                assertBool
+                  "Metal output within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (forwardOutput fwd) (forwardOutput refForward))
+      , testCase
+          "apple-silicon MLP backward kernel matches the pure-Haskell gradient (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+                refForward = mlpForward params input
+                dLdy = VU.fromList [0.2, -0.4, 0.6]
+                refGrad = mlpBackward params refForward dLdy
+            result <- mlpBackwardMetal env params refForward dLdy
+            case result of
+              Left message ->
+                assertBool ("MLP backward Metal run failed: " <> Text.unpack message) False
+              Right grad -> do
+                assertBool
+                  "Metal gradW1 within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (gradW1 grad) (gradW1 refGrad))
+                assertBool
+                  "Metal gradW2 within tolerance of reference"
+                  (approxEqualVec 1.0e-3 (gradW2 grad) (gradW2 refGrad))
+      , testCase
+          "apple-silicon MLP kernels are bit-deterministic across repeated runs (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                input = VU.fromList [0.5, -0.25, 1.0, -0.75]
+            first <- mlpForwardMetal env params input
+            second <- mlpForwardMetal env params input
+            case (first, second) of
+              (Right a, Right b) -> do
+                forwardOutput a @?= forwardOutput b
+                forwardHiddenAct a @?= forwardHiddenAct b
+              _ -> assertBool "both MLP forward Metal runs succeed" False
+      , testCase
+          "apple-silicon batched MLP gradient matches the pure summed gradient (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                batch =
+                  [ (VU.fromList [0.5, -0.25, 1.0, -0.75], VU.fromList [0.2, -0.4, 0.6])
+                  , (VU.fromList [-0.1, 0.3, -0.5, 0.2], VU.fromList [-0.3, 0.5, 0.1])
+                  , (VU.fromList [0.9, 0.1, -0.2, 0.4], VU.fromList [0.05, -0.15, 0.25])
+                  ]
+                perSample (i, dy) = mlpBackward params (mlpForward params i) dy
+                sumGrad a b =
+                  MlpGradient
+                    { gradW1 = VU.zipWith (+) (gradW1 a) (gradW1 b)
+                    , gradB1 = VU.zipWith (+) (gradB1 a) (gradB1 b)
+                    , gradW2 = VU.zipWith (+) (gradW2 a) (gradW2 b)
+                    , gradB2 = VU.zipWith (+) (gradB2 a) (gradB2 b)
+                    }
+                refGrad = foldl1 sumGrad (map perSample batch)
+            result <- mlpBatchGradientMetal env params batch
+            case result of
+              Right g ->
+                assertBool
+                  "batched Metal gradW1 within tolerance of the pure summed gradient"
+                  (approxEqualVec 1.0e-3 (gradW1 g) (gradW1 refGrad))
+              Left e -> assertBool ("Metal batched gradient failed: " <> Text.unpack e) False
+      , testCase
+          "apple-silicon batched MLP forward matches the pure per-sample forward (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                inputs =
+                  [ VU.fromList [0.5, -0.25, 1.0, -0.75]
+                  , VU.fromList [-0.1, 0.3, -0.5, 0.2]
+                  ]
+                refOutputs = map (forwardOutput . mlpForward params) inputs
+            result <- mlpForwardBatchMetal env params inputs
+            case result of
+              Right outs ->
+                assertBool
+                  "each batched Metal forward output is within tolerance of the pure forward"
+                  (length outs == length inputs && and (zipWith (approxEqualVec 1.0e-3) outs refOutputs))
+              Left e -> assertBool ("Metal batched forward failed: " <> Text.unpack e) False
+      , testCase
+          "apple-silicon batched MLP input-gradient matches the pure mlpInputGradient (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let shape = MlpShape {mlpInputs = 4, mlpHidden = 6, mlpOutputs = 3}
+                params = mlpInit shape 5
+                batch =
+                  [ (VU.fromList [0.5, -0.25, 1.0, -0.75], VU.fromList [0.2, -0.4, 0.6])
+                  , (VU.fromList [-0.1, 0.3, -0.5, 0.2], VU.fromList [-0.3, 0.5, 0.1])
+                  ]
+                refDx (i, dy) = mlpInputGradient params (mlpForward params i) dy
+                refs = map refDx batch
+            result <- mlpInputGradientBatchMetal env params batch
+            case result of
+              Right dxs ->
+                assertBool
+                  "each batched Metal dL/dx is within tolerance of the pure mlpInputGradient"
+                  (length dxs == length batch && and (zipWith (approxEqualVec 1.0e-3) dxs refs))
+              Left e -> assertBool ("Metal batched input-gradient failed: " <> Text.unpack e) False
+      , -- ════ Phase 4 rebalance: apple-silicon (Metal) RL trainers — UNVERIFIED until run on a Mac ════
+        testCase
+          "apple-silicon on-policy PPO trainer trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  defaultPpoTrainConfig
+                    { ppoNumIterations = 3
+                    , ppoRolloutSteps = 128
+                    , ppoEpochsPerUpdate = 2
+                    , ppoMiniBatchSize = 32
+                    , ppoHiddenUnits = 16
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainOnPolicyOnCartpoleMetal env VariantPPO config
+            r2 <- trainOnPolicyOnCartpoleMetal env VariantPPO config
+            case (r1, r2) of
+              (Right res1, Right res2) -> do
+                length (resultIterations res1) @?= 3
+                assertBool
+                  "per-iteration mean rewards are finite"
+                  (all (finite . iterMeanReward) (resultIterations res1))
+                map iterMeanReward (resultIterations res1)
+                  @?= map iterMeanReward (resultIterations res2)
+              (Left e, _) ->
+                assertBool ("Metal on-policy trainer failed: " <> Text.unpack e) False
+              _ -> assertBool "both Metal on-policy trainer runs succeed" False
+      , testCase
+          "apple-silicon DQN trainer trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  defaultDqnTrainConfig
+                    { dqnNumSteps = 600
+                    , dqnTrainStart = 100
+                    , dqnBatchSize = 16
+                    , dqnHiddenUnits = 16
+                    , dqnStatInterval = 200
+                    , dqnTargetUpdateInterval = 200
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainDqnOnCartpoleMetal env config
+            r2 <- trainDqnOnCartpoleMetal env config
+            assertBool
+              "DQN run produced at least one interval stat"
+              (not (null (dqnResultStats r1)))
+            assertBool
+              "per-interval mean rewards are finite"
+              (all (finite . dqnIterMeanReward) (dqnResultStats r1))
+            map dqnIterMeanReward (dqnResultStats r1)
+              @?= map dqnIterMeanReward (dqnResultStats r2)
+      , testCase
+          "apple-silicon QR-DQN trainer trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  defaultQrDqnTrainConfig
+                    { qrNumSteps = 600
+                    , qrTrainStart = 100
+                    , qrBatchSize = 16
+                    , qrHiddenUnits = 16
+                    , qrNumQuantiles = 4
+                    , qrStatInterval = 200
+                    , qrTargetUpdateInterval = 200
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainQrDqnOnCartpoleMetal env config
+            r2 <- trainQrDqnOnCartpoleMetal env config
+            assertBool
+              "QR-DQN run produced at least one interval stat"
+              (not (null (qrResultStats r1)))
+            assertBool
+              "per-interval mean rewards are finite"
+              (all (finite . qrIterMeanReward) (qrResultStats r1))
+            map qrIterMeanReward (qrResultStats r1)
+              @?= map qrIterMeanReward (qrResultStats r2)
+      , testCase
+          "apple-silicon HER trainer trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  defaultHerTrainConfig
+                    { herNumBits = 4
+                    , herEpisodes = 60
+                    , herHiddenUnits = 16
+                    , herBatchSize = 16
+                    , herStatInterval = 20
+                    , herTargetUpdateInterval = 20
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainHerOnBitFlipMetal env config
+            r2 <- trainHerOnBitFlipMetal env config
+            assertBool
+              "HER run produced at least one interval stat"
+              (not (null (herResultStats r1)))
+            assertBool
+              "per-interval success rates are finite in [0,1]"
+              ( all
+                  (\s -> finite (herIterSuccessRate s) && herIterSuccessRate s >= 0 && herIterSuccessRate s <= 1)
+                  (herResultStats r1)
+              )
+            map herIterSuccessRate (herResultStats r1)
+              @?= map herIterSuccessRate (herResultStats r2)
+      , testCase
+          "apple-silicon continuous actor-critic (DDPG) trains through the batched device path (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let config =
+                  (defaultContinuousTrainConfig VariantDDPG)
+                    { ctNumSteps = 400
+                    , ctTrainStart = 100
+                    , ctStartSteps = 100
+                    , ctBatchSize = 16
+                    , ctHidden = 16
+                    , ctStatInterval = 200
+                    }
+                finite x = not (isNaN x) && not (isInfinite x)
+            r1 <- trainContinuousOnPendulumMetal env config
+            r2 <- trainContinuousOnPendulumMetal env config
+            assertBool
+              "continuous run produced at least one interval stat"
+              (not (null (contResultStats r1)))
+            assertBool
+              "per-interval mean rewards are finite"
+              (all (finite . contIterMeanReward) (contResultStats r1))
+            map contIterMeanReward (contResultStats r1)
+              @?= map contIterMeanReward (contResultStats r2)
+      , testCase
+          "apple-silicon AlphaZero PolicyValueNet trains on the device and reduces loss (Phase 4 rebalance)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let net0 = PVN.initPolicyValueNet 43 7 16 22
+                adam0 = PVN.initAdamFor net0
+                target = VU.fromList [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+                sample =
+                  PVN.PolicyValueTrainingSample
+                    { PVN.sampleState = initialConnect4
+                    , PVN.sampleVisitDist = target
+                    , PVN.sampleOutcome = 0.5
+                    }
+                logSafe x = if x <= 0 then -1.0e9 else log x
+                lossOf net =
+                  let pv = PVN.networkPolicyValue net (PVN.sampleState sample)
+                      policy = PVN.pvPolicy pv
+                      policyLoss =
+                        negate
+                          ( sum
+                              [ (PVN.sampleVisitDist sample VU.! i) * logSafe (policy VU.! i)
+                              | i <- [0 .. VU.length policy - 1]
+                              ]
+                          )
+                      valueLoss = 0.5 * (PVN.pvValue pv - PVN.sampleOutcome sample) ^ (2 :: Int)
+                   in policyLoss + valueLoss
+            trained <- PVN.trainPolicyValueNetOnSamplesMetal env net0 adam0 1.0e-2 80 [sample]
+            case trained of
+              Left message ->
+                assertBool ("PolicyValueNet Metal training failed: " <> Text.unpack message) False
+              Right (netN, _) ->
+                assertBool
+                  "device-trained policy/value loss should decrease"
+                  (lossOf netN < lossOf net0)
       ]
 
 -- | Elementwise approximate equality for two unboxed Double vectors.
@@ -1014,6 +1709,58 @@ assertOneDnnOutput env family input expected = do
     Right kernelRun -> do
       linuxCpuKernelReportedFamily kernelRun @?= familyName family
       linuxCpuKernelOutput kernelRun @?= expected
+
+-- | Representative weighted-family fixtures whose inputs/weights exercise
+-- non-trivial values per family. Shared across every substrate lane so all
+-- three backends are checked for the same numeric correctness, not merely
+-- run-to-run determinism. Weight buffers follow each family's ABI:
+-- Dense2D row-major n*n; Conv 1x1 scalar; BatchNorm [scale,shift,mean,var];
+-- LayerNorm [scale,shift]; Embedding row-major rows*n table; MHA [Wq,Wk,Wv].
+weightedFamilyFixtures :: [(KernelFamily, [Float], [Float])]
+weightedFamilyFixtures =
+  [ (Dense2D, [1.0, 2.0, 3.0], [1, 0, 0, 0, 2, 0, 0, 0, 3])
+  , (Conv2DKernel, [0.5, 1.5, 2.5, 3.5], [2.0])
+  , (Conv3DKernel, [0.5, 1.5, 2.5, 3.5], [3.0])
+  ,
+    ( BatchNormKernel
+    , [0.5, 1.5, 2.5, 3.5]
+    , [1, 1, 1, 1, 0.1, 0.1, 0.1, 0.1, 0.0, 1.0, 2.0, 3.0, 1, 1, 1, 1]
+    )
+  , (LayerNormKernel, [0.5, 1.5, 2.5, 3.5], [1, 1, 1, 1, 0, 0, 0, 0])
+  ,
+    ( EmbeddingKernel
+    , [0, 1, 2, 3]
+    , [10, 11, 12, 13, 20, 21, 22, 23, 30, 31, 32, 33, 40, 41, 42, 43]
+    )
+  , (MultiHeadAttentionKernel, [1.0, 2.0], [1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1])
+  ]
+
+-- | Assert a backend kernel's weighted-family output matches the pure
+-- 'familyReference' oracle within single-precision tolerance. The reference is
+-- computed in Double; the kernel runs in Float, so agreement is asserted within
+-- 1e-3 (the same band the MLP device tests use). This is a within-lane
+-- backend-vs-oracle correctness check — not a cross-substrate parity assertion.
+assertWeightedMatchesReference
+  :: Text.Text -> KernelFamily -> [Float] -> [Float] -> [Float] -> IO ()
+assertWeightedMatchesReference label family input weights actual =
+  assertBool
+    ( Text.unpack label
+        <> ": "
+        <> show family
+        <> " kernel output "
+        <> show actual
+        <> " must match the pure reference "
+        <> show expected
+        <> " within 1e-3"
+    )
+    ( length actual == length expected
+        && approxEqualVec
+          1.0e-3
+          (VU.fromList (map realToFrac actual))
+          (VU.fromList (map realToFrac expected))
+    )
+ where
+  expected = familyReference family input weights
 
 -- | Sprint 13.15 — unique per-run suffix so the first-cache-miss test
 -- starts from a guaranteed-cold cache key on every invocation.

@@ -274,7 +274,7 @@ Concurrent training advances are invisible to the reader because the
 snapshot the reader operates against is immutable.
 
 The current local read paths are `inferFromManifest`, a deterministic summary
-helper used by `jitml inference run` and the local cross-backend stanza,
+helper used by `jitml inference run` and the local backends stanza,
 `JitML.Checkpoint.Store.inferFromLatestCheckpoint`, which reads a local latest
 pointer, fetches the addressed manifest, and applies the same deterministic
 inference helper, and `inferWeightsOnlyFromLatestCheckpoint`, which clears

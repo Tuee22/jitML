@@ -19,6 +19,9 @@ module JitML.RL.Algorithms.QrDqnTrainer
   , QrDqnIterationStat (..)
   , trainQrDqnOnCartpole
   , trainQrDqnOnCartpoleCuda
+  , trainQrDqnOnCartpoleOneDnn
+  , trainQrDqnOnCartpoleMetal
+  , trainQrDqnOnDevice
   )
 where
 
@@ -42,7 +45,10 @@ import JitML.Numerics.Mlp
   , mlpForward
   , mlpInit
   )
-import JitML.Numerics.MlpCuda (mlpBatchGradientCuda, mlpForwardBatchCuda)
+import JitML.Numerics.MlpCuda (cudaMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..))
+import JitML.Numerics.MlpMetal (metalMlpDevice)
+import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.Algorithms.QrDqnLoss (quantileMidpoints)
 import JitML.RL.Simulator
   ( CartPoleState (..)
@@ -277,8 +283,8 @@ qrUpdate config online target adam batch =
 -- slots, zero elsewhere. Takes the online output at the state and the
 -- target-net output at the next state (the greedy next action is read off
 -- the target output via 'actionMeanQ', so no extra forward is needed).
--- Factored out of 'qrUpdate' so the pure CPU path and the batched CUDA
--- path ('qrUpdateCuda') compute the identical loss gradient.
+-- Factored out of 'qrUpdate' so the pure CPU path and the batched device
+-- path ('qrUpdateDevice') compute the identical loss gradient.
 qrResidualDLdy
   :: QrDqnTrainConfig
   -> Vector Double
@@ -337,10 +343,26 @@ obsVector state =
 -- forward + backward running on the GPU through the batched device
 -- primitives. Same env loop / replay / target-copy as the pure
 -- 'trainQrDqnOnCartpole' (shared via the parameterised 'loop'); only the
--- minibatch gradient update runs on the device ('qrUpdateCuda'), reusing
+-- minibatch gradient update runs on the device ('qrUpdateDevice'), reusing
 -- the shared quantile-Huber head 'qrResidualDLdy'.
 trainQrDqnOnCartpoleCuda :: Env -> QrDqnTrainConfig -> IO QrDqnTrainResult
-trainQrDqnOnCartpoleCuda env config = do
+trainQrDqnOnCartpoleCuda env = trainQrDqnOnDevice (cudaMlpDevice env)
+
+-- | QR-DQN training through the oneDNN (linux-cpu) MLP device.
+trainQrDqnOnCartpoleOneDnn :: Env -> QrDqnTrainConfig -> IO QrDqnTrainResult
+trainQrDqnOnCartpoleOneDnn env = trainQrDqnOnDevice (oneDnnMlpDevice env)
+
+-- | QR-DQN training through the Metal (apple-silicon) MLP device.
+trainQrDqnOnCartpoleMetal :: Env -> QrDqnTrainConfig -> IO QrDqnTrainResult
+trainQrDqnOnCartpoleMetal env = trainQrDqnOnDevice (metalMlpDevice env)
+
+-- | QR-DQN training through an injected MLP device backend. Same env loop /
+-- replay / target-copy as the pure 'trainQrDqnOnCartpole' (shared via the
+-- parameterised 'loop'); only the minibatch gradient update runs on the
+-- device ('qrUpdateDevice'), reusing the shared quantile-Huber head
+-- 'qrResidualDLdy'.
+trainQrDqnOnDevice :: MlpDevice -> QrDqnTrainConfig -> IO QrDqnTrainResult
+trainQrDqnOnDevice device config = do
   let shape =
         MlpShape
           { mlpInputs = qrObsSize config
@@ -350,7 +372,7 @@ trainQrDqnOnCartpoleCuda env config = do
       initialParams = mlpInit shape (qrSeed config)
   loop
     config
-    (qrUpdateCuda env config)
+    (qrUpdateDevice device config)
     initialParams
     initialParams
     (adamInit shape)
@@ -363,29 +385,29 @@ trainQrDqnOnCartpoleCuda env config = do
     []
     []
 
--- | Minibatch QR-DQN gradient update through the batched CUDA primitives:
+-- | Minibatch QR-DQN gradient update through the batched device primitives:
 -- batched online forward at the states + target forward at the next states,
 -- the per-sample quantile-Huber gradient ('qrResidualDLdy'), one batched
 -- device backward (mean gradient), and one Adam step. Falls back to the
--- pure 'qrUpdate' if the CUDA runtime/compile is unavailable.
-qrUpdateCuda
-  :: Env
+-- pure 'qrUpdate' if the device runtime/compile is unavailable.
+qrUpdateDevice
+  :: MlpDevice
   -> QrDqnTrainConfig
   -> MlpParams
   -> MlpParams
   -> AdamState
   -> [Transition]
   -> IO (MlpParams, AdamState)
-qrUpdateCuda env config online target adam batch = do
-  onlineOutE <- mlpForwardBatchCuda env online (map transObs batch)
-  targetOutE <- mlpForwardBatchCuda env target (map transNextObs batch)
+qrUpdateDevice device config online target adam batch = do
+  onlineOutE <- mlpdForwardBatch device online (map transObs batch)
+  targetOutE <- mlpdForwardBatch device target (map transNextObs batch)
   case (onlineOutE, targetOutE) of
     (Right onlineOuts, Right targetOuts) -> do
       let pairs =
             [ (transObs trans, qrResidualDLdy config onOut tgOut trans)
             | (trans, onOut, tgOut) <- zip3 batch onlineOuts targetOuts
             ]
-      gradResult <- mlpBatchGradientCuda env online pairs
+      gradResult <- mlpdBatchGradient device online pairs
       case gradResult of
         Right summed ->
           let scale = 1.0 / fromIntegral (length batch)

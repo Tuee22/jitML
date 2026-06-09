@@ -43,6 +43,9 @@ module JitML.RL.AlphaZero.PolicyValueNet
   , PolicyValueTrainingSample (..)
   , trainPolicyValueNetOnSamples
   , trainPolicyValueNetOnSamplesCuda
+  , trainPolicyValueNetOnSamplesOneDnn
+  , trainPolicyValueNetOnSamplesMetal
+  , trainPolicyValueNetOnSamplesWithDevice
   , policyValueNetToFlat
   , loadPolicyValueNetWeights
   , generatePolicyValueSamples
@@ -82,10 +85,14 @@ import JitML.Numerics.Mlp
   , paramShape
   , policyValueBackward
   , policyValueForward
+  , policyValueFromForward
   , policyValueOutputGradient
   , sampleCategorical
   )
-import JitML.Numerics.MlpCuda (mlpBackwardCuda, policyValueForwardCuda)
+import JitML.Numerics.MlpCuda (cudaMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice (..))
+import JitML.Numerics.MlpMetal (metalMlpDevice)
+import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.AlphaZero
   ( GameState (..)
   , applyMove
@@ -303,7 +310,46 @@ trainPolicyValueNetOnSamplesCuda
   -> Int -- passes
   -> [PolicyValueTrainingSample]
   -> IO (Either Text (PolicyValueNet, AdamState))
-trainPolicyValueNetOnSamplesCuda env net0 adam0 lr passes samples =
+trainPolicyValueNetOnSamplesCuda env = trainPolicyValueNetOnSamplesWithDevice (cudaMlpDevice env)
+
+-- | AlphaZero PolicyValueNet training through the oneDNN (linux-cpu) MLP device.
+trainPolicyValueNetOnSamplesOneDnn
+  :: Env
+  -> PolicyValueNet
+  -> AdamState
+  -> Double
+  -> Int
+  -> [PolicyValueTrainingSample]
+  -> IO (Either Text (PolicyValueNet, AdamState))
+trainPolicyValueNetOnSamplesOneDnn env = trainPolicyValueNetOnSamplesWithDevice (oneDnnMlpDevice env)
+
+-- | AlphaZero PolicyValueNet training through the Metal (apple-silicon) MLP device.
+trainPolicyValueNetOnSamplesMetal
+  :: Env
+  -> PolicyValueNet
+  -> AdamState
+  -> Double
+  -> Int
+  -> [PolicyValueTrainingSample]
+  -> IO (Either Text (PolicyValueNet, AdamState))
+trainPolicyValueNetOnSamplesMetal env = trainPolicyValueNetOnSamplesWithDevice (metalMlpDevice env)
+
+-- | AlphaZero PolicyValueNet training through an injected MLP device backend.
+-- The per-sample network forward and backward passes run on the device through
+-- the generated MLP kernels; the policy/value loss-gradient assembly
+-- ('policyValueOutputGradient') and the Adam update stay on the host. The
+-- algorithm, sample contract, and Adam math are identical to the pure
+-- 'trainPolicyValueNetOnSamples' — only the network forward/backward backend
+-- changes. Returns 'Left' when the backend runtime / compile is unavailable.
+trainPolicyValueNetOnSamplesWithDevice
+  :: MlpDevice
+  -> PolicyValueNet
+  -> AdamState
+  -> Double -- learning rate
+  -> Int -- passes
+  -> [PolicyValueTrainingSample]
+  -> IO (Either Text (PolicyValueNet, AdamState))
+trainPolicyValueNetOnSamplesWithDevice device net0 adam0 lr passes samples =
   foldM onePass (Right (net0, adam0)) [1 .. passes]
  where
   adamConfig = defaultAdamConfig {adamLearningRate = lr}
@@ -314,14 +360,14 @@ trainPolicyValueNetOnSamplesCuda env net0 adam0 lr passes samples =
         actionCount = pvnActionCount n
         input = encodeGameState n (sampleState trainingSample)
         outputs = mlpOutputs (paramShape params)
-    fwdResult <- policyValueForwardCuda env params actionCount input
+    fwdResult <- fmap (policyValueFromForward actionCount) <$> mlpdForward device params input
     case fwdResult of
       Left e -> pure (Left e)
       Right pv -> do
         let dLogits = VU.zipWith (-) (pvPolicy pv) (sampleVisitDist trainingSample)
             dValue = pvValue pv - sampleOutcome trainingSample
             dLdy = policyValueOutputGradient outputs pv dLogits dValue
-        gradResult <- mlpBackwardCuda env params (pvForward pv) dLdy
+        gradResult <- mlpdBackward device params (pvForward pv) dLdy
         case gradResult of
           Left e -> pure (Left e)
           Right grad ->
