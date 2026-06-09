@@ -20,16 +20,17 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-08 for Sprint `1.13`). The phase last re-closed
-`✅ Done` 2026-06-04 after Sprint `1.12`; Sprints `1.1`–`1.12` remain `✅ Done`
-on their owned surfaces. Sprint `1.13` reopens the phase as owner of
+✅ **Done** (re-closed 2026-06-09 after Sprint `1.13`). The phase last re-closed
+`✅ Done` 2026-06-04 after Sprint `1.12`; Sprints `1.1`–`1.13` are all `✅ Done`
+on their owned surfaces. Sprint `1.13` reopened the phase as owner of
 `CommandSpec`: the reproducibility contract was clarified to *within a
 substrate, bit-for-bit reproducible; across substrates, no guarantee*, which
-removes the cross-substrate numeric parity surface. Sprint `1.13` deletes the
-`jitml verify cross-backend` leaf from `CommandSpec` and adds a `--test-options`
-passthrough to the `jitml test` leaves, then regenerates the CLI artifacts. The
-phase stays `🔄 Active` until those land and `jitml docs check` is green; see
-[Sprint 1.13](#sprint-113-remove-verify-cross-backend-add-jitml-test---test-options-passthrough--active).
+removes the cross-substrate numeric parity surface. Sprint `1.13` deleted the
+`jitml verify cross-backend` leaf from `CommandSpec`, added a `--test-options`
+passthrough to the `jitml test` leaves, and regenerated the CLI artifacts;
+`jitml docs check` and the container `jitml check-code` are green, and
+`jitml-unit` passes 193 / 193. See
+[Sprint 1.13](#sprint-113-remove-verify-cross-backend-add-jitml-test---test-options-passthrough--done).
 
 Sprint `1.12` closed the CLI Dhall
 override doctrine gap: `JitML.Experiment.Overrides.applyOverrides`
@@ -828,9 +829,9 @@ now parse against the regenerated registry table.
   the legacy ledger tracks only the doctrine-deviation interval, not the
   sprint's primary unmet obligations.
 
-## Sprint 1.13: Remove `verify cross-backend`, add `jitml test --test-options` passthrough [🔄 Active]
+## Sprint 1.13: Remove `verify cross-backend`, add `jitml test --test-options` passthrough [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/CLI/Spec.hs`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/cli_command_surface.md` (regenerated
 help-blocks, key `cli-commands.help-blocks`), `documents/cli/commands.md`
@@ -877,13 +878,34 @@ passthrough to the `jitml test` leaves that forwards arbitrary arguments to
 3. `docker compose run --rm jitml jitml check-code` exits `0` — the
    container-only Haskell lint + warning-clean build gate is clean.
 
-### Remaining Work
+**2026-06-09 (closed)** — all three edits landed and validated:
 
-The `CommandSpec` edit (delete the `verify cross-backend` leaf, add
-`--test-options`), the `App.hs` `runCabalTest` passthrough, and the
-`jitml docs generate` regeneration are not yet landed — the code change is a
-separate approved plan. This sprint stays `🔄 Active` until all three land and
-`jitml docs check` is green.
+- `src/JitML/CLI/Spec.hs` no longer carries the `verify` → `cross-backend`
+  leaf (`verify same-run` / `verify replay` stay), and the new
+  `testOptionsOption` (`--test-options <text>`) is attached to both the
+  `test all` and the per-stanza `test <stanza>` leaves.
+- `src/JitML/App.hs` removes `runVerifyCrossBackend` and all its helpers
+  (`selectedCrossBackendSubstrates`, `readCrossBackendBundle`,
+  `writeCrossBackendExport`, `assertCrossBackendBundle`, `crossBackendResult`,
+  `commaSeparatedValues`), and `runCabalTest` forwards the opaque
+  `--test-options` value verbatim as `cabal test <stanzas> --test-options
+  <value>`.
+- `jitml docs generate` regenerated the README `command-tree` /
+  `command-registry` blocks, `documents/cli/commands.md`,
+  `documents/engineering/cli_command_surface.md` (`cli-commands.help-blocks`),
+  `share/man/man1/jitml.1`, and the bash / zsh / fish completions.
+
+Validation: `jitml docs check` exits `0` (host **and** container) — the
+regenerated mirror carries no `verify cross-backend` leaf; `jitml-unit`
+passes **193 / 193** (the parser/spec leaf-path enumeration drops the leaf and
+a new case covers `test jitml-cross-backend --test-options='-p linux-cuda'`);
+the container `jitml check-code` exits `0`; and the passthrough was exercised
+end-to-end through the built binary —
+`jitml test jitml-cross-backend --test-options='-p apple-silicon'` selected the
+apple-silicon lane and `--test-options='-p linux-cpu'` selected the linux-cpu
+lane. The `jitml verify cross-backend` row in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) moves to
+`Completed`.
 
 ## Documentation Requirements (Sprint 1.13)
 

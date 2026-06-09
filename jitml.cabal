@@ -63,7 +63,6 @@ library
         JitML.Cluster.Readiness
         JitML.Cluster.Resources
         JitML.Cluster.Storage
-        JitML.CrossBackend.Parity
         JitML.Docs.Check
         JitML.Docs.Generate
         JitML.Docs.Render
@@ -80,7 +79,6 @@ library
         JitML.Engines.MetalRuntime
         JitML.Engines.OneDnnRuntime
         JitML.Engines.Rng
-        JitML.Engines.Tolerance
         JitML.Engines.Tuning
         JitML.Engines.TuningBenchmark
         JitML.Engines.TuningCache

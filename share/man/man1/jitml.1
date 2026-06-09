@@ -63,10 +63,6 @@ Run a fixed\\-seed rollout.
 Verify same\\-run determinism.
 .PP
 .B jitml verify same\\-run \\-\\-experiment <experiment\\-dhall> \\-\\-runs <int>
-.SS JITML VERIFY CROSS-BACKEND
-Verify cross\\-backend parity.
-.PP
-.B jitml verify cross\\-backend \\-\\-experiment <experiment\\-dhall> [\\-\\-backends <list>] [\\-\\-export <path>] [\\-\\-compare <paths>]
 .SS JITML VERIFY REPLAY
 Verify checkpoint replay.
 .PP
@@ -110,39 +106,39 @@ Run inference at any point.
 .SS JITML TEST ALL
 Run all test stanzas.
 .PP
-.B jitml test all [\\-\\-live] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
+.B jitml test all [\\-\\-live] [\\-\\-test\\-options <text>] [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML TEST JITML-UNIT
 Run jitml\\-unit.
 .PP
-.B jitml test jitml\\-unit
+.B jitml test jitml\\-unit [\\-\\-test\\-options <text>]
 .SS JITML TEST JITML-INTEGRATION
 Run jitml\\-integration.
 .PP
-.B jitml test jitml\\-integration
+.B jitml test jitml\\-integration [\\-\\-test\\-options <text>]
 .SS JITML TEST JITML-SL-CANONICALS
 Run jitml\\-sl\\-canonicals.
 .PP
-.B jitml test jitml\\-sl\\-canonicals
+.B jitml test jitml\\-sl\\-canonicals [\\-\\-test\\-options <text>]
 .SS JITML TEST JITML-RL-CANONICALS
 Run jitml\\-rl\\-canonicals.
 .PP
-.B jitml test jitml\\-rl\\-canonicals
+.B jitml test jitml\\-rl\\-canonicals [\\-\\-test\\-options <text>]
 .SS JITML TEST JITML-HYPERPARAMETER
 Run jitml\\-hyperparameter.
 .PP
-.B jitml test jitml\\-hyperparameter
+.B jitml test jitml\\-hyperparameter [\\-\\-test\\-options <text>]
 .SS JITML TEST JITML-CROSS-BACKEND
 Run jitml\\-cross\\-backend.
 .PP
-.B jitml test jitml\\-cross\\-backend
+.B jitml test jitml\\-cross\\-backend [\\-\\-test\\-options <text>]
 .SS JITML TEST JITML-DAEMON-LIFECYCLE
 Run jitml\\-daemon\\-lifecycle.
 .PP
-.B jitml test jitml\\-daemon\\-lifecycle
+.B jitml test jitml\\-daemon\\-lifecycle [\\-\\-test\\-options <text>]
 .SS JITML TEST JITML-E2E
 Run jitml\\-e2e.
 .PP
-.B jitml test jitml\\-e2e
+.B jitml test jitml\\-e2e [\\-\\-test\\-options <text>]
 .SS JITML LINT FILES
 Run file hygiene checks.
 .PP

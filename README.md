@@ -702,7 +702,6 @@ mindmap
       rollout
     verify
       same-run
-      cross-backend
       replay
     inspect
       list
@@ -771,7 +770,6 @@ mindmap
 | `jitml rl eval` | Evaluate an RL policy. | `jitml rl eval <rl-experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml rl rollout` | Run a fixed-seed rollout. | `jitml rl rollout <rl-experiment-dhall> [--seed <word64>]` |
 | `jitml verify same-run` | Verify same-run determinism. | `jitml verify same-run --experiment <experiment-dhall> --runs <int>` |
-| `jitml verify cross-backend` | Verify cross-backend parity. | `jitml verify cross-backend --experiment <experiment-dhall> [--backends <list>] [--export <path>] [--compare <paths>]` |
 | `jitml verify replay` | Verify checkpoint replay. | `jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>` |
 | `jitml inspect list` | List cached manifests. | `jitml inspect list` |
 | `jitml inspect show` | Show a manifest. | `jitml inspect show <manifest-sha> [--with-equity]` |
@@ -782,15 +780,15 @@ mindmap
 | `jitml bench inference` | Benchmark inference. | `jitml bench inference <experiment-dhall> --checkpoint <checkpoint-id>` |
 | `jitml bench env` | Benchmark environment stepping. | `jitml bench env <rl-experiment-dhall>` |
 | `jitml inference run` | Run inference at any point. | `jitml inference run [<experiment-dhall>] [--checkpoint <latest\|best/<metric>\|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]` |
-| `jitml test all` | Run all test stanzas. | `jitml test all [--live] [--dry-run] [--plan-file <path>]` |
-| `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit` |
-| `jitml test jitml-integration` | Run jitml-integration. | `jitml test jitml-integration` |
-| `jitml test jitml-sl-canonicals` | Run jitml-sl-canonicals. | `jitml test jitml-sl-canonicals` |
-| `jitml test jitml-rl-canonicals` | Run jitml-rl-canonicals. | `jitml test jitml-rl-canonicals` |
-| `jitml test jitml-hyperparameter` | Run jitml-hyperparameter. | `jitml test jitml-hyperparameter` |
-| `jitml test jitml-cross-backend` | Run jitml-cross-backend. | `jitml test jitml-cross-backend` |
-| `jitml test jitml-daemon-lifecycle` | Run jitml-daemon-lifecycle. | `jitml test jitml-daemon-lifecycle` |
-| `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e` |
+| `jitml test all` | Run all test stanzas. | `jitml test all [--live] [--test-options <text>] [--dry-run] [--plan-file <path>]` |
+| `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit [--test-options <text>]` |
+| `jitml test jitml-integration` | Run jitml-integration. | `jitml test jitml-integration [--test-options <text>]` |
+| `jitml test jitml-sl-canonicals` | Run jitml-sl-canonicals. | `jitml test jitml-sl-canonicals [--test-options <text>]` |
+| `jitml test jitml-rl-canonicals` | Run jitml-rl-canonicals. | `jitml test jitml-rl-canonicals [--test-options <text>]` |
+| `jitml test jitml-hyperparameter` | Run jitml-hyperparameter. | `jitml test jitml-hyperparameter [--test-options <text>]` |
+| `jitml test jitml-cross-backend` | Run jitml-cross-backend. | `jitml test jitml-cross-backend [--test-options <text>]` |
+| `jitml test jitml-daemon-lifecycle` | Run jitml-daemon-lifecycle. | `jitml test jitml-daemon-lifecycle [--test-options <text>]` |
+| `jitml test jitml-e2e` | Run jitml-e2e. | `jitml test jitml-e2e [--test-options <text>]` |
 | `jitml lint files` | Run file hygiene checks. | `jitml lint files [--write]` |
 | `jitml lint docs` | Run generated documentation checks. | `jitml lint docs [--write]` |
 | `jitml lint proto` | Run protobuf schema lint checks. | `jitml lint proto [--write]` |

@@ -341,25 +341,6 @@ verifyCommand =
             "Verify same-run determinism."
         ]
     , leaf
-        "cross-backend"
-        "Verify cross-backend parity."
-        "Runs or compares the Sprint 15.1 weighted cross-substrate cohort and checks configured tolerances."
-        [ value "experiment" Nothing "experiment-dhall" True "Experiment Dhall file."
-        , value "backends" Nothing "list" False "Comma-separated substrate list to run locally."
-        , value "export" Nothing "path" False "Write the local cohort report bundle to this path."
-        , value "compare" Nothing "paths" False "Comma-separated cross-host report bundle paths to compare."
-        ]
-        [ Example
-            "jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu,linux-cuda"
-            "Verify backend parity."
-        , Example
-            "jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json"
-            "Export an ephemeral Apple Silicon cohort report for cross-host comparison."
-        , Example
-            "jitml verify cross-backend --experiment experiments/mnist.dhall --compare /tmp/jitml-linux.json,/tmp/jitml-apple.json"
-            "Compare ephemeral cross-host cohort reports."
-        ]
-    , leaf
         "replay"
         "Verify checkpoint replay."
         "Replays a checkpoint transcript and checks deterministic reproduction."
@@ -672,6 +653,7 @@ allTestCommand =
     "Run all test stanzas."
     "Runs every test-only Cabal stanza and renders the report card."
     [ flag "live" Nothing False "Collect live report-card measurements after the Cabal stanzas pass."
+    , testOptionsOption
     , dryRunOption
     , planFileOption
     ]
@@ -685,8 +667,24 @@ testStanzaCommand stanzaName =
     stanzaName
     ("Run " <> stanzaName <> ".")
     ("Runs the " <> stanzaName <> " Cabal test stanza.")
-    []
-    [Example ("jitml test " <> stanzaName) ("Run " <> stanzaName <> ".")]
+    [testOptionsOption]
+    [ Example ("jitml test " <> stanzaName) ("Run " <> stanzaName <> ".")
+    , Example
+        ("jitml test " <> stanzaName <> " --test-options='-p linux-cuda'")
+        "Select a substrate-partitioned tasty lane via a cabal test passthrough."
+    ]
+
+-- | Optional passthrough that forwards an opaque argument string to
+-- @cabal test@ (for example @-p linux-cuda@ to select a substrate lane).
+-- The value is opaque to jitML and is forwarded verbatim.
+testOptionsOption :: OptionSpec
+testOptionsOption =
+  value
+    "test-options"
+    Nothing
+    "text"
+    False
+    "Forward an opaque argument string to cabal test (e.g. -p linux-cuda)."
 
 testStanzas :: [Text]
 testStanzas =

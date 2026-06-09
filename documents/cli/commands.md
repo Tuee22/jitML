@@ -397,44 +397,6 @@ jitml verify same-run --experiment experiments/mnist.dhall --runs 2
 Verify same-run determinism.
 
 
-## `jitml verify cross-backend`
-
-Verify cross-backend parity.
-
-Runs or compares the Sprint 15.1 weighted cross-substrate cohort and checks configured tolerances.
-
-```text
-jitml verify cross-backend --experiment <experiment-dhall> [--backends <list>] [--export <path>] [--compare <paths>]
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `--experiment <experiment-dhall>` | value | yes | Experiment Dhall file. |
-| `--backends <list>` | value | no | Comma-separated substrate list to run locally. |
-| `--export <path>` | value | no | Write the local cohort report bundle to this path. |
-| `--compare <paths>` | value | no | Comma-separated cross-host report bundle paths to compare. |
-
-Examples:
-
-```text
-jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu,linux-cuda
-```
-
-Verify backend parity.
-
-```text
-jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json
-```
-
-Export an ephemeral Apple Silicon cohort report for cross-host comparison.
-
-```text
-jitml verify cross-backend --experiment experiments/mnist.dhall --compare /tmp/jitml-linux.json,/tmp/jitml-apple.json
-```
-
-Compare ephemeral cross-host cohort reports.
-
-
 ## `jitml verify replay`
 
 Verify checkpoint replay.
@@ -688,12 +650,13 @@ Run all test stanzas.
 Runs every test-only Cabal stanza and renders the report card.
 
 ```text
-jitml test all [--live] [--dry-run] [--plan-file <path>]
+jitml test all [--live] [--test-options <text>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `--live` | flag | no | Collect live report-card measurements after the Cabal stanzas pass. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -719,8 +682,12 @@ Run jitml-unit.
 Runs the jitml-unit Cabal test stanza.
 
 ```text
-jitml test jitml-unit
+jitml test jitml-unit [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -730,6 +697,12 @@ jitml test jitml-unit
 
 Run jitml-unit.
 
+```text
+jitml test jitml-unit --test-options='-p linux-cuda'
+```
+
+Select a substrate-partitioned tasty lane via a cabal test passthrough.
+
 
 ## `jitml test jitml-integration`
 
@@ -738,8 +711,12 @@ Run jitml-integration.
 Runs the jitml-integration Cabal test stanza.
 
 ```text
-jitml test jitml-integration
+jitml test jitml-integration [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -748,6 +725,12 @@ jitml test jitml-integration
 ```
 
 Run jitml-integration.
+
+```text
+jitml test jitml-integration --test-options='-p linux-cuda'
+```
+
+Select a substrate-partitioned tasty lane via a cabal test passthrough.
 
 
 ## `jitml test jitml-sl-canonicals`
@@ -757,8 +740,12 @@ Run jitml-sl-canonicals.
 Runs the jitml-sl-canonicals Cabal test stanza.
 
 ```text
-jitml test jitml-sl-canonicals
+jitml test jitml-sl-canonicals [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -768,6 +755,12 @@ jitml test jitml-sl-canonicals
 
 Run jitml-sl-canonicals.
 
+```text
+jitml test jitml-sl-canonicals --test-options='-p linux-cuda'
+```
+
+Select a substrate-partitioned tasty lane via a cabal test passthrough.
+
 
 ## `jitml test jitml-rl-canonicals`
 
@@ -776,8 +769,12 @@ Run jitml-rl-canonicals.
 Runs the jitml-rl-canonicals Cabal test stanza.
 
 ```text
-jitml test jitml-rl-canonicals
+jitml test jitml-rl-canonicals [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -786,6 +783,12 @@ jitml test jitml-rl-canonicals
 ```
 
 Run jitml-rl-canonicals.
+
+```text
+jitml test jitml-rl-canonicals --test-options='-p linux-cuda'
+```
+
+Select a substrate-partitioned tasty lane via a cabal test passthrough.
 
 
 ## `jitml test jitml-hyperparameter`
@@ -795,8 +798,12 @@ Run jitml-hyperparameter.
 Runs the jitml-hyperparameter Cabal test stanza.
 
 ```text
-jitml test jitml-hyperparameter
+jitml test jitml-hyperparameter [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -806,6 +813,12 @@ jitml test jitml-hyperparameter
 
 Run jitml-hyperparameter.
 
+```text
+jitml test jitml-hyperparameter --test-options='-p linux-cuda'
+```
+
+Select a substrate-partitioned tasty lane via a cabal test passthrough.
+
 
 ## `jitml test jitml-cross-backend`
 
@@ -814,8 +827,12 @@ Run jitml-cross-backend.
 Runs the jitml-cross-backend Cabal test stanza.
 
 ```text
-jitml test jitml-cross-backend
+jitml test jitml-cross-backend [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -824,6 +841,12 @@ jitml test jitml-cross-backend
 ```
 
 Run jitml-cross-backend.
+
+```text
+jitml test jitml-cross-backend --test-options='-p linux-cuda'
+```
+
+Select a substrate-partitioned tasty lane via a cabal test passthrough.
 
 
 ## `jitml test jitml-daemon-lifecycle`
@@ -833,8 +856,12 @@ Run jitml-daemon-lifecycle.
 Runs the jitml-daemon-lifecycle Cabal test stanza.
 
 ```text
-jitml test jitml-daemon-lifecycle
+jitml test jitml-daemon-lifecycle [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -844,6 +871,12 @@ jitml test jitml-daemon-lifecycle
 
 Run jitml-daemon-lifecycle.
 
+```text
+jitml test jitml-daemon-lifecycle --test-options='-p linux-cuda'
+```
+
+Select a substrate-partitioned tasty lane via a cabal test passthrough.
+
 
 ## `jitml test jitml-e2e`
 
@@ -852,8 +885,12 @@ Run jitml-e2e.
 Runs the jitml-e2e Cabal test stanza.
 
 ```text
-jitml test jitml-e2e
+jitml test jitml-e2e [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -862,6 +899,12 @@ jitml test jitml-e2e
 ```
 
 Run jitml-e2e.
+
+```text
+jitml test jitml-e2e --test-options='-p linux-cuda'
+```
+
+Select a substrate-partitioned tasty lane via a cabal test passthrough.
 
 
 ## `jitml lint files`

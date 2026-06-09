@@ -47,8 +47,21 @@ removed because cross-substrate equivalence is out of contract; see Sprint
 `15.4` for the deletions and the determinism-contract reframe. Sprints
 `15.1` and `15.2` are reframed to `🔄 Active — surface removed by Sprint
 15.4`; their historical dated evidence is retained as a dated record below.
-The phase stays Active until the Sprint `15.4` deletions land and the
-`legacy-tracking-for-deletion.md` Pending Removal rows it owns close.
+**The Sprint `15.4` deletions and the determinism-contract doc reframe all
+landed 2026-06-09**: `src/JitML/Engines/Tolerance.hs` and
+`src/JitML/CrossBackend/Parity.hs` are deleted (and removed from
+`jitml.cabal`), the `cross_substrate_parity` field / `measureCrossSubstrateParity`
+/ `verify cross-backend` handlers are gone, and the determinism docs are reframed
+to within-substrate-only. `jitml docs check` and the container `jitml check-code`
+are green; the `apple-silicon` (4 / 4) and `linux-cpu` (10 / 10) `jitml test`
+lanes pass; the two `legacy-tracking-for-deletion.md` rows this sprint owns
+(`Tolerance.hs`, `CrossBackend.Parity`) move to `Completed`. The phase **stays
+`🔄 Active`** because the determinism claim is validated per substrate by Phases
+`13`/`14` and the `linux-cuda` lane (`jitml test all` on the GPU substrate)
+requires NVIDIA hardware the current Apple Silicon development host does not
+provide; Exit Definition item 18 (empty legacy ledger) is therefore not yet
+fully met while the GPU-lane re-validation rows owned by Sprints `12.10` /
+`13.16` remain open.
 
 The pre-reopen ✅ Done evidence is retained verbatim below as the dated
 historical record.
@@ -638,13 +651,33 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
 
 ### Remaining Work
 
-- The code deletions and the doc cascade are **not yet all landed** (they
-  proceed under a separate approved code plan); this sprint stays Active
-  until they do.
-- Exit Definition item 18 (empty legacy ledger) is **unmet** while the
-  `legacy-tracking-for-deletion.md` Pending Removal rows owned by this
-  sprint (`Tolerance.hs`, `CrossBackend.Parity`) are open. The sprint
-  stays Active until those rows close.
+- **The code deletions have landed** (2026-06-08): `src/JitML/Engines/Tolerance.hs`
+  and `src/JitML/CrossBackend/Parity.hs` are deleted (and removed from
+  `jitml.cabal`); the `CrossSubstrate` drift group
+  (`test/cross-backend/Main.hs`) and the tolerance-band group
+  (`test/unit/Main.hs`) are removed; the `cross_substrate_parity` field,
+  `measureCrossSubstrateParity`, and the `verify cross-backend` handlers are
+  removed from `src/JitML/Test/Report.hs` and `src/JitML/App.hs`; and the
+  `verify cross-backend` leaf is removed from `src/JitML/CLI/Spec.hs`.
+- **The doc cascade has landed**: `determinism_contract.md`,
+  `unit_testing_policy.md`, `training_workloads.md`, the generated
+  `cli_command_surface.md` / `documents/cli/commands.md`, the project
+  `../README.md` determinism doctrine, the Exit Definition wording, and
+  `system-components.md` all describe within-substrate bit-for-bit
+  reproducibility with an explicit no-cross-substrate-guarantee statement and
+  carry no cross-substrate numeric-parity surface. `jitml docs check` is green
+  host-native; the whole project compiles + links clean.
+- **Outstanding:** Validation `2` (`jitml test all` on the per-substrate
+  lanes) is complete for the `apple-silicon` lane (4 / 4 host-native) and the
+  `linux-cpu` lane + container `jitml check-code` (`jitml` container); the
+  `linux-cuda` lane requires an NVIDIA GPU host the current Apple Silicon
+  development host does not provide (owned jointly with Sprints `12.10` /
+  `13.16`). Exit Definition item 18 (empty legacy ledger) is met for this
+  sprint's own rows (`Tolerance.hs`, `CrossBackend.Parity` moved to
+  `Completed`), but the ledger is not yet fully empty while the GPU-lane
+  re-validation rows owned by `12.10` / `13.16` remain open. The sprint stays
+  `🔄 Active` until the `linux-cuda` lane is re-validated and the ledger is
+  fully swept.
 
 ## Doctrine Sections Cited
 

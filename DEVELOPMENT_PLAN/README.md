@@ -39,32 +39,46 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**Reopen note (2026-06-08, open)**: Phases `1`, `12`, `13`, `14`, and `15`
-reopened from `✅ Done` to `🔄 Active` after the project owner clarified the
-reproducibility contract: **within a substrate the contract is bit-for-bit
+**Reopen note (2026-06-08; updated 2026-06-09)**: Phases `1`, `12`, `13`, `14`,
+and `15` reopened from `✅ Done` to `🔄 Active` after the project owner clarified
+the reproducibility contract: **within a substrate the contract is bit-for-bit
 reproducibility; across substrates there is no guarantee** (RNG draws and float
 reduction order differ between vendor BLAS/DNN libraries). The cross-substrate
 *numeric parity / tolerance* surface delivered by Phase `15` Sprints `15.1`
 (`src/JitML/Engines/Tolerance.hs`, `JitML.CrossBackend.Parity`, the
 `CrossSubstrate` weighted-drift tests, the `jitml verify cross-backend` command)
 and `15.2` (the report-card `cross_substrate_parity` field) asserts a guarantee
-the project does not make and is being removed. The reopened sprints are: Phase
-`1` Sprint `1.13` (remove `verify cross-backend` from `CommandSpec`; add the
-`--test-options` passthrough to `jitml test`), Phase `12` Sprint `12.10`
-(realign `jitml-cross-backend` to within-substrate cases, relocate the two
-substrate-agnostic cases to `jitml-unit`, remove the unit tolerance-band group
-and the report-card field, wire substrate-partitioned `jitml test` lanes with no
-skipped tests), Phase `13` Sprint `13.16` and Phase `14` Sprint `14.6`
-(re-validate the linux-cuda and apple-silicon lanes run for real with the
-`probeCudaRuntime` / `appleLiveReady` / `cublasBindingsCompiledIn` skip guards
-removed — a missing toolchain now fails rather than skips), and Phase `15`
-Sprint `15.4` (delete the cross-substrate parity surface and reframe the
-determinism contract + Exit Definition to within-substrate-only). Phases `0` and
-`2`–`11` remain `✅ Done` on their owned surfaces. Final handoff is incomplete
-until these five phases re-close: Exit Definition item 18 (empty legacy ledger)
-is no longer met because the doctrine-driven removals now occupy `Pending
-Removal` rows in
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+the project does not make and was removed.
+
+**On 2026-06-09 the entire source/code removal landed and was validated** on the
+two lanes the Apple Silicon development host can run. The cross-substrate parity
+modules (`Tolerance.hs`, `CrossBackend.Parity`) are deleted (and removed from
+`jitml.cabal`); the `verify cross-backend` leaf + handlers, the report-card
+`cross_substrate_parity` field + `measureCrossSubstrateParity`, the
+`CrossSubstrate` drift group, the unit tolerance-band group, and the
+`probeCudaRuntime` / `appleLiveReady` / `cublasBindingsCompiledIn` /
+`cudnnBindingsCompiledIn` skip guards + the integration oneDNN-availability
+assertion are all removed; the two substrate-agnostic cross-backend cases are
+relocated to `jitml-unit`; and the `--test-options='-p <substrate>'` passthrough
+plus substrate-named cases wire the partitioned lanes. Validation: project +
+test stanzas compile/link clean (host + in-container `-fcuda` library build),
+container `jitml check-code` and `jitml docs check` green, `jitml-unit`
+193 / 193, the **`apple-silicon` lane 4 / 4** (host-native Metal, no skips) and
+the **`linux-cpu` lane 10 / 10** (oneDNN in the `jitml` container, no skips) each
+selecting only their substrate's cases.
+
+Status after that work: **Phase `1` (Sprint `1.13`) and Phase `14` (Sprint
+`14.6`) re-closed `✅ Done`.** Phases `12` (Sprint `12.10`), `13` (Sprint
+`13.16`), and `15` (Sprint `15.4`) **stay `🔄 Active` on one shared remaining
+obligation**: the live `linux-cuda` lane
+(`docker compose run --rm jitml-cuda jitml test jitml-cross-backend
+--test-options='-p linux-cuda' -fcuda`) requires NVIDIA GPU hardware the current
+Apple Silicon development host does not provide. Phases `0` and `2`–`11` remain
+`✅ Done` on their owned surfaces. Final handoff is incomplete: Exit Definition
+item 18 (empty legacy ledger) is not yet met because the `linux-cuda` half of
+the skip-guard removal row stays `Pending Removal` in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) pending that
+GPU re-run (the other five parity-removal rows moved to `Completed`).
 
 **Reopen note (2026-06-06, re-closed 2026-06-06)**: Phase `13` (Linux CUDA and
 cluster closure) reopened from `✅ Done` to `🔄 Active` — all 15 sprints — and
@@ -182,11 +196,17 @@ the repo-owned `KeyDoorGrid-v0` environment. Phase `9` reopened for Sprint
 moved into the owning phase docs before the superseded development ledger was
 deleted by Sprint `1.11`.
 
-Phases `0` and `2`–`11` are `✅ Done`; Phases `1`, `12`, `13`, `14`, and `15`
-reopened `🔄 Active` on 2026-06-08 to remove the cross-substrate numeric parity
-surface after the reproducibility contract was clarified to within-substrate
-bit-for-bit only (see the 2026-06-08 reopen note above), so the deletion ledger
-again carries `Pending Removal` rows and final handoff is incomplete. Phase
+Phases `0`–`11` and `14` are `✅ Done`; Phases `12`, `13`, and `15` remain
+`🔄 Active`. All five phases reopened `🔄 Active` on 2026-06-08 to remove the
+cross-substrate numeric parity surface after the reproducibility contract was
+clarified to within-substrate bit-for-bit only (see the 2026-06-08/09 reopen note
+above). On 2026-06-09 the full removal landed and was validated on the
+`apple-silicon` (4 / 4) and `linux-cpu` (10 / 10) lanes plus `jitml-unit`
+193 / 193, container `jitml check-code`, and `jitml docs check`; Phase `1`
+(Sprint `1.13`) and Phase `14` (Sprint `14.6`) re-closed. Phases `12` / `13` /
+`15` stay open on the single shared `linux-cuda` GPU-lane re-validation the
+Apple Silicon development host cannot run, so the deletion ledger still carries
+one `Pending Removal` row and final handoff is incomplete. Phase
 `13` (all 15 sprints) and Phase `15`
 Sprints `15.1`/`15.2` previously reopened 2026-06-06 and re-closed the same day after
 re-validation of the live CUDA and final-test-suite obligations on the current
@@ -602,7 +622,7 @@ obligation exists.
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | 🔄 Active (reopened 2026-06-08, Sprint 1.13) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (re-closed 2026-06-09, Sprint 1.13) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
@@ -613,10 +633,10 @@ obligation exists.
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (reopened and re-closed 2026-06-05, Sprint 11.7) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | 🔄 Active (reopened 2026-06-08, Sprint 12.10) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | 🔄 Active (reopened 2026-06-08, Sprint 13.16) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | 🔄 Active (reopened 2026-06-08, Sprint 14.6) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Substrate Reproducibility and Final Handoff | 🔄 Active (reopened 2026-06-08, Sprint 15.4) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | 🔄 Active (reopened 2026-06-08, Sprint 12.10 — code landed; linux-cuda GPU lane outstanding) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 13 | Linux CUDA and Cluster Closure | 🔄 Active (reopened 2026-06-08, Sprint 13.16 — code landed; linux-cuda GPU re-validation outstanding) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 14 | Apple Silicon Closure | ✅ Done (re-closed 2026-06-09, Sprint 14.6) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 15 | Substrate Reproducibility and Final Handoff | 🔄 Active (reopened 2026-06-08, Sprint 15.4 — code+docs landed; linux-cuda GPU lane + ledger sweep outstanding) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Reopened phases (2026-06-04)
 

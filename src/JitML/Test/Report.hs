@@ -40,7 +40,6 @@ data ReportMeasurements = ReportMeasurements
   , measuredTuneBestObjective :: Maybe ReportMeasurement
   , measuredJitCacheHitRate :: Maybe ReportMeasurement
   , measuredDaemonHealthz :: Maybe ReportMeasurement
-  , measuredCrossSubstrateParity :: Maybe ReportMeasurement
   }
   deriving stock (Eq, Show)
 
@@ -80,7 +79,6 @@ emptyReportMeasurements =
     , measuredTuneBestObjective = Nothing
     , measuredJitCacheHitRate = Nothing
     , measuredDaemonHealthz = Nothing
-    , measuredCrossSubstrateParity = Nothing
     }
 
 reportStanzas :: [Text]
@@ -178,7 +176,6 @@ renderMeasurements measurements
         <> measurementLine "tune_best_objective" (measuredTuneBestObjective measurements)
         <> measurementLine "jit_cache_hit_rate" (measuredJitCacheHitRate measurements)
         <> measurementLine "daemon_healthz" (measuredDaemonHealthz measurements)
-        <> measurementLine "cross_substrate_parity" (measuredCrossSubstrateParity measurements)
 
 hasMeasurements :: ReportMeasurements -> Bool
 hasMeasurements measurements =
@@ -190,7 +187,6 @@ hasMeasurements measurements =
     , measuredTuneBestObjective measurements
     , measuredJitCacheHitRate measurements
     , measuredDaemonHealthz measurements
-    , measuredCrossSubstrateParity measurements
     ]
  where
   isMeasured Nothing = False

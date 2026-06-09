@@ -38,15 +38,21 @@ the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
 On 2026-06-08 the cross-substrate numeric parity surface removal reopened
-Phases `1` / `12` / `13` / `14` / `15` and enqueued the six Pending Removal rows
-below: the cross-substrate per-layer-family tolerance band, the cross-substrate
-parity cohort / drift / report-bundle module, the `jitml verify cross-backend`
-CLI command, the report-card `cross_substrate_parity` field, the
-`CrossSubstrate` weighted-drift and cross-substrate tolerance-band test groups,
-and the test skip-antipattern guards. The reproducibility contract is now
-within-substrate bit-for-bit reproducible with no cross-substrate equivalence
-asserted; these rows move to `Completed` when the removal lands and
-`jitml docs check` / `jitml test all` are green. The 2026-06-05 Sprint `11.7`
+Phases `1` / `12` / `13` / `14` / `15` and enqueued six Pending Removal rows: the
+cross-substrate per-layer-family tolerance band, the cross-substrate parity
+cohort / drift / report-bundle module, the `jitml verify cross-backend` CLI
+command, the report-card `cross_substrate_parity` field, the `CrossSubstrate`
+weighted-drift and cross-substrate tolerance-band test groups, and the test
+skip-antipattern guards. The reproducibility contract is now within-substrate
+bit-for-bit reproducible with no cross-substrate equivalence asserted. On
+2026-06-09 the full source/code removal landed and **five of the six rows moved
+to `Completed`** (validated by a clean host + container build, `jitml check-code`,
+`jitml docs check`, `jitml-unit` 193 / 193, the `apple-silicon` lane 4 / 4, and
+the `linux-cpu` lane 10 / 10). The remaining row — the `linux-cuda` half of the
+skip-guard removal — has its guard code deleted but awaits a live GPU re-run on
+NVIDIA hardware (Sprint `13.16`) the Apple Silicon development host does not
+provide; it moves to `Completed` when that lane is re-exercised, at which point
+Exit Definition item 18 (empty legacy ledger) is met. The 2026-06-05 Sprint `11.7`
 doctrine-deviation row covering the SPA discoverability gap closed the
 same day: the generated `Generated.AdminPortals` artifact, the
 `Chrome.Header` / `PanelRegistry` / `Panels.Portals` modules, the
@@ -125,12 +131,7 @@ opening event itself enqueues a row here naming the originating sprint.
 
 | Item | Location | Reason | Owning Sprint / Gate |
 |------|----------|--------|----------------------|
-| Cross-substrate per-layer-family tolerance band | `src/JitML/Engines/Tolerance.hs` | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `15.4` |
-| Cross-substrate parity cohort / drift / report-bundle module | `src/JitML/CrossBackend/Parity.hs` | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `15.4` |
-| `jitml verify cross-backend` CLI command | `src/JitML/CLI/Spec.hs` (verify cross-backend leaf), `src/JitML/App.hs` (runVerifyCrossBackend + helpers) | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `1.13` |
-| Report-card `cross_substrate_parity` field | `src/JitML/Test/Report.hs` (`ReportMeasurements`), `src/JitML/App.hs` (`measureCrossSubstrateParity`) | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `12.10` |
-| `CrossSubstrate` weighted-drift test group + cross-substrate tolerance-band unit test group | `test/cross-backend/Main.hs`, `test/unit/Main.hs` | doctrine-driven removal — cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). | Sprint `12.10` |
-| Test skip-antipattern guards (probeCudaRuntime/cudaRuntimeAvailable, appleLiveReady, cublasBindingsCompiledIn/cudnnBindingsCompiledIn skip branches; oneDNN-availability assertion in the integration probe test) | `test/cross-backend/Main.hs`, `test/integration/Main.hs` | doctrine-driven: each substrate's cases now run for real per lane with no skipped tests | Sprint `12.10` (re-validated by `13.16` / `14.6`) |
+| Test skip-antipattern guards — `linux-cuda` half re-validation | `test/cross-backend/Main.hs` | The skip branches (probeCudaRuntime/cudaRuntimeAvailable, appleLiveReady, cublasBindingsCompiledIn/cudnnBindingsCompiledIn) and the integration-probe oneDNN-availability assertion are **already deleted** (2026-06-09); the `apple-silicon` and `linux-cpu` lanes were re-validated for real with no skip-sentinels. The remaining gate is the live `linux-cuda` re-run on NVIDIA GPU hardware, which the current Apple Silicon development host cannot provide. | Sprint `13.16` (linux-cuda live re-validation) |
 
 
 ## Pending Removal Notes
@@ -142,14 +143,25 @@ handoff toolchain refresh. Each row moves to `Completed` only when the
 replacement is verified in the worktree.
 
 On 2026-06-08 the cross-substrate numeric parity surface removal reopened
-Phases `1` / `12` / `13` / `14` / `15` and enqueued the six Pending Removal rows
-above. The reproducibility contract is clarified to within-substrate bit-for-bit
+Phases `1` / `12` / `13` / `14` / `15` and enqueued six Pending Removal rows.
+The reproducibility contract is clarified to within-substrate bit-for-bit
 reproducible with no cross-substrate equivalence asserted, so the cross-substrate
 numeric parity surface (tolerance band, parity module, `jitml verify
 cross-backend`, the report-card `cross_substrate_parity` field, the weighted-drift
 and tolerance-band test groups, and the test skip-antipattern guards) leaves the
-contract. These rows move to `Completed` when the removal lands and
-`jitml docs check` / `jitml test all` are green.
+contract. On 2026-06-09 the **entire source/code removal landed and was
+validated** on the two lanes the Apple Silicon development host can run: five of
+the six rows moved to `Completed` (tolerance band, parity module,
+`jitml verify cross-backend`, the report-card field, and the weighted-drift /
+tolerance-band test groups), each verified by a clean host + container build,
+`jitml check-code`, `jitml docs check`, `jitml-unit` 193 / 193, the
+`apple-silicon` lane (4 / 4) and the `linux-cpu` lane (10 / 10). The **one
+remaining row** is the `linux-cuda` half of the skip-guard removal: the guard
+code is already deleted, but its live re-run requires NVIDIA GPU hardware (owned
+by Sprint `13.16`) the development host does not provide, so it moves to
+`Completed` only when that GPU lane is re-exercised. Until then Exit Definition
+item 18 (empty legacy ledger) is not yet met and final handoff stays
+incomplete.
 
 Current dependency validation: on 2026-06-04, the project uses GHC `9.12.4`,
 `cabal.project` contains no `allow-newer` stanza and no `source-repository-package`
@@ -175,6 +187,11 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Cross-substrate per-layer-family tolerance band | Sprint `15.4` (2026-06-09) | `src/JitML/Engines/Tolerance.hs` deleted and removed from `jitml.cabal`. Cross-substrate numeric parity left the contract (within-substrate bit-for-bit only; cross-substrate equivalence is not asserted). Validation: project + all test stanzas compile/link clean host-native and under the in-container `-fcuda` library build; container `jitml check-code` and `jitml docs check` green. |
+| Cross-substrate parity cohort / drift / report-bundle module | Sprint `15.4` (2026-06-09) | `src/JitML/CrossBackend/Parity.hs` deleted and removed from `jitml.cabal`; the last consumers (`App.hs` `measureCrossSubstrateParity`, the cross-backend `CrossSubstrate` group) were removed in the same change. Validation: `jitml check-code` + `jitml docs check` green; `jitml-unit` 193 / 193. |
+| `jitml verify cross-backend` CLI command | Sprint `1.13` (2026-06-09) | The `verify` → `cross-backend` leaf removed from `src/JitML/CLI/Spec.hs` and `runVerifyCrossBackend` + helpers removed from `src/JitML/App.hs`. `jitml docs generate` regenerated the README registry/tree, `documents/cli/commands.md`, `documents/engineering/cli_command_surface.md`, the manpage, and the bash/zsh/fish completions with no `verify cross-backend` leaf. Validation: `jitml docs check` (host + container) and container `jitml check-code` green; `jitml-unit` 193 / 193 (leaf-path enumeration drops the leaf). |
+| Report-card `cross_substrate_parity` field | Sprint `12.10` (2026-06-09) | `measuredCrossSubstrateParity` removed from `ReportMeasurements` (`src/JitML/Test/Report.hs`) and `measureCrossSubstrateParity` plus its call site removed from `src/JitML/App.hs`. The `jitml test all --live` report card no longer renders a `cross_substrate_parity` line. Validation: `jitml-unit` 193 / 193; container `jitml check-code` green; the `apple-silicon` (4 / 4) and `linux-cpu` (10 / 10) report cards render without the field. |
+| `CrossSubstrate` weighted-drift test group + cross-substrate tolerance-band unit test group | Sprint `12.10` (2026-06-09) | The `CrossSubstrate weighted drift assertions` group removed from `test/cross-backend/Main.hs`; the `Cross-substrate tolerance bands` group removed from `test/unit/Main.hs`; the two substrate-agnostic cross-backend cases relocated into the `jitml-unit` `Backend-agnostic engine + manifest invariants` group. Validation: `jitml-unit` 193 / 193 (incl. the relocated group); `apple-silicon` lane 4 / 4 and `linux-cpu` lane 10 / 10 each select only their substrate's cases with no skip-sentinels. |
 | MNIST as default empty-hash landing; absent SPA discoverability for Envoy-routed admin portals | Reopened Phase 11 Sprint `11.7` (2026-06-05) | `src/JitML/Routes.hs` now carries `routeAdminPortalLabel` metadata and `adminPortalRoutes` for the six Envoy-routed admin portals. `src/JitML/Web/AdminPortals.hs` renders the tracked `web/src/Generated/AdminPortals.purs` artifact. `web/src/Chrome/Header.purs`, `web/src/PanelRegistry.purs`, and `web/src/Panels/Portals.purs` add the shared header, SPA-side panel registry, and default portals home. `web/src/Main.purs` routes empty / unmatched hashes to the portals home and runs the previous Halogen disposer before mounting a new hash route. Existing panels prepend `Chrome.Header.render`; `web/test/Main.purs` covers the generated portal array; live Playwright covers the empty-hash home, admin-portal hrefs, shared header across panels, and six panel hashes. Validation: `docker compose build jitml`, `jitml docs check`, `jitml-unit`, `jitml-integration`, `spago test`, `jitml check-code`, Apple Silicon `./bootstrap/apple-silicon.sh up` + `run-daemon`, and live Playwright 9 / 9 against `127.0.0.1:9091` pass. |
 | Missing CLI Dhall overrides on `train`, `rl train`, `tune` | Reopened Phase 1 Sprint `1.12` (2026-06-04) | `src/JitML/CLI/Spec.hs` now accepts `--substrate` / `--seed` on `trainCommand` and the `rl train` subcommand, and `--sampler` / `--scheduler` / `--pruner` / `--trials` / `--parallelism` on `tuneCommand`. Values resolve through the pure `JitML.Experiment.Overrides.applyOverrides` (new module `src/JitML/Experiment/Overrides.hs`) before validation, substituting on the named axis only per README pillar 2. The substrate parser at `src/JitML/Substrate.hs` rejects bare `cpu` / `cuda` aliases; the canonical identifiers `apple-silicon` / `linux-cpu` / `linux-cuda` are the only accepted forms. `jitml docs generate` regenerated the README registry/tree blocks, `documents/cli/commands.md`, the `cli-commands.help-blocks` and `cli-commands.reference` sections in `documents/engineering/cli_command_surface.md`, `share/man/man1/jitml.1`, and the bash/zsh/fish completions. The two stale README example forms (`inspect frontier --tuning-run/--pareto`, `--backends cpu,cuda`) were repaired in the same change. Validation: `jitml docs check` exits 0; 195/195 `jitml-unit` (11 new Sprint 1.12 cases); 14/14 `jitml-hyperparameter` (2 new cases including the catalog round-trip and pillar-2 axis-only substitution); the `jitml-integration` spawned-binary matrix exercises `train`/`tune` override summaries and rejects bare `--substrate cpu`; the container `jitml check-code` gate passes. |
 | Tart VM build/lifecycle/exec modules, `jitml internal vm` command group, `container.tart` prerequisite, `LiveConfig.tartIdleTimeout`, and the offline `.metallib` codegen path | Sprints `7.8` + `2.10` + `5.8` (2026-05-30) | The headless Apple Metal JIT (host CommandLineTools `swift build` + runtime `MTLDevice.makeLibrary(source:)`, validated headless on Apple M1) superseded the Tart-VM build. Deleted `src/JitML/Tart/{Build,Lifecycle,Exec}.hs`; removed the `jitml internal vm bootstrap\|up\|down\|status\|exec` command group from `CommandSpec` + `App.hs` handlers (commands.md/man/completions regenerated); removed the `container.tart` prerequisite node + its `jit-cache-miss` dependency; removed `LiveConfig.tartIdleTimeout` from the Dhall schema + Haskell record + `daemon.surface` table; dropped the `.process("Kernels.metal")` resource, the `<hash>.metallib` publication, and the `JITML_METALLIB_PATH` env hand-off. `cabal build all` clean; 183 `jitml-unit` + 30 `jitml-daemon-lifecycle` + the Apple `jitml-cross-backend` cases pass. |

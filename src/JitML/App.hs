@@ -74,7 +74,6 @@ import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
 import JitML.Cluster.Publication qualified as Publication
-import JitML.CrossBackend.Parity qualified as CrossBackend
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
 import JitML.Docs.Generate (GenerateResult (..), generateDocs)
 import JitML.Engines.CudaLocal (runCudaWeightedCheckpointInference)
@@ -1859,85 +1858,9 @@ inferenceForSubstrate env substrate experimentHash =
         [1.0, 2.0]
 
 runVerify :: [Text] -> [ParsedOption] -> App ()
-runVerify ["verify", "cross-backend"] parsedOptions =
-  runVerifyCrossBackend parsedOptions
 runVerify path parsedOptions =
   writeLine
     ("verify: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
-
-runVerifyCrossBackend :: [ParsedOption] -> App ()
-runVerifyCrossBackend parsedOptions =
-  case commaSeparatedValues (selectedValue "compare" "" parsedOptions) of
-    comparePaths@(_ : _) -> do
-      bundles <- traverse readCrossBackendBundle comparePaths
-      assertCrossBackendBundle
-        (CrossBackend.CrossBackendReportBundle (concatMap CrossBackend.bundleReports bundles))
-    [] -> do
-      substrates <- either exitWithError pure (selectedCrossBackendSubstrates parsedOptions)
-      env <- ask
-      reportResults <- liftIO (traverse (CrossBackend.runWeightedCohortForSubstrate env) substrates)
-      reports <- traverse crossBackendResult reportResults
-      let bundle = CrossBackend.CrossBackendReportBundle reports
-      writeCrossBackendExport parsedOptions bundle
-      case reports of
-        [_] ->
-          when (null (optionValues "export" parsedOptions)) $
-            writeLazyByteString (CrossBackend.encodeCrossBackendReportBundle bundle)
-        _ ->
-          assertCrossBackendBundle bundle
-
-selectedCrossBackendSubstrates :: [ParsedOption] -> Either AppError [Substrate]
-selectedCrossBackendSubstrates parsedOptions =
-  case traverse parseCrossBackendSubstrate rawSubstrates of
-    Left err -> Left err
-    Right [] -> Left (InvalidConfig "verify cross-backend needs at least one substrate")
-    Right substrates -> Right substrates
- where
-  rawSubstrates =
-    commaSeparatedValues (selectedValue "backends" "linux-cpu,linux-cuda" parsedOptions)
-
-parseCrossBackendSubstrate :: Text -> Either AppError Substrate
-parseCrossBackendSubstrate value =
-  maybe
-    (Left (InvalidConfig ("unknown cross-backend substrate: " <> value)))
-    Right
-    (parseSubstrate value)
-
-readCrossBackendBundle :: Text -> App CrossBackend.CrossBackendReportBundle
-readCrossBackendBundle pathText = do
-  decoded <-
-    liftIO
-      (CrossBackend.decodeCrossBackendReportBundle <$> LazyByteString.readFile (Text.unpack pathText))
-  case decoded of
-    Left err -> exitWithError (InvalidConfig ("cross-backend report decode failed: " <> err))
-    Right bundle -> pure bundle
-
-writeCrossBackendExport :: [ParsedOption] -> CrossBackend.CrossBackendReportBundle -> App ()
-writeCrossBackendExport parsedOptions bundle =
-  case optionValues "export" parsedOptions of
-    pathText : _ -> do
-      liftIO
-        (LazyByteString.writeFile (Text.unpack pathText) (CrossBackend.encodeCrossBackendReportBundle bundle))
-      writeLine ("cross-backend export: " <> pathText)
-    [] -> pure ()
-
-assertCrossBackendBundle :: CrossBackend.CrossBackendReportBundle -> App ()
-assertCrossBackendBundle bundle =
-  case CrossBackend.compareReportBundle bundle of
-    Left err -> exitWithError (InvalidConfig err)
-    Right drifts -> do
-      let summary = CrossBackend.renderDriftSummary drifts
-      if CrossBackend.allDriftsPass drifts
-        then writeText summary
-        else exitWithError (InvalidConfig summary)
-
-crossBackendResult :: Either Text a -> App a
-crossBackendResult =
-  either (exitWithError . InvalidConfig) pure
-
-commaSeparatedValues :: Text -> [Text]
-commaSeparatedValues value =
-  filter (not . Text.null) (fmap Text.strip (Text.splitOn "," value))
 
 runBench :: [Text] -> [ParsedOption] -> App ()
 runBench path parsedOptions =
@@ -2044,7 +1967,14 @@ runTest path _ =
 
 runCabalTest :: [ParsedOption] -> [Text] -> App ()
 runCabalTest parsedOptions targets = do
-  let command = subprocess "cabal" ("test" : targets)
+  -- `--test-options` is an opaque passthrough: the value (e.g. `-p linux-cuda`)
+  -- is forwarded verbatim to `cabal test` so a bootstrap can select a
+  -- substrate-partitioned tasty lane. jitML does not interpret it.
+  let testOptionsArgs =
+        case selectedValue "test-options" "" parsedOptions of
+          "" -> []
+          opts -> ["--test-options", opts]
+      command = subprocess "cabal" ("test" : targets <> testOptionsArgs)
   (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
   case exitCode of
     ExitSuccess -> do
@@ -2074,7 +2004,6 @@ collectLiveReportMeasurements = do
   tuneObjective <- measureTuneBestObjective
   cacheHitRate <- measureJitCacheHitRate
   daemonHealth <- measureDaemonHealthz
-  parity <- measureCrossSubstrateParity
   pure
     ReportMeasurements
       { measuredSlFinalLoss = Just slLoss
@@ -2083,7 +2012,6 @@ collectLiveReportMeasurements = do
       , measuredTuneBestObjective = Just tuneObjective
       , measuredJitCacheHitRate = Just cacheHitRate
       , measuredDaemonHealthz = Just daemonHealth
-      , measuredCrossSubstrateParity = Just parity
       }
 
 measureSlFinalLoss :: App ReportMeasurement
@@ -2162,28 +2090,6 @@ measureDaemonHealthz = do
                 MeasurementAvailable
                   ("http://127.0.0.1:" <> Text.pack (show edgePort) <> "/healthz status=200")
           _ -> MeasurementUnavailable
-
-measureCrossSubstrateParity :: App ReportMeasurement
-measureCrossSubstrateParity = do
-  env <- ask
-  reportResults <-
-    liftIO (traverse (CrossBackend.runWeightedCohortForSubstrate env) [LinuxCPU, AppleSilicon])
-  case sequence reportResults of
-    Left _ -> pure MeasurementUnavailable
-    Right reports ->
-      pure $
-        case CrossBackend.compareReportBundle (CrossBackend.CrossBackendReportBundle reports) of
-          Left _ -> MeasurementUnavailable
-          Right drifts ->
-            if CrossBackend.allDriftsPass drifts
-              then
-                MeasurementAvailable
-                  ( "pairs=linux-cpu/apple-silicon tensors="
-                      <> Text.pack (show (length drifts))
-                      <> " max_observed="
-                      <> Text.pack (show (maximum (0.0 : fmap CrossBackend.driftObserved drifts)))
-                  )
-              else MeasurementUnavailable
 
 measuredShow :: (Show a) => Text -> a -> ReportMeasurement
 measuredShow prefix value =

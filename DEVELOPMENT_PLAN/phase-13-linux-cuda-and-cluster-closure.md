@@ -37,9 +37,16 @@ The skip-antipattern guards in the test bodies
 `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn`) are removed from
 `test/cross-backend/Main.hs` — a missing toolchain now **fails** rather than
 skips. Within-substrate bit-for-bit reproducibility tests **stay** (CUDA is
-**not** removed). Per Plan Standards rule C the linux-cuda live-test execution
-obligation reverts to Active until re-exercised under the guards-removed lane;
-Sprint 13.16 owns the re-validation. All historical dated evidence below
+**not** removed). **The guard-removal + suite-partitioning code landed
+2026-06-09** (the cuBLAS / cuDNN cases are renamed with the `linux-cuda` lane
+prefix so `-p linux-cuda` selects them; the whole stanza compiles + links clean
+host-native and under the in-container `-fcuda` library build), so Sprint 13.16's
+only remaining obligation is the live GPU re-run. Per Plan Standards rule C the
+linux-cuda live-test execution obligation stays Active until that lane is
+re-exercised on real NVIDIA hardware (the
+`docker compose run --rm jitml-cuda jitml test jitml-cross-backend
+--test-options='-p linux-cuda' -fcuda` command), which the current Apple Silicon
+development host cannot provide. All historical dated evidence below
 (RTX 3090, RTX 5090) is retained intact as a dated record.
 
 Previously ✅ **Done** (re-validated 2026-06-06 on the current **NVIDIA GeForce RTX 5090**
@@ -3915,10 +3922,22 @@ removed.
 
 ### Remaining Work
 
-- Re-validation pending the code landing (the guard removal + suite
-  partitioning are a separate approved plan). Once that lands, run the
-  validation command above on the `jitml-cuda` GPU container and record the
-  dated PASS evidence here.
+- **The code has landed** (2026-06-08): the `probeCudaRuntime` /
+  `cudaRuntimeAvailable` and `cublasBindingsCompiledIn` /
+  `cudnnBindingsCompiledIn` skip-guard branches are removed from
+  `test/cross-backend/Main.hs`, the cuBLAS / cuDNN cases are renamed with the
+  `linux-cuda` lane prefix so `-p linux-cuda` selects them, and the suite is
+  partitioned by substrate id. The whole stanza compiles and links clean
+  host-native (CUDA-stub build) and the apple-silicon + linux-cpu lanes were
+  re-validated for real (Sprints `14.6` / `12.10`).
+- **GPU re-validation is outstanding** and is the sole remaining obligation:
+  it requires an NVIDIA GPU host with the CUDA toolkit + cuDNN + an attached
+  device through the `jitml-cuda` compose service, which the current Apple
+  Silicon development host does not provide. On that hardware, run
+  `docker compose run --rm jitml-cuda jitml test jitml-cross-backend --test-options='-p linux-cuda' -fcuda`
+  and record the dated PASS evidence here; absence of the GPU/toolchain must
+  fail the lane rather than skip it. The sprint stays `🔄 Active` until that
+  run lands.
 
 ## Doctrine Sections Cited
 

@@ -170,11 +170,13 @@ reproducibility witnesses:
 | `linux-cpu` | Detected ISA (AVX2 / AVX-512), oneDNN version, glibc version, CPU model |
 | `linux-cuda` | cuDNN version, cuBLAS version, CUDA driver version, GPU compute capability, NVCC version |
 
-The envelope is **not** part of the cache key — two cohort-equal envelopes
-should produce bit-identical kernel output by the contract. The envelope is
-the forensic record that lets `jitml inspect replay` detect substrate drift
-rather than silently displaying ULP-shifted floats as if they were the
-originator's.
+The envelope is **not** part of the cache key — two runs with equal envelopes
+(same substrate, same toolchain) should produce bit-identical kernel output by
+the within-substrate contract. The envelope is the forensic record that lets
+`jitml inspect replay` detect substrate drift rather than silently displaying
+ULP-shifted floats as if they were the originator's. It is not a
+cross-substrate numeric-parity check: across substrates no equivalence is
+asserted.
 
 ## Same-Substrate Bit-Equality (RL Caveat)
 

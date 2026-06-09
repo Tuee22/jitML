@@ -26,19 +26,20 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-08 for Sprint 14.6 — re-validate the
-apple-silicon lane runs for real with the skip guards removed). The
-reproducibility contract is now "within a substrate: bit-for-bit
-reproducible; across substrates: NO guarantee"; the cross-substrate numeric
-parity surface is removed and the test suite is partitioned so each
-substrate's cases run **for real** in its own lane with **no skipped tests**.
-The `appleLiveReady` skip guards in the apple-silicon test bodies are removed —
-a missing Metal device now **fails** rather than skips. Within-substrate
-bit-for-bit reproducibility tests **stay**. Per Plan Standards rule C the
-apple-silicon live-test execution obligation reverts to Active until
-re-exercised under the guards-removed lane; Sprint 14.6 owns the
-re-validation. All historical dated evidence below (Apple M1, macOS 26) is
-retained intact as a dated record.
+✅ **Done** (re-closed 2026-06-09 after Sprint 14.6). The reproducibility
+contract is now "within a substrate: bit-for-bit reproducible; across
+substrates: NO guarantee"; the cross-substrate numeric parity surface is
+removed and the test suite is partitioned so each substrate's cases run **for
+real** in its own lane with **no skipped tests**. The `appleLiveReady` skip
+guards in the apple-silicon test bodies are removed — a missing Metal device
+now **fails** rather than skips. Within-substrate bit-for-bit reproducibility
+tests **stay**. Sprint 14.6 re-validated the guards-removed apple-silicon lane
+host-native on 2026-06-09: `jitml test jitml-cross-backend
+--test-options='-p apple-silicon'` ran the four within-substrate Metal cases
+as real PASSes (4 / 4, 88.90s, no skip-sentinels, no oneDNN / nvcc compiles).
+The phase reopened 2026-06-08 for Sprint 14.6 and is re-closed the same day.
+All historical dated evidence below (Apple M1, macOS 26) is retained intact as
+a dated record.
 
 Previously ✅ **Complete** (all Apple-half obligations validated headless 2026-05-30/31,
 Apple M1 / macOS 26). The phase owns the Apple-Silicon halves of
@@ -553,9 +554,9 @@ loading per substrate).
   owned by Phase `15` Sprint `15.1`; the `(AppleSilicon, ForwardToHost)`
   cluster-side dispatch is owned by Sprint `14.4`.
 
-## Sprint 14.6: Re-validate the apple-silicon lane runs for real with the skip guards removed [🔄 Active]
+## Sprint 14.6: Re-validate the apple-silicon lane runs for real with the skip guards removed [✅ Done]
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `test/cross-backend/Main.hs`
 **Docs to update**: `documents/engineering/determinism_contract.md`,
 `documents/engineering/jit_codegen_architecture.md`
@@ -586,12 +587,23 @@ bit-for-bit reproducibility is the retained contract (across substrates carries
    invoking no oneDNN / nvcc compiles; absence of a usable Metal device fails
    the lane rather than skipping it.
 
-### Remaining Work
-
-- Re-validation pending the code landing (the `appleLiveReady` guard removal +
-  suite partitioning are a separate approved plan). Once that lands, run the
-  validation command above host-native on a Metal-capable Apple Silicon machine
-  and record the dated PASS evidence here.
+**2026-06-09 (closed)** — the `appleLiveReady` skip guards are removed from
+`test/cross-backend/Main.hs` and the apple-silicon lane was re-validated for
+real, host-native, on an Apple Silicon machine through the new Sprint `1.13`
+`--test-options` passthrough:
+`cabal run jitml -- test jitml-cross-backend --test-options='-p apple-silicon'`
+selected exactly the four within-substrate Metal cases and ran every one as a
+real PASS — `apple-silicon kernel output is bit-equal across repeated runs`
+(31.18s), `apple-silicon weighted Dense2D kernel runs bit-deterministically`
+(30.41s), `apple-silicon live Metal benchmark candidate runner produces a
+measurement` (27.31s), and the JITML_TUNING_LIVE-gated cache-miss round-trip —
+**4 / 4 in 88.90s** with no skip-sentinels. Each Metal case drives the headless
+host `swift build` + runtime `MTLDevice.makeLibrary(source:)` JIT path (the
+~30s per case is the real compile/launch round-trip, not a skip). No oneDNN /
+nvcc compile is invoked in the apple-silicon lane. The pure-logic
+`jitml-unit` stanza passed host-native (193 / 193). The
+`appleLiveReady` removal row is recorded in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Doctrine Sections Cited
 

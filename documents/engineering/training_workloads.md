@@ -408,8 +408,10 @@ oneofs.
 
 `jitml test all --live` appends workload measurements to the typed
 `JitML.Test.Report.ReportCard`: SL final loss, RL final reward, AlphaZero arena
-win rate, and tuning best objective, plus daemon/cache/parity fields owned by
-the runtime and test surfaces. Cache hit rate comes from the daemon's
+win rate, and tuning best objective, plus daemon and cache fields owned by
+the runtime and test surfaces. There is no cross-substrate parity field: the
+determinism contract is within-substrate bit-for-bit only, and cross-substrate
+equivalence is not asserted. Cache hit rate comes from the daemon's
 `jitml_jit_cache_hits` / `jitml_jit_cache_misses` Prometheus counters on the
 published `/metrics` edge route, and daemon health comes from the published
 `/healthz` edge route. These values are telemetry from the current host or

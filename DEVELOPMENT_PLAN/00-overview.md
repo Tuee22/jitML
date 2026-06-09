@@ -815,7 +815,7 @@ each constraint.
 | 12 | Phase 11 | The eight Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
 | 13 | Phase 12 | The Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure consumes every code-surface obligation from Phases `1`–`12` and exercises them through one Linux/NVIDIA session against an ephemeral Kind cluster |
 | 14 | Phase 12 | The headless Apple Silicon Metal JIT (host CommandLineTools `swift build` + runtime `MTLDevice.makeLibrary(source:)` shader compilation, no Tart VM), Metal FFI, host↔cluster RPC, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
-| 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`): the cross-substrate numeric parity surface (`Tolerance.hs`, `JitML.CrossBackend.Parity`, the `CrossSubstrate` drift tests, `jitml verify cross-backend`, the report-card `cross_substrate_parity` field) is removed because cross-substrate equivalence is out of contract; the legacy ledger carries the corresponding `Pending Removal` rows until the removal lands |
+| 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`): the cross-substrate numeric parity surface (`Tolerance.hs`, `JitML.CrossBackend.Parity`, the `CrossSubstrate` drift tests, `jitml verify cross-backend`, the report-card `cross_substrate_parity` field) is removed because cross-substrate equivalence is out of contract. The source/code removal landed and was validated 2026-06-09 (apple-silicon + linux-cpu lanes, `check-code`, `docs check`); five of the six parity-removal ledger rows moved to `Completed`. Stays `🔄 Active` on the `linux-cuda` GPU-lane re-validation (Sprint `13.16`) the Apple Silicon development host cannot run — the last `Pending Removal` row — so the ledger is not yet empty |
 
 ## Status Vocabulary
 
@@ -831,20 +831,29 @@ for the governing rule.
 
 ## Current Baseline
 
-Phases `0` and `2`–`11` are `✅ Done`. **Phases `1`, `12`, `13`, `14`, and `15`
-reopened `🔄 Active` on 2026-06-08** to remove the cross-substrate numeric
-parity surface after the reproducibility contract was clarified to
-within-substrate bit-for-bit only (across substrates there is no guarantee —
-RNG draws and float reduction order differ). The reopened sprints are `1.13`
-(remove `verify cross-backend`; add the `jitml test` `--test-options`
+Phases `0`–`11` and `14` are `✅ Done`; **Phases `12`, `13`, and `15` remain
+`🔄 Active`.** All five reopened `🔄 Active` on 2026-06-08 to remove the
+cross-substrate numeric parity surface after the reproducibility contract was
+clarified to within-substrate bit-for-bit only (across substrates there is no
+guarantee — RNG draws and float reduction order differ). The reopened sprints are
+`1.13` (remove `verify cross-backend`; add the `jitml test` `--test-options`
 passthrough), `12.10` (realign `jitml-cross-backend` to within-substrate cases,
 relocate the two agnostic cases to `jitml-unit`, remove the report-card
 `cross_substrate_parity` field, wire substrate-partitioned test lanes with no
 skips), `13.16` / `14.6` (re-validate the linux-cuda / apple-silicon lanes run
 for real with the skip guards removed), and `15.4` (delete the parity surface
 and reframe the determinism contract + Exit Definition to within-substrate
-only). Final handoff is incomplete until they re-close (Exit item 18: the legacy
-ledger again carries `Pending Removal` rows). The earlier reopen history stands
+only). **On 2026-06-09 the full source/code removal landed and was validated** on
+the `apple-silicon` lane (4 / 4 host-native) and the `linux-cpu` lane (10 / 10 in
+the `jitml` container), plus `jitml-unit` 193 / 193, container `jitml check-code`,
+and `jitml docs check` — all green. Sprints `1.13` and `14.6` re-closed `✅ Done`.
+Sprints `12.10` / `13.16` / `15.4` stay `🔄 Active` on one shared remaining
+obligation: the live `linux-cuda` lane (`--test-options='-p linux-cuda' -fcuda`
+in the `jitml-cuda` GPU container) needs NVIDIA hardware the Apple Silicon
+development host does not provide. Final handoff is incomplete until that lane is
+re-exercised (Exit item 18: one `Pending Removal` row — the `linux-cuda` half of
+the skip-guard removal — remains; the other five parity-removal rows moved to
+`Completed`). The earlier reopen history stands
 as dated record: **Phase `13` (all 15 sprints) and Phase `15` Sprints
 `15.1`/`15.2` reopened `🔄 Active` on 2026-06-06 and re-closed `✅ Done` the
 same day** (Sprint `15.3` stayed `✅ Done`) after re-validating the live CUDA,

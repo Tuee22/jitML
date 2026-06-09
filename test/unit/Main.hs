@@ -60,7 +60,7 @@ import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Codegen.Cuda qualified as Cuda
-import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilies)
+import JitML.Codegen.KernelFamily (KernelFamily (..))
 import JitML.Codegen.Metal qualified as Metal
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Codegen.SourceFile (SourceFile (..))
@@ -75,7 +75,6 @@ import JitML.Engines.Local qualified as LocalEngine
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Engines.Rng qualified as Rng
-import JitML.Engines.Tolerance qualified as Tolerance
 import JitML.Engines.Tuning qualified as Tuning
 import JitML.Engines.TuningBenchmark qualified as TuningBenchmark
 import JitML.Engines.TuningCache qualified as TuningCache
@@ -221,26 +220,16 @@ main =
                   [ParsedOption "experiment" ["experiments/mnist.dhall"], ParsedOption "runs" ["2"]]
               )
             ,
-              (
-                [ "verify"
-                , "cross-backend"
-                , "--experiment"
-                , "experiments/mnist.dhall"
-                , "--backends"
-                , "linux-cpu,linux-cuda"
-                , "--export"
-                , "/tmp/jitml-linux.json"
-                ]
-              , ParsedCommand
-                  ["verify", "cross-backend"]
-                  [ ParsedOption "experiment" ["experiments/mnist.dhall"]
-                  , ParsedOption "backends" ["linux-cpu,linux-cuda"]
-                  , ParsedOption "export" ["/tmp/jitml-linux.json"]
-                  ]
-              )
-            ,
               ( ["test", "jitml-unit"]
               , ParsedCommand ["test", "jitml-unit"] []
+              )
+            , -- Sprint 1.13 — the --test-options passthrough forwards an opaque
+              -- argument string (e.g. a tasty -p substrate lane) to cabal test.
+
+              ( ["test", "jitml-cross-backend", "--test-options", "-p linux-cuda"]
+              , ParsedCommand
+                  ["test", "jitml-cross-backend"]
+                  [ParsedOption "test-options" ["-p linux-cuda"]]
               )
             ,
               ( ["test", "all", "--live"]
@@ -2191,50 +2180,28 @@ main =
                 )
                 ConvergenceThresholds.cohortThresholds
           ]
-      , -- Sprint 15.1 — cross-substrate tolerance band table sanity.
+      , -- Sprint 12.10 — backend-agnostic invariants relocated out of
+        -- jitml-cross-backend (which is now a per-substrate live lane). These
+        -- assert pure, substrate-independent properties, so they belong in the
+        -- substrate-agnostic unit stanza that runs in every lane.
         testGroup
-          "Cross-substrate tolerance bands (Sprint 15.1)"
-          [ testCase "every KernelFamily has a positive L∞ bound" $
+          "Backend-agnostic engine + manifest invariants (Sprint 12.10)"
+          [ testCase "each substrate has deterministic engine flags" $
               mapM_
-                ( \family ->
-                    assertBool
-                      ( "tolerance for "
-                          <> show family
-                          <> " must be positive"
-                      )
-                      (Tolerance.toleranceBound family > 0)
+                ( assertBool "flags present"
+                    . not
+                    . null
+                    . Engine.deterministicFlags
+                    . Engine.engineForSubstrate
                 )
-                kernelFamilies
-          , testCase "Identity and Embedding families admit the tightest band" $ do
-              -- These are pure copy/lookup paths; they must be at least as
-              -- tight as any GEMM/conv family.
-              assertBool
-                "Identity tolerance ≤ Dense2D tolerance"
-                ( Tolerance.toleranceBound Identity
-                    <= Tolerance.toleranceBound Dense2D
-                )
-              assertBool
-                "Embedding tolerance ≤ Conv2D tolerance"
-                ( Tolerance.toleranceBound EmbeddingKernel
-                    <= Tolerance.toleranceBound Conv2DKernel
-                )
-          , testCase "MultiHeadAttention band is at least as loose as Dense2D" $
-              -- Attention chains a Dense → softmax → Dense; its drift must be
-              -- at least Dense's worst case.
-              assertBool
-                "MHA tolerance ≥ Dense2D tolerance"
-                ( Tolerance.toleranceBound MultiHeadAttentionKernel
-                    >= Tolerance.toleranceBound Dense2D
-                )
-          , testCase "withinTolerance accepts observed delta ≤ band and rejects > band" $ do
-              let dense = Dense2D
-                  band = Tolerance.toleranceBound dense
-              assertBool
-                "observed delta inside the band passes"
-                (Tolerance.withinTolerance dense (band * 0.5))
-              assertBool
-                "observed delta above the band fails"
-                (not (Tolerance.withinTolerance dense (band * 2.0)))
+                Substrate.allSubstrates
+          , testCase "checkpoint inference is backend independent for manifest reads" $ do
+              let manifest =
+                    Checkpoint.emptyManifest "m1" "exp" [Checkpoint.TensorBlob "dense" [2, 2] "blob"]
+                  expected = Checkpoint.inferFromManifest manifest [1, 2, 3]
+              mapM_
+                (\_substrate -> Checkpoint.inferFromManifest manifest [1, 2, 3] @?= expected)
+                [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
           ]
       , -- Sprint 13.7 — gc_reaped envelope round-trips through the
         -- proto3-compatible wire format and the deterministic text
@@ -3206,7 +3173,6 @@ canonicalLeafPaths =
   , ["rl", "eval"]
   , ["rl", "rollout"]
   , ["verify", "same-run"]
-  , ["verify", "cross-backend"]
   , ["verify", "replay"]
   , ["inspect", "list"]
   , ["inspect", "show"]

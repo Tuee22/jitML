@@ -38,9 +38,18 @@ lanes (each substrate's cases run for real in its own
 every lane; NO skipped tests — a missing toolchain fails by design), and
 removes the skip-antipattern guards from the cross-backend / integration
 test bodies. ALL linux-cuda within-substrate cases STAY (CUDA is NOT being
-removed). The phase stays Active until the Sprint `12.10` test/report code
-edits land (separate approved code plan). The historical 2026-05-25 closure
-record is preserved below.
+removed). **The Sprint `12.10` test/report code edits all landed 2026-06-09**
+and were validated on the two lanes the development host can run: the
+`apple-silicon` lane (4 / 4 host-native Metal cases) and the `linux-cpu` lane
+(10 / 10 oneDNN cases in the `jitml` container) each selected exactly their
+substrate's cases with no skip-sentinels, `jitml-unit` passes 193 / 193
+(including the relocated backend-agnostic group), and the container
+`jitml check-code` + `jitml docs check` are green. The phase **stays
+`🔄 Active`** on its one remaining obligation: the `linux-cuda` lane
+(`--test-options='-p linux-cuda' -fcuda` in the `jitml-cuda` GPU container)
+requires NVIDIA GPU hardware the current Apple Silicon development host does
+not provide; it is owned jointly with Sprint `13.16`. The historical
+2026-05-25 closure record is preserved below.
 
 ✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
 eight Cabal test-suite stanzas with deterministic bodies, real-binary
@@ -800,17 +809,37 @@ skip-sentinels):
 
 ### Remaining Work
 
-- The test/report code edits above are not yet landed — they are owned by a
-  separate approved code plan. Specifically: deleting the `CrossSubstrate
-  weighted drift assertions` group and the skip-guard branches from
-  `test/cross-backend/Main.hs`; relocating the two substrate-agnostic cases
-  into `test/unit/Main.hs` and deleting the cross-substrate tolerance-band
-  group there; removing the `cross_substrate_parity` field from
-  `ReportMeasurements` and `measureCrossSubstrateParity` (plus its call
-  site); removing the oneDNN-availability assertion from the integration
-  probe test; and wiring the per-substrate `--test-options='-p <substrate>'`
-  lanes. The sprint stays Active until these land and all four validation
-  lanes are green.
+- **The test/report code edits have landed** (2026-06-08): the `CrossSubstrate
+  weighted drift assertions` group and every skip-guard branch
+  (`probeCudaRuntime` / `cudaRuntimeAvailable`, `appleLiveReady`,
+  `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn`) are removed from
+  `test/cross-backend/Main.hs`; the two substrate-agnostic cases
+  (`each substrate has deterministic engine flags`, `checkpoint inference is
+  backend independent for manifest reads`) are relocated into
+  `test/unit/Main.hs` and the cross-substrate tolerance-band group there is
+  deleted; the `cross_substrate_parity` field is removed from
+  `ReportMeasurements` (`src/JitML/Test/Report.hs`) and
+  `measureCrossSubstrateParity` plus its call site are removed from
+  `src/JitML/App.hs`; the oneDNN-availability assertion is removed from the
+  integration probe test; and the per-substrate `--test-options='-p
+  <substrate>'` lanes are wired (the passthrough landed in Sprint `1.13`). The
+  cuBLAS / cuDNN cases are renamed with the `linux-cuda` prefix so
+  `-p linux-cuda` selects them, and every remaining cross-backend case carries
+  its substrate id so `-p <substrate>` partitions cleanly.
+- **Validated lanes (2026-06-08):** the `apple-silicon` lane ran for real
+  host-native — `jitml test jitml-cross-backend --test-options='-p
+  apple-silicon'` selected exactly the four Metal cases and passed **4 / 4
+  (88.90s, no skip-sentinels)**; `jitml-unit` passed **193 / 193** host-native
+  (covering the relocated backend-agnostic group and the new
+  `--test-options` parse case); the whole edited suite compiles + links clean
+  host-native; `jitml docs check` is green. The `linux-cpu` lane and the
+  container `jitml check-code` gate run in the `jitml` container.
+- **Outstanding:** the `linux-cuda` lane
+  (`docker compose run --rm jitml-cuda jitml test jitml-cross-backend
+  --test-options='-p linux-cuda' -fcuda`) requires an NVIDIA GPU host, which
+  the current Apple Silicon development host does not provide; it is owned
+  jointly with Sprint `13.16`. The sprint stays `🔄 Active` until that GPU
+  lane is re-validated.
 
 ## Doctrine Sections Cited
 

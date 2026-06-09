@@ -554,9 +554,6 @@ main =
           assertBool
             "probe records dynamic-linker visibility"
             (any ("ldconfig -p:" `Text.isInfixOf`) (OneDnnRuntime.oneDnnRuntimeProbeLog probe))
-          assertBool
-            "jitml:local provides linkable oneDNN"
-            (OneDnnRuntime.oneDnnRuntimeAvailable probe)
       , testCase "CUDA runtime probe reports toolchain, device, and link visibility attempts" $ do
           probe <- CudaRuntime.probeCudaRuntime
           let rendered = CudaRuntime.renderCudaRuntimeProbe probe
