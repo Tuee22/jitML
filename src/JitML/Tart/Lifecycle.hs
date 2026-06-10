@@ -17,12 +17,15 @@ module JitML.Tart.Lifecycle
   , defaultBuildVmConfig
   , defaultBuildVmName
   , defaultTartBaseImage
+  , diskGrowthTarget
   , ensureBuildVmUp
   , guestMountTag
   , guestSourcePath
   , parseTartListStatus
+  , parseTartListDiskGib
   , provisionBuildVm
   , queryTartVmStatus
+  , queryTartVmDiskGib
   , renderTartVmStatus
   , stopTartVmLive
   , deleteTartVmLive
@@ -30,7 +33,8 @@ module JitML.Tart.Lifecycle
   , tartDeleteSubprocess
   , tartListSubprocess
   , tartRunSubprocess
-  , tartSetSubprocess
+  , tartSetDiskSubprocess
+  , tartSetResourcesSubprocess
   , tartStopSubprocess
   )
 where
@@ -69,18 +73,23 @@ data BuildVmConfig = BuildVmConfig
   , buildVmCpuCount :: Int
   , buildVmMemoryMib :: Int
   , buildVmDiskGib :: Int
-  , -- | Absolute host path mounted into the VM (the repository root) so the
-    -- in-VM @swift build@ writes the dylib to a host-visible location.
-    buildVmHostMountRoot :: FilePath
+  , buildVmHostMountRoot :: FilePath
+  -- ^ Absolute host path mounted into the VM (the repository root) so the
+  -- in-VM @swift build@ writes the dylib to a host-visible location.
   }
   deriving stock (Eq, Show)
 
 defaultBuildVmName :: VmName
 defaultBuildVmName = VmName "jitml-build"
 
+-- | Base image cloned into the build VM. Pinned to the Xcode-16 (macOS Sequoia)
+-- tag rather than @:latest@ so the in-VM Swift/Metal toolchain is reproducible
+-- across provisions — the within-substrate determinism contract depends on a
+-- stable toolchain — and so a fresh provision reuses an already-pulled local
+-- image instead of re-downloading a moving @:latest@.
 defaultTartBaseImage :: Text
 defaultTartBaseImage =
-  "ghcr.io/cirruslabs/macos-sequoia-xcode:latest"
+  "ghcr.io/cirruslabs/macos-sequoia-xcode:16"
 
 -- | The shared-mount tag passed to @tart run --dir@. The guest exposes the
 -- mounted host root at @\/Volumes\/My Shared Files\/<tag>@.
@@ -109,6 +118,7 @@ data TartListEntry = TartListEntry
   { tartListEntryName :: Text
   , tartListEntryRunning :: Bool
   , tartListEntryState :: Maybe Text
+  , tartListEntryDiskGib :: Maybe Int
   }
   deriving stock (Eq, Show)
 
@@ -119,6 +129,7 @@ instance FromJSON TartListEntry where
         <$> object .: "Name"
         <*> object .: "Running"
         <*> object .:? "State"
+        <*> object .:? "Disk"
 
 -- | Ensure the build VM exists with its configured resources and is running with
 -- the repository mounted; provision (clone + set limits) it on first use.
@@ -141,7 +152,10 @@ startAndWait config = do
   case started of
     Left err -> pure (Left err)
     Right () -> do
-      ready <- waitForTartExec (buildVmName config) 60
+      -- A warm restart becomes exec-ready in ~20s, but a cold first boot of a
+      -- freshly cloned macOS image can take longer; allow generous headroom so a
+      -- slow-but-valid boot is not mistaken for a failed one.
+      ready <- waitForTartExec (buildVmName config) 180
       pure $
         case ready of
           Left err -> Left err
@@ -158,15 +172,43 @@ provisionBuildVm config = do
       cloned <- runTartCommand (tartCloneSubprocess (buildVmBaseImage config) (buildVmName config))
       case cloned of
         Left err -> pure (Left err)
-        Right () ->
-          runTartCommand
-            ( tartSetSubprocess
-                (buildVmName config)
-                (buildVmCpuCount config)
-                (buildVmMemoryMib config)
-                (buildVmDiskGib config)
-            )
+        Right () -> do
+          setResources <-
+            runTartCommand
+              ( tartSetResourcesSubprocess
+                  (buildVmName config)
+                  (buildVmCpuCount config)
+                  (buildVmMemoryMib config)
+              )
+          case setResources of
+            Left err -> pure (Left err)
+            Right () -> growBuildVmDisk config
     Right _existing -> pure (Right ())
+
+-- | Grow the cloned VM's disk to the configured size when (and only when) the
+-- configured size exceeds the image's current disk. @tart set --disk-size@ can
+-- only grow a disk, never shrink it, and cirruslabs base images already ship a
+-- large disk, so a fixed @--disk-size@ smaller than the base would fail
+-- provisioning outright. A grow-only resize keeps provisioning self-sufficient.
+growBuildVmDisk :: BuildVmConfig -> IO (Either Text ())
+growBuildVmDisk config = do
+  currentDisk <- queryTartVmDiskGib (buildVmName config)
+  case currentDisk of
+    Left err -> pure (Left err)
+    Right current ->
+      case diskGrowthTarget (buildVmDiskGib config) current of
+        Nothing -> pure (Right ())
+        Just target -> runTartCommand (tartSetDiskSubprocess (buildVmName config) target)
+
+-- | The disk size (GiB) to grow a freshly cloned VM to, or 'Nothing' when no
+-- grow is required. Resize only when the configured size is strictly larger than
+-- the image's current disk; an unknown current size is treated as "no grow"
+-- because the base image's disk is already ample.
+diskGrowthTarget :: Int -> Maybe Int -> Maybe Int
+diskGrowthTarget configuredGib currentGib =
+  case currentGib of
+    Just current | configuredGib > current -> Just configuredGib
+    _ -> Nothing
 
 stopTartVmLive :: VmName -> IO (Either Text TartVmStatus)
 stopTartVmLive vmName = do
@@ -205,6 +247,26 @@ queryTartVmStatus vmName = do
         case exitCode of
           ExitSuccess ->
             parseTartListStatus vmName stdoutText
+          ExitFailure _ ->
+            Left
+              ( "failed to inspect Tart VMs with "
+                  <> renderSubprocess tartListSubprocess
+                  <> ": "
+                  <> stderrText
+              )
+
+-- | The named VM's current disk size in GiB, or 'Nothing' when the field is
+-- absent. A missing VM also yields 'Nothing'.
+queryTartVmDiskGib :: VmName -> IO (Either Text (Maybe Int))
+queryTartVmDiskGib vmName = do
+  executed <- tryRunStreaming tartListSubprocess
+  pure $
+    case executed of
+      Left err -> Left err
+      Right (exitCode, stdoutText, stderrText) ->
+        case exitCode of
+          ExitSuccess ->
+            parseTartListDiskGib vmName stdoutText
           ExitFailure _ ->
             Left
               ( "failed to inspect Tart VMs with "
@@ -308,6 +370,17 @@ parseTartListStatus (VmName vmName) jsonText = do
               Just "running" -> TartVmRunning
               _ -> TartVmStopped
 
+parseTartListDiskGib :: VmName -> Text -> Either Text (Maybe Int)
+parseTartListDiskGib (VmName vmName) jsonText = do
+  entries <-
+    case eitherDecode (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 jsonText)) of
+      Left err -> Left ("failed to parse `tart list --format json`: " <> Text.pack err)
+      Right decoded -> Right decoded
+  pure $
+    case filter ((== vmName) . tartListEntryName) entries of
+      [] -> Nothing
+      entry : _ -> tartListEntryDiskGib entry
+
 renderTartVmStatus :: TartVmStatus -> Text
 renderTartVmStatus TartVmMissing = "missing"
 renderTartVmStatus TartVmStopped = "stopped"
@@ -317,8 +390,8 @@ tartCloneSubprocess :: Text -> VmName -> Subprocess
 tartCloneSubprocess baseImage vmName =
   subprocess "tart" ["clone", baseImage, unVmName vmName]
 
-tartSetSubprocess :: VmName -> Int -> Int -> Int -> Subprocess
-tartSetSubprocess vmName cpuCount memoryMib diskGib =
+tartSetResourcesSubprocess :: VmName -> Int -> Int -> Subprocess
+tartSetResourcesSubprocess vmName cpuCount memoryMib =
   subprocess
     "tart"
     [ "set"
@@ -327,6 +400,14 @@ tartSetSubprocess vmName cpuCount memoryMib diskGib =
     , Text.pack (show cpuCount)
     , "--memory"
     , Text.pack (show memoryMib)
+    ]
+
+tartSetDiskSubprocess :: VmName -> Int -> Subprocess
+tartSetDiskSubprocess vmName diskGib =
+  subprocess
+    "tart"
+    [ "set"
+    , unVmName vmName
     , "--disk-size"
     , Text.pack (show diskGib)
     ]

@@ -26,15 +26,17 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
-doctrine reversal). The live apple-silicon lane previously validated the headless
-host `swift build`; it must be **re-validated through the Tart-VM-built path**
-(build in the `jitml`-managed VM, copy the dylib out, execute on the host GPU)
-once Phases `1` / `2` / `5` / `7` land their code. Sprint `14.7` owns this
-re-validation; its `### Remaining Work` enumerates the unmet obligations. Because
-this closure phase reopens, the Phase `15` final handoff (Exit-Definition item 18,
-empty legacy ledger) reopens with it. See
-[Sprint 14.7](#sprint-147-re-validate-the-apple-silicon-lane-through-the-tart-vm-built-path--active).
+✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT doctrine
+reversal; **re-closed 2026-06-10** after the live apple-silicon lane was
+re-validated through the Tart-VM-built path on Apple M1). The lane builds each
+Metal kernel family with the `jitml`-managed VM's `swift build`, copies the dylib
+out, and executes on the host GPU. Sprint `14.7` owns this re-validation; its
+`### Live Closure (2026-06-10)` records the evidence —
+`jitml test jitml-backends --apple-silicon` ran all 17 within-substrate apple
+cases as real PASSes through the VM-built path. With this phase re-closed, the
+Phase `15` final handoff (Exit-Definition item 18, empty legacy ledger) is met
+again. See
+[Sprint 14.7](#sprint-147-re-validate-the-apple-silicon-lane-through-the-tart-vm-built-path--done).
 Prior closure history follows.
 
 ✅ **Done** (re-closed 2026-06-09 after Sprint 14.6). The reproducibility
@@ -657,11 +659,10 @@ nvcc compile is invoked in the apple-silicon lane. The pure-logic
   from "Active, missing live FFI + RPC" to closure once Sprints `14.2`
   and `14.4` close.
 
-## Sprint 14.7: Re-validate the apple-silicon lane through the Tart-VM-built path [🔄 Active]
+## Sprint 14.7: Re-validate the apple-silicon lane through the Tart-VM-built path [✅ Done]
 
-**Status**: Active
+**Status**: Done (re-closed 2026-06-10 — live apple-silicon lane exercised through the VM-built path on Apple M1)
 **Implementation**: `test/backends/Main.hs`, live apple-silicon lane
-**Blocked by**: Phase `1` Sprint `1.14`, Phase `2` Sprint `2.11`, Phase `5` Sprint `5.9`, Phase `7` Sprint `7.10`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`, `documents/engineering/jit_codegen_architecture.md`
 
 ### Objective
@@ -695,13 +696,25 @@ doctrine (see
 - Phases `1` / `2` / `5` code landed and validated; the VM boots headless on Apple
   M1.
 
-### Remaining Work (live obligation — BLOCKED in this environment)
+### Live Closure (2026-06-10)
 
-- The live apple-silicon `jitml-backends` lane through the VM-built path is **not
-  yet exercised**: it depends on driving `swift build` inside the build VM, which
-  is blocked by the Tart guest-agent reachability issue tracked under Phase `7`
-  Sprint `7.10`. Once an exec-reachable VM image is available, run
-  `jitml test jitml-backends --apple-silicon` to close this sprint.
+The live apple-silicon `jitml-backends` lane was re-validated end-to-end through
+the Tart-VM-built path on the Apple M1 host. `jitml test jitml-backends
+--apple-silicon` (which the orchestrator runs as `cabal test jitml-backends
+--test-options '-p apple-silicon'` after the device-only Metal probe) drove the
+in-VM `swift build` for each Metal kernel family, copied each `libJitMLMetal.dylib`
+out of the VM, and executed it on the host GPU:
+
+- **All 17 within-substrate apple-silicon cases PASS (62.84s, no skip sentinels).**
+  This includes the four Metal cases the sprint owns: identity bit-equality across
+  three runs (Sprint 14.2), weighted Dense2D bit-determinism across three runs
+  (Sprint 14.5), the live Metal benchmark candidate runner (Sprint 14.3), and the
+  weighted-family-vs-reference agreement; plus the Phase-4 device cases (MLP
+  forward/backward/batched, PPO, DQN, QR-DQN, HER, DDPG, AlphaZero PolicyValueNet).
+- `jitml-unit` 194 / 194 host-native; container `jitml check-code` green.
+- The build VM's prior unreachability was a host-side `ctkd` (CryptoTokenKit)
+  deadlock of the VZ auxiliary-storage decryption, not a code defect (see
+  [phase-7 Sprint 7.10 → Live Closure](phase-7-jit-codegen-and-substrates.md#sprint-710-route-the-apple-swift-build-through-the-tart-vm--done)).
 
 ## Related Documents
 

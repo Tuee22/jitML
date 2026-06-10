@@ -29,10 +29,10 @@ data LiveConfig = LiveConfig
   , liveDedupCacheSize :: Int
   , liveDedupCacheTtlSeconds :: Int
   , liveDrainDeadlineSeconds :: Int
-  , -- | Sprint 5.9 — resources the Apple Silicon daemon assigns to the
-    -- jitml-managed Tart build VM, and how long it may sit idle before being
-    -- stopped. Ignored on non-Apple substrates (no build VM).
-    liveBuildVmCpuCount :: Int
+  , liveBuildVmCpuCount :: Int
+  -- ^ Sprint 5.9 — resources the Apple Silicon daemon assigns to the
+  -- jitml-managed Tart build VM, and how long it may sit idle before being
+  -- stopped. Ignored on non-Apple substrates (no build VM).
   , liveBuildVmMemoryMib :: Int
   , liveBuildVmDiskGib :: Int
   , liveBuildVmIdleTimeoutSeconds :: Maybe Int

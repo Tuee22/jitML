@@ -13,7 +13,13 @@ import Control.Monad (void)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Foreign.Ptr (FunPtr)
-import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, getCurrentDirectory, renameFile)
+import System.Directory
+  ( copyFile
+  , createDirectoryIfMissing
+  , doesFileExist
+  , getCurrentDirectory
+  , renameFile
+  )
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.Posix.DynamicLinker (RTLDFlags (RTLD_NOW), dlclose, dlopen, dlsym)
@@ -127,7 +133,7 @@ ensureBuildVmForSubstrate :: Substrate -> IO (Either Text ())
 ensureBuildVmForSubstrate AppleSilicon = do
   root <- getCurrentDirectory
   result <- TartLifecycle.ensureBuildVmUp (TartLifecycle.defaultBuildVmConfig root)
-  pure (() <$ result)
+  pure (void result)
 ensureBuildVmForSubstrate _ = pure (Right ())
 
 -- | Publish the Apple `swift build` product into the content-addressed cache.

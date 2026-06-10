@@ -65,6 +65,19 @@ every `legacy-tracking-for-deletion.md` row — including the last open
 `linux-cuda` half of the skip-guard removal owned jointly with Sprints `12.10` /
 `13.16` — is now `Completed`, so the final handoff is complete.
 
+**Final-handoff reopen/re-close (2026-06-10).** The Apple Silicon Tart-VM
+build-JIT doctrine reversal reopened Phases `1` / `2` / `5` / `7` / `14` and, with
+them, this final handoff: it enqueued six new `legacy-tracking-for-deletion.md`
+rows for the now-legacy headless-host Apple build surface, so Exit Definition
+item 18 (empty legacy ledger) was momentarily unmet. All six rows moved to
+`Completed` on 2026-06-10 once the replacement was verified working — the live
+apple-silicon `jitml-backends` lane ran end-to-end through the Tart-VM-built path
+on Apple M1 (`jitml test jitml-backends --apple-silicon`, 17 / 17, in-VM
+`swift build` + copy-out + host Metal execution, no skip sentinels). **The ledger
+is empty again, Exit Definition item 18 is met, and the final handoff is complete.**
+Phase `15`'s owned Sprints `15.1`–`15.4` stayed `✅ Done` throughout (the reopened
+ledger rows are owned by Phases `1` / `2` / `5` / `7` / `14`, not by Phase `15`).
+
 The pre-reopen ✅ Done evidence is retained verbatim below as the dated
 historical record.
 

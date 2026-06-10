@@ -162,6 +162,7 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
+import JitML.Tart.Lifecycle qualified as TartLifecycle
 import JitML.Test.Report (substrateTestInvocations)
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.AdminPortals qualified as WebAdminPortals
@@ -1151,6 +1152,31 @@ main =
           assertBool
             "rendered Metal probe records compiler path"
             ("metal_compiler: /Applications/Xcode.app" `Text.isInfixOf` rendered)
+      , testCase "Tart build-VM disk resize is grow-only during provisioning" $ do
+          -- `tart set --disk-size` can only grow a disk; cirruslabs base images
+          -- already ship a large disk, so a configured size at or below the
+          -- cloned image's disk must NOT be applied (it would fail provisioning).
+          -- Grow only when the configured size strictly exceeds the current one.
+          TartLifecycle.diskGrowthTarget 50 (Just 140) @?= Nothing
+          TartLifecycle.diskGrowthTarget 140 (Just 140) @?= Nothing
+          TartLifecycle.diskGrowthTarget 200 (Just 140) @?= Just 200
+          TartLifecycle.diskGrowthTarget 50 Nothing @?= Nothing
+      , testCase "Tart list parser reads status and disk size, tolerating absent fields" $ do
+          let listJson =
+                "[{\"Name\":\"jitml-build\",\"Running\":false,\"State\":\"stopped\",\"Disk\":140},\
+                \{\"Name\":\"other\",\"Running\":true}]"
+              buildVm = TartLifecycle.VmName "jitml-build"
+              otherVm = TartLifecycle.VmName "other"
+              missingVm = TartLifecycle.VmName "absent"
+          TartLifecycle.parseTartListStatus buildVm listJson
+            @?= Right TartLifecycle.TartVmStopped
+          TartLifecycle.parseTartListStatus otherVm listJson
+            @?= Right TartLifecycle.TartVmRunning
+          TartLifecycle.parseTartListStatus missingVm listJson
+            @?= Right TartLifecycle.TartVmMissing
+          TartLifecycle.parseTartListDiskGib buildVm listJson @?= Right (Just 140)
+          TartLifecycle.parseTartListDiskGib otherVm listJson @?= Right Nothing
+          TartLifecycle.parseTartListDiskGib missingVm listJson @?= Right Nothing
       , testCase "hardware auto-tuning benchmark plan enumerates deterministic candidates" $ do
           let plan = Tuning.benchmarkPlan Tuning.linuxCudaKnobs
               deterministicDefault = Tuning.selectDeterministic Tuning.linuxCudaKnobs

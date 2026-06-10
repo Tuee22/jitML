@@ -21,15 +21,18 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
-doctrine reversal). `JitML.Engines.Engine.compileSubprocess` must route the Apple
-Silicon `swift build` **into the `jitml`-managed Tart VM**, and
-`JitML.Engines.Loader.publishAppleArtifact` must copy `libJitMLMetal.dylib` **out
-of the VM** instead of reading it from a host build directory; the
-`metalToolchainFingerprint` becomes VM-toolchain-based. Sprint `7.10` owns this
-surface; its `### Remaining Work` enumerates the unmet obligations. Reopened in the
-same batch with Phases `1` / `2` / `5` / `14`. See
-[Sprint 7.10](#sprint-710-route-the-apple-swift-build-through-the-tart-vm--active).
+✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT doctrine
+reversal; **re-closed 2026-06-10** after the live VM-built path was exercised on
+Apple M1). `JitML.Engines.Engine.compileSubprocess` routes the Apple Silicon
+`swift build` **into the `jitml`-managed Tart VM**,
+`JitML.Engines.Loader.publishAppleArtifact` copies `libJitMLMetal.dylib` **out of
+the VM** instead of reading it from a host build directory, and
+`metalToolchainFingerprint` is VM-toolchain-based. Sprint `7.10` owns this surface;
+its `### Live Closure (2026-06-10)` records the live evidence —
+`jitml test jitml-backends --apple-silicon` ran all 17 within-substrate apple
+cases as real PASSes through the in-VM `swift build` + host Metal execution.
+Reopened/re-closed in the same batch with Phases `1` / `2` / `5` / `14`. See
+[Sprint 7.10](#sprint-710-route-the-apple-swift-build-through-the-tart-vm--done).
 Prior closure history follows.
 
 **Re-validation note (2026-06-06)**: this phase stays ✅ **Done** on its owned
@@ -1074,11 +1077,10 @@ companion for direct CUDA tests.
   remain aligned with `src/JitML/Engines/Engine.hs`, the Haskell runtime source
   generator target, and the static-codegen cleanup ledger.
 
-## Sprint 7.10: Route the Apple `swift build` through the Tart VM [🔄 Active]
+## Sprint 7.10: Route the Apple `swift build` through the Tart VM [✅ Done]
 
-**Status**: Active
+**Status**: Done (re-closed 2026-06-10 — live VM-built path exercised on Apple M1)
 **Implementation**: `src/JitML/Engines/Engine.hs` (`compileSubprocess`), `src/JitML/Engines/Loader.hs` (`publishAppleArtifact`), `src/JitML/Engines/MetalLocal.hs` (`metalToolchainFingerprint`), `src/JitML/Engines/MetalRuntime.hs`
-**Blocked by**: Phase `2` Sprint `2.11` (VM lifecycle), Phase `5` Sprint `5.9` (VM-up-on-acquire)
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`, `documents/engineering/determinism_contract.md`
 
 ### Objective
@@ -1116,15 +1118,31 @@ Execution stays host-native via `MTLDevice.makeLibrary(source:)`.
   `jitml docs check` and `jitml-unit` green (including a new Metal-probe
   regression: device-visible + no host toolchain ⇒ available).
 
-### Remaining Work (live obligation — BLOCKED in this environment)
+### Live Closure (2026-06-10)
 
-- The live JIT-build-through-VM (forced Apple cache miss → in-VM `swift build` →
-  copy-out → host execute, three-run bit-equality) is **not yet exercised**: the
-  `jitml-build` Tart VM boots headless, but its **Tart guest agent is unreachable**
-  in the `macos-sequoia-xcode:16` image (`tart exec` → control-socket GRPC error)
-  and the VM exposes no IP for an SSH fallback, so `swift build` cannot be driven
-  inside the VM here. Closing this needs a VM image whose guest agent (or SSH/IP)
-  is reachable — then the lane runs as in `### Validation`.
+The live JIT-build-through-VM path was exercised end-to-end on the Apple M1 host
+and **passed**. The prior "Tart guest agent unreachable / `tart exec`
+control-socket GRPC error" symptom traced to a deeper root cause: a stale host
+`ctkd` (CryptoTokenKit) daemon had deadlocked the Virtualization.framework
+auxiliary-storage (nvram) decryption, so the `jitml-build` macOS guest never
+finished booting (no guest agent over vsock, no DHCP lease). Restarting `ctkd`
+and launching the build VM in the host GUI (`gui/501`) launchd session let the
+guest boot; `tart exec` then connected, and the in-VM `swift build` ran against
+the shared-mount package path (`/Volumes/My Shared Files/jitml/.build/jit-src/...`).
+
+- Forced Apple cache miss: `jitml test jitml-backends --apple-silicon` drove the
+  in-VM `swift build` (Xcode 16 `swift-build`) of the generated Swift glue
+  package; `publishAppleArtifact` copied `libJitMLMetal.dylib` out of the VM's
+  `.build/release/` into the content-addressed cache, and the host `dlopen`ed it
+  and JIT-compiled the embedded MSL via `MTLDevice.makeLibrary(source:)`.
+- All **17** within-substrate apple-silicon cases PASS (62.84s, no skip
+  sentinels): the identity kernel is **bit-equal across three runs** (Sprint
+  14.2), the weighted Dense2D GEMM is **bit-deterministic across three runs**
+  (Sprint 14.5), and the live Metal benchmark candidate runner produces a
+  measurement (Sprint 14.3).
+- `jitml-unit` 194 / 194 host-native (incl. the Metal-probe regression:
+  device-visible + no host toolchain ⇒ available); container `jitml check-code`
+  green.
 
 ## Related Documents
 

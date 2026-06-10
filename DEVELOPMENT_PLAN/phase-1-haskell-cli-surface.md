@@ -27,8 +27,8 @@ create/up/down/status/delete plus exec) that Sprint `2.10` removed; the generate
 CLI mirror was regenerated, `jitml docs check` and `jitml-unit` are green, and the
 `status`/`up`/`down` lifecycle is validated live on Apple M1 (the VM boots
 headless). Phases `2` / `5` reopened in the same batch are likewise re-closed;
-Phases `7` / `14` remain `🔄 Active` because the in-VM `swift build` cannot be
-exercised in this environment (the Tart guest agent is unreachable — see Phase `7`
+Phases `7` / `14` are also re-closed `✅ Done` (2026-06-10) after the live in-VM
+`swift build` + host Metal execution path was exercised on Apple M1 (see Phase `7`
 Sprint `7.10`). See
 [Sprint 1.14](#sprint-114-reinstate-the-jitml-internal-vm-build-vm-command-surface--done).
 Prior closure history follows.
@@ -1045,9 +1045,9 @@ build-JIT doctrine (see
 - Exercised live on Apple M1 / macOS 26: `jitml internal vm status` →
   `jitml-build stopped`; `jitml internal vm up` boots the VM **headless** (the
   prior `VZErrorDomain … HostKey` blocker did not recur); `jitml internal vm down`
-  stops it. `internal vm exec`'s live passthrough additionally depends on in-VM
-  reachability (see Phase `7` Sprint `7.10` Remaining Work — the build VM's Tart
-  guest agent is not reachable in this environment).
+  stops it. `internal vm exec`'s live passthrough is exercised by Phase `7` Sprint
+  `7.10`'s live closure (2026-06-10): the apple-silicon lane drove in-VM
+  `swift build` through this surface and built/ran every Metal kernel family.
 
 ## Related Documents
 

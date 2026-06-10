@@ -235,14 +235,22 @@ surface, the `container.tart` prerequisite + `JitML.Tart.Lifecycle`, and the
 LiveConfig build-VM block + daemon-acquire ensure are in place, and the VM
 lifecycle (`status`/`up`/`down`) is validated live on Apple M1 — the `jitml-build`
 Tart VM **boots headless with no `VZErrorDomain … HostKey` error** (the blocker
-that originally retired Tart did not recur). Phases `7` (Sprint `7.10`) and `14`
-(Sprint `14.7`) stay **`🔄 Active`**: their code (in-VM `swift build` routing,
-copy-out, fingerprint, probe relaxation, test-comment fix) has landed and is
-unit-validated, but the **live** JIT-build-through-VM cannot be exercised in this
-environment — the `macos-sequoia-xcode:16` image's Tart guest agent is unreachable
-(`tart exec` control-socket GRPC error) and the VM exposes no IP for an SSH
-fallback, so `swift build` cannot be driven inside the VM here. Closing `7.10` /
-`14.7` (and so the Phase `15` handoff) needs an exec-reachable build-VM image.
+that originally retired Tart did not recur). **Phases `7` (Sprint `7.10`) and `14`
+(Sprint `14.7`) are now also re-closed `✅ Done` (2026-06-10):** the **live**
+JIT-build-through-VM path was exercised end-to-end on the Apple M1 host —
+`jitml test jitml-backends --apple-silicon` ran all **17** within-substrate apple
+cases as real PASSes (62.84s, no skip sentinels) through the in-VM `swift build`
+(Xcode 16) + `publishAppleArtifact` copy-out + host `MTLDevice.makeLibrary(source:)`
+execution, including identity bit-equality (Sprint 14.2), weighted Dense2D
+bit-determinism (14.5), and the live Metal benchmark candidate runner (14.3);
+`jitml-unit` 194 / 194 host-native and container `jitml check-code` green. The
+prior "Tart guest agent unreachable / `tart exec` control-socket GRPC error"
+symptom traced to a host-side `ctkd` (CryptoTokenKit) daemon deadlocking the
+Virtualization.framework auxiliary-storage decryption — not a code defect — cleared
+by restarting `ctkd` and running the build VM in the host GUI launchd session.
+**With `7.10` / `14.7` closed, the six Tart-reversal legacy-ledger rows all move to
+`Completed`, the ledger is empty, Exit-Definition item 18 is met, and the Phase
+`15` final handoff is complete — all Phases `0`–`15` are `✅ Done`.**
 
 **Prior status (superseded by the 2026-06-10 reopen above):** all Phases `0`–`15`
 were `✅ Done`. Phases `1`, `12`, `13`, `14`, and `15`
@@ -679,21 +687,21 @@ obligation exists.
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (re-closed 2026-06-09, Sprint 1.13) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (re-closed 2026-06-10, Sprint 1.14) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
 | 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
-| 7 | JIT Codegen and Per-Substrate Execution | ✅ Done | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
+| 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (re-closed 2026-06-10, Sprint 7.10 — live apple-silicon VM-built path 17/17) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (reopened and re-closed 2026-06-05, Sprint 11.7) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done (re-closed 2026-06-09, Sprint 12.10 — linux-cuda GPU lane re-validated 19/19 on RTX 5090) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | Linux CUDA and Cluster Closure | ✅ Done (re-closed 2026-06-09, Sprint 13.16 — linux-cuda GPU lane re-validated 19/19 on RTX 5090) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ✅ Done (re-closed 2026-06-09, Sprint 14.6) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Substrate Reproducibility and Final Handoff | ✅ Done (re-closed 2026-06-09, Sprint 15.4 — linux-cuda GPU lane re-validated; legacy ledger empty, Exit Definition item 18 met) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 14 | Apple Silicon Closure | ✅ Done (re-closed 2026-06-10, Sprint 14.7 — apple-silicon lane re-validated through the Tart-VM-built path 17/17) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 15 | Substrate Reproducibility and Final Handoff | ✅ Done (handoff re-completed 2026-06-10 after Sprints 7.10/14.7 — legacy ledger empty, Exit Definition item 18 met) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Reopened phases (2026-06-04)
 

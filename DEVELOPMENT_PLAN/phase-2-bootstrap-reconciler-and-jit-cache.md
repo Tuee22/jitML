@@ -27,8 +27,8 @@ doctrine reversal; **re-closed 2026-06-10** after Sprint `2.11`). The
 node depends on `container.tart` again, and `bootstrap purge` deletes the VM. The
 lifecycle is validated live on Apple M1 (headless boot, status, stop); the
 prerequisite closure is unit-tested. The Apple cache-miss build *using* the VM is
-Phase `7` Sprint `7.10` (still `🔄 Active` — see its Remaining Work for the
-guest-agent reachability blocker). See
+Phase `7` Sprint `7.10`, re-closed `✅ Done` (2026-06-10) after the apple-silicon
+lane built every Metal kernel family in the VM and ran it on the host GPU. See
 [Sprint 2.11](#sprint-211-reinstate-the-tart-build-vm-prerequisite-and-lifecycle--done)
 and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). Prior
 closure history follows.
@@ -793,12 +793,32 @@ Tart-VM build-JIT doctrine (see
 - `bootstrap/_lib.sh` `purge` deletes the VM (full create lifecycle now lives in
   the daemon acquire / `jitml internal vm`).
 
-### Remaining Work
+**Self-management hardening (2026-06-10).** The lifecycle was hardened so the
+binary provisions and runs the VM end-to-end with no manual help, validated on
+Apple M1 (`jitml internal vm delete` → `up` clones + configures + boots +
+waits-exec-ready in ~20s → `exec`, and `jitml test jitml-backends --apple-silicon`
+drives the in-VM `swift build` path 17 / 17):
 
-- The Apple cache-miss build *using* the VM is owned by Phase `7` Sprint `7.10`;
-  its live exercise is blocked in this environment because the Tart guest agent in
-  the `macos-sequoia-xcode:16` image is unreachable (`tart exec` control-socket
-  GRPC error; no VM IP for an SSH fallback).
+- **Grow-only disk.** `provisionBuildVm` sets CPU/memory unconditionally and grows
+  the disk only when the configured size exceeds the cloned image's current disk
+  (`diskGrowthTarget`). `tart set --disk-size` can only grow, and cirruslabs base
+  images already ship a large disk, so the previous fixed `--disk-size` smaller
+  than the base failed provisioning outright.
+- **Detached-start fd isolation.** `JitML.Sub.Stream.startDetached` wires the
+  long-lived `tart run` process's stdin/stdout/stderr to `/dev/null` rather than
+  inheriting them, so the VM process cannot hold a parent's captured output pipe
+  open. Without this, starting the VM from inside an output-captured context (a
+  `jitml test` cabal run, the daemon) deadlocked the parent's stream reader, which
+  never saw EOF.
+- **Generous boot wait + reproducible base image.** `waitForTartExec` allows ample
+  headroom for a cold first-clone boot, and `defaultTartBaseImage` is pinned to
+  `macos-sequoia-xcode:16` (reproducible toolchain, reused from the local image)
+  rather than a moving `:latest`. New `jitml-unit` cases cover `diskGrowthTarget`
+  and the `tart list` status/disk parser.
+
+The downstream Apple cache-miss build *using* this VM lifecycle is owned by Phase
+`7` Sprint `7.10`, which re-closed `✅ Done` (2026-06-10) after the apple-silicon
+lane drove the in-VM `swift build` for real.
 
 ## Related Documents
 

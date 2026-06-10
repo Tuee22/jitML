@@ -198,8 +198,10 @@ and the deletion ledger has no pending rows.
   `jitml`-managed Tart VM builds the small Swift glue dylib with the VM's
   `swift build`, the dylib is copied out to the host, and the Metal shader is
   JIT-compiled at load on the host through `MTLDevice.makeLibrary(source:)`
-  (Apple Silicon Tart-VM build-JIT doctrine; reopened Phases `1`/`2`/`5`/`7`/`14`,
-  2026-06-10; see
+  (Apple Silicon Tart-VM build-JIT doctrine; reopened Phases `1`/`2`/`5`/`7`/`14`
+  on 2026-06-10 and **all re-closed `✅ Done` the same day** — the live
+  apple-silicon lane built every Metal kernel family in the VM and ran it on the
+  host GPU, 17/17; see
   [Reopen note (2026-06-10)](README.md)). Outer-container Linux
   commands run as `docker compose run --rm jitml jitml <command>` against the
   headless default service; direct CUDA tests that need device exposure use the
@@ -375,8 +377,10 @@ and the deletion ledger has no pending rows.
   `swift build` **inside the `jitml`-managed Tart VM**, copies the dylib out to the
   host, and JIT-compiles the Metal shader at load via `MTLDevice.makeLibrary(source:)`
   on the host GPU. (The Tart VM lifecycle, its Dhall-configured limits, and the
-  `jitml internal vm` command group are owned by the reopened Phases
-  `1` / `2` / `5` / `7` / `14`, 2026-06-10; see
+  `jitml internal vm` command group are owned by Phases
+  `1` / `2` / `5` / `7` / `14`, reopened and **all re-closed `✅ Done`** on
+  2026-06-10 after the live apple-silicon lane built/ran every Metal kernel family
+  through the VM; see
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).)
   Headless Apple Metal live validation + Metal loading, live
   CUDA GPU-host compile/load/run validation plus cuBLAS/cuDNN bindings, and
@@ -818,7 +822,7 @@ each constraint.
 | 12 | Phase 11 | The eight Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
 | 13 | Phase 12 | The Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure consumes every code-surface obligation from Phases `1`–`12` and exercises them through one Linux/NVIDIA session against an ephemeral Kind cluster |
 | 14 | Phase 12 | The Apple Silicon Tart-VM build Metal JIT (`jitml`-managed Tart VM `swift build` + dylib copy-out + host runtime `MTLDevice.makeLibrary(source:)`), Metal FFI, host↔cluster RPC, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
-| 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`): the cross-substrate numeric parity surface (`Tolerance.hs`, `JitML.CrossBackend.Parity`, the `CrossSubstrate` drift tests, `jitml verify cross-backend`, the report-card `cross_substrate_parity` field) is removed because cross-substrate equivalence is out of contract. The source/code removal landed and was validated 2026-06-09 (apple-silicon + linux-cpu lanes, `check-code`, `docs check`); five of the six parity-removal ledger rows moved to `Completed`. Stays `🔄 Active` on the `linux-cuda` GPU-lane re-validation (Sprint `13.16`) the Apple Silicon development host cannot run — the last `Pending Removal` row — so the ledger is not yet empty |
+| 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`): the cross-substrate numeric parity surface (`Tolerance.hs`, `JitML.CrossBackend.Parity`, the `CrossSubstrate` drift tests, `jitml verify cross-backend`, the report-card `cross_substrate_parity` field) is removed because cross-substrate equivalence is out of contract. The source/code removal landed and was validated 2026-06-09 (apple-silicon + linux-cpu lanes, `check-code`, `docs check`), and all six parity-removal ledger rows reached `Completed` once the `linux-cuda` GPU lane was re-validated 2026-06-09 on the RTX 5090 (Sprint `13.16`, 19/19). The 2026-06-10 Tart-VM build-JIT reversal reopened the handoff with six new ledger rows; those all moved to `Completed` the same day once the live apple-silicon lane ran through the VM-built path (17/17). **The ledger is empty, Exit Definition item 18 is met, and the final handoff is complete (2026-06-10).** |
 
 ## Status Vocabulary
 
@@ -865,7 +869,13 @@ orchestrator owns the apple-silicon / linux-cpu lanes.) With that run, **Sprints
 `12.10` / `13.16` / `15.4` re-closed `✅ Done`, the last `Pending Removal` row
 (the `linux-cuda` half of the skip-guard removal) moved to `Completed`, the
 legacy ledger is empty, Exit Definition item 18 is met, and final handoff is
-complete.** The earlier reopen history stands
+complete.** **Most recently, the 2026-06-10 Apple Silicon Tart-VM build-JIT
+doctrine reversal reopened Phases `1`/`2`/`5`/`7`/`14` and the final handoff;
+all re-closed `✅ Done` the same day** after the live apple-silicon lane ran
+through the Tart-VM-built path (`jitml test jitml-backends --apple-silicon`,
+17/17 through in-VM `swift build` + host Metal execution), so the six new
+Tart-reversal ledger rows moved to `Completed` and the ledger is empty / item 18
+met / handoff complete again. The earlier reopen history stands
 as dated record: **Phase `13` (all 15 sprints) and Phase `15` Sprints
 `15.1`/`15.2` reopened `🔄 Active` on 2026-06-06 and re-closed `✅ Done` the
 same day** (Sprint `15.3` stayed `✅ Done`) after re-validating the live CUDA,

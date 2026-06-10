@@ -36,9 +36,23 @@ runStreaming env subprocessValue = do
     , Text.Encoding.decodeUtf8With lenientDecode (LazyByteString.toStrict stderrBytes)
     )
 
+-- | Start a long-lived process fully detached from the caller's standard
+-- streams. The child's stdin/stdout/stderr are wired to @/dev/null@ rather than
+-- inherited, so a process that outlives the caller (e.g. @tart run@, which keeps
+-- the build VM up) cannot hold a parent's captured output pipe open. Without
+-- this, starting the VM from inside an output-captured context (a @cabal test@
+-- run, the daemon) would deadlock the parent's stream reader, which never sees
+-- EOF while the detached process holds the inherited pipe.
 startDetached :: SubprocessEnv -> Subprocess -> IO ()
 startDetached _env subprocessValue =
-  void (Typed.startProcess (baseProcessConfig subprocessValue))
+  void
+    ( Typed.startProcess
+        ( Typed.setStdin Typed.nullStream $
+            Typed.setStdout Typed.nullStream $
+              Typed.setStderr Typed.nullStream $
+                baseProcessConfig subprocessValue
+        )
+    )
 
 capture :: SubprocessEnv -> Subprocess -> IO (ExitCode, ByteString, ByteString)
 capture _env subprocessValue =

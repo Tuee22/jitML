@@ -29,9 +29,9 @@ doctrine reversal; **re-closed 2026-06-10** after Sprint `5.9`). `LiveConfig`
 carries the Dhall-configurable build-VM block (CPU / memory / storage / idle
 timeout) and the daemon's `runService` acquire (`ensureHostBuildVm`) ensures the
 Tart build VM is up on `AppleSilicon` + `SelfInference` using those resources. The
-ensure-up path is validated live on Apple M1 (headless boot). A full live
-build-through-VM at acquire is gated by the Phase `7` Sprint `7.10` guest-agent
-blocker. See
+ensure-up path is validated live on Apple M1 (headless boot). The full live
+build-through-VM (which `ensureHostBuildVm` precedes) is exercised by Phase `7`
+Sprint `7.10`, re-closed `✅ Done` (2026-06-10). See
 [Sprint 5.9](#sprint-59-reinstate-the-dhall-configured-build-vm-block-and-daemon-acquire--done).
 Prior closure history follows.
 
@@ -992,10 +992,9 @@ per the Apple Silicon Tart-VM build-JIT doctrine (see
   and calls `TartLifecycle.ensureBuildVmUp` (non-fatal). The ensure-up path is the
   same one validated live on Apple M1 (headless boot succeeds).
 
-### Remaining Work
-
-- A full live host-daemon acquire that ends in an in-VM build is gated by the same
-  guest-agent reachability blocker tracked under Phase `7` Sprint `7.10`.
+The downstream full in-VM build that this acquire precedes is owned by Phase `7`
+Sprint `7.10`, which re-closed `✅ Done` (2026-06-10) after the apple-silicon lane
+built and ran every Metal kernel family through the VM.
 
 ## Related Documents
 

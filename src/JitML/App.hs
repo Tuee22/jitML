@@ -142,11 +142,6 @@ import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
 import JitML.Service.BootConfig qualified as BootConfig
-import JitML.Service.LiveConfig
-  ( liveBuildVmCpuCount
-  , liveBuildVmDiskGib
-  , liveBuildVmMemoryMib
-  )
 import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.Clients qualified as ServiceClients
@@ -156,6 +151,11 @@ import JitML.Service.Consumer
   , EventId
   , HandlerRouter
   , consumerStepWithActions
+  )
+import JitML.Service.LiveConfig
+  ( liveBuildVmCpuCount
+  , liveBuildVmDiskGib
+  , liveBuildVmMemoryMib
   )
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
