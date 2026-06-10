@@ -317,7 +317,7 @@ metalToolchainFingerprint =
         ";"
         [ "swiftpm-metal-dynamic"
         , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "metal-runtime-makelibrary-host"
+        , "metal-build-vm-runtime-makelibrary"
         , "single-stream-launch-order"
         , "simd-aligned-threadgroups"
         , "abi=extern-c-cdecl-launcher"

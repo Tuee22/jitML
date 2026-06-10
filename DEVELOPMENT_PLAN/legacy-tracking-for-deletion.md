@@ -37,6 +37,16 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-06-10 — Apple Silicon Tart-VM build-JIT doctrine reversal.** All Apple
+Silicon Swift/Metal builds move back into a `jitml`-managed Tart VM (build in the
+VM, copy the dylib out to the host, execute on the host GPU), reversing the
+2026-05-30 headless-host-build doctrine. This reopens Phases `1` / `2` / `5` / `7`
+/ `14` and **enqueues six Pending Removal rows** (below) covering the now-legacy
+headless-host build surface. Exit Definition item 18 (empty legacy ledger) is
+therefore **no longer met** and the final handoff reopens until those rows move to
+`Completed`. The 2026-05-30 `Completed` rows that recorded the original Tart
+deletion stay as historical fact; these new rows track the reversal.
+
 On 2026-06-08 the cross-substrate numeric parity surface removal reopened
 Phases `1` / `12` / `13` / `14` / `15` and enqueued six Pending Removal rows: the
 cross-substrate per-layer-family tolerance band, the cross-substrate parity
@@ -52,8 +62,10 @@ the `linux-cpu` lane 10 / 10). The last of the six — the `linux-cuda` half of 
 skip-guard removal — closed the same day when its live GPU re-run landed on the
 NVIDIA GeForce RTX 5090 host (Sprint `13.16`): `docker compose run --rm jitml-cuda
 cabal test -fcuda jitml-cross-backend --test-options '-p linux-cuda'` passed
-19 / 19 with no skip-sentinels. **The ledger is now empty and Exit Definition
-item 18 (empty legacy ledger) is met; the final handoff is complete.** The 2026-06-05 Sprint `11.7`
+19 / 19 with no skip-sentinels. **The ledger was empty and Exit Definition
+item 18 (empty legacy ledger) was met and the final handoff complete as of
+2026-06-09 — both reopened on 2026-06-10 by the Tart-VM build-JIT doctrine
+reversal noted above, which enqueued six new Pending Removal rows.** The 2026-06-05 Sprint `11.7`
 doctrine-deviation row covering the SPA discoverability gap closed the
 same day: the generated `Generated.AdminPortals` artifact, the
 `Chrome.Header` / `PanelRegistry` / `Panels.Portals` modules, the
@@ -130,13 +142,30 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-_Empty._ As of 2026-06-09 every tracked doctrine-deviation and stand-in row has
-moved to `Completed`. The last open row — the `linux-cuda` half of the test
-skip-antipattern guard removal — closed when the live `linux-cuda` lane was
-re-validated for real on the NVIDIA GeForce RTX 5090 host (Sprint `13.16`). Exit
-Definition item 18 (empty legacy ledger) is therefore met and the final handoff
-is complete. New rows are enqueued here only when a future sprint introduces a
-doctrine deviation or a temporary stand-in (per standards rule I / L).
+The six rows below are the now-legacy headless-host Apple Metal build surface,
+enqueued 2026-06-10 by the Apple Silicon Tart-VM build-JIT doctrine reversal. Each
+is doctrine-deviation residue. **Status 2026-06-10:** the code replacement for
+every row has **landed and is unit-validated** (the host `swift build` is gone —
+`compileSubprocess` dispatches into the VM, `publishAppleArtifact` copies the dylib
+out, the fingerprint is VM-based, the probe is device-only, `container.tart` is
+back, and `bootstrap purge` deletes the VM). The rows stay in **Pending Removal**
+(not yet `Completed`) because the standards require the replacement to be *verified
+working* in the worktree, and the **live** JIT-build-through-VM is blocked in this
+environment (the build-VM Tart guest agent is unreachable; see Phase `7` Sprint
+`7.10` Remaining Work). They move to `Completed` once an exec-reachable build-VM
+image lets the apple-silicon lane run for real.
+
+| Item | Location | Removed by | Notes |
+|------|----------|-----------|-------|
+| Host `swift build` for the Apple glue dylib | `src/JitML/Engines/Engine.hs` (`compileSubprocess` `AppleSilicon`) | Sprint `7.10` | `compileSubprocess` must dispatch `swift build` into the `jitml`-managed Tart VM instead of running it on the host. |
+| Host-side artifact read | `src/JitML/Engines/Loader.hs` (`publishAppleArtifact`) | Sprint `7.10` | Reads `<sourceDir>/.build/release/libJitMLMetal.dylib` from the host build dir; must copy the dylib **out of the VM** instead. |
+| Host-based Metal toolchain fingerprint | `src/JitML/Engines/MetalLocal.hs` (`metalToolchainFingerprint`, e.g. `metal-runtime-makelibrary-host`) | Sprint `7.10` | Must key on the Tart VM image id + the VM `swiftc`/Metal toolchain version. |
+| Host `swiftc`/`metal` requirement in the runtime probe | `src/JitML/Engines/MetalRuntime.hs` (`metalRuntimeAvailable` requiring `xcrun -find metal`/`swiftc`) | Sprint `7.10` | The host no longer builds; the probe must gate on a visible host Metal device only. |
+| `container.apple-silicon.jit-cache-miss` → `container.colima` (no Tart) | `src/JitML/Prerequisite/Nodes/Container.hs` | Sprint `2.11` | The cache-miss node must depend on the reinstated `container.tart` node + VM lifecycle. |
+| Delete-only Tart cleanup | `bootstrap/_lib.sh` (`tart delete jitml-build` in `purge_state`) | Sprint `2.11` | Replace the delete-only residue with full VM lifecycle (create/start/stop/delete). |
+
+New rows are enqueued here only when a future sprint introduces a doctrine
+deviation or a temporary stand-in (per standards rule I / L).
 
 
 ## Pending Removal Notes

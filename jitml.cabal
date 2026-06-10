@@ -216,6 +216,8 @@ library
         JitML.Sub.Stream
         JitML.Sub.Subprocess
         JitML.Substrate
+        JitML.Tart.Exec
+        JitML.Tart.Lifecycle
         JitML.Test.LivePlan
         JitML.Test.Report
         JitML.Tune.Catalog

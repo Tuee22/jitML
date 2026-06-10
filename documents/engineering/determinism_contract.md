@@ -48,16 +48,15 @@ own floating-point determinism contract.
   (`ceil(n / 32)`), so future Metal FFI loading can size host buffers from the
   generated `jitml_kernel_output_count` symbol instead of duplicating shape
   logic outside the renderer.
-- Metal compute kernels are built **on the host** with the CommandLineTools
-  `swift build` (no Tart VM, no full Xcode) and JIT-compiled at runtime via
-  `MTLDevice.makeLibrary(source:options:)` with `fastMathEnabled = false`, then
-  executed on the host GPU through the Metal framework. Determinism is fixed by
-  the shader source plus the fast-math-off compile option, independent of
-  offline-vs-runtime compilation. `JitML.Engines.MetalRuntime` probes host Metal
-  device visibility (which gates execution); the host uses only the
-  CommandLineTools `swiftc` and the OS Metal framework, never full Xcode (its
-  first-launch/license UI breaks the headless workflow), and the offline `metal`
-  CLI compiler is never invoked.
+- Metal compute kernels are built **inside the `jitml`-managed Tart VM** with the
+  VM's bundled `swift build`; the produced dylib is copied out to the host and
+  JIT-compiled at runtime via `MTLDevice.makeLibrary(source:options:)` with
+  `fastMathEnabled = false`, then executed on the **host** GPU through the OS Metal
+  framework. Determinism is fixed by the shader source plus the fast-math-off
+  compile option, independent of where the dylib was built.
+  `JitML.Engines.MetalRuntime` probes host Metal device visibility (which gates
+  execution); the host carries no Swift/Metal toolchain — the toolchain lives only
+  in the VM. See [jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](./jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
 - RNG state lives in the host daemon (`Host + SelfInference`).
 - Kernel-launch ordering is single-stream by default. Single MTLCommandQueue
   with FIFO ordering; explicit barriers prevent kernel reordering.
@@ -141,10 +140,11 @@ where:
 - `substrate` ∈ `apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
   `cabal.project` (LLVM, NVCC, Metal/`swiftc`, oneDNN) plus loader-relevant ABI
-  facts for local FFI artifacts. The Apple `Metal/swiftc` pin is the host
-  CommandLineTools `swiftc` plus the OS Metal framework (which provides the
-  runtime `makeLibrary` shader compiler) — no Tart VM and no host Xcode. The
-  current Linux CPU local fingerprint carries
+  facts for local FFI artifacts. The Apple `Metal/swiftc` pin is the Tart build
+  VM's image id plus its bundled `swiftc`/Metal toolchain version (the build
+  toolchain) together with the host OS Metal framework (which provides the runtime
+  `makeLibrary` shader compiler at execution). The current Linux CPU local
+  fingerprint carries
   `artifact-abi=<os>-<arch>` so Darwin host artifacts and Linux container
   artifacts do not share a cache key.
 - `rendered-source-payload` is the canonical Haskell-rendered source bundle
@@ -166,7 +166,7 @@ reproducibility witnesses:
 
 | Substrate | Envelope fields |
 |-----------|-----------------|
-| `apple-silicon` | GPU device id, Metal version, CommandLineTools `swiftc` version |
+| `apple-silicon` | GPU device id, Metal version, Tart build-VM image id, VM `swiftc`/Metal toolchain version |
 | `linux-cpu` | Detected ISA (AVX2 / AVX-512), oneDNN version, glibc version, CPU model |
 | `linux-cuda` | cuDNN version, cuBLAS version, CUDA driver version, GPU compute capability, NVCC version |
 

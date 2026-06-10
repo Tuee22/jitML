@@ -27,7 +27,7 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Word (Word64)
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory (createDirectoryIfMissing, doesFileExist, getCurrentDirectory)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -142,6 +142,11 @@ import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
 import JitML.Service.BootConfig qualified as BootConfig
+import JitML.Service.LiveConfig
+  ( liveBuildVmCpuCount
+  , liveBuildVmDiskGib
+  , liveBuildVmMemoryMib
+  )
 import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.Clients qualified as ServiceClients
@@ -161,6 +166,9 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
+import JitML.Tart.Exec (tartExecSubprocess)
+import JitML.Tart.Lifecycle (VmName (..))
+import JitML.Tart.Lifecycle qualified as TartLifecycle
 import JitML.Test.Report
   ( ReportCard (..)
   , ReportMeasurement (..)
@@ -295,6 +303,10 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runMaterializeSubstrate parsedOptions
   | parsedPath == ["internal", "list-prereqs"] =
       writeText (renderPrerequisiteRegistry prerequisiteRegistry)
+  | parsedPath == ["internal", "vm", "exec"] =
+      runInternalVmExec parsedOptions
+  | take 2 parsedPath == ["internal", "vm"] =
+      runInternalVmLifecycle (drop 2 parsedPath)
   | take 2 parsedPath == ["internal", "cache"] =
       runInternalCache parsedPath parsedOptions
   | parsedPath == ["internal", "gc"] =
@@ -601,6 +613,7 @@ runService parsedOptions = do
           (ServiceRuntime.daemonClientSettings acquiredRuntime)
           (ServiceRuntime.probeDaemonServiceClients acquiredRuntime)
       )
+  ensureHostBuildVm probedRuntime
   writeLine ("service config: " <> configPath)
   writeText (ServiceRuntime.renderDaemonRuntimeSummary probedRuntime)
   if consumeOnceRequested
@@ -782,6 +795,38 @@ appleHostInferenceRunner env command = do
                   <> "/"
                   <> Capabilities.unObjectKey (Capabilities.objectKey outputRef)
               ]
+
+-- | Sprint 5.9 — the host-native Apple daemon (`AppleSilicon` + `SelfInference`)
+-- provisions and starts the jitml-managed Tart build VM at acquire with the
+-- LiveConfig-configured CPU/memory/disk, so the first Apple JIT cache-miss build
+-- finds it ready. Non-fatal: a failure is logged and the daemon continues (a
+-- build that actually needs the VM surfaces a hard error in the Loader).
+ensureHostBuildVm :: ServiceRuntime.DaemonRuntime -> App ()
+ensureHostBuildVm runtime =
+  case (BootConfig.bootSubstrate boot, BootConfig.bootInferenceMode boot) of
+    (AppleSilicon, BootConfig.SelfInference) -> do
+      root <- liftIO getCurrentDirectory
+      let live = ServiceRuntime.daemonLiveConfig runtime
+          config =
+            (TartLifecycle.defaultBuildVmConfig root)
+              { TartLifecycle.buildVmCpuCount = liveBuildVmCpuCount live
+              , TartLifecycle.buildVmMemoryMib = liveBuildVmMemoryMib live
+              , TartLifecycle.buildVmDiskGib = liveBuildVmDiskGib live
+              }
+      result <- liftIO (TartLifecycle.ensureBuildVmUp config)
+      case result of
+        Right status ->
+          writeLine
+            ( "build-vm: "
+                <> unVmName TartLifecycle.defaultBuildVmName
+                <> " "
+                <> TartLifecycle.renderTartVmStatus status
+            )
+        Left err ->
+          writeLine ("build-vm: not ready (continuing): " <> err)
+    _ -> pure ()
+ where
+  boot = ServiceRuntime.daemonBootConfig runtime
 
 loadDaemonRuntime :: Text -> Bool -> App ServiceRuntime.DaemonRuntime
 loadDaemonRuntime configPath explicitConfig = do
@@ -2401,6 +2446,68 @@ hexEncodeBytes =
   hexDigit n
     | n < 10 = toEnum (fromEnum '0' + n)
     | otherwise = toEnum (fromEnum 'a' + n - 10)
+
+-- | `jitml internal vm exec -- <cmd...>` runs a command inside the Apple
+-- Silicon build VM via `tart exec` and streams its stdout.
+runInternalVmExec :: [ParsedOption] -> App ()
+runInternalVmExec parsedOptions = do
+  let command = tartExecSubprocess TartLifecycle.defaultBuildVmName (optionValues "cmd" parsedOptions)
+  (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
+  case exitCode of
+    ExitSuccess -> writeText stdoutText
+    ExitFailure _ ->
+      exitWithError (InvalidConfig ("internal vm exec: " <> stderrText))
+
+-- | `jitml internal vm <create|up|down|status|delete>` drives the jitml-managed
+-- Tart build-VM lifecycle. The VM is provisioned with the baseline build-VM
+-- resources and the repository mounted so the in-VM `swift build` writes the
+-- dylib to a host-visible path.
+runInternalVmLifecycle :: [Text] -> App ()
+runInternalVmLifecycle path = do
+  root <- liftIO getCurrentDirectory
+  let config = TartLifecycle.defaultBuildVmConfig root
+  case path of
+    ["create"] -> do
+      result <- liftIO (TartLifecycle.provisionBuildVm config)
+      reportVmActionUnit "create" result
+    ["up"] -> do
+      result <- liftIO (TartLifecycle.ensureBuildVmUp config)
+      reportVmActionStatus "up" result
+    ["down"] -> do
+      result <- liftIO (TartLifecycle.stopTartVmLive (TartLifecycle.buildVmName config))
+      reportVmActionStatus "down" result
+    ["status"] -> do
+      result <- liftIO (TartLifecycle.queryTartVmStatus (TartLifecycle.buildVmName config))
+      reportVmActionStatus "status" result
+    ["delete"] -> do
+      result <- liftIO (TartLifecycle.deleteTartVmLive (TartLifecycle.buildVmName config))
+      reportVmActionStatus "delete" result
+    _ ->
+      exitWithError (UnknownCommand ("unknown vm lifecycle action: " <> Text.unwords path))
+
+reportVmActionStatus :: Text -> Either Text TartLifecycle.TartVmStatus -> App ()
+reportVmActionStatus action result =
+  case result of
+    Left err ->
+      exitWithError (InvalidConfig ("internal vm " <> action <> ": " <> err))
+    Right status ->
+      writeLine
+        ( "vm "
+            <> action
+            <> ": "
+            <> unVmName TartLifecycle.defaultBuildVmName
+            <> " "
+            <> TartLifecycle.renderTartVmStatus status
+        )
+
+reportVmActionUnit :: Text -> Either Text () -> App ()
+reportVmActionUnit action result =
+  case result of
+    Left err ->
+      exitWithError (InvalidConfig ("internal vm " <> action <> ": " <> err))
+    Right () ->
+      writeLine
+        ("vm " <> action <> ": " <> unVmName TartLifecycle.defaultBuildVmName <> " ok")
 
 runInternalGc :: [ParsedOption] -> App ()
 runInternalGc parsedOptions = do

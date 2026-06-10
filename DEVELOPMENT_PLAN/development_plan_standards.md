@@ -81,14 +81,15 @@ project management summaries.
   If a runtime path needs a native adapter, it belongs in a Haskell renderer and
   is materialized under the generated build/cache tree; otherwise file lint
   rejects it. On `apple-silicon`, the generated Swift package is
-  built **on the host** with the Xcode CommandLineTools `swift build` (no full
-  Xcode, no Tart VM) and the generated launcher JIT-compiles the embedded Metal
-  Shading Language **at runtime, in-process**, via
-  `MTLDevice.makeLibrary(source:options:)` with `fastMathEnabled = false` — the
-  fully headless JIT path. Full Xcode is never installed on the host (its
-  first-launch/license UI breaks the headless workflow); only the CommandLineTools
-  `swiftc` and the OS Metal framework are used. Full detail lives in
-  [../documents/engineering/jit_codegen_architecture.md](../documents/engineering/jit_codegen_architecture.md).
+  built **inside the `jitml`-managed Tart VM** with the VM's `swift build`; the
+  produced dylib is copied out to the host, and the generated launcher JIT-compiles
+  the embedded Metal Shading Language **at runtime, in-process**, via
+  `MTLDevice.makeLibrary(source:options:)` with `fastMathEnabled = false`, then
+  executes on the host GPU. Full Xcode is never installed on the host; the host
+  carries no Swift/Metal toolchain — the toolchain lives only in the VM, which the
+  `jitml` binary provisions (`brew install`ing Tart if absent) with
+  Dhall-configured CPU/memory/storage. Full detail lives in
+  [../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
 - Deprecated aliases or legacy command paths belong only in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 

@@ -14,7 +14,7 @@ where
 import Control.Applicative ((<|>))
 import Control.Exception qualified as Exception
 import Data.Char (isSpace)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import System.Exit (ExitCode (..))
@@ -32,12 +32,14 @@ data MetalRuntimeProbe = MetalRuntimeProbe
   }
   deriving stock (Eq, Show)
 
+-- | Sprint 7.10 — the Apple Silicon Swift/Metal build now runs inside the
+-- jitml-managed Tart VM, so the /host/ no longer needs a `swiftc`/`metal`
+-- toolchain. A visible host Metal device is the only host gate for executing the
+-- VM-built dylib via `MTLDevice.makeLibrary(source:)`. The Swift/metal-compiler
+-- probe fields are retained for diagnostics in 'renderMetalRuntimeProbe' but no
+-- longer gate availability.
 metalRuntimeAvailable :: MetalRuntimeProbe -> Bool
-metalRuntimeAvailable probe =
-  isJust (metalRuntimeSwiftVersion probe)
-    && isJust (metalRuntimeMetalCompilerPath probe)
-    && isJust (metalRuntimeSwiftCompilerPath probe)
-    && metalRuntimeDeviceVisible probe
+metalRuntimeAvailable = metalRuntimeDeviceVisible
 
 probeMetalRuntime :: IO MetalRuntimeProbe
 probeMetalRuntime = do

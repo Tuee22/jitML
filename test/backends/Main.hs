@@ -553,12 +553,14 @@ main =
           -- Same-host bit-equality test for the Metal path. Mirrors the
           -- linux-cpu / linux-cuda siblings: three successive invocations of
           -- the generated identity kernel through the live `dlopen` + Metal
-          -- launcher FFI must produce bit-identical output. The build runs
-          -- inside the `jitml-build` Tart VM; the host loads and executes the
-          -- VM-produced dylib through its Metal framework. The test requires a
-          -- visible Metal device and a running `jitml-build` Tart VM (the build
-          -- runs inside it); on hosts without both (Linux CI, or an Apple host
-          -- where the VM is not booted) the test logs a skip.
+          -- launcher FFI must produce bit-identical output. Sprint 7.10/14.7 —
+          -- the `swift build` runs inside the jitml-managed `jitml-build` Tart VM
+          -- (the repository is mounted in), the produced dylib is copied out to
+          -- the host, and the host `dlopen`s it and executes the kernel on its
+          -- Metal GPU (the launcher JIT-compiles the embedded MSL at load via
+          -- `MTLDevice.makeLibrary(source:)`). The lane runs for real on Apple
+          -- hardware with a visible Metal device and the build VM up; a missing
+          -- device fails (the Sprint 14.6 skip guards are gone).
           env <- buildEnv defaultGlobalFlags
           let payload = [0.0, 1.5, -2.25, 3.875, -4.125]
           first <- Metal.runMetalFamilyKernel env Identity payload

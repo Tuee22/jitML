@@ -1319,6 +1319,124 @@ jitml internal gc exp123
 Apply retention to an experiment.
 
 
+## `jitml internal vm create`
+
+Create the build VM.
+
+Clones the configured base image into the jitml-build Tart VM and assigns its CPU/memory/disk limits. Idempotent: a present VM is left in place.
+
+```text
+jitml internal vm create
+```
+
+Examples:
+
+```text
+jitml internal vm create
+```
+
+Provision the build VM.
+
+
+## `jitml internal vm up`
+
+Start the build VM.
+
+Provisions the VM if missing, then starts it headless with the repository mounted so the in-VM swift build writes the dylib to a host-visible path.
+
+```text
+jitml internal vm up
+```
+
+Examples:
+
+```text
+jitml internal vm up
+```
+
+Start the build VM.
+
+
+## `jitml internal vm down`
+
+Stop the build VM.
+
+Stops the Apple Silicon build VM.
+
+```text
+jitml internal vm down
+```
+
+Examples:
+
+```text
+jitml internal vm down
+```
+
+Stop the build VM.
+
+
+## `jitml internal vm status`
+
+Report build VM status.
+
+Prints the build VM status (missing/stopped/running).
+
+```text
+jitml internal vm status
+```
+
+Examples:
+
+```text
+jitml internal vm status
+```
+
+Inspect build VM status.
+
+
+## `jitml internal vm delete`
+
+Delete the build VM.
+
+Stops (if running) and deletes the jitml-build Tart VM.
+
+```text
+jitml internal vm delete
+```
+
+Examples:
+
+```text
+jitml internal vm delete
+```
+
+Delete the build VM.
+
+
+## `jitml internal vm exec`
+
+Run a command in the build VM.
+
+Passes a command through to the Apple Silicon build VM via tart exec.
+
+```text
+jitml internal vm exec -- <cmd...>
+```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `-- <cmd...>` | remainder | yes | Command and arguments to execute. |
+
+Examples:
+
+```text
+jitml internal vm exec -- uname -a
+```
+
+Run a VM debugging command.
+
+
 ## `jitml internal cache stat`
 
 Print cache stats.

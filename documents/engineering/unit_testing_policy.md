@@ -153,8 +153,9 @@ asserted (RNG draws + float reduction order differ across substrates per
 [determinism_contract.md → The Contract](determinism_contract.md#the-contract)).
 
 Each substrate's cases run **for real** in their own lane and **none are
-skipped**: Apple Metal runs host-native, `linux-cpu` oneDNN runs in the
-`jitml` container, and `linux-cuda` runs in the `jitml-cuda` GPU container.
+skipped**: Apple Metal builds in the `jitml`-managed Tart VM and executes
+host-native, `linux-cpu` oneDNN runs in the `jitml` container, and `linux-cuda`
+runs in the `jitml-cuda` GPU container.
 A lane is selected with `jitml test jitml-backends
 --test-options='-p <substrate>'`. Within-substrate bit-for-bit
 reproducibility is the only equality asserted here.
@@ -166,13 +167,13 @@ available-runtime fail-closed behavior; `jitml-integration` owns the live probe
 attempt through typed subprocesses. The same split covers the Metal runtime
 probe snapshots for Swift, `xcrun`, and `system_profiler` and the guarded
 Metal benchmark-runner preflight checks. On `apple-silicon` the live Metal/Swift
-compile-and-execute path these probes guard runs **headless on the host**: the
-CommandLineTools `swift build` produces the glue dylib and the launcher
-JIT-compiles the Metal shader at runtime via `MTLDevice.makeLibrary(source:)` —
-no Tart VM, no full Xcode. The Apple `jitml-backends` lane runs
-host-native on `apple-silicon` where a Metal device is usable headless; each
-substrate's lane runs its own cases for real with no skipped tests. See
-[../engineering/jit_codegen_architecture.md → Apple Silicon Headless JIT](../engineering/jit_codegen_architecture.md#apple-silicon-headless-jit).
+compile-and-execute path these probes guard **builds in the `jitml`-managed Tart
+VM and executes on the host**: the VM's `swift build` produces the glue dylib,
+the dylib is copied out to the host, and the launcher JIT-compiles the Metal
+shader at load via `MTLDevice.makeLibrary(source:)` on the host GPU. The Apple
+`jitml-backends` lane therefore needs a running build VM plus a visible host Metal
+device; each substrate's lane runs its own cases for real with no skipped tests. See
+[../engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
 Only within-substrate bit-for-bit reproducibility is asserted; there is no
 cross-substrate drift check and no tolerance band. See
 [determinism_contract.md → The Contract](determinism_contract.md#the-contract).

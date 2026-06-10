@@ -266,16 +266,17 @@ Passthrough pre-bound to `./.build/jitml.kubeconfig`.
 Non-doctrine-shaped helpers for substrate materialization and bootstrap
 prerequisite introspection.
 
-### `jitml internal vm` (Apple Silicon) — **removed (Sprint 2.10, 2026-05-30)**
+### `jitml internal vm` (Apple Silicon) — **reinstated (2026-06-10 reopen)**
 
-This command group (`bootstrap|up|down|status|exec`) managed the Tart build VM
-and was **removed** under Phase 2 Sprint `2.10` (see
-[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md → Completed](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md#completed)).
-The headless Apple Metal JIT builds the Swift glue dylib **on the host** with the
-CommandLineTools `swift build` and JIT-compiles the Metal shader at runtime via
-`MTLDevice.makeLibrary(source:)` — there is no Tart VM to provision, start, stop,
-or exec into. See
-[jit_codegen_architecture.md → Apple Silicon Headless JIT](jit_codegen_architecture.md#apple-silicon-headless-jit).
+This command group manages the `jitml`-owned Tart build VM lifecycle
+(`up|down|status|exec` plus create/delete), assigning the VM's CPU/memory/storage
+from the host Dhall config and `brew install`ing Tart if it is absent. All Apple
+Silicon Swift/Metal builds run **inside this VM**; the produced dylib is copied out
+to the host, which executes it on the Metal GPU. The exact subcommand surface is
+finalized by the reopened Phase 1 sprint (see
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)).
+See
+[jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
 
 ### `jitml internal cache`
 
@@ -1446,6 +1447,122 @@ Options:
 Examples:
   jitml internal gc exp123
       Apply retention to an experiment.
+```
+
+### `jitml internal vm create`
+
+```text
+jitml internal vm create
+
+Create the build VM.
+
+Clones the configured base image into the jitml-build Tart VM and assigns its CPU/memory/disk limits. Idempotent: a present VM is left in place.
+
+Usage:
+  jitml internal vm create
+
+
+
+Examples:
+  jitml internal vm create
+      Provision the build VM.
+```
+
+### `jitml internal vm up`
+
+```text
+jitml internal vm up
+
+Start the build VM.
+
+Provisions the VM if missing, then starts it headless with the repository mounted so the in-VM swift build writes the dylib to a host-visible path.
+
+Usage:
+  jitml internal vm up
+
+
+
+Examples:
+  jitml internal vm up
+      Start the build VM.
+```
+
+### `jitml internal vm down`
+
+```text
+jitml internal vm down
+
+Stop the build VM.
+
+Stops the Apple Silicon build VM.
+
+Usage:
+  jitml internal vm down
+
+
+
+Examples:
+  jitml internal vm down
+      Stop the build VM.
+```
+
+### `jitml internal vm status`
+
+```text
+jitml internal vm status
+
+Report build VM status.
+
+Prints the build VM status (missing/stopped/running).
+
+Usage:
+  jitml internal vm status
+
+
+
+Examples:
+  jitml internal vm status
+      Inspect build VM status.
+```
+
+### `jitml internal vm delete`
+
+```text
+jitml internal vm delete
+
+Delete the build VM.
+
+Stops (if running) and deletes the jitml-build Tart VM.
+
+Usage:
+  jitml internal vm delete
+
+
+
+Examples:
+  jitml internal vm delete
+      Delete the build VM.
+```
+
+### `jitml internal vm exec`
+
+```text
+jitml internal vm exec
+
+Run a command in the build VM.
+
+Passes a command through to the Apple Silicon build VM via tart exec.
+
+Usage:
+  jitml internal vm exec -- <cmd...>
+
+Options:
+  -- <cmd...>  Command and arguments to execute.
+
+
+Examples:
+  jitml internal vm exec -- uname -a
+      Run a VM debugging command.
 ```
 
 ### `jitml internal cache stat`

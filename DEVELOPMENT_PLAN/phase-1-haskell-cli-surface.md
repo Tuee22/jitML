@@ -20,6 +20,19 @@
 
 ## Phase Status
 
+✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
+doctrine reversal; **re-closed 2026-06-10** after Sprint `1.14`). `CommandSpec`
+reinstates the `jitml internal vm` command group (build-VM lifecycle:
+create/up/down/status/delete plus exec) that Sprint `2.10` removed; the generated
+CLI mirror was regenerated, `jitml docs check` and `jitml-unit` are green, and the
+`status`/`up`/`down` lifecycle is validated live on Apple M1 (the VM boots
+headless). Phases `2` / `5` reopened in the same batch are likewise re-closed;
+Phases `7` / `14` remain `🔄 Active` because the in-VM `swift build` cannot be
+exercised in this environment (the Tart guest agent is unreachable — see Phase `7`
+Sprint `7.10`). See
+[Sprint 1.14](#sprint-114-reinstate-the-jitml-internal-vm-build-vm-command-surface--done).
+Prior closure history follows.
+
 ✅ **Done** (re-closed 2026-06-09 after Sprint `1.13`). The phase last re-closed
 `✅ Done` 2026-06-04 after Sprint `1.12`; Sprints `1.1`–`1.13` are all `✅ Done`
 on their owned surfaces. Sprint `1.13` reopened the phase as owner of
@@ -992,6 +1005,49 @@ lane. The `jitml verify cross-backend` row in
   `jitml verify cross-backend` owned by Sprint `1.13`; the row moves to
   `Completed` when the leaf is deleted from `CommandSpec` and `jitml docs check`
   is green.
+
+## Sprint 1.14: Reinstate the `jitml internal vm` build-VM command surface [✅ Done]
+
+**Status**: Done (2026-06-10)
+**Implementation**: `src/JitML/CLI/Spec.hs` (`vmCommand`), `src/JitML/App.hs` (`runInternalVmExec`, `runInternalVmLifecycle`)
+**Docs to update**: `documents/engineering/cli_command_surface.md`, `documents/cli/commands.md`, `README.md` (generated command tree/registry)
+
+### Objective
+
+Reinstate the `jitml internal vm` command group that drives the `jitml`-managed
+Tart build VM lifecycle, so the CLI surface matches the Apple Silicon Tart-VM
+build-JIT doctrine (see
+[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)).
+
+### Deliverables
+
+- `CommandSpec` leaf group `internal vm` with `up` / `down` / `status` / `exec`
+  plus `create` / `delete`, rendered into the generated CLI mirror, `--help`,
+  JSON schema, Markdown, manpages, and the README command tree / registry.
+- Leaves dispatch through the typed `Subprocess` boundary to `tart` (the actual
+  lifecycle is owned by Phase `2` Sprint `2.11`; this sprint owns only the surface).
+- Regenerated CLI artifacts via `jitml docs generate`.
+
+### Validation
+
+- `jitml docs check` green (generated CLI mirror matches `CommandSpec`).
+- Container `jitml check-code` green.
+- `jitml-unit` parser snapshots updated and passing.
+
+### Validation State (2026-06-10)
+
+- `CommandSpec` carries the `internal vm` group (`create`/`up`/`down`/`status`/
+  `delete`/`exec`); the generated CLI mirror, README command tree/registry, and
+  `documents/cli/commands.md` were regenerated via `jitml docs generate` and
+  `jitml docs check` passes.
+- `jitml-unit` green (the canonical-leaves registry test includes the six new
+  `internal vm` leaves).
+- Exercised live on Apple M1 / macOS 26: `jitml internal vm status` →
+  `jitml-build stopped`; `jitml internal vm up` boots the VM **headless** (the
+  prior `VZErrorDomain … HostKey` blocker did not recur); `jitml internal vm down`
+  stops it. `internal vm exec`'s live passthrough additionally depends on in-VM
+  reachability (see Phase `7` Sprint `7.10` Remaining Work — the build VM's Tart
+  guest agent is not reachable in this environment).
 
 ## Related Documents
 

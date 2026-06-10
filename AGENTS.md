@@ -56,7 +56,8 @@ aborts up front if the substrate's runtime is absent. `bootstrap/<substrate>.sh
 test` already passes the right flag, so it is the supported one-shot path. (The
 lower-level `--test-options='-p <substrate>'` tasty passthrough still works.)
 
-- **apple-silicon** runs **host-native**: Metal JITs headless on the host, so the
+- **apple-silicon** runs on the **Mac host**: Metal kernels build in the
+  `jitml`-managed Tart VM and execute on the host GPU, so the
   apple-silicon cases plus the six pure-logic stanzas (`jitml-unit`,
   `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`,
   `jitml-daemon-lifecycle`, `jitml-e2e`) run on the Mac:
@@ -73,22 +74,24 @@ lower-level `--test-options='-p <substrate>'` tasty passthrough still works.)
 The 18 `jitml-integration` `-p Live` tests additionally need a running cluster
 (`jitml bootstrap --<substrate>`); without it they fail fast naming the missing
 `cluster-publication.json`. As with code-quality, the only host prerequisite for
-tests is Docker (Apple Silicon is the exception: its host-native Metal lane needs
-only the host).
+tests is Docker (Apple Silicon is the exception: its Metal lane runs on the Mac
+host and additionally needs the `jitml`-managed Tart build VM, which the binary
+provisions — `brew install`ing Tart if absent).
 
 ## Apple Silicon Swift / Metal builds
 
-Full Xcode is **never** installed on the host. Xcode's first-launch and license
-dialogs raise interactive UI prompts that break the headless workflow this
-repository requires, so installing host Xcode is forbidden. Only the Xcode
-**Command Line Tools** (`swiftc`) and the OS Metal framework are used.
+All Apple Silicon Swift/Metal builds run inside a `jitml`-managed **Tart VM**. The
+`jitml` binary owns the VM lifecycle: it `brew install`s Tart if it is absent,
+creates/starts/stops/deletes the build VM, and assigns its CPU/memory/storage from
+the host Dhall config (the limits are Dhall-configurable). The VM is a standard
+macOS image carrying the full Apple toolchain (`swiftc`, Xcode, `metal`).
 
-Apple Silicon Metal kernels are JIT-compiled **headless on the host** — no Tart
-VM. The host builds the small generated Swift glue dylib with the
-CommandLineTools `swift build`, and the generated launcher compiles the embedded
-Metal Shading Language **at runtime, in-process**, via
-`MTLDevice.makeLibrary(source:options:)` (Metal's OS runtime compiler) with
-fast-math off. No offline `metal` / `metallib` CLI compiler (Xcode-only) is ever
-invoked. This runtime-compile path is the only way jitML JITs on Apple Silicon
-and needs neither Xcode nor a VM. Full detail:
-[documents/engineering/jit_codegen_architecture.md](documents/engineering/jit_codegen_architecture.md#apple-silicon-headless-jit).
+Full Xcode is **never** installed on the **host** — the host carries no Swift/Metal
+toolchain at all; that toolchain lives only in the VM. On a JIT cache miss the
+daemon ensures the VM is up, builds the generated Swift glue dylib with the VM's
+`swift build`, and copies `libJitMLMetal.dylib` out of the VM to the host. Execution
+is host-native: the host `dlopen`s the dylib and the generated launcher compiles the
+embedded Metal Shading Language at load, in-process, via
+`MTLDevice.makeLibrary(source:options:)` (the OS Metal runtime compiler) with
+fast-math off, dispatching on the host's Metal GPU. Full detail:
+[documents/engineering/jit_codegen_architecture.md](documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).

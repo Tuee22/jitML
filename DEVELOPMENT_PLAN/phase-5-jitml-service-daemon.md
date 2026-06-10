@@ -24,6 +24,17 @@
 
 ## Phase Status
 
+✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
+doctrine reversal; **re-closed 2026-06-10** after Sprint `5.9`). `LiveConfig`
+carries the Dhall-configurable build-VM block (CPU / memory / storage / idle
+timeout) and the daemon's `runService` acquire (`ensureHostBuildVm`) ensures the
+Tart build VM is up on `AppleSilicon` + `SelfInference` using those resources. The
+ensure-up path is validated live on Apple M1 (headless boot). A full live
+build-through-VM at acquire is gated by the Phase `7` Sprint `7.10` guest-agent
+blocker. See
+[Sprint 5.9](#sprint-59-reinstate-the-dhall-configured-build-vm-block-and-daemon-acquire--done).
+Prior closure history follows.
+
 ✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
 **re-closed the same day** after Sprint `5.8` removed `LiveConfig.tartIdleTimeout`
 and the Tart spin-up from the daemon `acquire` lifecycle — the Apple Metal build
@@ -943,6 +954,48 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
 - `system-components.md → jitml service Daemon Surface` rows remain aligned
   with the implemented boot/live config, lifecycle, endpoint, logger,
   consumer, and retry surfaces.
+
+## Sprint 5.9: Reinstate the Dhall-configured build-VM block and daemon acquire [✅ Done]
+
+**Status**: Done (2026-06-10)
+**Implementation**: `src/JitML/Service/LiveConfig.hs` (build-VM block + render), `dhall/service/LiveConfig.dhall` (schema), `src/JitML/App.hs` (`ensureHostBuildVm` at `runService` acquire)
+**Docs to update**: `documents/engineering/daemon_architecture.md`, `documents/engineering/determinism_contract.md`, `system-components.md`
+
+### Objective
+
+Give the daemon a Dhall-configurable build-VM block and make the `acquire`
+lifecycle ensure the Tart build VM is up before the first Apple Silicon JIT build,
+per the Apple Silicon Tart-VM build-JIT doctrine (see
+[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)).
+
+### Deliverables
+
+- `LiveConfig` build-VM block with Dhall-configurable CPU / memory / storage and an
+  idle timeout, surfaced in the host Dhall config.
+- `acquire` ensures the VM is up on Apple Silicon (idempotent; cache hits need no
+  VM); idle timeout tears the VM down.
+
+### Validation
+
+- Host Dhall round-trips the build-VM block; `jitml-unit` config tests pass.
+- `jitml-daemon-lifecycle` exercises VM-up-on-acquire on an Apple host.
+- Container `jitml check-code` green.
+
+### Validation State (2026-06-10)
+
+- `LiveConfig` carries the build-VM block (`buildVmCpu` / `buildVmMemoryMib` /
+  `buildVmDiskGib` / `buildVmIdleTimeout`); the Haskell record, defaults, Dhall
+  schema (`dhall/service/LiveConfig.dhall`), and renderer are in sync, and
+  `jitml-unit` / `jitml docs check` are green.
+- `ensureHostBuildVm` runs at `runService` acquire: on `AppleSilicon` +
+  `SelfInference` it builds a `BuildVmConfig` from the LiveConfig resources + cwd
+  and calls `TartLifecycle.ensureBuildVmUp` (non-fatal). The ensure-up path is the
+  same one validated live on Apple M1 (headless boot succeeds).
+
+### Remaining Work
+
+- A full live host-daemon acquire that ends in an in-VM build is gated by the same
+  guest-agent reachability blocker tracked under Phase `7` Sprint `7.10`.
 
 ## Related Documents
 

@@ -26,6 +26,17 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
+doctrine reversal). The live apple-silicon lane previously validated the headless
+host `swift build`; it must be **re-validated through the Tart-VM-built path**
+(build in the `jitml`-managed VM, copy the dylib out, execute on the host GPU)
+once Phases `1` / `2` / `5` / `7` land their code. Sprint `14.7` owns this
+re-validation; its `### Remaining Work` enumerates the unmet obligations. Because
+this closure phase reopens, the Phase `15` final handoff (Exit-Definition item 18,
+empty legacy ledger) reopens with it. See
+[Sprint 14.7](#sprint-147-re-validate-the-apple-silicon-lane-through-the-tart-vm-built-path--active).
+Prior closure history follows.
+
 ✅ **Done** (re-closed 2026-06-09 after Sprint 14.6). The reproducibility
 contract is now "within a substrate: bit-for-bit reproducible; across
 substrates: NO guarantee"; the cross-substrate numeric parity surface is
@@ -645,6 +656,52 @@ nvcc compile is invoked in the apple-silicon lane. The pure-logic
 - `system-components.md → Substrates` row for `apple-silicon` updates
   from "Active, missing live FFI + RPC" to closure once Sprints `14.2`
   and `14.4` close.
+
+## Sprint 14.7: Re-validate the apple-silicon lane through the Tart-VM-built path [🔄 Active]
+
+**Status**: Active
+**Implementation**: `test/backends/Main.hs`, live apple-silicon lane
+**Blocked by**: Phase `1` Sprint `1.14`, Phase `2` Sprint `2.11`, Phase `5` Sprint `5.9`, Phase `7` Sprint `7.10`
+**Docs to update**: `documents/engineering/unit_testing_policy.md`, `documents/engineering/jit_codegen_architecture.md`
+
+### Objective
+
+Re-validate the live apple-silicon `jitml-backends` lane end-to-end through the
+Tart-VM-built path — build in the `jitml`-managed VM, copy the dylib out, execute
+on the host GPU — on real Apple hardware, per the Apple Silicon Tart-VM build-JIT
+doctrine (see
+[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)).
+
+### Deliverables
+
+- The four within-substrate Metal cases (identity bit-equality, weighted Dense2D
+  determinism, live benchmark candidate runner) pass for real through the VM-built
+  dylib with no skip sentinels.
+- The stale "build runs inside the `jitml-build` Tart VM" comment in
+  `test/backends/Main.hs` is corrected to the build-in-VM / execute-on-host story.
+
+### Validation
+
+- `jitml test jitml-backends --apple-silicon` (or
+  `--test-options='-p apple-silicon'`) runs the VM build + host execution and
+  passes; `jitml-unit` passes host-native.
+- Container `jitml check-code` green.
+
+### Validation State (2026-06-10)
+
+- The stale "build runs inside the `jitml-build` Tart VM … logs a skip" comment in
+  `test/backends/Main.hs` is corrected to the build-in-VM / copy-out /
+  execute-on-host story with no skip (Sprint 14.6 removed the guards).
+- Phases `1` / `2` / `5` code landed and validated; the VM boots headless on Apple
+  M1.
+
+### Remaining Work (live obligation — BLOCKED in this environment)
+
+- The live apple-silicon `jitml-backends` lane through the VM-built path is **not
+  yet exercised**: it depends on driving `swift build` inside the build VM, which
+  is blocked by the Tart guest-agent reachability issue tracked under Phase `7`
+  Sprint `7.10`. Once an exec-reachable VM image is available, run
+  `jitml test jitml-backends --apple-silicon` to close this sprint.
 
 ## Related Documents
 

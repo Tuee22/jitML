@@ -371,13 +371,13 @@ Sprint `2.1` owns and has closed the stage-0 bootstrap scripts under
   and Homebrew; then it builds `./.build/jitml` and calls
   `./.build/jitml bootstrap --apple-silicon`. The delegated bootstrap still
   builds `jitml:local` for the in-cluster daemon, so Apple Silicon receives the
-  same container-exclusive Haskell style gate as Linux. Only the Xcode Command
-  Line Tools are required on the host; full Xcode is **never** installed,
-  because its first-launch/license UI prompts break the headless bootstrap.
-  Apple Silicon Metal kernels build **on the host** with the CommandLineTools
-  `swift build` and JIT-compile at runtime via `MTLDevice.makeLibrary(source:)`
-  — no Tart VM. See
-  [jit_codegen_architecture.md → Apple Silicon Headless JIT](jit_codegen_architecture.md#apple-silicon-headless-jit).
+  same container-exclusive Haskell style gate as Linux. Full Xcode is **never**
+  installed on the host; the host carries no Swift/Metal toolchain. Apple Silicon
+  Metal kernels build **inside the `jitml`-managed Tart VM** (which bootstrap
+  provisions and maintains, `brew install`ing Tart if absent), and the dylib is
+  copied out to the host, which JIT-compiles the shader at load via
+  `MTLDevice.makeLibrary(source:)` and dispatches on its Metal GPU. See
+  [jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
 - `linux-cpu.sh` verifies Docker is usable without `sudo`; then it calls
   `docker compose run --rm jitml jitml bootstrap --linux-cpu`.
 - `linux-cuda.sh` adds NVIDIA container-runtime and `nvidia-smi` compute

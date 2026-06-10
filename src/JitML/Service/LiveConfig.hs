@@ -29,6 +29,13 @@ data LiveConfig = LiveConfig
   , liveDedupCacheSize :: Int
   , liveDedupCacheTtlSeconds :: Int
   , liveDrainDeadlineSeconds :: Int
+  , -- | Sprint 5.9 — resources the Apple Silicon daemon assigns to the
+    -- jitml-managed Tart build VM, and how long it may sit idle before being
+    -- stopped. Ignored on non-Apple substrates (no build VM).
+    liveBuildVmCpuCount :: Int
+  , liveBuildVmMemoryMib :: Int
+  , liveBuildVmDiskGib :: Int
+  , liveBuildVmIdleTimeoutSeconds :: Maybe Int
   }
   deriving stock (Eq, Show)
 
@@ -42,6 +49,10 @@ defaultLiveConfig =
     , liveDedupCacheSize = 4096
     , liveDedupCacheTtlSeconds = 3600
     , liveDrainDeadlineSeconds = 30
+    , liveBuildVmCpuCount = 4
+    , liveBuildVmMemoryMib = 8192
+    , liveBuildVmDiskGib = 50
+    , liveBuildVmIdleTimeoutSeconds = Just 1800
     }
 
 renderLiveConfigDhall :: LiveConfig -> Text
@@ -54,8 +65,16 @@ renderLiveConfigDhall config =
     , ", dedupCacheSize = " <> Text.pack (show (liveDedupCacheSize config))
     , ", dedupCacheTtlSeconds = " <> Text.pack (show (liveDedupCacheTtlSeconds config))
     , ", drainDeadlineSeconds = " <> Text.pack (show (liveDrainDeadlineSeconds config))
+    , ", buildVmCpu = " <> Text.pack (show (liveBuildVmCpuCount config))
+    , ", buildVmMemoryMib = " <> Text.pack (show (liveBuildVmMemoryMib config))
+    , ", buildVmDiskGib = " <> Text.pack (show (liveBuildVmDiskGib config))
+    , ", buildVmIdleTimeout = " <> renderOptionalNatural (liveBuildVmIdleTimeoutSeconds config)
     , "}"
     ]
+
+renderOptionalNatural :: Maybe Int -> Text
+renderOptionalNatural Nothing = "None Natural"
+renderOptionalNatural (Just value) = "Some " <> Text.pack (show value)
 
 renderLogLevel :: LogLevel -> Text
 renderLogLevel Debug = "Debug"

@@ -164,10 +164,10 @@ the Tart VM that cannot run headless) and are now **re-closed `✅ Done`** — t
 sprints all landed and validated: `7.8` (runtime-`makeLibrary` codegen + host
 `swift build`), `2.10` (retire `container.tart` / `jitml internal vm` / the Tart
 modules), and `5.8` (remove `LiveConfig.tartIdleTimeout`), with the `jitml:local`
-image `check-code` gate and the unit / daemon-lifecycle suites green. Where the
-historical narrative below describes the Apple build as Tart-VM-based, the
-authoritative current status is the headless path (host `swift build` + runtime
-`makeLibrary`, no Tart, no full Xcode).
+image `check-code` gate and the unit / daemon-lifecycle suites green. **Superseded
+by the 2026-06-10 reopen below**: the Apple build is once again Tart-VM-based — the
+`jitml`-managed Tart VM runs `swift build` and the dylib is copied out to the host
+for Metal execution — so this headless-host-build status is no longer authoritative.
 
 **Refactor note (2026-05-24)**: The plan now batches every live-runtime
 obligation by machine-affinity into Phases `13` (Linux/CUDA + Kind
@@ -208,7 +208,44 @@ the repo-owned `KeyDoorGrid-v0` environment. Phase `9` reopened for Sprint
 moved into the owning phase docs before the superseded development ledger was
 deleted by Sprint `1.11`.
 
-**All Phases `0`–`15` are now `✅ Done`.** Phases `1`, `12`, `13`, `14`, and `15`
+**Reopen note (2026-06-10): Apple Silicon Tart-VM build-JIT doctrine reversal.**
+Phases `1`, `2`, `5`, `7`, and `14` are reopened `🔄 Active`: all Apple Silicon
+Swift/Metal builds now run inside a `jitml`-managed Tart VM (build in the VM, copy
+the dylib out to the host, execute on the host Metal GPU), reversing the 2026-05-30
+headless-host-build doctrine. Owning sprints: `1.14` (reinstate the `jitml internal
+vm` command surface), `2.11` (reinstate the `container.tart` prerequisite + VM
+lifecycle), `5.9` (Dhall-configured build-VM block + daemon `acquire`), `7.10`
+(route `swift build` through the VM + copy the dylib out), and `14.7` (re-validate
+the apple-silicon lane through the VM-built path). All other phases stay `✅ Done`
+on their owned surfaces. Because Phase `14` (Apple Silicon closure) reopens, the
+**Phase `15` final handoff reopens** with it: Exit-Definition item 18 (empty legacy
+ledger) is no longer met, since the now-legacy headless-host build surface is
+enqueued in
+[legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
+The handoff stays incomplete until the reopened sprints land and those rows move to
+`Completed`. See the authoritative doctrine in
+[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
+
+**Progress (2026-06-10).** All five sprints' code has landed and the code-surface
+obligations are validated (clean host build, `jitml docs check`, `jitml-unit`
+including the canonical-leaves registry, the `container.tart` closure flip, and the
+relaxed Metal-probe regression). Phases `1` (Sprint `1.14`), `2` (Sprint `2.11`),
+and `5` (Sprint `5.9`) are **re-closed `✅ Done`**: the `jitml internal vm` command
+surface, the `container.tart` prerequisite + `JitML.Tart.Lifecycle`, and the
+LiveConfig build-VM block + daemon-acquire ensure are in place, and the VM
+lifecycle (`status`/`up`/`down`) is validated live on Apple M1 — the `jitml-build`
+Tart VM **boots headless with no `VZErrorDomain … HostKey` error** (the blocker
+that originally retired Tart did not recur). Phases `7` (Sprint `7.10`) and `14`
+(Sprint `14.7`) stay **`🔄 Active`**: their code (in-VM `swift build` routing,
+copy-out, fingerprint, probe relaxation, test-comment fix) has landed and is
+unit-validated, but the **live** JIT-build-through-VM cannot be exercised in this
+environment — the `macos-sequoia-xcode:16` image's Tart guest agent is unreachable
+(`tart exec` control-socket GRPC error) and the VM exposes no IP for an SSH
+fallback, so `swift build` cannot be driven inside the VM here. Closing `7.10` /
+`14.7` (and so the Phase `15` handoff) needs an exec-reachable build-VM image.
+
+**Prior status (superseded by the 2026-06-10 reopen above):** all Phases `0`–`15`
+were `✅ Done`. Phases `1`, `12`, `13`, `14`, and `15`
 reopened `🔄 Active` on 2026-06-08 to remove the cross-substrate numeric parity
 surface after the reproducibility contract was clarified to within-substrate
 bit-for-bit only (see the 2026-06-08/09 reopen note above). On 2026-06-09 the
@@ -221,7 +258,8 @@ the NVIDIA GeForce RTX 5090 host on 2026-06-09
 (`docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
 --test-options='-p linux-cuda'` → 19 / 19, no skip-sentinels), re-closing Phases
 `12` (Sprint `12.10`), `13` (Sprint `13.16`), and `15` (Sprint `15.4`); the
-deletion ledger is now empty and final handoff is complete. Phase
+deletion ledger was empty and final handoff was complete as of 2026-06-09 — both
+reopened by the 2026-06-10 Tart-VM doctrine reversal noted above. Phase
 `13` (all 15 sprints) and Phase `15`
 Sprints `15.1`/`15.2` previously reopened 2026-06-06 and re-closed the same day after
 re-validation of the live CUDA and final-test-suite obligations on the current

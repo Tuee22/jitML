@@ -20,6 +20,19 @@
 
 ## Phase Status
 
+✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
+doctrine reversal; **re-closed 2026-06-10** after Sprint `2.11`). The
+`container.tart` prerequisite node and the `jitml`-managed Tart build-VM lifecycle
+(`JitML.Tart.Lifecycle`) are reinstated, the `container.apple-silicon.jit-cache-miss`
+node depends on `container.tart` again, and `bootstrap purge` deletes the VM. The
+lifecycle is validated live on Apple M1 (headless boot, status, stop); the
+prerequisite closure is unit-tested. The Apple cache-miss build *using* the VM is
+Phase `7` Sprint `7.10` (still `🔄 Active` — see its Remaining Work for the
+guest-agent reachability blocker). See
+[Sprint 2.11](#sprint-211-reinstate-the-tart-build-vm-prerequisite-and-lifecycle--done)
+and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). Prior
+closure history follows.
+
 ✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
 **re-closed the same day** after Sprint `2.10` removed the `container.tart`
 prerequisite node, the `jitml internal vm` command group, and the
@@ -736,6 +749,56 @@ from [../README.md](../README.md).
 - `system-components.md → Cluster Substrate Components` carries the
   `dhall/cluster/` profile and kind-node-cap rows; `legacy-tracking-for-deletion.md`
   carries the Sprint `2.9` embedded-`sh -c` removal row.
+
+## Sprint 2.11: Reinstate the Tart build-VM prerequisite and lifecycle [✅ Done]
+
+**Status**: Done (2026-06-10)
+**Implementation**: `src/JitML/Tart/Lifecycle.hs`, `src/JitML/Tart/Exec.hs`, `src/JitML/Prerequisite/Nodes/Container.hs`, `bootstrap/_lib.sh` (`purge` deletes the VM)
+**Docs to update**: `documents/engineering/cluster_topology.md`, `documents/engineering/haskell_code_guide.md`, `system-components.md`
+
+### Objective
+
+Reinstate the `container.tart` prerequisite node and the `jitml`-owned Tart
+build-VM lifecycle (create / start / stop / delete; `brew install` Tart if absent)
+so the Apple Silicon JIT cache miss can build inside the VM, per the Apple Silicon
+Tart-VM build-JIT doctrine (see
+[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)).
+
+### Deliverables
+
+- `container.tart` typed Homebrew package prerequisite (via
+  `homebrewPackagePrerequisite`), with `container.apple-silicon.jit-cache-miss`
+  re-pointed to depend on it.
+- VM lifecycle helpers (create with Dhall-configured CPU/memory/storage, start,
+  stop, delete) over the typed `Subprocess` boundary; bootstrap provisions the VM
+  and `purge` deletes it (replacing the delete-only `tart delete jitml-build`
+  residue in `bootstrap/_lib.sh`).
+
+### Validation
+
+- `jitml doctor --scope toolchain` reports the `container.tart` node on an Apple host.
+- An Apple cache miss provisions/uses the VM and the prerequisite closure includes
+  `container.tart`.
+- Container `jitml check-code` and `jitml-unit` (prerequisite-closure tests) green.
+
+### Validation State (2026-06-10)
+
+- `container.tart` is back in the registry and the
+  `container.apple-silicon.jit-cache-miss` closure depends on it (verified by the
+  `jitml-unit` prerequisite-closure test, now flipped to require `container.tart`).
+- `JitML.Tart.Lifecycle` reinstates the VM lifecycle (clone + `tart set`
+  CPU/memory/disk, run headless with the repo mounted via `--dir`, stop, delete,
+  status). Exercised live on Apple M1 / macOS 26: provision/`up` boots the
+  `jitml-build` VM **headless** (no `HostKey` error), `status` and `down` work.
+- `bootstrap/_lib.sh` `purge` deletes the VM (full create lifecycle now lives in
+  the daemon acquire / `jitml internal vm`).
+
+### Remaining Work
+
+- The Apple cache-miss build *using* the VM is owned by Phase `7` Sprint `7.10`;
+  its live exercise is blocked in this environment because the Tart guest agent in
+  the `macos-sequoia-xcode:16` image is unreachable (`tart exec` control-socket
+  GRPC error; no VM IP for an SSH fallback).
 
 ## Related Documents
 

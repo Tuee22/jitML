@@ -21,6 +21,17 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
+doctrine reversal). `JitML.Engines.Engine.compileSubprocess` must route the Apple
+Silicon `swift build` **into the `jitml`-managed Tart VM**, and
+`JitML.Engines.Loader.publishAppleArtifact` must copy `libJitMLMetal.dylib` **out
+of the VM** instead of reading it from a host build directory; the
+`metalToolchainFingerprint` becomes VM-toolchain-based. Sprint `7.10` owns this
+surface; its `### Remaining Work` enumerates the unmet obligations. Reopened in the
+same batch with Phases `1` / `2` / `5` / `14`. See
+[Sprint 7.10](#sprint-710-route-the-apple-swift-build-through-the-tart-vm--active).
+Prior closure history follows.
+
 **Re-validation note (2026-06-06)**: this phase stays ✅ **Done** on its owned
 code-surface obligations (the per-substrate source renderers, cache, typed
 Subprocess plans, runtime probes), which are unchanged. The historical
@@ -1062,6 +1073,58 @@ companion for direct CUDA tests.
 - `system-components.md → JIT Codegen Components` and `Substrates` rows
   remain aligned with `src/JitML/Engines/Engine.hs`, the Haskell runtime source
   generator target, and the static-codegen cleanup ledger.
+
+## Sprint 7.10: Route the Apple `swift build` through the Tart VM [🔄 Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/Engines/Engine.hs` (`compileSubprocess`), `src/JitML/Engines/Loader.hs` (`publishAppleArtifact`), `src/JitML/Engines/MetalLocal.hs` (`metalToolchainFingerprint`), `src/JitML/Engines/MetalRuntime.hs`
+**Blocked by**: Phase `2` Sprint `2.11` (VM lifecycle), Phase `5` Sprint `5.9` (VM-up-on-acquire)
+**Docs to update**: `documents/engineering/jit_codegen_architecture.md`, `documents/engineering/determinism_contract.md`
+
+### Objective
+
+Build the Apple Silicon Swift glue dylib **inside the Tart VM** and copy the
+artifact out to the host, per the Apple Silicon Tart-VM build-JIT doctrine (see
+[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)).
+Execution stays host-native via `MTLDevice.makeLibrary(source:)`.
+
+### Deliverables
+
+- `compileSubprocess` for `AppleSilicon` dispatches `swift build` into the VM
+  through the typed `Subprocess` boundary.
+- `publishAppleArtifact` copies `libJitMLMetal.dylib` out of the VM into the
+  content-addressed cache (atomic `tmp + rename`), repoints the stable FFI symlink.
+- `metalToolchainFingerprint` keys on the VM image id + the VM `swiftc`/Metal
+  toolchain version; `metalRuntimeAvailable` no longer requires a host
+  `swiftc`/`metal` toolchain — only a visible host Metal device gates execution.
+
+### Validation
+
+- A forced Apple cache miss builds in the VM and produces a working host dylib;
+  three runs of the identity + weighted Dense2D kernels are bit-equal.
+- Container `jitml check-code` and `jitml-unit` Metal-probe snapshots green.
+
+### Validation State (2026-06-10)
+
+- Code landed and validated: `compileSubprocess` dispatches `swift build` into the
+  VM via `tartExecSubprocess` against the shared-mount package path
+  (`guestSourcePath`); `Loader.ensureKernelArtifact` ensures the build VM is up
+  (`ensureBuildVmForSubstrate`) before the build and `publishAppleArtifact` copies
+  the dylib out of the VM's `.build/release/`; `metalToolchainFingerprint` keys on
+  `metal-build-vm-runtime-makelibrary`; `metalRuntimeAvailable` is relaxed to a
+  visible-device-only gate (no host `swiftc`/`metal`). Host build clean,
+  `jitml docs check` and `jitml-unit` green (including a new Metal-probe
+  regression: device-visible + no host toolchain ⇒ available).
+
+### Remaining Work (live obligation — BLOCKED in this environment)
+
+- The live JIT-build-through-VM (forced Apple cache miss → in-VM `swift build` →
+  copy-out → host execute, three-run bit-equality) is **not yet exercised**: the
+  `jitml-build` Tart VM boots headless, but its **Tart guest agent is unreachable**
+  in the `macos-sequoia-xcode:16` image (`tart exec` → control-socket GRPC error)
+  and the VM exposes no IP for an SSH fallback, so `swift build` cannot be driven
+  inside the VM here. Closing this needs a VM image whose guest agent (or SSH/IP)
+  is reachable — then the lane runs as in `### Validation`.
 
 ## Related Documents
 

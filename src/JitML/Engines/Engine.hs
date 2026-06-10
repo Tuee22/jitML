@@ -30,6 +30,8 @@ import JitML.Codegen.RuntimeSource
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Tart.Exec (tartExecSubprocess)
+import JitML.Tart.Lifecycle (defaultBuildVmName, guestSourcePath)
 
 data Engine = Engine
   { engineSubstrate :: Substrate
@@ -149,12 +151,21 @@ compileSubprocess :: Engine -> RuntimeSource -> Cache.Hash -> Subprocess
 compileSubprocess engine source hash =
   case engineSubstrate engine of
     AppleSilicon ->
-      -- Sprint 7.8 — build the generated Swift glue dylib on the host with the
-      -- CommandLineTools `swift build` (no Tart VM); the embedded MSL is
-      -- JIT-compiled at runtime via `MTLDevice.makeLibrary(source:)`.
-      subprocess
-        "swift"
-        ["build", "--package-path", sourceDir, "-c", "release"]
+      -- Sprint 7.10 — build the generated Swift glue dylib inside the
+      -- jitml-managed Tart VM (the host carries no Swift/Metal toolchain). The
+      -- repository is mounted into the VM, so the in-VM `swift build` writes
+      -- `libJitMLMetal.dylib` to a host-visible path that
+      -- `JitML.Engines.Loader.publishAppleArtifact` copies out; the embedded MSL
+      -- is then JIT-compiled at load on the host via `MTLDevice.makeLibrary(source:)`.
+      tartExecSubprocess
+        defaultBuildVmName
+        [ "swift"
+        , "build"
+        , "--package-path"
+        , Text.pack (guestSourcePath (Text.unpack sourceDir))
+        , "-c"
+        , "release"
+        ]
     LinuxCPU ->
       subprocess
         "g++"

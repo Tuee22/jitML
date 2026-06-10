@@ -26,8 +26,9 @@ containerPrerequisites =
       ]
   , purePrerequisite
       (NodeId "container.apple-silicon.jit-cache-miss")
-      "Apple Silicon first JIT cache miss prerequisite root (host swift build)."
+      "Apple Silicon first JIT cache miss prerequisite root (Tart-VM swift build)."
       [ NodeId "container.colima"
+      , NodeId "container.tart"
       ]
   , commandPrerequisite
       (NodeId "container.docker")
@@ -40,5 +41,11 @@ containerPrerequisites =
       "Colima is installed for Apple Silicon bootstrap."
       "colima"
       "colima"
+      []
+  , homebrewPackagePrerequisite
+      (NodeId "container.tart")
+      "Tart is installed for the Apple Silicon Metal build VM."
+      "tart"
+      "cirruslabs/cli/tart"
       []
   ]

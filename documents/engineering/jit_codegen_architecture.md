@@ -8,10 +8,10 @@
 > **Purpose**: Project-specific JIT codegen architecture for jitML — the
 > content-addressed cache, the per-substrate compilers (Metal, oneDNN,
 > CUDA), the typed engine handle/envelope surface, the FFI boundary, the
-> headless Apple Silicon Metal JIT (host CommandLineTools `swift build` of the
-> Swift glue dylib + runtime `MTLDevice.makeLibrary(source:)` shader
-> compilation, no Tart VM and no full Xcode), and the hardware auto-tuning
-> surface.
+> Apple Silicon Tart-VM build JIT (the `jitml`-managed Tart build VM compiles the
+> Swift glue dylib, the artifact is copied out to the host, and the host executes
+> it on the Metal GPU via runtime `MTLDevice.makeLibrary(source:)` shader
+> compilation), and the hardware auto-tuning surface.
 
 ## Cache Layout
 
@@ -310,13 +310,14 @@ reproducibility witness surface; see
   `jitml_weighted_kernel` plus the `jitml_kernel_family_name` /
   `jitml_kernel_output_count` metadata (`@_cdecl`). The reduction metadata
   reports `ceil(n / 32)` outputs, matching the `simd_sum` simdgroup partials.
-- The build runs **on the host** through `swift build --package-path <dir> -c
-  release` using the Xcode CommandLineTools `swiftc` (no full Xcode, no Tart VM);
-  `JitML.Engines.Engine.compileSubprocess` renders it as a typed `Subprocess`.
-  `JitML.Engines.Loader.ensureKernelArtifact` runs it on the first cache miss,
-  copies the produced `libJitMLMetal.dylib` to
-  `./.build/jit/apple-silicon/<hash>.dylib`, and repoints the stable-FFI symlink
-  at `./.build/host/apple-silicon/<model-id>.dylib`.
+- The build runs **inside the `jitml`-managed Tart VM** through `swift build
+  --package-path <dir> -c release` using the VM's bundled Apple toolchain;
+  `JitML.Engines.Engine.compileSubprocess` renders it as a typed `Subprocess`
+  dispatched into the VM. `JitML.Engines.Loader.ensureKernelArtifact` runs it on
+  the first cache miss, copies the produced `libJitMLMetal.dylib` **out of the VM**
+  to `./.build/jit/apple-silicon/<hash>.dylib`, and repoints the stable-FFI
+  symlink at `./.build/host/apple-silicon/<model-id>.dylib`. The host carries no
+  Swift/Metal toolchain — only the VM does.
 - `src/JitML/Engines/MetalLocal.hs` `dlopen`s the cached `.dylib`, resolves the
   C ABI, and marshals input / output / weight buffers across the FFI to the
   generated `MTLDevice` launcher (single `MTLCommandQueue`, FIFO order,
@@ -326,36 +327,43 @@ reproducibility witness surface; see
   `JitML.Codegen.Cuda.weightedFamilyImpl`. `JitML.Engines.HasEngine` dispatches
   `apple-silicon` through `LocalAppleSiliconEngine` when the host Metal device
   is visible.
-- `src/JitML/Engines/MetalRuntime.hs` probes `swift --version` and Metal device
-  visibility (`system_profiler SPDisplaysDataType`); device visibility gates
-  host execution. The `xcrun -find metal` probe is informational only — the
-  offline `metal` compiler is never invoked by the runtime-compile path.
+- `src/JitML/Engines/MetalRuntime.hs` probes host Metal device visibility
+  (`system_profiler SPDisplaysDataType`); device visibility gates host execution.
+  Because the Swift/Metal build now lives in the Tart VM, the host probe no longer
+  requires a host `swiftc`/`metal` toolchain — a visible Metal device is the only
+  host gate.
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
-- The runtime-compile codegen + host build is the work of the reopened Phase `7`
-  Sprint `7.8`; the FFI runner, `HasEngine` dispatch, per-family weighted bodies,
-  benchmark candidate runner, and daemon dispatch are landed and host-compile
-  clean. Live headless validation is the remaining Phase `14` gate.
+- Routing the `swift build` through the Tart VM and copying the dylib out is the
+  work of the reopened Phase `7` sprint (with the `container.tart` prerequisite +
+  VM lifecycle from the reopened Phase `2` sprint and the Dhall-configured VM
+  limits from the reopened Phase `5` sprint). The FFI runner, `HasEngine`
+  dispatch, per-family weighted bodies, benchmark candidate runner, and daemon
+  dispatch are landed; re-validating the live apple-silicon lane through the
+  VM-built path is the reopened Phase `14` gate.
 
-## Apple Silicon Headless JIT
+## Apple Silicon Tart-VM Build JIT
 
-The Apple Silicon Metal JIT is **fully headless**: it needs no Tart VM and no
-full Xcode. The host builds the small Swift glue dylib with the CommandLineTools
-`swift build`, and the generated launcher compiles the embedded Metal shader at
-runtime, in-process, via `MTLDevice.makeLibrary(source:options:)` (Metal's OS
-runtime compiler) with fast-math off. Full Xcode is **never** installed on the
-host — its first-launch/license UI breaks the headless workflow — and the
-offline `metal` / `metallib` CLI compiler (Xcode-only) is never invoked. Only
-the CommandLineTools `swiftc` and the OS Metal framework are used. This is the
-only JIT path jitML uses on Apple Silicon.
+All Apple Silicon Swift/Metal builds run inside a `jitml`-managed **Tart VM**. The
+`jitml` binary owns the VM lifecycle: it `brew install`s Tart if it is not present,
+creates/starts/stops/deletes the build VM, and assigns the VM's CPU/memory/storage
+from the host Dhall config. The VM is a standard macOS image that carries the full
+Apple toolchain (`swiftc`, Xcode, `metal`); the **host carries no Swift/Metal
+toolchain** and full Xcode is still never installed on the host — the toolchain
+lives only in the VM.
 
-On a JIT cache miss the host daemon runs the host `swift build` through the
-typed `Subprocess` boundary, writes the artifact into
-`./.build/jit/apple-silicon/<hash>.dylib` atomically (`tmp + rename`), repoints
-the stable-named symlink under `./.build/host/apple-silicon/`, and `dlopen`s it
-through the Metal FFI runner. Subsequent cache hits skip the build entirely.
-There is no VM lifecycle, idle timeout, or `jitml internal vm` command involved;
-those were retired in the 2026-05-30 reopen of Phases `7` / `2` / `5` (see
+On a JIT cache miss the daemon ensures the build VM is up, then runs `swift build`
+**inside the VM** through the typed `Subprocess` boundary, copies the produced
+`libJitMLMetal.dylib` **out of the VM** into
+`./.build/jit/apple-silicon/<hash>.dylib` atomically (`tmp + rename`), repoints the
+stable-named symlink under `./.build/host/apple-silicon/`, and `dlopen`s it through
+the Metal FFI runner. Execution is **host-native**: the generated launcher compiles
+the embedded Metal Shading Language at load via `MTLDevice.makeLibrary(source:options:)`
+(the OS Metal runtime compiler) with fast-math off and dispatches on the host's
+Metal GPU. Subsequent cache hits skip the VM build entirely.
+
+The VM lifecycle, its Dhall-configured limits, and the `jitml internal vm` command
+group are owned by the reopened Phases `1` / `2` / `5` / `7` / `14` (2026-06-10; see
 [../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)).
 
 ## Cache Survives Purge

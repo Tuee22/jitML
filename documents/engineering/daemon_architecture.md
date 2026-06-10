@@ -53,7 +53,7 @@ load → prereq → acquire → ready → serve → drain → exit
 |-------|-----------|
 | `load` | Read `BootConfig` Dhall; resolve and SHA-hash; resolve `LiveConfig`. |
 | `prereq` | Reconcile the prerequisite DAG via `reconcilePrerequisites`. |
-| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer. On Apple Silicon the host JIT builds the Metal dylib with the CommandLineTools `swift build` on the first cache miss (no Tart VM); cache hits need no build. |
+| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer. On Apple Silicon the first cache miss ensures the `jitml`-managed Tart build VM is up, builds the Metal dylib in the VM, and copies it out to the host; cache hits need no build. |
 | `ready` | `/readyz` flips to `200`. |
 | `serve` | Process commands at-least-once until SIGTERM / SIGINT / SIGHUP-to-restart-required-field. |
 | `drain` | Stop accepting new commands; finish in-flight; flush TensorBoard shards; final checkpoint flush. |
@@ -480,20 +480,20 @@ deployment surfaces, local HTTP endpoint server, BootConfig-derived client
 settings, and BootConfig-derived daemon subscription plan; live host daemon
 startup and service-loop Pulsar/MinIO flow remain target runtime validation.
 
-The Apple Silicon Metal JIT is fully headless — no Tart VM and no full Xcode.
-Full Xcode is **never** installed on the host (its first-launch/license UI breaks
-the headless workflow); only the CommandLineTools `swiftc` and the OS Metal
-framework are used. See
-[jit_codegen_architecture.md → Apple Silicon Headless JIT](jit_codegen_architecture.md#apple-silicon-headless-jit).
+The Apple Silicon Metal build runs inside the `jitml`-managed Tart VM (which
+carries the full Apple toolchain); full Xcode is **never** installed on the host —
+the host carries no Swift/Metal toolchain at all. See
+[jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
 
-On a JIT cache miss the host daemon builds the generated Swift glue dylib with a
-host `swift build --package-path <dir> -c release` through the typed `Subprocess`
-boundary, publishes `libJitMLMetal.dylib` into the content-addressed Apple cache,
+On a JIT cache miss the host daemon ensures the build VM is up, builds the
+generated Swift glue dylib with a `swift build --package-path <dir> -c release`
+**inside the VM** through the typed `Subprocess` boundary, copies
+`libJitMLMetal.dylib` out of the VM into the content-addressed Apple cache,
 repoints the stable host FFI symlink, and `dlopen`s it; the generated launcher
-JIT-compiles the embedded Metal shader at runtime via
-`MTLDevice.makeLibrary(source:)` with fast-math off. Subsequent cache hits skip
-the build. The prior Tart VM lifecycle and `jitml internal vm` commands are
-retired (2026-05-30 reopen of Phases `7` / `2` / `5`; see
+JIT-compiles the embedded Metal shader at load via `MTLDevice.makeLibrary(source:)`
+with fast-math off on the host GPU. Subsequent cache hits skip the build. The Tart
+VM lifecycle, its Dhall-configured limits, and the `jitml internal vm` commands are
+owned by the reopened Phases `1` / `2` / `5` / `7` / `14` (2026-06-10; see
 [../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)).
 
 Direct k8s API access from the host is hlint-forbidden.

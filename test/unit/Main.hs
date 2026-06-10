@@ -547,19 +547,19 @@ main =
               assertBool "kind is in cluster closure" (NodeId "cluster.kind" `elem` ids)
               assertBool "kubectl is in cluster closure" (NodeId "cluster.kubectl" `elem` ids)
               assertBool "helm is in cluster closure" (NodeId "cluster.helm" `elem` ids)
-      , testCase "Apple JIT cache-miss prerequisite root needs no Tart VM (headless host build)" $ do
-          -- Sprint 2.10 — the Apple Metal JIT builds the Swift glue dylib on the
-          -- host with CommandLineTools `swift build`, so there is no
-          -- `container.tart` prerequisite anywhere in the registry.
+      , testCase "Apple JIT cache-miss prerequisite root requires the Tart build VM" $ do
+          -- Sprint 2.11 — the Apple Metal JIT builds the Swift glue dylib inside
+          -- the `jitml`-managed Tart VM, so the `container.tart` prerequisite is
+          -- present in the registry and in the cache-miss closure.
           assertBool
-            "container.tart is removed from the registry"
-            (NodeId "container.tart" `notElem` fmap nodeId prerequisiteRegistry)
+            "container.tart is in the registry"
+            (NodeId "container.tart" `elem` fmap nodeId prerequisiteRegistry)
           case transitiveClosure prerequisiteRegistry (NodeId "container.apple-silicon.jit-cache-miss") of
             Left err -> assertFailure (show err)
             Right closure ->
               assertBool
-                "cache miss closure no longer references tart"
-                (NodeId "container.tart" `notElem` fmap nodeId closure)
+                "cache miss closure references tart"
+                (NodeId "container.tart" `elem` fmap nodeId closure)
       , testCase "Homebrew remediation nodes carry typed subprocesses" $
           case find ((== NodeId "toolchain.spago") . nodeId) prerequisiteRegistry of
             Nothing -> assertFailure "missing toolchain.spago"
@@ -1135,6 +1135,16 @@ main =
           MetalRuntime.metalDeviceVisibleFromSystemProfiler "Metal: Unsupported\n" @?= False
           MetalRuntime.metalRuntimeAvailable availableProbe @?= True
           MetalRuntime.metalRuntimeAvailable missingDeviceProbe @?= False
+          -- Sprint 7.10 — the host carries no Swift/Metal toolchain (the build
+          -- runs in the Tart VM), so a visible Metal device alone makes the
+          -- runtime available even with no host `swiftc`/`metal` compiler.
+          MetalRuntime.metalRuntimeAvailable
+            availableProbe
+              { MetalRuntime.metalRuntimeMetalCompilerPath = Nothing
+              , MetalRuntime.metalRuntimeSwiftCompilerPath = Nothing
+              , MetalRuntime.metalRuntimeSwiftVersion = Nothing
+              }
+            @?= True
           assertBool
             "rendered Metal probe records availability"
             ("available: yes" `Text.isInfixOf` rendered)
@@ -3247,6 +3257,12 @@ canonicalLeafPaths =
   , ["internal", "list-prereqs"]
   , ["internal", "upload-dataset"]
   , ["internal", "gc"]
+  , ["internal", "vm", "create"]
+  , ["internal", "vm", "up"]
+  , ["internal", "vm", "down"]
+  , ["internal", "vm", "status"]
+  , ["internal", "vm", "delete"]
+  , ["internal", "vm", "exec"]
   , ["internal", "cache", "stat"]
   , ["internal", "cache", "list"]
   , ["internal", "cache", "evict"]
