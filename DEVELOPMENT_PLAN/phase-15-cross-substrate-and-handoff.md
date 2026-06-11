@@ -41,6 +41,16 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 — real-workflow refactor; Sprints `15.5` /
+`15.6`). This phase owns the cross-substrate confirmation that every reopened
+workflow runs for real on all three lanes and the final walk-down of the legacy
+ledger. **Blocked on this host**: it requires all three live lanes (linux-cpu
+cluster, linux-cuda GPU, apple-silicon Tart-VM + cluster) simultaneously, none
+of which is provisionable on a single memory-constrained, GPU-less host. The
+per-substrate real-workflow code (Phases `8`–`11`) is implemented and validated
+where the hardware allows; the cross-substrate live confirmation is recorded as
+blocked. The prior closure narrative below is retained as dated record.
+
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`). The phase reopened 2026-06-08 for
 Sprint `15.4`. The cross-substrate numeric parity surface delivered by Sprints
@@ -703,6 +713,47 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
 - None. The cross-substrate parity surface is removed, the determinism contract
   is reframed to within-substrate-only, all three per-substrate lanes pass for
   real, and the legacy ledger is empty (Exit Definition item 18 met).
+
+## Sprint 15.5: Cross-Substrate Real-Workflow Confirmation [Blocked]
+
+**Status**: Blocked
+**Blocked by**: requires all three live lanes (linux-cpu cluster, linux-cuda
+GPU, apple-silicon Tart-VM + cluster) on one host.
+**Docs to update**: `system-components.md`
+
+### Objective
+
+Confirm that every reopened real workflow (Phases `8`–`11`) runs for real on all
+three substrates and that the within-substrate determinism contract holds for
+each (two fresh same-substrate / same-seed runs are bit-identical), via the
+`jitml test all` report card reading the real measured metrics per lane.
+
+### Remaining Work
+
+- Blocked on a host with all three live lanes. The per-substrate real-workflow
+  code is implemented and validated where the hardware allows (linux-cpu device
+  stanzas in-container); the cross-substrate live confirmation needs the full
+  hardware matrix.
+
+## Sprint 15.6: Real-Workflow Ledger Walk-Down and Final Handoff [Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `15.5` (the live cross-substrate confirmation gates the
+final ledger walk-down).
+**Docs to update**: `legacy-tracking-for-deletion.md`
+
+### Objective
+
+Walk every remaining real-workflow ledger row to `Completed` once its live
+exercise has run, leaving the ledger empty and Exit Definition item 18 met for
+the reopened real-workflow refactor.
+
+### Remaining Work
+
+- Blocked on Sprint `15.5`. The code-removal rows whose replacements are already
+  verified working (Phase `8`–`11`) are in `Completed`; the rows whose
+  verification is the live per-lane exercise (Phase `13`/`14`) move to
+  `Completed` when that exercise runs on the appropriate hardware.
 
 ## Doctrine Sections Cited
 

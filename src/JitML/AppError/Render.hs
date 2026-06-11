@@ -59,6 +59,8 @@ renderError (InferenceManifestShaMismatch experimentHash manifestSha) =
   renderSingle
     "inference manifest sha mismatch"
     (experimentHash <> ": requested " <> manifestSha)
+renderError (TrainingPrerequisiteUnmet message) =
+  renderSingle "training prerequisite unmet" message
 renderError (ReconcilerNoop message) =
   ensureFinalNewline message
 

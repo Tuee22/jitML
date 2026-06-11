@@ -107,6 +107,8 @@ import JitML.Lint.Stack
   , runCheckCode
   , runLint
   )
+import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
+import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
 import JitML.Plan.Plan (buildCommandPlan)
 import JitML.Plan.Render (renderPlan)
@@ -1045,121 +1047,131 @@ runTrain parsedOptions = do
   overrides <- case Overrides.parseExperimentOverrides parsedOptions of
     Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
     Right ovr -> pure ovr
-  let experiment = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
-      problem =
+  let problem =
         case SL.canonicalProblems of
           firstProblem : _ -> firstProblem
           [] -> SL.CanonicalProblem "empty" "empty" "empty" 0
-  writeText $
-    Text.unlines
-      [ "train: " <> experiment
-      , "problem: " <> SL.problemName problem
-      , "final_loss: " <> Text.pack (show (SL.finalLoss problem))
-      , "overrides: " <> Overrides.renderExperimentOverrides overrides
-      ]
-  -- Sprint 13.4 — when this worker runs in cluster context against a
-  -- dataset with canonical image + label artefacts staged in MinIO (MNIST),
-  -- fetch both blobs, gunzip, IDX-parse, and train the real differentiable
-  -- softmax classifier (`JitML.SL.Classifier`) over the bytes. The measured
-  -- train/test accuracy replaces the deterministic synthetic summary as the
-  -- published loss. Datasets without staged real bytes fall back to the
-  -- deterministic fetch-probe + synthetic summary.
-  realLoss <- attemptRealMnistTraining problem
-  case realLoss of
-    Nothing -> attemptFetchTrainingDataset problem
-    Just _ -> pure ()
-  -- Sprint 13.3 — when this `jitml train` invocation is running inside a
-  -- cluster-dispatched Job (live publication + JITML_EXPERIMENT_HASH
-  -- exported in the daemon-rendered Job env), publish a single
-  -- `EpochCompleted` event so the dispatch/event loop is observably
-  -- closed end-to-end. The published loss is the live measured value when
-  -- real training ran, else the deterministic per-problem summary.
-  publishWorkerTrainingEvent (fromMaybe (SL.finalLoss problem) realLoss)
+  -- Sprint 8.10 — `jitml train` is a substrate-backed, fail-closed command:
+  -- a live cluster publication and a staged dataset are hard prerequisites,
+  -- and the network trains through the resolved substrate's JIT device with
+  -- __no synthetic or pure-Haskell fallback__. When a prerequisite is unmet
+  -- nothing is printed or published — the command exits 2 with a typed
+  -- `TrainingPrerequisiteUnmet`. Only the live measured loss is published.
+  substrate <- resolveWorkerSubstrate overrides
+  result <- runDeviceMnistTraining substrate problem
+  case result of
+    Left reason -> exitWithError (TrainingPrerequisiteUnmet reason)
+    Right loss -> publishWorkerTrainingEvent loss
 
--- | Sprint 13.4 — drive the real differentiable SL classifier over the
--- canonical MNIST bytes staged in MinIO. Returns @Just loss@ (a
--- loss-shaped scalar, @1 - accuracy@, derived from the live measurement)
--- when real training ran, or @Nothing@ when the cluster / canonical-label
--- bytes are absent so the caller falls back to the synthetic summary. The
--- example count and epoch budget are capped by @JITML_SL_TRAIN_LIMIT@ /
--- @JITML_SL_EPOCHS@ / @JITML_SL_TEST_LIMIT@ so a live run stays tractable
--- under the pure-Haskell MLP.
-attemptRealMnistTraining :: SL.CanonicalProblem -> App (Maybe Double)
-attemptRealMnistTraining problem = do
+-- | Sprint 8.10 — drive the substrate-backed differentiable SL classifier
+-- over the canonical dataset bytes staged in MinIO. Returns @Right loss@ (a
+-- loss-shaped scalar, @1 − accuracy@, from the live measurement) when real
+-- device training ran, or @Left reason@ when a hard prerequisite (live
+-- publication, staged dataset ref, staged bytes) is absent or the device
+-- training itself failed. There is no synthetic fallback: a missing
+-- prerequisite is a 'Left', never a fabricated curve. The example count and
+-- epoch budget are capped by the mounted @TrainingRunConfig@ or the
+-- @JITML_SL_*@ env vars so a live run stays tractable.
+runDeviceMnistTraining :: Substrate -> SL.CanonicalProblem -> App (Either Text Double)
+runDeviceMnistTraining substrate problem = do
+  env <- ask
   cluster <- liftIO (readExistingLivePublication ".")
-  case (cluster, Dataset.datasetForProblem problem) of
-    (Just publication, Just trainRef)
-      | hasCanonicalLabels trainRef -> do
-          let edgePort = Publication.publicationEdgePort publication
-              minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-              run :: MinIOSubprocess.MinIOSubprocess a -> App a
-              run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
-          -- Sprint 5.7 — prefer the typed Dhall `TrainingRunConfig` mount; fall
-          -- back to the legacy env vars when no mount is present.
-          runConfigMaybe <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
-          (trainLimit, epochs, testLimit) <- case runConfigMaybe of
-            Just rc ->
-              pure
-                ( fromMaybe 2000 (RunConfig.trcSlTrainLimit rc)
-                , fromMaybe 3 (RunConfig.trcSlEpochs rc)
-                , fromMaybe 1000 (RunConfig.trcSlTestLimit rc)
-                )
-            Nothing -> liftIO $ do
-              tl <- readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000"
-              ep <- readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3"
-              tt <- readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000"
-              pure (tl, ep, tt)
-          imagesE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
-          labelsE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
-          case (imagesE, labelsE) of
-            (Right imgGz, Right lblGz) -> do
-              let config =
-                    Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs}
-              case Classifier.trainClassifierFromIdxBounded
-                config
-                (Just (max 1 trainLimit))
-                (Dataset.maybeGunzip imgGz)
-                (Dataset.maybeGunzip lblGz) of
-                Left err -> do
-                  writeText ("train: MNIST classifier error: " <> Text.pack err <> "\n")
-                  pure Nothing
-                Right (trained, trainAcc) -> do
-                  testAcc <- evaluateTestSplit minioSettings trainRef trained testLimit
-                  let reportedAcc = fromMaybe trainAcc testAcc
-                  writeText
-                    ( "train: MNIST trained limit="
-                        <> Text.pack (show (max 1 trainLimit))
-                        <> " epochs="
-                        <> Text.pack (show (max 1 epochs))
-                        <> " train_acc="
-                        <> Text.pack (show trainAcc)
-                        <> maybe "" (\a -> " test_acc=" <> Text.pack (show a)) testAcc
-                        <> "\n"
+  case cluster of
+    Nothing ->
+      pure (Left "no live cluster publication (run `jitml bootstrap --<substrate>`)")
+    Just publication ->
+      case Dataset.datasetForProblem problem of
+        Just trainRef
+          | hasCanonicalLabels trainRef -> do
+              let edgePort = Publication.publicationEdgePort publication
+                  minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+                  run :: MinIOSubprocess.MinIOSubprocess a -> App a
+                  run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
+              -- Sprint 5.7 — prefer the typed Dhall `TrainingRunConfig` mount;
+              -- fall back to the env vars when no mount is present.
+              runConfigMaybe <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
+              (trainLimit, epochs, testLimit) <- case runConfigMaybe of
+                Just rc ->
+                  pure
+                    ( fromMaybe 2000 (RunConfig.trcSlTrainLimit rc)
+                    , fromMaybe 3 (RunConfig.trcSlEpochs rc)
+                    , fromMaybe 1000 (RunConfig.trcSlTestLimit rc)
                     )
-                  pure (Just (1.0 - reportedAcc))
-            _ -> do
-              writeText "train: MNIST real bytes unavailable in MinIO; using synthetic summary\n"
-              pure Nothing
-    _ -> pure Nothing
- where
-  hasCanonicalLabels ref =
-    isJust
-      ( Dataset.canonicalArtifactSha256For
-          (Dataset.datasetName ref)
-          Dataset.TrainSplit
-          Dataset.LabelsArtifact
-      )
+                Nothing -> liftIO $ do
+                  tl <- readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000"
+                  ep <- readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3"
+                  tt <- readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000"
+                  pure (tl, ep, tt)
+              imagesE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
+              labelsE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
+              case (imagesE, labelsE) of
+                (Right imgGz, Right lblGz) -> do
+                  let config =
+                        Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs}
+                      device = mlpDeviceForSubstrate substrate env
+                  trainedE <-
+                    liftIO
+                      ( Classifier.trainClassifierWithDeviceFromIdxBounded
+                          device
+                          config
+                          (Just (max 1 trainLimit))
+                          (Dataset.maybeGunzip imgGz)
+                          (Dataset.maybeGunzip lblGz)
+                      )
+                  case trainedE of
+                    Left err -> pure (Left ("substrate training failed: " <> err))
+                    Right (trained, trainAcc) -> do
+                      testAcc <- evaluateTestSplitDevice device minioSettings trainRef trained testLimit
+                      let reportedAcc = fromMaybe trainAcc testAcc
+                      writeText
+                        ( "train: "
+                            <> SL.problemName problem
+                            <> " substrate="
+                            <> renderSubstrate substrate
+                            <> " limit="
+                            <> Text.pack (show (max 1 trainLimit))
+                            <> " epochs="
+                            <> Text.pack (show (max 1 epochs))
+                            <> " train_acc="
+                            <> Text.pack (show trainAcc)
+                            <> maybe "" (\a -> " test_acc=" <> Text.pack (show a)) testAcc
+                            <> "\n"
+                        )
+                      pure (Right (1.0 - reportedAcc))
+                _ ->
+                  pure
+                    ( Left
+                        ("dataset bytes not staged in MinIO for " <> Dataset.datasetName trainRef)
+                    )
+        _ ->
+          pure
+            (Left ("no staged canonical dataset for problem " <> SL.problemName problem))
 
--- | Fetch the test split images + labels and report the trained
--- classifier's accuracy over the first @limit@ examples. Returns
--- 'Nothing' when the test bytes are not staged.
-evaluateTestSplit
-  :: MinIOSubprocess.MinIOSettings
+-- | True when a problem's dataset has a published canonical label SHA, i.e.
+-- real label bytes are stageable in MinIO (not the synthetic per-(name,
+-- split, size) fixture).
+hasCanonicalLabels :: Dataset.DatasetRef -> Bool
+hasCanonicalLabels ref =
+  isJust
+    ( Dataset.canonicalArtifactSha256For
+        (Dataset.datasetName ref)
+        Dataset.TrainSplit
+        Dataset.LabelsArtifact
+    )
+
+-- | Sprint 8.10 — fetch the test split images + labels and report the trained
+-- classifier's held-out accuracy over the first @limit@ examples /through the
+-- device forward/. Returns 'Nothing' when the test bytes are not staged or
+-- the device forward is unavailable (the caller then publishes the train-set
+-- accuracy, which is itself a real device measurement).
+evaluateTestSplitDevice
+  :: MlpDevice
+  -> MinIOSubprocess.MinIOSettings
   -> Dataset.DatasetRef
   -> Classifier.TrainedClassifier
   -> Int
   -> App (Maybe Double)
-evaluateTestSplit minioSettings trainRef trained limit = do
+evaluateTestSplitDevice device minioSettings trainRef trained limit = do
   let testRef = trainRef {Dataset.datasetSplit = Dataset.TestSplit}
       run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
   testImgE <- run (Dataset.fetchDatasetArtifactBytes testRef Dataset.ImagesArtifact)
@@ -1169,43 +1181,18 @@ evaluateTestSplit minioSettings trainRef trained limit = do
       case ( Classifier.parseIdxImages (Dataset.maybeGunzip tiGz)
            , Classifier.parseIdxLabels (Dataset.maybeGunzip tlGz)
            ) of
-        (Right (_, images), Right labels) ->
+        (Right (_, images), Right labels) -> do
           let testSet = take (max 1 limit) (Classifier.zipImagesLabels images labels)
-           in pure (Just (Classifier.accuracy trained testSet))
+          accE <- liftIO (Classifier.accuracyWithDevice device trained testSet)
+          pure (eitherToMaybe accE)
         _ -> pure Nothing
     _ -> pure Nothing
 
-attemptFetchTrainingDataset :: SL.CanonicalProblem -> App ()
-attemptFetchTrainingDataset problem = do
-  cluster <- liftIO (readExistingLivePublication ".")
-  case (cluster, Dataset.datasetForProblem problem) of
-    (Just publication, Just ref) -> do
-      let edgePort = Publication.publicationEdgePort publication
-          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-      result <-
-        liftIO
-          ( MinIOSubprocess.runMinIOSubprocess
-              minioSettings
-              (Dataset.fetchDatasetRef ref)
-          )
-      case result of
-        Right verified ->
-          writeText
-            ( "train: dataset "
-                <> Dataset.datasetName ref
-                <> " fetched bytes="
-                <> Text.pack (show (Dataset.fetchedBytes verified))
-                <> "\n"
-            )
-        Left err ->
-          writeText
-            ( "train: dataset "
-                <> Dataset.datasetName ref
-                <> " fetch failed: "
-                <> Text.pack (show err)
-                <> "\n"
-            )
-    _ -> pure ()
+-- | 'Right' to 'Just', 'Left' to 'Nothing'. Local helper mirroring the
+-- per-module copies in "JitML.Bootstrap" / "JitML.Proto.Wire".
+eitherToMaybe :: Either a b -> Maybe b
+eitherToMaybe (Right value) = Just value
+eitherToMaybe (Left _) = Nothing
 
 -- | Sprint 13.5 — resolve the worker's broker publish target. A
 -- daemon-dispatched worker runs inside a Kubernetes Job pod where the
@@ -1267,6 +1254,27 @@ workerBrokerTarget = do
           Nothing -> do
             tu <- RunConfig.tryLoadTuneRunConfig runConfigPath
             pure (fmap RunConfig.turcPulsarWsUrl tu)
+
+-- | Sprint 8.11 — resolve the substrate the RL worker trains on, using the
+-- same precedence as 'workerBrokerTarget': the daemon-mounted
+-- @BootConfig.dhall@ substrate, else @JITML_SUBSTRATE@, else the leased
+-- cluster publication's substrate, else @linux-cpu@ for developer-side runs.
+-- The base is then overridden by an explicit CLI @--substrate@ flag.
+workerSubstrateBase :: App Substrate
+workerSubstrateBase = do
+  bootMaybe <- liftIO (tryLoadBootConfigFromFile serviceBootConfigPath)
+  substrateEnv <- liftIO (lookupEnv "JITML_SUBSTRATE")
+  cluster <- liftIO (readExistingLivePublication ".")
+  pure $ case fmap BootConfig.bootSubstrate bootMaybe of
+    Just substrate -> substrate
+    Nothing -> case substrateEnv >>= (parseSubstrate . Text.pack) of
+      Just substrate -> substrate
+      Nothing -> maybe LinuxCPU Publication.publicationSubstrate cluster
+
+-- | Apply an explicit CLI @--substrate@ override on top of 'workerSubstrateBase'.
+resolveWorkerSubstrate :: Overrides.ExperimentOverrides -> App Substrate
+resolveWorkerSubstrate overrides =
+  Overrides.overrideSubstrate overrides <$> workerSubstrateBase
 
 -- | Sprint 5.7 — best-effort load of `BootConfig.dhall` from a mounted path.
 -- Returns 'Nothing' when the file is absent (developer-side CLI runs).
@@ -1342,9 +1350,51 @@ publishWorkerTrainingEvent finalLoss = do
             )
     _ -> pure ()
 
+-- | Sprint 8.10 — `jitml eval --checkpoint <id>` loads the named inference
+-- checkpoint's `.jmw1` weight blob and runs a real forward through the
+-- resolved substrate's JIT device (the same weighted runner `jitml inference
+-- run` uses). A missing pointer/manifest/checkpoint surfaces as a typed
+-- `InferenceCheckpointMissing` (exit 1) with no synthetic fallback. The
+-- held-out accuracy/loss over a staged test split layers on this read path
+-- once the SL checkpoint-write loop lands (Phase 10 Sprint 10.5 / Phase 13
+-- Sprint 13.17).
 runEval :: [ParsedOption] -> App ()
-runEval parsedOptions =
-  writeLine ("eval: checkpoint " <> selectedValue "checkpoint" "latest" parsedOptions <> " accepted")
+runEval = runCheckpointEval "eval"
+
+-- | Sprints 8.10 / 9.9 — load the named inference checkpoint's `.jmw1` weights
+-- and run a real forward through the resolved substrate's JIT device. Shared by
+-- `jitml eval` (@label = "eval"@) and `jitml rl eval` (@label = "rl eval"@). A
+-- missing pointer/manifest/checkpoint surfaces as a typed
+-- `InferenceCheckpointMissing` (exit 1); no synthetic fallback.
+runCheckpointEval :: Text -> [ParsedOption] -> App ()
+runCheckpointEval label parsedOptions = do
+  let experimentHash = selectedValue "checkpoint" "default" parsedOptions
+  livePublication <- liftIO (readExistingLivePublication ".")
+  case livePublication of
+    Just publication -> do
+      let edgePort = Publication.publicationEdgePort publication
+          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+          substrate = Publication.publicationSubstrate publication
+      env <- ask
+      result <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              (inferenceForSubstrate env substrate experimentHash)
+          )
+      case result of
+        Right values ->
+          writeLine
+            ( label
+                <> ": checkpoint="
+                <> experimentHash
+                <> " substrate="
+                <> renderSubstrate substrate
+                <> " output="
+                <> Text.pack (show values)
+            )
+        Left err -> exitWithError (classifyCheckpointLoadError experimentHash err)
+    Nothing -> exitWithError (InferenceCheckpointMissing experimentHash)
 
 runTune :: [ParsedOption] -> App ()
 runTune parsedOptions = do
@@ -1562,7 +1612,7 @@ runRl ["rl", "train"] parsedOptions = do
       sR <- envWithDefault "JITML_SEED" "42"
       msR <- envWithDefault "JITML_MAX_STEPS" "200"
       eeR <- envWithDefault "JITML_EVAL_EPISODES" "4"
-      tkR <- envWithDefault "JITML_RL_TRAINER" "simulator"
+      tkR <- envWithDefault "JITML_RL_TRAINER" "ppo"
       pure
         ( e
         , readIntDefault 42 sR
@@ -1586,8 +1636,26 @@ runRl ["rl", "train"] parsedOptions = do
   -- convergence statistics through the network seam; the per-iteration
   -- summary is projected into the @EpisodeDone@ envelope shape so the
   -- dispatch chain stays observable end-to-end.
-  episodes <-
-    liftIO (runTrainerEpisodes atariRomPath trainerKind envName resolvedSeed evalEpisodes maxSteps)
+  -- Sprint 8.11 — resolve the substrate and route every MLP-backed trainer
+  -- through its JIT-compiled device. An unknown trainer or an unavailable
+  -- substrate device fails closed with a typed `InvalidConfig`; nothing is
+  -- printed or published in that case.
+  substrate <- resolveWorkerSubstrate overrides
+  env <- ask
+  episodesE <-
+    liftIO
+      ( runTrainerEpisodes
+          (rlDeviceForSubstrate substrate env)
+          atariRomPath
+          trainerKind
+          envName
+          resolvedSeed
+          evalEpisodes
+          maxSteps
+      )
+  episodes <- case episodesE of
+    Left err -> exitWithError (InvalidConfig err)
+    Right eps -> pure eps
   let averageReward =
         if null episodes
           then 0.0
@@ -1603,16 +1671,63 @@ runRl ["rl", "train"] parsedOptions = do
       , "overrides: " <> Overrides.renderExperimentOverrides overrides
       ]
   traverse_ publishWorkerRlEpisode episodes
-runRl ["rl", "eval"] parsedOptions =
-  writeLine ("rl eval: " <> selectedValue "checkpoint" "latest" parsedOptions)
-runRl ["rl", "rollout"] parsedOptions =
-  writeLine
-    ( "rl rollout: "
-        <> Text.pack
-          (show (RL.deterministicTrajectory "PPO" (readInt (selectedValue "seed" "42" parsedOptions))))
-    )
+-- Sprint 9.9 — `jitml rl eval` loads the named checkpoint and runs the real
+-- substrate device forward (shared with `jitml eval`); a missing checkpoint →
+-- `InferenceCheckpointMissing`, no echo stub.
+runRl ["rl", "eval"] parsedOptions = runCheckpointEval "rl eval" parsedOptions
+-- Sprint 9.9 — `jitml rl rollout --seed N` runs one real on-device PPO rollout
+-- on cartpole through the resolved substrate's JIT engine and prints the
+-- measured per-iteration episode rewards. No LCG `deterministicTrajectory`
+-- stand-in; an unavailable substrate device fails closed with `InvalidConfig`.
+runRl ["rl", "rollout"] parsedOptions = do
+  let seed = readInt (selectedValue "seed" "42" parsedOptions)
+  substrate <- workerSubstrateBase
+  env <- ask
+  episodesE <- liftIO (runDeviceRollout (rlDeviceForSubstrate substrate env) seed)
+  case episodesE of
+    Left err -> exitWithError (InvalidConfig err)
+    Right episodes ->
+      writeLine
+        ( "rl rollout: seed="
+            <> Text.pack (show seed)
+            <> " substrate="
+            <> renderSubstrate substrate
+            <> " rewards="
+            <> Text.pack (show (fmap SimulatorLoop.simEpisodeReward episodes))
+        )
 runRl path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
+
+-- | Sprint 9.9 — run a single real on-device PPO rollout (one iteration:
+-- collect a real cartpole rollout through the substrate device, one policy
+-- update) and project its per-iteration stats into episodes. A device 'Left'
+-- (toolchain/hardware absent) propagates so `rl rollout` fails closed rather
+-- than emitting a scripted trajectory.
+runDeviceRollout :: MlpDevice -> Int -> IO (Either Text [SimulatorLoop.SimulatedEpisode])
+runDeviceRollout device seed = do
+  let config =
+        PpoTrainer.defaultPpoTrainConfig
+          { PpoTrainer.ppoSeed = seed
+          , PpoTrainer.ppoVariant = PpoTrainer.VariantPPO
+          , PpoTrainer.ppoNumIterations = 1
+          , PpoTrainer.ppoRolloutSteps = 512
+          , PpoTrainer.ppoMaxEpisodeSteps = 200
+          }
+  resultE <- PpoTrainer.trainOnPolicyOnDevice device PpoTrainer.VariantPPO config
+  pure $
+    fmap
+      ( map
+          ( \stat ->
+              SimulatorLoop.SimulatedEpisode
+                { SimulatorLoop.simEpisodeIndex = PpoTrainer.iterIndex stat
+                , SimulatorLoop.simEpisodeSteps = 512
+                , SimulatorLoop.simEpisodeReward = PpoTrainer.iterMeanReward stat
+                , SimulatorLoop.simEpisodeDone = True
+                }
+          )
+          . PpoTrainer.resultIterations
+      )
+      resultE
 
 -- | Sprint 13.8 — dispatch the worker-side RL run to the real MLP-backed
 -- trainer named by @JITML_RL_TRAINER@, projecting each trainer's
@@ -1625,35 +1740,84 @@ runRl path _ =
 -- unrecognised @trainerKind@ for other environments falls back to the
 -- deterministic per-episode simulator loop.
 runTrainerEpisodes
-  :: Maybe Text -> Text -> Text -> Int -> Int -> Int -> IO [SimulatorLoop.SimulatedEpisode]
-runTrainerEpisodes atariRomPath trainerKind envName seed evalEpisodes maxStepsPerEpisode
+  :: MlpDevice
+  -> Maybe Text
+  -> Text
+  -> Text
+  -> Int
+  -> Int
+  -> Int
+  -> IO (Either Text [SimulatorLoop.SimulatedEpisode])
+runTrainerEpisodes device atariRomPath trainerKind envName seed evalEpisodes maxStepsPerEpisode
   | Text.toLower envName == "atari-subset" = do
+      -- Atari routes through the runtime-loaded ALE adapter (Sprint 8.8),
+      -- not the MLP device; ROM-policy failures surface as a typed `Left`.
       result <- ALE.runAtariSubsetEpisodes atariRomPath seed evalEpisodes maxStepsPerEpisode
-      case result of
-        Left err -> fail (Text.unpack err)
-        Right episodes -> pure (fmap fromAleEpisode episodes)
-  | otherwise =
-      case trainerKind of
-        "ppo" -> onPolicyEpisodes PpoTrainer.VariantPPO
-        "a2c" -> onPolicyEpisodes PpoTrainer.VariantA2C
-        "trpo" -> onPolicyEpisodes PpoTrainer.VariantTRPO
-        "maskableppo" -> onPolicyEpisodes PpoTrainer.VariantMaskablePPO
-        "recurrentppo" -> onPolicyEpisodes PpoTrainer.VariantRecurrentPPO
-        "dqn" -> dqnEpisodes False
-        "qrdqn" -> qrDqnEpisodes
-        "ddpg" -> continuousEpisodes ContinuousTrainer.VariantDDPG
-        "td3" -> continuousEpisodes ContinuousTrainer.VariantTD3
-        "sac" -> continuousEpisodes ContinuousTrainer.VariantSAC
-        "crossq" -> continuousEpisodes ContinuousTrainer.VariantCrossQ
-        "tqc" -> continuousEpisodes ContinuousTrainer.VariantTQC
-        "ars" -> arsEpisodes
-        "her" -> herEpisodes
-        _ ->
-          pure $ case SimulatorLoop.lookupSimulatedEnvByName envName of
-            Just envHandle ->
-              SimulatorLoop.runSimulatedEpisodesByName envHandle seed evalEpisodes maxStepsPerEpisode
-            Nothing -> []
+      pure (fmap (fmap fromAleEpisode) result)
+  | trainerKind == "ars" =
+      -- ARS is the lone no-MLP exception (Sprint 8.11): a finite-difference
+      -- random-search method with no network forward/backward, so it does not
+      -- route through the device seam.
+      Right <$> arsEpisodes
+  | trainerKind `notElem` knownMlpTrainers =
+      pure
+        ( Left
+            ( "unknown RL trainer: "
+                <> trainerKind
+                <> " (expected one of: "
+                <> Text.intercalate ", " (knownMlpTrainers <> ["ars"])
+                <> ")"
+            )
+        )
+  | otherwise = do
+      -- Sprint 8.11 fail-closed device gate: confirm the substrate's JIT
+      -- kernel compiles/loads/runs on this host before dispatching, so a
+      -- missing toolchain/hardware fails closed instead of a trainer
+      -- silently degrading to its pure-Haskell update path.
+      probe <- probeMlpDevice device
+      case probe of
+        Left engineErr ->
+          pure
+            ( Left
+                ( "RL substrate device unavailable for trainer "
+                    <> trainerKind
+                    <> ": "
+                    <> engineErr
+                )
+            )
+        Right () -> dispatchMlpTrainer
  where
+  knownMlpTrainers =
+    [ "ppo"
+    , "a2c"
+    , "trpo"
+    , "maskableppo"
+    , "recurrentppo"
+    , "dqn"
+    , "qrdqn"
+    , "ddpg"
+    , "td3"
+    , "sac"
+    , "crossq"
+    , "tqc"
+    , "her"
+    ]
+  dispatchMlpTrainer =
+    case trainerKind of
+      "ppo" -> onPolicyEpisodes PpoTrainer.VariantPPO
+      "a2c" -> onPolicyEpisodes PpoTrainer.VariantA2C
+      "trpo" -> onPolicyEpisodes PpoTrainer.VariantTRPO
+      "maskableppo" -> onPolicyEpisodes PpoTrainer.VariantMaskablePPO
+      "recurrentppo" -> onPolicyEpisodes PpoTrainer.VariantRecurrentPPO
+      "dqn" -> dqnEpisodes False
+      "qrdqn" -> qrDqnEpisodes
+      "ddpg" -> continuousEpisodes ContinuousTrainer.VariantDDPG
+      "td3" -> continuousEpisodes ContinuousTrainer.VariantTD3
+      "sac" -> continuousEpisodes ContinuousTrainer.VariantSAC
+      "crossq" -> continuousEpisodes ContinuousTrainer.VariantCrossQ
+      "tqc" -> continuousEpisodes ContinuousTrainer.VariantTQC
+      "her" -> herEpisodes
+      _ -> pure (Left ("unhandled RL trainer: " <> trainerKind))
   fromAleEpisode episode =
     SimulatorLoop.SimulatedEpisode
       { SimulatorLoop.simEpisodeIndex = ALE.aleEpisodeIndex episode
@@ -1676,55 +1840,63 @@ runTrainerEpisodes atariRomPath trainerKind envName seed evalEpisodes maxStepsPe
    where
     goIndexed _ [] = []
     goIndexed i (stat : rest) = asEpisode i (statReward stat) : goIndexed (i + 1) rest
+  -- Sprint 8.11 — every MLP-backed trainer routes through its `*OnDevice`
+  -- variant against the resolved substrate device, with iteration budgets
+  -- raised from the old `max 1 evalEpisodes` floor so training actually
+  -- learns rather than running a single non-converging iteration.
   onPolicyEpisodes variant = do
     let config =
           PpoTrainer.defaultPpoTrainConfig
             { PpoTrainer.ppoSeed = seed
             , PpoTrainer.ppoVariant = variant
-            , PpoTrainer.ppoNumIterations = max 1 evalEpisodes
-            , PpoTrainer.ppoRolloutSteps = max 256 maxStepsPerEpisode
+            , PpoTrainer.ppoNumIterations = max 50 evalEpisodes
+            , PpoTrainer.ppoRolloutSteps = max 512 maxStepsPerEpisode
             , PpoTrainer.ppoMaxEpisodeSteps = max 200 maxStepsPerEpisode
             }
-    result <- PpoTrainer.trainPpoOnCartpole config
+    resultE <- PpoTrainer.trainOnPolicyOnDevice device variant config
     pure $
       fmap
-        (\stat -> asEpisode (PpoTrainer.iterIndex stat) (PpoTrainer.iterMeanReward stat))
-        (PpoTrainer.resultIterations result)
+        ( map (\stat -> asEpisode (PpoTrainer.iterIndex stat) (PpoTrainer.iterMeanReward stat))
+            . PpoTrainer.resultIterations
+        )
+        resultE
   dqnEpisodes useDouble = do
     let config =
           DqnTrainer.defaultDqnTrainConfig
             { DqnTrainer.dqnSeed = seed
             , DqnTrainer.dqnUseDouble = useDouble
-            , DqnTrainer.dqnNumSteps = max 2000 (evalEpisodes * maxStepsPerEpisode)
-            , DqnTrainer.dqnStatInterval = max 500 maxStepsPerEpisode
+            , DqnTrainer.dqnNumSteps = max 20000 (evalEpisodes * maxStepsPerEpisode)
+            , DqnTrainer.dqnStatInterval = max 1000 maxStepsPerEpisode
             }
-    result <- DqnTrainer.trainDqnOnCartpole config
-    pure (indexedEpisodes DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats result))
+    result <- DqnTrainer.trainDqnOnDevice device config
+    pure (Right (indexedEpisodes DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats result)))
   qrDqnEpisodes = do
     let config =
           QrDqnTrainer.defaultQrDqnTrainConfig
             { QrDqnTrainer.qrSeed = seed
-            , QrDqnTrainer.qrNumSteps = max 2000 (evalEpisodes * maxStepsPerEpisode)
-            , QrDqnTrainer.qrStatInterval = max 500 maxStepsPerEpisode
+            , QrDqnTrainer.qrNumSteps = max 20000 (evalEpisodes * maxStepsPerEpisode)
+            , QrDqnTrainer.qrStatInterval = max 1000 maxStepsPerEpisode
             }
-    result <- QrDqnTrainer.trainQrDqnOnCartpole config
-    pure (indexedEpisodes QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats result))
+    result <- QrDqnTrainer.trainQrDqnOnDevice device config
+    pure (Right (indexedEpisodes QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats result)))
   continuousEpisodes variant = do
     let config =
           (ContinuousTrainer.defaultContinuousTrainConfig variant)
             { ContinuousTrainer.ctSeed = seed
-            , ContinuousTrainer.ctNumSteps = max 2000 (evalEpisodes * maxStepsPerEpisode)
-            , ContinuousTrainer.ctMaxEpisodeSteps = max 100 maxStepsPerEpisode
-            , ContinuousTrainer.ctStatInterval = max 500 maxStepsPerEpisode
+            , ContinuousTrainer.ctNumSteps = max 20000 (evalEpisodes * maxStepsPerEpisode)
+            , ContinuousTrainer.ctMaxEpisodeSteps = max 200 maxStepsPerEpisode
+            , ContinuousTrainer.ctStatInterval = max 1000 maxStepsPerEpisode
             }
-    result <- ContinuousTrainer.trainContinuousOnPendulum config
+    result <- ContinuousTrainer.trainContinuousOnDevice device config
     pure
-      (indexedEpisodes ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats result))
+      ( Right
+          (indexedEpisodes ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats result))
+      )
   arsEpisodes = do
     let config =
           ArsTrainer.defaultArsTrainConfig
             { ArsTrainer.arsSeed = seed
-            , ArsTrainer.arsIterations = max 1 evalEpisodes
+            , ArsTrainer.arsIterations = max 50 evalEpisodes
             , ArsTrainer.arsMaxEpisodeSteps = max 200 maxStepsPerEpisode
             }
     result <- ArsTrainer.trainArsOnCartpole config
@@ -1736,11 +1908,11 @@ runTrainerEpisodes atariRomPath trainerKind envName seed evalEpisodes maxStepsPe
     let config =
           HerTrainer.defaultHerTrainConfig
             { HerTrainer.herSeed = seed
-            , HerTrainer.herEpisodes = max 50 (evalEpisodes * 20)
+            , HerTrainer.herEpisodes = max 200 (evalEpisodes * 20)
             , HerTrainer.herStatInterval = max 25 evalEpisodes
             }
-    result <- HerTrainer.trainHerOnBitFlip config
-    pure (indexedEpisodes HerTrainer.herIterSuccessRate (HerTrainer.herResultStats result))
+    result <- HerTrainer.trainHerOnDevice device config
+    pure (Right (indexedEpisodes HerTrainer.herIterSuccessRate (HerTrainer.herResultStats result)))
 
 -- | Sprint 13.5 — publish one @EpisodeDone@ envelope per simulator
 -- episode produced by 'SimulatorLoop.runSimulatedEpisodesByName'. Gated
@@ -1860,15 +2032,11 @@ runInference parsedOptions = do
         Left err ->
           exitWithError (classifyCheckpointLoadError experimentHash err)
     Nothing ->
-      let manifest =
-            Checkpoint.emptyManifest
-              "latest"
-              dhall
-              [Checkpoint.TensorBlob "dense.weight" [2, 2] "blob-1"]
-       in writeLine
-            ( "inference: "
-                <> Text.pack (show (Checkpoint.inferFromManifest manifest [1.0, 2.0]))
-            )
+      -- Sprint 10.5 — fail closed: without a live cluster publication there is
+      -- no checkpoint to read, so emit a typed `InferenceCheckpointMissing`
+      -- rather than the former `emptyManifest` + synthetic `inferFromManifest`
+      -- summary.
+      exitWithError (InferenceCheckpointMissing experimentHash)
 
 -- | Sprint 13.12 — choose the weighted runner that matches the live
 -- publication's substrate. The substrate-bound runners drive the JIT-compiled
@@ -1982,13 +2150,16 @@ assertManifestShaMatches experimentHash requestedSha manifest =
    in if actualSha /= requestedSha
         then exitWithError (InferenceManifestShaMismatch experimentHash requestedSha)
         else
-          let inferred = Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0]
-           in writeLine
-                ( "inspect replay: "
-                    <> requestedSha
-                    <> " -> "
-                    <> Text.pack (show inferred)
-                )
+          -- Sprint 10.5 — report the verified manifest's real metadata (content
+          -- SHA + weight-tensor count) instead of the former synthetic
+          -- `inferFromManifest` number. Real inference is `jitml inference run`,
+          -- which drives the substrate weighted kernel over the decoded weights.
+          writeLine
+            ( "inspect replay: "
+                <> requestedSha
+                <> " verified tensors="
+                <> Text.pack (show (length (Checkpoint.manifestTensors manifest)))
+            )
 
 -- | Map a `loadInferenceCheckpoint` `Left Text` to a typed `AppError`. The
 -- live read path returns "pointer read failed: ..." when the latest
@@ -2123,27 +2294,30 @@ collectLiveReportMeasurements = do
 
 measureSlFinalLoss :: App ReportMeasurement
 measureSlFinalLoss = do
-  cluster <- liftIO (readExistingLivePublication ".")
-  case (cluster, SL.canonicalProblems) of
-    (Just _, problem : _) -> do
-      result <- attemptRealMnistTraining problem
+  substrate <- workerSubstrateBase
+  case SL.canonicalProblems of
+    problem : _ -> do
+      result <- runDeviceMnistTraining substrate problem
       pure $
         case result of
-          Just loss -> measuredShow (SL.problemName problem <> "=") loss
-          Nothing -> MeasurementUnavailable
-    _ -> pure MeasurementUnavailable
+          Right loss -> measuredShow (SL.problemName problem <> "=") loss
+          Left _ -> MeasurementUnavailable
+    [] -> pure MeasurementUnavailable
 
 measureRlFinalReward :: App ReportMeasurement
 measureRlFinalReward = do
-  episodes <- liftIO (runTrainerEpisodes Nothing "ppo" "cartpole" 42 4 200)
-  let reward =
-        if null episodes
-          then Nothing
-          else
-            Just
-              ( sum (fmap SimulatorLoop.simEpisodeReward episodes)
-                  / fromIntegral (length episodes)
-              )
+  substrate <- workerSubstrateBase
+  env <- ask
+  episodesE <-
+    liftIO (runTrainerEpisodes (rlDeviceForSubstrate substrate env) Nothing "ppo" "cartpole" 42 4 200)
+  let reward = case episodesE of
+        Left _ -> Nothing
+        Right [] -> Nothing
+        Right episodes ->
+          Just
+            ( sum (fmap SimulatorLoop.simEpisodeReward episodes)
+                / fromIntegral (length episodes)
+            )
   pure $
     case reward of
       Nothing -> MeasurementUnavailable

@@ -26,6 +26,15 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 — real-workflow refactor; Sprint `14.8`).
+This phase owns the live **apple-silicon** exercise of every reopened workflow
+(Phases `8`–`12`) through the Metal device built in the `jitml`-managed Tart VM,
+against a live Apple-Silicon cluster. **Blocked on this host**: the Tart build
+VM plus a live Kind + Helm + Pulsar + MinIO cluster do not fit in the available
+memory. The Metal device path is implemented (Phase `7`/`8`); the live run is
+recorded as blocked pending a roomier Apple-Silicon host. The prior closure
+narrative below is retained as dated record.
+
 ✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT doctrine
 reversal; **re-closed 2026-06-10** after the live apple-silicon lane was
 re-validated through the Tart-VM-built path on Apple M1). The lane builds each
@@ -617,6 +626,34 @@ nvcc compile is invoked in the apple-silicon lane. The pure-logic
 `jitml-unit` stanza passed host-native (193 / 193). The
 `appleLiveReady` removal row is recorded in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+
+## Sprint 14.8: Live apple-silicon Exercise of the Reopened Workflows [Blocked]
+
+**Status**: Blocked
+**Blocked by**: the `jitml`-managed Tart build VM plus a live cluster do not fit
+in this host's memory.
+**Docs to update**: `system-components.md`
+
+### Objective
+
+Exercise every reopened real workflow (Phases `8`–`11`) on the **apple-silicon**
+lane through the `WorkflowMatrix` (Sprint `12.11`): the Metal MLP device is
+built in the Tart VM and runs on the host GPU for the device-backed SL/RL
+trainers, real MCTS, real tuning, and the weighted inference kernel, against a
+live Apple-Silicon cluster.
+
+### Validation
+
+- `jitml bootstrap --apple-silicon`, then `jitml test jitml-e2e --apple-silicon`
+  and the matrix cells, all PASS for real (Metal device + live cluster).
+
+### Remaining Work
+
+- The Metal device path and the Phase `8`–`11` real workflows are implemented;
+  the pure-logic stanzas pass host-native. The live half is blocked: the Tart
+  build VM (multi-GB) plus Kind + Helm + Pulsar + MinIO exceed this host's
+  memory. No code remains — the obligation is the live run on a roomier
+  Apple-Silicon host.
 
 ## Doctrine Sections Cited
 

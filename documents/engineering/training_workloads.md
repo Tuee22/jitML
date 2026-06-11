@@ -31,6 +31,16 @@ TrainResult` in `src/JitML/SL/Train.hs`.
 
 ### Canonical SL Problems
 
+The catalog is the full target architecture set. The `Dense` rows
+(`mnist-shallow-mlp`, `fashion-mnist-mlp`, `california-housing-mlp`) form
+`JitML.SL.Canonicals.denseMlpCohort` — the subset the two-layer MLP JIT device
+kernel trains today (Sprint 8.10). The `DeepDense` / `Conv2D` / `ResidualBlock*`
+/ `WideResidualBlock` / `VisionTransformer` rows remain in the catalog as targets
+and become device-trainable when their per-architecture forward/backward JIT
+codegen lands. The five-point synthetic curve below is the residual deterministic
+helper backing the curve-property tests; the published training loss now comes
+from the device measurement, not this curve.
+
 | Current problem key | Owning module | Current validation |
 |---------------------|---------------|--------------------|
 | `mnist-shallow-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
@@ -60,17 +70,28 @@ jitml train <experiment-dhall>
             [--dry-run | --plan-file <path>]
 ```
 
-Current `jitml train` supports the Plan/Apply dry-run surface and, on normal
-execution, prints the selected experiment path plus a deterministic local
-canonical-problem summary. **Sprint 13.4 real-MNIST path**: when the worker
-runs in cluster context against a dataset with canonical image + label
-artefacts staged in MinIO (MNIST), `JitML.App.attemptRealMnistTraining`
-fetches `jitml-datasets/MNIST/{train,test}/{data,labels}.bin`, gunzips
-(`JitML.SL.Dataset.maybeGunzip`), IDX-parses, and trains the real
-differentiable softmax classifier (`JitML.SL.Classifier`, on the
-`JitML.Numerics.Mlp` seam) over the bytes — example count / epochs / test
-size capped by the typed Dhall `RunConfig` so a live run stays tractable under
-the pure-Haskell MLP. The worker decodes these caps from Dhall, not environment
+`jitml train` supports the Plan/Apply dry-run surface. On normal execution it
+is **substrate-backed and fails closed** (Sprint 8.10): `JitML.App.runTrain`
+delegates to `runDeviceMnistTraining`, which **requires** a live cluster
+publication and a staged canonical dataset and otherwise exits with
+`TrainingPrerequisiteUnmet` (exit 2) — printing and publishing nothing. There
+is no synthetic summary and no pure-Haskell fallback: the network trains
+through the resolved substrate's JIT-compiled `MlpDevice`
+(`JitML.SL.Classifier.trainClassifierWithDevice` — batched device forward +
+batched device gradient + host softmax cross-entropy + Adam), selected by
+`mlpDeviceForSubstrate`. The device-trainable cohort is
+`JitML.SL.Canonicals.denseMlpCohort` (single-hidden-layer Dense:
+`mnist-shallow-mlp`, `fashion-mnist-mlp`, `california-housing-mlp`); the
+`DeepDense` / `Conv2D` / `ResidualBlock*` / `VisionTransformer` catalog rows
+remain the target architecture set until their per-architecture
+forward/backward JIT codegen lands. `jitml eval --checkpoint <id>` loads the
+named inference checkpoint's `.jmw1` weights and runs the substrate-bound
+weighted device forward; a missing pointer/manifest → `InferenceCheckpointMissing`.
+
+The worker fetches `jitml-datasets/MNIST/{train,test}/{data,labels}.bin`, gunzips
+(`JitML.SL.Dataset.maybeGunzip`), IDX-parses, and trains over the bytes —
+example count / epochs / test size capped by the typed Dhall `RunConfig` so a
+live run stays tractable. The worker decodes these caps from Dhall, not environment
 variables: Phase `5` Sprint `5.7` retires the former `JITML_SL_TRAIN_LIMIT` /
 `JITML_SL_EPOCHS` / `JITML_SL_TEST_LIMIT` env IPC in favour of the typed
 `RunConfig` per the `Application Environment` doctrine (see
@@ -189,8 +210,16 @@ jitml rl train <rl-experiment-dhall>
                [--dry-run | --plan-file <path>]
 ```
 
-Current normal execution prints the selected RL experiment and local algorithm
-count. `src/JitML/Proto/Rl.hs` defines the typed `RlCommand` envelopes and
+Normal execution routes every MLP-backed trainer through the resolved
+substrate's JIT device (Sprint 8.11): `JitML.App.runTrainerEpisodes` takes the
+`rlDeviceForSubstrate`-selected `MlpDevice`, probes it once (`probeMlpDevice`)
+and **fails closed** when the substrate toolchain/hardware is absent, then
+dispatches the named trainer to its `*OnDevice` variant with iteration budgets
+raised so training learns. **ARS is the lone no-MLP exception** (finite-difference
+random search, no network forward/backward). The former `"simulator"` scripted
+non-learning default is removed: `runRl` defaults the trainer to `ppo`, and an
+unknown trainer → `InvalidConfig` with no episodes published.
+`src/JitML/Proto/Rl.hs` defines the typed `RlCommand` envelopes and
 deterministic text render/parse round-trips for `StartRLRun` and `StopRLRun`;
 `encodeRlCommandProto` and `decodeRlCommandProto` round-trip the current
 command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
@@ -198,6 +227,17 @@ command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
 `RlEvent` oneof through the same local wire helper. Generated cross-language
 proto-lens output remains target work. Target runtime work publishes
 `rl.command.<mode>` for the daemon's at-least-once `RlHandler`.
+
+`jitml rl eval --checkpoint <id>` shares `runCheckpointEval` with `jitml eval`
+(Sprint 9.9): it loads the named checkpoint and runs the substrate-bound weighted
+device forward, surfacing `InferenceCheckpointMissing` when absent — no echo
+stub. `jitml rl rollout --seed N` runs one real on-device PPO rollout on cartpole
+through `rlDeviceForSubstrate` (`runDeviceRollout`) and prints the measured
+episode rewards, failing closed with `InvalidConfig` when the substrate device
+is unavailable — no `deterministicTrajectory` LCG. Retiring the shared
+`moduleRolloutGenerator` LCG so each algorithm's rollout runs its real trained
+policy on-device, real MCTS tree search (Sprint 9.10), and the real tuning
+objective executor (Sprint 9.11) remain Phase 9 Remaining Work.
 
 ## RL Algorithm Catalog
 

@@ -26,12 +26,15 @@ import JitML.SL.Classifier
   , parseIdxLabels
   , trainClassifier
   , trainClassifierFromIdxBounded
+  , trainClassifierWithDevice
   , zipImagesLabels
   )
 
 import JitML.Bootstrap (readExistingLivePublication)
 import JitML.Cluster.Publication (publicationEdgePort)
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Numerics.MlpDevice (probeMlpDevice)
+import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Proto.Training
   ( CheckpointDone (..)
   , EpochCompleted (..)
@@ -47,7 +50,13 @@ import JitML.Proto.Training
   , parseTrainingCommand
   , renderTrainingCommand
   )
-import JitML.SL.Canonicals (canonicalProblems, convergenceCurve, finalLoss, problemName)
+import JitML.SL.Canonicals
+  ( canonicalProblems
+  , convergenceCurve
+  , denseMlpCohort
+  , finalLoss
+  , problemName
+  )
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.ConvergenceThresholds
   ( SlConvergenceThreshold (..)
@@ -254,6 +263,43 @@ main =
           assertBool
             ("expected cross-entropy loss < 0.5 (random ~1.10), got " <> show loss)
             (loss < 0.5)
+      , testCase "Dense-MLP cohort is the device-trainable subset of the catalog (Sprint 8.10)" $ do
+          fmap problemName denseMlpCohort
+            @?= ["mnist-shallow-mlp", "fashion-mnist-mlp", "california-housing-mlp"]
+          assertBool
+            "every cohort member is in the canonical catalog"
+            (all (`elem` canonicalProblems) denseMlpCohort)
+      , testCase "SL classifier converges through the substrate JIT device (Sprint 8.10 --linux-cpu)" $ do
+          -- Sprint 8.10 device-backed convergence. Routes the softmax
+          -- cross-entropy classifier through the resolved substrate's
+          -- JIT-compiled MLP device (oneDNN under `--linux-cpu`, Metal under
+          -- `--apple-silicon`) and asserts it learns the separable synthetic
+          -- task. On a host without the substrate toolchain the device probe
+          -- returns Left and the case skips with a passing message, matching
+          -- the live-test skip convention. No committed fixtures.
+          env <- buildEnv defaultGlobalFlags
+          let device = mlpDeviceForSubstrate LinuxCPU env
+          probe <- probeMlpDevice device
+          case probe of
+            Left _ ->
+              assertBool "linux-cpu JIT device unavailable; device convergence skipped" True
+            Right () -> do
+              let config =
+                    defaultClassifierConfig
+                      { clfSeed = 7
+                      , clfInputs = 4
+                      , clfHidden = 16
+                      , clfClasses = 3
+                      , clfEpochs = 400
+                      , clfLearningRate = 1.0e-2
+                      }
+              result <- trainClassifierWithDevice device config syntheticDataset
+              case result of
+                Left err -> assertFailure ("device training failed: " <> Text.unpack err)
+                Right (_, acc) ->
+                  assertBool
+                    ("expected device train accuracy >= 0.9, got " <> show acc)
+                    (acc >= 0.9)
       , testCase "SL classifier training is run-to-run deterministic (Sprint 13.4)" $ do
           let config = defaultClassifierConfig {clfInputs = 4, clfHidden = 16, clfClasses = 3, clfEpochs = 20}
               dataset = syntheticDataset

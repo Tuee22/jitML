@@ -29,7 +29,7 @@ import Foreign.Ptr (FunPtr, Ptr)
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
-import JitML.Checkpoint.Format (CheckpointManifest, weightOnlyTensors)
+import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Checkpoint.Store (LoadedWeightTensor (..))
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.OneDnn (renderOneDnnFamilySource)
@@ -149,14 +149,17 @@ runLinuxCpuFamilyKernel env family =
   runLinuxCpuKernel env (linuxCpuFamilyRuntimeSource family) (linuxCpuFamilyHash family)
 
 runLinuxCpuCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
-runLinuxCpuCheckpointInference env manifest input = do
+runLinuxCpuCheckpointInference env _manifest input = do
   kernelResult <- runLinuxCpuIdentityKernel env (fmap realToFrac input)
   pure $
     case kernelResult of
       Left err -> Left err
       Right kernelRun ->
-        let bias = fromIntegral (length (weightOnlyTensors manifest)) / 100.0
-         in Right (fmap ((+ bias) . realToFrac) (linuxCpuKernelOutput kernelRun))
+        -- Sprint 10.5 — return the faithful kernel output; the former
+        -- `+ nTensors/100` synthetic offset (a fabricated inference value) is
+        -- removed. The real weighted read path is
+        -- 'runLinuxCpuWeightedCheckpointInference'.
+        Right (fmap realToFrac (linuxCpuKernelOutput kernelRun))
 
 -- | Sprint 13.11 — drive the live `jitml_weighted_kernel` ABI for a
 -- checkpoint-supplied weight tensor list. Routes through Dense2D's real

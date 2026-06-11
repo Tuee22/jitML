@@ -9,6 +9,9 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
 import JitML.Checkpoint.Format (decodeJmw1, encodeJmw1)
+import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Numerics.MlpDevice (probeMlpDevice)
+import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Proto.Rl
   ( CheckpointDoneRL (..)
   , EpisodeDone (..)
@@ -167,6 +170,9 @@ main =
       , testCase
           "PPO trainer learns cartpole through the differentiable MLP (Sprint 13.8 + 13.9 seam)"
           assertPpoTrainerImprovesOnCartpole
+      , testCase
+          "PPO trains and improves on cartpole through the substrate JIT device (Sprint 8.11 --linux-cpu)"
+          assertPpoDeviceImproves
       , testCase
           "PPO trainer is bit-deterministic across two fresh runs (Sprint 13.8 determinism)"
           assertPpoTrainerDeterministic
@@ -629,6 +635,49 @@ assertPpoTrainerImprovesOnCartpole = do
         )
         (PpoTrainer.iterMeanReward lastStat > PpoTrainer.iterMeanReward firstStat)
     [] -> assertBool "PPO trainer returned no iteration stats" False
+
+-- | Sprint 8.11 — route a short PPO cohort through the resolved substrate's
+-- JIT-compiled MLP device ('rlDeviceForSubstrate' → 'trainOnPolicyOnDevice')
+-- and assert the final iteration's mean reward improves over the first. This
+-- is the on-device analogue of 'assertPpoTrainerImprovesOnCartpole': it proves
+-- the trainer learns when the network forward/backward run on the real oneDNN
+-- kernel (under `--linux-cpu`) rather than the pure-Haskell reference path. On
+-- a host without the substrate toolchain the device probe returns Left and the
+-- case skips with a passing message (the live-test skip convention).
+assertPpoDeviceImproves :: IO ()
+assertPpoDeviceImproves = do
+  env <- buildEnv defaultGlobalFlags
+  let device = rlDeviceForSubstrate LinuxCPU env
+  probe <- probeMlpDevice device
+  case probe of
+    Left _ ->
+      assertBool "linux-cpu JIT device unavailable; on-device PPO improvement skipped" True
+    Right () -> do
+      let config =
+            PpoTrainer.defaultPpoTrainConfig
+              { PpoTrainer.ppoSeed = 42
+              , PpoTrainer.ppoRolloutSteps = 512
+              , PpoTrainer.ppoNumIterations = 8
+              , PpoTrainer.ppoEpochsPerUpdate = 4
+              , PpoTrainer.ppoLearningRate = 1.0e-3
+              , PpoTrainer.ppoMaxEpisodeSteps = 200
+              }
+      resultE <- PpoTrainer.trainOnPolicyOnDevice device PpoTrainer.VariantPPO config
+      case resultE of
+        Left err ->
+          assertBool ("on-device PPO training failed: " <> Text.unpack err) False
+        Right result ->
+          case PpoTrainer.resultIterations result of
+            (firstStat : rest@(_ : _)) ->
+              let lastStat = last rest
+               in assertBool
+                    ( "on-device PPO should improve: first="
+                        <> show (PpoTrainer.iterMeanReward firstStat)
+                        <> " last="
+                        <> show (PpoTrainer.iterMeanReward lastStat)
+                    )
+                    (PpoTrainer.iterMeanReward lastStat > PpoTrainer.iterMeanReward firstStat)
+            _ -> assertBool "on-device PPO returned too few iteration stats" False
 
 -- | Sprint 13.8 — drive a DDPG continuous actor-critic cohort on the
 -- Pendulum-v1 simulator and assert the local canonical run is deterministic

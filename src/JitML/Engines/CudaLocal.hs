@@ -27,7 +27,7 @@ import Foreign.Ptr (FunPtr, Ptr)
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
-import JitML.Checkpoint.Format (CheckpointManifest, weightOnlyTensors)
+import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Checkpoint.Store (LoadedWeightTensor (..))
 import JitML.Codegen.Cuda (renderCudaFamilySource)
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
@@ -137,14 +137,15 @@ runCudaFamilyKernelWithProbe probeRuntime env family input = do
     else pure (Left ("linux-cuda runtime unavailable: " <> renderCudaUnavailableSummary probe))
 
 runCudaCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
-runCudaCheckpointInference env manifest input = do
+runCudaCheckpointInference env _manifest input = do
   kernelResult <- runCudaFamilyKernel env Identity (fmap realToFrac input)
   pure $
     case kernelResult of
       Left err -> Left err
       Right kernelRun ->
-        let bias = fromIntegral (length (weightOnlyTensors manifest)) / 100.0
-         in Right (fmap ((+ bias) . realToFrac) (cudaKernelOutput kernelRun))
+        -- Sprint 10.5 — faithful kernel output; the synthetic `+ nTensors/100`
+        -- offset is removed (real weighted read: 'runCudaWeightedCheckpointInference').
+        Right (fmap realToFrac (cudaKernelOutput kernelRun))
 
 -- | Sprint 13.11 — CUDA weighted checkpoint inference. Mirror of the
 -- Linux CPU path. Routes through `runCudaWeightedFamilyKernel` against

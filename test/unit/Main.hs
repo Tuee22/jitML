@@ -1981,15 +1981,15 @@ main =
           assertBool
             "distinct move sequences hash differently"
             (Mcts.transpositionKey [0, 1, 2] /= Mcts.transpositionKey [0, 1, 3])
-      , testCase "MCTS PriorOracle plumbing routes through expand and simulate (Sprint 13.9)" $ do
-          -- Confirm that supplying a custom `PriorOracle` actually
-          -- changes the search output. The neutral default produces
-          -- uniform priors; a biased oracle produces asymmetric priors.
-          -- The visit-weighted edge values therefore differ, proving the
-          -- oracle threads through `expandWithPrior` and `simulateWithPrior`.
+      , testCase "MCTS position oracle plumbing routes through the real tree search (Sprint 9.10)" $ do
+          -- Confirm that supplying a custom position oracle (`[Int] -> NodeEval`)
+          -- actually changes the search output. The neutral default expands the
+          -- root with uniform priors; a biased oracle yields asymmetric priors,
+          -- proving the oracle threads through the real descend/expand search.
           let cfg = Mcts.defaultMctsConfig 4
               defaultTree = Mcts.runSearch cfg 17
-              biasedTree = Mcts.runSearchWithPrior (\_ action -> fromIntegral (action + 1)) cfg 17
+              biasedTree =
+                Mcts.runSearchWithPrior (\_ -> Mcts.NodeEval [1.0, 2.0, 3.0, 4.0] 0.0 False) cfg 17
               defaultPriors = map Mcts.edgePrior (Mcts.nodeChildren defaultTree)
               biasedPriors = map Mcts.edgePrior (Mcts.nodeChildren biasedTree)
           assertBool

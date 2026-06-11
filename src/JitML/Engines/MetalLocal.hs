@@ -37,7 +37,7 @@ import Foreign.Ptr (FunPtr, Ptr)
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
-import JitML.Checkpoint.Format (CheckpointManifest, weightOnlyTensors)
+import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Checkpoint.Store (LoadedWeightTensor (..))
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
 import JitML.Codegen.Metal (renderMetalFamilyPackage)
@@ -146,14 +146,15 @@ runMetalFamilyKernelWithProbe probeRuntime env family input = do
     else pure (Left ("apple-silicon Metal device not visible: " <> renderMetalUnavailableSummary probe))
 
 runMetalCheckpointInference :: Env -> CheckpointManifest -> [Double] -> IO (Either Text [Double])
-runMetalCheckpointInference env manifest input = do
+runMetalCheckpointInference env _manifest input = do
   kernelResult <- runMetalFamilyKernel env Identity (fmap realToFrac input)
   pure $
     case kernelResult of
       Left err -> Left err
       Right kernelRun ->
-        let bias = fromIntegral (length (weightOnlyTensors manifest)) / 100.0
-         in Right (fmap ((+ bias) . realToFrac) (metalKernelOutput kernelRun))
+        -- Sprint 10.5 — faithful kernel output; the synthetic `+ nTensors/100`
+        -- offset is removed (real weighted read: 'runMetalWeightedCheckpointInference').
+        Right (fmap realToFrac (metalKernelOutput kernelRun))
 
 -- | Weighted checkpoint inference. Mirror of the CUDA path: routes through
 -- the weighted Dense2D Metal kernel and returns the GPU output.

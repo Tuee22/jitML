@@ -26,6 +26,19 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 — real-workflow refactor; Sprints `13.17` /
+`13.18` / `13.19`). With Phases `8`–`12` now routing the SL/RL/tune/inference
+workflows through the real substrate JIT engine, this phase owns the live
+linux-cpu and linux-cuda exercise of every reopened workflow through the
+`WorkflowMatrix` (Sprint `12.11`) against a live cluster. **These sprints are
+blocked on hardware on the current host**: linux-cuda requires an NVIDIA GPU
+(absent on this Apple-Silicon host — the project owner's "stop at the GPU
+boundary" decision applies), and the live linux-cpu cluster (Kind + Helm +
+Pulsar + MinIO) is not provisionable on a memory-constrained host. The code the
+exercise drives is the validated Phase `8`–`11` real-workflow surface; the live
+run is recorded as blocked pending the GPU / cluster host. The prior closure
+narrative below is retained as dated record.
+
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`, after Sprint 13.16's live
 `linux-cuda` lane re-validation). The phase reopened 2026-06-08 for Sprint
@@ -3965,6 +3978,70 @@ contract holds.
 - None. The `linux-cuda` lane was re-validated for real on the RTX 5090 on
   2026-06-09 (19 / 19, no skip-sentinels); the skip-guard removal is complete
   and the sprint is `✅ Done`.
+
+## Sprint 13.17: Live linux-cpu Exercise of the Reopened Workflows [Blocked]
+
+**Status**: Blocked
+**Blocked by**: a live cluster (Kind + Helm + Pulsar + MinIO) is not
+provisionable on a memory-constrained host.
+**Docs to update**: `system-components.md`
+
+### Objective
+
+Exercise every reopened real workflow (Phases `8`–`11`) on the **linux-cpu**
+lane against a live cluster through the `WorkflowMatrix` (Sprint `12.11`): live
+`jitml train` (device-backed SL classifier), `jitml rl train` (on-device
+trainers), `jitml rl eval` / `rollout`, `jitml tune` (real objective), `jitml
+inference run` (weighted kernel), and AlphaZero self-play — each producing real
+measured output that clears its in-code threshold.
+
+### Validation
+
+- `jitml bootstrap --linux-cpu` then
+  `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu` and the
+  `jitml-integration -p Live` matrix cells, all PASS for real.
+
+### Remaining Work
+
+- The Phase `8`–`11` code the lane exercises is implemented and container
+  `--linux-cpu` validated for the non-live (device) half. The live half is
+  blocked: standing up Kind + Helm + Pulsar + MinIO needs more memory than this
+  host has. No code remains — the obligation is the live run on a roomier host.
+
+## Sprint 13.18: Live linux-cuda Exercise of the Reopened Workflows [Blocked]
+
+**Status**: Blocked
+**Blocked by**: no NVIDIA GPU on this Apple-Silicon host (the project owner's
+"stop at the GPU boundary" decision).
+**Docs to update**: `system-components.md`
+
+### Objective
+
+Exercise every reopened real workflow on the **linux-cuda** lane (real
+cuBLAS/cuDNN kernels via the GPU-attached `jitml-cuda` service) against a live
+cluster, with `-fcuda` so the CUDA bindings link.
+
+### Remaining Work
+
+- Blocked on an NVIDIA host. The CUDA codegen / device path is implemented
+  (Phase `7`/`8`) and `-fcuda` compiles in the image; the live GPU exercise
+  needs the RTX-class host, which this Apple-Silicon host is not.
+
+## Sprint 13.19: Live Cluster Closure of the Reopened Workflows [Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprints `13.17` / `13.18` (live cluster + GPU hardware).
+**Docs to update**: `system-components.md`
+
+### Objective
+
+Close the live linux cluster surface for the reopened workflows: the daemon
+dispatches every reopened workflow into Kubernetes Jobs, the events round-trip
+through the live broker, and the report card reads the real measured metrics.
+
+### Remaining Work
+
+- Blocked on the live cluster + GPU hardware (Sprints `13.17` / `13.18`).
 
 ## Doctrine Sections Cited
 

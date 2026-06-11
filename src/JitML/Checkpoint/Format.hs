@@ -285,11 +285,15 @@ manifestPointer manifest =
 weightOnlyTensors :: CheckpointManifest -> [TensorBlob]
 weightOnlyTensors = manifestTensors
 
+-- | Sprint 10.5 — a faithful weight-only manifest read: it returns the input
+-- values unmodified. The former @+ nTensors/100@ synthetic offset (a fabricated
+-- inference value) is removed. Real inference runs the substrate weighted kernel
+-- over the decoded `.jmw1` weight tensors via
+-- 'JitML.Checkpoint.Store.loadInferenceCheckpointWithWeights' →
+-- @run*WeightedCheckpointInference@; routing the remaining manifest-only read
+-- sites through that device path is tracked as Phase 13 Remaining Work.
 inferFromManifest :: CheckpointManifest -> [Double] -> [Double]
-inferFromManifest manifest =
-  fmap (+ bias)
- where
-  bias = fromIntegral (length (manifestTensors manifest)) / 100.0
+inferFromManifest _manifest = id
 
 applyPointerWrite :: Maybe Text -> PointerWrite -> PointerWriteResult
 applyPointerWrite currentETag write

@@ -417,8 +417,10 @@ herUpdateDevice device config online target adam batch = do
               adamCfg = defaultAdamConfig {adamLearningRate = herLearningRate config}
               (onlineAfter, adamAfter) = adamStep adamCfg adam online meanGradient
            in pure (onlineAfter, adamAfter)
-        Left _ -> pure (dqnUpdate config online target adam batch)
-    _ -> pure (dqnUpdate config online target adam batch)
+        -- Sprint 8.11 — fail closed (the dispatch `probeMlpDevice` gate makes a
+        -- mid-run device `Left` a genuine fault, not a pure-fallback cue).
+        Left err -> error ("her device gradient kernel failed mid-run: " <> show err)
+    _ -> error "her device forward kernel failed mid-run"
  where
   scaleGradient sc g =
     MlpGradient

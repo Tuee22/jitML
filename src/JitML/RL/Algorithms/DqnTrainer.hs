@@ -472,10 +472,11 @@ trainDqnOnDevice device config = do
 -- target net at the next states (Q(s',·)) — plus the online net at the
 -- next states for Double-DQN action selection — then the per-sample TD
 -- residual gradient ('dqnResidualDLdy'), one batched device backward (mean
--- gradient over the minibatch), and one Adam step. Falls back to the pure
--- 'dqnUpdate' if the CUDA runtime/compile is unavailable so non-GPU hosts
--- still train. (Minibatch GD vs. the pure path's per-sample online SGD —
--- standard for a batched DQN.)
+-- gradient over the minibatch), and one Adam step. Fails closed on a device
+-- `Left` (Sprint 8.11) — the dispatch `probeMlpDevice` gate already confirmed
+-- the kernel runs, so a mid-run fault is genuine, not a pure-fallback cue.
+-- (Minibatch GD vs. the pure path's per-sample online SGD — standard for a
+-- batched DQN.)
 dqnUpdateDevice
   :: MlpDevice
   -> DqnTrainConfig
@@ -509,5 +510,9 @@ dqnUpdateDevice device config online target adam batch = do
               adamConfig = defaultAdamConfig {adamLearningRate = dqnLearningRate config}
               (onlineAfter, adamAfter) = adamStep adamConfig adam online meanGradient
            in pure (onlineAfter, adamAfter)
-        Left _ -> pure (dqnUpdate config online target adam batch)
-    _ -> pure (dqnUpdate config online target adam batch)
+        -- Sprint 8.11 — fail closed: the dispatch-level `probeMlpDevice` gate
+        -- guarantees the kernel compiles/runs before training starts, so a
+        -- mid-run device `Left` is a genuine fault, not a cue to silently
+        -- degrade to the pure update.
+        Left err -> error ("dqn device gradient kernel failed mid-run: " <> show err)
+    _ -> error "dqn device forward kernel failed mid-run"

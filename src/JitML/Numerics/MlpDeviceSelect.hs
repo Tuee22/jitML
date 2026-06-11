@@ -15,6 +15,7 @@
 -- @MlpDevice@ would form an import cycle.
 module JitML.Numerics.MlpDeviceSelect
   ( mlpDeviceForSubstrate
+  , rlDeviceForSubstrate
   )
 where
 
@@ -34,3 +35,13 @@ mlpDeviceForSubstrate :: Substrate -> Env -> MlpDevice
 mlpDeviceForSubstrate AppleSilicon = metalMlpDevice
 mlpDeviceForSubstrate LinuxCPU = oneDnnMlpDevice
 mlpDeviceForSubstrate LinuxCUDA = cudaMlpDevice
+
+-- | Sprint 8.11 — the single DRY seam the RL worker dispatch
+-- ('JitML.App.runTrainerEpisodes') routes every MLP-backed trainer through.
+-- It resolves to the same JIT-compiled device as 'mlpDeviceForSubstrate':
+-- the 13 MLP-backed RL algorithms (PPO/A2C/TRPO/MaskablePPO/RecurrentPPO,
+-- DQN/QR-DQN, DDPG/TD3/SAC/CrossQ/TQC, HER) share one device per substrate.
+-- ARS is the lone no-MLP exception — it is a finite-difference random-search
+-- method with no network forward/backward, so it never consumes this seam.
+rlDeviceForSubstrate :: Substrate -> Env -> MlpDevice
+rlDeviceForSubstrate = mlpDeviceForSubstrate

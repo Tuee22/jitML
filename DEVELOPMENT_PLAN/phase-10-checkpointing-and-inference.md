@@ -23,6 +23,16 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 — real-workflow refactor). The checkpoint
+format and the live weighted read path shipped, but the manifest-only read used
+a synthetic `inferFromManifest` (`+ nTensors/100`) and the three engine
+checkpoint runners added the same fabricated offset to the real kernel output.
+Sprint `10.5` removes the fabricated value: the engines return faithful output,
+`inferFromManifest` is a faithful identity read, and `jitml inference run` /
+`jitml inspect replay` fail closed / report real manifest metadata. See
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
+closure narrative below is retained as dated record.
+
 ✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
 split-blob object-key renderers, manifest CBOR codec with canonical
 ordering, `.jmw1` wire format, local pointer-CAS decision surface,
@@ -416,6 +426,50 @@ weight-blob-to-kernel loading remain target runtime work.
   CUDA are owned by Phase `13` Sprint `13.11`; Apple Metal is owned by
   [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
   Sprint `14.5`.
+
+## Sprint 10.5: Remove the Synthetic Inference Offset [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/Checkpoint/Format.hs` (`inferFromManifest`),
+`src/JitML/Engines/{Local,CudaLocal,MetalLocal}.hs` (checkpoint runners),
+`src/JitML/App.hs` (`runInference`, `assertManifestShaMatches`)
+**Docs to update**: `../documents/engineering/checkpoint_format.md`, `system-components.md`
+
+### Objective
+
+Remove the fabricated `+ nTensors/100` inference offset that stood in for the
+real substrate weighted kernel, so no read path emits a synthetic number. Owns
+the inference-read slice of [Exit Definition](README.md#exit-definition) item 7.
+
+### Deliverables
+
+- The three engine checkpoint runners (`runLinuxCpuCheckpointInference` and
+  peers) return the faithful kernel output with no added bias.
+- `inferFromManifest` is a faithful identity read (no fabricated value); real
+  inference is the substrate weighted kernel via
+  `loadInferenceCheckpointWithWeights` → `run*WeightedCheckpointInference`.
+- `jitml inference run` fails closed (`InferenceCheckpointMissing`) when no live
+  publication is present, instead of the `emptyManifest` + synthetic summary;
+  `jitml inspect replay` reports the verified manifest's real metadata
+  (content SHA + weight-tensor count), not a synthetic inference value.
+
+### Validation
+
+- `docker compose run --rm jitml cabal test jitml-unit` (the `inferFromManifest`
+  round-trip cases hold under the identity read).
+- `jitml check-code` + `jitml docs check` green inside `jitml:local`.
+
+### Current Validation State
+
+Landed; host lib type-checks. Container: `check-code` + `jitml-unit` validated at
+the Phase 10 boundary.
+
+### Remaining Work
+
+- Route the remaining manifest-only read sites (`Checkpoint.Store` synthetic
+  load variants, `Service.Workload`, and the `Web.Server` demo endpoint — the
+  last owned by Sprint 11.8) through the substrate weighted kernel, then delete
+  `inferFromManifest`. The live device-weighted read is Phase 13 (Sprint 13.11).
 
 ## Doctrine Sections Cited
 

@@ -17,6 +17,7 @@ module JitML.RL.SimulatorLoop
   ( SimulatedEnvByName (..)
   , SimulatedEpisode (..)
   , lookupSimulatedEnvByName
+  , realRolloutByName
   , runSimulatedEpisode
   , runSimulatedEpisodes
   , runSimulatedEpisodesByName
@@ -103,3 +104,31 @@ runSimulatedEpisodesByName
   :: SimulatedEnvByName -> Int -> Int -> Int -> [SimulatedEpisode]
 runSimulatedEpisodesByName (SimulatedEnvByName _name env) =
   runSimulatedEpisodes env
+
+-- | Sprint 9.9 — a single real-environment rollout for the named environment:
+-- step the /real/ environment dynamics for up to @horizon@ steps with a
+-- deterministic seeded policy, returning the per-step @(actions, rewards)@ from
+-- the real environment (not an LCG). Deterministic given the seed; 'Nothing'
+-- when the environment is not in the catalog. This is the real surface
+-- 'JitML.RL.Algorithms.Common.trajectoryRollout' projects into 'AlgorithmRollout'
+-- so every algorithm's canonical rollout exercises real environment dynamics.
+realRolloutByName :: Text -> Int -> Int -> Maybe ([Int], [Double])
+realRolloutByName envName seed horizon =
+  case lookupSimulatedEnvByName envName of
+    Just (SimulatedEnvByName _name env) -> Just (realRollout env seed horizon)
+    Nothing -> Nothing
+
+realRollout :: SimulatedEnvironment state -> Int -> Int -> ([Int], [Double])
+realRollout env seed horizon = go (envInitial env) 0 [] []
+ where
+  actionCount = max 1 (envActionCount env)
+  go state stepIx accActions accRewards
+    | stepIx >= horizon = (reverse accActions, reverse accRewards)
+    | otherwise =
+        let action = (stepIx + seed) `mod` actionCount
+            step = envStep env state action
+            accActions' = action : accActions
+            accRewards' = simStepReward step : accRewards
+         in if simStepDone step
+              then (reverse accActions', reverse accRewards')
+              else go (simStepState step) (stepIx + 1) accActions' accRewards'

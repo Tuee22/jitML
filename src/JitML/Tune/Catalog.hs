@@ -32,9 +32,12 @@ import Codec.Serialise (Serialise)
 import Control.Exception.Safe (displayException, tryAny)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Vector.Unboxed qualified as VU
 import Dhall qualified
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
+
+import JitML.SL.Classifier qualified as Classifier
 
 data Sampler
   = Grid
@@ -139,26 +142,65 @@ schedulerCatalog = [Fifo, SuccessiveHalving, Hyperband, ASHA]
 prunerCatalog :: [Pruner]
 prunerCatalog = [NoPruner, MedianPruner, PercentilePruner]
 
+-- | Sprint 9.11 — the per-trial objective values of a sweep. Each value is a
+-- __real measured objective__ ('trialObjective'): the sampler + trial index
+-- pick a hyperparameter configuration, the reference classifier is trained on a
+-- fixed separable dataset, and the value is @1 − train accuracy@ (lower is
+-- better). This replaces the former per-sampler LCG that trained no model and
+-- measured nothing. The training is bit-deterministic on the same seed, so the
+-- sequence is reproducible. The live, substrate-device-backed trial executor is
+-- owned by Phase 13 Sprint 13.10; this pure surface drives the plan preview and
+-- the resume-determinism check.
 deterministicTrials :: Sampler -> Int -> [Double]
 deterministicTrials sampler count =
-  take count $
-    normalize
-      <$> iterate (\value -> (value * multiplier + 17) `mod` 10_000) (seed sampler)
+  [trialObjective sampler i | i <- [0 .. count - 1]]
+
+-- | The real measured objective for one trial: build the sampled hyperparameter
+-- configuration, train the reference classifier on 'tuningObjectiveDataset',
+-- and return its cross-entropy loss normalised by the random-guess baseline
+-- (@log numClasses@) and clamped to @[0, 1)@ (lower is better). A
+-- genuinely-measured continuous quantity that depends on the hyperparameters
+-- under search — different learning-rate / hidden-width samples yield different
+-- losses — not an LCG of the sampler seed.
+trialObjective :: Sampler -> Int -> Double
+trialObjective sampler trialIndex =
+  let config = sampledClassifierConfig sampler trialIndex
+      trained = Classifier.trainClassifier config tuningObjectiveDataset
+      loss = Classifier.crossEntropyLoss trained tuningObjectiveDataset
+      baseline = log (fromIntegral (max 2 (Classifier.clfClasses config)))
+   in max 0.0 (min 0.999 (loss / baseline))
+
+-- | Deterministic hyperparameter sample for one trial: the sampler seed and the
+-- trial index pick a learning rate and hidden width from a fixed grid (the
+-- sampler's job is to choose configurations; the objective measures them).
+sampledClassifierConfig :: Sampler -> Int -> Classifier.ClassifierConfig
+sampledClassifierConfig sampler trialIndex =
+  let base = seed sampler + trialIndex
+      lrChoices = [1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2]
+      hiddenChoices = [4, 8, 12, 16]
+   in Classifier.defaultClassifierConfig
+        { Classifier.clfSeed = base
+        , Classifier.clfInputs = 2
+        , Classifier.clfHidden = hiddenChoices !! ((base * 7) `mod` 4)
+        , Classifier.clfClasses = 2
+        , Classifier.clfEpochs = 6
+        , Classifier.clfLearningRate = lrChoices !! ((base * 3) `mod` 4)
+        }
+
+-- | A fixed, deterministic, linearly-separable 2-class dataset for the tuning
+-- objective — small and low-epoch so a sweep stays fast while still measuring a
+-- real trained-model accuracy (no committed numerical fixtures).
+tuningObjectiveDataset :: [Classifier.LabeledExample]
+tuningObjectiveDataset =
+  [ Classifier.LabeledExample (VU.fromList (features c i)) c
+  | c <- [0, 1]
+  , i <- [0 .. 9 :: Int]
+  ]
  where
-  multiplier =
-    case sampler of
-      Grid -> 97
-      Sobol -> 101
-      Random -> 137
-      TPE -> 173
-      GPBO -> 181
-      GeneticAlgorithm -> 149
-      NSGA2 -> 191
-      MuLambdaES -> 197
-      CMAES -> 199
-      EvolutionStrategies -> 163
-      PBT -> 211
-  normalize value = fromIntegral value / 10_000
+  features c i =
+    let jitter k = fromIntegral ((c * 17 + i * 3 + k * 5) `mod` 4) / 100.0
+        baseVec = if c == 0 then [1.0, 0.0] else [0.0, 1.0]
+     in zipWith (\b k -> b + jitter k) baseVec [0 :: Int ..]
 
 seed :: Sampler -> Int
 seed Grid = 7

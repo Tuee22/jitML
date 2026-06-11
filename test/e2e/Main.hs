@@ -40,7 +40,7 @@ import JitML.Service.Http
 import JitML.Storage.Buckets (bucketNames)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (Substrate (..), allSubstrates)
 import JitML.Test.LivePlan (liveE2EPlan, renderLivePlan)
 import JitML.Test.Report
   ( ReportCard (..)
@@ -52,6 +52,7 @@ import JitML.Test.Report
   , renderReportCard
   , reportStanzas
   )
+import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
 import JitML.Web.Bundle (demoRoutePath, demoRoutes)
 import JitML.Web.Contracts (apiEndpoints)
 import JitML.Web.Server (bundleEntryPath, demoHttpRoutes, demoHttpRoutesWithBundle, loadBundleEntry)
@@ -61,7 +62,30 @@ main =
   defaultMain $
     testGroup
       "jitml-e2e"
-      [ testCase "edge route registry includes demo and platform services" $ do
+      [ testCase "workflow matrix covers every reopened workflow on every substrate (Sprint 12.11)" $ do
+          -- The DRY WorkflowMatrix is the single enumeration the integration /
+          -- e2e Live tests iterate; here we assert it covers every reopened real
+          -- workflow on every substrate and that each cell carries a canonical
+          -- command. The fail-closed live execution of each cell is owned by
+          -- Phases 13/14/15 (needs a live cluster + per-substrate hardware).
+          let cells = WorkflowMatrix.workflowMatrix
+          length cells @?= length WorkflowMatrix.allWorkflows * length allSubstrates
+          assertBool
+            "every workflow × substrate cell is present"
+            ( and
+                [ any
+                    ( \c ->
+                        WorkflowMatrix.cellWorkflow c == w && WorkflowMatrix.cellSubstrate c == s
+                    )
+                    cells
+                | w <- WorkflowMatrix.allWorkflows
+                , s <- allSubstrates
+                ]
+            )
+          assertBool
+            "every cell carries a canonical jitml command"
+            (not (any (null . WorkflowMatrix.cellCommand) cells))
+      , testCase "edge route registry includes demo and platform services" $ do
           let services = fmap routeServiceName routeRegistry
           assertBool "demo route present" ("jitml-demo" `elem` services)
           assertBool "grafana route present" ("kube-prometheus-stack-grafana" `elem` services)

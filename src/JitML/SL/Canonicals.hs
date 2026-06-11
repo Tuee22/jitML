@@ -3,6 +3,8 @@
 module JitML.SL.Canonicals
   ( CanonicalProblem (..)
   , canonicalProblems
+  , denseMlpCohort
+  , isDenseMlpProblem
   , convergenceCurve
   , finalLoss
   )
@@ -32,6 +34,25 @@ canonicalProblems =
   , CanonicalProblem "tiny-imagenet-resnet50" "Tiny ImageNet" "ResidualBlock50" 1010
   , CanonicalProblem "california-housing-mlp" "California Housing" "Dense" 1011
   ]
+
+-- | Sprint 8.10 — the subset of 'canonicalProblems' the JIT codegen actually
+-- trains today: the single-hidden-layer @Dense@ models the two-layer MLP
+-- device kernel (@jitml_mlp_*@) represents end to end. @jitml train@ and the
+-- device-backed convergence assertion are scoped to this cohort; the
+-- @DeepDense@ / @Conv2D@ / @ResidualBlock*@ / @VisionTransformer@ rows remain
+-- in the catalog as the target architecture set but are not device-trainable
+-- until the per-architecture forward/backward JIT codegen lands (Sprint 8.10
+-- Remaining Work). Membership is by model tag so the catalog and the cohort
+-- never drift.
+denseMlpCohort :: [CanonicalProblem]
+denseMlpCohort = filter isDenseMlpProblem canonicalProblems
+
+-- | True for the single-hidden-layer @Dense@ canonical problems the two-layer
+-- MLP device kernel trains (@mnist-shallow-mlp@, @fashion-mnist-mlp@,
+-- @california-housing-mlp@). The deeper/convolutional/attention architectures
+-- are excluded until their codegen exists.
+isDenseMlpProblem :: CanonicalProblem -> Bool
+isDenseMlpProblem problem = problemModel problem == "Dense"
 
 convergenceCurve :: CanonicalProblem -> [Double]
 convergenceCurve problem =

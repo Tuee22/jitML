@@ -776,13 +776,50 @@ item 7 inference-read slice (`runEval`).
 - Offline `jitml train` → typed error, exit 2, no number printed/published.
 - `jitml check-code` + `jitml docs check` green inside `jitml:local`.
 
-### Remaining Work
+### Current Validation State
 
-- Route the SL classifier through `MlpDevice` and delete the synthetic surface
-  (ledger rows 1–5).
+Host (`ghc-9.12.4`, no oneDNN/Metal toolchain) — landed and green:
+
+- `JitML.SL.Classifier.trainClassifierWithDevice` /
+  `trainClassifierWithDeviceFromIdxBounded` / `classifyWithDevice` /
+  `accuracyWithDevice` route the softmax cross-entropy classifier through the
+  injected `MlpDevice` (batched device forward + batched device gradient +
+  host Adam), failing closed on a device `Left` — no pure-Haskell fallback.
+- `runTrain` is fail-closed: `runDeviceMnistTraining` requires a live cluster
+  publication and a staged dataset, otherwise `exitWithError
+  (TrainingPrerequisiteUnmet …)` with nothing printed or published. The
+  synthetic `train:`/`final_loss:` summary print is removed.
+- `runEval` loads the named inference checkpoint and runs the substrate-bound
+  weighted device forward; a missing pointer/manifest → `InferenceCheckpointMissing`.
+- `AppError` gains `TrainingPrerequisiteUnmet Text` (exit 2) with its
+  `renderError` line; registered in `system-components.md`.
+- `JitML.SL.Canonicals.denseMlpCohort` / `isDenseMlpProblem` name the
+  device-trainable single-hidden-layer Dense subset
+  (`mnist-shallow-mlp`, `fashion-mnist-mlp`, `california-housing-mlp`).
+- `jitml-unit` (196/196), `jitml-sl-canonicals` (19/19, device convergence case
+  skips when the probe reports no device), and `jitml-integration` Subprocess
+  offline-`jitml train` fail-closed assertion pass on the host.
+
+Container (`jitml:local`, oneDNN present) — boundary gate **passed** (2026-06-10):
+
+- `docker compose build jitml` built `jitml:local` with `check-code: ok` (the
+  `jitml train` exe compiles under `-fcuda`).
+- `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu`
+  → **19/19 PASS**, including `SL classifier converges through the substrate
+  JIT device (Sprint 8.10 --linux-cpu): OK (1.61s)` — the case ran the real
+  generated oneDNN MLP kernel (compile + batched forward/gradient + Adam to
+  convergence) instead of skipping.
+
+### Remaining Work
+- Delete the residual synthetic surface — `SL.Canonicals.convergenceCurve` /
+  `finalLoss` and the `SL.Loop` / `SL.Train` deterministic-curve pipeline
+  (ledger rows 1–5) — once the device convergence assertion covers the cohort
+  through the live datasets (couples to Sprint 13.17).
 - Build Conv2D / ResidualBlock / VisionTransformer forward+backward JIT codegen and
-  backward kernels, then restore those canonical-SL rows + thresholds (primary
-  obligation; not a ledger row).
+  backward kernels, then promote those catalog rows into `denseMlpCohort`'s
+  device-trainable set and restore their thresholds (primary obligation; not a
+  ledger row). Until then the catalog retains them as the target architecture
+  set and the device path is scoped to `denseMlpCohort`.
 
 ## Sprint 8.11: RL Framework Substrate Routing [Active]
 
@@ -813,10 +850,41 @@ Route every MLP-backed RL trainer through the substrate engine selected by
   (on-device reward improvement; live half in Sprint 13.17).
 - Unknown `JITML_RL_TRAINER` → typed `InvalidConfig`, no episodes published.
 
+### Current Validation State
+
+Host (`ghc-9.12.4`, no oneDNN/Metal toolchain) — landed and green:
+
+- `JitML.Numerics.MlpDeviceSelect.rlDeviceForSubstrate` is the single DRY seam
+  for the 13 MLP-backed algorithms; ARS is the lone no-MLP exception, stated
+  here and in `system-components.md`.
+- `runTrainerEpisodes` takes the resolved `MlpDevice`, probes it once
+  (`probeMlpDevice` — a 1×1×1 JIT forward) and **fails closed** when the
+  substrate toolchain/hardware is absent, then dispatches each trainer to its
+  `*OnDevice` variant. Iteration budgets are raised from the old
+  `max 1 evalEpisodes` floor (PPO `max 50 evalEpisodes`, value-based / continuous
+  `max 20000 (evalEpisodes × maxSteps)`, ARS `max 50 evalEpisodes`, HER
+  `max 200 (evalEpisodes × 20)`) so training actually learns.
+- The `"simulator"` scripted default is gone: `runRl` defaults the trainer to
+  `ppo`, and an unknown trainer → `runTrainerEpisodes` returns `Left` →
+  `runRl` `exitWithError (InvalidConfig …)`; nothing is published.
+- `jitml-rl-canonicals` (28/28) passes on the host, including the new
+  on-device PPO reward-improvement case, which skips when the device probe
+  reports no toolchain.
+
+Container (`jitml:local`, oneDNN present) — boundary gate **passed** (2026-06-10):
+`docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
+→ **28/28 PASS**, including `PPO trains and improves on cartpole through the
+substrate JIT device (Sprint 8.11 --linux-cpu): OK (0.88s)` — the case ran the
+real generated oneDNN MLP kernel through `trainOnPolicyOnDevice` instead of
+skipping. `docs check: ok` and `check-code: ok` in the same image.
+
 ### Remaining Work
 
-- Route the trainers through `rlDeviceForSubstrate` and delete the `"simulator"`
-  scripted default (ledger row 6).
+- None on the owned RL-routing surface. The per-trainer internal device updates
+  (`dqnUpdateDevice` and the `QrDqnTrainer` / `ContinuousTrainer` / `HerTrainer`
+  peers) now **fail closed** on a mid-run device `Left` (no pure-Haskell
+  fallback); the ledger row moved to `Completed`. The live `--linux-cpu` /
+  `--apple-silicon` on-device reward exercise is owned by Phases `13`/`14`.
 
 ## Doctrine Sections Cited
 

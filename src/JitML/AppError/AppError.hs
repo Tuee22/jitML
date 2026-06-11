@@ -26,11 +26,18 @@ data AppError
   | CheckpointWriteConflict Text
   | InferenceCheckpointMissing Text
   | InferenceManifestShaMismatch Text Text
+  | -- | Sprint 8.10 — a substrate-backed training run was requested but a
+    -- hard prerequisite (live cluster publication or a staged dataset) is
+    -- absent. The real-workflow refactor fails closed here rather than
+    -- printing or publishing a synthetic summary. The 'Text' names the
+    -- unmet prerequisite.
+    TrainingPrerequisiteUnmet Text
   | ReconcilerNoop Text
   deriving stock (Eq, Show)
 
 exitCodeFor :: AppError -> ExitCode
 exitCodeFor PrerequisiteUnmet {} = ExitFailure 2
 exitCodeFor (InvalidConfig _) = ExitFailure 2
+exitCodeFor (TrainingPrerequisiteUnmet _) = ExitFailure 2
 exitCodeFor (ReconcilerNoop _) = ExitFailure 3
 exitCodeFor _ = ExitFailure 1

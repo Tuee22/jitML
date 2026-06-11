@@ -652,10 +652,14 @@ main =
                 assertBool
                   "tune renders the TPE sampler from Dhall"
                   ("sampler: TPE" `Text.isInfixOf` tuneStdout)
-                -- Sprint 1.12 — train with --substrate / --seed Dhall
-                -- overrides emits the resolved values in the printed
-                -- summary so the override path is observable end-to-end.
-                (trainOverrideExit, trainOverrideStdout, _) <-
+                -- Sprint 8.10 — `jitml train` is substrate-backed and fails
+                -- closed offline: with no live cluster publication it exits
+                -- non-zero with a typed `TrainingPrerequisiteUnmet` diagnostic
+                -- and prints no synthetic summary. The `--substrate` / `--seed`
+                -- override parse still runs first (the invalid-substrate case
+                -- below proves the parser path); a valid offline run no longer
+                -- prints a summary because there is nothing real to report.
+                (trainOfflineExit, trainOfflineStdout, trainOfflineStderr) <-
                   runJitml
                     [ "train"
                     , Text.pack experimentPath
@@ -664,13 +668,15 @@ main =
                     , "--seed"
                     , "42"
                     ]
-                trainOverrideExit @?= ExitSuccess
                 assertBool
-                  "train override summary lists substrate"
-                  ("substrate=linux-cpu" `Text.isInfixOf` trainOverrideStdout)
+                  "offline train fails closed (non-zero exit)"
+                  (trainOfflineExit /= ExitSuccess)
                 assertBool
-                  "train override summary lists seed"
-                  ("seed=42" `Text.isInfixOf` trainOverrideStdout)
+                  "offline train prints no synthetic final_loss summary"
+                  (not ("final_loss" `Text.isInfixOf` trainOfflineStdout))
+                assertBool
+                  "offline train diagnostic names the unmet training prerequisite"
+                  ("training prerequisite unmet" `Text.isInfixOf` trainOfflineStderr)
                 -- Sprint 1.12 — tune with --sampler / --trials Dhall
                 -- overrides emits the resolved values alongside the
                 -- decoded TPE Dhall (override never replaces; both surfaces

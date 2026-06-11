@@ -20,6 +20,19 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 — real-workflow refactor). The catalog,
+AlphaZero substack, and tuning surfaces shipped, but three user-facing leaves
+still run synthetic/echo stand-ins instead of the substrate JIT path: `jitml rl
+eval` echoed the checkpoint label and `jitml rl rollout` returned an LCG integer
+sequence (Sprint `9.9`); the AlphaZero MCTS `runSearchWithPrior` /
+`simulateWithPrior` is a one-ply bandit that never descends the tree or backs up
+the value head (Sprint `9.10`); and `Tune.deterministicTrials` is a per-sampler
+LCG with no model trained and no objective measured (Sprint `9.11`). Sprints
+`9.9`–`9.11` close the gap; the per-lane live exercise is owned by Phases
+`13`/`14`. See
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
+closure narrative below is retained as dated record.
+
 ✅ **Done** (re-closed 2026-06-04 after Sprint `9.8`). Every original
 code-surface obligation closed on 2026-05-25:
 the 14 algorithm modules' deterministic-stub run-to-run determinism +
@@ -656,6 +669,186 @@ assets.
 ### Remaining Work
 
 None.
+
+## Sprint 9.9: Real `rl eval` / `rollout` and Per-Algorithm On-Device Rollouts [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/App.hs` (`runCheckpointEval`, `runRl ["rl","eval"]`,
+`runRl ["rl","rollout"]`, `runDeviceRollout`),
+`src/JitML/RL/Algorithms/*.hs` (`moduleRolloutGenerator`)
+**Docs to update**: `../documents/engineering/training_workloads.md`, `system-components.md`
+
+### Objective
+
+Make `jitml rl eval` and `jitml rl rollout` exercise the real substrate JIT
+engine — load a real checkpoint and run a real device rollout — with **no echo
+stub and no LCG `deterministicTrajectory`**, and replace the shared
+`moduleRolloutGenerator` stub so each algorithm's rollout runs its real trained
+policy on-device. Owns the catalog slice of
+[Exit Definition](README.md#exit-definition) item 6.
+
+### Deliverables
+
+- `runCheckpointEval :: Text -> [ParsedOption] -> App ()` is the shared
+  checkpoint read path used by `jitml eval` and `jitml rl eval`: it loads the
+  named `.jmw1` checkpoint and runs the substrate-bound weighted device forward;
+  a missing pointer/manifest → `InferenceCheckpointMissing` (exit 1).
+- `jitml rl rollout --seed N` runs one real on-device PPO rollout on cartpole
+  through `rlDeviceForSubstrate` (`runDeviceRollout` → `trainOnPolicyOnDevice`,
+  one iteration) and prints the measured per-iteration episode rewards; an
+  unavailable substrate device fails closed with `InvalidConfig`.
+- `moduleRolloutGenerator` is retired as the shared LCG generator: each
+  algorithm module's rollout runs its real (device-backed) trained policy on the
+  canonical environment, so the per-algorithm rollout surface is genuine.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
+  (per-algorithm on-device rollouts; live half in Sprint 13.17).
+- Offline `jitml rl eval` → `InferenceCheckpointMissing`; offline `jitml rl
+  rollout` → `InvalidConfig`; neither prints a synthetic trajectory.
+- `jitml check-code` + `jitml docs check` green inside `jitml:local`.
+
+### Current Validation State
+
+Landed and host-validated (`ghc-9.12.4`, device cases fail closed offline):
+
+- `runCheckpointEval` shared by `jitml eval` / `jitml rl eval`; the `rl eval`
+  echo stub is removed (ledger row resolved jointly with the `rl rollout` LCG).
+- `jitml rl rollout` routes through `runDeviceRollout` (real on-device PPO
+  rollout), removing the `deterministicTrajectory` LCG; fails closed on an
+  absent device. Host `cabal build` clean; the command-registration unit test
+  still lists `rl eval` / `rl rollout`.
+
+### Remaining Work
+
+- Container `--linux-cpu` boundary run confirming `rl rollout` executes the real
+  oneDNN kernel (the CLI `rl rollout` path).
+- The shared `moduleRolloutGenerator` LCG is retired: `Common.trajectoryRollout`
+  now steps the real named environment dynamics (`SimulatorLoop.realRolloutByName`)
+  with a deterministic seeded policy, so every algorithm's canonical rollout
+  exercises real environment rewards (ledger row moved to `Completed`). The
+  substrate-device-backed /trained/ policy rollout is the Phase 13 live follow-on.
+
+## Sprint 9.10: Real MCTS Tree Search with Substrate-Backed Leaf Evaluation [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/RL/AlphaZero/Mcts.hs`
+(`runSearchWithPrior`, `simulateWithPrior`, position-aware oracle),
+`src/JitML/RL/AlphaZero/PolicyValueNet.hs` (`netOracleFactory`,
+`mctsVisitDistribution`); deletes `src/JitML/RL/AlphaZero/Arena.hs` and
+`src/JitML/RL/AlphaZero/EnginePrior.hs`
+**Docs to update**: `../documents/engineering/training_workloads.md`, `system-components.md`
+
+### Objective
+
+Replace the one-ply MCTS bandit with a real tree search — selection (descend
+root→leaf by UCB), expansion (position priors at the leaf), evaluation (the
+network **value head** on the device at the leaf position), and backpropagation
+(sign-flipped value up the path) — and delete the dead `Arena.playArena` and
+`EnginePrior` modules. Owns the AlphaZero search slice of
+[Exit Definition](README.md#exit-definition) item 6.
+
+### Deliverables
+
+- The `PriorOracle` is generalised to be **position-dependent** (it receives the
+  descended position / move history), so the search evaluates the network at
+  each expanded node rather than only the root. `defaultPriorOracle` and the
+  mechanics tests keep a neutral position-independent shim.
+- `simulateWithPrior` performs one real MCTS simulation: UCB selection down to an
+  unexpanded leaf, expansion with the position priors, value-head leaf
+  evaluation (substrate device forward), and backup with the adversarial sign
+  flip; `runSearchWithPrior` runs `mctsSimulations` such simulations over the
+  persistent tree (the transposition table keys positions).
+- `netOracleFactory` in `PolicyValueNet` supplies the position-aware policy +
+  value oracle from the real network forward; `mctsVisitDistribution` reads the
+  search-derived root visit counts. The existing determinism + visit-target
+  property tests in `jitml-rl-canonicals` hold (run-to-run determinism,
+  non-negative, sums to 1, search concentrates beyond uniform).
+- `Arena.playArena` (SHA/LCG outcome generator, no caller) and the `EnginePrior`
+  Dense2D prior module are deleted; the real arena lives in `PolicyValueNet`
+  self-play generation.
+
+### Validation
+
+- `docker compose run --rm jitml cabal test jitml-rl-canonicals --linux-cpu`
+  (MCTS visit-target + network-self-play determinism through real tree search).
+- `rg -n 'Arena\.playArena|EnginePrior' src test` returns nothing outside the
+  ledger.
+- `jitml check-code` + `jitml docs check` green inside `jitml:local`.
+
+### Current Validation State
+
+Landed and validated (2026-06-10):
+
+- `Mcts.hs` is a real recursive tree search — PUCT selection down to an
+  unexpanded leaf, expansion with the position priors, value-head leaf
+  evaluation, and sign-flipped backup up the path (depth-bounded by
+  `mctsMaxDepth`). `PriorOracle` is now position-aware (`[Int] -> NodeEval`);
+  `PolicyValueNet.netOracleFactory` roots it at the search position.
+- `Arena.hs` and `EnginePrior.hs` are deleted and removed from the cabal
+  exposed-modules; `rg 'Arena.playArena|EnginePrior' src test` is clean.
+- Host: `jitml-unit` 196/196 (migrated MCTS oracle case), `jitml-rl-canonicals`
+  28/28 (real-search determinism, legality, valid search-derived visit
+  distribution that concentrates beyond uniform). Container: `check-code: ok`,
+  `jitml test jitml-rl-canonicals --linux-cpu` PASS.
+
+### Remaining Work
+
+- Substrate-device-backed value-head leaf evaluation (running the leaf forward
+  on the JIT device rather than the pure-Haskell reference net) — couples to
+  making the search `IO`; tracked as a Phase 13 follow-on.
+
+## Sprint 9.11: Real Hyperparameter Tuning Objective Executor [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/Tune/Catalog.hs` (`deterministicTrials` →
+`Tune.Trial` executor), `src/JitML/Tune/Resume.hs` (`resumeMatchesFullRun`)
+**Docs to update**: `../documents/engineering/training_workloads.md`, `system-components.md`
+
+### Objective
+
+Replace the per-sampler LCG `deterministicTrials` with a real trial executor
+that, for each sampled hyperparameter configuration, trains the substrate-backed
+model and measures the real objective, and replace the `resumeMatchesFullRun`
+tautology with a genuine resume-equality check. Owns the tuning slice of
+[Exit Definition](README.md#exit-definition) item 6.
+
+### Deliverables
+
+- A `Tune.Trial` executor maps each sampled config (sampler × scheduler × pruner)
+  to a real measured objective by training the substrate-backed model
+  (`trainClassifierWithDevice` / the RL device trainers) over a bounded budget;
+  no LCG-derived trial value remains.
+- `resumeMatchesFullRun` compares a resumed sweep's trial objectives against the
+  full-run objectives bit-for-bit (within-substrate determinism), not a
+  structural tautology.
+- The `jitml tune` summary and `jitml inspect trial` / `inspect frontier`
+  surfaces read the real measured objective.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu`
+  (real measured objective; live half in Sprint 13.17 / 13.10).
+- `jitml check-code` + `jitml docs check` green inside `jitml:local`.
+
+### Current Validation State
+
+Landed and validated (2026-06-10):
+
+- `Tune.deterministicTrials` now returns __real measured objectives__
+  (`trialObjective`): each trial samples a hyperparameter configuration, trains
+  the reference classifier on a fixed separable dataset, and returns the
+  normalised cross-entropy loss in `[0, 1)`. No LCG-derived trial value remains.
+- Host: `jitml-hyperparameter` 14/14 (distinct per-sampler real objectives,
+  values normalised, resume determinism), `jitml-unit` 196/196. Container:
+  `check-code: ok`, `jitml test jitml-hyperparameter --linux-cpu` 14/14.
+
+### Remaining Work
+
+- Substrate-device-backed trial training (`trainClassifierWithDevice` per trial)
+  and the live persist+replay resume-equality executor — owned by Phase 13
+  Sprint 13.10.
 
 ## Doctrine Sections Cited
 

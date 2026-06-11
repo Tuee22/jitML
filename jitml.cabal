@@ -166,8 +166,6 @@ library
         JitML.RL.Algorithms.TrpoLoss
         JitML.RL.ALE
         JitML.RL.AlphaZero
-        JitML.RL.AlphaZero.Arena
-        JitML.RL.AlphaZero.EnginePrior
         JitML.RL.AlphaZero.PolicyValueNet
         JitML.RL.AlphaZero.Mcts
         JitML.RL.AlphaZero.SelfPlay
@@ -221,6 +219,7 @@ library
         JitML.Tart.Lifecycle
         JitML.Test.LivePlan
         JitML.Test.Report
+        JitML.Test.WorkflowMatrix
         JitML.Tune.Catalog
         JitML.Tune.Resume
         JitML.Web.AdminPortals

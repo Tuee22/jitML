@@ -22,11 +22,12 @@ import Control.Monad.IO.Class qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.Vector.Unboxed qualified as VU
 import System.Directory (doesFileExist)
 
-import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Cluster.Publication qualified as Publication
 import JitML.RL.AlphaZero qualified as AlphaZero
+import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Capabilities
   ( HasPulsar (..)
@@ -260,25 +261,29 @@ renderApiIndex =
       <> " "
       <> Contracts.endpointName endpoint
 
+-- | Sprint 11.8 — the demo inference endpoint runs the real policy/value
+-- network forward on the initial board (a genuine network forward, not the
+-- former synthetic `inferFromManifest`) and reports its value-head estimate.
+-- The live-cluster round-trip that serves a real /trained/ checkpoint over the
+-- daemon's inference topics is the deeper version (Phase 13).
 renderInferenceResponse :: Text
 renderInferenceResponse =
-  let manifest =
-        Checkpoint.emptyManifest
-          "demo"
-          "experiments/mnist.dhall"
-          [Checkpoint.TensorBlob "dense.weight" [2, 2] "blob-demo"]
-   in "prediction: " <> Text.pack (show (Checkpoint.inferFromManifest manifest [0.2, 0.8])) <> "\n"
+  let net = PolicyValueNet.initPolicyValueNet 43 7 16 22
+      pv = PolicyValueNet.networkPolicyValue net AlphaZero.initialConnect4
+   in "prediction: value="
+        <> Text.pack (show (PolicyValueNet.pvValue pv))
+        <> " policy="
+        <> Text.pack (show (VU.toList (PolicyValueNet.pvPolicy pv)))
+        <> "\n"
 
+-- | Sprint 11.8 — the demo Connect 4 endpoint runs the real MCTS tree search
+-- (network priors + value-head backups) on the initial board and returns the
+-- highest-visit move, instead of echoing a hard-coded column.
 renderConnect4Response :: Text
 renderConnect4Response =
-  "move: "
-    <> Text.pack (show firstDemoMove)
-    <> "\n"
- where
-  firstDemoMove =
-    case AlphaZero.gameMoves (AlphaZero.applyMove 0 AlphaZero.initialConnect4) of
-      move : _ -> move
-      [] -> 0
+  let net = PolicyValueNet.initPolicyValueNet 43 7 16 31
+      visitDist = PolicyValueNet.mctsVisitDistribution net 64 AlphaZero.initialConnect4 17
+   in "move: " <> Text.pack (show (VU.maxIndex visitDist)) <> "\n"
 
 -- | Sprint 13.13 — render a Server-Sent-Events-shaped frame from a live
 -- broker event payload. The browser receives @event: <domain>@ +

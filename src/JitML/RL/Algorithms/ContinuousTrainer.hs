@@ -46,7 +46,6 @@ module JitML.RL.Algorithms.ContinuousTrainer
 where
 
 import Control.Monad.Except (ExceptT (..), runExceptT)
-import Data.Either (fromRight)
 import Data.List qualified
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
@@ -611,8 +610,8 @@ trainContinuousOnDevice device config = do
 -- Bellman target ('bellmanTarget'), the squash/chain-rule scalars, and the
 -- soft target updates are the shared pure helpers. Minibatch GD (one Adam
 -- step per batch) vs. the pure path's per-sample SGD — standard for a
--- batched actor-critic. Falls back to the pure 'updateStep' if the device
--- runtime/compile is unavailable.
+-- batched actor-critic. Fails closed on a device `Left` (Sprint 8.11); the
+-- dispatch `probeMlpDevice` gate already confirmed the kernel runs.
 updateStepDevice
   :: MlpDevice
   -> ContinuousTrainConfig
@@ -706,4 +705,12 @@ updateStepDevice device config nets opt batch doActor = do
             , acCriticBAdam = criticBAdamNext
             }
         )
-  pure (fromRight (updateStep config nets opt batch doActor) deviceResult)
+  -- Sprint 8.11 — fail closed: the dispatch `probeMlpDevice` gate makes a
+  -- mid-run device `Left` a genuine fault, not a cue to silently degrade to the
+  -- pure `updateStep`.
+  pure
+    ( either
+        (\err -> error ("continuous device update failed mid-run: " <> show err))
+        id
+        deviceResult
+    )

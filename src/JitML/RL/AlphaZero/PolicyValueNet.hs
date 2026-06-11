@@ -102,6 +102,7 @@ import JitML.RL.AlphaZero.Mcts
   ( MctsConfig (..)
   , MctsEdge (..)
   , MctsNode (..)
+  , NodeEval (..)
   , PriorOracle
   , defaultMctsConfig
   , runSearchWithPrior
@@ -195,29 +196,34 @@ networkPolicyValue :: PolicyValueNet -> GameState -> PolicyValueOutput
 networkPolicyValue net state =
   policyValueForward (pvnParams net) (pvnActionCount net) (encodeGameState net state)
 
--- | Build a 'PriorOracle' that closes over a state-encoding function.
--- The MCTS search loop in "JitML.RL.AlphaZero.Mcts" takes
--- @seed -> action -> prior@; the supplied @stateAt@ recovers the
--- current 'GameState' from a search-tree seed (typically the move
--- index from the root). Strict positivity is preserved by clamping
--- to @≥ 1e-6@.
-networkPriorOracle :: PolicyValueNet -> (Int -> GameState) -> PriorOracle
-networkPriorOracle net stateAt seed action =
-  let state = stateAt seed
-      out = networkPolicyValue net state
-      policy = pvPolicy out
-      idx = action `mod` VU.length policy
-      p = realToFrac (policy VU.! idx) :: Double
-   in max p 1.0e-6
+-- | Sprint 9.10 — build the position-aware 'PriorOracle' the real MCTS tree
+-- search consumes. The oracle is rooted at @rootState@; given a move-path from
+-- that root it applies the moves, and returns either the terminal value (when a
+-- player has completed a line) or the network's policy-head priors plus
+-- value-head estimate for the position. This is what lets the search descend
+-- and back up the __value head__ at every node, not just the root prior.
+networkPriorOracle :: PolicyValueNet -> GameState -> PriorOracle
+networkPriorOracle net rootState moves =
+  let state = Data.List.foldl' (flip applyMove) rootState moves
+      terminalValue = evaluateTerminal state
+   in if terminalValue /= 0.0
+        then NodeEval {evalPriors = [], evalValue = terminalValue, evalTerminal = True}
+        else
+          let out = networkPolicyValue net state
+           in NodeEval
+                { evalPriors = VU.toList (pvPolicy out)
+                , evalValue = pvValue out
+                , evalTerminal = False
+                }
 
--- | Sprint 13.9 — the per-position oracle factory the production AlphaZero
--- self-play loop threads through
+-- | Sprint 9.10 — the per-position oracle the production AlphaZero self-play
+-- loop threads through
 -- 'JitML.RL.AlphaZero.SelfPlay.runSelfPlayWithOracleFactory'. For each board
--- position the factory ignores the MCTS search seed and returns the network's
--- policy-head distribution for that exact position — the AlphaZero contract
--- that the prior depends on the position, not the search seed.
+-- position the factory returns an oracle rooted at that position, so the search
+-- evaluates the network at every descended node — the AlphaZero contract that
+-- the prior and value depend on the position, not the search seed.
 netOracleFactory :: PolicyValueNet -> GameState -> PriorOracle
-netOracleFactory net state = networkPriorOracle net (const state)
+netOracleFactory = networkPriorOracle
 
 -- | Sprint 13.9 — run AlphaZero self-play with the MCTS prior driven by the
 -- real policy/value network at every position. The search tree's prior input

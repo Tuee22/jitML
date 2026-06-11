@@ -21,6 +21,7 @@ module JitML.Numerics.MlpDevice
   ( MlpBackendSpec (..)
   , MlpDevice (..)
   , mlpDeviceFromSpec
+  , probeMlpDevice
   , mlpForwardWith
   , mlpBackwardWith
   , mlpForwardBatchWith
@@ -29,6 +30,7 @@ module JitML.Numerics.MlpDevice
   )
 where
 
+import Control.Monad (void)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed qualified as VU
@@ -50,6 +52,7 @@ import JitML.Numerics.Mlp
   , MlpGradient (..)
   , MlpParams (..)
   , MlpShape (..)
+  , mlpInit
   , mlpZeroGradient
   )
 
@@ -84,6 +87,19 @@ data MlpDevice = MlpDevice
       -> [(VU.Vector Double, VU.Vector Double)]
       -> IO (Either Text [VU.Vector Double])
   }
+
+-- | Sprint 8.11 — verify the device's JIT kernel actually compiles, loads,
+-- and runs on this host by executing a trivial 1×1×1 forward. Returns
+-- @Right ()@ when the substrate toolchain/hardware is present and @Left@ (the
+-- engine error) when it is absent. This is the fail-closed gate the RL worker
+-- dispatch ('JitML.App.runTrainerEpisodes') probes before routing any trainer
+-- through the device, so a missing substrate fails closed rather than
+-- silently degrading to a pure-Haskell path.
+probeMlpDevice :: MlpDevice -> IO (Either Text ())
+probeMlpDevice device = do
+  let params = mlpInit (MlpShape 1 1 1) 0
+  result <- mlpdForwardBatch device params [VU.singleton 0.0]
+  pure (void result)
 
 -- | Bundle a backend spec + environment into an 'MlpDevice'.
 mlpDeviceFromSpec :: MlpBackendSpec -> Env -> MlpDevice

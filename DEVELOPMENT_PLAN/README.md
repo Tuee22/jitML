@@ -758,6 +758,51 @@ and is parity-tested in the `jitml-backends` lane. Phases `8`–`15` reopen from
 split: **code** ownership reopens in Phases `8`–`12`, **live-runtime validation**
 reopens in Phases `13`–`15`.
 
+**Implementation status (2026-06-11).** The Phase `8`–`11` real-workflow **code**
+is implemented and validated on the available hardware (an Apple-Silicon host
+with the `jitml:local` linux container; no NVIDIA GPU, no roomier host for a live
+cluster):
+
+- **Phase 8** (Sprints `8.10` / `8.11`) — SL classifier + `jitml train` / `eval`
+  and the RL trainers route through the substrate `MlpDevice`, fail-closed, no
+  synthetic fallback. Container-validated: `jitml-sl-canonicals --linux-cpu`
+  19/19 (device convergence on the real oneDNN kernel) and `jitml-rl-canonicals
+  --linux-cpu` 28/28 (on-device PPO).
+- **Phase 9** (Sprints `9.9` / `9.10` / `9.11`) — real `jitml rl eval` / `rollout`,
+  a real recursive MCTS tree search (value-head backups; `Arena` / `EnginePrior`
+  deleted), real per-algorithm rollouts (`Common.trajectoryRollout` steps the
+  real environment dynamics via `SimulatorLoop.realRolloutByName`, no LCG), and a
+  real tuning objective. Validated: `jitml-rl-canonicals` 28/28,
+  `jitml-hyperparameter` 14/14, `jitml-unit` 196/196, container `check-code: ok`.
+- **Phase 8.11 hardening** (2026-06-11) — the four device updaters
+  (`dqnUpdateDevice` and the QR-DQN / continuous / HER peers) **fail closed** on a
+  mid-run device `Left` instead of silently falling back to the pure update; with
+  the dispatch `probeMlpDevice` gate there is no pure-Haskell fallback on any
+  runtime path. Container `check-code: ok`, `jitml-rl-canonicals --linux-cpu` 28/28.
+- **Phase 10** (Sprint `10.5`) — the synthetic `+ nTensors/100` inference offset is
+  removed; the engine runners return faithful output, `inferFromManifest` is a
+  faithful identity read, and `jitml inference run` / `inspect replay` fail
+  closed / report real metadata.
+- **Phase 11** (Sprint `11.8`) — the demo `/api/inference` and `/api/connect4/move`
+  endpoints run the real network forward / real MCTS. The PureScript panel
+  rewrite remains Remaining Work: the panels currently make no HTTP calls, so it
+  requires adding an HTTP client dependency + wiring nine Halogen panels to real
+  fetch + typed parse (build-validatable via `jitml lint purescript`); live
+  Playwright value assertions need a live cluster.
+- **Phase 12** (Sprint `12.11`) — `JitML.Test.WorkflowMatrix` enumerates the eight
+  reopened workflows × every substrate with their canonical commands; the e2e
+  coverage assertion is host-validatable. Wiring the Live tests to iterate the
+  matrix fail-closed against a live cluster is Remaining Work (needs the cluster).
+
+The **live-runtime exercise** owned by Phases `12`–`15` (the DRY `WorkflowMatrix`
+run per substrate, the live linux-cpu / linux-cuda / apple-silicon cluster
+closure, and the cross-substrate confirmation) is **blocked on hardware** on this
+host: there is no NVIDIA GPU (Phase `13` linux-cuda — the "stop at the GPU
+boundary" decision), and a live cluster (Kind + Helm + Pulsar + MinIO) plus the
+apple-silicon Tart build VM are not provisionable on a memory-constrained host.
+Those sprints carry `Blocked` status with the hardware named; the code they
+exercise is the validated Phase `8`–`11` surface.
+
 - **Phase 8** — Sprint `8.10` routes the SL classifier through the substrate
   `MlpDevice` selected by `--substrate`, fails `runTrain`/`runEval` closed with a
   typed `AppError` (no synthetic `SL.finalLoss`, no offline fallback), and scopes

@@ -25,6 +25,20 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 — real-workflow refactor; Sprint `12.11`).
+The stanza suite, lint matrix, and substrate-partitioned lanes shipped, but the
+test surface did not run every reopened real workflow per substrate behind one
+DRY, fail-closed matrix. Sprint `12.11` introduces a `WorkflowMatrix` that
+enumerates the workflows × substrates and fails closed without a live cluster,
+replacing the vacuous-pass `-p Live` asserts and the model-less e2e asserts.
+The **code that the matrix exercises is the now-real Phase 8–11 workflows**; the
+matrix's live execution per lane is owned by Phases `13`/`14`/`15` and needs a
+live cluster (Kind + Helm + Pulsar + MinIO) and the per-substrate hardware,
+which a memory-constrained host cannot provide — so on this host the matrix is
+authored and the live run is recorded as blocked. See
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
+closure narrative below is retained as dated record.
+
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host after
 Sprint `12.10`'s live `linux-cuda` lane re-validation). The phase reopened
 2026-06-08 for Sprint `12.10`. The reproducibility contract is clarified to
@@ -846,6 +860,59 @@ skip-sentinels):
   This closes the sprint's one remaining obligation — owned jointly with Sprint
   `13.16`, whose [GPU Re-validation Evidence](phase-13-linux-cuda-and-cluster-closure.md#gpu-re-validation-evidence-2026-06-09-rtx-5090)
   records the full case list. Sprint `12.10` is `✅ Done`.
+
+## Sprint 12.11: DRY Real-Workflow Matrix, Fail-Closed [Active]
+
+**Status**: Active
+**Blocked by**: live cluster (Kind + Helm + Pulsar + MinIO) + per-substrate
+hardware for the matrix's live execution; not provisionable on a
+memory-constrained host.
+**Implementation**: a new `JitML.Test.WorkflowMatrix` enumeration consumed by
+`test/integration/Main.hs` and `test/e2e/Main.hs`
+**Docs to update**: `../documents/engineering/test_stanzas.md`, `system-components.md`
+
+### Objective
+
+Run every reopened real workflow (SL train, SL eval, RL train, RL eval, RL
+rollout, tune, inference, AlphaZero self-play) per substrate behind one DRY
+matrix that **fails closed** without a live cluster, replacing the vacuous-pass
+`-p Live` asserts (which called the pure trainer and asserted stdout prefixes,
+passing even offline) and the model-less e2e asserts. Owns the test-surface
+slice of [Exit Definition](README.md#exit-definition) item 17.
+
+### Deliverables
+
+- `JitML.Test.WorkflowMatrix` is the single typed enumeration of
+  `(workflow, substrate)` cells with the canonical command + the expected
+  real-output assertion for each; the integration / e2e Live tests iterate it
+  rather than re-deriving per-workflow asserts.
+- Each cell **fails closed** without a live `cluster-publication.json` (no
+  vacuous pass); a cell passes only when the real workflow produced real
+  measured output on the resolved substrate.
+
+### Validation
+
+- Offline: the matrix fails closed (no live cluster → typed failure, not a
+  vacuous pass); host-validatable.
+- Live: `docker compose run --rm jitml jitml test jitml-e2e --<substrate>` and
+  `jitml-integration -p Live` run every matrix cell against a live cluster.
+
+### Current Validation State
+
+Landed: `JitML.Test.WorkflowMatrix` enumerates the 8 reopened workflows × every
+substrate (`workflowMatrix`), each cell carrying its canonical `jitml` command
+(`workflowCommand`). `test/e2e/Main.hs` asserts the matrix covers every
+workflow × substrate and that each cell carries a command (host-validatable
+coverage). The lib + `jitml-e2e` suite compile.
+
+### Remaining Work
+
+- Wire the integration / e2e Live tests to **iterate** the matrix and execute
+  each cell against a live cluster, fail-closed (the structure + the workflows
+  it drives are in place; the live execution is the missing half).
+- Live per-lane execution is owned by Sprints `13.17` / `13.18` / `13.19`
+  (linux-cpu / linux-cuda), `14.8` (apple-silicon), and `15.5` / `15.6`
+  (cross-substrate) — each needs the live cluster + the lane's hardware.
 
 ## Doctrine Sections Cited
 
