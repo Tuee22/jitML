@@ -23,21 +23,19 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 — real-workflow refactor). The checkpoint
-format and the live weighted read path shipped, but the manifest-only read used
-a synthetic `inferFromManifest` (`+ nTensors/100`) and the three engine
-checkpoint runners added the same fabricated offset to the real kernel output.
-Sprint `10.5` removes the fabricated value: the engines return faithful output,
-`inferFromManifest` is a faithful identity read, and `jitml inference run` /
-`jitml inspect replay` fail closed / report real manifest metadata. See
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
-closure narrative below is retained as dated record.
+✅ **Done** (re-closed 2026-06-11 after Sprint `10.5`). The checkpoint format,
+MinIO-backed latest-pointer reads, and weighted inference read path are the
+supported surface. The synthetic manifest-only helper `inferFromManifest` and
+the default Store wrappers around it are deleted; `Service.Workload`'s default
+inference callback now fails closed with `weighted inference runner required`.
+Production inference uses `loadInferenceCheckpointWithWeights` plus the selected
+substrate's weighted checkpoint runner, while `loadInferenceCheckpointWith`
+remains only an explicit injected-runner hook.
 
 ✅ **Done** (2026-05-25). Every owned code-surface obligation closed:
 split-blob object-key renderers, manifest CBOR codec with canonical
 ordering, `.jmw1` wire format, local pointer-CAS decision surface,
-filesystem-backed `inferFromManifest` /
-`inferWeightsOnlyFromLatestCheckpoint`, retention reconciler surface
+filesystem-backed checkpoint write/read helpers, retention reconciler surface
 (`RetentionPolicy`, `walkLiveSet`, `buildGcPlan`), inference proto
 envelope codec, and the proto-lens cross-language bindings for
 `inference.proto`. Live MinIO conditional writes + checkpoint
@@ -61,9 +59,9 @@ split-blob shape (weights, optimizer state, RNG streams, monotonic
 renderers, deterministic manifest CBOR codec (with canonical
 ordering across tensors / optimizer parts / RNG parts / metrics),
 `manifestContentSha`, `.jmw1` encoder, pointer-CAS decision surface,
-and the filesystem-backed local checkpoint store with
-`inferFromManifest` / `inferFromLatestCheckpoint` /
-`inferWeightsOnlyFromLatestCheckpoint` are all in place.
+and the filesystem-backed local checkpoint store with explicit injected-runner
+and weighted inference loaders (`loadInferenceCheckpointWith`,
+`loadInferenceCheckpointWithWeights`) are all in place.
 `proto/jitml/inference.proto` declares the current request/result envelope
 schema, and `JitML.Proto.Inference` round-trips `InferenceRequest` /
 `InferenceResult` through proto3-compatible bytes. The typed
@@ -80,51 +78,42 @@ through `listCheckpointManifests`, and a second-invocation no-op
 detection. `writeCheckpointSnapshotWithMinIO` now writes checkpoint blobs and
 manifests through `HasMinIO.putBlobBytesIfAbsent` and advances the latest
 pointer through `HasMinIO.casPointer`, with filesystem-backed integration
-coverage. **Unmet today**: Sprints `10.2`–`10.4` still owe checkpoint-store
-validation against the live HTTP MinIO interpreter after a real training step,
-the user-facing live `jitml inference run` path, the live `gc_reaped` Pulsar
-publish, production weight-blob loading into the non-local substrate-bound
-`KernelHandle`s, and the per-substrate ULP tolerance measured from real
-cross-substrate runs.
+coverage. Live checkpoint-store validation against the HTTP MinIO interpreter,
+the user-facing live `jitml inference run` path, live `gc_reaped` publish, and
+per-substrate runtime exercise are owned by the live-runtime closure phases
+rather than Phase `10`'s local format/read-path surface.
 The local Linux CPU inference runner hook
 (`loadInferenceCheckpointWith` + `JitML.Engines.Local.runLinuxCpuCheckpointInference`)
-now validates the latest-pointer → manifest → generated-kernel FFI path
-against the filesystem-backed `HasMinIO` instance. The weighted local hook
+validates the latest-pointer → manifest → generated-kernel FFI path against the
+filesystem-backed `HasMinIO` instance. The weighted hook
 (`loadInferenceCheckpointWithWeights` +
-`JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference`) also decodes
-weight-only `.jmw1` blobs through `HasMinIO` before running the generated
-Linux CPU identity kernel. 2026-05-21 Phase `5.4` live daemon validation
-exercises the default `loadInferenceCheckpoint` path against in-cluster MinIO
-through `JitML.Service.MinIOSubprocess`. Detailed remaining work lives in each
-sprint's `### Remaining Work` block below.
+`JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference`) decodes weight-only
+`.jmw1` blobs through `HasMinIO` before running the generated weighted kernel.
+Detailed live-runtime obligations remain owned by Phases `13` / `14`.
 
 ### Current Implementation Scope
 
 The worktree implements a `CheckpointManifest`, `TensorBlob`, optimizer/RNG
 blob metadata, split-blob object-key renderers, pointer-CAS decisions,
 `manifestPointer`, deterministic `encodeManifestCbor` / `decodeManifestCbor`
-/ `manifestContentSha`, binary `encodeJmw1` encoder with `JMW1` magic, CBOR
-header length, and little-endian `F64` payload bytes, plus
-`inferFromManifest`. `src/JitML/Proto/Inference.hs` mirrors
+/ `manifestContentSha`, and binary `encodeJmw1` encoder with `JMW1` magic, CBOR
+header length, and little-endian `F64` payload bytes. `src/JitML/Proto/Inference.hs` mirrors
 `proto/jitml/inference.proto` with text render/parse helpers plus
 proto3-compatible byte codecs for `InferenceRequest` and `InferenceResult`.
 `src/JitML/Checkpoint/Store.hs` adds a local
 object-store interpreter for write-once payloads, manifest writes/reads,
-latest pointer CAS, inference from the latest checkpoint, retention planning,
+latest pointer CAS, retention planning,
 local manifest discovery for `jitml internal gc`, `HasMinIO`-backed GC
-execution, `HasMinIO`-backed inference checkpoint loading, and
+execution, `HasMinIO`-backed weighted inference checkpoint loading, and
 `loadInferenceCheckpointWith`, which lets a caller run the loaded weight-only
-manifest through a concrete engine, and `loadInferenceCheckpointWithWeights`,
-which loads decoded `.jmw1` weights before invoking the runner. The same module also provides
+manifest through an explicit injected engine, and `loadInferenceCheckpointWithWeights`,
+which loads decoded `.jmw1` weights before invoking the weighted runner. The same module also provides
 `writeCheckpointSnapshotWithMinIO` for the checkpoint write path over the
-`HasMinIO` conditional-write/CAS boundary. The filesystem-backed instance now
-validates the deterministic fallback, the local Linux CPU generated-kernel FFI
-runner, and the weighted local runner that consumes decoded `.jmw1` values.
-The Phase `5.4` live daemon validation covers the default latest-checkpoint
-read against in-cluster MinIO. Live checkpoint writes after a real training
-step, live `gc_reaped` Pulsar publishing, production non-local weight-blob
-loading, and real demo/frontend checkpoint reads live in the sprints'
-`### Remaining Work` blocks below.
+`HasMinIO` conditional-write/CAS boundary. The filesystem-backed instance
+validates the local Linux CPU generated-kernel FFI runner and the weighted local
+runner that consumes decoded `.jmw1` values. Live checkpoint writes after a real
+training step, live `gc_reaped` Pulsar publishing, and live per-substrate
+runtime exercise remain in Phases `13` / `14`.
 
 ## Phase Summary
 
@@ -350,30 +339,16 @@ migrated to Phase `14` Sprint `14.5`.
 
 ### Objective
 
-Land the current inference-only summary helper consumed by local command and
-test bodies, plus the local latest-pointer → manifest → inference read path.
-Live MinIO pointer reads, live manifest fetches, and production
-weight-blob-to-kernel loading remain target runtime work.
+Land the inference-only read path: latest pointer → manifest → explicit runner,
+plus the weighted latest-pointer → manifest → `.jmw1` weight loading path used
+by substrate checkpoint inference. Live MinIO pointer reads, live manifest
+fetches, and production runtime exercise remain target runtime work.
 
 ### Deliverables
 
-- `inferFromManifest` adds a deterministic bias derived from the number of
-  manifest tensors to each input value.
-- `inferFromLatestCheckpoint` reads the latest pointer from the local checkpoint
-  store, fetches the addressed manifest, and runs the deterministic inference
-  helper.
-- `jitml inference run` constructs a small local manifest and prints the
-  deterministic inference summary.
-- `jitml inspect replay <manifest-sha>` is registered and currently prints a
-  command summary from `src/JitML/App.hs`.
-- `inferWeightsOnlyFromLatestCheckpoint` reads the latest pointer,
-  fetches the manifest, drops `manifestOptimizer` / `manifestRng`
-  parts (the inference path doesn't need them), and runs
-  `inferFromManifest`. The typed `weightOnlyTensors` predicate
-  selects the inference subset of the manifest.
 - `loadInferenceCheckpointWith` reads the latest pointer and manifest through
-  `HasMinIO`, reduces the manifest to weight-only parts, and delegates
-  execution to a caller-provided runner.
+  `HasMinIO`, reduces the manifest to weight-only parts, and delegates execution
+  to an explicit caller-provided runner.
 - `loadInferenceCheckpointWithWeights` extends that hook by loading and
   decoding weight-only `.jmw1` tensor blobs through `HasMinIO` before invoking
   the caller-provided runner.
@@ -381,27 +356,26 @@ weight-blob-to-kernel loading remain target runtime work.
   Linux CPU generated-kernel FFI path from a loaded checkpoint manifest.
   `runLinuxCpuWeightedCheckpointInference` validates the same generated-kernel
   path while consuming decoded weight values from `loadInferenceCheckpointWithWeights`;
-  production non-local per-substrate weight-blob loading remains target runtime
-  work.
+  production per-substrate live exercise remains target runtime work.
+- `jitml inference run` fails closed without a live publication and uses the
+  selected substrate's weighted checkpoint runner when live MinIO is available.
+- `jitml inspect replay <manifest-sha>` validates the addressed manifest content
+  SHA and reports real manifest metadata instead of an inference summary.
 - `proto/jitml/inference.proto` declares `InferenceRequest` and
   `InferenceResult`, and `JitML.Proto.Inference` round-trips both through
   proto3-compatible bytes using packed repeated doubles for input/output.
 
 ### Validation
 
-1. `cabal test jitml-cross-backend` exercises `inferFromManifest` across
-   the substrate list.
-2. `jitml-unit` exercises `inferFromLatestCheckpoint` against the
-   checkpoint store.
-3. `jitml inference run experiments/mnist.dhall --checkpoint latest`
-   prints the deterministic inference summary.
-4. `jitml-integration` exercises `loadInferenceCheckpointWith` and
+1. `jitml-unit` exercises checkpoint manifests, pointer reads, and
+   backend-independent weight-only tensor selection.
+2. `jitml-integration` exercises `loadInferenceCheckpointWith` and
    `loadInferenceCheckpointWithWeights` against the filesystem-backed
    `HasMinIO` instance, then runs the loaded manifest through the local Linux
    CPU generated-kernel FFI path.
-5. `jitml-daemon-lifecycle` verifies inference request/result protobuf byte
+3. `jitml-daemon-lifecycle` verifies inference request/result protobuf byte
    round-trips.
-6. Live validation (target): `jitml inference run` reads the latest
+4. Live validation (target): `jitml inference run` reads the latest
    pointer from MinIO bucket `jitml-checkpoints/<experiment-hash>/`,
    fetches the addressed manifest, loads weight-only blobs (no optimizer
    parts), loads the substrate-bound `KernelHandle` from the JIT cache,
@@ -427,10 +401,11 @@ weight-blob-to-kernel loading remain target runtime work.
   [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
   Sprint `14.5`.
 
-## Sprint 10.5: Remove the Synthetic Inference Offset [Active]
+## Sprint 10.5: Remove the Synthetic Inference Offset ✅
 
-**Status**: Active
-**Implementation**: `src/JitML/Checkpoint/Format.hs` (`inferFromManifest`),
+**Status**: Done
+**Implementation**: `src/JitML/Checkpoint/Format.hs`,
+`src/JitML/Checkpoint/Store.hs`, `src/JitML/Service/Workload.hs`,
 `src/JitML/Engines/{Local,CudaLocal,MetalLocal}.hs` (checkpoint runners),
 `src/JitML/App.hs` (`runInference`, `assertManifestShaMatches`)
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `system-components.md`
@@ -445,9 +420,12 @@ the inference-read slice of [Exit Definition](README.md#exit-definition) item 7.
 
 - The three engine checkpoint runners (`runLinuxCpuCheckpointInference` and
   peers) return the faithful kernel output with no added bias.
-- `inferFromManifest` is a faithful identity read (no fabricated value); real
-  inference is the substrate weighted kernel via
-  `loadInferenceCheckpointWithWeights` → `run*WeightedCheckpointInference`.
+- `inferFromManifest` is deleted, together with the default Store wrappers that
+  turned a manifest read into an inference result. Real inference is the
+  substrate weighted kernel via `loadInferenceCheckpointWithWeights` →
+  `run*WeightedCheckpointInference`.
+- `Service.Workload` default inference fails closed with `weighted inference
+  runner required`; runtime self-inference supplies the weighted runner.
 - `jitml inference run` fails closed (`InferenceCheckpointMissing`) when no live
   publication is present, instead of the `emptyManifest` + synthetic summary;
   `jitml inspect replay` reports the verified manifest's real metadata
@@ -455,26 +433,33 @@ the inference-read slice of [Exit Definition](README.md#exit-definition) item 7.
 
 ### Validation
 
-- `docker compose run --rm jitml cabal test jitml-unit` (the `inferFromManifest`
-  round-trip cases hold under the identity read).
-- `jitml check-code` + `jitml docs check` green inside `jitml:local`.
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` — 196 / 196.
+- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+  — 31 / 31.
+- `docker compose run --rm jitml cabal test jitml-integration
+  --test-options='-p loadInferenceCheckpointWithWeights'` — focused offline case
+  passed.
+- `docker compose run --rm jitml cabal test jitml-integration
+  --test-options='-p boundaries'` — focused offline HasMinIO checkpoint-write
+  case passed.
 
 ### Current Validation State
 
-Landed; host lib type-checks. Container: `check-code` + `jitml-unit` validated at
-the Phase 10 boundary.
+Closed on 2026-06-11 in the container with the validation commands above. A
+broader `jitml-integration -p conditional` run also exercised the changed offline
+checkpoint snapshot case successfully before matching the intentionally
+fail-closed `Live` conditional test; without
+`.build/runtime/cluster-publication.json`, live integration tests fail by design.
 
 ### Remaining Work
 
-- Route the remaining manifest-only read sites (`Checkpoint.Store` synthetic
-  load variants, `Service.Workload`, and the `Web.Server` demo endpoint — the
-  last owned by Sprint 11.8) through the substrate weighted kernel, then delete
-  `inferFromManifest`. The live device-weighted read is Phase 13 (Sprint 13.11).
+- No Sprint 10.5 code-surface Remaining Work remains. Live per-lane exercise of
+  the weighted read path remains owned by Phase 13 / Phase 14.
 
 ## Doctrine Sections Cited
 
 - [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprints 10.3, 10.4)
-- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 10.4 — local `jitml-cross-backend` body consumes `inferFromManifest`)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 10.4 — unit / integration bodies consume explicit checkpoint runner hooks and the weighted checkpoint loader)
 - [../README.md → Reconcilers and No-Op Exit](../README.md#doctrine-scope) (Sprint 10.3 — `jitml internal gc` command summary and local no-op exit `3`; live MinIO deletion / Pulsar `gc_reaped` events remain Sprint 10.3 Remaining Work)
 
 ## Documentation Requirements

@@ -421,6 +421,7 @@ shouldSkipPath path =
     [ ".git/"
     , ".build/"
     , ".data/"
+    , ".data-preserved"
     , ".roms/"
     , "dist-newstyle/"
     , ".dist-newstyle/"

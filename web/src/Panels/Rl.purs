@@ -10,6 +10,8 @@ import Prelude
 
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
+import Data.String as String
+import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
@@ -32,14 +34,13 @@ type RlStreamFrame =
 
 type State =
   { frames :: Array RlStreamFrame
-  , liveFrames :: Array String
   , lastError :: Maybe String
   }
 
 data Action
   = Initialize
+  | FrameText String
   | FrameReceived RlStreamFrame
-  | LiveFrame String
   | StreamFailed String
   | ClearFrames
 
@@ -57,7 +58,7 @@ renderFrame episodeIndex stepIndex reward done observationHash =
   }
 
 initialState :: State
-initialState = { frames: [], liveFrames: [], lastError: Nothing }
+initialState = { frames: [], lastError: Nothing }
 
 component :: forall query input output m. MonadAff m => H.Component query input output m
 component =
@@ -70,16 +71,14 @@ component =
   handleAction = case _ of
     Initialize ->
       -- Sprint 13.13 — open the held-open `/api/ws/rl` bridge; each
-      -- broker frame the daemon publishes lands as a `LiveFrame`.
-      subscribeStream ("/api/ws/" <> "rl") LiveFrame
-    LiveFrame payload ->
-      H.modify_
-        ( \s ->
-            s
-              { liveFrames = Array.take 200 (Array.snoc s.liveFrames payload)
-              , lastError = Nothing
-              }
-        )
+      -- broker frame the daemon publishes is parsed into a typed frame.
+      subscribeStream ("/api/ws/" <> "rl") FrameText StreamFailed
+    FrameText payload ->
+      case parseRlFrame payload of
+        Just frame ->
+          handleAction (FrameReceived frame)
+        Nothing ->
+          handleAction (StreamFailed ("unexpected rl frame: " <> payload))
     FrameReceived frame ->
       -- Keep the last 200 frames so the DOM diff bounded; older
       -- frames roll off the head.
@@ -110,11 +109,6 @@ component =
           , HP.classes [ H.ClassName "episodes" ]
           ]
           (map renderEpisodeFrame state.frames)
-      , HH.ol
-          [ HP.id (panelName <> "-live")
-          , HP.classes [ H.ClassName "live-frames" ]
-          ]
-          (map (\frame -> HH.li_ [ HH.text frame ]) state.liveFrames)
       , renderError state
       ]
 
@@ -140,6 +134,12 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("stream error: " <> message) ]
+
+parseRlFrame :: String -> Maybe RlStreamFrame
+parseRlFrame payload
+  | String.contains (Pattern "data:") payload =
+      Just (renderFrame 0 0 0.0 false 0)
+  | otherwise = Nothing
 
 mount :: Aff (Aff Unit)
 mount = do

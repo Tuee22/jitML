@@ -44,12 +44,16 @@
 🔄 **Active** (reopened 2026-06-10 — real-workflow refactor; Sprints `15.5` /
 `15.6`). This phase owns the cross-substrate confirmation that every reopened
 workflow runs for real on all three lanes and the final walk-down of the legacy
-ledger. **Blocked on this host**: it requires all three live lanes (linux-cpu
-cluster, linux-cuda GPU, apple-silicon Tart-VM + cluster) simultaneously, none
-of which is provisionable on a single memory-constrained, GPU-less host. The
-per-substrate real-workflow code (Phases `8`–`11`) is implemented and validated
-where the hardware allows; the cross-substrate live confirmation is recorded as
-blocked. The prior closure narrative below is retained as dated record.
+ledger. On 2026-06-11 the Linux live lanes were revalidated on the CUDA machine
+(`linux-cpu` integration **67 / 67** + e2e **20 / 20**; `linux-cuda`
+integration **67 / 67** + e2e **20 / 20** + daemon-lifecycle **32 / 32** +
+Playwright **9 / 9**). Final handoff still cannot close because the owning
+earlier phases are not all Done: Phase `8` still owns non-Dense SL
+forward/backward JIT promotion, Phase `9` still owns device-backed AlphaZero
+MCTS leaf evaluation and device-backed tuning trials, Phase `12` still owns the
+matrix-driven live runner, and Phase `14` still owns the apple-silicon live
+Tart-VM+Metal exercise. The prior closure narrative below is retained as dated
+record.
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`). The phase reopened 2026-06-08 for
@@ -717,8 +721,8 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
 ## Sprint 15.5: Cross-Substrate Real-Workflow Confirmation [Blocked]
 
 **Status**: Blocked
-**Blocked by**: requires all three live lanes (linux-cpu cluster, linux-cuda
-GPU, apple-silicon Tart-VM + cluster) on one host.
+**Blocked by**: Phase `8` Sprint `8.10`, Phase `9` Sprints `9.10` / `9.11`,
+Phase `12` Sprint `12.11`, and Phase `14` Sprint `14.8`.
 **Docs to update**: `system-components.md`
 
 ### Objective
@@ -730,16 +734,18 @@ each (two fresh same-substrate / same-seed runs are bit-identical), via the
 
 ### Remaining Work
 
-- Blocked on a host with all three live lanes. The per-substrate real-workflow
-  code is implemented and validated where the hardware allows (linux-cpu device
-  stanzas in-container); the cross-substrate live confirmation needs the full
-  hardware matrix.
+- Wait for the remaining code-surface owners to close: non-Dense SL
+  forward/backward JIT promotion (Sprint `8.10`), device-backed AlphaZero MCTS
+  leaf evaluation (Sprint `9.10`), device-backed tuning trials (Sprint `9.11`),
+  and the matrix-driven live runner (Sprint `12.11`).
+- Run the apple-silicon Tart-VM+Metal real-workflow lane (Sprint `14.8`). The
+  linux-cpu and linux-cuda live lanes are already complete as of 2026-06-11.
 
 ## Sprint 15.6: Real-Workflow Ledger Walk-Down and Final Handoff [Blocked]
 
 **Status**: Blocked
-**Blocked by**: Sprint `15.5` (the live cross-substrate confirmation gates the
-final ledger walk-down).
+**Blocked by**: Sprint `15.5` plus any non-empty Pending Removal rows in
+`legacy-tracking-for-deletion.md`.
 **Docs to update**: `legacy-tracking-for-deletion.md`
 
 ### Objective
@@ -751,9 +757,9 @@ the reopened real-workflow refactor.
 ### Remaining Work
 
 - Blocked on Sprint `15.5`. The code-removal rows whose replacements are already
-  verified working (Phase `8`–`11`) are in `Completed`; the rows whose
-  verification is the live per-lane exercise (Phase `13`/`14`) move to
-  `Completed` when that exercise runs on the appropriate hardware.
+  verified working are in `Completed`; any future rows tied to the remaining
+  Phase `8` / `9` / `12` / `14` work move to `Completed` only after their owning
+  validation passes.
 
 ## Doctrine Sections Cited
 

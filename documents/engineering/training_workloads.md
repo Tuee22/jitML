@@ -13,15 +13,11 @@
 ## SL Training Loops
 
 `src/JitML/SL/` owns the supervised-learning surface. The current worktree has
-local canonical summaries in `src/JitML/SL/Canonicals.hs`, typed dataset
-references in `src/JitML/SL/Dataset.hs`, a deterministic GADT-shaped loop in
-`src/JitML/SL/Loop.hs`, and `train :: TrainingConfig -> ReaderT Env m
-TrainResult` in `src/JitML/SL/Train.hs`.
+the canonical problem catalog and Dense-MLP device-trainable cohort in
+`src/JitML/SL/Canonicals.hs`, typed dataset references in
+`src/JitML/SL/Dataset.hs`, and the substrate-backed softmax classifier in
+`src/JitML/SL/Classifier.hs`.
 
-- Current `Train.hs` exposes a deterministic local training result over the
-  canonical problem catalog.
-- Current `Loop.hs` is the typed pipeline backed by the `TrainingLifecycle`
-  GADT phases and deterministic convergence curves.
 - Current `Dataset.hs` renders pinned dataset object keys, maps them to bucket
   `jitml-datasets`, exposes `fetchDatasetRef` through the `HasMinIO`
   capability, and verifies fetched bytes against the pinned SHA-256. The
@@ -37,23 +33,22 @@ The catalog is the full target architecture set. The `Dense` rows
 kernel trains today (Sprint 8.10). The `DeepDense` / `Conv2D` / `ResidualBlock*`
 / `WideResidualBlock` / `VisionTransformer` rows remain in the catalog as targets
 and become device-trainable when their per-architecture forward/backward JIT
-codegen lands. The five-point synthetic curve below is the residual deterministic
-helper backing the curve-property tests; the published training loss now comes
-from the device measurement, not this curve.
+codegen lands. The former deterministic synthetic curve helpers were deleted;
+published training loss comes from the device measurement.
 
 | Current problem key | Owning module | Current validation |
 |---------------------|---------------|--------------------|
-| `mnist-shallow-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `mnist-deep-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `mnist-lenet` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `fashion-mnist-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `fashion-mnist-resnet` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `cifar10-resnet20` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `cifar10-resnet56` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `cifar100-wide-resnet` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `cifar10-vit` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `tiny-imagenet-resnet50` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
-| `california-housing-mlp` | `src/JitML/SL/Canonicals.hs` | Deterministic five-point synthetic loss curve |
+| `mnist-shallow-mlp` | `src/JitML/SL/Canonicals.hs` | Dense-MLP device cohort; exercised by classifier and substrate-device convergence tests |
+| `mnist-deep-mlp` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending non-Dense forward/backward JIT codegen |
+| `mnist-lenet` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending Conv2D forward/backward JIT codegen |
+| `fashion-mnist-mlp` | `src/JitML/SL/Canonicals.hs` | Dense-MLP device cohort; exercised by classifier and substrate-device convergence tests |
+| `fashion-mnist-resnet` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending ResidualBlock forward/backward JIT codegen |
+| `cifar10-resnet20` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending ResidualBlock forward/backward JIT codegen |
+| `cifar10-resnet56` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending ResidualBlock forward/backward JIT codegen |
+| `cifar100-wide-resnet` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending wide-ResidualBlock forward/backward JIT codegen |
+| `cifar10-vit` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending VisionTransformer forward/backward JIT codegen |
+| `tiny-imagenet-resnet50` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending ResidualBlock50 forward/backward JIT codegen |
+| `california-housing-mlp` | `src/JitML/SL/Canonicals.hs` | Dense-MLP device cohort; exercised by classifier and substrate-device convergence tests |
 
 Convergence is asserted statistically by `jitml-sl-canonicals`: the
 median over a fixed-seed pool clears a sanity threshold derived from
@@ -219,6 +214,8 @@ raised so training learns. **ARS is the lone no-MLP exception** (finite-differen
 random search, no network forward/backward). The former `"simulator"` scripted
 non-learning default is removed: `runRl` defaults the trainer to `ppo`, and an
 unknown trainer → `InvalidConfig` with no episodes published.
+PPO live convergence uses per-substrate tuning: `linux-cpu` uses 10 epochs per
+update at `5.0e-4`; `linux-cuda` and `apple-silicon` use 8 epochs at `7.0e-4`.
 `src/JitML/Proto/Rl.hs` defines the typed `RlCommand` envelopes and
 deterministic text render/parse round-trips for `StartRLRun` and `StopRLRun`;
 `encodeRlCommandProto` and `decodeRlCommandProto` round-trip the current
@@ -234,10 +231,13 @@ device forward, surfacing `InferenceCheckpointMissing` when absent — no echo
 stub. `jitml rl rollout --seed N` runs one real on-device PPO rollout on cartpole
 through `rlDeviceForSubstrate` (`runDeviceRollout`) and prints the measured
 episode rewards, failing closed with `InvalidConfig` when the substrate device
-is unavailable — no `deterministicTrajectory` LCG. Retiring the shared
-`moduleRolloutGenerator` LCG so each algorithm's rollout runs its real trained
-policy on-device, real MCTS tree search (Sprint 9.10), and the real tuning
-objective executor (Sprint 9.11) remain Phase 9 Remaining Work.
+is unavailable. The registered `moduleRolloutGenerator` surface now routes
+through `JitML.RL.Algorithms.Common.trajectoryRollout`, which steps real named
+environment dynamics with a deterministic seeded policy. The substrate-device
+trained-policy rollout is validated on the live CUDA lane (`jitml rl rollout
+experiments/cartpole.dhall --seed 42` printed measured CUDA rewards on
+2026-06-11). Device-backed MCTS value-head leaf evaluation and device-backed
+tuning trial training remain Phase 9 implementation work.
 
 ## RL Algorithm Catalog
 
@@ -293,9 +293,9 @@ persistence remain target runtime work.
 | Connect 4 helpers | Current: `src/JitML/RL/AlphaZero.hs` |
 | Perfect-information game metadata | Current: `src/JitML/RL/AlphaZero.hs` |
 | Two-headed network metadata | Current: `src/JitML/RL/AlphaZero.hs` |
-| MCTS with PUCT and persistent tree state | Current deterministic module: `src/JitML/RL/AlphaZero/Mcts.hs`; target real network prior/evaluator |
-| Self-play loop and replay buffer | Current deterministic module: `src/JitML/RL/AlphaZero/SelfPlay.hs`; target live MinIO checkpoint persistence |
-| Arena gating | Current deterministic module: `src/JitML/RL/AlphaZero/Arena.hs`; target measured candidate-vs-reference evaluation |
+| MCTS with PUCT and persistent tree state | Current recursive module: `src/JitML/RL/AlphaZero/Mcts.hs`; position-aware network prior/evaluator via `PolicyValueNet.netOracleFactory` |
+| Self-play loop and replay buffer | Current module: `src/JitML/RL/AlphaZero/SelfPlay.hs`; target live MinIO checkpoint persistence |
+| Arena gating | Current measured helper: `src/JitML/RL/AlphaZero/PolicyValueNet.hs` arena win-rate evaluation; the standalone `Arena` module is deleted |
 
 ### Persistent MCTS State
 
@@ -339,8 +339,10 @@ first-class](../../README.md#hyperparameter-tuning-first-class).
 The checked-in `experiments/mnist-tune.dhall` file is the target-shape
 `Some Tuning::{ ... }` worked example with a TPE sampler. The current Haskell
 catalog below covers the full target sampler set, decodes that fixture into
-the local tuning ADT, and renders a deterministic `jitml tune` plan; live
-daemon-backed trial execution remains target work.
+the local tuning ADT, and renders a deterministic `jitml tune` plan. Trial
+values are real local measured objectives (not LCG values). Live daemon-backed
+trial persistence/replay is validated on the Linux lanes; substrate-device-backed
+trial training remains target work.
 `jitml-hyperparameter` consumes the `tune_trials` and
 `tune_budget_per_trial` report-card knobs from `cabal.project` for the local
 TPE trial-budget assertion.

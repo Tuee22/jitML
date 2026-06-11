@@ -57,8 +57,12 @@ compatibility helper is removed and tracked as completed cleanup in
 The file-lint traversal also skips `./.roms/`, matching `.gitignore` and
 `.dockerignore`, so explicit developer-supplied Atari ROM files can exist
 locally for optional manual ALE runs without entering Git, images, or text-file
-hygiene checks. Default examples and required canonical tests must remain
-copyright-free, and no native C/C++ ALE adapter source is checked in.
+hygiene checks. Preserved manual-PV snapshots under `.data-preserved*/` are
+also ignored by `.gitignore`, `.dockerignore`, and the file-lint traversal:
+they are local operational state, often root-owned database files, and not
+repository source. Default examples and required
+canonical tests must remain copyright-free, and no native C/C++ ALE adapter
+source is checked in.
 Phase `11` Sprint `11.3` also keeps the PureScript smoke suite warning-clean:
 `web/test/Main.purs` runs `purescript-spec` through the Node `spec-node`
 `runSpecAndExitProcess` runner, `web/spago.yaml` declares `spec-node` as a test

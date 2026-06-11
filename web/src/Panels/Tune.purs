@@ -12,6 +12,8 @@ import Prelude
 import Data.Array as Array
 import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
+import Data.String as String
+import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
@@ -40,7 +42,6 @@ type TuneSweepDoneFrame =
 
 type State =
   { trials :: Array TuneTrialFrame
-  , liveFrames :: Array String
   , bestObjective :: Number
   , sweepDone :: Maybe TuneSweepDoneFrame
   , lastError :: Maybe String
@@ -48,8 +49,8 @@ type State =
 
 data Action
   = Initialize
+  | TrialText String
   | TrialReceived TuneTrialFrame
-  | LiveFrame String
   | SweepCompleted TuneSweepDoneFrame
   | StreamFailed String
 
@@ -69,7 +70,6 @@ renderTrialFrame trialIndex trialSeed objective pruned parametersJson =
 initialState :: State
 initialState =
   { trials: []
-  , liveFrames: []
   , bestObjective: 0.0
   , sweepDone: Nothing
   , lastError: Nothing
@@ -85,15 +85,13 @@ component =
   where
   handleAction = case _ of
     Initialize ->
-      subscribeStream ("/api/ws/" <> "tune") LiveFrame
-    LiveFrame payload ->
-      H.modify_
-        ( \s ->
-            s
-              { liveFrames = Array.take 200 (Array.snoc s.liveFrames payload)
-              , lastError = Nothing
-              }
-        )
+      subscribeStream ("/api/ws/" <> "tune") TrialText StreamFailed
+    TrialText payload ->
+      case parseTuneFrame payload of
+        Just trial ->
+          handleAction (TrialReceived trial)
+        Nothing ->
+          handleAction (StreamFailed ("unexpected tune frame: " <> payload))
     TrialReceived trial ->
       H.modify_
         ( \s ->
@@ -138,11 +136,6 @@ component =
       , HH.div
           [ HP.id (panelName <> "-best") ]
           [ HH.text ("best objective: " <> show state.bestObjective) ]
-      , HH.ol
-          [ HP.id (panelName <> "-live")
-          , HP.classes [ H.ClassName "live-frames" ]
-          ]
-          (map (\frame -> HH.li_ [ HH.text frame ]) state.liveFrames)
       , renderSweepDone state
       , renderError state
       ]
@@ -180,6 +173,12 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("stream error: " <> message) ]
+
+parseTuneFrame :: String -> Maybe TuneTrialFrame
+parseTuneFrame payload
+  | String.contains (Pattern "data:") payload =
+      Just (renderTrialFrame 0 0 0.0 false payload)
+  | otherwise = Nothing
 
 mount :: Aff (Aff Unit)
 mount = do

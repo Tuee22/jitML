@@ -5,8 +5,6 @@ module JitML.SL.Canonicals
   , canonicalProblems
   , denseMlpCohort
   , isDenseMlpProblem
-  , convergenceCurve
-  , finalLoss
   )
 where
 
@@ -53,18 +51,3 @@ denseMlpCohort = filter isDenseMlpProblem canonicalProblems
 -- are excluded until their codegen exists.
 isDenseMlpProblem :: CanonicalProblem -> Bool
 isDenseMlpProblem problem = problemModel problem == "Dense"
-
-convergenceCurve :: CanonicalProblem -> [Double]
-convergenceCurve problem =
-  take 5 $
-    iterate (* decay) (baseLoss problem)
- where
-  decay = 0.74 + fromIntegral (problemSeed problem `mod` 7) / 100.0
-
-finalLoss :: CanonicalProblem -> Double
-finalLoss problem =
-  last (convergenceCurve problem)
-
-baseLoss :: CanonicalProblem -> Double
-baseLoss problem =
-  2.5 - fromIntegral (problemSeed problem `mod` 11) / 20.0

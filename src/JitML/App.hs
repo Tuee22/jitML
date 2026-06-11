@@ -1622,7 +1622,7 @@ runRl ["rl", "train"] parsedOptions = do
         , Nothing
         )
   -- Sprint 1.12 — apply the CLI seed override before dispatch so the
-  -- override governs deterministic trajectory generation. Substrate
+  -- override governs same-seed rollout generation. Substrate
   -- override is recorded in the summary; it flows through to deeper RL
   -- worker dispatch in follow-up work when RunConfig generation reads
   -- the resolved value.
@@ -1645,6 +1645,7 @@ runRl ["rl", "train"] parsedOptions = do
   episodesE <-
     liftIO
       ( runTrainerEpisodes
+          substrate
           (rlDeviceForSubstrate substrate env)
           atariRomPath
           trainerKind
@@ -1740,7 +1741,8 @@ runDeviceRollout device seed = do
 -- unrecognised @trainerKind@ for other environments falls back to the
 -- deterministic per-episode simulator loop.
 runTrainerEpisodes
-  :: MlpDevice
+  :: Substrate
+  -> MlpDevice
   -> Maybe Text
   -> Text
   -> Text
@@ -1748,7 +1750,7 @@ runTrainerEpisodes
   -> Int
   -> Int
   -> IO (Either Text [SimulatorLoop.SimulatedEpisode])
-runTrainerEpisodes device atariRomPath trainerKind envName seed evalEpisodes maxStepsPerEpisode
+runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEpisodes maxStepsPerEpisode
   | Text.toLower envName == "atari-subset" = do
       -- Atari routes through the runtime-loaded ALE adapter (Sprint 8.8),
       -- not the MLP device; ROM-policy failures surface as a typed `Left`.
@@ -1845,13 +1847,16 @@ runTrainerEpisodes device atariRomPath trainerKind envName seed evalEpisodes max
   -- raised from the old `max 1 evalEpisodes` floor so training actually
   -- learns rather than running a single non-converging iteration.
   onPolicyEpisodes variant = do
+    let (epochsPerUpdate, learningRate) = onPolicyTuning substrate
     let config =
           PpoTrainer.defaultPpoTrainConfig
             { PpoTrainer.ppoSeed = seed
             , PpoTrainer.ppoVariant = variant
             , PpoTrainer.ppoNumIterations = max 50 evalEpisodes
             , PpoTrainer.ppoRolloutSteps = max 512 maxStepsPerEpisode
+            , PpoTrainer.ppoEpochsPerUpdate = epochsPerUpdate
             , PpoTrainer.ppoMaxEpisodeSteps = max 200 maxStepsPerEpisode
+            , PpoTrainer.ppoLearningRate = learningRate
             }
     resultE <- PpoTrainer.trainOnPolicyOnDevice device variant config
     pure $
@@ -1860,6 +1865,9 @@ runTrainerEpisodes device atariRomPath trainerKind envName seed evalEpisodes max
             . PpoTrainer.resultIterations
         )
         resultE
+  onPolicyTuning LinuxCPU = (10, 5.0e-4)
+  onPolicyTuning LinuxCUDA = (8, 7.0e-4)
+  onPolicyTuning AppleSilicon = (8, 7.0e-4)
   dqnEpisodes useDouble = do
     let config =
           DqnTrainer.defaultDqnTrainConfig
@@ -1984,18 +1992,11 @@ readIntDefault fallback text =
     [(parsed, "")] -> parsed
     _ -> fallback
 
--- | `jitml inference run` — produces the deterministic inference summary
--- for the supplied experiment hash. When a live `cluster-publication.json`
--- is present (Sprint 13.1 cluster up), the manifest + weight-only tensors
--- are read from MinIO via `JitML.Checkpoint.Store.loadInferenceCheckpoint`
--- through `JitML.Service.MinIOSubprocess`. Otherwise the command falls
--- back to a placeholder summary computed from
--- `Checkpoint.emptyManifest`.
---
--- Live half of Sprint 13.12. The JIT-kernel-backed inference path
--- (Sprint 13.11) layers on top of this once the per-substrate weighted
--- runners (`runLinuxCpuWeightedKernel`, `runCudaWeightedKernel`,
--- `runMetalWeightedKernel`) land.
+-- | `jitml inference run` — loads the latest checkpoint for the supplied
+-- experiment hash from live MinIO and runs the selected substrate's weighted
+-- checkpoint kernel over decoded `.jmw1` tensors. Without a live
+-- `cluster-publication.json` there is no checkpoint source, so the command
+-- fails closed with `InferenceCheckpointMissing`.
 runInference :: [ParsedOption] -> App ()
 runInference parsedOptions = do
   let experimentHash = selectedValue "experiment-hash" "default" parsedOptions
@@ -2011,8 +2012,8 @@ runInference parsedOptions = do
       -- inference call through the substrate-bound weighted runner so the
       -- generated JIT kernel reads the decoded `.jmw1` weight tensors and
       -- produces real output. Linux substrates use the weighted runner;
-      -- Apple Silicon and missing substrates fall back to the deterministic
-      -- `inferFromManifest` summary path.
+      -- Apple Silicon routes through the Metal weighted runner; there is no
+      -- manifest-only fallback.
       result <-
         liftIO
           ( MinIOSubprocess.runMinIOSubprocess
@@ -2034,15 +2035,13 @@ runInference parsedOptions = do
     Nothing ->
       -- Sprint 10.5 — fail closed: without a live cluster publication there is
       -- no checkpoint to read, so emit a typed `InferenceCheckpointMissing`
-      -- rather than the former `emptyManifest` + synthetic `inferFromManifest`
-      -- summary.
+      -- rather than the former `emptyManifest` + synthetic manifest summary.
       exitWithError (InferenceCheckpointMissing experimentHash)
 
--- | Sprint 13.12 — choose the weighted runner that matches the live
+-- | Sprint 13.12 / 14.5 — choose the weighted runner that matches the live
 -- publication's substrate. The substrate-bound runners drive the JIT-compiled
--- kernel against the `.jmw1`-decoded weight tensors; Apple Silicon (no
--- in-process Metal runner yet, see Phase 14) and unknown substrates fall back
--- to the deterministic summary path.
+-- kernel against the `.jmw1`-decoded weight tensors on Linux CPU, Linux CUDA,
+-- and Apple Silicon.
 inferenceForSubstrate
   :: ( Capabilities.HasMinIO m
      , MonadIO m
@@ -2092,9 +2091,9 @@ runInspect path parsedOptions =
     ("inspect: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
 
 -- | `jitml inspect replay <manifest-sha>` — fetches a named manifest by
--- content SHA and prints the deterministic inference summary it would
--- produce on a fixed input. The replay harness for the determinism
--- contract.
+-- content SHA and reports verified manifest metadata. Real inference belongs
+-- to `jitml inference run`, which requires the latest pointer and decoded
+-- weights.
 --
 -- When a live `cluster-publication.json` is present, the manifest is
 -- read from MinIO bucket `jitml-checkpoints/<experiment-hash>/manifests/`
@@ -2138,8 +2137,8 @@ runInspectReplay parsedOptions = do
         Right manifest ->
           assertManifestShaMatches experimentHash manifestSha manifest
 
--- | Print the deterministic inference summary for a replayed manifest, or
--- exit with `InferenceManifestShaMismatch` when the manifest body's
+-- | Print verified metadata for a replayed manifest, or exit with
+-- `InferenceManifestShaMismatch` when the manifest body's
 -- content SHA does not match the SHA the caller requested. The mismatch
 -- case is rare under normal storage discipline (manifests are written at
 -- `manifests/<content-sha>.cbor`), but surfaces clearly when a manifest
@@ -2152,7 +2151,7 @@ assertManifestShaMatches experimentHash requestedSha manifest =
         else
           -- Sprint 10.5 — report the verified manifest's real metadata (content
           -- SHA + weight-tensor count) instead of the former synthetic
-          -- `inferFromManifest` number. Real inference is `jitml inference run`,
+          -- manifest-only number. Real inference is `jitml inference run`,
           -- which drives the substrate weighted kernel over the decoded weights.
           writeLine
             ( "inspect replay: "
@@ -2161,7 +2160,7 @@ assertManifestShaMatches experimentHash requestedSha manifest =
                 <> Text.pack (show (length (Checkpoint.manifestTensors manifest)))
             )
 
--- | Map a `loadInferenceCheckpoint` `Left Text` to a typed `AppError`. The
+-- | Map a weighted checkpoint load `Left Text` to a typed `AppError`. The
 -- live read path returns "pointer read failed: ..." when the latest
 -- pointer is missing and "manifest read failed: ..." when the addressed
 -- manifest is missing; both surface as `InferenceCheckpointMissing`.
@@ -2309,7 +2308,17 @@ measureRlFinalReward = do
   substrate <- workerSubstrateBase
   env <- ask
   episodesE <-
-    liftIO (runTrainerEpisodes (rlDeviceForSubstrate substrate env) Nothing "ppo" "cartpole" 42 4 200)
+    liftIO
+      ( runTrainerEpisodes
+          substrate
+          (rlDeviceForSubstrate substrate env)
+          Nothing
+          "ppo"
+          "cartpole"
+          42
+          4
+          200
+      )
   let reward = case episodesE of
         Left _ -> Nothing
         Right [] -> Nothing

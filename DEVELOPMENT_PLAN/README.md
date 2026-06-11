@@ -494,7 +494,7 @@ that round-trips the full Haskell catalog
 TensorBoard Service renderer
 (`JitML.Observability.TensorBoard.renderTensorBoardService`) plus the
 checked-in `chart/local/tensorboard/templates/service.yaml`, the six
-PureScript panel payload modules under `web/src/Panels/`, the seven-test
+PureScript panel payload modules under `web/src/Panels/`, the current nine-test
 live-only Playwright matrix represented in `JitML.Test.LivePlan` and
 validated through the live edge route, the `spago test` and
 `purs-tidy check` command shapes represented from `jitml lint purescript`
@@ -738,14 +738,14 @@ obligation exists.
 | 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (re-closed 2026-06-10, Sprint 7.10 — live apple-silicon VM-built path 17/17) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | 🔄 Active (reopened 2026-06-10 — SL/RL route through the substrate `MlpDevice`, no synthetic fallback; Sprints 8.10/8.11) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | 🔄 Active (reopened 2026-06-10 — real `rl eval`/`rollout`, real MCTS tree search, real tuning objective; Sprints 9.9/9.10/9.11) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | 🔄 Active (reopened 2026-06-10 — real weighted inference read-path, `inferFromManifest` removed; Sprint 10.5) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
-| 11 | PureScript Frontend and Demo | 🔄 Active (reopened 2026-06-10 — panels render real substrate model output, cluster-always-up; Sprint 11.8) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | 🔄 Active (reopened 2026-06-10 — DRY real-workflow matrix runs every workflow per substrate, fail-closed; Sprint 12.11) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | 🔄 Active (reopened 2026-06-10 — live linux-cpu/linux-cuda exercise of every reopened workflow; Sprints 13.17/13.18/13.19) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 8 | Supervised Learning and RL Framework | 🔄 Active (reopened 2026-06-10 — Dense-MLP SL/RL device routing and fail-closed paths landed; non-Dense forward/backward JIT promotion remains in Sprint 8.10) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | 🔄 Active (reopened 2026-06-10 — real `rl eval`/`rollout`, real MCTS mechanics, real tuning objective landed; device-backed MCTS leaf eval and device-backed tuning trials remain in Sprints 9.10/9.11) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (re-closed 2026-06-11 — weighted inference read path, `inferFromManifest` deleted; Sprint 10.5) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 11 | PureScript Frontend and Demo | ✅ Done (re-closed 2026-06-11 — real API/panel wiring plus live CUDA Playwright value assertions; Sprint 11.8) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
+| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | 🔄 Active (reopened 2026-06-10 — DRY real-workflow matrix exists and linux-cpu/linux-cuda live lanes passed; matrix-driven live runner and apple-silicon lane remain in Sprint 12.11) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 13 | Linux CUDA and Cluster Closure | ✅ Done (re-closed 2026-06-11 on the CUDA machine — linux-cpu and linux-cuda live reopened workflows passed; Sprints 13.17/13.18/13.19) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
 | 14 | Apple Silicon Closure | 🔄 Active (reopened 2026-06-10 — live apple-silicon Tart-VM+Metal exercise of every reopened workflow; Sprint 14.8) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Substrate Reproducibility and Final Handoff | 🔄 Active (reopened 2026-06-10 — cross-substrate DRY confirmation + ledger walk-down; Sprints 15.5/15.6) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 15 | Substrate Reproducibility and Final Handoff | 🔄 Active (reopened 2026-06-10 — final handoff blocked by active Phase 8/9/12 code surfaces and the apple-silicon live lane; Sprints 15.5/15.6) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Reopened phases (2026-06-10 — real-workflow refactor)
 
@@ -759,49 +759,80 @@ split: **code** ownership reopens in Phases `8`–`12`, **live-runtime validatio
 reopens in Phases `13`–`15`.
 
 **Implementation status (2026-06-11).** The Phase `8`–`11` real-workflow **code**
-is implemented and validated on the available hardware (an Apple-Silicon host
-with the `jitml:local` linux container; no NVIDIA GPU, no roomier host for a live
-cluster):
+is implemented. Initial container validation ran on the Apple-Silicon host; the
+later CUDA-machine validation block below records the live `linux-cpu` /
+`linux-cuda` cluster lanes:
 
 - **Phase 8** (Sprints `8.10` / `8.11`) — SL classifier + `jitml train` / `eval`
   and the RL trainers route through the substrate `MlpDevice`, fail-closed, no
   synthetic fallback. Container-validated: `jitml-sl-canonicals --linux-cpu`
-  19/19 (device convergence on the real oneDNN kernel) and `jitml-rl-canonicals
-  --linux-cpu` 28/28 (on-device PPO).
+  15/15 (device convergence on the real oneDNN kernel) and `jitml-rl-canonicals
+  --linux-cpu` 27/27 (on-device PPO).
 - **Phase 9** (Sprints `9.9` / `9.10` / `9.11`) — real `jitml rl eval` / `rollout`,
   a real recursive MCTS tree search (value-head backups; `Arena` / `EnginePrior`
   deleted), real per-algorithm rollouts (`Common.trajectoryRollout` steps the
   real environment dynamics via `SimulatorLoop.realRolloutByName`, no LCG), and a
-  real tuning objective. Validated: `jitml-rl-canonicals` 28/28,
+  real tuning objective. Validated: `jitml-rl-canonicals` 27/27,
   `jitml-hyperparameter` 14/14, `jitml-unit` 196/196, container `check-code: ok`.
 - **Phase 8.11 hardening** (2026-06-11) — the four device updaters
   (`dqnUpdateDevice` and the QR-DQN / continuous / HER peers) **fail closed** on a
   mid-run device `Left` instead of silently falling back to the pure update; with
   the dispatch `probeMlpDevice` gate there is no pure-Haskell fallback on any
-  runtime path. Container `check-code: ok`, `jitml-rl-canonicals --linux-cpu` 28/28.
+  runtime path. Container `check-code: ok`, `jitml-rl-canonicals --linux-cpu` 27/27.
 - **Phase 10** (Sprint `10.5`) — the synthetic `+ nTensors/100` inference offset is
-  removed; the engine runners return faithful output, `inferFromManifest` is a
-  faithful identity read, and `jitml inference run` / `inspect replay` fail
-  closed / report real metadata.
-- **Phase 11** (Sprint `11.8`) — the demo `/api/inference` and `/api/connect4/move`
-  endpoints run the real network forward / real MCTS. The PureScript panel
-  rewrite remains Remaining Work: the panels currently make no HTTP calls, so it
-  requires adding an HTTP client dependency + wiring nine Halogen panels to real
-  fetch + typed parse (build-validatable via `jitml lint purescript`); live
-  Playwright value assertions need a live cluster.
+  removed; the engine runners return faithful output, `inferFromManifest` and
+  the default Store wrappers around it are deleted, `Service.Workload` default
+  inference fails closed, and `jitml inference run` / `inspect replay` fail
+  closed / report real metadata. Validated: `jitml-unit` 196/196,
+  `jitml-daemon-lifecycle` 31/31, and focused offline `jitml-integration`
+  weighted-load / HasMinIO checkpoint-write cases.
+- **Phase 11** (Sprint `11.8`) — the demo `/api/inference`, `/api/images`, and
+  `/api/connect4/move` endpoints run the real network forward / image top-k
+  render / real MCTS. The PureScript panels issue real text fetches / WebSocket
+  subscriptions through typed actions, parse responses into typed records, and
+  surface stream errors; `jitml lint purescript` passed. The CUDA-machine live
+  Playwright run passed **9/9** against the bootstrapped edge route and asserted
+  rendered values for MNIST, CIFAR/ImageNet, and Connect 4.
 - **Phase 12** (Sprint `12.11`) — `JitML.Test.WorkflowMatrix` enumerates the eight
   reopened workflows × every substrate with their canonical commands; the e2e
   coverage assertion is host-validatable. Wiring the Live tests to iterate the
   matrix fail-closed against a live cluster is Remaining Work (needs the cluster).
 
-The **live-runtime exercise** owned by Phases `12`–`15` (the DRY `WorkflowMatrix`
-run per substrate, the live linux-cpu / linux-cuda / apple-silicon cluster
-closure, and the cross-substrate confirmation) is **blocked on hardware** on this
-host: there is no NVIDIA GPU (Phase `13` linux-cuda — the "stop at the GPU
-boundary" decision), and a live cluster (Kind + Helm + Pulsar + MinIO) plus the
-apple-silicon Tart build VM are not provisionable on a memory-constrained host.
-Those sprints carry `Blocked` status with the hardware named; the code they
-exercise is the validated Phase `8`–`11` surface.
+**Linux live-validation update (2026-06-11, CUDA machine).** After moving from
+the Apple-Silicon host to a CUDA machine, the live linux lanes were re-exercised
+on the rebuilt image. The host and the `jitml-cuda` container see an NVIDIA
+GeForce RTX 5090 with CUDA 12.8 / driver 570.211.01. Validation:
+
+- `docker compose build jitml` passed the embedded Haskell `check-code: ok` gate
+  and the PureScript bundle build; `.gitignore`, `.dockerignore`, and the
+  file-lint traversal now exclude preserved `.data-preserved*/` PV backups so
+  root-owned Postgres data cannot enter Git status, the Docker build context, or
+  repo text-file hygiene checks.
+- `linux-cpu`: a stale preserved `.data` tree produced a Harbor Postgres
+  checkpoint failure, so it was preserved as `.data-preserved-20260611-1709`;
+  the clean-data retry bootstrapped **83 steps**, then the rebuilt image passed
+  focused PPO, full `jitml-integration` **67/67**, and `jitml-e2e` **20/20**.
+  The validated CPU data was then preserved as
+  `.data-preserved-linux-cpu-20260611-1436` before CUDA bootstrap.
+- `linux-cuda`: fresh `docker compose run --rm jitml-cuda jitml bootstrap
+  --linux-cuda` bootstrapped **83 steps**; full `cabal test -fcuda
+  jitml-integration --test-show-details=direct` passed **67/67**; `jitml test
+  jitml-e2e --linux-cuda` passed **20/20**; `jitml test
+  jitml-daemon-lifecycle --linux-cuda` passed **32/32**, including the
+  daemon-rendered workload Job `runtimeClassName: nvidia` regression; and the
+  live CUDA Playwright value suite passed **9/9** in the Playwright Docker image
+  against the published edge route.
+- The live fix that made the CUDA lane pass is twofold: daemon-spawned
+  `linux-cuda` workload Jobs now request `runtimeClassName: nvidia` plus NVIDIA
+  env vars, and PPO uses per-substrate live tuning (`linux-cpu` keeps
+  10 epochs / `5e-4`; `linux-cuda` and `apple-silicon` use 8 epochs / `7e-4`).
+
+With that evidence, **Phase `13` Sprints `13.17` / `13.18` / `13.19`
+re-close `✅ Done`** and Phase `11` Sprint `11.8` re-closes `✅ Done`.
+Phases `8`, `9`, `12`, `14`, and `15` remain open for their own obligations:
+non-Dense SL forward/backward JIT promotion, device-backed AlphaZero MCTS leaf
+evaluation, device-backed tuning trials, the matrix-driven live runner /
+apple-silicon lane, and final handoff after those are closed.
 
 - **Phase 8** — Sprint `8.10` routes the SL classifier through the substrate
   `MlpDevice` selected by `--substrate`, fails `runTrain`/`runEval` closed with a
@@ -1735,12 +1766,12 @@ RTX 3090 cluster):
   `jitml train` over staged MNIST + the live convergence
   assertion remains.
 - **13.13 / 13.14 live render + Playwright**: the Dockerfile now
-  esbuild-bundles the spago output into a 225 KB browser-loadable
-  IIFE; the rebuilt image was `kind load`ed + the demo
-  rollout-restarted, and the **7-test Playwright matrix passes
-  7/7 against the live `jitml-demo` Envoy edge** with each panel
-  mounting from the real bundle. The live `/api/ws` broker-frame
-  round-trip (demo `serveDemoWithBridge` wiring + in-cluster
+  esbuild-bundles the spago output into a browser-loadable IIFE; the
+  rebuilt image was `kind load`ed + the demo rollout-restarted, and the
+  current **9-test Playwright matrix passes 9/9 against the live
+  `jitml-demo` Envoy edge** with each panel mounting from the real bundle
+  and the REST panels asserting rendered values. The live `/api/ws`
+  broker-frame round-trip (demo `serveDemoWithBridge` wiring + in-cluster
   broker endpoint) was validated 2026-05-28, closing Sprint 13.13.
 - **13.1 ephemeral rollout**: the `jitml bootstrap` phased Helm
   rollout + `jitml cluster down` teardown is the ephemeral-cluster
@@ -1844,7 +1875,7 @@ manifest (optimizer state, RNG streams, monotonic step, metrics,
 parent lineage), the typed `AdvancePredicate` ADT, the
 `deriveExperimentHash` function, the `RetentionPolicy` + `walkLiveSet`
 + `buildGcPlan` GC reconciler surface, and the
-`writeCheckpointSnapshotWithMinIO` / `inferWeightsOnlyFromLatestCheckpoint`
+`writeCheckpointSnapshotWithMinIO` / `loadInferenceCheckpointWithWeights`
 checkpoint write/read paths; the PureScript
 scaffold with six panel payload modules under `web/src/Panels/`, the
 generated contracts, and the full typed local demo route manifest; the `jitml-demo` HTTP server; the Playwright

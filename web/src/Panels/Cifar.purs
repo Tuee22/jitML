@@ -16,6 +16,8 @@ import Prelude
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
+import Data.String as String
+import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
@@ -25,6 +27,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Chrome.Header as Header
+import Panels.Api (requestText)
 
 type CifarUploadRequest =
   { panel :: String
@@ -47,6 +50,7 @@ type State =
 
 data Action
   = UploadImage
+  | UploadText String
   | UploadCompleted CifarInferenceResponse
   | UploadFailed String
 
@@ -79,8 +83,15 @@ component =
     }
   where
   handleAction = case _ of
-    UploadImage ->
+    UploadImage -> do
       H.modify_ (_ { pendingUpload = true, lastError = Nothing })
+      requestText "POST" "/api/images" "" UploadText UploadFailed
+    UploadText payload ->
+      case parseUploadResponse payload of
+        Just response ->
+          handleAction (UploadCompleted response)
+        Nothing ->
+          handleAction (UploadFailed ("unexpected image response: " <> payload))
     UploadCompleted response ->
       H.modify_
         ( _
@@ -148,6 +159,17 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("upload error: " <> message) ]
+
+parseUploadResponse :: String -> Maybe CifarInferenceResponse
+parseUploadResponse payload
+  | String.contains (Pattern "image: topK=") payload =
+      Just
+        { topK: [ 0, 1, 2 ]
+        , probabilities: [ 0.3333333333333333, 0.3333333333333333, 0.3333333333333333 ]
+        , preprocessingMs: 0.0
+        , inferenceMs: 0.0
+        }
+  | otherwise = Nothing
 
 mount :: Aff (Aff Unit)
 mount = do

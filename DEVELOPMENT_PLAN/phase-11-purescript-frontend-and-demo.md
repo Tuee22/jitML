@@ -21,15 +21,18 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 — real-workflow refactor). The PureScript
-SPA, panels, and demo server shipped, but the demo HTTP endpoints returned
-constants (`/api/inference` a synthetic `inferFromManifest` number,
-`/api/connect4/move` a hard-coded column) and the panels issue no real fetches.
-Sprint `11.8` routes the demo endpoints through real computation — `Web.Server`
-`/api/inference` runs the real policy/value network forward and
-`/api/connect4/move` runs the real MCTS tree search — and tracks the panel
-fetch/typed-parse rewrite + live Playwright value assertions as Remaining Work
-(they need the PureScript toolchain and a live cluster). See
+✅ **Done** (re-closed 2026-06-11 after Sprint `11.8`). The demo HTTP endpoints
+run real computation, and the PureScript panels issue real HTTP / WebSocket
+calls through typed actions: `Web.Server` `/api/inference` runs the real
+policy/value network forward, `/api/connect4/move` runs the real MCTS tree
+search, `/api/images` returns a policy-network top-k vector instead of an upload
+acknowledgement, `Panels.Api` performs text fetches, and the stream panels parse
+incoming frames into typed records instead of storing raw strings. The
+Playwright suite now clicks the MNIST / CIFAR / Connect 4 controls, waits for
+the real API responses, and asserts rendered value updates against the live
+demo edge. Validation passed on 2026-06-11 against the `linux-cuda` cluster:
+the Playwright Docker image (`mcr.microsoft.com/playwright:v1.49.1-noble`) ran
+the suite with host networking and reported **9 / 9 PASS**. See
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
 closure narrative below is retained as dated record.
 
@@ -79,7 +82,7 @@ modules now live under `web/src/Panels/`:
 `Panels.{Mnist,Cifar,Connect4,Rl,Training,Tune}` — each carries the
 typed request/response payload shape for its endpoint. `web/test/Main.purs`
 smokes every panel name + the generated contracts surface.
-`playwright/jitml-demo.spec.ts` covers the seven-test canonical panel
+`playwright/jitml-demo.spec.ts` covers the current nine-test canonical panel
 matrix through the live edge route. `JitML.Web.Bundle.panelSurfaces`
 lists all six panel names, and
 `JitML.Web.Bundle.demoRoutes` now names the full local demo HTTP surface
@@ -544,13 +547,14 @@ therefore the right place to host the directory.
 None. Sprint `11.7` closed on 2026-06-05; the matching
 legacy-ledger row moved to `Completed`.
 
-## Sprint 11.8: Demo Endpoints Render Real Substrate Output [Active]
+## Sprint 11.8: Demo Endpoints Render Real Substrate Output ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Web/Server.hs` (`renderInferenceResponse`,
-`renderConnect4Response`); panels under `web/src/Panels/*`,
+`renderImageResponse`, `renderConnect4Response`); panels under
+`web/src/Panels/*`, `web/src/Panels/Api.{purs,js}`,
 `web/src/Panels/Stream.js`, `playwright/jitml-demo.spec.ts`
-**Docs to update**: `../documents/engineering/frontend_bundle.md`, `system-components.md`
+**Docs to update**: `../documents/engineering/purescript_frontend.md`, `system-components.md`
 
 ### Objective
 
@@ -562,9 +566,11 @@ of [Exit Definition](README.md#exit-definition) item 6/7.
 
 - `Web.Server` `/api/inference` runs the real policy/value network forward
   (`PolicyValueNet.networkPolicyValue`) and reports the value/policy heads;
+  `/api/images` runs the same policy/value network over the demo board state
+  and reports a top-k probability vector instead of an upload acknowledgement;
   `/api/connect4/move` runs the real MCTS tree search
   (`PolicyValueNet.mctsVisitDistribution`) and returns the highest-visit move —
-  no hard-coded column, no synthetic `inferFromManifest`.
+  no hard-coded column, no synthetic manifest-only number.
 - The panels issue real HTTP fetches over the generated contracts and parse the
   typed responses; the dead `*Received` handlers, the raw `LiveFrame String`
   path, and the `Stream.js` socket-failure swallow are removed.
@@ -579,22 +585,29 @@ of [Exit Definition](README.md#exit-definition) item 6/7.
 
 ### Current Validation State
 
-Landed: the `Web.Server` `/api/inference` and `/api/connect4/move` endpoints now
-run the real network forward / real MCTS (pure, host lib type-checks; container
-`check-code` validated at the Phase 11 boundary). The unit tests assert endpoint
-*paths/contracts*, not response bodies, so they hold.
+Landed: the `Web.Server` `/api/inference`, `/api/images`, and
+`/api/connect4/move` endpoints now run the real network forward / image top-k
+render / real MCTS path (pure, host lib type-checks; container `check-code`
+validated at the Phase 11 boundary). On 2026-06-11 the panels were rewired
+through `Panels.Api.requestText`, `Panels.Stream.openWebSocket` now reports
+failures, raw `LiveFrame String` storage was removed from the RL / training /
+tuning panels, and `docker compose run --rm jitml jitml lint purescript`
+returned `ok`. The final CUDA-machine rebuild passed `docker compose build
+jitml` (`check-code: ok` plus the PureScript bundle), the rebuilt images were
+loaded into the `linux-cuda` Kind cluster, and the Playwright suite now asserts
+live values, not just DOM visibility: MNIST waits for `/api/inference` and checks
+the rendered prediction badge, CIFAR waits for `/api/images` and checks the
+response + attached top-k result list, and Connect 4 waits for
+`/api/connect4/move` and checks the rendered move list. The container-only live
+run passed **9 / 9** against the published `linux-cuda` edge route, and
+`docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` passed
+**20 / 20** after the same server/frontend rebuild.
 
 ### Remaining Work
 
-- Rewrite the nine PureScript panels (`web/src/Panels/*`) to issue real fetches +
-  typed parsing and delete the dead receive handlers / raw-frame / swallow paths.
-  The panels currently make **no HTTP calls** (there is no Affjax / fetch client
-  in `web/`), so this requires adding an HTTP client dependency + spago/package
-  config and wiring each Halogen panel's action to fetch and typed-parse its
-  generated contract. Build-validatable via `jitml lint purescript`.
-- Live Playwright value assertions against the demo edge route — needs a live
-  cluster (`jitml bootstrap`), not runnable on a memory-constrained host; owned
-  jointly with Phase 13/14 live closure.
+- None. Apple Silicon can re-run the same live Playwright suite under Phase `14`
+  once Sprint `14.8` is on an Apple host; no Phase `11` code-surface obligation
+  remains.
 
 ## Doctrine Sections Cited
 

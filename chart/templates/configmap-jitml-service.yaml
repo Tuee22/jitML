@@ -5,7 +5,7 @@ metadata:
   namespace: platform
 data:
   BootConfig.dhall: |
-    { substrate = "linux-cpu"
+    { substrate = "linux-cuda"
     , residency = < Cluster | Host >.Cluster
     , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
@@ -22,4 +22,8 @@ data:
     , dedupCacheSize = 4096
     , dedupCacheTtlSeconds = 3600
     , drainDeadlineSeconds = 30
+    , buildVmCpu = 4
+    , buildVmMemoryMib = 8192
+    , buildVmDiskGib = 50
+    , buildVmIdleTimeout = Some 1800
     }

@@ -105,16 +105,59 @@ test("mnist panel renders an inference canvas", async ({ page }) => {
   await loadPanel(page, "mnist-live-inference");
   await expect(page.locator("#mnist-live-inference")).toBeVisible();
   await expect(page.locator("#mnist-live-inference canvas")).toHaveCount(1);
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/inference") &&
+      response.request().method() === "POST",
+  );
+  await page.locator("#mnist-live-inference-submit").click();
+  const response = await responsePromise;
+  const body = await response.text();
+  expect(body).toContain("prediction: value=");
+  expect(body).toContain(" policy=[");
+  await expect(page.locator("#mnist-live-inference-prediction")).toContainText(
+    "predicted 0",
+  );
 });
 
 test("cifar panel renders an upload control", async ({ page }) => {
   await loadPanel(page, "cifar-imagenet-upload");
   await expect(page.locator("#cifar-imagenet-upload")).toBeVisible();
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/images") &&
+      response.request().method() === "POST",
+  );
+  await page.locator("#cifar-imagenet-upload-submit").click();
+  const response = await responsePromise;
+  await expect(page.locator("#cifar-imagenet-upload-topk")).toBeVisible();
+  await expect(page.locator("#cifar-imagenet-upload-topk li")).toHaveCount(3);
+  expect(response.ok()).toBeTruthy();
+  expect(await response.text()).toContain("image: topK=");
 });
 
 test("connect4 panel renders the board", async ({ page }) => {
   await loadPanel(page, "connect4-human-vs-alphazero");
   await expect(page.locator("#connect4-human-vs-alphazero")).toBeVisible();
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/connect4/move") &&
+      response.request().method() === "POST",
+  );
+  await page.locator("#connect4-human-vs-alphazero-col-0").click();
+  const response = await responsePromise;
+  const body = await response.text();
+  expect(body).toMatch(/^move: [0-6]\n?$/);
+  const match = body.match(/^move: ([0-6])/);
+  if (match === null) {
+    throw new Error(`unexpected Connect 4 response: ${body}`);
+  }
+  await expect(page.locator("#connect4-human-vs-alphazero-moves")).toContainText(
+    new RegExp(`moves: \\[0,\\s*${match[1]}\\]`),
+  );
 });
 
 test("rl panel renders an episode timeline", async ({ page }) => {

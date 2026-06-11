@@ -21,15 +21,18 @@
 ## Phase Status
 
 🔄 **Active** (reopened 2026-06-10 — real-workflow refactor). The catalog,
-AlphaZero substack, and tuning surfaces shipped, but three user-facing leaves
-still run synthetic/echo stand-ins instead of the substrate JIT path: `jitml rl
-eval` echoed the checkpoint label and `jitml rl rollout` returned an LCG integer
-sequence (Sprint `9.9`); the AlphaZero MCTS `runSearchWithPrior` /
-`simulateWithPrior` is a one-ply bandit that never descends the tree or backs up
-the value head (Sprint `9.10`); and `Tune.deterministicTrials` is a per-sampler
-LCG with no model trained and no objective measured (Sprint `9.11`). Sprints
-`9.9`–`9.11` close the gap; the per-lane live exercise is owned by Phases
-`13`/`14`. See
+AlphaZero substack, and tuning surfaces shipped with synthetic/echo stand-ins:
+`jitml rl eval` echoed the checkpoint label, `jitml rl rollout` returned an LCG
+integer sequence, AlphaZero MCTS was a one-ply bandit, and tuning trials used
+per-sampler LCG values. The 2026-06-10/11 refactor removes those local stand-ins:
+`rl eval`/`rl rollout` route through checkpoint/device paths and fail closed,
+per-algorithm rollouts step real environment dynamics, MCTS descends a real tree
+with value backup, and tuning trials train a model to produce measured
+objectives. The phase remains active for the explicitly named follow-ons in
+Sprints `9.9`–`9.11`: CLI `rl rollout` container boundary validation,
+substrate-device-backed MCTS leaf evaluation, and substrate-backed/live persisted
+tuning execution. The linux-cpu and linux-cuda live exercise closed in Phase
+`13` on 2026-06-11; apple-silicon remains Phase `14`. See
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
 closure narrative below is retained as dated record.
 
@@ -80,30 +83,25 @@ Phase `13` and are not open Phase `9` obligations.
 ### Current Implementation Scope
 
 The worktree implements an `RLAlgorithm` catalog with family/replay
-metadata, a Dhall schema mirror/audit at `dhall/rl/Schema.dhall`,
-run-to-run determinism for the PPO/CartPole deterministic-stub rollout
-(two fresh runs compared bit-for-bit, no committed trajectory file per
-[../README.md → Snapshot targets → Numerical-fixture
-prohibition](../README.md#snapshot-targets)), and deterministic
-sampler/scheduler/pruner catalogs in `src/JitML/Tune/Catalog.hs`. The
-14 per-algorithm modules under `src/JitML/RL/Algorithms/` carry typed
-hyperparameter rows + a deterministic
-`AlgorithmModule.moduleRolloutGenerator` that produces a per-seed
-integer trajectory + reward stream the canonical stanza checks
-via run-to-run equality and rule-conformance properties (no committed
-rollout-value files); `Registry.algorithmModuleRegistry` aggregates them.
-`JitML.RL.AlphaZero.Mcts` implements a deterministic prior + UCB +
-visit-count tree with `runSearch` walking `mctsSimulations` rollouts;
-`SelfPlay` plays `selfPlayGamesPerGeneration` games per generation
-with a `SelfPlayBuffer` that exposes a `bufferTranscriptHash` for the
-MinIO pointer; `Arena` decides `candidateShouldBePromoted` from the
-`arenaWinRate`. The `PerfectInformation` typeclass admits all four
-canonical games with per-game `applyMove` rules.
+metadata and a Dhall schema mirror/audit at `dhall/rl/Schema.dhall`.
+The 14 per-algorithm modules under `src/JitML/RL/Algorithms/` carry typed
+hyperparameter rows plus a deterministic `AlgorithmModule.moduleRolloutGenerator`
+that steps real named environment dynamics through
+`JitML.RL.Algorithms.Common.trajectoryRollout` /
+`JitML.RL.SimulatorLoop.realRolloutByName`; there are no committed rollout-value
+fixtures. `Registry.algorithmModuleRegistry` aggregates them.
+`JitML.RL.AlphaZero.Mcts` now implements recursive PUCT search with
+position-aware priors, expansion at the selected leaf, value-head evaluation,
+and sign-flipped backup; `SelfPlay` generates network-driven games with a
+`SelfPlayBuffer` that exposes a `bufferTranscriptHash` for the MinIO pointer.
+The dead `Arena` / `EnginePrior` modules are deleted. The `PerfectInformation`
+typeclass admits all four canonical games with per-game `applyMove` rules.
 `experiments/mnist-tune.dhall` renders the `Some Tuning::{ … }` worked
 example mirroring [../README.md → Concrete `Some Tuning::{ … }` example](../README.md);
-it decodes through `JitML.Tune.Catalog.loadTuningExperiment` to the local
-TPE / ASHA / MedianPruner ADT, and `jitml tune` prints deterministic TPE trial
-samples for the local plan. The tune proto mirror declares typed
+it decodes through `JitML.Tune.Catalog.loadTuningExperiment` to the local TPE /
+ASHA / MedianPruner ADT, and the tuning catalog returns measured objectives by
+training the reference classifier for each sampled trial. The tune proto mirror
+declares typed
 command/event envelopes, parses the deterministic local text command envelope,
 and round-trips the current command and event oneofs through proto3-compatible
 bytes via `JitML.Proto.Wire`.
@@ -323,17 +321,16 @@ training output migrated to Phase `13` Sprint `13.6`.
 
 ### Objective
 
-Stitch the current RL metadata and deterministic trajectory helper into the
-dedicated local RL canonical stanza.
+Stitch the current RL metadata and registered real-environment rollout surface
+into the dedicated local RL canonical stanza.
 
 ### Deliverables
 
 - `test/rl-canonicals/Main.hs` verifies representative algorithm names across
   the local metadata catalog.
-- The stanza asserts `deterministicTrajectory "PPO" 42` is stable
-  across two in-process invocations (run-to-run equality, no committed
-  trajectory fixture per [../README.md → Snapshot targets →
-  Numerical-fixture prohibition](../README.md#snapshot-targets)).
+- The stanza asserts a registered PPO/CartPole rollout is stable across two
+  in-process invocations (run-to-run equality, no committed trajectory fixture
+  per [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets)).
 - The stanza also checks the current Connect 4 transcript helper keeps moves
   within legal column bounds.
 - PPO/CartPole determinism is asserted by re-running the rollout
@@ -417,9 +414,9 @@ AlphaZero summary.
 - The `SelfPlayBuffer` filesystem-backed `HasMinIO` round-trip is
   validated by `jitml-integration`; wiring this buffer to
   `JitML.Service.MinIOSubprocess` remains target work.
-- `src/JitML/RL/AlphaZero/Arena.hs` declares `ArenaConfig`,
-  `ArenaOutcome`, `playArena`, and `candidateShouldBePromoted` keyed on
-  `arenaPromotionThreshold`.
+- `src/JitML/RL/AlphaZero/PolicyValueNet.hs` owns the measured
+  candidate-vs-reference arena win-rate helper used for promotion decisions;
+  the dead standalone `Arena` module is deleted.
 - Live MinIO checkpoint round-trip of the persistent self-play buffer
   remains gated on Phase 10 / Phase 4 platform services.
 
@@ -431,7 +428,7 @@ AlphaZero summary.
    win-rate helper.
 4. Live validation (target): real `Mcts.hs` runs `az_sims` simulations
    per move; `SelfPlay.hs` plays `az_games` games per generation;
-   `Arena.hs` evaluates the new network against the previous best and
+   `PolicyValueNet.hs` evaluates the new network against the previous best and
    the new champion is promoted only when the win rate exceeds the
    committed threshold; checkpoints round-trip the persistent self-play
    buffer bit-deterministically.
@@ -719,16 +716,28 @@ Landed and host-validated (`ghc-9.12.4`, device cases fail closed offline):
   rollout), removing the `deterministicTrajectory` LCG; fails closed on an
   absent device. Host `cabal build` clean; the command-registration unit test
   still lists `rl eval` / `rl rollout`.
+- 2026-06-11: `docker compose run --rm jitml jitml test jitml-rl-canonicals
+  --linux-cpu` → **27/27 PASS**, including the PPO/CartPole registered rollout
+  determinism case and the on-device PPO reward-improvement case.
+- 2026-06-11: `docker compose run --rm jitml-cuda jitml test
+  jitml-rl-canonicals --linux-cuda` → **27/27 PASS**.
+- 2026-06-11: `docker compose run --rm jitml-cuda jitml rl rollout
+  experiments/cartpole.dhall --seed 42` printed
+  `rl rollout: seed=42 substrate=linux-cuda rewards=[18.96]`, confirming the
+  CLI boundary resolves the live CUDA publication and executes the device path.
 
 ### Remaining Work
 
-- Container `--linux-cpu` boundary run confirming `rl rollout` executes the real
-  oneDNN kernel (the CLI `rl rollout` path).
+- The linux-cuda CLI boundary run is validated; run the same direct CLI
+  boundary on a live `linux-cpu` publication if Sprint `9.9` is closed before
+  the remaining Phase `9` code work.
 - The shared `moduleRolloutGenerator` LCG is retired: `Common.trajectoryRollout`
   now steps the real named environment dynamics (`SimulatorLoop.realRolloutByName`)
   with a deterministic seeded policy, so every algorithm's canonical rollout
   exercises real environment rewards (ledger row moved to `Completed`). The
-  substrate-device-backed /trained/ policy rollout is the Phase 13 live follow-on.
+  linux-cuda trained-policy CLI rollout passed on 2026-06-11; the direct
+  linux-cpu CLI boundary remains a same-surface rerun when a CPU publication is
+  active.
 
 ## Sprint 9.10: Real MCTS Tree Search with Substrate-Backed Leaf Evaluation [Active]
 
@@ -788,10 +797,14 @@ Landed and validated (2026-06-10):
   `PolicyValueNet.netOracleFactory` roots it at the search position.
 - `Arena.hs` and `EnginePrior.hs` are deleted and removed from the cabal
   exposed-modules; `rg 'Arena.playArena|EnginePrior' src test` is clean.
-- Host: `jitml-unit` 196/196 (migrated MCTS oracle case), `jitml-rl-canonicals`
-  28/28 (real-search determinism, legality, valid search-derived visit
-  distribution that concentrates beyond uniform). Container: `check-code: ok`,
-  `jitml test jitml-rl-canonicals --linux-cpu` PASS.
+- Host: `jitml-unit` 196/196 (migrated MCTS oracle case, before the 2026-06-11
+  rollout-helper deletion), `jitml-rl-canonicals` real-search determinism,
+  legality, and valid search-derived visit distribution that concentrates
+  beyond uniform. Container: `check-code: ok`, `jitml test
+  jitml-rl-canonicals --linux-cpu` **27/27 PASS** and `jitml test
+  jitml-rl-canonicals --linux-cuda` **27/27 PASS** on 2026-06-11. The live
+  AlphaZero generation drive also passed in both full linux-cpu and linux-cuda
+  integration suites (**67/67** each).
 
 ### Remaining Work
 
@@ -842,7 +855,10 @@ Landed and validated (2026-06-10):
   normalised cross-entropy loss in `[0, 1)`. No LCG-derived trial value remains.
 - Host: `jitml-hyperparameter` 14/14 (distinct per-sampler real objectives,
   values normalised, resume determinism), `jitml-unit` 196/196. Container:
-  `check-code: ok`, `jitml test jitml-hyperparameter --linux-cpu` 14/14.
+  `check-code: ok`, `jitml test jitml-hyperparameter --linux-cpu` **14/14** and
+  `jitml test jitml-hyperparameter --linux-cuda` **14/14** on 2026-06-11. Live
+  tune trial persist/replay and daemon `StartSweep` dispatch passed in both
+  linux-cpu and linux-cuda full integration suites (**67/67** each).
 
 ### Remaining Work
 

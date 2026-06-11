@@ -101,10 +101,11 @@ through typed subprocesses for the production Linux CPU path. CUDA and Apple
 Metal execution are validated through the Phase `13` / Phase `14` live closure
 paths; Phase `15` consumes their weighted outputs for parity and final handoff.
 
-The SL/RL surfaces ship today as deterministic catalogs and summaries:
-canonical SL cells, RL algorithm rows, deterministic trajectory generation,
-AlphaZero Connect 4 helpers, text command-envelope parsers for the current
-training/RL/tuning proto mirrors, and hyperparameter trial sequences. Real
+The SL/RL surfaces ship today as deterministic catalogs and measured summaries:
+canonical SL cells, the Dense-MLP substrate-trainable cohort, RL algorithm rows,
+registered real-environment rollout generation, AlphaZero Connect 4 helpers,
+text command-envelope parsers for the current training/RL/tuning proto mirrors,
+and hyperparameter trial sequences. Real
 daemon-backed SL/RL/AlphaZero training loops, real env stepping, real
 checkpoint persistence, and Pulsar/MinIO-backed hyperparameter sweeps migrated
 to Phases `13` / `14` / `15` during the 2026-05-24 refactor. Phase `8`
@@ -394,12 +395,12 @@ and the deletion ledger has no pending rows.
   Phase:
   [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md).
 - **Supervised learning and RL framework.** `src/JitML/SL/` and
-  `src/JitML/RL/` provide canonical SL problem curves, the typed
-  dataset registry (`SL.Dataset.canonicalDatasets`), the deterministic
-  SL training pipeline (`SL.Loop.runDeterministicLoop`,
-  `SL.Train.train`), the RL algorithm catalog rows, canonical RL
-  environment metadata, framework run-plan metadata, deterministic
-  trajectory helpers, the three GADT-indexed lifecycles
+  `src/JitML/RL/` provide the canonical SL problem catalog and Dense-MLP
+  device-trainable cohort, the typed dataset registry
+  (`SL.Dataset.canonicalDatasets`), the substrate-backed SL classifier, the RL
+  algorithm catalog rows, canonical RL environment metadata, framework run-plan
+  metadata, registered rollout helpers over real environment dynamics, the three
+  GADT-indexed lifecycles
   (`TrainingLifecycle`, `RLRunLifecycle`, `TuneSweepLifecycle`), the
   runtime RL primitives (`Policy`, `VecEnv`, `ReplayBuffer`, `RLLoop`),
   and run-to-run determinism for the PPO/CartPole trajectory (two
@@ -446,12 +447,11 @@ and the deletion ledger has no pending rows.
   binary `.jmw1` encoder/decoder, manifest pointer, filesystem-backed
   checkpoint store, `writeCheckpointSnapshotWithMinIO` over the
   `HasMinIO` conditional-write/CAS boundary, latest-pointer read path,
-  `inferWeightsOnlyFromLatestCheckpoint` for the weight-only inference
-  path, `loadInferenceCheckpointWithWeights` for decoded `.jmw1` weights in
+  `loadInferenceCheckpointWith` for explicit injected runners,
+  `loadInferenceCheckpointWithWeights` for decoded `.jmw1` weights in
   the local Linux CPU generated oneDNN path,
-  `daemonWorkloadDispatcherWithInference` for routing `linux-cpu` +
-  `SelfInference` daemon inference through the generated-kernel checkpoint
-  runner, and the GC reconciler surface
+  `daemonWorkloadDispatcherWithWeightedInference` for routing self-inference
+  daemon requests through generated weighted checkpoint runners, and the GC reconciler surface
   (`RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
   `applyRetentionPolicy`, `buildGcPlan` with `gcReapEvents` and the
   `gcNoOp` second-invocation detector). The inference request/result schema
@@ -466,16 +466,16 @@ and the deletion ledger has no pending rows.
   bundle/panel/demo-route metadata from `src/JitML/Web/Bundle.hs` (six
   canonical panel surfaces plus the full local API route family), the six panel modules under
   `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` with
-  typed request/response payload shapes, `web/test/Main.purs` smoke
-  suite, the canonical seven-test Playwright matrix at
-  `playwright/jitml-demo.spec.ts`, `jitml-demo` executable shim,
+  typed request/response payload shapes plus the shared API/WebSocket bridge
+  modules, `web/test/Main.purs` smoke suite, the current nine-test Playwright
+  matrix at `playwright/jitml-demo.spec.ts`, `jitml-demo` executable shim,
   `src/JitML/Web/Server.hs` HTTP serving, and demo deployment template.
   The Halogen mount machinery, compiled bundle output, and
   `purescript-spec` execution through the Node `spec-node` runner landed in
   Sprints `11.3` / `11.4` /
-  `11.5`; the live REST/WS proxy and live-edge Playwright surfaces
-  later closed in Phase `13`, and Phase `15` removed the offline
-  fallback paths.
+  `11.5`; the live REST/WS proxy, live-edge Playwright surfaces, and
+  value assertions for MNIST / CIFAR / Connect 4 later closed in Phases
+  `11` / `13`, and Phase `15` removed the offline fallback paths.
   The default `purs-tidy check 'src/**/*.purs'` invocation in `web/` lands
   through `jitml lint purescript` (Sprint `11.3`). Phase:
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).

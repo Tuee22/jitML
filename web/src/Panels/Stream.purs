@@ -19,10 +19,9 @@ import Halogen as H
 import Halogen.Subscription as HS
 
 -- | Open a WebSocket to `path` (resolved against the current page origin,
--- | upgrading `http`→`ws` / `https`→`wss`) and invoke the callback with
--- | each text-frame payload. Best-effort: connection failures are
--- | swallowed so the demo keeps rendering its deterministic shell.
-foreign import openWebSocket :: String -> (String -> Effect Unit) -> Effect Unit
+-- | upgrading `http`→`ws` / `https`→`wss`) and invoke the callbacks with
+-- | text-frame payloads or connection failures.
+foreign import openWebSocket :: String -> (String -> Effect Unit) -> (String -> Effect Unit) -> Effect Unit
 
 -- | Subscribe the calling component to a `/api/ws/<domain>` stream. Each
 -- | received frame payload is mapped to a typed `Action` via `toAction`
@@ -32,8 +31,13 @@ subscribeStream
    . MonadAff m
   => String
   -> (String -> action)
+  -> (String -> action)
   -> H.HalogenM state action slots output m Unit
-subscribeStream path toAction = do
+subscribeStream path toAction toFailure = do
   io <- liftEffect HS.create
   _ <- H.subscribe io.emitter
-  liftEffect (openWebSocket path (\payload -> HS.notify io.listener (toAction payload)))
+  liftEffect
+    ( openWebSocket path
+        (\payload -> HS.notify io.listener (toAction payload))
+        (\message -> HS.notify io.listener (toFailure message))
+    )

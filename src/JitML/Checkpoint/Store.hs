@@ -13,11 +13,8 @@ module JitML.Checkpoint.Store
   , checkpointObjectKey
   , checkpointObjectRef
   , executeGcPlan
-  , inferFromLatestCheckpoint
-  , inferWeightsOnlyFromLatestCheckpoint
   , listCheckpointManifests
   , listCheckpointManifestsMinIO
-  , loadInferenceCheckpoint
   , loadInferenceCheckpointWith
   , loadInferenceCheckpointWithWeights
   , loadWeightTensors
@@ -60,7 +57,6 @@ import JitML.Checkpoint.Format
   , decodeJmw1
   , decodeManifestCbor
   , encodeManifestCbor
-  , inferFromManifest
   , latestPointerKey
   , manifestContentSha
   , manifestKey
@@ -275,35 +271,6 @@ listCheckpointManifestsMinIO experimentHash = do
               )
           Right manifest -> pure (Right manifest)
 
-inferFromLatestCheckpoint :: FilePath -> Text -> [Double] -> IO (Either Text [Double])
-inferFromLatestCheckpoint root experimentHash input = do
-  pointer <- readCheckpointPointer root (latestPointerKey experimentHash)
-  case pointer of
-    Nothing ->
-      pure (Left ("missing checkpoint pointer for " <> experimentHash))
-    Just manifestSha -> do
-      manifest <- readCheckpointManifest root experimentHash manifestSha
-      pure (inferFromManifest <$> manifest <*> pure input)
-
--- | Weight-only inference: loads only the weight tensors from the addressed
--- manifest and skips optimizer / RNG split-blob parts (the inference path does
--- not need them).
-inferWeightsOnlyFromLatestCheckpoint
-  :: FilePath -> Text -> [Double] -> IO (Either Text [Double])
-inferWeightsOnlyFromLatestCheckpoint root experimentHash input = do
-  pointer <- readCheckpointPointer root (latestPointerKey experimentHash)
-  case pointer of
-    Nothing ->
-      pure (Left ("missing checkpoint pointer for " <> experimentHash))
-    Just manifestSha -> do
-      manifest <- readCheckpointManifest root experimentHash manifestSha
-      case manifest of
-        Left err -> pure (Left err)
-        Right m ->
-          let weightOnlyManifest = m {manifestOptimizer = [], manifestRng = []}
-              _ = weightOnlyTensors m -- explicit use of the inference predicate
-           in pure (Right (inferFromManifest weightOnlyManifest input))
-
 -- | Retention policy applied by `jitml internal gc <experiment-hash>` per
 -- README → Retention and GC.
 data RetentionPolicy
@@ -445,26 +412,11 @@ executeGcPlan plan =
       Left err -> pure (Left (blobKey experimentHash blobSha, err))
       Right () -> pure (Right ())
 
--- | Inference-only read path: pulls the latest pointer from MinIO, fetches
--- the addressed manifest object, decodes it, and runs the deterministic
--- `inferFromManifest` over the supplied input. Distinguishes manifest-decode
--- errors from MinIO transport errors. The filesystem-backed `HasMinIO`
--- instance + a real HTTP-backed instance both satisfy the signature.
-loadInferenceCheckpoint
-  :: (HasMinIO m)
-  => Text
-  -- ^ experiment hash
-  -> [Double]
-  -- ^ inference input
-  -> m (Either Text [Double])
-loadInferenceCheckpoint =
-  loadInferenceCheckpointWith $ \manifest input ->
-    pure (Right (inferFromManifest manifest input))
-
--- | Variant of `loadInferenceCheckpoint` that lets callers provide the actual
--- inference runner after the latest pointer and weight-only manifest have been
--- loaded. The local Linux CPU tests use this to execute a generated FFI kernel;
--- the default path above keeps the deterministic pure summary.
+-- | Latest-pointer read path for callers that provide an explicit inference
+-- runner after the manifest has been loaded. Production self-inference uses
+-- `loadInferenceCheckpointWithWeights` so generated substrate kernels consume
+-- decoded `.jmw1` weight tensors; this unweighted hook remains for explicit
+-- injected runners and tests.
 loadInferenceCheckpointWith
   :: (HasMinIO m)
   => (CheckpointManifest -> [Double] -> m (Either Text [Double]))

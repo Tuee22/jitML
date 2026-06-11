@@ -2044,7 +2044,7 @@ main =
             @?= "jitml-checkpoints/exp-a/manifests/"
             <> Checkpoint.manifestContentSha manifest
             <> ".cbor"
-      , testCase "checkpoint store writes blobs/manifests and reads latest inference path" $
+      , testCase "checkpoint store writes blobs/manifests and reads latest pointer" $
           withSystemTempDirectory "jitml-checkpoint-store" $ \dir -> do
             let blobKey = Checkpoint.blobKey "exp1" "blob1"
                 manifest =
@@ -2064,8 +2064,10 @@ main =
             decoded @?= Right manifest
             listed <- CheckpointStore.listCheckpointManifests dir "exp1"
             listed @?= Right [manifest]
-            inferred <- CheckpointStore.inferFromLatestCheckpoint dir "exp1" [10, 20]
-            inferred @?= Right (Checkpoint.inferFromManifest manifest [10, 20])
+            latest <- CheckpointStore.readCheckpointPointer dir (Checkpoint.latestPointerKey "exp1")
+            latest @?= Just (CheckpointStore.storedManifestSha firstWrite)
+            blob <- CheckpointStore.readObject dir blobKey
+            blob @?= Right payload
             conflict <- CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
             CheckpointStore.storedPointerResult conflict
               @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp1")
@@ -2270,12 +2272,12 @@ main =
                     . Engine.engineForSubstrate
                 )
                 Substrate.allSubstrates
-          , testCase "checkpoint inference is backend independent for manifest reads" $ do
+          , testCase "checkpoint weight-only tensor selection is backend independent" $ do
               let manifest =
                     Checkpoint.emptyManifest "m1" "exp" [Checkpoint.TensorBlob "dense" [2, 2] "blob"]
-                  expected = Checkpoint.inferFromManifest manifest [1, 2, 3]
+                  expected = [Checkpoint.TensorBlob "dense" [2, 2] "blob"]
               mapM_
-                (\_substrate -> Checkpoint.inferFromManifest manifest [1, 2, 3] @?= expected)
+                (\_substrate -> Checkpoint.weightOnlyTensors manifest @?= expected)
                 [Substrate.AppleSilicon, Substrate.LinuxCPU, Substrate.LinuxCUDA]
           ]
       , -- Sprint 13.7 — gc_reaped envelope round-trips through the

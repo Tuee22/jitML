@@ -26,18 +26,56 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 — real-workflow refactor; Sprints `13.17` /
-`13.18` / `13.19`). With Phases `8`–`12` now routing the SL/RL/tune/inference
-workflows through the real substrate JIT engine, this phase owns the live
-linux-cpu and linux-cuda exercise of every reopened workflow through the
-`WorkflowMatrix` (Sprint `12.11`) against a live cluster. **These sprints are
-blocked on hardware on the current host**: linux-cuda requires an NVIDIA GPU
-(absent on this Apple-Silicon host — the project owner's "stop at the GPU
-boundary" decision applies), and the live linux-cpu cluster (Kind + Helm +
-Pulsar + MinIO) is not provisionable on a memory-constrained host. The code the
-exercise drives is the validated Phase `8`–`11` real-workflow surface; the live
-run is recorded as blocked pending the GPU / cluster host. The prior closure
-narrative below is retained as dated record.
+✅ **Done** (re-closed 2026-06-11 on the CUDA machine after the real-workflow
+refactor; Sprints `13.17` / `13.18` / `13.19`). With Phases `8`–`12` now routing
+the SL/RL/tune/inference workflows through the real substrate JIT engine, this
+phase owns the live linux-cpu and linux-cuda exercise of every reopened workflow
+against a live cluster. The hardware blockers recorded on the Apple-Silicon host
+are resolved for the Linux lanes: the current host exposes an NVIDIA GeForce RTX
+5090 to `jitml-cuda` (CUDA 12.8, driver `570.211.01`).
+
+The re-close run used a rebuilt `jitml:local` / `jitml-demo:local` image whose
+Dockerfile gate passed `check-code: ok` and the PureScript bundle build. The
+first linux-cpu bootstrap attempt hit a stale preserved Harbor Postgres PV
+(`could not locate a valid checkpoint record`); that `.data` tree was preserved
+as `.data-preserved-20260611-1709`, then a clean `.data` retry bootstrapped
+`linux-cpu` in **83 steps**. After the CPU lane passed, its data was preserved
+as `.data-preserved-linux-cpu-20260611-1436` and the CUDA lane bootstrapped on a
+fresh `.data` tree, also in **83 steps**. The prior closure narratives below are
+retained as dated records.
+
+**Re-close validation (2026-06-11, CUDA machine).**
+
+1. `docker compose build jitml` — image build passed embedded `check-code: ok`
+   and the PureScript bundle build.
+2. `docker compose run --rm jitml jitml bootstrap --linux-cpu` — clean-data
+   bootstrap executed **83 steps**.
+3. `docker compose run --rm jitml cabal test jitml-integration
+   --test-show-details=direct --test-options='-p "live PPO cartpole convergence
+   through daemon dispatch clears the literature threshold"'` — focused CPU PPO
+   live case passed.
+4. `docker compose run --rm jitml cabal test jitml-integration
+   --test-show-details=direct` — linux-cpu live integration **67 / 67 PASS**.
+5. `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu` —
+   linux-cpu e2e **20 / 20 PASS**.
+6. `docker compose run --rm jitml-cuda jitml bootstrap --linux-cuda` —
+   fresh-data CUDA bootstrap executed **83 steps**.
+7. `docker compose run --rm jitml-cuda cabal test -fcuda jitml-integration
+   --test-show-details=direct` — linux-cuda live integration **67 / 67 PASS**.
+8. `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` —
+   linux-cuda e2e **20 / 20 PASS**.
+9. `docker compose run --rm jitml-cuda jitml test jitml-daemon-lifecycle
+   --linux-cuda` — **32 / 32 PASS**, including the daemon-rendered
+   `linux-cuda` workload Job `runtimeClassName: nvidia` regression.
+10. `docker run --rm --network host -v /home/matt/jitML:/work:ro -w /work
+    mcr.microsoft.com/playwright:v1.49.1-noble ... playwright test` — live CUDA
+    demo Playwright value assertions **9 / 9 PASS** against the published edge.
+
+Two production fixes are covered by that evidence: daemon-spawned `linux-cuda`
+worker Jobs now request `runtimeClassName: nvidia` plus NVIDIA visibility /
+driver-capability env vars, and PPO live convergence uses substrate-specific
+tuning (`linux-cpu`: 10 epochs / `5e-4`; `linux-cuda` and `apple-silicon`: 8
+epochs / `7e-4`).
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`, after Sprint 13.16's live
@@ -756,35 +794,26 @@ empty post-teardown.
   `resumeMatchesFullRun` holds for a 50%-completed partial sweep on
   every triple.
 - Sprint 13.13 `/api/ws` snapshot + Mnist Halogen render
-  machinery: `JitML.Web.Server.liveEventSnapshotResponse`
-  renders an SSE-shaped frame from a live broker payload (falls
-  back to the deterministic stream offline); `web/src/Panels/
+  machinery: this 2026-05-27 checkpoint still used a deterministic
+  stream fallback; the current server requires WebSocket upgrade and
+  fails closed when no live publication exists. `web/src/Panels/
   Mnist.purs` gains typed `State`, `Action` set, `handleAction`
   cases, and a `render` switch that the other five panels can
   template against.
-- Sprint 13.14 live edge selection: `playwright/jitml-demo.spec.ts`
-  reads `cluster-publication.json` and uses
-  `http://127.0.0.1:<edge-port>/` when present; falls back to the
-  inline-DOM stub when no cluster is up.
+- Sprint 13.14 live edge selection: this 2026-05-27 checkpoint still
+  allowed an inline-DOM fallback; the current `playwright/jitml-demo.spec.ts`
+  reads `cluster-publication.json`, uses `http://127.0.0.1:<edge-port>/`,
+  and fails fast when no live cluster is published.
 
-**Unmet today**: real CUDA RL algorithm losses across the
-14 modules (Sprint 13.8 — multi-week engineering); full
-policy/value network codegen behind the JIT-engine PriorOracle
-seam (Sprint 13.9 — multi-day); the other five Halogen panels'
-render machinery beyond the Mnist template (Sprint 13.13);
-held-open WebSocket-upgrade proxy beyond the polling snapshot
-(Sprint 13.13); live Playwright on the cluster-served demo
-(Sprint 13.14 — depends on 13.13); Sprint 13.4's
-real MNIST upload + canonical SHA replacement; Sprint 13.10's
-daemon-side TuneHandler with full sampler/scheduler/pruner sweep
-loop; Sprint 13.15's first-cache-miss wiring of the weighted
-benchmark runner into
-`ensureKernelArtifactWithBenchmarkTuning` live. Plus the live
-cluster re-validation pass for the new dedup / SelfPlayBuffer /
-RL-event-per-episode tests — owned by the next Linux+NVIDIA
-session.
+**Historical status (2026-05-27; superseded by the 2026-06-11 CUDA-machine
+revalidation):** this checkpoint still listed real CUDA RL algorithm losses,
+the full policy/value JIT-engine PriorOracle bridge, the remaining Halogen
+panels, WebSocket-upgrade proxying, cluster-served Playwright, MNIST upload,
+daemon-side TuneHandler, first-cache-miss benchmark tuning, and a live
+cluster re-validation pass as open. The current phase status and Sprints
+`13.17` / `13.18` / `13.19` closure evidence above supersede this list.
 
-**Note (2026-05-27)**: All new code-surface compiles via
+**Historical note (2026-05-27)**: All new code-surface compiles via
 `cabal build all --enable-tests` on the host. The 5/8 test stanzas
 without oneDNN deps pass (`jitml-unit`, `jitml-sl-canonicals`,
 `jitml-rl-canonicals`, `jitml-hyperparameter`,
@@ -2599,8 +2628,9 @@ kernels behind the same `JitML.Numerics.Mlp` interface:
   forward at the next states (+ online forward at the next states for
   Double-DQN), the per-sample TD-residual gradient (`dqnResidualDLdy`,
   factored out of the pure `dqnUpdate` so both paths share it), one batched
-  device backward, and one Adam step; falls back to the pure update when
-  CUDA is unavailable. The env loop / replay / target-copy are shared with
+  device backward, and one Adam step. The 2026-06-11 Phase `8.11`
+  hardening removed the former pure-update fallback, so device failures now
+  fail closed. The env loop / replay / target-copy are shared with
   the pure trainer via a parameterised `loop`. `jitml-cross-backend`
   ("linux-cuda DQN trainer trains through the batched device path") confirms
   it completes with finite per-interval rewards and is run-to-run
@@ -3170,8 +3200,8 @@ with real production weight loading per substrate).
   [1,2,3]` and `weights = [1,0,0, 0,2,0, 0,0,3]` (3×3 identity-scaled
   diagonal) and asserts `output = [1, 4, 9]` bit-equally across all
   three runs. The reported family is `dense`.
-- `test/integration/Main.hs`'s pre-existing `loadInferenceCheckpoint
-  via HasMinIO round-trips (Sprint 10.4)` weighted assertion is updated
+- `test/integration/Main.hs`'s `loadInferenceCheckpointWithWeights via
+  HasMinIO round-trips (Sprint 10.4/10.5)` weighted assertion is updated
   to `Right [9.0, 2.0, 3.0]` to reflect the new real GEMM output:
   `input [1,2,3]` against the weight tensor `[1,2,3,4]` (decoded from
   `.jmw1`, padded to 3×3 row-major) yields `[9, 2, 3]`.
@@ -3376,15 +3406,15 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
 
 ### Code Surface Landed (2026-05-25)
 
-- `JitML.App.runInference` now detects the live cluster publication
-  (`./.build/runtime/cluster-publication.json`) and, when present,
-  drives `JitML.Checkpoint.Store.loadInferenceCheckpoint` through
-  `JitML.Service.MinIOSubprocess` against the leased edge port. The
-  command reads the latest pointer from
-  `jitml-checkpoints/<experiment-hash>/pointers/latest`, fetches the
-  addressed manifest, and prints the deterministic
-  `Checkpoint.inferFromManifest` summary. Without a live publication
-  the command falls back to the prior placeholder.
+- `JitML.App.runInference` detects the live cluster publication
+  (`./.build/runtime/cluster-publication.json`) and drives
+  `JitML.Checkpoint.Store.loadInferenceCheckpointWithWeights` through
+  `JitML.Service.MinIOSubprocess` against the leased edge port. The command
+  reads the latest pointer from
+  `jitml-checkpoints/<experiment-hash>/pointers/latest`, fetches the addressed
+  manifest, decodes weight-only `.jmw1` blobs, and runs the selected substrate's
+  weighted checkpoint runner. Without a live publication the command fails
+  closed with `InferenceCheckpointMissing`.
 - `JitML.App.runInspectReplay` similarly routes through MinIO when a
   publication is present: it fetches
   `jitml-checkpoints/<experiment-hash>/manifests/<sha>.cbor` via
@@ -3422,8 +3452,8 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   `inference manifest sha mismatch: <experiment-hash>: requested
   <sha>`); the canonical render golden at
   `test/snapshots/cli/app-error-render.txt` is updated to include them.
-- `JitML.App.runInference` now routes a `loadInferenceCheckpoint`
-  failure through `classifyCheckpointLoadError` which maps the
+- `JitML.App.runInference` now routes weighted checkpoint-load failures through
+  `classifyCheckpointLoadError` which maps the
   underlying `pointer read failed` / `manifest read failed` cases to
   `InferenceCheckpointMissing experimentHash`. Decode failures retain
   `InvalidConfig` since they indicate format drift, not absence.
@@ -3451,9 +3481,7 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   weighted runner:
   - `LinuxCPU` → `runLinuxCpuWeightedCheckpointInference`
   - `LinuxCUDA` → `runCudaWeightedCheckpointInference`
-  - `AppleSilicon` → falls back to the deterministic
-    `loadInferenceCheckpoint` summary path (Phase 14 owns the Metal
-    weighted runner).
+  - `AppleSilicon` → `runMetalWeightedCheckpointInference`
 - The `runInspectReplay` command was already routed through the live
   MinIO path in the prior session; no change needed.
 
@@ -3716,13 +3744,15 @@ the live RTX 3090 / CUDA 12.8 cluster:
 
 ### Objective
 
-Execute the seven-test Playwright canonical panel matrix
+Execute the live Playwright canonical panel matrix against the
+`jitml-demo` service behind the Envoy edge route: the smoke shell,
+portals link coverage, shared header coverage, and the six canonical panels
 (`mnist-live-inference`, `cifar-imagenet-upload`,
 `connect4-human-vs-alphazero`, `rl-trajectory`, `training-progress`,
-`hyperparameter-sweep`, smoke shell) against the live `jitml-demo`
-served behind the Envoy edge route, replacing the current inline
-`page.setContent` DOM stubs. Closes Exit Definition item 8's Playwright
-slice and item 9's `jitml-e2e` Playwright slice.
+`hyperparameter-sweep`). The REST panels click through to the live API and
+assert rendered values. This replaces the former inline `page.setContent`
+DOM stubs and closes Exit Definition item 8's Playwright slice plus item 9's
+`jitml-e2e` Playwright slice.
 
 ### Deliverables
 
@@ -3750,9 +3780,10 @@ slice and item 9's `jitml-e2e` Playwright slice.
   `http://127.0.0.1:<edge-port>/`. Phase `15` Sprint `15.3` removed
   the offline fallback, so the current spec fails fast when the live
   publication is absent.
-- Each of the seven panel tests now navigates to the live edge route
-  and waits for the named panel to attach to the DOM (Halogen mount).
-  The earlier inline-DOM branch was retired on 2026-06-04.
+- Each canonical panel test now navigates to the live edge route and waits for
+  the named panel to attach to the DOM (Halogen mount). The earlier inline-DOM
+  branch was retired on 2026-06-04, and the 2026-06-11 rerun extended the suite
+  to 9 / 9 with portals-link, shared-header, and REST rendered-value assertions.
 
 ### Live Validation Note (2026-05-27, fifth session — Playwright passes against the live cluster edge)
 
@@ -3794,11 +3825,12 @@ The seven-test canonical panel matrix ran against the live
 
 ### Remaining Work
 
-- None remaining for Sprint 13.14. Sprint closed 2026-05-28. The
-  Playwright panel matrix passes 7 / 7 against the live `jitml-demo`
-  edge (validation note above); the ephemeral e2e orchestration is the
-  `jitml bootstrap` + `jitml cluster down` path recorded in
-  `JitML.Test.LivePlan.liveE2EPlan`.
+- None remaining for Sprint 13.14. Sprint closed 2026-05-28 and revalidated
+  on 2026-06-11. The Playwright panel matrix passed 9 / 9 against the live
+  `jitml-demo` edge on the CUDA machine, including REST rendered-value
+  assertions; the original 7 / 7 render-only validation note above remains as
+  historical evidence. The ephemeral e2e orchestration is the `jitml bootstrap`
+  + `jitml cluster down` path recorded in `JitML.Test.LivePlan.liveE2EPlan`.
 
 ## Sprint 13.15: Linux CPU Full-Tensor Benchmark Payloads and First-Cache-Miss Live Execution ✅
 
@@ -3979,11 +4011,9 @@ contract holds.
   2026-06-09 (19 / 19, no skip-sentinels); the skip-guard removal is complete
   and the sprint is `✅ Done`.
 
-## Sprint 13.17: Live linux-cpu Exercise of the Reopened Workflows [Blocked]
+## Sprint 13.17: Live linux-cpu Exercise of the Reopened Workflows ✅
 
-**Status**: Blocked
-**Blocked by**: a live cluster (Kind + Helm + Pulsar + MinIO) is not
-provisionable on a memory-constrained host.
+**Status**: Done
 **Docs to update**: `system-components.md`
 
 ### Objective
@@ -4001,18 +4031,24 @@ measured output that clears its in-code threshold.
   `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu` and the
   `jitml-integration -p Live` matrix cells, all PASS for real.
 
+### Current Validation State
+
+- `docker compose run --rm jitml jitml bootstrap --linux-cpu` executed **83**
+  clean-data rollout steps after preserving the stale PV tree as
+  `.data-preserved-20260611-1709`.
+- Focused live PPO convergence passed on the rebuilt image.
+- Full `jitml-integration` passed **67 / 67** and `jitml-e2e --linux-cpu`
+  passed **20 / 20**.
+
 ### Remaining Work
 
-- The Phase `8`–`11` code the lane exercises is implemented and container
-  `--linux-cpu` validated for the non-live (device) half. The live half is
-  blocked: standing up Kind + Helm + Pulsar + MinIO needs more memory than this
-  host has. No code remains — the obligation is the live run on a roomier host.
+- None for the linux-cpu live lane. The non-Dense SL and Phase `9`
+  device-backed MCTS/tuning code follow-ons remain in their owning phases, not
+  in Sprint `13.17`.
 
-## Sprint 13.18: Live linux-cuda Exercise of the Reopened Workflows [Blocked]
+## Sprint 13.18: Live linux-cuda Exercise of the Reopened Workflows ✅
 
-**Status**: Blocked
-**Blocked by**: no NVIDIA GPU on this Apple-Silicon host (the project owner's
-"stop at the GPU boundary" decision).
+**Status**: Done
 **Docs to update**: `system-components.md`
 
 ### Objective
@@ -4021,16 +4057,27 @@ Exercise every reopened real workflow on the **linux-cuda** lane (real
 cuBLAS/cuDNN kernels via the GPU-attached `jitml-cuda` service) against a live
 cluster, with `-fcuda` so the CUDA bindings link.
 
+### Current Validation State
+
+- Host and `jitml-cuda` see the NVIDIA GeForce RTX 5090, CUDA 12.8, driver
+  `570.211.01`.
+- `docker compose run --rm jitml-cuda jitml bootstrap --linux-cuda` executed
+  **83** fresh-data rollout steps.
+- Full `cabal test -fcuda jitml-integration --test-show-details=direct` passed
+  **67 / 67**.
+- `jitml test jitml-e2e --linux-cuda` passed **20 / 20**.
+- `jitml test jitml-daemon-lifecycle --linux-cuda` passed **32 / 32**,
+  including the rendered workload Job `runtimeClassName: nvidia` regression.
+- Live CUDA Playwright value assertions passed **9 / 9** against the published
+  demo edge.
+
 ### Remaining Work
 
-- Blocked on an NVIDIA host. The CUDA codegen / device path is implemented
-  (Phase `7`/`8`) and `-fcuda` compiles in the image; the live GPU exercise
-  needs the RTX-class host, which this Apple-Silicon host is not.
+- None for the linux-cuda live lane.
 
-## Sprint 13.19: Live Cluster Closure of the Reopened Workflows [Blocked]
+## Sprint 13.19: Live Cluster Closure of the Reopened Workflows ✅
 
-**Status**: Blocked
-**Blocked by**: Sprints `13.17` / `13.18` (live cluster + GPU hardware).
+**Status**: Done
 **Docs to update**: `system-components.md`
 
 ### Objective
@@ -4039,9 +4086,16 @@ Close the live linux cluster surface for the reopened workflows: the daemon
 dispatches every reopened workflow into Kubernetes Jobs, the events round-trip
 through the live broker, and the report card reads the real measured metrics.
 
+### Current Validation State
+
+The linux-cpu and linux-cuda live clusters both completed the reopened workflow
+exercise on 2026-06-11. The CUDA run additionally validates that daemon-spawned
+worker Jobs inherit the NVIDIA runtime settings needed by GPU workloads.
+
 ### Remaining Work
 
-- Blocked on the live cluster + GPU hardware (Sprints `13.17` / `13.18`).
+- None for the Linux cluster closure. Apple Silicon closure remains Phase `14`
+  Sprint `14.8`; final cross-substrate handoff remains Phase `15`.
 
 ## Doctrine Sections Cited
 

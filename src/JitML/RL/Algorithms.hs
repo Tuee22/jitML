@@ -4,7 +4,6 @@ module JitML.RL.Algorithms
   ( AlgorithmFamily (..)
   , RLAlgorithm (..)
   , algorithmCatalog
-  , deterministicTrajectory
   , renderAlgorithmCatalog
   )
 where
@@ -44,11 +43,6 @@ algorithmCatalog =
   , RLAlgorithm "HER" Specialized True
   , RLAlgorithm "AlphaZero" SelfPlay False
   ]
-
-deterministicTrajectory :: Text -> Int -> [Int]
-deterministicTrajectory algorithm seed =
-  take 8 $
-    iterate (\value -> (value * 1103515245 + 12345 + Text.length algorithm) `mod` 9973) seed
 
 renderAlgorithmCatalog :: Text
 renderAlgorithmCatalog =

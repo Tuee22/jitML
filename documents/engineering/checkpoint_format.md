@@ -50,10 +50,11 @@ keys relative to that bucket.
 
 The local checkpoint write/read paths now both cross the `HasMinIO` capability
 boundary through `writeCheckpointSnapshotWithMinIO` and
-`loadInferenceCheckpoint`. The live rollout proceeds storage-outward: validate
-those checkpoint writes/reads through the live MinIO capability, then inference
-from checkpoint, then training persistence, then tuning/resume. Later workload
-layers should not invent parallel persistence paths around the checkpoint store.
+`loadInferenceCheckpointWithWeights`. The live rollout proceeds storage-outward:
+validate those checkpoint writes/reads through the live MinIO capability, then
+inference from checkpoint, then training persistence, then tuning/resume. Later
+workload layers should not invent parallel persistence paths around the
+checkpoint store.
 
 ## Three Object Classes, Two Write Protocols
 
@@ -264,38 +265,30 @@ run.
 
 ## Inference-Only Read Path
 
-Target `loadInferenceCheckpoint :: PointerKey -> ReaderT Env IO (KernelHandle,
-CheckpointManifest)` reads `pointers/<>`, fetches `manifests/<sha>`, fetches **only**
-the `Weights` part's blob (skipping optimizer state, RNG state, replay
-buffer, and exploration cache), and instantiates a `KernelHandle` in
-`Inference` kind.
+Target `loadInferenceCheckpointWithWeights` reads `pointers/latest`, fetches
+`manifests/<sha>`, fetches **only** the `Weights` part's blobs (skipping
+optimizer state, RNG state, replay buffer, and exploration cache), decodes the
+`.jmw1` payloads, and hands the manifest plus decoded weights to the
+substrate-specific weighted inference runner.
 
 Concurrent training advances are invisible to the reader because the
 snapshot the reader operates against is immutable.
 
-The current local read paths are `inferFromManifest`, a deterministic summary
-helper used by `jitml inference run` and the local backends stanza,
-`JitML.Checkpoint.Store.inferFromLatestCheckpoint`, which reads a local latest
-pointer, fetches the addressed manifest, and applies the same deterministic
-inference helper, and `inferWeightsOnlyFromLatestCheckpoint`, which clears
-optimizer/RNG parts before inference. `loadInferenceCheckpoint` already reads
-the latest pointer and manifest through `HasMinIO` and is covered by the
-filesystem-backed instance. `loadInferenceCheckpointWith` exposes the
-weight-only manifest to a caller-provided runner, and
+The current read paths are explicit-runner APIs. `loadInferenceCheckpointWith`
+loads the latest pointer and weight-only manifest through `HasMinIO` for callers
+that provide an injected manifest runner. `loadInferenceCheckpointWithWeights`
+also loads and decodes the `.jmw1` weight blobs before invoking the weighted
+runner; `jitml inference run` and daemon self-inference use this weighted path.
 `JitML.Engines.Local.runLinuxCpuCheckpointInference` validates that the local
 Linux CPU path can compile, load, and execute a generated FFI kernel from that
 checkpoint read. `JitML.Service.Runtime.daemonWorkloadDispatcherWithInference`
-threads the same runner hook through daemon `RunInference` dispatch, and
-`jitml service` selects the Linux CPU generated-kernel checkpoint runner for
-`linux-cpu` + `SelfInference` configs. `loadInferenceCheckpointWithWeights`
-additionally loads the
-weight-only `.jmw1` blobs through `HasMinIO`, decodes them, and passes them to
-`JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference`, which validates a
-local generated-kernel inference smoke path that consumes decoded weight
-values. Validating the same weighted path through `JitML.Service.MinIOSubprocess`
-and loading real weight blobs into non-local production `KernelHandle`s remain
-target work. The inference-only read path is the supported entrypoint for
-`jitml-demo` and the PureScript panels.
+keeps that explicit injected-runner hook available for tests. Production
+`jitml service` self-inference selects
+`daemonWorkloadDispatcherWithWeightedInference`, which uses
+`loadInferenceCheckpointWithWeights` to load the weight-only `.jmw1` blobs
+through `HasMinIO`, decode them, and pass them to the selected substrate's
+weighted checkpoint runner. The inference-only read path is the supported
+entrypoint for `jitml-demo` and the PureScript panels.
 
 The inference topic contract is declared in `proto/jitml/inference.proto`.
 `JitML.Proto.Inference` mirrors the `InferenceRequest` and `InferenceResult`

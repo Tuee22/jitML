@@ -208,8 +208,6 @@ library
         JitML.SL.Classifier
         JitML.SL.ConvergenceThresholds
         JitML.SL.Dataset
-        JitML.SL.Loop
-        JitML.SL.Train
         JitML.Storage.Buckets
         JitML.Sub.Render
         JitML.Sub.Stream

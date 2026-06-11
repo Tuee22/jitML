@@ -11,6 +11,9 @@ module JitML.Service.Workload
   , dispatchWorkloadPayloadWithInference
   , dispatchWorkloadPayloadWithWeightedInference
   , parseWorkloadEffectPayload
+  , renderRlJob
+  , renderTrainingJob
+  , renderTuneJob
   , renderWorkloadEffect
   , renderWorkloadEffectPayload
   , renderWorkloadEffectResult
@@ -41,7 +44,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
-import JitML.Checkpoint.Format (CheckpointManifest, inferFromManifest)
+import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Checkpoint.Store (LoadedWeightTensor)
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Proto.Inference
@@ -93,7 +96,7 @@ import JitML.Service.RunConfig
   , renderTrainingRunConfigDhall
   , renderTuneRunConfigDhall
   )
-import JitML.Substrate (Substrate, renderSubstrate)
+import JitML.Substrate (Substrate, renderSubstrate, substrateRuntimeClass)
 
 data WorkloadEffect
   = WriteCheckpointBlob ObjectRef ByteString
@@ -282,8 +285,8 @@ defaultCheckpointInference
   => CheckpointManifest
   -> [Double]
   -> m (Either Text [Double])
-defaultCheckpointInference manifest input =
-  pure (Right (inferFromManifest manifest input))
+defaultCheckpointInference _manifest _input =
+  pure (Left "weighted inference runner required")
 
 -- | Weighted-callback variants of the dispatcher chain. Sprint 13.11: the
 -- substrate-bound inference runners (`runLinuxCpuWeightedCheckpointInference`,
@@ -427,6 +430,7 @@ rlRunConfigFor start =
 renderTrainingJob :: StartTraining -> Text
 renderTrainingJob start =
   renderJobWithRunConfig
+    (stSubstrate start)
     "training"
     (workloadName "jitml-train" (stExperimentHash start))
     ["train", stDhallObjectKey start]
@@ -435,6 +439,7 @@ renderTrainingJob start =
 renderTuneJob :: StartSweep -> Text
 renderTuneJob start =
   renderJobWithRunConfig
+    (ssSubstrate start)
     "tune"
     (workloadName "jitml-tune" (ssExperimentHash start))
     ["tune", ssDhallObjectKey start]
@@ -443,6 +448,7 @@ renderTuneJob start =
 renderRlJob :: StartRLRun -> Text
 renderRlJob start =
   renderJobWithRunConfig
+    (srlSubstrate start)
     "rl"
     (workloadName "jitml-rl" (srlExperimentHash start))
     ["rl", "train", srlExperimentHash start]
@@ -455,6 +461,7 @@ renderRlJob start =
 _renderRlJobLegacyEnv :: StartRLRun -> Text
 _renderRlJobLegacyEnv start =
   renderJob
+    (srlSubstrate start)
     "rl"
     (workloadName "jitml-rl" (srlExperimentHash start))
     ["rl", "train", srlExperimentHash start]
@@ -506,8 +513,8 @@ rlTrainerForAlgorithm algorithm =
     "HER" -> "her"
     _ -> "simulator"
 
-renderJob :: Text -> Text -> [Text] -> [(Text, Text)] -> Text
-renderJob component name args envVars =
+renderJob :: Substrate -> Text -> Text -> [Text] -> [(Text, Text)] -> Text
+renderJob substrate component name args envVars =
   Text.unlines $
     [ "apiVersion: batch/v1"
     , "kind: Job"
@@ -520,17 +527,40 @@ renderJob component name args envVars =
     , "  template:"
     , "    spec:"
     , "      restartPolicy: Never"
-    , "      containers:"
-    , "        - name: " <> component
-    , "          image: jitml:local"
-    , "          command:"
-    , "            - " <> yamlString "jitml"
-    , "          args:"
     ]
-      <> fmap (("            - " <>) . yamlString) args
-      <> [ "          env:"
+      <> renderRuntimeClassLines substrate
+      <> [ "      containers:"
+         , "        - name: " <> component
+         , "          image: jitml:local"
+         , "          command:"
+         , "            - " <> yamlString "jitml"
+         , "          args:"
          ]
-      <> concatMap renderEnvVar envVars
+      <> fmap (("            - " <>) . yamlString) args
+      <> renderContainerEnvLines (nvidiaEnvVars substrate <> envVars)
+
+renderRuntimeClassLines :: Substrate -> [Text]
+renderRuntimeClassLines substrate =
+  case substrateRuntimeClass substrate of
+    Nothing -> []
+    Just runtimeClass ->
+      ["      runtimeClassName: " <> runtimeClass]
+
+nvidiaEnvVars :: Substrate -> [(Text, Text)]
+nvidiaEnvVars substrate =
+  case substrateRuntimeClass substrate of
+    Nothing -> []
+    Just _ ->
+      [ ("NVIDIA_VISIBLE_DEVICES", "all")
+      , ("NVIDIA_DRIVER_CAPABILITIES", "compute,utility")
+      ]
+
+renderContainerEnvLines :: [(Text, Text)] -> [Text]
+renderContainerEnvLines [] = []
+renderContainerEnvLines envVars =
+  [ "          env:"
+  ]
+    <> concatMap renderEnvVar envVars
 
 renderEnvVar :: (Text, Text) -> [Text]
 renderEnvVar (name, value) =
@@ -543,12 +573,12 @@ renderEnvVar (name, value) =
 -- @/etc/jitml/run/@) and the shared @jitml-service-config@ ConfigMap (at
 -- @/etc/jitml/service/@). The Job's container takes no @JITML_*@ environment
 -- variables; the worker reads typed Dhall instead.
-renderJobWithRunConfig :: Text -> Text -> [Text] -> Text -> Text
-renderJobWithRunConfig component jobName args runConfigDhall =
+renderJobWithRunConfig :: Substrate -> Text -> Text -> [Text] -> Text -> Text
+renderJobWithRunConfig substrate component jobName args runConfigDhall =
   let configMapName = "runconfig-" <> jobName
    in renderRunConfigConfigMap configMapName runConfigDhall
         <> "---\n"
-        <> renderJobMountedRunConfig component jobName configMapName args
+        <> renderJobMountedRunConfig substrate component jobName configMapName args
 
 renderRunConfigConfigMap :: Text -> Text -> Text
 renderRunConfigConfigMap name dhall =
@@ -567,8 +597,8 @@ indentDhallBlock :: Text -> Text
 indentDhallBlock dhall =
   Text.unlines (fmap ("    " <>) (Text.lines dhall))
 
-renderJobMountedRunConfig :: Text -> Text -> Text -> [Text] -> Text
-renderJobMountedRunConfig component jobName configMapName args =
+renderJobMountedRunConfig :: Substrate -> Text -> Text -> Text -> [Text] -> Text
+renderJobMountedRunConfig substrate component jobName configMapName args =
   Text.unlines $
     [ "apiVersion: batch/v1"
     , "kind: Job"
@@ -581,14 +611,17 @@ renderJobMountedRunConfig component jobName configMapName args =
     , "  template:"
     , "    spec:"
     , "      restartPolicy: Never"
-    , "      containers:"
-    , "        - name: " <> component
-    , "          image: jitml:local"
-    , "          command:"
-    , "            - " <> yamlString "jitml"
-    , "          args:"
     ]
+      <> renderRuntimeClassLines substrate
+      <> [ "      containers:"
+         , "        - name: " <> component
+         , "          image: jitml:local"
+         , "          command:"
+         , "            - " <> yamlString "jitml"
+         , "          args:"
+         ]
       <> fmap (("            - " <>) . yamlString) args
+      <> renderContainerEnvLines (nvidiaEnvVars substrate)
       <> [ "          volumeMounts:"
          , "            - name: jitml-run-config"
          , "              mountPath: /etc/jitml/run"

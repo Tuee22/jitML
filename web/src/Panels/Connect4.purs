@@ -11,7 +11,10 @@ import Prelude
 
 import Data.Array (range)
 import Data.Array as Array
+import Data.Int as Int
 import Data.Maybe (Maybe(..))
+import Data.String as String
+import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
@@ -21,6 +24,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Chrome.Header as Header
+import Panels.Api (requestText)
 
 type Connect4MoveRequest =
   { panel :: String
@@ -46,6 +50,7 @@ type State =
 
 data Action
   = PlayColumn Int
+  | MoveText String
   | MoveReceived Connect4MoveResponse
   | MoveFailed String
   | ResetGame
@@ -82,15 +87,23 @@ component =
     }
   where
   handleAction = case _ of
-    PlayColumn col ->
-      H.modify_
-        ( \s ->
-            s
-              { moves = Array.snoc s.moves col
-              , pendingMove = true
-              , lastError = Nothing
-              }
-        )
+    PlayColumn col -> do
+      state <- H.get
+      let
+        nextMoves = Array.snoc state.moves col
+      H.put
+        state
+          { moves = nextMoves
+          , pendingMove = true
+          , lastError = Nothing
+          }
+      requestText "POST" "/api/connect4/move" (show (renderMoveRequest nextMoves state.humanIsPlayer)) MoveText MoveFailed
+    MoveText payload ->
+      case parseMoveResponse payload of
+        Just response ->
+          handleAction (MoveReceived response)
+        Nothing ->
+          handleAction (MoveFailed ("unexpected move response: " <> payload))
     MoveReceived response ->
       H.modify_
         ( \s ->
@@ -152,6 +165,21 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("move error: " <> message) ]
+
+parseMoveResponse :: String -> Maybe Connect4MoveResponse
+parseMoveResponse payload =
+  case String.stripPrefix (Pattern "move: ") (String.trim payload) of
+    Just raw ->
+      case Int.fromString raw of
+        Just column ->
+          Just
+            { chosenColumn: column
+            , visitCounts: []
+            , policyPriors: []
+            , gameOver: false
+            }
+        Nothing -> Nothing
+    Nothing -> Nothing
 
 mount :: Aff (Aff Unit)
 mount = do

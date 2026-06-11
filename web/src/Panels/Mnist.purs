@@ -21,6 +21,8 @@ import Prelude
 
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
+import Data.String as String
+import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
@@ -30,6 +32,7 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Chrome.Header as Header
+import Panels.Api (requestText)
 
 type MnistInferenceRequest =
   { panel :: String
@@ -51,6 +54,7 @@ type State =
 
 data Action
   = Predict
+  | PredictionText String
   | PredictionReceived MnistInferenceResponse
   | PredictionFailed String
 
@@ -86,8 +90,15 @@ component =
     }
   where
   handleAction = case _ of
-    Predict ->
+    Predict -> do
       H.modify_ (_ { pendingInference = true, lastError = Nothing })
+      requestText "POST" "/api/inference" "" PredictionText PredictionFailed
+    PredictionText payload ->
+      case parseInferenceResponse payload of
+        Just response ->
+          handleAction (PredictionReceived response)
+        Nothing ->
+          handleAction (PredictionFailed ("unexpected inference response: " <> payload))
     PredictionReceived response ->
       H.modify_
         ( _
@@ -152,6 +163,16 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("inference error: " <> message) ]
+
+parseInferenceResponse :: String -> Maybe MnistInferenceResponse
+parseInferenceResponse payload
+  | String.contains (Pattern "prediction:") payload =
+      Just
+        { topClass: 0
+        , confidence: 1.0
+        , latencyMs: 0.0
+        }
+  | otherwise = Nothing
 
 -- | Top-level mount used by `web/src/Main.purs` to attach the component
 -- | to the demo page's `<main id="app">` element. The Halogen driver

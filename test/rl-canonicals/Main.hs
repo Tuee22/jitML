@@ -29,7 +29,7 @@ import JitML.Proto.Rl
   , renderRlCommand
   )
 import JitML.RL.ALE qualified as ALE
-import JitML.RL.Algorithms (algorithmCatalog, algorithmName, deterministicTrajectory)
+import JitML.RL.Algorithms (algorithmCatalog, algorithmName)
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
 import JitML.RL.Algorithms.ArsLoss qualified as ArsLoss
 import JitML.RL.Algorithms.Common
@@ -94,13 +94,12 @@ main =
           assertContains "SAC" names
           assertContains "HER" names
           assertContains "AlphaZero" names
-      , testCase "trajectory generator is deterministic" $
-          deterministicTrajectory "PPO" 42 @?= deterministicTrajectory "PPO" 42
-      , testCase "PPO CartPole trajectory regenerates deterministically without fixtures" $ do
-          let first = deterministicTrajectory "PPO" 42
-              second = deterministicTrajectory "PPO" 42
+      , testCase "PPO CartPole module rollout regenerates deterministically without fixtures" $ do
+          let first = ppoCartpoleRollout 42 8
+              second = ppoCartpoleRollout 42 8
           first @?= second
-          assertBool "trajectory is non-empty" (not (null first))
+          assertBool "rollout has actions" (not (null (rolloutActions first)))
+          assertBool "rollout has rewards" (not (null (rolloutRewards first)))
       , testCase "deterministic RL loop records rollout transitions in the replay buffer" $
           case (algorithmCatalog, canonicalEnvironments) of
             (algorithm : _, environment : _) -> do
@@ -351,6 +350,19 @@ checkRolloutDeterminism algoName envName =
         ("rollout for " <> Text.unpack algoName <> "/" <> Text.unpack envName <> " has rewards")
         (not (null (rolloutRewards first)))
 
+ppoCartpoleRollout :: Int -> Int -> AlgorithmRollout
+ppoCartpoleRollout seed horizon =
+  case [m | m <- algorithmModuleRegistry, algorithmName (moduleAlgorithm m) == "PPO"] of
+    m : _ -> moduleRolloutGenerator m "cartpole" seed horizon
+    [] ->
+      AlgorithmRollout
+        { rolloutAlgorithm = "PPO"
+        , rolloutEnvironment = "cartpole"
+        , rolloutSeed = seed
+        , rolloutActions = []
+        , rolloutRewards = []
+        }
+
 assertTranscriptDeterminism :: Text -> IO ()
 assertTranscriptDeterminism game =
   let first = transcriptFor game
@@ -501,7 +513,7 @@ assertPpoLossDeterminism = do
 -- DDPG + TD3 + SAC + CrossQ + TQC + ARS + HER.
 assertAllLossModulesFinite :: IO ()
 assertAllLossModulesFinite = do
-  let rewards = take 16 (deterministicTrajectoryFor 17)
+  let rewards = take 16 (deterministicRewardsFor 17)
       logProbs = fmap negate rewards
       newLogProbs = fmap (\r -> negate r + 0.01) rewards
       advantages = PpoLoss.gaeAdvantages 0.99 0.95 rewards rewards rewards
@@ -594,10 +606,10 @@ assertAllLossModulesFinite = do
     (not (isInfinite herReward1) && not (isNaN herReward1))
   herReward1 @?= herReward2
 
--- | Deterministic reward trajectory derived from the seed; reused by
+-- | Deterministic rewards derived from the seed; reused by
 -- the multi-algorithm finiteness check above.
-deterministicTrajectoryFor :: Int -> [Double]
-deterministicTrajectoryFor seed =
+deterministicRewardsFor :: Int -> [Double]
+deterministicRewardsFor seed =
   fmap
     (\i -> fromIntegral ((seed + i) `mod` 7) / 7.0 + 0.01)
     [0 ..]

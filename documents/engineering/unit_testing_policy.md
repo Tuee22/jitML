@@ -139,8 +139,8 @@ committed numerical trial-value fixtures.
 ### `jitml-backends` — per-substrate within-substrate determinism
 
 The current body checks that every local substrate has deterministic engine
-flags and that the local `inferFromManifest` helper returns the same summary
-for every substrate. It also routes the generated oneDNN/CUDA/Metal primitive
+flags and that checkpoint weight-only tensor selection is substrate-independent.
+It also routes the generated oneDNN/CUDA/Metal primitive
 kernels through the shared cache artifact loader, loads `jitml_kernel` and
 `jitml_kernel_family_name` / `jitml_kernel_output_count` with `dlopen`,
 verifies the reported family and output length, and asserts three successive

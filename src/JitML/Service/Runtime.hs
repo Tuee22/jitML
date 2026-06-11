@@ -563,7 +563,7 @@ daemonWorkloadDispatcherWithInference runInference domain _eventId payload = do
 -- | Sprint 13.11 — daemon dispatch variant that threads the weighted inference
 -- callback (`CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> ...`)
 -- so the substrate-bound runners can consume real `.jmw1`-decoded weight
--- tensors instead of the deterministic `inferFromManifest` summary. Used by
+-- tensors instead of the removed manifest-only summary path. Used by
 -- `daemonWorkloadDispatcherForRuntime` whenever the loaded `BootConfig`
 -- requests `SelfInference` on `LinuxCPU` or `LinuxCUDA`.
 daemonWorkloadDispatcherWithWeightedInference

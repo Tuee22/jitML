@@ -3,7 +3,6 @@
 module Main where
 
 import Codec.Compression.GZip qualified as GZip
-import Control.Monad.Reader (runReaderT)
 import Data.Bits (shiftR, (.&.))
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Lazy qualified as LazyByteString
@@ -52,9 +51,7 @@ import JitML.Proto.Training
   )
 import JitML.SL.Canonicals
   ( canonicalProblems
-  , convergenceCurve
   , denseMlpCohort
-  , finalLoss
   , problemName
   )
 import JitML.SL.Canonicals qualified as SL
@@ -73,7 +70,6 @@ import JitML.SL.Dataset
   , fetchedSha256
   )
 import JitML.SL.Dataset qualified as Dataset
-import JitML.SL.Train (defaultTrainingConfig, resultConverged, train)
 import JitML.Service.Capabilities (HasMinIO (..))
 import JitML.Service.FilesystemMinIO (runFilesystemMinIO)
 import JitML.Service.MinIOSubprocess (minioSettingsForLocalEdge, runMinIOSubprocess)
@@ -102,40 +98,14 @@ main =
                 , "tiny-imagenet-resnet50"
                 , "california-housing-mlp"
                 ]
-      , testCase "convergence curves are deterministic and descending" $
-          map convergenceCurve canonicalProblems @?= map convergenceCurve canonicalProblems
-      , testCase "final loss improves for every canonical problem" $
-          mapM_
-            ( \problem -> do
-                let curve = convergenceCurve problem
-                assertBool "curve has five epochs" (length curve == 5)
-                case curve of
-                  initialLoss : _ ->
-                    assertBool "final loss is below initial loss" (finalLoss problem < initialLoss)
-                  [] -> assertBool "empty curve" False
-            )
-            canonicalProblems
-      , testCase "deterministic training pipeline marks canonical problems converged" $ do
-          env <- buildEnv defaultGlobalFlags
-          mapM_
-            ( \problem -> do
-                result <- runReaderT (train (defaultTrainingConfig problem)) env
-                assertBool
-                  ("expected convergence for " <> Text.unpack (problemName problem))
-                  (resultConverged result)
-            )
-            canonicalProblems
-      , testCase "convergence curves are run-to-run deterministic without numerical fixtures (Sprint 15.3)" $
-          mapM_
-            ( \problem -> do
-                let first = convergenceCurve problem
-                    second = convergenceCurve problem
-                first @?= second
-                assertBool
-                  ("curve for " <> Text.unpack (problemName problem) <> " is non-empty")
-                  (not (null first))
-            )
-            canonicalProblems
+      , testCase "Dense-MLP cohort is deterministic and catalog-backed (Sprint 8.10)" $ do
+          let first = fmap problemName denseMlpCohort
+              second = fmap problemName denseMlpCohort
+          first @?= second
+          first @?= ["mnist-shallow-mlp", "fashion-mnist-mlp", "california-housing-mlp"]
+          assertBool
+            "every cohort member is in the canonical catalog"
+            (all (`elem` canonicalProblems) denseMlpCohort)
       , testCase "dataset refs fetch and SHA-verify through HasMinIO" $
           withSystemTempDirectory "jitml-sl-dataset" $ \dir ->
             -- Sprint 13.4 — the round-trip test runs against a problem
@@ -176,13 +146,9 @@ main =
               assertBool
                 "sl_batch knob is positive"
                 (knobSlBatch knobs > 0)
-              -- The convergence pipeline currently exposes a five-point
-              -- deterministic synthetic curve regardless of the epoch knob;
-              -- the live measured curves owned by Phase 13 Sprint 13.4 will
-              -- scale to `sl_epochs` per problem.
               assertBool
-                "deterministic curve length is bounded by sl_epochs"
-                (length (convergenceCurve (head canonicalProblems)) <= knobSlEpochs knobs)
+                "sl_epochs covers at least one device epoch"
+                (knobSlEpochs knobs >= 1)
       , testCase "training command envelopes parse after render" $ do
           let start =
                 TrainingStart
@@ -263,12 +229,6 @@ main =
           assertBool
             ("expected cross-entropy loss < 0.5 (random ~1.10), got " <> show loss)
             (loss < 0.5)
-      , testCase "Dense-MLP cohort is the device-trainable subset of the catalog (Sprint 8.10)" $ do
-          fmap problemName denseMlpCohort
-            @?= ["mnist-shallow-mlp", "fashion-mnist-mlp", "california-housing-mlp"]
-          assertBool
-            "every cohort member is in the canonical catalog"
-            (all (`elem` canonicalProblems) denseMlpCohort)
       , testCase "SL classifier converges through the substrate JIT device (Sprint 8.10 --linux-cpu)" $ do
           -- Sprint 8.10 device-backed convergence. Routes the softmax
           -- cross-entropy classifier through the resolved substrate's

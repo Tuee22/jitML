@@ -239,9 +239,20 @@ main =
                   liftIO $
                     CheckpointStore.storedPointerResult stored
                       @?= Checkpoint.PointerWritten (CheckpointStore.storedManifestSha stored)
-                  inferred <- CheckpointStore.loadInferenceCheckpoint experimentHash [10.0]
+                  inferred <-
+                    CheckpointStore.loadInferenceCheckpointWithWeights
+                      ( \_manifest loadedWeights values ->
+                          pure
+                            ( Right
+                                ( values
+                                    <> concatMap CheckpointStore.loadedWeightValues loadedWeights
+                                )
+                            )
+                      )
+                      experimentHash
+                      [10.0]
                   liftIO $
-                    inferred @?= Right (Checkpoint.inferFromManifest manifest [10.0])
+                    inferred @?= Right [10.0, 1.0, 2.0, 3.0, 4.0]
               secondWrite <-
                 CheckpointStore.writeCheckpointSnapshotWithMinIO
                   manifest
@@ -830,7 +841,7 @@ main =
                 CheckpointStore.gcExecutedReapedManifests result @?= 2
                 CheckpointStore.gcExecutedReapedBlobs result @?= 2
                 CheckpointStore.gcExecutedDeleteFailures result @?= []
-      , testCase "loadInferenceCheckpoint via HasMinIO round-trips (Sprint 10.4)" $
+      , testCase "loadInferenceCheckpointWithWeights via HasMinIO round-trips (Sprint 10.4/10.5)" $
           withSystemTempDirectory "jitml-inference-load" $ \root -> do
             env <- buildEnv defaultGlobalFlags
             runFilesystemMinIO root $ do
@@ -858,16 +869,13 @@ main =
               _ <- putBlobBytesIfAbsent blobRef weightBytes
               _ <- putBlobBytesIfAbsent manifestRef manifestBytes
               _ <- casPointer pointerRef Nothing manifestSha
-              inferred <- CheckpointStore.loadInferenceCheckpoint experimentHash [1.0, 2.0, 3.0]
-              liftIO $
-                inferred @?= Right (Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0])
               ffiInferred <-
                 CheckpointStore.loadInferenceCheckpointWith
                   (\loadedManifest values -> liftIO (Local.runLinuxCpuCheckpointInference env loadedManifest values))
                   experimentHash
                   [1.0, 2.0, 3.0]
               liftIO $
-                ffiInferred @?= Right (Checkpoint.inferFromManifest manifest [1.0, 2.0, 3.0])
+                ffiInferred @?= Right [1.0, 2.0, 3.0]
               weightedInferred <-
                 CheckpointStore.loadInferenceCheckpointWithWeights
                   ( \loadedManifest loadedWeights values ->

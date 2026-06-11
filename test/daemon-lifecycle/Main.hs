@@ -103,6 +103,9 @@ import JitML.Service.Workload
   ( WorkloadEffect (..)
   , WorkloadEffectResult (..)
   , parseWorkloadEffectPayload
+  , renderRlJob
+  , renderTrainingJob
+  , renderTuneJob
   , renderWorkloadEffectPayload
   , runWorkloadEffects
   )
@@ -454,7 +457,7 @@ main =
             @?= [ Right (CheckpointBlobWritten (ETag "synthetic-etag"))
                 , Right (CheckpointPointerUpdated (ETag "synthetic-etag"))
                 , Right (WorkloadImagePromoted (ImageRef "library/jitml:ready"))
-                , Right (InferenceResultPublished "synthetic-message-id")
+                , Left (SETransient "inference: weighted inference runner required")
                 , Right WorkloadResourceApplied
                 , Right (WorkloadResourceStatus "items: []")
                 , Right WorkloadResourceDeleted
@@ -466,7 +469,6 @@ main =
                 , "harbor:promote"
                 , "minio:read-object"
                 , "minio:read-bytes"
-                , "pulsar:publish:inference.result.linux-cpu"
                 , "kubectl:apply:job/jitml-train"
                 , "kubectl:status:job/jitml-train"
                 , "kubectl:delete:job/jitml-train"
@@ -504,7 +506,12 @@ main =
                   renderedPayloads
               )
               (SyntheticClientState clientLogRef)
-          dispatchResults @?= [Right (), Right (), Right (), Right ()]
+          dispatchResults
+            @?= [ Right ()
+                , Right ()
+                , Left (SETransient "inference: weighted inference runner required")
+                , Right ()
+                ]
           ignored <-
             evalStateT
               ( Runtime.daemonWorkloadDispatcher
@@ -520,7 +527,6 @@ main =
                 , "harbor:promote"
                 , "minio:read-object"
                 , "minio:read-bytes"
-                , "pulsar:publish:inference.result.linux-cpu"
                 , "kubectl:apply:job/jitml-train"
                 ]
       , testCase "daemon workload dispatcher can inject Linux CPU engine inference (Sprint 7.3)" $ do
@@ -627,7 +633,13 @@ main =
                   ]
               )
               (SyntheticClientState clientLogRef)
-          results @?= replicate 5 (Right ())
+          results
+            @?= [ Right ()
+                , Right ()
+                , Right ()
+                , Right ()
+                , Left (SETransient "inference: weighted inference runner required")
+                ]
           clientLog <- readIORef clientLogRef
           clientLog
             @?= [ "kubectl:apply:job/jitml-train-exp-123"
@@ -636,8 +648,36 @@ main =
                 , "kubectl:apply:job/jitml-tune-tune-exp"
                 , "minio:read-object"
                 , "minio:read-bytes"
-                , "pulsar:publish:inference.result.linux-cpu"
                 ]
+      , testCase "daemon-rendered linux-cuda workload Jobs request NVIDIA RuntimeClass" $ do
+          let trainingCuda =
+                renderTrainingJob
+                  (Training.StartTraining "cuda-train" "experiments/mnist.dhall" LinuxCUDA 11 2 32)
+              rlCuda =
+                renderRlJob
+                  (Rl.StartRLRun "cuda-rl" "ppo" "cartpole" LinuxCUDA 7 128 4)
+              tuneCuda =
+                renderTuneJob
+                  (Tune.StartSweep "cuda-tune" "experiments/mnist-tune.dhall" LinuxCUDA 99 3 100 "TPE" "ASHA" "Median")
+              trainingCpu =
+                renderTrainingJob
+                  (Training.StartTraining "cpu-train" "experiments/mnist.dhall" LinuxCPU 11 2 32)
+              assertCudaJob label manifest = do
+                assertBool
+                  (label <> " requests NVIDIA RuntimeClass")
+                  ("runtimeClassName: nvidia" `Text.isInfixOf` manifest)
+                assertBool
+                  (label <> " asks the NVIDIA runtime for visible devices")
+                  ("NVIDIA_VISIBLE_DEVICES" `Text.isInfixOf` manifest)
+                assertBool
+                  (label <> " restricts NVIDIA driver capabilities")
+                  ("NVIDIA_DRIVER_CAPABILITIES" `Text.isInfixOf` manifest)
+          assertCudaJob "training" trainingCuda
+          assertCudaJob "rl" rlCuda
+          assertCudaJob "tune" tuneCuda
+          assertBool
+            "linux-cpu workload Jobs do not request the NVIDIA RuntimeClass"
+            (not ("runtimeClassName: nvidia" `Text.isInfixOf` trainingCpu))
       , testCase "daemon acquisition records Pulsar subscription success (Sprint 5.5)" $ do
           pullRef <- newIORef []
           ackRef <- newIORef []

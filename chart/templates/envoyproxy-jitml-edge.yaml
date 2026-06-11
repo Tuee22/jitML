@@ -15,5 +15,5 @@ spec:
             spec:
               ports:
                 - name: http
-                  port: 9091
+                  port: 9092
                   nodePort: 30090

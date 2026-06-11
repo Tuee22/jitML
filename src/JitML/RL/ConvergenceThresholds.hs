@@ -83,7 +83,7 @@ cohortThreshold algorithmName environmentName =
 -- * HER — omitted entirely (needs a goal-conditioned env which the
 --   canonical four do not provide).
 -- * AlphaZero — omitted (uses an arena win-rate metric, not a return
---   threshold; tracked separately in `JitML.RL.AlphaZero.Arena`).
+--   threshold; tracked through `JitML.RL.AlphaZero.PolicyValueNet`).
 cohortThresholds :: [((Text, Text), ConvergenceThreshold)]
 cohortThresholds =
   -- PPO (canonical on-policy baseline; tight slack on cartpole/lander,

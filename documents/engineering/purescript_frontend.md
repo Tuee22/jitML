@@ -28,7 +28,7 @@
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Six typed Halogen panels with REST or live WebSocket actions | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Live-only spec covering the portals home, the per-panel shared header, every admin-portal link, and the six canonical panels; no inline DOM fallback remains | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Live-only spec covering the portals home, the per-panel shared header, every admin-portal link, the six canonical panels, and real REST response/rendered-value updates for MNIST, CIFAR, and Connect 4; no inline DOM fallback remains | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Demo executable | Status line plus HTTP/WebSocket server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -57,11 +57,15 @@ web/
 │   ├── Chrome/
 │   │   └── Header.purs
 │   ├── Panels/
+│   │   ├── Api.js
+│   │   ├── Api.purs
 │   │   ├── Cifar.purs
 │   │   ├── Connect4.purs
 │   │   ├── Mnist.purs
 │   │   ├── Portals.purs
 │   │   ├── Rl.purs
+│   │   ├── Stream.js
+│   │   ├── Stream.purs
 │   │   ├── Training.purs
 │   │   └── Tune.purs
 │   └── Generated/
@@ -120,6 +124,14 @@ tuning payload ADTs remain target browser-contract work.
 
 Every panel renders inside `Chrome.Header.render` (the slim shared header — `jitML` wordmark plus `[home]` link to `#portals`), so the directory is one click away from any panel view. `Main.purs`'s empty-hash fallback routes to the portals home; the named hashes below continue to address each panel directly. Panel mounts return their Halogen disposer to the hash dispatcher, which runs the previous disposer before mounting a new route. The portals home is itself a `Panels.Portals` Halogen component composing `PanelRegistry.panels` (left column) with `Generated.AdminPortals.adminPortals` (right column), the latter generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` so the registry remains the single source of truth.
 
+`Panels.Api.requestText` is the dependency-free text request bridge used by the
+REST panels. MNIST, CIFAR/ImageNet, and Connect 4 issue real `POST` calls to the
+generated endpoint paths and convert the text replies into the panel-specific
+typed response records before updating Halogen state. `Panels.Stream` opens the
+live WebSocket route, reports connection failures through typed actions, and the
+RL/training/tune panels convert incoming frame text into typed stream records
+instead of storing raw frame strings.
+
 | Panel | URL hash | REST handler | WebSocket subscription |
 |-------|----------|--------------|------------------------|
 | Portals home (default) | `#portals` (empty hash) | — | — |
@@ -133,7 +145,7 @@ Every panel renders inside `Chrome.Header.render` (the slim shared header — `j
 ## REST and WebSocket Surface
 
 The HTTP handlers live in `src/JitML/Web/Server.hs`; they provide responses for
-the API index, inference, upload acknowledgement, Connect 4 move, compiled
+the API index, inference, image top-k classification, Connect 4 move, compiled
 bundle serving, and live stream routes. A stream route requested as plain HTTP
 returns `503 live stream requires WebSocket upgrade`; upgraded clients are
 bridged to Pulsar event topics by `liveDemoWebSocketRoutes`.
@@ -179,9 +191,14 @@ smoke shell plus the six canonical panels:
   the expected root-relative `href` matching the route registry.
 - Shared header: for each named panel hash, assert `#jitml-chrome`
   mounts and the `#jitml-chrome-home` anchor links to `#portals`.
-- MNIST: load the inference panel and assert its canvas mounts.
-- CIFAR: load the upload panel and assert the upload control surface mounts.
-- Connect 4: load the AlphaZero-vs-human panel and assert the board mounts.
+- MNIST: load the inference panel, assert its canvas mounts, click Predict,
+  wait for `POST /api/inference`, verify the real response contains the
+  policy/value output, and assert the rendered prediction badge updates.
+- CIFAR: load the upload panel, click Classify, wait for `POST /api/images`,
+  and assert the response plus attached result-list surface.
+- Connect 4: load the AlphaZero-vs-human panel, click a column, wait for
+  `POST /api/connect4/move`, and assert the rendered move list includes the
+  returned MCTS move.
 - RL trajectory: load the trajectory panel through the live edge route.
 - Training / Tune: load the streaming metric panels through the live edge
   route.
@@ -191,6 +208,9 @@ explicit live orchestration path; it belongs to the doctrine's
 Ephemeral-Cluster Infrastructure test category and does not have its own Cabal
 stanza. Static route/API scaffold checks stay in the local Haskell e2e and
 PureScript lint targets.
+The 2026-06-11 CUDA-machine run used
+`mcr.microsoft.com/playwright:v1.49.1-noble` with host networking against the
+published `linux-cuda` edge and passed **9 / 9**.
 The local PureScript smoke suite is `purescript-spec` executed through
 `spec-node` by `spago test`; Playwright remains live-only and separate from the
 default Cabal matrix.

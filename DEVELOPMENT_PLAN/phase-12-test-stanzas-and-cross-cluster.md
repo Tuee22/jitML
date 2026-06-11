@@ -31,13 +31,13 @@ test surface did not run every reopened real workflow per substrate behind one
 DRY, fail-closed matrix. Sprint `12.11` introduces a `WorkflowMatrix` that
 enumerates the workflows × substrates and fails closed without a live cluster,
 replacing the vacuous-pass `-p Live` asserts and the model-less e2e asserts.
-The **code that the matrix exercises is the now-real Phase 8–11 workflows**; the
-matrix's live execution per lane is owned by Phases `13`/`14`/`15` and needs a
-live cluster (Kind + Helm + Pulsar + MinIO) and the per-substrate hardware,
-which a memory-constrained host cannot provide — so on this host the matrix is
-authored and the live run is recorded as blocked. See
-[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
-closure narrative below is retained as dated record.
+The **code that the matrix exercises is the now-real Phase 8–11 workflows**.
+On 2026-06-11 the live linux-cpu and linux-cuda lanes passed on the CUDA
+machine, but the integration runner still does not execute the `WorkflowMatrix`
+cells directly and the apple-silicon lane remains Phase `14` work. Therefore
+Sprint `12.11` stays Active for the matrix-driven live runner and remaining
+Apple lane. See [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+The prior closure narrative below is retained as dated record.
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host after
 Sprint `12.10`'s live `linux-cuda` lane re-validation). The phase reopened
@@ -277,7 +277,8 @@ same-substrate training determinism per `### Remaining Work` below.
 `sl_epochs` / `sl_batch` report-card knob consumption closed on
 2026-05-24 — `test/sl-canonicals/Main.hs` reads the `cabal.project`
 report-card knob block via `JitML.Test.Report.loadReportCardKnobs`
-and asserts the deterministic curve length is bounded by `sl_epochs`.
+and asserts the SL epoch/batch knobs are positive for the device-backed
+training surface.
 Live `jitml train` against canonical SL cells with real MinIO
 datasets and live statistical convergence assertions against in-code
 literature-target thresholds (no per-substrate fixtures per
@@ -361,16 +362,16 @@ Phase `13` Sprint `13.6`.
 
 ### Objective
 
-Use `jitml-rl-canonicals` for the RL algorithm catalog,
-deterministic trajectory helper, and Connect 4 transcript checks.
+Use `jitml-rl-canonicals` for the RL algorithm catalog, registered rollout
+determinism over real environment dynamics, and Connect 4 transcript checks.
 
 ### Deliverables
 
 - `test/rl-canonicals/Main.hs` verifies representative entries in
   `algorithmCatalog`: `PPO`, `SAC`, `HER`, and `AlphaZero`.
-- It asserts `deterministicTrajectory` is deterministic for a fixed
-  algorithm and seed across two in-process invocations (run-to-run
-  equality; no committed PPO/CartPole trajectory fixture per
+- It asserts a registered PPO/CartPole module rollout is deterministic for a
+  fixed seed across two in-process invocations (run-to-run equality; no
+  committed PPO/CartPole trajectory fixture per
   [../README.md → Snapshot targets → Numerical-fixture
   prohibition](../README.md#snapshot-targets)).
 - It asserts `selfPlayTranscript` emits legal Connect 4 columns.
@@ -513,16 +514,15 @@ Sprint `15.1`.
 ### Objective
 
 Use `jitml-cross-backend` for the engine-flag, checkpoint
-inference summary, Linux CPU generated-kernel execution checks, and local Linux
-CPU `HasEngine` smoke dispatch. Live
+manifest/weight-selection invariant, Linux CPU generated-kernel execution
+checks, and local Linux CPU `HasEngine` smoke dispatch. Live
 cross-substrate tolerance testing remains the overall handoff gate.
 
 ### Deliverables
 
 - `test/cross-backend/Main.hs` verifies every substrate has non-empty
   deterministic engine flags.
-- It verifies `inferFromManifest` returns the same deterministic summary for
-  each substrate in the local substrate list.
+- It verifies checkpoint weight-only tensor selection is substrate-independent.
 - It compiles generated Linux CPU oneDNN primitive kernels, loads `jitml_kernel` and
   `jitml_kernel_family_name` / `jitml_kernel_output_count` with `dlopen`,
   verifies the reported family and output length, and asserts three successive
@@ -864,9 +864,6 @@ skip-sentinels):
 ## Sprint 12.11: DRY Real-Workflow Matrix, Fail-Closed [Active]
 
 **Status**: Active
-**Blocked by**: live cluster (Kind + Helm + Pulsar + MinIO) + per-substrate
-hardware for the matrix's live execution; not provisionable on a
-memory-constrained host.
 **Implementation**: a new `JitML.Test.WorkflowMatrix` enumeration consumed by
 `test/integration/Main.hs` and `test/e2e/Main.hs`
 **Docs to update**: `../documents/engineering/test_stanzas.md`, `system-components.md`
@@ -905,14 +902,27 @@ substrate (`workflowMatrix`), each cell carrying its canonical `jitml` command
 workflow × substrate and that each cell carries a command (host-validatable
 coverage). The lib + `jitml-e2e` suite compile.
 
+Linux live validation is no longer blocked on this machine:
+
+- `docker compose run --rm jitml cabal test jitml-integration
+  --test-show-details=direct` passed **67 / 67** against a clean
+  `linux-cpu` cluster on 2026-06-11.
+- `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu` passed
+  **20 / 20** on 2026-06-11.
+- `docker compose run --rm jitml-cuda cabal test -fcuda jitml-integration
+  --test-show-details=direct` passed **67 / 67** against a fresh
+  `linux-cuda` cluster on 2026-06-11.
+- `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda`
+  passed **20 / 20** on 2026-06-11.
+
 ### Remaining Work
 
-- Wire the integration / e2e Live tests to **iterate** the matrix and execute
-  each cell against a live cluster, fail-closed (the structure + the workflows
-  it drives are in place; the live execution is the missing half).
-- Live per-lane execution is owned by Sprints `13.17` / `13.18` / `13.19`
-  (linux-cpu / linux-cuda), `14.8` (apple-silicon), and `15.5` / `15.6`
-  (cross-substrate) — each needs the live cluster + the lane's hardware.
+- Wire the integration / e2e Live tests to **iterate** the `WorkflowMatrix`
+  cells directly and execute each cell against a live cluster, fail-closed. The
+  existing live linux suites cover the workflows, but the runner still does not
+  consume the matrix as the single execution source.
+- Run the matrix-driven live path on `apple-silicon` after Phase `14` Sprint
+  `14.8` closes. The Linux live lanes are complete in Phase `13`.
 
 ## Doctrine Sections Cited
 

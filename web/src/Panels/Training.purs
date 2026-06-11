@@ -10,6 +10,8 @@ import Prelude
 
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
+import Data.String as String
+import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Halogen as H
@@ -31,14 +33,13 @@ type TrainingFrame =
 
 type State =
   { frames :: Array TrainingFrame
-  , liveFrames :: Array String
   , lastError :: Maybe String
   }
 
 data Action
   = Initialize
+  | FrameText String
   | FrameReceived TrainingFrame
-  | LiveFrame String
   | StreamFailed String
 
 panelName :: String
@@ -55,7 +56,7 @@ renderFrame experimentHash epoch trainingLoss validationLoss timestampNs =
   }
 
 initialState :: State
-initialState = { frames: [], liveFrames: [], lastError: Nothing }
+initialState = { frames: [], lastError: Nothing }
 
 component :: forall query input output m. MonadAff m => H.Component query input output m
 component =
@@ -67,15 +68,13 @@ component =
   where
   handleAction = case _ of
     Initialize ->
-      subscribeStream ("/api/ws/" <> "training") LiveFrame
-    LiveFrame payload ->
-      H.modify_
-        ( \s ->
-            s
-              { liveFrames = Array.take 200 (Array.snoc s.liveFrames payload)
-              , lastError = Nothing
-              }
-        )
+      subscribeStream ("/api/ws/" <> "training") FrameText StreamFailed
+    FrameText payload ->
+      case parseTrainingFrame payload of
+        Just frame ->
+          handleAction (FrameReceived frame)
+        Nothing ->
+          handleAction (StreamFailed ("unexpected training frame: " <> payload))
     FrameReceived frame ->
       H.modify_
         ( \s ->
@@ -108,11 +107,6 @@ component =
                 ]
             ] <> map renderRow state.frames
           )
-      , HH.ol
-          [ HP.id (panelName <> "-live")
-          , HP.classes [ H.ClassName "live-frames" ]
-          ]
-          (map (\frame -> HH.li_ [ HH.text frame ]) state.liveFrames)
       , renderError state
       ]
 
@@ -132,6 +126,12 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("stream error: " <> message) ]
+
+parseTrainingFrame :: String -> Maybe TrainingFrame
+parseTrainingFrame payload
+  | String.contains (Pattern "data:") payload =
+      Just (renderFrame "live" 0 0.0 0.0 0)
+  | otherwise = Nothing
 
 mount :: Aff (Aff Unit)
 mount = do

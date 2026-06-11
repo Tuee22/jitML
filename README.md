@@ -2063,11 +2063,12 @@ jitML keeps no derived index in Postgres. Every fact about a training run, a hyp
 ## Inference-only read path
 
 The target inference-at-any-point primitive reads *only* the `Weights` part of a
-manifest. The current local implementation provides deterministic
-`inferFromManifest` summaries plus `JitML.Checkpoint.Store.inferFromLatestCheckpoint`
-for a filesystem-backed latest-pointer → manifest → inference flow. The CLI
-surface is the `Inference` constructor of the top-level `Command` (see [CLI
-command topology, typed](#cli-command-topology-typed)):
+manifest. The current implementation uses
+`JitML.Checkpoint.Store.loadInferenceCheckpointWithWeights` for latest-pointer →
+manifest → decoded `.jmw1` weights → substrate weighted runner flow; the default
+manifest-only path fails closed rather than manufacturing an inference value.
+The CLI surface is the `Inference` constructor of the top-level `Command` (see
+[CLI command topology, typed](#cli-command-topology-typed)):
 
 ```bash
 jitml inference run experiments/mnist-mlp.dhall --checkpoint latest

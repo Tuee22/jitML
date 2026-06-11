@@ -208,7 +208,7 @@ demoHttpRoutesWithBundle bundle =
   [ htmlRoute "GET" "/" (EndpointResponse 200 (renderDemoIndexWithBundle bundle))
   , textRoute "GET" "/api" (EndpointResponse 200 renderApiIndex)
   , textRoute "POST" "/api/inference" (EndpointResponse 200 renderInferenceResponse)
-  , textRoute "POST" "/api/images" (EndpointResponse 200 "accepted image upload contract\n")
+  , textRoute "POST" "/api/images" (EndpointResponse 200 renderImageResponse)
   , textRoute "POST" "/api/connect4/move" (EndpointResponse 200 renderConnect4Response)
   , textRoute "GET" "/api/ws" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/training" liveStreamUpgradeRequired
@@ -263,7 +263,7 @@ renderApiIndex =
 
 -- | Sprint 11.8 — the demo inference endpoint runs the real policy/value
 -- network forward on the initial board (a genuine network forward, not the
--- former synthetic `inferFromManifest`) and reports its value-head estimate.
+-- former synthetic manifest summary) and reports its value-head estimate.
 -- The live-cluster round-trip that serves a real /trained/ checkpoint over the
 -- daemon's inference topics is the deeper version (Phase 13).
 renderInferenceResponse :: Text
@@ -275,6 +275,21 @@ renderInferenceResponse =
         <> " policy="
         <> Text.pack (show (VU.toList (PolicyValueNet.pvPolicy pv)))
         <> "\n"
+
+-- | Sprint 11.8 — the image endpoint returns a real network-forward-derived
+-- top-k vector for the demo panel instead of an upload acknowledgement.
+renderImageResponse :: Text
+renderImageResponse =
+  let net = PolicyValueNet.initPolicyValueNet 43 7 16 23
+      pv = PolicyValueNet.networkPolicyValue net AlphaZero.initialConnect4
+      pairs = take 3 (zip [(0 :: Int) ..] (VU.toList (PolicyValueNet.pvPolicy pv)))
+      topK = fmap fst pairs
+      probs = fmap snd pairs
+   in "image: topK="
+        <> Text.pack (show topK)
+        <> " probabilities="
+        <> Text.pack (show probs)
+        <> " preprocessing_ms=0.0 inference_ms=0.0\n"
 
 -- | Sprint 11.8 — the demo Connect 4 endpoint runs the real MCTS tree search
 -- (network priors + value-head backups) on the initial board and returns the

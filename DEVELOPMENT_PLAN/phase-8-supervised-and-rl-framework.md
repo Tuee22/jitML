@@ -13,7 +13,7 @@
 **Generated sections**: none
 
 > **Purpose**: Own the SL canonical summaries, RL catalog/environment
-> metadata, deterministic trajectory helpers, command summaries, run-plan
+> metadata, registered rollout helpers, measured command summaries, run-plan
 > metadata, and the three GADT-indexed lifecycles. Daemon-backed training
 > loops, real datasets, buffers, callbacks, GAE, target networks, and
 > live Pulsar events are tracked in the per-sprint `### Remaining Work`
@@ -25,10 +25,13 @@
 shipped real differentiable pure-Haskell networks but the `jitml train` / `jitml
 rl train` paths never routed them through the substrate JIT engine (`MlpDevice`),
 and `jitml train` published a closed-form synthetic `SL.finalLoss` whenever real
-training was absent. Sprints `8.10` (SL substrate routing + fail-closed
-`runTrain`/`runEval`, scoped Dense-MLP canonical cohort) and `8.11` (RL framework
-substrate routing + removal of the scripted `"simulator"` default) close the gap.
-The live per-lane validation is owned by Phases `13`/`14`. See
+training was absent. Sprint `8.11` now closes the RL framework routing gap, and
+Sprint `8.10` closes the fail-closed Dense-MLP training/eval path plus the
+residual synthetic SL source. Sprint `8.10` remains active only for the named
+non-Dense architecture promotion: Conv2D / ResidualBlock / VisionTransformer
+forward+backward JIT codegen and thresholds. The live per-lane validation is
+owned by Phases `13`/`14`; the linux-cpu and linux-cuda live lanes closed in
+Phase `13` on 2026-06-11, and apple-silicon remains Phase `14`. See
 [README.md → Reopened phases (2026-06-10)](README.md#reopened-phases-2026-06-10--real-workflow-refactor).
 The prior closure narrative below is retained as dated record.
 
@@ -63,25 +66,22 @@ in this phase and Phase `9` Sprint `9.8`.
 
 ### Current Implementation Scope
 
-The worktree implements deterministic catalog summaries: eleven canonical
-SL problem cells with synthetic convergence curves in
-`src/JitML/SL/Canonicals.hs`; the `jitml train` / `jitml eval` command
-summaries; the RL command summaries; and deterministic trajectory helpers
-in `src/JitML/RL/Algorithms.hs`. The typed pipeline surfaces in
-`src/JitML/SL/{Dataset,Loop,Train}.hs` and `src/JitML/RL/{Policy,VecEnv,Buffer,Loop}.hs`
-implement deterministic-fixture-producing training loops, replay
-buffers with deterministic insertion/sample ordering, a typed `Policy`
-carrying the substrate-bound `KernelHandle` model id, and a `VecEnv`
-that parallel-steps the existing canonical environments. The proto
-surfaces (`proto/jitml/{training,rl,tune}.proto` + typed envelopes in
-`src/JitML/Proto/{Training,Rl,Tune}.hs`) define the substrate-scoped
-Pulsar command / event topic family; the training and RL modules also parse the
-deterministic local text command envelope emitted by their renderers and
-round-trip the current command and event envelopes through proto3-compatible
-bytes.
-Live MinIO dataset fetch, live Pulsar publish/consume, and real-hardware
-convergence assertions are owned by Phase `13`; Phase `8` owns no remaining
-open work.
+The worktree implements the canonical SL catalog and explicitly names the
+device-trainable Dense-MLP cohort in `JitML.SL.Canonicals`. `jitml train` is
+fail-closed: it requires a live publication plus staged dataset bytes and
+trains through `trainClassifierWithDevice` on the selected `MlpDevice`; `jitml
+eval` loads checkpoint weights and runs the substrate-bound weighted device
+forward. The obsolete synthetic SL curve helpers and deterministic
+`SL.Loop` / `SL.Train` pipeline are deleted. The RL framework routes every
+MLP-backed trainer through `rlDeviceForSubstrate`; ARS is the lone no-MLP
+exception, and the scripted `"simulator"` default is gone. The proto surfaces
+(`proto/jitml/{training,rl,tune}.proto` + typed envelopes in
+`src/JitML/Proto/{Training,Rl,Tune}.hs`) define the substrate-scoped Pulsar
+command / event topic family and round-trip the current command/event envelopes
+through proto3-compatible bytes. Live MinIO dataset fetch, live Pulsar
+publish/consume, and real-hardware convergence assertions are owned by Phase
+`13`; Sprint `8.10` still owns the non-Dense architecture JIT promotion named
+in its Remaining Work.
 
 ## Phase Summary
 
@@ -109,11 +109,11 @@ Sprint `13.4`. See
 
 ### Objective
 
-Stand up the current deterministic supervised-learning catalog summary. Real
-dataset loaders, daemon-backed training loops, MinIO dataset access, and
-live statistical convergence assertions against in-code thresholds remain
-target runtime work (no per-substrate `.txt` curve fixtures will be
-committed per [../README.md → Snapshot targets → Numerical-fixture
+Stand up the supervised-learning catalog, dataset references, and local
+canonical test surface. Real dataset loaders, daemon-backed training loops,
+MinIO dataset access, and live statistical convergence assertions against
+in-code thresholds remain target runtime work (no per-substrate `.txt` curve
+fixtures will be committed per [../README.md → Snapshot targets → Numerical-fixture
 prohibition](../README.md#snapshot-targets)).
 
 ### Deliverables
@@ -123,24 +123,19 @@ prohibition](../README.md#snapshot-targets)).
   `fashion-mnist-mlp`, `fashion-mnist-resnet`, `cifar10-resnet20`,
   `cifar10-resnet56`, `cifar100-wide-resnet`, `cifar10-vit`,
   `tiny-imagenet-resnet50`, and `california-housing-mlp`.
-- `convergenceCurve` produces a five-point deterministic synthetic loss curve
-  from the problem seed.
-- `finalLoss` returns the final value from that deterministic curve.
-- `test/sl-canonicals/Main.hs` verifies the catalog is populated, curves are
-  deterministic, and every final loss improves over the initial loss.
+- `denseMlpCohort` names the current device-trainable Dense-MLP subset
+  (`mnist-shallow-mlp`, `fashion-mnist-mlp`, `california-housing-mlp`), while
+  the non-Dense rows remain target architecture entries until their
+  forward/backward JIT codegen lands.
+- `test/sl-canonicals/Main.hs` verifies the catalog is populated, the
+  Dense-MLP cohort is stable and catalog-backed, and no committed numerical
+  curve fixtures are required.
 - `src/JitML/SL/Dataset.hs` declares the typed `DatasetRef` / `DatasetSplit`
   surface, the `canonicalDatasets` registry covering MNIST,
   Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, and California
   Housing, the deterministic `expectedSha256` derivation,
   `datasetObjectRef`, `verifyDatasetBytes`, and `fetchDatasetRef` through
   the `HasMinIO` capability boundary.
-- `src/JitML/SL/Loop.hs` declares `LoopConfig`, `EpochOutcome`, and
-  `TrainPipeline`, threading the deterministic convergence curve from
-  Sprint 8.1 through the `TrainingLifecycle` GADT singletons.
-- `src/JitML/SL/Train.hs` declares `TrainingConfig`, `TrainResult`,
-  and `train :: TrainingConfig -> ReaderT Env m TrainResult`, computing
-  the per-dataset convergence threshold and the `converged` flag from
-  the deterministic pipeline final loss.
 - Live Pulsar training events backed by real `HasPulsar` and real
   MinIO-staged datasets are owned by
   [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
@@ -149,9 +144,11 @@ prohibition](../README.md#snapshot-targets)).
 ### Validation
 
 1. `cabal test jitml-sl-canonicals` exercises the eleven-cell canonical
-   summary body and the deterministic `TrainingConfig` convergence pipeline.
-2. `jitml train experiments/mnist.dhall` renders the deterministic
-   summary from `src/JitML/App.hs`.
+   catalog, the Dense-MLP cohort, dataset refs, classifier training, and
+   the local convergence-threshold helpers.
+2. `jitml train experiments/mnist.dhall` routes through the substrate-backed
+   device path once a live publication and staged dataset are present; offline
+   execution fails closed with `TrainingPrerequisiteUnmet`.
 3. Live validation (target): a real training run against MNIST clears the
    in-code convergence threshold (`median(test_acc over k seeds) ≥
    literature_target − slack`), the trained checkpoint round-trips, and
@@ -290,10 +287,10 @@ canonical RL stanza.
 
 - `src/JitML/RL/Algorithms.hs` declares the algorithm catalog consumed by the
   current `jitml-rl-canonicals` stanza.
-- `deterministicTrajectory` provides a fixed-seed integer trajectory helper for
-  local determinism tests.
-- `test/rl-canonicals/Main.hs` verifies representative catalog entries and the
-  deterministic trajectory helper.
+- `JitML.RL.Algorithms.Common.trajectoryRollout` provides the same-seed
+  registered-module rollout surface over real named environment dynamics.
+- `test/rl-canonicals/Main.hs` verifies representative catalog entries and
+  same-seed rollout determinism without committed trajectory fixtures.
 - `src/JitML/RL/Environments.hs` declares the local canonical environment
   catalog for `cartpole`, `mountain-car`, `lunar-lander`, and `atari-subset`,
   plus a deterministic local step helper.
@@ -307,8 +304,8 @@ canonical RL stanza.
 
 ### Validation
 
-1. `cabal test jitml-rl-canonicals` exercises the catalog and the
-   deterministic trajectory helper.
+1. `cabal test jitml-rl-canonicals` exercises the catalog and the registered
+   real-environment rollout surface.
 2. `jitml-unit` verifies the canonical environment catalog and
    deterministic step helper.
 3. Live validation (target): real cartpole / mountain-car / lunar-lander
@@ -435,9 +432,10 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 - `jitml rl train <rl-experiment-dhall>` is registered as a Plan/Apply-capable
   command and prints the selected experiment plus the local algorithm count
   during normal execution.
-- `jitml rl eval --checkpoint <id>` prints the selected checkpoint.
-- `jitml rl rollout --seed <n>` prints the deterministic local trajectory from
-  `deterministicTrajectory`.
+- `jitml rl eval --checkpoint <id>` loads the named checkpoint through the
+  substrate inference path.
+- `jitml rl rollout --seed <n>` runs a measured on-device PPO rollout and fails
+  closed when the substrate device is unavailable.
 - `src/JitML/Test/Report.hs` carries the report-card stanza list used by the
   current test summary.
 - `src/JitML/RL/Framework.hs` declares schedules, action distributions, action
@@ -459,7 +457,8 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 
 1. `jitml rl train --dry-run experiments/cartpole.dhall` emits the typed
    plan.
-2. `jitml rl rollout --seed 42` prints a deterministic trajectory.
+2. `jitml rl rollout --seed 42` prints a measured same-seed rollout from the
+   registered real-environment generator.
 3. `jitml-unit` verifies the framework catalog and run-plan surface.
 4. `cabal test jitml-rl-canonicals` covers render/parse round-trips for
    `StartRLRun` and `StopRLRun` text command envelopes and
@@ -796,34 +795,38 @@ Host (`ghc-9.12.4`, no oneDNN/Metal toolchain) — landed and green:
 - `JitML.SL.Canonicals.denseMlpCohort` / `isDenseMlpProblem` name the
   device-trainable single-hidden-layer Dense subset
   (`mnist-shallow-mlp`, `fashion-mnist-mlp`, `california-housing-mlp`).
-- `jitml-unit` (196/196), `jitml-sl-canonicals` (19/19, device convergence case
-  skips when the probe reports no device), and `jitml-integration` Subprocess
-  offline-`jitml train` fail-closed assertion pass on the host.
+- The residual synthetic `convergenceCurve` / `finalLoss` symbols and the
+  `SL.Loop` / `SL.Train` deterministic-curve pipeline were deleted on
+  2026-06-11; the ledger rows moved to `Completed`.
+- `jitml-unit` (196/196, before the 2026-06-11 residual-source deletion),
+  `jitml-sl-canonicals` (host device case skips when the probe reports no
+  device), and `jitml-integration` Subprocess offline-`jitml train`
+  fail-closed assertion pass on the host.
 
-Container (`jitml:local`, oneDNN present) — boundary gate **passed** (2026-06-10):
+Container (`jitml:local`, oneDNN present) — boundary gate **passed**:
 
-- `docker compose build jitml` built `jitml:local` with `check-code: ok` (the
-  `jitml train` exe compiles under `-fcuda`).
+- `docker compose build jitml` built `jitml:local` with `check-code: ok`.
 - `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu`
-  → **19/19 PASS**, including `SL classifier converges through the substrate
-  JIT device (Sprint 8.10 --linux-cpu): OK (1.61s)` — the case ran the real
+  → **15/15 PASS** on 2026-06-11, including `SL classifier converges through
+  the substrate JIT device (Sprint 8.10 --linux-cpu): OK (0.75s)` — the case ran the real
   generated oneDNN MLP kernel (compile + batched forward/gradient + Adam to
   convergence) instead of skipping.
+- `docker compose run --rm jitml-cuda jitml test jitml-sl-canonicals
+  --linux-cuda` → **15/15 PASS** on 2026-06-11 against the RTX 5090 CUDA lane.
+- Live linux-cpu and linux-cuda workflow exercise closed in Phase `13` on
+  2026-06-11: both lanes bootstrapped clean data and passed full live
+  `jitml-integration` **67/67** plus `jitml-e2e` **20/20**.
 
 ### Remaining Work
-- Delete the residual synthetic surface — `SL.Canonicals.convergenceCurve` /
-  `finalLoss` and the `SL.Loop` / `SL.Train` deterministic-curve pipeline
-  (ledger rows 1–5) — once the device convergence assertion covers the cohort
-  through the live datasets (couples to Sprint 13.17).
 - Build Conv2D / ResidualBlock / VisionTransformer forward+backward JIT codegen and
   backward kernels, then promote those catalog rows into `denseMlpCohort`'s
   device-trainable set and restore their thresholds (primary obligation; not a
   ledger row). Until then the catalog retains them as the target architecture
   set and the device path is scoped to `denseMlpCohort`.
 
-## Sprint 8.11: RL Framework Substrate Routing [Active]
+## Sprint 8.11: RL Framework Substrate Routing ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/App.hs` (`runTrainerEpisodes`, `runRl`), `src/JitML/Numerics/MlpDevice.hs`, `src/JitML/RL/SimulatorLoop.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `system-components.md`
 
@@ -867,16 +870,21 @@ Host (`ghc-9.12.4`, no oneDNN/Metal toolchain) — landed and green:
 - The `"simulator"` scripted default is gone: `runRl` defaults the trainer to
   `ppo`, and an unknown trainer → `runTrainerEpisodes` returns `Left` →
   `runRl` `exitWithError (InvalidConfig …)`; nothing is published.
-- `jitml-rl-canonicals` (28/28) passes on the host, including the new
+- `jitml-rl-canonicals` (27/27) passes on the host, including the new
   on-device PPO reward-improvement case, which skips when the device probe
   reports no toolchain.
 
-Container (`jitml:local`, oneDNN present) — boundary gate **passed** (2026-06-10):
+Container (`jitml:local`, oneDNN present) — boundary gate **passed**:
 `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
-→ **28/28 PASS**, including `PPO trains and improves on cartpole through the
-substrate JIT device (Sprint 8.11 --linux-cpu): OK (0.88s)` — the case ran the
+→ **27/27 PASS** on 2026-06-11, including `PPO trains and improves on cartpole
+through the substrate JIT device (Sprint 8.11 --linux-cpu): OK (0.75s)` — the case ran the
 real generated oneDNN MLP kernel through `trainOnPolicyOnDevice` instead of
-skipping. `docs check: ok` and `check-code: ok` in the same image.
+skipping. `check-code: ok` in the same image. The CUDA lane also passed
+`docker compose run --rm jitml-cuda jitml test jitml-rl-canonicals
+--linux-cuda` **27/27** on 2026-06-11. Live PPO convergence is stable on both
+Linux substrates with substrate-specific tuning: `linux-cpu` uses 10 PPO epochs
+per update at `5.0e-4`, while `linux-cuda` uses 8 epochs at `7.0e-4`; focused
+and full live integration passed on both lanes.
 
 ### Remaining Work
 
@@ -900,7 +908,7 @@ skipping. `docs check: ok` and `check-code: ok` in the same image.
 **Engineering docs to create/update:**
 
 - `documents/engineering/training_workloads.md` — SL canonical
-  summaries, RL algorithm metadata hooks, deterministic trajectory
+  summaries, RL algorithm metadata hooks, registered real-environment rollout
   helper, `jitml train` / `jitml rl train` summary surfaces, and the
   command-envelope render/parse surfaces plus the `RLRunLifecycle` GADT
   bound to `src/JitML/RL/Framework.hs` after Sprint 8.7; Sprint `8.8`
