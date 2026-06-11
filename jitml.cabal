@@ -101,6 +101,7 @@ library
         JitML.Numerics.Mlp
         JitML.Numerics.MlpCuda
         JitML.Numerics.MlpDevice
+        JitML.Numerics.MlpDeviceSelect
         JitML.Numerics.MlpMetal
         JitML.Numerics.MlpOneDnn
         JitML.Numerics.Schema

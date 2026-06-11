@@ -21,6 +21,17 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-10 — real-workflow refactor). The SL/RL framework
+shipped real differentiable pure-Haskell networks but the `jitml train` / `jitml
+rl train` paths never routed them through the substrate JIT engine (`MlpDevice`),
+and `jitml train` published a closed-form synthetic `SL.finalLoss` whenever real
+training was absent. Sprints `8.10` (SL substrate routing + fail-closed
+`runTrain`/`runEval`, scoped Dense-MLP canonical cohort) and `8.11` (RL framework
+substrate routing + removal of the scripted `"simulator"` default) close the gap.
+The live per-lane validation is owned by Phases `13`/`14`. See
+[README.md → Reopened phases (2026-06-10)](README.md#reopened-phases-2026-06-10--real-workflow-refactor).
+The prior closure narrative below is retained as dated record.
+
 ✅ **Done** (re-closed 2026-06-04 after Sprint `8.9`). The original
 SL/RL framework code-surface obligations closed on 2026-05-25:
 the deterministic SL canonical summaries, the typed dataset / loop /
@@ -722,6 +733,90 @@ canonical tests never require copyrighted Atari ROM bytes.
 ### Remaining Work
 
 None.
+
+## Sprint 8.10: SL Substrate-Backed Training + Real Eval [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/SL/Classifier.hs`, `src/JitML/Numerics/MlpDevice.hs`, `src/JitML/App.hs` (`runTrain`, `runEval`), `src/JitML/SL/Canonicals.hs`, `src/JitML/SL/ConvergenceThresholds.hs`, `src/JitML/AppError/AppError.hs`
+**Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/checkpoint_format.md`, `system-components.md`
+
+### Objective
+
+Make `jitml train` and `jitml eval` exercise a real, substrate-backed model on the
+resolved `--substrate`, with **no synthetic or pure-Haskell fallback on any runtime
+path**. Owns the [Exit Definition](README.md#exit-definition) item 6 SL slice and
+item 7 inference-read slice (`runEval`).
+
+### Deliverables
+
+- `mlpDeviceForSubstrate :: Substrate -> Env -> MlpDevice` selecting
+  `oneDnnMlpDevice` / `cudaMlpDevice` / `metalMlpDevice` for `LinuxCPU` /
+  `LinuxCUDA` / `AppleSilicon` (in `JitML.Numerics.MlpDevice`, or a small
+  `MlpDeviceSelect` module if an import cycle arises).
+- A device-backed classifier trainer in `JitML.SL.Classifier` mirroring
+  `trainPolicyValueNetOnSamplesWithDevice` — batched `mlpdForwardBatch` /
+  `mlpdBatchGradient`, host-side softmax-cross-entropy head + Adam — returning
+  `IO (Either Text (TrainedClassifier, Double))`; a `Left` propagates as a hard
+  error (no pure fallback).
+- `runTrain` resolves the substrate (reusing the `workerBrokerTarget` resolution),
+  **requires** a live publication and a staged dataset, and otherwise
+  `exitWithError (TrainingPrerequisiteUnmet …)` — nothing printed or published on
+  failure; only the measured loss is published via `publishWorkerTrainingEvent`.
+- `runEval` loads the `.jmw1` weight blob and computes a real held-out
+  accuracy/loss through the device forward; missing checkpoint/test bytes →
+  `InferenceCheckpointMissing`.
+- `canonicalProblems` + `ConvergenceThresholds` scoped to the Dense-MLP cohort the
+  JIT codegen trains; new `AppError` variants added to the single ADT and
+  registered in `system-components.md`.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu`
+  (device-backed convergence; live half in Sprint 13.17).
+- Offline `jitml train` → typed error, exit 2, no number printed/published.
+- `jitml check-code` + `jitml docs check` green inside `jitml:local`.
+
+### Remaining Work
+
+- Route the SL classifier through `MlpDevice` and delete the synthetic surface
+  (ledger rows 1–5).
+- Build Conv2D / ResidualBlock / VisionTransformer forward+backward JIT codegen and
+  backward kernels, then restore those canonical-SL rows + thresholds (primary
+  obligation; not a ledger row).
+
+## Sprint 8.11: RL Framework Substrate Routing [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/App.hs` (`runTrainerEpisodes`, `runRl`), `src/JitML/Numerics/MlpDevice.hs`, `src/JitML/RL/SimulatorLoop.hs`
+**Docs to update**: `../documents/engineering/training_workloads.md`, `system-components.md`
+
+### Objective
+
+Route every MLP-backed RL trainer through the substrate engine selected by
+`--substrate`, and remove the scripted non-learning default. Owns the
+[Exit Definition](README.md#exit-definition) item 6 RL slice.
+
+### Deliverables
+
+- `rlDeviceForSubstrate :: Substrate -> Env -> MlpDevice` — one DRY seam for the 13
+  MLP-backed algorithms; **ARS is the lone no-MLP exception**, stated once here and
+  in `system-components.md`.
+- `runTrainerEpisodes` dispatches each named trainer to its `*OnDevice` variant via
+  the seam; iteration budgets raised so training actually learns (replacing
+  `ppoNumIterations = max 1 evalEpisodes`).
+- The `"simulator"` scripted default is removed; an unknown trainer →
+  `InvalidConfig`, never a scripted fallback.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
+  (on-device reward improvement; live half in Sprint 13.17).
+- Unknown `JITML_RL_TRAINER` → typed `InvalidConfig`, no episodes published.
+
+### Remaining Work
+
+- Route the trainers through `rlDeviceForSubstrate` and delete the `"simulator"`
+  scripted default (ledger row 6).
 
 ## Doctrine Sections Cited
 

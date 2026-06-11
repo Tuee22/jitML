@@ -37,6 +37,20 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-06-10 — real-workflow refactor (reopened; ledger non-empty).** A realness
+audit found that every user-facing workload and the demo used a synthetic, echo,
+or pure-Haskell-only stand-in instead of the substrate JIT path (`MlpDevice` →
+compile → dlopen → real `jitml_mlp_*` kernels) that already exists and is
+parity-tested in the `jitml-backends` lane. The refactor reopens Phases `8`–`12`
+(code) and `13`–`15` (live validation) and enqueues the **sixteen Pending Removal
+rows** below — each a concrete synthetic value or dead symbol the refactor
+deletes. **The ledger is therefore non-empty and Exit Definition item 18 is no
+longer met**; the rows close as each owning sprint verifies its replacement on its
+substrate lane, and Sprint `15.6` re-asserts the empty-ledger gate. The primary
+obligations (route each surface through `MlpDevice`, build the non-Dense2D weighted
+bodies, add Conv2D/ResNet/ViT codegen) are **not** ledger rows — they are in the
+owning sprints' `### Remaining Work` per rule C.
+
 **2026-06-10 — Apple Silicon Tart-VM build-JIT doctrine reversal (reopened and
 re-closed the same day).** All Apple Silicon Swift/Metal builds move back into a
 `jitml`-managed Tart VM (build in the VM, copy the dylib out to the host, execute
@@ -151,14 +165,39 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**The ledger is empty.** The six headless-host Apple Metal build-surface rows
-enqueued 2026-06-10 by the Apple Silicon Tart-VM build-JIT doctrine reversal all
-moved to `Completed` on 2026-06-10 once the replacement was **verified working in
-the worktree**: the live apple-silicon `jitml-backends` lane ran end-to-end through
-the Tart-VM-built path on Apple M1 (`jitml test jitml-backends --apple-silicon`,
-17 / 17 within-substrate cases PASS, in-VM `swift build` + copy-out + host Metal
-execution, no skip sentinels). With those rows closed, Exit Definition item 18
-(empty legacy ledger) is met and the final handoff is complete.
+**Reopened 2026-06-10 (real-workflow refactor — see
+[README.md → Reopened phases (2026-06-10)](README.md#reopened-phases-2026-06-10--real-workflow-refactor)).**
+The ledger is **non-empty again**: a realness audit found that every user-facing
+workload and the demo used a synthetic/echo/dead-code stand-in instead of the
+substrate JIT path. The rows below are the concrete synthetic values and dead
+symbols the refactor **deletes** (rule I temporary stand-ins / rule L doctrine
+deviations). Each moves to `Completed` only when its replacement — routing the
+surface through the substrate `MlpDevice` / real weighted kernel — is verified in
+the worktree on the owning sprint's lane. The primary obligations themselves
+("route X through `MlpDevice`", "build the non-Dense2D weighted bodies",
+"Conv2D/ResNet/ViT JIT codegen") are **not** rows here — they live in the owning
+sprint's `### Remaining Work` per standards rule C. While any row is `Pending`,
+**Exit Definition item 18 is unmet and the final handoff is incomplete**; Sprint
+`15.6` walks the rows to `Completed`.
+
+| Stand-in / dead code to delete | Location | Reason (rule I / L) | Owning sprint |
+|---|---|---|---|
+| Synthetic SL final loss + convergence curve (`finalLoss`/`convergenceCurve`/`baseLoss`) | `src/JitML/SL/Canonicals.hs:36-49` | Closed-form geometric decay of a constant seed printed and published as the training loss — a fabricated number; replaced by the device-measured loss. | 8.10 |
+| Unconditional `final_loss` print + `fromMaybe (SL.finalLoss …)` publish fallback | `src/JitML/App.hs:1053-1077` | Prints/publishes the synthetic constant before/instead of any real run; replaced by fail-closed typed `AppError` + measured-only publish. | 8.10 |
+| `attemptRealMnistTraining` Maybe-fallback + `attemptFetchTrainingDataset` probe | `src/JitML/App.hs:1087,1178` | The Maybe/Nothing fallback routes every non-MNIST/offline run to the synthetic summary; the probe only logs bytes. Replaced by the mandatory staged-dataset + device-backed train path. | 8.10 |
+| Dead deterministic SL pipeline (`SL.Train` + `SL.Loop` curve replay) | `src/JitML/SL/Train.hs`, `src/JitML/SL/Loop.hs` | A second synthetic pipeline that replays `convergenceCurve`, not reachable from `jitml train`; carries the appearance of a real loop. Modules deleted. | 8.10 |
+| `runEval` echo stub | `src/JitML/App.hs:1345` | Echoes `"checkpoint … accepted"`, loads no checkpoint, computes no metric; replaced by a real device-forward held-out metric. | 8.10 |
+| `"simulator"` scripted non-learning default trainer | `src/JitML/RL/SimulatorLoop.hs:84`, default at `src/JitML/App.hs:1565` | The default `rl train` path is a scripted loop that never learns yet is published as RL progress; deleted when the default dispatches a real on-device algorithm. | 8.11 |
+| `rl eval` echo + `rl rollout` `deterministicTrajectory` LCG | `src/JitML/App.hs:1606-1612`, `src/JitML/RL/Algorithms.hs:48` | `rl eval` echoes the checkpoint label; `rl rollout` returns an LCG integer sequence; neither loads a checkpoint or evaluates a policy. | 9.9 |
+| `trajectoryRollout` / `moduleRolloutGenerator` stub registry | `src/JitML/RL/Algorithms/*.hs` | Every algorithm module registers the same LCG-backed rollout generator, so the per-algorithm rollout surface is synthetic; deleted when each algorithm's rollout runs its real trained policy on-device. | 9.9 |
+| One-ply MCTS bandit body (`runSearchWithPrior`/`simulateWithPrior`) | `src/JitML/RL/AlphaZero/Mcts.hs:127-238` | Search never descends/expands and backs up the prior, not the value head; replaced by real tree search with substrate-backed leaf evaluation. | 9.10 |
+| Dead `Arena.playArena` fixture module | `src/JitML/RL/AlphaZero/Arena.hs` | SHA/LCG arena outcome generator with no caller; deleted (the real arena lives in `PolicyValueNet` self-play generation). | 9.10 |
+| Dead `EnginePrior` Dense2D prior module | `src/JitML/RL/AlphaZero/EnginePrior.hs` | Dense2D prior table referenced only by a `SelfPlay` comment; subsumed by the real network policy head driving the search; deleted. | 9.10 |
+| `Tune.deterministicTrials` LCG + `resumeMatchesFullRun` tautology | `src/JitML/Tune/Catalog.hs:142-216` | Trial objective is a per-sampler LCG value — no model trained, no objective measured; deleted in favour of the `Tune.Trial` real-objective executor. | 9.11 |
+| `inferFromManifest` synthetic transform + `+ nTensors/100` bias post-transform | `src/JitML/Checkpoint/Format.hs:288`; `src/JitML/Engines/{Local,CudaLocal,MetalLocal}.hs` | `+ bias` fake inference standing in for the real substrate weighted kernel; deleted in favour of the per-family weighted-kernel read path. | 10.5 |
+| Hardcoded `/api/inference` body + `/api/connect4/move` move + `/api/images` placeholder | `src/JitML/Web/Server.hs:210,263-281` | Demo endpoints return constants instead of real weighted inference / real MCTS move; replaced by live cluster round-trips over the existing inference topics. | 11.8 |
+| Dead PureScript `*Received` handlers + raw `LiveFrame String` path + `Stream.js` swallow + DOM-only Playwright | `web/src/Panels/*`, `web/src/Panels/Stream.js`, `playwright/jitml-demo.spec.ts` | Panels issue no HTTP calls so the typed receive handlers are dead, live frames are dumped as raw text, socket failure is swallowed, and Playwright asserts only DOM visibility; deleted/rewired to real fetch + typed-parse + value assertions. | 11.8 |
+| Vacuous-pass integration `-p Live` asserts + model-less e2e asserts | `test/integration/Main.hs`, `test/e2e/Main.hs` | The Live tests call the pure-Haskell trainer, assert stdout prefixes, and pass even offline; e2e runs no real model. Replaced by the DRY real `WorkflowMatrix` that fails closed without a live cluster. | 12.11 |
 
 New rows are enqueued here only when a future sprint introduces a doctrine
 deviation or a temporary stand-in (per standards rule I / L).

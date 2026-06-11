@@ -838,6 +838,20 @@ for the governing rule.
 
 ## Current Baseline
 
+**Reopened 2026-06-10 (real-workflow refactor — supersedes the "all Phases Done /
+handoff complete" baseline below).** A realness audit found that every user-facing
+workload and the demo used a synthetic/echo/pure-Haskell stand-in instead of the
+substrate JIT path (`MlpDevice` → real `jitml_mlp_*` kernels) that the
+`jitml-backends` lane already exercises. **Phases `8`–`12` reopen `🔄 Active` on
+their code surfaces and Phases `13`–`15` on their live-runtime validation
+surfaces**; Phases `0`–`7` stay `✅ Done` (the engines and the parity lane are
+real). Exit-Definition items `6`, `8`, `9` are reopened and strengthened, and the
+Pending-Removal ledger is non-empty again so item `18` is unmet — the final handoff
+is incomplete until the reopened sprints close. Full detail and the exact
+phase/sprint map live once in
+[README.md → Closure Status / Reopened phases (2026-06-10)](README.md#reopened-phases-2026-06-10--real-workflow-refactor);
+the historical baseline below is retained as dated record of the superseded state.
+
 **All Phases `0`–`15` are `✅ Done`.** Phases `1`, `12`, `13`, `14`, and `15`
 reopened `🔄 Active` on 2026-06-08 to remove the
 cross-substrate numeric parity surface after the reproducibility contract was

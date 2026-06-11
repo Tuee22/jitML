@@ -39,6 +39,40 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Reopen note (2026-06-10 — real-workflow refactor; supersedes the prior
+"final handoff is complete" status below).** A realness audit established that the
+user-facing workloads and the demo did not exercise the substrate JIT path they
+claim: `jitml train` printed and published a closed-form synthetic `SL.finalLoss`
+and trained (when it trained at all) a pure-Haskell MLP that never touches a
+substrate engine; `jitml rl train` defaulted to a scripted non-learning simulator;
+`rl eval` / `rl rollout` / `eval` / `tune` were echo/LCG stand-ins; AlphaZero MCTS
+was a one-ply bandit; the demo panels issued no HTTP calls and `/api/inference`
+returned a hardcoded value; and the integration "Live" tests asserted stdout
+prefixes that passed offline. The real substrate seam (`MlpDevice` →
+compile → dlopen → real `jitml_mlp_*` kernels) exists and is parity-tested in the
+`jitml-backends` lane, but nothing user-facing routes through it. Therefore:
+
+- **Phases `8`, `9`, `10`, `11`, `12` reopen from `✅ Done` to `🔄 Active`** on
+  their **code** surfaces (route every workflow + the demo through the substrate
+  `MlpDevice`; delete every synthetic/echo stand-in; fail closed when the cluster
+  is absent — offline is no longer a supported mode).
+- **Phases `13`, `14`, `15` reopen from `✅ Done` to `🔄 Active`** on their
+  **live-runtime validation** surfaces (re-exercise every reopened workflow for
+  real on `linux-cpu`/`linux-cuda`, on `apple-silicon`, and cross-substrate).
+- **Phases `0`–`7` stay `✅ Done`** on their owned surfaces — the CLI surface,
+  bootstrap/cluster/services/daemon, the numerical core, and the per-substrate JIT
+  codegen + execution (the `jitml-backends` parity lane) are real and unaffected;
+  this refactor changes *what computes in the demo/CLI/tests*, not the engines.
+- **Exit-Definition items `6`, `8`, `9` reopen** (strengthened to require
+  substrate-backed JIT, no synthetic fallback, real demo output, and DRY real
+  per-substrate integration/e2e). The Pending-Removal ledger is **non-empty
+  again**, so **item `18` is no longer met and the final handoff is incomplete**
+  until the reopened sprints (Phase `8` 8.10/8.11, Phase `9` 9.9/9.10/9.11, Phase
+  `10` 10.5, Phase `11` 11.8, Phase `12` 12.11, and live Phases `13`–`15`) close.
+
+The historical closure narrative below is retained as fact about the prior
+(synthetic) state; it no longer describes the current status.
+
 **Reopen note (2026-06-08; updated 2026-06-09)**: Phases `1`, `12`, `13`, `14`,
 and `15` reopened from `✅ Done` to `🔄 Active` after the project owner clarified
 the reproducibility contract: **within a substrate the contract is bit-for-bit
@@ -250,7 +284,9 @@ Virtualization.framework auxiliary-storage decryption — not a code defect — 
 by restarting `ctkd` and running the build VM in the host GUI launchd session.
 **With `7.10` / `14.7` closed, the six Tart-reversal legacy-ledger rows all move to
 `Completed`, the ledger is empty, Exit-Definition item 18 is met, and the Phase
-`15` final handoff is complete — all Phases `0`–`15` are `✅ Done`.**
+`15` final handoff is complete — all Phases `0`–`15` are `✅ Done`.** _(Superseded
+2026-06-10 by the real-workflow refactor reopen — see the Closure Status note at
+the top of this document; Phases `8`–`15` are now `🔄 Active` and item 18 is unmet.)_
 
 **Prior status (superseded by the 2026-06-10 reopen above):** all Phases `0`–`15`
 were `✅ Done`. Phases `1`, `12`, `13`, `14`, and `15`
@@ -542,6 +578,14 @@ experiments/mnist-tune.dhall` renders `sampler: TPE`; `JitML.Proto.Tune`
 also round-trips the current command and event oneofs through
 proto3-compatible bytes.
 
+**Superseded 2026-06-10 (real-workflow refactor — see the Closure Status reopen
+note).** The paragraph below described the prior state in which all eighteen items
+were claimed met. That claim no longer holds: Exit-Definition items `6`, `8`, and
+`9` are reopened (the workloads, demo, and tests used synthetic/echo stand-ins
+instead of the substrate JIT path), the Pending-Removal ledger is non-empty again,
+and item `18` is therefore unmet. Phases `8`–`15` are `🔄 Active`. The text that
+follows is retained as historical fact about the superseded state.
+
 Against the eighteen-item [Exit Definition](#exit-definition), **all eighteen
 items now pass** with every phase `✅ Done`. The code-surface items — 2 (`jitml
 service` daemon), 4 (stage-0 scripts + typed prerequisite DAG), 10 (toolchain
@@ -694,14 +738,56 @@ obligation exists.
 | 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (re-closed 2026-06-10, Sprint 7.10 — live apple-silicon VM-built path 17/17) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | ✅ Done | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | ✅ Done | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
-| 11 | PureScript Frontend and Demo | ✅ Done (reopened and re-closed 2026-06-05, Sprint 11.7) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done (re-closed 2026-06-09, Sprint 12.10 — linux-cuda GPU lane re-validated 19/19 on RTX 5090) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | ✅ Done (re-closed 2026-06-09, Sprint 13.16 — linux-cuda GPU lane re-validated 19/19 on RTX 5090) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ✅ Done (re-closed 2026-06-10, Sprint 14.7 — apple-silicon lane re-validated through the Tart-VM-built path 17/17) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Substrate Reproducibility and Final Handoff | ✅ Done (handoff re-completed 2026-06-10 after Sprints 7.10/14.7 — legacy ledger empty, Exit Definition item 18 met) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 8 | Supervised Learning and RL Framework | 🔄 Active (reopened 2026-06-10 — SL/RL route through the substrate `MlpDevice`, no synthetic fallback; Sprints 8.10/8.11) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | 🔄 Active (reopened 2026-06-10 — real `rl eval`/`rollout`, real MCTS tree search, real tuning objective; Sprints 9.9/9.10/9.11) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 10 | Checkpointing and Inference-Only Read Path | 🔄 Active (reopened 2026-06-10 — real weighted inference read-path, `inferFromManifest` removed; Sprint 10.5) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 11 | PureScript Frontend and Demo | 🔄 Active (reopened 2026-06-10 — panels render real substrate model output, cluster-always-up; Sprint 11.8) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
+| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | 🔄 Active (reopened 2026-06-10 — DRY real-workflow matrix runs every workflow per substrate, fail-closed; Sprint 12.11) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 13 | Linux CUDA and Cluster Closure | 🔄 Active (reopened 2026-06-10 — live linux-cpu/linux-cuda exercise of every reopened workflow; Sprints 13.17/13.18/13.19) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 14 | Apple Silicon Closure | 🔄 Active (reopened 2026-06-10 — live apple-silicon Tart-VM+Metal exercise of every reopened workflow; Sprint 14.8) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 15 | Substrate Reproducibility and Final Handoff | 🔄 Active (reopened 2026-06-10 — cross-substrate DRY confirmation + ledger walk-down; Sprints 15.5/15.6) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+
+## Reopened phases (2026-06-10 — real-workflow refactor)
+
+A realness audit established that every user-facing workload and the demo used a
+synthetic/echo/pure-Haskell stand-in instead of the substrate JIT path
+(`MlpDevice` → compile → dlopen → real `jitml_mlp_*` kernels) that already exists
+and is parity-tested in the `jitml-backends` lane. Phases `8`–`15` reopen from
+`✅ Done` to `🔄 Active`; Phases `0`–`7` stay `✅ Done` on their owned surfaces
+(the engines and the parity lane are real). This is the standards rule E / rule A
+split: **code** ownership reopens in Phases `8`–`12`, **live-runtime validation**
+reopens in Phases `13`–`15`.
+
+- **Phase 8** — Sprint `8.10` routes the SL classifier through the substrate
+  `MlpDevice` selected by `--substrate`, fails `runTrain`/`runEval` closed with a
+  typed `AppError` (no synthetic `SL.finalLoss`, no offline fallback), and scopes
+  the canonical SL cohort to the Dense-MLP problems the JIT codegen trains; Sprint
+  `8.11` routes every MLP-backed RL trainer through `rlDeviceForSubstrate` and
+  removes the scripted `"simulator"` default (unknown trainer → `InvalidConfig`).
+- **Phase 9** — Sprint `9.9` makes `rl eval`/`rl rollout` load a checkpoint and run
+  a real policy; Sprint `9.10` replaces the one-ply MCTS bandit with real
+  select/expand/evaluate/backup tree search whose leaf evaluation is the
+  substrate-backed `PolicyValueNet` value head, and deletes the dead `Arena` and
+  `EnginePrior` fixtures; Sprint `9.11` makes each tuning trial train a real model
+  and measure a real objective (deletes `deterministicTrials`).
+- **Phase 10** — Sprint `10.5` routes every inference entry point through the real
+  per-tensor weighted kernel and deletes the `inferFromManifest` synthetic transform.
+- **Phase 11** — Sprint `11.8` makes the MNIST/CIFAR/Connect-4 panels fetch and
+  render real substrate model output, the live panels parse typed stream frames,
+  and the UI fail closed with a "cluster required" state; deletes the hardcoded
+  endpoint bodies and dead panel handlers.
+- **Phase 12** — Sprint `12.11` adds one DRY `WorkflowMatrix` that runs every
+  workflow (SL, RL all algorithms, AlphaZero, tune, inference) end-to-end through
+  the JIT engine, per substrate via `-p <substrate>`, against a required live
+  cluster, failing closed without hardware; deletes the vacuous-pass assertions.
+- **Phases 13 / 14 / 15** — live-runtime re-validation of every reopened workflow on
+  `linux-cpu`/`linux-cuda` (13.17/13.18/13.19), `apple-silicon` (14.8), and
+  cross-substrate plus the ledger walk-down to re-assert item 18 (15.5/15.6).
+
+Exit-Definition items `6`, `8`, `9` are reopened and strengthened; item `18`
+reopens because the ledger is non-empty (see
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)). The handoff
+is incomplete until these sprints close.
 
 ## Reopened phases (2026-06-04)
 
@@ -1809,29 +1895,52 @@ This plan is complete only when all of the following are true:
    holds — each substrate is bit-for-bit reproducible against itself; no
    cross-substrate numeric equivalence is claimed.
 6. `jitml train`, `jitml rl train`, and `jitml tune` Plan/Apply commands run the
-   full SL/RL/AlphaZero workloads, hyperparameter tuning is `Some Tuning::{ … }`-shaped per the worked
-   Dhall example in [../README.md → Concrete Dhall worked
-   example](../README.md), statistical convergence assertions (median over
-   `k` seeds clears a literature-derived in-code threshold) for SL and RL
-   plus run-to-run determinism for SL/RL trajectories pass under
-   `jitml test all`, and no per-substrate numerical fixtures are
-   committed per [../README.md → Snapshot targets → Numerical-fixture
-   prohibition](../README.md#snapshot-targets).
+   full SL/RL/AlphaZero/tuning workloads **through the substrate-selected
+   `MlpDevice`** — the JIT-compiled per-substrate kernel performs the
+   forward/backward GEMMs (the `--substrate` flag selects the engine and changes
+   the math, it is not a label) — with **no synthetic or pure-Haskell fallback on
+   any runtime path**: a missing live cluster or staged dataset fails closed with a
+   typed `AppError` and prints/publishes nothing. Hyperparameter tuning is
+   `Some Tuning::{ … }`-shaped per the worked Dhall example in
+   [../README.md → Concrete Dhall worked example](../README.md) and each trial
+   trains a real model and measures a real objective that drives the
+   sampler/scheduler/pruner. Statistical convergence assertions (median over `k`
+   seeds clears a literature-derived in-code threshold) for the **canonical
+   Dense-MLP SL cohort the JIT codegen supports** and for RL, plus run-to-run
+   determinism for SL/RL trajectories, pass under `jitml test all`; no
+   per-substrate numerical fixtures are committed per [../README.md → Snapshot
+   targets → Numerical-fixture prohibition](../README.md#snapshot-targets).
+   (Conv2D/ResNet/ViT canonical SL problems are a named follow-on tracked in the
+   Phase 8 sprint's Remaining Work until their forward+backward JIT codegen lands.)
 7. Checkpoints write the split-blob `.jmw1` format with the typed manifest and the
    inference-only read path; the bit-determinism contract holds — a checkpoint
    reproduced on the same substrate against the same toolchain pin is
    bit-identical, and no cross-substrate byte-equality is claimed.
 8. The PureScript frontend under `web/` is generated from
-   `src/JitML/Web/Contracts.hs` via `purescript-bridge`, the live MNIST handwriting
+   `src/JitML/Web/Contracts.hs` via `purescript-bridge`; the MNIST handwriting
    panel, CIFAR/ImageNet upload panel, and the AlphaZero-vs-human Connect 4 panel
-   are exercised end-to-end by Playwright, and `jitml-demo` serves the bundle.
+   **issue real HTTP/stream calls to the cluster and render real substrate-backed
+   model output** (no hardcoded or echo response bodies), the RL/Training/Tune
+   panels parse live Pulsar→WebSocket frames into their typed records, and every
+   panel **fails closed with an explicit "cluster required" state** when no cluster
+   publishes (offline is not a supported demo mode). Playwright exercises the
+   panels end-to-end **against a running cluster** — clicking, awaiting frames, and
+   asserting real model-output values — and `jitml-demo` serves the bundle.
 9. `jitml test all` runs every test-only Cabal test-suite stanza (`jitml-unit`,
    `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
-   `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`,
-   `jitml-e2e`) with the report-card knobs pinned in `cabal.project`; style and
-   code-quality are separate `jitml lint *` / `jitml check-code` commands; the
-   `jitml-e2e` stanza orchestrates an ephemeral Kind stack via
-   `jitml bootstrap` + the typed `JitML.Test.LivePlan` live plan.
+   `jitml-hyperparameter`, `jitml-backends`, `jitml-daemon-lifecycle`,
+   `jitml-e2e`) **for real**: the `jitml-integration` and `jitml-e2e` stanzas run
+   **every workflow — SL train, RL train for every catalog algorithm, AlphaZero
+   self-play with real MCTS, tune, and inference — end-to-end through the JIT
+   engine** against a **required live cluster**, as **one DRY body partitioned per
+   substrate** via `--apple-silicon | --linux-cpu | --linux-cuda` (no duplicated
+   per-substrate copies), asserting **measured values** (not stdout prefixes) and
+   **failing closed** when the substrate hardware or cluster is absent (no vacuous
+   pass, no offline skip, per the `CLAUDE.md` fail-by-design lane model). The
+   report-card knobs are pinned in `cabal.project`; style and code-quality are
+   separate `jitml lint *` / `jitml check-code` commands; the `jitml-e2e` stanza
+   orchestrates an ephemeral Kind stack via `jitml bootstrap` + the typed
+   `JitML.Test.LivePlan` live plan.
 10. The toolchain is pinned at GHC `9.12.4` and Cabal `3.16.1.0`. `jitml.cabal`
     declares `tested-with: ghc ==9.12.4` and `cabal.project` declares
     `with-compiler: ghc-9.12.4`.
@@ -1864,6 +1973,10 @@ This plan is complete only when all of the following are true:
     HTTPRoute resource emitted by the umbrella chart's renderer.
 18. [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
     contains no unresolved cleanup rows once the final handoff gate closes.
+    **Reopened 2026-06-10 (real-workflow refactor):** the ledger is non-empty again
+    — the synthetic/echo/dead-code stand-ins the refactor deletes are enqueued under
+    `Pending Removal` — so this item is unmet until Sprint `15.6` walks every row to
+    `Completed`.
 
 ## Related Documents
 
