@@ -15,25 +15,26 @@
 **Generated sections**: none
 
 > **Purpose**: Close every Apple-Silicon-bound live-runtime obligation in one
-> batched session: the headless host `swift build` + runtime
-> `MTLDevice.makeLibrary(source:)` Metal compilation, Metal FFI loading of the
-> compiled `.dylib`, the host↔cluster Pulsar RPC for inference commands and
-> events, the Metal benchmark candidate runner, and Apple Metal production
-> weight loading from MinIO checkpoints. The phase exists because Phases
-> `7`, `10`, and `12` are scoped to code-surface ownership; their live
-> Apple-Silicon obligations migrated here so a single Apple-machine session
-> closes them all.
+> batched session: the `jitml`-managed Tart VM builds the generated Swift/Metal
+> package with the VM's `swift build`, copies the resulting dylib to the host,
+> the launcher runtime-compiles Metal Shading Language through
+> `MTLDevice.makeLibrary(source:options:)`, and execution happens on the host
+> GPU. The phase also owns the host↔cluster Pulsar RPC for inference commands
+> and events, the Metal benchmark candidate runner, Apple Metal production
+> weight loading from MinIO checkpoints, and the live apple-silicon
+> `WorkflowMatrix` exercise of the reopened real workflows.
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 — real-workflow refactor; Sprint `14.8`).
+⏸️ **Blocked** (reopened 2026-06-10 — real-workflow refactor; Sprint `14.8`).
 This phase owns the live **apple-silicon** exercise of every reopened workflow
 (Phases `8`–`12`) through the Metal device built in the `jitml`-managed Tart VM,
-against a live Apple-Silicon cluster. **Blocked on this host**: the Tart build
-VM plus a live Kind + Helm + Pulsar + MinIO cluster do not fit in the available
-memory. The Metal device path is implemented (Phase `7`/`8`); the live run is
-recorded as blocked pending a roomier Apple-Silicon host. The prior closure
-narrative below is retained as dated record.
+against a live Apple-Silicon cluster. **Blocked on this host**: the configured
+10,240 MiB Kind node plus the 8,192 MiB Tart build VM require 18,432 MiB before
+macOS/Docker overhead, while this Apple M1 host has 16,384 MiB total. The Metal
+device path is implemented (Phase `7`/`8`); the live run is recorded as blocked
+pending a roomier Apple-Silicon host. The prior closure narrative below is
+retained as dated record.
 
 ✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT doctrine
 reversal; **re-closed 2026-06-10** after the live apple-silicon lane was
@@ -130,22 +131,24 @@ headless on Apple M1).
 
 The Metal FFI loader, the Apple `HasEngine` dispatch, the per-family weighted
 bodies, the benchmark candidate runner, and the daemon + inference dispatch are
-implemented and host-compile-validated. What remains is (a) the Phase `7` Sprint
-`7.8` build-mechanism change (runtime `makeLibrary` + host `swift build`), (b) the
-**live headless exercise** of the host-build → `dlopen` → runtime-compile → Metal
-launch → copy-back path (Sprints `14.1` / `14.2` / `14.3` / `14.5`), and (c) the
-Sprint `14.4` host↔cluster RPC (which additionally needs the cluster up). The
-phase closes only after the validation commands in each sprint pass headless on a
-real Apple Silicon machine.
+implemented. The current Apple build path is the Tart-VM build-JIT path:
+`compileSubprocess AppleSilicon` starts the `jitml`-managed Tart VM, runs the
+VM's `swift build`, copies `libJitMLMetal.dylib` out to the host cache, and
+`MetalLocal` `dlopen`s the copied dylib before runtime-compiling and executing
+Metal on the host GPU. Sprint `14.7` validated the `jitml-backends`
+apple-silicon lane through that path. Sprint `14.8` is the remaining open
+obligation: run every reopened real workflow through the live apple-silicon
+`WorkflowMatrix` against a cluster. It is blocked on this host by memory capacity,
+not by missing code.
 
 ## Phase Summary
 
-This phase batches the Apple-Silicon live runtime work so the user can
-fully close it in one session. The order below is the natural execution
-sequence: VM provisioning first, then Metal FFI loading, then the
-benchmark runner, then the cross-machine RPC, then production weight
-loading. The cross-substrate determinism cohort that consumes Apple
-Metal outputs lives in Phase `15`.
+This phase batches the Apple-Silicon live runtime work so it can close in one
+Apple-machine session. The historical sprints below record the Metal loader,
+benchmark runner, host↔cluster RPC, production weight loading, skip-guard
+removal, and Tart-VM build-JIT revalidation. The only current open sprint is
+Sprint `14.8`: provision a live apple-silicon cluster on a roomier host, run the
+matrix/e2e commands for real, then unblock Phase `15`.
 
 ## Sprint 14.1: Host Swift Toolchain and First-Cache-Miss Headless Build ✅
 
@@ -627,75 +630,6 @@ nvcc compile is invoked in the apple-silicon lane. The pure-logic
 `appleLiveReady` removal row is recorded in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
-## Sprint 14.8: Live apple-silicon Exercise of the Reopened Workflows [Blocked]
-
-**Status**: Blocked
-**Blocked by**: the `jitml`-managed Tart build VM plus a live cluster do not fit
-in this host's memory.
-**Docs to update**: `system-components.md`
-
-### Objective
-
-Exercise every reopened real workflow (Phases `8`–`11`) on the **apple-silicon**
-lane through the `WorkflowMatrix` (Sprint `12.11`): the Metal MLP device is
-built in the Tart VM and runs on the host GPU for the device-backed SL/RL
-trainers, real MCTS, real tuning, and the weighted inference kernel, against a
-live Apple-Silicon cluster.
-
-### Validation
-
-- `jitml bootstrap --apple-silicon`, then `jitml test jitml-e2e --apple-silicon`
-  and the matrix cells, all PASS for real (Metal device + live cluster).
-
-### Remaining Work
-
-- The Metal device path and the Phase `8`–`11` real workflows are implemented;
-  the pure-logic stanzas pass host-native. The live half is blocked: the Tart
-  build VM (multi-GB) plus Kind + Helm + Pulsar + MinIO exceed this host's
-  memory. No code remains — the obligation is the live run on a roomier
-  Apple-Silicon host.
-
-## Doctrine Sections Cited
-
-- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 14.1, 14.3, 14.4 — host `swift build`, MinIO and Pulsar WebSocket subprocesses)
-- [../README.md → Capability Classes and Service Errors](../README.md#doctrine-scope) (Sprints 14.4, 14.5 — live `HasPulsar` / `HasMinIO` execution on Apple host)
-- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 14.4 — Apple host daemon ack-after-success)
-- [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprint 14.4 — typed `RetryPolicy` budget for RPC round-trip)
-- [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (Sprint 14.4 — host-native `jitml service` as second instance distinguished by Dhall)
-
-## Documentation Requirements
-
-**Engineering docs to create/update:**
-
-- `documents/engineering/jit_codegen_architecture.md` — record Metal FFI
-  loader, live Metal candidate runner, and the Apple Metal weighted
-  runner path once Sprints `14.2`, `14.3`, and `14.5` close; record the
-  partitioned apple-silicon lane and the removal of the `appleLiveReady`
-  skip guards (a missing Metal device now fails rather than skips) once
-  Sprint `14.6` closes.
-- `documents/engineering/daemon_architecture.md` — record the live
-  Apple host↔cluster RPC flow once Sprint `14.4` closes.
-- `documents/engineering/cluster_topology.md` — note the host-native
-  daemon's edge-port discovery and Apple session prerequisites.
-- `documents/engineering/checkpoint_format.md` — Apple Metal weighted
-  inference path once Sprint `14.5` closes.
-- `documents/engineering/determinism_contract.md` — Apple Metal
-  same-host bit-equality observation once Sprint `14.2` closes; record the
-  clarified contract ("within a substrate: bit-for-bit reproducible; across
-  substrates: NO guarantee") and the removed cross-substrate numeric parity
-  surface once Sprint `14.6` closes; cross-substrate ULP work lives in
-  Phase `15`.
-
-**Product docs to create/update:**
-
-- None.
-
-**Cross-references to add:**
-
-- `system-components.md → Substrates` row for `apple-silicon` updates
-  from "Active, missing live FFI + RPC" to closure once Sprints `14.2`
-  and `14.4` close.
-
 ## Sprint 14.7: Re-validate the apple-silicon lane through the Tart-VM-built path [✅ Done]
 
 **Status**: Done (re-closed 2026-06-10 — live apple-silicon lane exercised through the VM-built path on Apple M1)
@@ -752,6 +686,82 @@ out of the VM, and executed it on the host GPU:
 - The build VM's prior unreachability was a host-side `ctkd` (CryptoTokenKit)
   deadlock of the VZ auxiliary-storage decryption, not a code defect (see
   [phase-7 Sprint 7.10 → Live Closure](phase-7-jit-codegen-and-substrates.md#sprint-710-route-the-apple-swift-build-through-the-tart-vm--done)).
+
+## Sprint 14.8: Live apple-silicon Exercise of the Reopened Workflows [Blocked]
+
+**Status**: Blocked
+**Blocked by**: external capacity prerequisite — a roomier Apple-Silicon host
+where the configured 10,240 MiB Kind node plus 8,192 MiB Tart build VM fit with
+macOS/Docker overhead.
+**Docs to update**: `system-components.md`
+
+### Objective
+
+Exercise every reopened real workflow (Phases `8`–`11`) on the **apple-silicon**
+lane through the `WorkflowMatrix` (Sprint `12.11`): the Metal MLP device is
+built in the Tart VM and runs on the host GPU for the device-backed SL/RL
+trainers, real MCTS, real tuning, and the weighted inference kernel, against a
+live Apple-Silicon cluster.
+
+### Validation
+
+- `jitml bootstrap --apple-silicon`, then `jitml test jitml-e2e --apple-silicon`
+  and the matrix cells, all PASS for real (Metal device + live cluster).
+
+### Remaining Work
+
+- The Metal device path and the Phase `8`–`11` real workflows are implemented;
+  the pure-logic stanzas pass host-native. The live half is blocked: the Tart
+  build VM (multi-GB) plus Kind + Helm + Pulsar + MinIO exceed this host's
+  memory. No code remains — the obligation is the live run on a roomier
+  Apple-Silicon host.
+- 2026-06-12 blocker re-check: `bootstrap/apple-silicon.sh doctor` passes, the
+  current machine is Darwin arm64 with 16,384 MiB RAM
+  (`sysctl -n hw.memsize` → `17179869184`), `kind get clusters` reports no live
+  Kind cluster, and `tart list --format json` shows `jitml-build` present but
+  stopped. The configured live run still needs 10,240 MiB for the Kind node plus
+  8,192 MiB for the Tart build VM (18,432 MiB before OS/Docker overhead), so the
+  Apple live run was not attempted on this host.
+
+## Doctrine Sections Cited
+
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 14.1, 14.3, 14.4, 14.7 — Tart-VM `swift build`, copy-out, MinIO, and Pulsar WebSocket subprocesses)
+- [../README.md → Capability Classes and Service Errors](../README.md#doctrine-scope) (Sprints 14.4, 14.5 — live `HasPulsar` / `HasMinIO` execution on Apple host)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 14.4 — Apple host daemon ack-after-success)
+- [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprint 14.4 — typed `RetryPolicy` budget for RPC round-trip)
+- [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (Sprint 14.4 — host-native `jitml service` as second instance distinguished by Dhall)
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- `documents/engineering/jit_codegen_architecture.md` — record the Apple
+  Silicon Tart-VM build-JIT path, Metal FFI loader, live Metal candidate
+  runner, Apple Metal weighted runner path, partitioned apple-silicon lane, and
+  removal of the `appleLiveReady` skip guards (a missing Metal device fails
+  rather than skips).
+- `documents/engineering/daemon_architecture.md` — record the live
+  Apple host↔cluster RPC flow once Sprint `14.4` closes.
+- `documents/engineering/cluster_topology.md` — note the host-native daemon's
+  edge-port discovery, Apple session prerequisites, and the live capacity
+  requirement for running a Kind node beside the Tart build VM.
+- `documents/engineering/checkpoint_format.md` — Apple Metal weighted
+  inference path once Sprint `14.5` closes.
+- `documents/engineering/determinism_contract.md` — Apple Metal
+  same-host bit-equality observation once Sprint `14.2` closes; record the
+  clarified contract ("within a substrate: bit-for-bit reproducible; across
+  substrates: NO guarantee") and the removed cross-substrate numeric parity
+  surface once Sprint `14.6` closes; cross-substrate ULP work lives in
+  Phase `15`.
+
+**Product docs to create/update:**
+
+- None.
+
+**Cross-references to add:**
+
+- `system-components.md → Substrates` row for `apple-silicon` records Sprint
+  `14.8` as blocked on the roomier-host capacity prerequisite.
 
 ## Related Documents
 

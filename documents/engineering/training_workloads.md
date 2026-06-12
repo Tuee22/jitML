@@ -237,7 +237,8 @@ environment dynamics with a deterministic seeded policy. The substrate-device
 trained-policy rollout is validated on the live CUDA lane (`jitml rl rollout
 experiments/cartpole.dhall --seed 42` printed measured CUDA rewards on
 2026-06-11). Device-backed MCTS value-head leaf evaluation and device-backed
-tuning trial training remain Phase 9 implementation work.
+tuning trial training are implemented through the selected `MlpDevice` and fail
+closed on device errors.
 
 ## RL Algorithm Catalog
 
@@ -281,19 +282,19 @@ again compared run-to-run rather than against a stored prefix.
 ## AlphaZero-Style Self-Play
 
 The current AlphaZero surface lives in `src/JitML/RL/AlphaZero.hs` plus
-`src/JitML/RL/AlphaZero/{Mcts,SelfPlay,Arena}.hs`. It provides per-game
+`src/JitML/RL/AlphaZero/{Mcts,SelfPlay,PolicyValueNet}.hs`. It provides per-game
 state/move helpers for Connect 4, Othello, Hex, and Gomoku, deterministic
 transcript summaries, local game metadata, two-headed-network metadata,
-persistent MCTS transposition-table helpers, self-play buffer hashing, and
-arena promotion summaries. Real network evaluation and live checkpoint
-persistence remain target runtime work.
+persistent MCTS transposition-table helpers, self-play buffer hashing,
+device-backed policy/value leaf evaluation, and arena-promotion measurement.
+Live checkpoint persistence remains target runtime work.
 
 | Component | Current / target |
 |-----------|------------------|
 | Connect 4 helpers | Current: `src/JitML/RL/AlphaZero.hs` |
 | Perfect-information game metadata | Current: `src/JitML/RL/AlphaZero.hs` |
 | Two-headed network metadata | Current: `src/JitML/RL/AlphaZero.hs` |
-| MCTS with PUCT and persistent tree state | Current recursive module: `src/JitML/RL/AlphaZero/Mcts.hs`; position-aware network prior/evaluator via `PolicyValueNet.netOracleFactory` |
+| MCTS with PUCT and persistent tree state | Current recursive module: `src/JitML/RL/AlphaZero/Mcts.hs`; position-aware network prior/evaluator via `PolicyValueNet.netOracleFactory`; device-backed effectful leaf evaluation via `PolicyValueNet.netOracleFactoryWithDevice` / `mctsVisitDistributionWithDevice` |
 | Self-play loop and replay buffer | Current module: `src/JitML/RL/AlphaZero/SelfPlay.hs`; target live MinIO checkpoint persistence |
 | Arena gating | Current measured helper: `src/JitML/RL/AlphaZero/PolicyValueNet.hs` arena win-rate evaluation; the standalone `Arena` module is deleted |
 
@@ -301,9 +302,28 @@ persistence remain target runtime work.
 
 The top-level `MctsState` is a small local metadata record with visit count and
 a prior seed. `JitML.RL.AlphaZero.Mcts` now provides the persistent
-`TranspositionTable`, `TranspositionKey`, and `runSearchWithTable` helpers;
-target runtime work replaces the deterministic prior with a real two-headed
-network evaluator.
+`TranspositionTable`, `TranspositionKey`, `runSearchWithTable`, and effectful
+`runSearchWithPriorIO` helpers; the production self-play path uses the real
+two-headed policy/value network evaluator instead of a deterministic prior.
+
+### `jitml rl alphazero self-play` CLI
+
+```
+jitml rl alphazero self-play
+                            [--substrate <substrate>]
+                            [--seed <word64>]
+                            [--games <n>]
+                            [--sims <n>]
+                            [--max-plies <n>]
+                            [--updates <n>]
+                            [--arena-games <n>]
+```
+
+The command probes the selected substrate `MlpDevice`, generates bounded
+Connect 4 self-play samples through device-backed MCTS leaf policy/value
+evaluation, trains the policy/value head on that device, and prints the sample
+count plus arena win rate. A missing substrate runtime or device execution error
+is an `InvalidConfig` failure; there is no pure-Haskell fallback on the CLI path.
 
 ### Deterministic Stochasticity
 
@@ -342,7 +362,9 @@ catalog below covers the full target sampler set, decodes that fixture into
 the local tuning ADT, and renders a deterministic `jitml tune` plan. Trial
 values are real local measured objectives (not LCG values). Live daemon-backed
 trial persistence/replay is validated on the Linux lanes; substrate-device-backed
-trial training remains target work.
+trial training is implemented by `deterministicTrialsWithDevice`, which trains
+each measured trial through the selected `MlpDevice` and returns a typed failure
+instead of falling back to a pure objective.
 `jitml-hyperparameter` consumes the `tune_trials` and
 `tune_budget_per_trial` report-card knobs from `cabal.project` for the local
 TPE trial-budget assertion.

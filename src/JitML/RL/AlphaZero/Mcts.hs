@@ -18,6 +18,7 @@ module JitML.RL.AlphaZero.Mcts
   , MctsNode (..)
   , NodeEval (..)
   , PriorOracle
+  , PriorOracleIO
   , TranspositionKey (..)
   , TranspositionTable (..)
   , defaultMctsConfig
@@ -25,6 +26,7 @@ module JitML.RL.AlphaZero.Mcts
   , emptyTranspositionTable
   , initialNode
   , runSearch
+  , runSearchWithPriorIO
   , runSearchWithPrior
   , runSearchWithTable
   , runSearchWithTableAndPrior
@@ -86,6 +88,11 @@ data NodeEval = NodeEval
 -- ('JitML.RL.AlphaZero.PolicyValueNet.netOracleFactory') applies the path to
 -- the root 'GameState' and runs the policy/value network forward.
 type PriorOracle = [Int] -> NodeEval
+
+-- | Device-backed position oracle. The shape matches 'PriorOracle', but the
+-- network evaluation may compile/load/execute the substrate-selected
+-- 'JitML.Numerics.MlpDevice' and can therefore fail closed.
+type PriorOracleIO = [Int] -> IO (Either Text NodeEval)
 
 -- | Neutral default for mechanics tests and non-network callers: uniform
 -- priors (empty list ⇒ uniform expansion), zero value, never terminal.
@@ -196,6 +203,50 @@ simulate oracle config depth node
                 ]
            in (node {nodeChildren = children', nodeVisits = nodeVisits node + 1}, backed)
 
+-- | IO analogue of 'simulate' for substrate-backed policy/value evaluation.
+simulateIO :: PriorOracleIO -> MctsConfig -> Int -> MctsNode -> IO (Either Text (MctsNode, Double))
+simulateIO oracle config depth node
+  | not (nodeExpanded node) = do
+      evResult <- oracle (nodeMoves node)
+      pure $
+        case evResult of
+          Left err -> Left err
+          Right ev ->
+            if evalTerminal ev || depth >= mctsMaxDepth config
+              then Right (node {nodeVisits = nodeVisits node + 1, nodeExpanded = True}, evalValue ev)
+              else
+                let expanded = expandNode ev config node
+                 in Right (expanded {nodeVisits = nodeVisits node + 1}, evalValue ev)
+  | null (nodeChildren node) = do
+      evResult <- oracle (nodeMoves node)
+      pure $
+        case evResult of
+          Left err -> Left err
+          Right ev -> Right (node {nodeVisits = nodeVisits node + 1}, evalValue ev)
+  | otherwise =
+      case selectEdge config node of
+        Nothing -> pure (Right (node, 0.0))
+        Just edge -> do
+          let action = edgeAction edge
+              child0 = fromMaybe (freshNode (nodeMoves node <> [action])) (edgeChild edge)
+          childResult <- simulateIO oracle config (depth + 1) child0
+          pure $
+            case childResult of
+              Left err -> Left err
+              Right (child', childValue) ->
+                let backed = negate childValue
+                    edge' =
+                      edge
+                        { edgeChild = Just child'
+                        , edgeVisits = edgeVisits edge + 1
+                        , edgeTotalValue = edgeTotalValue edge + backed
+                        }
+                    children' =
+                      [ if edgeAction e == action then edge' else e
+                      | e <- nodeChildren node
+                      ]
+                 in Right (node {nodeChildren = children', nodeVisits = nodeVisits node + 1}, backed)
+
 -- | Run the real tree search for `mctsSimulations` simulations from the root
 -- with the neutral default oracle.
 runSearch :: MctsConfig -> Int -> MctsNode
@@ -211,6 +262,22 @@ runSearchWithPrior oracle config _seed =
  where
   go 0 node = node
   go n node = go (n - 1) (fst (simulate oracle config 0 node))
+
+-- | Device-backed variant of 'runSearchWithPrior'. The search mechanics stay
+-- identical to the pure path, but each leaf expansion/evaluation is supplied by
+-- an effectful oracle that may run the value head through the selected JIT
+-- device. Any oracle failure aborts the search with 'Left' rather than falling
+-- back to the pure network.
+runSearchWithPriorIO :: PriorOracleIO -> MctsConfig -> Int -> IO (Either Text MctsNode)
+runSearchWithPriorIO oracle config _seed =
+  go (max 1 (mctsSimulations config)) (freshNode [])
+ where
+  go 0 node = pure (Right node)
+  go n node = do
+    simulated <- simulateIO oracle config 0 node
+    case simulated of
+      Left err -> pure (Left err)
+      Right (node', _) -> go (n - 1) node'
 
 -- | Transposition-table key. Two distinct move sequences that lead to the
 -- same position collapse to the same key. Hashing via SHA-256 keeps the key

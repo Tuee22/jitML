@@ -36,10 +36,13 @@ module JitML.RL.AlphaZero.PolicyValueNet
   , encodeConnect4Board
   , encodeGameState
   , networkPriorOracle
+  , networkPriorOracleWithDevice
   , netOracleFactory
+  , netOracleFactoryWithDevice
   , runNetworkSelfPlay
   , networkPolicyValue
   , mctsVisitDistribution
+  , mctsVisitDistributionWithDevice
   , PolicyValueTrainingSample (..)
   , trainPolicyValueNetOnSamples
   , trainPolicyValueNetOnSamplesCuda
@@ -49,6 +52,7 @@ module JitML.RL.AlphaZero.PolicyValueNet
   , policyValueNetToFlat
   , loadPolicyValueNetWeights
   , generatePolicyValueSamples
+  , generatePolicyValueSamplesWithDevice
   , runOneGenerationOfSelfPlay
   , GenerationResult (..)
   , arenaWinRateAgainstUniform
@@ -106,6 +110,7 @@ import JitML.RL.AlphaZero.Mcts
   , PriorOracle
   , defaultMctsConfig
   , runSearchWithPrior
+  , runSearchWithPriorIO
   )
 import JitML.RL.AlphaZero.SelfPlay
   ( SelfPlayBuffer
@@ -216,6 +221,34 @@ networkPriorOracle net rootState moves =
                 , evalTerminal = False
                 }
 
+-- | Device-backed variant of 'networkPriorOracle'. Leaf evaluation runs the
+-- policy/value MLP forward through the supplied 'MlpDevice'; any device compile
+-- or execution error is returned as 'Left' and the MCTS caller fails closed.
+networkPriorOracleWithDevice
+  :: MlpDevice
+  -> PolicyValueNet
+  -> GameState
+  -> [Int]
+  -> IO (Either Text NodeEval)
+networkPriorOracleWithDevice device net rootState moves =
+  let state = Data.List.foldl' (flip applyMove) rootState moves
+      terminalValue = evaluateTerminal state
+   in if terminalValue /= 0.0
+        then pure (Right NodeEval {evalPriors = [], evalValue = terminalValue, evalTerminal = True})
+        else do
+          fwdResult <- mlpdForward device (pvnParams net) (encodeGameState net state)
+          pure $
+            case fwdResult of
+              Left err -> Left err
+              Right fwd ->
+                let out = policyValueFromForward (pvnActionCount net) fwd
+                 in Right
+                      NodeEval
+                        { evalPriors = VU.toList (pvPolicy out)
+                        , evalValue = pvValue out
+                        , evalTerminal = False
+                        }
+
 -- | Sprint 9.10 — the per-position oracle the production AlphaZero self-play
 -- loop threads through
 -- 'JitML.RL.AlphaZero.SelfPlay.runSelfPlayWithOracleFactory'. For each board
@@ -224,6 +257,11 @@ networkPriorOracle net rootState moves =
 -- the prior and value depend on the position, not the search seed.
 netOracleFactory :: PolicyValueNet -> GameState -> PriorOracle
 netOracleFactory = networkPriorOracle
+
+-- | Device-backed oracle factory for the effectful MCTS path.
+netOracleFactoryWithDevice
+  :: MlpDevice -> PolicyValueNet -> GameState -> [Int] -> IO (Either Text NodeEval)
+netOracleFactoryWithDevice = networkPriorOracleWithDevice
 
 -- | Sprint 13.9 — run AlphaZero self-play with the MCTS prior driven by the
 -- real policy/value network at every position. The search tree's prior input
@@ -249,7 +287,27 @@ mctsVisitDistribution net sims state seed =
   let actionCount = pvnActionCount net
       cfg = (defaultMctsConfig actionCount) {mctsSimulations = max 1 sims}
       tree = runSearchWithPrior (netOracleFactory net state) cfg seed
-      visitFor a =
+   in visitDistributionFromTree actionCount tree
+
+-- | Device-backed MCTS visit-count distribution. This is the Sprint 9.10
+-- runtime path where leaf policy/value evaluation runs through the selected
+-- JIT MLP device instead of the pure reference net.
+mctsVisitDistributionWithDevice
+  :: MlpDevice
+  -> PolicyValueNet
+  -> Int
+  -> GameState
+  -> Int
+  -> IO (Either Text (Vector Double))
+mctsVisitDistributionWithDevice device net sims state seed = do
+  let actionCount = pvnActionCount net
+      cfg = (defaultMctsConfig actionCount) {mctsSimulations = max 1 sims}
+  treeResult <- runSearchWithPriorIO (netOracleFactoryWithDevice device net state) cfg seed
+  pure (visitDistributionFromTree actionCount <$> treeResult)
+
+visitDistributionFromTree :: Int -> MctsNode -> Vector Double
+visitDistributionFromTree actionCount tree =
+  let visitFor a =
         case [edgeVisits e | e <- nodeChildren tree, edgeAction e == a] of
           (v : _) -> fromIntegral v
           [] -> 0.0
@@ -414,7 +472,7 @@ generatePolicyValueSamples
 generatePolicyValueSamples net seed0 sims maxPlies =
   let gen0 = Random.mkStdGen seed0
       go !state !gen !plies !acc
-        | plies >= maxPlies = annotateOutcome 0.0 (reverse acc)
+        | plies >= maxPlies = annotatePolicyValueOutcome 0.0 (reverse acc)
         | otherwise =
             let visitDist = mctsVisitDistribution net sims state (seed0 + plies * 7919)
                 (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
@@ -432,15 +490,57 @@ generatePolicyValueSamples net seed0 sims maxPlies =
                     then evaluateTerminal nextState
                     else 0.0
              in if terminal
-                  then annotateOutcome outcomeFromHere (reverse (sample : acc))
+                  then annotatePolicyValueOutcome outcomeFromHere (reverse (sample : acc))
                   else go nextState gen' (plies + 1) (sample : acc)
    in go initialConnect4 gen0 0 []
+
+-- | Device-backed variant of 'generatePolicyValueSamples'. The MCTS visit
+-- target for each sampled position is produced through
+-- 'mctsVisitDistributionWithDevice', so policy/value leaf evaluation runs on
+-- the supplied JIT 'MlpDevice'. A device failure aborts sample generation with
+-- 'Left' instead of falling back to the pure network path.
+generatePolicyValueSamplesWithDevice
+  :: MlpDevice
+  -> PolicyValueNet
+  -> Int -- seed
+  -> Int -- MCTS simulations per move
+  -> Int -- max plies
+  -> IO (Either Text [PolicyValueTrainingSample])
+generatePolicyValueSamplesWithDevice device net seed0 sims maxPlies =
+  let gen0 = Random.mkStdGen seed0
+      go !state !gen !plies !acc
+        | plies >= maxPlies = pure (Right (annotatePolicyValueOutcome 0.0 (reverse acc)))
+        | otherwise = do
+            visitResult <- mctsVisitDistributionWithDevice device net sims state (seed0 + plies * 7919)
+            case visitResult of
+              Left err -> pure (Left err)
+              Right visitDist -> do
+                let (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
+                    action = sampleCategorical visitDist u
+                    nextState = applyMove action state
+                    sample =
+                      PolicyValueTrainingSample
+                        { sampleState = state
+                        , sampleVisitDist = visitDist
+                        , sampleOutcome = 0.0
+                        }
+                    terminal = plies + 1 >= maxPlies
+                    outcomeFromHere =
+                      if terminal
+                        then evaluateTerminal nextState
+                        else 0.0
+                if terminal
+                  then pure (Right (annotatePolicyValueOutcome outcomeFromHere (reverse (sample : acc))))
+                  else go nextState gen' (plies + 1) (sample : acc)
+   in go initialConnect4 gen0 0 []
+
+annotatePolicyValueOutcome :: Double -> [PolicyValueTrainingSample] -> [PolicyValueTrainingSample]
+annotatePolicyValueOutcome finalOutcome = annotateLoop finalOutcome (0 :: Int)
  where
   -- Alternate signs because the outcome is from each side's POV.
   -- Manual index threading instead of @zipWith@ over @[0 ..]@ so hlint's
   -- `Use zipWithFrom` hint (which would require the extra package)
   -- does not fire.
-  annotateOutcome finalOutcome = annotateLoop finalOutcome (0 :: Int)
   annotateLoop _ _ [] = []
   annotateLoop finalOutcome i (s : ss) =
     let sign = if even i then 1.0 else -1.0

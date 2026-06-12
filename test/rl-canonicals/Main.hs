@@ -197,6 +197,9 @@ main =
           "MCTS visit-count target is a valid search-derived distribution (Sprint 13.9 visit targets)"
           assertMctsVisitTargets
       , testCase
+          "MCTS visit-count target evaluates leaves through the substrate JIT device (Sprint 9.10 --linux-cpu)"
+          assertMctsVisitTargetsWithDevice
+      , testCase
           "trained PolicyValueNet weights round-trip through the .jmw1 checkpoint blob (Sprint 13.9)"
           assertPolicyValueWeightsRoundTrip
       , testCase "RL command envelopes parse after render" $ do
@@ -930,3 +933,31 @@ assertMctsVisitTargets = do
   assertBool
     "search concentrates visits beyond the uniform 1/7 baseline"
     (maximum entries > 1.0 / 7.0)
+
+-- | Sprint 9.10 — the effectful MCTS path evaluates leaf policy/value heads
+-- through the selected substrate JIT device. This keeps the pure MCTS tests
+-- intact while proving the production leaf-eval seam is not pure-only.
+assertMctsVisitTargetsWithDevice :: IO ()
+assertMctsVisitTargetsWithDevice = do
+  env <- buildEnv defaultGlobalFlags
+  let device = rlDeviceForSubstrate LinuxCPU env
+      net = PVN.initPolicyValueNet 43 7 16 71
+  probe <- probeMlpDevice device
+  case probe of
+    Left _ ->
+      assertBool "linux-cpu JIT device unavailable; device MCTS leaf-eval skipped" True
+    Right () -> do
+      distResult <- PVN.mctsVisitDistributionWithDevice device net 16 initialConnect4 1234
+      case distResult of
+        Left err ->
+          assertBool ("device-backed MCTS visit distribution failed: " <> Text.unpack err) False
+        Right dist -> do
+          let entries = Data.Vector.Unboxed.toList dist
+          Data.Vector.Unboxed.length dist @?= 7
+          assertBool "device visit probabilities are non-negative" (all (>= 0) entries)
+          assertBool
+            "device visit distribution sums to 1"
+            (abs (sum entries - 1.0) < 1.0e-6)
+          assertBool
+            "device search concentrates visits beyond the uniform 1/7 baseline"
+            (maximum entries > 1.0 / 7.0)

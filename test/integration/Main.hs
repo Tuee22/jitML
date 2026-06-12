@@ -36,6 +36,7 @@ import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.DockerImage qualified as DockerImage
 import JitML.Cluster.EdgePort qualified as EdgePort
+import JitML.Cluster.Gateway qualified as Gateway
 import JitML.Cluster.Helm qualified as Helm
 import JitML.Cluster.Kind
   ( kindConfigFor
@@ -95,6 +96,7 @@ import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..))
+import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Tune.Resume qualified as TuneResume
 import Network.Socket qualified as Socket
@@ -184,6 +186,14 @@ main =
             ("containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1" `Text.isInfixOf` cudaConfig)
       , testCase "route registry renders HTTPRoute manifests" $
           length (fmap renderHTTPRoute routeRegistry) @?= length routeRegistry
+      , testCase "EnvoyProxy renderer pins local data-plane resource requests" $ do
+          let envoyProxy = Gateway.renderEnvoyProxy 9091
+          assertBool
+            "Envoy data-plane CPU request stays local-friendly"
+            ("cpu: 50m" `Text.isInfixOf` envoyProxy)
+          assertBool
+            "Envoy data-plane memory request stays local-friendly"
+            ("memory: 64Mi" `Text.isInfixOf` envoyProxy)
       , testCase "route table matches golden fixture" $ do
           expected <- Text.IO.readFile "test/snapshots/cluster/route-table.md"
           renderRouteTable @?= expected
@@ -1236,8 +1246,8 @@ main =
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "live rollout normalizes Percona PV ownership for Linux Postgres"
-              ( "docker exec jitml-linux-cpu-control-plane chown -R 26:26 /jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg-repo1/pv_0/"
+              "linux-cpu live rollout binds Postgres PVs to node-local storage before Harbor"
+              ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; mountpoint -q /jitml/.data/platform/harbor-pg/pv_0/ || mount --bind /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; chown -R 26:26 /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/;"
                   `Text.isInfixOf` commandText
               )
             assertBool
@@ -1334,8 +1344,8 @@ main =
                     "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml"
                     commandText
             assertBool
-              "live rollout normalizes Percona PV ownership before applying manual storage"
-              ( "docker exec jitml-linux-cpu-control-plane chown -R 26:26 /jitml/.data/platform/harbor-pg/pv_0/"
+              "live rollout prepares node-local Percona PV storage before applying manual storage"
+              ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/"
                   `Text.isInfixOf` beforeManualStorage
               )
             -- Sprint 4.8: the Harbor-registry bucket existence probe moved
@@ -1672,7 +1682,23 @@ main =
           -- without a cluster up. Tests fail with a clear message when the
           -- cluster-publication.json is missing.
           "Live"
-          [ testCase "live HasMinIO conditional writes round-trip on jitml-checkpoints" $ do
+          [ testCase "live WorkflowMatrix executes every current-substrate cell fail-closed (Sprint 12.11)" $ do
+              publication <- requireLivePublication
+              jitmlBinary <- locateJitmlBinary
+              binary <- case jitmlBinary of
+                Nothing ->
+                  assertFailure
+                    "jitml binary not found — needed for Sprint 12.11 WorkflowMatrix live execution"
+                Just path -> pure path
+              repoRoot <- makeAbsolute "."
+              let substrate = Publication.publicationSubstrate publication
+                  cells =
+                    filter
+                      ((== substrate) . WorkflowMatrix.cellSubstrate)
+                      WorkflowMatrix.workflowMatrix
+              length cells @?= length WorkflowMatrix.allWorkflows
+              traverse_ (runLiveWorkflowMatrixCell repoRoot binary publication) cells
+          , testCase "live HasMinIO conditional writes round-trip on jitml-checkpoints" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
                   settings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
@@ -2939,6 +2965,177 @@ main =
           ]
       ]
 
+runLiveWorkflowMatrixCell
+  :: FilePath
+  -> FilePath
+  -> Publication.ClusterPublication
+  -> WorkflowMatrix.WorkflowCell
+  -> IO ()
+runLiveWorkflowMatrixCell repoRoot binary publication cell =
+  case WorkflowMatrix.cellWorkflow cell of
+    WorkflowMatrix.SlTrain -> do
+      ensureWorkflowMatrixDataset minioSettings
+      runWorkflowCommandExpecting ["train:", "substrate=" <> substrateUrlSegment substrate]
+    WorkflowMatrix.SlEval -> do
+      stageWorkflowMatrixCheckpoint minioSettings "workflow-matrix-eval"
+      runWorkflowCommandExpecting ["eval: checkpoint=workflow-matrix-eval", "output="]
+    WorkflowMatrix.RlTrain ->
+      runWorkflowCommandExpecting ["rl train:", "avg-reward:"]
+    WorkflowMatrix.RlEval -> do
+      stageWorkflowMatrixCheckpoint minioSettings "workflow-matrix-eval"
+      runWorkflowCommandExpecting ["rl eval: checkpoint=workflow-matrix-eval", "output="]
+    WorkflowMatrix.RlRollout ->
+      runWorkflowCommandExpecting ["rl rollout:", "rewards="]
+    WorkflowMatrix.Tune ->
+      runWorkflowCommandExpecting ["sampler: TPE", "objectives:"]
+    WorkflowMatrix.Inference -> do
+      stageWorkflowMatrixCheckpoint minioSettings "workflow-matrix-inference"
+      runWorkflowCommandExpecting ["inference: experiment=workflow-matrix-inference", "result="]
+    WorkflowMatrix.AlphaZeroSelfPlay ->
+      runWorkflowCommandExpecting ["rl alphazero self-play:", "samples:", "arena-win-rate:"]
+ where
+  substrate = Publication.publicationSubstrate publication
+  minioSettings =
+    MinIOSubprocess.minioSettingsForLocalEdge (Publication.publicationEdgePort publication)
+  commandText = Text.unwords (WorkflowMatrix.cellCommand cell)
+  runWorkflowCommandExpecting snippets = do
+    let command =
+          (subprocess binary (WorkflowMatrix.cellCommand cell))
+            { JitML.Sub.Subprocess.subprocessWorkingDirectory = Just repoRoot
+            }
+    (exitCode, stdoutText, stderrText) <- runStreaming defaultSubprocessEnv command
+    case exitCode of
+      ExitSuccess ->
+        traverse_
+          ( \snippet ->
+              assertBool
+                ( "WorkflowMatrix cell "
+                    <> Text.unpack commandText
+                    <> " did not render expected output snippet "
+                    <> Text.unpack snippet
+                    <> "; stdout was: "
+                    <> Text.unpack stdoutText
+                )
+                (snippet `Text.isInfixOf` stdoutText)
+          )
+          snippets
+      ExitFailure code ->
+        assertFailure
+          ( "WorkflowMatrix cell "
+              <> Text.unpack commandText
+              <> " failed exit "
+              <> show code
+              <> " stderr: "
+              <> Text.unpack stderrText
+          )
+
+stageWorkflowMatrixCheckpoint :: MinIOSubprocess.MinIOSettings -> Text -> IO ()
+stageWorkflowMatrixCheckpoint settings experimentHash =
+  MinIOSubprocess.runMinIOSubprocess settings $ do
+    let blobObjectKey = Checkpoint.blobKey experimentHash "workflow-matrix-weights"
+        manifest =
+          Checkpoint.emptyManifest
+            "workflow-matrix"
+            experimentHash
+            [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+        manifestSha = Checkpoint.manifestContentSha manifest
+        payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
+        blobRef = CheckpointStore.checkpointObjectRef blobObjectKey
+        manifestRef =
+          CheckpointStore.checkpointObjectRef (Checkpoint.manifestKey experimentHash manifestSha)
+        pointerRef = CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey experimentHash)
+    _ <- deleteObject pointerRef
+    _ <- deleteObject manifestRef
+    _ <- deleteObject blobRef
+    written <-
+      CheckpointStore.writeCheckpointSnapshotWithMinIO
+        manifest
+        [(blobObjectKey, payload)]
+        Nothing
+    liftIO $ case written of
+      Right _ -> pure ()
+      Left err ->
+        assertFailure
+          ( "WorkflowMatrix checkpoint staging failed for "
+              <> Text.unpack experimentHash
+              <> ": "
+              <> show err
+          )
+
+ensureWorkflowMatrixDataset :: MinIOSubprocess.MinIOSettings -> IO ()
+ensureWorkflowMatrixDataset settings =
+  MinIOSubprocess.runMinIOSubprocess settings $ do
+    ensureDatasetObject
+      (ObjectRef (BucketName "jitml-datasets") (ObjectKey "MNIST/train/data.bin"))
+      workflowMatrixTrainImages
+    ensureDatasetObject
+      (ObjectRef (BucketName "jitml-datasets") (ObjectKey "MNIST/train/labels.bin"))
+      workflowMatrixTrainLabels
+ where
+  ensureDatasetObject ref payload = do
+    existing <- minioReadBytes ref
+    case existing of
+      Right _ -> pure ()
+      Left _ -> do
+        written <- putBlobBytesIfAbsent ref payload
+        liftIO $ case written of
+          Right _ -> pure ()
+          Left (SEConflict _) -> pure ()
+          Left err ->
+            assertFailure ("WorkflowMatrix dataset staging failed: " <> show err)
+
+workflowMatrixTrainImages :: Data.ByteString.ByteString
+workflowMatrixTrainImages =
+  Data.ByteString.pack
+    [ 0
+    , 0
+    , 8
+    , 3 -- IDX3 magic
+    , 0
+    , 0
+    , 0
+    , 6 -- image count
+    , 0
+    , 0
+    , 0
+    , 1 -- rows
+    , 0
+    , 0
+    , 0
+    , 2 -- cols
+    , 250
+    , 5
+    , 240
+    , 10
+    , 255
+    , 0
+    , 5
+    , 250
+    , 10
+    , 240
+    , 0
+    , 255
+    ]
+
+workflowMatrixTrainLabels :: Data.ByteString.ByteString
+workflowMatrixTrainLabels =
+  Data.ByteString.pack
+    [ 0
+    , 0
+    , 8
+    , 1 -- IDX1 magic
+    , 0
+    , 0
+    , 0
+    , 6 -- label count
+    , 0
+    , 0
+    , 0
+    , 1
+    , 1
+    , 1
+    ]
+
 -- | Read the live cluster publication artifact written by
 -- `JitML.Bootstrap.liveExecutePhasedRollout`. Used by Sprint 13.2's `Live`
 -- tests so each capability-class assertion targets the actually-leased edge
@@ -3219,10 +3416,10 @@ assertFailureWithIO message = assertFailure message >> error "unreachable"
 -- | Find the freshly-built `jitml` binary. Returns @Nothing@ if the binary
 -- isn't built (first build path). Returns an absolute path so the spawned
 -- process can resolve it regardless of cwd. Preference order: the
--- container-installed @/usr/local/bin/jitml@ (the path the @jitml:local@
--- Dockerfile drops it at) → the platform-matching @dist-newstyle@ build
--- (rejecting wrong-arch binaries the host bind-mount may expose) → any
--- @dist-newstyle@ binary whose arch directory matches the current host.
+-- platform-matching @dist-newstyle@ build (rejecting wrong-arch binaries the
+-- host bind-mount may expose) → any @dist-newstyle@ binary whose arch
+-- directory matches the current host → the container-installed
+-- @/usr/local/bin/jitml@ fallback from the @jitml:local@ image.
 -- | Walk a `pulsar-admin topics stats <topic>` JSON object and assert the
 -- `jitml-service` subscription is present with at least one attached
 -- consumer (the cluster daemon Deployment's held-open WebSocket worker).
@@ -3303,25 +3500,28 @@ ensureLocalImage image = do
 
 locateJitmlBinary :: IO (Maybe FilePath)
 locateJitmlBinary = do
-  installed <- doesFileExist installedBinaryPath
-  if installed
-    then Just <$> makeAbsolute installedBinaryPath
+  let preferred =
+        "dist-newstyle/build/"
+          <> currentArchDir
+          <> "/ghc-9.12.4/jitml-0.1.0.0/x/jitml/build/jitml/jitml"
+  exists <- doesFileExist preferred
+  if exists
+    then Just <$> makeAbsolute preferred
     else do
-      let preferred =
-            "dist-newstyle/build/"
-              <> currentArchDir
-              <> "/ghc-9.12.4/jitml-0.1.0.0/x/jitml/build/jitml/jitml"
-      exists <- doesFileExist preferred
-      if exists
-        then Just <$> makeAbsolute preferred
-        else do
-          base <-
-            (Just <$> listDirectory "dist-newstyle/build")
-              `Control.Exception.catch` (\(_ :: IOError) -> pure Nothing)
-          case base of
-            Nothing -> pure Nothing
-            Just archEntries ->
-              searchForBinary (filter matchesCurrentPlatform archEntries)
+      base <-
+        (Just <$> listDirectory "dist-newstyle/build")
+          `Control.Exception.catch` (\(_ :: IOError) -> pure Nothing)
+      case base of
+        Just archEntries -> do
+          built <- searchForBinary (filter matchesCurrentPlatform archEntries)
+          case built of
+            Just path -> pure (Just path)
+            Nothing -> installedFallback
+        Nothing -> installedFallback
+ where
+  installedFallback = do
+    installed <- doesFileExist installedBinaryPath
+    traverse makeAbsolute (if installed then Just installedBinaryPath else Nothing)
 
 installedBinaryPath :: FilePath
 installedBinaryPath = "/usr/local/bin/jitml"

@@ -14,6 +14,7 @@ module JitML.Tune.Catalog
   , TuningScheduler (..)
   , TrialTranscript (..)
   , deterministicTrials
+  , deterministicTrialsWithDevice
   , loadTuningExperiment
   , prunerCatalog
   , prunerFromText
@@ -37,6 +38,7 @@ import Dhall qualified
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
+import JitML.Numerics.MlpDevice (MlpDevice)
 import JitML.SL.Classifier qualified as Classifier
 
 data Sampler
@@ -148,12 +150,27 @@ prunerCatalog = [NoPruner, MedianPruner, PercentilePruner]
 -- fixed separable dataset, and the value is @1 − train accuracy@ (lower is
 -- better). This replaces the former per-sampler LCG that trained no model and
 -- measured nothing. The training is bit-deterministic on the same seed, so the
--- sequence is reproducible. The live, substrate-device-backed trial executor is
--- owned by Phase 13 Sprint 13.10; this pure surface drives the plan preview and
--- the resume-determinism check.
+-- sequence is reproducible. The device-backed companion below drives live
+-- worker/report paths; this pure surface drives the plan preview and the
+-- resume-determinism check.
 deterministicTrials :: Sampler -> Int -> [Double]
 deterministicTrials sampler count =
   [trialObjective sampler i | i <- [0 .. count - 1]]
+
+-- | Substrate-device-backed trial objective sequence. Each trial uses the same
+-- deterministic sampled configuration as 'deterministicTrials', but routes the
+-- classifier train through the supplied JIT 'MlpDevice'. A device failure
+-- aborts the sweep with 'Left' instead of falling back to the pure objective.
+deterministicTrialsWithDevice :: MlpDevice -> Sampler -> Int -> IO (Either Text [Double])
+deterministicTrialsWithDevice device sampler count =
+  go [0 .. count - 1] []
+ where
+  go [] acc = pure (Right (reverse acc))
+  go (trialIndex : rest) acc = do
+    result <- trialObjectiveWithDevice device sampler trialIndex
+    case result of
+      Left err -> pure (Left err)
+      Right value -> go rest (value : acc)
 
 -- | The real measured objective for one trial: build the sampled hyperparameter
 -- configuration, train the reference classifier on 'tuningObjectiveDataset',
@@ -166,7 +183,20 @@ trialObjective :: Sampler -> Int -> Double
 trialObjective sampler trialIndex =
   let config = sampledClassifierConfig sampler trialIndex
       trained = Classifier.trainClassifier config tuningObjectiveDataset
-      loss = Classifier.crossEntropyLoss trained tuningObjectiveDataset
+   in objectiveFromTrained config trained
+
+trialObjectiveWithDevice :: MlpDevice -> Sampler -> Int -> IO (Either Text Double)
+trialObjectiveWithDevice device sampler trialIndex = do
+  let config = sampledClassifierConfig sampler trialIndex
+  trainedResult <- Classifier.trainClassifierWithDevice device config tuningObjectiveDataset
+  pure $
+    case trainedResult of
+      Left err -> Left err
+      Right (trained, _accuracy) -> Right (objectiveFromTrained config trained)
+
+objectiveFromTrained :: Classifier.ClassifierConfig -> Classifier.TrainedClassifier -> Double
+objectiveFromTrained config trained =
+  let loss = Classifier.crossEntropyLoss trained tuningObjectiveDataset
       baseline = log (fromIntegral (max 2 (Classifier.clfClasses config)))
    in max 0.0 (min 0.999 (loss / baseline))
 

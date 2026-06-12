@@ -17,3 +17,9 @@ spec:
                 - name: http
                   port: 9092
                   nodePort: 30090
+      envoyDeployment:
+        container:
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi

@@ -330,6 +330,32 @@ rlCommand =
         , value "seed" Nothing "word64" False "Rollout seed."
         ]
         [Example "jitml rl rollout experiments/cartpole.dhall --seed 42" "Run a fixed-seed rollout."]
+    , group
+        "alphazero"
+        "Run AlphaZero workflows."
+        "Self-play and policy/value training commands for AlphaZero workloads."
+        [ leaf
+            "self-play"
+            "Run AlphaZero self-play."
+            "Runs a bounded AlphaZero self-play generation through the selected substrate MLP device."
+            [ value
+                "substrate"
+                Nothing
+                "substrate"
+                False
+                "Override the self-play substrate (apple-silicon, linux-cpu, or linux-cuda)."
+            , value "seed" Nothing "word64" False "Self-play seed."
+            , value "games" Nothing "n" False "Number of self-play games."
+            , value "sims" Nothing "n" False "MCTS simulations per move."
+            , value "max-plies" Nothing "n" False "Maximum plies per self-play game."
+            , value "updates" Nothing "n" False "Policy/value gradient updates."
+            , value "arena-games" Nothing "n" False "Arena games for win-rate reporting."
+            ]
+            [ Example
+                "jitml rl alphazero self-play --substrate linux-cpu --seed 31"
+                "Run a bounded AlphaZero generation through the Linux CPU device."
+            ]
+        ]
     ]
 
 verifyCommand :: CommandSpec

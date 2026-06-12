@@ -369,8 +369,10 @@ kindNormalizePostgresPvOwnershipSubprocess substrate =
 kindPreparePostgresPvSubprocesses :: Substrate -> [Subprocess]
 kindPreparePostgresPvSubprocesses AppleSilicon =
   [kindMountPostgresPvNodeLocalSubprocess AppleSilicon]
-kindPreparePostgresPvSubprocesses substrate =
-  [kindNormalizePostgresPvOwnershipSubprocess substrate]
+kindPreparePostgresPvSubprocesses LinuxCPU =
+  [kindMountPostgresPvNodeLocalSubprocess LinuxCPU]
+kindPreparePostgresPvSubprocesses LinuxCUDA =
+  [kindNormalizePostgresPvOwnershipSubprocess LinuxCUDA]
 
 kindMountPostgresPvNodeLocalSubprocess :: Substrate -> Subprocess
 kindMountPostgresPvNodeLocalSubprocess substrate =
@@ -532,7 +534,15 @@ postgresSchemaGrantIO cluster = do
                       , "-d"
                       , db
                       , "-c"
-                      , "GRANT ALL ON SCHEMA public TO "
+                      , "ALTER DATABASE "
+                          <> db
+                          <> " OWNER TO "
+                          <> db
+                          <> "; GRANT ALL PRIVILEGES ON DATABASE "
+                          <> db
+                          <> " TO "
+                          <> db
+                          <> "; GRANT ALL ON SCHEMA public TO "
                           <> db
                           <> "; ALTER SCHEMA public OWNER TO "
                           <> db
@@ -594,6 +604,7 @@ liveExecutePhasedRollout substrate chartPath = do
   lease <- selectLiveLease "." substrate
   let publication = publicationWithLeasedPort lease (defaultPublication substrate)
       port = EdgePort.leasedPort lease
+  removeLivePublication "."
   patchLiveMaterialization substrate lease publication
   prepareKindKubeconfigFiles substrate
   -- Sprint 2.9: skip `helm dependency build` when every subchart `.tgz` is
@@ -957,6 +968,12 @@ writeLivePublication root publication = do
   let runtimeRoot = root </> ".build" </> "runtime"
   createDirectoryIfMissing True runtimeRoot
   writeLazyByteStringIfChanged (runtimeRoot </> "cluster-publication.json") (encode publication)
+
+removeLivePublication :: FilePath -> IO ()
+removeLivePublication root = do
+  let path = root </> ".build" </> "runtime" </> "cluster-publication.json"
+  exists <- doesFileExist path
+  when exists (removeFile path)
 
 writeTextFileIfChanged :: FilePath -> Text -> IO Bool
 writeTextFileIfChanged path expected = do

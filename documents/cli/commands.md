@@ -373,6 +373,35 @@ jitml rl rollout experiments/cartpole.dhall --seed 42
 Run a fixed-seed rollout.
 
 
+## `jitml rl alphazero self-play`
+
+Run AlphaZero self-play.
+
+Runs a bounded AlphaZero self-play generation through the selected substrate MLP device.
+
+```text
+jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
+```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--substrate <substrate>` | value | no | Override the self-play substrate (apple-silicon, linux-cpu, or linux-cuda). |
+| `--seed <word64>` | value | no | Self-play seed. |
+| `--games <n>` | value | no | Number of self-play games. |
+| `--sims <n>` | value | no | MCTS simulations per move. |
+| `--max-plies <n>` | value | no | Maximum plies per self-play game. |
+| `--updates <n>` | value | no | Policy/value gradient updates. |
+| `--arena-games <n>` | value | no | Arena games for win-rate reporting. |
+
+Examples:
+
+```text
+jitml rl alphazero self-play --substrate linux-cpu --seed 31
+```
+
+Run a bounded AlphaZero generation through the Linux CPU device.
+
+
 ## `jitml verify same-run`
 
 Verify same-run determinism.

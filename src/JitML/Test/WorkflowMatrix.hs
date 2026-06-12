@@ -8,9 +8,10 @@
 -- Each cell carries the canonical `jitml` command (argv) that drives the
 -- workflow on its substrate. The live runner that executes each cell against a
 -- live cluster and asserts the real measured output **fails closed** without a
--- `cluster-publication.json` (no vacuous pass); that live runner is owned by
--- Phases `13`/`14`/`15` and needs the cluster + per-substrate hardware. This
--- module is the host-validatable structure those tests share.
+-- `cluster-publication.json` (no vacuous pass); substrate selection is explicit
+-- where the command surface owns a `--substrate` flag and otherwise resolves
+-- through the live publication / run config. This module is the
+-- host-validatable structure those tests share.
 module JitML.Test.WorkflowMatrix
   ( Workflow (..)
   , WorkflowCell (..)
@@ -42,20 +43,21 @@ allWorkflows = [minBound .. maxBound]
 
 -- | The canonical `jitml` command (argv) that drives a workflow on a substrate.
 -- Substrate-scoped workflows carry the resolved `--substrate` flag; the
--- checkpoint-read workflows (`eval`, `rl eval`, `inference run`) resolve the
--- substrate from the live publication.
+-- checkpoint-read and publication-scoped workflows (`eval`, `rl eval`,
+-- `tune`, `inference run`) resolve the substrate from the live publication.
 workflowCommand :: Workflow -> Substrate -> [Text]
 workflowCommand workflow substrate =
   let sub = ["--substrate", renderSubstrate substrate]
    in case workflow of
         SlTrain -> ["train", "experiments/mnist.dhall"] <> sub
-        SlEval -> ["eval", "--checkpoint", "latest"]
+        SlEval -> ["eval", "experiments/mnist.dhall", "--checkpoint", "workflow-matrix-eval"]
         RlTrain -> ["rl", "train", "experiments/cartpole.dhall"] <> sub
-        RlEval -> ["rl", "eval", "--checkpoint", "latest"]
-        RlRollout -> ["rl", "rollout", "--seed", "42"]
-        Tune -> ["tune", "experiments/mnist-tune.dhall"] <> sub
-        Inference -> ["inference", "run", "--experiment-hash", "default"]
-        AlphaZeroSelfPlay -> ["rl", "train", "experiments/key-door-grid.dhall"] <> sub
+        RlEval -> ["rl", "eval", "experiments/cartpole.dhall", "--checkpoint", "workflow-matrix-eval"]
+        RlRollout -> ["rl", "rollout", "experiments/cartpole.dhall", "--seed", "42"]
+        Tune -> ["tune", "experiments/mnist-tune.dhall"]
+        Inference ->
+          ["inference", "run", "experiments/mnist.dhall", "--experiment-hash", "workflow-matrix-inference"]
+        AlphaZeroSelfPlay -> ["rl", "alphazero", "self-play"] <> sub
 
 -- | One @(workflow, substrate)@ cell with its canonical command.
 data WorkflowCell = WorkflowCell

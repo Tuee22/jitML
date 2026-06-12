@@ -625,6 +625,33 @@ Examples:
       Run a fixed-seed rollout.
 ```
 
+### `jitml rl alphazero self-play`
+
+```text
+jitml rl alphazero self-play
+
+Run AlphaZero self-play.
+
+Runs a bounded AlphaZero self-play generation through the selected substrate MLP device.
+
+Usage:
+  jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
+
+Options:
+  --substrate <substrate>  Override the self-play substrate (apple-silicon, linux-cpu, or linux-cuda).
+  --seed <word64>          Self-play seed.
+  --games <n>              Number of self-play games.
+  --sims <n>               MCTS simulations per move.
+  --max-plies <n>          Maximum plies per self-play game.
+  --updates <n>            Policy/value gradient updates.
+  --arena-games <n>        Arena games for win-rate reporting.
+
+
+Examples:
+  jitml rl alphazero self-play --substrate linux-cpu --seed 31
+      Run a bounded AlphaZero generation through the Linux CPU device.
+```
+
 ### `jitml verify same-run`
 
 ```text

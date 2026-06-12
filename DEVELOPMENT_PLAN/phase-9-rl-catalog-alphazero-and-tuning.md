@@ -20,19 +20,18 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 — real-workflow refactor). The catalog,
+✅ **Done** (re-closed 2026-06-11 — real-workflow refactor). The catalog,
 AlphaZero substack, and tuning surfaces shipped with synthetic/echo stand-ins:
 `jitml rl eval` echoed the checkpoint label, `jitml rl rollout` returned an LCG
 integer sequence, AlphaZero MCTS was a one-ply bandit, and tuning trials used
 per-sampler LCG values. The 2026-06-10/11 refactor removes those local stand-ins:
 `rl eval`/`rl rollout` route through checkpoint/device paths and fail closed,
 per-algorithm rollouts step real environment dynamics, MCTS descends a real tree
-with value backup, and tuning trials train a model to produce measured
-objectives. The phase remains active for the explicitly named follow-ons in
-Sprints `9.9`–`9.11`: CLI `rl rollout` container boundary validation,
-substrate-device-backed MCTS leaf evaluation, and substrate-backed/live persisted
-tuning execution. The linux-cpu and linux-cuda live exercise closed in Phase
-`13` on 2026-06-11; apple-silicon remains Phase `14`. See
+with value backup, device-backed MCTS leaf evaluation runs through the selected
+JIT `MlpDevice`, and tuning trials train a real model through the substrate
+device to produce measured objectives. The linux-cpu and linux-cuda live
+exercise closed in Phase `13` on 2026-06-11; apple-silicon live validation
+remains Phase `14`, not an open Phase `9` code-surface obligation. See
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
 closure narrative below is retained as dated record.
 
@@ -63,10 +62,11 @@ expose typed hyperparameter rows and deterministic per-algorithm
 trajectory transcripts through the shared `AlgorithmModule` interface
 in `JitML.RL.Algorithms.Common`. `JitML.RL.Algorithms.Registry`
 aggregates the catalog and resolves a module by name. The AlphaZero
-substack lands as `JitML.RL.AlphaZero.{Mcts,SelfPlay,Arena}` with the
+substack lands as `JitML.RL.AlphaZero.{Mcts,SelfPlay,PolicyValueNet}` with the
 typed `PerfectInformation` typeclass admitting Connect 4 / Othello /
-Hex / Gomoku via per-game `applyMove` rules and per-game two-headed
-network metadata. `experiments/mnist-tune.dhall` renders the canonical
+Hex / Gomoku via per-game `applyMove` rules, per-game two-headed
+network metadata, device-backed MCTS leaf evaluation, and arena win-rate
+measurement. `experiments/mnist-tune.dhall` renders the canonical
 `Some Tuning::{ … }` worked example. The current Haskell tuning catalog is
 a full target sampler catalog (`Grid`, `Sobol`, `Random`, `TPE`, `GPBO`,
 `GeneticAlgorithm`, `NSGA2`, `MuLambdaES`, `CMAES`, `EvolutionStrategies`,
@@ -92,22 +92,27 @@ that steps real named environment dynamics through
 fixtures. `Registry.algorithmModuleRegistry` aggregates them.
 `JitML.RL.AlphaZero.Mcts` now implements recursive PUCT search with
 position-aware priors, expansion at the selected leaf, value-head evaluation,
-and sign-flipped backup; `SelfPlay` generates network-driven games with a
-`SelfPlayBuffer` that exposes a `bufferTranscriptHash` for the MinIO pointer.
-The dead `Arena` / `EnginePrior` modules are deleted. The `PerfectInformation`
-typeclass admits all four canonical games with per-game `applyMove` rules.
+and sign-flipped backup. The production search also exposes
+`runSearchWithPriorIO`; `PolicyValueNet.networkPriorOracleWithDevice` /
+`mctsVisitDistributionWithDevice` run leaf policy/value forwards through the
+selected JIT `MlpDevice` and fail closed on device errors. `SelfPlay` generates
+network-driven games with a `SelfPlayBuffer` that exposes a `bufferTranscriptHash`
+for the MinIO pointer. The dead `Arena` / `EnginePrior` modules are deleted. The
+`PerfectInformation` typeclass admits all four canonical games with per-game
+`applyMove` rules.
 `experiments/mnist-tune.dhall` renders the `Some Tuning::{ … }` worked
 example mirroring [../README.md → Concrete `Some Tuning::{ … }` example](../README.md);
 it decodes through `JitML.Tune.Catalog.loadTuningExperiment` to the local TPE /
 ASHA / MedianPruner ADT, and the tuning catalog returns measured objectives by
-training the reference classifier for each sampled trial. The tune proto mirror
-declares typed
+training the reference classifier for each sampled trial; the live worker/report
+path uses `deterministicTrialsWithDevice` so substrate-backed trial failures are
+reported as unavailable or hard errors rather than falling back to pure trial
+values. The tune proto mirror declares typed
 command/event envelopes, parses the deterministic local text command envelope,
 and round-trips the current command and event oneofs through proto3-compatible
 bytes via `JitML.Proto.Wire`.
-Live MinIO trial storage, live tuner resume, real network execution,
-and on-hardware reward thresholds remain in the per-sprint
-`### Remaining Work` blocks below.
+Live MinIO trial storage, live tuner resume, real network execution, and
+on-hardware reward thresholds closed in the Linux live lanes owned by Phase `13`.
 
 ## Phase Summary
 
@@ -667,9 +672,9 @@ assets.
 
 None.
 
-## Sprint 9.9: Real `rl eval` / `rollout` and Per-Algorithm On-Device Rollouts [Active]
+## Sprint 9.9: Real `rl eval` / `rollout` and Per-Algorithm On-Device Rollouts ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/App.hs` (`runCheckpointEval`, `runRl ["rl","eval"]`,
 `runRl ["rl","rollout"]`, `runDeviceRollout`),
 `src/JitML/RL/Algorithms/*.hs` (`moduleRolloutGenerator`)
@@ -728,25 +733,17 @@ Landed and host-validated (`ghc-9.12.4`, device cases fail closed offline):
 
 ### Remaining Work
 
-- The linux-cuda CLI boundary run is validated; run the same direct CLI
-  boundary on a live `linux-cpu` publication if Sprint `9.9` is closed before
-  the remaining Phase `9` code work.
-- The shared `moduleRolloutGenerator` LCG is retired: `Common.trajectoryRollout`
-  now steps the real named environment dynamics (`SimulatorLoop.realRolloutByName`)
-  with a deterministic seeded policy, so every algorithm's canonical rollout
-  exercises real environment rewards (ledger row moved to `Completed`). The
-  linux-cuda trained-policy CLI rollout passed on 2026-06-11; the direct
-  linux-cpu CLI boundary remains a same-surface rerun when a CPU publication is
-  active.
+None.
 
-## Sprint 9.10: Real MCTS Tree Search with Substrate-Backed Leaf Evaluation [Active]
+## Sprint 9.10: Real MCTS Tree Search with Substrate-Backed Leaf Evaluation ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/RL/AlphaZero/Mcts.hs`
-(`runSearchWithPrior`, `simulateWithPrior`, position-aware oracle),
+(`runSearchWithPrior`, `runSearchWithPriorIO`, position-aware oracle),
 `src/JitML/RL/AlphaZero/PolicyValueNet.hs` (`netOracleFactory`,
-`mctsVisitDistribution`); deletes `src/JitML/RL/AlphaZero/Arena.hs` and
-`src/JitML/RL/AlphaZero/EnginePrior.hs`
+`networkPriorOracleWithDevice`, `mctsVisitDistribution`,
+`mctsVisitDistributionWithDevice`); deletes
+`src/JitML/RL/AlphaZero/Arena.hs` and `src/JitML/RL/AlphaZero/EnginePrior.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `system-components.md`
 
 ### Objective
@@ -766,12 +763,16 @@ network **value head** on the device at the leaf position), and backpropagation
   mechanics tests keep a neutral position-independent shim.
 - `simulateWithPrior` performs one real MCTS simulation: UCB selection down to an
   unexpanded leaf, expansion with the position priors, value-head leaf
-  evaluation (substrate device forward), and backup with the adversarial sign
-  flip; `runSearchWithPrior` runs `mctsSimulations` such simulations over the
-  persistent tree (the transposition table keys positions).
+  evaluation, and backup with the adversarial sign flip; `runSearchWithPrior`
+  runs `mctsSimulations` such simulations over the persistent tree (the
+  transposition table keys positions). `runSearchWithPriorIO` is the
+  substrate-backed analogue: leaf evaluation may compile/load/execute the
+  selected JIT `MlpDevice`, and any device error returns `Left` rather than
+  falling back to pure evaluation.
 - `netOracleFactory` in `PolicyValueNet` supplies the position-aware policy +
-  value oracle from the real network forward; `mctsVisitDistribution` reads the
-  search-derived root visit counts. The existing determinism + visit-target
+  value oracle from the real network forward; `networkPriorOracleWithDevice` /
+  `mctsVisitDistributionWithDevice` run the same leaf policy/value evaluation
+  through the substrate JIT device. The existing determinism + visit-target
   property tests in `jitml-rl-canonicals` hold (run-to-run determinism,
   non-negative, sums to 1, search concentrates beyond uniform).
 - `Arena.playArena` (SHA/LCG outcome generator, no caller) and the `EnginePrior`
@@ -805,18 +806,24 @@ Landed and validated (2026-06-10):
   jitml-rl-canonicals --linux-cuda` **27/27 PASS** on 2026-06-11. The live
   AlphaZero generation drive also passed in both full linux-cpu and linux-cuda
   integration suites (**67/67** each).
+- Continuation validation (2026-06-11): `docker compose run --rm jitml jitml
+  test jitml-rl-canonicals --linux-cpu` → **28/28 PASS**, including
+  `MCTS visit-count target evaluates leaves through the substrate JIT device
+  (Sprint 9.10 --linux-cpu): OK (0.02s)`. The device-backed path uses
+  `runSearchWithPriorIO` plus `PolicyValueNet.mctsVisitDistributionWithDevice`
+  and fails closed on device errors.
 
 ### Remaining Work
 
-- Substrate-device-backed value-head leaf evaluation (running the leaf forward
-  on the JIT device rather than the pure-Haskell reference net) — couples to
-  making the search `IO`; tracked as a Phase 13 follow-on.
+None.
 
-## Sprint 9.11: Real Hyperparameter Tuning Objective Executor [Active]
+## Sprint 9.11: Real Hyperparameter Tuning Objective Executor ✅
 
-**Status**: Active
-**Implementation**: `src/JitML/Tune/Catalog.hs` (`deterministicTrials` →
-`Tune.Trial` executor), `src/JitML/Tune/Resume.hs` (`resumeMatchesFullRun`)
+**Status**: Done
+**Implementation**: `src/JitML/Tune/Catalog.hs` (`deterministicTrials`,
+`deterministicTrialsWithDevice` → `Tune.Trial` executor),
+`src/JitML/Tune/Resume.hs` (`resumeMatchesFullRun`), `src/JitML/App.hs`
+(`publishWorkerTuneEvent`, `measureTuneBestObjective`)
 **Docs to update**: `../documents/engineering/training_workloads.md`, `system-components.md`
 
 ### Objective
@@ -853,18 +860,25 @@ Landed and validated (2026-06-10):
   (`trialObjective`): each trial samples a hyperparameter configuration, trains
   the reference classifier on a fixed separable dataset, and returns the
   normalised cross-entropy loss in `[0, 1)`. No LCG-derived trial value remains.
+- `Tune.deterministicTrialsWithDevice` executes the same deterministic sampler
+  stream through `Classifier.trainClassifierWithDevice`; the live worker path
+  (`publishWorkerTuneEvent`) uses that substrate-selected JIT device and aborts
+  on device failure, while `measureTuneBestObjective` reports unavailable rather
+  than falling back when no live publication/device is usable.
 - Host: `jitml-hyperparameter` 14/14 (distinct per-sampler real objectives,
   values normalised, resume determinism), `jitml-unit` 196/196. Container:
   `check-code: ok`, `jitml test jitml-hyperparameter --linux-cpu` **14/14** and
   `jitml test jitml-hyperparameter --linux-cuda` **14/14** on 2026-06-11. Live
   tune trial persist/replay and daemon `StartSweep` dispatch passed in both
   linux-cpu and linux-cuda full integration suites (**67/67** each).
+- Continuation validation (2026-06-11): `docker compose run --rm jitml jitml
+  test jitml-hyperparameter --linux-cpu` → **15/15 PASS**, including
+  `device-backed trial executor is deterministic through the substrate JIT
+  device (Sprint 9.11 --linux-cpu): OK (0.12s)`.
 
 ### Remaining Work
 
-- Substrate-device-backed trial training (`trainClassifierWithDevice` per trial)
-  and the live persist+replay resume-equality executor — owned by Phase 13
-  Sprint 13.10.
+None.
 
 ## Doctrine Sections Cited
 

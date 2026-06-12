@@ -41,19 +41,23 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 — real-workflow refactor; Sprints `15.5` /
+⏸️ **Blocked** (reopened 2026-06-10 — real-workflow refactor; Sprints `15.5` /
 `15.6`). This phase owns the cross-substrate confirmation that every reopened
 workflow runs for real on all three lanes and the final walk-down of the legacy
 ledger. On 2026-06-11 the Linux live lanes were revalidated on the CUDA machine
 (`linux-cpu` integration **67 / 67** + e2e **20 / 20**; `linux-cuda`
 integration **67 / 67** + e2e **20 / 20** + daemon-lifecycle **32 / 32** +
-Playwright **9 / 9**). Final handoff still cannot close because the owning
-earlier phases are not all Done: Phase `8` still owns non-Dense SL
-forward/backward JIT promotion, Phase `9` still owns device-backed AlphaZero
-MCTS leaf evaluation and device-backed tuning trials, Phase `12` still owns the
-matrix-driven live runner, and Phase `14` still owns the apple-silicon live
-Tart-VM+Metal exercise. The prior closure narrative below is retained as dated
-record.
+Playwright **9 / 9**). On 2026-06-12 Phase `12` re-closed after the
+`linux-cpu` bootstrap/edge fixes and the live WorkflowMatrix pass. Final
+handoff still cannot close because Phase `14` owns the remaining apple-silicon
+live Tart-VM+Metal exercise. The 2026-06-12 Phase `14` blocker re-check shows
+the configured 10,240 MiB Kind node plus 8,192 MiB Tart VM cannot fit on this
+16,384 MiB host before macOS/Docker overhead. Phases `8` and `9` re-closed on
+2026-06-11 after their Dense-MLP SL/RL, device-backed MCTS, and device-backed
+tuning obligations were validated.
+The legacy ledger is empty again as of 2026-06-12; Sprint `15.6` remains blocked
+only because Sprint `15.5` cannot close until the Phase `14` live lane runs.
+The prior closure narrative below is retained as dated record.
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`). The phase reopened 2026-06-08 for
@@ -721,8 +725,7 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
 ## Sprint 15.5: Cross-Substrate Real-Workflow Confirmation [Blocked]
 
 **Status**: Blocked
-**Blocked by**: Phase `8` Sprint `8.10`, Phase `9` Sprints `9.10` / `9.11`,
-Phase `12` Sprint `12.11`, and Phase `14` Sprint `14.8`.
+**Blocked by**: Phase `14` Sprint `14.8`.
 **Docs to update**: `system-components.md`
 
 ### Objective
@@ -734,18 +737,14 @@ each (two fresh same-substrate / same-seed runs are bit-identical), via the
 
 ### Remaining Work
 
-- Wait for the remaining code-surface owners to close: non-Dense SL
-  forward/backward JIT promotion (Sprint `8.10`), device-backed AlphaZero MCTS
-  leaf evaluation (Sprint `9.10`), device-backed tuning trials (Sprint `9.11`),
-  and the matrix-driven live runner (Sprint `12.11`).
 - Run the apple-silicon Tart-VM+Metal real-workflow lane (Sprint `14.8`). The
-  linux-cpu and linux-cuda live lanes are already complete as of 2026-06-11.
+  linux-cpu and linux-cuda live lanes are already complete as of 2026-06-11, and
+  the Phase `12` live WorkflowMatrix gate is complete as of 2026-06-12.
 
 ## Sprint 15.6: Real-Workflow Ledger Walk-Down and Final Handoff [Blocked]
 
 **Status**: Blocked
-**Blocked by**: Sprint `15.5` plus any non-empty Pending Removal rows in
-`legacy-tracking-for-deletion.md`.
+**Blocked by**: Sprint `15.5`.
 **Docs to update**: `legacy-tracking-for-deletion.md`
 
 ### Objective
@@ -757,9 +756,8 @@ the reopened real-workflow refactor.
 ### Remaining Work
 
 - Blocked on Sprint `15.5`. The code-removal rows whose replacements are already
-  verified working are in `Completed`; any future rows tied to the remaining
-  Phase `8` / `9` / `12` / `14` work move to `Completed` only after their owning
-  validation passes.
+  verified working are in `Completed`, and the ledger is empty as of 2026-06-12;
+  re-run the ledger audit after the remaining Phase `14` validation passes.
 
 ## Doctrine Sections Cited
 

@@ -155,6 +155,16 @@ report-card knobs are pinned in `cabal.project`. `jitml test all --live`
 adds the live measured report-card fields; the 2026-06-04 fresh Apple
 live validation passed the full aggregate and captured populated RL,
 AlphaZero, tune, JIT-cache, and daemon-health measurements.
+Sprint `12.11` adds `JitML.Test.WorkflowMatrix` as the single real-workflow
+matrix for reopened SL/RL/tune/inference/AlphaZero coverage. The local e2e body
+asserts complete matrix coverage; the integration `Live` body consumes the
+current-substrate matrix cells and fails closed without a live publication; the
+AlphaZero cell runs `jitml rl alphazero self-play`. On 2026-06-12 the
+`linux-cpu` bootstrap completed **83** rollout steps after the Docker Desktop
+Postgres PV, Harbor ownership, stale-publication, and Envoy request fixes; the
+edge returned `HTTP/1.1 200 OK` from `/healthz`, and the live
+`jitml-integration -p WorkflowMatrix` gate passed **1 / 1**; see
+[phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md).
 
 Haskell style and code-quality execution is container-exclusive. The
 `jitml:local` image is required on every substrate, including Apple Silicon for
@@ -424,9 +434,10 @@ and the deletion ledger has no pending rows.
   expose typed hyperparameter rows and deterministic per-seed rollout
   transcripts aggregated through `Registry.algorithmModuleRegistry`.
   The AlphaZero substack lives at
-  `src/JitML/RL/AlphaZero/{Mcts,SelfPlay,Arena}.hs` with persistent
-  search tree (UCB + visit-count), self-play buffer with content hash,
-  and arena win-rate promotion. The `PerfectInformation` typeclass
+  `src/JitML/RL/AlphaZero/{Mcts,SelfPlay,PolicyValueNet}.hs` with persistent
+  search tree (PUCT + visit-count), device-backed policy/value leaf evaluation,
+  self-play buffer with content hash, and arena win-rate promotion. The
+  `PerfectInformation` typeclass
   admits Connect 4 / Othello / Hex / Gomoku with per-game
   `applyMove` rules and per-game two-headed network metadata.
   `experiments/mnist-tune.dhall` renders the canonical `Some
@@ -651,10 +662,11 @@ each constraint.
 7. Every Plan/Apply command supports `--dry-run` (renders the plan and exits 0)
    and `--plan-file <path>` (writes the rendered plan for out-of-band review).
 8. `Subprocess` is the only IO boundary for subprocess execution. `kubectl`,
-   `helm`, `kind`, `docker`, `nvcc`, `g++` (over oneDNN), host `swift build`
-   (the Apple Metal glue dylib), and every kernel-compiler invocation goes
-   through the typed boundary. (The Metal shader itself is JIT-compiled
-   in-process via `MTLDevice.makeLibrary(source:)`, not a subprocess.)
+   `helm`, `kind`, `docker`, `nvcc`, `g++` (over oneDNN), the Tart-VM
+   `swift build` for the Apple Metal glue dylib, and every kernel-compiler
+   invocation goes through the typed boundary. (The Metal shader itself is
+   JIT-compiled in-process via `MTLDevice.makeLibrary(source:)`, not a
+   subprocess.)
    `callProcess`, `readCreateProcess`, `System.Process` constructors, and
    `typed-process` smart constructors are hlint-forbidden outside the
    `runStreaming` / `capture` interpreter.
@@ -822,7 +834,7 @@ each constraint.
 | 12 | Phase 11 | The eight Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
 | 13 | Phase 12 | The Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure consumes every code-surface obligation from Phases `1`–`12` and exercises them through one Linux/NVIDIA session against an ephemeral Kind cluster |
 | 14 | Phase 12 | The Apple Silicon Tart-VM build Metal JIT (`jitml`-managed Tart VM `swift build` + dylib copy-out + host runtime `MTLDevice.makeLibrary(source:)`), Metal FFI, host↔cluster RPC, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
-| 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`): the cross-substrate numeric parity surface (`Tolerance.hs`, `JitML.CrossBackend.Parity`, the `CrossSubstrate` drift tests, `jitml verify cross-backend`, the report-card `cross_substrate_parity` field) is removed because cross-substrate equivalence is out of contract. The source/code removal landed and was validated 2026-06-09 (apple-silicon + linux-cpu lanes, `check-code`, `docs check`), and all six parity-removal ledger rows reached `Completed` once the `linux-cuda` GPU lane was re-validated 2026-06-09 on the RTX 5090 (Sprint `13.16`, 19/19). The 2026-06-10 Tart-VM build-JIT reversal reopened the handoff with six new ledger rows; those all moved to `Completed` the same day once the live apple-silicon lane ran through the VM-built path (17/17). **The ledger is empty, Exit Definition item 18 is met, and the final handoff is complete (2026-06-10).** |
+| 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`): the cross-substrate numeric parity surface (`Tolerance.hs`, `JitML.CrossBackend.Parity`, the `CrossSubstrate` drift tests, `jitml verify cross-backend`, the report-card `cross_substrate_parity` field) was removed because cross-substrate equivalence is out of contract; that removal re-closed 2026-06-09 after the `linux-cuda` GPU lane re-validation. The 2026-06-10 Tart-VM build-JIT reversal also re-closed after the live apple-silicon VM-built path passed 17/17. The 2026-06-10 real-workflow refactor reopened final handoff again; Phase `13` re-closed on 2026-06-11 for `linux-cpu`/`linux-cuda`, and Phase `12` Sprint `12.11` re-closed on 2026-06-12 with the live `linux-cpu` WorkflowMatrix gate; Phase `14` Sprint `14.8` still blocks Phase `15` Sprints `15.5` / `15.6`. |
 
 ## Status Vocabulary
 
@@ -842,13 +854,14 @@ for the governing rule.
 handoff complete" baseline below).** A realness audit found that every user-facing
 workload and the demo used a synthetic/echo/pure-Haskell stand-in instead of the
 substrate JIT path (`MlpDevice` → real `jitml_mlp_*` kernels) that the
-`jitml-backends` lane already exercises. **Phases `8`–`12` reopen `🔄 Active` on
+`jitml-backends` lane already exercises. **Phases `8`–`12` reopened `🔄 Active` on
 their code surfaces and Phases `13`–`15` on their live-runtime validation
-surfaces**; Phases `0`–`7` stay `✅ Done` (the engines and the parity lane are
-real). Exit-Definition items `6`, `8`, `9` are reopened and strengthened, and the
-Pending-Removal ledger is non-empty again so item `18` is unmet — the final handoff
-is incomplete until the reopened sprints close. Full detail and the exact
-phase/sprint map live once in
+surfaces**; Phases `0`–`7` stayed `✅ Done` (the engines and the parity lane are
+real). As of 2026-06-12, Phases `8`, `9`, `10`, `11`, `12`, and `13` have
+re-closed; the current blocked set is Phase `14` and Phase `15`.
+Exit-Definition
+items `6`, `8`, `9` remain strengthened, and item `18` remains unmet until the
+final handoff closes. Full detail and the exact phase/sprint map live once in
 [README.md → Closure Status / Reopened phases (2026-06-10)](README.md#reopened-phases-2026-06-10--real-workflow-refactor);
 the historical baseline below is retained as dated record of the superseded state.
 

@@ -271,6 +271,14 @@ main =
                   , ParsedOption "seed" ["1729"]
                   ]
               )
+            ,
+              ( ["rl", "alphazero", "self-play", "--substrate", "linux-cpu", "--seed", "31"]
+              , ParsedCommand
+                  ["rl", "alphazero", "self-play"]
+                  [ ParsedOption "substrate" ["linux-cpu"]
+                  , ParsedOption "seed" ["31"]
+                  ]
+              )
             , -- Sprint 1.12 — tune --sampler / --scheduler / --pruner / --trials / --parallelism overrides.
 
               (
@@ -3249,6 +3257,7 @@ canonicalLeafPaths =
   , ["rl", "train"]
   , ["rl", "eval"]
   , ["rl", "rollout"]
+  , ["rl", "alphazero", "self-play"]
   , ["verify", "same-run"]
   , ["verify", "replay"]
   , ["inspect", "list"]

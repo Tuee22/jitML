@@ -67,4 +67,10 @@ renderEnvoyProxy edgePort =
     , "                - name: http"
     , "                  port: " <> Text.pack (show edgePort)
     , "                  nodePort: 30090"
+    , "      envoyDeployment:"
+    , "        container:"
+    , "          resources:"
+    , "            requests:"
+    , "              cpu: 50m"
+    , "              memory: 64Mi"
     ]

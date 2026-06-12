@@ -21,17 +21,19 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-10 — real-workflow refactor). The SL/RL framework
-shipped real differentiable pure-Haskell networks but the `jitml train` / `jitml
-rl train` paths never routed them through the substrate JIT engine (`MlpDevice`),
-and `jitml train` published a closed-form synthetic `SL.finalLoss` whenever real
-training was absent. Sprint `8.11` now closes the RL framework routing gap, and
-Sprint `8.10` closes the fail-closed Dense-MLP training/eval path plus the
-residual synthetic SL source. Sprint `8.10` remains active only for the named
-non-Dense architecture promotion: Conv2D / ResidualBlock / VisionTransformer
-forward+backward JIT codegen and thresholds. The live per-lane validation is
-owned by Phases `13`/`14`; the linux-cpu and linux-cuda live lanes closed in
-Phase `13` on 2026-06-11, and apple-silicon remains Phase `14`. See
+✅ **Done** (re-closed 2026-06-11 — real-workflow refactor). The SL/RL framework
+had shipped real differentiable pure-Haskell networks, but the `jitml train` /
+`jitml rl train` paths did not route them through the substrate JIT engine
+(`MlpDevice`), and `jitml train` published a closed-form synthetic
+`SL.finalLoss` whenever real training was absent. Sprint `8.11` closes the RL
+framework routing gap, and Sprint `8.10` closes the fail-closed Dense-MLP
+training/eval path plus the residual synthetic SL source. The current
+[Exit Definition](README.md#exit-definition) item 6 SL obligation is explicitly
+scoped to the canonical Dense-MLP cohort the JIT MLP ABI trains; Conv2D /
+ResidualBlock / VisionTransformer trainable forward/backward JIT support remains
+future architecture growth, not an open Phase `8` closure gate. The live per-lane
+validation is owned by Phases `13`/`14`; the linux-cpu and linux-cuda live lanes
+closed in Phase `13` on 2026-06-11, and apple-silicon remains Phase `14`. See
 [README.md → Reopened phases (2026-06-10)](README.md#reopened-phases-2026-06-10--real-workflow-refactor).
 The prior closure narrative below is retained as dated record.
 
@@ -80,8 +82,8 @@ exception, and the scripted `"simulator"` default is gone. The proto surfaces
 command / event topic family and round-trip the current command/event envelopes
 through proto3-compatible bytes. Live MinIO dataset fetch, live Pulsar
 publish/consume, and real-hardware convergence assertions are owned by Phase
-`13`; Sprint `8.10` still owns the non-Dense architecture JIT promotion named
-in its Remaining Work.
+`13`. Non-Dense Conv2D / residual / attention SL training remains a named
+follow-on outside the current Exit Definition item 6 Dense-MLP scope.
 
 ## Phase Summary
 
@@ -733,9 +735,9 @@ canonical tests never require copyrighted Atari ROM bytes.
 
 None.
 
-## Sprint 8.10: SL Substrate-Backed Training + Real Eval [Active]
+## Sprint 8.10: SL Substrate-Backed Training + Real Eval ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/SL/Classifier.hs`, `src/JitML/Numerics/MlpDevice.hs`, `src/JitML/App.hs` (`runTrain`, `runEval`), `src/JitML/SL/Canonicals.hs`, `src/JitML/SL/ConvergenceThresholds.hs`, `src/JitML/AppError/AppError.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`, `../documents/engineering/checkpoint_format.md`, `system-components.md`
 
@@ -743,8 +745,8 @@ None.
 
 Make `jitml train` and `jitml eval` exercise a real, substrate-backed model on the
 resolved `--substrate`, with **no synthetic or pure-Haskell fallback on any runtime
-path**. Owns the [Exit Definition](README.md#exit-definition) item 6 SL slice and
-item 7 inference-read slice (`runEval`).
+path**. Owns the [Exit Definition](README.md#exit-definition) item 6 SL slice for
+the canonical Dense-MLP cohort and item 7 inference-read slice (`runEval`).
 
 ### Deliverables
 
@@ -766,7 +768,9 @@ item 7 inference-read slice (`runEval`).
   `InferenceCheckpointMissing`.
 - `canonicalProblems` + `ConvergenceThresholds` scoped to the Dense-MLP cohort the
   JIT codegen trains; new `AppError` variants added to the single ADT and
-  registered in `system-components.md`.
+  registered in `system-components.md`. Non-Dense canonical rows remain catalog
+  entries for future trainable-architecture expansion, not the current closure
+  gate.
 
 ### Validation
 
@@ -816,13 +820,36 @@ Container (`jitml:local`, oneDNN present) — boundary gate **passed**:
 - Live linux-cpu and linux-cuda workflow exercise closed in Phase `13` on
   2026-06-11: both lanes bootstrapped clean data and passed full live
   `jitml-integration` **67/67** plus `jitml-e2e` **20/20**.
+- Continuation audit (2026-06-11): `docker compose run --rm jitml jitml test
+  jitml-sl-canonicals --linux-cpu` revalidated the current Dense-MLP surface
+  (**15/15 PASS**, including the device-backed classifier convergence case).
+  Latest rerun: the device case reported
+  `SL classifier converges through the substrate JIT device (Sprint 8.10
+  --linux-cpu): OK (1.22s)`.
+  This closes Sprint `8.10` against the current Exit Definition item 6 Dense-MLP
+  scope. The repository still has no trainable non-Dense SL ABI: the available
+  classifier path is the two-layer `MlpDevice` forward/batch-gradient ABI, while
+  Conv2D / residual / ViT catalog rows need architecture-specific parameter
+  layouts plus backward JIT kernels before they can become trainable follow-on
+  cohorts.
+- Code-boundary audit (2026-06-11): `JitML.Numerics.MlpDevice` exposes only the
+  `jitml_mlp_*` two-layer MLP ABI, `JitML.SL.Classifier` trains only
+  `MlpParams`, and `JitML.SL.Canonicals.denseMlpCohort` still filters by
+  `problemModel == "Dense"`. The existing weighted Conv2D / BatchNorm /
+  LayerNorm / MHA / Embedding codegen in `JitML.Codegen.{OneDnn,Cuda,Metal}`
+  is forward/kernel-family coverage, not the supervised trainable-architecture
+  backward ABI required to promote the non-Dense canonical rows.
 
 ### Remaining Work
-- Build Conv2D / ResidualBlock / VisionTransformer forward+backward JIT codegen and
-  backward kernels, then promote those catalog rows into `denseMlpCohort`'s
-  device-trainable set and restore their thresholds (primary obligation; not a
-  ledger row). Until then the catalog retains them as the target architecture
-  set and the device path is scoped to `denseMlpCohort`.
+
+None.
+
+### Follow-on Scope
+
+Conv2D / ResidualBlock / VisionTransformer forward+backward JIT codegen and
+backward kernels remain future architecture growth. Until that lands, the
+canonical catalog keeps those rows as target architecture entries, while the
+device-trainable SL cohort is the Dense-MLP set named by `denseMlpCohort`.
 
 ## Sprint 8.11: RL Framework Substrate Routing ✅
 

@@ -8,7 +8,10 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import JitML.CLI.Parser (ParsedOption (..))
+import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Experiment.Overrides qualified as Overrides
+import JitML.Numerics.MlpDevice (probeMlpDevice)
+import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Proto.Tune
   ( StartSweep (..)
   , StopSweep (..)
@@ -34,6 +37,7 @@ import JitML.Tune.Catalog
   , Sampler (..)
   , Scheduler (..)
   , deterministicTrials
+  , deterministicTrialsWithDevice
   , loadTuningExperiment
   , prunerCatalog
   , prunerFromText
@@ -99,6 +103,29 @@ main =
                   (deterministicTrials sampler 8)
             )
             samplerCatalog
+      , testCase
+          "device-backed trial executor is deterministic through the substrate JIT device (Sprint 9.11 --linux-cpu)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            let device = mlpDeviceForSubstrate LinuxCPU env
+            probe <- probeMlpDevice device
+            case probe of
+              Left _ ->
+                assertBool "linux-cpu JIT device unavailable; device-backed tuning trial skipped" True
+              Right () -> do
+                first <- deterministicTrialsWithDevice device TPE 3
+                second <- deterministicTrialsWithDevice device TPE 3
+                case (first, second) of
+                  (Right a, Right b) -> do
+                    a @?= b
+                    assertBool "device trial executor produced three objectives" (length a == 3)
+                    mapM_
+                      (\value -> assertBool "device value is [0,1)" (value >= 0 && value < 1))
+                      a
+                  (Left err, _) ->
+                    assertBool ("first device-backed trial run failed: " <> Text.unpack err) False
+                  (_, Left err) ->
+                    assertBool ("second device-backed trial run failed: " <> Text.unpack err) False
       , testCase "Sobol and GA trial streams regenerate deterministically without fixtures" $ do
           deterministicTrials Sobol 8 @?= deterministicTrials Sobol 8
           deterministicTrials GeneticAlgorithm 8 @?= deterministicTrials GeneticAlgorithm 8

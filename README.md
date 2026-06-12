@@ -700,6 +700,8 @@ mindmap
       train
       eval
       rollout
+      alphazero
+        self-play
     verify
       same-run
       replay
@@ -776,6 +778,7 @@ mindmap
 | `jitml rl train` | Train an RL policy. | `jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]` |
 | `jitml rl eval` | Evaluate an RL policy. | `jitml rl eval <rl-experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml rl rollout` | Run a fixed-seed rollout. | `jitml rl rollout <rl-experiment-dhall> [--seed <word64>]` |
+| `jitml rl alphazero self-play` | Run AlphaZero self-play. | `jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]` |
 | `jitml verify same-run` | Verify same-run determinism. | `jitml verify same-run --experiment <experiment-dhall> --runs <int>` |
 | `jitml verify replay` | Verify checkpoint replay. | `jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>` |
 | `jitml inspect list` | List cached manifests. | `jitml inspect list` |

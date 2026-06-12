@@ -1431,8 +1431,9 @@ runTune parsedOptions = do
 --
 --   1. picks one `(Sampler, Scheduler, Pruner)` combination from the catalog
 --      grid in deterministic Cartesian order;
---   2. computes a deterministic objective via `Tune.deterministicTrials`
---      against the sampler;
+--   2. computes a deterministic objective via
+--      `Tune.deterministicTrialsWithDevice` against the sampler on the
+--      substrate-selected JIT device;
 --   3. persists a `TrialTranscript` to MinIO via `persistTrialTranscript`;
 --   4. publishes `TuneTrialStarted` + `TuneTrialFinished` envelopes to
 --      `tune.event.<substrate>`.
@@ -1442,6 +1443,7 @@ runTune parsedOptions = do
 -- context the function is a no-op.
 publishWorkerTuneEvent :: App ()
 publishWorkerTuneEvent = do
+  env <- ask
   cluster <- liftIO (readExistingLivePublication ".")
   experimentHashMaybe <- liftIO workerExperimentHash
   case (cluster, experimentHashMaybe) of
@@ -1451,6 +1453,7 @@ publishWorkerTuneEvent = do
           pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
           topic = Capabilities.TopicName (ProtoTune.tuneEventTopic substrate)
           minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+          device = mlpDeviceForSubstrate substrate env
       trialBudget <- liftIO (lookupTrialBudget 6)
       sweepSeed <- liftIO (lookupSweepSeed 0)
       -- Sprint 13.10: enumerate the canonical sampler × scheduler × pruner
@@ -1467,7 +1470,7 @@ publishWorkerTuneEvent = do
             take trialBudget (zip [sweepSeed ..] combos)
       trialResults <-
         traverse
-          (publishOneTrial pulsarSettings minioSettings topic experimentHash)
+          (publishOneTrial device pulsarSettings minioSettings topic experimentHash)
           gridTrials
       let completed = fromIntegral (length (filter (isRight . fst) trialResults))
           bestObjective =
@@ -1495,13 +1498,15 @@ publishWorkerTuneEvent = do
       pure ()
     _ -> pure ()
  where
-  publishOneTrial pulsarSettings minioSettings topic experimentHash (trialSeed, (sampler, scheduler, pruner)) = do
-    -- Sprint 13.10: derive a deterministic trial objective from the
-    -- (sampler, scheduler, pruner) tuple via `Tune.deterministicTrials`.
-    -- The transcript carries the first three sampler-derived values so
-    -- replays can reproduce the same objective bit-for-bit.
-    let trialValues = take 3 (Tune.deterministicTrials sampler 8)
-        objective = case trialValues of
+  publishOneTrial device pulsarSettings minioSettings topic experimentHash (trialSeed, (sampler, scheduler, pruner)) = do
+    -- Sprint 9.11 / 13.10: derive deterministic trial objectives by training
+    -- through the substrate-selected MLP device. A device failure aborts the
+    -- worker; there is no pure objective fallback on the live path.
+    trialValuesE <- liftIO (Tune.deterministicTrialsWithDevice device sampler 3)
+    trialValues <- case trialValuesE of
+      Left err -> liftIO (ioError (userError ("device-backed tune trial failed: " <> Text.unpack err)))
+      Right values -> pure values
+    let objective = case trialValues of
           (v : _) -> v
           _ -> 0.0
         transcript =
@@ -1696,6 +1701,63 @@ runRl ["rl", "rollout"] parsedOptions = do
             <> " rewards="
             <> Text.pack (show (fmap SimulatorLoop.simEpisodeReward episodes))
         )
+runRl ["rl", "alphazero", "self-play"] parsedOptions = do
+  overrides <- case Overrides.parseExperimentOverrides parsedOptions of
+    Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
+    Right ovr -> pure ovr
+  baseSubstrate <- workerSubstrateBase
+  env <- ask
+  let substrate = Overrides.overrideSubstrate overrides baseSubstrate
+      seed = fromIntegral (Overrides.overrideSeed overrides 31) :: Int
+      games = max 1 (readInt (selectedValue "games" "2" parsedOptions))
+      sims = max 1 (readInt (selectedValue "sims" "4" parsedOptions))
+      maxPlies = max 1 (readInt (selectedValue "max-plies" "6" parsedOptions))
+      updates = max 1 (readInt (selectedValue "updates" "1" parsedOptions))
+      arenaGames = max 1 (readInt (selectedValue "arena-games" "4" parsedOptions))
+      device = rlDeviceForSubstrate substrate env
+      net0 = PolicyValueNet.initPolicyValueNet 43 7 16 seed
+      adam0 = PolicyValueNet.initAdamFor net0
+  probe <- liftIO (probeMlpDevice device)
+  case probe of
+    Left err -> exitWithError (InvalidConfig ("AlphaZero substrate device unavailable: " <> err))
+    Right () -> do
+      sampleResults <-
+        liftIO $
+          traverse
+            ( \gameIndex ->
+                PolicyValueNet.generatePolicyValueSamplesWithDevice
+                  device
+                  net0
+                  (seed + gameIndex)
+                  sims
+                  maxPlies
+            )
+            [0 .. games - 1]
+      samples <- case sequence sampleResults of
+        Left err -> exitWithError (InvalidConfig ("AlphaZero self-play failed: " <> err))
+        Right batches -> pure (concat batches)
+      when (null samples) $
+        exitWithError (InvalidConfig "AlphaZero self-play produced no samples")
+      trainedE <-
+        liftIO $
+          PolicyValueNet.trainPolicyValueNetOnSamplesWithDevice
+            device
+            net0
+            adam0
+            1.0e-3
+            updates
+            samples
+      trainedNet <- case trainedE of
+        Left err -> exitWithError (InvalidConfig ("AlphaZero device training failed: " <> err))
+        Right (trained, _trainedAdam) -> pure trained
+      let winRate = PolicyValueNet.arenaWinRateAgainstUniform trainedNet arenaGames maxPlies (seed + 7919)
+      writeText $
+        Text.unlines
+          [ "rl alphazero self-play: substrate=" <> renderSubstrate substrate
+          , "games: " <> Text.pack (show games)
+          , "samples: " <> Text.pack (show (length samples))
+          , "arena-win-rate: " <> Text.pack (show winRate)
+          ]
 runRl path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
 
@@ -2341,17 +2403,21 @@ measureAlphaZeroArenaWinRate =
 
 measureTuneBestObjective :: App ReportMeasurement
 measureTuneBestObjective = do
+  env <- ask
+  cluster <- liftIO (readExistingLivePublication ".")
   loaded <- liftIO (Tune.loadTuningExperiment "experiments/mnist-tune.dhall")
-  pure $
-    case loaded >>= maybe (Left "missing tuning block") Right . Tune.tuningExperimentConfig of
-      Left _ -> MeasurementUnavailable
-      Right config ->
-        let sampler = Tune.tuningSamplerKind (Tune.tuningConfigSampler config)
-            trialCount = fromIntegral (Tune.tuningConfigTrials config)
-            values = Tune.deterministicTrials sampler trialCount
-         in case values of
-              [] -> MeasurementUnavailable
-              _ -> measuredShow (Text.pack (show sampler) <> "=") (maximum values)
+  case (cluster, loaded >>= maybe (Left "missing tuning block") Right . Tune.tuningExperimentConfig) of
+    (Just publication, Right config) -> do
+      let sampler = Tune.tuningSamplerKind (Tune.tuningConfigSampler config)
+          trialCount = fromIntegral (Tune.tuningConfigTrials config)
+          device = mlpDeviceForSubstrate (Publication.publicationSubstrate publication) env
+      valuesE <- liftIO (Tune.deterministicTrialsWithDevice device sampler trialCount)
+      pure $
+        case valuesE of
+          Left _ -> MeasurementUnavailable
+          Right [] -> MeasurementUnavailable
+          Right values -> measuredShow (Text.pack (show sampler) <> "=") (maximum values)
+    _ -> pure MeasurementUnavailable
 
 measureJitCacheHitRate :: App ReportMeasurement
 measureJitCacheHitRate = do
