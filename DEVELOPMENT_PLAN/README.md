@@ -39,7 +39,38 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**Reopen note (2026-06-10 — real-workflow refactor; supersedes the prior
+**Reopen note (2026-06-12 — true-headless Apple Metal fixed-bridge doctrine;
+supersedes the 2026-06-10 Tart-VM closure and the real-workflow blocker text
+below).** The Apple Silicon core JIT path now targets a fixed host Metal bridge:
+Haskell renders MSL plus launch metadata, persists
+`./.build/jit/apple-silicon/<hash>.metal.json`, and calls a fixed bridge that
+uses `MTLDevice.makeLibrary(source:options:)` with fast math disabled before
+dispatching on the host GPU. Core training/inference cache misses must not start
+Tart, invoke SwiftPM, require full Xcode, require the offline `metal` compiler,
+unlock a login keychain, or depend on a GUI session. Therefore:
+
+- **Phases `1`, `2`, `5`, and `7` reopen from `✅ Done` to `🔄 Active`** on their
+  code surfaces: remove `jitml internal vm`, replace `container.tart` with
+  `apple.metal-runtime` / `apple.metal-bridge`, remove daemon build-VM acquire,
+  and replace generated Swift/Tart cache misses with `.metal.json` + fixed
+  bridge execution.
+- **Phase `14` reopens as `⏸️ Blocked`** on Sprint `14.9`, which validates the
+  Apple backend/e2e/WorkflowMatrix lane after the upstream implementation
+  sprints (`1.15`, `2.12`, `5.10`, `7.11`) land.
+- **Phase `15` remains `⏸️ Blocked`** on Sprints `15.5` / `15.6` until the
+  fixed-bridge Apple lane passes and
+  [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal)
+  is empty.
+- **Phases `0`, `3`, `4`, `6`, `8`, `9`, `10`, `11`, `12`, and `13` stay
+  `✅ Done`** on their owned surfaces. The Linux lanes and real-workflow code
+  surfaces remain closed; the reopen is Apple host-JIT architecture only.
+
+The 2026-06-12 Tart HostKey/keychain failure is retained as evidence that the VM
+architecture is not a valid headless target. It is not a supported remediation
+step.
+
+**Historical reopen note (2026-06-10 — real-workflow refactor; superseded by the
+2026-06-12 fixed-bridge reopen above; itself superseded the prior
 "final handoff is complete" status below).** A realness audit established that the
 user-facing workloads and the demo did not exercise the substrate JIT path they
 claim: `jitml train` printed and published a closed-form synthetic `SL.finalLoss`
@@ -639,11 +670,12 @@ owned by Phase `13` below.
    daemon handlers, train SL/RL/AlphaZero/tune end-to-end on real CUDA,
    serve the live demo behind Playwright. One Linux/NVIDIA session.
 3. **Phase `14` — Apple Silicon Closure (Exit 1 Metal half, 5 Apple, 7
-   Apple Metal, 8 Apple Playwright).** Build the Metal glue dylib inside the
-   `jitml`-managed Tart VM with the VM's `swift build`, copy the dylib out,
-   runtime-compile the Metal shader via `MTLDevice.makeLibrary(source:)` on the
-   host, load the dylib over FFI, run the candidate runner, exercise
-   host↔cluster RPC, and load Apple Metal production weights. One Apple session.
+   Apple Metal, 8 Apple Playwright).** Run the Apple Metal path through the fixed
+   host bridge: read `<hash>.metal.json`, runtime-compile the MSL via
+   `MTLDevice.makeLibrary(source:options:)`, dispatch on the host GPU, run the
+   candidate runner, exercise host↔cluster RPC, and load Apple Metal production
+   weights. One Apple session; no Tart, SwiftPM, full Xcode, offline `metal`, or
+   keychain dependency in the core path.
 4. **Phase `15` — Substrate Reproducibility and Final Handoff (Exit 5
    within-substrate, 9 live report card, 18).** Validate within-substrate
    bit-for-bit reproducibility in each substrate's own lane, drive
@@ -666,7 +698,9 @@ owned by Phase `13` below.
    demo row completed in Phase `8` / Phase `9`, the ALE-stub row retired when
    reopened Phase `8` Sprint `8.8` re-closed after current-image validation,
    and the demo-placeholder row retired on 2026-06-04 after live Playwright
-   7 / 7 and fallback removal.
+   7 / 7 and fallback removal. The 2026-06-12 fixed-bridge reopen supersedes the
+   older Tart-VM Apple closure and keeps Phase `15` blocked until the Apple lane
+   and deletion ledger close again.
 
 The full machine-affinity mapping of each historical live-runtime
 Remaining-Work bullet to its new owner is enumerated in each
@@ -738,21 +772,52 @@ obligation exists.
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (re-closed 2026-06-10, Sprint 1.14) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
-| 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | 🔄 Active (reopened 2026-06-12 — remove `jitml internal vm`, Sprint 1.15) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | 🔄 Active (reopened 2026-06-12 — replace `container.tart` with fixed-bridge Apple prerequisites and `.metal.json` cache, Sprint 2.12) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
-| 5 | `jitml service` Daemon | ✅ Done | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
+| 5 | `jitml service` Daemon | 🔄 Active (reopened 2026-06-12 — remove build-VM LiveConfig/acquire and probe the fixed bridge, Sprint 5.10) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
-| 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (re-closed 2026-06-10, Sprint 7.10 — live apple-silicon VM-built path 17/17) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
+| 7 | JIT Codegen and Per-Substrate Execution | 🔄 Active (reopened 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done (re-closed 2026-06-11 — Dense-MLP SL/RL device routing, fail-closed paths, and residual synthetic SL deletion; non-Dense Conv2D/ResNet/ViT training is future architecture growth) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (re-closed 2026-06-11 — real `rl eval`/`rollout`, real MCTS mechanics with device-backed leaf evaluation, and device-backed tuning trials) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done (re-closed 2026-06-11 — weighted inference read path, `inferFromManifest` deleted; Sprint 10.5) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (re-closed 2026-06-11 — real API/panel wiring plus live CUDA Playwright value assertions; Sprint 11.8) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done (re-closed 2026-06-12 — DRY real-workflow matrix, fail-closed integration Live runner, `jitml rl alphazero self-play` CLI cell, fixed linux-cpu bootstrap/edge, and live WorkflowMatrix pass) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | Linux CUDA and Cluster Closure | ✅ Done (re-closed 2026-06-11 on the CUDA machine — linux-cpu and linux-cuda live reopened workflows passed; Sprints 13.17/13.18/13.19) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-10 — live apple-silicon Tart-VM+Metal exercise passed bootstrap/e2e on this 64 GiB Apple host, then stopped at Tart `VZErrorDomain Code=-9` / `Failed to create new HostKey` because the host login keychain is unavailable headless; Sprint 14.8) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Substrate Reproducibility and Final Handoff | ⏸️ Blocked (reopened 2026-06-10 — final handoff blocked by Phase 14's apple-silicon live lane; Sprints 15.5/15.6) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-12 — fixed-bridge apple-silicon live lane waits on Sprints 1.15/2.12/5.10/7.11; Sprint 14.9) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 15 | Substrate Reproducibility and Final Handoff | ⏸️ Blocked (reopened 2026-06-12 — final handoff blocked by Phase 14 fixed-bridge lane and pending deletion ledger; Sprints 15.5/15.6) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+
+## Reopened phases (2026-06-12 — true-headless Apple Metal fixed bridge)
+
+The Apple Silicon Tart-VM SwiftPM cache-miss path is retired from the target
+architecture. The replacement is a fixed host Metal bridge plus a source/metadata
+cache: Haskell renders MSL, writes `<hash>.metal.json`, and the bridge calls
+`MTLDevice.makeLibrary(source:options:)` in-process. This is the all-in headless
+architecture recorded in
+[../documents/engineering/apple_silicon_metal_headless_builds.md](../documents/engineering/apple_silicon_metal_headless_builds.md).
+
+- **Phase 1** reopens for Sprint `1.15`: remove the `jitml internal vm` command
+  group and regenerate command docs once the implementation no longer exposes VM
+  lifecycle leaves.
+- **Phase 2** reopens for Sprint `2.12`: replace the `container.tart`
+  prerequisite/lifecycle with `apple.metal-runtime` and `apple.metal-bridge`;
+  model Apple cache entries as `.metal.json` source metadata.
+- **Phase 5** reopens for Sprint `5.10`: remove the build-VM Dhall block and
+  daemon acquire hook; acquire/probe the fixed bridge and OS Metal runtime
+  instead.
+- **Phase 7** reopens for Sprint `7.11`: replace generated Swift package / Tart
+  `swift build` / generated-dylib `dlopen` with fixed-bridge execution and an
+  in-process pipeline cache.
+- **Phase 14** reopens for Sprint `14.9`: after the upstream sprints land, run
+  `jitml-backends`, `jitml-e2e`, and the live `WorkflowMatrix` on Apple Silicon
+  without invoking Tart, SwiftPM, full Xcode, offline `metal`, keychain unlocks,
+  or GUI-session state.
+- **Phase 15** stays blocked on Sprint `15.5` / `15.6` until the Apple lane
+  passes and the fixed-bridge deletion rows move to `Completed`.
+
+The pending cleanup rows live in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal).
 
 ## Reopened phases (2026-06-10 — real-workflow refactor)
 
@@ -1169,7 +1234,16 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-All phases are **`✅ Done`** on their owned surfaces. Phase `11`
+As of 2026-06-12, Phases `0`, `3`, `4`, `6`, `8`, `9`, `10`, `11`, `12`, and
+`13` are `✅ Done` on their owned surfaces. Phases `1`, `2`, `5`, and `7` are
+`🔄 Active` for the true-headless Apple Metal fixed-bridge workstream
+(`1.15`, `2.12`, `5.10`, `7.11`); Phase `14` is `⏸️ Blocked` on those upstream
+sprints for fixed-bridge live validation (`14.9`); and Phase `15` is
+`⏸️ Blocked` until the Apple lane closes and the Pending Removal rows are swept.
+The historical closure notes below are retained as dated evidence and do not
+override the current status above.
+
+Phase `11`
 reopened and re-closed on 2026-06-05 for Sprint `11.7` — SPA portals
 home and shared header — exposing the bundled admin portals declared in
 the route registry as the demo bundle's default landing and moving the

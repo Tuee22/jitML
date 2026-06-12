@@ -24,15 +24,14 @@
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
-doctrine reversal; **re-closed 2026-06-10** after Sprint `5.9`). `LiveConfig`
-carries the Dhall-configurable build-VM block (CPU / memory / storage / idle
-timeout) and the daemon's `runService` acquire (`ensureHostBuildVm`) ensures the
-Tart build VM is up on `AppleSilicon` + `SelfInference` using those resources. The
-ensure-up path is validated live on Apple M1 (headless boot). The full live
-build-through-VM (which `ensureHostBuildVm` precedes) is exercised by Phase `7`
-Sprint `7.10`, re-closed `✅ Done` (2026-06-10). See
-[Sprint 5.9](#sprint-59-reinstate-the-dhall-configured-build-vm-block-and-daemon-acquire--done).
+🔄 **Active** (reopened 2026-06-12 for the true-headless Apple Metal
+fixed-bridge doctrine; Sprint `5.10`). `LiveConfig` and `runService` still carry
+the build-VM block and `ensureHostBuildVm` acquire hook from the now-legacy Tart
+path. The target daemon starts no VM, owns no VM idle timeout, and performs only
+fixed-bridge / Metal-runtime acquisition for `AppleSilicon + SelfInference`,
+failing closed before work dispatch if the bridge is unavailable. The temporary
+residue is tracked in
+[legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
 Prior closure history follows.
 
 ✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
@@ -939,7 +938,8 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
   `/metrics`, structured logging, capability classes, retry policy, at-least-
   once consumer, Deployment shape, anti-affinity; (Sprint `5.7`) the typed Dhall
   `RunConfig` + BootConfig-mounted worker dispatch that replaces the `JITML_*` env
-  IPC.
+  IPC; (Sprint `5.10`) the fixed-bridge Apple Metal acquire path and removal of
+  build-VM LiveConfig fields.
 - `documents/engineering/training_workloads.md` — (Sprint `5.7`) run parameters
   delivered as typed Dhall `RunConfig`, not `JITML_*` env vars.
 - `documents/engineering/cluster_topology.md` — Deployment-not-StatefulSet
@@ -954,6 +954,8 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
 - `system-components.md → jitml service Daemon Surface` rows remain aligned
   with the implemented boot/live config, lifecycle, endpoint, logger,
   consumer, and retry surfaces.
+- `legacy-tracking-for-deletion.md` carries a Pending Removal row for the
+  daemon build-VM block and acquire hook owned by Sprint `5.10`.
 
 ## Sprint 5.9: Reinstate the Dhall-configured build-VM block and daemon acquire [✅ Done]
 
@@ -995,6 +997,44 @@ per the Apple Silicon Tart-VM build-JIT doctrine (see
 The downstream full in-VM build that this acquire precedes is owned by Phase `7`
 Sprint `7.10`, which re-closed `✅ Done` (2026-06-10) after the apple-silicon lane
 built and ran every Metal kernel family through the VM.
+
+## Sprint 5.10: Replace daemon build-VM acquire with Metal bridge acquire [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/Service/LiveConfig.hs`, `dhall/service/LiveConfig.dhall`, `src/JitML/App.hs`, `src/JitML/Engines/MetalRuntime.hs`
+**Docs to update**: `documents/engineering/daemon_architecture.md`, `documents/engineering/determinism_contract.md`, `system-components.md`
+
+### Objective
+
+Remove the VM lifecycle from `jitml service` startup and make the Apple host
+daemon acquire only the fixed Metal bridge and OS Metal runtime. Adopts
+`Long-running daemons in the same binary`, `Application Environment`, and
+`Capability classes and service errors` from [../README.md](../README.md).
+
+### Deliverables
+
+- Remove `buildVmCpu`, `buildVmMemoryMib`, `buildVmDiskGib`, and
+  `buildVmIdleTimeout` from `LiveConfig` and Dhall renderers.
+- Delete `ensureHostBuildVm` from `runService` acquire; replace it with a
+  fail-closed `ensureAppleMetalBridge` / `metalRuntimeAvailable` check on
+  `AppleSilicon + SelfInference`.
+- Surface bridge/runtime acquisition status in the daemon startup summary and
+  convert failures to typed `AppError` / service-error output before subscribing
+  to work.
+- Move the daemon build-VM ledger row to `Completed` after validation.
+
+### Validation
+
+- `jitml-unit` Dhall/LiveConfig round-trips pass with no build-VM fields.
+- `jitml-daemon-lifecycle` covers successful and failed fixed-bridge acquisition.
+- On Apple Silicon, `jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
+  invokes no `tart` subprocess and reports the bridge/runtime acquisition.
+
+### Remaining Work
+
+- Remove the build-VM Dhall/Haskell fields and acquire hook.
+- Add the fixed-bridge acquisition path and daemon-lifecycle coverage.
+- Revalidate host-native Apple daemon startup without invoking Tart.
 
 ## Related Documents
 

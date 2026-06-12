@@ -41,26 +41,17 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-10 — real-workflow refactor; Sprints `15.5` /
-`15.6`). This phase owns the cross-substrate confirmation that every reopened
-workflow runs for real on all three lanes and the final walk-down of the legacy
-ledger. On 2026-06-11 the Linux live lanes were revalidated on the CUDA machine
-(`linux-cpu` integration **67 / 67** + e2e **20 / 20**; `linux-cuda`
-integration **67 / 67** + e2e **20 / 20** + daemon-lifecycle **32 / 32** +
-Playwright **9 / 9**). On 2026-06-12 Phase `12` re-closed after the
-`linux-cpu` bootstrap/edge fixes and the live WorkflowMatrix pass. Final
-handoff still cannot close because Phase `14` owns the remaining apple-silicon
-live Tart-VM+Metal exercise. The 2026-06-12 Phase `14` blocker re-check cleared
-the old capacity blocker on this 64 GiB Apple host: bootstrap passed, `jitml-e2e`
-passed **20 / 20**, and the focused live matrix reached the first real Metal
-training cell, but Tart failed to start `jitml-build` with
-`VZErrorDomain Code=-9 ... Failed to get current host key` /
-`Failed to create new HostKey` because the host login keychain is unavailable
-headless. Phases `8` and `9` re-closed on 2026-06-11 after their Dense-MLP
-SL/RL, device-backed MCTS, and device-backed tuning obligations were validated.
-The legacy ledger is empty again as of 2026-06-12; Sprint `15.6` remains blocked
-only because Sprint `15.5` cannot close until the Phase `14` live lane runs.
-The prior closure narrative below is retained as dated record.
+⏸️ **Blocked** (reopened 2026-06-12 — true-headless Apple Metal fixed-bridge
+doctrine; Sprints `15.5` / `15.6`). This phase owns the confirmation that every
+real workflow runs for real on all three lanes and the final walk-down of the
+legacy ledger. The Linux live lanes remain closed from the 2026-06-11 CUDA
+machine validation, and Phase `12` remains closed from the 2026-06-12
+`linux-cpu` WorkflowMatrix pass. Final handoff cannot close because Phase `14`
+now owns the fixed-bridge apple-silicon live lane, and the ledger has pending
+rows for the Tart/SwiftPM/VM residue owned by Sprints `1.15`, `2.12`, `5.10`,
+`7.11`, and `14.9`. The 2026-06-12 Tart HostKey/keychain failure is retained as
+dated evidence for retiring the old architecture, not as a final-handoff
+remediation step. The prior closure narrative below is retained as dated record.
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`). The phase reopened 2026-06-08 for
@@ -99,8 +90,9 @@ is empty again, Exit Definition item 18 is met, and the final handoff is complet
 Phase `15`'s owned Sprints `15.1`–`15.4` stayed `✅ Done` throughout (the reopened
 ledger rows are owned by Phases `1` / `2` / `5` / `7` / `14`, not by Phase `15`).
 
-The pre-reopen ✅ Done evidence is retained verbatim below as the dated
-historical record.
+The 2026-06-10 final-handoff claim above is superseded by the 2026-06-12
+fixed-bridge reopen. The pre-reopen ✅ Done evidence is retained verbatim below
+as the dated historical record.
 
 ✅ **Done** (re-validated 2026-06-06 on the current **RTX 5090** host; Sprints
 `15.1` and `15.2` reopened 2026-06-06 and re-closed the same day). These two
@@ -740,9 +732,10 @@ each (two fresh same-substrate / same-seed runs are bit-identical), via the
 
 ### Remaining Work
 
-- Run the apple-silicon Tart-VM+Metal real-workflow lane (Sprint `14.8`). The
-  linux-cpu and linux-cuda live lanes are already complete as of 2026-06-11, and
-  the Phase `12` live WorkflowMatrix gate is complete as of 2026-06-12.
+- Run the apple-silicon fixed-bridge Metal real-workflow lane (Sprint `14.9`).
+  The linux-cpu and linux-cuda live lanes are already complete as of
+  2026-06-11, and the Phase `12` live WorkflowMatrix gate is complete as of
+  2026-06-12.
 
 ## Sprint 15.6: Real-Workflow Ledger Walk-Down and Final Handoff [Blocked]
 
@@ -752,15 +745,17 @@ each (two fresh same-substrate / same-seed runs are bit-identical), via the
 
 ### Objective
 
-Walk every remaining real-workflow ledger row to `Completed` once its live
-exercise has run, leaving the ledger empty and Exit Definition item 18 met for
-the reopened real-workflow refactor.
+Walk every remaining ledger row to `Completed` once its replacement has landed
+and the live exercise has run, leaving the ledger empty and Exit Definition item
+18 met for the fixed-bridge Apple Metal doctrine and the reopened real-workflow
+refactor.
 
 ### Remaining Work
 
-- Blocked on Sprint `15.5`. The code-removal rows whose replacements are already
-  verified working are in `Completed`, and the ledger is empty as of 2026-06-12;
-  re-run the ledger audit after the remaining Phase `14` validation passes.
+- Blocked on Sprint `15.5`. The real-workflow code-removal rows whose
+  replacements are already verified working are in `Completed`, but the
+  2026-06-12 fixed-bridge doctrine rows are Pending Removal until Sprints
+  `1.15`, `2.12`, `5.10`, `7.11`, and `14.9` close.
 
 ## Doctrine Sections Cited
 

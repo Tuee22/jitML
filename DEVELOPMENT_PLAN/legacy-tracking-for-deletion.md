@@ -37,6 +37,20 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-06-12 — true-headless Apple Metal fixed-bridge doctrine (reopened;
+ledger non-empty).** The Apple Silicon Metal path is being redirected away from
+the Tart-VM Swift build architecture toward the fixed host Metal bridge described
+in
+[../documents/engineering/apple_silicon_metal_headless_builds.md](../documents/engineering/apple_silicon_metal_headless_builds.md).
+The core cache-miss path renders MSL plus launch metadata into
+`<hash>.metal.json`, calls a fixed bridge that runtime-compiles the source with
+`MTLDevice.makeLibrary(source:options:)`, and dispatches on the host GPU. Tart,
+Virtualization HostKey state, unlocked login keychains, SwiftPM, generated Swift
+packages, full Xcode, and the offline `metal` compiler are outside the core
+training/inference JIT path. This reopens Phases `1`, `2`, `5`, `7`, and `14`,
+and keeps Phase `15` blocked until the replacement lands, the apple-silicon live
+lane validates headlessly, and the rows below move to `Completed`.
+
 **2026-06-10 — real-workflow refactor (reopened; ledger non-empty).** A realness
 audit found that every user-facing workload and the demo used a synthetic, echo,
 or pure-Haskell-only stand-in instead of the substrate JIT path (`MlpDevice` →
@@ -165,14 +179,20 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-06-12):** no compatibility helpers, deprecated paths,
-duplicate surfaces, or temporary stand-ins are pending removal. The real-workflow
-refactor rows introduced on 2026-06-10 have moved to `Completed`; any remaining
-open work is a primary phase obligation, not ledger cleanup.
+**Current state (2026-06-12):** the real-workflow cleanup rows introduced on
+2026-06-10 have moved to `Completed`, but the new Apple fixed-bridge doctrine
+reopens the ledger. The rows below are doctrine deviations or temporary residue
+only; the primary implementation obligations live in Sprints `1.15`, `2.12`,
+`5.10`, `7.11`, and `14.9`.
 
 | Stand-in / dead code to delete | Location | Reason (rule I / L) | Owning sprint |
 |---|---|---|---|
-| _None_ | _N/A_ | No Pending Removal rows remain. | _N/A_ |
+| `jitml internal vm` command group and generated CLI mirrors | `src/JitML/CLI/Spec.hs`, `src/JitML/App.hs`, generated command docs/README regions | The target core Apple Metal path has no VM lifecycle command. The current generated CLI mirrors must continue to reflect the implemented `CommandSpec` until Sprint `1.15` removes the leaves and regenerates the artifacts. | Sprint `1.15` |
+| Tart prerequisite and lifecycle modules | `src/JitML/Prerequisite/Nodes/Container.hs`, `src/JitML/Tart/{Lifecycle,Exec}.hs`, `bootstrap/_lib.sh` VM cleanup paths | The core JIT path must not install Tart, start a VM, or depend on Virtualization HostKey/keychain state. Tart-specific code is legacy once `apple.metal-runtime` and `apple.metal-bridge` prerequisites own the Apple path. | Sprint `2.12` |
+| Daemon build-VM configuration and acquire hook | `src/JitML/Service/LiveConfig.hs`, `dhall/service/LiveConfig.dhall`, `src/JitML/App.hs` `ensureHostBuildVm` path | `jitml service` startup must probe the fixed bridge/Metal runtime and fail closed on that boundary, not start or idle-manage a Tart build VM. | Sprint `5.10` |
+| Per-kernel generated Swift package and VM `swift build` cache-miss path | `src/JitML/Codegen/Metal.hs`, `src/JitML/Codegen/RuntimeSource.hs`, `src/JitML/Engines/{Engine,Loader,MetalLocal,MetalRuntime}.hs` | Apple cache misses must persist MSL source metadata (`<hash>.metal.json`) and call the fixed bridge; per-cache-miss SwiftPM builds, generated dylibs, VM copy-out, and `dlopen` of generated glue are legacy. | Sprint `7.11` |
+| Apple per-kernel stable-dylib symlink surface | `src/JitML/Cache/Symlink.hs`, `.build/host/apple-silicon/<model-id>.dylib` docs and tests | A fixed bridge plus source/metadata cache no longer needs one generated `.dylib` symlink per model/kernel. Linux shared-object loading remains unchanged. | Sprint `7.11` |
+| Tart/keychain doctrine residue in Apple validation docs and tests | `README.md` generated command mirrors, `documents/engineering/jit_codegen_architecture.md`, Apple comments/tests that still name Tart as the supported target | Current-state history may remain explicitly dated, but target docs and validation must state that `tart`, `swift build`, keychain unlocks, and offline `metal` are absent from `jitml service`, `jitml train`, `jitml inference run`, and Apple backend tests. | Sprint `14.9` |
 
 New rows are enqueued here only when a future sprint introduces a doctrine
 deviation or a temporary stand-in (per standards rule I / L).

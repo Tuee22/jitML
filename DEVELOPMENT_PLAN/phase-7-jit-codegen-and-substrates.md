@@ -15,24 +15,22 @@
 > **Purpose**: Stand up the per-substrate Haskell JIT source renderers (Metal,
 > oneDNN C++, CUDA), the engine ABI between the Haskell daemon and the
 > substrate-specific kernels, the content-addressed cache key inputs from the
-> numerical core, the Apple Silicon hybrid pattern (host daemon + headless
-> Swift/Metal build + cluster RPC envelope), and the hardware auto-tuning surface that
+> numerical core, the Apple Silicon hybrid pattern (host daemon + fixed Metal
+> bridge + cluster RPC envelope), and the hardware auto-tuning surface that
 > preserves the per-substrate determinism contract.
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT doctrine
-reversal; **re-closed 2026-06-10** after the live VM-built path was exercised on
-Apple M1). `JitML.Engines.Engine.compileSubprocess` routes the Apple Silicon
-`swift build` **into the `jitml`-managed Tart VM**,
-`JitML.Engines.Loader.publishAppleArtifact` copies `libJitMLMetal.dylib` **out of
-the VM** instead of reading it from a host build directory, and
-`metalToolchainFingerprint` is VM-toolchain-based. Sprint `7.10` owns this surface;
-its `### Live Closure (2026-06-10)` records the live evidence —
-`jitml test jitml-backends --apple-silicon` ran all 17 within-substrate apple
-cases as real PASSes through the in-VM `swift build` + host Metal execution.
-Reopened/re-closed in the same batch with Phases `1` / `2` / `5` / `14`. See
-[Sprint 7.10](#sprint-710-route-the-apple-swift-build-through-the-tart-vm--done).
+🔄 **Active** (reopened 2026-06-12 for the true-headless Apple Metal
+fixed-bridge doctrine; Sprint `7.11`). The current Apple engine still renders a
+generated Swift package, builds a per-kernel dylib through Tart/SwiftPM, and
+loads that dylib over the Haskell FFI. The target engine renders canonical MSL
+plus launch metadata, persists `<hash>.metal.json`, calls a fixed host Metal
+bridge, and keeps an in-process pipeline cache keyed by device/source/function/
+launch policy. The core path must not invoke `tart`, `swift build`, full Xcode,
+the offline `metal` compiler, or keychain-dependent VM state. Temporary residue
+is tracked in
+[legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
 Prior closure history follows.
 
 **Re-validation note (2026-06-06)**: this phase stays ✅ **Done** on its owned
@@ -1057,13 +1055,13 @@ companion for direct CUDA tests.
   renderers, per-substrate compile plans, Linux CPU libdnnl-linked oneDNN
   primitive compile/load/run paths with exported family/output-count symbol
   validation, local Linux CPU artifact-ABI fingerprinting, and the local Linux
-  CPU `HasEngine` interpreter; target non-CPU FFI loaders, Apple hybrid
-  runtime, host↔cluster RPC, and real auto-tuning surface.
+  CPU `HasEngine` interpreter; Apple fixed-bridge runtime source artifact,
+  host↔cluster RPC, and real auto-tuning surface.
 - `documents/engineering/determinism_contract.md` — populate with the per-
-  substrate floating-point semantics (Metal single-stream, oneDNN blocked
-  reduction, CUDA warp-shuffle + `--use_fast_math=false` + cuDNN explicit
-  algorithm-id pinning), the engine envelope shape, the cross-substrate
-  tolerance methodology.
+  substrate floating-point semantics (Metal single-stream and fast-math-disabled
+  runtime source compilation through the bridge, oneDNN blocked reduction, CUDA
+  warp-shuffle + `--use_fast_math=false` + cuDNN explicit algorithm-id pinning),
+  and the engine envelope shape.
 - `documents/engineering/daemon_architecture.md` — link to the
   `InferenceProxy` Apple-only surface.
 
@@ -1143,6 +1141,59 @@ the shared-mount package path (`/Volumes/My Shared Files/jitml/.build/jit-src/..
 - `jitml-unit` 194 / 194 host-native (incl. the Metal-probe regression:
   device-visible + no host toolchain ⇒ available); container `jitml check-code`
   green.
+
+## Sprint 7.11: Fixed host Metal bridge and source-metadata Apple cache [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/Engines/{MetalBridge,MetalLocal,MetalRuntime,Engine,Loader}.hs`, `src/JitML/Codegen/{Metal,RuntimeSource}.hs`
+**Docs to update**: `documents/engineering/jit_codegen_architecture.md`, `documents/engineering/apple_silicon_metal_headless_builds.md`, `documents/engineering/determinism_contract.md`, `system-components.md`
+
+### Objective
+
+Replace per-kernel generated Swift packages and Tart/SwiftPM cache misses with a
+fixed host Metal bridge that runtime-compiles generated MSL source through the
+OS Metal framework. Adopts `Built-artifact and JIT-cache discipline`,
+`Subprocesses as typed values`, and `Toolchain pinning` from
+[../README.md](../README.md).
+
+### Deliverables
+
+- Add `JitML.Engines.MetalBridge` exposing a stable Haskell-facing ABI over the
+  fixed bridge: probe, source compile, pipeline creation, buffer binding,
+  dispatch, wait, and structured error capture.
+- Replace `GeneratedMetalPackage` / Swift package rendering with a canonical MSL
+  source renderer and launch-metadata encoder whose persistent cache artifact is
+  `./.build/jit/apple-silicon/<hash>.metal.json`.
+- Remove the Apple `compileSubprocess` / `tart exec swift build` branch from the
+  core cache-miss path. Filling an Apple cache miss writes source metadata; the
+  bridge compiles the MSL in-process on first use.
+- Replace generated-dylib `dlopen` in `MetalLocal` with bridge calls and an
+  in-process pipeline cache keyed by `(device-registry-id, source-sha256,
+  function-name, launch-policy)`.
+- Key Apple toolchain fingerprints on bridge ABI, OS/Metal runtime policy,
+  rendered MSL, launch metadata, determinism options, and tuning choice.
+
+### Validation
+
+- A headless bridge probe compiles and dispatches a tiny MSL kernel with
+  `xcrun -find metal` failing and no usable login keychain.
+- `jitml test jitml-backends --apple-silicon` fills a fresh cache miss as
+  `<hash>.metal.json`, runs identity/weighted kernels through the fixed bridge,
+  and proves same-substrate bit-equality.
+- `tart`, `swift build`, and the offline `metal` compiler are not invoked by
+  `jitml service`, `jitml train`, `jitml inference run`, or the Apple backend
+  tests.
+- Container `jitml check-code`, `jitml docs check`, and relevant host-native
+  `jitml-unit` / backend tests pass.
+
+### Remaining Work
+
+- Implement the fixed-bridge Haskell/C ABI wrapper and probe.
+- Replace Swift package rendering with MSL source metadata and `.metal.json`
+  cache support.
+- Rewire `MetalLocal` and the Apple backend lane to use the bridge and pipeline
+  cache, then move the generated Swift/Tart cache-miss ledger rows to
+  `Completed`.
 
 ## Related Documents
 

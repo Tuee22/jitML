@@ -15,32 +15,26 @@
 **Generated sections**: none
 
 > **Purpose**: Close every Apple-Silicon-bound live-runtime obligation in one
-> batched session: the `jitml`-managed Tart VM builds the generated Swift/Metal
-> package with the VM's `swift build`, copies the resulting dylib to the host,
-> the launcher runtime-compiles Metal Shading Language through
-> `MTLDevice.makeLibrary(source:options:)`, and execution happens on the host
-> GPU. The phase also owns the host↔cluster Pulsar RPC for inference commands
+> batched session: the host daemon uses a fixed Metal bridge to compile generated
+> MSL through `MTLDevice.makeLibrary(source:options:)`, dispatches on the host
+> GPU with fast math disabled, and never requires Tart, keychain state, SwiftPM,
+> full Xcode, or the offline `metal` compiler for core training/inference cache
+> misses. The phase also owns the host↔cluster Pulsar RPC for inference commands
 > and events, the Metal benchmark candidate runner, Apple Metal production
 > weight loading from MinIO checkpoints, and the live apple-silicon
 > `WorkflowMatrix` exercise of the reopened real workflows.
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-10 — real-workflow refactor; Sprint `14.8`).
-This phase owns the live **apple-silicon** exercise of every reopened workflow
-(Phases `8`–`12`) through the Metal device built in the `jitml`-managed Tart VM,
-against a live Apple-Silicon cluster. **Blocked on this host**: the configured
-capacity blocker is cleared, but Tart cannot start `jitml-build` in this
-headless shell. The 2026-06-12 run on a 64 GiB Apple Silicon host passed
-stage-0 doctor, live bootstrap, and `jitml-e2e`, then the focused live
-`WorkflowMatrix` stopped at the first real Metal training cache miss with
-`VZErrorDomain Code=-9 ... Failed to get current host key` /
-`Failed to create new HostKey`. The host `login.keychain-db` exists but is
-locked/unavailable to non-interactive `security` calls; the next safe action is
-for the human to unlock it or explicitly permit a temporary replacement login
-keychain. The Metal device path is implemented (Phase `7`/`8`); the live run is
-recorded as blocked on host keychain / Virtualization HostKey state. The prior
-closure narrative below is retained as dated record.
+⏸️ **Blocked** (reopened 2026-06-12 — true-headless Apple Metal fixed-bridge
+doctrine; Sprint `14.9`). This phase owns the live **apple-silicon** exercise of
+every reopened workflow (Phases `8`–`12`) through the fixed Metal bridge against
+a live Apple-Silicon cluster. It is blocked by upstream implementation work:
+Phase `1` Sprint `1.15`, Phase `2` Sprint `2.12`, Phase `5` Sprint `5.10`, and
+Phase `7` Sprint `7.11` must first remove the Tart/SwiftPM path and land the
+bridge-backed `.metal.json` cache path. The 2026-06-12 Tart HostKey/keychain
+failure is retained below as the evidence that the old VM architecture is not a
+valid headless target; it is no longer the remediation path.
 
 ✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT doctrine
 reversal; **re-closed 2026-06-10** after the live apple-silicon lane was
@@ -135,27 +129,26 @@ headless on Apple M1).
 
 ### Current Implementation Scope
 
-The Metal FFI loader, the Apple `HasEngine` dispatch, the per-family weighted
-bodies, the benchmark candidate runner, and the daemon + inference dispatch are
-implemented. The current Apple build path is the Tart-VM build-JIT path:
-`compileSubprocess AppleSilicon` starts the `jitml`-managed Tart VM, runs the
-VM's `swift build`, copies `libJitMLMetal.dylib` out to the host cache, and
-`MetalLocal` `dlopen`s the copied dylib before runtime-compiling and executing
-Metal on the host GPU. Sprint `14.7` validated the `jitml-backends`
-apple-silicon lane through that path. Sprint `14.8` is the remaining open
-obligation: run every reopened real workflow through the live apple-silicon
-`WorkflowMatrix` against a cluster. The 2026-06-12 run proves capacity is no
-longer the blocker on this host; it is blocked by Tart's headless HostKey
-creation failing against the host login keychain.
+The Metal FFI loader, Apple `HasEngine` dispatch, per-family weighted bodies,
+benchmark candidate runner, and daemon + inference dispatch are implemented.
+The implemented Apple cache-miss path is still the now-legacy Tart-VM SwiftPM
+path: `compileSubprocess AppleSilicon` starts the build VM, runs `swift build`,
+copies a generated dylib to the host cache, and `MetalLocal` `dlopen`s it before
+runtime-compiling and executing MSL on the host GPU. The target scope for this
+phase is different: after Sprints `1.15` / `2.12` / `5.10` / `7.11`, Apple cache
+misses write `.metal.json`, the fixed bridge compiles MSL in-process, and the
+live `WorkflowMatrix` passes without invoking `tart`, `swift build`, full Xcode,
+the offline `metal` compiler, or keychain-changing commands.
 
 ## Phase Summary
 
 This phase batches the Apple-Silicon live runtime work so it can close in one
 Apple-machine session. The historical sprints below record the Metal loader,
 benchmark runner, host↔cluster RPC, production weight loading, skip-guard
-removal, and Tart-VM build-JIT revalidation. The only current open sprint is
-Sprint `14.8`: run the matrix/e2e commands for real after the host login
-keychain / Tart HostKey prerequisite is satisfied, then unblock Phase `15`.
+removal, and the now-superseded Tart-VM build-JIT validation. The current open
+sprint is Sprint `14.9`: run the backend lane, e2e lane, and real-workflow
+matrix through the fixed bridge after the upstream implementation sprints land,
+then unblock Phase `15`.
 
 ## Sprint 14.1: Host Swift Toolchain and First-Cache-Miss Headless Build ✅
 
@@ -745,9 +738,42 @@ live Apple-Silicon cluster.
   sufficient for Virtualization.framework. Temporarily moving/replacing the real
   login keychain was not attempted because it is a sensitive user-state change.
 
+## Sprint 14.9: Live fixed-bridge apple-silicon workflow closure [Blocked]
+
+**Status**: Blocked
+**Blocked by**: Phase `1` Sprint `1.15`, Phase `2` Sprint `2.12`, Phase `5`
+Sprint `5.10`, and Phase `7` Sprint `7.11`.
+**Docs to update**: `system-components.md`, `documents/engineering/jit_codegen_architecture.md`, `documents/engineering/apple_silicon_metal_headless_builds.md`
+
+### Objective
+
+Validate the Apple Silicon lane through the fixed host Metal bridge under a
+truly headless shell. The lane must run the backend kernels, benchmark candidate
+runner, host↔cluster RPC, production weight loading, demo/e2e checks, and every
+`WorkflowMatrix` cell without Tart, SwiftPM, full Xcode, the offline `metal`
+compiler, keychain unlocks, or GUI session assumptions.
+
+### Validation
+
+- `jitml test jitml-backends --apple-silicon` fills a fresh Apple cache miss as
+  `<hash>.metal.json` and passes every apple-silicon backend case through the
+  fixed bridge.
+- `jitml bootstrap --apple-silicon`, `jitml test jitml-e2e --apple-silicon`, and
+  the live `WorkflowMatrix` cells pass against a published Apple cluster.
+- A command trace or test assertion confirms `tart`, `swift build`, `xcrun -find
+  metal`, and `security unlock-keychain` are not invoked by the core path.
+
+### Remaining Work
+
+- Wait for Sprints `1.15`, `2.12`, `5.10`, and `7.11` to land.
+- Re-run the full Apple live lane in a headless session and record the evidence.
+- Move the Sprint `14.9` documentation residue row in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) to
+  `Completed` after docs and validation agree.
+
 ## Doctrine Sections Cited
 
-- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 14.1, 14.3, 14.4, 14.7 — Tart-VM `swift build`, copy-out, MinIO, and Pulsar WebSocket subprocesses)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 14.1, 14.3, 14.4, 14.7 — historical Tart-VM `swift build`, copy-out, MinIO, and Pulsar WebSocket subprocesses; Sprint 14.9 verifies the fixed-bridge path no longer uses Tart/SwiftPM subprocesses)
 - [../README.md → Capability Classes and Service Errors](../README.md#doctrine-scope) (Sprints 14.4, 14.5 — live `HasPulsar` / `HasMinIO` execution on Apple host)
 - [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 14.4 — Apple host daemon ack-after-success)
 - [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprint 14.4 — typed `RetryPolicy` budget for RPC round-trip)
@@ -757,16 +783,18 @@ live Apple-Silicon cluster.
 
 **Engineering docs to create/update:**
 
-- `documents/engineering/jit_codegen_architecture.md` — record the Apple
-  Silicon Tart-VM build-JIT path, Metal FFI loader, live Metal candidate
+- `documents/engineering/jit_codegen_architecture.md` and
+  `documents/engineering/apple_silicon_metal_headless_builds.md` — record the
+  Apple Silicon fixed-bridge path, Metal FFI loader, live Metal candidate
   runner, Apple Metal weighted runner path, partitioned apple-silicon lane, and
   removal of the `appleLiveReady` skip guards (a missing Metal device fails
   rather than skips).
 - `documents/engineering/daemon_architecture.md` — record the live
   Apple host↔cluster RPC flow once Sprint `14.4` closes.
 - `documents/engineering/cluster_topology.md` — note the host-native daemon's
-  edge-port discovery, Apple session prerequisites, and the live Tart HostKey /
-  login-keychain prerequisite.
+  edge-port discovery and Apple session prerequisites; Tart HostKey /
+  login-keychain requirements are historical evidence for the retired VM path,
+  not current prerequisites.
 - `documents/engineering/checkpoint_format.md` — Apple Metal weighted
   inference path once Sprint `14.5` closes.
 - `documents/engineering/determinism_contract.md` — Apple Metal
@@ -783,7 +811,8 @@ live Apple-Silicon cluster.
 **Cross-references to add:**
 
 - `system-components.md → Substrates` row for `apple-silicon` records Sprint
-  `14.8` as blocked on the host login-keychain / Tart HostKey prerequisite.
+  `14.9` as blocked on the fixed-bridge implementation chain, not on keychain
+  state.
 
 ## Related Documents
 

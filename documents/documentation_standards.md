@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../README.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/numerical_core.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
+**Referenced by**: ../README.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/apple_silicon_metal_headless_builds.md, engineering/numerical_core.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
 **Generated sections**: documentation-standards.generated-section-index
 
 > **Purpose**: Single Source of Truth (SSoT) for writing and maintaining

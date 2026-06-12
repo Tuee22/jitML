@@ -85,21 +85,22 @@ cluster is rendered from the typed registry in `src/JitML/Routes.hs`.
 
 The numerical core (layer catalog, real+complex activations, optimizers,
 schedulers, losses, spectral ops) ships as a Haskell catalog with a Dhall
-mirror, consumed by per-substrate JIT source renderers in the Haskell binary
-that generate compiler input source on demand under
-`./.build/jit-src/<substrate>/<hash>/` and write compiled artefacts into the
-content-addressed cache at `./.build/jit/<substrate>/<hash>.<ext>`, with
-stable host-side symlinks at `./.build/host/apple-silicon/` for FFI dlopen
-stability. The Linux CPU libdnnl-linked oneDNN primitive paths compile, load,
-execute, and report their exported `jitml_kernel_family_name` and
+mirror, consumed by per-substrate JIT source renderers in the Haskell binary.
+Linux renderers generate compiler input source on demand under
+`./.build/jit-src/<substrate>/<hash>/` and write compiled shared objects into
+the content-addressed cache. The Apple target renders MSL plus launch metadata
+and persists `./.build/jit/apple-silicon/<hash>.metal.json`; a fixed host Metal
+bridge compiles that source with `MTLDevice.makeLibrary(source:options:)` and
+dispatches on the host GPU. The Linux CPU libdnnl-linked oneDNN primitive paths
+compile, load, execute, and report their exported `jitml_kernel_family_name` and
 `jitml_kernel_output_count` through the Haskell FFI today; their local toolchain
 fingerprint includes `artifact-abi=<os>-<arch>` and `reduction-block=256` so
-host/container artifacts and fixed reduction-block changes do not collide in
-the shared cache. `JitML.Engines.OneDnnRuntime` probes `pkg-config` package
-metadata, readable oneDNN headers, and dynamic-linker `libdnnl` visibility
-through typed subprocesses for the production Linux CPU path. CUDA and Apple
-Metal execution are validated through the Phase `13` / Phase `14` live closure
-paths; Phase `15` consumes their weighted outputs for parity and final handoff.
+host/container artifacts and fixed reduction-block changes do not collide in the
+shared cache. `JitML.Engines.OneDnnRuntime` probes `pkg-config` package metadata,
+readable oneDNN headers, and dynamic-linker `libdnnl` visibility through typed
+subprocesses for the production Linux CPU path. CUDA and Apple Metal execution
+are validated through the Phase `13` / Phase `14` live closure paths; Phase `15`
+consumes their within-substrate report evidence for final handoff.
 
 The SL/RL surfaces ship today as deterministic catalogs and measured summaries:
 canonical SL cells, the Dense-MLP substrate-trainable cohort, RL algorithm rows,
@@ -200,20 +201,17 @@ and the deletion ledger has no pending rows.
   `docker compose run --rm jitml jitml bootstrap --linux-cpu|--linux-cuda`.
   The typed `Prerequisite` DAG consumed by the Haskell bootstrap performs lazy
   package validation/remediation, including Homebrew package installation when
-  a resource is actually needed. The content-addressed JIT cache at
-  `./.build/jit/<substrate>/<hash>.<ext>` is keyed on `(canonical-cbor(KernelSpec),
-  kind, substrate, toolchain-fingerprint, rendered-source-payload, tuning-choice)`;
-  on Apple Silicon, stable symlinks under
-  `./.build/host/apple-silicon/` give the FFI a stable dlopen surface across
-  re-JITs. On a fresh `(model-shape, kind, substrate, toolchain)` tuple the
-  `jitml`-managed Tart VM builds the small Swift glue dylib with the VM's
-  `swift build`, the dylib is copied out to the host, and the Metal shader is
-  JIT-compiled at load on the host through `MTLDevice.makeLibrary(source:)`
-  (Apple Silicon Tart-VM build-JIT doctrine; reopened Phases `1`/`2`/`5`/`7`/`14`
-  on 2026-06-10 and **all re-closed `✅ Done` the same day** — the live
-  apple-silicon lane built every Metal kernel family in the VM and ran it on the
-  host GPU, 17/17; see
-  [Reopen note (2026-06-10)](README.md)). Outer-container Linux
+  a resource is actually needed. The content-addressed JIT cache is keyed on
+  `(canonical-cbor(KernelSpec), kind, substrate, toolchain-fingerprint,
+  rendered-source-payload, tuning-choice)`. Linux stores compiled shared objects
+  under `./.build/jit/<substrate>/<hash>.so`; Apple stores
+  `./.build/jit/apple-silicon/<hash>.metal.json` source metadata and executes it
+  through a fixed host Metal bridge. Core Apple cache misses require
+  `apple.metal-runtime` and `apple.metal-bridge`; they do not start Tart, invoke
+  SwiftPM, require full Xcode, require the offline `metal` compiler, or depend
+  on unlocked keychain state. This doctrine reopens Phases
+  `1`/`2`/`5`/`7`/`14` on 2026-06-12; legacy Tart residue is tracked in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). Outer-container Linux
   commands run as `docker compose run --rm jitml jitml <command>` against the
   headless default service; direct CUDA tests that need device exposure use the
   `jitml-cuda` companion service. The substrate image is `jitml:local`, the
@@ -341,14 +339,14 @@ and the deletion ledger has no pending rows.
 - **JIT codegen and per-substrate execution.** `src/JitML/Engines/`
   records backend metadata, determinism flags, typed kernel handles,
   cache hit/miss decisions, engine envelopes, and typed compile plans;
-  `src/JitML/Codegen/` renders Metal / Swift, oneDNN C++, and CUDA
+  `src/JitML/Codegen/` renders Apple MSL, oneDNN C++, and CUDA
   runtime source bundles under
   `./.build/jit-src/<substrate>/<hash>/`. `JitML.Codegen.KernelFamily`
   defines the typed `KernelFamily` ADT (`identity`, `reduction`,
   `dense`, `conv2d`, `conv3d`, `batchnorm`, `layernorm`, `mha`,
   `embedding`) consumed by the family-aware renderers
   (`renderOneDnnFamilySource`, `renderCudaFamilySource`,
-  `renderMetalFamilyPackage`). `JitML.Engines.Tuning` declares the
+  the target `renderMetalFamilySource`). `JitML.Engines.Tuning` declares the
   per-substrate `KnobSpace` (matmul tile / block-dim / cuDNN
   deterministic algorithm pin / threadgroup size / micro-kernel /
   reduction strategy / no-TF32 / no-fast-math) with
@@ -376,23 +374,20 @@ and the deletion ledger has no pending rows.
   now exports the same `jitml_kernel` / family / output-count ABI, and
   `JitML.Engines.CudaLocal` consumes a positive CUDA runtime probe before
   compile/load/launch while failing closed before compile when no CUDA runtime
-  is visible. Swift/Metal source exports the same `jitml_kernel` /
-  `jitml_weighted_kernel` / family / output-count ABI, and
-  `JitML.Engines.MetalLocal` loads the produced dylib through the Haskell FFI.
+  is visible. The Apple target no longer exports a generated Swift dylib per
+  kernel; `JitML.Engines.MetalLocal` calls the fixed bridge with cached MSL
+  source metadata and validates output shape/family metadata on the Haskell
+  side.
   `JitML.Engines.CudaRuntime` owns the host-side CUDA reduction
   partial-count/finalization helper plus the typed `nvcc` / `nvidia-smi` /
   `ldconfig` CUDA runtime probe. `JitML.Engines.MetalRuntime` owns the
-  corresponding host Metal runtime probe for Swift, `xcrun`, and Metal device
-  visibility before host FFI execution.
-  The Apple first-cache-miss path builds the generated Swift package with
-  `swift build` **inside the `jitml`-managed Tart VM**, copies the dylib out to the
-  host, and JIT-compiles the Metal shader at load via `MTLDevice.makeLibrary(source:)`
-  on the host GPU. (The Tart VM lifecycle, its Dhall-configured limits, and the
-  `jitml internal vm` command group are owned by Phases
-  `1` / `2` / `5` / `7` / `14`, reopened and **all re-closed `✅ Done`** on
-  2026-06-10 after the live apple-silicon lane built/ran every Metal kernel family
-  through the VM; see
-  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).)
+  corresponding host Metal runtime probe for `MTLDevice.makeLibrary` and Metal
+  device visibility before host FFI execution.
+  The Apple first-cache-miss target writes MSL source metadata, then compiles
+  through the fixed bridge in-process on first use. The existing Tart VM
+  lifecycle, Dhall-configured limits, and `jitml internal vm` command group are
+  pending deletion under Phases `1` / `2` / `5` / `7` / `14`; see
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
   Headless Apple Metal live validation + Metal loading, live
   CUDA GPU-host compile/load/run validation plus cuBLAS/cuDNN bindings, and
   live benchmark-driven hardware auto-tuning are closed by Phases `13` / `14` /
@@ -662,11 +657,11 @@ each constraint.
 7. Every Plan/Apply command supports `--dry-run` (renders the plan and exits 0)
    and `--plan-file <path>` (writes the rendered plan for out-of-band review).
 8. `Subprocess` is the only IO boundary for subprocess execution. `kubectl`,
-   `helm`, `kind`, `docker`, `nvcc`, `g++` (over oneDNN), the Tart-VM
-   `swift build` for the Apple Metal glue dylib, and every kernel-compiler
-   invocation goes through the typed boundary. (The Metal shader itself is
-   JIT-compiled in-process via `MTLDevice.makeLibrary(source:)`, not a
-   subprocess.)
+   `helm`, `kind`, `docker`, `nvcc`, `g++` (over oneDNN), optional non-core Swift
+   probes, and every kernel-compiler invocation goes through the typed boundary.
+   The Apple core Metal path compiles MSL in-process through the fixed bridge via
+   `MTLDevice.makeLibrary(source:options:)`, not through Tart, SwiftPM, full Xcode,
+   or the offline `metal` compiler.
    `callProcess`, `readCreateProcess`, `System.Process` constructors, and
    `typed-process` smart constructors are hlint-forbidden outside the
    `runStreaming` / `capture` interpreter.
@@ -698,14 +693,15 @@ each constraint.
     kubeconfig, Kind metadata, cluster publication, and JIT cache entries.
     `./.data/` is strictly for manual PV bind mounts. Both are in `.gitignore`
     and `.dockerignore`.
-17. The JIT cache root is `./.build/jit/<substrate>/<hash>.<ext>`; entries are
-    content-addressed by `sha256(canonical-cbor(KernelSpec) || kind || substrate
-    || toolchain-fingerprint || rendered-source-payload || tuning-choice)` where
-    `KernelSpec` is model shape and `kind` is `training | inference`. Training
-    and inference kernels are separate artifacts.
-18. Apple Silicon stable-named symlinks live at `./.build/host/apple-silicon/`
-    and resolve into `./.build/jit/apple-silicon/`; the FFI dlopen surface stays
-    stable across re-JITs because the symlink is repointed atomically.
+17. The JIT cache root is `./.build/jit/`; Linux entries are compiled shared
+    objects and Apple target entries are `<hash>.metal.json` source metadata.
+    Entries are content-addressed by `sha256(canonical-cbor(KernelSpec) || kind
+    || substrate || toolchain-fingerprint || rendered-source-payload ||
+    tuning-choice)` where `KernelSpec` is model shape and `kind` is
+    `training | inference`. Training and inference kernels are separate artifacts.
+18. Apple Silicon uses one fixed host bridge under `./.build/host/apple-silicon/`
+    or linked into the host binary; per-kernel generated-dylib symlinks are
+    legacy residue pending Sprint `7.11`.
 19. `./bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh` are idempotent stage-0
     entrypoints. Apple checks macOS/arm64, Xcode Command Line Tools, and
     Homebrew, builds `./.build/jitml`, then calls
@@ -765,14 +761,13 @@ each constraint.
     between substrates), so no cross-substrate tolerance band is asserted.
 28. Target JIT compiler inputs are generated by the Haskell `jitml` binary on a
     cache miss. The repository does not use static checked-in `.cu`, `.cc` /
-    `.cpp`, Metal / Swift package source files, native adapter shims, or
-    per-substrate JIT build `.sh` scripts as build inputs. The Haskell renderers
-    emit those files into
-    `./.build/jit-src/<substrate>/<hash>/` and invoke `nvcc`, the oneDNN C++
-    compiler path, or `swift build` through the typed `Subprocess` boundary.
-    Checked-in native/foreign source exceptions are not allowed; adapter code
-    belongs in the same Haskell-generated materialization path or outside the
-    repository.
+    `.cpp`, per-kernel Metal / Swift package source files, native adapter shims,
+    or per-substrate JIT build `.sh` scripts as build inputs. The Haskell
+    renderers emit Linux compiler inputs into
+    `./.build/jit-src/<substrate>/<hash>/`; the Apple renderer emits MSL into the
+    `.metal.json` cache artifact consumed by the fixed bridge. Checked-in
+    native/foreign source exceptions are allowed only for the fixed non-kernel
+    bridge source or Haskell Objective-C-runtime bridge, not per-kernel adapters.
 29. Same-substrate bit-equality means: a transcript or checkpoint produced on
     `<substrate>` is bit-identical when reproduced on the same `<substrate>`
     against the same toolchain pin. Cross-substrate bit-equality is **not**
@@ -826,15 +821,15 @@ each constraint.
 | 4 | Phase 3 | Harbor, Pulsar, MinIO, PostgreSQL, kube-prometheus-stack, and TensorBoard install through the umbrella chart and route through the Envoy Gateway socket established in Phase 3 |
 | 5 | Phase 4 | The `jitml service` daemon subscribes to Pulsar, persists to MinIO via capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`), pulls images from Harbor, and reports metrics via the Prometheus stack established in Phase 4 |
 | 6 | Phase 5 | The numerical core's current Haskell catalog and Dhall mirrors are consumed by the daemon's training and inference loops; the layer catalog precedes the JIT codegen that compiles it |
-| 7 | Phase 6 | The per-substrate Haskell JIT source renderers (Metal / Swift, oneDNN C++, CUDA) consume the typed numerical core from Phase 6, generate compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, and write compiled artefacts into the content-addressed cache established in Phase 2 |
+| 7 | Phase 6 | The per-substrate Haskell JIT source renderers (Apple MSL, oneDNN C++, CUDA) consume the typed numerical core from Phase 6, generate compiler inputs/source metadata, and write content-addressed artifacts into the cache established in Phase 2 |
 | 8 | Phase 7 | The SL training loops and RL framework primitives compile their kernels through the JIT codegen established in Phase 7 and run on the daemon established in Phase 5 |
 | 9 | Phase 8 | The RL algorithm catalog (PPO, A2C, ...), AlphaZero self-play, and hyperparameter tuner consume the framework primitives from Phase 8 |
 | 10 | Phase 9 | Checkpointing serialises the trained models from Phases 8/9; the inference-only read path consumes the same wire format and flows back through the daemon |
 | 11 | Phase 10 | The target PureScript frontend REST surfaces consume the inference-only read path established in Phase 10; current Phase `11` owns the minimal frontend/contract/demo shim scaffold and local HTTP server before the compiled bundle and live WebSocket proxy land |
 | 12 | Phase 11 | The eight Cabal test-suite stanzas exercise every prior phase's surface end-to-end; `jitml-cross-backend` is the closure gate |
 | 13 | Phase 12 | The Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure consumes every code-surface obligation from Phases `1`–`12` and exercises them through one Linux/NVIDIA session against an ephemeral Kind cluster |
-| 14 | Phase 12 | The Apple Silicon Tart-VM build Metal JIT (`jitml`-managed Tart VM `swift build` + dylib copy-out + host runtime `MTLDevice.makeLibrary(source:)`), Metal FFI, host↔cluster RPC, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
-| 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`): the cross-substrate numeric parity surface (`Tolerance.hs`, `JitML.CrossBackend.Parity`, the `CrossSubstrate` drift tests, `jitml verify cross-backend`, the report-card `cross_substrate_parity` field) was removed because cross-substrate equivalence is out of contract; that removal re-closed 2026-06-09 after the `linux-cuda` GPU lane re-validation. The 2026-06-10 Tart-VM build-JIT reversal also re-closed after the live apple-silicon VM-built path passed 17/17. The 2026-06-10 real-workflow refactor reopened final handoff again; Phase `13` re-closed on 2026-06-11 for `linux-cpu`/`linux-cuda`, and Phase `12` Sprint `12.11` re-closed on 2026-06-12 with the live `linux-cpu` WorkflowMatrix gate; Phase `14` Sprint `14.8` still blocks Phase `15` Sprints `15.5` / `15.6`. |
+| 14 | Phase 12 | The Apple Silicon fixed-bridge Metal JIT (`<hash>.metal.json` + host runtime `MTLDevice.makeLibrary(source:options:)`), Metal FFI, host↔cluster RPC, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
+| 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`) to remove cross-substrate numeric parity because cross-substrate equivalence is out of contract; reopened again 2026-06-12 for the fixed-bridge Apple doctrine. Phase `13` re-closed on 2026-06-11 for `linux-cpu`/`linux-cuda`, and Phase `12` Sprint `12.11` re-closed on 2026-06-12 with the live `linux-cpu` WorkflowMatrix gate; Phase `14` Sprint `14.9` blocks Phase `15` Sprints `15.5` / `15.6`. |
 
 ## Status Vocabulary
 
@@ -850,8 +845,16 @@ for the governing rule.
 
 ## Current Baseline
 
-**Reopened 2026-06-10 (real-workflow refactor — supersedes the "all Phases Done /
-handoff complete" baseline below).** A realness audit found that every user-facing
+**Reopened 2026-06-12 (true-headless Apple Metal fixed-bridge doctrine —
+supersedes the "all Phases Done / handoff complete" baseline below).** Phases
+`1`, `2`, `5`, and `7` are Active to remove the Tart/SwiftPM core Apple path and
+land `apple.metal-runtime`, `apple.metal-bridge`, `.metal.json` cache artifacts,
+and fixed-bridge execution. Phase `14` is Blocked on that implementation chain
+for live Apple validation; Phase `15` is Blocked until the Apple lane closes and
+the deletion ledger is empty.
+
+**Reopened 2026-06-10 (real-workflow refactor — superseded by the 2026-06-12
+fixed-bridge reopen above).** A realness audit found that every user-facing
 workload and the demo used a synthetic/echo/pure-Haskell stand-in instead of the
 substrate JIT path (`MlpDevice` → real `jitml_mlp_*` kernels) that the
 `jitml-backends` lane already exercises. **Phases `8`–`12` reopened `🔄 Active` on
@@ -896,13 +899,14 @@ orchestrator owns the apple-silicon / linux-cpu lanes.) With that run, **Sprints
 `12.10` / `13.16` / `15.4` re-closed `✅ Done`, the last `Pending Removal` row
 (the `linux-cuda` half of the skip-guard removal) moved to `Completed`, the
 legacy ledger is empty, Exit Definition item 18 is met, and final handoff is
-complete.** **Most recently, the 2026-06-10 Apple Silicon Tart-VM build-JIT
-doctrine reversal reopened Phases `1`/`2`/`5`/`7`/`14` and the final handoff;
-all re-closed `✅ Done` the same day** after the live apple-silicon lane ran
-through the Tart-VM-built path (`jitml test jitml-backends --apple-silicon`,
-17/17 through in-VM `swift build` + host Metal execution), so the six new
-Tart-reversal ledger rows moved to `Completed` and the ledger is empty / item 18
-met / handoff complete again. The earlier reopen history stands
+complete.** The 2026-06-10 Apple Silicon Tart-VM build-JIT doctrine reversal
+reopened Phases `1`/`2`/`5`/`7`/`14` and the final handoff; all re-closed
+`✅ Done` the same day after the live apple-silicon lane ran through the
+Tart-VM-built path (`jitml test jitml-backends --apple-silicon`, 17/17 through
+in-VM `swift build` + host Metal execution), so the six Tart-reversal ledger
+rows moved to `Completed` and the ledger was empty / item 18 met again. That
+claim is superseded by the 2026-06-12 fixed-bridge reopen above. The earlier
+reopen history stands
 as dated record: **Phase `13` (all 15 sprints) and Phase `15` Sprints
 `15.1`/`15.2` reopened `🔄 Active` on 2026-06-06 and re-closed `✅ Done` the
 same day** (Sprint `15.3` stayed `✅ Done`) after re-validating the live CUDA,
@@ -1005,11 +1009,11 @@ sequence lives in
 
 | Surface | Current Repo State | Intended End State |
 |---------|--------------------|--------------------|
-| Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `compose.yaml`, `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza. The Tart build-VM modules are being reinstated under the reopened Phases `1`/`2`/`5`/`7`/`14` (2026-06-10). | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
+| Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `compose.yaml`, `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza. The Tart build-VM modules currently remain as legacy residue while the fixed-bridge Apple path is scheduled under reopened Phases `1`/`2`/`5`/`7`/`14` (2026-06-12). | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
 | Build artefacts | The Cabal package declares `jitml` and `jitml-demo`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the typed JIT cache key/layout/manifest/symlink layer is implemented; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; non-dry-run `jitml build` routes the selected JIT artifact through `JitML.Engines.Loader`; `jitml-cross-backend` validates generated Linux CPU libdnnl-linked oneDNN primitive compile/load/run paths plus exported family/output-count metadata, local Linux CPU `HasEngine` dispatch, and Linux CPU benchmark candidate measurement through generated FFI output digests; `jitml-unit` validates the CUDA host-callable wrapper/source ABI and guarded local CUDA runner fail-closed path | `cabal build all`-produced `jitml` and `jitml-demo` binaries, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
-| CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference execution paths, test report rendering, internal substrate materialization, dataset upload, generated-source build-plan rendering, and cache stubs. The retired `jitml internal vm` group is absent. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,upload-dataset,gc,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
+| CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference execution paths, test report rendering, internal substrate materialization, dataset upload, generated-source build-plan rendering, and cache stubs. The currently implemented `jitml internal vm` group is pending removal under Sprint `1.15`. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,upload-dataset,gc,cache}`, `commands`, `help`, plus the `jitml-demo` HTTP server |
 | Test stanzas | Eight Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, linkable oneDNN probing, local checkpoint inference through a Linux CPU generated oneDNN kernel, and live daemon/event dispatch cases, `jitml-cross-backend` includes generated Linux CPU oneDNN primitive compile/load/run, family/output-count symbol checks, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement, and per-substrate run-to-run bit-identity (within-substrate reproducibility); `jitml-daemon-lifecycle` covers injected engine-backed daemon inference dispatch, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. The 2026-06-04 fresh Apple live aggregate passed all eight `jitml test all --live` report stanzas and captured populated report-card measurements. | Eight Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e` |
-| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, no `source-repository-package` pins, and no local dependency packages, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Plain Hackage solves under the GHC `9.12.4` / `base-4.21` baseline. Phase `8` Sprint `8.8` leaves only pinned ALE library/runtime prerequisites for optional external/generated `atari-subset` adapter experiments, while Sprint `8.9` moved default demos to `KeyDoorGrid-v0`. | GHC `9.12.4`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, optional ALE library/runtime pinned in `docker/Dockerfile`, host Metal framework + CommandLineTools `swiftc`, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
+| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, no `source-repository-package` pins, and no local dependency packages, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Plain Hackage solves under the GHC `9.12.4` / `base-4.21` baseline. Phase `8` Sprint `8.8` leaves only pinned ALE library/runtime prerequisites for optional external/generated `atari-subset` adapter experiments, while Sprint `8.9` moved default demos to `KeyDoorGrid-v0`. | GHC `9.12.4`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, optional ALE library/runtime pinned in `docker/Dockerfile`, host OS Metal runtime + fixed bridge for core Apple execution, optional `swiftc`/macOS SDK only for non-core Swift JIT modules, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
 | Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU oneDNN primitive execution, local Linux CPU `HasEngine` dispatch, CUDA host-wrapper source ABI, and per-substrate run-to-run bit-identity (within-substrate reproducibility) are covered by dedicated Cabal stanzas. Cross-substrate equivalence is out of contract and not asserted | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
 | Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, six Halogen panel modules under `web/src/Panels/`, and a `spec-node` `purescript-spec` smoke suite under `web/test/`; `src/JitML/Web/Server.hs` serves the demo/API/WebSocket surface; the live-only Playwright scaffold drives the published edge route | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
 

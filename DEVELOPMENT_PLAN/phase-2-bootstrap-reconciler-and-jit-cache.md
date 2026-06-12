@@ -15,23 +15,22 @@
 > **Purpose**: Stand up the three stage-0 substrate bootstrap entrypoints, the
 > Haskell `jitml bootstrap --<substrate>` reconciler, the typed prerequisite DAG
 > that performs lazy package validation/remediation, the content-addressed JIT
-> cache discipline, the Apple Silicon stable-FFI symlink surface and headless
-> host Swift/Metal build, and the outer-container Linux build flow.
+> cache discipline, the Apple Silicon fixed Metal-bridge prerequisite/cache
+> surface, and the outer-container Linux build flow.
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT
-doctrine reversal; **re-closed 2026-06-10** after Sprint `2.11`). The
-`container.tart` prerequisite node and the `jitml`-managed Tart build-VM lifecycle
-(`JitML.Tart.Lifecycle`) are reinstated, the `container.apple-silicon.jit-cache-miss`
-node depends on `container.tart` again, and `bootstrap purge` deletes the VM. The
-lifecycle is validated live on Apple M1 (headless boot, status, stop); the
-prerequisite closure is unit-tested. The Apple cache-miss build *using* the VM is
-Phase `7` Sprint `7.10`, re-closed `✅ Done` (2026-06-10) after the apple-silicon
-lane built every Metal kernel family in the VM and ran it on the host GPU. See
-[Sprint 2.11](#sprint-211-reinstate-the-tart-build-vm-prerequisite-and-lifecycle--done)
-and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). Prior
-closure history follows.
+🔄 **Active** (reopened 2026-06-12 for the true-headless Apple Metal
+fixed-bridge doctrine; Sprint `2.12`). The current prerequisite graph still
+contains the `container.tart` node and the Tart lifecycle needed by the
+now-legacy SwiftPM-in-VM cache-miss path. The target graph replaces that with
+`apple.metal-runtime` and `apple.metal-bridge` as core Apple prerequisites plus
+optional `apple.swiftc` / `apple.macos-sdk` probes for non-core Swift JIT
+capabilities. The Apple cache artifact becomes `<hash>.metal.json` source
+metadata; VM cleanup leaves `bootstrap purge`. The temporary residue is tracked
+in
+[legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
+Prior closure history follows.
 
 ✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
 **re-closed the same day** after Sprint `2.10` removed the `container.tart`
@@ -729,9 +728,10 @@ from [../README.md](../README.md).
   layout, the `~/.kube/config` and `~/.docker/config.json` non-touch
   invariants, and (Sprint `2.8`) the `dhall/cluster/` resource profile +
   kind-node memory/CPU cap.
-- `documents/engineering/jit_codegen_architecture.md` — JIT cache layout,
-  content-addressing, Apple stable-FFI symlink surface, and headless host
-  Swift/Metal build pattern.
+- `documents/engineering/jit_codegen_architecture.md` and
+  `documents/engineering/apple_silicon_metal_headless_builds.md` — JIT cache
+  layout, content-addressing, Apple fixed-bridge prerequisite surface, and
+  `<hash>.metal.json` source/metadata cache pattern.
 - `documents/engineering/daemon_architecture.md` / `haskell_code_guide.md` —
   (Sprint `2.9`) the reconciler `sh -c` → typed Haskell + `RetryPolicy`
   migration under `Subprocesses as Typed Values` / `Retry Policy as First-Class
@@ -749,6 +749,9 @@ from [../README.md](../README.md).
 - `system-components.md → Cluster Substrate Components` carries the
   `dhall/cluster/` profile and kind-node-cap rows; `legacy-tracking-for-deletion.md`
   carries the Sprint `2.9` embedded-`sh -c` removal row.
+- `legacy-tracking-for-deletion.md` carries Pending Removal rows for
+  `container.tart`, Tart lifecycle modules, and Apple generated-dylib cache
+  residue owned by Sprints `2.12` / `7.11`.
 
 ## Sprint 2.11: Reinstate the Tart build-VM prerequisite and lifecycle [✅ Done]
 
@@ -819,6 +822,55 @@ drives the in-VM `swift build` path 17 / 17):
 The downstream Apple cache-miss build *using* this VM lifecycle is owned by Phase
 `7` Sprint `7.10`, which re-closed `✅ Done` (2026-06-10) after the apple-silicon
 lane drove the in-VM `swift build` for real.
+
+## Sprint 2.12: Replace Tart prerequisites with fixed-bridge Apple cache prerequisites [Active]
+
+**Status**: Active
+**Implementation**: `src/JitML/Prerequisite/Nodes/Container.hs`, `src/JitML/Cache/{Layout,Manifest}.hs`, `bootstrap/_lib.sh`
+**Docs to update**: `documents/engineering/cluster_topology.md`, `documents/engineering/jit_codegen_architecture.md`, `documents/engineering/apple_silicon_metal_headless_builds.md`, `system-components.md`
+
+### Objective
+
+Make the Apple Silicon prerequisite and cache model match the fixed-bridge
+architecture: core execution requires an OS Metal runtime probe and a fixed
+bridge probe, not Tart, a keychain, SwiftPM, full Xcode, or the offline `metal`
+compiler. Adopts `Prerequisites as typed effects`, `Subprocesses as typed
+values`, and `Built-artifact and JIT-cache discipline` from
+[../README.md](../README.md).
+
+### Deliverables
+
+- Replace the core `container.tart` / `container.apple-silicon.jit-cache-miss`
+  closure with `apple.metal-runtime` and `apple.metal-bridge` nodes. The runtime
+  probe dispatches a tiny `MTLDevice.makeLibrary(source:options:)` kernel; the
+  bridge probe `dlopen`s/calls the fixed bridge's probe symbol.
+- Add optional, non-core `apple.swiftc` and `apple.macos-sdk` nodes for future
+  generated Swift modules. These nodes are not dependencies of training,
+  inference, backend tests, or `jitml service`.
+- Remove VM lifecycle cleanup from `bootstrap purge`; no bootstrap or cache-miss
+  path starts/stops/deletes Tart.
+- Change the Apple cache layout to persist source metadata at
+  `./.build/jit/apple-silicon/<hash>.metal.json`, keyed by rendered MSL,
+  launch metadata, bridge ABI version, Metal runtime policy, determinism
+  options, and tuning choice.
+
+### Validation
+
+- `jitml doctor --scope toolchain` / `--scope container` reports the fixed-bridge
+  Apple nodes and no core `container.tart` dependency.
+- A synthetic Apple host with `xcrun -find metal` failing and no usable login
+  keychain still passes the Metal runtime/bridge probes.
+- `jitml-unit` prerequisite-closure and cache-layout tests pass.
+- `bootstrap/apple-silicon.sh purge` preserves `./.build/jit/apple-silicon/` and
+  invokes no `tart` subprocess.
+
+### Remaining Work
+
+- Implement the new Apple prerequisite nodes and remove `container.tart` from the
+  core closure.
+- Add `.metal.json` cache layout/manifest support and update tests.
+- Remove bootstrap VM cleanup and move the Tart prerequisite/lifecycle ledger row
+  to `Completed` after validation.
 
 ## Related Documents
 

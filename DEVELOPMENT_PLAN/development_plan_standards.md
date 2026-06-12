@@ -28,7 +28,7 @@
 > **Purpose**: Define the maintenance rules for the jitML development plan so the
 > repository keeps one coherent, execution-ordered plan plus an explicit cleanup
 > ledger across the CLI bootstrap, the three-substrate cluster buildout, the
-> training and inference workloads, and the parity-validated test surface.
+> training and inference workloads, and the within-substrate test surface.
 
 ## Core Principles
 
@@ -73,23 +73,24 @@ project management summaries.
   or pluralised in plan or doctrine prose.
 - JIT build source is not checked in as static substrate files. Any source code
   artefact needed to compile a JIT kernel, including CUDA `.cu`, C/C++ `.cc` /
-  `.cpp`, Metal / Swift package sources, native adapter shims, and
-  per-substrate build `.sh` scripts, is generated on demand by the Haskell
-  `jitml` binary into the content-addressed build/cache tree. Checked-in code
-  may contain Haskell renderers, typed templates, and tests for those renderers,
-  but not ready-to-run native/JIT source files, adapter shims, or build scripts.
-  If a runtime path needs a native adapter, it belongs in a Haskell renderer and
-  is materialized under the generated build/cache tree; otherwise file lint
-  rejects it. On `apple-silicon`, the generated Swift package is
-  built **inside the `jitml`-managed Tart VM** with the VM's `swift build`; the
-  produced dylib is copied out to the host, and the generated launcher JIT-compiles
-  the embedded Metal Shading Language **at runtime, in-process**, via
-  `MTLDevice.makeLibrary(source:options:)` with `fastMathEnabled = false`, then
-  executes on the host GPU. Full Xcode is never installed on the host; the host
-  carries no Swift/Metal toolchain — the toolchain lives only in the VM, which the
-  `jitml` binary provisions (`brew install`ing Tart if absent) with
-  Dhall-configured CPU/memory/storage. Full detail lives in
-  [../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
+  `.cpp`, generated Metal Shading Language, optional Swift package sources,
+  native adapter shims, and per-substrate build `.sh` scripts, is generated on
+  demand by the Haskell `jitml` binary into the content-addressed build/cache
+  tree. Checked-in code may contain Haskell renderers, typed templates, the
+  source for a fixed non-kernel host bridge, and tests for those renderers, but
+  not ready-to-run per-kernel native/JIT source files, adapter shims, or build
+  scripts. If a runtime path needs a per-kernel native adapter, it belongs in a
+  Haskell renderer and is materialized under the generated build/cache tree;
+  otherwise file lint rejects it. On `apple-silicon`, the core JIT cache-miss
+  path renders MSL plus launch metadata into a content-addressed
+  `<hash>.metal.json` source artifact and invokes a fixed host Metal bridge that
+  calls `MTLDevice.makeLibrary(source:options:)` with fast math disabled before
+  dispatching on the host GPU. The core path does **not** start Tart, require an
+  unlocked keychain, invoke SwiftPM, require the offline `metal` compiler, or
+  install full Xcode on the host. Optional generated Swift modules, if later
+  enabled, are a separate capability gated by explicit `swiftc` + macOS SDK
+  probes and are not the training/inference cache-miss path. Full detail lives in
+  [../documents/engineering/apple_silicon_metal_headless_builds.md](../documents/engineering/apple_silicon_metal_headless_builds.md).
 - Deprecated aliases or legacy command paths belong only in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
