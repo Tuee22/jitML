@@ -125,7 +125,7 @@ substrateTestInvocations (Just substrate) targets userOptions =
   cudaArgs = ["-fcuda" | substrate == LinuxCUDA]
   partitioned = filter (`elem` substratePartitionedStanzas) targets
   rest = filter (`notElem` substratePartitionedStanzas) targets
-  restInvocation = ["test" : cudaArgs <> rest | not (null rest)]
+  restInvocation = ["test" : cudaArgs <> rest <> testOptionArgs userOptions | not (null rest)]
   laneOption = "-p " <> renderSubstrate substrate
   partitionedOptions =
     case userOptions of

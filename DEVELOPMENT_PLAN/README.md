@@ -71,8 +71,9 @@ compile → dlopen → real `jitml_mlp_*` kernels) exists and is parity-tested i
   of 2026-06-12 after Sprint `12.11` moved the final cleanup row to
   `Completed`, but final handoff is incomplete until the remaining live lane
   closes. The remaining blockers are Phase `14` Sprint `14.8` (apple-silicon
-  live capacity blocker: 10,240 MiB Kind node + 8,192 MiB Tart VM on a
-  16,384 MiB host) and Phase `15` Sprints `15.5` / `15.6`.
+  live Tart VM startup is blocked by the host login-keychain / Virtualization
+  HostKey state after bootstrap and e2e validation passed on this 64 GiB Apple
+  host) and Phase `15` Sprints `15.5` / `15.6`.
 
 The historical closure narrative below is retained as fact about the prior
 (synthetic) state; it no longer describes the current status.
@@ -750,7 +751,7 @@ obligation exists.
 | 11 | PureScript Frontend and Demo | ✅ Done (re-closed 2026-06-11 — real API/panel wiring plus live CUDA Playwright value assertions; Sprint 11.8) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done (re-closed 2026-06-12 — DRY real-workflow matrix, fail-closed integration Live runner, `jitml rl alphazero self-play` CLI cell, fixed linux-cpu bootstrap/edge, and live WorkflowMatrix pass) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | Linux CUDA and Cluster Closure | ✅ Done (re-closed 2026-06-11 on the CUDA machine — linux-cpu and linux-cuda live reopened workflows passed; Sprints 13.17/13.18/13.19) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-10 — live apple-silicon Tart-VM+Metal exercise requires a roomier Apple host; configured 10,240 MiB Kind node + 8,192 MiB Tart VM exceeds this 16,384 MiB host before overhead; Sprint 14.8) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-10 — live apple-silicon Tart-VM+Metal exercise passed bootstrap/e2e on this 64 GiB Apple host, then stopped at Tart `VZErrorDomain Code=-9` / `Failed to create new HostKey` because the host login keychain is unavailable headless; Sprint 14.8) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Substrate Reproducibility and Final Handoff | ⏸️ Blocked (reopened 2026-06-10 — final handoff blocked by Phase 14's apple-silicon live lane; Sprints 15.5/15.6) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 
 ## Reopened phases (2026-06-10 — real-workflow refactor)

@@ -542,9 +542,9 @@ annotatePolicyValueOutcome finalOutcome = annotateLoop finalOutcome (0 :: Int)
   -- `Use zipWithFrom` hint (which would require the extra package)
   -- does not fire.
   annotateLoop _ _ [] = []
-  annotateLoop finalOutcome i (s : ss) =
+  annotateLoop outcome i (s : ss) =
     let sign = if even i then 1.0 else -1.0
-     in s {sampleOutcome = sign * finalOutcome} : annotateLoop finalOutcome (i + 1) ss
+     in s {sampleOutcome = sign * outcome} : annotateLoop outcome (i + 1) ss
 
 -- | Real Connect-4 terminal evaluator: checks for any 4-in-a-row in
 -- horizontals, verticals, and both diagonal directions. Returns

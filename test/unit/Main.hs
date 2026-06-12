@@ -335,6 +335,14 @@ main =
           -- A pure-logic-only run omits the (empty) partitioned invocation.
           substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-e2e"] Nothing
             @?= [["test", "jitml-unit", "jitml-e2e"]]
+          -- User --test-options still apply to non-partitioned stanzas under a
+          -- substrate flag; otherwise focused live filters such as WorkflowMatrix
+          -- accidentally expand to the whole integration suite.
+          substrateTestInvocations
+            (Just Substrate.AppleSilicon)
+            ["jitml-integration"]
+            (Just "-p WorkflowMatrix")
+            @?= [["test", "jitml-integration", "--test-options", "-p WorkflowMatrix"]]
           -- User --test-options are appended after the synthesized lane selector.
           substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-backends"] (Just "--num-threads=1")
             @?= [["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda --num-threads=1"]]

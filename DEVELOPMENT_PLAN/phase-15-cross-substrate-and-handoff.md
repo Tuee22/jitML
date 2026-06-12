@@ -50,11 +50,14 @@ integration **67 / 67** + e2e **20 / 20** + daemon-lifecycle **32 / 32** +
 Playwright **9 / 9**). On 2026-06-12 Phase `12` re-closed after the
 `linux-cpu` bootstrap/edge fixes and the live WorkflowMatrix pass. Final
 handoff still cannot close because Phase `14` owns the remaining apple-silicon
-live Tart-VM+Metal exercise. The 2026-06-12 Phase `14` blocker re-check shows
-the configured 10,240 MiB Kind node plus 8,192 MiB Tart VM cannot fit on this
-16,384 MiB host before macOS/Docker overhead. Phases `8` and `9` re-closed on
-2026-06-11 after their Dense-MLP SL/RL, device-backed MCTS, and device-backed
-tuning obligations were validated.
+live Tart-VM+Metal exercise. The 2026-06-12 Phase `14` blocker re-check cleared
+the old capacity blocker on this 64 GiB Apple host: bootstrap passed, `jitml-e2e`
+passed **20 / 20**, and the focused live matrix reached the first real Metal
+training cell, but Tart failed to start `jitml-build` with
+`VZErrorDomain Code=-9 ... Failed to get current host key` /
+`Failed to create new HostKey` because the host login keychain is unavailable
+headless. Phases `8` and `9` re-closed on 2026-06-11 after their Dense-MLP
+SL/RL, device-backed MCTS, and device-backed tuning obligations were validated.
 The legacy ledger is empty again as of 2026-06-12; Sprint `15.6` remains blocked
 only because Sprint `15.5` cannot close until the Phase `14` live lane runs.
 The prior closure narrative below is retained as dated record.

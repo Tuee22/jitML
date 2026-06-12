@@ -30,11 +30,17 @@
 This phase owns the live **apple-silicon** exercise of every reopened workflow
 (Phases `8`–`12`) through the Metal device built in the `jitml`-managed Tart VM,
 against a live Apple-Silicon cluster. **Blocked on this host**: the configured
-10,240 MiB Kind node plus the 8,192 MiB Tart build VM require 18,432 MiB before
-macOS/Docker overhead, while this Apple M1 host has 16,384 MiB total. The Metal
-device path is implemented (Phase `7`/`8`); the live run is recorded as blocked
-pending a roomier Apple-Silicon host. The prior closure narrative below is
-retained as dated record.
+capacity blocker is cleared, but Tart cannot start `jitml-build` in this
+headless shell. The 2026-06-12 run on a 64 GiB Apple Silicon host passed
+stage-0 doctor, live bootstrap, and `jitml-e2e`, then the focused live
+`WorkflowMatrix` stopped at the first real Metal training cache miss with
+`VZErrorDomain Code=-9 ... Failed to get current host key` /
+`Failed to create new HostKey`. The host `login.keychain-db` exists but is
+locked/unavailable to non-interactive `security` calls; the next safe action is
+for the human to unlock it or explicitly permit a temporary replacement login
+keychain. The Metal device path is implemented (Phase `7`/`8`); the live run is
+recorded as blocked on host keychain / Virtualization HostKey state. The prior
+closure narrative below is retained as dated record.
 
 ✅ **Done** (reopened 2026-06-10 for the Apple Silicon Tart-VM build-JIT doctrine
 reversal; **re-closed 2026-06-10** after the live apple-silicon lane was
@@ -138,8 +144,9 @@ VM's `swift build`, copies `libJitMLMetal.dylib` out to the host cache, and
 Metal on the host GPU. Sprint `14.7` validated the `jitml-backends`
 apple-silicon lane through that path. Sprint `14.8` is the remaining open
 obligation: run every reopened real workflow through the live apple-silicon
-`WorkflowMatrix` against a cluster. It is blocked on this host by memory capacity,
-not by missing code.
+`WorkflowMatrix` against a cluster. The 2026-06-12 run proves capacity is no
+longer the blocker on this host; it is blocked by Tart's headless HostKey
+creation failing against the host login keychain.
 
 ## Phase Summary
 
@@ -147,8 +154,8 @@ This phase batches the Apple-Silicon live runtime work so it can close in one
 Apple-machine session. The historical sprints below record the Metal loader,
 benchmark runner, host↔cluster RPC, production weight loading, skip-guard
 removal, and Tart-VM build-JIT revalidation. The only current open sprint is
-Sprint `14.8`: provision a live apple-silicon cluster on a roomier host, run the
-matrix/e2e commands for real, then unblock Phase `15`.
+Sprint `14.8`: run the matrix/e2e commands for real after the host login
+keychain / Tart HostKey prerequisite is satisfied, then unblock Phase `15`.
 
 ## Sprint 14.1: Host Swift Toolchain and First-Cache-Miss Headless Build ✅
 
@@ -690,9 +697,11 @@ out of the VM, and executed it on the host GPU:
 ## Sprint 14.8: Live apple-silicon Exercise of the Reopened Workflows [Blocked]
 
 **Status**: Blocked
-**Blocked by**: external capacity prerequisite — a roomier Apple-Silicon host
-where the configured 10,240 MiB Kind node plus 8,192 MiB Tart build VM fit with
-macOS/Docker overhead.
+**Blocked by**: external host keychain prerequisite — Tart cannot create/read the
+Virtualization HostKey because this headless shell cannot access an unlocked
+login keychain. The next safe action requires the human to unlock
+`~/Library/Keychains/login.keychain-db` for the session or explicitly permit a
+temporary replacement login keychain while the live matrix runs.
 **Docs to update**: `system-components.md`
 
 ### Objective
@@ -711,17 +720,30 @@ live Apple-Silicon cluster.
 ### Remaining Work
 
 - The Metal device path and the Phase `8`–`11` real workflows are implemented;
-  the pure-logic stanzas pass host-native. The live half is blocked: the Tart
-  build VM (multi-GB) plus Kind + Helm + Pulsar + MinIO exceed this host's
-  memory. No code remains — the obligation is the live run on a roomier
-  Apple-Silicon host.
-- 2026-06-12 blocker re-check: `bootstrap/apple-silicon.sh doctor` passes, the
-  current machine is Darwin arm64 with 16,384 MiB RAM
-  (`sysctl -n hw.memsize` → `17179869184`), `kind get clusters` reports no live
-  Kind cluster, and `tart list --format json` shows `jitml-build` present but
-  stopped. The configured live run still needs 10,240 MiB for the Kind node plus
-  8,192 MiB for the Tart build VM (18,432 MiB before OS/Docker overhead), so the
-  Apple live run was not attempted on this host.
+  the pure-logic stanzas pass host-native. The live half is blocked by host
+  keychain state, not by missing code or capacity.
+- 2026-06-12 blocker re-check on this 64 GiB Apple Silicon host
+  (`sysctl -n hw.memsize` → `68719476736`): `bootstrap/apple-silicon.sh doctor`
+  passed; `bootstrap/apple-silicon.sh up` completed the live phased rollout
+  (84 steps) and the image-local `jitml check-code` gate passed; the publication
+  reports all seven components Ready on `edge_port: 9090`; and
+  `jitml test jitml-e2e --apple-silicon` passed **20 / 20**. The focused live
+  matrix invocation now preserves user test filters under substrate flags
+  (`jitml-unit -p substrateTestInvocations` covers the regression) and reaches
+  the real Apple training path, but `jitml-integration -p WorkflowMatrix` fails
+  closed at the first `train experiments/mnist.dhall --substrate apple-silicon`
+  cell because Tart cannot start `jitml-build`:
+  `VZErrorDomain Code=-9 ... Failed to get current host key` /
+  `Failed to create new HostKey`. Direct `tart run --no-graphics ... jitml-build`
+  reproduces the same failure.
+- Host diagnosis: `security list-keychains` and `security default-keychain`
+  resolve to `/Library/Keychains/System.keychain`; the existing
+  `~/Library/Keychains/login.keychain-db` is not usable headlessly
+  (`security show-keychain-info` reports `User interaction is not allowed`, and
+  `security unlock-keychain -p ''` rejects the passphrase). Creating a dedicated
+  unlocked keychain and setting it as the search-list/default keychain was not
+  sufficient for Virtualization.framework. Temporarily moving/replacing the real
+  login keychain was not attempted because it is a sensitive user-state change.
 
 ## Doctrine Sections Cited
 
@@ -743,8 +765,8 @@ live Apple-Silicon cluster.
 - `documents/engineering/daemon_architecture.md` — record the live
   Apple host↔cluster RPC flow once Sprint `14.4` closes.
 - `documents/engineering/cluster_topology.md` — note the host-native daemon's
-  edge-port discovery, Apple session prerequisites, and the live capacity
-  requirement for running a Kind node beside the Tart build VM.
+  edge-port discovery, Apple session prerequisites, and the live Tart HostKey /
+  login-keychain prerequisite.
 - `documents/engineering/checkpoint_format.md` — Apple Metal weighted
   inference path once Sprint `14.5` closes.
 - `documents/engineering/determinism_contract.md` — Apple Metal
@@ -761,7 +783,7 @@ live Apple-Silicon cluster.
 **Cross-references to add:**
 
 - `system-components.md → Substrates` row for `apple-silicon` records Sprint
-  `14.8` as blocked on the roomier-host capacity prerequisite.
+  `14.8` as blocked on the host login-keychain / Tart HostKey prerequisite.
 
 ## Related Documents
 
