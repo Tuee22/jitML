@@ -113,4 +113,7 @@ appleSiliconInternalTopics =
     Topic
     [ "persistent://public/default/inference.command.apple-silicon"
     , "persistent://public/default/inference.event.apple-silicon"
+    , "persistent://public/default/training.host-command.apple-silicon"
+    , "persistent://public/default/tune.host-command.apple-silicon"
+    , "persistent://public/default/rl.host-command.apple-silicon"
     ]

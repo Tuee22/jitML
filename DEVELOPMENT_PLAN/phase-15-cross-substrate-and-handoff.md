@@ -1,5 +1,11 @@
 # Phase 15: Substrate Reproducibility and Final Handoff
 
+> **Reopened and re-closed 2026-06-13.** The Apple Silicon host-residency
+> placement audit reopened final handoff until the stale Apple Kubernetes-Job
+> placement path was removed from dispatch planning, the Apple lane was
+> revalidated with host-resident Metal-backed Training/RL/Tune work, and the
+> legacy ledger was empty again.
+>
 > **Reopened and re-closed 2026-06-08 through 2026-06-12.** The cross-substrate
 > numeric parity surface was **removed** because cross-substrate
 > equivalence is **out of contract**: the reproducibility contract is
@@ -41,6 +47,15 @@
 > legacy-ledger state required by Exit Definition item 18 and final handoff.
 
 ## Phase Status
+
+✅ **Done** (reopened and re-closed 2026-06-13 for Sprint `15.7`). Final
+handoff is restored: Sprint `5.11` removes the stale Apple Metal-backed
+Kubernetes Job placement from dispatch planning, Sprint `12.12` adds fail-fast
+placement tests, Sprint `14.10` revalidates the full Apple lane, and
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal)
+is empty again.
+
+Prior closure history follows.
 
 ✅ **Done** (reopened 2026-06-12 — true-headless Apple Metal fixed-bridge
 doctrine; **re-closed the same day** after Sprints `15.5` / `15.6`). This phase
@@ -776,6 +791,52 @@ refactor.
 ### Remaining Work
 
 - None.
+
+## Sprint 15.7: Apple Placement Ledger Walk-Down and Final Handoff ✅
+
+**Status**: Done
+**Implementation**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
+`DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
+`DEVELOPMENT_PLAN/system-components.md`
+**Docs to update**: `../README.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
+`DEVELOPMENT_PLAN/README.md`, `DEVELOPMENT_PLAN/00-overview.md`,
+`DEVELOPMENT_PLAN/system-components.md`
+
+### Objective
+
+Close the Apple placement reopen by moving the stale Kubernetes-Job placement row
+to `Completed`, confirming the full Apple lane passes with host-resident Metal
+execution, and restoring the final-handoff state.
+
+### Deliverables
+
+- `legacy-tracking-for-deletion.md` Pending Removal is empty after the Apple Job
+  placement branch is deleted.
+- `README.md`, `00-overview.md`, and `system-components.md` agree on the reopened
+  and re-closed phase statuses.
+- Final validation evidence names the Apple host-resident Training/RL/Tune path,
+  the no-Apple-Metal-Job assertion, and the unchanged Linux CPU/CUDA placement
+  behavior.
+
+### Validation
+
+- `bootstrap/apple-silicon.sh test` passed after Sprint `14.10`; all eight
+  report stanzas rendered PASS, including `jitml-integration` **71 / 71** and
+  `jitml-backends` **17 / 17**.
+- Focused `linux-cpu` live dispatch/convergence selectors passed during Sprint
+  `12.12`, preserving Linux Job-backed placement. The CUDA lane remains closed
+  from the real NVIDIA-host validation recorded in Phase `13`; no CUDA source
+  or contract changed in the Apple placement walk-down.
+- `legacy-tracking-for-deletion.md` Pending Removal is empty again after moving
+  the Apple Metal-backed Training/RL/Tune Kubernetes Job placement row to
+  `Completed`.
+- `docker compose run --rm jitml jitml docs check`,
+  `docker compose run --rm jitml jitml check-code`, and `git diff --check` pass.
+
+### Remaining Work
+
+None.
 
 ## Doctrine Sections Cited
 

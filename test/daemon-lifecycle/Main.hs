@@ -102,7 +102,12 @@ import JitML.Service.Signal
 import JitML.Service.Workload
   ( WorkloadEffect (..)
   , WorkloadEffectResult (..)
+  , WorkloadKind (..)
+  , WorkloadPlacement (..)
+  , dispatchDomainPayloadForResidency
+  , hostWorkloadCommandTopic
   , parseWorkloadEffectPayload
+  , planWorkloadPlacement
   , renderRlJob
   , renderTrainingJob
   , renderTuneJob
@@ -340,8 +345,12 @@ main =
           fmap daemonSubscriptionName clusterSubscriptions
             @?= replicate 4 "jitml-service"
           fmap (unTopicName . daemonSubscriptionTopic) hostSubscriptions
-            @?= ["persistent://public/default/inference.command.apple-silicon"]
-          fmap daemonSubscriptionName hostSubscriptions @?= ["jitml-host"]
+            @?= [ "persistent://public/default/inference.command.apple-silicon"
+                , "persistent://public/default/training.host-command.apple-silicon"
+                , "persistent://public/default/tune.host-command.apple-silicon"
+                , "persistent://public/default/rl.host-command.apple-silicon"
+                ]
+          fmap daemonSubscriptionName hostSubscriptions @?= replicate 4 "jitml-host"
           -- Sprint 14.4 — the Apple in-cluster (ForwardToHost) daemon also
           -- subscribes to inference.event.apple-silicon to receive host replies.
           let appleClusterSubscriptions =
@@ -354,6 +363,48 @@ main =
                 , "persistent://public/default/inference.request.apple-silicon"
                 , "persistent://public/default/inference.event.apple-silicon"
                 ]
+      , testCase "workload placement routes Apple Metal starts to host command topics (Sprint 5.11)" $ do
+          planWorkloadPlacement BootConfig.Cluster WorkloadRl AppleSilicon
+            @?= WorkloadHostCommand (hostWorkloadCommandTopic WorkloadRl AppleSilicon)
+          planWorkloadPlacement BootConfig.Cluster WorkloadTraining LinuxCPU
+            @?= WorkloadClusterJob
+          publishRef <- newIORef []
+          let appleRl =
+                Rl.RlStart
+                  Rl.StartRLRun
+                    { Rl.srlExperimentHash = "apple-rl"
+                    , Rl.srlAlgorithm = "PPO"
+                    , Rl.srlEnvironment = "cartpole"
+                    , Rl.srlSubstrate = AppleSilicon
+                    , Rl.srlSeed = 42
+                    , Rl.srlMaxSteps = 200
+                    , Rl.srlEvalEpisodes = 2
+                    }
+              linuxRl =
+                Rl.RlStart
+                  Rl.StartRLRun
+                    { Rl.srlExperimentHash = "linux-rl"
+                    , Rl.srlAlgorithm = "PPO"
+                    , Rl.srlEnvironment = "cartpole"
+                    , Rl.srlSubstrate = LinuxCPU
+                    , Rl.srlSeed = 42
+                    , Rl.srlMaxSteps = 200
+                    , Rl.srlEvalEpisodes = 2
+                    }
+          _ <-
+            evalStateT
+              (dispatchDomainPayloadForResidency BootConfig.Cluster RlDomain (Rl.renderRlCommand appleRl))
+              (SyntheticClientState publishRef)
+          appleLog <- readIORef publishRef
+          appleLog
+            @?= ["pulsar:publish:persistent://public/default/rl.host-command.apple-silicon"]
+          linuxRef <- newIORef []
+          _ <-
+            evalStateT
+              (dispatchDomainPayloadForResidency BootConfig.Cluster RlDomain (Rl.renderRlCommand linuxRl))
+              (SyntheticClientState linuxRef)
+          linuxLog <- readIORef linuxRef
+          linuxLog @?= ["kubectl:apply:job/jitml-rl-linux-rl"]
       , testCase "one-shot daemon HTTP server exposes healthz" $
           withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (daemonHttpRoutes defaultDaemonRuntime) $ \port -> do
             response <- httpGet port "/healthz"

@@ -9,7 +9,7 @@ where
 import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
 import Control.Exception.Safe (bracket, displayException, finally, tryAny)
-import Control.Monad (forever, unless, when)
+import Control.Monad (forever, unless, void, when)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Crypto.Hash.SHA256 qualified
@@ -151,16 +151,17 @@ import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.Consumer
   ( ConsumerOutcome (..)
-  , EventDomain
+  , EventDomain (..)
   , EventId
   , HandlerRouter
   , consumerStepWithActions
   )
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
-import JitML.Service.Retry (ServiceError)
+import JitML.Service.Retry (ServiceError (..))
 import JitML.Service.RunConfig qualified as RunConfig
 import JitML.Service.Runtime qualified as ServiceRuntime
+import JitML.Service.Workload qualified as Workload
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
@@ -637,12 +638,22 @@ runService parsedOptions = do
       writeText (ServiceRuntime.renderConsumerOutcomes outcomes)
       for_ (ServiceRuntime.consumerLoopExit outcomes) exitWithError
     else do
-      writeLine "service: listening on 0.0.0.0:8080"
+      writeLine (serviceListeningLine probedRuntime)
       consumerThreads <- liftIO (startDaemonConsumerWorkers env probedRuntime)
       liftIO
         ( ServiceRuntime.serveDaemon probedRuntime
             `finally` stopDaemonConsumerWorkers consumerThreads
         )
+
+serviceListeningLine :: ServiceRuntime.DaemonRuntime -> Text
+serviceListeningLine runtime =
+  case BootConfig.bootHttpListener (ServiceRuntime.daemonBootConfig runtime) of
+    Nothing -> "service: running without HTTP listener"
+    Just listener ->
+      "service: listening on "
+        <> BootConfig.listenerHost listener
+        <> ":"
+        <> Text.pack (show (BootConfig.listenerPort listener))
 
 startDaemonConsumerWorkers :: Env -> ServiceRuntime.DaemonRuntime -> IO [ThreadId]
 startDaemonConsumerWorkers env runtime = do
@@ -748,11 +759,11 @@ daemonWorkloadDispatcherForRuntime env runtime =
     -- serves `AppleInferenceCommand` forwards off `inference.command.apple-silicon`:
     -- it runs the Metal weighted kernel, stages the output to MinIO, and publishes
     -- the `AppleInferenceEvent` reply. Direct `RunInference` payloads still route
-    -- to the weighted self-inference path.
+    -- to the weighted self-inference path. Sprint 5.11 extends that host-resident
+    -- execution rule to Metal-backed training/RL/tune command envelopes forwarded
+    -- by the in-cluster Apple daemon on the host-command topics.
     (AppleSilicon, BootConfig.SelfInference) ->
-      ServiceRuntime.daemonWorkloadDispatcherHostingAppleInference
-        (appleHostInferenceRunner env)
-        (\manifest weights input -> liftIO (runMetalWeightedCheckpointInference env manifest weights input))
+      daemonWorkloadDispatcherHostingAppleWorkloads env
     -- Sprint 14.4 — the in-cluster Apple daemon (`Cluster + ForwardToHost`)
     -- forwards inference to the host-native daemon: it publishes an
     -- `AppleInferenceCommand` on `inference.command.apple-silicon` rather than
@@ -796,6 +807,240 @@ appleHostInferenceRunner env command = do
                   <> "/"
                   <> Capabilities.unObjectKey (Capabilities.objectKey outputRef)
               ]
+
+daemonWorkloadDispatcherHostingAppleWorkloads
+  :: Env
+  -> EventDomain
+  -> EventId
+  -> Text
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+daemonWorkloadDispatcherHostingAppleWorkloads env domain eventId payload =
+  case domain of
+    TrainingDomain ->
+      case ProtoTraining.parseTrainingCommand payload of
+        Just (ProtoTraining.TrainingStart start) ->
+          runHostAppleTraining env start
+        Just (ProtoTraining.TrainingStop _) ->
+          pure (Right ())
+        Nothing ->
+          hostInferenceFallback domain eventId payload
+    TuneDomain ->
+      case ProtoTune.parseTuneCommand payload of
+        Just (ProtoTune.TuneStart start) ->
+          runHostAppleTune env start
+        Just (ProtoTune.TuneStop _) ->
+          pure (Right ())
+        Nothing ->
+          hostInferenceFallback domain eventId payload
+    RlDomain ->
+      case ProtoRl.parseRlCommand payload of
+        Just (ProtoRl.RlStart start) ->
+          runHostAppleRl env start
+        Just (ProtoRl.RlStop _) ->
+          pure (Right ())
+        Nothing ->
+          hostInferenceFallback domain eventId payload
+    InferenceDomain ->
+      hostInferenceFallback domain eventId payload
+ where
+  hostInferenceFallback =
+    ServiceRuntime.daemonWorkloadDispatcherHostingAppleInference
+      (appleHostInferenceRunner env)
+      (\manifest weights input -> liftIO (runMetalWeightedCheckpointInference env manifest weights input))
+
+runHostAppleTraining
+  :: Env
+  -> ProtoTraining.StartTraining
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+runHostAppleTraining env start
+  | ProtoTraining.stSubstrate start /= AppleSilicon =
+      pure (Left (SETransient "host Apple training received a non-apple-silicon command"))
+  | otherwise = do
+      let problem =
+            case SL.canonicalProblems of
+              firstProblem : _ -> firstProblem
+              [] -> SL.CanonicalProblem "empty" "empty" "empty" 0
+          trainLimit = 2000
+          epochs = fromIntegral (ProtoTraining.stEpochs start)
+          testLimit = 1000
+      result <-
+        liftIO
+          ( runReaderT
+              (runDeviceMnistTrainingWithLimits AppleSilicon problem trainLimit epochs testLimit)
+              env
+          )
+      case result of
+        Left err -> pure (Left (SETransient ("host Apple training failed: " <> err)))
+        Right loss -> publishTrainingEpoch start loss
+
+publishTrainingEpoch
+  :: ProtoTraining.StartTraining
+  -> Double
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+publishTrainingEpoch start loss = do
+  timestampNs <- liftIO currentTimestampNs
+  let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic AppleSilicon)
+      epochNumber = max 1 (ProtoTraining.stEpochs start)
+      envelope =
+        ProtoTraining.TrainingEpoch
+          ( ProtoTraining.EpochCompleted
+              { ProtoTraining.ecExperimentHash = ProtoTraining.stExperimentHash start
+              , ProtoTraining.ecEpoch = epochNumber
+              , ProtoTraining.ecLoss = loss
+              , ProtoTraining.ecValidationLoss = loss
+              , ProtoTraining.ecTimestampNs = timestampNs
+              }
+          )
+  publishUnit topic (ProtoTraining.renderTrainingEvent envelope)
+
+runHostAppleTune
+  :: Env
+  -> ProtoTune.StartSweep
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+runHostAppleTune env start
+  | ProtoTune.ssSubstrate start /= AppleSilicon =
+      pure (Left (SETransient "host Apple tune received a non-apple-silicon command"))
+  | otherwise =
+      case ( Tune.samplerFromText (ProtoTune.ssSampler start)
+           , Tune.schedulerFromText (ProtoTune.ssScheduler start)
+           , Tune.prunerFromText (ProtoTune.ssPruner start)
+           ) of
+        (Just sampler, Just _scheduler, Just _pruner) -> do
+          let trialCount = max 1 (fromIntegral (ProtoTune.ssTrialBudget start))
+              device = mlpDeviceForSubstrate AppleSilicon env
+          valuesE <- liftIO (Tune.deterministicTrialsWithDevice device sampler trialCount)
+          case valuesE of
+            Left err -> pure (Left (SETransient ("host Apple tune failed: " <> err)))
+            Right values -> publishHostTuneEvents start values
+        _ ->
+          pure (Left (SETransient "host Apple tune command contains an unknown sampler/scheduler/pruner"))
+
+publishHostTuneEvents
+  :: ProtoTune.StartSweep
+  -> [Double]
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+publishHostTuneEvents start values = do
+  let topic = Capabilities.TopicName (ProtoTune.tuneEventTopic AppleSilicon)
+      baseSeed = fromIntegral (ProtoTune.ssSweepSeed start) :: Int
+      indexed = zip [0 :: Int ..] values
+  trialResults <- traverse (publishTrial topic baseSeed) indexed
+  case firstLeft trialResults of
+    Just err -> pure (Left err)
+    Nothing -> do
+      let completed = fromIntegral (length values)
+          bestObjective = if null values then 0.0 else maximum values
+          done =
+            ProtoTune.TuneSweepDone
+              ( ProtoTune.SweepDone
+                  { ProtoTune.sdExperimentHash = ProtoTune.ssExperimentHash start
+                  , ProtoTune.sdTrialsCompleted = completed
+                  , ProtoTune.sdTrialsPruned = 0
+                  , ProtoTune.sdBestObjective = bestObjective
+                  }
+              )
+      publishUnit topic (ProtoTune.renderTuneEvent done)
+ where
+  publishTrial topic baseSeed (trialIndex, objective) = do
+    timestampStart <- liftIO currentTimestampNs
+    let trialSeed = baseSeed + trialIndex
+        started =
+          ProtoTune.TuneTrialStarted
+            ( ProtoTune.TrialStarted
+                { ProtoTune.tsExperimentHash = ProtoTune.ssExperimentHash start
+                , ProtoTune.tsTrial = fromIntegral trialIndex
+                , ProtoTune.tsTrialSeed = fromIntegral trialSeed
+                , ProtoTune.tsParametersJson =
+                    "{\"sampler\":\"" <> ProtoTune.ssSampler start <> "\"}"
+                , ProtoTune.tsTimestampNs = timestampStart
+                }
+            )
+    startResult <- publishUnit topic (ProtoTune.renderTuneEvent started)
+    case startResult of
+      Left err -> pure (Left err)
+      Right () -> do
+        persistResult <-
+          Tune.persistTrialTranscript
+            Tune.TrialTranscript
+              { Tune.transcriptExperimentHash = ProtoTune.ssExperimentHash start
+              , Tune.transcriptTrialSeed = trialSeed
+              , Tune.transcriptValues = [objective]
+              }
+        case persistResult of
+          Left err -> pure (Left err)
+          Right _ -> do
+            timestampEnd <- liftIO currentTimestampNs
+            let finished =
+                  ProtoTune.TuneTrialFinished
+                    ( ProtoTune.TrialFinished
+                        { ProtoTune.tfTuneExperimentHash = ProtoTune.ssExperimentHash start
+                        , ProtoTune.tfTuneTrial = fromIntegral trialIndex
+                        , ProtoTune.tfTuneObjective = objective
+                        , ProtoTune.tfTunePruned = False
+                        , ProtoTune.tfTuneTranscriptObjectKey =
+                            Tune.trialStorageKey (ProtoTune.ssExperimentHash start) trialSeed
+                        , ProtoTune.tfTuneTimestampNs = timestampEnd
+                        }
+                    )
+            publishUnit topic (ProtoTune.renderTuneEvent finished)
+
+runHostAppleRl
+  :: Env
+  -> ProtoRl.StartRLRun
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+runHostAppleRl env start
+  | ProtoRl.srlSubstrate start /= AppleSilicon =
+      pure (Left (SETransient "host Apple RL received a non-apple-silicon command"))
+  | otherwise = do
+      let trainerKind = Workload.rlTrainerForAlgorithm (ProtoRl.srlAlgorithm start)
+          device = rlDeviceForSubstrate AppleSilicon env
+      episodesE <-
+        liftIO
+          ( runTrainerEpisodes
+              AppleSilicon
+              device
+              Nothing
+              trainerKind
+              (ProtoRl.srlEnvironment start)
+              (fromIntegral (ProtoRl.srlSeed start))
+              (max 1 (fromIntegral (ProtoRl.srlEvalEpisodes start)))
+              (max 1 (fromIntegral (ProtoRl.srlMaxSteps start)))
+          )
+      case episodesE of
+        Left err -> pure (Left (SETransient ("host Apple RL failed: " <> err)))
+        Right episodes -> do
+          results <- traverse (publishHostRlEpisode start) episodes
+          pure $ maybe (Right ()) Left (firstLeft results)
+
+publishHostRlEpisode
+  :: ProtoRl.StartRLRun
+  -> SimulatorLoop.SimulatedEpisode
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+publishHostRlEpisode start episode = do
+  timestampNs <- liftIO currentTimestampNs
+  let topic = Capabilities.TopicName (ProtoRl.rlEventTopic AppleSilicon)
+      envelope =
+        ProtoRl.RlEpisode
+          ( ProtoRl.EpisodeDone
+              { ProtoRl.edExperimentHash = ProtoRl.srlExperimentHash start
+              , ProtoRl.edEpisode = fromIntegral (SimulatorLoop.simEpisodeIndex episode)
+              , ProtoRl.edReward = SimulatorLoop.simEpisodeReward episode
+              , ProtoRl.edSteps = fromIntegral (SimulatorLoop.simEpisodeSteps episode)
+              , ProtoRl.edTimestampNs = timestampNs
+              }
+          )
+  publishUnit topic (ProtoRl.renderRlEvent envelope)
+
+publishUnit
+  :: Capabilities.TopicName
+  -> Text
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+publishUnit topic payload =
+  fmap void (Capabilities.pulsarPublish topic payload)
+
+firstLeft :: [Either a b] -> Maybe a
+firstLeft [] = Nothing
+firstLeft (Left err : _) = Just err
+firstLeft (Right _ : rest) = firstLeft rest
 
 -- | Sprint 5.10 — the host-native Apple daemon acquires only the fixed Metal
 -- bridge and the host OS Metal runtime. If the fixed bridge is absent, jitML
@@ -1146,6 +1391,28 @@ runTrain parsedOptions = do
 -- @JITML_SL_*@ env vars so a live run stays tractable.
 runDeviceMnistTraining :: Substrate -> SL.CanonicalProblem -> App (Either Text Double)
 runDeviceMnistTraining substrate problem = do
+  -- Sprint 5.7 — prefer the typed Dhall `TrainingRunConfig` mount; fall back to
+  -- env vars when no mount is present. Sprint 5.11 reuses the helper below for
+  -- host-resident Apple work, where the config arrives as a Pulsar envelope
+  -- rather than a pod-mounted file.
+  runConfigMaybe <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
+  (trainLimit, epochs, testLimit) <- case runConfigMaybe of
+    Just rc ->
+      pure
+        ( fromMaybe 2000 (RunConfig.trcSlTrainLimit rc)
+        , fromMaybe 3 (RunConfig.trcSlEpochs rc)
+        , fromMaybe 1000 (RunConfig.trcSlTestLimit rc)
+        )
+    Nothing -> liftIO $ do
+      tl <- readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000"
+      ep <- readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3"
+      tt <- readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000"
+      pure (tl, ep, tt)
+  runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit
+
+runDeviceMnistTrainingWithLimits
+  :: Substrate -> SL.CanonicalProblem -> Int -> Int -> Int -> App (Either Text Double)
+runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit = do
   env <- ask
   cluster <- liftIO (readExistingLivePublication ".")
   case cluster of
@@ -1159,21 +1426,6 @@ runDeviceMnistTraining substrate problem = do
                   minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
                   run :: MinIOSubprocess.MinIOSubprocess a -> App a
                   run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
-              -- Sprint 5.7 — prefer the typed Dhall `TrainingRunConfig` mount;
-              -- fall back to the env vars when no mount is present.
-              runConfigMaybe <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
-              (trainLimit, epochs, testLimit) <- case runConfigMaybe of
-                Just rc ->
-                  pure
-                    ( fromMaybe 2000 (RunConfig.trcSlTrainLimit rc)
-                    , fromMaybe 3 (RunConfig.trcSlEpochs rc)
-                    , fromMaybe 1000 (RunConfig.trcSlTestLimit rc)
-                    )
-                Nothing -> liftIO $ do
-                  tl <- readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000"
-                  ep <- readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3"
-                  tt <- readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000"
-                  pure (tl, ep, tt)
               imagesE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
               labelsE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.LabelsArtifact)
               case (imagesE, labelsE) of

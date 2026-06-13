@@ -119,7 +119,11 @@ daemonSubscriptionsForBootConfig :: BootConfig -> [DaemonSubscription]
 daemonSubscriptionsForBootConfig bootConfig =
   case (bootSubstrate bootConfig, bootResidency bootConfig) of
     (AppleSilicon, Host) ->
-      [daemonSubscription "inference.command" AppleSilicon "jitml-host"]
+      [ daemonSubscription "inference.command" AppleSilicon "jitml-host"
+      , daemonHostWorkloadSubscription "training.host-command"
+      , daemonHostWorkloadSubscription "tune.host-command"
+      , daemonHostWorkloadSubscription "rl.host-command"
+      ]
     -- Sprint 14.4 — the Apple in-cluster (`ForwardToHost`) daemon also subscribes
     -- to `inference.event.apple-silicon` so it receives the host's reply events
     -- and republishes the correlated result on the client result topic.
@@ -161,6 +165,14 @@ daemonSubscription prefix substrate subscriptionName =
     { daemonSubscriptionTopic =
         TopicName ("persistent://public/default/" <> prefix <> "." <> renderSubstrate substrate)
     , daemonSubscriptionName = subscriptionName
+    }
+
+daemonHostWorkloadSubscription :: Text -> DaemonSubscription
+daemonHostWorkloadSubscription prefix =
+  DaemonSubscription
+    { daemonSubscriptionTopic =
+        TopicName ("persistent://public/default/" <> prefix <> ".apple-silicon")
+    , daemonSubscriptionName = "jitml-host"
     }
 
 -- | Per-handler LRU dedup cache. The capacity + TTL come from the LiveConfig.

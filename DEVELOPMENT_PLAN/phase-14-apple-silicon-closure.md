@@ -26,6 +26,16 @@
 
 ## Phase Status
 
+✅ **Done** (reopened and re-closed 2026-06-13 for Sprint `14.10`). The fixed
+Metal bridge and Apple backend lane remain valid, and the full Apple lifecycle
+now validates host-resident placement for Apple Metal-backed Training/RL/Tune
+starts. Sprint `14.10` closes after Phase `5` routes those starts to host
+workload topics, Phase `12` adds fail-fast placement checks, and
+`bootstrap/apple-silicon.sh test` passes the full Apple lane with no
+`jitml-train-*`, `jitml-rl-*`, or `jitml-tune-*` Kubernetes workload Jobs.
+
+Prior closure history follows.
+
 ✅ **Done** (reopened 2026-06-12 — true-headless Apple Metal fixed-bridge
 doctrine; **re-closed the same day** after Sprint `14.9`). This phase owns the
 live **apple-silicon** exercise of every reopened workflow (Phases `8`–`12`)
@@ -791,6 +801,70 @@ compiler, keychain unlocks, or GUI session assumptions.
 
 - None.
 
+## Sprint 14.10: Live Apple Host-Resident Workload Closure ✅
+
+**Status**: Done
+**Docs to update**: `../README.md`,
+`../documents/engineering/daemon_architecture.md`,
+`../documents/engineering/training_workloads.md`,
+`../documents/engineering/apple_silicon_metal_headless_builds.md`,
+`system-components.md`
+
+### Objective
+
+Validate the complete Apple Silicon lane with Metal-backed inference, SL/RL
+training, tuning trials, and AlphaZero policy/value work executing host-native
+through the fixed bridge. The cluster may orchestrate through Pulsar and MinIO,
+but no Apple Metal-backed command may create or run a Linux worker Job.
+
+### Deliverables
+
+- The host-native Apple daemon subscribes to the host workload command surface,
+  consumes forwarded Training/RL/Tune commands, executes the selected Apple
+  `MlpDevice`, and publishes normal domain events. AlphaZero policy/value work
+  remains covered by the Apple backend lane and live AlphaZero generation path.
+- The clustered Apple daemon consumes the public command topics, plans host
+  placement for Metal-backed work, and creates no `jitml-train-*`, `jitml-rl-*`,
+  or `jitml-tune-*` Jobs for Apple Metal-backed cells.
+- `bootstrap/apple-silicon.sh test` completes without manual termination and
+  includes the full live integration/convergence path.
+- Apple host connectivity remains only Pulsar and MinIO through the routed edge;
+  the host daemon does not use the Kubernetes API to discover work.
+
+### Validation
+
+- `bootstrap/apple-silicon.sh up` published a healthy Apple cluster and patched
+  `.build/conf/host/apple-silicon.dhall` with the routed Pulsar/MinIO/Harbor
+  edge coordinates.
+- `bootstrap/apple-silicon.sh run-daemon --consume-once 0` acquired
+  `inference.command.apple-silicon`, `training.host-command.apple-silicon`,
+  `tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon` as
+  `jitml-host`, and the fixed Metal bridge probe reported
+  `apple.metal-runtime=yes apple.metal-bridge=yes`.
+- The host daemon honors `httpListener = None` by running without an HTTP
+  listener; this keeps host-resident work consumption independent of unrelated
+  local processes bound to port `8080`.
+- The Apple live Harbor case seeds its source artifact through the routed HTTP
+  registry API when host Docker is not configured to trust the HTTP registry;
+  Linux lanes continue to validate the Docker-backed push path.
+- `bootstrap/apple-silicon.sh test` passed the full Apple lane: `jitml-unit`
+  **195 / 195**, `jitml-integration` **71 / 71**, `jitml-sl-canonicals`
+  **7 / 7**, `jitml-rl-canonicals` **28 / 28**, `jitml-hyperparameter`
+  **14 / 14**, `jitml-backends` **17 / 17**, `jitml-daemon-lifecycle`
+  **34 / 34**, and `jitml-e2e` **20 / 20**. The report card rendered all eight
+  stanzas PASS.
+- After the RL/convergence and tuning placement cells, `kubectl get jobs -n
+  platform` showed only platform init/backup Jobs and no Apple Metal-backed
+  `jitml-train-*`, `jitml-rl-*`, or `jitml-tune-*` workload Jobs.
+- `docker compose run --rm jitml jitml docs check`,
+  `docker compose run --rm jitml jitml check-code`, and `git diff --check` are
+  the final documentation/code alignment gates after this Sprint `14.10`
+  closure update.
+
+### Remaining Work
+
+None. Phase `15` owns the final ledger walk-down and handoff.
+
 ## Doctrine Sections Cited
 
 - [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 14.1, 14.3, 14.4, 14.7 — historical Tart-VM `swift build`, copy-out, MinIO, and Pulsar WebSocket subprocesses; Sprint 14.9 verifies the fixed-bridge path no longer uses Tart/SwiftPM subprocesses)
@@ -810,11 +884,12 @@ compiler, keychain unlocks, or GUI session assumptions.
   removal of the `appleLiveReady` skip guards (a missing Metal device fails
   rather than skips).
 - `documents/engineering/daemon_architecture.md` — record the live
-  Apple host↔cluster RPC flow once Sprint `14.4` closes.
+  Apple host↔cluster RPC flow once Sprint `14.4` closes, and the Sprint `14.10`
+  host-resident workload flow for Apple Metal-backed non-inference work.
 - `documents/engineering/cluster_topology.md` — note the host-native daemon's
   edge-port discovery and Apple session prerequisites; Tart HostKey /
   login-keychain requirements are historical evidence for the retired VM path,
-  not current prerequisites.
+  not current prerequisites; Linux pods must not execute Apple Metal work.
 - `documents/engineering/checkpoint_format.md` — Apple Metal weighted
   inference path once Sprint `14.5` closes.
 - `documents/engineering/determinism_contract.md` — Apple Metal
@@ -831,8 +906,9 @@ compiler, keychain unlocks, or GUI session assumptions.
 **Cross-references to add:**
 
 - `system-components.md → Substrates` row for `apple-silicon` records Sprint
-  `14.9` as closed on the fixed-bridge live lane; keychain state is historical
-  evidence for the retired VM path.
+  `14.9` as closed on the fixed-bridge backend lane and Sprint `14.10` as active
+  for host-resident workload closure; keychain state is historical evidence for
+  the retired VM path.
 
 ## Related Documents
 

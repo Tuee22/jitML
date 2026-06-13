@@ -41,7 +41,7 @@ cluster validation remains phase-gated:
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
 | `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Snapshot | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table snapshot fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated oneDNN FFI kernel with decoded `.jmw1` weights, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, single-node Kind rendering, required `jitml-service` anti-affinity plus single-node rollout strategy/RBAC rendering, Dhall numerics decode, linkable oneDNN runtime probing, typed service command shapes, and the Sprint 12.11 `JitML.Test.WorkflowMatrix` live case that fails closed without a publication and runs every current-substrate workflow by canonical CLI command when a live cluster exists | Integration | Sprint 12.2 / Sprint 12.11 |
+| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table snapshot fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated oneDNN FFI kernel with decoded `.jmw1` weights, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, single-node Kind rendering, required `jitml-service` anti-affinity plus single-node rollout strategy/RBAC rendering, Dhall numerics decode, linkable oneDNN runtime probing, typed service command shapes, and the Sprint 12.11 `JitML.Test.WorkflowMatrix` live case that fails closed without a publication and runs every current-substrate workflow by canonical CLI command when a live cluster exists. Sprint 12.12 extends the live path with failed Kubernetes Job observation and Apple no-Metal-Job placement assertions. | Integration | Sprint 12.2 / Sprint 12.11 / Sprint 12.12 |
 | `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix as property tests over the typed `TrainingLifecycle` — loss is finite, decreases monotonically over the budget, and the median over `k` seeds clears a literature-derived sanity threshold computed at test time — dataset fetch verification, and Training command/event envelope round-trips. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 12.3 |
 | `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog as property tests (finite-and-decreasing loss, finite gradients, monotone evaluator reward over a sliding window, run-to-run bit-identical trajectory on the same substrate / same seed), the canonical-game RL surface (legal-move generation, terminal detection, draw conditions), and RL command/event envelope round-trips. No per-substrate trajectory or reward-distribution fixtures are committed. | Integration (project-specific) | Sprint 12.4 |
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), and Tune command/event envelope round-trips. Sampler trial values are checked as properties (e.g. resume equality, sampler-state purity, scheduler ordering invariants) rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
@@ -262,6 +262,16 @@ closed with the missing `cluster-publication.json` diagnostic; it does not pass
 offline. On 2026-06-12 the `linux-cpu` live WorkflowMatrix gate passed against
 a clean cluster after the local bootstrap/edge fixes, exercising every current
 substrate cell through the freshly built `jitml` executable.
+
+Sprint 12.12 adds the live failure-observation rule: if a daemon-dispatched
+Kubernetes Job reaches `Failed` / `BackoffLimitExceeded`, the integration test
+collects the Job status, pod names, container states, and pod logs, then fails
+immediately. Reward/convergence collectors must not keep polling Pulsar after the
+producer Job has failed. The same sprint adds Apple placement assertions:
+Metal-backed `apple-silicon` Training/RL/Tune starts must publish bounded
+host-command messages and must not create `jitml-train-*`, `jitml-rl-*`, or
+`jitml-tune-*` Jobs. Linux CPU/CUDA cells still assert their expected Job
+placement.
 
 ### Property Invariants
 

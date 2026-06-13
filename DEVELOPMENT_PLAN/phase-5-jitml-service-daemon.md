@@ -24,6 +24,21 @@
 
 ## Phase Status
 
+✅ **Done** (reopened and re-closed 2026-06-13 for Sprint `5.11`). The daemon
+derives subscriptions from `BootConfig`, plans workload placement before
+rendering side effects, keeps Linux CPU/CUDA Training/RL/Tune commands on the
+Kubernetes Job path, and forwards Apple Metal-backed Training/RL/Tune starts to
+the Apple host daemon over the host-command Pulsar topics. The host daemon
+subscribes to those topics, executes the selected Apple `MlpDevice` host-native,
+and publishes the normal `training.event.apple-silicon`,
+`rl.event.apple-silicon`, and `tune.event.apple-silicon` events. Focused
+validation: `docker compose run --rm jitml cabal test jitml-daemon-lifecycle
+--test-show-details=direct` passed 34 / 34, including the Sprint `5.11`
+placement assertions. Live failed-Job observation remains Phase `12`; full Apple
+lane validation remains Phase `14`; final ledger walk-down remains Phase `15`.
+
+Prior closure history follows.
+
 ✅ **Done** (reopened and re-closed 2026-06-12 for the true-headless Apple
 Metal fixed-bridge doctrine; Sprint `5.10`). `LiveConfig` no longer carries any
 build-VM CPU / memory / disk / idle-timeout fields, and `runService` no longer
@@ -32,8 +47,8 @@ now probes the OS Metal runtime plus the fixed Metal bridge, records
 `apple_metal_acquire` in the daemon runtime summary, and fails closed before
 subscription acquisition if either boundary is unavailable. The remaining Apple
 generated Swift/Tart cache-miss residue is completed under Phase `7` Sprint
-`7.11` / Phase `14` Sprint `14.9`; the deletion ledger is empty.
-Prior closure history follows.
+`7.11` / Phase `14` Sprint `14.9`; the deletion ledger was empty at that
+2026-06-12 closure.
 
 ✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
 **re-closed the same day** after Sprint `5.8` removed `LiveConfig.tartIdleTimeout`
@@ -941,11 +956,14 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
   once consumer, Deployment shape, anti-affinity; (Sprint `5.7`) the typed Dhall
   `RunConfig` + BootConfig-mounted worker dispatch that replaces the `JITML_*` env
   IPC; (Sprint `5.10`) the fixed-bridge Apple Metal acquire path and removal of
-  build-VM LiveConfig fields.
+  build-VM LiveConfig fields; (Sprint `5.11`) the workload-placement planner
+  and Apple host-resident command path.
 - `documents/engineering/training_workloads.md` — (Sprint `5.7`) run parameters
-  delivered as typed Dhall `RunConfig`, not `JITML_*` env vars.
+  delivered as typed Dhall `RunConfig`, not `JITML_*` env vars; (Sprint
+  `5.11`) Apple Metal-backed training/RL/tune placement is host-resident.
 - `documents/engineering/cluster_topology.md` — Deployment-not-StatefulSet
-  rationale, anti-affinity, host hostPath mount of `./.build/`.
+  rationale, anti-affinity, host hostPath mount of `./.build/`, and the
+  warning that hostPath does not make Apple Metal executable in Linux pods.
 
 **Product docs to create/update:**
 
@@ -956,9 +974,9 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
 - `system-components.md → jitml service Daemon Surface` rows remain aligned
   with the implemented boot/live config, lifecycle, endpoint, logger,
   consumer, and retry surfaces.
-- `legacy-tracking-for-deletion.md` carries the completed Sprint `5.10`
-  daemon build-VM removal row and the still-pending Phase `7` / Phase `14`
-  Apple codegen/documentation residue.
+- `legacy-tracking-for-deletion.md` records the stale Apple Metal-backed
+  Kubernetes Job placement path; Sprint `15.7` later moved that row to
+  `Completed`.
 
 ## Sprint 5.9: Reinstate the Dhall-configured build-VM block and daemon acquire [✅ Done]
 
@@ -1075,7 +1093,89 @@ daemon acquire only the fixed Metal bridge and OS Metal runtime. Adopts
 
 None. The daemon no longer owns a build VM or idle timeout. Remaining Tart /
 SwiftPM generated-cache-miss residue belongs to Phase `7` Sprint `7.11`, and
-Apple live validation belongs to Phase `14` Sprint `14.9`.
+Apple live validation belongs to Phase `14` Sprint `14.9`. The later Apple
+host-residency placement defect is owned by Sprint `5.11`.
+
+## Sprint 5.11: Workload Placement Planner and Apple Host Workload Dispatch ✅
+
+**Status**: Done (2026-06-13)
+**Implementation**: `src/JitML/Service/Workload.hs`,
+`src/JitML/Service/Consumer.hs`, `src/JitML/Service/Runtime.hs`,
+`src/JitML/App.hs`, `src/JitML/Cluster/PulsarBootstrap.hs`,
+`test/daemon-lifecycle/Main.hs`, `test/integration/Main.hs`
+**Docs to update**: `../README.md`,
+`../documents/engineering/daemon_architecture.md`,
+`../documents/engineering/training_workloads.md`,
+`system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Separate substrate semantics from execution residency in the daemon. The
+dispatcher uses a single placement planner so Linux device work can still render
+Kubernetes Jobs, while Apple Metal-backed Training/RL/Tune/AlphaZero work is
+forwarded to the host daemon over Pulsar and never scheduled into a Linux pod.
+Adopts `Long-Running Daemons in the Same Binary`, `At-Least-Once Event
+Processing`, `Capability Classes and Service Errors`, and `Application
+Environment` from [../README.md](../README.md).
+
+### Deliverables
+
+- Add a `WorkloadKind` / `WorkloadPlacement` layer that plans from residency,
+  requested `Substrate`, and workload kind to either `WorkloadClusterJob` or
+  `WorkloadHostCommand`.
+- Extend the Apple host daemon subscription plan beyond inference so
+  `BootConfig { substrate = apple-silicon, residency = Host }` acquires the typed
+  host workload topic for Metal-backed non-inference commands.
+- Replace Apple Training/RL/Tune Job rendering with host command publication.
+  Linux CPU/CUDA Job rendering remains unchanged, including CUDA
+  `runtimeClassName: nvidia`.
+- Preserve the public topic family (`training.command.apple-silicon`,
+  `rl.command.apple-silicon`, `tune.command.apple-silicon`) as orchestration
+  entrypoints. The cluster daemon consumes those public commands, plans placement,
+  and publishes host work when Metal execution is required.
+- Publish ordinary domain events (`training.event.apple-silicon`,
+  `rl.event.apple-silicon`, `tune.event.apple-silicon`) after host completion so
+  clients and tests do not gain a second result surface.
+- Record the stale Apple Kubernetes-Job placement row in
+  [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed)
+  for Sprint `15.7`'s final audit after the live Apple lane validates; that row
+  has since moved to `Completed`.
+
+### Validation
+
+- `jitml-daemon-lifecycle` covers the planner table:
+  Apple Metal-backed Training/RL/Tune/AlphaZero -> host-resident command; Linux
+  CPU -> in-cluster Job; Linux CUDA -> in-cluster Job with NVIDIA RuntimeClass.
+- The Apple host daemon dry/acquire summary includes the new host workload
+  subscription when `residency = Host`.
+- Dispatching `StartRLRun apple-silicon` from the clustered Apple daemon
+  publishes a host workload command and creates no `jitml-rl-*` Kubernetes Job.
+- Linux CPU and Linux CUDA command dispatch still render their existing Jobs.
+- `docker compose run --rm jitml jitml docs check` and
+  `docker compose run --rm jitml jitml check-code` pass after the code/doc change.
+
+### Validation State (2026-06-13)
+
+- `docker compose run --rm jitml cabal build all` passed.
+- `docker compose run --rm jitml cabal test jitml-daemon-lifecycle --test-show-details=direct`
+  passed 34 / 34. The Sprint `5.11` case asserts that `StartRLRun
+  apple-silicon` publishes to
+  `persistent://public/default/rl.host-command.apple-silicon`, while
+  `StartRLRun linux-cpu` still applies `job/jitml-rl-*`.
+- The daemon subscription test now records the Apple host subscriptions:
+  `inference.command.apple-silicon`, `training.host-command.apple-silicon`,
+  `tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`, all as
+  `jitml-host`.
+- The Pulsar bootstrap registry now contains the three host-command topics.
+- `docker compose run --rm jitml jitml docs check`, `docker compose run --rm
+  jitml jitml check-code`, and `git diff --check` passed.
+
+### Remaining Work
+
+- None. Phase `12` completed the failed-Job/no-Apple-Job integration assertions,
+  Phase `14` completed the live Apple full-lane validation, and Phase `15`
+  completed the final legacy-ledger move to `Completed`.
 
 ## Related Documents
 

@@ -2,18 +2,25 @@
 
 module JitML.Service.Workload
   ( LoadedWeightTensor
+  , WorkloadKind (..)
   , WorkloadEffect (..)
   , WorkloadEffectResult (..)
+  , WorkloadPlacement (..)
   , dispatchDomainPayload
+  , dispatchDomainPayloadForResidency
   , dispatchDomainPayloadWithInference
+  , dispatchDomainPayloadWithPlacement
   , dispatchDomainPayloadWithWeightedInference
   , dispatchWorkloadPayload
   , dispatchWorkloadPayloadWithInference
   , dispatchWorkloadPayloadWithWeightedInference
+  , hostWorkloadCommandTopic
   , parseWorkloadEffectPayload
+  , planWorkloadPlacement
   , renderRlJob
   , renderTrainingJob
   , renderTuneJob
+  , rlTrainerForAlgorithm
   , renderWorkloadEffect
   , renderWorkloadEffectPayload
   , renderWorkloadEffectResult
@@ -73,6 +80,7 @@ import JitML.Proto.Tune
   , TuneCommand (..)
   , parseTuneCommand
   )
+import JitML.Service.BootConfig (Residency (..))
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ETag (..)
@@ -96,13 +104,26 @@ import JitML.Service.RunConfig
   , renderTrainingRunConfigDhall
   , renderTuneRunConfigDhall
   )
-import JitML.Substrate (Substrate, renderSubstrate, substrateRuntimeClass)
+import JitML.Substrate (Substrate (..), renderSubstrate, substrateRuntimeClass)
+
+data WorkloadKind
+  = WorkloadInference
+  | WorkloadTraining
+  | WorkloadTune
+  | WorkloadRl
+  deriving stock (Eq, Show)
+
+data WorkloadPlacement
+  = WorkloadClusterJob
+  | WorkloadHostCommand TopicName
+  deriving stock (Eq, Show)
 
 data WorkloadEffect
   = WriteCheckpointBlob ObjectRef ByteString
   | UpdateCheckpointPointer ObjectRef (Maybe ETag) Text
   | PromoteWorkloadImage ImageRef ImageRef
   | RunInference InferenceRequest
+  | PublishHostWorkloadCommand TopicName Text
   | ApplyWorkloadResource KubeResource Text
   | ReadWorkloadResourceStatus KubeResource
   | DeleteWorkloadResource KubeResource
@@ -113,6 +134,7 @@ data WorkloadEffectResult
   | CheckpointPointerUpdated ETag
   | WorkloadImagePromoted ImageRef
   | InferenceResultPublished Text
+  | HostWorkloadCommandPublished TopicName
   | WorkloadResourceApplied
   | WorkloadResourceStatus Text
   | WorkloadResourceDeleted
@@ -140,6 +162,8 @@ runWorkloadEffectWithInference runInference effect =
       fmap WorkloadImagePromoted <$> harborPromoteImage source target
     RunInference request ->
       fmap InferenceResultPublished <$> runInferenceRequestWith runInference request
+    PublishHostWorkloadCommand topic payload ->
+      fmap (const (HostWorkloadCommandPublished topic)) <$> pulsarPublish topic payload
     ApplyWorkloadResource resource manifest ->
       fmap (const WorkloadResourceApplied) <$> kubectlApply resource manifest
     ReadWorkloadResourceStatus resource ->
@@ -204,49 +228,111 @@ dispatchDomainPayloadWithInference runInference domain payload =
       runWorkloadEffectsWithInference runInference (workloadEffectsForDomainPayload domain payload)
 
 workloadEffectsForDomainPayload :: EventDomain -> Text -> [WorkloadEffect]
-workloadEffectsForDomainPayload domain payload =
+workloadEffectsForDomainPayload =
+  workloadEffectsForDomainPayloadForResidency Cluster
+
+workloadEffectsForDomainPayloadForResidency
+  :: Residency -> EventDomain -> Text -> [WorkloadEffect]
+workloadEffectsForDomainPayloadForResidency residency domain payload =
   case domain of
     TrainingDomain ->
-      maybe [] trainingCommandEffects (parseTrainingCommand payload)
+      maybe [] (trainingCommandEffects residency payload) (parseTrainingCommand payload)
     TuneDomain ->
-      maybe [] tuneCommandEffects (parseTuneCommand payload)
+      maybe [] (tuneCommandEffects residency payload) (parseTuneCommand payload)
     RlDomain ->
-      maybe [] rlCommandEffects (parseRlCommand payload)
+      maybe [] (rlCommandEffects residency payload) (parseRlCommand payload)
     InferenceDomain ->
       maybe [] (pure . RunInference) (parseInferenceRequest payload)
 
-trainingCommandEffects :: TrainingCommand -> [WorkloadEffect]
-trainingCommandEffects command =
+dispatchDomainPayloadForResidency
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => Residency
+  -> EventDomain
+  -> Text
+  -> m [Either ServiceError WorkloadEffectResult]
+dispatchDomainPayloadForResidency residency domain payload =
+  runWorkloadEffects (workloadEffectsForDomainPayloadForResidency residency domain payload)
+
+dispatchDomainPayloadWithPlacement
+  :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
+  => Residency
+  -> EventDomain
+  -> Text
+  -> m [Either ServiceError WorkloadEffectResult]
+dispatchDomainPayloadWithPlacement =
+  dispatchDomainPayloadForResidency
+
+trainingCommandEffects :: Residency -> Text -> TrainingCommand -> [WorkloadEffect]
+trainingCommandEffects residency payload command =
   case command of
     TrainingStart start ->
-      let resource = KubeResource ("job/" <> workloadName "jitml-train" (stExperimentHash start))
-       in [ApplyWorkloadResource resource (renderTrainingJob start)]
+      case planWorkloadPlacement residency WorkloadTraining (stSubstrate start) of
+        WorkloadClusterJob ->
+          let resource = KubeResource ("job/" <> workloadName "jitml-train" (stExperimentHash start))
+           in [ApplyWorkloadResource resource (renderTrainingJob start)]
+        WorkloadHostCommand topic ->
+          [PublishHostWorkloadCommand topic payload]
     TrainingStop stop ->
       [ DeleteWorkloadResource
           (KubeResource ("job/" <> workloadName "jitml-train" (stopExperimentHash stop)))
       ]
 
-tuneCommandEffects :: TuneCommand -> [WorkloadEffect]
-tuneCommandEffects command =
+tuneCommandEffects :: Residency -> Text -> TuneCommand -> [WorkloadEffect]
+tuneCommandEffects residency payload command =
   case command of
     TuneStart start ->
-      let resource = KubeResource ("job/" <> workloadName "jitml-tune" (ssExperimentHash start))
-       in [ApplyWorkloadResource resource (renderTuneJob start)]
+      case planWorkloadPlacement residency WorkloadTune (ssSubstrate start) of
+        WorkloadClusterJob ->
+          let resource = KubeResource ("job/" <> workloadName "jitml-tune" (ssExperimentHash start))
+           in [ApplyWorkloadResource resource (renderTuneJob start)]
+        WorkloadHostCommand topic ->
+          [PublishHostWorkloadCommand topic payload]
     TuneStop stop ->
       [ DeleteWorkloadResource
           (KubeResource ("job/" <> workloadName "jitml-tune" (ssStopExperimentHash stop)))
       ]
 
-rlCommandEffects :: RlCommand -> [WorkloadEffect]
-rlCommandEffects command =
+rlCommandEffects :: Residency -> Text -> RlCommand -> [WorkloadEffect]
+rlCommandEffects residency payload command =
   case command of
     RlStart start ->
-      let resource = KubeResource ("job/" <> workloadName "jitml-rl" (srlExperimentHash start))
-       in [ApplyWorkloadResource resource (renderRlJob start)]
+      case planWorkloadPlacement residency WorkloadRl (srlSubstrate start) of
+        WorkloadClusterJob ->
+          let resource = KubeResource ("job/" <> workloadName "jitml-rl" (srlExperimentHash start))
+           in [ApplyWorkloadResource resource (renderRlJob start)]
+        WorkloadHostCommand topic ->
+          [PublishHostWorkloadCommand topic payload]
     RlStop stop ->
       [ DeleteWorkloadResource
           (KubeResource ("job/" <> workloadName "jitml-rl" (srStopExperimentHash stop)))
       ]
+
+planWorkloadPlacement :: Residency -> WorkloadKind -> Substrate -> WorkloadPlacement
+planWorkloadPlacement residency kind substrate =
+  case (residency, kind, substrate) of
+    (Cluster, WorkloadTraining, AppleSilicon) ->
+      WorkloadHostCommand (hostWorkloadCommandTopic WorkloadTraining AppleSilicon)
+    (Cluster, WorkloadTune, AppleSilicon) ->
+      WorkloadHostCommand (hostWorkloadCommandTopic WorkloadTune AppleSilicon)
+    (Cluster, WorkloadRl, AppleSilicon) ->
+      WorkloadHostCommand (hostWorkloadCommandTopic WorkloadRl AppleSilicon)
+    _ -> WorkloadClusterJob
+
+hostWorkloadCommandTopic :: WorkloadKind -> Substrate -> TopicName
+hostWorkloadCommandTopic kind substrate =
+  TopicName $
+    "persistent://public/default/"
+      <> hostWorkloadCommandPrefix kind
+      <> "."
+      <> renderSubstrate substrate
+
+hostWorkloadCommandPrefix :: WorkloadKind -> Text
+hostWorkloadCommandPrefix kind =
+  case kind of
+    WorkloadTraining -> "training.host-command"
+    WorkloadTune -> "tune.host-command"
+    WorkloadRl -> "rl.host-command"
+    WorkloadInference -> "inference.command"
 
 runInferenceRequest
   :: (HasMinIO m, HasPulsar m)
@@ -311,6 +397,8 @@ runWorkloadEffectWithWeightedInference runInference effect =
     RunInference request ->
       fmap InferenceResultPublished
         <$> runInferenceRequestWithWeightedInference runInference request
+    PublishHostWorkloadCommand topic payload ->
+      fmap (const (HostWorkloadCommandPublished topic)) <$> pulsarPublish topic payload
     ApplyWorkloadResource resource manifest ->
       fmap (const WorkloadResourceApplied) <$> kubectlApply resource manifest
     ReadWorkloadResourceStatus resource ->
@@ -704,6 +792,10 @@ parseWorkloadEffectPayload payload = do
               , irInput = input
               }
         )
+    "PublishHostWorkloadCommand" -> do
+      topic <- TopicName <$> value "topic"
+      hostPayload <- value "payload"
+      pure (PublishHostWorkloadCommand topic (Text.replace "\\n" "\n" hostPayload))
     "ApplyWorkloadResource" -> do
       resource <- KubeResource <$> value "resource"
       manifest <- value "manifest"
@@ -730,6 +822,8 @@ renderWorkloadEffect effect =
       "harbor:promote-image " <> unImageRef source <> " -> " <> unImageRef target
     RunInference request ->
       "inference:run " <> irCallId request <> " -> " <> irReplyTopic request
+    PublishHostWorkloadCommand (TopicName topic) _ ->
+      "pulsar:publish-host-workload " <> topic
     ApplyWorkloadResource resource _ ->
       "kubectl:apply " <> unKubeResource resource
     ReadWorkloadResourceStatus resource ->
@@ -748,6 +842,8 @@ renderWorkloadEffectResult result =
       "workload-image-promoted " <> unImageRef image
     InferenceResultPublished messageId ->
       "inference-result-published " <> messageId
+    HostWorkloadCommandPublished (TopicName topic) ->
+      "host-workload-command-published " <> topic
     WorkloadResourceApplied ->
       "workload-resource-applied"
     WorkloadResourceStatus status ->
@@ -768,6 +864,7 @@ workloadEffectTag effect =
     UpdateCheckpointPointer {} -> "UpdateCheckpointPointer"
     PromoteWorkloadImage _ _ -> "PromoteWorkloadImage"
     RunInference _ -> "RunInference"
+    PublishHostWorkloadCommand _ _ -> "PublishHostWorkloadCommand"
     ApplyWorkloadResource _ _ -> "ApplyWorkloadResource"
     ReadWorkloadResourceStatus _ -> "ReadWorkloadResourceStatus"
     DeleteWorkloadResource _ -> "DeleteWorkloadResource"
@@ -788,6 +885,10 @@ workloadEffectFields effect =
       ]
     RunInference request ->
       dropKindLine (renderInferenceRequest request)
+    PublishHostWorkloadCommand (TopicName topic) payload ->
+      [ "topic: " <> topic
+      , "payload: " <> Text.replace "\n" "\\n" payload
+      ]
     ApplyWorkloadResource resource manifest ->
       [ "resource: " <> unKubeResource resource
       , "manifest: " <> Text.replace "\n" "\\n" manifest

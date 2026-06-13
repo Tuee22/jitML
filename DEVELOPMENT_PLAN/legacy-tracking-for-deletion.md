@@ -37,6 +37,15 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-06-13 — Apple Silicon host-resident workload placement (reopened and
+re-closed; ledger empty).** The live Apple lifecycle exposed a stale placement
+path where Apple Metal-backed Training/RL/Tune starts could become Kubernetes
+Jobs in the Linux `jitml:local` image. Phase `5` Sprint `5.11` replaced that path
+with workload placement planning and Apple host-command Pulsar topics; Phase
+`12` Sprint `12.12` added failed-Job observation plus Apple no-workload-Job
+assertions; Phase `14` Sprint `14.10` passed the full Apple lane; and Phase `15`
+Sprint `15.7` moved the stale placement row to `Completed`.
+
 **2026-06-12 — true-headless Apple Metal fixed-bridge doctrine (reopened and
 re-closed; ledger empty).** The Apple Silicon Metal path redirected away from
 the Tart-VM Swift build architecture toward the fixed host Metal bridge described
@@ -182,10 +191,10 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-06-12):** empty. The real-workflow cleanup rows introduced
-on 2026-06-10 and the Apple fixed-bridge doctrine rows introduced on
-2026-06-12 have moved to `Completed`; Sprints `7.11` and `14.9` closed the last
-fixed-bridge source/cache and validation/docs residues.
+**Current state (2026-06-13):** Pending Removal is empty. The real-workflow
+cleanup rows introduced on 2026-06-10, the Apple fixed-bridge doctrine rows
+introduced on 2026-06-12, and the Apple host-resident placement row introduced
+on 2026-06-13 have moved to `Completed`.
 
 | Stand-in / dead code to delete | Location | Reason (rule I / L) | Owning sprint |
 |---|---|---|---|
@@ -284,6 +293,7 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Apple Metal-backed Kubernetes Job placement path for Training/RL/Tune commands | Sprints `5.11` / `12.12` / `14.10` / `15.7` (2026-06-13) | `JitML.Service.Workload.planWorkloadPlacement` now maps Apple Metal-backed Training/RL/Tune starts to `training.host-command.apple-silicon`, `rl.host-command.apple-silicon`, and `tune.host-command.apple-silicon` instead of Kubernetes Jobs; Linux CPU/CUDA Training/RL/Tune placement remains Job-backed. `JitML.Test.WorkflowMatrix.workflowPlacementExpectation` and `jitml-integration` assert Apple host-command/no-Job placement and Linux Job placement. Validation: focused Linux CPU live dispatch and PPO selectors passed with legal Jobs; focused Apple live Training/RL/Tune/PPO selectors passed with host-command forwarding and no workload Jobs; `bootstrap/apple-silicon.sh run-daemon --consume-once 0` acquired all host-command subscriptions; `bootstrap/apple-silicon.sh test` passed all eight report stanzas, including `jitml-integration` 71 / 71 and `jitml-backends` 17 / 17; final `kubectl get jobs -n platform` showed only platform init/backup Jobs. |
 | Tart lifecycle/exec modules outside the core prerequisite path | Sprint `7.11` (2026-06-12) | Deleted `src/JitML/Tart/{Lifecycle,Exec}.hs`, removed their Cabal entries, and removed all core codegen/cache-miss callers. The Apple core path now has no VM lifecycle dependency. Validation: targeted residue search over `src/JitML/Engines`, `src/JitML/Codegen`, `src/JitML/Cache`, and `jitml.cabal` returned no `JitML.Tart` / `tartExecSubprocess` / `ensureBuildVm` / `guestSourcePath` callers; host build, unit, daemon-lifecycle, and apple-silicon backend validation passed. |
 | Per-kernel generated Swift package and VM `swift build` cache-miss path | Sprint `7.11` (2026-06-12) | `GeneratedMetalPackage` / `renderMetalFamilyPackage` left the core runtime-source surface; Apple cache misses now write `./.build/jit/apple-silicon/<hash>.metal.json` source metadata and execute through `JitML.Engines.MetalBridge`. `JitML.Codegen.MlpMetal` emits MSL source metadata, and `MlpDevice` routes Metal MLP operations through fixed-bridge multi-function entrypoints. Validation: `cabal run exe:jitml -- internal install-metal-bridge` probe `ok`; `jitml test jitml-backends --apple-silicon` passed 17 / 17 through the fixed bridge, including MLP/RL/AlphaZero cases. |
 | Apple per-kernel stable-dylib symlink surface | Sprint `7.11` (2026-06-12) | Deleted `src/JitML/Cache/Symlink.hs`, removed `appleSymlinkPath`, and removed Apple generated-dylib `dlopen` publication/repointing from the cache-miss path. Linux shared-object loading remains unchanged. Validation: Apple identity, weighted Dense2D, tuning, MLP, and trainer cases pass through the fixed bridge; the Apple artifact extension is `.metal.json`. |

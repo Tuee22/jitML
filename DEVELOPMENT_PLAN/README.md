@@ -40,6 +40,38 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Reopen note (2026-06-13 — Apple Silicon host-resident workload placement;
+re-closed).** The full Apple Silicon lifecycle exposed a placement defect:
+`StartRLRun` for `apple-silicon` was consumed by the in-cluster Apple daemon and
+rendered as a `jitml-rl-*` Kubernetes Job. That Job ran in the Linux
+`jitml:local` image, resolved the requested substrate to the Apple Metal
+`MlpDevice`, and then failed because a Linux pod cannot load or execute the
+macOS fixed Metal bridge. Linux CPU remained closed; the full
+`bootstrap/linux-cpu.sh test` lane had already passed. Therefore:
+
+- **Phase `5` reopened and re-closed `✅ Done`** for Sprint `5.11`, adding a
+  first-class workload-placement planner that separates substrate semantics from
+  legal execution residency. Apple Metal-backed Training/RL/Tune starts now
+  become host-resident Pulsar commands, not Kubernetes Jobs.
+- **Phase `12` reopened and re-closed `✅ Done`** for Sprint `12.12`, making
+  live tests fail fast when a dispatched Kubernetes Job fails and adding Apple
+  placement assertions that no Metal-backed Apple RL/training/tune work creates
+  `jitml-rl-*` or sibling Linux Jobs. The focused Linux CPU dispatch selectors
+  still observe legal Jobs; the focused Apple selectors now observe host-command
+  forwarding and no workload Jobs.
+- **Phase `14` reopened and re-closed `✅ Done`** for Sprint `14.10`, validating
+  the Apple host-resident workload path against a live Apple cluster through
+  `bootstrap/apple-silicon.sh test`.
+- **Phase `15` reopened and re-closed `✅ Done`** for Sprint `15.7`; the
+  placement ledger row moved to `Completed`, Pending Removal is empty, and final
+  handoff is revalidated.
+- **Phases `0`–`13` stay `✅ Done`** on their owned surfaces. The RL/SL/tuning
+  code already selected the correct Apple device; the defect was illegal
+  residency, now fixed by host-command placement.
+
+The stale Apple Kubernetes-Job placement path moved to
+[legacy-tracking-for-deletion.md → Completed](legacy-tracking-for-deletion.md#completed).
+
 **Reopen note (2026-06-12 — true-headless Apple Metal fixed-bridge doctrine;
 supersedes the 2026-06-10 Tart-VM closure and the real-workflow blocker text
 below).** The Apple Silicon core JIT path now targets a fixed host Metal bridge:
@@ -112,7 +144,7 @@ compile → load → real `jitml_mlp_*` kernels) exists and is backend-tested in
   `Completed`; final handoff then re-closed after the Phase `14` fixed-bridge
   Apple lane and Phase `15` ledger walk-down passed. The 2026-06-12 fixed-bridge
   reopen above added Sprints `1.15`, `2.12`, `5.10`, `7.11`, `14.9`, `15.5`,
-  and `15.6`, all of which are now closed.
+  and `15.6`, all of which closed before the 2026-06-13 placement reopen.
 
 The historical closure narrative below is retained as fact about the prior
 (synthetic) state; it no longer describes the current status.
@@ -293,7 +325,8 @@ and execute on the host Metal GPU. Owning sprints were `1.14`, `2.11`, `5.9`,
 `7.10`, `14.7`, and the then-final Phase `15` ledger closure. This doctrine was
 superseded by the 2026-06-12 true-headless fixed-bridge closure above, which
 removed Tart, SwiftPM, keychain state, and per-cache-miss Swift builds from the
-supported core path.
+supported core path; the final-handoff claim was later superseded again by the
+2026-06-13 placement reopen.
 
 **Progress (2026-06-10).** All five sprints' code has landed and the code-surface
 obligations are validated (clean host build, `jitml docs check`, `jitml-unit`
@@ -320,7 +353,8 @@ by restarting `ctkd` and running the build VM in the host GUI launchd session.
 **With `7.10` / `14.7` closed, the six Tart-reversal legacy-ledger rows all move to
 `Completed`, the ledger is empty, Exit-Definition item 18 is met, and the Phase
 `15` final handoff is complete — all Phases `0`–`15` are `✅ Done`.** _(Historical:
-superseded by the 2026-06-12 fixed-bridge closure at the top of this document.)_
+superseded by the 2026-06-12 fixed-bridge closure and the 2026-06-13 placement
+reopen at the top of this document.)_
 
 **Prior status (superseded by the 2026-06-10 reopen above):** all Phases `0`–`15`
 were `✅ Done`. Phases `1`, `12`, `13`, `14`, and `15`
@@ -613,14 +647,16 @@ also round-trips the current command and event oneofs through
 proto3-compatible bytes.
 
 **Superseded historical baseline.** The paragraph below originally described a
-prior state in which all eighteen items were claimed met before the real-workflow
-and Apple fixed-bridge audits reopened work. Those audits have since re-closed:
-the Pending-Removal ledger is empty again as of 2026-06-12, the Phase `14` live
-Apple lane is closed through the fixed bridge, and final handoff is complete. The
-text that follows is retained as historical fact about the superseded state.
+prior state in which all eighteen items were claimed met before the real-workflow,
+Apple fixed-bridge, and Apple host-resident placement audits reopened work. The
+real-workflow and fixed-bridge audits re-closed by 2026-06-12, but the
+2026-06-13 placement audit reopened Phases `5`, `12`, `14`, and `15`; the
+Pending-Removal ledger now has one row again. The text that follows is retained
+as historical fact about the superseded 2026-06-12 state.
 
-Against the eighteen-item [Exit Definition](#exit-definition), **all eighteen
-items now pass** with every phase `✅ Done`. The code-surface items — 2 (`jitml
+At the 2026-06-12 fixed-bridge closure, against the eighteen-item
+[Exit Definition](#exit-definition), **all eighteen items passed** with every
+phase `✅ Done`. The code-surface items — 2 (`jitml
 service` daemon), 4 (stage-0 scripts + typed prerequisite DAG), 10 (toolchain
 pin), 11 (every enumerated Plan/Apply command — `jitml bootstrap`, `jitml
 train`, `jitml tune`, `jitml rl train`, `jitml cluster up`, `jitml test all`,
@@ -633,15 +669,15 @@ linux-cuda half re-validated 2026-06-09 on the RTX 5090 and the Apple Metal half
 in Phase `14`), 3, 5 (within-substrate bit-for-bit reproducibility), 6, 7, 8, 9
 (`jitml test all` + live report card) — closed on their owning machine sessions
 (Linux/NVIDIA RTX 5090 for the cluster/CUDA obligations, the Apple Silicon host
-for Metal), and item 18 (empty legacy ledger) is now met after the final
+for Metal), and item 18 (empty legacy ledger) was then met after the final
 `linux-cuda` lane re-validation swept the last `Pending Removal` row to
-`Completed`. No sprint-owned `### Remaining Work` survives.
+`Completed`. No sprint-owned `### Remaining Work` survived at that closure.
 
 ## Execution Roadmap
 
-The roadmap is closed as of 2026-06-12. The historical execution order remains
-strictly phase-ordered: each phase closes on a single machine session before the
-next phase begins.
+The roadmap reopened on 2026-06-13 for Apple host-resident workload placement.
+The historical execution order remains strictly phase-ordered: each phase closes
+on a single machine session before the next phase begins.
 
 As of 2026-05-29, Phases `2`–`5` reopened for the cluster resource-guardrail and
 Dhall/functional-logic workstreams (see
@@ -665,16 +701,22 @@ owned by Phase `13` below.
    Apple Metal, 8 Apple Playwright).** Run the Apple Metal path through the fixed
    host bridge: read `<hash>.metal.json`, runtime-compile the MSL via
    `MTLDevice.makeLibrary(source:options:)`, dispatch on the host GPU, run the
-   candidate runner, exercise host↔cluster RPC, and load Apple Metal production
-   weights. One Apple session; no Tart, SwiftPM, full Xcode, offline `metal`, or
-   keychain dependency in the core path.
+   candidate runner, exercise host↔cluster RPC, route Metal-backed
+   Training/RL/Tune/AlphaZero work through the host daemon with no Apple
+   Kubernetes worker Jobs, and load Apple Metal production weights. One Apple
+   session; no Tart, SwiftPM, full Xcode, offline `metal`, or keychain
+   dependency in the core path.
 4. **Phase `15` — Substrate Reproducibility and Final Handoff (Exit 5
    within-substrate, 9 live report card, 18).** Validate within-substrate
    bit-for-bit reproducibility in each substrate's own lane, drive
    `jitml test all --live`, populate the report card, and re-audit that the
-   legacy ledger has no Pending Removal rows. **Reopened
-   2026-06-08 (Sprint `15.4`) and re-closed 2026-06-12 after the fixed-bridge
-   Apple lane passed**; no cross-substrate tensor comparison remains. The
+   legacy ledger has no Pending Removal rows. **Reopened and re-closed
+   2026-06-13 for Sprint `15.7`** after Sprint `5.11` deleted the Apple
+   Metal-backed Kubernetes Job placement path, Sprint `12.12` added
+   failed-Job/no-Apple-Job assertions, and Sprint `14.10` revalidated the Apple
+   lane. The 2026-06-08 cross-substrate
+   parity removal and the 2026-06-12 fixed-bridge closure remain dated
+   historical evidence; no cross-substrate tensor comparison remains. The
    2026-06-03 pass landed the `--live` report-card code surface,
    added daemon edge telemetry probes for cache and health fields,
    removed three local cleanup residues, produced the Apple weighted
@@ -691,7 +733,8 @@ owned by Phase `13` below.
    and the demo-placeholder row retired on 2026-06-04 after live Playwright
    7 / 7 and fallback removal. The 2026-06-12 fixed-bridge reopen superseded the
    older Tart-VM Apple closure and re-closed Phase `15` after the Apple lane
-   passed and the deletion ledger became empty.
+   passed and the deletion ledger became empty; the 2026-06-13 placement reopen
+   supersedes that closure until the stale Job path is removed.
 
 The full machine-affinity mapping of each historical live-runtime
 Remaining-Work bullet to its new owner is enumerated in each
@@ -767,17 +810,52 @@ obligation exists.
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done (reopened/re-closed 2026-06-12 — fixed-bridge Apple prerequisites, device-only Metal runtime probe, bootstrap Tart cleanup removed, `.metal.json` cache layout; Sprint 2.12) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
-| 5 | `jitml service` Daemon | ✅ Done (reopened/re-closed 2026-06-12 — removed build-VM LiveConfig/acquire and added fail-closed fixed-bridge daemon acquire, Sprint 5.10) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
+| 5 | `jitml service` Daemon | ✅ Done (reopened/re-closed 2026-06-13 — Apple host-resident workload-placement planner and host command topics, Sprint 5.11) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (reopened/re-closed 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done (re-closed 2026-06-11 — Dense-MLP SL/RL device routing, fail-closed paths, and residual synthetic SL deletion; non-Dense Conv2D/ResNet/ViT training is future architecture growth) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (re-closed 2026-06-11 — real `rl eval`/`rollout`, real MCTS mechanics with device-backed leaf evaluation, and device-backed tuning trials) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done (re-closed 2026-06-11 — weighted inference read path, `inferFromManifest` deleted; Sprint 10.5) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (re-closed 2026-06-11 — real API/panel wiring plus live CUDA Playwright value assertions; Sprint 11.8) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done (re-closed 2026-06-12 — DRY real-workflow matrix, fail-closed integration Live runner, `jitml rl alphazero self-play` CLI cell, fixed linux-cpu bootstrap/edge, and live WorkflowMatrix pass) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 12 | Test Stanzas, Lint Matrix, Cross-Cluster Parity | ✅ Done (reopened/re-closed 2026-06-13 — fail-fast failed-Job observation, bounded host-command polling, and Apple no-Job placement assertions, Sprint 12.12) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | Linux CUDA and Cluster Closure | ✅ Done (re-closed 2026-06-11 on the CUDA machine — linux-cpu and linux-cuda live reopened workflows passed; Sprints 13.17/13.18/13.19) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ✅ Done (reopened/re-closed 2026-06-12 — fixed-bridge apple-silicon backend/e2e/WorkflowMatrix live lane, Sprint 14.9) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Substrate Reproducibility and Final Handoff | ✅ Done (reopened/re-closed 2026-06-12 — fixed-bridge Apple lane passed and legacy ledger emptied; Sprints 15.5/15.6) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+| 14 | Apple Silicon Closure | ✅ Done (reopened/re-closed 2026-06-13 — live Apple host-resident workload closure, Sprint 14.10) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 15 | Substrate Reproducibility and Final Handoff | ✅ Done (reopened/re-closed 2026-06-13 — placement ledger walk-down and final handoff, Sprint 15.7) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
+
+## Reopened phases (2026-06-13 — Apple Silicon host-resident workload placement)
+
+The Apple Metal fixed bridge is correct, but the daemon dispatcher still treats
+Apple RL/training/tune commands like Linux commands: it renders Kubernetes worker
+Jobs. Those Jobs run in Linux pods, where macOS Metal and the fixed host bridge
+cannot exist. The refactor makes placement explicit:
+
+- `Substrate` remains the numerical contract: `apple-silicon`, `linux-cpu`,
+  `linux-cuda`.
+- `Residency` becomes the legal execution location: `Cluster` or `Host`.
+- `WorkloadKind` distinguishes `Inference`, `Training`, `RL`, `TuneTrial`,
+  AlphaZero policy/value work, GC, and other non-device control work.
+- A central planner maps `(BootConfig, WorkloadKind, device capability)` to either
+  an in-cluster Job or a host-resident Pulsar command.
+- Apple Metal-backed work is host-resident. The cluster daemon may orchestrate it
+  and persist state through MinIO, but must not schedule it into Linux pods.
+
+Owning sprints:
+
+- **Phase 5 / Sprint `5.11`** owns the planner, the Apple host workload command
+  envelope/subscription, and replacing the Apple Training/RL/Tune Job path. It
+  re-closed on 2026-06-13 after the focused daemon lifecycle validation.
+- **Phase 12 / Sprint `12.12`** owns failed-Job fail-fast diagnostics and Apple
+  placement test assertions. It re-closed on 2026-06-13 after focused Linux CPU
+  and Apple live dispatch validation.
+- **Phase 14 / Sprint `14.10`** owns the live Apple validation through
+  `bootstrap/apple-silicon.sh test`. It re-closed on 2026-06-13 after the full
+  Apple lane passed with host-command forwarding and no workload Jobs.
+- **Phase 15 / Sprint `15.7`** owns the final ledger walk-down and handoff once the
+  legacy Apple Job path is deleted. It re-closed on 2026-06-13 after the row
+  moved to `Completed` and Pending Removal became empty.
+
+The Linux lanes and substrate-device algorithm code stay closed; this is a
+placement and live-closure refactor.
 
 ## Reopened phases (2026-06-12 — true-headless Apple Metal fixed bridge)
 
@@ -970,10 +1048,11 @@ re-closed the same day after their scoped work validated:
   matrix. The deleted development ledger no longer carries reopened-phase rows;
   owning phase documents hold the closure details.
 
-Phases `13` and `14` remain `✅ Done` on their substrate-owned live surfaces.
-Phases `8` and `9` are re-closed. Phase `15` is re-closed after the
-source-pin/vendor helper and the superseded development ledger moved to
-Completed in [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
+At that dated 2026-06-04 closure, Phases `13` and `14` remained `✅ Done` on
+their substrate-owned live surfaces. Phases `8` and `9` re-closed. Phase `15`
+re-closed after the source-pin/vendor helper and the superseded development
+ledger moved to Completed in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Reopened phases (2026-06-06)
 
@@ -1214,22 +1293,25 @@ limits) made the host unresponsive and forced a manual reboot.
   `JITML_SUBSTRATE` / `JITML_PULSAR_WS` and the experiment hash becoming a CLI
   argument (doctrine: `Application Environment`).
 
-Phases `6`–`12` remain `✅ Done` on their owned surfaces (numerical core, JIT
-codegen, SL/RL framework, RL catalog/AlphaZero/tuning, checkpointing, frontend,
-test stanzas); none of the four workstreams change those surfaces. The live
-exercise of every reopened-phase obligation is owned by Phase `13` (`✅ Done`
-2026-05-30 on the RTX 3090; all 15 / 15 sprints closed — then reopened
-`🔄 Active` 2026-06-06 for re-validation on the RTX 5090).
+At that 2025-05-29 scope change, Phases `6`–`12` remained `✅ Done` on their
+owned surfaces (numerical core, JIT codegen, SL/RL framework, RL
+catalog/AlphaZero/tuning, checkpointing, frontend, test stanzas); none of the
+four workstreams changed those surfaces. The live exercise of every
+reopened-phase obligation was owned by Phase `13` (`✅ Done` 2026-05-30 on the
+RTX 3090; all 15 / 15 sprints closed — then reopened `🔄 Active` 2026-06-06 for
+re-validation on the RTX 5090).
 The doctrine-deviation removals (the `JITML_*` IPC and the embedded `sh -c`
 blocks) are tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Current Plan Status
 
-As of 2026-06-12, Phases `0` through `15` are `✅ Done` on their owned surfaces.
+As of 2026-06-13, Phases `5`, `12`, `14`, and `15` have re-closed; all
+Phases `0`–`15` are `✅ Done`, Pending Removal is empty, and final handoff is
+complete.
 The true-headless Apple Metal fixed-bridge workstream (`1.15`, `2.12`, `5.10`,
-`7.11`, `14.9`, `15.5`, `15.6`) is closed, and the Pending Removal ledger is
-empty.
+`7.11`, `14.9`, `15.5`, `15.6`) remains closed as dated 2026-06-12 evidence, and
+the later Apple host-resident workload placement audit has also closed.
 The historical closure notes below are retained as dated evidence and do not
 override the current status above.
 
@@ -2142,6 +2224,10 @@ This plan is complete only when all of the following are true:
     HTTPRoute resource emitted by the umbrella chart's renderer.
 18. [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
     contains no unresolved cleanup rows.
+    **Current 2026-06-13 state:** Pending Removal is empty after Sprint `15.7`
+    re-audited the Phase `5.11` Apple host-command placement replacement and
+    moved the stale Apple Metal-backed Kubernetes Job placement row to
+    `Completed`.
     **Reopened 2026-06-10 (real-workflow refactor):** the synthetic/echo/dead-code
     stand-ins the refactor deleted were enqueued under `Pending Removal`; as of
     2026-06-12 they have moved to `Completed`, so the ledger is empty again.

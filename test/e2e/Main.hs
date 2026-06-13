@@ -85,6 +85,19 @@ main =
           assertBool
             "every cell carries a canonical jitml command"
             (not (any (null . WorkflowMatrix.cellCommand) cells))
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.SlTrain AppleSilicon
+            @?= WorkflowMatrix.WorkflowHostCommandExpected
+              "persistent://public/default/training.host-command.apple-silicon"
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.RlTrain AppleSilicon
+            @?= WorkflowMatrix.WorkflowHostCommandExpected
+              "persistent://public/default/rl.host-command.apple-silicon"
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.Tune AppleSilicon
+            @?= WorkflowMatrix.WorkflowHostCommandExpected
+              "persistent://public/default/tune.host-command.apple-silicon"
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.SlTrain LinuxCPU
+            @?= WorkflowMatrix.WorkflowClusterJobExpected
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.RlTrain LinuxCUDA
+            @?= WorkflowMatrix.WorkflowClusterJobExpected
       , testCase "edge route registry includes demo and platform services" $ do
           let services = fmap routeServiceName routeRegistry
           assertBool "demo route present" ("jitml-demo" `elem` services)

@@ -29,9 +29,9 @@ module JitML.Service.Runtime
   )
 where
 
-import Control.Concurrent (myThreadId, throwTo)
+import Control.Concurrent (myThreadId, threadDelay, throwTo)
 import Control.Exception (AsyncException (..), catch, throwIO)
-import Control.Monad (void)
+import Control.Monad (forever, void)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -316,19 +316,22 @@ serveDaemon runtime = do
           BeginGracefulDrain -> throwTo mainThread UserInterrupt
           ReloadLiveConfig -> pure ()
   withDaemonSignalHandlers handleSignal $
-    serveHttpRoutes listener (daemonHttpRoutes runtime)
+    runDaemon
       `catch` handleDaemonInterrupt
  where
-  listener = runtimeListener runtime
+  runDaemon =
+    case runtimeListener runtime of
+      Just listener -> serveHttpRoutes listener (daemonHttpRoutes runtime)
+      Nothing -> forever (threadDelay maxBound)
 
   handleDaemonInterrupt UserInterrupt = pure ()
   handleDaemonInterrupt exception = throwIO exception
 
 serveDaemonOnce :: DaemonRuntime -> IO ()
 serveDaemonOnce runtime =
-  serveHttpRoutesOnce listener (daemonHttpRoutes runtime)
- where
-  listener = runtimeListener runtime
+  case runtimeListener runtime of
+    Just listener -> serveHttpRoutesOnce listener (daemonHttpRoutes runtime)
+    Nothing -> pure ()
 
 renderDaemonRuntimeSummary :: DaemonRuntime -> Text
 renderDaemonRuntimeSummary runtime =
@@ -350,9 +353,9 @@ renderDaemonRuntimeSummary runtime =
     , "pulsar_subscription_status:"
     , indentText (renderDaemonSubscriptionStatuses (daemonSubscriptionStatuses runtime))
     , "http_listener:"
-    , indentText (renderListener (runtimeListener runtime))
+    , indentText (renderMaybeListener (runtimeListener runtime))
     , "routes:"
-    , "  - " <> Text.intercalate "\n  - " (fmap renderRoute (daemonHttpRoutes runtime))
+    , indentText (renderRoutes (runtimeListener runtime) (daemonHttpRoutes runtime))
     , "healthz:"
     , indentText (renderEndpointResponse healthz)
     , "readyz:"
@@ -375,11 +378,9 @@ runtimeAfterSignal runtime signal =
     ReloadLiveConfig -> runtime
     BeginGracefulDrain -> runtime {daemonReady = False}
 
-runtimeListener :: DaemonRuntime -> HttpListener
+runtimeListener :: DaemonRuntime -> Maybe HttpListener
 runtimeListener runtime =
-  case bootHttpListener (daemonBootConfig runtime) of
-    Just listener -> listener
-    Nothing -> HttpListener "127.0.0.1" 8080
+  bootHttpListener (daemonBootConfig runtime)
 
 textRoute :: Text -> Text -> EndpointResponse -> HttpRoute
 textRoute method path response =
@@ -390,9 +391,15 @@ textRoute method path response =
     , httpRouteResponse = response
     }
 
-renderListener :: HttpListener -> Text
-renderListener listener =
+renderMaybeListener :: Maybe HttpListener -> Text
+renderMaybeListener Nothing = "(none)"
+renderMaybeListener (Just listener) =
   listenerHost listener <> ":" <> Text.pack (show (listenerPort listener))
+
+renderRoutes :: Maybe HttpListener -> [HttpRoute] -> Text
+renderRoutes Nothing _ = "(none)"
+renderRoutes (Just _) routes =
+  "- " <> Text.intercalate "\n- " (fmap renderRoute routes)
 
 renderRoute :: HttpRoute -> Text
 renderRoute route =

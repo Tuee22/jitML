@@ -29,8 +29,10 @@ Haskell renders MSL + launch metadata
   -> bridge dispatches on the host GPU
 ```
 
-This is the supported core Apple training/inference path. The retired Tart/SwiftPM
-path remains only as dated plan evidence and rationale for this doctrine.
+This is the supported core Apple training/inference path. The bridge runs only in
+the macOS host process. Cluster pods may orchestrate and persist Apple work, but
+they may not execute Apple Metal kernels. The retired Tart/SwiftPM path remains
+only as dated plan evidence and rationale for this doctrine.
 
 ## Requirements
 
@@ -129,6 +131,21 @@ The Haskell side owns:
 - bridge prerequisite verification
 - input/output shape validation
 - conversion from bridge return codes into `AppError`
+
+### Host Residency
+
+Apple Metal execution is host-resident for every Metal-backed workload kind:
+inference, supervised training, RL trainers, tuning trials, and AlphaZero
+policy/value evaluation. The Kubernetes cluster remains responsible for Pulsar,
+MinIO, Harbor, public routing, and orchestration. Inference and
+daemon-dispatched Training/RL/Tune starts are delivered to the host daemon as
+typed Pulsar envelopes with MinIO object refs; direct Apple backend work,
+including AlphaZero policy/value validation, executes host-native through the
+same fixed bridge. Phase `14` Sprint `14.10` validates the full Apple lane with
+no Metal-backed Linux worker Jobs.
+Mounting the host build tree into a Linux pod does not make the bridge usable:
+the bridge dylib links macOS Foundation/Metal frameworks and requires a host
+`MTLDevice`.
 
 ### Cache Format
 

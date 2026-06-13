@@ -25,6 +25,18 @@
 
 ## Phase Status
 
+✅ **Done** (reopened and re-closed 2026-06-13 for Sprint `12.12`). The Apple
+Silicon full test run found a failed `jitml-rl-*` Kubernetes Job but the
+integration convergence collector kept polling Pulsar rewards instead of failing
+immediately with the Job condition and pod logs. Sprint `12.12` adds fail-fast
+live Job observation, bounded host-command polling, and placement assertions so
+illegal Apple Metal Jobs are caught at dispatch time. The focused Linux CPU live
+dispatch selectors still create in-cluster Jobs, while the focused Apple live
+selectors now observe host-command forwarding and no `jitml-train-*`,
+`jitml-rl-*`, or `jitml-tune-*` workload Jobs.
+
+Prior closure history follows.
+
 ✅ **Done** (re-closed 2026-06-12 — Sprint `12.11`). The stanza suite, lint
 matrix, and substrate-partitioned lanes shipped, then the real-workflow refactor
 reopened the phase because the test surface did not run every reopened real
@@ -1014,7 +1026,76 @@ Linux live validation is no longer blocked on this machine:
 None. The integration `Live` group is the sprint-owned real-workflow matrix
 executor; `jitml-e2e` remains the structural/browser/live-plan stanza. The
 Apple matrix execution belongs to Phase `14`, and final handoff belongs to
-Phase `15`.
+Phase `15`. The later failed-Job observation gap is owned by Sprint `12.12`.
+
+## Sprint 12.12: Live Job Failure Observation and Apple Placement Assertions ✅
+
+**Status**: Done
+**Implementation**: `test/integration/Main.hs`,
+`src/JitML/Test/WorkflowMatrix.hs`, `src/JitML/Service/Workload.hs`
+**Docs to update**: `../README.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/daemon_architecture.md`,
+`system-components.md`
+
+### Objective
+
+Make live integration tests observe workload placement failures directly. A
+failed Kubernetes Job must fail the test promptly with status and pod logs, and
+Apple Metal-backed workloads must assert host-resident placement rather than
+waiting for domain events that can never arrive.
+
+### Deliverables
+
+- Add a live Job watcher used by integration convergence collectors. When a
+  daemon-dispatched Job reaches `Failed` / `BackoffLimitExceeded`, collect the
+  owning Job, pod names, container states, and logs, then fail the test.
+- Add Apple placement assertions for `training.command.apple-silicon`,
+  `rl.command.apple-silicon`, and `tune.command.apple-silicon`: Metal-backed
+  cells must produce host workload commands and must not create `jitml-train-*`,
+  `jitml-rl-*`, or `jitml-tune-*` Kubernetes Jobs.
+- Keep Linux CPU/CUDA tests asserting that their command envelopes still create
+  valid in-cluster Jobs.
+- Preserve the no-skips lane rule: a missing device/runtime fails the owning lane
+  up front instead of silently passing or polling until timeout.
+
+### Validation
+
+- `docker compose run --rm jitml cabal build all` passed after the failed-Job
+  watcher and WorkflowMatrix placement expectation edits.
+- `docker compose run --rm jitml cabal test jitml-integration
+  --test-show-details=direct --test-options='-p !/Live/'` passed **51 / 51**,
+  including the synthetic failed-Job renderer and Apple-vs-Linux placement unit
+  assertions.
+- `docker compose run --rm jitml cabal test jitml-e2e
+  --test-show-details=direct` passed **20 / 20**, including complete
+  WorkflowMatrix placement-expectation coverage.
+- `docker compose run --rm jitml jitml check-code` passed after the HLint
+  eta-reduction fix.
+- `./bootstrap/linux-cpu.sh up` completed **83** live rollout steps, and the
+  focused `linux-cpu` live selectors for `StartTraining`, duplicate
+  `StartTraining`, `StartSweep`, `StartRLRun`, and PPO convergence all passed.
+  The Linux selectors still observe legal in-cluster Jobs and the RL/PPO
+  collectors now watch those Jobs for failure while consuming Pulsar events.
+- `./bootstrap/apple-silicon.sh up` completed **83** live rollout steps after
+  the host Cabal package registration was repaired. A stale `jitml:local` image
+  had left the Apple service pod running old placement code, so
+  `src/JitML/Bootstrap.hs` now rebuilds repo-owned local images during bootstrap;
+  after `docker compose build jitml`, `kind load docker-image jitml:local
+  --name jitml-apple-silicon`, and `kubectl rollout restart
+  deployment/jitml-service -n platform`, the focused Apple live selectors for
+  `StartTraining`, duplicate `StartTraining`, `StartSweep`, `StartRLRun`, and
+  PPO convergence all passed. A final `kubectl get jobs -n platform` showed only
+  platform init/backup Jobs, with no `jitml-train-*`, `jitml-rl-*`, or
+  `jitml-tune-*` workload Jobs.
+- `docker compose run --rm jitml jitml docs check`, `docker compose run --rm
+  jitml jitml check-code`, and `git diff --check` are the final documentation
+  alignment gates for the reopened Phase `12` closure.
+
+### Remaining Work
+
+None. Phase `14` owns the full Apple lifecycle lane and Phase `15` owns the
+final ledger walk-down.
 
 ## Doctrine Sections Cited
 
@@ -1045,6 +1126,8 @@ Phase `15`.
   `jitml-cross-backend`, and the removal of the cross-substrate parity test
   surface and report-card field per the clarified reproducibility contract
   (within a substrate: bit-for-bit; across substrates: no guarantee).
+  **Sprint 12.12**: record failed Kubernetes Job fail-fast observation and
+  Apple host-resident placement assertions.
 - `documents/engineering/training_workloads.md` — SL canonicals threshold
   methodology, RL canonicals reward distribution methodology, hyperparameter
   sampler / scheduler / pruner reproducibility expectations.
@@ -1055,7 +1138,8 @@ Phase `15`.
   now enforces only within-substrate bit-for-bit reproducibility per lane;
   the cross-substrate tolerance-band enforcement is removed.
 - `documents/engineering/daemon_architecture.md` — daemon lifecycle test
-  surface, SIGHUP reload, at-least-once consumer idempotency.
+  surface, SIGHUP reload, at-least-once consumer idempotency, and placement-test
+  expectations for Apple host-resident work.
 
 **Product docs to create/update:**
 
@@ -1078,6 +1162,9 @@ Phase `15`.
   `cudnnBindingsCompiledIn`, and the oneDNN-availability assertion in the
   integration probe test). Each row resolves when the Sprint `12.10` code
   edits land.
+- [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal) —
+  Sprint `12.12` verifies the Sprint `5.11` removal row by asserting Apple
+  Metal-backed commands do not create Kubernetes Jobs.
 
 ## Related Documents
 

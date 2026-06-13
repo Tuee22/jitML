@@ -225,6 +225,17 @@ command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
 proto-lens output remains target work. Target runtime work publishes
 `rl.command.<mode>` for the daemon's at-least-once `RlHandler`.
 
+Placement is substrate-specific. Linux CPU/CUDA `rl.command.<mode>` messages may
+become Kubernetes Jobs because the target device runtime is present in the worker
+container. Apple Silicon `rl.command.apple-silicon` messages are public
+orchestration commands only: the in-cluster daemon forwards Metal-backed RL
+starts to `rl.host-command.apple-silicon` and the host daemon publishes normal
+`rl.event.apple-silicon` events from the completed host run. Running the same
+`jitml rl train` worker in a Linux pod for `apple-silicon` is not a valid
+fallback; Phase `12` keeps the focused live no-Job assertion in the integration
+suite, and Phase `14` validates the full Apple lane with no Metal-backed
+workload Jobs.
+
 `jitml rl eval --checkpoint <id>` shares `runCheckpointEval` with `jitml eval`
 (Sprint 9.9): it loads the named checkpoint and runs the substrate-bound weighted
 device forward, surfacing `InferenceCheckpointMissing` when absent — no echo
@@ -239,6 +250,12 @@ experiments/cartpole.dhall --seed 42` printed measured CUDA rewards on
 2026-06-11). Device-backed MCTS value-head leaf evaluation and device-backed
 tuning trial training are implemented through the selected `MlpDevice` and fail
 closed on device errors.
+
+The same host-residency rule applies to supervised training, tuning trial
+training, and AlphaZero value/policy evaluation whenever the selected substrate
+is `apple-silicon`: Pulsar carries typed commands/events, MinIO carries datasets,
+checkpoints, weights, and metrics, and only the host daemon calls the fixed Metal
+bridge.
 
 ## RL Algorithm Catalog
 

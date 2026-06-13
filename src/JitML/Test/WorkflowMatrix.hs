@@ -15,15 +15,17 @@
 module JitML.Test.WorkflowMatrix
   ( Workflow (..)
   , WorkflowCell (..)
+  , WorkflowPlacementExpectation (..)
   , allWorkflows
   , workflowCommand
   , workflowMatrix
+  , workflowPlacementExpectation
   )
 where
 
 import Data.Text (Text)
 
-import JitML.Substrate (Substrate, allSubstrates, renderSubstrate)
+import JitML.Substrate (Substrate (..), allSubstrates, renderSubstrate)
 
 -- | The reopened real workflows (Phases `8`–`11`) the matrix exercises per
 -- substrate.
@@ -66,6 +68,30 @@ data WorkflowCell = WorkflowCell
   , cellCommand :: [Text]
   }
   deriving stock (Eq, Show)
+
+data WorkflowPlacementExpectation
+  = WorkflowRunsInProcess
+  | WorkflowClusterJobExpected
+  | WorkflowHostCommandExpected Text
+  deriving stock (Eq, Show)
+
+-- | Daemon-dispatched placement expected for workflows that have a service
+-- command-envelope path. The matrix commands themselves still run through the
+-- CLI; this expectation is used by live daemon tests to keep placement rules
+-- DRY across substrates.
+workflowPlacementExpectation :: Workflow -> Substrate -> WorkflowPlacementExpectation
+workflowPlacementExpectation workflow substrate =
+  case (workflow, substrate) of
+    (SlTrain, AppleSilicon) ->
+      WorkflowHostCommandExpected "persistent://public/default/training.host-command.apple-silicon"
+    (RlTrain, AppleSilicon) ->
+      WorkflowHostCommandExpected "persistent://public/default/rl.host-command.apple-silicon"
+    (Tune, AppleSilicon) ->
+      WorkflowHostCommandExpected "persistent://public/default/tune.host-command.apple-silicon"
+    (SlTrain, _) -> WorkflowClusterJobExpected
+    (RlTrain, _) -> WorkflowClusterJobExpected
+    (Tune, _) -> WorkflowClusterJobExpected
+    _ -> WorkflowRunsInProcess
 
 -- | The full DRY matrix: every workflow × every substrate, in deterministic
 -- order. The live runner iterates this; a fail-closed cell passes only when its

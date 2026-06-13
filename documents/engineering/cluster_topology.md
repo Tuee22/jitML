@@ -25,11 +25,12 @@ The checked-in configs and `JitML.Cluster.Kind.renderKindConfig` use one Kind
 node for every substrate. There is no local control-plane/worker split.
 
 The host `./.build/` directory is bind-mounted into the single Kind node via the
-`extraMounts` block in the Kind config. This is what lets the in-cluster
-`jitml-service` pod see the same JIT artefacts the host built. This is the
-**one** exception to the "no freestanding host paths in pod specs"
-discipline; the chart lint permits exactly this hostPath and rejects any
-other.
+`extraMounts` block in the Kind config. This is what lets in-cluster Linux
+workloads see the repo-local build/cache tree. It is **not** an Apple Metal
+execution bridge: Apple Metal work is macOS-host-resident and reaches the cluster
+only through Pulsar and MinIO. This is the **one** exception to the "no
+freestanding host paths in pod specs" discipline; the chart lint permits exactly
+this hostPath and rejects any other.
 
 ## Storage Discipline: `kubernetes.io/no-provisioner` Only
 
@@ -223,6 +224,15 @@ Docker config, logs Docker into `127.0.0.1:9091`, pushes and pulls
 `library/jitml-phase4-docker`, lists the repository through `/harbor/api`, and
 confirms the pushed tag's artifact API returns HTTP `200`.
 
+For Apple Silicon, the edge publication is also the host daemon's service
+discovery contract. `jitml bootstrap --apple-silicon` writes
+`./.build/runtime/cluster-publication.json` and patches
+`./.build/conf/host/apple-silicon.dhall` with routed Pulsar and MinIO URLs. The
+host daemon converts `pulsar://127.0.0.1:<edge>/pulsar` to the routed WebSocket
+path and sends S3 requests through `/minio/s3`. It does not use the Kubernetes API
+to discover work, and the cluster must not schedule Apple Metal execution into
+Linux pods.
+
 `jitml cluster up` materializes local Kind, chart, Dhall, and publication inputs
 without mutating a live cluster. `jitml bootstrap --<substrate>` materializes
 those inputs and then calls `JitML.Bootstrap.liveExecutePhasedRollout` directly;
@@ -233,7 +243,11 @@ manifest apply, platform readiness, and Pulsar-topic subprocesses through the
 build or image load cannot be masked by later Helm rollout failures. The topic
 subprocesses register the substrate-scoped
 family consumed by `jitml service`: eight command/event topics for each
-substrate plus the Apple-only inference RPC pair. The live path rewrites the
+substrate plus the Apple-only inference RPC pair and the Apple host-command
+topics `training.host-command.apple-silicon`, `tune.host-command.apple-silicon`,
+and `rl.host-command.apple-silicon`. The Apple placement path forwards
+Metal-backed starts to those host-command topics rather than rendering Linux
+worker Jobs; Phase `12` owns the live no-Job assertion. The live path rewrites the
 Kind/Gateway/EnvoyProxy inputs from the selected edge-port lease, writes
 `./.build/runtime/cluster-publication.json` with that lease and measured Helm
 release status, and patches the Apple host Dhall from the publication.

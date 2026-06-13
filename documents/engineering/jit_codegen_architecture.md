@@ -337,6 +337,12 @@ reproducibility witness surface; see
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
 
+The bridge is host-only process infrastructure. A Linux container cannot execute
+this path by mounting `./.build/host/apple-silicon/`, because the dylib targets
+macOS frameworks and the dispatch requires a host `MTLDevice`. Any workload that
+selects the Apple `MlpDevice` must therefore be placed on the host daemon before
+it reaches the bridge.
+
 ## Apple Silicon Fixed-Bridge Metal JIT
 
 The Apple Silicon JIT is source-metadata-first. On a cache miss, jitML writes

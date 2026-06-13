@@ -44,6 +44,14 @@ Live Apple Silicon validation on 2026-05-23 completes
 `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
 probes, and acquires the `inference.command.apple-silicon` subscription as
 `jitml-host`.
+Sprint `5.11` extends this two-daemon Apple topology from inference-only RPC to
+Metal-backed Training/RL/Tune starts. The clustered Apple daemon remains the
+orchestrator and owner of public substrate command topics; it does not render
+Kubernetes Jobs for Apple work that needs `MlpDevice`/Metal execution, because
+those Jobs run in Linux pods. Instead it plans such work as a host-resident
+command carried by `training.host-command.apple-silicon`,
+`tune.host-command.apple-silicon`, or `rl.host-command.apple-silicon`, with the
+normal domain event topics used for completion.
 See [cluster_topology.md → `jitml-service` Deployment, Not StatefulSet](cluster_topology.md#jitml-service-deployment-not-statefulset).
 
 ## Lifecycle
@@ -125,8 +133,12 @@ apply/status/delete, and RunInference result publication.
 `JitML.Service.Runtime.daemonWorkloadDispatcher`
 parses rendered byte-faithful `WorkloadEffect` payloads and routes them
 through that runner from the consumer dispatcher contract; it also maps parsed
-Training/RL/Tune start/stop command envelopes into Kubernetes Job apply/delete
-workload effects. `jitml service --consume-once <n>` runs a bounded daemon
+Training/RL/Tune start/stop command envelopes into workload-placement decisions.
+For Linux substrates, device-backed Training/RL/Tune commands may plan
+Kubernetes Job apply/delete effects. For Apple Silicon, Metal-backed starts plan
+a host-resident Pulsar command instead of an in-cluster Job; Linux pods cannot
+load the host Metal bridge or execute macOS Metal runtime calls. `jitml
+service --consume-once <n>` runs a bounded daemon
 consumer batch through the same BootConfig-derived `DaemonServiceClient`
 settings and renders dispatch / dedup / ack outcomes before exiting; an
 explicit `--consume-once 0` performs acquisition and probes, then exits without
@@ -234,6 +246,12 @@ subscription path is live-validated on 2026-05-21 with
 against the leased `127.0.0.1:9090` edge route; that run loads the patched Dhall,
 passes MinIO / Harbor / kubectl probes, and acquires
 `persistent://public/default/inference.command.apple-silicon` as `jitml-host`.
+The host workload subscriptions are derived from the same
+`BootConfig { substrate = apple-silicon, residency = Host }` boundary rather than
+from Kubernetes discovery; the host subscribes as `jitml-host` to
+`training.host-command.apple-silicon`, `tune.host-command.apple-silicon`, and
+`rl.host-command.apple-silicon`. The cluster reaches the host only through Pulsar
+envelopes and MinIO object refs.
 
 `HasPulsar`, `HasHarbor`, and `HasKubectl` operations route through the typed
 `Subprocess` boundary where no native client is checked in. The current Pulsar
@@ -407,11 +425,13 @@ bounded local batch, dispatching fresh events, deduplicating duplicate payload
 hashes, skipping unroutable topics, and acking every delivery in the synthetic
 broker test. The same lifecycle suite verifies a failed dispatch calls
 `pulsarSeek`, does not poison the dedup cache, and allows the redelivery to
-dispatch successfully. Pulsar bootstrap registers the matching
-substrate-scoped 26-topic family before daemon
-subscription, and 2026-05-20 live Linux CPU validation confirms all 26 current
-topics exist in the broker. Live Pulsar publish/consume through the routed
-broker WebSocket endpoint is validated by
+dispatch successfully. Pulsar bootstrap registers the matching substrate-scoped
+topic family before daemon subscription, and 2026-05-20 live Linux CPU
+validation confirms the
+substrate-scoped command/event topic family exists in the broker. The family now
+also includes the Apple host-command Training/RL/Tune topics used for
+Metal-backed host-resident placement. Live Pulsar publish/consume through the
+routed broker WebSocket endpoint is validated by
 `JitML.Service.PulsarWebSocketSubprocess`, and 2026-05-21 live service-pod
 `--consume-once` validation covers bounded post-dispatch ack on the daemon
 topics. Normal `jitml service` startup now creates per-acquired-subscription
@@ -426,9 +446,13 @@ by observing zero results before seed and receiving the redelivered
 The current dispatcher has local command-handler coverage for the parsed text
 envelopes that exist today: `StartTraining` / `StopTraining`,
 `StartRLRun` / `StopRLRun`, and `StartSweep` / `StopSweep` map to
-kubectl-backed Job apply/delete workload effects. Live service-pod validation
-has proved those generated Job manifest shapes through the in-cluster service
-account, and 2026-05-21 live `--consume-once` validation invokes the dispatcher
+placement effects: Linux CPU/CUDA starts map to kubectl-backed Job apply/delete
+workload effects, while Apple Metal-backed starts map to host-command Pulsar
+publication and no Kubernetes Job. Live service-pod validation has proved the
+generated Linux Job manifest shapes through the in-cluster service account, and
+2026-06-13 focused Apple live validation proves Training/RL/Tune host-command
+forwarding with no `jitml-train-*`, `jitml-rl-*`, or `jitml-tune-*` workload
+Jobs. The 2026-05-21 live `--consume-once` validation invokes the dispatcher
 itself from the running service pod for those command envelopes and for MinIO
 checkpoint writes plus Harbor same-repository image promotion. The same live
 path seeds a latest checkpoint in MinIO, dispatches a bare-reply-topic
@@ -481,10 +505,14 @@ that Dhall. Linux has no host-level Dhall; all JIT operations happen inside the
 cluster daemon.
 
 The current implementation renders the configs, topic names, lifecycle,
-deployment surfaces, local HTTP endpoint server, BootConfig-derived client
-settings, and BootConfig-derived daemon subscription plan. Live Apple bootstrap,
+deployment surfaces, BootConfig-derived client settings, and BootConfig-derived
+daemon subscription plan. Cluster daemons expose the configured HTTP endpoint;
+host daemons preserve `httpListener = None` and run without an operator listener
+while their Pulsar workers consume host-resident work. Live Apple bootstrap,
 host daemon startup, fixed-bridge execution, and the service-loop Pulsar/MinIO
-flow are validated by the 2026-06-12 Apple `WorkflowMatrix` run.
+flow are validated by the 2026-06-12 Apple `WorkflowMatrix` run and the
+2026-06-13 full `bootstrap/apple-silicon.sh test` lane, which passed with no
+Apple Metal-backed workload Jobs.
 
 The Apple Silicon daemon owns no build VM. On `AppleSilicon + SelfInference`,
 startup probes `apple.metal-runtime` and `apple.metal-bridge`, surfaces that

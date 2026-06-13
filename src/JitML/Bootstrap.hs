@@ -792,26 +792,12 @@ cachedThirdPartyImageFromLoad sub =
 isCachedThirdPartyImageLoad :: Subprocess -> Bool
 isCachedThirdPartyImageLoad = isJust . cachedThirdPartyImageFromLoad
 
--- | Sprint 13.1 (re-verification) — skip in-bootstrap @docker build -t jitml:local@
--- when the host Docker daemon already has the @jitml:local@ tag. The
--- in-bootstrap rebuild repeats the (already-host-cached) 12-minute layered
--- build because the bootstrap container does not share the host's buildkit
--- cache. The reconciler runs the host Docker daemon over the mounted
--- @/var/run/docker.sock@, so a host-side @docker image inspect jitml:local@
--- hit means the subsequent @kind load docker-image jitml:local@ already has
--- a target. Falls back to running the build subprocess when the image is
--- absent.
+-- | Repo-owned images must be rebuilt during bootstrap. A stale `jitml:local`
+-- tag can otherwise leave the live daemon running old code while the worktree
+-- and host binary are current. Third-party warm-cache image loads are still
+-- filtered separately by `filterCachedThirdPartyImageLoads`.
 filterDockerBuildWhenImageExists :: [Subprocess] -> IO [Subprocess]
-filterDockerBuildWhenImageExists subs = do
-  hasImage <- imageExistsLocally "jitml:local"
-  pure $
-    if hasImage
-      then filter (not . isJitmlLocalBuild) subs
-      else subs
- where
-  isJitmlLocalBuild s =
-    subprocessPath s == "docker"
-      && take 3 (subprocessArguments s) == ["build", "-t", "jitml:local"]
+filterDockerBuildWhenImageExists = pure
 
 imageExistsLocally :: Text -> IO Bool
 imageExistsLocally tag = do

@@ -10,6 +10,7 @@ import Data.Aeson (eitherDecode)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as AesonKeyMap
 import Data.Function ((&))
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding.Error qualified as Text.Encoding.Error
@@ -17,6 +18,7 @@ import Data.Text.IO qualified as Text.IO
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import System.Exit (ExitCode (..))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Timeout qualified as Timeout
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
@@ -49,9 +51,11 @@ import JitML.Cluster.Readiness qualified as Readiness
 import JitML.Engines.CpuFeatures (CpuFeatures (..), detectCpuFeatures, microKernelChoice)
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Local qualified as Local
+import JitML.Engines.MetalLocal qualified as MetalLocal
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Env.Env (Env)
 import JitML.Numerics.Schema qualified as Numerics
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
@@ -91,9 +95,10 @@ import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.Retry (ServiceError (..))
 import JitML.Service.Runtime qualified as Runtime
+import JitML.Service.Workload qualified as Workload
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
-import JitML.Sub.Subprocess (subprocess)
+import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
 import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..))
 import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
@@ -115,6 +120,56 @@ main =
           exitCode @?= ExitSuccess
           stdoutText @?= "subprocess-ok\n"
           stderrText @?= ""
+      , testCase "failed Job observation renders status, pod states, and logs (Sprint 12.12)" $ do
+          let observation =
+                JobFailureObservation
+                  { failedJobName = "jitml-rl-synthetic"
+                  , failedJobStatus = "Failed:True:BackoffLimitExceeded"
+                  , failedJobDescribe = "job condition Failed=True reason=BackoffLimitExceeded"
+                  , failedJobPods =
+                      [ JobPodObservation
+                          { observedPodName = "pod/jitml-rl-synthetic-abcde"
+                          , observedPodDescribe = "State: Terminated\nReason: Error"
+                          , observedPodLogs = "missing Metal runtime in Linux pod"
+                          }
+                      ]
+                  }
+              rendered = renderJobFailureObservation observation
+          jobStatusIndicatesFailure "Failed:True:BackoffLimitExceeded" @?= True
+          assertBool
+            "failure summary should include the failed Job name"
+            ("jitml-rl-synthetic" `Text.isInfixOf` rendered)
+          assertBool
+            "failure summary should include pod container state"
+            ("State: Terminated" `Text.isInfixOf` rendered)
+          assertBool
+            "failure summary should include pod logs"
+            ("missing Metal runtime in Linux pod" `Text.isInfixOf` rendered)
+      , testCase "workflow placement keeps Apple Metal starts host-resident (Sprint 12.12)" $ do
+          let trainingHostTopic =
+                "persistent://public/default/training.host-command.apple-silicon"
+              rlHostTopic =
+                "persistent://public/default/rl.host-command.apple-silicon"
+              tuneHostTopic =
+                "persistent://public/default/tune.host-command.apple-silicon"
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.SlTrain AppleSilicon
+            @?= WorkflowMatrix.WorkflowHostCommandExpected trainingHostTopic
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.RlTrain AppleSilicon
+            @?= WorkflowMatrix.WorkflowHostCommandExpected rlHostTopic
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.Tune AppleSilicon
+            @?= WorkflowMatrix.WorkflowHostCommandExpected tuneHostTopic
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.SlTrain LinuxCPU
+            @?= WorkflowMatrix.WorkflowClusterJobExpected
+          WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.RlTrain LinuxCUDA
+            @?= WorkflowMatrix.WorkflowClusterJobExpected
+          Workload.planWorkloadPlacement BootConfig.Cluster Workload.WorkloadTraining AppleSilicon
+            @?= Workload.WorkloadHostCommand (TopicName trainingHostTopic)
+          Workload.planWorkloadPlacement BootConfig.Cluster Workload.WorkloadRl AppleSilicon
+            @?= Workload.WorkloadHostCommand (TopicName rlHostTopic)
+          Workload.planWorkloadPlacement BootConfig.Cluster Workload.WorkloadTune AppleSilicon
+            @?= Workload.WorkloadHostCommand (TopicName tuneHostTopic)
+          Workload.planWorkloadPlacement BootConfig.Cluster Workload.WorkloadRl LinuxCPU
+            @?= Workload.WorkloadClusterJob
       , testCase "bootstrap plan includes Harbor-first publication" $
           bootstrapPlanSteps LinuxCPU
             @?= [ "reconcile prerequisite graph for cluster"
@@ -459,9 +514,9 @@ main =
             )
       , testCase "Pulsar bootstrap registers the substrate-scoped topic family (Sprint 5.5)" $ do
           let topics = fmap PulsarBootstrap.topicName PulsarBootstrap.pulsarTopics
-          -- 9 substrate-scoped topics × 3 substrates + 2 apple-only internal
-          -- topics = 29 (Sprint 13.7 added gc.event.<substrate>).
-          length topics @?= 29
+          -- 9 substrate-scoped topics × 3 substrates + 5 apple-only internal
+          -- topics = 32 (Sprint 5.11 added host workload command topics).
+          length topics @?= 32
           traverse_
             ( \topic ->
                 assertBool
@@ -486,6 +541,9 @@ main =
             , "persistent://public/default/inference.request.linux-cuda"
             , "persistent://public/default/inference.command.apple-silicon"
             , "persistent://public/default/inference.event.apple-silicon"
+            , "persistent://public/default/training.host-command.apple-silicon"
+            , "persistent://public/default/tune.host-command.apple-silicon"
+            , "persistent://public/default/rl.host-command.apple-silicon"
             , "persistent://public/default/gc.event.apple-silicon"
             , "persistent://public/default/gc.event.linux-cpu"
             , "persistent://public/default/gc.event.linux-cuda"
@@ -881,7 +939,7 @@ main =
               _ <- casPointer pointerRef Nothing manifestSha
               ffiInferred <-
                 CheckpointStore.loadInferenceCheckpointWith
-                  (\loadedManifest values -> liftIO (Local.runLinuxCpuCheckpointInference env loadedManifest values))
+                  (\loadedManifest values -> liftIO (runVisibleCheckpointInference env loadedManifest values))
                   experimentHash
                   [1.0, 2.0, 3.0]
               liftIO $
@@ -890,7 +948,7 @@ main =
                 CheckpointStore.loadInferenceCheckpointWithWeights
                   ( \loadedManifest loadedWeights values ->
                       liftIO
-                        ( Local.runLinuxCpuWeightedCheckpointInference
+                        ( runVisibleWeightedCheckpointInference
                             env
                             loadedManifest
                             loadedWeights
@@ -1893,36 +1951,45 @@ main =
                   initialRef = ImageRef (registry <> "/" <> repository <> ":initial")
                   currentRef = ImageRef (registry <> "/" <> repository <> ":current")
                   sourceImage = "alpine:3.20"
-              -- Stage a small source image (alpine ~5MB) on the host and
-              -- retag it as the initial Harbor reference. We use the host
-              -- docker daemon directly (not via HasHarbor) for the pull
-              -- because alpine lives in docker.io, not Harbor. The test
-              -- assumes alpine:3.20 is already present (a fallback `docker
-              -- pull alpine:3.20` is fired if it isn't).
-              ensureLocalImage sourceImage
-              (tagExit, _, tagErr) <-
-                runStreaming
-                  defaultSubprocessEnv
-                  ( subprocess
-                      "docker"
-                      ["tag", Text.pack sourceImage, unImageRef initialRef]
-                  )
-              case tagExit of
-                ExitSuccess -> pure ()
-                ExitFailure code ->
-                  assertFailure
-                    ( "docker tag failed exit "
-                        <> show code
-                        <> " stderr: "
-                        <> Text.unpack tagErr
-                    )
-              -- Drive the live tag/push/promote flow through HasHarbor.
+              case Publication.publicationSubstrate publication of
+                AppleSilicon ->
+                  seedHarborOciArtifact settings repository "initial"
+                _ -> do
+                  -- Stage a small source image (alpine ~5MB) on the host and
+                  -- retag it as the initial Harbor reference. We use the host
+                  -- docker daemon directly (not via HasHarbor) for the pull
+                  -- because alpine lives in docker.io, not Harbor. The test
+                  -- assumes alpine:3.20 is already present (a fallback `docker
+                  -- pull alpine:3.20` is fired if it isn't).
+                  ensureLocalImage sourceImage
+                  (tagExit, _, tagErr) <-
+                    runStreaming
+                      defaultSubprocessEnv
+                      ( subprocess
+                          "docker"
+                          ["tag", Text.pack sourceImage, unImageRef initialRef]
+                      )
+                  case tagExit of
+                    ExitSuccess -> pure ()
+                    ExitFailure code ->
+                      assertFailure
+                        ( "docker tag failed exit "
+                            <> show code
+                            <> " stderr: "
+                            <> Text.unpack tagErr
+                        )
+                  -- Linux lanes validate the Docker-backed live push path. On
+                  -- Apple, host Docker is not required to trust the routed HTTP
+                  -- registry, so the source artifact is seeded through the same
+                  -- Harbor registry API before the HasHarbor promotion checks.
+                  HarborSubprocess.runHarborSubprocess settings $ do
+                    pushResult <- harborPushImage initialRef
+                    liftIO $ case pushResult of
+                      Right _ -> pure ()
+                      Left err ->
+                        assertFailure ("harborPushImage initial failed: " <> show err)
+              -- Drive the live exists/promote flow through HasHarbor.
               HarborSubprocess.runHarborSubprocess settings $ do
-                pushResult <- harborPushImage initialRef
-                liftIO $ case pushResult of
-                  Right _ -> pure ()
-                  Left err ->
-                    assertFailure ("harborPushImage initial failed: " <> show err)
                 existsInitial <- harborImageExists initialRef
                 liftIO $ case existsInitial of
                   Right True -> pure ()
@@ -1964,14 +2031,15 @@ main =
                       ]
                   )
               pure ()
-          , testCase "live daemon dispatches StartTraining into a Kubernetes Job (Sprint 13.3)" $ do
+          , testCase "live daemon places StartTraining by substrate (Sprint 13.3 / 12.12)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
                   pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
                   substrate = Publication.publicationSubstrate publication
+                  segment = substrateUrlSegment substrate
                   topicText =
                     "persistent://public/default/training.command."
-                      <> substrateUrlSegment substrate
+                      <> segment
                   topic = TopicName topicText
               uniqueSuffix <- pickRandomSuffix
               -- 16 hex chars used as the experiment hash so the rendered Job
@@ -1986,31 +2054,39 @@ main =
                       [ "kind: StartTraining"
                       , "experiment-hash: " <> experimentHash
                       , "dhall-object-key: experiments/mnist.dhall"
-                      , "substrate: " <> substrateUrlSegment substrate
+                      , "substrate: " <> segment
                       , "seed: 42"
                       , "epochs: 1"
                       , "batch-size: 32"
                       ]
                   expectedJobName = "jitml-train-" <> experimentHash
-              -- Publish the command on the live broker. The cluster-side
-              -- daemon (jitml-service Deployment) is subscribed to this topic
-              -- under subscription `jitml-service` and dispatches the
-              -- StartTraining envelope into a Kubernetes Job before ack.
-              PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
-                publishResult <- pulsarPublish topic payload
-                liftIO $ case publishResult of
-                  Right _ -> pure ()
-                  Left err ->
-                    assertFailure ("pulsarPublish StartTraining failed live: " <> show err)
-              -- Poll briefly for the Job to appear; the held-open worker
-              -- typically dispatches within a second of consume + ack.
-              jobAppeared <- waitForJob expectedJobName 15
-              assertBool
-                ("expected Job " <> Text.unpack expectedJobName <> " to be applied by the daemon")
-                jobAppeared
-              -- Best-effort cleanup so a re-run doesn't pile up Jobs.
-              _ <- deleteJob expectedJobName
-              pure ()
+              case substrate of
+                AppleSilicon -> do
+                  hostSubscription <-
+                    subscribeOrFail
+                      pulsarSettings
+                      (Workload.hostWorkloadCommandTopic Workload.WorkloadTraining AppleSilicon)
+                      ("live-training-host-command-sub-" <> uniqueSuffix)
+                      "training.host-command"
+                  publishOrFail pulsarSettings topic payload "StartTraining"
+                  assertHostCommandPublished
+                    pulsarSettings
+                    (Workload.hostWorkloadCommandTopic Workload.WorkloadTraining AppleSilicon)
+                    hostSubscription
+                    experimentHash
+                    20
+                  assertJobDoesNotAppear expectedJobName 5
+                _ -> do
+                  publishOrFail pulsarSettings topic payload "StartTraining"
+                  -- Poll briefly for the Job to appear; the held-open worker
+                  -- typically dispatches within a second of consume + ack.
+                  jobAppeared <- waitForJob expectedJobName 15
+                  assertBool
+                    ("expected Job " <> Text.unpack expectedJobName <> " to be applied by the daemon")
+                    jobAppeared
+                  -- Best-effort cleanup so a re-run doesn't pile up Jobs.
+                  _ <- deleteJob expectedJobName
+                  pure ()
           , testCase
               "live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 13.3 dedup)"
               $ do
@@ -2019,10 +2095,11 @@ main =
                     pulsarSettings =
                       PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
                     substrate = Publication.publicationSubstrate publication
+                    segment = substrateUrlSegment substrate
                     topic =
                       TopicName
                         ( "persistent://public/default/training.command."
-                            <> substrateUrlSegment substrate
+                            <> segment
                         )
                 uniqueSuffix <- pickRandomSuffix
                 let experimentHash =
@@ -2032,7 +2109,7 @@ main =
                         [ "kind: StartTraining"
                         , "experiment-hash: " <> experimentHash
                         , "dhall-object-key: experiments/mnist.dhall"
-                        , "substrate: " <> substrateUrlSegment substrate
+                        , "substrate: " <> segment
                         , "seed: 42"
                         , "epochs: 1"
                         , "batch-size: 32"
@@ -2043,34 +2120,43 @@ main =
                 -- Snapshot the daemon log offset before publish so the
                 -- post-publish tail only sees lines from this test's run.
                 logStartBytes <- daemonLogByteSize
+                hostSubscription <-
+                  case substrate of
+                    AppleSilicon ->
+                      Just
+                        <$> subscribeOrFail
+                          pulsarSettings
+                          (Workload.hostWorkloadCommandTopic Workload.WorkloadTraining AppleSilicon)
+                          ("live-training-dedup-host-command-sub-" <> uniqueSuffix)
+                          "training.host-command dedup"
+                    _ -> pure Nothing
                 -- Publish the identical StartTraining payload twice. The
                 -- payload is byte-equal, so SHA256(payload) matches and
                 -- the daemon's HandlerRouter (per-domain DedupCache) must
                 -- skip dispatch on the second consume.
-                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
-                  first <- pulsarPublish topic payload
-                  liftIO $ case first of
-                    Right _ -> pure ()
-                    Left err ->
-                      assertFailure
-                        ("first dedup publish failed live: " <> show err)
-                  second <- pulsarPublish topic payload
-                  liftIO $ case second of
-                    Right _ -> pure ()
-                    Left err ->
-                      assertFailure
-                        ("second dedup publish failed live: " <> show err)
-                -- The daemon consumes the first envelope (dispatches the
-                -- Kubernetes Job, acks) and consumes the second envelope
-                -- (dedup-skips, acks). Wait briefly for the Job to appear
-                -- as evidence the first consume reached the dispatcher.
-                jobAppeared <- waitForJob expectedJobName 30
-                assertBool
-                  ( "expected Job "
-                      <> Text.unpack expectedJobName
-                      <> " to be applied by the daemon's first consume"
-                  )
-                  jobAppeared
+                publishOrFail pulsarSettings topic payload "first duplicate StartTraining"
+                publishOrFail pulsarSettings topic payload "second duplicate StartTraining"
+                case hostSubscription of
+                  Just subscriptionId -> do
+                    assertHostCommandPublished
+                      pulsarSettings
+                      (Workload.hostWorkloadCommandTopic Workload.WorkloadTraining AppleSilicon)
+                      subscriptionId
+                      experimentHash
+                      20
+                    assertJobDoesNotAppear expectedJobName 5
+                  Nothing -> do
+                    -- The daemon consumes the first envelope (dispatches the
+                    -- Kubernetes Job, acks) and consumes the second envelope
+                    -- (dedup-skips, acks). Wait briefly for the Job to appear
+                    -- as evidence the first consume reached the dispatcher.
+                    jobAppeared <- waitForJob expectedJobName 30
+                    assertBool
+                      ( "expected Job "
+                          <> Text.unpack expectedJobName
+                          <> " to be applied by the daemon's first consume"
+                      )
+                      jobAppeared
                 -- Drain a window of fresh daemon log lines (since the
                 -- snapshot above) and assert at least one "deduplicated
                 -- training <event-id>" line is present matching the
@@ -2096,10 +2182,14 @@ main =
                       <> "` line within 30s of the duplicate publish"
                   )
                   dedupObserved
-                _ <- deleteJob expectedJobName
+                case substrate of
+                  AppleSilicon -> pure ()
+                  _ -> do
+                    _ <- deleteJob expectedJobName
+                    pure ()
                 pure ()
           , testCase
-              "live daemon dispatches StartRLRun into a Job and per-episode events arrive on rl.event (Sprint 13.5/13.6)"
+              "live daemon places StartRLRun by substrate and Linux emits rl.event episodes (Sprint 13.5/13.6/12.12)"
               $ do
                 publication <- requireLivePublication
                 let edgePort = Publication.publicationEdgePort publication
@@ -2128,44 +2218,58 @@ main =
                         , "eval-episodes: " <> Text.pack (show evalEpisodes)
                         ]
                     expectedJobName = "jitml-rl-" <> experimentHash
-                -- Subscribe to rl.event BEFORE publishing so the unique
-                -- subscription captures every episode the worker publishes
-                -- back to the in-cluster broker after the dispatched Job runs.
-                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
-                  subscribeResult <- pulsarSubscribe eventTopic subscription
-                  case subscribeResult of
-                    Right _ -> pure ()
-                    Left err ->
-                      liftIO (assertFailure ("rl.event subscribe failed live: " <> show err))
-                -- Publish StartRLRun; the cluster daemon dispatches it into a
-                -- `jitml-rl-<hash>` Job that runs `jitml rl train`.
-                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
-                  publishResult <- pulsarPublish commandTopic commandPayload
-                  liftIO $ case publishResult of
-                    Right _ -> pure ()
-                    Left err ->
-                      assertFailure ("pulsarPublish StartRLRun failed live: " <> show err)
-                jobAppeared <- waitForJob expectedJobName 30
-                assertBool
-                  ("expected Job " <> Text.unpack expectedJobName <> " to be applied by the daemon")
-                  jobAppeared
-                -- The worker publishes one `EpisodeDone` per episode to
-                -- `rl.event.<substrate>` through the in-cluster broker
-                -- (JITML_PULSAR_WS). Collect them off the subscription.
-                episodes <-
-                  collectRlEpisodes pulsarSettings eventTopic subscription experimentHash evalEpisodes 10
-                assertBool
-                  ( "expected at least one EpisodeDone on rl.event for "
-                      <> Text.unpack experimentHash
-                      <> "; collected indices: "
-                      <> show episodes
-                  )
-                  (not (null episodes))
-                assertBool
-                  ("episode indices should arrive in non-decreasing order; got " <> show episodes)
-                  (nonDecreasingInts episodes)
-                _ <- deleteJob expectedJobName
-                pure ()
+                case substrate of
+                  AppleSilicon -> do
+                    hostSubscription <-
+                      subscribeOrFail
+                        pulsarSettings
+                        (Workload.hostWorkloadCommandTopic Workload.WorkloadRl AppleSilicon)
+                        ("live-rl-host-command-sub-" <> uniqueSuffix)
+                        "rl.host-command"
+                    publishOrFail pulsarSettings commandTopic commandPayload "StartRLRun"
+                    assertHostCommandPublished
+                      pulsarSettings
+                      (Workload.hostWorkloadCommandTopic Workload.WorkloadRl AppleSilicon)
+                      hostSubscription
+                      experimentHash
+                      20
+                    assertJobDoesNotAppear expectedJobName 5
+                  _ -> do
+                    -- Subscribe to rl.event BEFORE publishing so the unique
+                    -- subscription captures every episode the worker publishes
+                    -- back to the in-cluster broker after the dispatched Job runs.
+                    _ <- subscribeOrFail pulsarSettings eventTopic subscription "rl.event"
+                    -- Publish StartRLRun; the cluster daemon dispatches it into a
+                    -- `jitml-rl-<hash>` Job that runs `jitml rl train`.
+                    publishOrFail pulsarSettings commandTopic commandPayload "StartRLRun"
+                    jobAppeared <- waitForJob expectedJobName 30
+                    assertBool
+                      ("expected Job " <> Text.unpack expectedJobName <> " to be applied by the daemon")
+                      jobAppeared
+                    -- The worker publishes one `EpisodeDone` per episode to
+                    -- `rl.event.<substrate>` through the in-cluster broker
+                    -- (JITML_PULSAR_WS). Collect them off the subscription.
+                    episodes <-
+                      collectRlEpisodes
+                        pulsarSettings
+                        eventTopic
+                        subscription
+                        experimentHash
+                        evalEpisodes
+                        (Just expectedJobName)
+                        10
+                    assertBool
+                      ( "expected at least one EpisodeDone on rl.event for "
+                          <> Text.unpack experimentHash
+                          <> "; collected indices: "
+                          <> show episodes
+                      )
+                      (not (null episodes))
+                    assertBool
+                      ("episode indices should arrive in non-decreasing order; got " <> show episodes)
+                      (nonDecreasingInts episodes)
+                    _ <- deleteJob expectedJobName
+                    pure ()
           , testCase
               "live PPO cartpole convergence through daemon dispatch clears the literature threshold (Sprint 13.6)"
               $ do
@@ -2213,58 +2317,72 @@ main =
                       assertFailure
                         "missing PPO/cartpole entry in JitML.RL.ConvergenceThresholds"
                         >> pure (ConvergenceThreshold 0 0)
-                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
-                  subscribeResult <- pulsarSubscribe eventTopic subscription
-                  case subscribeResult of
-                    Right _ -> pure ()
-                    Left err ->
-                      liftIO
-                        (assertFailure ("rl.event subscribe failed live: " <> show err))
-                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
-                  publishResult <- pulsarPublish commandTopic commandPayload
-                  liftIO $ case publishResult of
-                    Right _ -> pure ()
-                    Left err ->
-                      assertFailure
-                        ("pulsarPublish StartRLRun (convergence) failed live: " <> show err)
-                jobAppeared <- waitForJob expectedJobName 30
-                assertBool
-                  ( "expected Job "
-                      <> Text.unpack expectedJobName
-                      <> " to be applied by the daemon"
-                  )
-                  jobAppeared
-                -- Allow plenty of consume attempts: 80 PPO iterations on the
-                -- pure-Haskell MLP take longer than the 2-iteration smoke test.
-                rewards <-
-                  collectRlEpisodeRewards
-                    pulsarSettings
-                    eventTopic
-                    subscription
-                    experimentHash
-                    evalEpisodes
-                    1200
-                _ <- deleteJob expectedJobName
-                assertBool
-                  ( "expected at least "
-                      <> show (evalEpisodes `div` 2)
-                      <> " EpisodeDone rewards on rl.event; got "
-                      <> show (length rewards)
-                  )
-                  (length rewards >= evalEpisodes `div` 2)
-                let medianTail =
-                      medianDouble
-                        (drop (length rewards - max 1 (length rewards `div` 2)) rewards)
-                assertBool
-                  ( "live PPO/cartpole median(tail) = "
-                      <> show medianTail
-                      <> " must clear "
-                      <> show (literatureTarget threshold - slack threshold)
-                      <> " ("
-                      <> show (length rewards)
-                      <> " iterations collected)"
-                  )
-                  (passesConvergence threshold medianTail)
+                case substrate of
+                  AppleSilicon -> do
+                    hostSubscription <-
+                      subscribeOrFail
+                        pulsarSettings
+                        (Workload.hostWorkloadCommandTopic Workload.WorkloadRl AppleSilicon)
+                        ("live-rl-convergence-host-command-sub-" <> uniqueSuffix)
+                        "rl.host-command convergence"
+                    publishOrFail
+                      pulsarSettings
+                      commandTopic
+                      commandPayload
+                      "StartRLRun convergence"
+                    assertHostCommandPublished
+                      pulsarSettings
+                      (Workload.hostWorkloadCommandTopic Workload.WorkloadRl AppleSilicon)
+                      hostSubscription
+                      experimentHash
+                      20
+                    assertJobDoesNotAppear expectedJobName 5
+                  _ -> do
+                    _ <- subscribeOrFail pulsarSettings eventTopic subscription "rl.event convergence"
+                    publishOrFail
+                      pulsarSettings
+                      commandTopic
+                      commandPayload
+                      "StartRLRun convergence"
+                    jobAppeared <- waitForJob expectedJobName 30
+                    assertBool
+                      ( "expected Job "
+                          <> Text.unpack expectedJobName
+                          <> " to be applied by the daemon"
+                      )
+                      jobAppeared
+                    -- Allow plenty of consume attempts: 80 PPO iterations on the
+                    -- pure-Haskell MLP take longer than the 2-iteration smoke test.
+                    rewards <-
+                      collectRlEpisodeRewards
+                        pulsarSettings
+                        eventTopic
+                        subscription
+                        experimentHash
+                        evalEpisodes
+                        (Just expectedJobName)
+                        1200
+                    _ <- deleteJob expectedJobName
+                    assertBool
+                      ( "expected at least "
+                          <> show (evalEpisodes `div` 2)
+                          <> " EpisodeDone rewards on rl.event; got "
+                          <> show (length rewards)
+                      )
+                      (length rewards >= evalEpisodes `div` 2)
+                    let medianTail =
+                          medianDouble
+                            (drop (length rewards - max 1 (length rewards `div` 2)) rewards)
+                    assertBool
+                      ( "live PPO/cartpole median(tail) = "
+                          <> show medianTail
+                          <> " must clear "
+                          <> show (literatureTarget threshold - slack threshold)
+                          <> " ("
+                          <> show (length rewards)
+                          <> " iterations collected)"
+                      )
+                      (passesConvergence threshold medianTail)
           , testCase "live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7)" $ do
               publication <- requireLivePublication
               let edgePort = Publication.publicationEdgePort publication
@@ -2825,16 +2943,17 @@ main =
                   )
                   seeds
           , testCase
-              "live daemon TuneHandler dispatches StartSweep into a Kubernetes Job (Sprint 13.10 daemon)"
+              "live daemon TuneHandler places StartSweep by substrate (Sprint 13.10 / 12.12)"
               $ do
                 publication <- requireLivePublication
                 let edgePort = Publication.publicationEdgePort publication
                     pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
                     substrate = Publication.publicationSubstrate publication
+                    segment = substrateUrlSegment substrate
                     topic =
                       TopicName
                         ( "persistent://public/default/tune.command."
-                            <> substrateUrlSegment substrate
+                            <> segment
                         )
                 uniqueSuffix <- pickRandomSuffix
                 let experimentHash =
@@ -2844,7 +2963,7 @@ main =
                         [ "kind: StartSweep"
                         , "experiment-hash: " <> experimentHash
                         , "dhall-object-key: experiments/mnist-tune.dhall"
-                        , "substrate: " <> substrateUrlSegment substrate
+                        , "substrate: " <> segment
                         , "sweep-seed: 17"
                         , "trial-budget: 4"
                         , "budget-per-trial: 100"
@@ -2853,22 +2972,33 @@ main =
                         , "pruner: MedianPruner"
                         ]
                     expectedJobName = "jitml-tune-" <> experimentHash
-                PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess pulsarSettings $ do
-                  publishResult <- pulsarPublish topic payload
-                  liftIO $ case publishResult of
-                    Right _ -> pure ()
-                    Left err ->
-                      assertFailure
-                        ("pulsarPublish StartSweep failed live: " <> show err)
-                jobAppeared <- waitForJob expectedJobName 30
-                assertBool
-                  ( "expected Job "
-                      <> Text.unpack expectedJobName
-                      <> " to be applied by the daemon's TuneHandler"
-                  )
-                  jobAppeared
-                _ <- deleteJob expectedJobName
-                pure ()
+                case substrate of
+                  AppleSilicon -> do
+                    hostSubscription <-
+                      subscribeOrFail
+                        pulsarSettings
+                        (Workload.hostWorkloadCommandTopic Workload.WorkloadTune AppleSilicon)
+                        ("live-tune-host-command-sub-" <> uniqueSuffix)
+                        "tune.host-command"
+                    publishOrFail pulsarSettings topic payload "StartSweep"
+                    assertHostCommandPublished
+                      pulsarSettings
+                      (Workload.hostWorkloadCommandTopic Workload.WorkloadTune AppleSilicon)
+                      hostSubscription
+                      experimentHash
+                      20
+                    assertJobDoesNotAppear expectedJobName 5
+                  _ -> do
+                    publishOrFail pulsarSettings topic payload "StartSweep"
+                    jobAppeared <- waitForJob expectedJobName 30
+                    assertBool
+                      ( "expected Job "
+                          <> Text.unpack expectedJobName
+                          <> " to be applied by the daemon's TuneHandler"
+                      )
+                      jobAppeared
+                    _ <- deleteJob expectedJobName
+                    pure ()
           , testCase
               "live SelfPlayBuffer MinIO round-trip via writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9)"
               $ do
@@ -3177,6 +3307,175 @@ pickRandomSuffix = do
   micros <- round . (* 1_000_000) <$> getPOSIXTime :: IO Integer
   pure (Text.pack (show micros))
 
+runVisibleCheckpointInference
+  :: Env -> Checkpoint.CheckpointManifest -> [Double] -> IO (Either Text [Double])
+runVisibleCheckpointInference env manifest values = do
+  metalProbe <- MetalRuntime.probeMetalRuntime
+  if MetalRuntime.metalRuntimeDeviceVisible metalProbe
+    then MetalLocal.runMetalCheckpointInference env manifest values
+    else Local.runLinuxCpuCheckpointInference env manifest values
+
+runVisibleWeightedCheckpointInference
+  :: Env
+  -> Checkpoint.CheckpointManifest
+  -> [CheckpointStore.LoadedWeightTensor]
+  -> [Double]
+  -> IO (Either Text [Double])
+runVisibleWeightedCheckpointInference env manifest weights values = do
+  metalProbe <- MetalRuntime.probeMetalRuntime
+  if MetalRuntime.metalRuntimeDeviceVisible metalProbe
+    then MetalLocal.runMetalWeightedCheckpointInference env manifest weights values
+    else Local.runLinuxCpuWeightedCheckpointInference env manifest weights values
+
+data JobFailureObservation = JobFailureObservation
+  { failedJobName :: Text
+  , failedJobStatus :: Text
+  , failedJobDescribe :: Text
+  , failedJobPods :: [JobPodObservation]
+  }
+  deriving stock (Eq, Show)
+
+data JobPodObservation = JobPodObservation
+  { observedPodName :: Text
+  , observedPodDescribe :: Text
+  , observedPodLogs :: Text
+  }
+  deriving stock (Eq, Show)
+
+renderJobFailureObservation :: JobFailureObservation -> Text
+renderJobFailureObservation observation =
+  Text.unlines $
+    [ "Kubernetes Job "
+        <> failedJobName observation
+        <> " failed before the live test completed."
+    , "Job status:"
+    , indentBlock (failedJobStatus observation)
+    , "Job describe:"
+    , indentBlock (failedJobDescribe observation)
+    , "Owning pods:"
+    ]
+      <> podSections
+ where
+  podSections =
+    case failedJobPods observation of
+      [] -> ["  <none>"]
+      pods -> concatMap renderPod pods
+  renderPod pod =
+    [ "  " <> observedPodName pod
+    , "  Pod describe:"
+    , indentBlock (observedPodDescribe pod)
+    , "  Pod logs:"
+    , indentBlock (observedPodLogs pod)
+    ]
+
+indentBlock :: Text -> Text
+indentBlock block =
+  Text.unlines (fmap ("  " <>) (Text.lines (Text.strip block)))
+
+jobStatusIndicatesFailure :: Text -> Bool
+jobStatusIndicatesFailure statusText =
+  "Failed:True" `Text.isInfixOf` statusText
+    || "BackoffLimitExceeded" `Text.isInfixOf` statusText
+    || "DeadlineExceeded" `Text.isInfixOf` statusText
+
+kubectl :: [Text] -> IO (ExitCode, Text, Text)
+kubectl args =
+  runStreaming
+    defaultSubprocessEnv
+    ( subprocess
+        "kubectl"
+        (["--kubeconfig", "./.build/jitml.kubeconfig"] <> args)
+    )
+
+kubectlOutput :: ExitCode -> Text -> Text -> Text
+kubectlOutput exitCode stdoutText stderrText =
+  Text.unlines $
+    ["exit: " <> Text.pack (show exitCode) | exitCode /= ExitSuccess]
+      <> section "stdout" stdoutText
+      <> section "stderr" stderrText
+ where
+  section label value =
+    let stripped = Text.strip value
+     in if Text.null stripped then [] else [label <> ":", stripped]
+
+observeFailedJob :: Text -> IO (Maybe JobFailureObservation)
+observeFailedJob jobName = do
+  (statusExit, statusText, statusErr) <-
+    kubectl
+      [ "get"
+      , "job"
+      , jobName
+      , "-n"
+      , "platform"
+      , "--ignore-not-found"
+      , "-o"
+      , "jsonpath={range .status.conditions[*]}{.type}:{.status}:{.reason}{\"\\n\"}{end}"
+      ]
+  let statusBlock = kubectlOutput statusExit statusText statusErr
+  if statusExit /= ExitSuccess || not (jobStatusIndicatesFailure statusText)
+    then pure Nothing
+    else do
+      (describeExit, describeOut, describeErr) <-
+        kubectl ["describe", "job", jobName, "-n", "platform"]
+      (podExit, podOut, podErr) <-
+        kubectl
+          [ "get"
+          , "pods"
+          , "-n"
+          , "platform"
+          , "-l"
+          , "job-name=" <> jobName
+          , "-o"
+          , "name"
+          ]
+      let podNames =
+            case podExit of
+              ExitSuccess -> filter (not . Text.null) (fmap Text.strip (Text.lines podOut))
+              ExitFailure _ -> []
+      podObservations <- traverse observeJobPod podNames
+      let podListing =
+            if podExit == ExitSuccess
+              then ""
+              else "\nPod listing failed:\n" <> kubectlOutput podExit podOut podErr
+      pure
+        ( Just
+            JobFailureObservation
+              { failedJobName = jobName
+              , failedJobStatus = statusBlock
+              , failedJobDescribe =
+                  kubectlOutput describeExit describeOut describeErr <> podListing
+              , failedJobPods = podObservations
+              }
+        )
+
+observeJobPod :: Text -> IO JobPodObservation
+observeJobPod podName = do
+  (describeExit, describeOut, describeErr) <-
+    kubectl ["describe", podName, "-n", "platform"]
+  (logsExit, logsOut, logsErr) <-
+    kubectl
+      [ "logs"
+      , podName
+      , "-n"
+      , "platform"
+      , "--all-containers=true"
+      , "--tail=200"
+      ]
+  pure
+    JobPodObservation
+      { observedPodName = podName
+      , observedPodDescribe = kubectlOutput describeExit describeOut describeErr
+      , observedPodLogs = kubectlOutput logsExit logsOut logsErr
+      }
+
+assertWatchedJobNotFailed :: Text -> IO ()
+assertWatchedJobNotFailed jobName = do
+  failed <- observeFailedJob jobName
+  case failed of
+    Nothing -> pure ()
+    Just observation ->
+      assertFailure (Text.unpack (renderJobFailureObservation observation))
+
 -- | Poll `kubectl get job <name> -n platform` until the resource exists or
 -- the deadline passes. Used by the Sprint 13.3 daemon-dispatch live test.
 waitForJob :: Text -> Int -> IO Bool
@@ -3185,10 +3484,118 @@ waitForJob jobName remaining
   | otherwise = do
       exists <- kubectlJobExists jobName
       if exists
-        then pure True
+        then do
+          assertWatchedJobNotFailed jobName
+          pure True
         else do
+          assertWatchedJobNotFailed jobName
           Control.Concurrent.threadDelay 1_000_000
           waitForJob jobName (remaining - 1)
+
+assertJobDoesNotAppear :: Text -> Int -> IO ()
+assertJobDoesNotAppear jobName remaining
+  | remaining <= 0 = pure ()
+  | otherwise = do
+      exists <- kubectlJobExists jobName
+      if exists
+        then do
+          failed <- observeFailedJob jobName
+          case failed of
+            Just observation ->
+              assertFailure
+                ( Text.unpack
+                    ( "unexpected Apple host-resident workload Job appeared:\n"
+                        <> renderJobFailureObservation observation
+                    )
+                )
+            Nothing -> do
+              (describeExit, describeOut, describeErr) <-
+                kubectl ["describe", "job", jobName, "-n", "platform"]
+              assertFailure
+                ( Text.unpack
+                    ( Text.unlines
+                        [ "unexpected Apple host-resident workload Job appeared: " <> jobName
+                        , kubectlOutput describeExit describeOut describeErr
+                        ]
+                    )
+                )
+        else do
+          Control.Concurrent.threadDelay 1_000_000
+          assertJobDoesNotAppear jobName (remaining - 1)
+
+subscribeOrFail
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> TopicName
+  -> Text
+  -> Text
+  -> IO SubscriptionId
+subscribeOrFail settings topic subscription label = do
+  result <-
+    PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+      settings
+      (pulsarSubscribe topic subscription)
+  case result of
+    Right subscriptionId -> pure subscriptionId
+    Left err ->
+      assertFailureWithIO
+        ( Text.unpack
+            (label <> " subscribe failed live on " <> unTopicName topic <> ": " <> Text.pack (show err))
+        )
+
+publishOrFail
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> TopicName
+  -> Text
+  -> Text
+  -> IO ()
+publishOrFail settings topic payload label = do
+  result <-
+    PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+      settings
+      (pulsarPublish topic payload)
+  case result of
+    Right _ -> pure ()
+    Left err ->
+      assertFailure
+        ( Text.unpack
+            (label <> " publish failed live on " <> unTopicName topic <> ": " <> Text.pack (show err))
+        )
+
+assertHostCommandPublished
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> TopicName
+  -> SubscriptionId
+  -> Text
+  -> Int
+  -> IO ()
+assertHostCommandPublished settings topic subscriptionId experimentHash =
+  go
+ where
+  go remaining
+    | remaining <= 0 =
+        assertFailure
+          ( "expected host workload command for "
+              <> Text.unpack experimentHash
+              <> " on "
+              <> Text.unpack (unTopicName topic)
+          )
+    | otherwise = do
+        consumed <-
+          Timeout.timeout 5_000_000 $
+            PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+              settings
+              (pulsarConsume subscriptionId)
+        case consumed of
+          Nothing -> go (remaining - 1)
+          Just (Left _) -> go (remaining - 1)
+          Just (Right (_topicBack, payload)) -> do
+            _ <-
+              PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+                settings
+                (pulsarAcknowledge topic payload)
+            if ("experiment-hash: " <> experimentHash) `Text.isInfixOf` payload
+              then pure ()
+              else go (remaining - 1)
 
 -- | Sprint 13.5/13.6 — poll @rl.event.<substrate>@ for the per-episode
 -- @EpisodeDone@ envelopes the worker publishes to the in-cluster broker
@@ -3204,9 +3611,10 @@ collectRlEpisodes
   -> Text
   -> Text
   -> Int
+  -> Maybe Text
   -> Int
   -> IO [Int]
-collectRlEpisodes settings topic subscription experimentHash wanted attempts =
+collectRlEpisodes settings topic subscription experimentHash wanted watchedJob attempts =
   go attempts []
  where
   subId = SubscriptionId (unTopicName topic <> "\n" <> subscription)
@@ -3214,6 +3622,7 @@ collectRlEpisodes settings topic subscription experimentHash wanted attempts =
     | n <= 0 = pure (reverse acc)
     | length acc >= wanted = pure (reverse acc)
     | otherwise = do
+        traverse_ assertWatchedJobNotFailed watchedJob
         consumed <-
           PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
             settings
@@ -3221,7 +3630,9 @@ collectRlEpisodes settings topic subscription experimentHash wanted attempts =
         case consumed of
           Left _ ->
             -- Timeout: the worker may not have published yet; retry.
-            go (n - 1) acc
+            do
+              traverse_ assertWatchedJobNotFailed watchedJob
+              go (n - 1) acc
           Right (_topicBack, payload) -> do
             _ <-
               PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
@@ -3281,9 +3692,10 @@ collectRlEpisodeRewards
   -> Text
   -> Text
   -> Int
+  -> Maybe Text
   -> Int
   -> IO [Double]
-collectRlEpisodeRewards settings topic subscription experimentHash wanted attempts =
+collectRlEpisodeRewards settings topic subscription experimentHash wanted watchedJob attempts =
   go attempts []
  where
   subId = SubscriptionId (unTopicName topic <> "\n" <> subscription)
@@ -3291,12 +3703,15 @@ collectRlEpisodeRewards settings topic subscription experimentHash wanted attemp
     | n <= 0 = pure (reverse acc)
     | length acc >= wanted = pure (reverse acc)
     | otherwise = do
+        traverse_ assertWatchedJobNotFailed watchedJob
         consumed <-
           PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
             settings
             (pulsarConsume subId)
         case consumed of
-          Left _ -> go (n - 1) acc
+          Left _ -> do
+            traverse_ assertWatchedJobNotFailed watchedJob
+            go (n - 1) acc
           Right (_topicBack, payload) -> do
             _ <-
               PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
@@ -3471,6 +3886,226 @@ assertJitmlServiceHasConsumer topic statsValue =
             <> Text.unpack topic
             <> " stats decoded to non-object: "
             <> show other
+        )
+
+seedHarborOciArtifact :: HarborSubprocess.HarborSettings -> Text -> Text -> IO ()
+seedHarborOciArtifact settings repository tag = do
+  token <- harborRegistryToken settings repository "push,pull"
+  let configPayload =
+        "{\"architecture\":\"amd64\",\"os\":\"linux\",\"rootfs\":{\"type\":\"layers\",\"diff_ids\":[]},\"config\":{}}"
+  configDigest <- ociDigest configPayload
+  let configSize =
+        Text.pack (show (Data.ByteString.length (Text.Encoding.encodeUtf8 configPayload)))
+      manifestPayload =
+        Text.concat
+          [ "{\"schemaVersion\":2"
+          , ",\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\""
+          , ",\"config\":{\"mediaType\":\"application/vnd.oci.image.config.v1+json\""
+          , ",\"digest\":\""
+          , configDigest
+          , "\",\"size\":"
+          , configSize
+          , "}"
+          , ",\"layers\":[]}"
+          ]
+  uploadLocation <- startHarborBlobUpload settings token repository
+  putHarborBlob settings token uploadLocation configDigest configPayload
+  putHarborManifest settings token repository tag manifestPayload
+
+harborRegistryToken
+  :: HarborSubprocess.HarborSettings -> Text -> Text -> IO Text
+harborRegistryToken settings repository actions = do
+  let tokenUrl =
+        "http://"
+          <> HarborSubprocess.harborRegistry settings
+          <> "/service/token?service=harbor-registry&scope=repository:"
+          <> repository
+          <> ":"
+          <> actions
+  (exitCode, stdoutText, stderrText) <-
+    runStreaming
+      defaultSubprocessEnv
+      ( subprocess
+          (HarborSubprocess.harborCurlBinary settings)
+          [ "--fail"
+          , "--silent"
+          , "--show-error"
+          , "--user"
+          , HarborSubprocess.harborUsername settings
+              <> ":"
+              <> HarborSubprocess.harborPassword settings
+          , tokenUrl
+          ]
+      )
+  case exitCode of
+    ExitFailure code ->
+      assertFailure
+        ( "Harbor token request failed exit "
+            <> show code
+            <> " stderr: "
+            <> Text.unpack stderrText
+        )
+    ExitSuccess ->
+      case eitherDecode (ByteString.Lazy.fromStrict (Text.Encoding.encodeUtf8 stdoutText)) of
+        Right (Aeson.Object objectValue)
+          | Just (Aeson.String token) <- AesonKeyMap.lookup "token" objectValue ->
+              pure token
+        Right other ->
+          assertFailure ("Harbor token response missing token string: " <> show other)
+        Left err ->
+          assertFailure ("Harbor token response JSON parse failed: " <> err)
+
+startHarborBlobUpload
+  :: HarborSubprocess.HarborSettings -> Text -> Text -> IO Text
+startHarborBlobUpload settings token repository = do
+  let uploadUrl =
+        "http://"
+          <> HarborSubprocess.harborRegistry settings
+          <> "/v2/"
+          <> repository
+          <> "/blobs/uploads/"
+  (exitCode, stdoutText, stderrText) <-
+    runStreaming
+      defaultSubprocessEnv
+      ( subprocess
+          (HarborSubprocess.harborCurlBinary settings)
+          [ "--fail"
+          , "--silent"
+          , "--show-error"
+          , "--dump-header"
+          , "-"
+          , "--output"
+          , "/dev/null"
+          , "--request"
+          , "POST"
+          , "--header"
+          , "Authorization: Bearer " <> token
+          , uploadUrl
+          ]
+      )
+  case exitCode of
+    ExitFailure code ->
+      assertFailure
+        ( "Harbor blob upload start failed exit "
+            <> show code
+            <> " stderr: "
+            <> Text.unpack stderrText
+        )
+    ExitSuccess ->
+      case responseHeader "location" stdoutText of
+        Just location -> pure (resolveHarborLocation settings location)
+        Nothing ->
+          assertFailure
+            ( "Harbor blob upload start response lacks Location header: "
+                <> Text.unpack stdoutText
+            )
+
+putHarborBlob
+  :: HarborSubprocess.HarborSettings -> Text -> Text -> Text -> Text -> IO ()
+putHarborBlob settings token uploadLocation digest payload =
+  assertCurlSuccess
+    "Harbor blob PUT"
+    ( subprocessWithStdin
+        (HarborSubprocess.harborCurlBinary settings)
+        [ "--fail"
+        , "--silent"
+        , "--show-error"
+        , "--request"
+        , "PUT"
+        , "--header"
+        , "Authorization: Bearer " <> token
+        , "--header"
+        , "Content-Type: application/octet-stream"
+        , "--data-binary"
+        , "@-"
+        , appendDigestQuery uploadLocation digest
+        ]
+        payload
+    )
+
+putHarborManifest
+  :: HarborSubprocess.HarborSettings -> Text -> Text -> Text -> Text -> IO ()
+putHarborManifest settings token repository tag payload =
+  assertCurlSuccess
+    "Harbor manifest PUT"
+    ( subprocessWithStdin
+        (HarborSubprocess.harborCurlBinary settings)
+        [ "--fail"
+        , "--silent"
+        , "--show-error"
+        , "--request"
+        , "PUT"
+        , "--header"
+        , "Authorization: Bearer " <> token
+        , "--header"
+        , "Content-Type: application/vnd.oci.image.manifest.v1+json"
+        , "--data-binary"
+        , "@-"
+        , "http://"
+            <> HarborSubprocess.harborRegistry settings
+            <> "/v2/"
+            <> repository
+            <> "/manifests/"
+            <> tag
+        ]
+        payload
+    )
+
+assertCurlSuccess :: String -> Subprocess -> IO ()
+assertCurlSuccess label command = do
+  (exitCode, _stdoutText, stderrText) <- runStreaming defaultSubprocessEnv command
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure code ->
+      assertFailure
+        ( label
+            <> " failed exit "
+            <> show code
+            <> " stderr: "
+            <> Text.unpack stderrText
+        )
+
+responseHeader :: Text -> Text -> Maybe Text
+responseHeader headerName headers =
+  listToMaybe
+    [ Text.strip value
+    | line <- Text.lines headers
+    , let (name, valueWithColon) = Text.breakOn ":" line
+    , Text.toCaseFold name == Text.toCaseFold headerName
+    , not (Text.null valueWithColon)
+    , let value = Text.drop 1 valueWithColon
+    ]
+
+resolveHarborLocation :: HarborSubprocess.HarborSettings -> Text -> Text
+resolveHarborLocation settings location
+  | "http://" `Text.isPrefixOf` location || "https://" `Text.isPrefixOf` location =
+      location
+  | "/" `Text.isPrefixOf` location =
+      "http://" <> HarborSubprocess.harborRegistry settings <> location
+  | otherwise =
+      "http://" <> HarborSubprocess.harborRegistry settings <> "/" <> location
+
+appendDigestQuery :: Text -> Text -> Text
+appendDigestQuery location digest
+  | "?" `Text.isInfixOf` location = location <> "&digest=" <> digest
+  | otherwise = location <> "?digest=" <> digest
+
+ociDigest :: Text -> IO Text
+ociDigest payload = do
+  (exitCode, stdoutText, stderrText) <-
+    runStreaming
+      defaultSubprocessEnv
+      (subprocessWithStdin "shasum" ["-a", "256"] payload)
+  case (exitCode, Text.words stdoutText) of
+    (ExitSuccess, digest : _) -> pure ("sha256:" <> digest)
+    (ExitSuccess, []) ->
+      assertFailure "shasum produced no digest for Harbor OCI seed payload"
+    (ExitFailure code, _) ->
+      assertFailure
+        ( "shasum failed exit "
+            <> show code
+            <> " stderr: "
+            <> Text.unpack stderrText
         )
 
 -- | Make sure the named docker image exists on the host docker daemon
