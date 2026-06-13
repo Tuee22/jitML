@@ -100,7 +100,7 @@ ambiguity about where the source of truth lives.
   JIT codegen, Phase `8` SL training and RL framework, Phase `9` RL algorithm
   catalog + AlphaZero + tuning, Phase `10` checkpointing + inference-only read
   path, Phase `11` PureScript frontend + `jitml-demo`, Phase `12` test stanzas +
-  cross-cluster parity surface.
+  live workflow matrix.
 - [development_plan_standards.md](development_plan_standards.md) declares rules
   A–L, including the CLI Doctrine Alignment rule L that requires phase docs to
   cite [../README.md](../README.md) sections by name on

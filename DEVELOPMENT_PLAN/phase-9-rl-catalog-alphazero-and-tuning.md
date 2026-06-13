@@ -31,7 +31,8 @@ with value backup, device-backed MCTS leaf evaluation runs through the selected
 JIT `MlpDevice`, and tuning trials train a real model through the substrate
 device to produce measured objectives. The linux-cpu and linux-cuda live
 exercise closed in Phase `13` on 2026-06-11; apple-silicon live validation
-remains Phase `14`, not an open Phase `9` code-surface obligation. See
+closed in Phase `14` on 2026-06-12. None of that live validation is an open
+Phase `9` code-surface obligation. See
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
 closure narrative below is retained as dated record.
 

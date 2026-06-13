@@ -44,19 +44,17 @@ own floating-point determinism contract.
 - Metal compute kernels execute on the host GPU.
 - Float-accumulation order is fixed by the kernel's reduction tree (no
   `-ffast-math`).
-- Generated reduction metadata reports one output per simdgroup partial
-  (`ceil(n / 32)`), so future Metal FFI loading can size host buffers from the
-  generated `jitml_kernel_output_count` symbol instead of duplicating shape
-  logic outside the renderer.
-- Metal compute kernels are built **inside the `jitml`-managed Tart VM** with the
-  VM's bundled `swift build`; the produced dylib is copied out to the host and
-  JIT-compiled at runtime via `MTLDevice.makeLibrary(source:options:)` with
-  `fastMathEnabled = false`, then executed on the **host** GPU through the OS Metal
-  framework. Determinism is fixed by the shader source plus the fast-math-off
-  compile option, independent of where the dylib was built.
-  `JitML.Engines.MetalRuntime` probes host Metal device visibility (which gates
-  execution); the host carries no Swift/Metal toolchain — the toolchain lives only
-  in the VM. See [jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](./jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
+- Generated metadata reports output-count policy, threadgroup size, bridge ABI,
+  source hash, and safe math mode so host buffers are sized from the same
+  renderer that supplies the MSL.
+- Metal compute kernels are compiled at runtime by the fixed host bridge via
+  `MTLDevice.makeLibrary(source:options:)` with fast math disabled, then executed
+  on the host GPU through the OS Metal framework. Determinism is fixed by the
+  shader source, fixed bridge ABI, safe math option, and single-stream launch
+  policy. `JitML.Engines.MetalRuntime` probes host Metal device visibility and
+  the bridge probe gates execution; the core path does not require SwiftPM,
+  `swiftc`, `xcrun metal`, Tart, full Xcode, or keychain state. See
+  [jit_codegen_architecture.md → Apple Silicon Fixed-Bridge Metal JIT](./jit_codegen_architecture.md#apple-silicon-fixed-bridge-metal-jit).
 - RNG state lives in the host daemon (`Host + SelfInference`).
 - Kernel-launch ordering is single-stream by default. Single MTLCommandQueue
   with FIFO ordering; explicit barriers prevent kernel reordering.
@@ -139,11 +137,11 @@ where:
   enabled.
 - `substrate` ∈ `apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, Metal/`swiftc`, oneDNN) plus loader-relevant ABI
-  facts for local FFI artifacts. The Apple `Metal/swiftc` pin is the Tart build
-  VM's image id plus its bundled `swiftc`/Metal toolchain version (the build
-  toolchain) together with the host OS Metal framework (which provides the runtime
-  `makeLibrary` shader compiler at execution). The current Linux CPU local
+  `cabal.project` (LLVM, NVCC, the host OS Metal runtime plus fixed bridge ABI,
+  oneDNN) plus loader-relevant ABI facts for local FFI artifacts. The Apple
+  fingerprint includes the fixed bridge ABI/version, host artifact ABI, runtime
+  `makeLibrary` policy, safe math mode, launch policy, rendered MSL payload, and
+  tuning choice. The current Linux CPU local
   fingerprint carries
   `artifact-abi=<os>-<arch>` so Darwin host artifacts and Linux container
   artifacts do not share a cache key.
@@ -166,7 +164,7 @@ reproducibility witnesses:
 
 | Substrate | Envelope fields |
 |-----------|-----------------|
-| `apple-silicon` | GPU device id, Metal version, Tart build-VM image id, VM `swiftc`/Metal toolchain version |
+| `apple-silicon` | GPU device id, Metal version, fixed bridge ABI/version, Metal runtime policy, MSL source metadata hash |
 | `linux-cpu` | Detected ISA (AVX2 / AVX-512), oneDNN version, glibc version, CPU model |
 | `linux-cuda` | cuDNN version, cuBLAS version, CUDA driver version, GPU compute capability, NVCC version |
 
@@ -211,9 +209,9 @@ while recording a deterministic output digest. The generated CUDA source bundle
 now exports the same `jitml_kernel` / family / output-count ABI and the guarded
 `JitML.Engines.CudaLocal` runner consumes a positive CUDA runtime probe before
 compile/load/launch; in unavailable environments it fails closed before compile.
-Swift/Metal source bundles export the same family/output-count metadata
-contract for their future FFI loaders. The remaining same-substrate runtime
-proof is live CUDA and Metal graph-kernel execution.
+Apple Metal source metadata carries the same family/output-count contract for
+the fixed bridge. The live Apple backend lane and live CUDA lane exercise these
+runtime proofs on matching hardware.
 
 ## Determinism Caveats
 

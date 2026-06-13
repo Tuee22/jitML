@@ -48,8 +48,8 @@ contracts.
   services, to the long-running daemon, then through the numerical core and per-
   substrate JIT codegen, the SL/RL framework and algorithm catalog, AlphaZero and
   hyperparameter tuning, checkpointing and the inference-only read path, the
-  PureScript frontend, and finally the test stanzas and the
-  cross-cluster parity surface.
+  PureScript frontend, and finally the test stanzas, live workflow matrix, and
+  final handoff surface.
 - A reader unfamiliar with the repository must be able to follow the plan top to
   bottom without reconstructing hidden dependencies from multiple documents.
 - If a previously closed phase reopens because the repository end state expands later,

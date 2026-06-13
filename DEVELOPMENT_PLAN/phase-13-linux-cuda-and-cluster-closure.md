@@ -265,18 +265,17 @@ substrate and ran the live obligations end-to-end on the RTX 3090 host:
   (Sprint 13.4 Live)" — a real ~13-minute (789.07s) train over the
   MinIO-fetched bytes that cleared the mnist-shallow-mlp literature
   threshold − slack.
-- **Remaining for closure (operational only).** The single open item is
-  Sprint 13.6's per-cohort statistical convergence *against live
-  measurement* for all 13 cohorts (hours of compute; the live dispatch +
-  arrival mechanism is validated above and host-side convergence is
-  proven by `jitml-rl-canonicals` 28/28). No code work remains.
+- **Historical remaining-for-closure note (operational only).** At this point,
+  Sprint 13.6's per-cohort statistical convergence *against live measurement*
+  for all 13 cohorts was the remaining operational gate. Later Phase `13`
+  validation closed this gate.
 
 ### Code-surface + GPU Validation Note (2026-05-28, current session — SL training wiring + nvcc MLP forward/backward kernels)
 
-This session advanced the two largest open Sprint families without
-fabricating any closure (Sprints 13.8 / 13.9 stay 🔄 Active until their
-trainers/network actually run on the device kernels). Landed and
-validated on the RTX 3090 / CUDA 12.8 / Ubuntu 24.04 host:
+This session advanced the two largest then-open Sprint families without
+fabricating closure; Sprints 13.8 / 13.9 later closed after their
+trainers/network ran on device kernels. Landed and validated on the RTX 3090 /
+CUDA 12.8 / Ubuntu 24.04 host:
 
 - **Sprint 13.4 — `jitml train` over real MNIST (code-surface).** Added
   the MNIST label artefact surface (`DatasetArtifact`, `labels.bin`
@@ -3318,8 +3317,8 @@ with real production weight loading per substrate).
   LayerNorm / Embedding) twice on the same input + weight buffer and
   asserts bit-identical output across the two runs. MHA omitted from
   the test cohort because its embedded triple-matmul is sensitive to
-  reduction order (covered by the broader cross-substrate parity
-  fixtures in Phase 15).
+  reduction order (covered at the time by broader Phase 15 comparison
+  fixtures, later removed with the cross-substrate numeric parity surface).
 
 ### Live Validation Note (2026-05-27, per-family weighted bodies)
 
@@ -3341,9 +3340,10 @@ oneDNN compile path, runs it twice against the same input + weight
 buffer, and asserts bit-equality across the two runs — confirming
 the real per-family weighted primitives produce deterministic
 output under the determinism contract. The live `jitml inference
-run` test (Sprint 13.12 closure) covers the daemon-side bit-
-determinism end-to-end for the CUDA Dense2D path; wider per-family
-cross-substrate parity folds into Phase 15's parity matrix.
+  run` test (Sprint 13.12 closure) covers the daemon-side bit-
+  determinism end-to-end for the CUDA Dense2D path; the wider per-family
+  cross-substrate numeric-comparison plan was later removed by Phase 15
+  Sprint `15.4`.
 
 ### Remaining Work
 
@@ -4094,8 +4094,8 @@ worker Jobs inherit the NVIDIA runtime settings needed by GPU workloads.
 
 ### Remaining Work
 
-- None for the Linux cluster closure. Apple Silicon closure remains Phase `14`
-  Sprint `14.8`; final cross-substrate handoff remains Phase `15`.
+- None for the Linux cluster closure. Apple Silicon closure and final handoff
+  closed later in Phases `14` and `15` on 2026-06-12.
 
 ## Doctrine Sections Cited
 

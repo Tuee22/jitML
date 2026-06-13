@@ -84,7 +84,7 @@ import JitML.Service.Http (withHttpRoutesOnce)
 import JitML.Service.Lifecycle (LifecyclePhase (..), lifecyclePlan)
 import JitML.Service.Retry (RetryPolicy (..), ServiceError (..), retryServiceAction)
 import JitML.Service.Runtime
-  ( DaemonRuntime (daemonReady)
+  ( DaemonRuntime (daemonAppleMetalAcquireStatus, daemonReady)
   , daemonHttpRoutes
   , defaultDaemonRuntime
   , runtimeAfterSignal
@@ -389,10 +389,39 @@ main =
               ( "- persistent://public/default/training.command.linux-cpu as jitml-service: pending"
                   `Text.isInfixOf` summary
               )
+            assertBool "Apple Metal acquire section" ("apple_metal_acquire:" `Text.isInfixOf` summary)
+            assertBool "default Apple Metal acquire not required" ("  not_required" `Text.isInfixOf` summary)
             assertBool "client probe section" ("client_probe_status:" `Text.isInfixOf` summary)
             assertBool
               "pending MinIO client probe"
               ("- minio:list jitml-checkpoints: pending" `Text.isInfixOf` summary)
+      , testCase "Apple Metal acquire status renders success and failure (Sprint 5.10)" $ do
+          let appleRuntime =
+                Runtime.daemonRuntimeForBootConfig
+                  (BootConfig.defaultBootConfig AppleSilicon BootConfig.Host)
+              successRuntime =
+                appleRuntime
+                  { daemonAppleMetalAcquireStatus =
+                      Runtime.AppleMetalAcquireSucceeded
+                        "apple.metal-runtime=yes apple.metal-bridge=yes"
+                  }
+              failureRuntime =
+                appleRuntime
+                  { daemonAppleMetalAcquireStatus =
+                      Runtime.AppleMetalAcquireFailed
+                        "apple.metal-runtime=yes apple.metal-bridge=no"
+                  , daemonReady = False
+                  }
+              successSummary = Runtime.renderDaemonRuntimeSummary successRuntime
+              failureSummary = Runtime.renderDaemonRuntimeSummary failureRuntime
+          daemonAppleMetalAcquireStatus appleRuntime @?= Runtime.AppleMetalAcquirePending
+          assertBool
+            "successful Apple acquire status"
+            ("ok apple.metal-runtime=yes apple.metal-bridge=yes" `Text.isInfixOf` successSummary)
+          assertBool
+            "failed Apple acquire status"
+            ("failed apple.metal-runtime=yes apple.metal-bridge=no" `Text.isInfixOf` failureSummary)
+          endpointStatus (readyz (daemonReady failureRuntime)) @?= 503
       , testCase "daemon service client interpreter exposes all capability classes (Sprint 5.4)" $ do
           let action :: ServiceClients.DaemonServiceClient ()
               action = requiresDaemonCapabilities

@@ -266,17 +266,13 @@ Passthrough pre-bound to `./.build/jitml.kubeconfig`.
 Non-doctrine-shaped helpers for substrate materialization and bootstrap
 prerequisite introspection.
 
-### `jitml internal vm` (Apple Silicon) — **reinstated (2026-06-10 reopen)**
+### Apple Silicon Metal diagnostics
 
-This command group manages the `jitml`-owned Tart build VM lifecycle
-(`up|down|status|exec` plus create/delete), assigning the VM's CPU/memory/storage
-from the host Dhall config and `brew install`ing Tart if it is absent. All Apple
-Silicon Swift/Metal builds run **inside this VM**; the produced dylib is copied out
-to the host, which executes it on the Metal GPU. The exact subcommand surface is
-finalized by the reopened Phase 1 sprint (see
-[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)).
-See
-[jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
+There is no VM lifecycle command in the target Apple Silicon CLI surface. Apple
+Metal capability state is exposed through the existing prerequisite diagnostics
+(`jitml internal list-prereqs`, `jitml doctor --scope toolchain`, and
+`jitml doctor --scope container`) using the `apple.metal-runtime` and
+`apple.metal-bridge` prerequisite nodes owned by Phase 2 Sprint `2.12`.
 
 ### `jitml internal cache`
 
@@ -1425,6 +1421,25 @@ Examples:
       List prerequisite checks.
 ```
 
+### `jitml internal install-metal-bridge`
+
+```text
+jitml internal install-metal-bridge
+
+Build the fixed Apple Metal bridge.
+
+Builds the process-stable Apple Metal bridge dylib from jitML-generated source under ./.build/host/apple-silicon/.
+
+Usage:
+  jitml internal install-metal-bridge
+
+
+
+Examples:
+  jitml internal install-metal-bridge
+      Build and probe the fixed Apple Metal bridge.
+```
+
 ### `jitml internal upload-dataset`
 
 ```text
@@ -1474,122 +1489,6 @@ Options:
 Examples:
   jitml internal gc exp123
       Apply retention to an experiment.
-```
-
-### `jitml internal vm create`
-
-```text
-jitml internal vm create
-
-Create the build VM.
-
-Clones the configured base image into the jitml-build Tart VM and assigns its CPU/memory/disk limits. Idempotent: a present VM is left in place.
-
-Usage:
-  jitml internal vm create
-
-
-
-Examples:
-  jitml internal vm create
-      Provision the build VM.
-```
-
-### `jitml internal vm up`
-
-```text
-jitml internal vm up
-
-Start the build VM.
-
-Provisions the VM if missing, then starts it headless with the repository mounted so the in-VM swift build writes the dylib to a host-visible path.
-
-Usage:
-  jitml internal vm up
-
-
-
-Examples:
-  jitml internal vm up
-      Start the build VM.
-```
-
-### `jitml internal vm down`
-
-```text
-jitml internal vm down
-
-Stop the build VM.
-
-Stops the Apple Silicon build VM.
-
-Usage:
-  jitml internal vm down
-
-
-
-Examples:
-  jitml internal vm down
-      Stop the build VM.
-```
-
-### `jitml internal vm status`
-
-```text
-jitml internal vm status
-
-Report build VM status.
-
-Prints the build VM status (missing/stopped/running).
-
-Usage:
-  jitml internal vm status
-
-
-
-Examples:
-  jitml internal vm status
-      Inspect build VM status.
-```
-
-### `jitml internal vm delete`
-
-```text
-jitml internal vm delete
-
-Delete the build VM.
-
-Stops (if running) and deletes the jitml-build Tart VM.
-
-Usage:
-  jitml internal vm delete
-
-
-
-Examples:
-  jitml internal vm delete
-      Delete the build VM.
-```
-
-### `jitml internal vm exec`
-
-```text
-jitml internal vm exec
-
-Run a command in the build VM.
-
-Passes a command through to the Apple Silicon build VM via tart exec.
-
-Usage:
-  jitml internal vm exec -- <cmd...>
-
-Options:
-  -- <cmd...>  Command and arguments to execute.
-
-
-Examples:
-  jitml internal vm exec -- uname -a
-      Run a VM debugging command.
 ```
 
 ### `jitml internal cache stat`

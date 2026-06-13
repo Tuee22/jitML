@@ -30,7 +30,8 @@ import JitML.Cache.Key
   , substrateText
   )
 import JitML.Codegen.Cuda (renderCudaSource)
-import JitML.Codegen.Metal (renderMetalPackage)
+import JitML.Codegen.KernelFamily (KernelFamily (..))
+import JitML.Codegen.Metal (renderMetalMetadata)
 import JitML.Codegen.OneDnn (renderOneDnnSource)
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Env.Env (Env (..))
@@ -48,10 +49,11 @@ data RuntimeSource
       , runtimeSourceTuning :: TuningChoice
       , runtimeSourceFiles :: [SourceFile]
       }
-  | GeneratedMetalPackage
+  | GeneratedMetalSourceMetadata
       { runtimeSourceKernel :: KernelSpec
       , runtimeSourceKind :: Kind
       , runtimeSourceTuning :: TuningChoice
+      , runtimeSourceKernelFamily :: Maybe KernelFamily
       , runtimeSourceFiles :: [SourceFile]
       }
   deriving stock (Eq, Show)
@@ -60,7 +62,12 @@ renderRuntimeSource :: KernelSpec -> Kind -> Substrate -> TuningChoice -> Runtim
 renderRuntimeSource kernelSpec kind substrate tuningChoice =
   case substrate of
     AppleSilicon ->
-      GeneratedMetalPackage kernelSpec kind tuningChoice (renderMetalPackage kernelSpec kind tuningChoice)
+      GeneratedMetalSourceMetadata
+        kernelSpec
+        kind
+        tuningChoice
+        (Just Identity)
+        (renderMetalMetadata kernelSpec kind tuningChoice)
     LinuxCPU ->
       GeneratedOneDnnSource kernelSpec kind tuningChoice (renderOneDnnSource kernelSpec kind tuningChoice)
     LinuxCUDA ->
@@ -92,12 +99,12 @@ renderSourceFile sourceFile =
 runtimeSourceTag :: RuntimeSource -> Text
 runtimeSourceTag GeneratedCudaSource {} = "GeneratedCudaSource"
 runtimeSourceTag GeneratedOneDnnSource {} = "GeneratedOneDnnSource"
-runtimeSourceTag GeneratedMetalPackage {} = "GeneratedMetalPackage"
+runtimeSourceTag GeneratedMetalSourceMetadata {} = "GeneratedMetalSourceMetadata"
 
 runtimeSourceSubstrate :: RuntimeSource -> Substrate
 runtimeSourceSubstrate GeneratedCudaSource {} = LinuxCUDA
 runtimeSourceSubstrate GeneratedOneDnnSource {} = LinuxCPU
-runtimeSourceSubstrate GeneratedMetalPackage {} = AppleSilicon
+runtimeSourceSubstrate GeneratedMetalSourceMetadata {} = AppleSilicon
 
 runtimeSourceDirectory :: Env -> RuntimeSource -> Hash -> IO (Path Abs Dir)
 runtimeSourceDirectory env source hash = do

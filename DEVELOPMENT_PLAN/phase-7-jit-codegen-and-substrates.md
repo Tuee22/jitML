@@ -21,16 +21,14 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-12 for the true-headless Apple Metal
-fixed-bridge doctrine; Sprint `7.11`). The current Apple engine still renders a
-generated Swift package, builds a per-kernel dylib through Tart/SwiftPM, and
-loads that dylib over the Haskell FFI. The target engine renders canonical MSL
-plus launch metadata, persists `<hash>.metal.json`, calls a fixed host Metal
-bridge, and keeps an in-process pipeline cache keyed by device/source/function/
-launch policy. The core path must not invoke `tart`, `swift build`, full Xcode,
-the offline `metal` compiler, or keychain-dependent VM state. Temporary residue
-is tracked in
-[legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
+✅ **Done** (reopened 2026-06-12 for the true-headless Apple Metal
+fixed-bridge doctrine; **re-closed the same day** after Sprint `7.11`). The
+Apple engine renders canonical MSL plus launch metadata, persists
+`<hash>.metal.json`, calls a fixed host Metal bridge, and keeps an in-process
+pipeline cache keyed by source/function/launch policy. The core path does not
+invoke `tart`, `swift build`, full Xcode, the offline `metal` compiler, or
+keychain-dependent VM state. The Sprint `7.11` legacy rows moved to
+[legacy-tracking-for-deletion.md → Completed](legacy-tracking-for-deletion.md#completed).
 Prior closure history follows.
 
 **Re-validation note (2026-06-06)**: this phase stays ✅ **Done** on its owned
@@ -156,9 +154,10 @@ hash, and renders the final runtime source/cache key from the selected
 `cudaBenchmarkCandidateRunner` and `metalBenchmarkCandidateRunner` boundaries:
 they reject wrong-substrate candidates, probe CUDA/Metal runtime availability,
 and run only when the local host exposes the matching runtime. Sprint `7.8`
-replaced the former Tart VM cache-miss path with host CommandLineTools
-`swift build` plus runtime `MTLDevice.makeLibrary(source:)`; Phase `14` and
-Phase `15` live validation consumed that current Apple path.
+historically replaced the former Tart VM cache-miss path with host
+CommandLineTools `swift build` plus runtime `MTLDevice.makeLibrary(source:)`.
+Sprint `7.11` supersedes that path with `.metal.json` source metadata and
+fixed-bridge execution.
 
 ## Phase Summary
 
@@ -172,9 +171,11 @@ output-digest capture, persisted-choice cache-key derivation, and a shared
 `JitML.Engines.Loader` artifact path that materializes source, fills cache
 misses through typed compile subprocesses, reports cache hits, and provides the
 local `dlopen` symbol boundary. The local build
-plan surface renders CUDA / oneDNN C++ / Metal-Swift compiler inputs under
-`./.build/jit-src/<substrate>/<hash>/` and routes the compile command through
-typed `Subprocess` values. `src/JitML/Engines/Local.hs` provides the first
+plan surface renders CUDA / oneDNN C++ compiler inputs under
+`./.build/jit-src/<substrate>/<hash>/`; Sprint `7.11` changes Apple from
+Metal-Swift package generation to `.metal.json` MSL source metadata consumed by
+the fixed bridge. Linux compile commands route through typed `Subprocess`
+values. `src/JitML/Engines/Local.hs` provides the first
 same-host execution loop for `linux-cpu`: generated oneDNN source
 materialization, shared-object compilation, `dlopen`, symbol lookup, and
 deterministic execution for identity/reorder, reduction, dense/matmul,
@@ -183,10 +184,9 @@ families, and records the family name reported by the loaded artifact.
 `JitML.Engines.HasEngine` exposes that Linux CPU generated-family path through
 a typed `HasEngine` capability and local interpreter.
 
-The remaining execution gaps are now Apple Metal FFI/RPC, the live Metal
-auto-tuning candidate runner, and first-cache-miss benchmark invocation on
-the production cache-miss path. The Linux CUDA FFI / cuBLAS / cuDNN gap
-closed in Sprint `7.4` on 2026-05-24.
+No Phase `7` execution gap remains. The Linux CUDA FFI / cuBLAS / cuDNN gap
+closed in Sprint `7.4` on 2026-05-24, and the Apple generated Swift/Tart
+cache-miss path was replaced by fixed-bridge source metadata in Sprint `7.11`.
 
 ## Sprint 7.1: `KernelSpec`, Cache Key Inputs, FFI Loader Surface ✅
 
@@ -776,11 +776,10 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
   records the SHA-256 digest of the FFI output. The signature matches
   `linuxCpuBenchmarkCandidateRunner`, including the `Env` parameter that
   carries the JIT cache root.
-- `JitML.Engines.TuningBenchmark.metalBenchmarkCandidateRunner` is still a
-  guarded preflight: it rejects wrong-substrate candidates, summarizes the
-  Metal runtime probe, and fails closed with an explicit
-  `metal FFI candidate execution is not implemented yet` error once the
-  Metal runtime is available. Live Metal candidate measurement remains open
+- In the historical Sprint `7.6` snapshot,
+  `JitML.Engines.TuningBenchmark.metalBenchmarkCandidateRunner` was still a
+  guarded preflight. Later Sprint `14.3`/`14.9` validation superseded that
+  snapshot: live Metal candidate measurement now runs through the fixed bridge
   on Apple Silicon.
 
 ### Validation
@@ -1084,8 +1083,9 @@ companion for direct CUDA tests.
 ### Objective
 
 Build the Apple Silicon Swift glue dylib **inside the Tart VM** and copy the
-artifact out to the host, per the Apple Silicon Tart-VM build-JIT doctrine (see
-[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)).
+artifact out to the host, per the now-retired Apple Silicon Tart-VM build-JIT
+doctrine (superseded by
+[../documents/engineering/apple_silicon_metal_headless_builds.md → Why Tart Is Not Viable](../documents/engineering/apple_silicon_metal_headless_builds.md#why-tart-is-not-viable)).
 Execution stays host-native via `MTLDevice.makeLibrary(source:)`.
 
 ### Deliverables
@@ -1142,9 +1142,9 @@ the shared-mount package path (`/Volumes/My Shared Files/jitml/.build/jit-src/..
   device-visible + no host toolchain ⇒ available); container `jitml check-code`
   green.
 
-## Sprint 7.11: Fixed host Metal bridge and source-metadata Apple cache [Active]
+## Sprint 7.11: Fixed host Metal bridge and source-metadata Apple cache ✅
 
-**Status**: Active
+**Status**: Done
 **Implementation**: `src/JitML/Engines/{MetalBridge,MetalLocal,MetalRuntime,Engine,Loader}.hs`, `src/JitML/Codegen/{Metal,RuntimeSource}.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`, `documents/engineering/apple_silicon_metal_headless_builds.md`, `documents/engineering/determinism_contract.md`, `system-components.md`
 
@@ -1186,14 +1186,31 @@ OS Metal framework. Adopts `Built-artifact and JIT-cache discipline`,
 - Container `jitml check-code`, `jitml docs check`, and relevant host-native
   `jitml-unit` / backend tests pass.
 
+### Validation State (2026-06-12)
+
+- `cabal run exe:jitml -- internal install-metal-bridge` built
+  `.build/host/apple-silicon/libJitMLMetalBridge.dylib` and the bridge probe
+  returned `ok`.
+- `cabal test jitml-unit` passed 195 / 195, including the Apple source-metadata
+  cache-fill regression and Metal metadata renderer checks.
+- `cabal test jitml-daemon-lifecycle` passed 33 / 33, including the fixed
+  Apple Metal acquire status.
+- Focused backend checks passed through the fixed bridge:
+  `apple-silicon kernel output is bit-equal`, `apple-silicon weighted Dense2D`,
+  and the Metal MLP forward/backward/batched/determinism cases.
+- `jitml test jitml-backends --apple-silicon` passed all 17 / 17 apple-silicon
+  cases through the fixed bridge, including the benchmark candidate runner,
+  tuning cache reuse, MLP, RL trainer, and AlphaZero PolicyValueNet cases.
+- `docker compose build jitml` passed after the fixed-bridge source and docs
+  changes; the image-local gate reported `check-code: ok` and the PureScript
+  bundle rebuilt successfully.
+- `docker compose run --rm jitml jitml docs check`,
+  `docker compose run --rm jitml jitml check-code`, and `git diff --check`
+  passed after the final validation sweep.
+
 ### Remaining Work
 
-- Implement the fixed-bridge Haskell/C ABI wrapper and probe.
-- Replace Swift package rendering with MSL source metadata and `.metal.json`
-  cache support.
-- Rewire `MetalLocal` and the Apple backend lane to use the bridge and pipeline
-  cache, then move the generated Swift/Tart cache-miss ledger rows to
-  `Completed`.
+- None.
 
 ## Related Documents
 

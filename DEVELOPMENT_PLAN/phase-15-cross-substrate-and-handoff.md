@@ -1,17 +1,18 @@
 # Phase 15: Substrate Reproducibility and Final Handoff
 
-> **Reopened 🔄 Active 2026-06-08 for Sprint `15.4`.** The cross-substrate
-> numeric parity surface is being **removed** because cross-substrate
+> **Reopened and re-closed 2026-06-08 through 2026-06-12.** The cross-substrate
+> numeric parity surface was **removed** because cross-substrate
 > equivalence is **out of contract**: the reproducibility contract is
 > "within a substrate: bit-for-bit reproducible; across substrates: NO
 > guarantee" (RNG draw order and float reduction order differ between
 > substrates). The tolerance-band + weighted-cohort + drift-test +
 > `verify cross-backend` surface (Sprint `15.1`) and the report-card
 > `cross_substrate_parity` field (Sprint `15.2`) asserted a guarantee the
-> project does not make and are superseded by Sprint `15.4`. The phase's
-> remaining obligations are: within-substrate bit-for-bit reproducibility
-> (validated **per substrate** by Phases `13`/`14`), a populated live
-> report card, and an empty legacy ledger.
+> project does not make and are superseded by Sprint `15.4`. The later
+> true-headless Apple fixed-bridge doctrine reopened and re-closed final handoff
+> on 2026-06-12; within-substrate bit-for-bit reproducibility is validated per
+> substrate by Phases `13`/`14`, live report evidence is recorded, and the legacy
+> ledger is empty.
 >
 > **Filename note**: this file deliberately retains the historical
 > `phase-15-cross-substrate-and-handoff.md` filename by exception.
@@ -41,17 +42,19 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-12 — true-headless Apple Metal fixed-bridge
-doctrine; Sprints `15.5` / `15.6`). This phase owns the confirmation that every
-real workflow runs for real on all three lanes and the final walk-down of the
-legacy ledger. The Linux live lanes remain closed from the 2026-06-11 CUDA
-machine validation, and Phase `12` remains closed from the 2026-06-12
-`linux-cpu` WorkflowMatrix pass. Final handoff cannot close because Phase `14`
-now owns the fixed-bridge apple-silicon live lane, and the ledger has pending
-rows for the Tart/SwiftPM/VM residue owned by Sprints `1.15`, `2.12`, `5.10`,
-`7.11`, and `14.9`. The 2026-06-12 Tart HostKey/keychain failure is retained as
-dated evidence for retiring the old architecture, not as a final-handoff
-remediation step. The prior closure narrative below is retained as dated record.
+✅ **Done** (reopened 2026-06-12 — true-headless Apple Metal fixed-bridge
+doctrine; **re-closed the same day** after Sprints `15.5` / `15.6`). This phase
+owns the confirmation that every real workflow runs for real on all three lanes
+and the final walk-down of the legacy ledger. The Linux live lanes remain closed
+from the 2026-06-11 CUDA machine validation, Phase `12` remains closed from the
+2026-06-12 `linux-cpu` WorkflowMatrix pass, and Phase `14` Sprint `14.9` now
+closes the fixed-bridge apple-silicon backend/e2e/WorkflowMatrix lane. The
+generated Swift/Tart codegen residue owned by Sprint `7.11` and the Apple
+validation/docs residue owned by Sprint `14.9` moved to `Completed`, so the
+Pending Removal ledger is empty and Exit Definition item 18 is met again. The
+2026-06-12 Tart HostKey/keychain failure is retained as dated evidence for
+retiring the old architecture, not as a final-handoff remediation step. The
+prior closure narrative below is retained as dated record.
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`). The phase reopened 2026-06-08 for
@@ -180,11 +183,10 @@ rate, tuning objective, JIT cache hit rate, and daemon `/healthz`.
 ### Current Implementation Scope
 
 The Haskell-side scaffolding is in place: `JitML.Test.Report.ReportCard`
-renders the eight-stanza summary, `test/cross-backend/Main.hs` exercises
-the engine-flag + inference-summary surface, the Linux CPU FFI kernel
-path, and the locally runnable weighted cross-substrate drift assertion,
-and `JitML.Test.Report.parseReportCardKnobs` reads `cabal.project`. The
-closure of this phase requires the deletion ledger to have no pending rows.
+renders the eight-stanza summary, each substrate's own live lane validates the
+within-substrate contract, and `JitML.Test.Report.parseReportCardKnobs` reads
+`cabal.project`. Cross-substrate numeric parity is out of contract and remains
+removed. The deletion ledger has no pending rows.
 
 ## Phase Summary
 
@@ -289,9 +291,10 @@ authoritatively encode whichever substrate ran the calibration first.
   (`docker compose run --rm jitml cabal test -fcuda jitml-cross-backend --test-options='-p CrossSubstrate'`)
   passed 3 / 3 CrossSubstrate tests on 2026-06-01. The image build for
   that run also passed the container-only `jitml check-code` gate. This
-  validates the `linux-cpu` / `linux-cuda` pair only; the
-  `apple-silicon` comparison remains open because this host has no
-  Metal device.
+  validates the `linux-cpu` / `linux-cuda` pair only; the `apple-silicon`
+  comparison was outside that Linux/NVIDIA validation and was later superseded
+  by the within-substrate-only determinism contract plus the Phase `14` Apple
+  lane closure.
 - `src/JitML/CrossBackend/Parity.hs` now owns the Sprint `15.1`
   weighted cohort, JSON encoding/decoding for ephemeral report bundles,
   pairwise L∞ drift comparison, and summary rendering. Both the
@@ -363,7 +366,7 @@ authoritatively encode whichever substrate ran the calibration first.
 Drive the live `jitml-e2e` body from an explicit `jitml test all` live
 mode, thread the resulting live measurements (SL convergence, RL
 reward, AlphaZero arena win rate, JIT cache hit rate, daemon health,
-cross-substrate parity tolerance) back into the rendered report card,
+and the then-planned cross-substrate comparison summary) back into the rendered report card,
 and add the live integration test that confirms the report card
 surfaces real numbers on top of the existing target-stanza summary.
 Closes Exit Definition item 9's live report-card slice.
@@ -376,8 +379,8 @@ Closes Exit Definition item 9's live report-card slice.
 - `JitML.Test.Report.ReportCard` carries optional measured fields for:
   SL final loss per canonical cell, RL final reward per cohort,
   AlphaZero arena win rate per generation, JIT cache hit rate, daemon
-  `/healthz` status, and the cross-substrate parity tolerance summary
-  from Sprint `15.1`.
+  `/healthz` status, and the then-planned cross-substrate comparison summary
+  from Sprint `15.1` (removed by Sprint `15.4`).
 - The live integration test confirms the report card surfaces these
   measured values (not just the target-stanza summary).
 - The "Target-stanza-only report card" row in
@@ -393,7 +396,7 @@ Closes Exit Definition item 9's live report-card slice.
   `ReportMeasurements` and renders them in the same typed report card.
 - `ReportMeasurements` carries SL final loss, RL final reward,
   AlphaZero arena win rate, tuning best objective, JIT cache hit rate,
-  daemon health, and cross-substrate parity fields. A missing or
+  daemon health, and the historical cross-substrate comparison fields. A missing or
   unreachable source renders as `unavailable`.
 - Local deterministic collectors exist for the SL/RL/AlphaZero/tune
   and cross-substrate surfaces where the current host can run them.
@@ -717,10 +720,9 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
   is reframed to within-substrate-only, all three per-substrate lanes pass for
   real, and the legacy ledger is empty (Exit Definition item 18 met).
 
-## Sprint 15.5: Cross-Substrate Real-Workflow Confirmation [Blocked]
+## Sprint 15.5: Cross-Substrate Real-Workflow Confirmation ✅
 
-**Status**: Blocked
-**Blocked by**: Phase `14` Sprint `14.8`.
+**Status**: Done
 **Docs to update**: `system-components.md`
 
 ### Objective
@@ -730,17 +732,28 @@ three substrates and that the within-substrate determinism contract holds for
 each (two fresh same-substrate / same-seed runs are bit-identical), via the
 `jitml test all` report card reading the real measured metrics per lane.
 
+### Validation State (2026-06-12)
+
+- The linux-cpu and linux-cuda live lanes completed on the CUDA machine on
+  2026-06-11; Phase `12` live WorkflowMatrix completed on linux-cpu on
+  2026-06-12.
+- Phase `14` Sprint `14.9` completed the apple-silicon fixed-bridge lane:
+  `jitml-backends` 17 / 17, `jitml-e2e` 20 / 20, and live `WorkflowMatrix`
+  1 / 1 against a published Apple cluster.
+- `docker compose build jitml` passed after the fixed-bridge source and docs
+  changes; the image-local gate reported `check-code: ok` and the PureScript
+  bundle rebuilt successfully.
+- `docker compose run --rm jitml jitml docs check`,
+  `docker compose run --rm jitml jitml check-code`, and `git diff --check`
+  passed after the final validation sweep.
+
 ### Remaining Work
 
-- Run the apple-silicon fixed-bridge Metal real-workflow lane (Sprint `14.9`).
-  The linux-cpu and linux-cuda live lanes are already complete as of
-  2026-06-11, and the Phase `12` live WorkflowMatrix gate is complete as of
-  2026-06-12.
+- None.
 
-## Sprint 15.6: Real-Workflow Ledger Walk-Down and Final Handoff [Blocked]
+## Sprint 15.6: Real-Workflow Ledger Walk-Down and Final Handoff ✅
 
-**Status**: Blocked
-**Blocked by**: Sprint `15.5`.
+**Status**: Done
 **Docs to update**: `legacy-tracking-for-deletion.md`
 
 ### Objective
@@ -750,12 +763,19 @@ and the live exercise has run, leaving the ledger empty and Exit Definition item
 18 met for the fixed-bridge Apple Metal doctrine and the reopened real-workflow
 refactor.
 
+### Validation State (2026-06-12)
+
+- `legacy-tracking-for-deletion.md` Pending Removal is empty.
+- The Sprint `7.11` generated Swift/Tart cache-miss rows and the Sprint `14.9`
+  Apple validation/docs residue row moved to `Completed`.
+- Exit Definition item 18 is met again.
+- Final validation confirms no open phase/blocker text remains in
+  `DEVELOPMENT_PLAN/`, `README.md`, engineering docs, source, tests, or
+  `jitml.cabal`.
+
 ### Remaining Work
 
-- Blocked on Sprint `15.5`. The real-workflow code-removal rows whose
-  replacements are already verified working are in `Completed`, but the
-  2026-06-12 fixed-bridge doctrine rows are Pending Removal until Sprints
-  `1.15`, `2.12`, `5.10`, `7.11`, and `14.9` close.
+- None.
 
 ## Doctrine Sections Cited
 

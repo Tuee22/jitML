@@ -35,7 +35,6 @@ library
         JitML.Cache.Key
         JitML.Cache.Layout
         JitML.Cache.Manifest
-        JitML.Cache.Symlink
         JitML.Bootstrap
         JitML.CLI.Help
         JitML.CLI.Json
@@ -77,6 +76,7 @@ library
         JitML.Engines.HasEngine
         JitML.Engines.Loader
         JitML.Engines.Local
+        JitML.Engines.MetalBridge
         JitML.Engines.MetalLocal
         JitML.Engines.MetalRuntime
         JitML.Engines.OneDnnRuntime
@@ -213,8 +213,6 @@ library
         JitML.Sub.Stream
         JitML.Sub.Subprocess
         JitML.Substrate
-        JitML.Tart.Exec
-        JitML.Tart.Lifecycle
         JitML.Test.LivePlan
         JitML.Test.Report
         JitML.Test.WorkflowMatrix

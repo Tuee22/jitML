@@ -10,8 +10,4 @@
 , dedupCacheSize : Natural
 , dedupCacheTtlSeconds : Natural
 , drainDeadlineSeconds : Natural
-, buildVmCpu : Natural
-, buildVmMemoryMib : Natural
-, buildVmDiskGib : Natural
-, buildVmIdleTimeout : Optional Natural
 }

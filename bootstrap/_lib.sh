@@ -265,9 +265,6 @@ purge_state() {
   root=$(repo_root)
   kind_down "$substrate"
   rm -rf "$root/.data"
-  if [ "$substrate" = "apple-silicon" ] && have tart; then
-    run_command tart delete jitml-build || true
-  fi
   if [ "$full" = "true" ]; then
     rm -rf "$root/.build"
   fi

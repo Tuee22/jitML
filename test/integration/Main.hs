@@ -590,18 +590,18 @@ main =
           assertBool
             "probe records dynamic-linker visibility"
             (any ("ldconfig -p:" `Text.isInfixOf`) (CudaRuntime.cudaRuntimeProbeLog probe))
-      , testCase "Metal runtime probe reports Swift, xcrun, and device attempts" $ do
+      , testCase "Metal runtime probe avoids Swift/Xcode compiler attempts" $ do
           probe <- MetalRuntime.probeMetalRuntime
           let rendered = MetalRuntime.renderMetalRuntimeProbe probe
           assertBool
             "probe render includes Metal runtime section"
             ("metal_runtime:" `Text.isInfixOf` rendered)
           assertBool
-            "probe records swift attempt"
-            (any ("swift --version:" `Text.isInfixOf`) (MetalRuntime.metalRuntimeProbeLog probe))
+            "probe does not invoke swift"
+            (not (any ("swift --version:" `Text.isInfixOf`) (MetalRuntime.metalRuntimeProbeLog probe)))
           assertBool
-            "probe records metal compiler lookup"
-            (any ("xcrun -find metal:" `Text.isInfixOf`) (MetalRuntime.metalRuntimeProbeLog probe))
+            "probe does not invoke xcrun"
+            (not (any ("xcrun -find" `Text.isInfixOf`) (MetalRuntime.metalRuntimeProbeLog probe)))
           assertBool
             "probe records Metal device visibility attempt"
             ( any
@@ -1201,6 +1201,9 @@ main =
           assertBool
             "local chart uses current dedup cache ttl field"
             ("dedupCacheTtlSeconds = 3600" `Text.isInfixOf` configMap)
+          assertBool
+            "build VM fields are absent from current LiveConfig"
+            (not ("buildVm" `Text.isInfixOf` configMap))
           assertBool
             "old unqualified Residency value is absent"
             (not ("residency = Cluster" `Text.isInfixOf` configMap))

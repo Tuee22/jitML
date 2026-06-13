@@ -58,7 +58,7 @@ load → prereq → acquire → ready → serve → drain → exit
 |-------|-----------|
 | `load` | Read `BootConfig` Dhall; resolve and SHA-hash; resolve `LiveConfig`. |
 | `prereq` | Reconcile the prerequisite DAG via `reconcilePrerequisites`. |
-| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer. On Apple Silicon the first cache miss ensures the `jitml`-managed Tart build VM is up, builds the Metal dylib in the VM, and copies it out to the host; cache hits need no build. |
+| `acquire` | Acquire capability classes (`HasMinIO`, `HasPulsar`, `HasHarbor`, `HasKubectl`); acquire HTTP listener; subscribe Pulsar consumer. On Apple Silicon host self-inference, startup first probes the host OS Metal runtime and fixed jitML Metal bridge, records `apple_metal_acquire`, and fails closed before subscribing to work if either is unavailable. It does not start Tart, run SwiftPM, unlock keychains, or depend on GUI-session state. |
 | `ready` | `/readyz` flips to `200`. |
 | `serve` | Process commands at-least-once until SIGTERM / SIGINT / SIGHUP-to-restart-required-field. |
 | `drain` | Stop accepting new commands; finish in-flight; flush TensorBoard shards; final checkpoint flush. |
@@ -157,8 +157,8 @@ The live `chart/local/jitml-service` ConfigMap carries the same current Dhall
 surface: residency and inference mode use typed union constructors, and
 `LiveConfig` uses `logLevel`, `retryPolicy`, `inferenceBatchSize`,
 `inferenceMaxLatencyMillis`, `dedupCacheSize`, `dedupCacheTtlSeconds`, and
-`drainDeadlineSeconds`; the former `tartIdleTimeout` field was removed by
-Phase 5 Sprint `5.8`.
+`drainDeadlineSeconds`; the former Tart idle/build-VM fields were removed by
+Phase 5 Sprints `5.8` and `5.10`.
 
 ## Hot Reload
 
@@ -482,24 +482,18 @@ cluster daemon.
 
 The current implementation renders the configs, topic names, lifecycle,
 deployment surfaces, local HTTP endpoint server, BootConfig-derived client
-settings, and BootConfig-derived daemon subscription plan; live host daemon
-startup and service-loop Pulsar/MinIO flow remain target runtime validation.
+settings, and BootConfig-derived daemon subscription plan. Live Apple bootstrap,
+host daemon startup, fixed-bridge execution, and the service-loop Pulsar/MinIO
+flow are validated by the 2026-06-12 Apple `WorkflowMatrix` run.
 
-The Apple Silicon Metal build runs inside the `jitml`-managed Tart VM (which
-carries the full Apple toolchain); full Xcode is **never** installed on the host —
-the host carries no Swift/Metal toolchain at all. See
-[jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit).
-
-On a JIT cache miss the host daemon ensures the build VM is up, builds the
-generated Swift glue dylib with a `swift build --package-path <dir> -c release`
-**inside the VM** through the typed `Subprocess` boundary, copies
-`libJitMLMetal.dylib` out of the VM into the content-addressed Apple cache,
-repoints the stable host FFI symlink, and `dlopen`s it; the generated launcher
-JIT-compiles the embedded Metal shader at load via `MTLDevice.makeLibrary(source:)`
-with fast-math off on the host GPU. Subsequent cache hits skip the build. The Tart
-VM lifecycle, its Dhall-configured limits, and the `jitml internal vm` commands are
-owned by the reopened Phases `1` / `2` / `5` / `7` / `14` (2026-06-10; see
-[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)).
+The Apple Silicon daemon owns no build VM. On `AppleSilicon + SelfInference`,
+startup probes `apple.metal-runtime` and `apple.metal-bridge`, surfaces that
+state in the daemon summary, and exits with a prerequisite error before Pulsar
+subscription if the fixed bridge cannot be loaded/probed. The cache-miss
+path writes `<hash>.metal.json` MSL source metadata and asks the fixed bridge to
+compile with `MTLDevice.makeLibrary(source:options:)` in-process on the host GPU
+with fast math disabled. There is no daemon-owned Tart lifecycle, SwiftPM build,
+offline `metal` compiler invocation, or keychain-dependent step in this path.
 
 Direct k8s API access from the host is hlint-forbidden.
 

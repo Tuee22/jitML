@@ -32,48 +32,28 @@ data MetalRuntimeProbe = MetalRuntimeProbe
   }
   deriving stock (Eq, Show)
 
--- | Sprint 7.10 — the Apple Silicon Swift/Metal build now runs inside the
--- jitml-managed Tart VM, so the /host/ no longer needs a `swiftc`/`metal`
--- toolchain. A visible host Metal device is the only host gate for executing the
--- VM-built dylib via `MTLDevice.makeLibrary(source:)`. The Swift/metal-compiler
--- probe fields are retained for diagnostics in 'renderMetalRuntimeProbe' but no
--- longer gate availability.
+-- | Sprint 2.12 — core Apple Metal execution is gated by the host OS Metal
+-- runtime only. Swift/Xcode compiler discovery is an optional non-core
+-- capability exposed as separate prerequisites, so this probe does not invoke
+-- swift, xcrun, the offline metal compiler, Tart, or keychain commands.
 metalRuntimeAvailable :: MetalRuntimeProbe -> Bool
 metalRuntimeAvailable = metalRuntimeDeviceVisible
 
 probeMetalRuntime :: IO MetalRuntimeProbe
 probeMetalRuntime = do
-  swiftResult <- probeSwift
-  metalCompilerResult <- probeXcrunFind "metal"
-  swiftCompilerResult <- probeXcrunFind "swiftc"
   systemProfilerResult <- probeSystemProfiler
-  let swiftVersion =
-        case swiftResult of
-          Right output -> parseSwiftVersion output
-          Left _ -> Nothing
-      metalCompilerPath =
-        case metalCompilerResult of
-          Right output -> parseXcrunFindOutput output
-          Left _ -> Nothing
-      swiftCompilerPath =
-        case swiftCompilerResult of
-          Right output -> parseXcrunFindOutput output
-          Left _ -> Nothing
-      deviceVisible =
+  let deviceVisible =
         case systemProfilerResult of
           Right output -> metalDeviceVisibleFromSystemProfiler output
           Left _ -> False
   pure
     MetalRuntimeProbe
-      { metalRuntimeSwiftVersion = swiftVersion
-      , metalRuntimeMetalCompilerPath = metalCompilerPath
-      , metalRuntimeSwiftCompilerPath = swiftCompilerPath
+      { metalRuntimeSwiftVersion = Nothing
+      , metalRuntimeMetalCompilerPath = Nothing
+      , metalRuntimeSwiftCompilerPath = Nothing
       , metalRuntimeDeviceVisible = deviceVisible
       , metalRuntimeProbeLog =
-          [renderSwiftProbeResult swiftResult]
-            <> [renderXcrunFindProbeResult "metal" metalCompilerResult]
-            <> [renderXcrunFindProbeResult "swiftc" swiftCompilerResult]
-            <> [renderSystemProfilerProbeResult systemProfilerResult]
+          [renderSystemProfilerProbeResult systemProfilerResult]
       }
 
 parseSwiftVersion :: Text -> Maybe Text
@@ -117,37 +97,13 @@ renderMetalRuntimeProbe probe =
   Text.unlines $
     [ "metal_runtime:"
     , "  available: " <> renderBool (metalRuntimeAvailable probe)
-    , "  swift_version: " <> fromMaybe "none" (metalRuntimeSwiftVersion probe)
-    , "  metal_compiler: " <> fromMaybe "none" (metalRuntimeMetalCompilerPath probe)
-    , "  swift_compiler: " <> fromMaybe "none" (metalRuntimeSwiftCompilerPath probe)
+    , "  swift_version: " <> renderOptionalProbeValue (metalRuntimeSwiftVersion probe)
+    , "  metal_compiler: " <> renderOptionalProbeValue (metalRuntimeMetalCompilerPath probe)
+    , "  swift_compiler: " <> renderOptionalProbeValue (metalRuntimeSwiftCompilerPath probe)
     , "  device_visible: " <> renderBool (metalRuntimeDeviceVisible probe)
     , "  probes:"
     ]
       <> fmap ("    - " <>) (metalRuntimeProbeLog probe)
-
-probeSwift :: IO (Either Text Text)
-probeSwift = do
-  result <- runSubprocessSafely command
-  pure $
-    case result of
-      Right (ExitSuccess, stdoutText, _stderrText) -> Right stdoutText
-      Right (ExitFailure code, _stdoutText, stderrText) ->
-        Left ("exit " <> Text.pack (show code) <> renderStderr stderrText)
-      Left err -> Left err
- where
-  command = subprocess "swift" ["--version"]
-
-probeXcrunFind :: Text -> IO (Either Text Text)
-probeXcrunFind tool = do
-  result <- runSubprocessSafely command
-  pure $
-    case result of
-      Right (ExitSuccess, stdoutText, _stderrText) -> Right stdoutText
-      Right (ExitFailure code, _stdoutText, stderrText) ->
-        Left ("exit " <> Text.pack (show code) <> renderStderr stderrText)
-      Left err -> Left err
- where
-  command = subprocess "xcrun" ["-find", tool]
 
 probeSystemProfiler :: IO (Either Text Text)
 probeSystemProfiler = do
@@ -167,22 +123,6 @@ runSubprocessSafely command =
     `Exception.catch` \(err :: Exception.SomeException) ->
       pure (Left (Text.pack (Exception.displayException err)))
 
-renderSwiftProbeResult :: Either Text Text -> Text
-renderSwiftProbeResult (Right output) =
-  case parseSwiftVersion output of
-    Just version -> renderSubprocess (subprocess "swift" ["--version"]) <> ": " <> version
-    Nothing -> renderSubprocess (subprocess "swift" ["--version"]) <> ": empty version"
-renderSwiftProbeResult (Left err) =
-  renderSubprocess (subprocess "swift" ["--version"]) <> ": " <> err
-
-renderXcrunFindProbeResult :: Text -> Either Text Text -> Text
-renderXcrunFindProbeResult tool (Right output) =
-  case parseXcrunFindOutput output of
-    Just path -> renderSubprocess (subprocess "xcrun" ["-find", tool]) <> ": " <> path
-    Nothing -> renderSubprocess (subprocess "xcrun" ["-find", tool]) <> ": empty path"
-renderXcrunFindProbeResult tool (Left err) =
-  renderSubprocess (subprocess "xcrun" ["-find", tool]) <> ": " <> err
-
 renderSystemProfilerProbeResult :: Either Text Text -> Text
 renderSystemProfilerProbeResult (Right output) =
   renderSubprocess (subprocess "system_profiler" ["SPDisplaysDataType"])
@@ -200,6 +140,9 @@ renderStderr stderrText =
 renderBool :: Bool -> Text
 renderBool True = "yes"
 renderBool False = "no"
+
+renderOptionalProbeValue :: Maybe Text -> Text
+renderOptionalProbeValue = fromMaybe "not_probed"
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust [] = Nothing

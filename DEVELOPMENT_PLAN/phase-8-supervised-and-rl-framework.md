@@ -33,7 +33,8 @@ scoped to the canonical Dense-MLP cohort the JIT MLP ABI trains; Conv2D /
 ResidualBlock / VisionTransformer trainable forward/backward JIT support remains
 future architecture growth, not an open Phase `8` closure gate. The live per-lane
 validation is owned by Phases `13`/`14`; the linux-cpu and linux-cuda live lanes
-closed in Phase `13` on 2026-06-11, and apple-silicon remains Phase `14`. See
+closed in Phase `13` on 2026-06-11, and the apple-silicon live lane closed in
+Phase `14` on 2026-06-12. See
 [README.md → Reopened phases (2026-06-10)](README.md#reopened-phases-2026-06-10--real-workflow-refactor).
 The prior closure narrative below is retained as dated record.
 

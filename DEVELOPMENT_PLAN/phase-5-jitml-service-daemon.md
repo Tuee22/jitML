@@ -24,14 +24,15 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-12 for the true-headless Apple Metal
-fixed-bridge doctrine; Sprint `5.10`). `LiveConfig` and `runService` still carry
-the build-VM block and `ensureHostBuildVm` acquire hook from the now-legacy Tart
-path. The target daemon starts no VM, owns no VM idle timeout, and performs only
-fixed-bridge / Metal-runtime acquisition for `AppleSilicon + SelfInference`,
-failing closed before work dispatch if the bridge is unavailable. The temporary
-residue is tracked in
-[legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
+✅ **Done** (reopened and re-closed 2026-06-12 for the true-headless Apple
+Metal fixed-bridge doctrine; Sprint `5.10`). `LiveConfig` no longer carries any
+build-VM CPU / memory / disk / idle-timeout fields, and `runService` no longer
+starts or manages a Tart build VM. On `AppleSilicon + SelfInference`, startup
+now probes the OS Metal runtime plus the fixed Metal bridge, records
+`apple_metal_acquire` in the daemon runtime summary, and fails closed before
+subscription acquisition if either boundary is unavailable. The remaining Apple
+generated Swift/Tart cache-miss residue is completed under Phase `7` Sprint
+`7.11` / Phase `14` Sprint `14.9`; the deletion ledger is empty.
 Prior closure history follows.
 
 ✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
@@ -183,7 +184,8 @@ and exits after draining zero messages.
 Single-replica deployment readiness is covered by the Linux CPU, Linux CUDA,
 and Apple Silicon single-node validations. `JitML.Cluster.PulsarBootstrap` now registers the same
 substrate-scoped topic family that the daemon subscription plan consumes.
-No sprint-owned Phase `5` Remaining Work remains.
+That prior closure is superseded by Sprint `5.10`, which removes the now-legacy
+build-VM acquire path.
 
 ### Current Implementation Scope
 
@@ -954,8 +956,9 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
 - `system-components.md → jitml service Daemon Surface` rows remain aligned
   with the implemented boot/live config, lifecycle, endpoint, logger,
   consumer, and retry surfaces.
-- `legacy-tracking-for-deletion.md` carries a Pending Removal row for the
-  daemon build-VM block and acquire hook owned by Sprint `5.10`.
+- `legacy-tracking-for-deletion.md` carries the completed Sprint `5.10`
+  daemon build-VM removal row and the still-pending Phase `7` / Phase `14`
+  Apple codegen/documentation residue.
 
 ## Sprint 5.9: Reinstate the Dhall-configured build-VM block and daemon acquire [✅ Done]
 
@@ -967,8 +970,8 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
 
 Give the daemon a Dhall-configurable build-VM block and make the `acquire`
 lifecycle ensure the Tart build VM is up before the first Apple Silicon JIT build,
-per the Apple Silicon Tart-VM build-JIT doctrine (see
-[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)).
+per the now-retired Apple Silicon Tart-VM build-JIT doctrine (superseded by
+[../documents/engineering/apple_silicon_metal_headless_builds.md → Why Tart Is Not Viable](../documents/engineering/apple_silicon_metal_headless_builds.md#why-tart-is-not-viable)).
 
 ### Deliverables
 
@@ -998,10 +1001,13 @@ The downstream full in-VM build that this acquire precedes is owned by Phase `7`
 Sprint `7.10`, which re-closed `✅ Done` (2026-06-10) after the apple-silicon lane
 built and ran every Metal kernel family through the VM.
 
-## Sprint 5.10: Replace daemon build-VM acquire with Metal bridge acquire [Active]
+## Sprint 5.10: Replace daemon build-VM acquire with Metal bridge acquire [✅ Done]
 
-**Status**: Active
-**Implementation**: `src/JitML/Service/LiveConfig.hs`, `dhall/service/LiveConfig.dhall`, `src/JitML/App.hs`, `src/JitML/Engines/MetalRuntime.hs`
+**Status**: Done (2026-06-12)
+**Implementation**: `src/JitML/Service/LiveConfig.hs`,
+`dhall/service/LiveConfig.dhall`, `chart/templates/configmap-jitml-service.yaml`,
+`src/JitML/App.hs`, `src/JitML/Service/Runtime.hs`,
+`src/JitML/Prerequisite/Nodes/Container.hs`, `src/JitML/Engines/MetalRuntime.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`, `documents/engineering/determinism_contract.md`, `system-components.md`
 
 ### Objective
@@ -1030,11 +1036,46 @@ daemon acquire only the fixed Metal bridge and OS Metal runtime. Adopts
 - On Apple Silicon, `jitml service --config ./.build/conf/host/apple-silicon.dhall --consume-once 0`
   invokes no `tart` subprocess and reports the bridge/runtime acquisition.
 
+### Validation State (2026-06-12)
+
+- Host build gate: `cabal build lib:jitml test:jitml-unit
+  test:jitml-daemon-lifecycle` passed.
+- Host daemon tests: `cabal test jitml-unit jitml-daemon-lifecycle` passed
+  `jitml-unit` 197 / 197 and `jitml-daemon-lifecycle` 33 / 33.
+- Apple host fail-closed smoke: with a temporary host config and a stub
+  `system_profiler` reporting `Metal: Supported` but no fixed bridge dylib,
+  `cabal run exe:jitml -- service --config "$cfg" --consume-once 0` exited `2`,
+  rendered `apple_metal_acquire:` with
+  `failed apple.metal-runtime=yes apple.metal-bridge=no`, reported
+  `prerequisite unmet: apple.metal-bridge`, and did not invoke the temporary
+  `tart` stub or print `build-vm`.
+- Container code-quality/build gate: `docker compose build jitml` passed with
+  `check-code: ok` plus the PureScript bundle build.
+- Container validation lane:
+  `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed
+  197 / 197,
+  `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+  passed 33 / 33, and
+  `docker compose run --rm jitml cabal test jitml-integration
+  --test-options="-p !/Live/"` passed 49 / 49.
+- Chart regression after removing the stale checked-in ConfigMap fields:
+  `docker compose run --rm jitml sh -lc 'cabal --builddir=/tmp/jitml-phase5-chart-test test jitml-integration --test-options="-p \"jitml-service local chart carries current Dhall config surface\""'`
+  passed 1 / 1. The direct no-`--builddir` retry failed first because Cabal
+  picked up a stale mounted `dist-newstyle`, so the isolated build directory is
+  the recorded validation.
+- Final docs/whitespace gates: `docker compose run --rm jitml jitml docs check`
+  passed and `git diff --check` passed.
+- Direct host `cabal test jitml-integration --test-options='-p !/Live/'` is not
+  the supported validation lane on this Mac host and failed at the generated
+  Linux CPU oneDNN compile because the host lacks `oneapi/dnnl/dnnl.hpp`; the
+  container lane above is the authoritative code-quality/test lane per
+  `AGENTS.md`.
+
 ### Remaining Work
 
-- Remove the build-VM Dhall/Haskell fields and acquire hook.
-- Add the fixed-bridge acquisition path and daemon-lifecycle coverage.
-- Revalidate host-native Apple daemon startup without invoking Tart.
+None. The daemon no longer owns a build VM or idle timeout. Remaining Tart /
+SwiftPM generated-cache-miss residue belongs to Phase `7` Sprint `7.11`, and
+Apple live validation belongs to Phase `14` Sprint `14.9`.
 
 ## Related Documents
 

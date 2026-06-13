@@ -30,8 +30,6 @@ import JitML.Codegen.RuntimeSource
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 import JitML.Substrate (Substrate (..), renderSubstrate)
-import JitML.Tart.Exec (tartExecSubprocess)
-import JitML.Tart.Lifecycle (defaultBuildVmName, guestSourcePath)
 
 data Engine = Engine
   { engineSubstrate :: Substrate
@@ -74,14 +72,14 @@ data JitCacheStatus
   deriving stock (Eq, Show)
 
 engineForSubstrate :: Substrate -> Engine
-engineForSubstrate AppleSilicon = Engine AppleSilicon "metal" "dylib"
+engineForSubstrate AppleSilicon = Engine AppleSilicon "metal" "metal.json"
 engineForSubstrate LinuxCPU = Engine LinuxCPU "onednn" "so"
 engineForSubstrate LinuxCUDA = Engine LinuxCUDA "cuda" "so"
 
 deterministicFlags :: Engine -> [Text]
 deterministicFlags engine =
   case engineSubstrate engine of
-    AppleSilicon -> ["single-stream-launch-order", "stable-ffi-symlink"]
+    AppleSilicon -> ["single-stream-launch-order", "fixed-metal-bridge", "source-metadata-cache"]
     LinuxCPU -> ["onednn-fixed-block-reduction", "avx2-baseline"]
     LinuxCUDA -> ["--use_fast_math=false", "cudnn-explicit-algorithm-id", "warp-shuffle-deterministic"]
 
@@ -151,20 +149,13 @@ compileSubprocess :: Engine -> RuntimeSource -> Cache.Hash -> Subprocess
 compileSubprocess engine source hash =
   case engineSubstrate engine of
     AppleSilicon ->
-      -- Sprint 7.10 — build the generated Swift glue dylib inside the
-      -- jitml-managed Tart VM (the host carries no Swift/Metal toolchain). The
-      -- repository is mounted into the VM, so the in-VM `swift build` writes
-      -- `libJitMLMetal.dylib` to a host-visible path that
-      -- `JitML.Engines.Loader.publishAppleArtifact` copies out; the embedded MSL
-      -- is then JIT-compiled at load on the host via `MTLDevice.makeLibrary(source:)`.
-      tartExecSubprocess
-        defaultBuildVmName
-        [ "swift"
-        , "build"
-        , "--package-path"
-        , Text.pack (guestSourcePath (Text.unpack sourceDir))
-        , "-c"
-        , "release"
+      -- Apple cache misses are metadata writes handled in-process by
+      -- `JitML.Engines.Loader`; this subprocess is retained only as a typed,
+      -- renderable diagnostic in the existing cache-miss status shape.
+      subprocess
+        "jitml-metal-metadata-cache"
+        [ artifactPathText engine hash
+        , sourceDir <> "/kernel.metal.json"
         ]
     LinuxCPU ->
       subprocess

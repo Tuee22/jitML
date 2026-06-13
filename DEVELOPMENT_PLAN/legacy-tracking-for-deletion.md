@@ -37,8 +37,8 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-**2026-06-12 — true-headless Apple Metal fixed-bridge doctrine (reopened;
-ledger non-empty).** The Apple Silicon Metal path is being redirected away from
+**2026-06-12 — true-headless Apple Metal fixed-bridge doctrine (reopened and
+re-closed; ledger empty).** The Apple Silicon Metal path redirected away from
 the Tart-VM Swift build architecture toward the fixed host Metal bridge described
 in
 [../documents/engineering/apple_silicon_metal_headless_builds.md](../documents/engineering/apple_silicon_metal_headless_builds.md).
@@ -47,36 +47,38 @@ The core cache-miss path renders MSL plus launch metadata into
 `MTLDevice.makeLibrary(source:options:)`, and dispatches on the host GPU. Tart,
 Virtualization HostKey state, unlocked login keychains, SwiftPM, generated Swift
 packages, full Xcode, and the offline `metal` compiler are outside the core
-training/inference JIT path. This reopens Phases `1`, `2`, `5`, `7`, and `14`,
-and keeps Phase `15` blocked until the replacement lands, the apple-silicon live
-lane validates headlessly, and the rows below move to `Completed`.
+training/inference JIT path. This reopened Phases `1`, `2`, `5`, `7`, and `14`;
+all fixed-bridge cleanup rows moved to `Completed` after Sprints `7.11` and
+`14.9` validated the replacement and the live apple-silicon lane headlessly.
 
-**2026-06-10 — real-workflow refactor (reopened; ledger non-empty).** A realness
-audit found that every user-facing workload and the demo used a synthetic, echo,
-or pure-Haskell-only stand-in instead of the substrate JIT path (`MlpDevice` →
-compile → dlopen → real `jitml_mlp_*` kernels) that already exists and is
-parity-tested in the `jitml-backends` lane. The refactor reopened Phases
-`8`–`12` (code) and `13`–`15` (live validation) and enqueued Pending Removal
-rows — each a concrete synthetic value or dead symbol the refactor deletes. The
-primary obligations (route each surface through `MlpDevice`, build the
-non-Dense2D weighted bodies, add Conv2D/ResNet/ViT codegen) are **not** ledger
-rows — they are in the owning sprints' `### Remaining Work` per rule C. As of
-2026-06-12, the cleanup rows introduced by this refactor have moved to
-`Completed`; the ledger is empty again. Final handoff remains blocked by the
-primary Phase `14` live capacity prerequisite, not by a Pending Removal row.
+**2026-06-10 — real-workflow refactor (reopened and re-closed; ledger
+empty).** A realness audit found that every user-facing workload and the demo
+used a synthetic, echo, or pure-Haskell-only stand-in instead of the substrate
+JIT path (`MlpDevice` → compile → load → real `jitml_mlp_*` kernels) that
+already exists and is backend-tested in the `jitml-backends` lane. The refactor
+reopened Phases `8`–`12` (code) and `13`–`15` (live validation) and enqueued
+Pending Removal rows — each a concrete synthetic value or dead symbol the
+refactor deletes. The primary obligations (route each surface through
+`MlpDevice`, build the non-Dense2D weighted bodies, add Conv2D/ResNet/ViT
+codegen) were not ledger rows — they lived in the owning sprints' `### Remaining
+Work` per rule C. As of 2026-06-12, the cleanup rows introduced by this refactor
+have moved to `Completed`; the final handoff also re-closed after Phase `14`
+Sprint `14.9` validated the fixed-bridge Apple lane.
 
-**2026-06-10 — Apple Silicon Tart-VM build-JIT doctrine reversal (reopened and
-re-closed the same day).** All Apple Silicon Swift/Metal builds move back into a
-`jitml`-managed Tart VM (build in the VM, copy the dylib out to the host, execute
-on the host GPU), reversing the 2026-05-30 headless-host-build doctrine. This
-reopened Phases `1` / `2` / `5` / `7` / `14` and enqueued six Pending Removal rows
-covering the now-legacy headless-host build surface. **All six rows moved to
-`Completed` on 2026-06-10** once the replacement was verified working: the live
-apple-silicon `jitml-backends` lane ran end-to-end through the Tart-VM-built path
-on Apple M1 (`jitml test jitml-backends --apple-silicon`, 17 / 17, in-VM
-`swift build` + copy-out + host Metal execution, no skip sentinels). With those
-rows closed the **ledger is empty again, Exit Definition item 18 (empty legacy
-ledger) is met, and the final handoff is complete.** The prior environment block
+**2026-06-10 — Apple Silicon Tart-VM build-JIT doctrine reversal (historical,
+superseded; reopened and re-closed the same day).** Apple Silicon Swift/Metal
+builds temporarily moved back into a `jitml`-managed Tart VM (build in the VM,
+copy the dylib out to the host, execute on the host GPU), reversing the
+2026-05-30 headless-host-build doctrine. This reopened Phases `1` / `2` / `5` /
+`7` / `14` and enqueued six Pending Removal rows covering the then-legacy
+headless-host build surface. **All six rows moved to `Completed` on
+2026-06-10** once the replacement was verified working: the live apple-silicon
+`jitml-backends` lane ran end-to-end through the Tart-VM-built path on Apple M1
+(`jitml test jitml-backends --apple-silicon`, 17 / 17, in-VM `swift build` +
+copy-out + host Metal execution, no skip sentinels). With those rows closed the
+ledger was empty again and final handoff was complete as of 2026-06-10; that
+doctrine was superseded by the 2026-06-12 fixed-bridge closure above. The prior
+environment block
 (the "Tart guest agent unreachable / `tart exec` control-socket GRPC error"
 symptom) traced to a stale host `ctkd` (CryptoTokenKit) daemon deadlocking the
 Virtualization.framework auxiliary-storage decryption — a host-ops condition, not
@@ -101,8 +103,9 @@ NVIDIA GeForce RTX 5090 host (Sprint `13.16`): `docker compose run --rm jitml-cu
 cabal test -fcuda jitml-cross-backend --test-options '-p linux-cuda'` passed
 19 / 19 with no skip-sentinels. **The ledger was empty and Exit Definition
 item 18 (empty legacy ledger) was met and the final handoff complete as of
-2026-06-09 — both reopened on 2026-06-10 by the Tart-VM build-JIT doctrine
-reversal noted above, which enqueued six new Pending Removal rows.** The 2026-06-05 Sprint `11.7`
+2026-06-09; both reopened on 2026-06-10 by the Tart-VM build-JIT doctrine
+reversal noted above, then re-closed, and were superseded again by the
+2026-06-12 fixed-bridge closure.** The 2026-06-05 Sprint `11.7`
 doctrine-deviation row covering the SPA discoverability gap closed the
 same day: the generated `Generated.AdminPortals` artifact, the
 `Chrome.Header` / `PanelRegistry` / `Panels.Portals` modules, the
@@ -179,20 +182,14 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-06-12):** the real-workflow cleanup rows introduced on
-2026-06-10 have moved to `Completed`, but the new Apple fixed-bridge doctrine
-reopens the ledger. The rows below are doctrine deviations or temporary residue
-only; the primary implementation obligations live in Sprints `1.15`, `2.12`,
-`5.10`, `7.11`, and `14.9`.
+**Current state (2026-06-12):** empty. The real-workflow cleanup rows introduced
+on 2026-06-10 and the Apple fixed-bridge doctrine rows introduced on
+2026-06-12 have moved to `Completed`; Sprints `7.11` and `14.9` closed the last
+fixed-bridge source/cache and validation/docs residues.
 
 | Stand-in / dead code to delete | Location | Reason (rule I / L) | Owning sprint |
 |---|---|---|---|
-| `jitml internal vm` command group and generated CLI mirrors | `src/JitML/CLI/Spec.hs`, `src/JitML/App.hs`, generated command docs/README regions | The target core Apple Metal path has no VM lifecycle command. The current generated CLI mirrors must continue to reflect the implemented `CommandSpec` until Sprint `1.15` removes the leaves and regenerates the artifacts. | Sprint `1.15` |
-| Tart prerequisite and lifecycle modules | `src/JitML/Prerequisite/Nodes/Container.hs`, `src/JitML/Tart/{Lifecycle,Exec}.hs`, `bootstrap/_lib.sh` VM cleanup paths | The core JIT path must not install Tart, start a VM, or depend on Virtualization HostKey/keychain state. Tart-specific code is legacy once `apple.metal-runtime` and `apple.metal-bridge` prerequisites own the Apple path. | Sprint `2.12` |
-| Daemon build-VM configuration and acquire hook | `src/JitML/Service/LiveConfig.hs`, `dhall/service/LiveConfig.dhall`, `src/JitML/App.hs` `ensureHostBuildVm` path | `jitml service` startup must probe the fixed bridge/Metal runtime and fail closed on that boundary, not start or idle-manage a Tart build VM. | Sprint `5.10` |
-| Per-kernel generated Swift package and VM `swift build` cache-miss path | `src/JitML/Codegen/Metal.hs`, `src/JitML/Codegen/RuntimeSource.hs`, `src/JitML/Engines/{Engine,Loader,MetalLocal,MetalRuntime}.hs` | Apple cache misses must persist MSL source metadata (`<hash>.metal.json`) and call the fixed bridge; per-cache-miss SwiftPM builds, generated dylibs, VM copy-out, and `dlopen` of generated glue are legacy. | Sprint `7.11` |
-| Apple per-kernel stable-dylib symlink surface | `src/JitML/Cache/Symlink.hs`, `.build/host/apple-silicon/<model-id>.dylib` docs and tests | A fixed bridge plus source/metadata cache no longer needs one generated `.dylib` symlink per model/kernel. Linux shared-object loading remains unchanged. | Sprint `7.11` |
-| Tart/keychain doctrine residue in Apple validation docs and tests | `README.md` generated command mirrors, `documents/engineering/jit_codegen_architecture.md`, Apple comments/tests that still name Tart as the supported target | Current-state history may remain explicitly dated, but target docs and validation must state that `tart`, `swift build`, keychain unlocks, and offline `metal` are absent from `jitml service`, `jitml train`, `jitml inference run`, and Apple backend tests. | Sprint `14.9` |
+| _None_ | _N/A_ | _N/A_ | _N/A_ |
 
 New rows are enqueued here only when a future sprint introduces a doctrine
 deviation or a temporary stand-in (per standards rule I / L).
@@ -287,6 +284,13 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Tart lifecycle/exec modules outside the core prerequisite path | Sprint `7.11` (2026-06-12) | Deleted `src/JitML/Tart/{Lifecycle,Exec}.hs`, removed their Cabal entries, and removed all core codegen/cache-miss callers. The Apple core path now has no VM lifecycle dependency. Validation: targeted residue search over `src/JitML/Engines`, `src/JitML/Codegen`, `src/JitML/Cache`, and `jitml.cabal` returned no `JitML.Tart` / `tartExecSubprocess` / `ensureBuildVm` / `guestSourcePath` callers; host build, unit, daemon-lifecycle, and apple-silicon backend validation passed. |
+| Per-kernel generated Swift package and VM `swift build` cache-miss path | Sprint `7.11` (2026-06-12) | `GeneratedMetalPackage` / `renderMetalFamilyPackage` left the core runtime-source surface; Apple cache misses now write `./.build/jit/apple-silicon/<hash>.metal.json` source metadata and execute through `JitML.Engines.MetalBridge`. `JitML.Codegen.MlpMetal` emits MSL source metadata, and `MlpDevice` routes Metal MLP operations through fixed-bridge multi-function entrypoints. Validation: `cabal run exe:jitml -- internal install-metal-bridge` probe `ok`; `jitml test jitml-backends --apple-silicon` passed 17 / 17 through the fixed bridge, including MLP/RL/AlphaZero cases. |
+| Apple per-kernel stable-dylib symlink surface | Sprint `7.11` (2026-06-12) | Deleted `src/JitML/Cache/Symlink.hs`, removed `appleSymlinkPath`, and removed Apple generated-dylib `dlopen` publication/repointing from the cache-miss path. Linux shared-object loading remains unchanged. Validation: Apple identity, weighted Dense2D, tuning, MLP, and trainer cases pass through the fixed bridge; the Apple artifact extension is `.metal.json`. |
+| Tart/keychain doctrine residue in Apple validation docs and tests | Sprint `14.9` (2026-06-12) | Target docs and tests now state that the supported Apple core path uses `apple.metal-runtime` + `apple.metal-bridge`, not Tart, SwiftPM, full Xcode, offline `metal`, or keychain unlocks. The stale `test --apple-silicon` runtime error and Metal MLP "unverified" comments were updated after live validation. Historical Tart references remain explicitly dated evidence only. Validation: `bootstrap --apple-silicon` completed 84 live rollout steps; `jitml test jitml-e2e --apple-silicon` passed 20 / 20; `jitml test jitml-integration --apple-silicon --test-options '-p WorkflowMatrix'` passed 1 / 1 against the live Apple publication. |
+| Daemon build-VM configuration and acquire hook | Sprint `5.10` (2026-06-12) | Removed the `buildVmCpu`, `buildVmMemoryMib`, `buildVmDiskGib`, and `buildVmIdleTimeout` fields from `src/JitML/Service/LiveConfig.hs`, `dhall/service/LiveConfig.dhall`, and `chart/templates/configmap-jitml-service.yaml`; removed the `ensureHostBuildVm` Tart lifecycle call from `src/JitML/App.hs`; added daemon startup acquisition of `apple.metal-runtime` plus the fixed `apple.metal-bridge`; and rendered `apple_metal_acquire` in `DaemonRuntime`. Validation: host `cabal build lib:jitml test:jitml-unit test:jitml-daemon-lifecycle`; host `cabal test jitml-unit jitml-daemon-lifecycle` passed 197 / 197 and 33 / 33; an Apple host fail-closed smoke with a stub Metal runtime and missing bridge exited `2`, reported `prerequisite unmet: apple.metal-bridge`, and did not invoke a temporary `tart` stub; `docker compose build jitml` passed (`check-code: ok` plus PureScript bundle); container `jitml test jitml-unit --linux-cpu` passed 197 / 197, `jitml test jitml-daemon-lifecycle --linux-cpu` passed 33 / 33, non-live `jitml-integration` passed 49 / 49, and the isolated chart regression passed 1 / 1; `docker compose run --rm jitml jitml docs check` and `git diff --check` passed. |
+| Core `container.tart` prerequisite and bootstrap Tart VM cleanup | Sprint `2.12` (2026-06-12) | `src/JitML/Prerequisite/Nodes/Container.hs` removes `container.tart` from the registry and points `container.apple-silicon.jit-cache-miss` at `apple.metal-runtime` + `apple.metal-bridge`; optional `apple.swiftc` / `apple.macos-sdk` remain non-core. `bootstrap/_lib.sh` no longer invokes `tart delete` or any Tart helper during `purge`, and `JitML.Engines.MetalRuntime` no longer invokes `swift` or `xcrun -find` for the core runtime probe. `src/JitML/Cache/Layout.hs` adds the `<hash>.metal.json` Apple metadata path. Validation: `cabal build lib:jitml test:jitml-unit`; `docker compose build jitml` (`check-code: ok` plus PureScript bundle); `docker compose run --rm jitml jitml internal list-prereqs` shows the fixed-bridge nodes and no `container.tart`; static residue assertions over `bootstrap/`, `src/`, and `JitML.Engines.MetalRuntime`; `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed 197 / 197 from a clean container build directory; `docker compose run --rm jitml jitml docs check` passed; `git diff --check` passed. Sprint `7.11` later completed the generated Swift/codegen residue. |
+| `jitml internal vm` command group and generated CLI mirrors | Sprint `1.15` (2026-06-12) | Removed the `internal vm create/up/down/status/delete/exec` leaves from `src/JitML/CLI/Spec.hs`, deleted their `src/JitML/App.hs` dispatch handlers, regenerated README command regions, `documents/cli/commands.md`, `documents/engineering/cli_command_surface.md`, manpage, and bash/zsh/fish completions, and updated the parser/canonical-leaf unit surface. Validation: `cabal run exe:jitml -- docs generate`; `docker compose build jitml` passed including in-image `jitml check-code`; `docker compose run --rm jitml jitml docs check`; command-tree assertion confirmed no `internal vm` leaf and retained `internal list-prereqs`; `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed 196 / 196. |
 | Vacuous-pass integration `-p Live` asserts + model-less e2e asserts | Sprint `12.11` (2026-06-12) | `JitML.Test.WorkflowMatrix` is the DRY enumeration of the eight reopened workflows × every substrate, each with its canonical command. `test/integration/Main.hs` now has a `Live` case that loads the current publication, filters to the current substrate, stages the required dataset/checkpoint state, and runs every command through the freshly built `jitml` executable; without a publication it fails closed. `test/e2e/Main.hs` intentionally owns structural workflow × substrate coverage plus the typed live e2e plan, not duplicate matrix command execution. The AlphaZero cell runs the canonical `jitml rl alphazero self-play` CLI leaf. Validated: non-live `jitml-integration -p !/Live/` **49 / 49**, `jitml-e2e` **20 / 20**, `docs check: ok`, `check-code: ok`, and live `linux-cpu` `jitml-integration -p WorkflowMatrix` **1 / 1** after the bootstrap/edge fixes. The remaining Apple live run is a primary Phase `14` obligation, not a ledger row. |
 | Demo endpoint `/api/images` placeholder and live-cluster round-trip residue | Sprint `11.8` / Phase `13` (2026-06-11) | `src/JitML/Web/Server.hs` now routes `/api/images` to `renderImageResponse`, which returns the policy-network top-k vector rather than an upload acknowledgement. After `docker compose build jitml` passed `check-code: ok` and rebuilt the PureScript bundle, `jitml:local` and `jitml-demo:local` were loaded into the `linux-cuda` Kind cluster, `jitml-service` / `jitml-demo` were rollout-restarted, and the Playwright Docker image passed **9 / 9** against the published edge. |
 | DOM-only Playwright panel assertions | Sprint `11.8` / Phase `13` (2026-06-11) | `playwright/jitml-demo.spec.ts` now clicks the MNIST, CIFAR/ImageNet, and Connect 4 controls, waits for `POST /api/inference`, `POST /api/images`, and `POST /api/connect4/move`, and asserts rendered value updates instead of only panel visibility. The live CUDA edge run passed **9 / 9**, and `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` passed **20 / 20** after the same rebuild. |

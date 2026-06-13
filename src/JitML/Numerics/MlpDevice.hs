@@ -39,13 +39,15 @@ import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
 import Foreign.Ptr (FunPtr, Ptr)
 
 import JitML.Cache.Key qualified as Cache
+import JitML.Codegen.MlpMetal (renderMlpMetalProgram)
 import JitML.Codegen.RuntimeSource (RuntimeSource)
-import JitML.Engines.Engine (Engine, KernelHandle (..))
+import JitML.Engines.Engine (Engine (..), KernelHandle (..))
 import JitML.Engines.Loader
   ( ensureKernelArtifact
   , kernelArtifactHandle
   , withKernelSymbol
   )
+import JitML.Engines.MetalBridge qualified as MetalBridge
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( MlpForward (..)
@@ -55,6 +57,7 @@ import JitML.Numerics.Mlp
   , mlpInit
   , mlpZeroGradient
   )
+import JitML.Substrate (Substrate (..))
 
 -- | A backend's compile/load coordinates. The MLP ABI is identical across
 -- backends; only these values differ (plus a human-readable error tag).
@@ -210,46 +213,74 @@ foreign import ccall "dynamic"
 -- with the arithmetic executed by the backend.
 mlpForwardWith
   :: MlpBackendSpec -> Env -> MlpParams -> VU.Vector Double -> IO (Either Text MlpForward)
-mlpForwardWith spec env params input = do
-  artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
-  case artifactResult of
-    Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
-    Right artifact -> do
-      let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
-      withKernelSymbol path "jitml_mlp_forward" $ \symbol -> do
-        let forwardFun = mkMlpForwardFun symbol
-        withArray (toC (VU.toList input)) $ \pInput ->
-          withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
-            withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
-              withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
-                withArray (toC (VU.toList (paramB2 params))) $ \pB2 ->
-                  allocaArray hidden $ \pHiddenPre ->
-                    allocaArray hidden $ \pHiddenAct ->
-                      allocaArray outputs $ \pOutput -> do
-                        forwardFun
-                          pHiddenPre
-                          pHiddenAct
-                          pOutput
-                          pInput
-                          pW1
-                          pB1
-                          pW2
-                          pB2
-                          (fromIntegral inputs)
-                          (fromIntegral hidden)
-                          (fromIntegral outputs)
-                        hiddenPre <- peekFloats hidden pHiddenPre
-                        hiddenAct <- peekFloats hidden pHiddenAct
-                        output <- peekFloats outputs pOutput
-                        pure
-                          ( Right
-                              MlpForward
-                                { forwardInput = input
-                                , forwardHiddenPre = VU.fromList hiddenPre
-                                , forwardHiddenAct = VU.fromList hiddenAct
-                                , forwardOutput = VU.fromList output
-                                }
-                          )
+mlpForwardWith spec env params input
+  | isMetalSpec spec = do
+      metadataResult <- ensureMlpMetadata spec env
+      case metadataResult of
+        Left err -> pure (Left err)
+        Right () -> do
+          result <-
+            MetalBridge.runMetalMlpForward
+              renderMlpMetalProgram
+              inputs
+              hidden
+              outputs
+              (toFloatList (VU.toList input))
+              (toFloatList (VU.toList (paramW1 params)))
+              (toFloatList (VU.toList (paramB1 params)))
+              (toFloatList (VU.toList (paramW2 params)))
+              (toFloatList (VU.toList (paramB2 params)))
+          pure $
+            case result of
+              Left err -> Left (mbsTag spec <> " run failed: " <> err)
+              Right (hiddenPre, hiddenAct, output) ->
+                Right
+                  MlpForward
+                    { forwardInput = input
+                    , forwardHiddenPre = VU.fromList (fromFloatList hiddenPre)
+                    , forwardHiddenAct = VU.fromList (fromFloatList hiddenAct)
+                    , forwardOutput = VU.fromList (fromFloatList output)
+                    }
+  | otherwise = do
+      artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
+      case artifactResult of
+        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
+        Right artifact -> do
+          let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
+          withKernelSymbol path "jitml_mlp_forward" $ \symbol -> do
+            let forwardFun = mkMlpForwardFun symbol
+            withArray (toC (VU.toList input)) $ \pInput ->
+              withArray (toC (VU.toList (paramW1 params))) $ \pW1 ->
+                withArray (toC (VU.toList (paramB1 params))) $ \pB1 ->
+                  withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
+                    withArray (toC (VU.toList (paramB2 params))) $ \pB2 ->
+                      allocaArray hidden $ \pHiddenPre ->
+                        allocaArray hidden $ \pHiddenAct ->
+                          allocaArray outputs $ \pOutput -> do
+                            forwardFun
+                              pHiddenPre
+                              pHiddenAct
+                              pOutput
+                              pInput
+                              pW1
+                              pB1
+                              pW2
+                              pB2
+                              (fromIntegral inputs)
+                              (fromIntegral hidden)
+                              (fromIntegral outputs)
+                            hiddenPre <- peekFloats hidden pHiddenPre
+                            hiddenAct <- peekFloats hidden pHiddenAct
+                            output <- peekFloats outputs pOutput
+                            pure
+                              ( Right
+                                  MlpForward
+                                    { forwardInput = input
+                                    , forwardHiddenPre = VU.fromList hiddenPre
+                                    , forwardHiddenAct = VU.fromList hiddenAct
+                                    , forwardOutput = VU.fromList output
+                                    }
+                              )
  where
   shape = paramShape params
   inputs = mlpInputs shape
@@ -266,46 +297,64 @@ mlpBackwardWith
   -> VU.Vector Double
   -> IO (Either Text MlpGradient)
 mlpBackwardWith spec env params fwd dLdy = do
-  artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
-  case artifactResult of
-    Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
-    Right artifact -> do
-      let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
-      withKernelSymbol path "jitml_mlp_backward" $ \symbol -> do
-        let backwardFun = mkMlpBackwardFun symbol
-        withArray (toC (VU.toList dLdy)) $ \pDy ->
-          withArray (toC (VU.toList (forwardInput fwd))) $ \pInput ->
-            withArray (toC (VU.toList (forwardHiddenAct fwd))) $ \pHiddenAct ->
-              withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
-                allocaArray w1n $ \pGW1 ->
-                  allocaArray hidden $ \pGB1 ->
-                    allocaArray w2n $ \pGW2 ->
-                      allocaArray outputs $ \pGB2 -> do
-                        backwardFun
-                          pGW1
-                          pGB1
-                          pGW2
-                          pGB2
-                          pDy
-                          pInput
-                          pHiddenAct
-                          pW2
-                          (fromIntegral inputs)
-                          (fromIntegral hidden)
-                          (fromIntegral outputs)
-                        gW1 <- peekFloats w1n pGW1
-                        gB1 <- peekFloats hidden pGB1
-                        gW2 <- peekFloats w2n pGW2
-                        gB2 <- peekFloats outputs pGB2
-                        pure
-                          ( Right
-                              MlpGradient
-                                { gradW1 = VU.fromList gW1
-                                , gradB1 = VU.fromList gB1
-                                , gradW2 = VU.fromList gW2
-                                , gradB2 = VU.fromList gB2
-                                }
-                          )
+  if isMetalSpec spec
+    then do
+      metadataResult <- ensureMlpMetadata spec env
+      case metadataResult of
+        Left err -> pure (Left err)
+        Right () -> do
+          result <-
+            MetalBridge.runMetalMlpBackward
+              renderMlpMetalProgram
+              inputs
+              hidden
+              outputs
+              (toFloatList (VU.toList dLdy))
+              (toFloatList (VU.toList (forwardInput fwd)))
+              (toFloatList (VU.toList (forwardHiddenAct fwd)))
+              (toFloatList (VU.toList (paramW2 params)))
+          pure (mlpGradientFromBridgeResult spec result)
+    else do
+      artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
+      case artifactResult of
+        Left err -> pure (Left (mbsTag spec <> " compile failed: " <> err))
+        Right artifact -> do
+          let path = Text.unpack (kernelHandleArtifactPath (kernelArtifactHandle artifact))
+          withKernelSymbol path "jitml_mlp_backward" $ \symbol -> do
+            let backwardFun = mkMlpBackwardFun symbol
+            withArray (toC (VU.toList dLdy)) $ \pDy ->
+              withArray (toC (VU.toList (forwardInput fwd))) $ \pInput ->
+                withArray (toC (VU.toList (forwardHiddenAct fwd))) $ \pHiddenAct ->
+                  withArray (toC (VU.toList (paramW2 params))) $ \pW2 ->
+                    allocaArray w1n $ \pGW1 ->
+                      allocaArray hidden $ \pGB1 ->
+                        allocaArray w2n $ \pGW2 ->
+                          allocaArray outputs $ \pGB2 -> do
+                            backwardFun
+                              pGW1
+                              pGB1
+                              pGW2
+                              pGB2
+                              pDy
+                              pInput
+                              pHiddenAct
+                              pW2
+                              (fromIntegral inputs)
+                              (fromIntegral hidden)
+                              (fromIntegral outputs)
+                            gW1 <- peekFloats w1n pGW1
+                            gB1 <- peekFloats hidden pGB1
+                            gW2 <- peekFloats w2n pGW2
+                            gB2 <- peekFloats outputs pGB2
+                            pure
+                              ( Right
+                                  MlpGradient
+                                    { gradW1 = VU.fromList gW1
+                                    , gradB1 = VU.fromList gB1
+                                    , gradW2 = VU.fromList gW2
+                                    , gradB2 = VU.fromList gB2
+                                    }
+                              )
  where
   shape = paramShape params
   inputs = mlpInputs shape
@@ -326,6 +375,28 @@ mlpForwardBatchWith spec env params inputs
   | null inputs = pure (Right [])
   | any (\i -> VU.length i /= inputCount) inputs =
       pure (Left (mbsTag spec <> ": input shape mismatch against the network"))
+  | isMetalSpec spec = do
+      metadataResult <- ensureMlpMetadata spec env
+      case metadataResult of
+        Left err -> pure (Left err)
+        Right () -> do
+          let batchN = length inputs
+          result <-
+            MetalBridge.runMetalMlpForwardBatch
+              renderMlpMetalProgram
+              inputCount
+              hidden
+              outputs
+              batchN
+              (toFloatList (concatMap VU.toList inputs))
+              (toFloatList (VU.toList (paramW1 params)))
+              (toFloatList (VU.toList (paramB1 params)))
+              (toFloatList (VU.toList (paramW2 params)))
+              (toFloatList (VU.toList (paramB2 params)))
+          pure $
+            case result of
+              Left err -> Left (mbsTag spec <> " run failed: " <> err)
+              Right flat -> Right (chunksOf outputs (VU.fromList (fromFloatList flat)))
   | otherwise = do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
@@ -373,6 +444,25 @@ mlpBatchGradientWith spec env params batch
   | null batch = pure (Right (mlpZeroGradient shape))
   | any (\(i, dy) -> VU.length i /= inputs || VU.length dy /= outputs) batch =
       pure (Left (mbsTag spec <> ": input/dLdy shape mismatch against the network"))
+  | isMetalSpec spec = do
+      metadataResult <- ensureMlpMetadata spec env
+      case metadataResult of
+        Left err -> pure (Left err)
+        Right () -> do
+          let batchN = length batch
+          result <-
+            MetalBridge.runMetalMlpBatchGradient
+              renderMlpMetalProgram
+              inputs
+              hidden
+              outputs
+              batchN
+              (toFloatList (concatMap (VU.toList . fst) batch))
+              (toFloatList (concatMap (VU.toList . snd) batch))
+              (toFloatList (VU.toList (paramW1 params)))
+              (toFloatList (VU.toList (paramB1 params)))
+              (toFloatList (VU.toList (paramW2 params)))
+          pure (mlpGradientFromBridgeResult spec result)
   | otherwise = do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
@@ -439,6 +529,28 @@ mlpInputGradientBatchWith spec env params batch
   | null batch = pure (Right [])
   | any (\(i, dy) -> VU.length i /= inputs || VU.length dy /= outputs) batch =
       pure (Left (mbsTag spec <> ": input/dLdy shape mismatch against the network"))
+  | isMetalSpec spec = do
+      metadataResult <- ensureMlpMetadata spec env
+      case metadataResult of
+        Left err -> pure (Left err)
+        Right () -> do
+          let batchN = length batch
+          result <-
+            MetalBridge.runMetalMlpInputGradientBatch
+              renderMlpMetalProgram
+              inputs
+              hidden
+              outputs
+              batchN
+              (toFloatList (concatMap (VU.toList . fst) batch))
+              (toFloatList (concatMap (VU.toList . snd) batch))
+              (toFloatList (VU.toList (paramW1 params)))
+              (toFloatList (VU.toList (paramB1 params)))
+              (toFloatList (VU.toList (paramW2 params)))
+          pure $
+            case result of
+              Left err -> Left (mbsTag spec <> " run failed: " <> err)
+              Right flat -> Right (chunksOf inputs (VU.fromList (fromFloatList flat)))
   | otherwise = do
       artifactResult <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
       case artifactResult of
@@ -477,6 +589,38 @@ mlpInputGradientBatchWith spec env params batch
 
 toC :: [Double] -> [CFloat]
 toC = fmap (CFloat . realToFrac)
+
+isMetalSpec :: MlpBackendSpec -> Bool
+isMetalSpec spec =
+  engineSubstrate (mbsEngine spec) == AppleSilicon
+
+ensureMlpMetadata :: MlpBackendSpec -> Env -> IO (Either Text ())
+ensureMlpMetadata spec env = do
+  result <- ensureKernelArtifact env (mbsEngine spec) (mbsRuntimeSource spec) (mbsHash spec)
+  pure $
+    case result of
+      Left err -> Left (mbsTag spec <> " compile failed: " <> err)
+      Right _artifact -> Right ()
+
+mlpGradientFromBridgeResult
+  :: MlpBackendSpec -> Either Text ([Float], [Float], [Float], [Float]) -> Either Text MlpGradient
+mlpGradientFromBridgeResult spec result =
+  case result of
+    Left err -> Left (mbsTag spec <> " run failed: " <> err)
+    Right (gW1, gB1, gW2, gB2) ->
+      Right
+        MlpGradient
+          { gradW1 = VU.fromList (fromFloatList gW1)
+          , gradB1 = VU.fromList (fromFloatList gB1)
+          , gradW2 = VU.fromList (fromFloatList gW2)
+          , gradB2 = VU.fromList (fromFloatList gB2)
+          }
+
+toFloatList :: [Double] -> [Float]
+toFloatList = fmap realToFrac
+
+fromFloatList :: [Float] -> [Double]
+fromFloatList = fmap realToFrac
 
 peekFloats :: Int -> Ptr CFloat -> IO [Double]
 peekFloats n ptr = fmap (\(CFloat v) -> realToFrac v) <$> peekArray n ptr

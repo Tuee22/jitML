@@ -167,11 +167,11 @@ cudaBenchmarkCandidateRunnerWithProbe probeRuntime env kernelSpec kind input can
       tuningChoice
 
 -- | Sprint 14.3 — live Metal benchmark candidate runner. Mirror of
--- `cudaBenchmarkCandidateRunner`: render the tuned Metal package for the
--- candidate, drive the host `swift build` + FFI launch through
--- `MetalLocal.runMetalKernel`, time the round-trip, and digest the float
--- output. Gated on host Metal device visibility (the build runs on the host
--- with CommandLineTools `swift build`; the shader JIT-compiles at runtime).
+-- `cudaBenchmarkCandidateRunner`: render tuned Metal source metadata for the
+-- candidate, drive the fixed host bridge through `MetalLocal.runMetalKernel`,
+-- time the round-trip, and digest the float output. Gated on host Metal device
+-- visibility; no per-candidate host-language package or VM build is part of
+-- this path.
 metalBenchmarkCandidateRunner
   :: Env
   -> Cache.KernelSpec
@@ -565,19 +565,12 @@ renderCudaBenchmarkProbeSummary probe =
 
 renderMetalBenchmarkProbeSummary :: MetalRuntime.MetalRuntimeProbe -> Text
 renderMetalBenchmarkProbeSummary probe =
-  "swift="
-    <> renderMaybePresence (MetalRuntime.metalRuntimeSwiftVersion probe)
-    <> " metal="
-    <> renderMaybePresence (MetalRuntime.metalRuntimeMetalCompilerPath probe)
-    <> " swiftc="
-    <> renderMaybePresence (MetalRuntime.metalRuntimeSwiftCompilerPath probe)
-    <> " device="
-    <> renderBool (MetalRuntime.metalRuntimeDeviceVisible probe)
-
-renderMaybePresence :: Maybe a -> Text
-renderMaybePresence Nothing = "missing"
-renderMaybePresence (Just _value) = "present"
+  "device=" <> renderBool (MetalRuntime.metalRuntimeDeviceVisible probe)
 
 renderBool :: Bool -> Text
 renderBool True = "yes"
 renderBool False = "no"
+
+renderMaybePresence :: Maybe a -> Text
+renderMaybePresence Nothing = "missing"
+renderMaybePresence (Just _value) = "present"

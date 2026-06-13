@@ -2,7 +2,7 @@
 
 module JitML.Cache.Layout
   ( appleHostDir
-  , appleSymlinkPath
+  , appleMetalMetadataPath
   , cachePath
   , cacheRoot
   , cacheSubstrateDir
@@ -14,10 +14,9 @@ import Data.Text qualified as Text
 import Path (Abs, Dir, File, Path, Rel, parseRelDir, parseRelFile, (</>))
 
 import JitML.Cache.Key
-  ( Extension
+  ( Extension (Extension)
   , Hash
-  , ModelId (..)
-  , Substrate
+  , Substrate (AppleSilicon)
   , extensionFileSuffix
   , hashHex
   , substrateText
@@ -38,6 +37,10 @@ cachePath buildRoot substrate hash extension = do
   file <- cacheFile hash extension
   pure (directory </> file)
 
+appleMetalMetadataPath :: Path Abs Dir -> Hash -> IO (Path Abs File)
+appleMetalMetadataPath buildRoot hash =
+  cachePath buildRoot AppleSilicon hash (Extension "metal.json")
+
 manifestPath :: Path Abs Dir -> IO (Path Abs File)
 manifestPath buildRoot = do
   root <- cacheRoot buildRoot
@@ -49,12 +52,6 @@ appleHostDir buildRoot = do
   hostDir <- parseRelDir "host"
   appleDir <- parseRelDir "apple-silicon"
   pure (buildRoot </> hostDir </> appleDir)
-
-appleSymlinkPath :: Path Abs Dir -> ModelId -> Extension -> IO (Path Abs File)
-appleSymlinkPath buildRoot (ModelId modelId) extension = do
-  directory <- appleHostDir buildRoot
-  file <- parseRelFile (Text.unpack (modelId <> extensionFileSuffix extension))
-  pure (directory </> file)
 
 cacheFile :: Hash -> Extension -> IO (Path Rel File)
 cacheFile hash extension =

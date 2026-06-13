@@ -2,8 +2,7 @@
 
 module Main where
 
-import Control.Concurrent (forkIO, killThread, threadDelay)
-import Control.Exception (SomeException, bracket_, try)
+import Control.Exception (bracket_)
 import Control.Monad qualified
 import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObject, (.:))
 import Data.ByteString qualified as StrictByteString
@@ -32,7 +31,6 @@ import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Info qualified as SystemInfo
-import System.Posix.Files (readSymbolicLink)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
@@ -55,7 +53,6 @@ import JitML.CLI.Spec
 import JitML.Cache.Key qualified as Cache
 import JitML.Cache.Layout qualified as CacheLayout
 import JitML.Cache.Manifest qualified as CacheManifest
-import JitML.Cache.Symlink qualified as CacheSymlink
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
@@ -162,7 +159,6 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
-import JitML.Tart.Lifecycle qualified as TartLifecycle
 import JitML.Test.Report (substrateTestInvocations)
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.AdminPortals qualified as WebAdminPortals
@@ -564,19 +560,38 @@ main =
               assertBool "kind is in cluster closure" (NodeId "cluster.kind" `elem` ids)
               assertBool "kubectl is in cluster closure" (NodeId "cluster.kubectl" `elem` ids)
               assertBool "helm is in cluster closure" (NodeId "cluster.helm" `elem` ids)
-      , testCase "Apple JIT cache-miss prerequisite root requires the Tart build VM" $ do
-          -- Sprint 2.11 — the Apple Metal JIT builds the Swift glue dylib inside
-          -- the `jitml`-managed Tart VM, so the `container.tart` prerequisite is
-          -- present in the registry and in the cache-miss closure.
+      , testCase "Apple JIT cache-miss prerequisite root requires fixed Metal bridge nodes" $ do
+          -- Sprint 2.12 — the core Apple cache-miss path uses the host OS Metal
+          -- runtime plus the fixed bridge, not Tart, SwiftPM, or a VM lifecycle.
+          let registryIds = fmap nodeId prerequisiteRegistry
           assertBool
-            "container.tart is in the registry"
-            (NodeId "container.tart" `elem` fmap nodeId prerequisiteRegistry)
+            "apple.metal-runtime is in the registry"
+            (NodeId "apple.metal-runtime" `elem` registryIds)
+          assertBool
+            "apple.metal-bridge is in the registry"
+            (NodeId "apple.metal-bridge" `elem` registryIds)
+          assertBool
+            "optional apple.swiftc is registered but not a core dependency"
+            (NodeId "apple.swiftc" `elem` registryIds)
+          assertBool
+            "container.tart is not in the registry"
+            (NodeId "container.tart" `notElem` registryIds)
           case transitiveClosure prerequisiteRegistry (NodeId "container.apple-silicon.jit-cache-miss") of
             Left err -> assertFailure (show err)
-            Right closure ->
+            Right closure -> do
+              let closureIds = fmap nodeId closure
               assertBool
-                "cache miss closure references tart"
-                (NodeId "container.tart" `elem` fmap nodeId closure)
+                "cache miss closure references Metal runtime"
+                (NodeId "apple.metal-runtime" `elem` closureIds)
+              assertBool
+                "cache miss closure references fixed bridge"
+                (NodeId "apple.metal-bridge" `elem` closureIds)
+              assertBool
+                "cache miss closure excludes Tart"
+                (NodeId "container.tart" `notElem` closureIds)
+              assertBool
+                "cache miss closure excludes optional Swift compiler"
+                (NodeId "apple.swiftc" `notElem` closureIds)
       , testCase "Homebrew remediation nodes carry typed subprocesses" $
           case find ((== NodeId "toolchain.spago") . nodeId) prerequisiteRegistry of
             Nothing -> assertFailure "missing toolchain.spago"
@@ -906,6 +921,46 @@ main =
                   assertBool
                     "loader keeps the typed compile command for diagnostics"
                     ("g++ -std=c++20" `Text.isInfixOf` Loader.kernelArtifactCompileCommand artifact)
+      , testCase "Apple kernel loader fills source metadata cache without host build tools" $
+          withSystemTempDirectory "jitml-apple-metadata-loader" $ \dir -> do
+            cwd <- getCurrentDirectory
+            bracket_ (setCurrentDirectory dir) (setCurrentDirectory cwd) $ do
+              env <- buildEnv defaultGlobalFlags
+              let kernelSpec = Cache.KernelSpec "phase-7-kernel:apple-metadata"
+                  source =
+                    renderRuntimeSource
+                      kernelSpec
+                      Cache.Inference
+                      Cache.AppleSilicon
+                      Cache.defaultTuningChoice
+                  engine = Engine.engineForSubstrate Substrate.AppleSilicon
+                  handle = Engine.kernelHandleFor engine sampleCacheHash
+                  artifactPath = Text.unpack (Engine.kernelHandleArtifactPath handle)
+              first <- Loader.ensureKernelArtifact env engine source sampleCacheHash
+              case first of
+                Left err -> assertFailure (Text.unpack err)
+                Right artifact -> do
+                  Loader.kernelArtifactHandle artifact @?= handle
+                  Loader.kernelArtifactCompiled artifact @?= True
+                  Engine.engineArtifactExtension (Engine.kernelHandleEngine handle) @?= "metal.json"
+                  contents <- Text.IO.readFile artifactPath
+                  assertBool
+                    "metadata artifact records bridge ABI"
+                    ("\"bridge_abi\": \"jitml-metal-bridge-v1\"" `Text.isInfixOf` contents)
+                  assertBool
+                    "metadata artifact embeds MSL"
+                    ("kernel void jitml_kernel" `Text.isInfixOf` contents)
+                  assertBool
+                    "Apple metadata diagnostic excludes Tart"
+                    (not ("tart" `Text.isInfixOf` Text.toLower (Loader.kernelArtifactCompileCommand artifact)))
+                  assertBool
+                    "Apple metadata diagnostic excludes SwiftPM"
+                    (not ("swift build" `Text.isInfixOf` Text.toLower (Loader.kernelArtifactCompileCommand artifact)))
+              second <- Loader.ensureKernelArtifact env engine source sampleCacheHash
+              case second of
+                Left err -> assertFailure (Text.unpack err)
+                Right artifact ->
+                  Loader.kernelArtifactCompiled artifact @?= False
       , testCase "splitmix RNG path is deterministic and CUDA codegen forbids curand" $ do
           Rng.splitMixWords 5 (Rng.SplitMixSeed 0)
             @?= [ 0xe220a8397b1dcdaf
@@ -1087,33 +1142,33 @@ main =
               result @?= Left unavailableCudnn
               handleResult <- Cudnn.withCudnnHandle (\_ -> pure ())
               handleResult @?= Left unavailableCudnn
-      , testCase "Metal package exports family and output-count metadata" $ do
-          let reductionPackage =
-                Metal.renderMetalFamilyPackage
+      , testCase "Metal source metadata records family, launch, and source payload" $ do
+          let reductionMetadata =
+                Metal.renderMetalFamilyMetadata
                   Reduction
                   (Cache.KernelSpec "phase-7-kernel:metal-reduction")
                   Cache.Inference
                   Cache.defaultTuningChoice
-          case find ((== "Sources/JitMLMetal/JitMLMetal.swift") . sourceRelativePath) reductionPackage of
+          case find ((== "kernel.metal.json") . sourceRelativePath) reductionMetadata of
             Nothing ->
-              assertFailure "missing generated Swift source"
+              assertFailure "missing Metal source metadata"
             Just (SourceFile _ contents) -> do
               assertBool
-                "Swift source exports family metadata for future FFI loading"
-                ("@_cdecl(\"jitml_kernel_family_name\")" `Text.isInfixOf` contents)
+                "metadata records the fixed bridge ABI"
+                ("\"bridge_abi\": \"jitml-metal-bridge-v1\"" `Text.isInfixOf` contents)
               assertBool
-                "Swift source exports output-count metadata for future FFI loading"
-                ("@_cdecl(\"jitml_kernel_output_count\")" `Text.isInfixOf` contents)
+                "metadata records family"
+                ("\"family\": \"reduction\"" `Text.isInfixOf` contents)
               assertBool
-                "Metal reduction metadata reports one output per simdgroup partial"
-                ("return n == 0 ? 0 : ((n - 1) / 32 + 1)" `Text.isInfixOf` contents)
+                "metadata records output-count policy"
+                ("\"kind\": \"ceil-input-over-32\"" `Text.isInfixOf` contents)
               assertBool
-                "Swift source records the generated family name"
-                ( "private let jitmlKernelFamilyCString: UnsafeMutablePointer<CChar> = strdup(\"reduction\")!"
-                    `Text.isInfixOf` contents
-                )
+                "metadata embeds canonical MSL source"
+                ("kernel void jitml_kernel" `Text.isInfixOf` contents)
+              Metal.metalOutputCountFor Reduction 0 @?= 0
+              Metal.metalOutputCountFor Reduction 33 @?= 2
           Metal.threadgroupSizeFor Reduction @?= 64
-      , testCase "Metal runtime probe parser reports Swift, xcrun, and device visibility" $ do
+      , testCase "Metal runtime probe is device-only for core execution" $ do
           let swiftOutput =
                 "swift-driver version: 1.115 Apple Swift version 6.0 (swiftlang-6.0.0 clang-1600.0.26.3)\n"
               xcrunOutput = "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal\n"
@@ -1125,19 +1180,13 @@ main =
                   ]
               availableProbe =
                 MetalRuntime.MetalRuntimeProbe
-                  { MetalRuntime.metalRuntimeSwiftVersion = MetalRuntime.parseSwiftVersion swiftOutput
-                  , MetalRuntime.metalRuntimeMetalCompilerPath =
-                      MetalRuntime.parseXcrunFindOutput xcrunOutput
-                  , MetalRuntime.metalRuntimeSwiftCompilerPath =
-                      Just "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+                  { MetalRuntime.metalRuntimeSwiftVersion = Nothing
+                  , MetalRuntime.metalRuntimeMetalCompilerPath = Nothing
+                  , MetalRuntime.metalRuntimeSwiftCompilerPath = Nothing
                   , MetalRuntime.metalRuntimeDeviceVisible =
                       MetalRuntime.metalDeviceVisibleFromSystemProfiler systemProfilerOutput
                   , MetalRuntime.metalRuntimeProbeLog =
-                      [ "swift --version: 6.0"
-                      , "xcrun -find metal: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal"
-                      , "xcrun -find swiftc: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
-                      , "system_profiler SPDisplaysDataType: metal_device_visible=yes"
-                      ]
+                      ["system_profiler SPDisplaysDataType: metal_device_visible=yes"]
                   }
               missingDeviceProbe =
                 availableProbe {MetalRuntime.metalRuntimeDeviceVisible = False}
@@ -1152,9 +1201,8 @@ main =
           MetalRuntime.metalDeviceVisibleFromSystemProfiler "Metal: Unsupported\n" @?= False
           MetalRuntime.metalRuntimeAvailable availableProbe @?= True
           MetalRuntime.metalRuntimeAvailable missingDeviceProbe @?= False
-          -- Sprint 7.10 — the host carries no Swift/Metal toolchain (the build
-          -- runs in the Tart VM), so a visible Metal device alone makes the
-          -- runtime available even with no host `swiftc`/`metal` compiler.
+          -- Sprint 2.12 — Swift/Xcode discovery is optional and not part of the
+          -- core Apple Metal runtime gate.
           MetalRuntime.metalRuntimeAvailable
             availableProbe
               { MetalRuntime.metalRuntimeMetalCompilerPath = Nothing
@@ -1166,33 +1214,8 @@ main =
             "rendered Metal probe records availability"
             ("available: yes" `Text.isInfixOf` rendered)
           assertBool
-            "rendered Metal probe records compiler path"
-            ("metal_compiler: /Applications/Xcode.app" `Text.isInfixOf` rendered)
-      , testCase "Tart build-VM disk resize is grow-only during provisioning" $ do
-          -- `tart set --disk-size` can only grow a disk; cirruslabs base images
-          -- already ship a large disk, so a configured size at or below the
-          -- cloned image's disk must NOT be applied (it would fail provisioning).
-          -- Grow only when the configured size strictly exceeds the current one.
-          TartLifecycle.diskGrowthTarget 50 (Just 140) @?= Nothing
-          TartLifecycle.diskGrowthTarget 140 (Just 140) @?= Nothing
-          TartLifecycle.diskGrowthTarget 200 (Just 140) @?= Just 200
-          TartLifecycle.diskGrowthTarget 50 Nothing @?= Nothing
-      , testCase "Tart list parser reads status and disk size, tolerating absent fields" $ do
-          let listJson =
-                "[{\"Name\":\"jitml-build\",\"Running\":false,\"State\":\"stopped\",\"Disk\":140},\
-                \{\"Name\":\"other\",\"Running\":true}]"
-              buildVm = TartLifecycle.VmName "jitml-build"
-              otherVm = TartLifecycle.VmName "other"
-              missingVm = TartLifecycle.VmName "absent"
-          TartLifecycle.parseTartListStatus buildVm listJson
-            @?= Right TartLifecycle.TartVmStopped
-          TartLifecycle.parseTartListStatus otherVm listJson
-            @?= Right TartLifecycle.TartVmRunning
-          TartLifecycle.parseTartListStatus missingVm listJson
-            @?= Right TartLifecycle.TartVmMissing
-          TartLifecycle.parseTartListDiskGib buildVm listJson @?= Right (Just 140)
-          TartLifecycle.parseTartListDiskGib otherVm listJson @?= Right Nothing
-          TartLifecycle.parseTartListDiskGib missingVm listJson @?= Right Nothing
+            "rendered Metal probe records compiler probes as not run"
+            ("metal_compiler: not_probed" `Text.isInfixOf` rendered)
       , testCase "hardware auto-tuning benchmark plan enumerates deterministic candidates" $ do
           let plan = Tuning.benchmarkPlan Tuning.linuxCudaKnobs
               deterministicDefault = Tuning.selectDeterministic Tuning.linuxCudaKnobs
@@ -1516,11 +1539,11 @@ main =
           -- above so the synthetic library-visible/positive shape stays
           -- expressed in this case.
           -- Sprint 14.3 — the Metal benchmark runner now drives the real
-          -- Metal FFI candidate through `MetalLocal.runMetalKernel` (host
-          -- `swift build` -> dlopen -> runtime makeLibrary -> launch). The live
-          -- measurement is exercised through `jitml-backends` headless on a
-          -- Metal-capable Apple host; here we keep the deterministic
-          -- wrong-substrate and device-not-visible branches. `availableMetalProbe` is retained for
+          -- Metal candidate through `MetalLocal.runMetalKernel` (metadata cache
+          -- -> fixed bridge -> runtime makeLibrary -> launch). The live
+          -- measurement is exercised through `jitml-backends` on a Metal-capable
+          -- Apple host; here we keep the deterministic wrong-substrate and
+          -- device-not-visible branches. `availableMetalProbe` is retained for
           -- the `unavailableMetalProbe` field-update form above.
           metalWrong <-
             TuningBenchmark.metalBenchmarkCandidateRunnerWithProbe
@@ -1542,16 +1565,25 @@ main =
               appleCandidate
           metalUnavailable
             @?= Left
-              "apple-silicon benchmark runner unavailable: swift=missing metal=missing swiftc=present device=no"
+              "apple-silicon benchmark runner unavailable: device=no"
       , testCase "cachePath resolves under the substrate cache root" $
           withSystemTempDirectory "jitml-cache-layout" $ \dir -> do
             root <- resolveDir' (dir </> ".build")
-            path <- CacheLayout.cachePath root Cache.AppleSilicon sampleCacheHash (Cache.Extension "dylib")
+            path <- CacheLayout.cachePath root Cache.LinuxCPU sampleCacheHash (Cache.Extension "so")
+            toFilePath path
+              @?= dir
+              </> ".build/jit/linux-cpu/"
+              <> Text.unpack (Cache.hashHex sampleCacheHash)
+              <> ".so"
+      , testCase "Apple Metal metadata path uses the source-metadata extension" $
+          withSystemTempDirectory "jitml-cache-layout-metal" $ \dir -> do
+            root <- resolveDir' (dir </> ".build")
+            path <- CacheLayout.appleMetalMetadataPath root sampleCacheHash
             toFilePath path
               @?= dir
               </> ".build/jit/apple-silicon/"
               <> Text.unpack (Cache.hashHex sampleCacheHash)
-              <> ".dylib"
+              <> ".metal.json"
       , testCase "manifest round-trips and indexes latest hashes" $
           withSystemTempDirectory "jitml-cache-manifest" $ \dir -> do
             root <- resolveDir' (dir </> ".build")
@@ -1571,60 +1603,6 @@ main =
             CacheManifest.writeManifestAtomic root manifest
             readResult <- CacheManifest.readManifest root
             readResult @?= Right manifest
-      , testCase "repointSymlink replaces Apple stable FFI link atomically" $
-          withSystemTempDirectory "jitml-cache-symlink" $ \dir -> do
-            root <- resolveDir' (dir </> ".build")
-            let modelId = Cache.ModelId "mnist-linear"
-                extension = Cache.Extension "dylib"
-                nextHash =
-                  Cache.cacheKey
-                    (Cache.KernelSpec "phase-2-kernel:conv")
-                    Cache.Inference
-                    Cache.AppleSilicon
-                    (Cache.ToolchainFingerprint "llvm=ghc-9.12.4;xcode-metal=pinned;tuning=default")
-                    ( renderedRuntimeSourcePayload
-                        (Cache.KernelSpec "phase-2-kernel:conv")
-                        Cache.Inference
-                        Cache.AppleSilicon
-                    )
-                    Cache.defaultTuningChoice
-            firstTarget <- CacheLayout.cachePath root Cache.AppleSilicon sampleCacheHash extension
-            secondTarget <- CacheLayout.cachePath root Cache.AppleSilicon nextHash extension
-            createDirectoryIfMissing True (takeDirectory (toFilePath firstTarget))
-            Text.IO.writeFile (toFilePath firstTarget) "first"
-            Text.IO.writeFile (toFilePath secondTarget) "second"
-            link <- CacheSymlink.repointSymlink root modelId sampleCacheHash extension
-            firstLinkTarget <- readSymbolicLink (toFilePath link)
-            firstLinkTarget @?= toFilePath firstTarget
-            failures <- newIORef []
-            reader <-
-              forkIO $
-                let loop = do
-                      result <- try (readSymbolicLink (toFilePath link)) :: IO (Either SomeException FilePath)
-                      case result of
-                        Left err -> modifyIORef' failures (("read failed: " <> show err) :)
-                        Right target
-                          | target `elem` [toFilePath firstTarget, toFilePath secondTarget] -> pure ()
-                          | otherwise -> modifyIORef' failures (("unexpected target: " <> target) :)
-                      threadDelay 1000
-                      loop
-                 in loop
-            traverse_
-              ( \index ->
-                  CacheSymlink.repointSymlink
-                    root
-                    modelId
-                    (if even index then sampleCacheHash else nextHash)
-                    extension
-              )
-              ([1 .. 50] :: [Int])
-            killThread reader
-            observedFailures <- readIORef failures
-            observedFailures @?= []
-            sameLink <- CacheSymlink.repointSymlink root modelId nextHash extension
-            sameLink @?= link
-            secondLinkTarget <- readSymbolicLink (toFilePath link)
-            secondLinkTarget @?= toFilePath secondTarget
       , testCase "bootstrap materialization reports no-op on a second pass" $
           withSystemTempDirectory "jitml-materialize" $ \dir -> do
             let legacyMinioValues = dir </> "chart" </> "templates" </> "minio-values.yaml"
@@ -1763,6 +1741,10 @@ main =
             envFormat env @?= OutputJson
       , testCase "service hot reload increments only on config changes" $ do
           let initial = HotReload.initialSnapshot LiveConfig.defaultLiveConfig
+              renderedLiveConfig = LiveConfig.renderLiveConfigDhall LiveConfig.defaultLiveConfig
+          assertBool
+            "LiveConfig omits build VM fields"
+            (not ("buildVm" `Text.isInfixOf` renderedLiveConfig))
           HotReload.handleSighupReload initial LiveConfig.defaultLiveConfig
             @?= HotReload.ReloadIgnored "live config unchanged"
           case HotReload.handleSighupReload
@@ -3300,14 +3282,9 @@ canonicalLeafPaths =
   , ["kubectl"]
   , ["internal", "materialize-substrate"]
   , ["internal", "list-prereqs"]
+  , ["internal", "install-metal-bridge"]
   , ["internal", "upload-dataset"]
   , ["internal", "gc"]
-  , ["internal", "vm", "create"]
-  , ["internal", "vm", "up"]
-  , ["internal", "vm", "down"]
-  , ["internal", "vm", "status"]
-  , ["internal", "vm", "delete"]
-  , ["internal", "vm", "exec"]
   , ["internal", "cache", "stat"]
   , ["internal", "cache", "list"]
   , ["internal", "cache", "evict"]

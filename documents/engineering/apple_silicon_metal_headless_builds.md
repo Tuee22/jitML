@@ -5,19 +5,20 @@
 **Referenced by**: README.md
 **Generated sections**: none
 
-> **Purpose**: Define the target architecture for a truly headless Apple Silicon
-> Metal JIT path that avoids Tart, keychain state, Xcode UI flows, and per-cache-
-> miss Swift builds.
+> **Purpose**: Document jitML's implemented truly headless Apple Silicon Metal
+> JIT path: fixed host bridge, runtime MSL compilation, source/metadata cache
+> artifacts, and the rationale for avoiding Tart, keychain state, Xcode UI
+> flows, and per-cache-miss Swift builds.
 
 ## Summary
 
-The Apple Silicon JIT path should compile generated Metal Shading Language (MSL)
-at runtime through the OS Metal framework, using a fixed host bridge that is built
-or verified when jitML itself is built from source. A JIT cache miss should never
-start a VM, invoke SwiftPM, compile a generated Swift package, ask for an Xcode
-license, or depend on a user login keychain.
+The Apple Silicon JIT path compiles generated Metal Shading Language (MSL) at
+runtime through the OS Metal framework, using a fixed host bridge that is built
+or verified by the source-built jitML CLI. A JIT cache miss never starts a VM,
+invokes SwiftPM, compiles a generated Swift package, asks for an Xcode license,
+or depends on a user login keychain.
 
-Target cache-miss path:
+Implemented cache-miss path:
 
 ```text
 Haskell renders MSL + launch metadata
@@ -28,14 +29,12 @@ Haskell renders MSL + launch metadata
   -> bridge dispatches on the host GPU
 ```
 
-The current Tart-VM path is retained only as current-state context in
-[jit_codegen_architecture.md](jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)
-and the development plan. This document describes the replacement target for
-true headless operation.
+This is the supported core Apple training/inference path. The retired Tart/SwiftPM
+path remains only as dated plan evidence and rationale for this doctrine.
 
 ## Requirements
 
-The Apple Silicon JIT path must satisfy these constraints:
+The Apple Silicon JIT path satisfies these constraints:
 
 - **No interactive session dependency.** Cache misses must work from an SSH
   session, daemon context, CI runner, and `launchd` background service.
@@ -44,7 +43,7 @@ The Apple Silicon JIT path must satisfy these constraints:
 - **No Xcode app dependency.** Full Xcode is not installed on the host.
 - **No offline `metal` compiler.** The Command Line Tools do not reliably ship
   `metal`; the core path must not require it.
-- **No per-kernel Swift build.** A cache miss should not generate a Swift package
+- **No per-kernel Swift build.** A cache miss does not generate a Swift package
   and invoke `swift build`; that turns model cache misses into host-toolchain
   cache misses.
 - **Same-substrate determinism.** The Apple path must preserve the
@@ -84,22 +83,15 @@ Without `-sdk` / `SDKROOT`, Homebrew Swift failed to import `Darwin`. The
 important conclusion is that `swiftc` is not the whole prerequisite for Swift +
 Apple-framework builds: a macOS SDK must also be present and discoverable.
 
-## Target Architecture
+## Architecture
 
 ### Fixed Host Metal Bridge
 
-jitML should have one fixed Apple Metal bridge for the process. The bridge may be
-implemented in one of two viable forms:
-
-- **Objective-C/C bridge** built with jitML from source and linked into the host
-  binary or installed as a fixed `.dylib`.
-- **Haskell Objective-C-runtime bridge** that calls the Metal framework directly
-  through `objc_msgSend`, `MTLCreateSystemDefaultDevice`, and CoreFoundation /
-  Foundation helpers.
-
-The Objective-C/C bridge is the pragmatic first implementation. It exposes a
-stable C ABI to Haskell and keeps Metal API details out of the generated JIT
-artifacts:
+jitML has one fixed Objective-C/C Apple Metal bridge for the process. It is
+source-built by `jitml internal install-metal-bridge`, installed as
+`./.build/host/apple-silicon/libJitMLMetalBridge.dylib`, and probed by exported
+symbols before the Apple daemon subscribes to work. The bridge exposes a stable C
+ABI to Haskell and keeps Metal API details out of generated JIT artifacts:
 
 ```c
 int jitml_metal_run(
@@ -140,7 +132,7 @@ The Haskell side owns:
 
 ### Cache Format
 
-The Apple cache artifact should become source metadata, not a dylib:
+The Apple cache artifact is source metadata, not a dylib:
 
 ```text
 .build/jit/apple-silicon/<hash>.metal.json
@@ -151,6 +143,7 @@ Candidate record fields:
 ```json
 {
   "abi": "jitml-metal-source-v1",
+  "bridge_abi": "jitml-metal-bridge-v1",
   "substrate": "apple-silicon",
   "family": "Dense2D",
   "functions": {
@@ -160,7 +153,7 @@ Candidate record fields:
   "output_count": {
     "kind": "same-as-input"
   },
-  "threadgroup_size": 256,
+  "threadgroup_size": 128,
   "compile_options": {
     "fast_math": false,
     "math_mode": "safe"
@@ -178,8 +171,8 @@ package source to MSL source.
 
 ### In-Process Pipeline Cache
 
-Runtime MSL compilation has nonzero latency. jitML should therefore keep an
-in-process cache:
+Runtime MSL compilation has nonzero latency. The bridge keeps an in-process
+pipeline cache:
 
 ```text
 (device-registry-id, source-sha256, function-name, launch-policy) -> pipeline
@@ -195,13 +188,13 @@ the correctness artifact.
 
 ### Optional Binary Archive
 
-Metal's `MTLBinaryArchive` can be added as a second-level performance cache. It
-should never be the source of truth:
+Metal's `MTLBinaryArchive` can be added later as a second-level performance
+cache. It must never be the source of truth:
 
 - If the archive exists and is valid, use it to accelerate pipeline creation.
 - If it is missing, stale, invalid for the OS/GPU, or rejected by the runtime,
   fall back to compiling the cached MSL source.
-- The archive path should include the device identity and OS/Metal runtime
+- The archive path must include the device identity and OS/Metal runtime
   fingerprint.
 
 This keeps cache misses reliable. Binary archives are not portable enough to
@@ -209,7 +202,7 @@ replace source artifacts.
 
 ## Build and Prerequisite Model
 
-The headless Apple substrate should have separate prerequisites:
+The headless Apple substrate has separate prerequisites:
 
 | Prerequisite | Required for | Install / verify |
 |--------------|--------------|------------------|
@@ -339,39 +332,41 @@ the headless primitive that exists on the target OS and target GPU. It also
 compiles for the actual device that will execute the kernel, which is the right
 shape for a JIT.
 
-## Migration Plan
+## Implemented Work
 
-1. Add `JitML.Engines.MetalBridge` with a small probe and C ABI wrapper.
-2. Replace `GeneratedMetalPackage` with a Metal-source runtime artifact or add a
-   new `GeneratedMetalSource` constructor.
-3. Change `compileSubprocess AppleSilicon` so the core path no longer renders
-   `swift build` or `tart exec`.
-4. Change `ensureKernelArtifact AppleSilicon` to write/read
-   `<hash>.metal.json` and treat source materialization as the cache fill.
-5. Change `MetalLocal` to call the fixed bridge instead of `dlopen`ing a
-   generated kernel dylib.
-6. Add an in-process pipeline cache in the bridge or Haskell wrapper.
-7. Add optional `MTLBinaryArchive` persistence after the source path is correct.
-8. Keep optional `apple.swiftc` / `apple.macos-sdk` prerequisites for a separate
-   Swift JIT lane.
-9. Remove Tart from the runtime JIT prerequisite graph once the source path is
-   validated by the apple-silicon backend and live workflow lanes.
+1. `JitML.Engines.MetalBridge` owns bridge installation, probing, generic kernel
+   dispatch, and MLP forward/backward/batch entrypoints.
+2. `GeneratedMetalSourceMetadata` and `JitML.Codegen.Metal` replaced the
+   generated Swift package cache artifact with `kernel.metal.json`.
+3. `ensureKernelArtifact AppleSilicon` writes `<hash>.metal.json` directly; it
+   does not render `swift build`, `tart exec`, or a per-kernel dylib.
+4. `MetalLocal` calls the fixed bridge instead of `dlopen`ing generated Apple
+   dylibs.
+5. The bridge source contains an in-process pipeline cache keyed by function,
+   source, and threadgroup size.
+6. Optional `apple.swiftc` / `apple.macos-sdk` prerequisites are retained only for
+   separate non-core Swift JIT modules.
+7. Tart, generated Swift packages, and the Apple generated-dylib symlink surface
+   are removed from the supported runtime JIT path.
 
-## Validation Gates
+## Validation Evidence
 
-Minimum closure gates for this architecture:
+The 2026-06-12 closure ran on Apple Silicon with no Tart, SwiftPM, offline
+`metal`, full Xcode, or keychain-changing step in the core path:
 
-- A headless bridge probe compiles MSL from source and dispatches a known kernel.
-- `xcrun -find metal` may fail; validation must still pass.
-- `security list-keychains` may omit an unlocked login keychain; validation must
-  still pass.
-- `tart list` / `tart run` are not invoked by `jitml service`, `jitml train`,
-  `jitml inference run`, or Apple backend tests.
-- First cache miss writes `<hash>.metal.json`, compiles MSL through the bridge,
-  and runs the kernel.
-- Cache hit reuses the source artifact and avoids filesystem mutation.
-- Repeated runs are bit-identical within the apple-silicon lane.
-- Full live `WorkflowMatrix` passes on Apple Silicon with no VM process.
+- `cabal run exe:jitml -- internal install-metal-bridge` built
+  `.build/host/apple-silicon/libJitMLMetalBridge.dylib` and probed it
+  successfully.
+- Focused Apple backend cases covered bit-equal kernel output, weighted Dense2D,
+  MLP forward/backward/batched kernels, MLP bit-determinism, and tuning-cache
+  reuse through the fixed bridge.
+- `cabal run exe:jitml -- test jitml-backends --apple-silicon` passed 17 / 17.
+- `cabal run exe:jitml -- bootstrap --apple-silicon` reconciled the live cluster,
+  executed 84 rollout steps, and wrote a ready publication for all seven
+  components.
+- `cabal run exe:jitml -- test jitml-e2e --apple-silicon` passed 20 / 20.
+- `cabal run exe:jitml -- test jitml-integration --apple-silicon --test-options '-p WorkflowMatrix'`
+  passed 1 / 1 against the live Apple cluster.
 
 ## External References
 

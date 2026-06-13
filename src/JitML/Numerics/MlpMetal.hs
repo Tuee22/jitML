@@ -8,9 +8,9 @@
 -- under @*Metal@ names; the host-side marshalling lives once in
 -- "JitML.Numerics.MlpDevice".
 --
--- ⚠ The generated Metal program is UNVERIFIED on non-Mac hosts — it must be
--- exercised on the @-p apple-silicon@ lane (host-native on a Mac) before it is
--- trusted. The Haskell here is a thin spec wrapper and compiles everywhere.
+-- The generated Metal program is exercised by the @--apple-silicon@ backend
+-- lane on a Mac. The Haskell here is a thin spec wrapper and compiles
+-- everywhere.
 module JitML.Numerics.MlpMetal
   ( mlpMetalHash
   , mlpMetalRuntimeSource
@@ -57,26 +57,30 @@ import JitML.Substrate (Substrate (..))
 
 mlpMetalRuntimeSource :: RuntimeSource
 mlpMetalRuntimeSource =
-  GeneratedMetalPackage
+  GeneratedMetalSourceMetadata
     { runtimeSourceKernel = mlpMetalKernelSpec
     , runtimeSourceKind = Cache.Inference
     , runtimeSourceTuning = Cache.defaultTuningChoice
+    , runtimeSourceKernelFamily = Nothing
     , runtimeSourceFiles = renderMlpMetalSource
     }
 
--- | Toolchain fingerprint for the MLP Metal kernel. Records the Swift/MSL
--- runtime-compile intent + the @\@_cdecl@ ABI; combined with the AppleSilicon
--- substrate this keeps the artifact in its own JIT-cache slot.
+-- | Toolchain fingerprint for the MLP Metal kernel. Records the fixed-bridge
+-- MSL runtime-compile intent; combined with the AppleSilicon substrate this
+-- keeps the artifact in its own JIT-cache slot.
 mlpMetalToolchainFingerprint :: Cache.ToolchainFingerprint
 mlpMetalToolchainFingerprint =
   Cache.ToolchainFingerprint
     ( Text.intercalate
         ";"
-        [ "swift-build-dynamic-lib"
+        [ "fixed-metal-bridge"
         , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
+        , "artifact=metal-source-metadata"
+        , "bridge-abi=jitml-metal-bridge-v1"
         , "msl-makeLibrary-runtime"
         , "mathMode=safe(fast-math-off)"
         , "single-stream-launch-order"
+        , "threadgroup-size=128"
         , "abi=cdecl-host-buffers"
         , "reductions=sequential-fixed-order"
         , "jitml_mlp_forward(float*,float*,float*,const float*,const float*,const float*,const float*,const float*,int,int,int)"

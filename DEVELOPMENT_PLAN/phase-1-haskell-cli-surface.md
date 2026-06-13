@@ -20,16 +20,14 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-12 for the true-headless Apple Metal
-fixed-bridge doctrine; Sprint `1.15`). `CommandSpec` still exposes the
-`jitml internal vm` command group that Sprint `1.14` reinstated for the
-now-legacy Tart build path. The target Apple path has no VM lifecycle command:
-`doctor` / `internal list-prereqs` should surface `apple.metal-runtime` and
-`apple.metal-bridge`, while generated command docs must no longer advertise
-Tart lifecycle leaves once the implementation changes. The temporary mismatch is
-tracked in
-[legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
-Prior closure history follows.
+✅ **Done** (re-closed 2026-06-12 after Sprint `1.15`). The true-headless Apple
+Metal fixed-bridge doctrine no longer exposes a VM lifecycle command. Sprint
+`1.15` deleted the `jitml internal vm` leaves from `CommandSpec`, removed their
+`App.hs` dispatch handlers, regenerated the command docs/manpage/completions and
+README command regions, and moved the corresponding deletion-ledger row to
+`Completed`. `internal list-prereqs` remains the canonical operator-visible
+diagnostic path for the Apple prerequisite nodes that Phase `2` Sprint `2.12`
+lands next. Prior closure history follows.
 
 ✅ **Done** (re-closed 2026-06-09 after Sprint `1.13`). The phase last re-closed
 `✅ Done` 2026-06-04 after Sprint `1.12`; Sprints `1.1`–`1.13` are all `✅ Done`
@@ -835,8 +833,8 @@ now parse against the regenerated registry table.
 **Cross-references to add:**
 
 - `legacy-tracking-for-deletion.md` doctrine-deviation row "Missing CLI
-  Dhall overrides on `train`, `rl train`, `tune`" is open while Sprint `1.12`
-  is `🔄 Active` and moves to `Completed` on close. Per Plan Standards rule I,
+  Dhall overrides on `train`, `rl train`, `tune`" was open while Sprint `1.12`
+  was active and moved to `Completed` on close. Per Plan Standards rule I,
   the legacy ledger tracks only the doctrine-deviation interval, not the
   sprint's primary unmet obligations.
 
@@ -1023,9 +1021,9 @@ lane. The `jitml verify cross-backend` row in
 ### Objective
 
 Reinstate the `jitml internal vm` command group that drives the `jitml`-managed
-Tart build VM lifecycle, so the CLI surface matches the Apple Silicon Tart-VM
-build-JIT doctrine (see
-[../documents/engineering/jit_codegen_architecture.md → Apple Silicon Tart-VM Build JIT](../documents/engineering/jit_codegen_architecture.md#apple-silicon-tart-vm-build-jit)).
+Tart build VM lifecycle, so the CLI surface matches the now-retired Apple Silicon
+Tart-VM build-JIT doctrine (superseded by
+[../documents/engineering/apple_silicon_metal_headless_builds.md → Why Tart Is Not Viable](../documents/engineering/apple_silicon_metal_headless_builds.md#why-tart-is-not-viable)).
 
 ### Deliverables
 
@@ -1057,9 +1055,9 @@ build-JIT doctrine (see
   `7.10`'s live closure (2026-06-10): the apple-silicon lane drove in-VM
   `swift build` through this surface and built/ran every Metal kernel family.
 
-## Sprint 1.15: Retire VM lifecycle commands for fixed-bridge Apple Metal [Active]
+## Sprint 1.15: Retire VM lifecycle commands for fixed-bridge Apple Metal [✅ Done]
 
-**Status**: Active
+**Status**: Done (2026-06-12)
 **Implementation**: `src/JitML/CLI/Spec.hs`, `src/JitML/App.hs`, generated CLI artifacts
 **Docs to update**: `documents/engineering/cli_command_surface.md`, `documents/cli/commands.md`, `README.md` generated command regions
 
@@ -1089,13 +1087,24 @@ introspection path. Adopts `CommandSpec`, `Generated documentation flow`, and
   `internal list-prereqs`.
 - `jitml-unit` parser/canonical-leaves snapshots pass.
 
+### Validation State (2026-06-12)
+
+- `cabal run exe:jitml -- docs generate` regenerated the command artifacts from
+  the edited `CommandSpec`.
+- `docker compose build jitml` passed, including the in-image
+  `jitml check-code` gate.
+- `docker compose run --rm jitml jitml docs check` passed.
+- `docker compose run --rm jitml jitml commands --tree` contains no
+  `internal vm` leaves and still contains `internal list-prereqs`.
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed
+  196 / 196.
+- A repo-wide search over `README.md`, generated CLI docs/manpage/completions,
+  `src/`, and `test/` finds no `internal vm` command residue outside historical
+  development-plan records.
+
 ### Remaining Work
 
-- Remove the implemented `internal vm` command group and handlers.
-- Regenerate all command artifacts from `CommandSpec`.
-- Add/adjust unit coverage so the canonical command leaf list rejects VM
-  lifecycle leaves and the prerequisite listing includes the Apple fixed-bridge
-  nodes once Sprint `2.12` lands them.
+None.
 
 ## Related Documents
 

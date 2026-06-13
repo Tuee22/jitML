@@ -552,15 +552,10 @@ main =
       , testCase "apple-silicon kernel output is bit-equal across repeated runs (Sprint 14.2)" $ do
           -- Same-host bit-equality test for the Metal path. Mirrors the
           -- linux-cpu / linux-cuda siblings: three successive invocations of
-          -- the generated identity kernel through the live `dlopen` + Metal
-          -- launcher FFI must produce bit-identical output. Sprint 7.10/14.7 —
-          -- the `swift build` runs inside the jitml-managed `jitml-build` Tart VM
-          -- (the repository is mounted in), the produced dylib is copied out to
-          -- the host, and the host `dlopen`s it and executes the kernel on its
-          -- Metal GPU (the launcher JIT-compiles the embedded MSL at load via
-          -- `MTLDevice.makeLibrary(source:)`). The lane runs for real on Apple
-          -- hardware with a visible Metal device and the build VM up; a missing
-          -- device fails (the Sprint 14.6 skip guards are gone).
+          -- the generated identity kernel through the fixed Metal bridge must
+          -- produce bit-identical output. The lane runs for real on Apple
+          -- hardware with a visible Metal device and an installed bridge; a
+          -- missing device or bridge fails (the Sprint 14.6 skip guards are gone).
           env <- buildEnv defaultGlobalFlags
           let payload = [0.0, 1.5, -2.25, 3.875, -4.125]
           first <- Metal.runMetalFamilyKernel env Identity payload
@@ -596,9 +591,9 @@ main =
                 assertBool "all three apple-silicon weighted kernel runs succeed" False
       , testCase "apple-silicon live Metal benchmark candidate runner produces a measurement (Sprint 14.3)" $ do
           -- Sprint 14.3 — the de-stubbed metalBenchmarkCandidateRunner drives the
-          -- real host swift build -> dlopen -> runtime makeLibrary -> Metal launch
-          -- path, times the round-trip, and digests the float output. One
-          -- candidate keeps this fast; the full sweep is the gated test below.
+          -- fixed bridge -> runtime makeLibrary -> Metal launch path, times the
+          -- round-trip, and digests the float output. One candidate keeps this
+          -- fast; the full sweep is the gated test below.
           env <- buildEnv defaultGlobalFlags
           let input = [0.0, 1.0, 2.0, 3.0]
           measured <-
@@ -629,10 +624,10 @@ main =
           "apple-silicon first cache-miss persists and reuses a TuningChoice via the live runner (Sprint 14.3)"
           $ do
             -- Full benchmark-tuning round-trip through the live Metal runner. The
-            -- Apple knob space is a 4x3x2x1 cross-product (24 candidates, each a
-            -- separate host swift build, ~10 min), so this is gated behind the
+            -- Apple knob space is a 4x3x2x1 cross-product (24 bridge-dispatched
+            -- candidates), so this is gated behind the
             -- explicit JITML_TUNING_LIVE opt-in to keep the routine apple-silicon
-            -- lane fast. When opted in, a missing Metal device fails the build —
+            -- lane fast. When opted in, a missing Metal device or bridge fails —
             -- there is no hardware skip guard.
             liveTuning <- lookupEnv "JITML_TUNING_LIVE"
             case liveTuning of
@@ -1388,7 +1383,7 @@ main =
                 assertBool
                   "device-trained policy/value loss should decrease"
                   (lossOf netN < lossOf net0)
-      , -- ════ Phase 4 rebalance: apple-silicon (Metal) MLP — UNVERIFIED until run on a Mac ════
+      , -- Metal MLP: validated in the host-native apple-silicon lane.
         testCase
           "apple-silicon MLP forward kernel matches the pure-Haskell network (Phase 4 rebalance)"
           $ do
@@ -1507,7 +1502,7 @@ main =
                   "each batched Metal dL/dx is within tolerance of the pure mlpInputGradient"
                   (length dxs == length batch && and (zipWith (approxEqualVec 1.0e-3) dxs refs))
               Left e -> assertBool ("Metal batched input-gradient failed: " <> Text.unpack e) False
-      , -- ════ Phase 4 rebalance: apple-silicon (Metal) RL trainers — UNVERIFIED until run on a Mac ════
+      , -- Metal RL trainers: validated through the batched fixed-bridge MLP path.
         testCase
           "apple-silicon on-policy PPO trainer trains through the batched device path (Phase 4 rebalance)"
           $ do

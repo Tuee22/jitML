@@ -120,10 +120,12 @@ program invocation flows through the typed `Subprocess` boundary
 
 - `kubectl`, `helm`, `kind`, `docker`, `cabal`,
   `npx playwright`, `spago`, `pulsar-admin`, `mc` (MinIO CLI),
-  `nvcc`, `g++` (over oneDNN), `tart` (the Apple build-VM lifecycle), `swift build`
-  dispatched **into the Tart VM** (the Apple Metal glue dylib — the Metal shader
-  itself is JIT-compiled in-process on the host by `MTLDevice.makeLibrary(source:)`,
-  not a subprocess), `dhall freeze`, `proto-lens-protoc`.
+  `nvcc`, `g++` (over oneDNN), `/usr/bin/clang` for the fixed Apple Metal
+  bridge installer, `dhall freeze`, `proto-lens-protoc`.
+
+Core Apple Metal cache misses are not subprocess builds: Haskell writes
+`<hash>.metal.json`, then the fixed bridge JIT-compiles MSL in-process through
+`MTLDevice.makeLibrary(source:)`.
 
 `callProcess`, `readCreateProcess`, `System.Process.*`, `typed-process`
 smart constructors are hlint-forbidden outside the interpreter module.
@@ -161,12 +163,13 @@ Package validation and installation lives in the typed prerequisite DAG:
 - The apply phase executes through the typed `Subprocess` interpreter and then
   re-validates each postcondition before dependent nodes run.
 - Ad hoc `brew install` calls in shell scripts or command runners are forbidden.
-  The `container.tart` prerequisite is a typed Homebrew package node that installs
-  Tart through this remediation path; the Apple JIT cache miss then builds the Swift
-  glue dylib with `swift build` **inside the Tart VM** and copies the dylib out to
-  the host. Full Xcode is never a host prerequisite or remediation — the host
-  carries no Swift/Metal toolchain; the Metal shader JIT-compiles in-process on the
-  host via `MTLDevice.makeLibrary(source:)` using the OS Metal framework.
+  The core Apple prerequisite surface is `apple.metal-runtime` plus
+  `apple.metal-bridge`; the bridge installer compiles the fixed bridge with the
+  system clang and Metal/Foundation frameworks, then probes the exported symbols.
+  Tart, full Xcode, SwiftPM, the offline `metal` compiler, and keychain-changing
+  commands are not remediation nodes for the training/inference cache-miss path.
+  Optional generated Swift modules, if added later, must use explicit
+  `apple.swiftc` + `apple.macos-sdk` probes and remain outside the core JIT path.
 
 ### Reconcilers (exit `3` on no-op)
 

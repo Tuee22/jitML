@@ -2,6 +2,7 @@
 
 module JitML.Service.Runtime
   ( DaemonRuntime (..)
+  , AppleMetalAcquireStatus (..)
   , DaemonClientProbeState (..)
   , DaemonClientProbeStatus (..)
   , DaemonSubscriptionState (..)
@@ -43,6 +44,7 @@ import JitML.Observability.TbSidecar qualified as TbSidecar
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , HttpListener (..)
+  , InferenceMode (..)
   , Residency (..)
   , defaultBootConfig
   , renderBootConfigDhall
@@ -126,6 +128,7 @@ import JitML.Service.AppleInferenceRpc qualified as AppleRpc
 data DaemonRuntime = DaemonRuntime
   { daemonBootConfig :: BootConfig
   , daemonLiveConfig :: LiveConfig
+  , daemonAppleMetalAcquireStatus :: AppleMetalAcquireStatus
   , daemonClientSettings :: DaemonClientSettings
   , daemonClientProbeStatuses :: [DaemonClientProbeStatus]
   , daemonSubscriptions :: [DaemonSubscription]
@@ -133,6 +136,13 @@ data DaemonRuntime = DaemonRuntime
   , daemonMetrics :: MetricsSnapshot
   , daemonReady :: Bool
   }
+  deriving stock (Eq, Show)
+
+data AppleMetalAcquireStatus
+  = AppleMetalAcquireNotRequired
+  | AppleMetalAcquirePending
+  | AppleMetalAcquireSucceeded Text
+  | AppleMetalAcquireFailed Text
   deriving stock (Eq, Show)
 
 data DaemonClientProbeState
@@ -169,6 +179,7 @@ daemonRuntimeForBootConfig bootConfig =
    in DaemonRuntime
         { daemonBootConfig = bootConfig
         , daemonLiveConfig = defaultLiveConfig
+        , daemonAppleMetalAcquireStatus = appleMetalAcquireInitialStatus bootConfig
         , daemonClientSettings = daemonClientSettingsForBootConfig bootConfig
         , daemonClientProbeStatuses = pendingClientProbeStatuses
         , daemonSubscriptions = subscriptions
@@ -220,6 +231,12 @@ daemonClientProbeNames =
   , "harbor:list library"
   , "kubectl:get pods"
   ]
+
+appleMetalAcquireInitialStatus :: BootConfig -> AppleMetalAcquireStatus
+appleMetalAcquireInitialStatus bootConfig =
+  case (bootSubstrate bootConfig, bootInferenceMode bootConfig) of
+    (AppleSilicon, SelfInference) -> AppleMetalAcquirePending
+    _ -> AppleMetalAcquireNotRequired
 
 daemonProbeBucket :: BucketName
 daemonProbeBucket = BucketName "jitml-checkpoints"
@@ -322,6 +339,8 @@ renderDaemonRuntimeSummary runtime =
     , indentText (renderBootConfigDhall (daemonBootConfig runtime))
     , "live_config:"
     , indentText (renderLiveConfigDhall (daemonLiveConfig runtime))
+    , "apple_metal_acquire:"
+    , indentText (renderAppleMetalAcquireStatus (daemonAppleMetalAcquireStatus runtime))
     , "client_acquisition:"
     , indentText (renderDaemonClientSettings (daemonClientSettings runtime))
     , "client_probe_status:"
@@ -343,6 +362,12 @@ renderDaemonRuntimeSummary runtime =
     , "signals:"
     , "  - " <> Text.intercalate "\n  - " (fmap renderSignalPlan signalPlan)
     ]
+
+renderAppleMetalAcquireStatus :: AppleMetalAcquireStatus -> Text
+renderAppleMetalAcquireStatus AppleMetalAcquireNotRequired = "not_required"
+renderAppleMetalAcquireStatus AppleMetalAcquirePending = "pending"
+renderAppleMetalAcquireStatus (AppleMetalAcquireSucceeded message) = "ok " <> message
+renderAppleMetalAcquireStatus (AppleMetalAcquireFailed message) = "failed " <> message
 
 runtimeAfterSignal :: DaemonRuntime -> DaemonSignal -> DaemonRuntime
 runtimeAfterSignal runtime signal =

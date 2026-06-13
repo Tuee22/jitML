@@ -8,10 +8,10 @@
 > **Purpose**: Project-specific JIT codegen architecture for jitML — the
 > content-addressed cache, the per-substrate compilers (Metal, oneDNN,
 > CUDA), the typed engine handle/envelope surface, the FFI boundary, the
-> Apple Silicon Tart-VM build JIT (the `jitml`-managed Tart build VM compiles the
-> Swift glue dylib, the artifact is copied out to the host, and the host executes
-> it on the Metal GPU via runtime `MTLDevice.makeLibrary(source:)` shader
-> compilation), and the hardware auto-tuning surface.
+> Apple Silicon fixed-bridge Metal JIT (Haskell writes cached MSL source metadata,
+> a fixed host bridge compiles that MSL through runtime
+> `MTLDevice.makeLibrary(source:)`, and the host executes it on the Metal GPU),
+> and the hardware auto-tuning surface.
 
 ## Cache Layout
 
@@ -22,7 +22,7 @@
 ├── conf/                                    -- generated host and cluster Dhall
 ├── runtime/cluster-publication.json          -- routed cluster coordinates
 ├── kind/<substrate>/                         -- Kind metadata/config for later compose-run commands
-├── host/apple-silicon/                      -- Apple-only stable-named dlopen() targets
+├── host/apple-silicon/                      -- Apple-only fixed Metal bridge and host runtime metadata
 ├── jit-src/<substrate>/<hash>/               -- generated compiler inputs emitted by Haskell renderers
 └── jit/
     ├── manifest.json                        -- index keyed on (model-id, kind, substrate, toolchain)
@@ -41,13 +41,13 @@ per-substrate source bundles. The repository does not keep checked-in
 substrate-source directories for generated compiler inputs.
 
 The generated-source rule applies to every source file that participates in a
-JIT cache miss. Checked-in CUDA `.cu`, C/C++ `.cc` / `.cpp`, Metal / Swift
-package sources, native adapter shims, and per-substrate build scripts are
+JIT cache miss. Checked-in CUDA `.cu`, C/C++ `.cc` / `.cpp`, per-kernel MSL,
+Swift package sources, native adapter shims, and per-substrate build scripts are
 forbidden as JIT compiler inputs; Haskell renderers must emit them under
-`./.build/jit-src/` instead. The repository has no checked-in native-source
-exception for runtime adapters. If a runtime path needs adapter code, the
-Haskell engine generates and materializes it into the build/cache tree, or the
-operator supplies it outside the repository.
+`./.build/jit-src/` or `./.build/jit/` instead. A fixed, non-kernel Apple Metal
+bridge is allowed because it is process infrastructure, not model-specific JIT
+source; `jitml internal install-metal-bridge` source-builds that bridge under
+`./.build/host/apple-silicon/`.
 
 `./.build/` is the host root for compiled artefacts, generated Dhall,
 kubeconfig, cluster publication, Kind metadata, and JIT-compiled kernels.
@@ -56,24 +56,24 @@ kubeconfig, cluster publication, Kind metadata, and JIT-compiled kernels.
 
 The Sprint `2.3` cache support lives in `src/JitML/Cache/`: `Key` owns the
 typed cache-key ADTs and SHA-256 derivation, `Layout` owns typed path
-resolution under `./.build/`, `Manifest` owns `manifest.json` round-trip and
-atomic writes, and `Symlink` owns atomic Apple stable-FFI symlink repointing.
-Sprint `7.1` keeps `KernelSpec` as the current cache-key payload wrapper.
+resolution under `./.build/`, and `Manifest` owns `manifest.json` round-trip and
+atomic writes. Sprint `7.11` removed the Apple stable-dylib symlink layer; Apple
+cache entries are source metadata consumed by the fixed bridge. Sprint `7.1`
+keeps `KernelSpec` as the current cache-key payload wrapper.
 Future model-schema work grows that payload from local text fixtures into the
 numerical core's full kernel shape.
 
 `jit/<substrate>/<hash>.<ext>` is the canonical content-addressed cache —
 every cached kernel lives there, on every substrate.
 
-`host/apple-silicon/` is *only* on Apple, and holds **stable-named symlinks**
-into `jit/apple-silicon/`. The Haskell FFI `dlopen`s
-`host/apple-silicon/<model-id>.dylib`, which resolves through the symlink to
-`jit/apple-silicon/<hash>.dylib`. The indirection lets the FFI path stay
-stable across re-JITs (a new hash repoints the symlink; the FFI key never
-changes).
+`host/apple-silicon/` is *only* on Apple, and holds the process-stable Metal
+bridge dylib plus host-side runtime metadata. The Apple JIT cache entry is
+`jit/apple-silicon/<hash>.metal.json`, not a per-kernel dylib. The Haskell side
+loads/probes the fixed bridge and passes canonical MSL source plus launch
+metadata to it on cache hits and misses.
 
-Linux substrates don't need this — the pod loads directly out of
-`jit/<substrate>/` because there is no host↔VM artifact-copy step.
+Linux substrates load generated shared objects directly out of
+`jit/<substrate>/`.
 
 The first executable path is local `linux-cpu`. `JitML.Engines.Loader`
 materializes generated libdnnl-linked oneDNN kernels and fills cache misses
@@ -86,8 +86,9 @@ current local `HasEngine` interpreter, and `jitml service` uses
 `runLinuxCpuCheckpointInference` for `linux-cpu` + `SelfInference` routed
 checkpoint inference after MinIO manifest loading. `JitML.Engines.CudaLocal`
 and `LocalCudaEngine` extend the same cache and kernel-handle contracts behind
-a positive CUDA runtime probe; live CUDA GPU-host execution and Apple Metal
-loading remain the open runtime validations.
+a positive CUDA runtime probe. `JitML.Engines.MetalLocal` and
+`JitML.Engines.MetalBridge` extend the Apple side with source-metadata cache
+entries and fixed-bridge dispatch.
 
 ## Cache Key
 
@@ -102,8 +103,8 @@ where:
 - `kind ∈ Training | Inference`.
 - `substrate ∈ apple-silicon | linux-cpu | linux-cuda`.
 - `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, Metal/`swiftc`, oneDNN) plus loader-relevant ABI
-  facts for local FFI paths.
+  `cabal.project` (LLVM, NVCC, the host OS Metal runtime plus fixed bridge ABI,
+  oneDNN) plus loader-relevant ABI facts for local FFI paths.
 - `rendered-source-payload` is the canonical payload emitted by
   `renderRuntimeSource`.
 - `tuning-choice` is the selected `TuningChoice`.
@@ -136,10 +137,13 @@ It provides:
 
 `src/JitML/Engines/Loader.hs` is the shared artifact boundary. It materializes
 generated runtime source, detects whether the content-addressed cache artifact
-already exists, fills cache misses through the typed compile `Subprocess`, and
-returns a `KernelArtifact` that records the `KernelHandle`, cache status, compile
-command, and whether compilation happened in this call. The same module owns the
-reusable `dlopen`/`dlsym` helper used by local FFI runners.
+already exists, fills Linux cache misses through the typed compile `Subprocess`,
+and fills Apple cache misses by atomically writing the rendered
+`<hash>.metal.json` source metadata. It returns a `KernelArtifact` that records
+the `KernelHandle`, cache status, compile command text or metadata-write plan,
+and whether the cache artifact was created in this call. The same module owns
+the reusable `dlopen`/`dlsym` helper used by local Linux FFI runners and fixed
+bridge probing.
 
 `src/JitML/Engines/Local.hs` is the local execution interpreter for the Linux
 CPU oneDNN primitive kernels on top of that loader. It records the family name
@@ -298,80 +302,67 @@ reproducibility witness surface; see
   `PolicyValueNet` through these device kernels (batched) plus the cuDNN
   deterministic-pin are validated (Sprints 13.8 / 13.9 closed). Re-validated 2026-06-06 on an RTX 5090 / Blackwell `sm_120` — `nvcc -arch=sm_70` PTX forward-JITs at launch, `jitml-backends -fcuda` 38 / 38.
 
-### `apple-silicon` — Swift + Metal
+### `apple-silicon` — fixed Metal bridge
 
-- `src/JitML/Codegen/Metal.hs` renders the generated Swift package under
-  `./.build/jit-src/apple-silicon/<hash>/`. The generated Swift embeds the Metal
-  Shading Language as a string and JIT-compiles it **at runtime, in-process**
-  via `MTLDevice.makeLibrary(source:options:)` with
-  `MTLCompileOptions.fastMathEnabled = false` — no offline `metal` compiler, no
-  `.metallib`, no SwiftPM resource bundle.
-- Generated Swift exports the host-callable C ABI `jitml_kernel` /
-  `jitml_weighted_kernel` plus the `jitml_kernel_family_name` /
-  `jitml_kernel_output_count` metadata (`@_cdecl`). The reduction metadata
-  reports `ceil(n / 32)` outputs, matching the `simd_sum` simdgroup partials.
-- The build runs **inside the `jitml`-managed Tart VM** through `swift build
-  --package-path <dir> -c release` using the VM's bundled Apple toolchain;
-  `JitML.Engines.Engine.compileSubprocess` renders it as a typed `Subprocess`
-  dispatched into the VM. `JitML.Engines.Loader.ensureKernelArtifact` runs it on
-  the first cache miss, copies the produced `libJitMLMetal.dylib` **out of the VM**
-  to `./.build/jit/apple-silicon/<hash>.dylib`, and repoints the stable-FFI
-  symlink at `./.build/host/apple-silicon/<model-id>.dylib`. The host carries no
-  Swift/Metal toolchain — only the VM does.
-- `src/JitML/Engines/MetalLocal.hs` `dlopen`s the cached `.dylib`, resolves the
-  C ABI, and marshals input / output / weight buffers across the FFI to the
-  generated `MTLDevice` launcher (single `MTLCommandQueue`, FIFO order,
-  simd-aligned full threadgroups, bounded shaders). `runMetalWeightedKernel`
-  drives the per-family weighted bodies (Dense2D / Conv2D / Conv3D / BatchNorm /
-  LayerNorm / MHA / Embedding) mirroring
-  `JitML.Codegen.Cuda.weightedFamilyImpl`. `JitML.Engines.HasEngine` dispatches
-  `apple-silicon` through `LocalAppleSiliconEngine` when the host Metal device
-  is visible.
+- `src/JitML/Codegen/Metal.hs` renders canonical MSL source plus
+  `kernel.metal.json` metadata under
+  `./.build/jit/apple-silicon/<hash>.metal.json`. The metadata records
+  `bridge_abi=jitml-metal-bridge-v1`, family name, function names,
+  output-count policy, threadgroup size, safe math mode, single-stream launch
+  policy, source hash, and embedded source.
+- `src/JitML/Engines/Loader.ensureKernelArtifact` fills an Apple cache miss by
+  atomically writing that `.metal.json` file. There is no per-kernel Swift
+  package, SwiftPM invocation, Tart VM build, copied dylib, stable symlink, or
+  Apple per-kernel `dlopen` path.
+- `src/JitML/Engines/MetalBridge.hs` owns the fixed bridge dylib. The install
+  command writes the bridge source under `./.build/host/apple-silicon/` and
+  builds `libJitMLMetalBridge.dylib` with `/usr/bin/clang -dynamiclib -fobjc-arc
+  -ObjC ... -framework Foundation -framework Metal`. The bridge exports probe,
+  generic source dispatch, and MLP forward/backward/batch entrypoints; stale
+  bridge builds fail the probe because required symbols are checked.
+- `src/JitML/Engines/MetalLocal.hs` loads/probes the fixed bridge, passes the
+  Haskell-rendered MSL source to it, and dispatches unweighted and weighted
+  family kernels on the host GPU. The bridge compiles MSL in-process through
+  `MTLDevice.makeLibrary(source:options:)` with fast math disabled, creates
+  deterministic pipeline state, uses one command queue, dispatches full
+  simd-aligned threadgroups with bounds checks, and blocks for completion before
+  returning output to Haskell.
+- `src/JitML/Numerics/MlpDevice.hs` routes Apple MLP forward, backward,
+  batched-gradient, batched-forward, and input-gradient batches through the same
+  fixed bridge ABI using MSL from `src/JitML/Codegen/MlpMetal.hs`.
 - `src/JitML/Engines/MetalRuntime.hs` probes host Metal device visibility
-  (`system_profiler SPDisplaysDataType`); device visibility gates host execution.
-  Because the Swift/Metal build now lives in the Tart VM, the host probe no longer
-  requires a host `swiftc`/`metal` toolchain — a visible Metal device is the only
-  host gate.
+  (`system_profiler SPDisplaysDataType`); device visibility plus a loadable fixed
+  bridge gates host execution. The core cache-miss path does not require
+  `swiftc`, `xcrun metal`, SwiftPM, full Xcode, Tart, or login-keychain state.
 - Metal kernels launch in a single `MTLCommandQueue` with FIFO ordering;
   explicit barriers prevent kernel reordering.
-- Routing the `swift build` through the Tart VM and copying the dylib out is the
-  work of the reopened Phase `7` sprint (with the `container.tart` prerequisite +
-  VM lifecycle from the reopened Phase `2` sprint and the Dhall-configured VM
-  limits from the reopened Phase `5` sprint). The FFI runner, `HasEngine`
-  dispatch, per-family weighted bodies, benchmark candidate runner, and daemon
-  dispatch are landed; re-validating the live apple-silicon lane through the
-  VM-built path is the reopened Phase `14` gate.
 
-## Apple Silicon Tart-VM Build JIT
+## Apple Silicon Fixed-Bridge Metal JIT
 
-All Apple Silicon Swift/Metal builds run inside a `jitml`-managed **Tart VM**. The
-`jitml` binary owns the VM lifecycle: it `brew install`s Tart if it is not present,
-creates/starts/stops/deletes the build VM, and assigns the VM's CPU/memory/storage
-from the host Dhall config. The VM is a standard macOS image that carries the full
-Apple toolchain (`swiftc`, Xcode, `metal`); the **host carries no Swift/Metal
-toolchain** and full Xcode is still never installed on the host — the toolchain
-lives only in the VM.
+The Apple Silicon JIT is source-metadata-first. On a cache miss, jitML writes
+the canonical `.metal.json` artifact and immediately uses the fixed bridge to
+compile the embedded MSL through the OS Metal runtime. On a cache hit, jitML
+reuses the cached metadata and the process-local bridge/pipeline cache; no
+external compiler, VM lifecycle, or user-session secret is part of the critical
+path.
 
-On a JIT cache miss the daemon ensures the build VM is up, then runs `swift build`
-**inside the VM** through the typed `Subprocess` boundary, copies the produced
-`libJitMLMetal.dylib` **out of the VM** into
-`./.build/jit/apple-silicon/<hash>.dylib` atomically (`tmp + rename`), repoints the
-stable-named symlink under `./.build/host/apple-silicon/`, and `dlopen`s it through
-the Metal FFI runner. Execution is **host-native**: the generated launcher compiles
-the embedded Metal Shading Language at load via `MTLDevice.makeLibrary(source:options:)`
-(the OS Metal runtime compiler) with fast-math off and dispatches on the host's
-Metal GPU. Subsequent cache hits skip the VM build entirely.
+`jitml internal install-metal-bridge` is the headless bridge remediation command.
+It is safe to run from source-built jitML because it needs only the system clang,
+Foundation, Metal, and the Haskell-rendered bridge source. Optional generated
+Swift modules may later use separate `apple.swiftc` / `apple.macos-sdk` probes,
+but they are not the training/inference cache-miss path.
 
-The VM lifecycle, its Dhall-configured limits, and the `jitml internal vm` command
-group are owned by the reopened Phases `1` / `2` / `5` / `7` / `14` (2026-06-10; see
-[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)).
+The retired Tart/SwiftPM path remains only as dated plan history and as rationale
+in [apple_silicon_metal_headless_builds.md](apple_silicon_metal_headless_builds.md).
 
 ## Cache Survives Purge
 
 `./bootstrap/apple-silicon.sh purge` clears runtime state but **preserves**
-`./.build/`. After `purge`, every previously compiled kernel is still on disk
-under `./.build/jit/apple-silicon/`, so the next bootstrap plus any inference
-command resolves from cache without rebuilding.
+`./.build/`. After `purge`, every previously rendered Apple kernel metadata
+artifact remains under `./.build/jit/apple-silicon/` and the fixed bridge remains
+under `./.build/host/apple-silicon/`, so the next bootstrap plus any inference
+command resolves from cache without regenerating source metadata or rebuilding
+the bridge.
 
 `purge --full` is `purge` plus `rm -rf ./.build/` (and on Linux,
 `docker compose down --rmi local --volumes` to drop the substrate image).
@@ -381,10 +372,9 @@ Use only for fresh-start debugging.
 
 The Kind cluster config bind-mounts host `./.build/` into the single Kind node,
 and the `jitml-service` Deployment mounts that path into the pod at
-`/opt/build`. Cache hits / misses behave identically to Apple Silicon — the
-only difference is that on a Linux miss the compile runs in-process inside
-the pod (the substrate image carries the full JIT toolchain), not in a
-separate VM. Later `docker compose run --rm jitml jitml <command>` invocations
+`/opt/build`. Linux cache hits / misses share the same content-addressed layout:
+on a Linux miss the compile runs in-process inside the pod because the substrate
+image carries the full JIT toolchain. Later `docker compose run --rm jitml jitml <command>` invocations
 reuse the Kind metadata under `./.build/`; the outer container exits after the
 cluster daemon is in charge. This is the **one** exception to the "no
 freestanding host paths in pod specs" discipline; the chart lint permits
@@ -435,19 +425,18 @@ concrete candidate runner: it renders the tuned Linux CPU source, computes the
 candidate cache key, compiles/loads through the existing generated-kernel FFI
 path, measures elapsed time, and records the output digest.
 `cudaBenchmarkCandidateRunner` and `metalBenchmarkCandidateRunner` are guarded
-preflight boundaries for the non-local substrates: they reject wrong-substrate
+live runners for the non-local substrates: they reject wrong-substrate
 candidates, summarize CUDA/Metal runtime availability from the typed runtime
-probes, and fail closed until the live FFI candidate execution paths are
-implemented.
+probes, fail closed before compilation when the runtime is unavailable, and run
+the visible-device candidate through the same CUDA local FFI or Apple fixed
+bridge path used by normal kernel execution.
 
 Target auto-tuning runs at JIT time on a cache miss, benchmarks only
 deterministic choices, and records the selected `TuningChoice` per `KernelSpec`.
 The chosen `TuningChoice` is a cache-key input; a knob change invalidates the
-cache key. The live hardware work that remains is adding actual CUDA/Metal
-measurement behind those preflight runners, wiring benchmark selection into
-first-cache-miss execution, expanding the Linux CPU benchmark payloads beyond
-the current flat oneDNN primitive fixtures, and validating those runners on
-real hardware.
+cache key. The remaining growth is broadening benchmark payloads beyond the
+current primitive fixtures and wiring measured-choice selection more deeply into
+first-cache-miss execution.
 
 The cuDNN algorithm-id selection is restricted to the deterministic-only set.
 The `--use_fast_math=false` invariant is preserved.
@@ -456,29 +445,29 @@ The `--use_fast_math=false` invariant is preserved.
 
 The current worktree has typed cache decisions and `KernelHandle` construction
 in `src/JitML/Engines/Engine.hs`, a shared cache artifact loader in
-`src/JitML/Engines/Loader.hs`, and local Linux CPU oneDNN primitive `dlopen`
-runners in `src/JitML/Engines/Local.hs`. `JitML.Engines.HasEngine`
-wraps the generated-family Linux CPU runner in the local engine capability and
-checks the requested family against the loaded artifact metadata. The local
-runner resolves
-the executable `jitml_kernel` symbol, the `jitml_kernel_family_name` metadata
-symbol, and the `jitml_kernel_output_count` shape symbol.
-`ensureKernelArtifact` now owns the local
-compile-on-miss path:
+`src/JitML/Engines/Loader.hs`, local Linux CPU oneDNN primitive `dlopen`
+runners in `src/JitML/Engines/Local.hs`, guarded CUDA `dlopen` runners in
+`src/JitML/Engines/CudaLocal.hs`, and Apple fixed-bridge dispatch in
+`src/JitML/Engines/MetalLocal.hs` / `src/JitML/Engines/MetalBridge.hs`.
+`JitML.Engines.HasEngine` wraps generated-family runners in the local engine
+capability and checks the requested family against loaded or rendered metadata.
+Linux runners resolve the executable `jitml_kernel` symbol, the
+`jitml_kernel_family_name` metadata symbol, and the
+`jitml_kernel_output_count` shape symbol. Apple supplies equivalent metadata in
+the `.metal.json` cache artifact and bridge ABI.
+`ensureKernelArtifact` now owns the cache-on-miss path:
 
 - On cache hit, returns a `KernelArtifact` with the existing `KernelHandle` and
   `kernelArtifactCompiled = False`.
-- On cache miss, materializes generated source, runs the typed substrate compile
-  subprocess, and returns the new `KernelArtifact` with
+- On Linux cache miss, materializes generated source, runs the typed substrate
+  compile subprocess, and returns the new `KernelArtifact` with
   `kernelArtifactCompiled = True`.
-- `withKernelSymbol` wraps `dlopen` / `dlsym` for FFI runners that need a symbol
-  from the cached artifact.
-
-The production engine interpreters still need to grow real graph-kernel launch.
-Apple Silicon FFI uses `dlopen` against the stable-named symlink; generated
-Swift already exposes the family/output-count metadata symbols for that loader,
-but the `MTLDevice`/pipeline/command-buffer launch path is still target runtime
-work. Linux loaders use `dlopen` directly against the cache file.
+- On Apple cache miss, writes the rendered `.metal.json` metadata artifact and
+  returns a `KernelArtifact` whose command text describes the metadata-write
+  plan.
+- `withKernelSymbol` wraps `dlopen` / `dlsym` for Linux FFI runners that need a
+  symbol from the cached artifact. Apple loads only the fixed bridge dylib; the
+  bridge receives MSL source and function names at runtime.
 
 ## Cross-References
 

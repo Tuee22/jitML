@@ -606,6 +606,12 @@ internalCommand =
         []
         [Example "jitml internal list-prereqs" "List prerequisite checks."]
     , leaf
+        "install-metal-bridge"
+        "Build the fixed Apple Metal bridge."
+        "Builds the process-stable Apple Metal bridge dylib from jitML-generated source under ./.build/host/apple-silicon/."
+        []
+        [Example "jitml internal install-metal-bridge" "Build and probe the fixed Apple Metal bridge."]
+    , leaf
         "upload-dataset"
         "Upload a real dataset blob to MinIO."
         "Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/<data|labels>.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin) or labels (labels.bin)."
@@ -632,7 +638,6 @@ internalCommand =
         , planFileOption
         ]
         [Example "jitml internal gc exp123" "Apply retention to an experiment."]
-    , vmCommand
     , cacheCommand
     ]
 
@@ -655,50 +660,6 @@ helpCommand =
     "Prints the same help text as passing --help to a subcommand."
     [remainder "subcommand" False "Subcommand path to show help for."]
     [Example "jitml help cluster up" "Print help for cluster up."]
-
-vmCommand :: CommandSpec
-vmCommand =
-  group
-    "vm"
-    "Manage the Apple Silicon build VM."
-    "Lifecycle for the jitml-managed Tart build VM that compiles Apple Silicon Swift/Metal artifacts. All Apple Silicon swift build runs inside this VM; the produced dylib is copied out to the host, which executes it on the Metal GPU. The VM's CPU/memory/storage are taken from the host Dhall config; Tart is installed via Homebrew if absent. The host never installs full Xcode."
-    [ leaf
-        "create"
-        "Create the build VM."
-        "Clones the configured base image into the jitml-build Tart VM and assigns its CPU/memory/disk limits. Idempotent: a present VM is left in place."
-        []
-        [Example "jitml internal vm create" "Provision the build VM."]
-    , leaf
-        "up"
-        "Start the build VM."
-        "Provisions the VM if missing, then starts it headless with the repository mounted so the in-VM swift build writes the dylib to a host-visible path."
-        []
-        [Example "jitml internal vm up" "Start the build VM."]
-    , leaf
-        "down"
-        "Stop the build VM."
-        "Stops the Apple Silicon build VM."
-        []
-        [Example "jitml internal vm down" "Stop the build VM."]
-    , leaf
-        "status"
-        "Report build VM status."
-        "Prints the build VM status (missing/stopped/running)."
-        []
-        [Example "jitml internal vm status" "Inspect build VM status."]
-    , leaf
-        "delete"
-        "Delete the build VM."
-        "Stops (if running) and deletes the jitml-build Tart VM."
-        []
-        [Example "jitml internal vm delete" "Delete the build VM."]
-    , leaf
-        "exec"
-        "Run a command in the build VM."
-        "Passes a command through to the Apple Silicon build VM via tart exec."
-        [remainder "cmd" True "Command and arguments to execute."]
-        [Example "jitml internal vm exec -- uname -a" "Run a VM debugging command."]
-    ]
 
 cacheCommand :: CommandSpec
 cacheCommand =

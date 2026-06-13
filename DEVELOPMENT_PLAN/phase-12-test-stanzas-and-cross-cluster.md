@@ -1,4 +1,4 @@
-# Phase 12: Test Stanzas, Lint Matrix, Cross-Cluster Parity
+# Phase 12: Test Stanzas, Lint Matrix, Live Workflow Matrix
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -17,8 +17,8 @@
 > `jitml-e2e`), the `jitml test all` Plan/Apply orchestrator, the
 > report-card knob plumbing,
 > the typed `JitML.Test.LivePlan` live-plan surface for the
-> ephemeral-Kind e2e orchestration, and the cross-substrate parity gate that
-> closes the final handoff. Phase 12 owns the
+> ephemeral-Kind e2e orchestration, and the fail-closed live workflow matrix used
+> by later closure phases. Phase 12 owns the
 > integration / canonicals / cross-backend / daemon-lifecycle / e2e stanzas
 > and the orchestrator. Lint and code-quality targets are owned outside this
 > phase and are not Cabal test stanzas.
@@ -41,8 +41,8 @@ the Percona Postgres PVs to node-local storage on Docker Desktop, granting
 database ownership before Harbor migrations, removing stale publications before
 rollout, and right-sizing the Envoy data-plane request; the edge returned
 `HTTP/1.1 200 OK` from `/healthz`, and the live `WorkflowMatrix` case passed
-against the clean `linux-cpu` cluster. The Apple live lane remains Phase `14`
-work; final handoff remains Phase `15` work.
+against the clean `linux-cpu` cluster. The Apple live lane then closed in
+Phase `14`, and the final handoff closed in Phase `15`, both on 2026-06-12.
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host after
 Sprint `12.10`'s live `linux-cuda` lane re-validation). The phase reopened
@@ -120,9 +120,9 @@ Pulsar / cluster capability effects and real per-substrate run-to-run
 determinism are owned by Phase `13` Sprint `13.7` and Phase `15`
 Sprint `15.1`. Sprints `12.3`–`12.6`'s live statistical SL
 convergence, live RL trajectory determinism, live hyperparameter
-reproducibility, and live cross-substrate parity are owned by
+reproducibility, and the historical cross-substrate comparison work are owned by
 Phase `13` Sprints `13.4` / `13.6` / `13.10` and Phase `15`
-Sprint `15.1`. Sprint `12.8`'s live Helm + Playwright path
+Sprint `15.1` / `15.4` history. Sprint `12.8`'s live Helm + Playwright path
 is owned by Phase `13` Sprints `13.1` / `13.14`. Sprint `12.9`'s live
 report-card consumption is owned by Phase `15` Sprint `15.2`. No
 code-surface Remaining Work survives in this phase.
@@ -693,7 +693,7 @@ Land `jitml test all` (Plan/Apply with `--dry-run` and `--plan-file`) as the
 current operator-facing report-card surface, plus the report-card emitter that
 prints the tidy summary block answering the canonical questions (SL
 convergence, RL reward, AlphaZero arena win rate, JIT cache hit rate, daemon
-health, cross-substrate parity tolerance).
+health, and the then-planned cross-substrate comparison summary).
 
 ### Deliverables
 
@@ -743,7 +743,7 @@ health, cross-substrate parity tolerance).
 4. Live validation (target): the explicit live `jitml test all` path schedules
    the live `jitml-e2e` body too; the rendered report card adds live
    measurements (SL convergence, RL reward, AlphaZero arena win rate,
-   JIT cache hit rate, daemon health, cross-substrate parity tolerance)
+   JIT cache hit rate, daemon health, and final handoff fields)
    on top of the target-stanza summary.
 
 ### Remaining Work

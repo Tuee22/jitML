@@ -1,16 +1,12 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Apple Silicon local Metal engine (Sprint 14.2 / 14.5).
 --
--- Mirrors "JitML.Engines.CudaLocal": the first cache miss drives the Swift glue
--- build on the host with the CommandLineTools @swift build@ (no Tart VM, no full
--- Xcode), the produced @libJitMLMetal.dylib@ is published into the
--- content-addressed Apple cache, and this module @dlopen@s that dylib, resolves
--- the host-callable @jitml_kernel@ / @jitml_weighted_kernel@ C ABI emitted by
--- "JitML.Codegen.Metal", and launches the kernel against the host's Metal GPU
--- through the generated launcher (which JIT-compiles the embedded MSL at runtime
--- via @MTLDevice.makeLibrary(source:)@).
+-- Mirrors "JitML.Engines.CudaLocal" at the Haskell cache boundary, but the
+-- Apple artifact is source metadata rather than a generated dylib. A cache miss
+-- writes @<hash>.metal.json@; the fixed host Metal bridge loads once per
+-- process, compiles the MSL through @MTLDevice.makeLibrary(source:options:)@,
+-- caches pipelines internally, and dispatches on the host GPU.
 module JitML.Engines.MetalLocal
   ( MetalKernelRun (..)
   , MetalWeightedKernelRun (..)
@@ -30,17 +26,19 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Foreign.C.String (CString, peekCString)
-import Foreign.C.Types (CFloat (..), CSize (..))
-import Foreign.Marshal.Array (allocaArray, peekArray, withArray)
-import Foreign.Ptr (FunPtr, Ptr)
 import System.Info qualified as SystemInfo
 
 import JitML.Cache.Key qualified as Cache
 import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Checkpoint.Store (LoadedWeightTensor (..))
 import JitML.Codegen.KernelFamily (KernelFamily (..), kernelFamilyKernelSpec)
-import JitML.Codegen.Metal (renderMetalFamilyPackage)
+import JitML.Codegen.Metal
+  ( metalBridgeAbiVersion
+  , metalOutputCountFor
+  , renderMetalFamilyMetadata
+  , renderMetalFamilySource
+  , threadgroupSizeFor
+  )
 import JitML.Codegen.RuntimeSource (RuntimeSource (..), runtimeSourcePayload)
 import JitML.Engines.Engine
   ( KernelHandle (..)
@@ -51,36 +49,11 @@ import JitML.Engines.Loader
   , kernelArtifactCompileCommand
   , kernelArtifactCompiled
   , kernelArtifactHandle
-  , withKernelSymbol
   )
+import JitML.Engines.MetalBridge qualified as MetalBridge
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
 import JitML.Env.Env (Env)
 import JitML.Substrate (Substrate (..))
-
-type KernelFunction =
-  Ptr CFloat -> Ptr CFloat -> CSize -> IO ()
-
--- | Weighted ABI mirrors the CUDA / Linux CPU shape: output, input,
--- input_count, weights, weights_count.
-type WeightedKernelFunction =
-  Ptr CFloat -> Ptr CFloat -> CSize -> Ptr CFloat -> CSize -> IO ()
-
-type KernelFamilyFunction =
-  IO CString
-
-type KernelOutputCountFunction =
-  CSize -> IO CSize
-
-foreign import ccall "dynamic" mkKernelFunction :: FunPtr KernelFunction -> KernelFunction
-
-foreign import ccall "dynamic"
-  mkWeightedKernelFunction :: FunPtr WeightedKernelFunction -> WeightedKernelFunction
-
-foreign import ccall "dynamic"
-  mkKernelFamilyFunction :: FunPtr KernelFamilyFunction -> KernelFamilyFunction
-
-foreign import ccall "dynamic"
-  mkKernelOutputCountFunction :: FunPtr KernelOutputCountFunction -> KernelOutputCountFunction
 
 data MetalKernelRun = MetalKernelRun
   { metalKernelHandle :: KernelHandle
@@ -107,12 +80,13 @@ data MetalWeightedKernelRun = MetalWeightedKernelRun
 
 metalFamilyRuntimeSource :: KernelFamily -> RuntimeSource
 metalFamilyRuntimeSource family =
-  GeneratedMetalPackage
+  GeneratedMetalSourceMetadata
     { runtimeSourceKernel = kernelFamilyKernelSpec family
     , runtimeSourceKind = Cache.Inference
     , runtimeSourceTuning = Cache.defaultTuningChoice
+    , runtimeSourceKernelFamily = Just family
     , runtimeSourceFiles =
-        renderMetalFamilyPackage
+        renderMetalFamilyMetadata
           family
           (kernelFamilyKernelSpec family)
           Cache.Inference
@@ -208,9 +182,8 @@ runMetalWeightedFamilyKernelWithProbe probeRuntime env family input weights = do
             )
         )
 
--- | Load the family dylib, resolve the @jitml_weighted_kernel@ symbol, marshal
--- input + weights across the FFI to the generated Metal launcher, and return
--- the host output alongside 'MetalWeightedKernelRun' metadata.
+-- | Fill/read the source-metadata cache, then launch the weighted kernel through
+-- the fixed host Metal bridge.
 runMetalWeightedKernel
   :: Env
   -> RuntimeSource
@@ -222,23 +195,35 @@ runMetalWeightedKernel env source hash input weights = do
   artifactResult <- ensureKernelArtifact env engine source hash
   case artifactResult of
     Left err ->
-      pure (Left ("apple-silicon weighted build failed: " <> err))
+      pure (Left ("apple-silicon weighted metadata cache failed: " <> err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
-          artifactPath = Text.unpack (kernelHandleArtifactPath handle)
-      (reportedFamily, output) <- loadAndRunWeighted artifactPath input weights
-      pure
-        ( Right
-            MetalWeightedKernelRun
-              { metalWeightedKernelHandle = handle
-              , metalWeightedKernelInput = input
-              , metalWeightedKernelOutput = output
-              , metalWeightedKernelWeights = weights
-              , metalWeightedKernelReportedFamily = reportedFamily
-              , metalWeightedKernelCompileCommand = kernelArtifactCompileCommand artifact
-              , metalWeightedKernelCompiled = kernelArtifactCompiled artifact
-              }
-        )
+      case runtimeSourceMetalFamily source of
+        Nothing ->
+          pure (Left "apple-silicon weighted metadata cache is not a Metal kernel-family source")
+        Just family -> do
+          outputResult <-
+            MetalBridge.runMetalSource
+              (renderMetalFamilySource family)
+              "jitml_weighted_kernel"
+              (threadgroupSizeFor family)
+              input
+              (Just weights)
+              (metalOutputCountFor family (length input))
+          pure $
+            case outputResult of
+              Left err -> Left ("apple-silicon weighted bridge dispatch failed: " <> err)
+              Right output ->
+                Right
+                  MetalWeightedKernelRun
+                    { metalWeightedKernelHandle = handle
+                    , metalWeightedKernelInput = input
+                    , metalWeightedKernelOutput = output
+                    , metalWeightedKernelWeights = weights
+                    , metalWeightedKernelReportedFamily = familyNameText family
+                    , metalWeightedKernelCompileCommand = kernelArtifactCompileCommand artifact
+                    , metalWeightedKernelCompiled = kernelArtifactCompiled artifact
+                    }
  where
   engine = engineForSubstrate AppleSilicon
 
@@ -248,83 +233,66 @@ runMetalKernel env source hash input = do
   artifactResult <- ensureKernelArtifact env engine source hash
   case artifactResult of
     Left err ->
-      pure (Left ("apple-silicon build failed: " <> err))
+      pure (Left ("apple-silicon metadata cache failed: " <> err))
     Right artifact -> do
       let handle = kernelArtifactHandle artifact
-          artifactPath = Text.unpack (kernelHandleArtifactPath handle)
-      (reportedFamily, output) <- loadAndRun artifactPath input
-      pure
-        ( Right
-            MetalKernelRun
-              { metalKernelHandle = handle
-              , metalKernelInput = input
-              , metalKernelOutput = output
-              , metalKernelReportedFamily = reportedFamily
-              , metalKernelCompileCommand = kernelArtifactCompileCommand artifact
-              , metalKernelCompiled = kernelArtifactCompiled artifact
-              }
-        )
+      case runtimeSourceMetalFamily source of
+        Nothing ->
+          pure (Left "apple-silicon metadata cache is not a Metal kernel-family source")
+        Just family -> do
+          outputResult <-
+            MetalBridge.runMetalSource
+              (renderMetalFamilySource family)
+              "jitml_kernel"
+              (threadgroupSizeFor family)
+              input
+              Nothing
+              (metalOutputCountFor family (length input))
+          pure $
+            case outputResult of
+              Left err -> Left ("apple-silicon bridge dispatch failed: " <> err)
+              Right output ->
+                Right
+                  MetalKernelRun
+                    { metalKernelHandle = handle
+                    , metalKernelInput = input
+                    , metalKernelOutput = output
+                    , metalKernelReportedFamily = familyNameText family
+                    , metalKernelCompileCommand = kernelArtifactCompileCommand artifact
+                    , metalKernelCompiled = kernelArtifactCompiled artifact
+                    }
  where
   engine = engineForSubstrate AppleSilicon
 
-loadAndRun :: FilePath -> [Float] -> IO (Text, [Float])
-loadAndRun artifactPath input =
-  withKernelSymbol artifactPath "jitml_kernel_family_name" $ \familySymbol ->
-    withKernelSymbol artifactPath "jitml_kernel_output_count" $ \outputCountSymbol ->
-      withKernelSymbol artifactPath "jitml_kernel" $ \kernelSymbol -> do
-        reportedFamily <- Text.pack <$> (mkKernelFamilyFunction familySymbol >>= peekCString)
-        let kernel = mkKernelFunction kernelSymbol
-            outputCount = mkKernelOutputCountFunction outputCountSymbol
-            cInput = fmap CFloat input
-            inputCount = length input
-        outputLength <- fromIntegral <$> outputCount (fromIntegral inputCount)
-        output <-
-          withArray cInput $ \inputPtr ->
-            allocaArray outputLength $ \outputPtr -> do
-              kernel outputPtr inputPtr (fromIntegral inputCount)
-              fmap (\(CFloat value) -> value) <$> peekArray outputLength outputPtr
-        pure (reportedFamily, output)
+runtimeSourceMetalFamily :: RuntimeSource -> Maybe KernelFamily
+runtimeSourceMetalFamily GeneratedMetalSourceMetadata {runtimeSourceKernelFamily = Just family} = Just family
+runtimeSourceMetalFamily _ = Nothing
 
-loadAndRunWeighted :: FilePath -> [Float] -> [Float] -> IO (Text, [Float])
-loadAndRunWeighted artifactPath input weights =
-  withKernelSymbol artifactPath "jitml_kernel_family_name" $ \familySymbol ->
-    withKernelSymbol artifactPath "jitml_kernel_output_count" $ \outputCountSymbol ->
-      withKernelSymbol artifactPath "jitml_weighted_kernel" $ \kernelSymbol -> do
-        reportedFamily <- Text.pack <$> (mkKernelFamilyFunction familySymbol >>= peekCString)
-        let kernel = mkWeightedKernelFunction kernelSymbol
-            outputCount = mkKernelOutputCountFunction outputCountSymbol
-            cInput = fmap CFloat input
-            cWeights = fmap CFloat weights
-            inputCount = length input
-            weightsCount = length weights
-        outputLength <- fromIntegral <$> outputCount (fromIntegral inputCount)
-        output <-
-          withArray cInput $ \inputPtr ->
-            withArray cWeights $ \weightsPtr ->
-              allocaArray outputLength $ \outputPtr -> do
-                kernel
-                  outputPtr
-                  inputPtr
-                  (fromIntegral inputCount)
-                  weightsPtr
-                  (fromIntegral weightsCount)
-                fmap (\(CFloat value) -> value) <$> peekArray outputLength outputPtr
-        pure (reportedFamily, output)
+familyNameText :: KernelFamily -> Text
+familyNameText Identity = "identity"
+familyNameText Reduction = "reduction"
+familyNameText Dense2D = "dense"
+familyNameText Conv2DKernel = "conv2d"
+familyNameText Conv3DKernel = "conv3d"
+familyNameText BatchNormKernel = "batchnorm"
+familyNameText LayerNormKernel = "layernorm"
+familyNameText MultiHeadAttentionKernel = "mha"
+familyNameText EmbeddingKernel = "embedding"
 
 metalToolchainFingerprint :: Cache.ToolchainFingerprint
 metalToolchainFingerprint =
   Cache.ToolchainFingerprint
     ( Text.intercalate
         ";"
-        [ "swiftpm-metal-dynamic"
+        [ "fixed-metal-bridge"
+        , "bridge-abi=" <> metalBridgeAbiVersion
         , "artifact-abi=" <> Text.pack SystemInfo.os <> "-" <> Text.pack SystemInfo.arch
-        , "metal-build-vm-runtime-makelibrary"
+        , "artifact=metal-source-metadata"
+        , "metal-runtime-makelibrary"
         , "single-stream-launch-order"
         , "simd-aligned-threadgroups"
-        , "abi=extern-c-cdecl-launcher"
+        , "abi=fixed-bridge-host-buffers"
         , "jitml_kernel(float*,const float*,size_t)"
-        , "jitml_kernel_family_name(void)"
-        , "jitml_kernel_output_count(size_t)"
         , "jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)"
         , -- Sprint 14.5 — per-family weighted Metal bodies (Dense2D / Conv2D /
           -- Conv3D / BatchNorm / LayerNorm / MHA / Embedding) mirror the CUDA
@@ -338,8 +306,7 @@ renderMetalUnavailableSummary :: MetalRuntime.MetalRuntimeProbe -> Text
 renderMetalUnavailableSummary probe =
   Text.intercalate
     " "
-    [ "swift=" <> maybe "missing" (const "present") (MetalRuntime.metalRuntimeSwiftVersion probe)
-    , "device_visible=" <> renderBool (MetalRuntime.metalRuntimeDeviceVisible probe)
+    [ "device_visible=" <> renderBool (MetalRuntime.metalRuntimeDeviceVisible probe)
     ]
 
 renderBool :: Bool -> Text

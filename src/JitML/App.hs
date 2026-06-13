@@ -27,7 +27,7 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Word (Word64)
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
-import System.Directory (createDirectoryIfMissing, doesFileExist, getCurrentDirectory)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -91,6 +91,7 @@ import JitML.Engines.Local
   , runLinuxCpuKernel
   , runLinuxCpuWeightedCheckpointInference
   )
+import JitML.Engines.MetalBridge qualified as MetalBridge
 import JitML.Engines.MetalLocal (runMetalWeightedCheckpointInference)
 import JitML.Engines.MetalRuntime (metalRuntimeAvailable, probeMetalRuntime)
 import JitML.Engines.OneDnnRuntime (oneDnnRuntimeAvailable, probeOneDnnRuntime)
@@ -112,6 +113,7 @@ import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstra
 import JitML.Plan.Apply (writePlanFile)
 import JitML.Plan.Plan (buildCommandPlan)
 import JitML.Plan.Render (renderPlan)
+import JitML.Prerequisite.Nodes.Container qualified as ContainerPrerequisites
 import JitML.Prerequisite.Plan
   ( PrerequisitePlanError (..)
   , applyPrerequisitePlan
@@ -154,11 +156,6 @@ import JitML.Service.Consumer
   , HandlerRouter
   , consumerStepWithActions
   )
-import JitML.Service.LiveConfig
-  ( liveBuildVmCpuCount
-  , liveBuildVmDiskGib
-  , liveBuildVmMemoryMib
-  )
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.Retry (ServiceError)
@@ -168,9 +165,6 @@ import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
-import JitML.Tart.Exec (tartExecSubprocess)
-import JitML.Tart.Lifecycle (VmName (..))
-import JitML.Tart.Lifecycle qualified as TartLifecycle
 import JitML.Test.Report
   ( ReportCard (..)
   , ReportMeasurement (..)
@@ -305,10 +299,8 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runMaterializeSubstrate parsedOptions
   | parsedPath == ["internal", "list-prereqs"] =
       writeText (renderPrerequisiteRegistry prerequisiteRegistry)
-  | parsedPath == ["internal", "vm", "exec"] =
-      runInternalVmExec parsedOptions
-  | take 2 parsedPath == ["internal", "vm"] =
-      runInternalVmLifecycle (drop 2 parsedPath)
+  | parsedPath == ["internal", "install-metal-bridge"] =
+      runInstallMetalBridge
   | take 2 parsedPath == ["internal", "cache"] =
       runInternalCache parsedPath parsedOptions
   | parsedPath == ["internal", "gc"] =
@@ -603,11 +595,19 @@ runService parsedOptions = do
           value : _ -> value
   env <- ask
   runtime <- loadDaemonRuntime configPath explicitConfig
+  metalAcquire <- acquireAppleMetalBridge runtime
+  metalReadyRuntime <-
+    case metalAcquire of
+      Right readyRuntime -> pure readyRuntime
+      Left (failedRuntime, err) -> do
+        writeLine ("service config: " <> configPath)
+        writeText (ServiceRuntime.renderDaemonRuntimeSummary failedRuntime)
+        exitWithError err
   acquiredRuntime <-
     liftIO
       ( ServiceClients.runDaemonServiceClient
-          (ServiceRuntime.daemonClientSettings runtime)
-          (ServiceRuntime.acquireDaemonSubscriptions runtime)
+          (ServiceRuntime.daemonClientSettings metalReadyRuntime)
+          (ServiceRuntime.acquireDaemonSubscriptions metalReadyRuntime)
       )
   probedRuntime <-
     liftIO
@@ -615,7 +615,6 @@ runService parsedOptions = do
           (ServiceRuntime.daemonClientSettings acquiredRuntime)
           (ServiceRuntime.probeDaemonServiceClients acquiredRuntime)
       )
-  ensureHostBuildVm probedRuntime
   writeLine ("service config: " <> configPath)
   writeText (ServiceRuntime.renderDaemonRuntimeSummary probedRuntime)
   if consumeOnceRequested
@@ -798,37 +797,110 @@ appleHostInferenceRunner env command = do
                   <> Capabilities.unObjectKey (Capabilities.objectKey outputRef)
               ]
 
--- | Sprint 5.9 — the host-native Apple daemon (`AppleSilicon` + `SelfInference`)
--- provisions and starts the jitml-managed Tart build VM at acquire with the
--- LiveConfig-configured CPU/memory/disk, so the first Apple JIT cache-miss build
--- finds it ready. Non-fatal: a failure is logged and the daemon continues (a
--- build that actually needs the VM surfaces a hard error in the Loader).
-ensureHostBuildVm :: ServiceRuntime.DaemonRuntime -> App ()
-ensureHostBuildVm runtime =
+-- | Sprint 5.10 — the host-native Apple daemon acquires only the fixed Metal
+-- bridge and the host OS Metal runtime. If the fixed bridge is absent, jitML
+-- makes one headless source-build attempt for that process-stable bridge before
+-- subscribing to work. Kernel cache misses still only write source metadata and
+-- call the bridge.
+acquireAppleMetalBridge
+  :: ServiceRuntime.DaemonRuntime
+  -> App (Either (ServiceRuntime.DaemonRuntime, AppError) ServiceRuntime.DaemonRuntime)
+acquireAppleMetalBridge runtime =
   case (BootConfig.bootSubstrate boot, BootConfig.bootInferenceMode boot) of
     (AppleSilicon, BootConfig.SelfInference) -> do
-      root <- liftIO getCurrentDirectory
-      let live = ServiceRuntime.daemonLiveConfig runtime
-          config =
-            (TartLifecycle.defaultBuildVmConfig root)
-              { TartLifecycle.buildVmCpuCount = liveBuildVmCpuCount live
-              , TartLifecycle.buildVmMemoryMib = liveBuildVmMemoryMib live
-              , TartLifecycle.buildVmDiskGib = liveBuildVmDiskGib live
+      metalProbe <- liftIO probeMetalRuntime
+      bridgeAcquire <- liftIO acquireFixedBridge
+      let runtimeAvailable = metalRuntimeAvailable metalProbe
+          bridgeAvailable = bridgeAcquireAvailable bridgeAcquire
+          statusText =
+            "apple.metal-runtime="
+              <> renderAcquireBool runtimeAvailable
+              <> " apple.metal-bridge="
+              <> renderAcquireBool bridgeAvailable
+              <> bridgeAcquireSummary bridgeAcquire
+          acquired =
+            runtime
+              { ServiceRuntime.daemonAppleMetalAcquireStatus =
+                  if runtimeAvailable && bridgeAvailable
+                    then ServiceRuntime.AppleMetalAcquireSucceeded statusText
+                    else ServiceRuntime.AppleMetalAcquireFailed statusText
+              , ServiceRuntime.daemonReady =
+                  ServiceRuntime.daemonReady runtime && runtimeAvailable && bridgeAvailable
               }
-      result <- liftIO (TartLifecycle.ensureBuildVmUp config)
-      case result of
-        Right status ->
-          writeLine
-            ( "build-vm: "
-                <> unVmName TartLifecycle.defaultBuildVmName
-                <> " "
-                <> TartLifecycle.renderTartVmStatus status
-            )
-        Left err ->
-          writeLine ("build-vm: not ready (continuing): " <> err)
-    _ -> pure ()
+      pure $
+        if runtimeAvailable && bridgeAvailable
+          then Right acquired
+          else
+            Left
+              ( acquired
+              , appleMetalAcquireError runtimeAvailable bridgeAvailable
+              )
+    _ -> pure (Right runtime)
  where
   boot = ServiceRuntime.daemonBootConfig runtime
+
+acquireFixedBridge :: IO BridgeAcquireResult
+acquireFixedBridge = do
+  bridgeAvailable <- ContainerPrerequisites.probeFixedMetalBridge
+  if bridgeAvailable
+    then pure BridgeAlreadyAvailable
+    else do
+      installed <- MetalBridge.installFixedMetalBridge
+      case installed of
+        Right path -> do
+          verified <- ContainerPrerequisites.probeFixedMetalBridge
+          pure $
+            if verified
+              then BridgeInstalled path
+              else BridgeInstallFailed "installed bridge did not pass probe"
+        Left err -> pure (BridgeInstallFailed err)
+
+data BridgeAcquireResult
+  = BridgeAlreadyAvailable
+  | BridgeInstalled FilePath
+  | BridgeInstallFailed Text
+  deriving stock (Eq, Show)
+
+bridgeAcquireAvailable :: BridgeAcquireResult -> Bool
+bridgeAcquireAvailable BridgeAlreadyAvailable = True
+bridgeAcquireAvailable BridgeInstalled {} = True
+bridgeAcquireAvailable BridgeInstallFailed {} = False
+
+bridgeAcquireSummary :: BridgeAcquireResult -> Text
+bridgeAcquireSummary BridgeAlreadyAvailable = " bridge_source=existing"
+bridgeAcquireSummary (BridgeInstalled path) = " bridge_source=installed:" <> Text.pack path
+bridgeAcquireSummary (BridgeInstallFailed err) = " bridge_install_error=" <> err
+
+appleMetalAcquireError :: Bool -> Bool -> AppError
+appleMetalAcquireError runtimeAvailable bridgeAvailable
+  | not runtimeAvailable =
+      PrerequisiteUnmet
+        "apple.metal-runtime"
+        "Apple host Metal runtime is unavailable to jitml service."
+        ( Just
+            "run on Apple Silicon with a visible Metal device; jitML will not use VM, generated package, login-keychain, or full-Xcode remediation for this prerequisite"
+        )
+  | not bridgeAvailable =
+      PrerequisiteUnmet
+        "apple.metal-bridge"
+        "Fixed jitML Metal bridge dylib is unavailable or its probe failed."
+        (Just "build or install the fixed jitML Metal bridge dylib before starting the Apple host daemon")
+  | otherwise =
+      InvalidConfig "apple Metal acquire failed unexpectedly"
+
+renderAcquireBool :: Bool -> Text
+renderAcquireBool True = "yes"
+renderAcquireBool False = "no"
+
+runInstallMetalBridge :: App ()
+runInstallMetalBridge = do
+  installed <- liftIO MetalBridge.installFixedMetalBridge
+  case installed of
+    Left err ->
+      exitWithError (SubprocessFailed "jitml internal install-metal-bridge" (ExitFailure 1) err)
+    Right path -> do
+      writeLine ("metal_bridge: " <> Text.pack path)
+      writeLine "metal_bridge_probe: ok"
 
 loadDaemonRuntime :: Text -> Bool -> App ServiceRuntime.DaemonRuntime
 loadDaemonRuntime configPath explicitConfig = do
@@ -2301,7 +2373,7 @@ ensureSubstrateRuntimeFor substrate targets
         AppleSilicon ->
           guardRuntime
             (metalRuntimeAvailable <$> probeMetalRuntime)
-            "test --apple-silicon requires the Metal toolchain (swiftc + metal) and a visible Metal device; none detected"
+            "test --apple-silicon requires a visible Apple Metal device; the core path uses the fixed jitML Metal bridge and does not require swiftc, xcrun metal, Tart, or keychain state"
  where
   guardRuntime probe message = do
     available <- liftIO probe
@@ -2695,68 +2767,6 @@ hexEncodeBytes =
   hexDigit n
     | n < 10 = toEnum (fromEnum '0' + n)
     | otherwise = toEnum (fromEnum 'a' + n - 10)
-
--- | `jitml internal vm exec -- <cmd...>` runs a command inside the Apple
--- Silicon build VM via `tart exec` and streams its stdout.
-runInternalVmExec :: [ParsedOption] -> App ()
-runInternalVmExec parsedOptions = do
-  let command = tartExecSubprocess TartLifecycle.defaultBuildVmName (optionValues "cmd" parsedOptions)
-  (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
-  case exitCode of
-    ExitSuccess -> writeText stdoutText
-    ExitFailure _ ->
-      exitWithError (InvalidConfig ("internal vm exec: " <> stderrText))
-
--- | `jitml internal vm <create|up|down|status|delete>` drives the jitml-managed
--- Tart build-VM lifecycle. The VM is provisioned with the baseline build-VM
--- resources and the repository mounted so the in-VM `swift build` writes the
--- dylib to a host-visible path.
-runInternalVmLifecycle :: [Text] -> App ()
-runInternalVmLifecycle path = do
-  root <- liftIO getCurrentDirectory
-  let config = TartLifecycle.defaultBuildVmConfig root
-  case path of
-    ["create"] -> do
-      result <- liftIO (TartLifecycle.provisionBuildVm config)
-      reportVmActionUnit "create" result
-    ["up"] -> do
-      result <- liftIO (TartLifecycle.ensureBuildVmUp config)
-      reportVmActionStatus "up" result
-    ["down"] -> do
-      result <- liftIO (TartLifecycle.stopTartVmLive (TartLifecycle.buildVmName config))
-      reportVmActionStatus "down" result
-    ["status"] -> do
-      result <- liftIO (TartLifecycle.queryTartVmStatus (TartLifecycle.buildVmName config))
-      reportVmActionStatus "status" result
-    ["delete"] -> do
-      result <- liftIO (TartLifecycle.deleteTartVmLive (TartLifecycle.buildVmName config))
-      reportVmActionStatus "delete" result
-    _ ->
-      exitWithError (UnknownCommand ("unknown vm lifecycle action: " <> Text.unwords path))
-
-reportVmActionStatus :: Text -> Either Text TartLifecycle.TartVmStatus -> App ()
-reportVmActionStatus action result =
-  case result of
-    Left err ->
-      exitWithError (InvalidConfig ("internal vm " <> action <> ": " <> err))
-    Right status ->
-      writeLine
-        ( "vm "
-            <> action
-            <> ": "
-            <> unVmName TartLifecycle.defaultBuildVmName
-            <> " "
-            <> TartLifecycle.renderTartVmStatus status
-        )
-
-reportVmActionUnit :: Text -> Either Text () -> App ()
-reportVmActionUnit action result =
-  case result of
-    Left err ->
-      exitWithError (InvalidConfig ("internal vm " <> action <> ": " <> err))
-    Right () ->
-      writeLine
-        ("vm " <> action <> ": " <> unVmName TartLifecycle.defaultBuildVmName <> " ok")
 
 runInternalGc :: [ParsedOption] -> App ()
 runInternalGc parsedOptions = do

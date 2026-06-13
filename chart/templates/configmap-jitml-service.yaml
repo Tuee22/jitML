@@ -22,8 +22,4 @@ data:
     , dedupCacheSize = 4096
     , dedupCacheTtlSeconds = 3600
     , drainDeadlineSeconds = 30
-    , buildVmCpu = 4
-    , buildVmMemoryMib = 8192
-    , buildVmDiskGib = 50
-    , buildVmIdleTimeout = Some 1800
     }
