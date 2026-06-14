@@ -17,7 +17,7 @@ spec:
     metadata:
       labels:
         app: jitml-service
-        jitml.substrate: apple-silicon
+        jitml.substrate: linux-cpu
     spec:
       serviceAccountName: jitml-service
       affinity:
