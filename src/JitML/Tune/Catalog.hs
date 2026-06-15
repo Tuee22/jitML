@@ -12,6 +12,7 @@ module JitML.Tune.Catalog
   , TuningPruner (..)
   , TuningSampler (..)
   , TuningScheduler (..)
+  , TrialObjectiveResult (..)
   , TrialTranscript (..)
   , deterministicTrials
   , deterministicTrialsWithDevice
@@ -25,6 +26,10 @@ module JitML.Tune.Catalog
   , samplerFromText
   , schedulerCatalog
   , schedulerFromText
+  , trialObjectiveResult
+  , trialObjectiveResultWithDevice
+  , trialObjectiveResults
+  , trialObjectiveResultsWithDevice
   , trialStorageKey
   )
 where
@@ -38,6 +43,7 @@ import Dhall qualified
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
+import JitML.Numerics.Mlp (mlpParamsToFlat)
 import JitML.Numerics.MlpDevice (MlpDevice)
 import JitML.SL.Classifier qualified as Classifier
 
@@ -123,6 +129,13 @@ data TrialTranscript = TrialTranscript
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
 
+data TrialObjectiveResult = TrialObjectiveResult
+  { trialResultIndex :: !Int
+  , trialResultObjective :: !Double
+  , trialResultWeights :: ![Double]
+  }
+  deriving stock (Eq, Show)
+
 samplerCatalog :: [Sampler]
 samplerCatalog =
   [ Grid
@@ -147,15 +160,16 @@ prunerCatalog = [NoPruner, MedianPruner, PercentilePruner]
 -- | Sprint 9.11 — the per-trial objective values of a sweep. Each value is a
 -- __real measured objective__ ('trialObjective'): the sampler + trial index
 -- pick a hyperparameter configuration, the reference classifier is trained on a
--- fixed separable dataset, and the value is @1 − train accuracy@ (lower is
--- better). This replaces the former per-sampler LCG that trained no model and
--- measured nothing. The training is bit-deterministic on the same seed, so the
--- sequence is reproducible. The device-backed companion below drives live
+-- fixed separable dataset, and the value is train accuracy in @[0, 1]@
+-- (higher is better, matching the worked example's @valAcc:Maximise@
+-- objective). This replaces the former per-sampler LCG that trained no model
+-- and measured nothing. The training is bit-deterministic on the same seed, so
+-- the sequence is reproducible. The device-backed companion below drives live
 -- worker/report paths; this pure surface drives the plan preview and the
 -- resume-determinism check.
 deterministicTrials :: Sampler -> Int -> [Double]
 deterministicTrials sampler count =
-  [trialObjective sampler i | i <- [0 .. count - 1]]
+  fmap trialResultObjective (trialObjectiveResults sampler count)
 
 -- | Substrate-device-backed trial objective sequence. Each trial uses the same
 -- deterministic sampled configuration as 'deterministicTrials', but routes the
@@ -163,42 +177,58 @@ deterministicTrials sampler count =
 -- aborts the sweep with 'Left' instead of falling back to the pure objective.
 deterministicTrialsWithDevice :: MlpDevice -> Sampler -> Int -> IO (Either Text [Double])
 deterministicTrialsWithDevice device sampler count =
+  fmap (fmap (fmap trialResultObjective)) (trialObjectiveResultsWithDevice device sampler count)
+
+trialObjectiveResults :: Sampler -> Int -> [TrialObjectiveResult]
+trialObjectiveResults sampler count =
+  [trialObjectiveResult sampler i | i <- [0 .. count - 1]]
+
+trialObjectiveResultsWithDevice
+  :: MlpDevice -> Sampler -> Int -> IO (Either Text [TrialObjectiveResult])
+trialObjectiveResultsWithDevice device sampler count =
   go [0 .. count - 1] []
  where
   go [] acc = pure (Right (reverse acc))
   go (trialIndex : rest) acc = do
-    result <- trialObjectiveWithDevice device sampler trialIndex
+    result <- trialObjectiveResultWithDevice device sampler trialIndex
     case result of
       Left err -> pure (Left err)
       Right value -> go rest (value : acc)
 
--- | The real measured objective for one trial: build the sampled hyperparameter
--- configuration, train the reference classifier on 'tuningObjectiveDataset',
--- and return its cross-entropy loss normalised by the random-guess baseline
--- (@log numClasses@) and clamped to @[0, 1)@ (lower is better). A
--- genuinely-measured continuous quantity that depends on the hyperparameters
--- under search — different learning-rate / hidden-width samples yield different
--- losses — not an LCG of the sampler seed.
-trialObjective :: Sampler -> Int -> Double
-trialObjective sampler trialIndex =
+-- | The real measured objective for one trial plus the trained weights that can
+-- be promoted into a checkpoint. The sampler + trial index pick a
+-- hyperparameter configuration, the reference classifier trains on
+-- 'tuningObjectiveDataset', and the objective is train accuracy. The weight
+-- vector is the exact trained model measured by the objective.
+trialObjectiveResult :: Sampler -> Int -> TrialObjectiveResult
+trialObjectiveResult sampler trialIndex =
   let config = sampledClassifierConfig sampler trialIndex
       trained = Classifier.trainClassifier config tuningObjectiveDataset
-   in objectiveFromTrained config trained
+   in TrialObjectiveResult
+        { trialResultIndex = trialIndex
+        , trialResultObjective = objectiveFromTrained trained
+        , trialResultWeights = mlpParamsToFlat (Classifier.trainedParams trained)
+        }
 
-trialObjectiveWithDevice :: MlpDevice -> Sampler -> Int -> IO (Either Text Double)
-trialObjectiveWithDevice device sampler trialIndex = do
+trialObjectiveResultWithDevice
+  :: MlpDevice -> Sampler -> Int -> IO (Either Text TrialObjectiveResult)
+trialObjectiveResultWithDevice device sampler trialIndex = do
   let config = sampledClassifierConfig sampler trialIndex
   trainedResult <- Classifier.trainClassifierWithDevice device config tuningObjectiveDataset
   pure $
     case trainedResult of
       Left err -> Left err
-      Right (trained, _accuracy) -> Right (objectiveFromTrained config trained)
+      Right (trained, accuracyValue) ->
+        Right
+          TrialObjectiveResult
+            { trialResultIndex = trialIndex
+            , trialResultObjective = accuracyValue
+            , trialResultWeights = mlpParamsToFlat (Classifier.trainedParams trained)
+            }
 
-objectiveFromTrained :: Classifier.ClassifierConfig -> Classifier.TrainedClassifier -> Double
-objectiveFromTrained config trained =
-  let loss = Classifier.crossEntropyLoss trained tuningObjectiveDataset
-      baseline = log (fromIntegral (max 2 (Classifier.clfClasses config)))
-   in max 0.0 (min 0.999 (loss / baseline))
+objectiveFromTrained :: Classifier.TrainedClassifier -> Double
+objectiveFromTrained trained =
+  Classifier.accuracy trained tuningObjectiveDataset
 
 -- | Deterministic hyperparameter sample for one trial: the sampler seed and the
 -- trial index pick a learning rate and hidden width from a fixed grid (the

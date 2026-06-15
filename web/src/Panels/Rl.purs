@@ -9,11 +9,15 @@ module Panels.Rl where
 import Prelude
 
 import Data.Array as Array
+import Data.Int as Int
 import Data.Maybe (Maybe(..))
+import Data.Number as Number
 import Data.String as String
 import Data.String.Pattern (Pattern(..))
+import Data.Traversable (traverse)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
+import Generated.Contracts as Contracts
 import Halogen as H
 import Halogen.Aff (awaitBody)
 import Halogen.HTML as HH
@@ -23,14 +27,7 @@ import Halogen.VDom.Driver (runUI)
 import Chrome.Header as Header
 import Panels.Stream (subscribeStream)
 
-type RlStreamFrame =
-  { panel :: String
-  , episodeIndex :: Int
-  , stepIndex :: Int
-  , reward :: Number
-  , done :: Boolean
-  , observationHash :: Int
-  }
+type RlStreamFrame = Contracts.RlAnimationFrame
 
 type State =
   { frames :: Array RlStreamFrame
@@ -47,15 +44,21 @@ data Action
 panelName :: String
 panelName = "rl-trajectory"
 
-renderFrame :: Int -> Int -> Number -> Boolean -> Int -> RlStreamFrame
+renderFrame :: Int -> Int -> Number -> Boolean -> String -> RlStreamFrame
 renderFrame episodeIndex stepIndex reward done observationHash =
-  { panel: panelName
-  , episodeIndex
-  , stepIndex
-  , reward
-  , done
-  , observationHash
-  }
+  Contracts.renderRlAnimationFrame
+    "live"
+    "cartpole"
+    episodeIndex
+    stepIndex
+    reward
+    done
+    0
+    []
+    []
+    observationHash
+    "0"
+    "0"
 
 initialState :: State
 initialState = { frames: [], lastError: Nothing }
@@ -119,6 +122,8 @@ component =
               <> show frame.episodeIndex
               <> " step="
               <> show frame.stepIndex
+              <> " action="
+              <> show frame.action
               <> " reward="
               <> show frame.reward
               <> (if frame.done then " (done)" else "")
@@ -137,9 +142,53 @@ component =
 
 parseRlFrame :: String -> Maybe RlStreamFrame
 parseRlFrame payload
-  | String.contains (Pattern "data:") payload =
-      Just (renderFrame 0 0 0.0 false 0)
+  | fieldValue "kind" payload == Just "RlAnimationFrame" =
+      Contracts.renderRlAnimationFrame
+        <$> fieldValue "experiment-hash" payload
+        <*> fieldValue "environment" payload
+        <*> intField "episode" payload
+        <*> intField "step" payload
+        <*> numberField "reward" payload
+        <*> boolField "done" payload
+        <*> intField "action" payload
+        <*> numberListField "observation" payload
+        <*> numberListField "action-probabilities" payload
+        <*> fieldValue "observation-hash" payload
+        <*> fieldValue "replay-cursor" payload
+        <*> fieldValue "timestamp-ns" payload
   | otherwise = Nothing
+
+fieldValue :: String -> String -> Maybe String
+fieldValue key payload =
+  Array.head
+    ( Array.mapMaybe
+        (String.stripPrefix (Pattern (key <> ": ")) <<< String.trim)
+        (String.split (Pattern "\n") payload)
+    )
+
+intField :: String -> String -> Maybe Int
+intField key payload =
+  fieldValue key payload >>= Int.fromString
+
+numberField :: String -> String -> Maybe Number
+numberField key payload =
+  fieldValue key payload >>= Number.fromString
+
+numberListField :: String -> String -> Maybe (Array Number)
+numberListField key payload =
+  case fieldValue key payload of
+    Just raw | String.trim raw == "" -> Just []
+    Just raw -> traverse Number.fromString (String.split (Pattern ",") raw)
+    Nothing -> Nothing
+
+boolField :: String -> String -> Maybe Boolean
+boolField key payload =
+  case fieldValue key payload of
+    Just "True" -> Just true
+    Just "False" -> Just false
+    Just "true" -> Just true
+    Just "false" -> Just false
+    _ -> Nothing
 
 mount :: Aff (Aff Unit)
 mount = do

@@ -9,6 +9,7 @@
 [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md),
 [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
+[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -17,13 +18,20 @@
 > decisions, a local deterministic CBOR manifest codec/content hash, a
 > binary `.jmw1` encoder/decoder, a filesystem-backed local checkpoint store,
 > `jitml internal gc` summary output, deterministic inference summaries,
-> and the inference request/result protobuf byte contract.
-> Live MinIO effects, retention traversal, and
-> kernel-handle loading remain target runtime work.
+> and the inference request/result protobuf byte contract. Sprint `10.6`
+> reopens this surface for architecture-aware model-family manifests,
+> preprocessing/output decoders, replay pointers, and no-caveat checkpoint
+> reload across every runtime family.
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-11 after Sprint `10.5`). The checkpoint format,
+🔄 **Active** (reopened 2026-06-14 — no-caveat model-family checkpoint and
+inference target). Sprint `10.6` expands this phase from weighted Dense-MLP
+checkpoint inference to architecture-aware checkpoint, preprocessing, output
+decoding, and inference reload for every model family the no-caveat runtime
+trains.
+
+✅ **Historical closure** (re-closed 2026-06-11 after Sprint `10.5`). The checkpoint format,
 MinIO-backed latest-pointer reads, and weighted inference read path are the
 supported surface. The synthetic manifest-only helper `inferFromManifest` and
 the default Store wrappers around it are deleted; `Service.Workload`'s default
@@ -356,7 +364,8 @@ fetches, and production runtime exercise remain target runtime work.
   Linux CPU generated-kernel FFI path from a loaded checkpoint manifest.
   `runLinuxCpuWeightedCheckpointInference` validates the same generated-kernel
   path while consuming decoded weight values from `loadInferenceCheckpointWithWeights`;
-  production per-substrate live exercise remains target runtime work.
+  Sprint `10.6` / Phase `16` expand production per-substrate live exercise to
+  every no-caveat model-family checkpoint and inference path.
 - `jitml inference run` fails closed without a live publication and uses the
   selected substrate's weighted checkpoint runner when live MinIO is available.
 - `jitml inspect replay <manifest-sha>` validates the addressed manifest content
@@ -455,6 +464,59 @@ fail-closed `Live` conditional test; without
 
 - No Sprint 10.5 code-surface Remaining Work remains. Live per-lane exercise of
   the weighted read path remains owned by Phase 13 / Phase 14.
+
+## Sprint 10.6: No-Caveat Checkpoint and Inference Matrix 🔄
+
+**Status**: Active
+**Implementation**: `src/JitML/Checkpoint/{Format,Store}.hs`,
+`src/JitML/Engines/{Local,CudaLocal,MetalLocal}.hs`,
+`src/JitML/Proto/Inference.hs`, `src/JitML/App.hs`,
+`src/JitML/Web/Server.hs`
+**Docs to update**: `documents/engineering/checkpoint_format.md`,
+`documents/engineering/training_workloads.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make checkpoint reload and inference complete for every model family the
+runtime can train, so browser interactions and CLI evaluation use real
+checkpoint-backed models rather than demo-only or Dense-only readers.
+
+### Deliverables
+
+- `CheckpointManifest` records architecture metadata, preprocessing metadata,
+  output decoding metadata, model-family identifiers, replay/transcript pointers
+  where applicable, and per-substrate artifact identity for every SL/RL/
+  AlphaZero/tuning workflow.
+- `.jmw1` or successor weight blobs encode/decode every trainable model family,
+  not only flattened MLP parameters.
+- `jitml eval`, `jitml rl eval`, `jitml inference run`, and demo inference
+  endpoints load the requested checkpoint and fail closed if the checkpoint is
+  absent or incompatible.
+- Image, handwriting, tensor, RL policy, AlphaZero game, and generic inference
+  paths share the same checkpoint/inference contract.
+- Demo-only inline networks in `Web.Server` are retired by a checkpoint-backed
+  request path or are removed from the advertised product surface.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+- `docker compose run --rm jitml-cuda jitml test jitml-integration --linux-cuda`
+- `jitml test jitml-integration --apple-silicon`
+- `docker compose run --rm jitml jitml check-code`
+- `docker compose run --rm jitml jitml docs check`
+
+### Remaining Work
+
+- Add architecture-aware manifest and weight-layout coverage for non-MLP SL
+  models, RL policies, and AlphaZero policy/value nets.
+- Route demo inference/image/game endpoints through checkpoint-backed runtime
+  requests rather than inline demo nets.
+- Add browser-consumable output decoding metadata for classification,
+  regression, policy distributions, value estimates, MCTS visit distributions,
+  and replay artifacts.
 
 ## Doctrine Sections Cited
 

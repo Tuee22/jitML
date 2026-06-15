@@ -49,6 +49,37 @@ message MetricUpdate {
   uint64 timestamp_ns = 4;
 }
 
+message RlAnimationFrame {
+  string experiment_hash = 1;
+  string environment = 2;
+  uint32 episode = 3;
+  uint32 step = 4;
+  double reward = 5;
+  bool done = 6;
+  uint32 action = 7;
+  repeated double observation = 8;
+  repeated double action_probabilities = 9;
+  uint32 observation_hash = 10;
+  uint64 replay_cursor = 11;
+  uint64 timestamp_ns = 12;
+}
+
+message RlReplayFrame {
+  string experiment_hash = 1;
+  string replay_id = 2;
+  string environment = 3;
+  uint32 episode = 4;
+  uint32 step = 5;
+  uint32 action = 6;
+  double reward = 7;
+  bool done = 8;
+  repeated double observation = 9;
+  repeated double next_observation = 10;
+  uint64 policy_version = 11;
+  uint32 observation_hash = 12;
+  uint64 timestamp_ns = 13;
+}
+
 message RlCommand {
   oneof body {
     StartRLRun start = 1;
@@ -62,5 +93,7 @@ message RlEvent {
     EvalDone         eval       = 2;
     CheckpointDoneRL checkpoint = 3;
     MetricUpdate     metric     = 4;
+    RlAnimationFrame animation  = 5;
+    RlReplayFrame    replay     = 6;
   }
 }

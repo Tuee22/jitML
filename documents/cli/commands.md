@@ -1312,7 +1312,7 @@ Build and probe the fixed Apple Metal bridge.
 
 Upload a real dataset blob to MinIO.
 
-Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/<data|labels>.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin) or labels (labels.bin).
+Sprint 13.4 / 8.12 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/{data.bin,labels.bin,archive.tar.gz} via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin), labels (labels.bin), or archive (archive.tar.gz).
 
 ```text
 jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]
@@ -1322,7 +1322,7 @@ jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <art
 |--------|------|----------|-------------|
 | `--name <name>` | value | no | Dataset name (e.g., MNIST). |
 | `--split <split>` | value | no | Dataset split (train/validation/test). |
-| `--artifact <artifact>` | value | no | Artifact kind (images/labels); defaults to images. |
+| `--artifact <artifact>` | value | no | Artifact kind (images/labels/archive); defaults to images. |
 | `--path <path>` | value | no | Local file path to upload. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
@@ -1340,6 +1340,12 @@ jitml internal upload-dataset --name MNIST --split train --artifact labels --pat
 ```
 
 Upload the canonical MNIST training labels alongside the images.
+
+```text
+jitml internal upload-dataset --name CIFAR-10 --split train --artifact archive --path /tmp/cifar-10-binary.tar.gz
+```
+
+Upload the canonical CIFAR-10 binary archive for later train/test materialization.
 
 
 ## `jitml internal gc`

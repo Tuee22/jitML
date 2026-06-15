@@ -16,6 +16,7 @@
 module JitML.RL.SimulatorLoop
   ( SimulatedEnvByName (..)
   , SimulatedEpisode (..)
+  , SimulatedFrame (..)
   , lookupSimulatedEnvByName
   , realRolloutByName
   , runSimulatedEpisode
@@ -34,6 +35,8 @@ import JitML.RL.Simulator
   , keyDoorGridEnvironment
   , lunarLanderEnvironment
   , mountainCarEnvironment
+  , renderCaption
+  , renderObservation
   )
 
 data SimulatedEpisode = SimulatedEpisode
@@ -41,6 +44,20 @@ data SimulatedEpisode = SimulatedEpisode
   , simEpisodeSteps :: Int
   , simEpisodeReward :: Double
   , simEpisodeDone :: Bool
+  , simEpisodeFrames :: [SimulatedFrame]
+  }
+  deriving stock (Eq, Show)
+
+data SimulatedFrame = SimulatedFrame
+  { simFrameEpisodeIndex :: Int
+  , simFrameStepIndex :: Int
+  , simFrameAction :: Int
+  , simFrameReward :: Double
+  , simFrameDone :: Bool
+  , simFrameObservation :: [Double]
+  , simFrameNextObservation :: [Double]
+  , simFrameActionProbabilities :: [Double]
+  , simFrameCaption :: Text
   }
   deriving stock (Eq, Show)
 
@@ -70,21 +87,40 @@ lookupSimulatedEnvByName name = lookup name simulatedEnvCatalog
 runSimulatedEpisode
   :: SimulatedEnvironment state -> Int -> Int -> Int -> SimulatedEpisode
 runSimulatedEpisode env seed episodeId maxSteps =
-  go (envInitial env) 0.0 0
+  go (envInitial env) 0.0 0 []
  where
   actionCount = max 1 (envActionCount env)
-  go state acc stepIx
+  go state acc stepIx frames
     | stepIx >= maxSteps =
         SimulatedEpisode
           { simEpisodeIndex = episodeId
           , simEpisodeSteps = stepIx
           , simEpisodeReward = acc
           , simEpisodeDone = False
+          , simEpisodeFrames = reverse frames
           }
     | otherwise =
         let action = (stepIx + episodeId + seed) `mod` actionCount
+            currentFrame = envRenderFrame env state
             step = envStep env state action
+            nextFrame = envRenderFrame env (simStepState step)
             acc' = acc + simStepReward step
+            emittedFrame =
+              SimulatedFrame
+                { simFrameEpisodeIndex = episodeId
+                , simFrameStepIndex = stepIx
+                , simFrameAction = action
+                , simFrameReward = simStepReward step
+                , simFrameDone = simStepDone step
+                , simFrameObservation = renderObservation currentFrame
+                , simFrameNextObservation = renderObservation nextFrame
+                , simFrameActionProbabilities =
+                    [ if actionIx == action then 1.0 else 0.0
+                    | actionIx <- [0 .. actionCount - 1]
+                    ]
+                , simFrameCaption = renderCaption nextFrame
+                }
+            frames' = emittedFrame : frames
          in if simStepDone step
               then
                 SimulatedEpisode
@@ -92,8 +128,9 @@ runSimulatedEpisode env seed episodeId maxSteps =
                   , simEpisodeSteps = stepIx + 1
                   , simEpisodeReward = acc'
                   , simEpisodeDone = True
+                  , simEpisodeFrames = reverse frames'
                   }
-              else go (simStepState step) acc' (stepIx + 1)
+              else go (simStepState step) acc' (stepIx + 1) frames'
 
 runSimulatedEpisodes
   :: SimulatedEnvironment state -> Int -> Int -> Int -> [SimulatedEpisode]

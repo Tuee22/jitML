@@ -10,6 +10,7 @@ import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 import Data.Vector.Unboxed qualified
 import JitML.Checkpoint.Format (decodeJmw1, encodeJmw1)
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
+import JitML.Numerics.Mlp (forwardOutput, mlpForward)
 import JitML.Numerics.MlpDevice (probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Proto.Rl
@@ -17,8 +18,10 @@ import JitML.Proto.Rl
   , EpisodeDone (..)
   , EvalDone (..)
   , MetricUpdate (..)
+  , RlAnimationFrame (..)
   , RlCommand (..)
   , RlEvent (..)
+  , RlReplayFrame (..)
   , StartRLRun (..)
   , StopRLRun (..)
   , decodeRlCommandProto
@@ -26,7 +29,9 @@ import JitML.Proto.Rl
   , encodeRlCommandProto
   , encodeRlEventProto
   , parseRlCommand
+  , parseRlEvent
   , renderRlCommand
+  , renderRlEvent
   )
 import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms (algorithmCatalog, algorithmName)
@@ -41,6 +46,7 @@ import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
 import JitML.RL.Algorithms.DdpgLoss qualified as DdpgLoss
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
+import JitML.RL.Algorithms.DqnTrainer qualified as DqnTrainer
 import JitML.RL.Algorithms.HerLoss qualified as HerLoss
 import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
 import JitML.RL.Algorithms.PpoLoss qualified as PpoLoss
@@ -52,7 +58,21 @@ import JitML.RL.Algorithms.SacLoss qualified as SacLoss
 import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
 import JitML.RL.Algorithms.TqcLoss qualified as TqcLoss
 import JitML.RL.Algorithms.TrpoLoss qualified as TrpoLoss
-import JitML.RL.AlphaZero (gameMoves, initialConnect4, selfPlayTranscript, selfPlayTranscriptFor)
+import JitML.RL.AlphaZero
+  ( GameOutcome (..)
+  , GameState (..)
+  , applyMove
+  , gameIsTerminal
+  , gameMoves
+  , gameOutcome
+  , initialConnect4
+  , initialGomoku
+  , initialHex
+  , initialOthello
+  , selfPlayTranscript
+  , selfPlayTranscriptFor
+  , terminalValueForToMove
+  )
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
 import JitML.RL.AlphaZero.SelfPlay qualified as SelfPlay
 import JitML.RL.Buffer (bufferSize)
@@ -75,6 +95,7 @@ import JitML.RL.Loop
   , runRLLoop
   )
 import JitML.RL.Policy (defaultPolicy)
+import JitML.RL.Simulator (cartPoleInitial)
 import JitML.RL.Simulator qualified as Sim
 import JitML.RL.SimulatorLoop qualified as SimulatorLoop
 import JitML.Substrate (Substrate (..))
@@ -82,6 +103,7 @@ import JitML.Test.Report
   ( ReportCardKnobs (..)
   , loadReportCardKnobs
   )
+import System.Random qualified as Random
 
 main :: IO ()
 main =
@@ -127,6 +149,9 @@ main =
             (selfPlayTranscript 3)
       , testCase "AlphaZero transcripts regenerate deterministically without fixtures" $
           mapM_ assertTranscriptDeterminism ["connect4", "othello", "hex", "gomoku"]
+      , testCase
+          "AlphaZero terminal evaluators use canonical game rules (Sprint 9.12)"
+          assertAlphaZeroTerminalEvaluators
       , testCase "per-algorithm deterministic rollouts regenerate without fixtures" $
           mapM_ (uncurry checkRolloutDeterminism) algorithmRolloutCohorts
       , testCase "rl-canonicals consumes cabal.project rl_steps and rl_eval_episodes knobs" $ do
@@ -185,7 +210,7 @@ main =
           "policy/value network forward emits a valid policy distribution (Sprint 13.9)"
           assertPolicyValueForwardValid
       , testCase
-          "policy/value network gradient update reduces a synthetic policy/value loss (Sprint 13.9)"
+          "policy/value network gradient update reduces an MCTS self-play loss (Sprint 13.9)"
           assertPolicyValueTrainingReducesLoss
       , testCase
           "AlphaZero self-play generation runs deterministically and reports an arena win rate (Sprint 13.9)"
@@ -260,10 +285,47 @@ main =
                     , muValue = 0.0625
                     , muTimestampNs = 323456789
                     }
+              animation =
+                RlAnimation
+                  RlAnimationFrame
+                    { rafExperimentHash = "sha256:cartpole"
+                    , rafEnvironment = "cartpole"
+                    , rafEpisode = 7
+                    , rafStep = 11
+                    , rafReward = 1.0
+                    , rafDone = False
+                    , rafAction = 1
+                    , rafObservation = [0.0, 0.1, 0.2, 0.3]
+                    , rafActionProbabilities = [0.25, 0.75]
+                    , rafObservationHash = 4242
+                    , rafReplayCursor = 70011
+                    , rafTimestampNs = 423456789
+                    }
+              replay =
+                RlReplay
+                  RlReplayFrame
+                    { rrfExperimentHash = "sha256:cartpole"
+                    , rrfReplayId = "replay/cartpole/7"
+                    , rrfEnvironment = "cartpole"
+                    , rrfEpisode = 7
+                    , rrfStep = 11
+                    , rrfAction = 1
+                    , rrfReward = 1.0
+                    , rrfDone = False
+                    , rrfObservation = [0.0, 0.1, 0.2, 0.3]
+                    , rrfNextObservation = [0.1, 0.2, 0.3, 0.4]
+                    , rrfPolicyVersion = 3
+                    , rrfObservationHash = 4243
+                    , rrfTimestampNs = 523456789
+                    }
           decodeRlEventProto (encodeRlEventProto episode) @?= Right episode
           decodeRlEventProto (encodeRlEventProto eval) @?= Right eval
           decodeRlEventProto (encodeRlEventProto checkpoint) @?= Right checkpoint
           decodeRlEventProto (encodeRlEventProto metric) @?= Right metric
+          decodeRlEventProto (encodeRlEventProto animation) @?= Right animation
+          decodeRlEventProto (encodeRlEventProto replay) @?= Right replay
+          parseRlEvent (renderRlEvent animation) @?= Just animation
+          parseRlEvent (renderRlEvent replay) @?= Just replay
       ]
 
 assertContains :: Text -> [Text] -> IO ()
@@ -320,8 +382,8 @@ assertConvergencePredicate (algo, env) =
         ("a reward below target by 2x the slack should fail for cohort " <> show (algo, env))
         (not (passesConvergence threshold (literatureTarget threshold - 2 * slack threshold)))
 
--- | Per-algorithm canonical environment pairing used by the deterministic-stub
--- rollout golden assertion. The pairing keeps continuous-control algorithms on
+-- | Per-algorithm canonical environment pairing used by the same-seed rollout
+-- determinism assertion. The pairing keeps continuous-control algorithms on
 -- mountain-car and leaves the discrete algorithms on cartpole.
 algorithmRolloutCohorts :: [(Text, Text)]
 algorithmRolloutCohorts =
@@ -379,6 +441,62 @@ assertTranscriptDeterminism game =
   transcriptFor "connect4" = fmap gameMoves (selfPlayTranscript 3)
   transcriptFor label = fmap gameMoves (selfPlayTranscriptFor label 3)
 
+assertAlphaZeroTerminalEvaluators :: IO ()
+assertAlphaZeroTerminalEvaluators = do
+  let connect4Win = playMoves initialConnect4 [0, 1, 0, 1, 0, 1, 0]
+  gameOutcome connect4Win @?= GameWon 1
+  terminalValueForToMove connect4Win @?= -1.0
+
+  let hexWin =
+        playMoves
+          initialHex
+          [0, 1, 11, 2, 22, 3, 33, 4, 44, 5, 55, 6, 66, 7, 77, 8, 88, 9, 99, 10, 110]
+  gameOutcome hexWin @?= GameWon 1
+  terminalValueForToMove hexWin @?= -1.0
+
+  let gomokuWin = playMoves initialGomoku [0, 15, 1, 16, 2, 17, 3, 18, 4]
+  gameOutcome gomokuWin @?= GameWon 1
+  terminalValueForToMove gomokuWin @?= -1.0
+
+  let othelloTerminal = playOthelloGreedy 80 initialOthello
+  assertBool
+    ( "expected greedy Othello game to reach a terminal winner/draw, got "
+        <> show (gameOutcome othelloTerminal)
+        <> " after "
+        <> show (length (gameMoves othelloTerminal))
+        <> " moves"
+    )
+    (gameIsTerminal othelloTerminal)
+  case gameOutcome othelloTerminal of
+    GameWon winner -> assertBool "Othello winner is one of the two players" (winner == 1 || winner == -1)
+    GameDraw -> pure ()
+    GameInProgress -> assertBool "Othello must not remain in progress" False
+
+playMoves :: GameState -> [Int] -> GameState
+playMoves = foldl' (flip applyMove)
+
+playOthelloGreedy :: Int -> GameState -> GameState
+playOthelloGreedy remaining state
+  | remaining <= 0 = state
+  | gameIsTerminal state = state
+  | otherwise =
+      case legalOthelloCandidates state of
+        [] ->
+          playOthelloGreedy
+            (remaining - 1)
+            state
+              { gameMoves = gameMoves state <> [-1]
+              , gameCurrentPlayer = negate (gameCurrentPlayer state)
+              }
+        candidate : _ -> playOthelloGreedy (remaining - 1) (applyMove candidate state)
+
+legalOthelloCandidates :: GameState -> [Int]
+legalOthelloCandidates state =
+  [ candidate
+  | candidate <- [0 .. 63]
+  , gameMoves (applyMove candidate state) /= gameMoves state
+  ]
+
 -- | Sprint 13.6 — run-to-run trajectory determinism over the pure-
 -- Haskell simulator loop. Two fresh runs with the same seed produce
 -- bit-identical episode lists; this is the precondition for the live
@@ -404,6 +522,9 @@ assertSimulatorLoopDeterminism (envName, handle) = do
     )
     (length first == episodes)
   first @?= second
+  assertBool
+    ("simulator loop for " <> Text.unpack envName <> " emitted animation frames")
+    (not (any (null . SimulatorLoop.simEpisodeFrames) first))
 
 assertKeyDoorGridCanonicals :: IO ()
 assertKeyDoorGridCanonicals = do
@@ -422,6 +543,9 @@ assertKeyDoorGridCanonicals = do
       second = SimulatorLoop.runSimulatedEpisodesByName handle 17 3 32
   first @?= second
   assertBool "key-door-grid simulator returns requested episodes" (length first == 3)
+  assertBool
+    "key-door-grid simulator records replayable transition frames"
+    (not (any (null . SimulatorLoop.simEpisodeFrames) first))
 
 assertAleAtariPolicy :: IO ()
 assertAleAtariPolicy = do
@@ -439,94 +563,157 @@ assertAleAtariPolicy = do
       assertBool "ALE screen bytes are populated" (ALE.aleSmokeScreenBytes result > 0)
       assertBool "ALE smoke episode is deterministic" (ALE.aleSmokeDeterministic result)
 
--- | Sprint 13.8 — drive the real PPO loss math against the canonical
--- deterministic PPO/cartpole rollout from
--- 'JitML.RL.Algorithms.Common.trajectoryRollout' and assert two fresh
--- computations of `ppoTotalLoss` return bit-equal output. This wires
--- the loss module (covered by `jitml-unit`'s "PPO loss math (Sprint
--- 13.8)" group) into the canonical RL stanza so the real-loss surface
--- is exercised inside the algorithm × env evaluation cohort, not only
--- inside the unit-test fixtures.
---
--- Synthetic policy/value inputs are derived from the rollout's
--- deterministic rewards so the loss is reproducible without requiring
--- a real network forward pass. The real network seam (Sprint 13.8
--- Remaining Work) replaces the synthetic inputs without changing the
--- assertion shape.
+data TrainedLossInputs = TrainedLossInputs
+  { trainedRewards :: [Double]
+  , trainedOldLogProbs :: [Double]
+  , trainedNewLogProbs :: [Double]
+  , trainedAdvantages :: [Double]
+  , trainedValues :: [Double]
+  , trainedQValues :: [Double]
+  , trainedQTargets :: [Double]
+  , trainedTerminals :: [Bool]
+  , trainedArsTriples :: [(Double, Double, [Double])]
+  }
+  deriving stock (Eq, Show)
+
+collectTrainedLossInputs :: IO TrainedLossInputs
+collectTrainedLossInputs = do
+  let ppoConfig =
+        PpoTrainer.defaultPpoTrainConfig
+          { PpoTrainer.ppoSeed = 17
+          , PpoTrainer.ppoRolloutSteps = 64
+          , PpoTrainer.ppoNumIterations = 3
+          , PpoTrainer.ppoEpochsPerUpdate = 2
+          , PpoTrainer.ppoMiniBatchSize = 32
+          , PpoTrainer.ppoLearningRate = 1.0e-3
+          , PpoTrainer.ppoMaxEpisodeSteps = 200
+          }
+      dqnConfig =
+        DqnTrainer.defaultDqnTrainConfig
+          { DqnTrainer.dqnSeed = 23
+          , DqnTrainer.dqnNumSteps = 400
+          , DqnTrainer.dqnReplayCapacity = 512
+          , DqnTrainer.dqnBatchSize = 32
+          , DqnTrainer.dqnTrainStart = 64
+          , DqnTrainer.dqnTargetUpdateInterval = 100
+          , DqnTrainer.dqnStatInterval = 200
+          , DqnTrainer.dqnMaxEpisodeSteps = 200
+          }
+  ppoResult <- PpoTrainer.trainPpoOnCartpole ppoConfig
+  (rollout, _state, _gen) <-
+    PpoTrainer.collectRollout
+      ppoConfig
+      (PpoTrainer.resultFinalParams ppoResult)
+      cartPoleInitial
+      (Random.mkStdGen 1701)
+  dqnResult <- DqnTrainer.trainDqnOnCartpole dqnConfig
+  let steps = take 16 (PpoTrainer.rolloutSteps rollout)
+      rewards = fmap PpoTrainer.rsReward steps
+      values = fmap PpoTrainer.rsValue steps
+      nextValues = tailList values <> [PpoTrainer.rolloutFinalValue rollout]
+      oldLogProbs = fmap PpoTrainer.rsLogProb steps
+      newLogProbs = fmap (+ 1.0e-6) oldLogProbs
+      terminals = fmap PpoTrainer.rsDone steps
+      advantages =
+        PpoLoss.normaliseAdvantages $
+          PpoLoss.gaeAdvantages 0.99 0.95 rewards values nextValues
+      qFor obs =
+        maximum $
+          0.0
+            : Data.Vector.Unboxed.toList
+              (forwardOutput (mlpForward (DqnTrainer.dqnResultFinalParams dqnResult) obs))
+      qValues = fmap (qFor . PpoTrainer.rsObs) steps
+      nextQValues = tailList qValues <> [0.0]
+      qTargets = zipWith3 (DqnLoss.dqnBellmanTarget 0.99) rewards terminals nextQValues
+      arsRewardsA = rolloutRewards (rolloutForAlgorithm "ARS" "cartpole" 31 16)
+      arsRewardsB = rolloutRewards (rolloutForAlgorithm "ARS" "cartpole" 37 16)
+      arsTriples =
+        [ (sum arsRewardsA, sum arsRewardsB, qValues)
+        , (sum arsRewardsB, sum arsRewardsA, qTargets)
+        ]
+  pure
+    TrainedLossInputs
+      { trainedRewards = rewards
+      , trainedOldLogProbs = oldLogProbs
+      , trainedNewLogProbs = newLogProbs
+      , trainedAdvantages = advantages
+      , trainedValues = values
+      , trainedQValues = qValues
+      , trainedQTargets = qTargets
+      , trainedTerminals = terminals
+      , trainedArsTriples = arsTriples
+      }
+
+rolloutForAlgorithm :: Text -> Text -> Int -> Int -> AlgorithmRollout
+rolloutForAlgorithm algorithm environment seed horizon =
+  case [m | m <- algorithmModuleRegistry, algorithmName (moduleAlgorithm m) == algorithm] of
+    m : _ -> moduleRolloutGenerator m environment seed horizon
+    [] ->
+      AlgorithmRollout
+        { rolloutAlgorithm = algorithm
+        , rolloutEnvironment = environment
+        , rolloutSeed = seed
+        , rolloutActions = []
+        , rolloutRewards = []
+        }
+
+tailList :: [a] -> [a]
+tailList [] = []
+tailList (_ : rest) = rest
+
+-- | Sprint 13.8 / 9.12 — drive the real PPO loss math against a trained
+-- PPO/cartpole policy rollout and assert two fresh computations of
+-- `ppoTotalLoss` return bit-equal output. The policy log-probs, values,
+-- rewards, and advantages come from the trained network rollout rather than
+-- reward-derived helper projections.
 assertPpoLossDeterminism :: IO ()
 assertPpoLossDeterminism = do
-  let mPpoModule =
-        [ m
-        | m <- algorithmModuleRegistry
-        , algorithmName (moduleAlgorithm m) == "PPO"
-        ]
-  case mPpoModule of
-    [] -> assertBool "missing PPO algorithm module" False
-    (m : _) -> do
-      let rollout = moduleRolloutGenerator m "cartpole" 42 16
-          rewards = rolloutRewards rollout
-          -- Synthetic deterministic policy / value inputs derived from
-          -- the rewards; a real network forward pass replaces these in
-          -- the live-CUDA path (Sprint 13.8 Remaining Work).
-          values = fmap (* 0.5) rewards
-          nextValues = case values of
-            _ : rest -> rest <> [0.0]
-            [] -> [0.0]
-          advantages =
-            PpoLoss.normaliseAdvantages
-              (PpoLoss.gaeAdvantages 0.99 0.95 rewards values nextValues)
-          oldLogProbs = fmap negate rewards
-          newLogProbs = fmap (\r -> negate r + 0.01) rewards
-          first =
-            PpoLoss.ppoTotalLoss
-              0.2
-              0.5
-              0.01
-              oldLogProbs
-              newLogProbs
-              advantages
-              values
-              rewards
-              0.5
-          second =
-            PpoLoss.ppoTotalLoss
-              0.2
-              0.5
-              0.01
-              oldLogProbs
-              newLogProbs
-              advantages
-              values
-              rewards
-              0.5
-      first @?= second
-      assertBool
-        "PPO loss on the canonical rollout produced a finite value"
-        (not (isInfinite first) && not (isNaN first))
+  inputs <- collectTrainedLossInputs
+  let first =
+        PpoLoss.ppoTotalLoss
+          0.2
+          0.5
+          0.01
+          (trainedOldLogProbs inputs)
+          (trainedNewLogProbs inputs)
+          (trainedAdvantages inputs)
+          (trainedValues inputs)
+          (trainedRewards inputs)
+          0.5
+      second =
+        PpoLoss.ppoTotalLoss
+          0.2
+          0.5
+          0.01
+          (trainedOldLogProbs inputs)
+          (trainedNewLogProbs inputs)
+          (trainedAdvantages inputs)
+          (trainedValues inputs)
+          (trainedRewards inputs)
+          0.5
+  first @?= second
+  assertBool
+    "PPO loss on the trained-policy rollout produced a finite value"
+    (not (isInfinite first) && not (isNaN first))
 
--- | Sprint 13.8 — drive every algorithm-level loss module against the
--- canonical PPO/cartpole rollout's reward trajectory and assert
--- (a) the result is finite, (b) two fresh calls return bit-equal
--- output. Synthetic policy / value / Q / quantile / actor inputs are
--- derived from the rewards so the assertion is reproducible without
--- the live network forward pass. The real-network seam (Sprint 13.9
--- + 13.8 Remaining Work) replaces the synthetic projection without
--- changing the assertion shape. Covers the full Sprint 13.8 catalog:
--- PPO + A2C + TRPO + MaskablePPO + RecurrentPPO + DQN + QR-DQN +
--- DDPG + TD3 + SAC + CrossQ + TQC + ARS + HER.
+-- | Sprint 13.8 / 9.12 — drive every algorithm-level loss module with inputs
+-- collected from trained PPO/DQN networks and real simulator rollouts. This
+-- keeps the deterministic same-seed assertion shape while removing the prior
+-- reward-derived policy/value/Q helper projections.
 assertAllLossModulesFinite :: IO ()
 assertAllLossModulesFinite = do
-  let rewards = take 16 (deterministicRewardsFor 17)
-      logProbs = fmap negate rewards
-      newLogProbs = fmap (\r -> negate r + 0.01) rewards
-      advantages = PpoLoss.gaeAdvantages 0.99 0.95 rewards rewards rewards
-      qValues = fmap (+ 0.1) rewards
-      qTargets = fmap (+ 0.2) rewards
-      terminals = replicate (length rewards) False
-      quantilePred = [rewards]
-      quantileTarget = [fmap (+ 0.05) rewards]
-      perCriticAtoms = [rewards, fmap (+ 0.1) rewards]
-      arsTriples = [(2.0, 0.5, rewards), (1.5, 0.3, fmap (+ 0.1) rewards)]
+  inputs <- collectTrainedLossInputs
+  let rewards = trainedRewards inputs
+      logProbs = trainedOldLogProbs inputs
+      newLogProbs = trainedNewLogProbs inputs
+      advantages = trainedAdvantages inputs
+      qValues = trainedQValues inputs
+      qTargets = trainedQTargets inputs
+      terminals = trainedTerminals inputs
+      quantilePred = [qValues]
+      quantileTarget = [qTargets]
+      perCriticAtoms = [qValues, qTargets]
+      arsTriples = trainedArsTriples inputs
       assertFiniteAndDeterministic label first second = do
         assertBool (label <> " is finite") (not (isInfinite first) && not (isNaN first))
         assertBool (label <> " is run-to-run deterministic") (first == second)
@@ -608,14 +795,6 @@ assertAllLossModulesFinite = do
     "HerLoss.sparseGoalReward is finite"
     (not (isInfinite herReward1) && not (isNaN herReward1))
   herReward1 @?= herReward2
-
--- | Deterministic rewards derived from the seed; reused by
--- the multi-algorithm finiteness check above.
-deterministicRewardsFor :: Int -> [Double]
-deterministicRewardsFor seed =
-  fmap
-    (\i -> fromIntegral ((seed + i) `mod` 7) / 7.0 + 0.01)
-    [0 ..]
 
 -- | Sprint 13.8 — drive a short PPO training cohort on cartpole through
 -- the differentiable MLP seam and assert the final iteration's mean
@@ -804,45 +983,41 @@ unsafePolicyToList
   -> [Double]
 unsafePolicyToList = Data.Vector.Unboxed.toList
 
--- | Sprint 13.9 — exercise one round of training and assert the
--- mean-squared error on a synthetic batch decreases after enough
--- gradient updates. This is the canonical "the network is actually
+-- | Sprint 13.9 / 9.12 — exercise one round of training and assert the
+-- policy/value loss on an MCTS-generated self-play sample decreases after
+-- enough gradient updates. This is the canonical "the network is actually
 -- learning" sanity check for the AlphaZero policy/value seam.
 assertPolicyValueTrainingReducesLoss :: IO ()
 assertPolicyValueTrainingReducesLoss = do
   let net0 = PVN.initPolicyValueNet 43 7 16 22
       adam0 = PVN.initAdamFor net0
-      target =
-        Data.Vector.Unboxed.fromList [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
-      sample =
-        PVN.PolicyValueTrainingSample
-          { PVN.sampleState = initialConnect4
-          , PVN.sampleVisitDist = target
-          , PVN.sampleOutcome = 0.5
-          }
-      lossOf net =
-        let pv = PVN.networkPolicyValue net (PVN.sampleState sample)
-            policy = PVN.pvPolicy pv
-            policyLoss =
-              -sum
-                [ (PVN.sampleVisitDist sample Data.Vector.Unboxed.! i)
-                    * logSafe (policy Data.Vector.Unboxed.! i)
-                | i <- [0 .. Data.Vector.Unboxed.length policy - 1]
-                ]
-            valueLoss =
-              0.5 * (PVN.pvValue pv - PVN.sampleOutcome sample) ^ (2 :: Int)
-         in policyLoss + valueLoss
+      samples = PVN.generatePolicyValueSamples net0 22 8 8
       logSafe x = if x <= 0 then -1.0e9 else log x
-      (netN, _) = PVN.trainPolicyValueNetOnSamples net0 adam0 1.0e-2 80 [sample]
-      lossBefore = lossOf net0
-      lossAfter = lossOf netN
-  assertBool
-    ( "policy/value loss should decrease; before="
-        <> show lossBefore
-        <> " after="
-        <> show lossAfter
-    )
-    (lossAfter < lossBefore)
+  case samples of
+    [] -> assertBool "MCTS self-play should generate at least one training sample" False
+    sample : _ -> do
+      let lossOf net =
+            let pv = PVN.networkPolicyValue net (PVN.sampleState sample)
+                policy = PVN.pvPolicy pv
+                policyLoss =
+                  -sum
+                    [ (PVN.sampleVisitDist sample Data.Vector.Unboxed.! i)
+                        * logSafe (policy Data.Vector.Unboxed.! i)
+                    | i <- [0 .. Data.Vector.Unboxed.length policy - 1]
+                    ]
+                valueLoss =
+                  0.5 * (PVN.pvValue pv - PVN.sampleOutcome sample) ^ (2 :: Int)
+             in policyLoss + valueLoss
+          (netN, _) = PVN.trainPolicyValueNetOnSamples net0 adam0 1.0e-2 80 [sample]
+          lossBefore = lossOf net0
+          lossAfter = lossOf netN
+      assertBool
+        ( "policy/value loss should decrease; before="
+            <> show lossBefore
+            <> " after="
+            <> show lossAfter
+        )
+        (lossAfter < lossBefore)
 
 -- | Sprint 13.9 — a trained network's weights serialize to the flat
 -- checkpoint @.jmw1@ blob and reconstruct bit-identically, so trained

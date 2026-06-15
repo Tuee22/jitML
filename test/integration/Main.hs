@@ -3113,19 +3113,30 @@ runLiveWorkflowMatrixCell repoRoot binary publication cell =
       stageWorkflowMatrixCheckpoint minioSettings "workflow-matrix-eval"
       runWorkflowCommandExpecting ["eval: checkpoint=workflow-matrix-eval", "output="]
     WorkflowMatrix.RlTrain ->
-      runWorkflowCommandExpecting ["rl train:", "avg-reward:"]
+      runWorkflowCommandExpecting ["rl train:", "avg-reward:", "rl-replay-artifact-key:"]
     WorkflowMatrix.RlEval -> do
       stageWorkflowMatrixCheckpoint minioSettings "workflow-matrix-eval"
       runWorkflowCommandExpecting ["rl eval: checkpoint=workflow-matrix-eval", "output="]
     WorkflowMatrix.RlRollout ->
-      runWorkflowCommandExpecting ["rl rollout:", "rewards="]
+      runWorkflowCommandExpecting ["rl rollout:", "rewards=", "rl-rollout-artifact-key:"]
     WorkflowMatrix.Tune ->
-      runWorkflowCommandExpecting ["sampler: TPE", "objectives:"]
+      runWorkflowCommandExpecting
+        [ "sampler: TPE"
+        , "objectives:"
+        , "trial-checkpoint-manifest-sha:"
+        , "tune-trials-artifact-key:"
+        ]
     WorkflowMatrix.Inference -> do
       stageWorkflowMatrixCheckpoint minioSettings "workflow-matrix-inference"
       runWorkflowCommandExpecting ["inference: experiment=workflow-matrix-inference", "result="]
     WorkflowMatrix.AlphaZeroSelfPlay ->
-      runWorkflowCommandExpecting ["rl alphazero self-play:", "samples:", "arena-win-rate:"]
+      runWorkflowCommandExpecting
+        [ "rl alphazero self-play:"
+        , "samples:"
+        , "arena-win-rate:"
+        , "checkpoint-manifest-sha:"
+        , "alphazero-transcript-artifact-key:"
+        ]
  where
   substrate = Publication.publicationSubstrate publication
   minioSettings =

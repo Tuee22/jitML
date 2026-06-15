@@ -7,6 +7,7 @@ module Test.Main where
 import Prelude
 
 import Data.Array (any, length)
+import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import Generated.AdminPortals as AdminPortals
 import Generated.Contracts as Contracts
@@ -43,10 +44,44 @@ main = runSpecAndExitProcess [ consoleReporter ] do
       length req.moves `shouldEqual` 2
 
     it "RL frame pins the panel name and observation hash" do
-      let frame = Rl.renderFrame 0 7 1.5 false 42
+      let frame = Rl.renderFrame 0 7 1.5 false "42"
       frame.panel `shouldEqual` Rl.panelName
-      frame.observationHash `shouldEqual` 42
+      frame.observationHash `shouldEqual` "42"
       frame.reward `shouldEqual` 1.5
+
+    it "RL parser consumes generated animation-frame contracts" do
+      let
+        payload =
+          "kind: RlAnimationFrame\n"
+            <> "experiment-hash: sha256:cartpole\n"
+            <> "environment: cartpole\n"
+            <> "episode: 2\n"
+            <> "step: 7\n"
+            <> "reward: 1.5\n"
+            <> "done: False\n"
+            <> "action: 1\n"
+            <> "observation: 0.0,0.1,0.2,0.3\n"
+            <> "action-probabilities: 0.25,0.75\n"
+            <> "observation-hash: 42\n"
+            <> "replay-cursor: 207\n"
+            <> "timestamp-ns: 1234\n"
+      Rl.parseRlFrame payload
+        `shouldEqual` Just
+          ( Contracts.renderRlAnimationFrame
+              "sha256:cartpole"
+              "cartpole"
+              2
+              7
+              1.5
+              false
+              1
+              [ 0.0, 0.1, 0.2, 0.3 ]
+              [ 0.25, 0.75 ]
+              "42"
+              "207"
+              "1234"
+          )
+      Rl.parseRlFrame "data: placeholder" `shouldEqual` Nothing
 
     it "Training frame pins the panel name and validation loss" do
       let frame = Training.renderFrame "sha" 4 0.5 0.25 1234

@@ -6,11 +6,9 @@
 -- determinism contract holds: two runs with the same inputs produce
 -- bit-equal outputs.
 --
--- This is the first algorithm in the Sprint 13.8 catalog to gain real
--- loss math; the other 13 algorithms in the registry continue to use
--- the deterministic-stub rollout from
--- "JitML.RL.Algorithms.Common.trajectoryRollout" until their own loss
--- modules land.
+-- The broader catalog now has dedicated trainer/loss paths, and canonical
+-- validation feeds this module with trained-network inputs from real simulator
+-- rollouts rather than reward-derived projection fixtures.
 --
 -- Inputs are aligned by time index — the @t@-th entry of @rewards@,
 -- @values@, @nextValues@, @oldLogProbs@, @newLogProbs@ describes the

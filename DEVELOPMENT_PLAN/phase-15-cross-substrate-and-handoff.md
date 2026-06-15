@@ -1,5 +1,10 @@
 # Phase 15: Substrate Reproducibility and Final Handoff
 
+> **Reopened 2026-06-14.** The no-caveat product target expands final handoff
+> beyond the prior scoped Dense-MLP / current-RL / panel-reachability closure.
+> Final handoff is blocked until Phases `9`–`14`, `16`, and `17` close the full
+> runtime and browser matrix and the legacy ledger is empty again.
+>
 > **Reopened and re-closed 2026-06-13.** The Apple Silicon host-residency
 > placement audit reopened final handoff until the stale Apple Kubernetes-Job
 > placement path was removed from dispatch planning, the Apple lane was
@@ -36,6 +41,7 @@
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
+[phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -48,7 +54,12 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-13 for Sprint `15.7`). Final
+⏸️ **Blocked** (reopened 2026-06-14 — no-caveat final handoff). Sprint `15.8`
+updates the report card, within-substrate reproducibility evidence, and legacy
+ledger handoff for the expanded product scope. It is blocked by Phases `9`–`14`,
+Phase `16`, and Phase `17`.
+
+✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `15.7`). Final
 handoff is restored: Sprint `5.11` removes the stale Apple Metal-backed
 Kubernetes Job placement from dispatch planning, Sprint `12.12` adds fail-fast
 placement tests, Sprint `14.10` revalidates the full Apple lane, and
@@ -837,6 +848,50 @@ execution, and restoring the final-handoff state.
 ### Remaining Work
 
 None.
+
+## Sprint 15.8: Expanded No-Caveat Report Card and Ledger Handoff ⏸️
+
+**Status**: Blocked
+**Implementation**: `src/JitML/Test/Report.hs`, `src/JitML/App.hs`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `README.md`
+**Blocked by**: Phase `9` Sprint `9.12`; Phase `10` Sprint `10.6`; Phase `11`
+Sprint `11.9`; Phase `12` Sprint `12.13`; Phase `13` Sprint `13.20`; Phase
+`14` Sprint `14.11`; Phase `16` Sprint `16.1`; Phase `17` Sprint `17.2`
+**Docs to update**: `README.md`, `documents/engineering/unit_testing_policy.md`,
+`documents/engineering/training_workloads.md`,
+`documents/engineering/purescript_frontend.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make the final report card and ledger reflect the no-caveat product definition.
+
+### Deliverables
+
+- `jitml test all --live` reports all no-caveat runtime and browser cells:
+  every canonical SL row, every RL algorithm family, every AlphaZero game,
+  every tuning axis, every checkpoint/inference family, and every Playwright
+  product interaction.
+- Same-substrate reproducibility is validated per lane for the expanded model
+  matrix, without adding any cross-substrate numeric-equivalence claim.
+- Pending Removal rows for demo-only parsers, inline demo networks, placeholder
+  visualizations, synthetic algorithm projections, placeholder AlphaZero arena
+  evaluation, and browser-contract gaps all move to `Completed`.
+- README, governed engineering docs, phase docs, and `system-components.md`
+  agree that the no-caveat product is either open or closed; no historical
+  closure text is presented as current status.
+
+### Validation
+
+- `jitml test all --apple-silicon`
+- `docker compose run --rm jitml jitml test all --linux-cpu`
+- `docker compose run --rm jitml-cuda jitml test all --linux-cuda`
+- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm jitml jitml check-code`
+
+### Remaining Work
+
+- Blocked on every upstream no-caveat runtime, browser, e2e, and live lane.
 
 ## Doctrine Sections Cited
 

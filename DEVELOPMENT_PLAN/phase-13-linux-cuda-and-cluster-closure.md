@@ -14,6 +14,7 @@
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
 [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
+[phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -26,7 +27,13 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-11 on the CUDA machine after the real-workflow
+⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Linux live validation). Sprint
+`13.20` revalidates the expanded runtime/browser matrix on `linux-cpu` and
+`linux-cuda`, but it is blocked until Phases `9`–`12`, Phase `16`, and Phase
+`17` land the remaining no-caveat surfaces. Phase `8` Sprint `8.12` has
+re-closed its local framework/runtime surface.
+
+✅ **Historical closure** (re-closed 2026-06-11 on the CUDA machine after the real-workflow
 refactor; Sprints `13.17` / `13.18` / `13.19`). With Phases `8`–`12` now routing
 the SL/RL/tune/inference workflows through the real substrate JIT engine, this
 phase owns the live linux-cpu and linux-cuda exercise of every reopened workflow
@@ -2355,22 +2362,13 @@ step handling, KL acceptance, Huber regime crossover, etc.). The
 canonical `jitml-rl-canonicals` stanza adds the
 "PPO real loss math runs deterministically against the canonical
 PPO/cartpole rollout" assertion that wires `PpoLoss.ppoTotalLoss`
-through the existing deterministic-trajectory cohort.
-
-`JitML.RL.Algorithms.Ppo.ppoLossForRollout` exposes the
-algorithm-level wiring: given an `AlgorithmRollout` from the
-deterministic-stub trajectory, it projects synthetic policy /
-value inputs from the rewards and applies `PpoLoss.ppoTotalLoss`.
-The real-network seam (the AlphaZero-equivalent codegen + value
-network) replaces the synthetic projection without changing the
-function shape callers depend on.
+through a trained PPO/cartpole policy rollout.
 
 `jitml-rl-canonicals` adds an
 "every Sprint 13.8 loss module returns a finite value on the
 canonical trajectory" assertion that drives all 14 algorithm
-loss modules end-to-end against a deterministic reward
-trajectory plus synthetic policy / value / Q / quantile / actor /
-ARS-triple inputs derived from those rewards. Each loss is
+loss modules end-to-end against trained PPO/DQN network outputs
+and real simulator rollout rewards. Each loss is
 asserted (a) finite (no NaN, no infinity) and (b) bit-equal
 across two fresh runs. Vector-returning losses (`td3ClippedDoubleTarget`,
 `crossQTarget`, `tqcTarget`, `arsUpdateDirection`) are checked
@@ -2830,17 +2828,18 @@ seam (Sprint 13.8 closure). Surface:
   `GenerationResult { genNet, genAdam, genSamplesCount, genArenaWinRate }`.
 - `arenaWinRateAgainstUniform` plays alternating arena games and reports
   the win-fraction in @[0, 1]@.
-- `evaluateTerminal` — real Connect-4 terminal evaluator that detects
-  4-in-a-row in horizontal / vertical / both diagonal directions.
+- `GameOutcome` / `gameOutcome` — shared terminal evaluators for Connect 4,
+  Othello, Hex, and Gomoku, consumed by arena win-rate and MCTS leaf
+  evaluation.
 
 Three new tests in `jitml-rl-canonicals` cover the new surface:
 
 - "policy/value network forward emits a valid policy distribution" —
   asserts the policy vector is non-negative, sums to 1, and the value
   scalar is bounded by tanh.
-- "policy/value network gradient update reduces a synthetic policy/value
-  loss" — asserts cross-entropy + MSE loss decreases over 80 Adam steps
-  on a synthetic batch.
+- "policy/value network gradient update reduces an MCTS self-play loss" —
+  asserts cross-entropy + MSE loss decreases over 80 Adam steps on an
+  MCTS-generated self-play sample.
 - "AlphaZero self-play generation runs deterministically and reports an
   arena win rate" — asserts two fresh generations with the same seed
   produce bit-identical sample count and win rate, and that the win
@@ -4096,6 +4095,44 @@ worker Jobs inherit the NVIDIA runtime settings needed by GPU workloads.
 
 - None for the Linux cluster closure. Apple Silicon closure and final handoff
   closed later in Phases `14` and `15` on 2026-06-12.
+
+## Sprint 13.20: Linux No-Caveat Runtime and Browser Lane ⏸️
+
+**Status**: Blocked
+**Implementation**: `bootstrap/linux-cpu.sh`, `bootstrap/linux-cuda.sh`,
+`src/JitML/Test/WorkflowMatrix.hs`, `playwright/jitml-demo.spec.ts`
+**Blocked by**: Phase `9` Sprint `9.12`; Phase `10` Sprint `10.6`; Phase `11`
+Sprint `11.9`; Phase `12` Sprint `12.13`; Phase `16` Sprint `16.1`; Phase
+`17` Sprint `17.2`
+**Docs to update**: `documents/engineering/training_workloads.md`,
+`documents/engineering/purescript_frontend.md`, `system-components.md`
+
+### Objective
+
+Validate the full no-caveat product on real Linux CPU and Linux CUDA lanes.
+
+### Deliverables
+
+- `linux-cpu` and `linux-cuda` bootstrap clean clusters, run every no-caveat
+  SL/RL/AlphaZero/tuning workflow, persist/reload checkpoints, serve the demo,
+  and pass the full Playwright product matrix.
+- CUDA worker Jobs use the NVIDIA runtime class and attached GPU for every
+  substrate-backed cell that requires `linux-cuda`.
+- The lane fails fast on missing datasets, missing checkpoints, missing live
+  event frames, placeholder browser data, synthetic report-card rows, failed
+  Kubernetes Jobs, or absent Playwright product assertions.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test all --linux-cpu`
+- `docker compose run --rm jitml-cuda jitml test all --linux-cuda`
+- `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda`
+- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm jitml jitml check-code`
+
+### Remaining Work
+
+- Blocked on the no-caveat runtime and browser implementation phases.
 
 ## Doctrine Sections Cited
 

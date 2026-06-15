@@ -8,6 +8,7 @@ import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import JitML.CLI.Parser (ParsedOption (..))
+import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Numerics.MlpDevice (probeMlpDevice)
@@ -40,13 +41,14 @@ import JitML.Tune.Catalog
   , deterministicTrialsWithDevice
   , loadTuningExperiment
   , prunerCatalog
-  , prunerFromText
   , renderTrialResumeSummary
   , resumeMatchesFullRun
   , samplerCatalog
   , samplerFromText
   , schedulerCatalog
-  , schedulerFromText
+  , trialObjectiveResults
+  , trialResultObjective
+  , trialResultWeights
   , tuningConfigPruner
   , tuningConfigSampler
   , tuningConfigScheduler
@@ -99,10 +101,22 @@ main =
           mapM_
             ( \sampler ->
                 mapM_
-                  (\value -> assertBool "value is [0,1)" (value >= 0 && value < 1))
+                  (\value -> assertBool "value is [0,1]" (value >= 0 && value <= 1))
                   (deterministicTrials sampler 8)
             )
             samplerCatalog
+      , testCase "trial objectives expose checkpointable trained weights (Sprint 9.12)" $ do
+          let results = trialObjectiveResults TPE 3
+              objectives = fmap trialResultObjective results
+          objectives @?= deterministicTrials TPE 3
+          assertBool "trial results are non-empty" (not (null results))
+          mapM_
+            ( \result -> do
+                let weights = trialResultWeights result
+                assertBool "trial weights are non-empty" (not (null weights))
+                Checkpoint.decodeJmw1 (Checkpoint.encodeJmw1 weights) @?= Right weights
+            )
+            results
       , testCase
           "device-backed trial executor is deterministic through the substrate JIT device (Sprint 9.11 --linux-cpu)"
           $ do
@@ -120,7 +134,7 @@ main =
                     a @?= b
                     assertBool "device trial executor produced three objectives" (length a == 3)
                     mapM_
-                      (\value -> assertBool "device value is [0,1)" (value >= 0 && value < 1))
+                      (\value -> assertBool "device value is [0,1]" (value >= 0 && value <= 1))
                       a
                   (Left err, _) ->
                     assertBool ("first device-backed trial run failed: " <> Text.unpack err) False

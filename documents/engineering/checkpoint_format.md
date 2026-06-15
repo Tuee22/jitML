@@ -2,13 +2,26 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, determinism_contract.md, training_workloads.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, determinism_contract.md, training_workloads.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob
 > layout, `.jmw1` dense weight blob wire format, typed CBOR manifest, write-
 > once + If-Match CAS protocol, retention reconciler, inference-only read
-> path, and inference request/result protobuf envelopes.
+> path, inference request/result protobuf envelopes, and the reopened
+> architecture-aware checkpoint target for every no-caveat model family.
+
+## No-Caveat Checkpoint Target
+
+The current weighted checkpoint path is real for the implemented MLP-family
+payloads. Sprint `10.6` / Phase `16` expand it to every model family that the
+runtime trains: Dense, DeepDense, Conv2D, residual, wide-residual, ResNet-50,
+VisionTransformer, RL policies, AlphaZero policy/value nets, and tuning trial
+checkpoints. A final checkpoint manifest must carry enough architecture
+metadata, preprocessing metadata, output-decoding metadata, replay pointers, and
+weight-layout information for `jitml eval`, `jitml rl eval`, `jitml inference
+run`, and the demo app to reload the selected checkpoint without an inline
+demo-only model.
 
 ## Storage Layout
 
@@ -128,8 +141,9 @@ The current local `encodeJmw1` helper in `src/JitML/Checkpoint/Format.hs`
 emits the `JMW1` magic, a little-endian 32-bit CBOR header length, a compact
 CBOR header, and little-endian `F64` payload bytes. `decodeJmw1` validates the
 same local `F64` payload shape and returns decoded weight values for the local
-inference loader. The richer target header shape above remains the durable
-contract for full runtime checkpoints.
+inference loader. The richer header shape above is the Sprint `10.6` / Phase
+`16` durable contract for full runtime checkpoints across every no-caveat model
+family.
 
 ## CBOR Manifest
 
@@ -265,11 +279,13 @@ run.
 
 ## Inference-Only Read Path
 
-Target `loadInferenceCheckpointWithWeights` reads `pointers/latest`, fetches
+Final `loadInferenceCheckpointWithWeights` reads `pointers/latest`, fetches
 `manifests/<sha>`, fetches **only** the `Weights` part's blobs (skipping
 optimizer state, RNG state, replay buffer, and exploration cache), decodes the
 `.jmw1` payloads, and hands the manifest plus decoded weights to the
-substrate-specific weighted inference runner.
+substrate-specific weighted inference runner. Sprint `10.6` extends this from
+the current MLP weight payloads to all no-caveat model-family weight layouts and
+output decoders.
 
 Concurrent training advances are invisible to the reader because the
 snapshot the reader operates against is immutable.
@@ -342,3 +358,5 @@ order differ across substrates) per
 - [determinism_contract.md](determinism_contract.md)
 - [training_workloads.md](training_workloads.md)
 - [../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md)
+- [../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md)
+- [../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md](../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md)

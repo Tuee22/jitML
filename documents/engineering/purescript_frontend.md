@@ -2,14 +2,14 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/system-components.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/system-components.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
 > current local PureScript shell, browser-contract renderer, bundle/panel
 > metadata, demo-route manifest, Playwright scaffold, demo deployment template,
 > and `jitml-demo` HTTP server, including the Halogen panels, compiled bundle,
-> live WebSocket proxy, and live-only Playwright matrix.
+> live WebSocket proxy, and the reopened no-caveat Playwright product matrix.
 
 ## Stack
 
@@ -27,8 +27,8 @@
 | Portals home panel | Two-column directory composing `PanelRegistry.panels` with `Generated.AdminPortals.adminPortals`; default empty-hash landing | `web/src/Panels/Portals.purs` |
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
-| Panel payload modules | Six typed Halogen panels with REST or live WebSocket actions | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Live-only spec covering the portals home, the per-panel shared header, every admin-portal link, the six canonical panels, and real REST response/rendered-value updates for MNIST, CIFAR, and Connect 4; no inline DOM fallback remains | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Panel payload modules | Six Halogen panels with REST or live WebSocket actions; Sprint `11.9` replaces text-marker/default-value parsers with generated typed payloads for controls, metrics, animation, inference, and replay | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
+| Playwright | Current live-only spec covers portals/header/admin links, six panels, and selected REST response/rendered-value updates; Sprint `12.13` / Phase `17` expands this to a no-caveat product matrix that starts workflows, validates training/checkpoint/inference, observes RL animations, drives adversarial games, replays transcripts, and exercises tuning controls | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Demo executable | Status line plus HTTP/WebSocket server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -98,6 +98,23 @@ duplicate roots attached. `src/JitML/Web/Server.hs` serves the same HTTP surface
 returns `503` for plain stream GETs that do not upgrade to WebSocket, and
 bridges upgraded `/api/ws*` clients to live Pulsar event topics.
 
+## No-Caveat Closure Target
+
+The final browser target is end-to-end rather than demonstrative. The demo app
+must start or select real SL, RL, AlphaZero, and tuning runs; consume typed
+payloads generated from Haskell-owned contracts; render model-appropriate
+interactions; animate RL trajectories from real event frames; render all
+canonical adversarial games with legal move handling, MCTS/value/policy details,
+and interactive replay; and expose tuning sweep controls/frontiers tied to real
+trial state. Playwright must prove those behaviors through the explicit live
+`jitml-e2e` orchestration path before final handoff.
+
+Current route reachability, panel mounting, and selected REST updates are
+historical evidence, not final product closure. Temporary marker parsers,
+inline demo responses, placeholder canvases, and text-only replay displays are
+tracked for deletion in
+[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+
 ## Browser-Contract ADTs
 
 `src/JitML/Web/Contracts.hs` is the **source of truth** for every ADT
@@ -117,8 +134,16 @@ The current endpoint metadata covers:
 - `RlStream` at `GET /api/ws/rl`
 - `TuneStream` at `GET /api/ws/tune`
 
-Richer typed training, RL, AlphaZero, inference, image-upload, Connect 4, and
-tuning payload ADTs remain target browser-contract work.
+Sprint `11.9` expands this endpoint list into the full generated payload
+surface: training commands/events/checkpoint markers, RL frame/replay events,
+AlphaZero game state/MCTS/value/policy/replay records, inference/image request
+and result bodies, tuning trial/frontier/control events, and run-control
+acknowledgements. Panel-side string marker parsing is not part of the final
+contract. Phase `8` Sprint `8.12` now generates the RL animation/replay payload
+records (`RlAnimationFrame`, `RlReplayFrame`) from
+`src/JitML/Web/Contracts.hs`; the RL panel consumes `RlAnimationFrame`,
+preserves unsigned hash/cursor/timestamp fields as exact strings, and rejects
+the former catch-all `data:` placeholder.
 
 ## Panels
 
@@ -130,7 +155,11 @@ generated endpoint paths and convert the text replies into the panel-specific
 typed response records before updating Halogen state. `Panels.Stream` opens the
 live WebSocket route, reports connection failures through typed actions, and the
 RL/training/tune panels convert incoming frame text into typed stream records
-instead of storing raw frame strings.
+instead of storing raw frame strings. `Panels.Rl.parseRlFrame` now accepts only
+the generated `RlAnimationFrame` envelope. The remaining training/tune/browser
+text bridges are compatibility surfaces: final browser closure consumes
+generated payload codecs and removes the catch-all/default parsers that can
+synthesize values from incomplete frames.
 
 | Panel | URL hash | REST handler | WebSocket subscription |
 |-------|----------|--------------|------------------------|
@@ -182,8 +211,8 @@ Helm dependency build and the `jitml bootstrap` ephemeral-cluster rollout. The
 default `jitml-e2e` Cabal body validates that typed Playwright command shape
 without starting the live stack. The checked-in spec is live-only: it reads
 `.build/runtime/cluster-publication.json`, navigates to the published edge
-route, and fails fast when no live publication exists. The matrix covers the
-smoke shell plus the six canonical panels:
+route, and fails fast when no live publication exists. The historical matrix
+covers the smoke shell plus the six canonical panels:
 
 - Portals home: load the empty-hash root and assert both the panels
   column (`#jitml-portals-panels`) and the admin-portals column
@@ -202,6 +231,15 @@ smoke shell plus the six canonical panels:
 - RL trajectory: load the trajectory panel through the live edge route.
 - Training / Tune: load the streaming metric panels through the live edge
   route.
+
+Sprint `12.13` / Phase `17` replace that reachability matrix with the
+no-caveat product matrix. The expanded spec starts real workflows, waits for
+typed training/checkpoint/inference evidence, interacts with every supported
+model family, observes non-identical RL animation frames, drives all canonical
+adversarial-game boards, verifies legal engine moves, saves and replays
+transcripts through step/scrub controls, launches and manipulates tuning sweeps,
+and asserts that browser state is backed by live workflow artifacts rather than
+fixture or inline demo state.
 
 Playwright execution runs through the typed `Subprocess` boundary on the
 explicit live orchestration path; it belongs to the doctrine's
@@ -224,3 +262,4 @@ default Cabal matrix.
 - [daemon_architecture.md](daemon_architecture.md)
 - [../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md](../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md)
 - [../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md](../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md)
+- [../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md)

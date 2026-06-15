@@ -7,13 +7,11 @@
 -- assertion needs: a softmax-cross-entropy MLP that trains on labeled
 -- examples with Adam and reports train/test accuracy.
 --
--- The module is substrate-portable and bit-deterministic on the same
--- seed (per the determinism contract). The IDX parser
--- ('parseIdxImages' / 'parseIdxLabels') decodes the canonical MNIST
--- on-disk format so the classifier can consume the real
--- `train-images-idx3-ubyte` / `train-labels-idx1-ubyte` payloads
--- uploaded to MinIO by `jitml internal upload-dataset` (Sprint 13.4
--- upload half).
+-- The module is substrate-portable and bit-deterministic on the same seed
+-- (per the determinism contract). The IDX parser ('parseIdxImages' /
+-- 'parseIdxLabels') decodes the canonical MNIST/Fashion-MNIST on-disk
+-- format. The CIFAR parsers decode the binary batch files contained inside
+-- the canonical Toronto CIFAR-10/CIFAR-100 archives.
 --
 -- The classifier reuses the policy head of 'JitML.Numerics.Mlp' as a
 -- softmax output over @numClasses@ logits; the cross-entropy gradient
@@ -24,10 +22,18 @@ module JitML.SL.Classifier
     LabeledExample (..)
   , Dataset
 
-    -- * IDX parsing (canonical MNIST format)
+    -- * IDX parsing (canonical MNIST/Fashion-MNIST format)
   , parseIdxImages
   , parseIdxLabels
   , zipImagesLabels
+
+    -- * CIFAR binary parsing (canonical Toronto archive contents)
+  , parseCifar10BinaryBatch
+  , parseCifar100BinaryBatch
+  , decodeCifar10BoundedDataset
+  , decodeCifar100BoundedDataset
+  , decodeCifar10ArchiveBoundedDataset
+  , decodeCifar100ArchiveBoundedDataset
 
     -- * Classifier
   , ClassifierConfig (..)
@@ -36,6 +42,7 @@ module JitML.SL.Classifier
   , trainClassifier
   , trainClassifierFromIdx
   , trainClassifierFromIdxBounded
+  , decodeBoundedDataset
   , classify
   , accuracy
   , crossEntropyLoss
@@ -75,6 +82,8 @@ import JitML.Numerics.Mlp
 import JitML.Numerics.MlpDevice
   ( MlpDevice (..)
   )
+import JitML.SL.Archive qualified as Archive
+import JitML.SL.Dataset qualified as DatasetRegistry
 
 -- | One labeled example: a flat feature vector plus an integer class label.
 data LabeledExample = LabeledExample
@@ -133,6 +142,119 @@ parseIdxLabels bytes
 zipImagesLabels :: [Vector Double] -> [Int] -> Dataset
 zipImagesLabels images labels =
   [LabeledExample img lbl | (img, lbl) <- zip images labels]
+
+-- | Parse one or more CIFAR-10 binary records from an extracted batch file.
+-- Each record is @1@ label byte followed by @3072@ image bytes in
+-- channel-major order (1024 red, 1024 green, 1024 blue), scaled to @[0, 1]@.
+parseCifar10BinaryBatch :: ByteString -> Either String Dataset
+parseCifar10BinaryBatch =
+  parseCifarBinaryBatch "cifar-10" 3073 0 1
+
+-- | Parse one or more CIFAR-100 binary records from an extracted batch file.
+-- Each record is @1@ coarse-label byte, @1@ fine-label byte, then @3072@
+-- image bytes. The canonical supervised target is the fine label.
+parseCifar100BinaryBatch :: ByteString -> Either String Dataset
+parseCifar100BinaryBatch =
+  parseCifarBinaryBatch "cifar-100" 3074 1 2
+
+decodeCifar10BoundedDataset
+  :: ClassifierConfig
+  -> Maybe Int
+  -> ByteString
+  -> Either String (ClassifierConfig, Dataset)
+decodeCifar10BoundedDataset config =
+  decodeCifarBoundedDataset config 10 parseCifar10BinaryBatch
+
+decodeCifar100BoundedDataset
+  :: ClassifierConfig
+  -> Maybe Int
+  -> ByteString
+  -> Either String (ClassifierConfig, Dataset)
+decodeCifar100BoundedDataset config =
+  decodeCifarBoundedDataset config 100 parseCifar100BinaryBatch
+
+decodeCifar10ArchiveBoundedDataset
+  :: ClassifierConfig
+  -> DatasetRegistry.DatasetSplit
+  -> Maybe Int
+  -> ByteString
+  -> Either String (ClassifierConfig, Dataset)
+decodeCifar10ArchiveBoundedDataset config split subsetLimit archiveBytes = do
+  batchBytes <- case split of
+    DatasetRegistry.TrainSplit ->
+      ByteString.concat
+        <$> traverse
+          (`Archive.extractTarEntry` archiveBytes)
+          [ "cifar-10-batches-bin/data_batch_1.bin"
+          , "cifar-10-batches-bin/data_batch_2.bin"
+          , "cifar-10-batches-bin/data_batch_3.bin"
+          , "cifar-10-batches-bin/data_batch_4.bin"
+          , "cifar-10-batches-bin/data_batch_5.bin"
+          ]
+    DatasetRegistry.TestSplit ->
+      Archive.extractTarEntry "cifar-10-batches-bin/test_batch.bin" archiveBytes
+    DatasetRegistry.ValidationSplit ->
+      Left "cifar-10: the canonical binary archive has no separate validation split"
+  decodeCifar10BoundedDataset config subsetLimit batchBytes
+
+decodeCifar100ArchiveBoundedDataset
+  :: ClassifierConfig
+  -> DatasetRegistry.DatasetSplit
+  -> Maybe Int
+  -> ByteString
+  -> Either String (ClassifierConfig, Dataset)
+decodeCifar100ArchiveBoundedDataset config split subsetLimit archiveBytes = do
+  batchBytes <- case split of
+    DatasetRegistry.TrainSplit ->
+      Archive.extractTarEntry "cifar-100-binary/train.bin" archiveBytes
+    DatasetRegistry.TestSplit ->
+      Archive.extractTarEntry "cifar-100-binary/test.bin" archiveBytes
+    DatasetRegistry.ValidationSplit ->
+      Left "cifar-100: the canonical binary archive has no separate validation split"
+  decodeCifar100BoundedDataset config subsetLimit batchBytes
+
+parseCifarBinaryBatch :: String -> Int -> Int -> Int -> ByteString -> Either String Dataset
+parseCifarBinaryBatch label recordBytes labelOffset imageOffset bytes
+  | ByteString.null bytes = Left (label <> ": empty binary batch")
+  | ByteString.length bytes `mod` recordBytes /= 0 =
+      Left
+        ( label
+            <> ": byte length "
+            <> show (ByteString.length bytes)
+            <> " is not a multiple of record size "
+            <> show recordBytes
+        )
+  | otherwise = Right examples
+ where
+  records = ByteString.length bytes `div` recordBytes
+  examples =
+    [ LabeledExample
+        ( VU.generate
+            3072
+            ( \j ->
+                fromIntegral (ByteString.index bytes (base + imageOffset + j)) / 255.0
+            )
+        )
+        (fromIntegral (ByteString.index bytes (base + labelOffset)))
+    | i <- [0 .. records - 1]
+    , let base = i * recordBytes
+    ]
+
+decodeCifarBoundedDataset
+  :: ClassifierConfig
+  -> Int
+  -> (ByteString -> Either String Dataset)
+  -> Maybe Int
+  -> ByteString
+  -> Either String (ClassifierConfig, Dataset)
+decodeCifarBoundedDataset config classes parser subsetLimit bytes = do
+  parsed <- parser bytes
+  let dataset = case subsetLimit of
+        Just limit | limit >= 0 -> take limit parsed
+        _ -> parsed
+  if null dataset
+    then Left "cifar: produced no labeled examples"
+    else Right (config {clfInputs = 3072, clfClasses = classes}, dataset)
 
 -- | Big-endian 32-bit read at a byte offset.
 be32 :: ByteString -> Int -> Int

@@ -31,6 +31,8 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
+> **No-caveat product target:** The current plan is reopened for full end-to-end closure: every supported SL, RL, AlphaZero, and tuning workflow must train or run for real, checkpoint, infer/evaluate, surface appropriate browser interactions, render live visualizations, and pass Playwright-based e2e tests in the demo app. The open work is tracked by Phases `8`–`18` in the development plan; temporary demo/parser/runtime stand-ins are tracked in [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+
 ---
 
 ## Table of contents
@@ -871,6 +873,12 @@ mindmap
 | `jitml help` | Print focused command help. | `jitml help [-- <subcommand...>]` |
 <!-- jitml:command-registry:end -->
 
+RL and tuning training commands print their durable artifact keys in the command
+summary: `jitml rl train` emits checkpoint plus `rl-replay` keys, `jitml rl
+rollout` emits an `rl-rollout` replay key, `jitml rl alphazero self-play` emits
+checkpoint plus `alphazero-transcript` keys, and `jitml tune` emits
+`trial-checkpoint` plus `tune-trials` keys.
+
 ### Generated documentation flow
 
 **`docs *` vs `lint *` — distinct surfaces, no overlap.** Per doctrine §Generated Artifacts, `docs check` / `docs generate` cover artifacts that are *rendered from typed Haskell source* into a committed file or marker region — CLI help/reference outputs, route tables, daemon/numerical/training catalog tables, chart routes, Grafana dashboards, the Prometheus scrape config, and PureScript contracts. Per doctrine §Lint, Format, and Code-Quality Stack, `lint *` covers *hand-written* source: Haskell (`fourmolu --mode check` + `hlint`), PureScript (`purs format` round-trip), proto schemas, chart structural invariants, and file-hygiene rules. The two surfaces do not overlap; an artifact owned by `docs *` is never lint-managed, and vice versa. When adding a new marker-delimited generated section, extend the `GeneratedSectionRule` registry; when adding a whole-file generated artifact, extend the `TrackedGeneratedPath` registry; when adding a new lint rule, extend the appropriate `LintCommand` constructor.
@@ -1256,6 +1264,11 @@ data PbtEvent
   | Explore { trialHash :: Hash32, mutations :: [(Text, Double, Double)] }   -- (hpName, before, after)
 ```
 
+`jitml tune` also prints the promoted trial checkpoint keys
+(`trial-checkpoint-*`) and a content-addressed `tune-trials` artifact key for
+the measured preview sweep. Daemon-dispatched tune workers persist the trial
+transcript and promote the measured trial weights into `jitml-checkpoints`.
+
 **Canonical replay order.** On resume, events are read out of MinIO and sorted by `(teStrategyStep, teIntraStepRank)`. **Not** by `teCreatedAtNs`, **not** by wall-clock arrival, **not** by trial-hash — wall-clock order is non-reproducible under parallelism, and a sort that depends on it would re-introduce the determinism gap. The strategy-emitted `(step, rank)` tuple is the canonical ordering because the strategy itself is the only thing that knows which trials belong to which generation/cursor position.
 
 **Strategy as a pure state machine.** Each strategy exposes
@@ -1296,6 +1309,12 @@ The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>`
 # Canonical supervised learning problems
 
 Eleven problems spanning the architectural breadth of the [Layer catalog](#layer-catalog), each compact enough to baseline on a single reference host.
+
+The no-caveat product target treats every row below as an implementation
+obligation, not a brochure row. Historical Dense-MLP training is real and
+checkpoint-backed, but final closure requires every listed model family to
+train, checkpoint, evaluate, infer, and appear in the Playwright-validated demo
+surface on each real substrate lane where that lane is selected.
 
 | Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
@@ -1898,7 +1917,7 @@ The convergence check is the load-bearing test; the run-to-run
 determinism check runs every commit; the convergence check runs nightly
 or on labeled CI only.
 
-[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The target convergence check for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). That wrapper and its experiment Dhall are still target Phase 9/12 work; the current worktree carries the algorithm metadata and deterministic-stub surface, not `src/JitML/RL/Exploration.hs`.
+[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The target convergence check for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). That wrapper and its experiment Dhall are still target Phase 16 work; the current worktree carries the algorithm metadata, real-environment catalog compatibility surface, and trained-network loss validation, not `src/JitML/RL/Exploration.hs`.
 
 ---
 
@@ -1972,6 +1991,9 @@ Root Dirichlet noise is drawn from a seed derived per game via `splitSeed master
 ### Self-play buffer
 
 Triples `(canonicalState, mctsVisits, valueTarget)` plus all game symmetries (Connect 4's horizontal mirror is a free 2× data multiplier). The buffer is content-addressed and checkpointed exactly like the off-policy `ReplayBuffer` (see [Checkpoint object layout](#checkpoint-object-layout)).
+`jitml rl alphazero self-play` prints both the policy/value checkpoint keys and
+an `alphazero-transcript` artifact containing sampled states, MCTS visit
+distributions, and value targets for replay/inspection.
 
 ### Arena gating
 
@@ -2220,7 +2242,7 @@ PureScript framework, signals model fits live-events well).
 
 ## Generated contracts
 
-`jitml docs generate` emits `./web/src/Generated/Contracts.purs` from Haskell-owned browser-contract ADTs in `src/JitML/Web/Contracts.hs` and `./web/src/Generated/AdminPortals.purs` from the labelled admin-portal subset of `src/JitML/Routes.hs`, both via the tracked generated-path registry (see [Generated documentation flow](#generated-documentation-flow)) and paired with `jitml docs check`. Live Pulsar event protobuf bridges remain target browser-contract work.
+`jitml docs generate` emits `./web/src/Generated/Contracts.purs` from Haskell-owned browser-contract ADTs in `src/JitML/Web/Contracts.hs` and `./web/src/Generated/AdminPortals.purs` from the labelled admin-portal subset of `src/JitML/Routes.hs`, both via the tracked generated-path registry (see [Generated documentation flow](#generated-documentation-flow)) and paired with `jitml docs check`. The reopened no-caveat browser-contract work expands the generated surface from endpoint metadata to the command, event, inference, animation, and replay payload ADTs consumed by the panels; hand-maintained marker parsing is temporary legacy residue.
 
 ## Backend integration
 
@@ -2229,7 +2251,7 @@ PureScript framework, signals model fits live-events well).
 
 ## Stance
 
-The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Target training runs are started, paused, resumed, and stopped from the UI; inference is invoked against any checkpoint by direct human input — drawing, uploading, or playing. Playwright coverage belongs to the explicit live `jitml-e2e` orchestration path; the current local e2e surface covers route/API, deployment, contract, report-card, typed live-plan scaffolds, stream-upgrade behavior, and WebSocket concurrency without invoking the live browser matrix.
+The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Training runs are started, paused, resumed, and stopped from the UI; inference is invoked against selected checkpoints by direct human input — drawing, uploading, or playing; RL trajectories animate from real event frames; adversarial games render boards with legal moves, MCTS/value details, and interactive replay. Playwright coverage belongs to the explicit live `jitml-e2e` orchestration path, and final handoff requires that browser matrix to prove the interactions against real workflows rather than only route/API reachability.
 
 ## Panels
 
@@ -2242,7 +2264,7 @@ Every panel renders inside a slim shared header (`Chrome.Header` — the `jitML`
 - **Hyperparameter panel.** Pareto frontier (live; populated by NSGA-II for multi-objective sweeps), trial-by-trial heatmap, per-axis (sampler / scheduler / pruner) state, PBT population view + hyperparameter-mutation lineage tree, trial detail drill-down. **Interactive controls:** launch a sweep, kill an individual trial, pin a trial as the "promote" candidate.
 - **MNIST handwriting panel.** A canvas component the user draws on with mouse or touchpad. The drawing is downsampled to 28×28, normalised, and fired at `inference.request.<mode>` against the configured MNIST checkpoint. The result panel shows the predicted class plus the full softmax distribution as a bar chart, updated live as the user draws (re-inference on stroke-end). The checkpoint is configurable to any committed MNIST run; the user can flip between the shallow-MLP run and the LeNet-5 CNN run to compare predictions side by side.
 - **Image-recognition panel (CIFAR / Tiny ImageNet).** Drag-and-drop or file-picker upload. The frontend center-crops + resizes to the model's input size client-side, posts to `/api/inference/image`, and shows top-K predictions with class probabilities. A "swap checkpoint" dropdown switches between ResNet-20 (CIFAR-10), Wide ResNet-28-10 (CIFAR-100), and ResNet-50 (Tiny ImageNet) without page reload.
-- **Game-play panel (Connect 4 et al.).** An interactive board for each game in [Canonical adversarial games](#canonical-adversarial-games). Click-to-drop on Connect 4; click-to-place on Tic-Tac-Toe / Othello / Gomoku / Hex. The user plays against the AlphaZero policy at a chosen checkpoint, with sliders for `mctsSimsPerMove` and temperature. A side pane renders the MCTS visit distribution (which the user can compare against the policy head's raw logits), the value head's evaluation of the current position, and a one-click "request engine analysis" that runs a deeper search at temperature 0. A "swap opponent" dropdown pits the latest checkpoint against an older one — the arena gating from [AlphaZero-style self-play](#alphazero-style-self-play) made interactive.
+- **Game-play panel (Connect 4 et al.).** An interactive board for each game in [Canonical adversarial games](#canonical-adversarial-games). Click-to-drop on Connect 4; click-to-place or tile-select on Othello / Gomoku / Hex. The user plays against the AlphaZero policy at a chosen checkpoint, with sliders for `mctsSimsPerMove` and temperature. A side pane renders the MCTS visit distribution (which the user can compare against the policy head's raw logits), the value head's evaluation of the current position, and a one-click "request engine analysis" that runs a deeper search at temperature 0. A "swap opponent" dropdown pits the latest checkpoint against an older one, and the replay controls scrub through saved transcripts from self-play, arena, or human-vs-engine games.
 - **Cluster panel.** Embedded Grafana iframe at `/grafana` + the route table from `cluster status`.
 - **Inference panel.** Catch-all for non-canvas, non-image, non-game inference — paste a tensor as JSON, see the output tensor.
 
@@ -2266,9 +2288,12 @@ runs the `purescript-spec` smoke suite in `./web/test/` through the Node
 `spec-node` runner (`runSpecAndExitProcess`), so the test process exits with
 the real suite status and does not use the deprecated generic `runSpec` alias.
 The `jitml-e2e` test stanza validates demo HTTP routing, report-card output,
-Playwright plan shape, and the local browser scaffold. Live Playwright E2E runs
-through the explicit live `jitml-e2e` orchestration path against the real Envoy
-route surface.
+Playwright plan shape, and the local browser scaffold. The reopened no-caveat
+matrix extends the explicit live `jitml-e2e` orchestration path so Playwright
+starts real workflows, waits for training/checkpoint/inference evidence,
+exercises model-specific browser interactions, observes RL animation frames,
+drives adversarial-game boards, replays saved transcripts, and validates tuning
+controls against the real Envoy route surface.
 
 ## Deployment
 
@@ -2304,7 +2329,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected via `--test-options='-p <substrate>'`, **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; target explicit live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, and tears down via `jitml cluster down`; six cohorts — see [E2E cohorts](#e2e-cohorts) below. |
+| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; reopened no-caveat live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves workflow training/checkpoint/inference/animation/replay/tuning interactions, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
 
 `TestAll` fans out to every stanza above. It does not run lint, style, or
 code-quality gates; `jitml lint all` and `jitml check-code` are the separate
@@ -2377,14 +2402,14 @@ naming the missing `.build/runtime/cluster-publication.json`.
 
 ### E2E cohorts
 
-Per doctrine §Ephemeral-Cluster Infrastructure Tests, the `jitml-e2e` driver owns the target lifecycle of an **ephemeral** Kind stack — a distinct cluster name per run, brought up by `jitml bootstrap` (phased Helm rollout), exercised, then torn down by `jitml cluster down`. The e2e cluster is **distinct** from the developer's local bootstrap Kind: different lifetime; the e2e teardown never touches the dev cluster. Always-teardown via `bracket`. A typed `helm dependency build chart` step precedes live apply. Playwright drives the demo surface end-to-end against the real Envoy routes once panels consume fixture-backed or live-backed state. Six target cohorts:
+Per doctrine §Ephemeral-Cluster Infrastructure Tests, the `jitml-e2e` driver owns the target lifecycle of an **ephemeral** Kind stack — a distinct cluster name per run, brought up by `jitml bootstrap` (phased Helm rollout), exercised, then torn down by `jitml cluster down`. The e2e cluster is **distinct** from the developer's local bootstrap Kind: different lifetime; the e2e teardown never touches the dev cluster. Always-teardown via `bracket`. A typed `helm dependency build chart` step precedes live apply. Playwright drives the no-caveat demo surface end to end against the real Envoy routes. Target cohorts:
 
-1. **Training control.** Start a run from a committed Dhall, observe live metrics on `/api/ws`, pause, resume, stop, assert checkpoint flush.
-2. **MNIST handwriting.** Navigate to the MNIST panel, simulate a touchpad stroke for each of the 10 digits via Playwright's pointer events, assert predicted class matches in ≥ 9/10 strokes.
-3. **Image upload.** Upload three fixture images per dataset (CIFAR-10, CIFAR-100, Tiny ImageNet) via Playwright's `setInputFiles`, assert top-1 / top-5 inclusion.
-4. **Game-play.** Drive a full Connect 4 game where Playwright plays a fixed-seed opponent sequence against the AlphaZero policy at a pinned checkpoint, assert every engine reply is a legal move under `gameLegalMoves` for the current board and the game terminates within the rules (no committed move-sequence fixture — engine replies depend on substrate float behavior).
-5. **TensorBoard / Grafana navigation.** Assert iframes load and the checkpoint markers from [TensorBoard event storage / Cross-link to checkpoint manifests](#cross-link-to-checkpoint-manifests) appear.
-6. **Hyperparameter sweep.** Launch a small Sobol sweep from the UI, observe live Pareto-frontier updates, kill a trial, assert state propagates.
+1. **Workflow controls.** Start, pause, resume, stop, and inspect SL, RL, AlphaZero, and tuning runs from the UI; assert the command endpoint publishes the intended typed command and the run reaches the expected live state.
+2. **Supervised models.** For every supported SL catalog row, start or select a trained run, verify training metrics and checkpoint creation, then drive the appropriate inference interaction: digit drawing for MNIST, image upload for CIFAR/Tiny ImageNet, tensor/regression input for tabular and generic models.
+3. **RL workflows.** Start each supported RL algorithm on its canonical environment, observe real event frames, verify reward/episode metrics update, assert the canvas animation advances through non-identical frames, and scrub a recorded trajectory through replay controls.
+4. **Adversarial games.** Render Connect 4, Othello, Hex, and Gomoku boards; make legal human moves; assert engine replies are legal under the game rules; display MCTS visits/value/policy details; save and replay a transcript with step-forward, step-back, jump-to-start/end, and speed controls.
+5. **Checkpoint and observability navigation.** Assert TensorBoard/Grafana/MinIO-backed checkpoint links load, checkpoint markers from [TensorBoard event storage / Cross-link to checkpoint manifests](#cross-link-to-checkpoint-manifests) appear, and selecting a checkpoint updates the relevant inference/game/RL panel.
+6. **Hyperparameter sweep.** Launch a real sweep, observe live trial/frontier updates, kill or pause a trial, promote a best checkpoint, and assert resumed sweep state matches the canonical event log.
 
 ### Snapshot targets
 
@@ -2711,8 +2736,8 @@ jitML's long-term goal is a fully declarative, reproducible, deterministic ML ru
 - hosts the entire stable-baselines3 algorithm family — PPO, A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG, TD3, SAC, CrossQ, TQC, ARS, HER — plus AlphaZero-style self-play on perfect-information games (Connect 4 canonical);
 - offers hyperparameter optimisation across the sampler × scheduler × pruner axes — Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT × Fifo, SuccessiveHalving, Hyperband, ASHA × {none, median, percentile} pruners;
 - treats complex-valued networks as first-class citizens throughout the stack;
-- ships an interactive demo app that lets users start, pause, and stop training runs from the browser, draw handwritten digits on a touchpad for live MNIST inference, upload images for CIFAR/ImageNet recognition, and play Connect 4 (and the rest of the canonical adversarial games) against the AlphaZero policy at any committed checkpoint;
-- exercises every test category in [Test-suite stanzas](#test-suite-stanzas) — Pure Logic, Parser, Property, Snapshot (pure-renderer output only), Integration, Daemon Lifecycle, Ephemeral-Cluster Infrastructure — with target Playwright e2e covering every interactive panel above once live panel state exists.
+- ships an interactive demo app that lets users start, pause, and stop training runs from the browser, draw handwritten digits on a touchpad for live MNIST inference, upload images for CIFAR/ImageNet recognition, inspect RL animations and replay trajectories, and play every canonical adversarial game against the AlphaZero policy at any committed checkpoint;
+- exercises every test category in [Test-suite stanzas](#test-suite-stanzas) — Pure Logic, Parser, Property, Snapshot (pure-renderer output only), Integration, Daemon Lifecycle, Ephemeral-Cluster Infrastructure — with Playwright e2e covering every interactive workflow above before final handoff.
 
 ---
 

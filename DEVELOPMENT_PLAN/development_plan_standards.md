@@ -21,6 +21,9 @@
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
 [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
+[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
+[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
+[phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md),
 [../README.md](../README.md)
 **Generated sections**: none
@@ -172,7 +175,10 @@ DEVELOPMENT_PLAN/
 ├── phase-12-test-stanzas-and-cross-cluster.md
 ├── phase-13-linux-cuda-and-cluster-closure.md
 ├── phase-14-apple-silicon-closure.md
-└── phase-15-cross-substrate-and-handoff.md
+├── phase-15-cross-substrate-and-handoff.md
+├── phase-16-no-caveat-model-runtime.md
+├── phase-17-interactive-demo-and-playwright-closure.md
+└── phase-18-no-caveat-product-handoff.md
 ```
 
 No phase may be skipped. No sprint may exist in two phases. CLI-surface ownership,
@@ -181,10 +187,16 @@ ownership, daemon ownership, numerical-core ownership, per-substrate JIT-codegen
 ownership, SL/RL-framework ownership, RL-algorithm/AlphaZero/tuning ownership,
 checkpointing ownership, frontend ownership, test-stanza ownership,
 Linux-CUDA/cluster-closure ownership, Apple-Silicon-closure ownership, and
-cross-substrate-handoff ownership each live in one place only. Phases `13`–`15`
+cross-substrate-handoff ownership, no-caveat model-runtime closure ownership,
+interactive-demo/Playwright closure ownership, and no-caveat product-handoff
+ownership each live in one place only. Phases `13`–`15`
 extract every live-runtime obligation from Phases `7`–`12` and consolidate them by
 machine-affinity (Linux/NVIDIA, Apple Silicon, then cross-substrate) so each phase
-remains independently closeable on a single machine session.
+remains independently closeable on a single machine session. Phases `16`–`18`
+extend the original handoff after the 2026-06-14 no-caveat expansion: Phase `16`
+owns every remaining full-model runtime gap that is wider than a single earlier
+phase, Phase `17` owns the browser product surface plus Playwright assertions for
+that full runtime, and Phase `18` owns the final all-substrate no-caveat handoff.
 
 ### F. System Component Inventory
 

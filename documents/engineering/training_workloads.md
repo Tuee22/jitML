@@ -2,53 +2,55 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, checkpoint_format.md, numerical_core.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, checkpoint_format.md, numerical_core.md
 **Generated sections**: training.rl.catalog, training.tune.samplers, training.tune.schedulers, training.tune.pruners
 
 > **Purpose**: Project-specific training-workload doctrine for jitML — the
-> current local SL summaries, RL metadata/framework surfaces, AlphaZero Connect
-> 4 helpers, and hyperparameter tuning catalogs, plus the target daemon-backed
-> training/runtime surfaces that have not landed yet.
+> current local SL summaries, RL metadata/framework surfaces, AlphaZero game
+> helpers, and hyperparameter tuning catalogs, plus the reopened no-caveat
+> runtime target for real train/eval/rollout/self-play/tune/checkpoint/inference
+> workflows.
 
 ## SL Training Loops
 
 `src/JitML/SL/` owns the supervised-learning surface. The current worktree has
-the canonical problem catalog and Dense-MLP device-trainable cohort in
+the canonical problem catalog and all-row trainable product cohort in
 `src/JitML/SL/Canonicals.hs`, typed dataset references in
-`src/JitML/SL/Dataset.hs`, and the substrate-backed softmax classifier in
-`src/JitML/SL/Classifier.hs`.
+`src/JitML/SL/Dataset.hs`, the single-hidden-layer softmax primitive in
+`src/JitML/SL/Classifier.hs`, and the all-row substrate-backed architecture
+runtime in `src/JitML/SL/Architecture.hs`.
 
 - Current `Dataset.hs` renders pinned dataset object keys, maps them to bucket
   `jitml-datasets`, exposes `fetchDatasetRef` through the `HasMinIO`
   capability, and verifies fetched bytes against the pinned SHA-256. The
   filesystem-backed `HasMinIO` test covers the capability boundary; live
-  routed MinIO fetch from `jitml train` / `TrainingHandler` remains target
-  runtime work.
+  routed MinIO fetch exists for the current MNIST artifact path and expands to
+  every canonical dataset/model row under Sprint `8.12` / Phase `16`.
 
 ### Canonical SL Problems
 
-The catalog is the full target architecture set. The `Dense` rows
-(`mnist-shallow-mlp`, `fashion-mnist-mlp`, `california-housing-mlp`) form
-`JitML.SL.Canonicals.denseMlpCohort` — the subset the two-layer MLP JIT device
-kernel trains today (Sprint 8.10). The `DeepDense` / `Conv2D` / `ResidualBlock*`
-/ `WideResidualBlock` / `VisionTransformer` rows remain in the catalog as targets
-and become device-trainable when their per-architecture forward/backward JIT
-codegen lands. The former deterministic synthetic curve helpers were deleted;
-published training loss comes from the device measurement.
+The catalog is the full no-caveat architecture set. Sprint `8.12` adds
+`JitML.SL.Canonicals.trainableCanonicalCohort`, which covers all eleven product
+rows, and `JitML.SL.Architecture`, which maps those rows to trainable topologies
+backed by the selected substrate `MlpDevice`. `denseMlpCohort` survives only as
+a legacy compatibility helper for code that still names the older
+single-hidden-layer Dense subset explicitly. The former deterministic synthetic
+curve helpers were deleted; published training loss comes from live device
+measurements.
 
 | Current problem key | Owning module | Current validation |
 |---------------------|---------------|--------------------|
-| `mnist-shallow-mlp` | `src/JitML/SL/Canonicals.hs` | Dense-MLP device cohort; exercised by classifier and substrate-device convergence tests |
-| `mnist-deep-mlp` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending non-Dense forward/backward JIT codegen |
-| `mnist-lenet` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending Conv2D forward/backward JIT codegen |
-| `fashion-mnist-mlp` | `src/JitML/SL/Canonicals.hs` | Dense-MLP device cohort; exercised by classifier and substrate-device convergence tests |
-| `fashion-mnist-resnet` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending ResidualBlock forward/backward JIT codegen |
-| `cifar10-resnet20` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending ResidualBlock forward/backward JIT codegen |
-| `cifar10-resnet56` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending ResidualBlock forward/backward JIT codegen |
-| `cifar100-wide-resnet` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending wide-ResidualBlock forward/backward JIT codegen |
-| `cifar10-vit` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending VisionTransformer forward/backward JIT codegen |
-| `tiny-imagenet-resnet50` | `src/JitML/SL/Canonicals.hs` | Target catalog row pending ResidualBlock50 forward/backward JIT codegen |
-| `california-housing-mlp` | `src/JitML/SL/Canonicals.hs` | Dense-MLP device cohort; exercised by classifier and substrate-device convergence tests |
+| `mnist-shallow-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; exercised by classifier convergence and all-row substrate train-step tests |
+| `mnist-deep-mlp` | `src/JitML/SL/Architecture.hs` | DeepDense device stack; exercised by all-row substrate train-step tests |
+| `mnist-lenet` | `src/JitML/SL/Architecture.hs` | Patch-convolution stem plus classifier; exercised by all-row substrate train-step tests |
+| `fashion-mnist-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; train-step covered, train/test image+label SHA pins present, live staged-byte smoke passed, convergence pending |
+| `fashion-mnist-resnet` | `src/JitML/SL/Architecture.hs` | Residual device stack; train-step covered, train/test image+label SHA pins present, live staged-byte smoke passed, convergence pending |
+| `cifar10-resnet20` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | 20-block residual device stack; train-step covered, CIFAR-10 binary archive SHA pin and archive-backed parser coverage present, live staged-byte smoke passed, convergence pending |
+| `cifar10-resnet56` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | 56-block residual device stack; train-step covered, CIFAR-10 binary archive SHA pin and archive-backed parser coverage present, live staged-byte smoke passed, convergence pending |
+| `cifar100-wide-resnet` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Wide residual device stack; train-step covered, CIFAR-100 binary archive SHA pin and archive-backed parser coverage present, live staged-byte smoke passed, convergence pending |
+| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Patch embedding plus trainable Q/K/V attention; train-step covered, CIFAR-10 binary archive SHA pin and archive-backed parser coverage present, live staged-byte smoke passed, convergence pending |
+| `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | 50-block residual device stack; train-step covered, real archive SHA pin plus Zip64/JPEG tensor materialization present, live staged-byte smoke passed, convergence pending |
+| `california-housing-mlp` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs`, `src/JitML/SL/Regression.hs` | Dense device topology; train-step covered, real archive SHA pin, archive-backed regression-row parser, standardized device-backed MSE trainer, and live staged-byte smoke present; convergence/checkpoint/inference closure pending |
 
 Convergence is asserted statistically by `jitml-sl-canonicals`: the
 median over a fixed-seed pool clears a sanity threshold derived from
@@ -56,6 +58,17 @@ the problem's literature target at test time. No per-substrate `.txt`
 loss-curve fixtures are committed — see
 [unit_testing_policy.md → Snapshot Tests and the Prohibition on
 Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+The live MNIST convergence case decodes the staged train/test IDX blobs and,
+when a live publication exists, trains and evaluates through
+`JitML.SL.Architecture.trainArchitectureWithDevice` /
+`accuracyArchitectureWithDevice` on the selected `MlpDevice`; the linux-cpu
+gate uses 60 full-batch device epochs at `1.0e-2` and leaves the in-code
+threshold unchanged. The focused Sprint `8.12` live matrix now also fetches
+staged bytes for every canonical row from live MinIO, materializes bounded
+train/test examples, trains through the selected linux-cpu `MlpDevice`, and
+verifies finite train/eval metrics. Phase `16` strengthens that staged-byte
+smoke into median convergence, checkpoint reload, evaluation, and inference for
+every canonical SL row.
 
 ### `jitml train` CLI
 
@@ -70,16 +83,14 @@ is **substrate-backed and fails closed** (Sprint 8.10): `JitML.App.runTrain`
 delegates to `runDeviceMnistTraining`, which **requires** a live cluster
 publication and a staged canonical dataset and otherwise exits with
 `TrainingPrerequisiteUnmet` (exit 2) — printing and publishing nothing. There
-is no synthetic summary and no pure-Haskell fallback: the network trains
-through the resolved substrate's JIT-compiled `MlpDevice`
-(`JitML.SL.Classifier.trainClassifierWithDevice` — batched device forward +
-batched device gradient + host softmax cross-entropy + Adam), selected by
-`mlpDeviceForSubstrate`. The device-trainable cohort is
-`JitML.SL.Canonicals.denseMlpCohort` (single-hidden-layer Dense:
-`mnist-shallow-mlp`, `fashion-mnist-mlp`, `california-housing-mlp`); the
-`DeepDense` / `Conv2D` / `ResidualBlock*` / `VisionTransformer` catalog rows
-remain the target architecture set until their per-architecture
-forward/backward JIT codegen lands. `jitml eval --checkpoint <id>` loads the
+is no synthetic summary and no pure-Haskell fallback: the staged dataset bytes
+are decoded once through `JitML.SL.Classifier.decodeBoundedDataset`, the
+experiment Dhall is resolved to a canonical row through
+`JitML.SL.Canonicals.loadCanonicalProblemExperiment`, the row resolves to a
+`JitML.SL.Architecture.ArchitectureSpec`, and
+`JitML.SL.Architecture.trainArchitectureWithDevice` trains through the resolved
+substrate's JIT-compiled `MlpDevice`, selected by
+`mlpDeviceForSubstrate`. `jitml eval --checkpoint <id>` loads the
 named inference checkpoint's `.jmw1` weights and runs the substrate-bound
 weighted device forward; a missing pointer/manifest → `InferenceCheckpointMissing`.
 
@@ -91,23 +102,42 @@ variables: Phase `5` Sprint `5.7` retires the former `JITML_SL_TRAIN_LIMIT` /
 `JITML_SL_EPOCHS` / `JITML_SL_TEST_LIMIT` env IPC in favour of the typed
 `RunConfig` per the `Application Environment` doctrine (see
 [Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29)). The measured `train_acc` / `test_acc` are reported and the published
-`EpochCompleted` loss becomes the live measurement. Image + label blobs are
+`EpochCompleted` loss becomes the live measurement. The `jitml-sl-canonicals`
+live MNIST assertion exercises the same architecture/device runtime when the
+publication and staged bytes exist, so the test does not certify a separate
+Dense-only path. Image + label blobs are
 staged via `jitml internal upload-dataset --name MNIST --split <split>
 --artifact {images,labels} --path <gz>`, SHA-verified against
-`JitML.SL.Dataset.canonicalArtifactSha256For`. The operationally-heavy live
-full-MNIST statistical-convergence assertion remains Sprint 13.4
-Remaining Work. `src/JitML/Proto/Training.hs` defines the typed
+`JitML.SL.Dataset.canonicalArtifactSha256For`. Fashion-MNIST now has the same
+train/test image+label gzip SHA-pinned surface. CIFAR-10 and CIFAR-100 now use
+`ArchiveArtifact` pins for the canonical Toronto binary tarballs, staged with
+`--artifact archive`, and `JitML.SL.Classifier` parses extracted CIFAR binary
+batch payloads into 3072-feature labeled examples through the shared
+`JitML.SL.Archive` tar extractor. California Housing now uses an
+`ArchiveArtifact` pin for `cal_housing.tgz`, and `JitML.SL.Regression` parses
+`CaliforniaHousing/cal_housing.data` from the archive into eight-feature
+regression examples with the raw target value; the runtime standardizes feature
+columns and target values before training a one-output MSE regressor through the
+selected `MlpDevice`. Tiny ImageNet now uses `JuicyPixels` plus a narrow
+Zip64-aware central-directory reader to decode JPEG tensors from the pinned
+archive.
+`jitml train` routes staged CIFAR, Tiny ImageNet, and California archives
+through these archive-backed decoders before training. Phase `16` wires
+California checkpoint/inference plus a regression convergence gate, then
+promotes the current all-row staged-byte smoke into median convergence for every
+row before the all-row live convergence gate can close.
+`src/JitML/Proto/Training.hs` defines the typed
 `TrainingCommand` envelopes and deterministic text render/parse round-trips
 for `StartTraining` and `StopTraining`; `encodeTrainingCommandProto` and
 `decodeTrainingCommandProto` round-trip the current command oneof through
 proto3-compatible bytes via `JitML.Proto.Wire`. `encodeTrainingEventProto`
 and `decodeTrainingEventProto` round-trip the current `TrainingEvent` oneof,
 including checkpoint metric entries, through the same local wire helper.
-Generated cross-language proto-lens output remains target work. Target runtime work
-resolves and SHA-hashes the experiment Dhall,
-reconciles prerequisites, materializes the dataset, publishes `StartTraining`
-on `training.command.<mode>`, and consumes
-`training.event.<mode>` through the daemon.
+Generated cross-language proto-lens output remains target work. Sprint `8.12`
+/ Phase `16` extend the runtime to resolve and SHA-hash every supported
+experiment Dhall, reconcile prerequisites, materialize the dataset, publish
+`StartTraining` on `training.command.<mode>`, consume `training.event.<mode>`
+through the daemon, and persist checkpoints for every canonical model family.
 
 ## RL Framework Primitives
 
@@ -117,8 +147,9 @@ Machines`, the run lifecycle is the phase-indexed GADT
 phases are `RLCollect → RLComputeAdvantages → RLOptimise → RLEvaluate →
 RLCheckpoint`; `src/JitML/RL/Loop.hs` provides the deterministic local
 `RLLoop` / `runRLLoop` surface, including deterministic rollout transition
-capture into the local `ReplayBuffer`. The daemon-backed runtime target
-additionally brackets this with live load/ready/serve/drain states.
+capture into the local `ReplayBuffer`. The reopened no-caveat target brackets
+this with live load/ready/serve/drain states and trained-policy artifacts for
+every supported algorithm.
 
 Current local surfaces live in `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`, `src/JitML/RL/Framework.hs`, and
@@ -126,16 +157,20 @@ Current local surfaces live in `src/JitML/RL/Algorithms.hs`,
 traditional algorithm under `src/JitML/RL/Algorithms/` and the AlphaZero
 substack under `src/JitML/RL/AlphaZero/`. They provide deterministic catalog,
 environment, run-plan, lifecycle, policy, buffer, loop, per-algorithm module,
-canonical-game, MCTS, self-play, and arena helpers. Live environment stepping,
-network forward/backward passes, and daemon-backed persistence remain target
-runtime work.
+canonical-game, MCTS, self-play, and arena helpers. Current device-backed paths
+exist for the implemented workflow surface. Sprint `9.12` removes the
+reward-derived algorithm-level projection helpers from canonical validation and
+writes `.jmw1` checkpoints plus line-oriented replay artifacts from `jitml rl
+train` / `jitml rl rollout`; Phase `16` consumes those artifacts for the full
+product matrix: every algorithm trains, evaluates, rolls out, checkpoints, and
+provides browser replay/animation payloads.
 
 ### Algorithm Class Taxonomy (Type-Level)
 
 The current `AlgorithmFamily` metadata in `src/JitML/RL/Algorithms.hs`
 enumerates `OnPolicy`, `OffPolicy`, `Specialized`, and `SelfPlay`; the concrete
 per-algorithm modules are aggregated by
-`src/JitML/RL/Algorithms/Registry.hs`. Target runtime work grows this into a
+`src/JitML/RL/Algorithms/Registry.hs`. The no-caveat runtime grows this into a
 GADT-indexed `Algorithm` kind with traits:
 
 - `OnPolicy` / `OffPolicy` / `Hierarchical` / `Recurrent`
@@ -149,8 +184,9 @@ declarations.
 ### Policy and Environment
 
 - Current `Policy` carries typed policy metadata, parameter references, the
-  substrate binding, and the substrate-bound `KernelHandle` model id; target
-  runtime work loads and executes the referenced kernel.
+  substrate binding, and the substrate-bound `KernelHandle` model id; final
+  runtime work loads and executes the referenced checkpointed policy for every
+  algorithm-specific train/eval/rollout path.
 - Current `RLEnvironment` metadata plus `VecEnv` combinator cover local
   deterministic stepping for native simulators. Default examples and required
   canonical tests use copyright-free environments only; `KeyDoorGrid-v0` is the
@@ -178,9 +214,9 @@ declarations.
   deterministic sampling.
 - Current `AsyncBuffer` provides the bounded async write discipline and drain
   boundary.
-- Target work backs the async sink with live `HasMinIO` and adds the
+- Sprint `9.12` backs the async sink with live `HasMinIO` and adds the
   message-hash-deduplicated commit log so duplicates from the at-least-once
-  Pulsar consumer are absorbed.
+  Pulsar consumer are absorbed across all no-caveat RL workflows.
 
 ### Schedules, Distributions, Noise, Targets, GAE, Callbacks, Logger, Evaluator
 
@@ -194,8 +230,8 @@ declarations.
 | Callbacks | `src/JitML/RL/Framework.hs` metadata |
 | Evaluator | `src/JitML/RL/Framework.hs` metadata |
 
-Target runtime work splits these into dedicated modules and composes them into
-`RLLoop`.
+Sprint `9.12` splits these into dedicated modules where needed and composes
+them into the no-caveat `RLLoop` closure.
 
 ### `jitml rl train` CLI
 
@@ -221,9 +257,14 @@ deterministic text render/parse round-trips for `StartRLRun` and `StopRLRun`;
 `encodeRlCommandProto` and `decodeRlCommandProto` round-trip the current
 command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
 `encodeRlEventProto` and `decodeRlEventProto` round-trip the current
-`RlEvent` oneof through the same local wire helper. Generated cross-language
-proto-lens output remains target work. Target runtime work publishes
-`rl.command.<mode>` for the daemon's at-least-once `RlHandler`.
+`RlEvent` oneof, including `RlAnimationFrame` and `RlReplayFrame`, through the
+same local wire helper. `JitML.RL.SimulatorLoop` records per-step
+`SimulatedFrame` transitions from real environment dynamics, and the worker /
+host publishers project those frames into typed animation events on
+`rl.event.<mode>` when frames are available. Generated cross-language
+proto-lens output remains target work. The no-caveat runtime publishes
+`rl.command.<mode>` for the daemon's at-least-once `RlHandler` and requires the
+browser replay surface to consume the same typed animation/replay payloads.
 
 Placement is substrate-specific. Linux CPU/CUDA `rl.command.<mode>` messages may
 become Kubernetes Jobs because the target device runtime is present in the worker
@@ -286,8 +327,9 @@ stack. The traditional algorithms have concrete modules under
 aggregated by `Registry.algorithmModuleRegistry`. PPO/CartPole determinism
 is asserted by `jitml-rl-canonicals` as run-to-run equality on the same
 substrate and seed (two fresh runs compared against each other). Richer Dhall
-types at `dhall/rl/algos/<algo>.dhall` and real network/update logic remain
-target work. Per-algorithm trajectory `.txt` fixtures are explicitly
+types at `dhall/rl/algos/<algo>.dhall`, trained-policy checkpoint loading, and
+all-algorithm update/eval/rollout closure are Sprint `9.12` / Phase `16` work.
+Per-algorithm trajectory `.txt` fixtures are explicitly
 **not** committed — see [unit_testing_policy.md → Snapshot Tests and
 the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
@@ -304,7 +346,12 @@ state/move helpers for Connect 4, Othello, Hex, and Gomoku, deterministic
 transcript summaries, local game metadata, two-headed-network metadata,
 persistent MCTS transposition-table helpers, self-play buffer hashing,
 device-backed policy/value leaf evaluation, and arena-promotion measurement.
-Live checkpoint persistence remains target runtime work.
+Sprint `9.12` adds shared terminal/winner/draw evaluators for every canonical
+game and writes local `.jmw1` policy/value checkpoints from
+`jitml rl alphazero self-play` together with a content-addressed
+`alphazero-transcript` artifact carrying the sampled states, MCTS visit
+distributions, and outcome labels consumed by replay/inspection surfaces. Phase
+`16` / `17` still own full product-matrix consumption of those artifacts.
 
 | Component | Current / target |
 |-----------|------------------|
@@ -312,8 +359,8 @@ Live checkpoint persistence remains target runtime work.
 | Perfect-information game metadata | Current: `src/JitML/RL/AlphaZero.hs` |
 | Two-headed network metadata | Current: `src/JitML/RL/AlphaZero.hs` |
 | MCTS with PUCT and persistent tree state | Current recursive module: `src/JitML/RL/AlphaZero/Mcts.hs`; position-aware network prior/evaluator via `PolicyValueNet.netOracleFactory`; device-backed effectful leaf evaluation via `PolicyValueNet.netOracleFactoryWithDevice` / `mctsVisitDistributionWithDevice` |
-| Self-play loop and replay buffer | Current module: `src/JitML/RL/AlphaZero/SelfPlay.hs`; target live MinIO checkpoint persistence |
-| Arena gating | Current measured helper: `src/JitML/RL/AlphaZero/PolicyValueNet.hs` arena win-rate evaluation; the standalone `Arena` module is deleted |
+| Self-play loop and replay buffer | Current module: `src/JitML/RL/AlphaZero/SelfPlay.hs`; `jitml rl alphazero self-play` emits checkpoint keys plus an `alphazero-transcript` artifact; Phase `16` / `17` consume those artifacts across every game/browser workflow |
+| Arena gating | Current measured helper: `src/JitML/RL/AlphaZero/PolicyValueNet.hs` arena win-rate evaluation; terminal/winner/draw detection flows through `GameOutcome` for Connect 4, Othello, Hex, and Gomoku; the standalone `Arena` module is deleted |
 
 ### Persistent MCTS State
 
@@ -379,9 +426,10 @@ catalog below covers the full target sampler set, decodes that fixture into
 the local tuning ADT, and renders a deterministic `jitml tune` plan. Trial
 values are real local measured objectives (not LCG values). Live daemon-backed
 trial persistence/replay is validated on the Linux lanes; substrate-device-backed
-trial training is implemented by `deterministicTrialsWithDevice`, which trains
-each measured trial through the selected `MlpDevice` and returns a typed failure
-instead of falling back to a pure objective.
+trial training is implemented by `trialObjectiveResultWithDevice` /
+`deterministicTrialsWithDevice`, which train each measured trial through the
+selected `MlpDevice`, return checkpointable trained weights for promotion, and
+return a typed failure instead of falling back to a pure objective.
 `jitml-hyperparameter` consumes the `tune_trials` and
 `tune_budget_per_trial` report-card knobs from `cabal.project` for the local
 TPE trial-budget assertion.
@@ -461,8 +509,10 @@ The current local surface in `src/JitML/Tune/Catalog.hs` exposes
 `trialStorageKey`, `resumeMatchesFullRun`, and `renderTrialResumeSummary` for
 deterministic key and resume-equality checks. `src/JitML/Tune/Resume.hs`
 provides `persistTrialTranscript` and `replaySweep` over `HasMinIO`, validated
-against the filesystem-backed instance; live HTTP MinIO persistence remains
-target work. Sampler behaviour is exercised by `jitml-hyperparameter` as
+against the filesystem-backed instance; Sprint `9.12` / Phase `17` require live
+HTTP MinIO persistence, checkpoint promotion, and browser-visible sweep state
+for the no-caveat product workflow. Sampler behaviour is exercised by
+`jitml-hyperparameter` as
 properties (sampler state is a pure function of its seed and event log;
 two runs produce bit-identical trial-spec sequences; `replaySweep` over a
 recorded event log yields the same next-batch as the first-pass
@@ -479,9 +529,13 @@ jitml tune <tune-dhall>
 ```
 
 Current normal execution decodes the tuning Dhall, renders the selected
-sampler/scheduler/pruner axes, and prints deterministic local trial values.
-Target runtime work publishes `tune.command.<mode>` for the daemon's
-at-least-once `TuneHandler`; the current proto mirror covers local text command
+sampler/scheduler/pruner axes, and executes measured trial objectives through
+the selected device path where available. Sprint `9.12` writes the best local
+trial's trained weights as a `.jmw1` checkpoint, emits a `tune-trials` artifact,
+and promotes daemon-dispatched trial weights into `jitml-checkpoints` alongside
+the `jitml-trials` transcript. Phase `17` publishes browser sweep
+controls/frontier state over the daemon's at-least-once `TuneHandler`. The
+current proto mirror covers local text command
 envelopes plus proto3-compatible byte envelopes for the command and event
 oneofs.
 
@@ -516,3 +570,5 @@ example](../../README.md#concrete-some-tuning--example).
 - [daemon_architecture.md](daemon_architecture.md)
 - [../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md](../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md)
 - [../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md](../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md)
+- [../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md)
+- [../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md)

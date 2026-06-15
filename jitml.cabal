@@ -204,10 +204,14 @@ library
         JitML.Service.Signal
         JitML.Service.WebSocket
         JitML.Service.Workload
+        JitML.SL.Archive
+        JitML.SL.Architecture
         JitML.SL.Canonicals
         JitML.SL.Classifier
         JitML.SL.ConvergenceThresholds
         JitML.SL.Dataset
+        JitML.SL.Regression
+        JitML.SL.TinyImageNet
         JitML.Storage.Buckets
         JitML.Sub.Render
         JitML.Sub.Stream
@@ -270,7 +274,9 @@ library
         time,
         unix,
         vector,
-        zlib
+        zlib,
+        JuicyPixels,
+        zip-archive
 
     if flag(cuda)
         cpp-options:     -DJITML_CUDA_BINDINGS=1
@@ -360,7 +366,9 @@ test-suite jitml-sl-canonicals
         temporary,
         text,
         vector,
-        zlib
+        zlib,
+        JuicyPixels,
+        zip-archive
 
 test-suite jitml-rl-canonicals
     type:             exitcode-stdio-1.0
@@ -371,6 +379,7 @@ test-suite jitml-rl-canonicals
     build-depends:
         base >=4.21 && <4.22,
         jitml,
+        random,
         text,
         tasty,
         tasty-hunit,

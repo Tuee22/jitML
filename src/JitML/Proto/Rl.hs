@@ -5,8 +5,10 @@ module JitML.Proto.Rl
   , EpisodeDone (..)
   , EvalDone (..)
   , MetricUpdate (..)
+  , RlAnimationFrame (..)
   , RlCommand (..)
   , RlEvent (..)
+  , RlReplayFrame (..)
   , StartRLRun (..)
   , StopRLRun (..)
   , decodeRlCommandProto
@@ -14,6 +16,7 @@ module JitML.Proto.Rl
   , encodeRlCommandProto
   , encodeRlEventProto
   , parseRlCommand
+  , parseRlEvent
   , renderRlCommand
   , renderRlEvent
   , rlCommandTopic
@@ -35,11 +38,13 @@ import JitML.Proto.Wire
   , encodeMessage
   , fieldBool
   , fieldDouble
+  , fieldDoubles
   , fieldMessage
   , fieldString
   , fieldWord32
   , fieldWord64
   , messageField
+  , packedDoubleField
   , stringField
   , uint32Field
   , uint64Field
@@ -97,6 +102,39 @@ data MetricUpdate = MetricUpdate
   }
   deriving stock (Eq, Show)
 
+data RlAnimationFrame = RlAnimationFrame
+  { rafExperimentHash :: Text
+  , rafEnvironment :: Text
+  , rafEpisode :: Word32
+  , rafStep :: Word32
+  , rafReward :: Double
+  , rafDone :: Bool
+  , rafAction :: Word32
+  , rafObservation :: [Double]
+  , rafActionProbabilities :: [Double]
+  , rafObservationHash :: Word32
+  , rafReplayCursor :: Word64
+  , rafTimestampNs :: Word64
+  }
+  deriving stock (Eq, Show)
+
+data RlReplayFrame = RlReplayFrame
+  { rrfExperimentHash :: Text
+  , rrfReplayId :: Text
+  , rrfEnvironment :: Text
+  , rrfEpisode :: Word32
+  , rrfStep :: Word32
+  , rrfAction :: Word32
+  , rrfReward :: Double
+  , rrfDone :: Bool
+  , rrfObservation :: [Double]
+  , rrfNextObservation :: [Double]
+  , rrfPolicyVersion :: Word64
+  , rrfObservationHash :: Word32
+  , rrfTimestampNs :: Word64
+  }
+  deriving stock (Eq, Show)
+
 data RlCommand
   = RlStart StartRLRun
   | RlStop StopRLRun
@@ -107,6 +145,8 @@ data RlEvent
   | RlEval EvalDone
   | RlCheckpoint CheckpointDoneRL
   | RlMetric MetricUpdate
+  | RlAnimation RlAnimationFrame
+  | RlReplay RlReplayFrame
   deriving stock (Eq, Show)
 
 rlCommandTopic :: Substrate -> Text
@@ -189,6 +229,10 @@ encodeRlEventProto event =
       encodeMessage [messageField 3 (encodeCheckpointDoneRLProto checkpoint)]
     RlMetric metric ->
       encodeMessage [messageField 4 (encodeMetricUpdateProto metric)]
+    RlAnimation frame ->
+      encodeMessage [messageField 5 (encodeRlAnimationFrameProto frame)]
+    RlReplay frame ->
+      encodeMessage [messageField 6 (encodeRlReplayFrameProto frame)]
 
 decodeRlEventProto :: ByteString -> Either Text RlEvent
 decodeRlEventProto bytes = do
@@ -198,16 +242,22 @@ decodeRlEventProto bytes = do
         , fieldMessage 2 fields
         , fieldMessage 3 fields
         , fieldMessage 4 fields
+        , fieldMessage 5 fields
+        , fieldMessage 6 fields
         )
   case body of
-    (Just episodeBytes, Nothing, Nothing, Nothing) ->
+    (Just episodeBytes, Nothing, Nothing, Nothing, Nothing, Nothing) ->
       RlEpisode <$> decodeEpisodeDoneProto episodeBytes
-    (Nothing, Just evalBytes, Nothing, Nothing) ->
+    (Nothing, Just evalBytes, Nothing, Nothing, Nothing, Nothing) ->
       RlEval <$> decodeEvalDoneProto evalBytes
-    (Nothing, Nothing, Just checkpointBytes, Nothing) ->
+    (Nothing, Nothing, Just checkpointBytes, Nothing, Nothing, Nothing) ->
       RlCheckpoint <$> decodeCheckpointDoneRLProto checkpointBytes
-    (Nothing, Nothing, Nothing, Just metricBytes) ->
+    (Nothing, Nothing, Nothing, Just metricBytes, Nothing, Nothing) ->
       RlMetric <$> decodeMetricUpdateProto metricBytes
+    (Nothing, Nothing, Nothing, Nothing, Just frameBytes, Nothing) ->
+      RlAnimation <$> decodeRlAnimationFrameProto frameBytes
+    (Nothing, Nothing, Nothing, Nothing, Nothing, Just frameBytes) ->
+      RlReplay <$> decodeRlReplayFrameProto frameBytes
     _ -> Left "expected exactly one RlEvent oneof field"
 
 renderRlEvent :: RlEvent -> Text
@@ -220,6 +270,7 @@ renderRlEvent envelope =
         , "episode: " <> Text.pack (show (edEpisode e))
         , "reward: " <> Text.pack (show (edReward e))
         , "steps: " <> Text.pack (show (edSteps e))
+        , "timestamp-ns: " <> Text.pack (show (edTimestampNs e))
         ]
     RlEval e ->
       Text.unlines
@@ -228,6 +279,7 @@ renderRlEvent envelope =
         , "epoch: " <> Text.pack (show (evEpoch e))
         , "avg-reward: " <> Text.pack (show (evAvgReward e))
         , "std-reward: " <> Text.pack (show (evStdReward e))
+        , "timestamp-ns: " <> Text.pack (show (evTimestampNs e))
         ]
     RlCheckpoint c ->
       Text.unlines
@@ -243,7 +295,115 @@ renderRlEvent envelope =
         , "experiment-hash: " <> muExperimentHash m
         , "name: " <> muName m
         , "value: " <> Text.pack (show (muValue m))
+        , "timestamp-ns: " <> Text.pack (show (muTimestampNs m))
         ]
+    RlAnimation f ->
+      Text.unlines
+        [ "kind: RlAnimationFrame"
+        , "experiment-hash: " <> rafExperimentHash f
+        , "environment: " <> rafEnvironment f
+        , "episode: " <> Text.pack (show (rafEpisode f))
+        , "step: " <> Text.pack (show (rafStep f))
+        , "reward: " <> Text.pack (show (rafReward f))
+        , "done: " <> Text.pack (show (rafDone f))
+        , "action: " <> Text.pack (show (rafAction f))
+        , "observation: " <> renderDoubleList (rafObservation f)
+        , "action-probabilities: " <> renderDoubleList (rafActionProbabilities f)
+        , "observation-hash: " <> Text.pack (show (rafObservationHash f))
+        , "replay-cursor: " <> Text.pack (show (rafReplayCursor f))
+        , "timestamp-ns: " <> Text.pack (show (rafTimestampNs f))
+        ]
+    RlReplay f ->
+      Text.unlines
+        [ "kind: RlReplayFrame"
+        , "experiment-hash: " <> rrfExperimentHash f
+        , "replay-id: " <> rrfReplayId f
+        , "environment: " <> rrfEnvironment f
+        , "episode: " <> Text.pack (show (rrfEpisode f))
+        , "step: " <> Text.pack (show (rrfStep f))
+        , "action: " <> Text.pack (show (rrfAction f))
+        , "reward: " <> Text.pack (show (rrfReward f))
+        , "done: " <> Text.pack (show (rrfDone f))
+        , "observation: " <> renderDoubleList (rrfObservation f)
+        , "next-observation: " <> renderDoubleList (rrfNextObservation f)
+        , "policy-version: " <> Text.pack (show (rrfPolicyVersion f))
+        , "observation-hash: " <> Text.pack (show (rrfObservationHash f))
+        , "timestamp-ns: " <> Text.pack (show (rrfTimestampNs f))
+        ]
+
+parseRlEvent :: Text -> Maybe RlEvent
+parseRlEvent payload =
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+   in case value "kind" of
+        Just "EpisodeDone" ->
+          RlEpisode
+            <$> ( EpisodeDone
+                    <$> value "experiment-hash"
+                    <*> (value "episode" >>= readText)
+                    <*> (value "reward" >>= readText)
+                    <*> (value "steps" >>= readText)
+                    <*> (value "timestamp-ns" >>= readText)
+                )
+        Just "EvalDone" ->
+          RlEval
+            <$> ( EvalDone
+                    <$> value "experiment-hash"
+                    <*> (value "epoch" >>= readText)
+                    <*> (value "avg-reward" >>= readText)
+                    <*> (value "std-reward" >>= readText)
+                    <*> (value "timestamp-ns" >>= readText)
+                )
+        Just "CheckpointDoneRL" ->
+          RlCheckpoint
+            <$> ( CheckpointDoneRL
+                    <$> value "experiment-hash"
+                    <*> value "manifest-sha"
+                    <*> (value "step" >>= readText)
+                    <*> value "pointer-key"
+                )
+        Just "MetricUpdate" ->
+          RlMetric
+            <$> ( MetricUpdate
+                    <$> value "experiment-hash"
+                    <*> value "name"
+                    <*> (value "value" >>= readText)
+                    <*> (value "timestamp-ns" >>= readText)
+                )
+        Just "RlAnimationFrame" ->
+          RlAnimation
+            <$> ( RlAnimationFrame
+                    <$> value "experiment-hash"
+                    <*> value "environment"
+                    <*> (value "episode" >>= readText)
+                    <*> (value "step" >>= readText)
+                    <*> (value "reward" >>= readText)
+                    <*> (value "done" >>= readText)
+                    <*> (value "action" >>= readText)
+                    <*> (value "observation" >>= parseDoubleList)
+                    <*> (value "action-probabilities" >>= parseDoubleList)
+                    <*> (value "observation-hash" >>= readText)
+                    <*> (value "replay-cursor" >>= readText)
+                    <*> (value "timestamp-ns" >>= readText)
+                )
+        Just "RlReplayFrame" ->
+          RlReplay
+            <$> ( RlReplayFrame
+                    <$> value "experiment-hash"
+                    <*> value "replay-id"
+                    <*> value "environment"
+                    <*> (value "episode" >>= readText)
+                    <*> (value "step" >>= readText)
+                    <*> (value "action" >>= readText)
+                    <*> (value "reward" >>= readText)
+                    <*> (value "done" >>= readText)
+                    <*> (value "observation" >>= parseDoubleList)
+                    <*> (value "next-observation" >>= parseDoubleList)
+                    <*> (value "policy-version" >>= readText)
+                    <*> (value "observation-hash" >>= readText)
+                    <*> (value "timestamp-ns" >>= readText)
+                )
+        _ -> Nothing
 
 parseField :: Text -> Maybe (Text, Text)
 parseField line =
@@ -255,6 +415,15 @@ parseField line =
 readText :: (Read a) => Text -> Maybe a
 readText =
   readMaybe . Text.unpack
+
+renderDoubleList :: [Double] -> Text
+renderDoubleList =
+  Text.intercalate "," . fmap (Text.pack . show)
+
+parseDoubleList :: Text -> Maybe [Double]
+parseDoubleList raw
+  | Text.null (Text.strip raw) = Just []
+  | otherwise = traverse readText (Text.splitOn "," raw)
 
 encodeStartRLRunProto :: StartRLRun -> ByteString
 encodeStartRLRunProto start =
@@ -371,6 +540,76 @@ decodeMetricUpdateProto bytes = do
     <*> require "name" (fieldString 2 fields)
     <*> require "value" (fieldDouble 3 fields)
     <*> require "timestamp_ns" (fieldWord64 4 fields)
+
+encodeRlAnimationFrameProto :: RlAnimationFrame -> ByteString
+encodeRlAnimationFrameProto frame =
+  encodeMessage
+    [ stringField 1 (rafExperimentHash frame)
+    , stringField 2 (rafEnvironment frame)
+    , uint32Field 3 (rafEpisode frame)
+    , uint32Field 4 (rafStep frame)
+    , doubleField 5 (rafReward frame)
+    , boolField 6 (rafDone frame)
+    , uint32Field 7 (rafAction frame)
+    , packedDoubleField 8 (rafObservation frame)
+    , packedDoubleField 9 (rafActionProbabilities frame)
+    , uint32Field 10 (rafObservationHash frame)
+    , uint64Field 11 (rafReplayCursor frame)
+    , uint64Field 12 (rafTimestampNs frame)
+    ]
+
+decodeRlAnimationFrameProto :: ByteString -> Either Text RlAnimationFrame
+decodeRlAnimationFrameProto bytes = do
+  fields <- decodeMessage bytes
+  RlAnimationFrame
+    <$> require "experiment_hash" (fieldString 1 fields)
+    <*> require "environment" (fieldString 2 fields)
+    <*> require "episode" (fieldWord32 3 fields)
+    <*> require "step" (fieldWord32 4 fields)
+    <*> require "reward" (fieldDouble 5 fields)
+    <*> require "done" (fieldBool 6 fields)
+    <*> require "action" (fieldWord32 7 fields)
+    <*> require "observation" (fieldDoubles 8 fields)
+    <*> require "action_probabilities" (fieldDoubles 9 fields)
+    <*> require "observation_hash" (fieldWord32 10 fields)
+    <*> require "replay_cursor" (fieldWord64 11 fields)
+    <*> require "timestamp_ns" (fieldWord64 12 fields)
+
+encodeRlReplayFrameProto :: RlReplayFrame -> ByteString
+encodeRlReplayFrameProto frame =
+  encodeMessage
+    [ stringField 1 (rrfExperimentHash frame)
+    , stringField 2 (rrfReplayId frame)
+    , stringField 3 (rrfEnvironment frame)
+    , uint32Field 4 (rrfEpisode frame)
+    , uint32Field 5 (rrfStep frame)
+    , uint32Field 6 (rrfAction frame)
+    , doubleField 7 (rrfReward frame)
+    , boolField 8 (rrfDone frame)
+    , packedDoubleField 9 (rrfObservation frame)
+    , packedDoubleField 10 (rrfNextObservation frame)
+    , uint64Field 11 (rrfPolicyVersion frame)
+    , uint32Field 12 (rrfObservationHash frame)
+    , uint64Field 13 (rrfTimestampNs frame)
+    ]
+
+decodeRlReplayFrameProto :: ByteString -> Either Text RlReplayFrame
+decodeRlReplayFrameProto bytes = do
+  fields <- decodeMessage bytes
+  RlReplayFrame
+    <$> require "experiment_hash" (fieldString 1 fields)
+    <*> require "replay_id" (fieldString 2 fields)
+    <*> require "environment" (fieldString 3 fields)
+    <*> require "episode" (fieldWord32 4 fields)
+    <*> require "step" (fieldWord32 5 fields)
+    <*> require "action" (fieldWord32 6 fields)
+    <*> require "reward" (fieldDouble 7 fields)
+    <*> require "done" (fieldBool 8 fields)
+    <*> require "observation" (fieldDoubles 9 fields)
+    <*> require "next_observation" (fieldDoubles 10 fields)
+    <*> require "policy_version" (fieldWord64 11 fields)
+    <*> require "observation_hash" (fieldWord32 12 fields)
+    <*> require "timestamp_ns" (fieldWord64 13 fields)
 
 require :: Text -> Maybe a -> Either Text a
 require fieldName =

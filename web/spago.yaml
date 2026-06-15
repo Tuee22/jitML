@@ -9,6 +9,7 @@ package:
     - halogen
     - halogen-vdom
     - maybe
+    - numbers
     - prelude
     - tuples
     - web-html

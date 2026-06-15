@@ -51,19 +51,21 @@ data DatasetSplit
   | TestSplit
   deriving stock (Eq, Show)
 
--- | Sprint 13.4 — which on-disk artefact of a dataset split is being
--- addressed. Image-classification datasets ship two canonical blobs per
+-- | Which on-disk artefact of a dataset split is being addressed.
+-- IDX-style image-classification datasets ship two canonical blobs per
 -- split: the IDX3 feature images (@data.bin@) and the IDX1 integer labels
--- (@labels.bin@). The SL training loop fetches both to assemble labeled
--- examples; the upload command stages each independently.
+-- (@labels.bin@). Tarball-based datasets use 'ArchiveArtifact', which stages
+-- the upstream archive without pretending it has IDX-style image/label files.
 data DatasetArtifact
   = ImagesArtifact
   | LabelsArtifact
+  | ArchiveArtifact
   deriving stock (Eq, Show)
 
 datasetArtifactText :: DatasetArtifact -> Text
 datasetArtifactText ImagesArtifact = "images"
 datasetArtifactText LabelsArtifact = "labels"
+datasetArtifactText ArchiveArtifact = "archive"
 
 -- | The MinIO object filename for an artefact within a split prefix.
 -- Images land at @data.bin@ (the pre-Sprint-13.4 convention); labels land
@@ -71,6 +73,7 @@ datasetArtifactText LabelsArtifact = "labels"
 datasetArtifactFileName :: DatasetArtifact -> Text
 datasetArtifactFileName ImagesArtifact = "data.bin"
 datasetArtifactFileName LabelsArtifact = "labels.bin"
+datasetArtifactFileName ArchiveArtifact = "archive.tar.gz"
 
 data DatasetRef = DatasetRef
   { datasetName :: Text
@@ -163,11 +166,12 @@ canonicalDatasets =
 canonicalSha256For :: Text -> DatasetSplit -> Maybe Text
 canonicalSha256For name split = canonicalArtifactSha256For name split ImagesArtifact
 
--- | Sprint 13.4 — canonical SHA-256 for a specific (dataset, split,
--- artefact) triple. The hashes are pinned to the canonical
--- gzip-compressed upstream blobs (the form distributed by the CVDF MNIST
--- mirror and the form `jitml internal upload-dataset` stages into MinIO);
--- the SL training loop gunzips on fetch before IDX parsing. Returns
+-- | Sprint 13.4 / 8.12 — canonical SHA-256 for a specific (dataset,
+-- split, artefact) triple. MNIST/Fashion-MNIST hashes are pinned to the
+-- canonical gzip-compressed upstream IDX blobs (the form
+-- `jitml internal upload-dataset` stages into MinIO); the SL training loop
+-- gunzips on fetch before IDX parsing. CIFAR hashes are pinned to the
+-- canonical Toronto binary tarballs and use 'ArchiveArtifact'. Returns
 -- 'Nothing' for triples without a published canonical hash yet.
 canonicalArtifactSha256For :: Text -> DatasetSplit -> DatasetArtifact -> Maybe Text
 canonicalArtifactSha256For "MNIST" TrainSplit ImagesArtifact =
@@ -182,6 +186,30 @@ canonicalArtifactSha256For "MNIST" TrainSplit LabelsArtifact =
 canonicalArtifactSha256For "MNIST" TestSplit LabelsArtifact =
   -- t10k-labels-idx1-ubyte.gz (10000 labels)
   Just "f7ae60f92e00ec6debd23a6088c31dbd2371eca3ffa0defaefb259924204aec6"
+canonicalArtifactSha256For "Fashion-MNIST" TrainSplit ImagesArtifact =
+  -- train-images-idx3-ubyte.gz (60000 × 28×28 images)
+  Just "3aede38d61863908ad78613f6a32ed271626dd12800ba2636569512369268a84"
+canonicalArtifactSha256For "Fashion-MNIST" TestSplit ImagesArtifact =
+  -- t10k-images-idx3-ubyte.gz (10000 × 28×28 images)
+  Just "346e55b948d973a97e58d2351dde16a484bd415d4595297633bb08f03db6a073"
+canonicalArtifactSha256For "Fashion-MNIST" TrainSplit LabelsArtifact =
+  -- train-labels-idx1-ubyte.gz (60000 labels)
+  Just "a04f17134ac03560a47e3764e11b92fc97de4d1bfaf8ba1a3aa29af54cc90845"
+canonicalArtifactSha256For "Fashion-MNIST" TestSplit LabelsArtifact =
+  -- t10k-labels-idx1-ubyte.gz (10000 labels)
+  Just "67da17c76eaffca5446c3361aaab5c3cd6d1c2608764d35dfb1850b086bf8dd5"
+canonicalArtifactSha256For "CIFAR-10" TrainSplit ArchiveArtifact =
+  -- cifar-10-binary.tar.gz from https://www.cs.toronto.edu/~kriz/
+  Just "c4a38c50a1bc5f3a1c5537f2155ab9d68f9f25eb1ed8d9ddda3db29a59bca1dd"
+canonicalArtifactSha256For "CIFAR-100" TrainSplit ArchiveArtifact =
+  -- cifar-100-binary.tar.gz from https://www.cs.toronto.edu/~kriz/
+  Just "58a81ae192c23a4be8b1804d68e518ed807d710a4eb253b1f2a199162a40d8ec"
+canonicalArtifactSha256For "California Housing" TrainSplit ArchiveArtifact =
+  -- cal_housing.tgz from scikit-learn's Figshare source
+  Just "aaa5c9a6afe2225cc2aed2723682ae403280c4a3695a2ddda4ffb5d8215ea681"
+canonicalArtifactSha256For "Tiny ImageNet" TrainSplit ArchiveArtifact =
+  -- tiny-imagenet-200.zip from http://cs231n.stanford.edu/
+  Just "6198c8ae015e2b3e007c7841da39ec069199b9aa3bfa943a462022fe5e43c821"
 canonicalArtifactSha256For _ _ _ = Nothing
 
 datasetForProblem :: CanonicalProblem -> Maybe DatasetRef

@@ -9,6 +9,7 @@
 [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
+[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -21,7 +22,14 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-11 after Sprint `11.8`). The demo HTTP endpoints
+🔄 **Active** (reopened 2026-06-14 — no-caveat interactive product target).
+Sprint `11.9` expands this phase from panel reachability and a small real-REST
+slice into the full browser lab: generated typed payload codecs, workflow
+controls, checkpoint-backed model interactions, real visualizations, RL
+animations, adversarial-game rendering, and interactive replay. The earlier
+live REST value assertions remain historical evidence only.
+
+✅ **Historical closure** (re-closed 2026-06-11 after Sprint `11.8`). The demo HTTP endpoints
 run real computation, and the PureScript panels issue real HTTP / WebSocket
 calls through typed actions: `Web.Server` `/api/inference` runs the real
 policy/value network forward, `/api/connect4/move` runs the real MCTS tree
@@ -433,10 +441,11 @@ Land the Playwright scaffold for the future interactive panel suite.
   training, and tuning panel flows once those panels and the HTTP server land.
 - The current `jitml-e2e` stanza validates the typed Playwright plan; live
   Playwright execution is target work on the explicit e2e orchestration path.
-- Playwright execution stays out of the default local Cabal matrix until the
-  panels consume fixture-backed or live-backed state through `jitml-demo`;
-  static scaffold assertions remain covered by the current Haskell e2e and
-  PureScript lint targets.
+- Historical scaffold note: Playwright execution originally stayed out of the
+  default local Cabal matrix until panels consumed live-backed state through
+  `jitml-demo`; Sprint `12.13` / Phase `17` supersede that with the explicit
+  live no-caveat product matrix. Static scaffold assertions remain covered by
+  the current Haskell e2e and PureScript lint targets.
 
 ### Validation
 
@@ -608,6 +617,63 @@ run passed **9 / 9** against the published `linux-cuda` edge route, and
 - None. Apple Silicon can re-run the same live Playwright suite under Phase `14`
   once Sprint `14.8` is on an Apple host; no Phase `11` code-surface obligation
   remains.
+
+## Sprint 11.9: Full Interactive Demo Surface 🔄
+
+**Status**: Active
+**Implementation**: `src/JitML/Web/Contracts.hs`, `src/JitML/Web/Server.hs`,
+`src/JitML/Web/Bundle.hs`, `web/src/Panels/*`, `web/src/PanelRegistry.purs`,
+`playwright/jitml-demo.spec.ts`
+**Docs to update**: `documents/engineering/purescript_frontend.md`,
+`documents/engineering/training_workloads.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make the PureScript app a complete interactive frontend for every supported
+runtime workflow, with no demo-only parsing or visualization stand-ins.
+
+### Deliverables
+
+- `Web.Contracts` defines generated ADTs/codecs for training, RL, tuning,
+  checkpoint browse, inference, image upload, adversarial move, replay, and live
+  event payloads. Panels stop parsing text markers such as `prediction:` or any
+  `data:` frame into hardcoded values.
+- `/api/runs/<run-id>/command` and the panel controls publish typed
+  `training.command.<substrate>`, `rl.command.<substrate>`, and
+  `tune.command.<substrate>` envelopes for start/pause/resume/stop/kill/promote.
+- MNIST, CIFAR/Tiny ImageNet, generic tensor inference, and checkpoint compare
+  panels call checkpoint-backed inference endpoints and render real
+  distributions/outputs.
+- Training visualizations draw loss/validation curves, throughput, device
+  telemetry, checkpoint markers, and TensorBoard links from typed live events.
+- RL visualizations animate environment frames, reward distributions, policy
+  probabilities, replay-buffer fill, and trajectory scrub/replay from persisted
+  artifacts.
+- Adversarial game panels render Connect 4, Othello, Hex, and Gomoku boards,
+  legal moves, MCTS visit distributions, value estimates, engine analysis, and
+  interactive replay from recorded game transcripts.
+- Tuning visualizations render frontier, trial heatmap, sampler/scheduler/pruner
+  state, PBT lineage, trial drill-down, kill/promote controls, and promoted
+  checkpoint status.
+
+### Validation
+
+- `docker compose run --rm jitml jitml lint purescript`
+- `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
+- `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda`
+- `jitml test jitml-e2e --apple-silicon`
+- `docker compose run --rm jitml jitml docs check`
+
+### Remaining Work
+
+- Replace all text-marker response parsers and zero/default stream parsers with
+  generated typed decoders.
+- Replace placeholder canvases and text-only tables with drawn charts,
+  animations, boards, and replay controls.
+- Replace inline demo networks with checkpoint-backed runtime endpoints.
+- Add full workflow controls and status handling for training, RL, tuning, and
+  adversarial self-play.
 
 ## Doctrine Sections Cited
 

@@ -2375,8 +2375,8 @@ main =
                 @?= "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
           ]
       , -- Sprint 13.8 — PPO real-loss math (clipped surrogate, value
-        -- loss, GAE, KL early stop). The other 13 algorithms keep the
-        -- deterministic-stub rollout until their loss modules land.
+        -- loss, GAE, KL early stop). Catalog-level loss validation now
+        -- feeds trained-network inputs from real simulator rollouts.
         testGroup
           "PPO loss math (Sprint 13.8)"
           [ testCase "clippedSurrogateLoss returns 0 on empty batch" $

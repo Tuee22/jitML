@@ -8,6 +8,7 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
+[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -20,7 +21,25 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-11 — real-workflow refactor). The catalog,
+⏸️ **Blocked** (reopened 2026-06-14 — no-caveat RL/AlphaZero/tuning
+target; Sprint `9.12` code surface complete, linux-cpu and apple-silicon
+validated).
+**Blocked by**: a Linux CUDA validation host with NVIDIA Container Runtime/GPU
+visibility available to Docker. On the current host,
+`docker compose run --rm jitml-cuda jitml test ... --linux-cuda` fails before
+test execution with `could not select device driver "" with capabilities:
+[[gpu]]`.
+Sprint `9.12` expands the closure bar from "real device-backed paths exist" to
+"every advertised algorithm/game/tuning workflow trains, evaluates, replays,
+visualizes, and checkpoints through the production runtime." The current
+worktree has removed the reward-derived algorithm-level projection helpers and
+the AlphaZero placeholder terminal evaluator. `jitml rl train`, `jitml rl
+rollout`, `jitml rl alphazero self-play`, and `jitml tune` now emit
+checkpoint/replay/transcript/trial artifact keys for the command paths that
+Phases `16` and `17` consume in the product matrix. Remaining Phase `9` work is
+the blocked Linux CUDA validation pair named in Sprint `9.12`.
+
+✅ **Historical closure** (re-closed 2026-06-11 — real-workflow refactor). The catalog,
 AlphaZero substack, and tuning surfaces shipped with synthetic/echo stand-ins:
 `jitml rl eval` echoed the checkpoint label, `jitml rl rollout` returned an LCG
 integer sequence, AlphaZero MCTS was a one-ply bandit, and tuning trials used
@@ -553,8 +572,8 @@ summary.
   and `PBT`.
 - `Scheduler` enumerates `Fifo`, `SuccessiveHalving`, `Hyperband`, and `ASHA`.
 - `Pruner` enumerates `NoPruner`, `MedianPruner`, and `PercentilePruner`.
-- `deterministicTrials` emits normalized deterministic trial values for the
-  current sampler set; sampler outputs are exercised by run-to-run
+- `deterministicTrials` emits real measured train-accuracy trial values for
+  the current sampler set; sampler outputs are exercised by run-to-run
   equality and sampler-state-purity property tests, not by committed
   trial-value files (per [../README.md → Snapshot targets →
   Numerical-fixture prohibition](../README.md#snapshot-targets)).
@@ -857,15 +876,21 @@ tautology with a genuine resume-equality check. Owns the tuning slice of
 
 Landed and validated (2026-06-10):
 
-- `Tune.deterministicTrials` now returns __real measured objectives__
-  (`trialObjective`): each trial samples a hyperparameter configuration, trains
-  the reference classifier on a fixed separable dataset, and returns the
-  normalised cross-entropy loss in `[0, 1)`. No LCG-derived trial value remains.
+- `Tune.deterministicTrials` now returns __real measured objectives__:
+  each trial samples a hyperparameter configuration, trains the reference
+  classifier on a fixed separable dataset, and returns train accuracy in
+  `[0, 1]`, matching the worked example's `valAcc:Maximise` direction. No
+  LCG-derived trial value remains.
 - `Tune.deterministicTrialsWithDevice` executes the same deterministic sampler
   stream through `Classifier.trainClassifierWithDevice`; the live worker path
   (`publishWorkerTuneEvent`) uses that substrate-selected JIT device and aborts
   on device failure, while `measureTuneBestObjective` reports unavailable rather
   than falling back when no live publication/device is usable.
+- Sprint `9.12` extends the measured trial result with checkpointable trained
+  weights. `jitml tune` writes the best local trial as a `.jmw1` checkpoint and
+  a line-oriented `tune-trials` artifact; daemon-dispatched tune workers also
+  promote each measured trial into the `jitml-checkpoints` bucket while keeping
+  the `jitml-trials` transcript.
 - Host: `jitml-hyperparameter` 14/14 (distinct per-sampler real objectives,
   values normalised, resume determinism), `jitml-unit` 196/196. Container:
   `check-code: ok`, `jitml test jitml-hyperparameter --linux-cpu` **14/14** and
@@ -881,6 +906,87 @@ Landed and validated (2026-06-10):
 
 None.
 
+## Sprint 9.12: No-Caveat RL, AlphaZero, and Tuning Runtime ⏸️
+
+**Status**: Blocked
+**Implementation**: `src/JitML/RL/Algorithms/*`,
+`src/JitML/RL/AlphaZero/*`, `src/JitML/Tune/*`, `src/JitML/App.hs`,
+`test/rl-canonicals/Main.hs`, `test/hyperparameter/Main.hs`
+**Blocked by**: a Linux CUDA validation host with NVIDIA Container Runtime/GPU
+visibility available to Docker. The current host cannot attach the
+`jitml-cuda` service and fails before Haskell test execution with `could not
+select device driver "" with capabilities: [[gpu]]`.
+**Docs to update**: `documents/engineering/training_workloads.md`,
+`documents/engineering/determinism_contract.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make every RL, AlphaZero, and tuning workflow production-real rather than
+partly validated through deterministic helper projections.
+
+### Deliverables
+
+- Every catalog algorithm (`PPO`, `A2C`, `TRPO`, `MaskablePPO`,
+  `RecurrentPPO`, `DQN`, `QR-DQN`, `DDPG`, `TD3`, `SAC`, `CrossQ`, `TQC`,
+  `ARS`, `HER`) has a train/eval/rollout path that uses its trained policy,
+  checkpoint, replay state, and environment dynamics. Helper tests no longer
+  derive synthetic policy/value/Q/quantile/actor inputs from reward lists.
+- `jitml rl train`, `jitml rl eval`, `jitml rl rollout`, and `jitml rl
+  alphazero self-play` persist checkpoint/replay artifacts that can be loaded by
+  the CLI and the browser.
+- AlphaZero has real terminal evaluators and winner/draw detection for Connect
+  4, Othello, Hex, and Gomoku; arena win-rate no longer uses a "last placed
+  piece wins" placeholder.
+- AlphaZero game transcripts include enough state to drive interactive browser
+  replay, MCTS visit-distribution inspection, engine analysis, and checkpoint
+  comparison.
+- Tuning objectives train the selected SL/RL workload through the selected
+  substrate and scheduler/pruner state, persist full trial artifacts, and make
+  promotion of a trial into a checkpointed run observable.
+- Pending stand-in rows in the legacy ledger move to `Completed` only after
+  runtime and test validation proves the replacement.
+
+### Validation
+
+- Focused progress validation landed on 2026-06-14:
+  `docker compose run --rm jitml cabal test jitml-rl-canonicals
+  --test-options='--pattern=terminal' --test-show-details=direct` passed, and
+  `docker compose run --rm jitml cabal test jitml-rl-canonicals
+  --test-options='--pattern=loss' --test-show-details=direct` passed.
+- Linux CPU validation passed on 2026-06-14 after the artifact/checkpoint
+  closure:
+  `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
+  passed `29/29`, `docker compose run --rm jitml jitml test
+  jitml-hyperparameter --linux-cpu` passed `16/16`, `docker compose run --rm
+  jitml jitml test jitml-integration --linux-cpu` passed `71/71`, `docker
+  compose run --rm jitml jitml check-code` returned `check-code: ok`, and
+  `docker compose run --rm jitml jitml docs check` returned `docs check: ok`.
+- Apple Silicon host validation passed on 2026-06-14:
+  `cabal run jitml -- test jitml-rl-canonicals --apple-silicon` passed
+  `29/29`, and `cabal run jitml -- test jitml-hyperparameter --apple-silicon`
+  passed `16/16`.
+- Linux CUDA validation is blocked on this host before test execution:
+  `docker compose run --rm jitml-cuda jitml test jitml-rl-canonicals
+  --linux-cuda` and `docker compose run --rm jitml-cuda jitml test
+  jitml-hyperparameter --linux-cuda` both fail with `could not select device
+  driver "" with capabilities: [[gpu]]`.
+- Continuation retries on 2026-06-14 confirm the blocker is external to the
+  Haskell test lane: `docker info --format '{{json .Runtimes}}'` exposes only
+  `runc` runtimes on this host, and both canonical `jitml-cuda` validation
+  commands fail at Docker container creation with the same `could not select
+  device driver "" with capabilities: [[gpu]]` error.
+
+### Remaining Work
+
+- Run the blocked Linux CUDA validation pair on a GPU-attached Docker host:
+  `docker compose run --rm jitml-cuda jitml test jitml-rl-canonicals
+  --linux-cuda` and `docker compose run --rm jitml-cuda jitml test
+  jitml-hyperparameter --linux-cuda`.
+- No Phase `9` code-surface item remains open; if either CUDA validation command
+  reaches Haskell and fails, record that defect here before any later phase
+  starts.
+
 ## Doctrine Sections Cited
 
 - [../README.md → CLI command topology, typed](../README.md#cli-command-topology-typed) (Sprint 9.7 — `jitml tune` command leaf)
@@ -893,10 +999,11 @@ None.
 
 - `documents/engineering/training_workloads.md` — current RL algorithm
   metadata catalog, Dhall mirror, run-to-run determinism for the
-  PPO/CartPole deterministic-stub trajectory (no committed trajectory
-  fixture per [../README.md → Snapshot targets → Numerical-fixture
-  prohibition](../README.md#snapshot-targets)), Connect 4 transcript
-  helper, and tuner catalog; target algorithm modules,
+  registered per-algorithm real-environment rollout surface (no committed
+  trajectory fixture per [../README.md → Snapshot targets →
+  Numerical-fixture prohibition](../README.md#snapshot-targets)), trained
+  network loss validation, local RL/AlphaZero checkpoint writes, Connect 4
+  transcript helper, and tuner catalog; target algorithm modules,
   AlphaZero/MCTS runtime, adversarial games, target sampler decode, and
   full tuner storage/resume surface. The doc also distinguishes the
   current tune text/proto3-compatible command and event envelope codecs from

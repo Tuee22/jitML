@@ -5,6 +5,7 @@
 
 module JitML.RL.AlphaZero
   ( GameState (..)
+  , GameOutcome (..)
   , ArenaSummary (..)
   , MctsState (..)
   , PerfectInformationGame (..)
@@ -13,8 +14,11 @@ module JitML.RL.AlphaZero
   , applyMove
   , arenaWinRate
   , canonicalGames
+  , connect4BoardAfter
   , connect4Network
   , connect4LegalMove
+  , gameIsTerminal
+  , gameOutcome
   , gomokuActionCount
   , gomokuApplyMove
   , gomokuLegalMove
@@ -40,6 +44,7 @@ module JitML.RL.AlphaZero
   , renderArenaSummary
   , selfPlayTranscript
   , selfPlayTranscriptFor
+  , terminalValueForToMove
   , twoHeadedNetworkFor
   )
 where
@@ -61,6 +66,13 @@ data GameState = GameState
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
 
+data GameOutcome
+  = GameInProgress
+  | GameDraw
+  | GameWon Int
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (Serialise)
+
 data MctsState = MctsState
   { mctsVisitCount :: Int
   , mctsPriorSeed :: Int
@@ -76,9 +88,8 @@ data PerfectInformationGame = PerfectInformationGame
   deriving stock (Eq, Show)
 
 -- | Typeclass for the four canonical perfect-information games. Each game
--- exposes its initial state, applies a move (mod-action wrapping so the
--- transcript stays legal under deterministic adversarial play), and reports
--- its typed action count plus two-headed network metadata.
+-- exposes its initial state, applies a move through the game's legal-action
+-- surface, and reports its typed action count plus two-headed network metadata.
 class PerfectInformation g where
   initialGame :: g
   applyGameMove :: Int -> g -> g
@@ -182,17 +193,20 @@ twoHeadedNetworkFor other =
     }
 
 applyMove :: Int -> GameState -> GameState
-applyMove column state =
-  case gameName state of
-    "connect4" -> applyConnect4Move column state
-    "othello" -> applyOthelloMove column state
-    "hex" -> applyHexMove column state
-    "gomoku" -> applyGomokuMove column state
-    _ ->
-      state
-        { gameMoves = gameMoves state <> [column `mod` 7]
-        , gameCurrentPlayer = negate (gameCurrentPlayer state)
-        }
+applyMove candidate state =
+  case nextLegalMove (gameName state) candidate state of
+    Nothing -> state
+    Just legal ->
+      case gameName state of
+        "connect4" -> applyConnect4Move legal state
+        "othello" -> applyOthelloMove legal state
+        "hex" -> applyHexMove legal state
+        "gomoku" -> applyGomokuMove legal state
+        _ ->
+          state
+            { gameMoves = gameMoves state <> [legal `mod` 7]
+            , gameCurrentPlayer = negate (gameCurrentPlayer state)
+            }
 
 applyConnect4Move :: Int -> GameState -> GameState
 applyConnect4Move column state =
@@ -230,6 +244,31 @@ gomokuApplyMove cell state =
     { gameMoves = gameMoves state <> [cell `mod` gomokuActionCount]
     , gameCurrentPlayer = negate (gameCurrentPlayer state)
     }
+
+gameOutcome :: GameState -> GameOutcome
+gameOutcome state =
+  case gameName state of
+    "connect4" -> connect4Outcome state
+    "othello" -> othelloOutcome state
+    "hex" -> hexOutcome state
+    "gomoku" -> gomokuOutcome state
+    _ -> GameInProgress
+
+gameIsTerminal :: GameState -> Bool
+gameIsTerminal state =
+  case gameOutcome state of
+    GameInProgress -> False
+    GameDraw -> True
+    GameWon _ -> True
+
+terminalValueForToMove :: GameState -> Double
+terminalValueForToMove state =
+  case gameOutcome state of
+    GameWon winner
+      | winner == gameCurrentPlayer state -> 1.0
+      | otherwise -> -1.0
+    GameDraw -> 0.0
+    GameInProgress -> 0.0
 
 selfPlayTranscript :: Int -> [GameState]
 selfPlayTranscript = selfPlayTranscriptFor "connect4"
@@ -301,6 +340,34 @@ connect4LegalMove column state =
  where
   connect4Rows = 6
 
+connect4BoardAfter :: [Int] -> [Int]
+connect4BoardAfter moves0 =
+  foldl' place (replicate (connect4Rows * connect4ActionCount) 0) (zip [0 :: Int ..] moves0)
+ where
+  connect4Rows = 6
+  place grid (ix, rawColumn) =
+    let player = if even ix then 1 else -1
+        column = rawColumn `mod` connect4ActionCount
+     in case [ r | r <- [connect4Rows - 1, connect4Rows - 2 .. 0], grid !! (r * connect4ActionCount + column) == 0
+             ] of
+          r : _ ->
+            let cell = r * connect4ActionCount + column
+             in take cell grid <> [player] <> drop (cell + 1) grid
+          [] -> grid
+
+connect4Outcome :: GameState -> GameOutcome
+connect4Outcome state =
+  let grid = connect4BoardAfter (gameMoves state)
+      winner = lineWinner (negate (gameCurrentPlayer state)) grid connect4Rows connect4ActionCount 4
+      boardFull = 0 `notElem` grid
+   in case winner of
+        Just player -> GameWon player
+        Nothing
+          | boardFull -> GameDraw
+          | otherwise -> GameInProgress
+ where
+  connect4Rows = 6
+
 hexLegalMove :: Int -> GameState -> Bool
 hexLegalMove cell state =
   cell >= 0
@@ -334,19 +401,26 @@ othelloDirections =
 -- not flip any opponent stone are skipped to keep the transcript playable
 -- when callers append candidate moves directly through `othelloApplyMove`.
 othelloBoardAfter :: [Int] -> IntMap Int
-othelloBoardAfter moves =
-  snd (foldl' step (1, othelloInitialBoard) moves)
+othelloBoardAfter =
+  snd . othelloReplay
+
+othelloReplay :: [Int] -> (Int, IntMap Int)
+othelloReplay =
+  foldl' step (1, othelloInitialBoard)
  where
   step (player, board) cell =
-    let flipped = othelloFlipsFor board player cell
-        board' =
-          foldr
-            (`IntMap.insert` player)
-            board
-            (cell : flipped)
-     in if null flipped || IntMap.member cell board
-          then (negate player, board)
-          else (negate player, board')
+    if cell < 0
+      then (negate player, board)
+      else
+        let flipped = othelloFlipsFor board player cell
+            board' =
+              foldr
+                (`IntMap.insert` player)
+                board
+                (cell : flipped)
+         in if null flipped || IntMap.member cell board
+              then (negate player, board)
+              else (negate player, board')
 
 -- | Compute the list of opponent cells that flip when @player@ places at
 -- @cell@ on @board@. Returns @[]@ when the move is illegal under Othello
@@ -377,9 +451,29 @@ othelloLegalMove cell state
   | cell < 0 || cell >= othelloActionCount = False
   | otherwise =
       let board = othelloBoardAfter (gameMoves state)
-          player = if even (length (gameMoves state)) then 1 else -1
+          player = fst (othelloReplay (gameMoves state))
        in IntMap.notMember cell board
             && not (null (othelloFlipsFor board player cell))
+
+othelloOutcome :: GameState -> GameOutcome
+othelloOutcome state =
+  let board = othelloBoardAfter (gameMoves state)
+      legalFor player =
+        any
+          ( \cell ->
+              IntMap.notMember cell board
+                && not (null (othelloFlipsFor board player cell))
+          )
+          [0 .. othelloActionCount - 1]
+      terminal = IntMap.size board >= othelloActionCount || not (legalFor 1 || legalFor (-1))
+      black = length (filter (== 1) (IntMap.elems board))
+      white = length (filter (== (-1)) (IntMap.elems board))
+   in if not terminal
+        then GameInProgress
+        else case compare black white of
+          GT -> GameWon 1
+          LT -> GameWon (-1)
+          EQ -> GameDraw
 
 -- | Whether @player@'s stones on @board@ connect the player's two target
 -- edges on the canonical 11x11 Hex board. Player +1 connects the top edge
@@ -434,6 +528,19 @@ hexNeighbours cell =
       , cc < 11
       ]
 
+hexOutcome :: GameState -> GameOutcome
+hexOutcome state =
+  let playerStones player = stonesForPlayer player hexActionCount (gameMoves state)
+      playerOneWon = hexConnected 1 (playerStones 1)
+      playerTwoWon = hexConnected (-1) (playerStones (-1))
+      boardFull = IntSet.size (IntSet.union (playerStones 1) (playerStones (-1))) >= hexActionCount
+   in case (playerOneWon, playerTwoWon) of
+        (True, _) -> GameWon 1
+        (_, True) -> GameWon (-1)
+        _
+          | boardFull -> GameDraw
+          | otherwise -> GameInProgress
+
 -- | Whether @player@'s stones on @board@ contain a five-in-a-row line
 -- horizontally, vertically, or diagonally on the canonical 15x15 Gomoku
 -- board.
@@ -459,6 +566,55 @@ hasGomokuLine stones =
 
 gomokuDirections :: [(Int, Int)]
 gomokuDirections = [(0, 1), (1, 0), (1, 1), (1, -1)]
+
+gomokuOutcome :: GameState -> GameOutcome
+gomokuOutcome state =
+  let playerStones player = stonesForPlayer player gomokuActionCount (gameMoves state)
+      playerOneWon = hasGomokuLine (playerStones 1)
+      playerTwoWon = hasGomokuLine (playerStones (-1))
+      boardFull = IntSet.size (IntSet.union (playerStones 1) (playerStones (-1))) >= gomokuActionCount
+   in case (playerOneWon, playerTwoWon) of
+        (True, _) -> GameWon 1
+        (_, True) -> GameWon (-1)
+        _
+          | boardFull -> GameDraw
+          | otherwise -> GameInProgress
+
+stonesForPlayer :: Int -> Int -> [Int] -> IntSet
+stonesForPlayer player actionCount moves0 =
+  IntSet.fromList
+    [ raw `mod` actionCount
+    | (ix, raw) <- zip [0 :: Int ..] moves0
+    , let movePlayer = if even ix then 1 else -1
+    , movePlayer == player
+    ]
+
+lineWinner :: Int -> [Int] -> Int -> Int -> Int -> Maybe Int
+lineWinner preferredPlayer grid rows columns lineLength =
+  firstWinner (preferredPlayer : filter (/= preferredPlayer) [1, -1])
+ where
+  firstWinner [] = Nothing
+  firstWinner (player : rest)
+    | hasLine player = Just player
+    | otherwise = firstWinner rest
+  hasLine player =
+    any
+      ( \(r, c) ->
+          any (runOf player (r, c)) [(0, 1), (1, 0), (1, 1), (1, -1)]
+      )
+      [(r, c) | r <- [0 .. rows - 1], c <- [0 .. columns - 1]]
+  runOf player (r0, c0) (dr, dc) =
+    all
+      ( \k ->
+          let r = r0 + k * dr
+              c = c0 + k * dc
+           in r >= 0
+                && r < rows
+                && c >= 0
+                && c < columns
+                && grid !! (r * columns + c) == player
+      )
+      [0 .. lineLength - 1]
 
 arenaWinRate :: ArenaSummary -> Double
 arenaWinRate summary =

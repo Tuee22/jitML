@@ -11,6 +11,7 @@
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
 [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
+[phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -26,7 +27,13 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-13 for Sprint `14.10`). The fixed
+⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Apple live validation). Sprint
+`14.11` revalidates the expanded runtime/browser product matrix on
+`apple-silicon`, but it is blocked until Phases `9`–`12`, Phase `16`, and Phase
+`17` land the remaining no-caveat surfaces. Phase `8` Sprint `8.12` has
+re-closed its local framework/runtime surface.
+
+✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `14.10`). The fixed
 Metal bridge and Apple backend lane remain valid, and the full Apple lifecycle
 now validates host-resident placement for Apple Metal-backed Training/RL/Tune
 starts. Sprint `14.10` closes after Phase `5` routes those starts to host
@@ -864,6 +871,46 @@ but no Apple Metal-backed command may create or run a Linux worker Job.
 ### Remaining Work
 
 None. Phase `15` owns the final ledger walk-down and handoff.
+
+## Sprint 14.11: Apple No-Caveat Runtime and Browser Lane ⏸️
+
+**Status**: Blocked
+**Implementation**: `bootstrap/apple-silicon.sh`, `src/JitML/Test/WorkflowMatrix.hs`,
+`playwright/jitml-demo.spec.ts`, `src/JitML/Service/Workload.hs`
+**Blocked by**: Phase `9` Sprint `9.12`; Phase `10` Sprint `10.6`; Phase `11`
+Sprint `11.9`; Phase `12` Sprint `12.13`; Phase `16` Sprint `16.1`; Phase
+`17` Sprint `17.2`
+**Docs to update**: `documents/engineering/apple_silicon_metal_headless_builds.md`,
+`documents/engineering/purescript_frontend.md`,
+`documents/engineering/training_workloads.md`, `system-components.md`
+
+### Objective
+
+Validate the full no-caveat product on Apple Silicon through the fixed host
+Metal bridge and host-resident workload placement.
+
+### Deliverables
+
+- `bootstrap/apple-silicon.sh test` runs every no-caveat SL/RL/AlphaZero/tuning
+  workflow through the host Metal bridge, persists/reloads checkpoints, serves
+  the demo, and passes the full Playwright product matrix.
+- Apple Metal-backed training, RL, tuning, inference, and AlphaZero work remains
+  host-resident; no Linux Kubernetes worker Job attempts to execute Metal work.
+- The lane fails fast on missing datasets, missing checkpoints, missing host
+  command events, placeholder browser data, synthetic report-card rows, or
+  absent Playwright product assertions.
+
+### Validation
+
+- `bootstrap/apple-silicon.sh test`
+- `jitml test all --apple-silicon`
+- `jitml test jitml-e2e --apple-silicon`
+- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm jitml jitml check-code`
+
+### Remaining Work
+
+- Blocked on the no-caveat runtime and browser implementation phases.
 
 ## Doctrine Sections Cited
 

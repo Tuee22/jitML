@@ -1447,7 +1447,7 @@ jitml internal upload-dataset
 
 Upload a real dataset blob to MinIO.
 
-Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/<data|labels>.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin) or labels (labels.bin).
+Sprint 13.4 / 8.12 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/{data.bin,labels.bin,archive.tar.gz} via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin), labels (labels.bin), or archive (archive.tar.gz).
 
 Usage:
   jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]
@@ -1455,7 +1455,7 @@ Usage:
 Options:
   --name <name>          Dataset name (e.g., MNIST).
   --split <split>        Dataset split (train/validation/test).
-  --artifact <artifact>  Artifact kind (images/labels); defaults to images.
+  --artifact <artifact>  Artifact kind (images/labels/archive); defaults to images.
   --path <path>          Local file path to upload.
   --dry-run              Print the plan without applying it.
   --plan-file <path>     Write the plan to a file.
@@ -1466,6 +1466,8 @@ Examples:
       Upload the canonical MNIST training images to the live MinIO bucket.
   jitml internal upload-dataset --name MNIST --split train --artifact labels --path /tmp/train-labels-idx1-ubyte.gz
       Upload the canonical MNIST training labels alongside the images.
+  jitml internal upload-dataset --name CIFAR-10 --split train --artifact archive --path /tmp/cifar-10-binary.tar.gz
+      Upload the canonical CIFAR-10 binary archive for later train/test materialization.
 ```
 
 ### `jitml internal gc`

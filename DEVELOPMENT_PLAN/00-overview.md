@@ -22,6 +22,9 @@
 [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
 [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
 [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
+[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
+[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
+[phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md), [../README.md](../README.md)
 **Generated sections**: none
 
@@ -403,9 +406,9 @@ and the deletion ledger has no pending rows.
   Phase:
   [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md).
 - **Supervised learning and RL framework.** `src/JitML/SL/` and
-  `src/JitML/RL/` provide the canonical SL problem catalog and Dense-MLP
+  `src/JitML/RL/` provide the canonical SL problem catalog and all-row
   device-trainable cohort, the typed dataset registry
-  (`SL.Dataset.canonicalDatasets`), the substrate-backed SL classifier, the RL
+  (`SL.Dataset.canonicalDatasets`), the substrate-backed SL architecture runtime, the RL
   algorithm catalog rows, canonical RL environment metadata, framework run-plan
   metadata, registered rollout helpers over real environment dynamics, the three
   GADT-indexed lifecycles
@@ -833,6 +836,9 @@ each constraint.
 | 13 | Phase 12 | The Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure consumes every code-surface obligation from Phases `1`–`12` and exercises them through one Linux/NVIDIA session against an ephemeral Kind cluster |
 | 14 | Phase 12 | The Apple Silicon fixed-bridge Metal JIT (`<hash>.metal.json` + host runtime `MTLDevice.makeLibrary(source:options:)`), Metal FFI, host↔cluster RPC, host-resident Metal workload placement, Metal candidate runner, and Apple Metal production weight loading exercise the Apple-side code-surface from Phases `5`/`7` through one Apple session; independent of Phase `13` |
 | 15 | Phase 13, Phase 14 | Within-substrate reproducibility validated in each substrate's own lane, a populated live `jitml test all` report card, and an empty deletion ledger. Reopened 2026-06-08 (Sprint `15.4`) to remove cross-substrate numeric parity because cross-substrate equivalence is out of contract; reopened again 2026-06-12 for the fixed-bridge Apple doctrine; reopened 2026-06-13 for Apple host-resident workload placement after the live RL path attempted to execute Metal in a Linux pod. |
+| 16 | Phase 8, Phase 9, Phase 10 | Full no-caveat model runtime closure: every canonical SL/RL/AlphaZero/tuning workflow trains, checkpoints, reloads, and infers/evaluates through the selected substrate without scoped Dense-only or demo-only exceptions. |
+| 17 | Phase 11, Phase 12, Phase 16 | Full interactive demo and Playwright product closure: every runtime workflow has browser controls, visualizations, animations, adversarial replay, and live e2e assertions against the routed app. |
+| 18 | Phase 13, Phase 14, Phase 15, Phase 16, Phase 17 | Final no-caveat handoff: all three substrate lanes pass the expanded runtime/browser matrix, the report card is populated, docs are aligned, and the legacy ledger is empty. |
 
 ## Status Vocabulary
 
@@ -847,6 +853,21 @@ See [development_plan_standards.md → C. Honest Completion Tracking](developmen
 for the governing rule.
 
 ## Current Baseline
+
+**Reopened 2026-06-14 (no-caveat end-to-end product target).** The current
+worktree has re-closed Phase `8` on all-row SL trainable runtime coverage and
+typed RL event payloads, but the intended product is stricter: every RL
+algorithm, every AlphaZero game, every tuning workflow, every model-family
+checkpoint/reload/inference path, and every browser interaction must run
+end-to-end with no synthetic, placeholder, demo-only, or parser-default
+stand-ins. Phase `9` has its Sprint `9.12` code surface in place and has passed
+linux-cpu plus apple-silicon validation, but is `⏸️ Blocked` on a
+GPU-attached Docker host for the linux-cuda validation pair. Phases `10`–`12`
+are `🔄 Active`; Phases `13`–`15` are `⏸️ Blocked` behind those remaining
+local/runtime/browser surfaces; and Phases `16`–`18` own no-caveat model
+runtime closure, interactive demo/Playwright closure, and final no-caveat
+product handoff. Phases `0`–`8` are `✅ Done` on their owned
+foundational/framework surfaces.
 
 **Reopened 2026-06-13 (Apple Silicon host-resident workload placement).** Phase
 `5` reopened and re-closed for Sprint `5.11`; Phase `12` reopened and re-closed

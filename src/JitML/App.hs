@@ -23,8 +23,10 @@ import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Data.Word (Word64)
+import Data.Vector.Unboxed qualified as VU
+import Data.Word (Word32, Word64)
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (toFilePath)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
@@ -108,6 +110,7 @@ import JitML.Lint.Stack
   , runCheckCode
   , runLint
   )
+import JitML.Numerics.Mlp (mlpParamsToFlat)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
@@ -142,9 +145,12 @@ import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
 import JitML.RL.SimulatorLoop qualified as SimulatorLoop
+import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
+import JitML.SL.Regression qualified as Regression
+import JitML.SL.TinyImageNet qualified as TinyImageNet
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Capabilities qualified as Capabilities
@@ -856,22 +862,23 @@ runHostAppleTraining env start
   | ProtoTraining.stSubstrate start /= AppleSilicon =
       pure (Left (SETransient "host Apple training received a non-apple-silicon command"))
   | otherwise = do
-      let problem =
-            case SL.canonicalProblems of
-              firstProblem : _ -> firstProblem
-              [] -> SL.CanonicalProblem "empty" "empty" "empty" 0
-          trainLimit = 2000
-          epochs = fromIntegral (ProtoTraining.stEpochs start)
-          testLimit = 1000
-      result <-
-        liftIO
-          ( runReaderT
-              (runDeviceMnistTrainingWithLimits AppleSilicon problem trainLimit epochs testLimit)
-              env
-          )
-      case result of
-        Left err -> pure (Left (SETransient ("host Apple training failed: " <> err)))
-        Right loss -> publishTrainingEpoch start loss
+      problemE <-
+        liftIO (SL.loadCanonicalProblemExperiment (Text.unpack (ProtoTraining.stDhallObjectKey start)))
+      case problemE of
+        Left err -> pure (Left (SETransient ("host Apple training experiment decode failed: " <> err)))
+        Right problem -> do
+          let trainLimit = 2000
+              epochs = fromIntegral (ProtoTraining.stEpochs start)
+              testLimit = 1000
+          result <-
+            liftIO
+              ( runReaderT
+                  (runDeviceMnistTrainingWithLimits AppleSilicon problem trainLimit epochs testLimit)
+                  env
+              )
+          case result of
+            Left err -> pure (Left (SETransient ("host Apple training failed: " <> err)))
+            Right loss -> publishTrainingEpoch start loss
 
 publishTrainingEpoch
   :: ProtoTraining.StartTraining
@@ -908,27 +915,28 @@ runHostAppleTune env start
         (Just sampler, Just _scheduler, Just _pruner) -> do
           let trialCount = max 1 (fromIntegral (ProtoTune.ssTrialBudget start))
               device = mlpDeviceForSubstrate AppleSilicon env
-          valuesE <- liftIO (Tune.deterministicTrialsWithDevice device sampler trialCount)
-          case valuesE of
+          trialResultsE <- liftIO (Tune.trialObjectiveResultsWithDevice device sampler trialCount)
+          case trialResultsE of
             Left err -> pure (Left (SETransient ("host Apple tune failed: " <> err)))
-            Right values -> publishHostTuneEvents start values
+            Right trialResults -> publishHostTuneEvents start trialResults
         _ ->
           pure (Left (SETransient "host Apple tune command contains an unknown sampler/scheduler/pruner"))
 
 publishHostTuneEvents
   :: ProtoTune.StartSweep
-  -> [Double]
+  -> [Tune.TrialObjectiveResult]
   -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-publishHostTuneEvents start values = do
+publishHostTuneEvents start trialResults = do
   let topic = Capabilities.TopicName (ProtoTune.tuneEventTopic AppleSilicon)
       baseSeed = fromIntegral (ProtoTune.ssSweepSeed start) :: Int
-      indexed = zip [0 :: Int ..] values
-  trialResults <- traverse (publishTrial topic baseSeed) indexed
-  case firstLeft trialResults of
+      indexed = zip [0 :: Int ..] trialResults
+      objectives = fmap Tune.trialResultObjective trialResults
+  publishedResults <- traverse (publishTrial topic baseSeed) indexed
+  case firstLeft publishedResults of
     Just err -> pure (Left err)
     Nothing -> do
-      let completed = fromIntegral (length values)
-          bestObjective = if null values then 0.0 else maximum values
+      let completed = fromIntegral (length objectives)
+          bestObjective = if null objectives then 0.0 else maximum objectives
           done =
             ProtoTune.TuneSweepDone
               ( ProtoTune.SweepDone
@@ -940,9 +948,10 @@ publishHostTuneEvents start values = do
               )
       publishUnit topic (ProtoTune.renderTuneEvent done)
  where
-  publishTrial topic baseSeed (trialIndex, objective) = do
+  publishTrial topic baseSeed (trialIndex, trialResult) = do
     timestampStart <- liftIO currentTimestampNs
     let trialSeed = baseSeed + trialIndex
+        objective = Tune.trialResultObjective trialResult
         started =
           ProtoTune.TuneTrialStarted
             ( ProtoTune.TrialStarted
@@ -968,20 +977,30 @@ publishHostTuneEvents start values = do
         case persistResult of
           Left err -> pure (Left err)
           Right _ -> do
-            timestampEnd <- liftIO currentTimestampNs
-            let finished =
-                  ProtoTune.TuneTrialFinished
-                    ( ProtoTune.TrialFinished
-                        { ProtoTune.tfTuneExperimentHash = ProtoTune.ssExperimentHash start
-                        , ProtoTune.tfTuneTrial = fromIntegral trialIndex
-                        , ProtoTune.tfTuneObjective = objective
-                        , ProtoTune.tfTunePruned = False
-                        , ProtoTune.tfTuneTranscriptObjectKey =
-                            Tune.trialStorageKey (ProtoTune.ssExperimentHash start) trialSeed
-                        , ProtoTune.tfTuneTimestampNs = timestampEnd
-                        }
-                    )
-            publishUnit topic (ProtoTune.renderTuneEvent finished)
+            checkpointResult <-
+              writeMinIOWeightCheckpoint
+                (ProtoTune.ssExperimentHash start)
+                "tune-trial-weights"
+                (fromIntegral trialSeed)
+                [("objective", objective)]
+                (Tune.trialResultWeights trialResult)
+            case checkpointResult of
+              Left err -> pure (Left err)
+              Right _stored -> do
+                timestampEnd <- liftIO currentTimestampNs
+                let finished =
+                      ProtoTune.TuneTrialFinished
+                        ( ProtoTune.TrialFinished
+                            { ProtoTune.tfTuneExperimentHash = ProtoTune.ssExperimentHash start
+                            , ProtoTune.tfTuneTrial = fromIntegral trialIndex
+                            , ProtoTune.tfTuneObjective = objective
+                            , ProtoTune.tfTunePruned = False
+                            , ProtoTune.tfTuneTranscriptObjectKey =
+                                Tune.trialStorageKey (ProtoTune.ssExperimentHash start) trialSeed
+                            , ProtoTune.tfTuneTimestampNs = timestampEnd
+                            }
+                        )
+                publishUnit topic (ProtoTune.renderTuneEvent finished)
 
 runHostAppleRl
   :: Env
@@ -1007,8 +1026,8 @@ runHostAppleRl env start
           )
       case episodesE of
         Left err -> pure (Left (SETransient ("host Apple RL failed: " <> err)))
-        Right episodes -> do
-          results <- traverse (publishHostRlEpisode start) episodes
+        Right trainerRun -> do
+          results <- traverse (publishHostRlEpisode start) (trainerRunEpisodes trainerRun)
           pure $ maybe (Right ()) Left (firstLeft results)
 
 publishHostRlEpisode
@@ -1028,7 +1047,13 @@ publishHostRlEpisode start episode = do
               , ProtoRl.edTimestampNs = timestampNs
               }
           )
-  publishUnit topic (ProtoRl.renderRlEvent envelope)
+      animationEnvelopes =
+        fmap
+          (rlAnimationEnvelope (ProtoRl.srlExperimentHash start) (ProtoRl.srlEnvironment start) timestampNs)
+          (SimulatorLoop.simEpisodeFrames episode)
+  episodeResult <- publishUnit topic (ProtoRl.renderRlEvent envelope)
+  frameResults <- traverse (publishUnit topic . ProtoRl.renderRlEvent) animationEnvelopes
+  pure $ maybe (Right ()) Left (firstLeft (episodeResult : frameResults))
 
 publishUnit
   :: Capabilities.TopicName
@@ -1364,10 +1389,7 @@ runTrain parsedOptions = do
   overrides <- case Overrides.parseExperimentOverrides parsedOptions of
     Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
     Right ovr -> pure ovr
-  let problem =
-        case SL.canonicalProblems of
-          firstProblem : _ -> firstProblem
-          [] -> SL.CanonicalProblem "empty" "empty" "empty" 0
+  problem <- resolveTrainingProblem parsedOptions
   -- Sprint 8.10 — `jitml train` is a substrate-backed, fail-closed command:
   -- a live cluster publication and a staged dataset are hard prerequisites,
   -- and the network trains through the resolved substrate's JIT device with
@@ -1379,6 +1401,14 @@ runTrain parsedOptions = do
   case result of
     Left reason -> exitWithError (TrainingPrerequisiteUnmet reason)
     Right loss -> publishWorkerTrainingEvent loss
+
+resolveTrainingProblem :: [ParsedOption] -> App SL.CanonicalProblem
+resolveTrainingProblem parsedOptions = do
+  let dhallPath = Text.unpack (selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions)
+  loaded <- liftIO (SL.loadCanonicalProblemExperiment dhallPath)
+  case loaded of
+    Left err -> exitWithError (DhallTypeError err)
+    Right problem -> pure problem
 
 -- | Sprint 8.10 — drive the substrate-backed differentiable SL classifier
 -- over the canonical dataset bytes staged in MinIO. Returns @Right loss@ (a
@@ -1433,43 +1463,215 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                   let config =
                         Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs}
                       device = mlpDeviceForSubstrate substrate env
-                  trainedE <-
-                    liftIO
-                      ( Classifier.trainClassifierWithDeviceFromIdxBounded
-                          device
+                      decodedE =
+                        Classifier.decodeBoundedDataset
                           config
                           (Just (max 1 trainLimit))
                           (Dataset.maybeGunzip imgGz)
                           (Dataset.maybeGunzip lblGz)
-                      )
-                  case trainedE of
-                    Left err -> pure (Left ("substrate training failed: " <> err))
-                    Right (trained, trainAcc) -> do
-                      testAcc <- evaluateTestSplitDevice device minioSettings trainRef trained testLimit
-                      let reportedAcc = fromMaybe trainAcc testAcc
-                      writeText
-                        ( "train: "
-                            <> SL.problemName problem
-                            <> " substrate="
-                            <> renderSubstrate substrate
-                            <> " limit="
-                            <> Text.pack (show (max 1 trainLimit))
-                            <> " epochs="
-                            <> Text.pack (show (max 1 epochs))
-                            <> " train_acc="
-                            <> Text.pack (show trainAcc)
-                            <> maybe "" (\a -> " test_acc=" <> Text.pack (show a)) testAcc
-                            <> "\n"
-                        )
-                      pure (Right (1.0 - reportedAcc))
+                  case decodedE of
+                    Left err -> pure (Left (Text.pack err))
+                    Right (configForData, dataset) -> do
+                      let spec = Architecture.architectureSpecForProblem configForData problem
+                      trainedE <-
+                        liftIO
+                          ( Architecture.trainArchitectureWithDevice
+                              device
+                              spec
+                              configForData
+                              dataset
+                          )
+                      case trainedE of
+                        Left err -> pure (Left ("substrate training failed: " <> err))
+                        Right (trained, trainAcc) -> do
+                          testAcc <- evaluateTestSplitDevice device minioSettings trainRef trained testLimit
+                          let reportedAcc = fromMaybe trainAcc testAcc
+                          writeText
+                            ( "train: "
+                                <> SL.problemName problem
+                                <> " model="
+                                <> SL.problemModel problem
+                                <> " substrate="
+                                <> renderSubstrate substrate
+                                <> " limit="
+                                <> Text.pack (show (max 1 trainLimit))
+                                <> " epochs="
+                                <> Text.pack (show (max 1 epochs))
+                                <> " train_acc="
+                                <> Text.pack (show trainAcc)
+                                <> maybe "" (\a -> " test_acc=" <> Text.pack (show a)) testAcc
+                                <> "\n"
+                            )
+                          pure (Right (1.0 - reportedAcc))
                 _ ->
                   pure
                     ( Left
                         ("dataset bytes not staged in MinIO for " <> Dataset.datasetName trainRef)
                     )
+          | Dataset.datasetName trainRef == "CIFAR-10" && hasCanonicalArchive trainRef ->
+              runDeviceArchiveClassifierTraining
+                substrate
+                problem
+                trainRef
+                trainLimit
+                epochs
+                testLimit
+                publication
+                Classifier.decodeCifar10ArchiveBoundedDataset
+          | Dataset.datasetName trainRef == "CIFAR-100" && hasCanonicalArchive trainRef ->
+              runDeviceArchiveClassifierTraining
+                substrate
+                problem
+                trainRef
+                trainLimit
+                epochs
+                testLimit
+                publication
+                Classifier.decodeCifar100ArchiveBoundedDataset
+          | Dataset.datasetName trainRef == "Tiny ImageNet" && hasCanonicalArchive trainRef ->
+              runDeviceArchiveClassifierTraining
+                substrate
+                problem
+                trainRef
+                trainLimit
+                epochs
+                testLimit
+                publication
+                TinyImageNet.decodeTinyImageNetArchiveBoundedClassificationDataset
+          | Dataset.datasetName trainRef == "California Housing" && hasCanonicalArchive trainRef ->
+              runDeviceCaliforniaHousingTraining
+                substrate
+                problem
+                trainRef
+                trainLimit
+                epochs
+                publication
         _ ->
           pure
             (Left ("no staged canonical dataset for problem " <> SL.problemName problem))
+
+runDeviceArchiveClassifierTraining
+  :: Substrate
+  -> SL.CanonicalProblem
+  -> Dataset.DatasetRef
+  -> Int
+  -> Int
+  -> Int
+  -> ClusterPublication
+  -> ( Classifier.ClassifierConfig
+       -> Dataset.DatasetSplit
+       -> Maybe Int
+       -> Data.ByteString.ByteString
+       -> Either String (Classifier.ClassifierConfig, Classifier.Dataset)
+     )
+  -> App (Either Text Double)
+runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs testLimit publication decodeArchive = do
+  env <- ask
+  let edgePort = Publication.publicationEdgePort publication
+      minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+      run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
+      config = Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs}
+      device = mlpDeviceForSubstrate substrate env
+  archiveE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
+  case archiveE of
+    Left _ ->
+      pure (Left ("dataset archive not staged in MinIO for " <> Dataset.datasetName trainRef))
+    Right archiveBytes ->
+      case decodeArchive config Dataset.TrainSplit (Just (max 1 trainLimit)) archiveBytes of
+        Left err -> pure (Left (Text.pack err))
+        Right (configForData, dataset) -> do
+          let spec = Architecture.architectureSpecForProblem configForData problem
+          trainedE <-
+            liftIO
+              ( Architecture.trainArchitectureWithDevice
+                  device
+                  spec
+                  configForData
+                  dataset
+              )
+          case trainedE of
+            Left err -> pure (Left ("substrate archive training failed: " <> err))
+            Right (trained, trainAcc) -> do
+              testAcc <-
+                case decodeArchive configForData Dataset.TestSplit (Just (max 1 testLimit)) archiveBytes of
+                  Left _ -> pure Nothing
+                  Right (_, testSet) -> do
+                    accE <- liftIO (Architecture.accuracyArchitectureWithDevice device trained testSet)
+                    pure (eitherToMaybe accE)
+              let reportedAcc = fromMaybe trainAcc testAcc
+              writeText
+                ( "train: "
+                    <> SL.problemName problem
+                    <> " model="
+                    <> SL.problemModel problem
+                    <> " substrate="
+                    <> renderSubstrate substrate
+                    <> " archive="
+                    <> Dataset.datasetName trainRef
+                    <> " limit="
+                    <> Text.pack (show (max 1 trainLimit))
+                    <> " epochs="
+                    <> Text.pack (show (max 1 epochs))
+                    <> " train_acc="
+                    <> Text.pack (show trainAcc)
+                    <> maybe "" (\a -> " test_acc=" <> Text.pack (show a)) testAcc
+                    <> "\n"
+                )
+              pure (Right (1.0 - reportedAcc))
+
+runDeviceCaliforniaHousingTraining
+  :: Substrate
+  -> SL.CanonicalProblem
+  -> Dataset.DatasetRef
+  -> Int
+  -> Int
+  -> ClusterPublication
+  -> App (Either Text Double)
+runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs publication = do
+  env <- ask
+  let edgePort = Publication.publicationEdgePort publication
+      minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+      run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
+      device = mlpDeviceForSubstrate substrate env
+  archiveE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
+  case archiveE of
+    Left _ ->
+      pure (Left ("dataset archive not staged in MinIO for " <> Dataset.datasetName trainRef))
+    Right archiveBytes ->
+      case Regression.decodeCaliforniaHousingArchiveBoundedData (Just (max 1 trainLimit)) archiveBytes of
+        Left err -> pure (Left (Text.pack err))
+        Right dataset ->
+          case listToMaybe dataset of
+            Nothing -> pure (Left "California Housing archive produced no rows")
+            Just firstExample -> do
+              let normalizedDataset = Regression.standardizeRegressionExamples dataset
+              let config =
+                    Regression.defaultRegressionConfig
+                      { Regression.regInputs = VU.length (Regression.regressionFeatures firstExample)
+                      , Regression.regEpochs = max 1 epochs
+                      }
+              trainedE <- liftIO (Regression.trainRegressorWithDevice device config normalizedDataset)
+              case trainedE of
+                Left err -> pure (Left ("substrate regression training failed: " <> err))
+                Right (_, trainMse) -> do
+                  writeText
+                    ( "train: "
+                        <> SL.problemName problem
+                        <> " model="
+                        <> SL.problemModel problem
+                        <> " substrate="
+                        <> renderSubstrate substrate
+                        <> " archive="
+                        <> Dataset.datasetName trainRef
+                        <> " limit="
+                        <> Text.pack (show (max 1 trainLimit))
+                        <> " epochs="
+                        <> Text.pack (show (max 1 epochs))
+                        <> " train_mse="
+                        <> Text.pack (show trainMse)
+                        <> "\n"
+                    )
+                  pure (Right trainMse)
 
 -- | True when a problem's dataset has a published canonical label SHA, i.e.
 -- real label bytes are stageable in MinIO (not the synthetic per-(name,
@@ -1483,6 +1685,15 @@ hasCanonicalLabels ref =
         Dataset.LabelsArtifact
     )
 
+hasCanonicalArchive :: Dataset.DatasetRef -> Bool
+hasCanonicalArchive ref =
+  isJust
+    ( Dataset.canonicalArtifactSha256For
+        (Dataset.datasetName ref)
+        Dataset.TrainSplit
+        Dataset.ArchiveArtifact
+    )
+
 -- | Sprint 8.10 — fetch the test split images + labels and report the trained
 -- classifier's held-out accuracy over the first @limit@ examples /through the
 -- device forward/. Returns 'Nothing' when the test bytes are not staged or
@@ -1492,7 +1703,7 @@ evaluateTestSplitDevice
   :: MlpDevice
   -> MinIOSubprocess.MinIOSettings
   -> Dataset.DatasetRef
-  -> Classifier.TrainedClassifier
+  -> Architecture.TrainedArchitecture
   -> Int
   -> App (Maybe Double)
 evaluateTestSplitDevice device minioSettings trainRef trained limit = do
@@ -1507,7 +1718,7 @@ evaluateTestSplitDevice device minioSettings trainRef trained limit = do
            ) of
         (Right (_, images), Right labels) -> do
           let testSet = take (max 1 limit) (Classifier.zipImagesLabels images labels)
-          accE <- liftIO (Classifier.accuracyWithDevice device trained testSet)
+          accE <- liftIO (Architecture.accuracyArchitectureWithDevice device trained testSet)
           pure (eitherToMaybe accE)
         _ -> pure Nothing
     _ -> pure Nothing
@@ -1738,15 +1949,159 @@ runTune parsedOptions = do
       let rendered = Tune.renderTuningPlan tunePath experiment
           renderedWithOverrides =
             rendered <> "overrides: " <> Overrides.renderTuningOverrides overrides <> "\n"
+      tuneArtifactLines <- writeLocalTuneArtifacts tunePath experiment
       case optionValues "plan-file" parsedOptions of
         [] -> pure ()
-        planPath : _ -> liftIO (writePlanFile (Text.unpack planPath) renderedWithOverrides)
-      writeText renderedWithOverrides
+        planPath : _ ->
+          liftIO
+            ( writePlanFile
+                (Text.unpack planPath)
+                (renderedWithOverrides <> Text.unlines tuneArtifactLines)
+            )
+      writeText (renderedWithOverrides <> Text.unlines tuneArtifactLines)
       -- Sprint 13.3 — publish a `TuneSweepDone` envelope so the dispatch
       -- → worker → broker event loop is observably closed for the tune
       -- domain. Sprint 13.10 widens this to per-trial events when the
       -- TuneHandler spawns trials in the cluster.
       publishWorkerTuneEvent
+
+writeLocalTuneArtifacts :: FilePath -> Tune.TuningExperiment -> App [Text]
+writeLocalTuneArtifacts tunePath experiment =
+  case Tune.tuningExperimentConfig experiment of
+    Nothing -> pure []
+    Just config -> do
+      let sampler = Tune.tuningSamplerKind (Tune.tuningConfigSampler config)
+          trialCount = max 1 (min 4 (fromIntegral (Tune.tuningConfigTrials config)))
+          results = Tune.trialObjectiveResults sampler trialCount
+      case selectBestTrialResult results of
+        Nothing -> pure []
+        Just best -> do
+          let experimentHash =
+                Checkpoint.deriveExperimentHash
+                  (Text.pack tunePath)
+                  ( "tune:"
+                      <> Text.pack (show sampler)
+                      <> ":"
+                      <> Text.pack (show (Tune.trialResultIndex best))
+                  )
+          stored <-
+            writeLocalWeightCheckpoint
+              experimentHash
+              "tune-trial-weights"
+              (fromIntegral (Tune.trialResultIndex best))
+              [("objective", Tune.trialResultObjective best)]
+              (Tune.trialResultWeights best)
+          artifact <-
+            writeTextArtifact
+              experimentHash
+              "tune-trials"
+              (renderTuneTrialArtifact experiment sampler results best)
+          pure $
+            [ "best-trial-index: " <> Text.pack (show (Tune.trialResultIndex best))
+            , "best-trial-objective: " <> Text.pack (show (Tune.trialResultObjective best))
+            ]
+              <> renderStoredCheckpointLinesWithPrefix "trial-checkpoint" experimentHash stored
+              <> renderStoredArtifactLines "tune-trials" artifact
+
+selectBestTrialResult :: [Tune.TrialObjectiveResult] -> Maybe Tune.TrialObjectiveResult
+selectBestTrialResult [] = Nothing
+selectBestTrialResult (firstResult : rest) =
+  Just (foldl select firstResult rest)
+ where
+  select best current
+    | Tune.trialResultObjective current >= Tune.trialResultObjective best = current
+    | otherwise = best
+
+renderTuneTrialArtifact
+  :: Tune.TuningExperiment
+  -> Tune.Sampler
+  -> [Tune.TrialObjectiveResult]
+  -> Tune.TrialObjectiveResult
+  -> Text
+renderTuneTrialArtifact experiment sampler results best =
+  Text.unlines $
+    [ "kind: tune-trials-v1"
+    , "name: " <> Tune.tuningExperimentName experiment
+    , "sampler: " <> Text.pack (show sampler)
+    , "trial-count: " <> Text.pack (show (length results))
+    , "best-trial-index: " <> Text.pack (show (Tune.trialResultIndex best))
+    , "best-trial-objective: " <> Text.pack (show (Tune.trialResultObjective best))
+    ]
+      <> concatMap renderTrial results
+ where
+  renderTrial result =
+    [ "trial: " <> Text.pack (show (Tune.trialResultIndex result))
+    , "objective: " <> Text.pack (show (Tune.trialResultObjective result))
+    , "weight-count: " <> Text.pack (show (length (Tune.trialResultWeights result)))
+    ]
+
+renderRlTrajectoryArtifact
+  :: Text
+  -> Text
+  -> Text
+  -> Int
+  -> [SimulatorLoop.SimulatedEpisode]
+  -> Text
+renderRlTrajectoryArtifact experimentHash environment trainer seed episodes =
+  Text.unlines $
+    [ "kind: rl-trajectory-v1"
+    , "experiment-hash: " <> experimentHash
+    , "environment: " <> environment
+    , "trainer: " <> trainer
+    , "seed: " <> Text.pack (show seed)
+    , "episodes: " <> Text.pack (show (length episodes))
+    ]
+      <> concatMap renderEpisode episodes
+ where
+  renderEpisode episode =
+    [ "episode: " <> Text.pack (show (SimulatorLoop.simEpisodeIndex episode))
+    , "episode-steps: " <> Text.pack (show (SimulatorLoop.simEpisodeSteps episode))
+    , "episode-reward: " <> Text.pack (show (SimulatorLoop.simEpisodeReward episode))
+    , "episode-done: " <> Text.pack (show (SimulatorLoop.simEpisodeDone episode))
+    , "episode-frame-count: "
+        <> Text.pack (show (length (SimulatorLoop.simEpisodeFrames episode)))
+    ]
+      <> concatMap renderFrame (SimulatorLoop.simEpisodeFrames episode)
+  renderFrame frame =
+    [ "frame-episode: " <> Text.pack (show (SimulatorLoop.simFrameEpisodeIndex frame))
+    , "frame-step: " <> Text.pack (show (SimulatorLoop.simFrameStepIndex frame))
+    , "frame-action: " <> Text.pack (show (SimulatorLoop.simFrameAction frame))
+    , "frame-reward: " <> Text.pack (show (SimulatorLoop.simFrameReward frame))
+    , "frame-done: " <> Text.pack (show (SimulatorLoop.simFrameDone frame))
+    , "frame-observation: " <> Text.pack (show (SimulatorLoop.simFrameObservation frame))
+    , "frame-next-observation: "
+        <> Text.pack (show (SimulatorLoop.simFrameNextObservation frame))
+    , "frame-action-probabilities: "
+        <> Text.pack (show (SimulatorLoop.simFrameActionProbabilities frame))
+    , "frame-caption: " <> SimulatorLoop.simFrameCaption frame
+    ]
+
+renderAlphaZeroTranscriptArtifact
+  :: Text
+  -> Int
+  -> Int
+  -> Int
+  -> [PolicyValueNet.PolicyValueTrainingSample]
+  -> Text
+renderAlphaZeroTranscriptArtifact experimentHash seed sims maxPlies samples =
+  Text.unlines $
+    [ "kind: alphazero-transcript-v1"
+    , "experiment-hash: " <> experimentHash
+    , "game: connect4"
+    , "seed: " <> Text.pack (show seed)
+    , "mcts-sims: " <> Text.pack (show sims)
+    , "max-plies: " <> Text.pack (show maxPlies)
+    , "samples: " <> Text.pack (show (length samples))
+    ]
+      <> concatMap renderSample (zip [0 :: Int ..] samples)
+ where
+  renderSample (index, sample) =
+    [ "sample: " <> Text.pack (show index)
+    , "state: " <> Text.pack (show (PolicyValueNet.sampleState sample))
+    , "visit-distribution: "
+        <> Text.pack (show (VU.toList (PolicyValueNet.sampleVisitDist sample)))
+    , "outcome: " <> Text.pack (show (PolicyValueNet.sampleOutcome sample))
+    ]
 
 -- | Sprint 13.10 — when running inside a daemon-dispatched tune Job (live
 -- publication + JITML_EXPERIMENT_HASH set), iterate the canonical sampler ×
@@ -1755,11 +2110,11 @@ runTune parsedOptions = do
 --
 --   1. picks one `(Sampler, Scheduler, Pruner)` combination from the catalog
 --      grid in deterministic Cartesian order;
---   2. computes a deterministic objective via
---      `Tune.deterministicTrialsWithDevice` against the sampler on the
---      substrate-selected JIT device;
+--   2. trains the sampled trial through the substrate-selected JIT device and
+--      returns both the measured objective and checkpointable weights;
 --   3. persists a `TrialTranscript` to MinIO via `persistTrialTranscript`;
---   4. publishes `TuneTrialStarted` + `TuneTrialFinished` envelopes to
+--   4. promotes the measured trial weights into `jitml-checkpoints`;
+--   5. publishes `TuneTrialStarted` + `TuneTrialFinished` envelopes to
 --      `tune.event.<substrate>`.
 --
 -- After the loop publishes `TuneSweepDone` with the count of completed
@@ -1792,15 +2147,15 @@ publishWorkerTuneEvent = do
             ]
           gridTrials =
             take trialBudget (zip [sweepSeed ..] combos)
-      trialResults <-
+      publishedResults <-
         traverse
           (publishOneTrial device pulsarSettings minioSettings topic experimentHash)
           gridTrials
-      let completed = fromIntegral (length (filter (isRight . fst) trialResults))
+      let completed = fromIntegral (length (filter (isRight . fst) publishedResults))
           bestObjective =
-            if null trialResults
+            if null publishedResults
               then 0.0
-              else maximum (fmap snd trialResults)
+              else maximum (fmap snd publishedResults)
           envelope =
             ProtoTune.TuneSweepDone
               ( ProtoTune.SweepDone
@@ -1826,13 +2181,12 @@ publishWorkerTuneEvent = do
     -- Sprint 9.11 / 13.10: derive deterministic trial objectives by training
     -- through the substrate-selected MLP device. A device failure aborts the
     -- worker; there is no pure objective fallback on the live path.
-    trialValuesE <- liftIO (Tune.deterministicTrialsWithDevice device sampler 3)
-    trialValues <- case trialValuesE of
+    trialResultE <- liftIO (Tune.trialObjectiveResultWithDevice device sampler trialSeed)
+    trialResult <- case trialResultE of
       Left err -> liftIO (ioError (userError ("device-backed tune trial failed: " <> Text.unpack err)))
-      Right values -> pure values
-    let objective = case trialValues of
-          (v : _) -> v
-          _ -> 0.0
+      Right value -> pure value
+    let objective = Tune.trialResultObjective trialResult
+        trialValues = [objective]
         transcript =
           Tune.TrialTranscript
             { Tune.transcriptExperimentHash = experimentHash
@@ -1870,6 +2224,18 @@ publishWorkerTuneEvent = do
             minioSettings
             (Tune.persistTrialTranscript transcript)
         )
+    checkpointResult <-
+      liftIO
+        ( MinIOSubprocess.runMinIOSubprocess
+            minioSettings
+            ( writeMinIOWeightCheckpoint
+                experimentHash
+                "tune-trial-weights"
+                (fromIntegral trialSeed)
+                [("objective", objective)]
+                (Tune.trialResultWeights trialResult)
+            )
+        )
     timestampEnd <- liftIO currentTimestampNs
     let finishedEvent =
           ProtoTune.TuneTrialFinished
@@ -1889,7 +2255,7 @@ publishWorkerTuneEvent = do
             pulsarSettings
             (Capabilities.pulsarPublish topic (ProtoTune.renderTuneEvent finishedEvent))
         )
-    pure (persistResult, objective)
+    pure (firstServiceError persistResult checkpointResult, objective)
 
   -- Sprint 5.7 — prefer the typed Dhall `TuneRunConfig` mount; fall back to
   -- the legacy env var when no mount is present (developer-side CLI).
@@ -1902,6 +2268,10 @@ publishWorkerTuneEvent = do
         pure $ case raw of
           Just text | [(parsed, "")] <- reads text -> parsed
           _ -> defaultValue
+
+  firstServiceError (Left err) _ = Left err
+  firstServiceError _ (Left err) = Left err
+  firstServiceError (Right _) (Right _) = Right ()
 
   lookupSweepSeed defaultValue = do
     runConfigMaybe <- RunConfig.tryLoadTuneRunConfig runConfigPath
@@ -1983,24 +2353,52 @@ runRl ["rl", "train"] parsedOptions = do
           evalEpisodes
           maxSteps
       )
-  episodes <- case episodesE of
+  trainerRun <- case episodesE of
     Left err -> exitWithError (InvalidConfig err)
-    Right eps -> pure eps
+    Right run -> pure run
+  let episodes = trainerRunEpisodes trainerRun
   let averageReward =
         if null episodes
           then 0.0
           else sum (fmap SimulatorLoop.simEpisodeReward episodes) / fromIntegral (length episodes)
+      rlExperimentDhall = selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
+      experimentHash =
+        Checkpoint.deriveExperimentHash
+          rlExperimentDhall
+          (renderSubstrate substrate <> ":" <> trainerKind <> ":" <> envName)
+      checkpointStep = fromIntegral (length episodes)
+  checkpointLines <-
+    case trainerRunWeights trainerRun of
+      Nothing -> pure []
+      Just weights -> do
+        stored <-
+          writeLocalWeightCheckpoint
+            experimentHash
+            ("rl-" <> trainerKind <> "-weights")
+            checkpointStep
+            [("avg_reward", averageReward)]
+            weights
+        pure (renderStoredCheckpointLines experimentHash stored)
+  replayArtifact <-
+    writeTextArtifact
+      experimentHash
+      "rl-trajectory"
+      (renderRlTrajectoryArtifact experimentHash envName trainerKind resolvedSeed episodes)
+  let replayArtifactLines = renderStoredArtifactLines "rl-replay" replayArtifact
   writeText $
     Text.unlines
-      [ "rl train: " <> selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
-      , "algorithms: " <> Text.pack (show (length RL.algorithmCatalog))
-      , "environment: " <> envName
-      , "trainer: " <> trainerKind
-      , "episodes: " <> Text.pack (show (length episodes))
-      , "avg-reward: " <> Text.pack (show averageReward)
-      , "overrides: " <> Overrides.renderExperimentOverrides overrides
-      ]
-  traverse_ publishWorkerRlEpisode episodes
+      ( [ "rl train: " <> rlExperimentDhall
+        , "algorithms: " <> Text.pack (show (length RL.algorithmCatalog))
+        , "environment: " <> envName
+        , "trainer: " <> trainerKind
+        , "episodes: " <> Text.pack (show (length episodes))
+        , "avg-reward: " <> Text.pack (show averageReward)
+        , "overrides: " <> Overrides.renderExperimentOverrides overrides
+        ]
+          <> checkpointLines
+          <> replayArtifactLines
+      )
+  traverse_ (publishWorkerRlEpisode envName) episodes
 -- Sprint 9.9 — `jitml rl eval` loads the named checkpoint and runs the real
 -- substrate device forward (shared with `jitml eval`); a missing checkpoint →
 -- `InferenceCheckpointMissing`, no echo stub.
@@ -2016,15 +2414,27 @@ runRl ["rl", "rollout"] parsedOptions = do
   episodesE <- liftIO (runDeviceRollout (rlDeviceForSubstrate substrate env) seed)
   case episodesE of
     Left err -> exitWithError (InvalidConfig err)
-    Right episodes ->
-      writeLine
-        ( "rl rollout: seed="
-            <> Text.pack (show seed)
-            <> " substrate="
-            <> renderSubstrate substrate
-            <> " rewards="
-            <> Text.pack (show (fmap SimulatorLoop.simEpisodeReward episodes))
-        )
+    Right episodes -> do
+      let experimentHash =
+            Checkpoint.deriveExperimentHash
+              "rl-rollout"
+              (renderSubstrate substrate <> ":" <> Text.pack (show seed))
+      replayArtifact <-
+        writeTextArtifact
+          experimentHash
+          "rl-rollout"
+          (renderRlTrajectoryArtifact experimentHash "cartpole" "ppo-rollout" seed episodes)
+      writeText $
+        Text.unlines
+          ( [ "rl rollout: seed="
+                <> Text.pack (show seed)
+                <> " substrate="
+                <> renderSubstrate substrate
+                <> " rewards="
+                <> Text.pack (show (fmap SimulatorLoop.simEpisodeReward episodes))
+            ]
+              <> renderStoredArtifactLines "rl-rollout" replayArtifact
+          )
 runRl ["rl", "alphazero", "self-play"] parsedOptions = do
   overrides <- case Overrides.parseExperimentOverrides parsedOptions of
     Left err -> exitWithError (InvalidConfig (Overrides.renderOverrideError err))
@@ -2075,13 +2485,32 @@ runRl ["rl", "alphazero", "self-play"] parsedOptions = do
         Left err -> exitWithError (InvalidConfig ("AlphaZero device training failed: " <> err))
         Right (trained, _trainedAdam) -> pure trained
       let winRate = PolicyValueNet.arenaWinRateAgainstUniform trainedNet arenaGames maxPlies (seed + 7919)
+          experimentHash =
+            Checkpoint.deriveExperimentHash
+              "alphazero-self-play"
+              (renderSubstrate substrate <> ":" <> Text.pack (show seed))
+      stored <-
+        writeLocalWeightCheckpoint
+          experimentHash
+          "alphazero-policy-value-weights"
+          (fromIntegral (length samples))
+          [("arena_win_rate", winRate), ("samples", fromIntegral (length samples))]
+          (PolicyValueNet.policyValueNetToFlat trainedNet)
+      transcriptArtifact <-
+        writeTextArtifact
+          experimentHash
+          "alphazero-transcript"
+          (renderAlphaZeroTranscriptArtifact experimentHash seed sims maxPlies samples)
       writeText $
         Text.unlines
-          [ "rl alphazero self-play: substrate=" <> renderSubstrate substrate
-          , "games: " <> Text.pack (show games)
-          , "samples: " <> Text.pack (show (length samples))
-          , "arena-win-rate: " <> Text.pack (show winRate)
-          ]
+          ( [ "rl alphazero self-play: substrate=" <> renderSubstrate substrate
+            , "games: " <> Text.pack (show games)
+            , "samples: " <> Text.pack (show (length samples))
+            , "arena-win-rate: " <> Text.pack (show winRate)
+            ]
+              <> renderStoredCheckpointLines experimentHash stored
+              <> renderStoredArtifactLines "alphazero-transcript" transcriptArtifact
+          )
 runRl path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
 
@@ -2110,18 +2539,169 @@ runDeviceRollout device seed = do
                 , SimulatorLoop.simEpisodeSteps = 512
                 , SimulatorLoop.simEpisodeReward = PpoTrainer.iterMeanReward stat
                 , SimulatorLoop.simEpisodeDone = True
+                , SimulatorLoop.simEpisodeFrames = []
                 }
           )
           . PpoTrainer.resultIterations
       )
       resultE
 
+writeLocalWeightCheckpoint
+  :: Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> App CheckpointStore.StoredCheckpoint
+writeLocalWeightCheckpoint experimentHash tensorName step metrics weights = do
+  checkpointRoot <- localCheckpointRoot
+  let (manifest, payloads) =
+        buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights
+  stored <- liftIO (CheckpointStore.writeCheckpointSnapshot checkpointRoot manifest payloads Nothing)
+  _ <- mirrorWeightCheckpointToLiveIfPublished manifest payloads
+  pure stored
+
+writeMinIOWeightCheckpoint
+  :: (Capabilities.HasMinIO m)
+  => Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> m (Either ServiceError CheckpointStore.StoredCheckpoint)
+writeMinIOWeightCheckpoint experimentHash tensorName step metrics weights =
+  let (manifest, payloads) =
+        buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights
+   in CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads Nothing
+
+buildWeightCheckpointSnapshot
+  :: Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
+buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights =
+  let payload = Checkpoint.encodeJmw1 weights
+      blobSha = hexEncodeBytes (Crypto.Hash.SHA256.hash (LazyByteString.toStrict payload))
+      blobObjectKey = Checkpoint.blobKey experimentHash blobSha
+      manifest =
+        ( Checkpoint.emptyManifest
+            ("checkpoint-" <> Text.pack (show step))
+            experimentHash
+            [Checkpoint.TensorBlob tensorName [length weights] blobObjectKey]
+        )
+          { Checkpoint.manifestStep = step
+          , Checkpoint.manifestMetrics = metrics
+          }
+   in (manifest, [(blobObjectKey, payload)])
+
+mirrorWeightCheckpointToLiveIfPublished
+  :: Checkpoint.CheckpointManifest
+  -> [(Text, LazyByteString.ByteString)]
+  -> App Bool
+mirrorWeightCheckpointToLiveIfPublished manifest payloads = do
+  publicationMaybe <- liftIO (readExistingLivePublication ".")
+  case publicationMaybe of
+    Nothing -> pure False
+    Just publication -> do
+      let minioSettings = MinIOSubprocess.minioSettingsForLocalEdge (Publication.publicationEdgePort publication)
+      result <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              (CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads Nothing)
+          )
+      case result of
+        Right _ -> pure True
+        Left err ->
+          exitWithError (MinIOFailed ("checkpoint mirror failed: " <> Text.pack (show err)))
+
+renderStoredCheckpointLines :: Text -> CheckpointStore.StoredCheckpoint -> [Text]
+renderStoredCheckpointLines = renderStoredCheckpointLinesWithPrefix "checkpoint"
+
+renderStoredCheckpointLinesWithPrefix :: Text -> Text -> CheckpointStore.StoredCheckpoint -> [Text]
+renderStoredCheckpointLinesWithPrefix prefix experimentHash stored =
+  [ prefix <> "-experiment-hash: " <> experimentHash
+  , prefix <> "-manifest-sha: " <> CheckpointStore.storedManifestSha stored
+  , prefix <> "-manifest-key: " <> CheckpointStore.storedManifestObjectKey stored
+  , prefix <> "-pointer-key: " <> Checkpoint.latestPointerKey experimentHash
+  ]
+
+writeTextArtifact :: Text -> Text -> Text -> App StoredArtifact
+writeTextArtifact experimentHash kind payloadText = do
+  checkpointRoot <- localCheckpointRoot
+  let payload = Text.Encoding.encodeUtf8 payloadText
+      sha = hexEncodeBytes (Crypto.Hash.SHA256.hash payload)
+      objectKey =
+        "jitml-checkpoints/"
+          <> experimentHash
+          <> "/artifacts/"
+          <> kind
+          <> "/"
+          <> sha
+          <> ".txt"
+  _ <-
+    liftIO
+      (CheckpointStore.writeObjectIfAbsent checkpointRoot objectKey (LazyByteString.fromStrict payload))
+  mirrored <- mirrorObjectToLiveIfPublished objectKey payload
+  pure
+    StoredArtifact
+      { storedArtifactSha = sha
+      , storedArtifactObjectKey = objectKey
+      , storedArtifactMirroredToLive = mirrored
+      }
+
+mirrorObjectToLiveIfPublished :: Text -> Data.ByteString.ByteString -> App Bool
+mirrorObjectToLiveIfPublished objectKey payload = do
+  publicationMaybe <- liftIO (readExistingLivePublication ".")
+  case publicationMaybe of
+    Nothing -> pure False
+    Just publication -> do
+      let minioSettings = MinIOSubprocess.minioSettingsForLocalEdge (Publication.publicationEdgePort publication)
+          ref = CheckpointStore.checkpointObjectRef objectKey
+      result <-
+        liftIO
+          ( MinIOSubprocess.runMinIOSubprocess
+              minioSettings
+              (Capabilities.putBlobBytesIfAbsent ref payload)
+          )
+      case result of
+        Right _ -> pure True
+        Left (SEConflict _) -> pure True
+        Left err ->
+          exitWithError (MinIOFailed ("artifact mirror failed: " <> Text.pack (show err)))
+
+renderStoredArtifactLines :: Text -> StoredArtifact -> [Text]
+renderStoredArtifactLines prefix artifact =
+  [ prefix <> "-artifact-sha: " <> storedArtifactSha artifact
+  , prefix <> "-artifact-key: " <> storedArtifactObjectKey artifact
+  , prefix
+      <> "-artifact-live-minio: "
+      <> if storedArtifactMirroredToLive artifact then "yes" else "no"
+  ]
+
+-- | Worker-side RL result: per-iteration summaries plus optional flattened
+-- trained weights for checkpoint persistence.
+data TrainerRun = TrainerRun
+  { trainerRunEpisodes :: [SimulatorLoop.SimulatedEpisode]
+  , trainerRunWeights :: Maybe [Double]
+  }
+  deriving stock (Eq, Show)
+
+data StoredArtifact = StoredArtifact
+  { storedArtifactSha :: !Text
+  , storedArtifactObjectKey :: !Text
+  , storedArtifactMirroredToLive :: !Bool
+  }
+  deriving stock (Eq, Show)
+
 -- | Sprint 13.8 — dispatch the worker-side RL run to the real MLP-backed
 -- trainer named by @JITML_RL_TRAINER@, projecting each trainer's
--- per-iteration summary into the existing 'SimulatedEpisode' envelope
--- shape so the downstream dispatch chain and Pulsar publication path
--- (Sprint 13.5) stay unchanged. Every trainer is bit-deterministic on
--- the same substrate / same seed per
+-- per-iteration summary into the existing 'SimulatedEpisode' envelope so the
+-- downstream dispatch chain and Pulsar publication path (Sprint 13.5) stay
+-- unchanged. Every trainer is bit-deterministic on the same substrate / same
+-- seed per
 -- [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md).
 -- The @atari-subset@ environment always routes through ALE first; an
 -- unrecognised @trainerKind@ for other environments falls back to the
@@ -2135,13 +2715,13 @@ runTrainerEpisodes
   -> Int
   -> Int
   -> Int
-  -> IO (Either Text [SimulatorLoop.SimulatedEpisode])
+  -> IO (Either Text TrainerRun)
 runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEpisodes maxStepsPerEpisode
   | Text.toLower envName == "atari-subset" = do
       -- Atari routes through the runtime-loaded ALE adapter (Sprint 8.8),
       -- not the MLP device; ROM-policy failures surface as a typed `Left`.
       result <- ALE.runAtariSubsetEpisodes atariRomPath seed evalEpisodes maxStepsPerEpisode
-      pure (fmap (fmap fromAleEpisode) result)
+      pure (fmap (\episodes -> TrainerRun (fmap fromAleEpisode episodes) Nothing) result)
   | trainerKind == "ars" =
       -- ARS is the lone no-MLP exception (Sprint 8.11): a finite-difference
       -- random-search method with no network forward/backward, so it does not
@@ -2212,6 +2792,7 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
       , SimulatorLoop.simEpisodeSteps = ALE.aleEpisodeSteps episode
       , SimulatorLoop.simEpisodeReward = ALE.aleEpisodeReward episode
       , SimulatorLoop.simEpisodeDone = ALE.aleEpisodeDone episode
+      , SimulatorLoop.simEpisodeFrames = []
       }
   asEpisode index reward =
     SimulatorLoop.SimulatedEpisode
@@ -2219,6 +2800,7 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
       , SimulatorLoop.simEpisodeSteps = maxStepsPerEpisode
       , SimulatorLoop.simEpisodeReward = reward
       , SimulatorLoop.simEpisodeDone = True
+      , SimulatorLoop.simEpisodeFrames = []
       }
   -- Project per-iteration stats into sequentially-indexed episodes.
   -- Manual index threading (not @zipWith ... [0 ..]@) keeps hlint's
@@ -2247,8 +2829,14 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
     resultE <- PpoTrainer.trainOnPolicyOnDevice device variant config
     pure $
       fmap
-        ( map (\stat -> asEpisode (PpoTrainer.iterIndex stat) (PpoTrainer.iterMeanReward stat))
-            . PpoTrainer.resultIterations
+        ( \result ->
+            TrainerRun
+              { trainerRunEpisodes =
+                  map
+                    (\stat -> asEpisode (PpoTrainer.iterIndex stat) (PpoTrainer.iterMeanReward stat))
+                    (PpoTrainer.resultIterations result)
+              , trainerRunWeights = Just (mlpParamsToFlat (PpoTrainer.resultFinalParams result))
+              }
         )
         resultE
   onPolicyTuning LinuxCPU = (10, 5.0e-4)
@@ -2263,7 +2851,13 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             , DqnTrainer.dqnStatInterval = max 1000 maxStepsPerEpisode
             }
     result <- DqnTrainer.trainDqnOnDevice device config
-    pure (Right (indexedEpisodes DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats result)))
+    pure
+      ( Right
+          TrainerRun
+            { trainerRunEpisodes = indexedEpisodes DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats result)
+            , trainerRunWeights = Just (mlpParamsToFlat (DqnTrainer.dqnResultFinalParams result))
+            }
+      )
   qrDqnEpisodes = do
     let config =
           QrDqnTrainer.defaultQrDqnTrainConfig
@@ -2272,7 +2866,14 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             , QrDqnTrainer.qrStatInterval = max 1000 maxStepsPerEpisode
             }
     result <- QrDqnTrainer.trainQrDqnOnDevice device config
-    pure (Right (indexedEpisodes QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats result)))
+    pure
+      ( Right
+          TrainerRun
+            { trainerRunEpisodes =
+                indexedEpisodes QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats result)
+            , trainerRunWeights = Just (mlpParamsToFlat (QrDqnTrainer.qrResultFinalParams result))
+            }
+      )
   continuousEpisodes variant = do
     let config =
           (ContinuousTrainer.defaultContinuousTrainConfig variant)
@@ -2284,7 +2885,11 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
     result <- ContinuousTrainer.trainContinuousOnDevice device config
     pure
       ( Right
-          (indexedEpisodes ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats result))
+          TrainerRun
+            { trainerRunEpisodes =
+                indexedEpisodes ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats result)
+            , trainerRunWeights = Just (mlpParamsToFlat (ContinuousTrainer.contResultFinalActor result))
+            }
       )
   arsEpisodes = do
     let config =
@@ -2295,9 +2900,13 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             }
     result <- ArsTrainer.trainArsOnCartpole config
     pure $
-      fmap
-        (\stat -> asEpisode (ArsTrainer.arsIterIndex stat) (ArsTrainer.arsIterMeanReturn stat))
-        (ArsTrainer.arsResultStats result)
+      TrainerRun
+        { trainerRunEpisodes =
+            fmap
+              (\stat -> asEpisode (ArsTrainer.arsIterIndex stat) (ArsTrainer.arsIterMeanReturn stat))
+              (ArsTrainer.arsResultStats result)
+        , trainerRunWeights = Just (VU.toList (ArsTrainer.arsResultFinalParams result))
+        }
   herEpisodes = do
     let config =
           HerTrainer.defaultHerTrainConfig
@@ -2306,14 +2915,21 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             , HerTrainer.herStatInterval = max 25 evalEpisodes
             }
     result <- HerTrainer.trainHerOnDevice device config
-    pure (Right (indexedEpisodes HerTrainer.herIterSuccessRate (HerTrainer.herResultStats result)))
+    pure
+      ( Right
+          TrainerRun
+            { trainerRunEpisodes =
+                indexedEpisodes HerTrainer.herIterSuccessRate (HerTrainer.herResultStats result)
+            , trainerRunWeights = Just (mlpParamsToFlat (HerTrainer.herResultFinalParams result))
+            }
+      )
 
 -- | Sprint 13.5 — publish one @EpisodeDone@ envelope per simulator
 -- episode produced by 'SimulatorLoop.runSimulatedEpisodesByName'. Gated
 -- on @JITML_EXPERIMENT_HASH@ + live cluster publication so the worker
 -- can still run offline without a broker.
-publishWorkerRlEpisode :: SimulatorLoop.SimulatedEpisode -> App ()
-publishWorkerRlEpisode episode = do
+publishWorkerRlEpisode :: Text -> SimulatorLoop.SimulatedEpisode -> App ()
+publishWorkerRlEpisode environment episode = do
   target <- workerBrokerTarget
   experimentHashMaybe <- liftIO workerExperimentHash
   case (target, experimentHashMaybe) of
@@ -2332,24 +2948,62 @@ publishWorkerRlEpisode episode = do
                   , ProtoRl.edTimestampNs = timestampNs
                   }
               )
-      result <-
-        liftIO
-          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
-              pulsarSettings
-              ( Capabilities.pulsarPublish
-                  topic
-                  (ProtoRl.renderRlEvent envelope)
-              )
-          )
-      case result of
-        Right _ -> pure ()
-        Left err ->
-          writeText
-            ( "rl train: rl.event publish failed: "
-                <> Text.pack (show err)
-                <> "\n"
+          animationEnvelopes =
+            fmap
+              (rlAnimationEnvelope experimentHash environment timestampNs)
+              (SimulatorLoop.simEpisodeFrames episode)
+      for_ (envelope : animationEnvelopes) $ \event -> do
+        result <-
+          liftIO
+            ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+                pulsarSettings
+                ( Capabilities.pulsarPublish
+                    topic
+                    (ProtoRl.renderRlEvent event)
+                )
             )
+        case result of
+          Right _ -> pure ()
+          Left err ->
+            writeText
+              ( "rl train: rl.event publish failed: "
+                  <> Text.pack (show err)
+                  <> "\n"
+              )
     _ -> pure ()
+
+rlAnimationEnvelope
+  :: Text
+  -> Text
+  -> Word64
+  -> SimulatorLoop.SimulatedFrame
+  -> ProtoRl.RlEvent
+rlAnimationEnvelope experimentHash environment timestampNs frame =
+  ProtoRl.RlAnimation
+    ProtoRl.RlAnimationFrame
+      { ProtoRl.rafExperimentHash = experimentHash
+      , ProtoRl.rafEnvironment = environment
+      , ProtoRl.rafEpisode = fromIntegral (SimulatorLoop.simFrameEpisodeIndex frame)
+      , ProtoRl.rafStep = fromIntegral (SimulatorLoop.simFrameStepIndex frame)
+      , ProtoRl.rafReward = SimulatorLoop.simFrameReward frame
+      , ProtoRl.rafDone = SimulatorLoop.simFrameDone frame
+      , ProtoRl.rafAction = fromIntegral (SimulatorLoop.simFrameAction frame)
+      , ProtoRl.rafObservation = SimulatorLoop.simFrameNextObservation frame
+      , ProtoRl.rafActionProbabilities = SimulatorLoop.simFrameActionProbabilities frame
+      , ProtoRl.rafObservationHash =
+          rlObservationHash (SimulatorLoop.simFrameNextObservation frame)
+      , ProtoRl.rafReplayCursor =
+          fromIntegral (SimulatorLoop.simFrameEpisodeIndex frame) * 1_000_000
+            + fromIntegral (SimulatorLoop.simFrameStepIndex frame)
+      , ProtoRl.rafTimestampNs = timestampNs
+      }
+
+rlObservationHash :: [Double] -> Word32
+rlObservationHash =
+  foldl' step 2166136261
+ where
+  step acc value =
+    acc * 16777619 + fromIntegral (abs (round (value * 1_000_000) :: Int))
 
 -- | Sprint 5.7 — the mounted per-run Dhall config path inside a
 -- daemon-dispatched worker pod.
@@ -2707,12 +3361,13 @@ measureRlFinalReward = do
       )
   let reward = case episodesE of
         Left _ -> Nothing
-        Right [] -> Nothing
-        Right episodes ->
-          Just
-            ( sum (fmap SimulatorLoop.simEpisodeReward episodes)
-                / fromIntegral (length episodes)
-            )
+        Right trainerRun
+          | null (trainerRunEpisodes trainerRun) -> Nothing
+          | otherwise ->
+              Just
+                ( sum (fmap SimulatorLoop.simEpisodeReward (trainerRunEpisodes trainerRun))
+                    / fromIntegral (length (trainerRunEpisodes trainerRun))
+                )
   pure $
     case reward of
       Nothing -> MeasurementUnavailable
@@ -2885,12 +3540,12 @@ targetStanzas targets = targets
 -- Without a live publication the reconciler falls back to walking the
 -- local on-disk manifest store. Exits `3` (`ReconcilerNoop`) when the
 -- store is already at the target state.
--- | Sprint 13.4 — `jitml internal upload-dataset` reads a local file,
--- looks up the canonical SHA-256 in 'JitML.SL.Dataset.canonicalSha256For'
--- (or the synthetic fallback), verifies the file's SHA matches the
--- canonical, and uploads it to MinIO at
--- `jitml-datasets/<name>/<split>/data.bin` via the routed
--- `MinIOSubprocess`. Mismatches abort with 'InvalidConfig'.
+-- | Sprint 13.4 / 8.12 — `jitml internal upload-dataset` reads a local
+-- file, looks up the canonical SHA-256 in
+-- 'JitML.SL.Dataset.canonicalArtifactSha256For', verifies the file's SHA
+-- matches the canonical when one is pinned, and uploads it to MinIO at the
+-- typed dataset artefact key via the routed `MinIOSubprocess`. Mismatches
+-- abort with 'InvalidConfig'.
 runInternalUploadDataset :: [ParsedOption] -> App ()
 runInternalUploadDataset parsedOptions = do
   let name = selectedValue "name" "MNIST" parsedOptions
@@ -2914,7 +3569,7 @@ runInternalUploadDataset parsedOptions = do
         ( InvalidConfig
             ( "upload-dataset: unknown artifact "
                 <> artifactText
-                <> " (expected images/labels)"
+                <> " (expected images/labels/archive)"
             )
         )
   when (null path) $
@@ -3008,6 +3663,8 @@ parseDatasetArtifact :: Text -> Maybe Dataset.DatasetArtifact
 parseDatasetArtifact "images" = Just Dataset.ImagesArtifact
 parseDatasetArtifact "data" = Just Dataset.ImagesArtifact
 parseDatasetArtifact "labels" = Just Dataset.LabelsArtifact
+parseDatasetArtifact "archive" = Just Dataset.ArchiveArtifact
+parseDatasetArtifact "tarball" = Just Dataset.ArchiveArtifact
 parseDatasetArtifact _ = Nothing
 
 hexEncodeBytes :: Data.ByteString.ByteString -> Text

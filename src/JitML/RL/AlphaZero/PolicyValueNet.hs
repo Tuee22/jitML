@@ -98,9 +98,13 @@ import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpMetal (metalMlpDevice)
 import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.AlphaZero
-  ( GameState (..)
+  ( GameOutcome (..)
+  , GameState (..)
   , applyMove
+  , connect4BoardAfter
+  , gameOutcome
   , initialConnect4
+  , terminalValueForToMove
   )
 import JitML.RL.AlphaZero.Mcts
   ( MctsConfig (..)
@@ -155,7 +159,7 @@ encodeConnect4Board :: GameState -> Vector Double
 encodeConnect4Board state =
   let cols = 7
       rows = 6
-      grid = simulateConnect4 (gameMoves state)
+      grid = connect4BoardAfter (gameMoves state)
       currentPlayer = gameCurrentPlayer state
       cellAt r c = case grid !! (r * cols + c) of
         0 -> 0.0
@@ -165,25 +169,6 @@ encodeConnect4Board state =
       cells = [cellAt r c | r <- [0 .. rows - 1], c <- [0 .. cols - 1]]
       parity = if currentPlayer == 1 then 1.0 else -1.0
    in VU.fromList (cells <> [parity])
-
--- | Simulate a Connect 4 game from a move list, returning a flat
--- @42-cell@ array where @+1@ = first-player piece, @-1@ = second-player
--- piece, @0@ = empty. The board is stored row-major (row 0 = top).
-simulateConnect4 :: [Int] -> [Int]
-simulateConnect4 moves0 =
-  let cols = 7
-      rows = 6
-      empty = replicate (rows * cols) 0
-      place player col grid =
-        case [r | r <- [rows - 1, rows - 2 .. 0], grid !! (r * cols + col) == 0] of
-          (r : _) ->
-            let ix = r * cols + col
-             in take ix grid <> [player] <> drop (ix + 1) grid
-          [] -> grid
-      go _player [] grid = grid
-      go player (m : ms) grid =
-        go (negate player) ms (place player m grid)
-   in go 1 (fmap (`mod` cols) moves0) empty
 
 -- | Generic per-game observation encoder. Falls back to Connect 4 for
 -- everything else (the network's observation surface is parameterised
@@ -210,16 +195,20 @@ networkPolicyValue net state =
 networkPriorOracle :: PolicyValueNet -> GameState -> PriorOracle
 networkPriorOracle net rootState moves =
   let state = Data.List.foldl' (flip applyMove) rootState moves
-      terminalValue = evaluateTerminal state
-   in if terminalValue /= 0.0
-        then NodeEval {evalPriors = [], evalValue = terminalValue, evalTerminal = True}
-        else
+   in case gameOutcome state of
+        GameInProgress ->
           let out = networkPolicyValue net state
            in NodeEval
                 { evalPriors = VU.toList (pvPolicy out)
                 , evalValue = pvValue out
                 , evalTerminal = False
                 }
+        _ ->
+          NodeEval
+            { evalPriors = []
+            , evalValue = terminalValueForToMove state
+            , evalTerminal = True
+            }
 
 -- | Device-backed variant of 'networkPriorOracle'. Leaf evaluation runs the
 -- policy/value MLP forward through the supplied 'MlpDevice'; any device compile
@@ -232,10 +221,8 @@ networkPriorOracleWithDevice
   -> IO (Either Text NodeEval)
 networkPriorOracleWithDevice device net rootState moves =
   let state = Data.List.foldl' (flip applyMove) rootState moves
-      terminalValue = evaluateTerminal state
-   in if terminalValue /= 0.0
-        then pure (Right NodeEval {evalPriors = [], evalValue = terminalValue, evalTerminal = True})
-        else do
+   in case gameOutcome state of
+        GameInProgress -> do
           fwdResult <- mlpdForward device (pvnParams net) (encodeGameState net state)
           pure $
             case fwdResult of
@@ -248,6 +235,14 @@ networkPriorOracleWithDevice device net rootState moves =
                         , evalValue = pvValue out
                         , evalTerminal = False
                         }
+        _ ->
+          pure $
+            Right
+              NodeEval
+                { evalPriors = []
+                , evalValue = terminalValueForToMove state
+                , evalTerminal = True
+                }
 
 -- | Sprint 9.10 — the per-position oracle the production AlphaZero self-play
 -- loop threads through
@@ -472,7 +467,7 @@ generatePolicyValueSamples
 generatePolicyValueSamples net seed0 sims maxPlies =
   let gen0 = Random.mkStdGen seed0
       go !state !gen !plies !acc
-        | plies >= maxPlies = annotatePolicyValueOutcome 0.0 (reverse acc)
+        | plies >= maxPlies = annotatePolicyValueOutcome GameDraw (reverse acc)
         | otherwise =
             let visitDist = mctsVisitDistribution net sims state (seed0 + plies * 7919)
                 (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
@@ -484,14 +479,14 @@ generatePolicyValueSamples net seed0 sims maxPlies =
                     , sampleVisitDist = visitDist
                     , sampleOutcome = 0.0 -- filled below
                     }
-                terminal = plies + 1 >= maxPlies
-                outcomeFromHere =
-                  if terminal
-                    then evaluateTerminal nextState
-                    else 0.0
-             in if terminal
-                  then annotatePolicyValueOutcome outcomeFromHere (reverse (sample : acc))
-                  else go nextState gen' (plies + 1) (sample : acc)
+             in case gameOutcome nextState of
+                  GameInProgress
+                    | plies + 1 >= maxPlies ->
+                        annotatePolicyValueOutcome GameDraw (reverse (sample : acc))
+                    | otherwise ->
+                        go nextState gen' (plies + 1) (sample : acc)
+                  outcome ->
+                    annotatePolicyValueOutcome outcome (reverse (sample : acc))
    in go initialConnect4 gen0 0 []
 
 -- | Device-backed variant of 'generatePolicyValueSamples'. The MCTS visit
@@ -509,7 +504,7 @@ generatePolicyValueSamplesWithDevice
 generatePolicyValueSamplesWithDevice device net seed0 sims maxPlies =
   let gen0 = Random.mkStdGen seed0
       go !state !gen !plies !acc
-        | plies >= maxPlies = pure (Right (annotatePolicyValueOutcome 0.0 (reverse acc)))
+        | plies >= maxPlies = pure (Right (annotatePolicyValueOutcome GameDraw (reverse acc)))
         | otherwise = do
             visitResult <- mctsVisitDistributionWithDevice device net sims state (seed0 + plies * 7919)
             case visitResult of
@@ -524,58 +519,29 @@ generatePolicyValueSamplesWithDevice device net seed0 sims maxPlies =
                         , sampleVisitDist = visitDist
                         , sampleOutcome = 0.0
                         }
-                    terminal = plies + 1 >= maxPlies
-                    outcomeFromHere =
-                      if terminal
-                        then evaluateTerminal nextState
-                        else 0.0
-                if terminal
-                  then pure (Right (annotatePolicyValueOutcome outcomeFromHere (reverse (sample : acc))))
-                  else go nextState gen' (plies + 1) (sample : acc)
+                case gameOutcome nextState of
+                  GameInProgress
+                    | plies + 1 >= maxPlies ->
+                        pure (Right (annotatePolicyValueOutcome GameDraw (reverse (sample : acc))))
+                    | otherwise ->
+                        go nextState gen' (plies + 1) (sample : acc)
+                  outcome ->
+                    pure (Right (annotatePolicyValueOutcome outcome (reverse (sample : acc))))
    in go initialConnect4 gen0 0 []
 
-annotatePolicyValueOutcome :: Double -> [PolicyValueTrainingSample] -> [PolicyValueTrainingSample]
-annotatePolicyValueOutcome finalOutcome = annotateLoop finalOutcome (0 :: Int)
+annotatePolicyValueOutcome
+  :: GameOutcome -> [PolicyValueTrainingSample] -> [PolicyValueTrainingSample]
+annotatePolicyValueOutcome outcome = fmap annotate
  where
-  -- Alternate signs because the outcome is from each side's POV.
-  -- Manual index threading instead of @zipWith@ over @[0 ..]@ so hlint's
-  -- `Use zipWithFrom` hint (which would require the extra package)
-  -- does not fire.
-  annotateLoop _ _ [] = []
-  annotateLoop outcome i (s : ss) =
-    let sign = if even i then 1.0 else -1.0
-     in s {sampleOutcome = sign * outcome} : annotateLoop outcome (i + 1) ss
-
--- | Real Connect-4 terminal evaluator: checks for any 4-in-a-row in
--- horizontals, verticals, and both diagonal directions. Returns
--- @+1@ if the side that just played has 4-in-a-row (so the side to
--- move loses), @-1@ if the side to move has 4-in-a-row (shouldn't
--- happen mid-play; defensive), or @0@ for no terminal alignment.
-evaluateTerminal :: GameState -> Double
-evaluateTerminal state =
-  let grid = simulateConnect4 (gameMoves state)
-      currentPlayer = gameCurrentPlayer state
-      otherPlayer = negate currentPlayer
-      cols = 7
-      rows = 6
-      cell r c
-        | r < 0 || r >= rows || c < 0 || c >= cols = 0
-        | otherwise = grid !! (r * cols + c)
-      runOf p (r0, c0) (dr, dc) =
-        all (\k -> cell (r0 + k * dr) (c0 + k * dc) == p) [0 .. 3]
-      directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
-      hasLine p =
-        any
-          ( \(r, c) ->
-              any (runOf p (r, c)) directions
-          )
-          [(r, c) | r <- [0 .. rows - 1], c <- [0 .. cols - 1]]
-   in if hasLine otherPlayer
-        then 1.0 -- the side that just moved won; from the to-move POV that is a loss-incoming, so the prior move yielded +1
-        else
-          if hasLine currentPlayer
-            then -1.0
-            else 0.0
+  annotate sample =
+    sample {sampleOutcome = outcomeFor (sampleState sample)}
+  outcomeFor state =
+    case outcome of
+      GameWon winner
+        | winner == gameCurrentPlayer state -> 1.0
+        | otherwise -> -1.0
+      GameDraw -> 0.0
+      GameInProgress -> 0.0
 
 -- | One generation = self-play games + gradient updates against the
 -- collected samples + arena win-rate measurement.
@@ -619,8 +585,7 @@ runOneGenerationOfSelfPlay net adam selfPlayGames maxPlies sims gradientUpdates 
 -- | Play @games@ arena games against a uniform-random opponent and
 -- return the network's win rate (in @[0, 1]@). Uses the network as
 -- player 1 and uniform-random as player 2 in alternation by game
--- index. Outcome heuristic: side that placed the last piece wins
--- (placeholder until a real terminal evaluator is wired in).
+-- index, with winner/draw detection coming from the shared game rules.
 arenaWinRateAgainstUniform :: PolicyValueNet -> Int -> Int -> Int -> Double
 arenaWinRateAgainstUniform net games maxPlies seed0 =
   let gen0 = Random.mkStdGen seed0
@@ -629,6 +594,7 @@ arenaWinRateAgainstUniform net games maxPlies seed0 =
           then (0.0 :: Double, gen) -- draw
           else
             let netToMove = even (plies + g)
+                netPlayer = if even g then 1 else -1
                 pv = networkPolicyValue net state
                 policy = pvPolicy pv
                 actionCount = VU.length policy
@@ -638,10 +604,12 @@ arenaWinRateAgainstUniform net games maxPlies seed0 =
                     then sampleCategorical policy u
                     else (floor (u * fromIntegral actionCount) :: Int) `mod` actionCount
                 nextState = applyMove action state
-                outcome = evaluateTerminal nextState
-             in if outcome /= 0.0
-                  then (if netToMove then 1.0 else -1.0, gen')
-                  else playOne g nextState gen' (plies + 1)
+             in case gameOutcome nextState of
+                  GameWon winner
+                    | winner == netPlayer -> (1.0, gen')
+                    | otherwise -> (-1.0, gen')
+                  GameDraw -> (0.0, gen')
+                  GameInProgress -> playOne g nextState gen' (plies + 1)
       go !g !gen !wins !drawn !losses
         | g >= games = (wins, drawn, losses)
         | otherwise =

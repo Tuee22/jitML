@@ -8,6 +8,7 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
+[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -25,7 +26,13 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-13 for Sprint `12.12`). The Apple
+🔄 **Active** (reopened 2026-06-14 — Playwright no-caveat e2e matrix). Sprint
+`12.13` expands this phase from route/panel/value checks and workflow-matrix
+command execution into product-level browser validation: Playwright must prove
+that every model trains, checkpoints, reloads, exposes the appropriate
+interaction, animates RL, and replays adversarial games through the real app.
+
+✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `12.12`). The Apple
 Silicon full test run found a failed `jitml-rl-*` Kubernetes Job but the
 integration convergence collector kept polling Pulsar rewards instead of failing
 immediately with the Job condition and pod logs. Sprint `12.12` adds fail-fast
@@ -1096,6 +1103,57 @@ waiting for domain events that can never arrive.
 
 None. Phase `14` owns the full Apple lifecycle lane and Phase `15` owns the
 final ledger walk-down.
+
+## Sprint 12.13: Playwright No-Caveat E2E Matrix 🔄
+
+**Status**: Active
+**Implementation**: `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs`,
+`src/JitML/Test/LivePlan.hs`, `src/JitML/Test/WorkflowMatrix.hs`
+**Docs to update**: `documents/engineering/unit_testing_policy.md`,
+`documents/engineering/purescript_frontend.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make `jitml-e2e` and Playwright validate the full no-caveat app/product matrix
+instead of structural reachability plus a few REST assertions.
+
+### Deliverables
+
+- `jitml-e2e` brings up an ephemeral cluster, runs the compiled browser bundle
+  through the routed Envoy edge, executes the Playwright product matrix, and
+  tears the cluster down with `bracket` even on failure.
+- Playwright starts every canonical SL workflow, observes live training events,
+  verifies checkpoint creation, opens model-specific interaction panels, and
+  asserts real inference output from the produced checkpoint.
+- Playwright starts RL workflows for each algorithm family, observes live
+  episode/trajectory frames, verifies canvas animation, records a trajectory,
+  and replays/scrubs it in the browser.
+- Playwright drives Connect 4, Othello, Hex, and Gomoku against AlphaZero
+  checkpoints, verifies legal moves, MCTS visit distributions, value estimates,
+  and interactive replay controls.
+- Playwright launches and controls a bounded tuning sweep, verifies live
+  frontier/heatmap/trial updates, kills a trial, promotes a trial, and verifies
+  the promoted checkpoint is usable.
+- The report card includes a no-caveat browser/product section; unavailable,
+  placeholder, skipped, or synthetic rows fail the e2e lane when hardware and
+  cluster prerequisites are present.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
+- `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda`
+- `jitml test jitml-e2e --apple-silicon`
+- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm jitml jitml check-code`
+
+### Remaining Work
+
+- Replace panel-visibility tests with workflow-launch, event, checkpoint,
+  inference, animation, replay, and control assertions.
+- Extend `LivePlan` / `WorkflowMatrix` to enumerate every model/product cell and
+  fail closed on any missing live artifact.
+- Add report-card fields for the no-caveat browser/product matrix.
 
 ## Doctrine Sections Cited
 
