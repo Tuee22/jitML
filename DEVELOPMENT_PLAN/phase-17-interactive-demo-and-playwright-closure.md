@@ -81,7 +81,8 @@ the PureScript app.
 
 - Replace text-marker parsers and zero/default display records with generated
   typed codecs for every REST and WebSocket payload.
-- Replace demo-only inline model responses with checkpoint-backed runtime calls.
+- Replace `503 checkpoint-required` REST panel failures with checkpoint-backed
+  runtime calls.
 - Draw real charts/canvases/animations rather than placeholder canvases and
   text-only tables.
 - Add browser controls for command envelopes instead of passive stream panels.

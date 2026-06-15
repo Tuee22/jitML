@@ -437,13 +437,14 @@ loadInferenceCheckpointWith runInference experimentHash input = do
       case manifestPayload of
         Left err -> pure (Left ("manifest read failed: " <> Text.pack (show err)))
         Right rawManifest ->
-          let decoded =
-                decodeManifestCbor (LazyByteString.fromStrict rawManifest)
-           in case decoded of
-                Left err -> pure (Left ("manifest decode failed: " <> err))
-                Right manifest ->
-                  let weightOnly = manifest {manifestOptimizer = [], manifestRng = []}
-                      _ = weightOnlyTensors manifest
+          case decodeManifestCbor (LazyByteString.fromStrict rawManifest) of
+            Left err -> pure (Left ("manifest decode failed: " <> err))
+            Right manifest ->
+              case validateLoadedManifest experimentHash manifestSha manifest of
+                Left err -> pure (Left err)
+                Right validManifest ->
+                  let weightOnly = validManifest {manifestOptimizer = [], manifestRng = []}
+                      _ = weightOnlyTensors validManifest
                    in runInference weightOnly input
 
 -- | Variant of `loadInferenceCheckpointWith` that also reads and decodes
@@ -471,11 +472,14 @@ loadInferenceCheckpointWithWeights runInference experimentHash input = do
           case decodeManifestCbor (LazyByteString.fromStrict rawManifest) of
             Left err -> pure (Left ("manifest decode failed: " <> err))
             Right manifest -> do
-              let weightOnly = manifest {manifestOptimizer = [], manifestRng = []}
-              loadedWeights <- loadWeightTensors weightOnly
-              case loadedWeights of
+              case validateLoadedManifest experimentHash manifestSha manifest of
                 Left err -> pure (Left err)
-                Right weights -> runInference weightOnly weights input
+                Right validManifest -> do
+                  let weightOnly = validManifest {manifestOptimizer = [], manifestRng = []}
+                  loadedWeights <- loadWeightTensors weightOnly
+                  case loadedWeights of
+                    Left err -> pure (Left err)
+                    Right weights -> runInference weightOnly weights input
 
 loadWeightTensors
   :: (HasMinIO m)
@@ -497,8 +501,53 @@ loadWeightTensors manifest = do
                 <> Text.pack (show err)
             )
         Right bytes ->
-          LoadedWeightTensor tensor
-            <$> decodeJmw1 (LazyByteString.fromStrict bytes)
+          case decodeJmw1 (LazyByteString.fromStrict bytes) of
+            Left err -> Left err
+            Right values -> do
+              validateTensorPayloadShape tensor values
+              Right (LoadedWeightTensor tensor values)
+
+validateLoadedManifest :: Text -> Text -> CheckpointManifest -> Either Text CheckpointManifest
+validateLoadedManifest experimentHash manifestSha manifest
+  | manifestExperiment manifest /= experimentHash =
+      Left
+        ( "manifest incompatible: experiment mismatch, requested "
+            <> experimentHash
+            <> " but manifest records "
+            <> manifestExperiment manifest
+        )
+  | manifestContentSha manifest /= manifestSha =
+      Left
+        ( "manifest incompatible: content sha mismatch, pointer addressed "
+            <> manifestSha
+            <> " but body hashes to "
+            <> manifestContentSha manifest
+        )
+  | null (manifestTensors manifest) =
+      Left "manifest incompatible: no weight tensors"
+  | otherwise =
+      Right manifest
+
+validateTensorPayloadShape :: TensorBlob -> [Double] -> Either Text ()
+validateTensorPayloadShape tensor values
+  | any (< 0) (tensorShape tensor) =
+      Left ("weight blob incompatible for " <> tensorName tensor <> ": negative tensor dimension")
+  | expected /= actual =
+      Left
+        ( "weight blob incompatible for "
+            <> tensorName tensor
+            <> ": expected "
+            <> Text.pack (show expected)
+            <> " values from shape "
+            <> Text.pack (show (tensorShape tensor))
+            <> ", got "
+            <> Text.pack (show actual)
+        )
+  | otherwise =
+      Right ()
+ where
+  expected = product (tensorShape tensor)
+  actual = length values
 
 checkpointObjectRef :: Text -> ObjectRef
 checkpointObjectRef objectKey =

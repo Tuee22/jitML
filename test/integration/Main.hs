@@ -968,6 +968,47 @@ main =
               -- and input [1, 2, 3] × W produces [9, 2, 3].
               liftIO $
                 weightedInferred @?= Right [9.0, 2.0, 3.0]
+              let badExperimentHash = "exp-inf-shape-mismatch"
+                  badBlobObjectKey = Checkpoint.blobKey badExperimentHash "blob-weights"
+                  badManifest =
+                    Checkpoint.emptyManifest
+                      "m-bad"
+                      badExperimentHash
+                      [Checkpoint.TensorBlob "dense" [2, 3] badBlobObjectKey]
+                  badManifestSha = Checkpoint.manifestContentSha badManifest
+                  badManifestRef =
+                    CheckpointStore.checkpointObjectRef
+                      (Checkpoint.manifestKey badExperimentHash badManifestSha)
+                  badPointerRef =
+                    CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey badExperimentHash)
+                  badBlobRef = CheckpointStore.checkpointObjectRef badBlobObjectKey
+                  badManifestBytes =
+                    ByteString.Lazy.toStrict (Checkpoint.encodeManifestCbor badManifest)
+              _ <- putBlobBytesIfAbsent badBlobRef weightBytes
+              _ <- putBlobBytesIfAbsent badManifestRef badManifestBytes
+              _ <- casPointer badPointerRef Nothing badManifestSha
+              shapeMismatch <-
+                CheckpointStore.loadInferenceCheckpointWithWeights
+                  ( \loadedManifest loadedWeights values ->
+                      liftIO
+                        ( runVisibleWeightedCheckpointInference
+                            env
+                            loadedManifest
+                            loadedWeights
+                            values
+                        )
+                  )
+                  badExperimentHash
+                  [1.0, 2.0, 3.0]
+              liftIO $
+                case shapeMismatch of
+                  Left err ->
+                    assertBool
+                      "shape mismatch should fail closed"
+                      ("weight blob incompatible for dense" `Text.isInfixOf` err)
+                  Right values ->
+                    assertFailure
+                      ("expected shape mismatch failure, got: " <> show values)
       , testCase "Dhall numerics schema decodes against the full Haskell catalog" $ do
           -- Decodes dhall/numerics/Schema.dhall through `Dhall.inputFile`
           -- and asserts the resulting NumericsCatalog matches the

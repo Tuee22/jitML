@@ -3,14 +3,23 @@
 
 module JitML.Checkpoint.Format
   ( AdvancePredicate (..)
+  , ArtifactPointer (..)
+  , ArchitectureMetadata (..)
   , CheckpointManifest (..)
   , CheckpointPartKind (..)
   , MetricDirection (..)
+  , ModelFamily (..)
   , OptimizerBlob (..)
+  , OutputDecoder (..)
+  , OutputDecoderKind (..)
   , PointerWrite (..)
   , PointerWriteResult (..)
+  , PreprocessingMetadata (..)
   , RngBlob (..)
+  , SubstrateArtifact (..)
   , TensorBlob (..)
+  , TensorSpec (..)
+  , WeightLayout (..)
   , advanceBestMaximised
   , advanceBestMinimised
   , advanceLatest
@@ -20,6 +29,7 @@ module JitML.Checkpoint.Format
   , blobKey
   , decodeJmw1
   , decodeManifestCbor
+  , defaultArchitectureMetadata
   , deriveExperimentHash
   , emptyManifest
   , encodeJmw1
@@ -28,6 +38,7 @@ module JitML.Checkpoint.Format
   , manifestContentSha
   , manifestKey
   , manifestPointer
+  , tensorSpecFromBlob
   , trialPointerKey
   , weightOnlyTensors
   )
@@ -78,9 +89,95 @@ data RngBlob = RngBlob
   deriving stock (Eq, Generic, Show, Ord)
   deriving anyclass (Serialise)
 
+data ModelFamily
+  = GenericModelFamily
+  | SupervisedModelFamily
+  | ReinforcementLearningPolicyFamily
+  | AlphaZeroPolicyValueFamily
+  | HyperparameterTuningFamily
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data TensorSpec = TensorSpec
+  { tensorSpecName :: Text
+  , tensorSpecShape :: [Int]
+  , tensorSpecDtype :: Text
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data ArchitectureMetadata = ArchitectureMetadata
+  { architectureName :: Text
+  , architectureModelFamily :: ModelFamily
+  , architectureInputs :: [TensorSpec]
+  , architectureOutputs :: [TensorSpec]
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data PreprocessingMetadata = PreprocessingMetadata
+  { preprocessingName :: Text
+  , preprocessingSteps :: [Text]
+  , preprocessingInputs :: [TensorSpec]
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data OutputDecoderKind
+  = ClassificationOutput
+  | RegressionOutput
+  | PolicyDistributionOutput
+  | ValueEstimateOutput
+  | MctsVisitDistributionOutput
+  | ReplayArtifactOutput
+  | GenericOutput
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data OutputDecoder = OutputDecoder
+  { outputDecoderName :: Text
+  , outputDecoderKind :: OutputDecoderKind
+  , outputDecoderLabels :: [Text]
+  , outputDecoderUnits :: Maybe Text
+  , outputDecoderArtifactKind :: Maybe Text
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data WeightLayout
+  = FlatWeightLayout [TensorSpec]
+  | NamedTensorWeightLayout [TensorSpec]
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data ArtifactPointer = ArtifactPointer
+  { artifactPointerKind :: Text
+  , artifactPointerObjectKey :: Text
+  , artifactPointerSha :: Maybe Text
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
+data SubstrateArtifact = SubstrateArtifact
+  { substrateArtifactSubstrate :: Text
+  , substrateArtifactKind :: Text
+  , substrateArtifactCacheKey :: Text
+  , substrateArtifactObjectKey :: Maybe Text
+  }
+  deriving stock (Eq, Generic, Show, Ord)
+  deriving anyclass (Serialise)
+
 data CheckpointManifest = CheckpointManifest
   { manifestId :: Text
   , manifestExperiment :: Text
+  , manifestModelFamily :: ModelFamily
+  , manifestArchitecture :: ArchitectureMetadata
+  , manifestPreprocessing :: [PreprocessingMetadata]
+  , manifestOutputDecoders :: [OutputDecoder]
+  , manifestWeightLayout :: WeightLayout
+  , manifestReplayPointers :: [ArtifactPointer]
+  , manifestTranscriptPointers :: [ArtifactPointer]
+  , manifestSubstrateArtifacts :: [SubstrateArtifact]
   , manifestTensors :: [TensorBlob]
   , manifestOptimizer :: [OptimizerBlob]
   , manifestRng :: [RngBlob]
@@ -165,12 +262,37 @@ emptyManifest mid experiment tensors =
   CheckpointManifest
     { manifestId = mid
     , manifestExperiment = experiment
+    , manifestModelFamily = GenericModelFamily
+    , manifestArchitecture = defaultArchitectureMetadata GenericModelFamily
+    , manifestPreprocessing = []
+    , manifestOutputDecoders = []
+    , manifestWeightLayout = NamedTensorWeightLayout (fmap tensorSpecFromBlob tensors)
+    , manifestReplayPointers = []
+    , manifestTranscriptPointers = []
+    , manifestSubstrateArtifacts = []
     , manifestTensors = tensors
     , manifestOptimizer = []
     , manifestRng = []
     , manifestStep = 0
     , manifestMetrics = []
     , manifestParentManifestSha = Nothing
+    }
+
+defaultArchitectureMetadata :: ModelFamily -> ArchitectureMetadata
+defaultArchitectureMetadata family =
+  ArchitectureMetadata
+    { architectureName = "unspecified"
+    , architectureModelFamily = family
+    , architectureInputs = []
+    , architectureOutputs = []
+    }
+
+tensorSpecFromBlob :: TensorBlob -> TensorSpec
+tensorSpecFromBlob tensor =
+  TensorSpec
+    { tensorSpecName = tensorName tensor
+    , tensorSpecShape = tensorShape tensor
+    , tensorSpecDtype = "F64"
     }
 
 -- | The experiment hash: `sha256(resolved-dhall || substrate-fingerprint)`.
@@ -298,7 +420,49 @@ canonicalManifest manifest =
     , manifestOptimizer = sortOn optimizerKind (manifestOptimizer manifest)
     , manifestRng = sortOn rngStreamId (manifestRng manifest)
     , manifestMetrics = sortOn fst (manifestMetrics manifest)
+    , manifestArchitecture = canonicalArchitecture (manifestArchitecture manifest)
+    , manifestPreprocessing =
+        sortOn preprocessingName (fmap canonicalPreprocessing (manifestPreprocessing manifest))
+    , manifestOutputDecoders = sortOn outputDecoderName (manifestOutputDecoders manifest)
+    , manifestWeightLayout = canonicalWeightLayout (manifestWeightLayout manifest)
+    , manifestReplayPointers = sortOn artifactPointerSortKey (manifestReplayPointers manifest)
+    , manifestTranscriptPointers = sortOn artifactPointerSortKey (manifestTranscriptPointers manifest)
+    , manifestSubstrateArtifacts =
+        sortOn substrateArtifactSortKey (manifestSubstrateArtifacts manifest)
     }
+
+canonicalArchitecture :: ArchitectureMetadata -> ArchitectureMetadata
+canonicalArchitecture architecture =
+  architecture
+    { architectureInputs = sortOn tensorSpecName (architectureInputs architecture)
+    , architectureOutputs = sortOn tensorSpecName (architectureOutputs architecture)
+    }
+
+canonicalPreprocessing :: PreprocessingMetadata -> PreprocessingMetadata
+canonicalPreprocessing preprocessing =
+  preprocessing
+    { preprocessingInputs = sortOn tensorSpecName (preprocessingInputs preprocessing)
+    }
+
+canonicalWeightLayout :: WeightLayout -> WeightLayout
+canonicalWeightLayout layout =
+  case layout of
+    FlatWeightLayout tensors ->
+      FlatWeightLayout (sortOn tensorSpecName tensors)
+    NamedTensorWeightLayout tensors ->
+      NamedTensorWeightLayout (sortOn tensorSpecName tensors)
+
+artifactPointerSortKey :: ArtifactPointer -> (Text, Text, Maybe Text)
+artifactPointerSortKey pointer =
+  (artifactPointerKind pointer, artifactPointerObjectKey pointer, artifactPointerSha pointer)
+
+substrateArtifactSortKey :: SubstrateArtifact -> (Text, Text, Text, Maybe Text)
+substrateArtifactSortKey artifact =
+  ( substrateArtifactSubstrate artifact
+  , substrateArtifactKind artifact
+  , substrateArtifactCacheKey artifact
+  , substrateArtifactObjectKey artifact
+  )
 
 hexBytes :: StrictByteString.ByteString -> Text
 hexBytes =

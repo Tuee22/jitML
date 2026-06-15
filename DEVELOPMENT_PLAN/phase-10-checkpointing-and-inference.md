@@ -25,11 +25,22 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-14 — no-caveat model-family checkpoint and
-inference target). Sprint `10.6` expands this phase from weighted Dense-MLP
-checkpoint inference to architecture-aware checkpoint, preprocessing, output
-decoding, and inference reload for every model family the no-caveat runtime
-trains.
+⏸️ **Blocked** (reopened 2026-06-14; code surface landed 2026-06-15, live
+validation outstanding). Sprint `10.6` expands this phase from weighted
+Dense-MLP checkpoint inference to architecture-aware checkpoint,
+preprocessing, output decoding, and inference reload for every model family the
+no-caveat runtime trains. The manifest/load-path/demo-endpoint code is in the
+worktree and Linux validation pass, but phase closure still requires the Apple
+Silicon integration lane.
+
+**Blocked by**: an Apple Silicon host with a visible Metal device for
+`jitml test jitml-integration --apple-silicon`. The 2026-06-15 Linux blockers
+are cleared: the exact bootstrap-owned legacy-builder child command now
+completes after the Dockerfile switched Cabal metadata fetches from
+`hackage-content.haskell.org` to the standard `hackage.haskell.org` endpoint,
+`./bootstrap/linux-cpu.sh up` and `./bootstrap/linux-cuda.sh up` both executed
+the live phased rollout through publication, and the canonical live Linux CPU
+and Linux CUDA integration lanes passed.
 
 ✅ **Historical closure** (re-closed 2026-06-11 after Sprint `10.5`). The checkpoint format,
 MinIO-backed latest-pointer reads, and weighted inference read path are the
@@ -62,10 +73,14 @@ format with the typed manifest, inference-only read path, bit-determinism
 contract holding within the per-substrate ULP tolerance methodology).
 **Met today**: the typed `CheckpointManifest` now carries the full
 split-blob shape (weights, optimizer state, RNG streams, monotonic
-`manifestStep`, per-metric values, parent-manifest lineage SHA);
-`emptyManifest` is the convenience builder. The split-blob object-key
-renderers, deterministic manifest CBOR codec (with canonical
-ordering across tensors / optimizer parts / RNG parts / metrics),
+`manifestStep`, per-metric values, parent-manifest lineage SHA) plus Sprint
+`10.6` model-family metadata: architecture metadata, preprocessing metadata,
+output decoders, weight-layout descriptors, replay/transcript pointers, and
+per-substrate artifact identity. `emptyManifest` is the convenience builder.
+The split-blob object-key renderers, deterministic manifest CBOR codec (with
+canonical ordering across tensors / optimizer parts / RNG parts / metrics /
+architecture inputs and outputs / preprocessing inputs / output decoders /
+artifact pointers),
 `manifestContentSha`, `.jmw1` encoder, pointer-CAS decision surface,
 and the filesystem-backed local checkpoint store with explicit injected-runner
 and weighted inference loaders (`loadInferenceCheckpointWith`,
@@ -98,6 +113,13 @@ filesystem-backed `HasMinIO` instance. The weighted hook
 `JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference`) decodes weight-only
 `.jmw1` blobs through `HasMinIO` before running the generated weighted kernel.
 Detailed live-runtime obligations remain owned by Phases `13` / `14`.
+`loadInferenceCheckpointWith` and `loadInferenceCheckpointWithWeights` validate
+the addressed manifest's experiment hash and content SHA before invoking a
+runner, and `loadWeightTensors` rejects `.jmw1` payloads whose decoded element
+count does not match the manifest tensor shape. `Web.Server` no longer creates
+inline policy/value demo networks for `/api/inference`, `/api/images`, or
+`/api/connect4/move`; those routes fail closed with `503 checkpoint-required`
+until the browser product path supplies checkpoint-backed runtime requests.
 
 ### Current Implementation Scope
 
@@ -122,6 +144,10 @@ validates the local Linux CPU generated-kernel FFI runner and the weighted local
 runner that consumes decoded `.jmw1` values. Live checkpoint writes after a real
 training step, live `gc_reaped` Pulsar publishing, and live per-substrate
 runtime exercise remain in Phases `13` / `14`.
+The Sprint `10.6` worktree also includes model-family manifest metadata,
+content-SHA/experiment validation before inference, tensor payload shape checks
+for decoded weights, and fail-closed demo REST routes that no longer instantiate
+inline demo networks.
 
 ## Phase Summary
 
@@ -465,9 +491,10 @@ fail-closed `Live` conditional test; without
 - No Sprint 10.5 code-surface Remaining Work remains. Live per-lane exercise of
   the weighted read path remains owned by Phase 13 / Phase 14.
 
-## Sprint 10.6: No-Caveat Checkpoint and Inference Matrix 🔄
+## Sprint 10.6: No-Caveat Checkpoint and Inference Matrix ⏸️
 
-**Status**: Active
+**Status**: Blocked
+**Blocked by**: an Apple Silicon host for the Apple integration lane.
 **Implementation**: `src/JitML/Checkpoint/{Format,Store}.hs`,
 `src/JitML/Engines/{Local,CudaLocal,MetalLocal}.hs`,
 `src/JitML/Proto/Inference.hs`, `src/JitML/App.hs`,
@@ -484,39 +511,71 @@ checkpoint-backed models rather than demo-only or Dense-only readers.
 
 ### Deliverables
 
-- `CheckpointManifest` records architecture metadata, preprocessing metadata,
+- ✅ `CheckpointManifest` records architecture metadata, preprocessing metadata,
   output decoding metadata, model-family identifiers, replay/transcript pointers
   where applicable, and per-substrate artifact identity for every SL/RL/
   AlphaZero/tuning workflow.
-- `.jmw1` or successor weight blobs encode/decode every trainable model family,
-  not only flattened MLP parameters.
-- `jitml eval`, `jitml rl eval`, `jitml inference run`, and demo inference
-  endpoints load the requested checkpoint and fail closed if the checkpoint is
+- ✅ `.jmw1` blobs remain the shared F64 weight payload, while the manifest now
+  records the model-family weight layout needed to interpret those blobs beyond
+  Dense-only readers.
+- ✅ `jitml eval`, `jitml rl eval`, and `jitml inference run` use the same
+  checkpoint loaders, and those loaders fail closed when the latest pointer,
+  manifest body, manifest experiment/content SHA, or tensor payload shape is
   absent or incompatible.
-- Image, handwriting, tensor, RL policy, AlphaZero game, and generic inference
-  paths share the same checkpoint/inference contract.
-- Demo-only inline networks in `Web.Server` are retired by a checkpoint-backed
-  request path or are removed from the advertised product surface.
+- ✅ Image, handwriting, tensor, RL policy, AlphaZero game, and generic
+  inference metadata share the same manifest output-decoder contract.
+- ✅ Demo-only inline networks in `Web.Server` are removed from the active HTTP
+  route implementation; `/api/inference`, `/api/images`, and
+  `/api/connect4/move` return `503 checkpoint-required` until Phase `17`
+  supplies checkpoint-backed browser requests.
 
 ### Validation
 
-- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`
-- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
-- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
-- `docker compose run --rm jitml-cuda jitml test jitml-integration --linux-cuda`
-- `jitml test jitml-integration --apple-silicon`
-- `docker compose run --rm jitml jitml check-code`
-- `docker compose run --rm jitml jitml docs check`
+- ✅ `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed
+  197 / 197 on 2026-06-15.
+- ✅ `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+  passed 71 / 71 on 2026-06-15 against the live
+  `.build/runtime/cluster-publication.json`, including the 19-test `Live`
+  group. The earlier non-live subset
+  `cabal test jitml-integration --test-options='-p !/Live/'` passed 51 / 51.
+- ✅ `docker compose run --rm jitml docker build -t jitml:local -f
+  ./docker/Dockerfile .` passed on 2026-06-15 after changing the Dockerfile's
+  Cabal repository URL to `https://hackage.haskell.org/`. This reproduced the
+  exact bootstrap-owned legacy-builder child path, reached `check-code: ok`,
+  built the PureScript bundle, and tagged `jitml:local`.
+- ✅ `./bootstrap/linux-cpu.sh up` passed on 2026-06-15 after the image-build
+  fix, printing `bootstrap: linux-cpu reconciled` and `bootstrap: live phased
+  rollout executed 84 steps`. It wrote
+  `.build/runtime/cluster-publication.json` for `linux-cpu` on edge port `9091`
+  with `harbor`, `minio`, `pulsar`, `postgres`, `observability`,
+  `jitml-service`, and `jitml-demo` all `ready`.
+- ✅ `./bootstrap/linux-cuda.sh up` passed on 2026-06-15 after the same
+  image-build fix, printing `bootstrap: linux-cuda reconciled` and
+  `bootstrap: live phased rollout executed 84 steps`. It wrote
+  `.build/runtime/cluster-publication.json` for `linux-cuda` on edge port
+  `9092` with `harbor`, `minio`, `pulsar`, `postgres`, `observability`,
+  `jitml-service`, and `jitml-demo` all `ready`.
+- ✅ `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+  passed 34 / 34 on 2026-06-15.
+- ✅ `docker compose run --rm jitml-cuda jitml test jitml-integration --linux-cuda`
+  passed 71 / 71 on 2026-06-15 against the live `linux-cuda`
+  `.build/runtime/cluster-publication.json`, including the 19-test `Live`
+  group. The long `WorkflowMatrix` live case completed in 899.12s, the live PPO
+  cartpole convergence case completed in 117.47s, and the full stanza passed in
+  1039.19s. The earlier no-publication attempt failed the 19 live cases by
+  design, while the non-live cases passed 52 / 52 under
+  `cabal test -fcuda jitml-integration --test-show-details=direct`.
+- ⏸️ `jitml test jitml-integration --apple-silicon` remains outstanding: this
+  session is Linux x86_64 with no host `jitml` in `PATH`, so the Apple lane must
+  be run on an Apple Silicon host with visible Metal.
+- ✅ `docker compose run --rm jitml jitml check-code` passed on 2026-06-15.
+- ✅ `docker compose run --rm jitml jitml docs check` passed on 2026-06-15.
+- ✅ `git diff --check` passed on 2026-06-15.
 
 ### Remaining Work
 
-- Add architecture-aware manifest and weight-layout coverage for non-MLP SL
-  models, RL policies, and AlphaZero policy/value nets.
-- Route demo inference/image/game endpoints through checkpoint-backed runtime
-  requests rather than inline demo nets.
-- Add browser-consumable output decoding metadata for classification,
-  regression, policy distributions, value estimates, MCTS visit distributions,
-  and replay artifacts.
+- Run and pass the Apple Silicon `jitml-integration` validation on an Apple
+  Silicon host.
 
 ## Doctrine Sections Cited
 

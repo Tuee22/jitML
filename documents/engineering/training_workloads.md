@@ -92,7 +92,11 @@ experiment Dhall is resolved to a canonical row through
 substrate's JIT-compiled `MlpDevice`, selected by
 `mlpDeviceForSubstrate`. `jitml eval --checkpoint <id>` loads the
 named inference checkpoint's `.jmw1` weights and runs the substrate-bound
-weighted device forward; a missing pointer/manifest → `InferenceCheckpointMissing`.
+weighted device forward; a missing pointer/manifest →
+`InferenceCheckpointMissing`, and incompatible manifest experiment/content SHA
+or tensor shape metadata fails closed before the runner is invoked. Sprint
+`10.6` adds model-family architecture, preprocessing, output-decoder, and
+weight-layout metadata to the checkpoint manifest consumed by this path.
 
 The worker fetches `jitml-datasets/MNIST/{train,test}/{data,labels}.bin`, gunzips
 (`JitML.SL.Dataset.maybeGunzip`), IDX-parses, and trains over the bytes —
@@ -161,9 +165,11 @@ canonical-game, MCTS, self-play, and arena helpers. Current device-backed paths
 exist for the implemented workflow surface. Sprint `9.12` removes the
 reward-derived algorithm-level projection helpers from canonical validation and
 writes `.jmw1` checkpoints plus line-oriented replay artifacts from `jitml rl
-train` / `jitml rl rollout`; Phase `16` consumes those artifacts for the full
-product matrix: every algorithm trains, evaluates, rolls out, checkpoints, and
-provides browser replay/animation payloads.
+train` / `jitml rl rollout`. Sprint `10.6` records RL policy model-family
+metadata, policy-distribution output decoders, and replay/transcript pointers in
+the checkpoint manifest. Phase `16` consumes those artifacts for the full product
+matrix: every algorithm trains, evaluates, rolls out, checkpoints, and provides
+browser replay/animation payloads.
 
 ### Algorithm Class Taxonomy (Type-Level)
 
@@ -350,8 +356,10 @@ Sprint `9.12` adds shared terminal/winner/draw evaluators for every canonical
 game and writes local `.jmw1` policy/value checkpoints from
 `jitml rl alphazero self-play` together with a content-addressed
 `alphazero-transcript` artifact carrying the sampled states, MCTS visit
-distributions, and outcome labels consumed by replay/inspection surfaces. Phase
-`16` / `17` still own full product-matrix consumption of those artifacts.
+distributions, and outcome labels consumed by replay/inspection surfaces. Sprint
+`10.6` records AlphaZero policy/value model-family metadata, policy/value/MCTS
+output decoders, and transcript pointers in the manifest. Phase `16` / `17`
+still own full product-matrix consumption of those artifacts.
 
 | Component | Current / target |
 |-----------|------------------|
@@ -533,7 +541,9 @@ sampler/scheduler/pruner axes, and executes measured trial objectives through
 the selected device path where available. Sprint `9.12` writes the best local
 trial's trained weights as a `.jmw1` checkpoint, emits a `tune-trials` artifact,
 and promotes daemon-dispatched trial weights into `jitml-checkpoints` alongside
-the `jitml-trials` transcript. Phase `17` publishes browser sweep
+the `jitml-trials` transcript. Sprint `10.6` records tuning model-family
+metadata, objective/regression output decoders, and trial transcript pointers in
+the checkpoint manifest. Phase `17` publishes browser sweep
 controls/frontier state over the daemon's at-least-once `TuneHandler`. The
 current proto mirror covers local text command
 envelopes plus proto3-compatible byte envelopes for the command and event

@@ -2042,6 +2042,130 @@ main =
             @?= "jitml-checkpoints/exp-a/manifests/"
             <> Checkpoint.manifestContentSha manifest
             <> ".cbor"
+      , testCase "checkpoint manifest carries architecture-aware model-family metadata" $ do
+          let weightA = Checkpoint.TensorBlob "a.weight" [2, 2] "blob-a"
+              weightZ = Checkpoint.TensorBlob "z.weight" [3] "blob-z"
+              inputSpec = Checkpoint.TensorSpec "board" [6, 7, 2] "F64"
+              policySpec = Checkpoint.TensorSpec "policy" [7] "F64"
+              valueSpec = Checkpoint.TensorSpec "value" [1] "F64"
+              manifest =
+                ( Checkpoint.emptyManifest
+                    "manifest-rich"
+                    "exp-rich"
+                    [weightZ, weightA]
+                )
+                  { Checkpoint.manifestModelFamily = Checkpoint.AlphaZeroPolicyValueFamily
+                  , Checkpoint.manifestArchitecture =
+                      Checkpoint.ArchitectureMetadata
+                        { Checkpoint.architectureName = "connect4-policy-value"
+                        , Checkpoint.architectureModelFamily =
+                            Checkpoint.AlphaZeroPolicyValueFamily
+                        , Checkpoint.architectureInputs = [inputSpec]
+                        , Checkpoint.architectureOutputs = [valueSpec, policySpec]
+                        }
+                  , Checkpoint.manifestPreprocessing =
+                      [ Checkpoint.PreprocessingMetadata
+                          { Checkpoint.preprocessingName = "connect4-board"
+                          , Checkpoint.preprocessingSteps = ["legal-mask", "perspective"]
+                          , Checkpoint.preprocessingInputs = [inputSpec]
+                          }
+                      ]
+                  , Checkpoint.manifestOutputDecoders =
+                      [ Checkpoint.OutputDecoder
+                          { Checkpoint.outputDecoderName = "z-policy"
+                          , Checkpoint.outputDecoderKind = Checkpoint.PolicyDistributionOutput
+                          , Checkpoint.outputDecoderLabels = ["0", "1", "2", "3", "4", "5", "6"]
+                          , Checkpoint.outputDecoderUnits = Nothing
+                          , Checkpoint.outputDecoderArtifactKind = Nothing
+                          }
+                      , Checkpoint.OutputDecoder
+                          { Checkpoint.outputDecoderName = "a-mcts-visits"
+                          , Checkpoint.outputDecoderKind = Checkpoint.MctsVisitDistributionOutput
+                          , Checkpoint.outputDecoderLabels = ["0", "1", "2", "3", "4", "5", "6"]
+                          , Checkpoint.outputDecoderUnits = Nothing
+                          , Checkpoint.outputDecoderArtifactKind = Nothing
+                          }
+                      , Checkpoint.OutputDecoder
+                          { Checkpoint.outputDecoderName = "value"
+                          , Checkpoint.outputDecoderKind = Checkpoint.ValueEstimateOutput
+                          , Checkpoint.outputDecoderLabels = []
+                          , Checkpoint.outputDecoderUnits = Nothing
+                          , Checkpoint.outputDecoderArtifactKind = Nothing
+                          }
+                      ]
+                  , Checkpoint.manifestWeightLayout =
+                      Checkpoint.NamedTensorWeightLayout
+                        [ Checkpoint.tensorSpecFromBlob weightZ
+                        , Checkpoint.tensorSpecFromBlob weightA
+                        ]
+                  , Checkpoint.manifestReplayPointers =
+                      [Checkpoint.ArtifactPointer "self-play" "jitml-checkpoints/exp-rich/replay/a" (Just "sha-r")]
+                  , Checkpoint.manifestTranscriptPointers =
+                      [Checkpoint.ArtifactPointer "training" "jitml-checkpoints/exp-rich/transcript/a" Nothing]
+                  , Checkpoint.manifestSubstrateArtifacts =
+                      [ Checkpoint.SubstrateArtifact
+                          "linux-cuda"
+                          "jit-kernel"
+                          "cache-key-a"
+                          (Just "jitml-checkpoints/exp-rich/artifacts/kernel")
+                      ]
+                  }
+          case Checkpoint.decodeManifestCbor (Checkpoint.encodeManifestCbor manifest) of
+            Left err -> assertFailure ("manifest decode failed: " <> Text.unpack err)
+            Right decoded -> do
+              Checkpoint.manifestModelFamily decoded
+                @?= Checkpoint.AlphaZeroPolicyValueFamily
+              fmap Checkpoint.tensorName (Checkpoint.manifestTensors decoded)
+                @?= ["a.weight", "z.weight"]
+              case Checkpoint.manifestWeightLayout decoded of
+                Checkpoint.NamedTensorWeightLayout specs ->
+                  fmap Checkpoint.tensorSpecName specs @?= ["a.weight", "z.weight"]
+                other ->
+                  assertFailure ("expected named tensor layout, got: " <> show other)
+              fmap Checkpoint.outputDecoderKind (Checkpoint.manifestOutputDecoders decoded)
+                @?= [ Checkpoint.MctsVisitDistributionOutput
+                    , Checkpoint.ValueEstimateOutput
+                    , Checkpoint.PolicyDistributionOutput
+                    ]
+              Checkpoint.manifestReplayPointers decoded
+                @?= [Checkpoint.ArtifactPointer "self-play" "jitml-checkpoints/exp-rich/replay/a" (Just "sha-r")]
+              Checkpoint.manifestTranscriptPointers decoded
+                @?= [Checkpoint.ArtifactPointer "training" "jitml-checkpoints/exp-rich/transcript/a" Nothing]
+      , testCase "checkpoint metadata covers every no-caveat trainable family" $ do
+          let tensor = Checkpoint.TensorBlob "weights" [1] "blob"
+              families =
+                [ (Checkpoint.SupervisedModelFamily, Checkpoint.ClassificationOutput)
+                , (Checkpoint.ReinforcementLearningPolicyFamily, Checkpoint.PolicyDistributionOutput)
+                , (Checkpoint.AlphaZeroPolicyValueFamily, Checkpoint.ValueEstimateOutput)
+                , (Checkpoint.HyperparameterTuningFamily, Checkpoint.RegressionOutput)
+                ]
+          traverse_
+            ( \(family, decoderKind) -> do
+                let manifest =
+                      (Checkpoint.emptyManifest "m" "exp" [tensor])
+                        { Checkpoint.manifestModelFamily = family
+                        , Checkpoint.manifestArchitecture =
+                            (Checkpoint.defaultArchitectureMetadata family)
+                              { Checkpoint.architectureName = "family-test"
+                              }
+                        , Checkpoint.manifestOutputDecoders =
+                            [ Checkpoint.OutputDecoder
+                                { Checkpoint.outputDecoderName = "decoder"
+                                , Checkpoint.outputDecoderKind = decoderKind
+                                , Checkpoint.outputDecoderLabels = []
+                                , Checkpoint.outputDecoderUnits = Nothing
+                                , Checkpoint.outputDecoderArtifactKind = Nothing
+                                }
+                            ]
+                        }
+                case Checkpoint.decodeManifestCbor (Checkpoint.encodeManifestCbor manifest) of
+                  Left err -> assertFailure ("manifest decode failed: " <> Text.unpack err)
+                  Right decoded -> do
+                    Checkpoint.manifestModelFamily decoded @?= family
+                    fmap Checkpoint.outputDecoderKind (Checkpoint.manifestOutputDecoders decoded)
+                      @?= [decoderKind]
+            )
+            families
       , testCase "checkpoint store writes blobs/manifests and reads latest pointer" $
           withSystemTempDirectory "jitml-checkpoint-store" $ \dir -> do
             let blobKey = Checkpoint.blobKey "exp1" "blob1"

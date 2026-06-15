@@ -1102,7 +1102,7 @@ syntheticInferenceManifest :: Checkpoint.CheckpointManifest
 syntheticInferenceManifest =
   Checkpoint.emptyManifest
     "inference-exp"
-    "latest"
+    "inference-exp"
     [Checkpoint.TensorBlob "dense.weight" [2] "blob-a"]
 
 instance HasPulsar (StateT SyntheticBrokerState IO) where

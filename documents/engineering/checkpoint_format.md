@@ -14,14 +14,16 @@
 ## No-Caveat Checkpoint Target
 
 The current weighted checkpoint path is real for the implemented MLP-family
-payloads. Sprint `10.6` / Phase `16` expand it to every model family that the
-runtime trains: Dense, DeepDense, Conv2D, residual, wide-residual, ResNet-50,
-VisionTransformer, RL policies, AlphaZero policy/value nets, and tuning trial
-checkpoints. A final checkpoint manifest must carry enough architecture
-metadata, preprocessing metadata, output-decoding metadata, replay pointers, and
-weight-layout information for `jitml eval`, `jitml rl eval`, `jitml inference
-run`, and the demo app to reload the selected checkpoint without an inline
-demo-only model.
+payloads. Sprint `10.6` adds the typed manifest metadata needed by every model
+family that the runtime trains: Dense, DeepDense, Conv2D, residual,
+wide-residual, ResNet-50, VisionTransformer, RL policies, AlphaZero
+policy/value nets, and tuning trial checkpoints. The manifest carries
+architecture metadata, preprocessing metadata, output-decoding metadata, replay
+/ transcript pointers, per-substrate artifact identity, and weight-layout
+information so `jitml eval`, `jitml rl eval`, `jitml inference run`, and the
+demo app can reject missing or incompatible checkpoints instead of using an
+inline demo-only model. Sprint `10.6` remains blocked on the live Linux
+CPU/CUDA and Apple Silicon integration validation lanes.
 
 ## Storage Layout
 
@@ -169,13 +171,20 @@ data CheckpointPart = CheckpointPart
   }
 ```
 
-The Haskell `CheckpointManifest` in `src/JitML/Checkpoint/Format.hs` carries
-the implemented local shape: manifest id, experiment hash, tensor blobs,
+The Haskell `CheckpointManifest` in `src/JitML/Checkpoint/Format.hs` carries the
+implemented local shape: manifest id, experiment hash, model-family identifier,
+architecture metadata, preprocessing metadata, output decoders, weight layout,
+replay/transcript pointers, per-substrate artifact identities, tensor blobs,
 optimizer blobs, RNG blobs, monotonic step, metrics, and optional parent
-manifest SHA. `encodeManifestCbor` canonicalizes tensor order by `tensorName`,
-optimizer order by `optimizerKind`, RNG order by `rngStreamId`, and metrics by
-name; `decodeManifestCbor` round-trips that representation, and
-`manifestContentSha` hashes the deterministic CBOR bytes. The richer target
+manifest SHA. `TensorSpec`, `ArchitectureMetadata`,
+`PreprocessingMetadata`, `OutputDecoder`, `WeightLayout`, `ArtifactPointer`,
+and `SubstrateArtifact` are part of the serialized manifest contract.
+`encodeManifestCbor` canonicalizes tensor order by `tensorName`, optimizer
+order by `optimizerKind`, RNG order by `rngStreamId`, metrics by name,
+architecture input/output specs by name, preprocessing inputs by name,
+weight-layout tensors by name, output decoders by name, and artifact pointers
+by their identity fields; `decodeManifestCbor` round-trips that representation,
+and `manifestContentSha` hashes the deterministic CBOR bytes. The richer target
 shape above still documents the full runtime contract for wall-clock telemetry,
 epoch, substrate, schema version, and generalized part roles. `cmWallClockNs`
 is telemetry only and is never an input to any content hash.
@@ -294,7 +303,11 @@ The current read paths are explicit-runner APIs. `loadInferenceCheckpointWith`
 loads the latest pointer and weight-only manifest through `HasMinIO` for callers
 that provide an injected manifest runner. `loadInferenceCheckpointWithWeights`
 also loads and decodes the `.jmw1` weight blobs before invoking the weighted
-runner; `jitml inference run` and daemon self-inference use this weighted path.
+runner; both loaders validate that the loaded manifest records the requested
+experiment hash and that the manifest body's content SHA matches the pointer.
+`loadInferenceCheckpointWithWeights` also rejects a decoded `.jmw1` payload when
+its element count disagrees with the manifest tensor shape. `jitml inference
+run` and daemon self-inference use this weighted path.
 `JitML.Engines.Local.runLinuxCpuCheckpointInference` validates that the local
 Linux CPU path can compile, load, and execute a generated FFI kernel from that
 checkpoint read. `JitML.Service.Runtime.daemonWorkloadDispatcherWithInference`
@@ -303,8 +316,9 @@ keeps that explicit injected-runner hook available for tests. Production
 `daemonWorkloadDispatcherWithWeightedInference`, which uses
 `loadInferenceCheckpointWithWeights` to load the weight-only `.jmw1` blobs
 through `HasMinIO`, decode them, and pass them to the selected substrate's
-weighted checkpoint runner. The inference-only read path is the supported
-entrypoint for `jitml-demo` and the PureScript panels.
+weighted checkpoint runner. The `jitml-demo` REST inference/image/Connect 4
+routes now fail closed with `503 checkpoint-required`; Phase `17` wires those
+browser panels to checkpoint-backed runtime requests.
 
 The inference topic contract is declared in `proto/jitml/inference.proto`.
 `JitML.Proto.Inference` mirrors the `InferenceRequest` and `InferenceResult`

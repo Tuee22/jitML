@@ -449,7 +449,10 @@ and the deletion ledger has no pending rows.
   [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md).
 - **Checkpointing and inference-only read path.** Typed manifest with
   the full split-blob shape (`TensorBlob`, `OptimizerBlob`, `RngBlob`,
-  monotonic step, per-metric values, parent-manifest lineage SHA),
+  monotonic step, per-metric values, parent-manifest lineage SHA,
+  architecture metadata, preprocessing metadata, output decoders,
+  model-family identifiers, weight-layout descriptors, replay/transcript
+  pointers, and per-substrate artifact identity),
   deterministic manifest CBOR codec / content hash with canonical
   ordering, split-blob object-key renderers, pointer-CAS decision
   surface, the typed `AdvancePredicate` ADT
@@ -461,17 +464,19 @@ and the deletion ledger has no pending rows.
   `HasMinIO` conditional-write/CAS boundary, latest-pointer read path,
   `loadInferenceCheckpointWith` for explicit injected runners,
   `loadInferenceCheckpointWithWeights` for decoded `.jmw1` weights in
-  the local Linux CPU generated oneDNN path,
+  the local Linux CPU generated oneDNN path, manifest experiment/content-SHA
+  compatibility checks, tensor-shape checks for decoded weight payloads,
   `daemonWorkloadDispatcherWithWeightedInference` for routing self-inference
   daemon requests through generated weighted checkpoint runners, and the GC reconciler surface
   (`RetentionPolicy{KeepAll,LastN}`, `walkLiveSet`,
   `applyRetentionPolicy`, `buildGcPlan` with `gcReapEvents` and the
   `gcNoOp` second-invocation detector). The inference request/result schema
   and local byte codecs live in `proto/jitml/inference.proto` and
-  `JitML.Proto.Inference`. Live checkpoint-store validation
-  through the HTTP MinIO client, live `gc_reaped` Pulsar publish, and real
-  non-local kernel-handle loading are owned by Sprints `10.1`–`10.4`'s
-  Remaining Work. Phase:
+  `JitML.Proto.Inference`. `src/JitML/Web/Server.hs` no longer serves inline
+  demo policy/value networks on the inference/image/Connect 4 routes; those
+  routes fail closed with `503 checkpoint-required` until Phase `17` supplies
+  checkpoint-backed browser requests. Sprint `10.6` is blocked on Apple
+  Silicon integration validation. Phase:
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Minimal PureScript entrypoint,
   generated contract file from `src/JitML/Web/Contracts.hs`, typed
@@ -861,13 +866,20 @@ algorithm, every AlphaZero game, every tuning workflow, every model-family
 checkpoint/reload/inference path, and every browser interaction must run
 end-to-end with no synthetic, placeholder, demo-only, or parser-default
 stand-ins. Phase `9` has its Sprint `9.12` code surface in place and has passed
-linux-cpu plus apple-silicon validation, but is `⏸️ Blocked` on a
-GPU-attached Docker host for the linux-cuda validation pair. Phases `10`–`12`
-are `🔄 Active`; Phases `13`–`15` are `⏸️ Blocked` behind those remaining
-local/runtime/browser surfaces; and Phases `16`–`18` own no-caveat model
-runtime closure, interactive demo/Playwright closure, and final no-caveat
-product handoff. Phases `0`–`8` are `✅ Done` on their owned
-foundational/framework surfaces.
+linux-cpu, apple-silicon, and linux-cuda validation, so it is `✅ Done`.
+Phase `10` has its Sprint `10.6` code surface in place but is `⏸️ Blocked` on
+Apple Silicon integration validation; the 2026-06-15 bootstrap image-rebuild
+blocker has a validated Dockerfile fix on the exact bootstrap-owned
+legacy-builder command, and live Linux CPU plus Linux CUDA publication now
+exist with all seven components ready; the canonical Linux CPU and Linux CUDA
+integration lanes passed 71 / 71, leaving Apple Silicon validation
+outstanding. Phases
+`11`–`12` are `🔄 Active`; Phases `13`–`15` are `⏸️ Blocked` behind those
+remaining local/runtime/browser surfaces; and Phases `16`–`18` own no-caveat
+model runtime
+closure, interactive demo/Playwright closure, and final no-caveat product
+handoff. Phases `0`–`9` are `✅ Done` on their owned foundational/framework
+surfaces.
 
 **Reopened 2026-06-13 (Apple Silicon host-resident workload placement).** Phase
 `5` reopened and re-closed for Sprint `5.11`; Phase `12` reopened and re-closed

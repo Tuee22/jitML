@@ -21,14 +21,9 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-14 — no-caveat RL/AlphaZero/tuning
-target; Sprint `9.12` code surface complete, linux-cpu and apple-silicon
-validated).
-**Blocked by**: a Linux CUDA validation host with NVIDIA Container Runtime/GPU
-visibility available to Docker. On the current host,
-`docker compose run --rm jitml-cuda jitml test ... --linux-cuda` fails before
-test execution with `could not select device driver "" with capabilities:
-[[gpu]]`.
+✅ **Done** (reopened/re-closed 2026-06-15 — no-caveat
+RL/AlphaZero/tuning target; Sprint `9.12` code surface validated on linux-cpu,
+apple-silicon, and linux-cuda).
 Sprint `9.12` expands the closure bar from "real device-backed paths exist" to
 "every advertised algorithm/game/tuning workflow trains, evaluates, replays,
 visualizes, and checkpoints through the production runtime." The current
@@ -36,8 +31,8 @@ worktree has removed the reward-derived algorithm-level projection helpers and
 the AlphaZero placeholder terminal evaluator. `jitml rl train`, `jitml rl
 rollout`, `jitml rl alphazero self-play`, and `jitml tune` now emit
 checkpoint/replay/transcript/trial artifact keys for the command paths that
-Phases `16` and `17` consume in the product matrix. Remaining Phase `9` work is
-the blocked Linux CUDA validation pair named in Sprint `9.12`.
+Phases `16` and `17` consume in the product matrix. No Phase `9` blocker or
+remaining work survives.
 
 ✅ **Historical closure** (re-closed 2026-06-11 — real-workflow refactor). The catalog,
 AlphaZero substack, and tuning surfaces shipped with synthetic/echo stand-ins:
@@ -906,16 +901,12 @@ Landed and validated (2026-06-10):
 
 None.
 
-## Sprint 9.12: No-Caveat RL, AlphaZero, and Tuning Runtime ⏸️
+## Sprint 9.12: No-Caveat RL, AlphaZero, and Tuning Runtime ✅
 
-**Status**: Blocked
+**Status**: Done
 **Implementation**: `src/JitML/RL/Algorithms/*`,
 `src/JitML/RL/AlphaZero/*`, `src/JitML/Tune/*`, `src/JitML/App.hs`,
 `test/rl-canonicals/Main.hs`, `test/hyperparameter/Main.hs`
-**Blocked by**: a Linux CUDA validation host with NVIDIA Container Runtime/GPU
-visibility available to Docker. The current host cannot attach the
-`jitml-cuda` service and fails before Haskell test execution with `could not
-select device driver "" with capabilities: [[gpu]]`.
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/determinism_contract.md`, `system-components.md`,
 `legacy-tracking-for-deletion.md`
@@ -966,26 +957,14 @@ partly validated through deterministic helper projections.
   `cabal run jitml -- test jitml-rl-canonicals --apple-silicon` passed
   `29/29`, and `cabal run jitml -- test jitml-hyperparameter --apple-silicon`
   passed `16/16`.
-- Linux CUDA validation is blocked on this host before test execution:
+- Linux CUDA validation passed on 2026-06-15 on a GPU-attached Docker host:
   `docker compose run --rm jitml-cuda jitml test jitml-rl-canonicals
-  --linux-cuda` and `docker compose run --rm jitml-cuda jitml test
-  jitml-hyperparameter --linux-cuda` both fail with `could not select device
-  driver "" with capabilities: [[gpu]]`.
-- Continuation retries on 2026-06-14 confirm the blocker is external to the
-  Haskell test lane: `docker info --format '{{json .Runtimes}}'` exposes only
-  `runc` runtimes on this host, and both canonical `jitml-cuda` validation
-  commands fail at Docker container creation with the same `could not select
-  device driver "" with capabilities: [[gpu]]` error.
+  --linux-cuda` passed `29/29`, and `docker compose run --rm jitml-cuda jitml
+  test jitml-hyperparameter --linux-cuda` passed `16/16`.
 
 ### Remaining Work
 
-- Run the blocked Linux CUDA validation pair on a GPU-attached Docker host:
-  `docker compose run --rm jitml-cuda jitml test jitml-rl-canonicals
-  --linux-cuda` and `docker compose run --rm jitml-cuda jitml test
-  jitml-hyperparameter --linux-cuda`.
-- No Phase `9` code-surface item remains open; if either CUDA validation command
-  reaches Haskell and fails, record that defect here before any later phase
-  starts.
+None.
 
 ## Doctrine Sections Cited
 

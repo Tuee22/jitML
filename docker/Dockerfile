@@ -100,11 +100,11 @@ RUN case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
     && printf '/usr/local/cuda/lib64\n' > /etc/ld.so.conf.d/cuda.conf \
     && ldconfig
 
-# Cabal's default Hackage endpoint can consult mirror metadata during `update`;
-# stale mirror entries have broken otherwise reproducible image bootstraps.
-# hackage-content serves the canonical secure Hackage repository directly.
+# Use the standard secure Hackage endpoint directly. The hackage-content CDN
+# can serve root metadata while returning transient 503s for snapshot metadata,
+# which makes the bootstrap-owned legacy Docker build fail during `cabal update`.
 RUN mkdir -p /root/.cabal \
-    && printf 'repository hackage.haskell.org\n  url: https://hackage-content.haskell.org/\n' > /root/.cabal/config
+    && printf 'repository hackage.haskell.org\n  url: https://hackage.haskell.org/\n' > /root/.cabal/config
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org \
     | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_GHC_VERSION=${GHC_VERSION} BOOTSTRAP_HASKELL_CABAL_VERSION=${CABAL_VERSION} sh

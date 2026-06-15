@@ -47,11 +47,11 @@ maintenance rules that govern this plan suite.
 implementation has re-closed Phase `8` on the all-row SL framework/runtime and
 typed RL event-payload surface, but it is not yet the intended no-caveat
 product: Phase `9` has removed the RL/AlphaZero/tuning helper stand-ins and
-passed linux-cpu plus apple-silicon validation, but remains blocked on a
-GPU-attached Docker host for the linux-cuda validation pair;
-checkpoint/reload/inference support is not complete for every model family;
-demo endpoints include inline demo networks rather than checkpoint-backed
-per-model inference; the browser stream parsers still have non-RL
+passed linux-cpu, apple-silicon, and linux-cuda validation;
+checkpoint/reload/inference support still needs Apple Silicon validation after
+the Phase `10` code landed and passed the live Linux CPU/CUDA lanes; demo REST
+endpoints now fail closed until checkpoint-backed per-model browser requests
+land; the browser stream parsers still have non-RL
 default/marker residue; and Playwright validates panel reachability and a small
 REST-value slice rather than proving every model trains and exposes the
 appropriate interaction. Therefore:
@@ -60,11 +60,18 @@ appropriate interaction. Therefore:
   all-row substrate-backed SL trainable runtime coverage, real staged-byte
   materialization, live MNIST convergence through `JitML.SL.Architecture`, and
   typed RL animation/replay event payloads.
-- **Phase `9` is `⏸️ Blocked`** for Sprint `9.12` on Linux CUDA validation
-  host availability after its code surface passed linux-cpu and apple-silicon.
-- **Phases `10`, `11`, and `12` remain `🔄 Active`** for Sprints `10.6`,
-  `11.9`, and `12.13`. These sprints own the remaining inference/checkpoint,
-  frontend, and test-harness expansion after Phase `9` validates.
+- **Phase `9` reopened and re-closed on 2026-06-15** for Sprint `9.12`,
+  completing the linux-cuda validation pair after its code surface had already
+  passed linux-cpu and apple-silicon.
+- **Phase `10` is `⏸️ Blocked`** for Sprint `10.6` on Apple Silicon
+  integration validation after the code surface landed. The 2026-06-15
+  bootstrap image-rebuild blocker now has a validated Dockerfile fix on the
+  exact legacy-builder command, Linux CPU and Linux CUDA bootstrap now publish
+  all seven components ready, and the canonical live Linux CPU and Linux CUDA
+  integration lanes passed 71 / 71.
+- **Phases `11` and `12` remain `🔄 Active`** for Sprints `11.9` and `12.13`.
+  These sprints own the remaining frontend and test-harness expansion after
+  Phase `9` validation.
 - **Phases `13`, `14`, and `15` reopen from `✅ Done` to `⏸️ Blocked`** because
   their live validation and handoff obligations depend on the reopened runtime
   and browser surfaces.
@@ -833,14 +840,14 @@ obligation exists.
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (reopened/re-closed 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done (reopened/re-closed 2026-06-14 — all-row SL runtime and typed RL event payloads, Sprint 8.12) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ⏸️ Blocked (Sprint 9.12 code surface complete; linux-cpu/apple-silicon validated; linux-cuda validation host unavailable) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | 🔄 Active (reopened 2026-06-14 — every model family checkpoint/inference surface, Sprint 10.6) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat RL/AlphaZero/tuning runtime validated on linux-cpu, apple-silicon, and linux-cuda, Sprint 9.12) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 10 | Checkpointing and Inference-Only Read Path | ⏸️ Blocked (reopened 2026-06-14; Sprint 10.6 code landed 2026-06-15, blocked on Apple Silicon integration validation) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | 🔄 Active (reopened 2026-06-14 — full interactive demo controls and visualizations, Sprint 11.9) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | 🔄 Active (reopened 2026-06-14 — Playwright no-caveat e2e matrix, Sprint 12.13) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 9–12 and 16–17) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 9–12 and 16–17) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 13 | Linux CUDA and Cluster Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 10–12 and 16–17) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 10–12 and 16–17) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Substrate Reproducibility and Final Handoff | ⏸️ Blocked (reopened 2026-06-14; blocked on full no-caveat runtime/browser validation) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
-| 16 | No-Caveat Model Runtime Closure | ⏸️ Blocked (new 2026-06-14; blocked on Phases 9–10) | [phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md) |
+| 16 | No-Caveat Model Runtime Closure | ⏸️ Blocked (new 2026-06-14; blocked on Phase 10) | [phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md) |
 | 17 | Interactive Demo and Playwright Closure | ⏸️ Blocked (new 2026-06-14; blocked on Phases 11–12 and 16) | [phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md) |
 | 18 | No-Caveat Product Handoff | ⏸️ Blocked (new 2026-06-14; blocked on Phases 13–17) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
@@ -856,11 +863,12 @@ Owning sprints:
 
 - **Phase 8 / Sprint `8.12`** re-closed full SL trainable architecture coverage
   and framework-level RL event payloads.
-- **Phase 9 / Sprint `9.12`** owns full RL algorithm runtime, AlphaZero terminal
-  evaluators/replay, and real tuning-objective closure. Its code surface is in
-  place; closure is blocked on the linux-cuda validation host.
-- **Phase 10 / Sprint `10.6`** owns checkpoint/inference metadata and reload
-  support for every model family.
+- **Phase 9 / Sprint `9.12`** re-closed full RL algorithm runtime, AlphaZero
+  terminal evaluators/replay, and real tuning-objective closure after
+  linux-cpu, apple-silicon, and linux-cuda validation passed.
+- **Phase 10 / Sprint `10.6`** has landed checkpoint/inference metadata and
+  reload compatibility checks for every model family, and is blocked on live
+  Apple Silicon integration validation.
 - **Phase 11 / Sprint `11.9`** owns generated browser contracts, full workflow
   controls, real visualization renderers, and removal of demo-only parsers.
 - **Phase 12 / Sprint `12.13`** owns the test stanza and Playwright no-caveat
@@ -985,8 +993,10 @@ the live `linux-cpu` / `linux-cuda` cluster lanes:
   `jitml-daemon-lifecycle` 31/31, and focused offline `jitml-integration`
   weighted-load / HasMinIO checkpoint-write cases.
 - **Phase 11** (Sprint `11.8`) — the demo `/api/inference`, `/api/images`, and
-  `/api/connect4/move` endpoints run the real network forward / image top-k
-  render / real MCTS. The PureScript panels issue real text fetches / WebSocket
+  `/api/connect4/move` endpoints then ran real network forward / image top-k
+  render / real MCTS responses; Sprint `10.6` later removed those inline server
+  networks and made the routes fail closed until checkpoint-backed browser
+  requests land. The PureScript panels issue real text fetches / WebSocket
   subscriptions through typed actions, parse responses into typed records, and
   surface stream errors; `jitml lint purescript` passed. The CUDA-machine live
   Playwright run passed **9/9** against the bootstrapped edge route and asserted
@@ -1357,11 +1367,15 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-06-14, the no-caveat end-to-end product target is open. Phases
-`8` is `✅ Done`, Phase `9` is `⏸️ Blocked` on Linux CUDA validation host
-availability, Phases `10`–`12` are `🔄 Active`, Phases `13`–`15` are
-`⏸️ Blocked` on the expanded runtime/browser work, Phases `16`–`18` have been
-added, Pending Removal is non-empty again, and final handoff is not complete.
+As of 2026-06-15, the no-caveat end-to-end product target is open. Phases
+`8` and `9` are `✅ Done`, Phase `10` is `⏸️ Blocked` on Apple Silicon
+integration validation after its Sprint `10.6` code landed; its previous
+bootstrap image-rebuild blocker has a validated Dockerfile fix, live Linux CPU
+and Linux CUDA publication exist, and the canonical Linux CPU and Linux CUDA
+integration lanes passed, but Apple Silicon validation remains outstanding.
+Phases `11`–`12` are `🔄 Active`, Phases `13`–`15` are `⏸️ Blocked` on the
+expanded runtime/browser work, Phases `16`–`18` have been added, Pending
+Removal is non-empty again, and final handoff is not complete.
 The true-headless Apple Metal fixed-bridge workstream (`1.15`, `2.12`, `5.10`,
 `7.11`, `14.9`, `15.5`, `15.6`) remains closed as dated 2026-06-12 evidence,
 and the later Apple host-resident workload placement audit also remains closed

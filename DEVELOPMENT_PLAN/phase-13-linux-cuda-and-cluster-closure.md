@@ -29,9 +29,9 @@
 
 ⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Linux live validation). Sprint
 `13.20` revalidates the expanded runtime/browser matrix on `linux-cpu` and
-`linux-cuda`, but it is blocked until Phases `9`–`12`, Phase `16`, and Phase
-`17` land the remaining no-caveat surfaces. Phase `8` Sprint `8.12` has
-re-closed its local framework/runtime surface.
+`linux-cuda`, but it is blocked until Phases `10`–`12`, Phase `16`, and Phase
+`17` land the remaining no-caveat surfaces. Phases `8` and `9` have re-closed
+their local framework/runtime and RL/AlphaZero/tuning surfaces.
 
 ✅ **Historical closure** (re-closed 2026-06-11 on the CUDA machine after the real-workflow
 refactor; Sprints `13.17` / `13.18` / `13.19`). With Phases `8`–`12` now routing

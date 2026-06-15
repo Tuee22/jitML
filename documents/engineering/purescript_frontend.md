@@ -151,8 +151,11 @@ Every panel renders inside `Chrome.Header.render` (the slim shared header — `j
 
 `Panels.Api.requestText` is the dependency-free text request bridge used by the
 REST panels. MNIST, CIFAR/ImageNet, and Connect 4 issue real `POST` calls to the
-generated endpoint paths and convert the text replies into the panel-specific
-typed response records before updating Halogen state. `Panels.Stream` opens the
+generated endpoint paths and convert text replies into the panel-specific typed
+response records before updating Halogen state. Sprint `10.6` removes the
+server-side inline demo networks; until Phase `17` wires checkpoint-backed
+browser requests, those three REST routes fail closed with
+`503 checkpoint-required`. `Panels.Stream` opens the
 live WebSocket route, reports connection failures through typed actions, and the
 RL/training/tune panels convert incoming frame text into typed stream records
 instead of storing raw frame strings. `Panels.Rl.parseRlFrame` now accepts only
@@ -174,10 +177,12 @@ synthesize values from incomplete frames.
 ## REST and WebSocket Surface
 
 The HTTP handlers live in `src/JitML/Web/Server.hs`; they provide responses for
-the API index, inference, image top-k classification, Connect 4 move, compiled
-bundle serving, and live stream routes. A stream route requested as plain HTTP
-returns `503 live stream requires WebSocket upgrade`; upgraded clients are
-bridged to Pulsar event topics by `liveDemoWebSocketRoutes`.
+the API index, compiled bundle serving, and live stream routes. The inference,
+image, and Connect 4 REST routes are present in the contract but fail closed
+with `503 checkpoint-required` until checkpoint-backed browser requests land. A
+stream route requested as plain HTTP returns
+`503 live stream requires WebSocket upgrade`; upgraded clients are bridged to
+Pulsar event topics by `liveDemoWebSocketRoutes`.
 
 | Surface | Method | Path | Payload type |
 |---------|--------|------|--------------|
@@ -220,14 +225,9 @@ covers the smoke shell plus the six canonical panels:
   the expected root-relative `href` matching the route registry.
 - Shared header: for each named panel hash, assert `#jitml-chrome`
   mounts and the `#jitml-chrome-home` anchor links to `#portals`.
-- MNIST: load the inference panel, assert its canvas mounts, click Predict,
-  wait for `POST /api/inference`, verify the real response contains the
-  policy/value output, and assert the rendered prediction badge updates.
-- CIFAR: load the upload panel, click Classify, wait for `POST /api/images`,
-  and assert the response plus attached result-list surface.
-- Connect 4: load the AlphaZero-vs-human panel, click a column, wait for
-  `POST /api/connect4/move`, and assert the rendered move list includes the
-  returned MCTS move.
+- MNIST/CIFAR/Connect 4: current panel reachability can issue the REST calls,
+  but Phase `17` replaces the former inline-demo response assertions with
+  checkpoint-backed request/response assertions and rendered product state.
 - RL trajectory: load the trajectory panel through the live edge route.
 - Training / Tune: load the streaming metric panels through the live edge
   route.

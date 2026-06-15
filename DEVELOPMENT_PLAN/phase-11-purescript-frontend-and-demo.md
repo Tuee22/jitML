@@ -29,13 +29,17 @@ controls, checkpoint-backed model interactions, real visualizations, RL
 animations, adversarial-game rendering, and interactive replay. The earlier
 live REST value assertions remain historical evidence only.
 
-✅ **Historical closure** (re-closed 2026-06-11 after Sprint `11.8`). The demo HTTP endpoints
-run real computation, and the PureScript panels issue real HTTP / WebSocket
-calls through typed actions: `Web.Server` `/api/inference` runs the real
-policy/value network forward, `/api/connect4/move` runs the real MCTS tree
-search, `/api/images` returns a policy-network top-k vector instead of an upload
-acknowledgement, `Panels.Api` performs text fetches, and the stream panels parse
-incoming frames into typed records instead of storing raw strings. The
+✅ **Historical closure** (re-closed 2026-06-11 after Sprint `11.8`; HTTP value
+responses superseded by Phase `10` Sprint `10.6`). The demo HTTP endpoints then
+ran real local computation, and the PureScript panels issued real HTTP /
+WebSocket calls through typed actions: `Web.Server` `/api/inference` ran the
+policy/value network forward, `/api/connect4/move` ran MCTS,
+`/api/images` returned a policy-network top-k vector instead of an upload
+acknowledgement, `Panels.Api` performed text fetches, and the stream panels
+parsed incoming frames into typed records instead of storing raw strings. Sprint
+`10.6` later removed those inline server-side networks; the same routes now
+fail closed with `503 checkpoint-required` until Sprint `11.9` / Phase `17`
+wires checkpoint-backed browser requests. The
 Playwright suite now clicks the MNIST / CIFAR / Connect 4 controls, waits for
 the real API responses, and asserts rendered value updates against the live
 demo edge. Validation passed on 2026-06-11 against the `linux-cuda` cluster:
@@ -558,9 +562,10 @@ legacy-ledger row moved to `Completed`.
 
 ## Sprint 11.8: Demo Endpoints Render Real Substrate Output ✅
 
-**Status**: Done
-**Implementation**: `src/JitML/Web/Server.hs` (`renderInferenceResponse`,
-`renderImageResponse`, `renderConnect4Response`); panels under
+**Status**: Done (historical; server-side inline response functions removed by
+Phase `10` Sprint `10.6`)
+**Implementation**: historical `src/JitML/Web/Server.hs` inline response
+functions removed by Sprint `10.6`; panels under
 `web/src/Panels/*`, `web/src/Panels/Api.{purs,js}`,
 `web/src/Panels/Stream.js`, `playwright/jitml-demo.spec.ts`
 **Docs to update**: `../documents/engineering/purescript_frontend.md`, `system-components.md`
@@ -573,13 +578,17 @@ of [Exit Definition](README.md#exit-definition) item 6/7.
 
 ### Deliverables
 
-- `Web.Server` `/api/inference` runs the real policy/value network forward
-  (`PolicyValueNet.networkPolicyValue`) and reports the value/policy heads;
-  `/api/images` runs the same policy/value network over the demo board state
-  and reports a top-k probability vector instead of an upload acknowledgement;
-  `/api/connect4/move` runs the real MCTS tree search
-  (`PolicyValueNet.mctsVisitDistribution`) and returns the highest-visit move —
-  no hard-coded column, no synthetic manifest-only number.
+- Historical Sprint `11.8` state: `Web.Server` `/api/inference` ran the real
+  policy/value network forward (`PolicyValueNet.networkPolicyValue`) and
+  reported the value/policy heads; `/api/images` ran the same policy/value
+  network over the demo board state and reported a top-k probability vector
+  instead of an upload acknowledgement; `/api/connect4/move` ran the real MCTS
+  tree search (`PolicyValueNet.mctsVisitDistribution`) and returned the
+  highest-visit move —
+  no hard-coded column, no synthetic manifest-only number. Sprint `10.6`
+  supersedes this server implementation by removing the inline networks and
+  returning `503 checkpoint-required` until checkpoint-backed runtime requests
+  land.
 - The panels issue real HTTP fetches over the generated contracts and parse the
   typed responses; the dead `*Received` handlers, the raw `LiveFrame String`
   path, and the `Stream.js` socket-failure swallow are removed.
@@ -594,11 +603,12 @@ of [Exit Definition](README.md#exit-definition) item 6/7.
 
 ### Current Validation State
 
-Landed: the `Web.Server` `/api/inference`, `/api/images`, and
-`/api/connect4/move` endpoints now run the real network forward / image top-k
+Historical landed state: the `Web.Server` `/api/inference`, `/api/images`, and
+`/api/connect4/move` endpoints ran the real network forward / image top-k
 render / real MCTS path (pure, host lib type-checks; container `check-code`
-validated at the Phase 11 boundary). On 2026-06-11 the panels were rewired
-through `Panels.Api.requestText`, `Panels.Stream.openWebSocket` now reports
+validated at the Phase 11 boundary). Sprint `10.6` later removed those inline
+endpoint bodies and made the routes fail closed. On 2026-06-11 the panels were
+rewired through `Panels.Api.requestText`, `Panels.Stream.openWebSocket` now reports
 failures, raw `LiveFrame String` storage was removed from the RL / training /
 tuning panels, and `docker compose run --rm jitml jitml lint purescript`
 returned `ok`. The final CUDA-machine rebuild passed `docker compose build
@@ -671,7 +681,8 @@ runtime workflow, with no demo-only parsing or visualization stand-ins.
   generated typed decoders.
 - Replace placeholder canvases and text-only tables with drawn charts,
   animations, boards, and replay controls.
-- Replace inline demo networks with checkpoint-backed runtime endpoints.
+- Replace `503 checkpoint-required` REST panel failures with checkpoint-backed
+  runtime endpoints.
 - Add full workflow controls and status handling for training, RL, tuning, and
   adversarial self-play.
 

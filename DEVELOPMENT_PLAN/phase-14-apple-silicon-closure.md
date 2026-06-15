@@ -29,9 +29,9 @@
 
 ⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Apple live validation). Sprint
 `14.11` revalidates the expanded runtime/browser product matrix on
-`apple-silicon`, but it is blocked until Phases `9`–`12`, Phase `16`, and Phase
-`17` land the remaining no-caveat surfaces. Phase `8` Sprint `8.12` has
-re-closed its local framework/runtime surface.
+`apple-silicon`, but it is blocked until Phases `10`–`12`, Phase `16`, and
+Phase `17` land the remaining no-caveat surfaces. Phases `8` and `9` have
+re-closed their local framework/runtime and RL/AlphaZero/tuning surfaces.
 
 ✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `14.10`). The fixed
 Metal bridge and Apple backend lane remain valid, and the full Apple lifecycle

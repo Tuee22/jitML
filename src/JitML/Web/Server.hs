@@ -22,12 +22,9 @@ import Control.Monad.IO.Class qualified
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
-import Data.Vector.Unboxed qualified as VU
 import System.Directory (doesFileExist)
 
 import JitML.Cluster.Publication qualified as Publication
-import JitML.RL.AlphaZero qualified as AlphaZero
-import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.Capabilities
   ( HasPulsar (..)
@@ -207,9 +204,9 @@ demoHttpRoutesWithBundle :: Maybe Text -> [HttpRoute]
 demoHttpRoutesWithBundle bundle =
   [ htmlRoute "GET" "/" (EndpointResponse 200 (renderDemoIndexWithBundle bundle))
   , textRoute "GET" "/api" (EndpointResponse 200 renderApiIndex)
-  , textRoute "POST" "/api/inference" (EndpointResponse 200 renderInferenceResponse)
-  , textRoute "POST" "/api/images" (EndpointResponse 200 renderImageResponse)
-  , textRoute "POST" "/api/connect4/move" (EndpointResponse 200 renderConnect4Response)
+  , textRoute "POST" "/api/inference" (checkpointBackedDemoRequired "inference")
+  , textRoute "POST" "/api/images" (checkpointBackedDemoRequired "image")
+  , textRoute "POST" "/api/connect4/move" (checkpointBackedDemoRequired "connect4")
   , textRoute "GET" "/api/ws" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/training" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/rl" liveStreamUpgradeRequired
@@ -261,44 +258,15 @@ renderApiIndex =
       <> " "
       <> Contracts.endpointName endpoint
 
--- | Sprint 11.8 — the demo inference endpoint runs the real policy/value
--- network forward on the initial board (a genuine network forward, not the
--- former synthetic manifest summary) and reports its value-head estimate.
--- The live-cluster round-trip that serves a real /trained/ checkpoint over the
--- daemon's inference topics is the deeper version (Phase 13).
-renderInferenceResponse :: Text
-renderInferenceResponse =
-  let net = PolicyValueNet.initPolicyValueNet 43 7 16 22
-      pv = PolicyValueNet.networkPolicyValue net AlphaZero.initialConnect4
-   in "prediction: value="
-        <> Text.pack (show (PolicyValueNet.pvValue pv))
-        <> " policy="
-        <> Text.pack (show (VU.toList (PolicyValueNet.pvPolicy pv)))
-        <> "\n"
-
--- | Sprint 11.8 — the image endpoint returns a real network-forward-derived
--- top-k vector for the demo panel instead of an upload acknowledgement.
-renderImageResponse :: Text
-renderImageResponse =
-  let net = PolicyValueNet.initPolicyValueNet 43 7 16 23
-      pv = PolicyValueNet.networkPolicyValue net AlphaZero.initialConnect4
-      pairs = take 3 (zip [(0 :: Int) ..] (VU.toList (PolicyValueNet.pvPolicy pv)))
-      topK = fmap fst pairs
-      probs = fmap snd pairs
-   in "image: topK="
-        <> Text.pack (show topK)
-        <> " probabilities="
-        <> Text.pack (show probs)
-        <> " preprocessing_ms=0.0 inference_ms=0.0\n"
-
--- | Sprint 11.8 — the demo Connect 4 endpoint runs the real MCTS tree search
--- (network priors + value-head backups) on the initial board and returns the
--- highest-visit move, instead of echoing a hard-coded column.
-renderConnect4Response :: Text
-renderConnect4Response =
-  let net = PolicyValueNet.initPolicyValueNet 43 7 16 31
-      visitDist = PolicyValueNet.mctsVisitDistribution net 64 AlphaZero.initialConnect4 17
-   in "move: " <> Text.pack (show (VU.maxIndex visitDist)) <> "\n"
+checkpointBackedDemoRequired :: Text -> EndpointResponse
+checkpointBackedDemoRequired surface =
+  EndpointResponse
+    503
+    ( Text.unlines
+        [ "checkpoint-required: " <> surface
+        , "reason: checkpoint-backed runtime publication required"
+        ]
+    )
 
 -- | Sprint 13.13 — render a Server-Sent-Events-shaped frame from a live
 -- broker event payload. The browser receives @event: <domain>@ +

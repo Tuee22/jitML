@@ -2585,16 +2585,77 @@ buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights =
   let payload = Checkpoint.encodeJmw1 weights
       blobSha = hexEncodeBytes (Crypto.Hash.SHA256.hash (LazyByteString.toStrict payload))
       blobObjectKey = Checkpoint.blobKey experimentHash blobSha
+      weightTensor = Checkpoint.TensorBlob tensorName [length weights] blobObjectKey
+      modelFamily = checkpointModelFamilyForTensor tensorName
       manifest =
         ( Checkpoint.emptyManifest
             ("checkpoint-" <> Text.pack (show step))
             experimentHash
-            [Checkpoint.TensorBlob tensorName [length weights] blobObjectKey]
+            [weightTensor]
         )
-          { Checkpoint.manifestStep = step
+          { Checkpoint.manifestModelFamily = modelFamily
+          , Checkpoint.manifestArchitecture =
+              Checkpoint.ArchitectureMetadata
+                { Checkpoint.architectureName = checkpointArchitectureName modelFamily
+                , Checkpoint.architectureModelFamily = modelFamily
+                , Checkpoint.architectureInputs = []
+                , Checkpoint.architectureOutputs = []
+                }
+          , Checkpoint.manifestOutputDecoders = checkpointOutputDecoders modelFamily
+          , Checkpoint.manifestWeightLayout =
+              Checkpoint.NamedTensorWeightLayout [Checkpoint.tensorSpecFromBlob weightTensor]
+          , Checkpoint.manifestStep = step
           , Checkpoint.manifestMetrics = metrics
           }
    in (manifest, [(blobObjectKey, payload)])
+
+checkpointModelFamilyForTensor :: Text -> Checkpoint.ModelFamily
+checkpointModelFamilyForTensor tensorName
+  | "alphazero" `Text.isInfixOf` lowered =
+      Checkpoint.AlphaZeroPolicyValueFamily
+  | "rl-" `Text.isPrefixOf` lowered =
+      Checkpoint.ReinforcementLearningPolicyFamily
+  | "tune" `Text.isInfixOf` lowered =
+      Checkpoint.HyperparameterTuningFamily
+  | otherwise =
+      Checkpoint.SupervisedModelFamily
+ where
+  lowered = Text.toLower tensorName
+
+checkpointArchitectureName :: Checkpoint.ModelFamily -> Text
+checkpointArchitectureName family =
+  case family of
+    Checkpoint.SupervisedModelFamily -> "supervised-weighted-model"
+    Checkpoint.ReinforcementLearningPolicyFamily -> "rl-policy"
+    Checkpoint.AlphaZeroPolicyValueFamily -> "alphazero-policy-value"
+    Checkpoint.HyperparameterTuningFamily -> "tuning-surrogate-or-trial"
+    Checkpoint.GenericModelFamily -> "generic-weighted-model"
+
+checkpointOutputDecoders :: Checkpoint.ModelFamily -> [Checkpoint.OutputDecoder]
+checkpointOutputDecoders family =
+  case family of
+    Checkpoint.SupervisedModelFamily ->
+      [decoder "prediction" Checkpoint.ClassificationOutput]
+    Checkpoint.ReinforcementLearningPolicyFamily ->
+      [decoder "policy" Checkpoint.PolicyDistributionOutput]
+    Checkpoint.AlphaZeroPolicyValueFamily ->
+      [ decoder "policy" Checkpoint.PolicyDistributionOutput
+      , decoder "value" Checkpoint.ValueEstimateOutput
+      , decoder "mcts-visits" Checkpoint.MctsVisitDistributionOutput
+      ]
+    Checkpoint.HyperparameterTuningFamily ->
+      [decoder "objective" Checkpoint.RegressionOutput]
+    Checkpoint.GenericModelFamily ->
+      [decoder "output" Checkpoint.GenericOutput]
+ where
+  decoder name kind =
+    Checkpoint.OutputDecoder
+      { Checkpoint.outputDecoderName = name
+      , Checkpoint.outputDecoderKind = kind
+      , Checkpoint.outputDecoderLabels = []
+      , Checkpoint.outputDecoderUnits = Nothing
+      , Checkpoint.outputDecoderArtifactKind = Nothing
+      }
 
 mirrorWeightCheckpointToLiveIfPublished
   :: Checkpoint.CheckpointManifest

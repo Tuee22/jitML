@@ -874,9 +874,10 @@ Make the final report card and ledger reflect the no-caveat product definition.
   product interaction.
 - Same-substrate reproducibility is validated per lane for the expanded model
   matrix, without adding any cross-substrate numeric-equivalence claim.
-- Pending Removal rows for demo-only parsers, inline demo networks, placeholder
-  visualizations, synthetic algorithm projections, placeholder AlphaZero arena
-  evaluation, and browser-contract gaps all move to `Completed`.
+- Pending Removal rows for demo-only parsers, checkpoint-required REST panel
+  gaps, placeholder visualizations, synthetic algorithm projections,
+  placeholder AlphaZero arena evaluation, and browser-contract gaps all move to
+  `Completed`.
 - README, governed engineering docs, phase docs, and `system-components.md`
   agree that the no-caveat product is either open or closed; no historical
   closure text is presented as current status.
