@@ -7,6 +7,7 @@ import Control.Exception (bracket, finally)
 import Data.ByteString.Char8 qualified as ByteString
 import Data.Foldable (traverse_)
 import Data.List (isInfixOf)
+import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Network.Socket
@@ -55,7 +56,16 @@ import JitML.Test.Report
 import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
 import JitML.Web.Bundle (demoRoutePath, demoRoutes)
 import JitML.Web.Contracts (apiEndpoints)
-import JitML.Web.Server (bundleEntryPath, demoHttpRoutes, demoHttpRoutesWithBundle, loadBundleEntry)
+import JitML.Web.Server
+  ( BrowserRuntimeRequest (..)
+  , BrowserRuntimeResult (..)
+  , BrowserRuntimeSurface (..)
+  , bundleEntryPath
+  , demoHttpRoutes
+  , demoHttpRoutesWithBundle
+  , demoHttpRoutesWithRuntime
+  , loadBundleEntry
+  )
 
 main :: IO ()
 main =
@@ -118,13 +128,16 @@ main =
       , testCase "publication leases stable per-substrate edge ports" $
           publicationEdgePort (defaultPublication LinuxCUDA) @?= 9092
       , testCase "browser contracts expose interactive surfaces" $
-          length apiEndpoints @?= 8
+          length apiEndpoints @?= 10
       , testCase "demo route manifest covers edge listener paths" $
           fmap demoRoutePath demoRoutes
             @?= [ "/"
                 , "/api"
+                , "/api/runs/{runId}/command"
                 , "/api/inference"
+                , "/api/inference/generic"
                 , "/api/images"
+                , "/api/checkpoints/compare"
                 , "/api/connect4/move"
                 , "/api/ws"
                 , "/api/ws/training"
@@ -135,8 +148,11 @@ main =
           fmap httpRoutePath demoHttpRoutes
             @?= [ "/"
                 , "/api"
+                , "/api/runs/{runId}/command"
                 , "/api/inference"
+                , "/api/inference/generic"
                 , "/api/images"
+                , "/api/checkpoints/compare"
                 , "/api/connect4/move"
                 , "/api/ws"
                 , "/api/ws/training"
@@ -213,7 +229,7 @@ main =
                     { httpRouteMethod = "GET"
                     , httpRoutePath = "/fast"
                     , httpRouteContentType = "text/plain; charset=utf-8"
-                    , httpRouteResponse = EndpointResponse 200 "fast\n"
+                    , httpRouteHandler = \_request -> pure (EndpointResponse 200 "fast\n")
                     }
                 ]
               wsRoutes =
@@ -258,6 +274,102 @@ main =
               assertBool
                 "demo route table omits /bundle/main.js when bundle is missing"
                 (length routes == length demoHttpRoutes)
+      , testCase "demo command route requires live publication and reads POST bodies (Sprint 11.9)" $
+          withHttpRoutesOnce (HttpListener "127.0.0.1" 0) demoHttpRoutes $ \port -> do
+            response <-
+              httpPost
+                port
+                "/api/runs/training-demo/command"
+                "kind: StopTraining\nexperiment-hash: training-demo\ndrain: True\n"
+            assertBool "HTTP 503" ("HTTP/1.1 503 Service Unavailable" `isInfixOf` response)
+            assertBool "live publication required" ("cluster publication required" `isInfixOf` response)
+      , testCase
+          "demo REST routes parse browser envelopes and call checkpoint runtime handler (Sprint 11.9)"
+          $ do
+            withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
+              inference <-
+                httpPost
+                  port
+                  "/api/inference"
+                  ( unlines
+                      [ "kind: BrowserInferenceRequest"
+                      , "panel: mnist-live-inference"
+                      , "model-id: mnist-deep-mlp"
+                      , "experiment-hash: mnist-deep-mlp"
+                      , "input: 1.0,2.0"
+                      ]
+                  )
+              assertBool "inference HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` inference)
+              assertBool "typed inference result" ("kind: InferenceResult" `isInfixOf` inference)
+              assertBool "checkpoint sha" ("checkpoint-sha: sha256:browser-runtime" `isInfixOf` inference)
+              assertBool "top class from runtime output" ("top-class: 1" `isInfixOf` inference)
+            withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
+              generic <-
+                httpPost
+                  port
+                  "/api/inference/generic"
+                  ( unlines
+                      [ "kind: BrowserGenericInferenceRequest"
+                      , "panel: generic-inference-lab"
+                      , "experiment-hash: generic-tensor-demo"
+                      , "input: 1.0,2.0"
+                      ]
+                  )
+              assertBool "generic HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` generic)
+              assertBool "typed generic result" ("kind: GenericInferenceResult" `isInfixOf` generic)
+              assertBool
+                "generic checkpoint sha"
+                ("checkpoint-sha: sha256:generic-tensor-demo" `isInfixOf` generic)
+            withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
+              image <-
+                httpPost
+                  port
+                  "/api/images"
+                  ( unlines
+                      [ "kind: BrowserImageRequest"
+                      , "panel: cifar-imagenet-upload"
+                      , "dataset: CIFAR-10"
+                      , "experiment-hash: cifar-imagenet"
+                      , "image-base64: "
+                      , "input: 1.0,2.0"
+                      ]
+                  )
+              assertBool "image HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` image)
+              assertBool "typed image result" ("kind: ImageInferenceResult" `isInfixOf` image)
+            withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
+              compare <-
+                httpPost
+                  port
+                  "/api/checkpoints/compare"
+                  ( unlines
+                      [ "kind: BrowserCheckpointCompareRequest"
+                      , "panel: checkpoint-compare-lab"
+                      , "baseline-experiment-hash: generic-tensor-demo"
+                      , "candidate-experiment-hash: generic-tensor-demo-candidate"
+                      , "input: 1.0,2.0"
+                      ]
+                  )
+              assertBool "compare HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` compare)
+              assertBool "typed compare result" ("kind: CheckpointCompareResult" `isInfixOf` compare)
+              assertBool "compare max delta" ("max-abs-delta: 0.5" `isInfixOf` compare)
+              assertBool "compare mean delta" ("mean-abs-delta: 0.25" `isInfixOf` compare)
+            withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
+              move <-
+                httpPost
+                  port
+                  "/api/connect4/move"
+                  ( unlines
+                      [ "kind: BrowserAdversarialMoveRequest"
+                      , "panel: connect4-human-vs-alphazero"
+                      , "game: connect4"
+                      , "experiment-hash: connect4-alphazero"
+                      , "moves: 3"
+                      , "human-is-player: 1"
+                      , "simulations-per-move: 3"
+                      ]
+                  )
+              assertBool "move HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` move)
+              assertBool "typed move result" ("kind: AdversarialMoveResult" `isInfixOf` move)
       , testCase "post-teardown leaves no jitml-e2e Kind clusters" $ do
           -- Asserts the deterministic-teardown property from Sprint 12.8
           -- post-teardown. After all live work completes, `kind get
@@ -284,8 +396,46 @@ main =
                   assertBool "Docker socket is absent; live no-leak check is skipped locally" True
       ]
 
+fakeBrowserRuntime :: BrowserRuntimeRequest -> IO (Either Text BrowserRuntimeResult)
+fakeBrowserRuntime request =
+  pure $
+    Right
+      BrowserRuntimeResult
+        { browserRuntimeCheckpointSha =
+            case browserRuntimeSurface request of
+              BrowserRuntimeGeneric ->
+                "sha256:" <> browserRuntimeExperimentHash request
+              _ ->
+                "sha256:browser-runtime"
+        , browserRuntimeOutput =
+            case browserRuntimeSurface request of
+              BrowserRuntimeInference -> [0.1, 1.1, 0.2]
+              BrowserRuntimeGeneric ->
+                if "candidate" `Text.isInfixOf` browserRuntimeExperimentHash request
+                  then [0.75, 0.5]
+                  else [0.25, 0.5]
+              BrowserRuntimeImage -> [0.1, 1.1, 0.2, 0.4, 0.3]
+              BrowserRuntimeAdversarial -> [0.1, 0.2, 0.7, 0.3, 0.2, 0.1, 0.1, 0.5]
+        }
+
 httpGet :: Int -> String -> IO String
 httpGet port path =
+  httpRequest port ("GET " <> path <> " HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+
+httpPost :: Int -> String -> String -> IO String
+httpPost port path body =
+  httpRequest
+    port
+    ( "POST "
+        <> path
+        <> " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: "
+        <> show (length body)
+        <> "\r\n\r\n"
+        <> body
+    )
+
+httpRequest :: Int -> String -> IO String
+httpRequest port request =
   withSocketsDo $ do
     addresses <-
       getAddrInfo (Just defaultHints {addrSocketType = Stream}) (Just "127.0.0.1") (Just (show port))
@@ -293,7 +443,7 @@ httpGet port path =
       [] -> ioError (userError "no address for demo test client")
       addr : _ ->
         bracket (openSocket addr) close $ \client -> do
-          sendAll client (ByteString.pack ("GET " <> path <> " HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"))
+          sendAll client (ByteString.pack request)
           ByteString.unpack <$> recv client 4096
 
 openSocket :: AddrInfo -> IO Socket

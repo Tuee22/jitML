@@ -5,8 +5,10 @@ import Prelude
 import Data.Array as Array
 import Data.Maybe (Maybe)
 import Effect.Aff (Aff)
+import Panels.CheckpointCompare as CheckpointCompare
 import Panels.Cifar as Cifar
 import Panels.Connect4 as Connect4
+import Panels.GenericInference as GenericInference
 import Panels.Mnist as Mnist
 import Panels.Rl as Rl
 import Panels.Training as Training
@@ -22,6 +24,8 @@ type PanelEntry = { hash :: String, label :: String, mount :: Aff (Aff Unit) }
 panels :: Array PanelEntry
 panels =
   [ { hash: Mnist.panelName, label: "MNIST", mount: Mnist.mount }
+  , { hash: GenericInference.panelName, label: "Generic inference", mount: GenericInference.mount }
+  , { hash: CheckpointCompare.panelName, label: "Checkpoint compare", mount: CheckpointCompare.mount }
   , { hash: Cifar.panelName, label: "CIFAR", mount: Cifar.mount }
   , { hash: Training.panelName, label: "Training", mount: Training.mount }
   , { hash: Tune.panelName, label: "Tune", mount: Tune.mount }

@@ -48,13 +48,20 @@ implementation has re-closed Phase `8` on the all-row SL framework/runtime and
 typed RL event-payload surface, but it is not yet the intended no-caveat
 product: Phase `9` has removed the RL/AlphaZero/tuning helper stand-ins and
 passed linux-cpu, apple-silicon, and linux-cuda validation;
-checkpoint/reload/inference support still needs Apple Silicon validation after
-the Phase `10` code landed and passed the live Linux CPU/CUDA lanes; demo REST
-endpoints now fail closed until checkpoint-backed per-model browser requests
-land; the browser stream parsers still have non-RL
-default/marker residue; and Playwright validates panel reachability and a small
-REST-value slice rather than proving every model trains and exposes the
-appropriate interaction. Therefore:
+checkpoint/reload/inference support has re-closed Phase `10` after the Apple
+Silicon live integration lane passed; Sprint `11.9` has removed the current
+panel marker/default parsers behind generated typed browser payload
+decoders/renderers, replaced the static command acknowledgement with
+request-aware daemon command publication when a live cluster publication
+exists, and wired current REST panels plus generic tensor inference and
+checkpoint comparison through an injected checkpoint runtime handler. The
+browser now renders generated queued/running/failed/done workflow status for
+current controls; unsupported pause/resume/promote lifecycle actions, live
+all-substrate checkpoint-backed interactions, expanded adversarial/game
+visualizations, live replay artifact selection, and Playwright product proof
+remain open rather than proving every model trains and exposes the appropriate
+interaction.
+Therefore:
 
 - **Phase `8` reopened and re-closed on 2026-06-14** for Sprint `8.12`, adding
   all-row substrate-backed SL trainable runtime coverage, real staged-byte
@@ -63,27 +70,29 @@ appropriate interaction. Therefore:
 - **Phase `9` reopened and re-closed on 2026-06-15** for Sprint `9.12`,
   completing the linux-cuda validation pair after its code surface had already
   passed linux-cpu and apple-silicon.
-- **Phase `10` is `⏸️ Blocked`** for Sprint `10.6` on Apple Silicon
-  integration validation after the code surface landed. The 2026-06-15
-  bootstrap image-rebuild blocker now has a validated Dockerfile fix on the
-  exact legacy-builder command, Linux CPU and Linux CUDA bootstrap now publish
-  all seven components ready, and the canonical live Linux CPU and Linux CUDA
-  integration lanes passed 71 / 71.
+- **Phase `10` reopened and re-closed on 2026-06-15** for Sprint `10.6`.
+  The Dockerfile image-build fix, Linux CPU and Linux CUDA live integration
+  lanes, and Apple Silicon live integration lane all passed; the final Apple
+  validation was `./.build/jitml test jitml-integration --apple-silicon` on a
+  live `apple-silicon` publication, passing 71 / 71 including the 19-test
+  `Live` group.
 - **Phases `11` and `12` remain `🔄 Active`** for Sprints `11.9` and `12.13`.
   These sprints own the remaining frontend and test-harness expansion after
   Phase `9` validation.
 - **Phases `13`, `14`, and `15` reopen from `✅ Done` to `⏸️ Blocked`** because
-  their live validation and handoff obligations depend on the reopened runtime
-  and browser surfaces.
+  their live validation and handoff obligations depend on the remaining browser,
+  model-runtime, and product-handoff surfaces.
 - **Phases `16`, `17`, and `18` are added.** Phase `16` owns full no-caveat
-  model runtime closure, Phase `17` owns the interactive demo plus Playwright
-  product matrix, and Phase `18` owns final all-substrate no-caveat handoff.
+  model runtime closure and is now `🔄 Active` because Phases `8`–`10` have
+  re-closed; Phase `17` owns the interactive demo plus Playwright product
+  matrix, and Phase `18` owns final all-substrate no-caveat handoff.
 - **Phases `0`–`7` stay `✅ Done`** on their owned surfaces. Their architecture
   remains the foundation for the expanded runtime and browser work.
 - The legacy ledger now has Pending Removal rows for concrete temporary
-  stand-ins: demo marker parsers and zero/default display records, demo-only
-  inline model responses, placeholder visualization canvases, the catalog
-  rollout compatibility helper, and browser-contract gaps.
+  stand-ins: incomplete browser visualization/replay renderers, browser
+  product-contract expansion, the catalog rollout compatibility helper, and the
+  Dense-only SL product gate. The current marker/default parser, inline demo
+  response, and AlphaZero placeholder evaluator rows have moved to `Completed`.
 
 **Reopen note (2026-06-13 — Apple Silicon host-resident workload placement;
 re-closed, superseded by the 2026-06-14 product reopen above).** The full Apple
@@ -607,8 +616,8 @@ that round-trips the full Haskell catalog
 (`JitML.Numerics.Schema.loadNumericsCatalog`), the generated
 TensorBoard Service renderer
 (`JitML.Observability.TensorBoard.renderTensorBoardService`) plus the
-checked-in `chart/local/tensorboard/templates/service.yaml`, the six
-PureScript panel payload modules under `web/src/Panels/`, the current nine-test
+checked-in `chart/local/tensorboard/templates/service.yaml`, the current
+PureScript panel payload modules under `web/src/Panels/`, the current eleven-test
 live-only Playwright matrix represented in `JitML.Test.LivePlan` and
 validated through the live edge route, the `spago test` and
 `purs-tidy check` command shapes represented from `jitml lint purescript`
@@ -744,8 +753,9 @@ owned by Phase `13` below.
    rollout/self-play/tune execution with no synthetic projections, checkpoint
    gaps, or demo-only inference paths.
 2. **Phases `11`–`12` plus Phase `17` — no-caveat browser and Playwright.**
-   Replace marker parsers and placeholder renderers with generated typed
-   payloads, workflow controls, model-specific interactions, RL animation,
+   Extend the generated typed payload surface beyond the current Sprint `11.9`
+   panel decoders, replace placeholder/incomplete product renderers with
+   workflow controls, model-specific interactions, RL animation,
    adversarial-game rendering, interactive replay, tuning controls, and a
    Playwright product matrix that proves those behaviors against a real Envoy
    route surface.
@@ -841,13 +851,13 @@ obligation exists.
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (reopened/re-closed 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done (reopened/re-closed 2026-06-14 — all-row SL runtime and typed RL event payloads, Sprint 8.12) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat RL/AlphaZero/tuning runtime validated on linux-cpu, apple-silicon, and linux-cuda, Sprint 9.12) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | ⏸️ Blocked (reopened 2026-06-14; Sprint 10.6 code landed 2026-06-15, blocked on Apple Silicon integration validation) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat checkpoint/inference matrix validated on linux-cpu, linux-cuda, and apple-silicon, Sprint 10.6) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | 🔄 Active (reopened 2026-06-14 — full interactive demo controls and visualizations, Sprint 11.9) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | 🔄 Active (reopened 2026-06-14 — Playwright no-caveat e2e matrix, Sprint 12.13) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 10–12 and 16–17) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 10–12 and 16–17) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 13 | Linux CUDA and Cluster Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 11–12 and 16–17) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 11–12 and 16–17) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Substrate Reproducibility and Final Handoff | ⏸️ Blocked (reopened 2026-06-14; blocked on full no-caveat runtime/browser validation) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
-| 16 | No-Caveat Model Runtime Closure | ⏸️ Blocked (new 2026-06-14; blocked on Phase 10) | [phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md) |
+| 16 | No-Caveat Model Runtime Closure | 🔄 Active (new 2026-06-14; unblocked after Phase 10 re-closed, Sprint 16.1) | [phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md) |
 | 17 | Interactive Demo and Playwright Closure | ⏸️ Blocked (new 2026-06-14; blocked on Phases 11–12 and 16) | [phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md) |
 | 18 | No-Caveat Product Handoff | ⏸️ Blocked (new 2026-06-14; blocked on Phases 13–17) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
@@ -866,19 +876,20 @@ Owning sprints:
 - **Phase 9 / Sprint `9.12`** re-closed full RL algorithm runtime, AlphaZero
   terminal evaluators/replay, and real tuning-objective closure after
   linux-cpu, apple-silicon, and linux-cuda validation passed.
-- **Phase 10 / Sprint `10.6`** has landed checkpoint/inference metadata and
-  reload compatibility checks for every model family, and is blocked on live
-  Apple Silicon integration validation.
+- **Phase 10 / Sprint `10.6`** re-closed checkpoint/inference metadata and
+  reload compatibility checks for every model family after linux-cpu,
+  linux-cuda, and apple-silicon validation passed.
 - **Phase 11 / Sprint `11.9`** owns generated browser contracts, full workflow
-  controls, real visualization renderers, and removal of demo-only parsers.
+  controls, checkpoint-backed REST route wiring, generic inference/checkpoint
+  comparison, real visualization renderers, and removal of demo-only parsers.
 - **Phase 12 / Sprint `12.13`** owns the test stanza and Playwright no-caveat
   matrix.
 - **Phase 13 / Sprint `13.20`**, **Phase 14 / Sprint `14.11`**, and
   **Phase 15 / Sprint `15.8`** own live Linux, Apple, and handoff revalidation
   after the reopened local surfaces land.
-- **Phase 16 / Sprint `16.1`**, **Phase 17 / Sprints `17.1` / `17.2`**, and
-  **Phase 18 / Sprint `18.1`** own cross-model runtime closure, product/browser
-  closure, and final no-caveat handoff.
+- **Phase 16 / Sprint `16.1`** is now active on cross-model runtime closure.
+  **Phase 17 / Sprints `17.1` / `17.2`** and **Phase 18 / Sprint `18.1`**
+  own product/browser closure and final no-caveat handoff.
 
 ## Reopened phases (2026-06-13 — Apple Silicon host-resident workload placement)
 
@@ -995,8 +1006,9 @@ the live `linux-cpu` / `linux-cuda` cluster lanes:
 - **Phase 11** (Sprint `11.8`) — the demo `/api/inference`, `/api/images`, and
   `/api/connect4/move` endpoints then ran real network forward / image top-k
   render / real MCTS responses; Sprint `10.6` later removed those inline server
-  networks and made the routes fail closed until checkpoint-backed browser
-  requests land. The PureScript panels issue real text fetches / WebSocket
+  networks, and Sprint `11.9` later restored the routes through an injected
+  checkpoint runtime handler when a live publication exists. The PureScript
+  panels issue real text fetches / WebSocket
   subscriptions through typed actions, parse responses into typed records, and
   surface stream errors; `jitml lint purescript` passed. The CUDA-machine live
   Playwright run passed **9/9** against the bootstrapped edge route and asserted
@@ -1368,14 +1380,12 @@ blocks) are tracked in
 ## Current Plan Status
 
 As of 2026-06-15, the no-caveat end-to-end product target is open. Phases
-`8` and `9` are `✅ Done`, Phase `10` is `⏸️ Blocked` on Apple Silicon
-integration validation after its Sprint `10.6` code landed; its previous
-bootstrap image-rebuild blocker has a validated Dockerfile fix, live Linux CPU
-and Linux CUDA publication exist, and the canonical Linux CPU and Linux CUDA
-integration lanes passed, but Apple Silicon validation remains outstanding.
-Phases `11`–`12` are `🔄 Active`, Phases `13`–`15` are `⏸️ Blocked` on the
-expanded runtime/browser work, Phases `16`–`18` have been added, Pending
-Removal is non-empty again, and final handoff is not complete.
+`8`, `9`, and `10` are `✅ Done`; Phase `10` re-closed after the Apple Silicon
+publication came up and `./.build/jitml test jitml-integration --apple-silicon`
+passed 71 / 71. Phases `11`–`12` and `16` are `🔄 Active`, Phases `13`–`15`
+are `⏸️ Blocked` on the expanded runtime/browser work, Phases `17`–`18` remain
+blocked by their upstream phases, Pending Removal is non-empty again, and final
+handoff is not complete.
 The true-headless Apple Metal fixed-bridge workstream (`1.15`, `2.12`, `5.10`,
 `7.11`, `14.9`, `15.5`, `15.6`) remains closed as dated 2026-06-12 evidence,
 and the later Apple host-resident workload placement audit also remains closed
@@ -2117,7 +2127,7 @@ parent lineage), the typed `AdvancePredicate` ADT, the
 + `buildGcPlan` GC reconciler surface, and the
 `writeCheckpointSnapshotWithMinIO` / `loadInferenceCheckpointWithWeights`
 checkpoint write/read paths; the PureScript
-scaffold with six panel payload modules under `web/src/Panels/`, the
+scaffold with the current panel payload modules under `web/src/Panels/`, the
 generated contracts, and the full typed local demo route manifest; the `jitml-demo` HTTP server; the Playwright
 canonical panel matrix at `playwright/jitml-demo.spec.ts`; the typed
 ephemeral-Kind live plan in `JitML.Test.LivePlan`; and the
@@ -2243,8 +2253,9 @@ This plan is complete only when all of the following are true:
    and fail closed with an explicit "cluster required" state when no cluster
    publishes. Playwright must exercise the panels end-to-end **against a running
    cluster** by clicking, awaiting frames, replaying transcripts, and asserting
-   real model-output values; marker parsers and inline demo responses are
-   temporary legacy rows, not closure evidence.
+   real model-output values; Sprint `11.9` removed the current marker parsers,
+   and inline demo responses/checkpoint-free browser interactions are not
+   closure evidence.
 9. `jitml test all` runs every test-only Cabal test-suite stanza (`jitml-unit`,
    `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
    `jitml-hyperparameter`, `jitml-backends`, `jitml-daemon-lifecycle`,
@@ -2292,11 +2303,13 @@ This plan is complete only when all of the following are true:
     HTTPRoute resource emitted by the umbrella chart's renderer.
 18. [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
     contains no unresolved cleanup rows at final handoff.
-    **Current 2026-06-14 state:** Pending Removal is open again for the
-    no-caveat product audit rows covering marker parsers, inline demo responses,
-    placeholder visualizers, algorithm-level synthetic helpers, the AlphaZero
-    placeholder arena evaluator, browser-contract payload gaps, and the
-    Dense-only SL product gate.
+    **Current 2026-06-15 state:** Pending Removal is open again for the
+    no-caveat product audit rows covering incomplete browser visualization /
+    replay renderers, browser product-contract expansion, the catalog rollout
+    compatibility helper, and the Dense-only SL product gate. Sprint `11.9`
+    moved the current demo marker/default parser row to `Completed`; Sprint
+    `10.6` moved the inline demo response row to `Completed`; Sprint `9.12`
+    moved the AlphaZero placeholder arena evaluator row to `Completed`.
     **Reopened 2026-06-10 (real-workflow refactor):** the synthetic/echo/dead-code
     stand-ins the refactor deleted were enqueued under `Pending Removal`; as of
     2026-06-12 they have moved to `Completed`, so the ledger is empty again.

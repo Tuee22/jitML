@@ -19,6 +19,7 @@ import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Text (Text)
@@ -219,16 +220,66 @@ demoMain = do
             substrate <- parseSubstrate (Text.pack substrateName)
             pure (defaultPublication substrate)
           publication = inClusterPublication `orElse` localPublication
-      WebServer.serveDemoWithBridgeEndpoint
+      env <- buildEnv defaultGlobalFlags
+      WebServer.serveDemoWithBridgeEndpointWithRuntime
         (demoHost demoArgs)
         (demoPort demoArgs)
         publication
         endpointOverride
+        (fmap (demoBrowserRuntimeHandler env) publication)
  where
   nonEmpty (Just s) | not (null s) = Just s
   nonEmpty _ = Nothing
   orElse (Just x) _ = Just x
   orElse Nothing y = y
+
+demoBrowserRuntimeHandler
+  :: Env
+  -> ClusterPublication
+  -> WebServer.BrowserRuntimeRequest
+  -> IO (Either Text WebServer.BrowserRuntimeResult)
+demoBrowserRuntimeHandler env publication request = do
+  let edgePort = Publication.publicationEdgePort publication
+      substrate = Publication.publicationSubstrate publication
+      minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+  checkpointShaRef <- newIORef Nothing
+  MinIOSubprocess.runMinIOSubprocess minioSettings $ do
+    result <-
+      CheckpointStore.loadInferenceCheckpointWithWeights
+        ( \manifest weights values ->
+            liftIO $ do
+              writeIORef checkpointShaRef (Just (Checkpoint.manifestContentSha manifest))
+              weightedInferenceForBrowser env substrate manifest weights values
+        )
+        (WebServer.browserRuntimeExperimentHash request)
+        (WebServer.browserRuntimeInput request)
+    checkpointSha <- liftIO (readIORef checkpointShaRef)
+    pure $
+      case result of
+        Left err -> Left err
+        Right values ->
+          Right
+            WebServer.BrowserRuntimeResult
+              { WebServer.browserRuntimeCheckpointSha =
+                  fromMaybe (WebServer.browserRuntimeExperimentHash request) checkpointSha
+              , WebServer.browserRuntimeOutput = values
+              }
+
+weightedInferenceForBrowser
+  :: Env
+  -> Substrate
+  -> Checkpoint.CheckpointManifest
+  -> [CheckpointStore.LoadedWeightTensor]
+  -> [Double]
+  -> IO (Either Text [Double])
+weightedInferenceForBrowser env substrate manifest weights values =
+  case substrate of
+    LinuxCPU ->
+      runLinuxCpuWeightedCheckpointInference env manifest weights values
+    LinuxCUDA ->
+      runCudaWeightedCheckpointInference env manifest weights values
+    AppleSilicon ->
+      runMetalWeightedCheckpointInference env manifest weights values
 
 runArgs :: [String] -> IO ()
 runArgs args =

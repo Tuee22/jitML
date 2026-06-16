@@ -16,10 +16,9 @@ import Prelude
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
-import Data.String as String
-import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
+import Generated.Contracts as Contracts
 import Halogen as H
 import Halogen.Aff (awaitBody)
 import Halogen.HTML as HH
@@ -35,12 +34,7 @@ type CifarUploadRequest =
   , datasetName :: String
   }
 
-type CifarInferenceResponse =
-  { topK :: Array Int
-  , probabilities :: Array Number
-  , preprocessingMs :: Number
-  , inferenceMs :: Number
-  }
+type CifarInferenceResponse = Contracts.ImageInferenceResult
 
 type State =
   { lastResponse :: Maybe CifarInferenceResponse
@@ -59,6 +53,12 @@ panelName = "cifar-imagenet-upload"
 
 defaultDataset :: String
 defaultDataset = "CIFAR-10"
+
+defaultExperimentHash :: String
+defaultExperimentHash = "cifar-imagenet"
+
+defaultInferenceInput :: Array Number
+defaultInferenceInput = [ 1.0, 2.0 ]
 
 renderUploadRequest :: String -> CifarUploadRequest
 renderUploadRequest imageBase64 =
@@ -85,9 +85,14 @@ component =
   handleAction = case _ of
     UploadImage -> do
       H.modify_ (_ { pendingUpload = true, lastError = Nothing })
-      requestText "POST" "/api/images" "" UploadText UploadFailed
+      requestText
+        "POST"
+        "/api/images"
+        (Contracts.renderBrowserImageRequest panelName defaultDataset defaultExperimentHash "" defaultInferenceInput)
+        UploadText
+        UploadFailed
     UploadText payload ->
-      case parseUploadResponse payload of
+      case Contracts.parseImageInferenceResult payload of
         Just response ->
           handleAction (UploadCompleted response)
         Nothing ->
@@ -131,11 +136,26 @@ component =
     case state.lastResponse of
       Nothing -> HH.div_ []
       Just response ->
-        HH.ol
-          [ HP.id (panelName <> "-topk")
-          , HP.classes [ H.ClassName "jitml-topk" ]
+        HH.div_
+          [ HH.div
+              [ HP.id (panelName <> "-checkpoint") ]
+              [ HH.text ("checkpoint " <> response.checkpointSha) ]
+          , HH.ol
+              [ HP.id (panelName <> "-topk")
+              , HP.classes [ H.ClassName "jitml-topk" ]
+              ]
+              (renderTopK response)
+          , HH.div
+              [ HP.id (panelName <> "-latency") ]
+              [ HH.text
+                  ( "preprocess "
+                      <> show response.preprocessingMs
+                      <> " ms, inference "
+                      <> show response.inferenceMs
+                      <> " ms"
+                  )
+              ]
           ]
-          (renderTopK response)
 
   renderTopK response =
     let
@@ -159,17 +179,6 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("upload error: " <> message) ]
-
-parseUploadResponse :: String -> Maybe CifarInferenceResponse
-parseUploadResponse payload
-  | String.contains (Pattern "image: topK=") payload =
-      Just
-        { topK: [ 0, 1, 2 ]
-        , probabilities: [ 0.3333333333333333, 0.3333333333333333, 0.3333333333333333 ]
-        , preprocessingMs: 0.0
-        , inferenceMs: 0.0
-        }
-  | otherwise = Nothing
 
 mount :: Aff (Aff Unit)
 mount = do

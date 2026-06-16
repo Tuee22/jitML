@@ -21,10 +21,9 @@ import Prelude
 
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
-import Data.String as String
-import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
+import Generated.Contracts as Contracts
 import Halogen as H
 import Halogen.Aff (awaitBody)
 import Halogen.HTML as HH
@@ -40,11 +39,7 @@ type MnistInferenceRequest =
   , modelId :: String
   }
 
-type MnistInferenceResponse =
-  { topClass :: Int
-  , confidence :: Number
-  , latencyMs :: Number
-  }
+type MnistInferenceResponse = Contracts.InferenceResult
 
 type State =
   { lastPrediction :: Maybe MnistInferenceResponse
@@ -63,6 +58,12 @@ panelName = "mnist-live-inference"
 
 defaultModelId :: String
 defaultModelId = "mnist-deep-mlp"
+
+defaultExperimentHash :: String
+defaultExperimentHash = defaultModelId
+
+defaultInferenceInput :: Array Number
+defaultInferenceInput = [ 1.0, 2.0 ]
 
 emptyCanvas :: Array Int
 emptyCanvas = []
@@ -92,9 +93,14 @@ component =
   handleAction = case _ of
     Predict -> do
       H.modify_ (_ { pendingInference = true, lastError = Nothing })
-      requestText "POST" "/api/inference" "" PredictionText PredictionFailed
+      requestText
+        "POST"
+        "/api/inference"
+        (Contracts.renderBrowserInferenceRequest panelName defaultModelId defaultExperimentHash defaultInferenceInput)
+        PredictionText
+        PredictionFailed
     PredictionText payload ->
-      case parseInferenceResponse payload of
+      case Contracts.parseInferenceResult payload of
         Just response ->
           handleAction (PredictionReceived response)
         Nothing ->
@@ -143,16 +149,41 @@ component =
           [ HP.id (panelName <> "-prediction")
           , HP.classes [ H.ClassName "jitml-prediction" ]
           ]
-          [ HH.text
-              ( "predicted "
-                  <> show prediction.topClass
-                  <> " (confidence "
-                  <> show prediction.confidence
-                  <> ", "
-                  <> show prediction.latencyMs
-                  <> " ms)"
-              )
+          [ HH.div_
+              [ HH.text
+                  ( "predicted "
+                      <> show prediction.topClass
+                      <> " from "
+                      <> prediction.modelId
+                      <> " (confidence "
+                      <> show prediction.confidence
+                      <> ", "
+                      <> show prediction.latencyMs
+                      <> " ms)"
+                  )
+              ]
+          , HH.div
+              [ HP.id (panelName <> "-checkpoint") ]
+              [ HH.text ("checkpoint " <> prediction.checkpointSha) ]
+          , HH.ol
+              [ HP.id (panelName <> "-distribution")
+              , HP.classes [ H.ClassName "jitml-distribution" ]
+              ]
+              (map renderProbabilityBar prediction.probabilities)
           ]
+
+  renderProbabilityBar probability =
+    HH.li_
+      [ HH.div
+          [ HP.classes [ H.ClassName "jitml-bar" ] ]
+          [ HH.div
+              [ HP.classes [ H.ClassName "jitml-bar-fill" ]
+              , HP.style ("width: " <> show (probability * 100.0) <> "%")
+              ]
+              []
+          , HH.span_ [ HH.text (show probability) ]
+          ]
+      ]
 
   renderError state =
     case state.lastError of
@@ -163,16 +194,6 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("inference error: " <> message) ]
-
-parseInferenceResponse :: String -> Maybe MnistInferenceResponse
-parseInferenceResponse payload
-  | String.contains (Pattern "prediction:") payload =
-      Just
-        { topClass: 0
-        , confidence: 1.0
-        , latencyMs: 0.0
-        }
-  | otherwise = Nothing
 
 -- | Top-level mount used by `web/src/Main.purs` to attach the component
 -- | to the demo page's `<main id="app">` element. The Halogen driver

@@ -2,6 +2,7 @@
 
 module JitML.Service.Http
   ( HttpRoute (..)
+  , HttpRequest (..)
   , WebSocketRoute (..)
   , serveHttpRoutes
   , serveHttpRoutesOnce
@@ -18,9 +19,12 @@ import Control.Exception qualified
 import Control.Monad (forever, void)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Char8 qualified as Char8
+import Data.Char qualified as Char
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
+import Data.Text.Encoding.Error qualified as TextErr
 import Network.Socket
   ( AddrInfo (..)
   , AddrInfoFlag (AI_PASSIVE)
@@ -59,7 +63,13 @@ data HttpRoute = HttpRoute
   { httpRouteMethod :: Text
   , httpRoutePath :: Text
   , httpRouteContentType :: Text
-  , httpRouteResponse :: EndpointResponse
+  , httpRouteHandler :: HttpRequest -> IO EndpointResponse
+  }
+
+data HttpRequest = HttpRequest
+  { httpRequestMethod :: Text
+  , httpRequestPath :: Text
+  , httpRequestBody :: Text
   }
   deriving stock (Eq, Show)
 
@@ -176,20 +186,20 @@ serveAcceptedConnectionForked listenerSocket routes wsRoutes = do
 
 serveConnection :: Socket -> [HttpRoute] -> [WebSocketRoute] -> IO ()
 serveConnection connection routes wsRoutes = do
-  request <- recv connection 4096
+  request <- recvHttpRequest connection
   case wsRouteFor request wsRoutes of
     Just (route, acceptKey) -> do
       sendAll connection (renderUpgradeAccept acceptKey)
       runWebSocketHandler connection route
     Nothing ->
-      sendAll connection (responseFor routes request)
+      responseFor routes request >>= sendAll connection
 
 wsRouteFor
   :: ByteString.ByteString -> [WebSocketRoute] -> Maybe (WebSocketRoute, ByteString.ByteString)
 wsRouteFor request wsRoutes =
   case parseRequest request of
-    Just ("GET", path) ->
-      case [route | route <- wsRoutes, webSocketRoutePath route == path] of
+    Just parsedRequest | httpRequestMethod parsedRequest == "GET" ->
+      case [route | route <- wsRoutes, webSocketRoutePath route == httpRequestPath parsedRequest] of
         route : _ ->
           case detectWebSocketUpgrade request of
             UpgradeAccepted acceptKey -> Just (route, acceptKey)
@@ -219,15 +229,17 @@ sendAllSafe connection bytes =
     (sendAll connection bytes >> pure True)
     (\(_ :: Control.Exception.IOException) -> pure False)
 
-responseFor :: [HttpRoute] -> ByteString.ByteString -> ByteString.ByteString
+responseFor :: [HttpRoute] -> ByteString.ByteString -> IO ByteString.ByteString
 responseFor routes request =
   case parseRequest request of
-    Just (method, path) ->
-      case findRoute method path routes of
-        Just route -> renderResponse (httpRouteContentType route) (httpRouteResponse route)
-        Nothing -> renderResponse "text/plain; charset=utf-8" (EndpointResponse 404 "not found\n")
+    Just parsedRequest ->
+      case findRoute (httpRequestMethod parsedRequest) (httpRequestPath parsedRequest) routes of
+        Just route -> do
+          response <- httpRouteHandler route parsedRequest
+          pure (renderResponse (httpRouteContentType route) response)
+        Nothing -> pure (renderResponse "text/plain; charset=utf-8" (EndpointResponse 404 "not found\n"))
     Nothing ->
-      renderResponse "text/plain; charset=utf-8" (EndpointResponse 400 "bad request\n")
+      pure (renderResponse "text/plain; charset=utf-8" (EndpointResponse 400 "bad request\n"))
 
 findRoute :: Text -> Text -> [HttpRoute] -> Maybe HttpRoute
 findRoute method path =
@@ -235,23 +247,92 @@ findRoute method path =
  where
   firstMatch [] = Nothing
   firstMatch (route : rest)
-    | httpRouteMethod route == method && httpRoutePath route == path = Just route
+    | httpRouteMethod route == method && routePathMatches (httpRoutePath route) path = Just route
     | otherwise = firstMatch rest
 
-parseRequest :: ByteString.ByteString -> Maybe (Text, Text)
+routePathMatches :: Text -> Text -> Bool
+routePathMatches template path
+  | template == path = True
+  | template == "/api/runs/{runId}/command" =
+      "/api/runs/" `Text.isPrefixOf` path
+        && "/command" `Text.isSuffixOf` path
+        && Text.length path > Text.length "/api/runs//command"
+  | otherwise = False
+
+recvHttpRequest :: Socket -> IO ByteString.ByteString
+recvHttpRequest connection =
+  readMore ByteString.empty
+ where
+  maxRequestBytes = 65536
+
+  readMore acc = do
+    chunk <- recv connection 4096
+    let next = acc <> chunk
+    case completeRequestLength next of
+      Just expected
+        | ByteString.length next >= expected -> pure next
+      _ | ByteString.null chunk -> pure next
+      _ | ByteString.length next >= maxRequestBytes -> pure next
+      _ -> readMore next
+
+completeRequestLength :: ByteString.ByteString -> Maybe Int
+completeRequestLength bytes =
+  case ByteString.breakSubstring "\r\n\r\n" bytes of
+    (_headers, rest)
+      | ByteString.null rest -> Nothing
+    (headers, _rest) ->
+      Just (ByteString.length headers + 4 + contentLength headers)
+
+contentLength :: ByteString.ByteString -> Int
+contentLength headers =
+  fromMaybe 0 $
+    listToMaybe
+      [ lengthValue
+      | line <- Char8.lines headers
+      , let (name, valueWithColon) = Char8.break (== ':') line
+      , lowercaseAscii name == "content-length"
+      , Just lengthValue <-
+          [readMaybeInt (Char8.unpack (Char8.dropWhile isHeaderSpace (Char8.drop 1 valueWithColon)))]
+      ]
+
+lowercaseAscii :: ByteString.ByteString -> ByteString.ByteString
+lowercaseAscii =
+  Char8.map Char.toLower
+
+isHeaderSpace :: Char -> Bool
+isHeaderSpace char =
+  char == ' ' || char == '\t' || char == '\r'
+
+readMaybeInt :: String -> Maybe Int
+readMaybeInt text =
+  case reads text of
+    [(value, rest)] | all isHeaderSpace rest -> Just value
+    _ -> Nothing
+
+parseRequest :: ByteString.ByteString -> Maybe HttpRequest
 parseRequest request =
   case Char8.words <$> firstLine request of
     Just (method : rawPath : _) ->
       Just
-        ( Text.Encoding.decodeUtf8 method
-        , stripQuery (Text.Encoding.decodeUtf8 rawPath)
-        )
+        HttpRequest
+          { httpRequestMethod = Text.Encoding.decodeUtf8 method
+          , httpRequestPath = stripQuery (Text.Encoding.decodeUtf8 rawPath)
+          , httpRequestBody = requestBodyText request
+          }
     _ -> Nothing
  where
   firstLine bytes =
     case Char8.lines bytes of
       line : _ -> Just line
       [] -> Nothing
+
+requestBodyText :: ByteString.ByteString -> Text
+requestBodyText request =
+  case ByteString.breakSubstring "\r\n\r\n" request of
+    (_headers, rest)
+      | ByteString.null rest -> ""
+      | otherwise ->
+          Text.Encoding.decodeUtf8With TextErr.lenientDecode (ByteString.drop 4 rest)
 
 stripQuery :: Text -> Text
 stripQuery =

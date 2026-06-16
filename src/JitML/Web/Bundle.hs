@@ -45,6 +45,8 @@ bundleAssets =
 panelSurfaces :: [PanelSurface]
 panelSurfaces =
   [ PanelSurface "mnist-live-inference" "/api/inference" "MNIST inference"
+  , PanelSurface "generic-inference-lab" "/api/inference/generic" "Generic tensor inference"
+  , PanelSurface "checkpoint-compare-lab" "/api/checkpoints/compare" "Checkpoint comparison"
   , PanelSurface "cifar-imagenet-upload" "/api/images" "CIFAR/ImageNet upload"
   , PanelSurface "connect4-human-vs-alphazero" "/api/connect4/move" "Connect 4 moves"
   , PanelSurface "rl-trajectory" "/api/ws/rl" "RL trajectory stream"
@@ -60,8 +62,11 @@ demoRoutes :: [DemoRoute]
 demoRoutes =
   [ DemoRoute "/" "static-shell" "web/src/Main.purs"
   , DemoRoute "/api" "contract-index" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/runs/{runId}/command" "workflow-command-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/inference" "inference-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/inference/generic" "generic-inference-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/images" "image-upload-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/checkpoints/compare" "checkpoint-compare-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/connect4/move" "connect4-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/ws" "metrics-stream-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/ws/training" "training-stream-contract" "src/JitML/Web/Contracts.hs"

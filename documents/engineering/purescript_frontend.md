@@ -27,8 +27,8 @@
 | Portals home panel | Two-column directory composing `PanelRegistry.panels` with `Generated.AdminPortals.adminPortals`; default empty-hash landing | `web/src/Panels/Portals.purs` |
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
-| Panel payload modules | Six Halogen panels with REST or live WebSocket actions; Sprint `11.9` replaces text-marker/default-value parsers with generated typed payloads for controls, metrics, animation, inference, and replay | `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Current live-only spec covers portals/header/admin links, six panels, and selected REST response/rendered-value updates; Sprint `12.13` / Phase `17` expands this to a no-caveat product matrix that starts workflows, validates training/checkpoint/inference, observes RL animations, drives adversarial games, replays transcripts, and exercises tuning controls | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Panel payload modules | Eight Halogen panels with REST or live WebSocket actions; Sprint `11.9` consumes generated typed payloads for current controls, metrics, animation, inference, checkpoint comparison, and replay instead of text-marker/default-value parsers | `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4,Rl,Training,Tune}.purs` |
+| Playwright | Current live-only spec covers portals/header/admin links, eight panel hashes, and selected typed REST response/rendered-value updates; Sprint `12.13` / Phase `17` expands this to a no-caveat product matrix that starts workflows, validates training/checkpoint/inference, observes RL animations, drives adversarial games, replays transcripts, and exercises tuning controls | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Demo executable | Status line plus HTTP/WebSocket server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -59,8 +59,10 @@ web/
 │   ├── Panels/
 │   │   ├── Api.js
 │   │   ├── Api.purs
+│   │   ├── CheckpointCompare.purs
 │   │   ├── Cifar.purs
 │   │   ├── Connect4.purs
+│   │   ├── GenericInference.purs
 │   │   ├── Mnist.purs
 │   │   ├── Portals.purs
 │   │   ├── Rl.purs
@@ -85,13 +87,15 @@ the browser-loadable `web/dist/Main/bundle.js` served by `jitml-demo`.
 ## Current Local Surface
 
 The current worktree contains `web/src/Main.purs`, generated
-`web/src/Generated/Contracts.purs`, six Halogen panel modules under
+`web/src/Generated/Contracts.purs`, eight Halogen panel modules under
 `web/src/Panels/`, `web/test/Main.purs`, `src/JitML/Web/Contracts.hs`, and
 `src/JitML/Web/Bundle.hs`. `Web.Bundle` records the bundle output paths, the
-six canonical panel surfaces, the `demoStatusLine`, and the demo route
-manifest for `/`, `/api`, `/api/inference`, `/api/images`,
-`/api/connect4/move`, `/api/ws`, `/api/ws/training`, `/api/ws/rl`, and
-`/api/ws/tune`. `web/src/Main.purs` dispatches through the SPA
+current panel surfaces, the `demoStatusLine`, and the demo route
+manifest for `/`, `/api`, `/api/inference`, `/api/inference/generic`,
+`/api/images`, `/api/checkpoints/compare`, `/api/connect4/move`,
+`/api/runs/{runId}/command`, `/api/ws`, `/api/ws/training`, `/api/ws/rl`,
+and `/api/ws/tune`. `web/src/Main.purs`
+dispatches through the SPA
 `PanelRegistry`, stores the active Halogen disposer, and runs it before
 mounting the next hash-selected panel so navigation does not leave
 duplicate roots attached. `src/JitML/Web/Server.hs` serves the same HTTP surface,
@@ -109,11 +113,13 @@ and interactive replay; and expose tuning sweep controls/frontiers tied to real
 trial state. Playwright must prove those behaviors through the explicit live
 `jitml-e2e` orchestration path before final handoff.
 
-Current route reachability, panel mounting, and selected REST updates are
-historical evidence, not final product closure. Temporary marker parsers,
-inline demo responses, placeholder canvases, and text-only replay displays are
-tracked for deletion in
-[../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+Current route reachability, panel mounting, generated current-panel decoders,
+and selected REST updates are historical evidence, not final product closure.
+Sprint `11.9` removed the current marker/default parser compatibility path;
+the remaining browser Pending Removal rows cover incomplete product
+visualization/replay surfaces and broader product-contract expansion. Inline
+demo responses have already been removed, and checkpoint-backed browser
+interactions remain primary Phase `11` / Phase `17` work.
 
 ## Browser-Contract ADTs
 
@@ -127,68 +133,125 @@ The current endpoint metadata covers:
 
 - `RunCommand` at `POST /api/runs/{runId}/command`
 - `InferenceRun` at `POST /api/inference`
+- `GenericInference` at `POST /api/inference/generic`
 - `UploadImage` at `POST /api/images`
+- `CheckpointCompare` at `POST /api/checkpoints/compare`
 - `Connect4Move` at `POST /api/connect4/move`
 - `MetricsStream` at `GET /api/ws`
 - `TrainingStream` at `GET /api/ws/training`
 - `RlStream` at `GET /api/ws/rl`
 - `TuneStream` at `GET /api/ws/tune`
 
-Sprint `11.9` expands this endpoint list into the full generated payload
-surface: training commands/events/checkpoint markers, RL frame/replay events,
-AlphaZero game state/MCTS/value/policy/replay records, inference/image request
-and result bodies, tuning trial/frontier/control events, and run-control
-acknowledgements. Panel-side string marker parsing is not part of the final
-contract. Phase `8` Sprint `8.12` now generates the RL animation/replay payload
-records (`RlAnimationFrame`, `RlReplayFrame`) from
-`src/JitML/Web/Contracts.hs`; the RL panel consumes `RlAnimationFrame`,
-preserves unsigned hash/cursor/timestamp fields as exact strings, and rejects
-the former catch-all `data:` placeholder.
+Sprint `11.9` expands this endpoint list into generated payload records for
+the current panel surface:
+
+- `BrowserInferenceRequest`
+- `BrowserGenericInferenceRequest`
+- `BrowserImageRequest`
+- `BrowserCheckpointCompareRequest`
+- `BrowserAdversarialMoveRequest`
+- `InferenceResult`
+- `GenericInferenceResult`
+- `ImageInferenceResult`
+- `CheckpointCompareResult`
+- `AdversarialMoveResult`
+- `TrainingEventFrame`
+- `RlAnimationFrame`
+- `RlReplayFrame`
+- `TuneTrialFrame`
+- `TuneSweepDoneFrame`
+- `WorkflowCommandAck`
+- `WorkflowStatus`
+
+The generated module also includes parser helpers, per-payload parsers,
+daemon-compatible command-envelope renderers for the current
+training/RL/tune start-stop protocols, browser REST request renderers,
+an `RlReplayFrame` parser, a `WorkflowCommandAck` parser, and `WorkflowStatus`
+render/parse helpers. MNIST, generic
+tensor inference, CIFAR/ImageNet, checkpoint comparison, Connect 4, RL,
+training, and tuning panels consume those generated parsers/renderers and
+reject the former `prediction:`, `image:`, `move:`, and catch-all `data:`
+marker payloads in the PureScript smoke suite.
+Panel-side string marker parsing is not part of the final contract. The
+remaining no-caveat product contract expansion is checkpoint browse,
+live-backed workflow-state reconciliation, pause/resume/promote lifecycle
+commands, and adversarial multi-game replay payloads.
 
 ## Panels
 
 Every panel renders inside `Chrome.Header.render` (the slim shared header — `jitML` wordmark plus `[home]` link to `#portals`), so the directory is one click away from any panel view. `Main.purs`'s empty-hash fallback routes to the portals home; the named hashes below continue to address each panel directly. Panel mounts return their Halogen disposer to the hash dispatcher, which runs the previous disposer before mounting a new route. The portals home is itself a `Panels.Portals` Halogen component composing `PanelRegistry.panels` (left column) with `Generated.AdminPortals.adminPortals` (right column), the latter generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` so the registry remains the single source of truth.
 
 `Panels.Api.requestText` is the dependency-free text request bridge used by the
-REST panels. MNIST, CIFAR/ImageNet, and Connect 4 issue real `POST` calls to the
-generated endpoint paths and convert text replies into the panel-specific typed
-response records before updating Halogen state. Sprint `10.6` removes the
-server-side inline demo networks; until Phase `17` wires checkpoint-backed
-browser requests, those three REST routes fail closed with
-`503 checkpoint-required`. `Panels.Stream` opens the
-live WebSocket route, reports connection failures through typed actions, and the
-RL/training/tune panels convert incoming frame text into typed stream records
-instead of storing raw frame strings. `Panels.Rl.parseRlFrame` now accepts only
-the generated `RlAnimationFrame` envelope. The remaining training/tune/browser
-text bridges are compatibility surfaces: final browser closure consumes
-generated payload codecs and removes the catch-all/default parsers that can
-synthesize values from incomplete frames.
+REST panels. MNIST, generic tensor inference, CIFAR/ImageNet, checkpoint
+comparison, and Connect 4 issue real `POST` calls to the generated endpoint
+paths and convert text replies into the panel-specific typed response records
+before updating Halogen state. Sprint `10.6` removes the server-side inline demo
+networks; Sprint `11.9` replaces the route-level `503 checkpoint-required`
+result with an injected checkpoint runtime handler when `jitml-demo` has a live
+publication. That handler loads the latest checkpoint with
+`loadInferenceCheckpointWithWeights`, dispatches to the publication substrate's
+weighted runner, and renders typed MNIST, generic tensor, CIFAR/ImageNet,
+checkpoint comparison, and Connect 4 responses. Without the injected handler
+those routes still fail closed with `503 checkpoint-required`. The Connect 4 panel
+now acts as the adversarial-games panel: it selects Connect 4, Othello, Hex,
+or Gomoku, renders the corresponding board dimensions from the move
+transcript, displays the typed MCTS/value response, renders per-game rule
+summaries and legal-action counts, and exposes prev/next scrub controls over
+the local move transcript.
+The training, RL, and tuning panels post generated
+workflow command envelopes to `/api/runs/<run-id>/command`, parse
+`WorkflowCommandAck`, and render generated `WorkflowStatus` records for
+queued/running/failed/done browser state. The server route fails with `503`
+when no live publication exists; with a publication it resolves the browser
+`substrate: live` token to the publication substrate and publishes valid
+start/stop envelopes to the matching daemon command topic. Live-backed
+cross-session status reconciliation remains Phase `17` work. The training
+panel renders the latest throughput/device/checkpoint and
+TensorBoard fields from `TrainingEventFrame`; the RL panel parses both
+animation and replay frames and exposes prev/next replay scrub controls over
+the received `RlReplayFrame` list. `Panels.Stream` opens the live
+WebSocket route, reports connection failures through typed actions, and the
+RL/training/tune panels convert incoming frame text through generated stream
+parsers instead of storing raw frame strings.
 
 | Panel | URL hash | REST handler | WebSocket subscription |
 |-------|----------|--------------|------------------------|
 | Portals home (default) | `#portals` (empty hash) | — | — |
 | MNIST | `#mnist-live-inference` | `POST /api/inference` | — |
+| Generic inference | `#generic-inference-lab` | `POST /api/inference/generic` | — |
 | CIFAR / ImageNet | `#cifar-imagenet-upload` | `POST /api/images` | — |
-| Connect 4 | `#connect4-human-vs-alphazero` | `POST /api/connect4/move` | — |
-| RL trajectory | `#rl-trajectory` | — | `/api/ws/rl` (proxies `rl.event.<mode>`) |
-| Training | `#training-progress` | — | `/api/ws/training` (proxies `training.event.<mode>`) |
-| Tune | `#hyperparameter-sweep` | — | `/api/ws/tune` (proxies `tune.event.<mode>`) |
+| Checkpoint compare | `#checkpoint-compare-lab` | `POST /api/checkpoints/compare` | — |
+| Adversarial games | `#connect4-human-vs-alphazero` | `POST /api/connect4/move` | — |
+| RL trajectory | `#rl-trajectory` | `POST /api/runs/rl-demo/command` | `/api/ws/rl` (proxies `rl.event.<mode>`) |
+| Training | `#training-progress` | `POST /api/runs/training-demo/command` | `/api/ws/training` (proxies `training.event.<mode>`) |
+| Tune | `#hyperparameter-sweep` | `POST /api/runs/tune-demo/command` | `/api/ws/tune` (proxies `tune.event.<mode>`) |
 
 ## REST and WebSocket Surface
 
 The HTTP handlers live in `src/JitML/Web/Server.hs`; they provide responses for
 the API index, compiled bundle serving, and live stream routes. The inference,
-image, and Connect 4 REST routes are present in the contract but fail closed
-with `503 checkpoint-required` until checkpoint-backed browser requests land. A
-stream route requested as plain HTTP returns
+generic tensor, image, checkpoint-compare, and Connect 4 REST routes accept
+generated browser request envelopes and call an injected
+`BrowserRuntimeHandler` when `jitml-demo` has a live publication; the handler
+uses the same weighted checkpoint read path as `jitml inference run`. Without
+that handler the routes fail closed with `503 checkpoint-required`. A workflow
+command route accepts
+`/api/runs/<run-id>/command`, reads the POST body, resolves live-substrate
+command envelopes, publishes protocol-supported training/RL/tune commands
+when a live publication is supplied, and returns a typed acknowledgement.
+Without a publication it fails closed with `503`; persisted cross-session
+status tracking remains open. A stream route requested as plain HTTP returns
 `503 live stream requires WebSocket upgrade`; upgraded clients are bridged to
 Pulsar event topics by `liveDemoWebSocketRoutes`.
 
 | Surface | Method | Path | Payload type |
 |---------|--------|------|--------------|
 | Inference | POST | `/api/inference` | `InferenceRun` |
+| Generic inference | POST | `/api/inference/generic` | `GenericInference` |
 | Image upload | POST | `/api/images` | `UploadImage` |
+| Checkpoint compare | POST | `/api/checkpoints/compare` | `CheckpointCompare` |
 | Connect 4 move | POST | `/api/connect4/move` | `Connect4Move` |
+| Workflow command | POST | `/api/runs/<run-id>/command` | `WorkflowCommandAck` |
 | Live event WS | GET | `/api/ws`, `/api/ws/training`, `/api/ws/rl`, `/api/ws/tune` | typed event envelopes |
 | Checkpoint browse | GET | `/api/checkpoints/<experiment-hash>` | manifest list (cross-link to TB sidecars) |
 
@@ -217,7 +280,7 @@ default `jitml-e2e` Cabal body validates that typed Playwright command shape
 without starting the live stack. The checked-in spec is live-only: it reads
 `.build/runtime/cluster-publication.json`, navigates to the published edge
 route, and fails fast when no live publication exists. The historical matrix
-covers the smoke shell plus the six canonical panels:
+covers the smoke shell plus the eight current panel hashes:
 
 - Portals home: load the empty-hash root and assert both the panels
   column (`#jitml-portals-panels`) and the admin-portals column
@@ -225,9 +288,10 @@ covers the smoke shell plus the six canonical panels:
   the expected root-relative `href` matching the route registry.
 - Shared header: for each named panel hash, assert `#jitml-chrome`
   mounts and the `#jitml-chrome-home` anchor links to `#portals`.
-- MNIST/CIFAR/Connect 4: current panel reachability can issue the REST calls,
-  but Phase `17` replaces the former inline-demo response assertions with
-  checkpoint-backed request/response assertions and rendered product state.
+- MNIST/generic/CIFAR/checkpoint compare/Connect 4: current panel reachability
+  can issue the REST calls and assert typed response envelopes; Phase `17`
+  expands that into no-caveat model artifact selection and rendered product
+  state.
 - RL trajectory: load the trajectory panel through the live edge route.
 - Training / Tune: load the streaming metric panels through the live edge
   route.

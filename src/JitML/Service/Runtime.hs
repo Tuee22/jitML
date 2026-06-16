@@ -388,7 +388,7 @@ textRoute method path response =
     { httpRouteMethod = method
     , httpRoutePath = path
     , httpRouteContentType = "text/plain; charset=utf-8"
-    , httpRouteResponse = response
+    , httpRouteHandler = \_request -> pure response
     }
 
 renderMaybeListener :: Maybe HttpListener -> Text

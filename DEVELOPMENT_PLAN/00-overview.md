@@ -140,13 +140,17 @@ smoke path, and deterministic inference from the latest checkpoint. The live HTT
 MinIO capability path is implemented by `JitML.Service.MinIOSubprocess` and
 validated against the routed `/minio/s3` edge for write-once conflicts, pointer
 CAS conflicts, read, list, and delete. The frontend surface provides a
-minimal PureScript entrypoint, generated contract file from
-`src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route metadata from
-`src/JitML/Web/Bundle.hs`, and the `jitml-demo` HTTP server in
+minimal PureScript entrypoint, generated endpoint and current-panel payload
+contracts from `src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route
+metadata from `src/JitML/Web/Bundle.hs`, and the `jitml-demo` HTTP server in
 `src/JitML/Web/Server.hs`; the typed demo route manifest covers the full
-current local API route family. The live frontend handoff now requires the
-compiled browser bundle and live WebSocket routes; Phase `15` retired the demo
-placeholder and local stream fallbacks on 2026-06-04.
+current local API route family including `/api/runs/{runId}/command`. Sprint
+`11.9` removes current marker/default parser residue from the panels and adds
+typed controls/charts for the existing browser workflows plus generated REST
+request envelopes, checkpoint-backed MNIST/CIFAR/Connect 4 route injection,
+generic tensor inference, and checkpoint comparison; live all-substrate REST
+proof, live command-state reconciliation, expanded replay/game surfaces, and
+the live no-caveat Playwright product matrix remain open.
 
 `jitml test all --dry-run` renders the aggregate test plan and non-dry-run
 `jitml test all` invokes every test-only Cabal test-suite stanza (`jitml-unit`,
@@ -473,18 +477,20 @@ and the deletion ledger has no pending rows.
   `gcNoOp` second-invocation detector). The inference request/result schema
   and local byte codecs live in `proto/jitml/inference.proto` and
   `JitML.Proto.Inference`. `src/JitML/Web/Server.hs` no longer serves inline
-  demo policy/value networks on the inference/image/Connect 4 routes; those
-  routes fail closed with `503 checkpoint-required` until Phase `17` supplies
-  checkpoint-backed browser requests. Sprint `10.6` is blocked on Apple
-  Silicon integration validation. Phase:
+  demo policy/value networks on the inference/image/Connect 4 routes; Sprint
+  `11.9` restores those routes through an injected checkpoint runtime handler
+  that calls `loadInferenceCheckpointWithWeights` when `jitml-demo` has a live
+  publication and fails closed with `503 checkpoint-required` otherwise.
+  Sprint `10.6` re-closed after the live
+  linux-cpu, linux-cuda, and apple-silicon integration lanes passed. Phase:
   [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md).
 - **PureScript frontend and demo.** Minimal PureScript entrypoint,
   generated contract file from `src/JitML/Web/Contracts.hs`, typed
-  bundle/panel/demo-route metadata from `src/JitML/Web/Bundle.hs` (six
-  canonical panel surfaces plus the full local API route family), the six panel modules under
-  `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs` with
+  bundle/panel/demo-route metadata from `src/JitML/Web/Bundle.hs` (the current
+  panel surfaces plus the full local API route family), the panel modules under
+  `web/src/Panels/` with
   typed request/response payload shapes plus the shared API/WebSocket bridge
-  modules, `web/test/Main.purs` smoke suite, the current nine-test Playwright
+  modules, `web/test/Main.purs` smoke suite, the current eleven-test Playwright
   matrix at `playwright/jitml-demo.spec.ts`, `jitml-demo` executable shim,
   `src/JitML/Web/Server.hs` HTTP serving, and demo deployment template.
   The Halogen mount machinery, compiled bundle output, and
@@ -493,6 +499,17 @@ and the deletion ledger has no pending rows.
   `11.5`; the live REST/WS proxy, live-edge Playwright surfaces, and
   value assertions for MNIST / CIFAR / Connect 4 later closed in Phases
   `11` / `13`, and Phase `15` removed the offline fallback paths.
+  Sprint `11.9` extends the generated PureScript contract with typed
+  inference/generic/image/checkpoint-compare/adversarial/training/RL/tune/control
+  payload decoders, browser REST request envelopes, request-aware command
+  publication, and an injected checkpoint runtime handler for
+  MNIST/generic/CIFAR/checkpoint-compare/Connect 4; it rewires
+  the current panels away from marker/default parsers, adds training/RL/tune
+  command-envelope controls, training metadata, RL replay scrub summaries, and
+  multi-game adversarial boards, and renders non-placeholder loss/policy/MCTS/tuning
+  summaries. The no-caveat product target remains open for live all-substrate
+  REST proof, live command-state reconciliation, expanded replay/adversarial
+  surfaces, and live Playwright proof.
   The default `purs-tidy check 'src/**/*.purs'` invocation in `web/` lands
   through `jitml lint purescript` (Sprint `11.3`). Phase:
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
@@ -791,8 +808,11 @@ each constraint.
 31. The PureScript browser-contract ADTs live in `src/JitML/Web/Contracts.hs`.
     The current worktree uses a local bridge-compatible renderer for
     `web/src/Generated/Contracts.purs` and `src/JitML/Web/Bundle.hs` records
-    the bundle/panel/demo-route metadata. The generated contract file is
-    protected by the active `trackingGeneratedPaths` registry.
+    the bundle/panel/demo-route metadata. Sprint `11.9` extends the generated
+    file with current-panel inference/generic/image/checkpoint-compare/
+    adversarial/training/RL/tune/control
+    request/render/parser surfaces. The generated contract file is protected by the active
+    `trackingGeneratedPaths` registry.
 32. `fourmolu.yaml` at repo root pins the thirteen doctrine-mandated settings.
     `docker/Dockerfile` installs the same pinned GHC `9.12.4` and pinned
     `fourmolu` / `hlint` binaries for `jitml:local`; the image build runs the
@@ -865,20 +885,20 @@ typed RL event payloads, but the intended product is stricter: every RL
 algorithm, every AlphaZero game, every tuning workflow, every model-family
 checkpoint/reload/inference path, and every browser interaction must run
 end-to-end with no synthetic, placeholder, demo-only, or parser-default
-stand-ins. Phase `9` has its Sprint `9.12` code surface in place and has passed
+stand-ins. Sprint `11.9` removes the current browser parser-default residue and
+adds generic/checkpoint-comparison route surfaces, but live checkpoint-backed
+interactions, live command-state reconciliation, product visualization, and Playwright proof remain
+open. Phase `9` has its Sprint `9.12` code surface in place and has passed
 linux-cpu, apple-silicon, and linux-cuda validation, so it is `✅ Done`.
-Phase `10` has its Sprint `10.6` code surface in place but is `⏸️ Blocked` on
-Apple Silicon integration validation; the 2026-06-15 bootstrap image-rebuild
-blocker has a validated Dockerfile fix on the exact bootstrap-owned
-legacy-builder command, and live Linux CPU plus Linux CUDA publication now
-exist with all seven components ready; the canonical Linux CPU and Linux CUDA
-integration lanes passed 71 / 71, leaving Apple Silicon validation
-outstanding. Phases
-`11`–`12` are `🔄 Active`; Phases `13`–`15` are `⏸️ Blocked` behind those
-remaining local/runtime/browser surfaces; and Phases `16`–`18` own no-caveat
-model runtime
-closure, interactive demo/Playwright closure, and final no-caveat product
-handoff. Phases `0`–`9` are `✅ Done` on their owned foundational/framework
+Phase `10` has its Sprint `10.6` code surface in place and has passed
+linux-cpu, linux-cuda, and apple-silicon validation, so it is `✅ Done`.
+The 2026-06-15 bootstrap image-rebuild blocker has a validated Dockerfile fix
+on the exact bootstrap-owned legacy-builder command, and all three live
+integration lanes passed 71 / 71. Phases `11`–`12` and `16` are `🔄 Active`;
+Phases `13`–`15` are `⏸️ Blocked` behind those remaining runtime/browser
+surfaces; and Phases `17`–`18` own interactive demo/Playwright closure and
+final no-caveat product
+handoff. Phases `0`–`10` are `✅ Done` on their owned foundational/framework
 surfaces.
 
 **Reopened 2026-06-13 (Apple Silicon host-resident workload placement).** Phase
@@ -1065,7 +1085,7 @@ sequence lives in
 | Test stanzas | Eight Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, linkable oneDNN probing, local checkpoint inference through a Linux CPU generated oneDNN kernel, and live daemon/event dispatch cases, `jitml-cross-backend` includes generated Linux CPU oneDNN primitive compile/load/run, family/output-count symbol checks, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement, and per-substrate run-to-run bit-identity (within-substrate reproducibility); `jitml-daemon-lifecycle` covers injected engine-backed daemon inference dispatch, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. Sprint `12.12` adds failed Kubernetes Job fail-fast diagnostics, bounded host-command polling, and Apple host-resident placement assertions while preserving Linux Job assertions. | Eight Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e` |
 | Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, no `source-repository-package` pins, and no local dependency packages, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Plain Hackage solves under the GHC `9.12.4` / `base-4.21` baseline. Phase `8` Sprint `8.8` leaves only pinned ALE library/runtime prerequisites for optional external/generated `atari-subset` adapter experiments, while Sprint `8.9` moved default demos to `KeyDoorGrid-v0`. | GHC `9.12.4`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, optional ALE library/runtime pinned in `docker/Dockerfile`, host OS Metal runtime + fixed bridge for core Apple execution, optional `swiftc`/macOS SDK only for non-core Swift JIT modules, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
 | Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU oneDNN primitive execution, local Linux CPU `HasEngine` dispatch, CUDA host-wrapper source ABI, and per-substrate run-to-run bit-identity (within-substrate reproducibility) are covered by dedicated Cabal stanzas. Cross-substrate equivalence is out of contract and not asserted | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
-| Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, six Halogen panel modules under `web/src/Panels/`, and a `spec-node` `purescript-spec` smoke suite under `web/test/`; `src/JitML/Web/Server.hs` serves the demo/API/WebSocket surface; the live-only Playwright scaffold drives the published edge route | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
+| Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, Halogen panel modules under `web/src/Panels/`, and a `spec-node` `purescript-spec` smoke suite under `web/test/`; Sprint `11.9` adds current-panel generated payload parsers and request renderers, generated training/RL/tune command-envelope controls, request-aware command publication when a live cluster publication is present, checkpoint-runtime-backed MNIST/generic/CIFAR/checkpoint-compare/Connect 4 REST route injection, training metadata, RL replay scrub summaries, multi-game adversarial boards, and non-placeholder summary charts; `src/JitML/Web/Server.hs` serves the demo/API/WebSocket surface; the live-only Playwright scaffold drives the published edge route | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
 
 ## Related Documents
 

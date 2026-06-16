@@ -22,13 +22,13 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (opened 2026-06-14). The no-caveat product target expands the
+🔄 **Active** (opened 2026-06-14; unblocked 2026-06-15). The no-caveat product target expands the
 original Dense-MLP / current-RL closure into the full advertised model matrix.
 Phase `8` Sprint `8.12` has landed the all-row SL trainable architecture and
-typed RL event-payload surface consumed here. The phase remains blocked until
-the reopened owner phases land their remaining local surfaces: Phase `9` Sprint
-`9.12` for every RL/AlphaZero/tuning runtime gap and Phase `10` Sprint `10.6`
-for checkpoint/inference support across every model family.
+typed RL event-payload surface consumed here. Phase `9` Sprint `9.12` provides
+the RL/AlphaZero/tuning runtime surface, and Phase `10` Sprint `10.6` provides
+checkpoint/inference support across every model family. Phase `16` now owns the
+remaining cross-model runtime proof across those surfaces.
 
 ## Phase Summary
 
@@ -40,12 +40,11 @@ command envelope, run on the selected substrate, write a checkpoint, reload that
 checkpoint, serve inference/evaluation, and produce deterministic same-substrate
 results without an offline, echo, synthetic, or demo-only substitute.
 
-## Sprint 16.1: Full Canonical Model Matrix Runtime ⏸️
+## Sprint 16.1: Full Canonical Model Matrix Runtime 🔄
 
-**Status**: Blocked
+**Status**: Active
 **Implementation**: `src/JitML/SL/`, `src/JitML/RL/`, `src/JitML/Tune/`,
 `src/JitML/Checkpoint/`, `src/JitML/App.hs`
-**Blocked by**: Phase `9` Sprint `9.12`; Phase `10` Sprint `10.6`
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/checkpoint_format.md`,
 `documents/engineering/numerical_core.md`, `system-components.md`
@@ -94,12 +93,12 @@ currently narrowed Dense-MLP / selected-RL subset.
   linux-cpu staged-byte smoke, and typed RL animation/replay event payloads.
   Phase `16` must consume that surface to run the full canonical SL catalog
   through median convergence, checkpoint reload, evaluation, and inference.
-- Phase `9` removes reward-derived algorithm-level projections and the
-  AlphaZero placeholder terminal evaluator. Phase `16` consumes that surface to
-  retire the remaining catalog rollout compatibility helper and close the full
-  checkpoint-backed train/evaluate/rollout matrix.
-- Phase `10` must make checkpoint/inference metadata, weight layouts, and
-  preprocessing/output decoders complete for every model family.
+- Phase `9` provides the real RL/AlphaZero/tuning runtime surface. Phase `16`
+  consumes that surface to retire the remaining catalog rollout compatibility
+  helper and close the full checkpoint-backed train/evaluate/rollout matrix.
+- Phase `10` provides checkpoint/inference metadata, weight layouts, and
+  preprocessing/output decoders for every model family. Phase `16` consumes
+  that surface across the full runtime matrix.
 
 ## Documentation Requirements
 

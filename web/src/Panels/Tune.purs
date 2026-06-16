@@ -12,38 +12,30 @@ import Prelude
 import Data.Array as Array
 import Data.Foldable (foldl)
 import Data.Maybe (Maybe(..))
-import Data.String as String
-import Data.String.Pattern (Pattern(..))
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
+import Generated.Contracts as Contracts
 import Halogen as H
 import Halogen.Aff (awaitBody)
 import Halogen.HTML as HH
+import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Chrome.Header as Header
+import Panels.Api (requestText)
 import Panels.Stream (subscribeStream)
 
-type TuneTrialFrame =
-  { panel :: String
-  , trialIndex :: Int
-  , trialSeed :: Int
-  , objective :: Number
-  , pruned :: Boolean
-  , parametersJson :: String
-  }
+type TuneTrialFrame = Contracts.TuneTrialFrame
 
-type TuneSweepDoneFrame =
-  { panel :: String
-  , trialsCompleted :: Int
-  , trialsPruned :: Int
-  , bestObjective :: Number
-  }
+type TuneSweepDoneFrame = Contracts.TuneSweepDoneFrame
+
+type WorkflowStatus = Contracts.WorkflowStatus
 
 type State =
   { trials :: Array TuneTrialFrame
   , bestObjective :: Number
   , sweepDone :: Maybe TuneSweepDoneFrame
+  , commandStatus :: Maybe WorkflowStatus
   , lastError :: Maybe String
   }
 
@@ -52,6 +44,8 @@ data Action
   | TrialText String
   | TrialReceived TuneTrialFrame
   | SweepCompleted TuneSweepDoneFrame
+  | SendCommand String
+  | CommandText String
   | StreamFailed String
 
 panelName :: String
@@ -59,19 +53,28 @@ panelName = "hyperparameter-sweep"
 
 renderTrialFrame :: Int -> Int -> Number -> Boolean -> String -> TuneTrialFrame
 renderTrialFrame trialIndex trialSeed objective pruned parametersJson =
-  { panel: panelName
-  , trialIndex
-  , trialSeed
-  , objective
-  , pruned
-  , parametersJson
-  }
+  Contracts.renderTuneTrialFrame
+    "local-sweep"
+    trialIndex
+    trialSeed
+    objective
+    pruned
+    "TPE"
+    "median"
+    "none"
+    parametersJson
+    ""
+
+workflowStatus :: String -> String -> WorkflowStatus
+workflowStatus status detail =
+  Contracts.renderWorkflowStatus panelName "tune-demo" status detail
 
 initialState :: State
 initialState =
   { trials: []
   , bestObjective: 0.0
   , sweepDone: Nothing
+  , commandStatus: Nothing
   , lastError: Nothing
   }
 
@@ -87,11 +90,15 @@ component =
     Initialize ->
       subscribeStream ("/api/ws/" <> "tune") TrialText StreamFailed
     TrialText payload ->
-      case parseTuneFrame payload of
+      case Contracts.parseTuneTrialFrame payload of
         Just trial ->
           handleAction (TrialReceived trial)
         Nothing ->
-          handleAction (StreamFailed ("unexpected tune frame: " <> payload))
+          case Contracts.parseTuneSweepDoneFrame payload of
+            Just done ->
+              handleAction (SweepCompleted done)
+            Nothing ->
+              handleAction (StreamFailed ("unexpected tune frame: " <> payload))
     TrialReceived trial ->
       H.modify_
         ( \s ->
@@ -102,6 +109,7 @@ component =
               s
                 { trials = nextTrials
                 , bestObjective = nextBest
+                , commandStatus = Just (workflowStatus "running" ("trial " <> show trial.trialIndex))
                 , lastError = Nothing
                 }
         )
@@ -111,16 +119,28 @@ component =
             s
               { sweepDone = Just frame
               , bestObjective = max s.bestObjective frame.bestObjective
+              , commandStatus = Just (workflowStatus "done" ("completed " <> show frame.trialsCompleted <> " trials"))
               }
         )
+    SendCommand command -> do
+      H.modify_ (_ { commandStatus = Just (workflowStatus "queued" ("sending " <> command)), lastError = Nothing })
+      requestText "POST" "/api/runs/tune-demo/command" (commandPayload command) CommandText StreamFailed
+    CommandText payload ->
+      case Contracts.parseWorkflowCommandAck payload of
+        Just ack ->
+          H.modify_ (_ { commandStatus = Just (workflowStatus "queued" (ack.command <> " " <> ack.status)), lastError = Nothing })
+        Nothing ->
+          H.modify_ (_ { commandStatus = Just (workflowStatus "failed" ("unexpected command response: " <> payload)), lastError = Nothing })
     StreamFailed message ->
-      H.modify_ (_ { lastError = Just message })
+      H.modify_ (_ { commandStatus = Just (workflowStatus "failed" message), lastError = Just message })
 
   render state =
     HH.div
       [ HP.id panelName, HP.classes [ H.ClassName "jitml-panel" ] ]
       [ Header.render
       , HH.h2_ [ HH.text "Hyperparameter sweep" ]
+      , renderControls
+      , renderFrontier state.trials
       , HH.table
           [ HP.id (panelName <> "-trials")
           , HP.classes [ H.ClassName "trials" ]
@@ -136,9 +156,45 @@ component =
       , HH.div
           [ HP.id (panelName <> "-best") ]
           [ HH.text ("best objective: " <> show state.bestObjective) ]
+      , renderCommandStatus state
       , renderSweepDone state
       , renderError state
       ]
+
+  renderControls =
+    HH.div
+      [ HP.id (panelName <> "-controls")
+      , HP.classes [ H.ClassName "workflow-controls" ]
+      ]
+      (map commandButton [ "start", "stop" ])
+
+  commandButton command =
+    HH.button
+      [ HP.id (panelName <> "-command-" <> command)
+      , HE.onClick (\_ -> SendCommand command)
+      ]
+      [ HH.text command ]
+
+  commandPayload command =
+    case command of
+      "start" ->
+        Contracts.renderStartTuneCommand "tune-demo" "experiments/mnist-tune.dhall" 1 8 100 "TPE" "median" "none"
+      _ ->
+        Contracts.renderStopTuneCommand "tune-demo"
+
+  renderFrontier trials =
+    HH.div
+      [ HP.id (panelName <> "-heatmap")
+      , HP.classes [ H.ClassName "trial-heatmap" ]
+      ]
+      (map renderTrialCell trials)
+
+  renderTrialCell trial =
+    HH.div
+      [ HP.classes [ H.ClassName "trial-cell" ]
+      , HP.style ("opacity: " <> show (0.2 + trial.objective))
+      ]
+      [ HH.text (show trial.trialIndex) ]
 
   renderTrialRow trial =
     HH.tr_
@@ -147,6 +203,14 @@ component =
       , HH.td_ [ HH.text (show trial.objective) ]
       , HH.td_ [ HH.text (if trial.pruned then "yes" else "no") ]
       ]
+
+  renderCommandStatus state =
+    case state.commandStatus of
+      Nothing -> HH.div_ []
+      Just status ->
+        HH.div
+          [ HP.id (panelName <> "-command-status") ]
+          [ HH.text (status.status <> ": " <> status.detail) ]
 
   renderSweepDone state =
     case state.sweepDone of
@@ -161,6 +225,8 @@ component =
                   <> show frame.trialsCompleted
                   <> " pruned="
                   <> show frame.trialsPruned
+                  <> " promoted="
+                  <> frame.promotedCheckpointSha
               )
           ]
 
@@ -173,12 +239,6 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("stream error: " <> message) ]
-
-parseTuneFrame :: String -> Maybe TuneTrialFrame
-parseTuneFrame payload
-  | String.contains (Pattern "data:") payload =
-      Just (renderTrialFrame 0 0 0.0 false payload)
-  | otherwise = Nothing
 
 mount :: Aff (Aff Unit)
 mount = do

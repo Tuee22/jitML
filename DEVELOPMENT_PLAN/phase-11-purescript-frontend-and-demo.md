@@ -38,8 +38,8 @@ policy/value network forward, `/api/connect4/move` ran MCTS,
 acknowledgement, `Panels.Api` performed text fetches, and the stream panels
 parsed incoming frames into typed records instead of storing raw strings. Sprint
 `10.6` later removed those inline server-side networks; the same routes now
-fail closed with `503 checkpoint-required` until Sprint `11.9` / Phase `17`
-wires checkpoint-backed browser requests. The
+use Sprint `11.9`'s injected checkpoint runtime handler when one is supplied
+by `jitml-demo`, and otherwise fail closed with `503 checkpoint-required`. The
 Playwright suite now clicks the MNIST / CIFAR / Connect 4 controls, waits for
 the real API responses, and asserts rendered value updates against the live
 demo edge. Validation passed on 2026-06-11 against the `linux-cuda` cluster:
@@ -89,17 +89,17 @@ currently covering generated-contract, whitespace, panel-contract, and typed
 frontend-tool command checks plus the `purescript-spec` smoke suite).
 **Met today**: Sprints `11.1` and `11.2` close the minimal PureScript
 scaffold and the typed contract renderer that produces
-`web/src/Generated/Contracts.purs`. The six canonical panel payload
-modules now live under `web/src/Panels/`:
-`Panels.{Mnist,Cifar,Connect4,Rl,Training,Tune}` — each carries the
-typed request/response payload shape for its endpoint. `web/test/Main.purs`
-smokes every panel name + the generated contracts surface.
-`playwright/jitml-demo.spec.ts` covers the current nine-test canonical panel
+`web/src/Generated/Contracts.purs`. The current panel payload modules now live
+under `web/src/Panels/` and carry typed request/response or stream payload
+shapes for their endpoints. `web/test/Main.purs` smokes every panel name plus
+the generated contracts surface.
+`playwright/jitml-demo.spec.ts` covers the current eleven-test canonical panel
 matrix through the live edge route. `JitML.Web.Bundle.panelSurfaces`
-lists all six panel names, and
+lists the current panel names, and
 `JitML.Web.Bundle.demoRoutes` now names the full local demo HTTP surface
-(`/`, `/api`, `/api/inference`, `/api/images`, `/api/connect4/move`,
-`/api/ws`, `/api/ws/training`, `/api/ws/rl`, `/api/ws/tune`).
+(`/`, `/api`, `/api/inference`, `/api/inference/generic`, `/api/images`,
+`/api/checkpoints/compare`, `/api/connect4/move`, `/api/ws`,
+`/api/ws/training`, `/api/ws/rl`, `/api/ws/tune`).
 `JitML.Web.Server.demoHttpRoutes` serves the same route family; stream
 GETs require a WebSocket upgrade and return `503` when requested as
 plain HTTP.
@@ -133,12 +133,29 @@ matrix.
 
 The worktree implements a minimal PureScript entrypoint, generated
 contract file, typed bundle/panel/demo-route metadata,
-`web/package.json` script surface, `web/test/Main.purs`, six
+`web/package.json` script surface, `web/test/Main.purs`, eight
 `web/src/Panels/*.purs` payload modules, live-only Playwright spec,
 `jitml-demo` executable shim, and demo deployment template. Halogen
 dependency/mount machinery, the browser-loadable bundle output, and live
-WebSocket proxying have landed in later phase work; no Phase `11`
-code-surface obligation remains open.
+WebSocket proxying have landed in later phase work. Sprint `11.9` has
+reopened the phase for the no-caveat browser product surface: the current
+worktree now generates typed payload decoders for the existing panels,
+removes the legacy marker/default parsers from those panels, adds
+training/RL/tuning command-envelope controls, replaces the static command
+acknowledgement with a request-aware live publication path for
+protocol-supported start/stop commands, adds generated browser REST request
+envelopes, injects the existing checkpoint-weighted runtime handler into
+`jitml-demo` when a live publication exists, routes the MNIST, generic tensor,
+CIFAR/ImageNet, checkpoint comparison, and Connect 4 REST panels through that
+handler, and renders non-placeholder
+loss/policy/MCTS/tuning summaries plus current training metadata, RL replay
+scrub state, transcript-derived multi-game adversarial boards, and generated
+queued/running/failed/done workflow status records. Generic tensor inference,
+checkpoint comparison, and browser-visible workflow status are locally wired
+and validated; unsupported lifecycle operations (pause/resume/promote),
+transcript-backed adversarial replay plus richer per-game analysis, live
+all-substrate command publication proof, and the live no-caveat Playwright
+matrix remain open.
 `jitml-demo` serves the present route/API surface through
 `src/JitML/Web/Server.hs`.
 
@@ -293,8 +310,8 @@ dependency + render machinery (slot + state + DOM diff) on each
 PureScript build and esbuild bundle step to produce
 `web/dist/Main/bundle.js`. `JitML.Web.Server.loadBundleEntry` +
 `demoHttpRoutesWithBundle` serve the compiled bundle when present.
-`playwright/jitml-demo.spec.ts` covers the canonical six-panel
-DOM-shape matrix. The live `/api/ws` WebSocket proxy migrated to
+`playwright/jitml-demo.spec.ts` historically covered the canonical six-panel
+DOM-shape matrix; the current file has expanded. The live `/api/ws` WebSocket proxy migrated to
 Phase `13` Sprint `13.13`; live edge-route Playwright migrated to
 Phase `13` Sprint `13.14`.
 **Implementation**: `src/JitML/Web/Contracts.hs`,
@@ -587,8 +604,8 @@ of [Exit Definition](README.md#exit-definition) item 6/7.
   highest-visit move —
   no hard-coded column, no synthetic manifest-only number. Sprint `10.6`
   supersedes this server implementation by removing the inline networks and
-  returning `503 checkpoint-required` until checkpoint-backed runtime requests
-  land.
+  returning `503 checkpoint-required`; Sprint `11.9` later restored the routes
+  through an injected checkpoint runtime handler.
 - The panels issue real HTTP fetches over the generated contracts and parse the
   typed responses; the dead `*Received` handlers, the raw `LiveFrame String`
   path, and the `Stream.js` socket-failure swallow are removed.
@@ -607,7 +624,8 @@ Historical landed state: the `Web.Server` `/api/inference`, `/api/images`, and
 `/api/connect4/move` endpoints ran the real network forward / image top-k
 render / real MCTS path (pure, host lib type-checks; container `check-code`
 validated at the Phase 11 boundary). Sprint `10.6` later removed those inline
-endpoint bodies and made the routes fail closed. On 2026-06-11 the panels were
+endpoint bodies and made the routes fail closed; Sprint `11.9` later restored
+the routes through an injected checkpoint runtime handler. On 2026-06-11 the panels were
 rewired through `Panels.Api.requestText`, `Panels.Stream.openWebSocket` now reports
 failures, raw `LiveFrame String` storage was removed from the RL / training /
 tuning panels, and `docker compose run --rm jitml jitml lint purescript`
@@ -675,16 +693,87 @@ runtime workflow, with no demo-only parsing or visualization stand-ins.
 - `jitml test jitml-e2e --apple-silicon`
 - `docker compose run --rm jitml jitml docs check`
 
+### Current Validation State
+
+The 2026-06-15 Sprint `11.9` slice lands the generated browser payload
+surface and validates it locally:
+
+- `src/JitML/Web/Contracts.hs` renders typed PureScript records and parsers
+  for browser inference/image/generic tensor/checkpoint-compare/adversarial
+  request envelopes, `InferenceResult`, `ImageInferenceResult`,
+  `GenericInferenceResult`, `CheckpointCompareResult`,
+  `AdversarialMoveResult`, `TrainingEventFrame`, `RlAnimationFrame`,
+  `RlReplayFrame`, `TuneTrialFrame`, `TuneSweepDoneFrame`,
+  `WorkflowCommandAck`, and `WorkflowStatus`;
+  `web/src/Generated/Contracts.purs` matches the renderer.
+- MNIST, generic tensor inference, CIFAR/ImageNet, checkpoint comparison,
+  Connect 4, RL, training, and tuning panels consume generated parsers instead
+  of `prediction:`, `image:`, `move:`, or catch-all `data:` marker parsers.
+  `web/test/Main.purs` rejects those legacy marker payloads.
+- `Generated.Contracts` renders browser-side training/RL/tune command
+  envelopes for the daemon's existing text protocols, plus a
+  `WorkflowCommandAck` parser and `WorkflowStatus` records. Training, RL, and
+  tuning panels post those envelopes to `/api/runs/<run-id>/command` instead
+  of bare words and render queued/running/failed/done status from command
+  acks, stream frames, and parse/stream failures.
+- `JitML.Service.Http` now passes request bodies into route handlers, and
+  `JitML.Web.Server` resolves the browser `substrate: live` token from the
+  live cluster publication before publishing valid start/stop envelopes to the
+  fully qualified `training.command.<substrate>`,
+  `rl.command.<substrate>`, or `tune.command.<substrate>` Pulsar topic. Without
+  a live publication the route fails visibly with `503` instead of returning a
+  fake queued acknowledgement.
+- `JitML.Web.Server` accepts an injected `BrowserRuntimeHandler` for
+  checkpoint-backed panel REST requests. `App.demoMain` supplies that handler
+  from the live publication, loads the latest checkpoint through
+  `loadInferenceCheckpointWithWeights`, dispatches to the selected substrate's
+  weighted runner, returns the manifest content SHA, and renders typed MNIST,
+  generic tensor, CIFAR/ImageNet, checkpoint-comparison, and Connect 4
+  responses. Without the handler the routes still fail closed with
+  `503 checkpoint-required`.
+- The current panels render loss bars, training throughput/device/checkpoint
+  and TensorBoard metadata, action-probability bars, parsed RL replay frames
+  with prev/next scrub controls, adversarial board surfaces for Connect 4,
+  Othello, Hex, and Gomoku, per-game rule summaries/legal-action counts, local
+  transcript scrub controls, MCTS visit/policy/value details, and tuning
+  trial/frontier summaries instead of placeholder canvases or raw text-only
+  frame dumps.
+- Validated so far: `docker compose run --rm jitml jitml lint purescript`;
+  `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu` (22 / 22,
+  including the no-publication command-route 503 assertion, injected
+  checkpoint-runtime REST route assertions, generic tensor inference, and
+  checkpoint-comparison delta assertions);
+  `docker compose run --rm jitml cabal run exe:jitml -- docs check`;
+  `docker compose run --rm jitml cabal run exe:jitml -- check-code`.
+
 ### Remaining Work
 
-- Replace all text-marker response parsers and zero/default stream parsers with
-  generated typed decoders.
-- Replace placeholder canvases and text-only tables with drawn charts,
-  animations, boards, and replay controls.
-- Replace `503 checkpoint-required` REST panel failures with checkpoint-backed
-  runtime endpoints.
-- Add full workflow controls and status handling for training, RL, tuning, and
-  adversarial self-play.
+- Live-validate the checkpoint-backed MNIST, CIFAR/Tiny ImageNet, generic
+  tensor inference, checkpoint comparison, and Connect 4 REST routes against
+  real persisted checkpoints on `linux-cpu`, `linux-cuda`, and
+  `apple-silicon`.
+- Live-validate `/api/runs/<run-id>/command` publication against real Pulsar
+  brokers on `linux-cpu`, `linux-cuda`, and `apple-silicon`; extend the
+  protocol / UI beyond current start/stop/kill mappings to pause, resume,
+  promote, and adversarial-game command topics.
+- Finish the product visualizations beyond the current loss bars,
+  frame-level training metadata, action-probability bars, replay scrub summary,
+  adversarial board selection, local transcript scrub controls, rule summaries,
+  MCTS summaries, and tuning heatmap/frontier: richer device telemetry, RL
+  animation canvases, replay artifact selection, persisted transcript-backed
+  adversarial replay, and rules-complete per-game annotations from recorded
+  engine transcripts.
+- Expand Playwright and the `jitml-e2e` live path to exercise those browser
+  behaviours on `linux-cpu`, `linux-cuda`, and `apple-silicon` after Phase
+  `16` supplies the full train/checkpoint/reload/evaluate artifacts.
+- Closing validation requires the current local gates plus live product proof:
+  `docker compose build jitml`,
+  `docker compose run --rm jitml jitml lint purescript`,
+  `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`,
+  `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda`,
+  `jitml test jitml-e2e --apple-silicon`, and a live Playwright pass against
+  each bootstrapped substrate using `cd playwright && npx playwright test`
+  after `jitml bootstrap --<substrate>`.
 
 ## Doctrine Sections Cited
 

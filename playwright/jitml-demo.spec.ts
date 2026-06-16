@@ -85,7 +85,9 @@ test("portals home links to every bundled admin portal", async ({ page }) => {
 test("shared header is present on every panel", async ({ page }) => {
   const panels = [
     "mnist-live-inference",
+    "generic-inference-lab",
     "cifar-imagenet-upload",
+    "checkpoint-compare-lab",
     "training-progress",
     "hyperparameter-sweep",
     "rl-trajectory",
@@ -114,11 +116,29 @@ test("mnist panel renders an inference canvas", async ({ page }) => {
   await page.locator("#mnist-live-inference-submit").click();
   const response = await responsePromise;
   const body = await response.text();
-  expect(body).toContain("prediction: value=");
-  expect(body).toContain(" policy=[");
+  expect(response.ok()).toBeTruthy();
+  expect(body).toContain("kind: InferenceResult");
+  expect(body).toContain("checkpoint-sha:");
   await expect(page.locator("#mnist-live-inference-prediction")).toContainText(
-    "predicted 0",
+    "predicted",
   );
+});
+
+test("generic inference panel renders checkpoint output", async ({ page }) => {
+  await loadPanel(page, "generic-inference-lab");
+  await expect(page.locator("#generic-inference-lab")).toBeVisible();
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/inference/generic") &&
+      response.request().method() === "POST",
+  );
+  await page.locator("#generic-inference-lab-submit").click();
+  const response = await responsePromise;
+  const body = await response.text();
+  expect(response.ok()).toBeTruthy();
+  expect(body).toContain("kind: GenericInferenceResult");
+  await expect(page.locator("#generic-inference-lab-result")).toBeVisible();
 });
 
 test("cifar panel renders an upload control", async ({ page }) => {
@@ -133,9 +153,26 @@ test("cifar panel renders an upload control", async ({ page }) => {
   await page.locator("#cifar-imagenet-upload-submit").click();
   const response = await responsePromise;
   await expect(page.locator("#cifar-imagenet-upload-topk")).toBeVisible();
-  await expect(page.locator("#cifar-imagenet-upload-topk li")).toHaveCount(3);
+  await expect(page.locator("#cifar-imagenet-upload-topk li").first()).toBeVisible();
   expect(response.ok()).toBeTruthy();
-  expect(await response.text()).toContain("image: topK=");
+  expect(await response.text()).toContain("kind: ImageInferenceResult");
+});
+
+test("checkpoint compare panel renders output deltas", async ({ page }) => {
+  await loadPanel(page, "checkpoint-compare-lab");
+  await expect(page.locator("#checkpoint-compare-lab")).toBeVisible();
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/checkpoints/compare") &&
+      response.request().method() === "POST",
+  );
+  await page.locator("#checkpoint-compare-lab-submit").click();
+  const response = await responsePromise;
+  const body = await response.text();
+  expect(response.ok()).toBeTruthy();
+  expect(body).toContain("kind: CheckpointCompareResult");
+  await expect(page.locator("#checkpoint-compare-lab-result")).toBeVisible();
 });
 
 test("connect4 panel renders the board", async ({ page }) => {
@@ -147,11 +184,12 @@ test("connect4 panel renders the board", async ({ page }) => {
       response.url().endsWith("/api/connect4/move") &&
       response.request().method() === "POST",
   );
-  await page.locator("#connect4-human-vs-alphazero-col-0").click();
+  await page.locator("#connect4-human-vs-alphazero-move-0").click();
   const response = await responsePromise;
   const body = await response.text();
-  expect(body).toMatch(/^move: [0-6]\n?$/);
-  const match = body.match(/^move: ([0-6])/);
+  expect(response.ok()).toBeTruthy();
+  expect(body).toContain("kind: AdversarialMoveResult");
+  const match = body.match(/^chosen-column: ([0-9]+)/m);
   if (match === null) {
     throw new Error(`unexpected Connect 4 response: ${body}`);
   }

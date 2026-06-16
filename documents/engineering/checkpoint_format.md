@@ -316,9 +316,11 @@ keeps that explicit injected-runner hook available for tests. Production
 `daemonWorkloadDispatcherWithWeightedInference`, which uses
 `loadInferenceCheckpointWithWeights` to load the weight-only `.jmw1` blobs
 through `HasMinIO`, decode them, and pass them to the selected substrate's
-weighted checkpoint runner. The `jitml-demo` REST inference/image/Connect 4
-routes now fail closed with `503 checkpoint-required`; Phase `17` wires those
-browser panels to checkpoint-backed runtime requests.
+weighted checkpoint runner. The `jitml-demo` REST inference/generic/image/
+checkpoint-compare/Connect 4 routes now accept generated browser request
+envelopes and call an injected checkpoint runtime handler when a live
+publication is available; without that handler they fail closed with
+`503 checkpoint-required`.
 
 The inference topic contract is declared in `proto/jitml/inference.proto`.
 `JitML.Proto.Inference` mirrors the `InferenceRequest` and `InferenceResult`

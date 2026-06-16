@@ -25,22 +25,16 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-14; code surface landed 2026-06-15, live
-validation outstanding). Sprint `10.6` expands this phase from weighted
+✅ **Done** (reopened 2026-06-14; re-closed 2026-06-15). Sprint `10.6`
+expands this phase from weighted
 Dense-MLP checkpoint inference to architecture-aware checkpoint,
 preprocessing, output decoding, and inference reload for every model family the
 no-caveat runtime trains. The manifest/load-path/demo-endpoint code is in the
-worktree and Linux validation pass, but phase closure still requires the Apple
-Silicon integration lane.
-
-**Blocked by**: an Apple Silicon host with a visible Metal device for
-`jitml test jitml-integration --apple-silicon`. The 2026-06-15 Linux blockers
-are cleared: the exact bootstrap-owned legacy-builder child command now
-completes after the Dockerfile switched Cabal metadata fetches from
-`hackage-content.haskell.org` to the standard `hackage.haskell.org` endpoint,
-`./bootstrap/linux-cpu.sh up` and `./bootstrap/linux-cuda.sh up` both executed
-the live phased rollout through publication, and the canonical live Linux CPU
-and Linux CUDA integration lanes passed.
+worktree and the live linux-cpu, linux-cuda, and apple-silicon integration
+lanes all passed. The final Apple Silicon closure run used a live
+`apple-silicon` publication with all seven components ready and
+`./.build/jitml test jitml-integration --apple-silicon`, which passed 71 / 71
+including the 19-test `Live` group.
 
 ✅ **Historical closure** (re-closed 2026-06-11 after Sprint `10.5`). The checkpoint format,
 MinIO-backed latest-pointer reads, and weighted inference read path are the
@@ -118,8 +112,9 @@ the addressed manifest's experiment hash and content SHA before invoking a
 runner, and `loadWeightTensors` rejects `.jmw1` payloads whose decoded element
 count does not match the manifest tensor shape. `Web.Server` no longer creates
 inline policy/value demo networks for `/api/inference`, `/api/images`, or
-`/api/connect4/move`; those routes fail closed with `503 checkpoint-required`
-until the browser product path supplies checkpoint-backed runtime requests.
+`/api/connect4/move`; Sprint `11.9` later supplies the injected checkpoint
+runtime handler for the current browser panel routes, including generic tensor
+inference and checkpoint comparison.
 
 ### Current Implementation Scope
 
@@ -491,10 +486,9 @@ fail-closed `Live` conditional test; without
 - No Sprint 10.5 code-surface Remaining Work remains. Live per-lane exercise of
   the weighted read path remains owned by Phase 13 / Phase 14.
 
-## Sprint 10.6: No-Caveat Checkpoint and Inference Matrix ⏸️
+## Sprint 10.6: No-Caveat Checkpoint and Inference Matrix ✅
 
-**Status**: Blocked
-**Blocked by**: an Apple Silicon host for the Apple integration lane.
+**Status**: Done
 **Implementation**: `src/JitML/Checkpoint/{Format,Store}.hs`,
 `src/JitML/Engines/{Local,CudaLocal,MetalLocal}.hs`,
 `src/JitML/Proto/Inference.hs`, `src/JitML/App.hs`,
@@ -525,9 +519,9 @@ checkpoint-backed models rather than demo-only or Dense-only readers.
 - ✅ Image, handwriting, tensor, RL policy, AlphaZero game, and generic
   inference metadata share the same manifest output-decoder contract.
 - ✅ Demo-only inline networks in `Web.Server` are removed from the active HTTP
-  route implementation; `/api/inference`, `/api/images`, and
-  `/api/connect4/move` return `503 checkpoint-required` until Phase `17`
-  supplies checkpoint-backed browser requests.
+  route implementation; Sprint `11.9` later replaces the fail-closed browser
+  route shape with an injected checkpoint runtime handler for current REST
+  panels.
 
 ### Validation
 
@@ -565,17 +559,25 @@ checkpoint-backed models rather than demo-only or Dense-only readers.
   1039.19s. The earlier no-publication attempt failed the 19 live cases by
   design, while the non-live cases passed 52 / 52 under
   `cabal test -fcuda jitml-integration --test-show-details=direct`.
-- ⏸️ `jitml test jitml-integration --apple-silicon` remains outstanding: this
-  session is Linux x86_64 with no host `jitml` in `PATH`, so the Apple lane must
-  be run on an Apple Silicon host with visible Metal.
+- ✅ `./bootstrap/apple-silicon.sh up` passed on 2026-06-15 after the
+  image-build fix and fixed-bridge installation, printing
+  `bootstrap: live phased rollout executed 84 steps`. It wrote
+  `.build/runtime/cluster-publication.json` for `apple-silicon` on edge port
+  `9090` with `harbor`, `minio`, `pulsar`, `postgres`, `observability`,
+  `jitml-service`, and `jitml-demo` all `ready`; routed `/healthz` returned
+  `HTTP/1.1 200 OK`.
+- ✅ `./.build/jitml test jitml-integration --apple-silicon` passed 71 / 71 on
+  2026-06-15 against the live `apple-silicon`
+  `.build/runtime/cluster-publication.json`, including the 19-test `Live`
+  group.
 - ✅ `docker compose run --rm jitml jitml check-code` passed on 2026-06-15.
 - ✅ `docker compose run --rm jitml jitml docs check` passed on 2026-06-15.
 - ✅ `git diff --check` passed on 2026-06-15.
 
 ### Remaining Work
 
-- Run and pass the Apple Silicon `jitml-integration` validation on an Apple
-  Silicon host.
+- No Sprint 10.6 Remaining Work remains. The broader all-model
+  train/checkpoint/reload/evaluate matrix is owned by Phase `16`.
 
 ## Doctrine Sections Cited
 

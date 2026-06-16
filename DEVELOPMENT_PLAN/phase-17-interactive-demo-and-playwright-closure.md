@@ -79,13 +79,17 @@ the PureScript app.
 
 ### Remaining Work
 
-- Replace text-marker parsers and zero/default display records with generated
-  typed codecs for every REST and WebSocket payload.
-- Replace `503 checkpoint-required` REST panel failures with checkpoint-backed
-  runtime calls.
-- Draw real charts/canvases/animations rather than placeholder canvases and
-  text-only tables.
-- Add browser controls for command envelopes instead of passive stream panels.
+- Extend the Sprint `11.9` generated current-panel codecs into checkpoint
+  browse, live-backed workflow-state reconciliation, adversarial multi-game
+  replay, and persisted replay artifact payloads.
+- Live-validate the Sprint `11.9` checkpoint-backed MNIST/generic/CIFAR/
+  checkpoint-compare/Connect 4 runtime calls against real persisted
+  checkpoints on every substrate.
+- Extend the Sprint `11.9` request-aware command route with live publication
+  proof across all substrates, persisted queued/running/failed/done status
+  reconciliation, and unsupported pause/resume/promote lifecycle operations.
+- Finish real charts/canvases/animations/replay beyond the current summary
+  bars, MCTS metadata, and tuning heatmap/frontier.
 
 ## Sprint 17.2: Playwright No-Caveat Product Matrix ⏸️
 
