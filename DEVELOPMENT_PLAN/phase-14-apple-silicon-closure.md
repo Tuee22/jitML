@@ -877,9 +877,9 @@ None. Phase `15` owns the final ledger walk-down and handoff.
 **Status**: Blocked
 **Implementation**: `bootstrap/apple-silicon.sh`, `src/JitML/Test/WorkflowMatrix.hs`,
 `playwright/jitml-demo.spec.ts`, `src/JitML/Service/Workload.hs`
-**Blocked by**: Phase `9` Sprint `9.12`; Phase `10` Sprint `10.6`; Phase `11`
-Sprint `11.9`; Phase `12` Sprint `12.13`; Phase `16` Sprint `16.1`; Phase
-`17` Sprint `17.2`
+**Blocked by**: Phase `16` Sprint `16.1`; Phase `17` Sprint `17.2`; and the
+`apple-silicon` Mac host hardware this lane runs on (Sprints
+`9.12`/`10.6`/`11.9`/`12.13` are now `✅ Done` and no longer block this lane)
 **Docs to update**: `documents/engineering/apple_silicon_metal_headless_builds.md`,
 `documents/engineering/purescript_frontend.md`,
 `documents/engineering/training_workloads.md`, `system-components.md`

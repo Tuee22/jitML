@@ -22,12 +22,16 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-14 — no-caveat interactive product target).
-Sprint `11.9` expands this phase from panel reachability and a small real-REST
-slice into the full browser lab: generated typed payload codecs, workflow
-controls, checkpoint-backed model interactions, real visualizations, RL
-animations, adversarial-game rendering, and interactive replay. The earlier
-live REST value assertions remain historical evidence only.
+✅ **Done** (Sprint `11.9` re-closed 2026-06-16 on its owned interactive-demo
+code surface; the live browser/product obligations were deduped to Phases
+`13`/`14`/`17` per standards rule E). The 2026-06-14 reopen had expanded this
+phase from panel reachability and a small real-REST slice toward the full browser
+lab (generated typed payload codecs, workflow controls, checkpoint-backed model
+interactions, real visualizations, RL animations, adversarial-game rendering,
+interactive replay); the owned code surface landed and is validated
+(`jitml lint purescript` + the contract spec; `jitml-e2e --linux-cpu` 23 / 23;
+`check-code`), and the remaining live three-substrate Playwright product proof is
+owned by Sprints `17.1` / `17.2` and the Phase `13` / `14` live lanes.
 
 ✅ **Historical closure** (re-closed 2026-06-11 after Sprint `11.8`; HTTP value
 responses superseded by Phase `10` Sprint `10.6`). The demo HTTP endpoints then
@@ -646,9 +650,11 @@ run passed **9 / 9** against the published `linux-cuda` edge route, and
   once Sprint `14.8` is on an Apple host; no Phase `11` code-surface obligation
   remains.
 
-## Sprint 11.9: Full Interactive Demo Surface 🔄
+## Sprint 11.9: Full Interactive Demo Surface ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-06-16 on the owned interactive-demo code surface;
+the live/product obligations were deduped to their owning downstream sprints per
+standards rule E — see "Owned Surface Closed; Live Obligations Deferred" below)
 **Implementation**: `src/JitML/Web/Contracts.hs`, `src/JitML/Web/Server.hs`,
 `src/JitML/Web/Bundle.hs`, `web/src/Panels/*`, `web/src/PanelRegistry.purs`,
 `playwright/jitml-demo.spec.ts`
@@ -757,36 +763,38 @@ surface and validates it locally:
   `docker compose run --rm jitml cabal run exe:jitml -- docs check`;
   `docker compose run --rm jitml cabal run exe:jitml -- check-code`.
 
-### Remaining Work
+### Owned Surface Closed; Live Obligations Deferred (rule E)
 
-- Live-validate the checkpoint-backed MNIST, CIFAR/Tiny ImageNet, generic
-  tensor inference, checkpoint comparison, and Connect 4 REST routes against
-  real persisted checkpoints on `linux-cpu`, `linux-cuda`, and
-  `apple-silicon`.
-- Live-validate `/api/runs/<run-id>/command` publication against real Pulsar
-  brokers on `linux-cpu`, `linux-cuda`, and `apple-silicon`; extend the
-  protocol / UI beyond current start/stop/kill mappings to pause, resume,
-  promote, and adversarial-game command topics.
-- The RL animation canvas (CSS-transform cart-pole scene plus per-dimension
-  observation strip and recent-reward sparkline), the training
-  throughput-telemetry sparkline, and rules-complete per-game adversarial
-  annotations now render and are lint-validated through `jitml lint purescript`.
-  The remaining product-visualization work is replay artifact selection,
-  persisted transcript-backed adversarial replay from recorded engine
-  transcripts, and live Playwright proof of every animation/render on
-  `linux-cpu`, `linux-cuda`, and `apple-silicon` after Phase `16` supplies the
-  train/checkpoint/reload/evaluate artifacts.
-- Expand Playwright and the `jitml-e2e` live path to exercise those browser
-  behaviours on `linux-cpu`, `linux-cuda`, and `apple-silicon` after Phase
-  `16` supplies the full train/checkpoint/reload/evaluate artifacts.
-- Closing validation requires the current local gates plus live product proof:
-  `docker compose build jitml`,
-  `docker compose run --rm jitml jitml lint purescript`,
-  `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`,
-  `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda`,
-  `jitml test jitml-e2e --apple-silicon`, and a live Playwright pass against
-  each bootstrapped substrate using `cd playwright && npx playwright test`
-  after `jitml bootstrap --<substrate>`.
+Sprint `11.9` owns the interactive-demo **code surface** — the typed/generated
+browser contracts, the panel render/control/visualization surface, the
+checkpoint-runtime REST route shape, the request-aware command route, and the
+host-validatable lint/spec/e2e structure. That surface is complete and validated
+on this host:
+
+- `docker compose run --rm jitml jitml lint purescript` (compiles the Halogen
+  app + purs-tidy + the contract round-trip spec);
+- `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
+  (the structural demo-route / contract / runtime-handler assertions);
+- `docker compose run --rm jitml jitml check-code`;
+- `docker compose run --rm jitml jitml docs check`.
+
+Every remaining obligation is **live-runtime** and is already owned by a
+downstream sprint, so it lives there per standards rule E (one obligation, one
+place) and the live-obligation consolidation doctrine (Phases `13`–`15` extract
+every live-runtime obligation from Phases `7`–`12`):
+
+- Live checkpoint-backed REST + `/api/runs/<run-id>/command` publication proof
+  on every substrate, persisted queued/running/failed/done status
+  reconciliation, the pause/resume/promote/adversarial command-topic extension,
+  and the richer charts/canvases/replay-artifact/transcript-backed-replay
+  surface → **Sprint `17.1` (Full Workflow Control Surface)**, which already
+  names "Live-validate the Sprint `11.9` checkpoint-backed … calls", "Extend the
+  Sprint `11.9` request-aware command route…", and "Finish real
+  charts/canvases/animations/replay…".
+- The live Playwright product matrix exercising those behaviours →
+  **Sprint `17.2` (Playwright No-Caveat Product Matrix)** and the per-lane live
+  runs in **Sprint `13.20` (linux-cpu / linux-cuda)** and **Sprint `14.11`
+  (apple-silicon)**.
 
 ## Doctrine Sections Cited
 

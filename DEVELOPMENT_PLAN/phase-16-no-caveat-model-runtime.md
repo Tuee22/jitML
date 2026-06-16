@@ -89,27 +89,73 @@ currently narrowed Dense-MLP / selected-RL subset.
 
 ### Current Validation State
 
-Assessed 2026-06-15 on the `linux-cpu` lane (this x86_64 dev host has no
-`apple-silicon`):
+**Live `linux-cpu` validation (2026-06-16).** A live `jitml bootstrap
+--linux-cpu` cluster was brought up on this host (85 rollout steps; all seven
+components — harbor, minio, pulsar, postgres, observability, jitml-service,
+jitml-demo — ready on edge port 9091), all six canonical SL datasets were staged
+into live MinIO via `jitml internal upload-dataset` (MNIST, Fashion-MNIST,
+CIFAR-10, CIFAR-100, California Housing, Tiny ImageNet — each SHA-verified
+against the pinned `JitML.SL.Dataset.canonicalArtifactSha256For`), and
+`jitml test jitml-sl-canonicals --linux-cpu` then passed **24 / 24 against the
+live cluster (292.63s)** — including the two cases that *skip* offline without a
+publication:
 
-- `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu`
-  passes 24 / 24. The `JitML.SL.Architecture` runtime maps all 11 canonical SL
-  rows and executes a **substrate-backed train step** for every one
-  (`all canonical SL architectures execute a substrate-backed train step`), and
-  every row materializes its staged dataset bytes and trains through the
-  substrate runtime (`live all canonical SL rows materialize staged bytes …`).
-  The **Dense MNIST** row additionally trains to its literature-derived
-  convergence threshold on-device (`live MNIST SL training clears the convergence
-  threshold`).
-- What remains for no-caveat closure of the SL half is the gap between an
-  executed train step and **per-row median convergence**: the deeper rows
-  (`Conv2D`/LeNet, `ResidualBlock`, `ResidualBlock20`/`56`, `WideResidualBlock`,
-  `VisionTransformer`, `ResidualBlock50`/ResNet-50) are not yet asserted to reach
-  their literature thresholds, and the heavy rows realistically need the
-  `linux-cuda` lane (ResNet-50 / ViT to convergence is impractical on the CPU
-  container) plus the `apple-silicon` lane (Mac hardware, unavailable here). The
-  RL-catalog / AlphaZero real-evaluator / real-tuning halves below are likewise
-  not yet exercised through this assessment.
+- `live MNIST SL training clears the convergence threshold` — **OK (264.14s)**:
+  real MNIST fetched from live MinIO, trained through the `JitML.SL.Architecture`
+  substrate runtime over the bounded budget, and the measured test accuracy
+  cleared the in-code literature threshold − slack.
+- `live all canonical SL rows materialize staged bytes and train through the
+  substrate runtime` — **OK (28.25s)**: all 11 canonical rows (spanning the
+  Dense, DeepDense, Conv2D/LeNet, ResidualBlock, ResNet-20/56, WideResidual, ViT,
+  and ResNet-50 architectures plus the California Housing regression row)
+  materialized their staged bytes from live MinIO and trained through the
+  selected substrate device without error.
+
+The RL / AlphaZero / tuning / inference live surface was exercised on the same
+cluster via `jitml test jitml-integration --linux-cpu`, whose `Live` group passed
+**19 / 19 (101.81s)**: the `WorkflowMatrix` dispatched every current-substrate
+cell fail-closed; the daemon placed `StartTraining` / `StartRLRun` / `StartSweep`
+by substrate; **live PPO/cartpole training through daemon dispatch cleared its
+literature threshold (OK, 79.11s)**; an AlphaZero generation drove self-play +
+training + a `.jmw1` checkpoint round-trip through live MinIO; and live tune trial
+persist/replay, `jitml inference run` checkpoint read, checkpoint GC +
+`gc.event.<substrate>` publication, and live MinIO / Pulsar / Harbor capability
+round-trips all passed.
+
+The same flow was then re-validated on the **`linux-cuda` GPU lane** (RTX 5090):
+`jitml bootstrap --linux-cuda` came up (84 steps; all seven components ready; edge
+port 9092), all six datasets were re-staged into the cuda MinIO (SHA-verified),
+`jitml test jitml-backends --linux-cuda` passed **20 / 20** exercising real GPU
+kernels through the `-fcuda` build (nvcc→FFI compile, warp-shuffle reduction, real
+device GEMM bit-determinism, cuBLAS / cuDNN binding init, MLP
+forward/backward/batched matching the pure reference, and on-device
+PPO / DQN / QR-DQN / HER / DDPG / AlphaZero trainers), and the
+`jitml-integration --linux-cuda` `Live` group passed **20 / 20 (1088.79s)** — the
+`WorkflowMatrix` dispatched every cell as real GPU-backed Kubernetes Jobs (949s),
+and live PPO/cartpole convergence through daemon dispatch cleared its threshold on
+the GPU (116s), alongside the AlphaZero / tune / inference / GC / capability cases.
+
+**Remaining for no-caveat closure.** The live all-row SL case is a bounded
+materialize-and-train smoke (`liveClassifierBudget` uses 16–512 examples,
+1–2 epochs, min-accuracy 0.0), not per-row convergence. Only the **MNIST** row is
+asserted to reach its literature threshold; the deeper rows (`Conv2D`/LeNet,
+`ResidualBlock`, `ResidualBlock20`/`56`, `WideResidualBlock`,
+`VisionTransformer`, `ResidualBlock50`/ResNet-50) are not yet trained to median
+convergence — the heavy rows realistically need the `linux-cuda` GPU lane
+(ResNet-50 / ViT to convergence is impractical on the CPU container) and the
+`apple-silicon` Mac lane. On the RL / AlphaZero / tuning / inference side the
+*current* surface is now live-validated (PPO/cartpole convergence, one AlphaZero
+generation drive, tune persist/replay + placement, checkpoint inference), but the
+no-caveat scope is wider: every RL algorithm family trained/evaluated/rolled-out
+through its production path, per-game AlphaZero (Connect 4 / Othello / Hex /
+Gomoku) with real terminal evaluators and arena convergence, tuning objectives
+measured from real trained workloads across the sampler catalog, and
+checkpoint/inference for every model family — each on all three substrates. This
+session validated the `linux-cpu` and `linux-cuda` lanes; the `apple-silicon`
+lane (Mac hardware, unavailable here) remains, as does per-row SL **median
+convergence** for the deeper rows (only MNIST and PPO/cartpole are asserted to a
+literature threshold) and the full RL-catalog / 4-game AlphaZero arena / all-model-
+family checkpoint-inference breadth.
 
 ### Remaining Work
 

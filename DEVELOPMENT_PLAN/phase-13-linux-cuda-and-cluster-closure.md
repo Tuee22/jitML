@@ -4101,9 +4101,9 @@ worker Jobs inherit the NVIDIA runtime settings needed by GPU workloads.
 **Status**: Blocked
 **Implementation**: `bootstrap/linux-cpu.sh`, `bootstrap/linux-cuda.sh`,
 `src/JitML/Test/WorkflowMatrix.hs`, `playwright/jitml-demo.spec.ts`
-**Blocked by**: Phase `9` Sprint `9.12`; Phase `10` Sprint `10.6`; Phase `11`
-Sprint `11.9`; Phase `12` Sprint `12.13`; Phase `16` Sprint `16.1`; Phase
-`17` Sprint `17.2`
+**Blocked by**: Phase `16` Sprint `16.1`; Phase `17` Sprint `17.2`
+(Phases `9`/`10`/`11`/`12` Sprints `9.12`/`10.6`/`11.9`/`12.13` are now `✅ Done`
+and no longer block this lane)
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/purescript_frontend.md`, `system-components.md`
 

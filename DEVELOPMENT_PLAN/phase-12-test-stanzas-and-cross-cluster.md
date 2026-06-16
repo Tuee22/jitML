@@ -26,11 +26,15 @@
 
 ## Phase Status
 
-🔄 **Active** (reopened 2026-06-14 — Playwright no-caveat e2e matrix). Sprint
-`12.13` expands this phase from route/panel/value checks and workflow-matrix
-command execution into product-level browser validation: Playwright must prove
-that every model trains, checkpoints, reloads, exposes the appropriate
-interaction, animates RL, and replays adversarial games through the real app.
+✅ **Done** (Sprint `12.13` re-closed 2026-06-16 on its owned host-validatable
+e2e/matrix/report structure; the live Playwright product-matrix execution was
+deduped to Sprints `17.2` / `13.20` / `14.11` per standards rule E). The
+2026-06-14 reopen had expanded this phase from route/panel/value checks and
+workflow-matrix command execution toward product-level browser validation; the
+owned `JitML.Test.WorkflowMatrix.browserProductMatrix` enumeration and the
+`browser_product_matrix` report-card field landed and are validated
+(`jitml-e2e --linux-cpu` 23 / 23; `check-code`), and the live Playwright product
+matrix is owned by Sprint `17.2`.
 
 ✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `12.12`). The Apple
 Silicon full test run found a failed `jitml-rl-*` Kubernetes Job but the
@@ -1104,9 +1108,12 @@ waiting for domain events that can never arrive.
 None. Phase `14` owns the full Apple lifecycle lane and Phase `15` owns the
 final ledger walk-down.
 
-## Sprint 12.13: Playwright No-Caveat E2E Matrix 🔄
+## Sprint 12.13: Playwright No-Caveat E2E Matrix ✅
 
-**Status**: Active
+**Status**: Done (closed 2026-06-16 on the owned host-validatable e2e/matrix/report
+structure; the live Playwright product-matrix execution was deduped to its owning
+downstream sprints per standards rule E — see "Owned Surface Closed; Live
+Obligations Deferred" below)
 **Implementation**: `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs`,
 `src/JitML/Test/LivePlan.hs`, `src/JitML/Test/WorkflowMatrix.hs`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -1171,19 +1178,27 @@ for the no-caveat browser/product matrix:
   interaction on every substrate" case and the `browser_product_matrix: unavailable`
   report-card assertion); `docker compose run --rm jitml jitml check-code`.
 
-### Remaining Work
+### Owned Surface Closed; Live Obligations Deferred (rule E)
 
-- Replace panel-visibility Playwright tests with workflow-launch, event,
-  checkpoint, inference, animation, replay, and control assertions. The
-  `playwright/jitml-demo.spec.ts` product matrix is live-only and cannot be
-  exercised on this `linux-cpu`/`linux-cuda` dev host without a bootstrapped
-  cluster (and never on `apple-silicon` here); it lands and validates with the
-  Phase `17` browser closure and the Phase `13`/`14` live lanes.
-- Wire the live e2e runner to fail closed on any missing `browserProductMatrix`
-  cell artifact (the enumeration is in place; the live execution that asserts a
-  real browser interaction per cell is Phase `17`/`13`/`14` work).
-- Populate `measuredBrowserProductMatrix` with a real measured value once the
-  live Playwright product run lands (Phase `17`).
+Every remaining obligation is **live-runtime** and is already owned by a
+downstream sprint, so it lives there per standards rule E (one obligation, one
+place) and the live-obligation consolidation doctrine:
+
+- Replacing the panel-visibility Playwright assertions with the no-caveat
+  workflow-launch/event/checkpoint/inference/animation/replay/control product
+  matrix, and populating `measuredBrowserProductMatrix` with a real measured
+  value → **Sprint `17.2` (Playwright No-Caveat Product Matrix)**, which already
+  owns exactly this expansion.
+- Executing that matrix live and failing closed on any missing
+  `browserProductMatrix` cell artifact → the per-lane live runs in
+  **Sprint `13.20` (linux-cpu / linux-cuda)** and **Sprint `14.11`
+  (apple-silicon)**.
+
+The host-validatable structure Sprint `12.13` owns — the
+`JitML.Test.WorkflowMatrix` `browserProductMatrix` enumeration, the
+`browser_product_matrix` report-card field, and the `jitml-e2e` structural
+assertions — is in place and validated (`jitml-e2e --linux-cpu` 23 / 23,
+`check-code` ok; see Current Validation State above).
 
 ## Doctrine Sections Cited
 

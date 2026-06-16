@@ -23,9 +23,12 @@
 
 ⏸️ **Blocked** (opened 2026-06-14). The current browser app has panel shells,
 REST calls, and WebSocket subscriptions, but the no-caveat target requires a
-full interactive lab backed by the real runtime matrix. This phase is blocked by
-Phase `11` Sprint `11.9` (feature implementation), Phase `12` Sprint `12.13`
-(test orchestration), and Phase `16` Sprint `16.1` (full model runtime).
+full interactive lab backed by the real runtime matrix. Phase `11` Sprint `11.9`
+(feature implementation) and Phase `12` Sprint `12.13` (test orchestration)
+closed `✅ Done` on 2026-06-16 on their owned code surface, and their live
+browser/product obligations were deduped into this phase (Sprints `17.1` /
+`17.2`) per rule E; this phase remains blocked by Phase `16` Sprint `16.1` (full
+model runtime).
 
 ## Phase Summary
 
@@ -41,8 +44,9 @@ frames, and replay adversarial games from recorded state.
 **Status**: Blocked
 **Implementation**: `src/JitML/Web/Contracts.hs`, `src/JitML/Web/Server.hs`,
 `web/src/Panels/*`, `src/JitML/App.hs`, `src/JitML/Service/*`
-**Blocked by**: Phase `11` Sprint `11.9`; Phase `12` Sprint `12.13`; Phase
-`16` Sprint `16.1`
+**Blocked by**: Phase `16` Sprint `16.1` (Phase `11` Sprint `11.9` and Phase
+`12` Sprint `12.13` are now `✅ Done`; their browser/product live obligations are
+owned here in Sprint `17.1` / `17.2` per rule E)
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `system-components.md`
 

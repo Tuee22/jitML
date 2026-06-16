@@ -43,6 +43,26 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Closure update (2026-06-16 — Phases `11` and `12` re-closed `✅ Done`).**
+Sprints `11.9` (Full Interactive Demo Surface) and `12.13` (Playwright No-Caveat
+E2E Matrix) closed on their **owned** surfaces, so Phases `11` and `12` are
+`✅ Done` again. Both sprints' remaining bullets were exclusively live-runtime
+proof already owned by downstream sprints, so they were deduped to those owners
+per standards rule E (one obligation, one place) and the live-obligation
+consolidation doctrine (Phases `13`–`15` extract every live-runtime obligation
+from Phases `7`–`12`): the live checkpoint-backed REST / command-publication /
+status-reconciliation / pause-resume-promote / replay surfaces are owned by
+Sprint `17.1`; the live Playwright product matrix by Sprint `17.2`; and the
+per-lane live execution by Sprint `13.20` (`linux-cpu` / `linux-cuda`) and Sprint
+`14.11` (`apple-silicon`). `11.9` landed the RL environment animation, training
+throughput-telemetry, and rules-complete adversarial annotations (validated by
+`jitml lint purescript` + the contract spec); `12.13` landed the
+`JitML.Test.WorkflowMatrix.browserProductMatrix` enumeration and the
+`browser_product_matrix` report-card field (validated by `jitml-e2e --linux-cpu`
+23 / 23 and `check-code`). Phase `16` stays `🔄 Active`; Phases `13`–`15` and
+`17`–`18` stay `⏸️ Blocked`, now with `11.9` / `12.13` removed from their
+`Blocked by` lines.
+
 **Reopen note (2026-06-14 — no-caveat end-to-end product target).** The current
 implementation has re-closed Phase `8` on the all-row SL framework/runtime and
 typed RL event-payload surface, but it is not yet the intended no-caveat
@@ -76,9 +96,11 @@ Therefore:
   validation was `./.build/jitml test jitml-integration --apple-silicon` on a
   live `apple-silicon` publication, passing 71 / 71 including the 19-test
   `Live` group.
-- **Phases `11` and `12` remain `🔄 Active`** for Sprints `11.9` and `12.13`.
-  These sprints own the remaining frontend and test-harness expansion after
-  Phase `9` validation.
+- **Phases `11` and `12` were `🔄 Active`** for Sprints `11.9` and `12.13` at
+  this 2026-06-14 reopen; both re-closed `✅ Done` on 2026-06-16 — see the
+  2026-06-16 closure update at the top of this section. Their live-runtime
+  obligations were deduped to Sprints `17.1` / `17.2` / `13.20` / `14.11` per
+  rule E.
 - **Phases `13`, `14`, and `15` reopen from `✅ Done` to `⏸️ Blocked`** because
   their live validation and handoff obligations depend on the remaining browser,
   model-runtime, and product-handoff surfaces.
@@ -852,13 +874,13 @@ obligation exists.
 | 8 | Supervised Learning and RL Framework | ✅ Done (reopened/re-closed 2026-06-14 — all-row SL runtime and typed RL event payloads, Sprint 8.12) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat RL/AlphaZero/tuning runtime validated on linux-cpu, apple-silicon, and linux-cuda, Sprint 9.12) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat checkpoint/inference matrix validated on linux-cpu, linux-cuda, and apple-silicon, Sprint 10.6) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
-| 11 | PureScript Frontend and Demo | 🔄 Active (reopened 2026-06-14 — full interactive demo controls and visualizations, Sprint 11.9) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | 🔄 Active (reopened 2026-06-14 — Playwright no-caveat e2e matrix, Sprint 12.13) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 11–12 and 16–17) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 11–12 and 16–17) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
+| 11 | PureScript Frontend and Demo | ✅ Done (Sprint 11.9 re-closed 2026-06-16 on its owned interactive-demo code surface; live obligations deduped to Phases 13/14/17 per rule E) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
+| 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.13 re-closed 2026-06-16 on its owned e2e/matrix/report structure; live Playwright product matrix deduped to Phases 13/14/17 per rule E) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 13 | Linux CUDA and Cluster Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 16–17) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
+| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 16–17 + apple-silicon Mac hardware) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
 | 15 | Substrate Reproducibility and Final Handoff | ⏸️ Blocked (reopened 2026-06-14; blocked on full no-caveat runtime/browser validation) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
 | 16 | No-Caveat Model Runtime Closure | 🔄 Active (new 2026-06-14; unblocked after Phase 10 re-closed, Sprint 16.1) | [phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md) |
-| 17 | Interactive Demo and Playwright Closure | ⏸️ Blocked (new 2026-06-14; blocked on Phases 11–12 and 16) | [phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md) |
+| 17 | Interactive Demo and Playwright Closure | ⏸️ Blocked (new 2026-06-14; blocked on Phase 16) | [phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md) |
 | 18 | No-Caveat Product Handoff | ⏸️ Blocked (new 2026-06-14; blocked on Phases 13–17) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-14 — no-caveat end-to-end product target)
@@ -1379,13 +1401,15 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-06-15, the no-caveat end-to-end product target is open. Phases
+As of 2026-06-16, the no-caveat end-to-end product target is open. Phases
 `8`, `9`, and `10` are `✅ Done`; Phase `10` re-closed after the Apple Silicon
 publication came up and `./.build/jitml test jitml-integration --apple-silicon`
-passed 71 / 71. Phases `11`–`12` and `16` are `🔄 Active`, Phases `13`–`15`
-are `⏸️ Blocked` on the expanded runtime/browser work, Phases `17`–`18` remain
-blocked by their upstream phases, Pending Removal is non-empty again, and final
-handoff is not complete.
+passed 71 / 71. Phases `11` and `12` re-closed `✅ Done` on 2026-06-16 (Sprints
+`11.9` / `12.13` closed on their owned code surface, with the live-runtime
+obligations deduped to Phases `13`/`14`/`17` per rule E), so Phases `0`–`12` are
+`✅ Done`; Phase `16` is `🔄 Active`, Phases `13`–`15` are `⏸️ Blocked` on the
+expanded runtime/browser work, Phases `17`–`18` remain blocked by their upstream
+phases, Pending Removal is non-empty again, and final handoff is not complete.
 The true-headless Apple Metal fixed-bridge workstream (`1.15`, `2.12`, `5.10`,
 `7.11`, `14.9`, `15.5`, `15.6`) remains closed as dated 2026-06-12 evidence,
 and the later Apple host-resident workload placement audit also remains closed

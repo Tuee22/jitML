@@ -148,9 +148,13 @@ current local API route family including `/api/runs/{runId}/command`. Sprint
 `11.9` removes current marker/default parser residue from the panels and adds
 typed controls/charts for the existing browser workflows plus generated REST
 request envelopes, checkpoint-backed MNIST/CIFAR/Connect 4 route injection,
-generic tensor inference, and checkpoint comparison; live all-substrate REST
-proof, live command-state reconciliation, expanded replay/game surfaces, and
-the live no-caveat Playwright product matrix remain open.
+generic tensor inference, and checkpoint comparison, plus the RL environment
+animation, training throughput-telemetry, and rules-complete adversarial
+annotations; Sprint `11.9` closed `✅ Done` on 2026-06-16 on that owned code
+surface, and its remaining live all-substrate REST proof, live command-state
+reconciliation, expanded replay/game surfaces, and live no-caveat Playwright
+product matrix are owned downstream by Sprint `17.1` / `17.2` and the Phase
+`13`/`14` live lanes (rule E).
 
 `jitml test all --dry-run` renders the aggregate test plan and non-dry-run
 `jitml test all` invokes every test-only Cabal test-suite stanza (`jitml-unit`,
@@ -886,20 +890,23 @@ algorithm, every AlphaZero game, every tuning workflow, every model-family
 checkpoint/reload/inference path, and every browser interaction must run
 end-to-end with no synthetic, placeholder, demo-only, or parser-default
 stand-ins. Sprint `11.9` removes the current browser parser-default residue and
-adds generic/checkpoint-comparison route surfaces, but live checkpoint-backed
-interactions, live command-state reconciliation, product visualization, and Playwright proof remain
-open. Phase `9` has its Sprint `9.12` code surface in place and has passed
+adds generic/checkpoint-comparison route surfaces plus the RL/training/adversarial
+visualization surface; it closed `✅ Done` on 2026-06-16 on that owned code
+surface, with live checkpoint-backed interactions, live command-state
+reconciliation, and Playwright proof owned downstream by Sprint `17.1` / `17.2`
+and the Phase `13`/`14` live lanes (rule E). Phase `9` has its Sprint `9.12` code surface in place and has passed
 linux-cpu, apple-silicon, and linux-cuda validation, so it is `✅ Done`.
 Phase `10` has its Sprint `10.6` code surface in place and has passed
 linux-cpu, linux-cuda, and apple-silicon validation, so it is `✅ Done`.
 The 2026-06-15 bootstrap image-rebuild blocker has a validated Dockerfile fix
 on the exact bootstrap-owned legacy-builder command, and all three live
-integration lanes passed 71 / 71. Phases `11`–`12` and `16` are `🔄 Active`;
-Phases `13`–`15` are `⏸️ Blocked` behind those remaining runtime/browser
-surfaces; and Phases `17`–`18` own interactive demo/Playwright closure and
-final no-caveat product
-handoff. Phases `0`–`10` are `✅ Done` on their owned foundational/framework
-surfaces.
+integration lanes passed 71 / 71. Phase `16` is `🔄 Active`; Phases `11`–`12`
+re-closed `✅ Done` on 2026-06-16 (Sprints `11.9` / `12.13` closed on their owned
+code surface, with the live-runtime obligations deduped to Phases `13`/`14`/`17`
+per rule E); Phases `13`–`15` are `⏸️ Blocked` behind the remaining
+runtime/browser surfaces; and Phases `17`–`18` own interactive demo/Playwright
+closure and final no-caveat product handoff. Phases `0`–`12` are `✅ Done` on
+their owned foundational/framework/frontend/test surfaces.
 
 **Reopened 2026-06-13 (Apple Silicon host-resident workload placement).** Phase
 `5` reopened and re-closed for Sprint `5.11`; Phase `12` reopened and re-closed

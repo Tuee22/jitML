@@ -854,9 +854,9 @@ None.
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/Report.hs`, `src/JitML/App.hs`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `README.md`
-**Blocked by**: Phase `9` Sprint `9.12`; Phase `10` Sprint `10.6`; Phase `11`
-Sprint `11.9`; Phase `12` Sprint `12.13`; Phase `13` Sprint `13.20`; Phase
-`14` Sprint `14.11`; Phase `16` Sprint `16.1`; Phase `17` Sprint `17.2`
+**Blocked by**: Phase `13` Sprint `13.20`; Phase `14` Sprint `14.11`; Phase `16`
+Sprint `16.1`; Phase `17` Sprint `17.2` (Phases `9`/`10`/`11`/`12` Sprints
+`9.12`/`10.6`/`11.9`/`12.13` are now `✅ Done` and no longer block this handoff)
 **Docs to update**: `README.md`, `documents/engineering/unit_testing_policy.md`,
 `documents/engineering/training_workloads.md`,
 `documents/engineering/purescript_frontend.md`, `system-components.md`,
