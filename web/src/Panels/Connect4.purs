@@ -402,6 +402,11 @@ component =
         , HP.classes [ H.ClassName "adversarial-rules" ]
         ]
         [ HH.div_ [ HH.text ("rules: " <> rulesSummary state.game.name) ]
+        , HH.ul
+            [ HP.id (panelName <> "-rules-detail")
+            , HP.classes [ H.ClassName "adversarial-rules-detail" ]
+            ]
+            (map (\line -> HH.li_ [ HH.text line ]) (gameRulesDetail state.game))
         , HH.div_ [ HH.text ("legal actions: " <> show legalCount) ]
         ]
 
@@ -411,6 +416,29 @@ component =
       "hex" -> "11x11 connection game; players race to join opposing board edges"
       "gomoku" -> "15x15 five-in-a-row game over rows, columns, and diagonals"
       _ -> "7-column gravity game; four connected stones wins"
+
+  -- Rules-complete per-game annotations: board size, win condition, and
+  -- move semantics for each canonical adversarial game, rendered as a
+  -- detail list alongside the one-line summary and live legal-action count.
+  gameRulesDetail game =
+    [ "board: " <> show game.rows <> " rows x " <> show game.cols <> " cols"
+    , "win condition: " <> winCondition game.name
+    , "move semantics: " <> moveSemantics game.name
+    ]
+
+  winCondition gameName =
+    case gameName of
+      "othello" -> "hold the majority of disks when neither player has a legal move"
+      "hex" -> "join your two opposing board edges with one unbroken chain of stones"
+      "gomoku" -> "place five stones in a row horizontally, vertically, or diagonally"
+      _ -> "connect four of your stones in a line before your opponent does"
+
+  moveSemantics gameName =
+    case gameName of
+      "othello" -> "place a disk that brackets and flips at least one opposing line"
+      "hex" -> "place one stone on any empty cell; there are no captures and no draws"
+      "gomoku" -> "place one stone on any empty intersection of the grid"
+      _ -> "drop a stone into a column; it falls to the lowest open cell"
 
   renderReplayControls state =
     HH.div

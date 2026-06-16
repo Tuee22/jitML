@@ -108,6 +108,30 @@ main =
             @?= WorkflowMatrix.WorkflowClusterJobExpected
           WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.RlTrain LinuxCUDA
             @?= WorkflowMatrix.WorkflowClusterJobExpected
+      , testCase
+          "browser product matrix enumerates every no-caveat interaction on every substrate (Sprint 12.13)"
+          $ do
+            let cells = WorkflowMatrix.browserProductMatrix
+            length cells
+              @?= length WorkflowMatrix.allBrowserProductInteractions
+              * length allSubstrates
+            assertBool
+              "every browser/product interaction x substrate cell is present"
+              ( and
+                  [ (interaction, substrate) `elem` cells
+                  | interaction <- WorkflowMatrix.allBrowserProductInteractions
+                  , substrate <- allSubstrates
+                  ]
+              )
+            assertBool
+              "every browser/product interaction carries a non-empty label"
+              ( not
+                  ( any
+                      (Text.null . WorkflowMatrix.browserProductInteractionLabel)
+                      WorkflowMatrix.allBrowserProductInteractions
+                  )
+              )
+            length WorkflowMatrix.browserAdversarialGames @?= 4
       , testCase "edge route registry includes demo and platform services" $ do
           let services = fmap routeServiceName routeRegistry
           assertBool "demo route present" ("jitml-demo" `elem` services)
@@ -193,6 +217,7 @@ main =
                 emptyReportMeasurements
                   { measuredSlFinalLoss = Just (MeasurementAvailable "mnist-shallow-mlp=0.125")
                   , measuredDaemonHealthz = Just MeasurementUnavailable
+                  , measuredBrowserProductMatrix = Just MeasurementUnavailable
                   }
               rendered = renderReportCard (ReportCard 8 0 0 measurements)
           assertBool "measurements block" ("measurements:" `isInfixOf` Text.unpack rendered)
@@ -202,6 +227,9 @@ main =
           assertBool
             "unavailable measurement"
             ("daemon_healthz: unavailable" `isInfixOf` Text.unpack rendered)
+          assertBool
+            "no-caveat browser product matrix row"
+            ("browser_product_matrix: unavailable" `isInfixOf` Text.unpack rendered)
       , testCase "cabal.project report-card knob block matches typed defaults (Sprint 12.9)" $ do
           cabalProject <- Text.IO.readFile "cabal.project"
           parseReportCardKnobs cabalProject @?= Right defaultReportCardKnobs

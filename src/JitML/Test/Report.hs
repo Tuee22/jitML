@@ -44,6 +44,12 @@ data ReportMeasurements = ReportMeasurements
   , measuredTuneBestObjective :: Maybe ReportMeasurement
   , measuredJitCacheHitRate :: Maybe ReportMeasurement
   , measuredDaemonHealthz :: Maybe ReportMeasurement
+  , measuredBrowserProductMatrix :: Maybe ReportMeasurement
+  -- ^ No-caveat browser/product matrix (Sprint 12.13): the live Playwright
+  -- product run over every model/product interaction cell. Reports
+  -- 'MeasurementUnavailable' until Phase `17` exercises the matrix live, so a
+  -- live report card that has not proven the browser product surface fails the
+  -- no-caveat handoff rather than vacuously omitting the row.
   }
   deriving stock (Eq, Show)
 
@@ -83,6 +89,7 @@ emptyReportMeasurements =
     , measuredTuneBestObjective = Nothing
     , measuredJitCacheHitRate = Nothing
     , measuredDaemonHealthz = Nothing
+    , measuredBrowserProductMatrix = Nothing
     }
 
 reportStanzas :: [Text]
@@ -225,6 +232,7 @@ renderMeasurements measurements
         <> measurementLine "tune_best_objective" (measuredTuneBestObjective measurements)
         <> measurementLine "jit_cache_hit_rate" (measuredJitCacheHitRate measurements)
         <> measurementLine "daemon_healthz" (measuredDaemonHealthz measurements)
+        <> measurementLine "browser_product_matrix" (measuredBrowserProductMatrix measurements)
 
 hasMeasurements :: ReportMeasurements -> Bool
 hasMeasurements measurements =
@@ -236,6 +244,7 @@ hasMeasurements measurements =
     , measuredTuneBestObjective measurements
     , measuredJitCacheHitRate measurements
     , measuredDaemonHealthz measurements
+    , measuredBrowserProductMatrix measurements
     ]
  where
   isMeasured Nothing = False

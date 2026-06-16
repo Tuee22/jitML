@@ -9,7 +9,7 @@ module Panels.Rl where
 import Prelude
 
 import Data.Array as Array
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Generated.Contracts as Contracts
@@ -171,6 +171,7 @@ component =
           , HP.classes [ H.ClassName "episodes" ]
           ]
           (map renderEpisodeFrame state.frames)
+      , renderAnimation state
       , renderPolicy state
       , renderReplay state
       , renderCommandStatus state
@@ -233,6 +234,94 @@ component =
           []
       , HH.span_ [ HH.text (show probability) ]
       ]
+
+  -- Live environment animation. Drives a CSS-transform scene from the
+  -- most-recent typed `RlAnimationFrame.observation`: a cart-pole render
+  -- for cartpole environments, a per-dimension observation strip for
+  -- every other environment, plus a recent-reward sparkline. Pure
+  -- HTML+CSS so it needs no canvas/svg dependency; the inline `style`
+  -- bindings mirror the existing policy/loss bar idiom.
+  degreesPerRadian :: Number
+  degreesPerRadian = 57.29577951308232
+
+  clampPercent :: Number -> Number
+  clampPercent value = max 0.0 (min 100.0 value)
+
+  renderAnimation state =
+    case Array.last state.frames of
+      Nothing -> HH.div_ []
+      Just frame ->
+        HH.div
+          [ HP.id (panelName <> "-animation")
+          , HP.classes [ H.ClassName "rl-animation" ]
+          ]
+          [ renderScene frame
+          , renderObservationStrip frame
+          , renderRewardSparkline state.frames
+          ]
+
+  renderScene frame =
+    if frame.environment == "cartpole" then
+      let
+        cartPosition = fromMaybe 0.0 (Array.index frame.observation 0)
+        poleAngle = fromMaybe 0.0 (Array.index frame.observation 2)
+        cartLeftPercent = clampPercent (50.0 + (cartPosition / 2.4) * 40.0)
+        poleDegrees = poleAngle * degreesPerRadian
+      in
+        HH.div
+          [ HP.id (panelName <> "-scene")
+          , HP.classes [ H.ClassName "rl-scene", H.ClassName "rl-scene-cartpole" ]
+          ]
+          [ HH.div [ HP.classes [ H.ClassName "rl-track" ] ] []
+          , HH.div
+              [ HP.classes [ H.ClassName "rl-cart" ]
+              , HP.style ("left: " <> show cartLeftPercent <> "%")
+              ]
+              [ HH.div
+                  [ HP.classes [ H.ClassName "rl-pole" ]
+                  , HP.style ("transform: rotate(" <> show poleDegrees <> "deg)")
+                  ]
+                  []
+              ]
+          ]
+    else
+      HH.div
+        [ HP.id (panelName <> "-scene")
+        , HP.classes [ H.ClassName "rl-scene", H.ClassName "rl-scene-generic" ]
+        ]
+        [ HH.div_ [ HH.text ("environment: " <> frame.environment) ] ]
+
+  renderObservationStrip frame =
+    HH.div
+      [ HP.id (panelName <> "-observation-strip")
+      , HP.classes [ H.ClassName "rl-observation-strip" ]
+      ]
+      (Array.mapWithIndex renderObservationBar frame.observation)
+
+  renderObservationBar index value =
+    HH.div
+      [ HP.classes [ H.ClassName "rl-observation-bar" ] ]
+      [ HH.div
+          [ HP.classes [ H.ClassName "rl-observation-bar-fill" ]
+          , HP.style ("height: " <> show (clampPercent (50.0 + value * 25.0)) <> "%")
+          ]
+          []
+      , HH.span_ [ HH.text ("x" <> show index) ]
+      ]
+
+  renderRewardSparkline frames =
+    HH.div
+      [ HP.id (panelName <> "-reward-sparkline")
+      , HP.classes [ H.ClassName "rl-reward-sparkline" ]
+      ]
+      (map renderRewardBar (Array.takeEnd 40 frames))
+
+  renderRewardBar frame =
+    HH.div
+      [ HP.classes [ H.ClassName "rl-reward-bar" ]
+      , HP.style ("height: " <> show (clampPercent (frame.reward * 10.0)) <> "%")
+      ]
+      []
 
   renderReplay state =
     case Array.index state.replayFrames state.replayIndex of

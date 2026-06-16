@@ -16,7 +16,12 @@ module JitML.Test.WorkflowMatrix
   ( Workflow (..)
   , WorkflowCell (..)
   , WorkflowPlacementExpectation (..)
+  , BrowserProductInteraction (..)
   , allWorkflows
+  , allBrowserProductInteractions
+  , browserAdversarialGames
+  , browserProductInteractionLabel
+  , browserProductMatrix
   , workflowCommand
   , workflowMatrix
   , workflowPlacementExpectation
@@ -100,5 +105,63 @@ workflowMatrix :: [WorkflowCell]
 workflowMatrix =
   [ WorkflowCell workflow substrate (workflowCommand workflow substrate)
   | workflow <- allWorkflows
+  , substrate <- allSubstrates
+  ]
+
+-- | The no-caveat browser/product interactions (Sprint 12.13 / Phase `17`) the
+-- live Playwright product matrix must exercise: every model/product cell the
+-- demo app exposes, from training launch and checkpoint inspection through
+-- model-family inference, RL animation/replay, adversarial play/replay, and
+-- tuning control/promotion. The live e2e runner iterates this crossed with
+-- every substrate ('browserProductMatrix') and fails closed on any cell whose
+-- real browser interaction is missing; this enumeration is the host-validatable
+-- structure those tests share, mirroring 'Workflow' / 'workflowMatrix'.
+data BrowserProductInteraction
+  = BrowserTrainingLaunch
+  | BrowserTrainingCheckpointOpen
+  | BrowserMnistInference
+  | BrowserImageUploadInference
+  | BrowserGenericInference
+  | BrowserCheckpointCompare
+  | BrowserRlAnimation
+  | BrowserRlTrajectoryReplay
+  | BrowserAdversarialPlay
+  | BrowserAdversarialReplay
+  | BrowserTuningSweepControl
+  | BrowserTuningTrialPromote
+  deriving stock (Eq, Show, Enum, Bounded)
+
+allBrowserProductInteractions :: [BrowserProductInteraction]
+allBrowserProductInteractions = [minBound .. maxBound]
+
+-- | The canonical adversarial games whose boards, legal moves, MCTS visit
+-- distributions, and interactive replay the adversarial product cells cover.
+browserAdversarialGames :: [Text]
+browserAdversarialGames = ["connect4", "othello", "hex", "gomoku"]
+
+-- | Human-readable description of each browser/product interaction, used by the
+-- live report card / e2e assertions; never empty.
+browserProductInteractionLabel :: BrowserProductInteraction -> Text
+browserProductInteractionLabel interaction = case interaction of
+  BrowserTrainingLaunch -> "launch every canonical SL training workflow and observe live events"
+  BrowserTrainingCheckpointOpen -> "open the produced checkpoint and inspect its metadata"
+  BrowserMnistInference -> "run MNIST stroke inference through the checkpoint"
+  BrowserImageUploadInference -> "upload CIFAR / Tiny ImageNet images and classify them"
+  BrowserGenericInference -> "run generic tensor inference through a checkpoint"
+  BrowserCheckpointCompare -> "swap and compare two checkpoints' outputs"
+  BrowserRlAnimation -> "animate live RL environment frames and reward distributions"
+  BrowserRlTrajectoryReplay -> "record an RL trajectory and scrub/replay it"
+  BrowserAdversarialPlay -> "play every canonical game against a checkpointed AlphaZero policy"
+  BrowserAdversarialReplay -> "replay a completed game from its persisted transcript"
+  BrowserTuningSweepControl -> "launch and control a bounded tuning sweep with live frontier/heatmap"
+  BrowserTuningTrialPromote -> "promote a trial to a checkpointed run and verify it is usable"
+
+-- | Every browser/product interaction crossed with every substrate, in
+-- deterministic order — the per-substrate product matrix the live Playwright
+-- lane iterates.
+browserProductMatrix :: [(BrowserProductInteraction, Substrate)]
+browserProductMatrix =
+  [ (interaction, substrate)
+  | interaction <- allBrowserProductInteractions
   , substrate <- allSubstrates
   ]

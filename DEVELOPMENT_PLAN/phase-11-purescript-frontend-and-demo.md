@@ -738,7 +738,18 @@ surface and validates it locally:
   transcript scrub controls, MCTS visit/policy/value details, and tuning
   trial/frontier summaries instead of placeholder canvases or raw text-only
   frame dumps.
-- Validated so far: `docker compose run --rm jitml jitml lint purescript`;
+- The RL panel additionally drives a CSS-transform live environment animation
+  (a cart-pole scene driven by the cart position / pole angle, a per-dimension
+  observation strip, and a recent-reward sparkline) from
+  `RlAnimationFrame.observation`; the training panel adds a window-normalized
+  throughput-telemetry sparkline from `TrainingEventFrame.throughput`; and the
+  adversarial panel adds rules-complete per-game annotations (board size, win
+  condition, and move semantics) for Connect 4, Othello, Hex, and Gomoku. These
+  pure HTML+CSS render surfaces reuse the established `HP.style` bar idiom and
+  add no canvas/svg dependency.
+- Validated so far (the `jitml lint purescript` gate was re-run after the
+  2026-06-15 visualization additions and is green):
+  `docker compose run --rm jitml jitml lint purescript`;
   `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu` (22 / 22,
   including the no-publication command-route 503 assertion, injected
   checkpoint-runtime REST route assertions, generic tensor inference, and
@@ -756,13 +767,15 @@ surface and validates it locally:
   brokers on `linux-cpu`, `linux-cuda`, and `apple-silicon`; extend the
   protocol / UI beyond current start/stop/kill mappings to pause, resume,
   promote, and adversarial-game command topics.
-- Finish the product visualizations beyond the current loss bars,
-  frame-level training metadata, action-probability bars, replay scrub summary,
-  adversarial board selection, local transcript scrub controls, rule summaries,
-  MCTS summaries, and tuning heatmap/frontier: richer device telemetry, RL
-  animation canvases, replay artifact selection, persisted transcript-backed
-  adversarial replay, and rules-complete per-game annotations from recorded
-  engine transcripts.
+- The RL animation canvas (CSS-transform cart-pole scene plus per-dimension
+  observation strip and recent-reward sparkline), the training
+  throughput-telemetry sparkline, and rules-complete per-game adversarial
+  annotations now render and are lint-validated through `jitml lint purescript`.
+  The remaining product-visualization work is replay artifact selection,
+  persisted transcript-backed adversarial replay from recorded engine
+  transcripts, and live Playwright proof of every animation/render on
+  `linux-cpu`, `linux-cuda`, and `apple-silicon` after Phase `16` supplies the
+  train/checkpoint/reload/evaluate artifacts.
 - Expand Playwright and the `jitml-e2e` live path to exercise those browser
   behaviours on `linux-cpu`, `linux-cuda`, and `apple-silicon` after Phase
   `16` supplies the full train/checkpoint/reload/evaluate artifacts.

@@ -9,7 +9,7 @@ module Panels.Training where
 import Prelude
 
 import Data.Array as Array
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Generated.Contracts as Contracts
@@ -110,6 +110,7 @@ component =
       , HH.h2_ [ HH.text "Training progress" ]
       , renderControls
       , renderLossChart state.frames
+      , renderThroughputSparkline state.frames
       , renderLatestMetadata state.frames
       , HH.table
           [ HP.id (panelName <> "-table")
@@ -202,6 +203,31 @@ component =
           , HP.href url
           ]
           [ HH.text ("tensorboard: " <> url) ]
+
+  -- Throughput telemetry sparkline normalized against the window peak so
+  -- the relative samples/sec trend is legible regardless of absolute
+  -- magnitude. Pure HTML+CSS bars, matching the loss-chart idiom.
+  renderThroughputSparkline frames =
+    let
+      recent = Array.takeEnd 40 frames
+      peak = fromMaybe 1.0 (Array.last (Array.sort (map _.throughput recent)))
+    in
+      HH.div
+        [ HP.id (panelName <> "-throughput")
+        , HP.classes [ H.ClassName "throughput-sparkline" ]
+        ]
+        (map (renderThroughputBar peak) recent)
+
+  renderThroughputBar peak frame =
+    HH.div
+      [ HP.classes [ H.ClassName "throughput-bar" ]
+      , HP.style ("height: " <> show (heightPercent peak frame.throughput) <> "%")
+      ]
+      []
+
+  heightPercent peak value =
+    if peak <= 0.0 then 0.0
+    else max 0.0 (min 100.0 (value / peak * 100.0))
 
   renderCommandStatus state =
     case state.commandStatus of

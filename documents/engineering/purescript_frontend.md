@@ -196,8 +196,9 @@ those routes still fail closed with `503 checkpoint-required`. The Connect 4 pan
 now acts as the adversarial-games panel: it selects Connect 4, Othello, Hex,
 or Gomoku, renders the corresponding board dimensions from the move
 transcript, displays the typed MCTS/value response, renders per-game rule
-summaries and legal-action counts, and exposes prev/next scrub controls over
-the local move transcript.
+summaries plus rules-complete per-game annotations (board size, win condition,
+and move semantics), live legal-action counts, and exposes prev/next scrub
+controls over the local move transcript.
 The training, RL, and tuning panels post generated
 workflow command envelopes to `/api/runs/<run-id>/command`, parse
 `WorkflowCommandAck`, and render generated `WorkflowStatus` records for
@@ -207,9 +208,15 @@ when no live publication exists; with a publication it resolves the browser
 start/stop envelopes to the matching daemon command topic. Live-backed
 cross-session status reconciliation remains Phase `17` work. The training
 panel renders the latest throughput/device/checkpoint and
-TensorBoard fields from `TrainingEventFrame`; the RL panel parses both
-animation and replay frames and exposes prev/next replay scrub controls over
-the received `RlReplayFrame` list. `Panels.Stream` opens the live
+TensorBoard fields from `TrainingEventFrame` plus a window-normalized
+throughput-telemetry sparkline; the RL panel parses both
+animation and replay frames, drives a CSS-transform live environment animation
+(a cart-pole scene plus a per-dimension observation strip and a recent-reward
+sparkline) from `RlAnimationFrame.observation`, and exposes prev/next replay
+scrub controls over the received `RlReplayFrame` list. These render surfaces
+compile and pass the contract spec through `jitml lint purescript`; live
+Playwright product proof of the animations is Phase `17` work. `Panels.Stream`
+opens the live
 WebSocket route, reports connection failures through typed actions, and the
 RL/training/tune panels convert incoming frame text through generated stream
 parsers instead of storing raw frame strings.

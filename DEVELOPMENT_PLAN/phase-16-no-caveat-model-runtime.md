@@ -87,6 +87,30 @@ currently narrowed Dense-MLP / selected-RL subset.
 - `docker compose run --rm jitml jitml check-code`
 - `docker compose run --rm jitml jitml docs check`
 
+### Current Validation State
+
+Assessed 2026-06-15 on the `linux-cpu` lane (this x86_64 dev host has no
+`apple-silicon`):
+
+- `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu`
+  passes 24 / 24. The `JitML.SL.Architecture` runtime maps all 11 canonical SL
+  rows and executes a **substrate-backed train step** for every one
+  (`all canonical SL architectures execute a substrate-backed train step`), and
+  every row materializes its staged dataset bytes and trains through the
+  substrate runtime (`live all canonical SL rows materialize staged bytes …`).
+  The **Dense MNIST** row additionally trains to its literature-derived
+  convergence threshold on-device (`live MNIST SL training clears the convergence
+  threshold`).
+- What remains for no-caveat closure of the SL half is the gap between an
+  executed train step and **per-row median convergence**: the deeper rows
+  (`Conv2D`/LeNet, `ResidualBlock`, `ResidualBlock20`/`56`, `WideResidualBlock`,
+  `VisionTransformer`, `ResidualBlock50`/ResNet-50) are not yet asserted to reach
+  their literature thresholds, and the heavy rows realistically need the
+  `linux-cuda` lane (ResNet-50 / ViT to convergence is impractical on the CPU
+  container) plus the `apple-silicon` lane (Mac hardware, unavailable here). The
+  RL-catalog / AlphaZero real-evaluator / real-tuning halves below are likewise
+  not yet exercised through this assessment.
+
 ### Remaining Work
 
 - Phase `8` provides the all-row trainable SL architecture runtime, live

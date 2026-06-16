@@ -1147,13 +1147,43 @@ instead of structural reachability plus a few REST assertions.
 - `docker compose run --rm jitml jitml docs check`
 - `docker compose run --rm jitml jitml check-code`
 
+### Current Validation State
+
+The 2026-06-15 Sprint `12.13` slice lands the host-validatable Haskell structure
+for the no-caveat browser/product matrix:
+
+- `JitML.Test.WorkflowMatrix` now enumerates the no-caveat browser/product cells
+  alongside the existing per-substrate workflow matrix: a `BrowserProductInteraction`
+  type (training launch, checkpoint open, MNIST/image/generic inference,
+  checkpoint compare, RL animation, RL trajectory replay, adversarial play,
+  adversarial replay, tuning sweep control, tuning trial promote), the
+  `browserAdversarialGames` list (Connect 4, Othello, Hex, Gomoku), per-cell
+  `browserProductInteractionLabel` descriptions, and `browserProductMatrix`
+  crossing every interaction with every substrate — the DRY structure the live
+  Playwright lane iterates.
+- `JitML.Test.Report.ReportMeasurements` gains a `measuredBrowserProductMatrix`
+  field; the live collector (`collectLiveReportMeasurements`) reports it
+  `MeasurementUnavailable` until Phase `17` exercises the matrix live, so a live
+  report card that has not proven the browser product surface keeps the
+  no-caveat handoff honestly open (Sprint `18.1`) instead of omitting the row.
+- Validated: `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
+  (23 / 23, including the new "browser product matrix enumerates every no-caveat
+  interaction on every substrate" case and the `browser_product_matrix: unavailable`
+  report-card assertion); `docker compose run --rm jitml jitml check-code`.
+
 ### Remaining Work
 
-- Replace panel-visibility tests with workflow-launch, event, checkpoint,
-  inference, animation, replay, and control assertions.
-- Extend `LivePlan` / `WorkflowMatrix` to enumerate every model/product cell and
-  fail closed on any missing live artifact.
-- Add report-card fields for the no-caveat browser/product matrix.
+- Replace panel-visibility Playwright tests with workflow-launch, event,
+  checkpoint, inference, animation, replay, and control assertions. The
+  `playwright/jitml-demo.spec.ts` product matrix is live-only and cannot be
+  exercised on this `linux-cpu`/`linux-cuda` dev host without a bootstrapped
+  cluster (and never on `apple-silicon` here); it lands and validates with the
+  Phase `17` browser closure and the Phase `13`/`14` live lanes.
+- Wire the live e2e runner to fail closed on any missing `browserProductMatrix`
+  cell artifact (the enumeration is in place; the live execution that asserts a
+  real browser interaction per cell is Phase `17`/`13`/`14` work).
+- Populate `measuredBrowserProductMatrix` with a real measured value once the
+  live Playwright product run lands (Phase `17`).
 
 ## Doctrine Sections Cited
 

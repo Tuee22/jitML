@@ -3433,6 +3433,7 @@ collectLiveReportMeasurements = do
   tuneObjective <- measureTuneBestObjective
   cacheHitRate <- measureJitCacheHitRate
   daemonHealth <- measureDaemonHealthz
+  browserMatrix <- measureBrowserProductMatrix
   pure
     ReportMeasurements
       { measuredSlFinalLoss = Just slLoss
@@ -3441,6 +3442,7 @@ collectLiveReportMeasurements = do
       , measuredTuneBestObjective = Just tuneObjective
       , measuredJitCacheHitRate = Just cacheHitRate
       , measuredDaemonHealthz = Just daemonHealth
+      , measuredBrowserProductMatrix = Just browserMatrix
       }
 
 measureSlFinalLoss :: App ReportMeasurement
@@ -3537,6 +3539,15 @@ measureDaemonHealthz = do
                 MeasurementAvailable
                   ("http://127.0.0.1:" <> Text.pack (show edgePort) <> "/healthz status=200")
           _ -> MeasurementUnavailable
+
+-- | The no-caveat browser/product matrix (Sprint 12.13) is reported
+-- 'MeasurementUnavailable' until Phase `17`'s live Playwright product run
+-- exercises every model/product interaction cell. Reporting it unavailable
+-- keeps the no-caveat handoff honestly open (Sprint 18.1 requires no
+-- unavailable product row when the lane hardware is present) rather than
+-- vacuously omitting the row from the live report card.
+measureBrowserProductMatrix :: App ReportMeasurement
+measureBrowserProductMatrix = pure MeasurementUnavailable
 
 measuredShow :: (Show a) => Text -> a -> ReportMeasurement
 measuredShow prefix value =
