@@ -20,11 +20,11 @@
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
-[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
-[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
-[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
-[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
+[phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md),
+[phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md),
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md),
+[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
+[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md)
 **Generated sections**: none
@@ -42,6 +42,32 @@ See [development_plan_standards.md](development_plan_standards.md) for the
 maintenance rules that govern this plan suite.
 
 ## Closure Status
+
+**Phase renumbering (2026-06-16 — forward-DAG / single-accelerator doctrine).**
+The closure phases were reordered into a strict forward chain so that no later
+phase blocks an earlier one, each phase closes on at most one accelerator plus
+`linux-cpu` on a single host, and the plan is workable in numerical order
+(standards [rule M](development_plan_standards.md)). The runtime/browser phases
+that the live lanes depend on now precede them. Old→new phase map:
+
+| Old | New | Phase |
+|---|---|---|
+| 16 | **13** | No-Caveat Model Runtime Closure (`linux-cpu`) |
+| 17 | **14** | Interactive Demo + Playwright (`linux-cpu`) |
+| 13 | **15** | Linux CUDA + Cluster Live Closure (`linux-cpu`+`linux-cuda`) |
+| 14 | **16** | Apple Silicon Live Closure (`linux-cpu`+`apple-silicon`) |
+| 15 | **17** | Within-Substrate Reproducibility (`linux-cpu` aggregation) |
+| 18 | 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) |
+
+Phases `0`–`12` are unchanged. Sprint identifiers were renumbered with their
+phase (e.g. old `13.20` → new `15.20`, old `16.1` → new `13.1`). **All phase and
+sprint numbers throughout this plan, including the dated history below, use the
+new numbering**; entries dated before 2026-06-16 describe events that occurred
+under the old numbering but are written here with the new numbers for
+consistency. After the renumber every `Blocked by`/dependency edge references a
+strictly lower number, and the only phase that touches all three substrates
+(Phase `18`) does so by `linux-cpu` aggregation of per-lane attestations, never by
+running two accelerators on one host.
 
 **Session re-validation (2026-06-16 — Apple M1 Max host; runnable lanes only).**
 A full runnable-lane validation pass ran on an Apple M1 Max workstation (macOS,
@@ -73,7 +99,7 @@ hardware-blocked and was not re-claimed on this host.
   anonymous-pull rate limit, an environmental flake, not a product defect);
   `jitml-e2e --linux-cpu` **23/23**.
 - **Playwright product matrix — `6/11` against the live `linux-cpu` edge; Phase
-  `17` confirmed genuinely incomplete.** The static panels (portals home, shared
+  `14` confirmed genuinely incomplete.** The static panels (portals home, shared
   header, RL timeline, training loss curve, tune heatmap) pass; the five
   checkpoint-backed panels (MNIST inference, generic inference, CIFAR upload,
   checkpoint compare, Connect 4 move) fail with `HTTP 503`. Two real,
@@ -86,16 +112,16 @@ hardware-blocked and was not re-claimed on this host.
   per-panel inference checkpoints are persisted/served — the `jitml-checkpoints`
   bucket holds only RL/AlphaZero/tune/workflow-matrix artifacts, none at the
   experiment hashes the browser panels request. Both are recorded as Sprint
-  `17.1` Remaining Work (with Sprint `16.1` owning per-family checkpoint
+  `14.1` Remaining Work (with Sprint `13.1` owning per-family checkpoint
   persistence).
-- **Status unchanged.** Phase `16` stays `🔄 Active`; Phases `13`–`15`, `17`–`18`
+- **Status unchanged.** Phase `13` stays `🔄 Active`; Phases `15`–`17`, `14` and `18`
   stay `⏸️ Blocked`. Nothing closed: the no-caveat closure still needs the
   `linux-cuda` lane (absent hardware), deep-model (`ResNet-50`/`ViT`) **median
   convergence** (impractical without the GPU lane), the full RL-catalog / 4-game
   AlphaZero-arena / all-model-family checkpoint-inference breadth, and the
   checkpoint-backed browser surface above. The `apple-silicon` live cluster lane
-  (Phase `14.11`) was not re-exercised this session and remains blocked by Phases
-  `16`/`17` regardless.
+  (Phase `16.11`) was not re-exercised this session and remains blocked by Phases
+  `13`/`14` regardless.
 
 **Closure update (2026-06-16 — Phases `11` and `12` re-closed `✅ Done`).**
 Sprints `11.9` (Full Interactive Demo Surface) and `12.13` (Playwright No-Caveat
@@ -103,18 +129,18 @@ E2E Matrix) closed on their **owned** surfaces, so Phases `11` and `12` are
 `✅ Done` again. Both sprints' remaining bullets were exclusively live-runtime
 proof already owned by downstream sprints, so they were deduped to those owners
 per standards rule E (one obligation, one place) and the live-obligation
-consolidation doctrine (Phases `13`–`15` extract every live-runtime obligation
+consolidation doctrine (Phases `15`–`17` extract every live-runtime obligation
 from Phases `7`–`12`): the live checkpoint-backed REST / command-publication /
 status-reconciliation / pause-resume-promote / replay surfaces are owned by
-Sprint `17.1`; the live Playwright product matrix by Sprint `17.2`; and the
-per-lane live execution by Sprint `13.20` (`linux-cpu` / `linux-cuda`) and Sprint
-`14.11` (`apple-silicon`). `11.9` landed the RL environment animation, training
+Sprint `14.1`; the live Playwright product matrix by Sprint `14.2`; and the
+per-lane live execution by Sprint `15.20` (`linux-cpu` / `linux-cuda`) and Sprint
+`16.11` (`apple-silicon`). `11.9` landed the RL environment animation, training
 throughput-telemetry, and rules-complete adversarial annotations (validated by
 `jitml lint purescript` + the contract spec); `12.13` landed the
 `JitML.Test.WorkflowMatrix.browserProductMatrix` enumeration and the
 `browser_product_matrix` report-card field (validated by `jitml-e2e --linux-cpu`
-23 / 23 and `check-code`). Phase `16` stays `🔄 Active`; Phases `13`–`15` and
-`17`–`18` stay `⏸️ Blocked`, now with `11.9` / `12.13` removed from their
+23 / 23 and `check-code`). Phase `13` stays `🔄 Active`; Phases `15`–`17` and
+`14` and `18` stay `⏸️ Blocked`, now with `11.9` / `12.13` removed from their
 `Blocked by` lines.
 
 **Reopen note (2026-06-14 — no-caveat end-to-end product target).** The current
@@ -153,14 +179,14 @@ Therefore:
 - **Phases `11` and `12` were `🔄 Active`** for Sprints `11.9` and `12.13` at
   this 2026-06-14 reopen; both re-closed `✅ Done` on 2026-06-16 — see the
   2026-06-16 closure update at the top of this section. Their live-runtime
-  obligations were deduped to Sprints `17.1` / `17.2` / `13.20` / `14.11` per
+  obligations were deduped to Sprints `14.1` / `14.2` / `15.20` / `16.11` per
   rule E.
-- **Phases `13`, `14`, and `15` reopen from `✅ Done` to `⏸️ Blocked`** because
+- **Phases `15`, `16`, and `17` reopen from `✅ Done` to `⏸️ Blocked`** because
   their live validation and handoff obligations depend on the remaining browser,
   model-runtime, and product-handoff surfaces.
-- **Phases `16`, `17`, and `18` are added.** Phase `16` owns full no-caveat
+- **Phases `13`, `14`, and `18` are added.** Phase `13` owns full no-caveat
   model runtime closure and is now `🔄 Active` because Phases `8`–`10` have
-  re-closed; Phase `17` owns the interactive demo plus Playwright product
+  re-closed; Phase `14` owns the interactive demo plus Playwright product
   matrix, and Phase `18` owns final all-substrate no-caveat handoff.
 - **Phases `0`–`7` stay `✅ Done`** on their owned surfaces. Their architecture
   remains the foundation for the expanded runtime and browser work.
@@ -190,13 +216,13 @@ macOS fixed Metal bridge. Linux CPU remained closed; the full
   `jitml-rl-*` or sibling Linux Jobs. The focused Linux CPU dispatch selectors
   still observe legal Jobs; the focused Apple selectors now observe host-command
   forwarding and no workload Jobs.
-- **Phase `14` reopened and re-closed `✅ Done`** for Sprint `14.10`, validating
+- **Phase `16` reopened and re-closed `✅ Done`** for Sprint `16.10`, validating
   the Apple host-resident workload path against a live Apple cluster through
   `bootstrap/apple-silicon.sh test`.
-- **Phase `15` reopened and re-closed `✅ Done`** for Sprint `15.7`; the
+- **Phase `17` reopened and re-closed `✅ Done`** for Sprint `17.7`; the
   placement ledger row moved to `Completed`, Pending Removal is empty, and final
   handoff is revalidated.
-- **Phases `0`–`13` stay `✅ Done`** on their owned surfaces. The RL/SL/tuning
+- **Phases `0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, `12`, and `15` stay `✅ Done`** on their owned surfaces. The RL/SL/tuning
   code already selected the correct Apple device; the defect was illegal
   residency, now fixed by host-command placement.
 
@@ -225,14 +251,14 @@ unlock a login keychain, or depend on a GUI session. Therefore:
 - **Phase `7` reopened and re-closed on 2026-06-12** for Sprint `7.11`,
   replacing generated Swift/Tart cache misses with `.metal.json` + fixed bridge
   execution.
-- **Phase `14` reopened and re-closed on 2026-06-12** for Sprint `14.9`,
+- **Phase `16` reopened and re-closed on 2026-06-12** for Sprint `16.9`,
   validating the Apple backend/e2e/WorkflowMatrix lane through the fixed bridge
   against a live Apple cluster.
-- **Phase `15` reopened and re-closed on 2026-06-12** for Sprints `15.5` /
-  `15.6`: the fixed-bridge Apple lane passes and
+- **Phase `17` reopened and re-closed on 2026-06-12** for Sprints `17.5` /
+  `17.6`: the fixed-bridge Apple lane passes and
   [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal)
   is empty again.
-- **Phases `0`, `3`, `4`, `6`, `8`, `9`, `10`, `11`, `12`, and `13` stay
+- **Phases `0`, `3`, `4`, `6`, `8`, `9`, `10`, `11`, `12`, and `15` stay
   `✅ Done`** on their owned surfaces. The Linux lanes and real-workflow code
   surfaces remain closed; the reopen is Apple host-JIT architecture only.
 
@@ -260,7 +286,7 @@ compile → load → real `jitml_mlp_*` kernels) exists and is backend-tested in
   is absent — offline is no longer a supported mode). As of 2026-06-12,
   Phases `8`, `9`, `10`, `11`, and `12` have re-closed; Phase `12` closed with
   the Sprint `12.11` live WorkflowMatrix gate.
-- **Phases `13`, `14`, `15` reopen from `✅ Done` to `🔄 Active`** on their
+- **Phases `15`, `16`, `17` reopen from `✅ Done` to `🔄 Active`** on their
   **live-runtime validation** surfaces (re-exercise every reopened workflow for
   real on `linux-cpu`/`linux-cuda`, on `apple-silicon`, and in final handoff).
   As of 2026-06-12, all three have re-closed.
@@ -272,23 +298,23 @@ compile → load → real `jitml_mlp_*` kernels) exists and is backend-tested in
   substrate-backed JIT, no synthetic fallback, real demo output, and DRY real
   per-substrate integration/e2e). The Pending-Removal ledger is empty again as
   of 2026-06-12 after Sprint `12.11` moved the final cleanup row to
-  `Completed`; final handoff then re-closed after the Phase `14` fixed-bridge
-  Apple lane and Phase `15` ledger walk-down passed. The 2026-06-12 fixed-bridge
-  reopen above added Sprints `1.15`, `2.12`, `5.10`, `7.11`, `14.9`, `15.5`,
-  and `15.6`, all of which closed before the 2026-06-13 placement reopen.
+  `Completed`; final handoff then re-closed after the Phase `16` fixed-bridge
+  Apple lane and Phase `17` ledger walk-down passed. The 2026-06-12 fixed-bridge
+  reopen above added Sprints `1.15`, `2.12`, `5.10`, `7.11`, `16.9`, `17.5`,
+  and `17.6`, all of which closed before the 2026-06-13 placement reopen.
 
 The historical closure narrative below is retained as fact about the prior
 (synthetic) state; it no longer describes the current status.
 
-**Reopen note (2026-06-08; updated 2026-06-09)**: Phases `1`, `12`, `13`, `14`,
-and `15` reopened from `✅ Done` to `🔄 Active` after the project owner clarified
+**Reopen note (2026-06-08; updated 2026-06-09)**: Phases `1`, `12`, `15`, `16`,
+and `17` reopened from `✅ Done` to `🔄 Active` after the project owner clarified
 the reproducibility contract: **within a substrate the contract is bit-for-bit
 reproducibility; across substrates there is no guarantee** (RNG draws and float
 reduction order differ between vendor BLAS/DNN libraries). The cross-substrate
-*numeric parity / tolerance* surface delivered by Phase `15` Sprints `15.1`
+*numeric parity / tolerance* surface delivered by Phase `17` Sprints `17.1`
 (`src/JitML/Engines/Tolerance.hs`, `JitML.CrossBackend.Parity`, the
 `CrossSubstrate` weighted-drift tests, the `jitml verify cross-backend` command)
-and `15.2` (the report-card `cross_substrate_parity` field) asserts a guarantee
+and `17.2` (the report-card `cross_substrate_parity` field) asserts a guarantee
 the project does not make and was removed.
 
 **On 2026-06-09 the entire source/code removal landed and was validated** on the
@@ -308,9 +334,9 @@ container `jitml check-code` and `jitml docs check` green, `jitml-unit`
 the **`linux-cpu` lane 10 / 10** (oneDNN in the `jitml` container, no skips) each
 selecting only their substrate's cases.
 
-Status after that work: **Phase `1` (Sprint `1.13`) and Phase `14` (Sprint
-`14.6`) re-closed `✅ Done`.** Phases `12` (Sprint `12.10`), `13` (Sprint
-`13.16`), and `15` (Sprint `15.4`) stayed `🔄 Active` on one shared remaining
+Status after that work: **Phase `1` (Sprint `1.13`) and Phase `16` (Sprint
+`16.6`) re-closed `✅ Done`.** Phases `12` (Sprint `12.10`), `15` (Sprint
+`15.16`), and `17` (Sprint `17.4`) stayed `🔄 Active` on one shared remaining
 obligation — the live `linux-cuda` lane on real NVIDIA hardware — which the
 Apple Silicon development host could not provide. **On 2026-06-09 that lane was
 re-validated for real on the NVIDIA GeForce RTX 5090 host** (UUID
@@ -326,17 +352,17 @@ lanes directly via an explicit `--apple-silicon | --linux-cpu | --linux-cuda`
 flag — it restricts the partitioned `jitml-backends` stanza to the chosen lane,
 runs pure-logic stanzas in full, and on `--linux-cuda` adds `-fcuda` itself — so
 `bootstrap/<substrate>.sh test` runs each lane end-to-end without a hand-passed
-cabal flag**). With that run, **Phases `12`, `13`, and `15`
-re-closed `✅ Done`**, so all Phases `0`–`15` are now `✅ Done`; the `linux-cuda`
+cabal flag**). With that run, **Phases `12`, `15`, and `17`
+re-closed `✅ Done`**, so all Phases `0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, `12`, `15`, `16`, and `17` are now `✅ Done`; the `linux-cuda`
 half of the skip-guard removal row moved to `Completed` (the other five
 parity-removal rows were already `Completed`), the legacy ledger is empty, **Exit
 Definition item 18 (empty legacy ledger) is met, and the final handoff is
 complete.**
 
-**Reopen note (2026-06-06, re-closed 2026-06-06)**: Phase `13` (Linux CUDA and
+**Reopen note (2026-06-06, re-closed 2026-06-06)**: Phase `15` (Linux CUDA and
 cluster closure) reopened from `✅ Done` to `🔄 Active` — all 15 sprints — and
-Phase `15` Sprints `15.1` (cross-substrate `linux-cpu` / `linux-cuda` tolerance)
-and `15.2` (the final `jitml test all --live` report card) reopened with it,
+Phase `17` Sprints `17.1` (cross-substrate `linux-cpu` / `linux-cuda` tolerance)
+and `17.2` (the final `jitml test all --live` report card) reopened with it,
 then **all re-closed `✅ Done` the same day** after re-validation on the current
 host. Every prior closure of these obligations was validated on an **RTX 3090 /
 CUDA 12.8** host (2026-05-24 → 2026-06-04). The repository now runs on an
@@ -350,7 +376,7 @@ reports the RTX 5090 inside the `jitml-service` pod), the live `jitml-integratio
 cohort 19 / 19, live MNIST SL convergence (711.61s), PPO/cartpole RL convergence
 (206.38s), and `jitml test all --live` 8 / 8 stanzas with a populated report
 card. Phases `3`/`4`/`5` substrate-detection already ran on this RTX 5090
-(matching UUID) and stay `✅ Done`; Phase `15` Sprint `15.3` (empty legacy
+(matching UUID) and stay `✅ Done`; Phase `17` Sprint `17.3` (empty legacy
 ledger) likewise stays `✅ Done`. The RTX 3090 evidence in the phase docs is
 kept as dated history and is not rewritten as RTX 5090 evidence. The flagged
 re-validation risk is resolved: `nvcc -arch=sm_70` embeds `compute_70` PTX that
@@ -411,19 +437,19 @@ by the 2026-06-10 reopen below**: the Apple build is once again Tart-VM-based �
 for Metal execution — so this headless-host-build status is no longer authoritative.
 
 **Refactor note (2026-05-24)**: The plan now batches every live-runtime
-obligation by machine-affinity into Phases `13` (Linux/CUDA + Kind
-cluster + broker + browser), `14` (Apple Silicon + headless Metal), and
-`15` (final cross-substrate handoff + populated report card + empty legacy
+obligation by machine-affinity into Phases `15` (Linux/CUDA + Kind
+cluster + broker + browser), `16` (Apple Silicon + headless Metal), and
+`17` (final cross-substrate handoff + populated report card + empty legacy
 ledger). Phases `7`–`12` keep their original topical ownership but are
 now scoped to code-surface obligations only; every live-runtime bullet
 in each of their `### Remaining Work` blocks names the new owning sprint
-in Phase `13`/`14`/`15`. The intent is strict ordered closure: each
+in Phase `15`/`16`/`17`. The intent is strict ordered closure: each
 phase closes on its own machine session before the next one begins. No
 obligation was dropped; the mapping is enumerated in each sprint's
 re-scoped `### Remaining Work` block.
 
 **Reopen note (2026-06-04)**: Phases `1`, `7`, and `8` reopened narrowly for the
-then-remaining Phase `15` final-handoff blockers and their validation fallout. Phase
+then-remaining Phase `17` final-handoff blockers and their validation fallout. Phase
 `1` Sprint `1.10` retired the scoped `allow-newer` block; Sprint `1.11`
 downgraded the project and style-tool baseline to the single GHC `9.12.4`
 compiler, removed the source-repository package pins and local
@@ -439,7 +465,7 @@ compile step, and its lint allowlist; any future project-owned ALE adapter must
 be Haskell-generated into the build/cache tree or supplied outside the
 repository. The final cleanup rows are completed in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed), so
-Phase `15` Sprint `15.3` is unblocked.
+Phase `17` Sprint `17.3` is unblocked.
 
 **Reopen note (2026-06-04, copyright-free RL demos)**: Phase `8` reopened
 again for Sprint `8.9`, which replaced ROM-dependent default RL examples with
@@ -450,10 +476,10 @@ moved into the owning phase docs before the superseded development ledger was
 deleted by Sprint `1.11`.
 
 **Historical reopen note (2026-06-10): Apple Silicon Tart-VM build-JIT doctrine
-reversal.** Phases `1`, `2`, `5`, `7`, `14`, and `15` reopened and re-closed
+reversal.** Phases `1`, `2`, `5`, `7`, `16`, and `17` reopened and re-closed
 around the VM-built Apple path: build in the VM, copy the dylib out to the host,
 and execute on the host Metal GPU. Owning sprints were `1.14`, `2.11`, `5.9`,
-`7.10`, `14.7`, and the then-final Phase `15` ledger closure. This doctrine was
+`7.10`, `16.7`, and the then-final Phase `17` ledger closure. This doctrine was
 superseded by the 2026-06-12 true-headless fixed-bridge closure above, which
 removed Tart, SwiftPM, keychain state, and per-cache-miss Swift builds from the
 supported core path; the final-handoff claim was later superseded again by the
@@ -468,45 +494,45 @@ surface, the `container.tart` prerequisite + `JitML.Tart.Lifecycle`, and the
 LiveConfig build-VM block + daemon-acquire ensure are in place, and the VM
 lifecycle (`status`/`up`/`down`) is validated live on Apple M1 — the `jitml-build`
 Tart VM **boots headless with no `VZErrorDomain … HostKey` error** (the blocker
-that originally retired Tart did not recur). **Phases `7` (Sprint `7.10`) and `14`
-(Sprint `14.7`) are now also re-closed `✅ Done` (2026-06-10):** the **live**
+that originally retired Tart did not recur). **Phases `7` (Sprint `7.10`) and `16`
+(Sprint `16.7`) are now also re-closed `✅ Done` (2026-06-10):** the **live**
 JIT-build-through-VM path was exercised end-to-end on the Apple M1 host —
 `jitml test jitml-backends --apple-silicon` ran all **17** within-substrate apple
 cases as real PASSes (62.84s, no skip sentinels) through the in-VM `swift build`
 (Xcode 16) + `publishAppleArtifact` copy-out + host `MTLDevice.makeLibrary(source:)`
-execution, including identity bit-equality (Sprint 14.2), weighted Dense2D
-bit-determinism (14.5), and the live Metal benchmark candidate runner (14.3);
+execution, including identity bit-equality (Sprint 16.2), weighted Dense2D
+bit-determinism (16.5), and the live Metal benchmark candidate runner (16.3);
 `jitml-unit` 194 / 194 host-native and container `jitml check-code` green. The
 prior "Tart guest agent unreachable / `tart exec` control-socket GRPC error"
 symptom traced to a host-side `ctkd` (CryptoTokenKit) daemon deadlocking the
 Virtualization.framework auxiliary-storage decryption — not a code defect — cleared
 by restarting `ctkd` and running the build VM in the host GUI launchd session.
-**With `7.10` / `14.7` closed, the six Tart-reversal legacy-ledger rows all move to
+**With `7.10` / `16.7` closed, the six Tart-reversal legacy-ledger rows all move to
 `Completed`, the ledger is empty, Exit-Definition item 18 is met, and the Phase
-`15` final handoff is complete — all Phases `0`–`15` are `✅ Done`.** _(Historical:
+`17` final handoff is complete — all Phases `0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, `12`, `15`, `16`, and `17` are `✅ Done`.** _(Historical:
 superseded by the 2026-06-12 fixed-bridge closure and the 2026-06-13 placement
 reopen at the top of this document.)_
 
-**Prior status (superseded by the 2026-06-10 reopen above):** all Phases `0`–`15`
-were `✅ Done`. Phases `1`, `12`, `13`, `14`, and `15`
+**Prior status (superseded by the 2026-06-10 reopen above):** all Phases `0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, `12`, `15`, `16`, and `17`
+were `✅ Done`. Phases `1`, `12`, `15`, `16`, and `17`
 reopened `🔄 Active` on 2026-06-08 to remove the cross-substrate numeric parity
 surface after the reproducibility contract was clarified to within-substrate
 bit-for-bit only (see the 2026-06-08/09 reopen note above). On 2026-06-09 the
 full removal landed and was validated on the `apple-silicon` (4 / 4) and
 `linux-cpu` (10 / 10) lanes plus `jitml-unit` 193 / 193, container
 `jitml check-code`, and `jitml docs check`; Phase `1` (Sprint `1.13`) and Phase
-`14` (Sprint `14.6`) re-closed. The single shared `linux-cuda` GPU-lane
-re-validation that kept Phases `12` / `13` / `15` open was then run for real on
+`16` (Sprint `16.6`) re-closed. The single shared `linux-cuda` GPU-lane
+re-validation that kept Phases `12` / `15` / `17` open was then run for real on
 the NVIDIA GeForce RTX 5090 host on 2026-06-09
 (`docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
 --test-options='-p linux-cuda'` → 19 / 19, no skip-sentinels), re-closing Phases
-`12` (Sprint `12.10`), `13` (Sprint `13.16`), and `15` (Sprint `15.4`); the
+`12` (Sprint `12.10`), `15` (Sprint `15.16`), and `17` (Sprint `17.4`); the
 deletion ledger was empty and final handoff was complete as of 2026-06-09 — both
 reopened by the 2026-06-10 Tart-VM doctrine reversal noted above. Phase
-`13` (all 15 sprints) and Phase `15`
-Sprints `15.1`/`15.2` previously reopened 2026-06-06 and re-closed the same day after
+`15` (all 15 sprints) and Phase `17`
+Sprints `17.1`/`17.2` previously reopened 2026-06-06 and re-closed the same day after
 re-validation of the live CUDA and final-test-suite obligations on the current
-RTX 5090 host (Sprint `15.3` stayed `✅ Done` throughout). Phase
+RTX 5090 host (Sprint `17.3` stayed `✅ Done` throughout). Phase
 `11` reopened and re-closed on
 2026-06-05 after Sprint `11.7` landed the SPA portals home, shared header,
 generated admin-portal artifact, hash-router disposal path, and live
@@ -547,7 +573,7 @@ kubeconfig settings, passes read-only client probes, and acquires
 `persistent://public/default/inference.command.apple-silicon` as `jitml-host`.
 Phases `8`, `9`, `10`, `11`, and `12` all closed on 2026-05-25 after
 every owned code-surface obligation landed; their live obligations
-migrated to Phases `13` / `14` / `15` per
+migrated to Phases `15` / `16` / `17` per
 [Execution Roadmap](#execution-roadmap). Phase `8` and Phase `9` briefly
 reopened on 2026-06-04 for the copyright-free RL demo replacement (`8.9`) and
 matrix retargeting (`9.8`), then re-closed after validation. Phase `8` Sprint `8.3`'s
@@ -625,7 +651,7 @@ typed phased Helm rollout
 `pulsarTopicCreateSubprocesses` registering the same 29-topic
 substrate-scoped Pulsar family (8 product topics × 3 substrates + 2
 apple-only internal + 3 `gc.event.<substrate>` topics added in
-Sprint 13.7) and actually invoked through
+Sprint 15.7) and actually invoked through
 `JitML.Bootstrap.liveExecutePhasedRollout` from
 `jitml bootstrap --<substrate>`,
 the service-Postgres registry lint wired into `JitML.Lint.Chart` plus the
@@ -642,7 +668,7 @@ consumes through the edge, plus 2026-05-20 live validation proving the then-curr
 26-topic substrate-scoped Pulsar family was registered and routed
 publish/consume worked on `training.command.linux-cpu` from
 `jitml:local` (the family grew to 29 topics on 2026-05-26 when
-Sprint 13.7 added `gc.event.<substrate>`), plus the current
+Sprint 15.7 added `gc.event.<substrate>`), plus the current
 single-node Linux CUDA Kind config wiring the node-local containerd `nvidia`
 runtime handler and `RuntimeClass/nvidia` selector; the 2026-05-23 live CUDA
 `nvidia-smi -L` probe on a GPU validation host (RTX 5090, CUDA 12.8)
@@ -762,8 +788,8 @@ routing through `JitML.Engines.CudaLocal.runCudaKernel`. After the 2026-05-24 re
 runner, first-cache-miss benchmark invocation, live training-to-convergence
 on real hardware, live training/inference service-client effects,
 Helm/Playwright e2e, populated live report card) is owned by Phases
-`13` (Linux CUDA + Kind cluster + browser session), `14` (Apple Silicon),
-or `15` (final cross-substrate handoff). The code-only remaining work
+`15` (Linux CUDA + Kind cluster + browser session), `16` (Apple Silicon),
+or `17` (final cross-substrate handoff). The code-only remaining work
 in Phases `7`–`12` (`proto-lens` binding generation, real Othello/Hex/
 Gomoku rule engines, cartpole/mountain-car/lunar-lander simulator bindings,
 the `KeyDoorGrid-v0` replacement for formerly Atari-backed default demo
@@ -782,7 +808,7 @@ prior state in which all eighteen items were claimed met before the real-workflo
 Apple fixed-bridge, Apple host-resident placement, and no-caveat product audits
 reopened work. The real-workflow and fixed-bridge audits re-closed by
 2026-06-12, and the 2026-06-13 placement audit re-closed, but the 2026-06-14
-no-caveat audit reopened Phases `8`–`15`, added Phases `16`–`18`, and reopened
+no-caveat audit reopened Phases `8`, `9`, `10`, `11`, `12`, `15`, `16`, and `17`, added Phases `13`, `14`, and `18`, and reopened
 the Pending Removal ledger for temporary browser/demo/runtime stand-ins. The
 text that follows is retained as historical fact about the superseded
 2026-06-12 state.
@@ -799,7 +825,7 @@ train`, `jitml tune`, `jitml rl train`, `jitml cluster up`, `jitml test all`,
 source), 17 (`src/JitML/Routes.hs` registry) — were met on the development host.
 The live-runtime items — 1 (per-substrate JIT compile-and-execute, incl. the
 linux-cuda half re-validated 2026-06-09 on the RTX 5090 and the Apple Metal half
-in Phase `14`), 3, 5 (within-substrate bit-for-bit reproducibility), 6, 7, 8, 9
+in Phase `16`), 3, 5 (within-substrate bit-for-bit reproducibility), 6, 7, 8, 9
 (`jitml test all` + live report card) — closed on their owning machine sessions
 (Linux/NVIDIA RTX 5090 for the cluster/CUDA obligations, the Apple Silicon host
 for Metal), and item 18 (empty legacy ledger) was then met after the final
@@ -820,26 +846,26 @@ obligations — the `dhall/cluster/` resource profile and kind-node cap, the
 `cluster.host-memory` preflight, the right-sized replica/PV layout, the per-pod
 resource limits, the typed Dhall `RunConfig` + BootConfig-mounted worker dispatch,
 and the reconciler `sh -c`→Haskell migration — land first; their live exercise is
-owned by Phase `13` below.
+owned by Phase `15` below.
 
-1. **Phases `8`–`10` plus Phase `16` — no-caveat model runtime.** Expand the
+1. **Phases `8`–`10` plus Phase `13` — no-caveat model runtime.** Expand the
    real runtime from the current all-row SL train-step / implemented-RL surface
    to every supported SL model, every RL algorithm workflow, every AlphaZero
    game, and the tuning/checkpoint/inference matrix. The outcome is real train/eval/
    rollout/self-play/tune execution with no synthetic projections, checkpoint
    gaps, or demo-only inference paths.
-2. **Phases `11`–`12` plus Phase `17` — no-caveat browser and Playwright.**
+2. **Phases `11`–`12` plus Phase `14` — no-caveat browser and Playwright.**
    Extend the generated typed payload surface beyond the current Sprint `11.9`
    panel decoders, replace placeholder/incomplete product renderers with
    workflow controls, model-specific interactions, RL animation,
    adversarial-game rendering, interactive replay, tuning controls, and a
    Playwright product matrix that proves those behaviors against a real Envoy
    route surface.
-3. **Phases `13`–`14` — live substrate closure.** Re-run the expanded workflow
+3. **Phases `15`–`16` — live substrate closure.** Re-run the expanded workflow
    and browser matrix in the Linux CPU/CUDA and Apple Silicon lanes with real
    hardware/toolchains, host-resident Apple Metal placement, live Pulsar/MinIO/
    Harbor/Envoy, and no skipped substrate tests.
-4. **Phase `15` plus Phase `18` — final no-caveat handoff.** Populate the live
+4. **Phase `17` plus Phase `18` — final no-caveat handoff.** Populate the live
    report card for the expanded matrix, validate within-substrate
    reproducibility in each substrate's own lane, move all applicable legacy
    rows to `Completed`, and close only when `Pending Removal` is empty and the
@@ -870,12 +896,12 @@ re-scoped sprint's `### Remaining Work` block per
 | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) | Phase 10: Split-blob checkpoint format, manifest, inference-only read path |
 | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) | Phase 11: PureScript shell, generated browser contracts, demo shim, Playwright scaffold |
 | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) | Phase 12: Eight Cabal test stanzas, lint matrix, typed live-plan surface, report-card knobs |
-| [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) | Phase 13: Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure (one Linux/NVIDIA session) |
-| [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) | Phase 14: Apple Silicon headless Metal FFI, host↔cluster RPC, Metal candidate runner, Apple Metal production weight loading (one Apple session) |
-| [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) | Phase 15: Within-substrate reproducibility, populated live `jitml test all` report card, empty deletion ledger |
-| [phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md) | Phase 16: No-caveat model runtime closure across every canonical SL/RL/AlphaZero/tuning workflow |
-| [phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md) | Phase 17: Full interactive PureScript demo and Playwright product closure |
-| [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) | Phase 18: All-substrate no-caveat product handoff |
+| [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) | Phase 13: No-caveat model runtime closure across every canonical SL/RL/AlphaZero/tuning workflow (linux-cpu) |
+| [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) | Phase 14: Full interactive PureScript demo and Playwright product closure (linux-cpu) |
+| [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) | Phase 15: Linux CUDA + Kind cluster + Helm + live broker + live MinIO + live Playwright closure (one Linux/NVIDIA host) |
+| [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) | Phase 16: Apple Silicon headless Metal FFI, host↔cluster RPC, Metal candidate runner, Apple Metal production weight loading (one Apple host) |
+| [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) | Phase 17: Within-substrate reproducibility, populated live `jitml test all` report card, empty deletion ledger (linux-cpu aggregation) |
+| [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) | Phase 18: All-substrate no-caveat product handoff (linux-cpu aggregation) |
 | [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) | Cleanup ledger |
 
 ## Status Vocabulary
@@ -928,14 +954,14 @@ obligation exists.
 | 8 | Supervised Learning and RL Framework | ✅ Done (reopened/re-closed 2026-06-14 — all-row SL runtime and typed RL event payloads, Sprint 8.12) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat RL/AlphaZero/tuning runtime validated on linux-cpu, apple-silicon, and linux-cuda, Sprint 9.12) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat checkpoint/inference matrix validated on linux-cpu, linux-cuda, and apple-silicon, Sprint 10.6) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
-| 11 | PureScript Frontend and Demo | ✅ Done (Sprint 11.9 re-closed 2026-06-16 on its owned interactive-demo code surface; live obligations deduped to Phases 13/14/17 per rule E) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
-| 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.13 re-closed 2026-06-16 on its owned e2e/matrix/report structure; live Playwright product matrix deduped to Phases 13/14/17 per rule E) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | Linux CUDA and Cluster Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 16–17) | [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md) |
-| 14 | Apple Silicon Closure | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 16–17 + apple-silicon Mac hardware) | [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) |
-| 15 | Substrate Reproducibility and Final Handoff | ⏸️ Blocked (reopened 2026-06-14; blocked on full no-caveat runtime/browser validation) | [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md) |
-| 16 | No-Caveat Model Runtime Closure | 🔄 Active (new 2026-06-14; unblocked after Phase 10 re-closed, Sprint 16.1) | [phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md) |
-| 17 | Interactive Demo and Playwright Closure | ⏸️ Blocked (new 2026-06-14; blocked on Phase 16) | [phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md) |
-| 18 | No-Caveat Product Handoff | ⏸️ Blocked (new 2026-06-14; blocked on Phases 13–17) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 11 | PureScript Frontend and Demo | ✅ Done (Sprint 11.9 re-closed 2026-06-16 on its owned interactive-demo code surface; live obligations deduped to Phases 15/14/17 per rule E) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
+| 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.13 re-closed 2026-06-16 on its owned e2e/matrix/report structure; live Playwright product matrix deduped to Phases 15/14/17 per rule E) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
+| 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | 🔄 Active (new 2026-06-14; unblocked after Phase 10 re-closed, Sprint 13.1) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
+| 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ⏸️ Blocked (new 2026-06-14; blocked on Phase 13) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
+| 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 13–14) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
+| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 13–14 + apple-silicon Mac hardware; independent of Phase 15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
+| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 15–16) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ⏸️ Blocked (new 2026-06-14; blocked on Phases 13–17) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-14 — no-caveat end-to-end product target)
 
@@ -960,11 +986,11 @@ Owning sprints:
   comparison, real visualization renderers, and removal of demo-only parsers.
 - **Phase 12 / Sprint `12.13`** owns the test stanza and Playwright no-caveat
   matrix.
-- **Phase 13 / Sprint `13.20`**, **Phase 14 / Sprint `14.11`**, and
-  **Phase 15 / Sprint `15.8`** own live Linux, Apple, and handoff revalidation
+- **Phase 15 / Sprint `15.20`**, **Phase 16 / Sprint `16.11`**, and
+  **Phase 17 / Sprint `17.8`** own live Linux, Apple, and handoff revalidation
   after the reopened local surfaces land.
-- **Phase 16 / Sprint `16.1`** is now active on cross-model runtime closure.
-  **Phase 17 / Sprints `17.1` / `17.2`** and **Phase 18 / Sprint `18.1`**
+- **Phase 13 / Sprint `13.1`** is now active on cross-model runtime closure.
+  **Phase 14 / Sprints `14.1` / `14.2`** and **Phase 18 / Sprint `18.1`**
   own product/browser closure and final no-caveat handoff.
 
 ## Reopened phases (2026-06-13 — Apple Silicon host-resident workload placement)
@@ -992,10 +1018,10 @@ Owning sprints:
 - **Phase 12 / Sprint `12.12`** owns failed-Job fail-fast diagnostics and Apple
   placement test assertions. It re-closed on 2026-06-13 after focused Linux CPU
   and Apple live dispatch validation.
-- **Phase 14 / Sprint `14.10`** owns the live Apple validation through
+- **Phase 16 / Sprint `16.10`** owns the live Apple validation through
   `bootstrap/apple-silicon.sh test`. It re-closed on 2026-06-13 after the full
   Apple lane passed with host-command forwarding and no workload Jobs.
-- **Phase 15 / Sprint `15.7`** owns the final ledger walk-down and handoff once the
+- **Phase 17 / Sprint `17.7`** owns the final ledger walk-down and handoff once the
   legacy Apple Job path is deleted. It re-closed on 2026-06-13 after the row
   moved to `Completed` and Pending Removal became empty.
 
@@ -1024,11 +1050,11 @@ architecture recorded in
 - **Phase 7** reopened and re-closed for Sprint `7.11`: replaced generated
   Swift package / Tart `swift build` / generated-dylib `dlopen` with
   fixed-bridge execution and source-metadata cache entries.
-- **Phase 14** reopened and re-closed for Sprint `14.9`: ran
+- **Phase 16** reopened and re-closed for Sprint `16.9`: ran
   `jitml-backends`, `jitml-e2e`, and the live `WorkflowMatrix` on Apple Silicon
   without invoking Tart, SwiftPM, full Xcode, offline `metal`, keychain unlocks,
   or GUI-session state.
-- **Phase 15** re-closed for Sprint `15.5` / `15.6` after the Apple lane passed
+- **Phase 17** re-closed for Sprint `17.5` / `17.6` after the Apple lane passed
   and the fixed-bridge deletion rows moved to `Completed`.
 
 No pending cleanup rows remain; see
@@ -1039,11 +1065,11 @@ No pending cleanup rows remain; see
 A realness audit established that every user-facing workload and the demo used a
 synthetic/echo/pure-Haskell stand-in instead of the substrate JIT path
 (`MlpDevice` → compile → load → real `jitml_mlp_*` kernels) that already exists
-and is backend-tested in the `jitml-backends` lane. Phases `8`–`15` reopen from
+and is backend-tested in the `jitml-backends` lane. Phases `8`, `9`, `10`, `11`, `12`, `15`, `16`, and `17` reopen from
 `✅ Done` to `🔄 Active`; Phases `0`–`7` stay `✅ Done` on their owned surfaces
 (the engines and the backend lane are real). This is the standards rule E / rule A
 split: **code** ownership reopens in Phases `8`–`12`, **live-runtime validation**
-reopens in Phases `13`–`15`.
+reopens in Phases `15`–`17`.
 
 **Implementation status (2026-06-11).** The implemented real-workflow code covers
 Phases `8`–`11` and those phases are re-closed. Initial container validation ran
@@ -1058,7 +1084,7 @@ the live `linux-cpu` / `linux-cuda` cluster lanes:
   through the architecture/device runtime and live all-row staged-byte
   train/eval smoke; `jitml-rl-canonicals --linux-cpu` 28/28; `jitml check-code`
   `ok`; and `jitml docs check` `ok`. Full cross-model median convergence,
-  checkpoint reload, and inference closure are Phase `16` obligations.
+  checkpoint reload, and inference closure are Phase `13` obligations.
 - **Phase 9** (Sprints `9.9` / `9.10` / `9.11`) — real `jitml rl eval` / `rollout`,
   a real recursive MCTS tree search (value-head backups; `Arena` / `EnginePrior`
   deleted), real per-algorithm rollouts (`Common.trajectoryRollout` steps the
@@ -1132,11 +1158,11 @@ GeForce RTX 5090 with CUDA 12.8 / driver 570.211.01. Validation:
   env vars, and PPO uses per-substrate live tuning (`linux-cpu` keeps
   10 epochs / `5e-4`; `linux-cuda` and `apple-silicon` use 8 epochs / `7e-4`).
 
-With that evidence, **Phase `13` Sprints `13.17` / `13.18` / `13.19`
+With that evidence, **Phase `15` Sprints `15.17` / `15.18` / `15.19`
 re-close `✅ Done`** and Phase `11` Sprint `11.8` re-closes `✅ Done`. The
 2026-06-11 continuation work also re-closes Phase `8` and Phase `9`; the
 2026-06-12 real-workflow continuation work re-closes Phase `12`; and the
-2026-06-12 fixed-bridge continuation work re-closes Phases `14` and `15`.
+2026-06-12 fixed-bridge continuation work re-closes Phases `16` and `17`.
 
 - **Phase 8** — Sprint `8.10` routes the SL classifier through the substrate
   `MlpDevice` selected by `--substrate`, fails `runTrain`/`runEval` closed with a
@@ -1164,15 +1190,15 @@ re-close `✅ Done`** and Phase `11` Sprint `11.8` re-closes `✅ Done`. The
   2026-06-12 `linux-cpu` live WorkflowMatrix gate passed after the Docker
   Desktop Postgres PV, Harbor ownership, stale-publication, and Envoy request
   fixes; `jitml-e2e` remains the structural/browser/live-plan stanza by design.
-- **Phases 13 / 14 / 15** — live-runtime re-validation of every reopened workflow
-  on `linux-cpu`/`linux-cuda` (13.17/13.18/13.19), `apple-silicon` (14.9), and
-  final ledger walk-down to re-assert item 18 (15.5/15.6); all are closed as of
+- **Phases 15 / 14 / 15** — live-runtime re-validation of every reopened workflow
+  on `linux-cpu`/`linux-cuda` (15.17/15.18/15.19), `apple-silicon` (16.9), and
+  final ledger walk-down to re-assert item 18 (17.5/17.6); all are closed as of
   2026-06-12.
 
 Exit-Definition items `6`, `8`, `9` were reopened and strengthened. The ledger
 is empty again as of 2026-06-12 (see
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)), and handoff
-is complete after the Phase `14` / Phase `15` live gates closed.
+is complete after the Phase `16` / Phase `17` live gates closed.
 
 ## Reopened phases (2026-06-04)
 
@@ -1197,15 +1223,15 @@ re-closed the same day after their scoped work validated:
   matrix. The deleted development ledger no longer carries reopened-phase rows;
   owning phase documents hold the closure details.
 
-At that dated 2026-06-04 closure, Phases `13` and `14` remained `✅ Done` on
-their substrate-owned live surfaces. Phases `8` and `9` re-closed. Phase `15`
+At that dated 2026-06-04 closure, Phases `15` and `16` remained `✅ Done` on
+their substrate-owned live surfaces. Phases `8` and `9` re-closed. Phase `17`
 re-closed after the source-pin/vendor helper and the superseded development
 ledger moved to Completed in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
 ## Reopened phases (2026-06-06)
 
-Phases `13` and `15` reopened from `✅ Done` on 2026-06-06 to re-validate every
+Phases `15` and `17` reopened from `✅ Done` on 2026-06-06 to re-validate every
 live CUDA, GPU-training, cross-substrate, and final-test-suite obligation on
 the current host, and **re-closed `✅ Done` the same day**. The repository moved
 from the **RTX 3090 / CUDA 12.8** host that produced the original evidence
@@ -1213,7 +1239,7 @@ from the **RTX 3090 / CUDA 12.8** host that produced the original evidence
 `GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8, driver `570.211.01`,
 compute capability `12.0`, Ubuntu 24.04, Docker 29.5.1).
 
-- **Phase 13** (all 15 sprints re-closed `✅ Done`). The phase is the single
+- **Phase 15** (all 15 sprints re-closed `✅ Done`). The phase is the single
   Linux/NVIDIA machine session (Plan Standards rule E), so the whole session
   re-opened and was re-validated inside `jitml:local` via the GPU-exposed
   `jitml-cuda` compose service (host `nvcc` is never installed):
@@ -1225,17 +1251,17 @@ compute capability `12.0`, Ubuntu 24.04, Docker 29.5.1).
     acquired, edge `/healthz`+`/readyz`=`200`.
   - `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend`
     — **38 / 38**: CUDA kernels compile/load/run bit-deterministically (Sprints
-    7.4, 13.8, 13.9, 13.11).
+    7.4, 15.8, 15.9, 15.11).
   - `cabal test -fcuda jitml-integration --test-options='-p Live'` — **19 / 19**
     live cohort (67 / 67 full suite in the aggregate).
   - `cabal test -fcuda jitml-sl-canonicals --test-options='-p Live'` — live MNIST
-    SL convergence **PASS (711.61s)** (Sprint 13.4); PPO/cartpole live RL
-    convergence cleared the threshold in **206.38s** (13.6).
-- **Phase 15** Sprints `15.1` and `15.2` re-closed `✅ Done`; Sprint `15.3`
+    SL convergence **PASS (711.61s)** (Sprint 15.4); PPO/cartpole live RL
+    convergence cleared the threshold in **206.38s** (15.6).
+- **Phase 17** Sprints `17.1` and `17.2` re-closed `✅ Done`; Sprint `17.3`
   (empty legacy ledger, Exit Definition item 18) stayed `✅ Done`.
-  - `15.1`: the `jitml-cross-backend` `CrossSubstrate` group passed within the
+  - `17.1`: the `jitml-cross-backend` `CrossSubstrate` group passed within the
     38 / 38 run above.
-  - `15.2` (the final test suite): against the fresh `linux-cuda` cluster,
+  - `17.2` (the final test suite): against the fresh `linux-cuda` cluster,
     `docker compose run --rm jitml-cuda cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- test all --live`
     exited `0` with all eight stanzas green (`passed: 8, failed: 0`) and a
     populated report card (`sl_final_loss=0.119`, `rl_final_reward≈20.06`,
@@ -1247,7 +1273,7 @@ compute capability `12.0`, Ubuntu 24.04, Docker 29.5.1).
     cases skip.
 - **Phase 7** stays `✅ Done` on its owned code-surface obligations; its
   historical RTX 3090 live-CUDA validation record is superseded by the
-  re-closed Phase 13 live obligation.
+  re-closed Phase 15 live obligation.
 
 **Re-validation risk resolved**: `JitML.Engines.Engine.compileSubprocess` emits
 `nvcc … -arch=sm_70`. The RTX 5090 is Blackwell (`sm_120` / compute capability
@@ -1305,7 +1331,7 @@ the phased rollout on fallback `edge_port: 9091`; the host daemon started
 with `./bootstrap/apple-silicon.sh run-daemon`; the live Playwright
 matrix passed 9 / 9 against `http://127.0.0.1:9091`.
 
-Phases `0`–`10` and `12`–`15` remained `✅ Done` on their owned surfaces.
+Phases `0`–`10` and `12`, `15`, `16`, and `17` remained `✅ Done` on their owned surfaces.
 Frontend-and-demo ownership lives in Phase `11` only per Plan Standards
 rule E; the reopen did not ripple. The route-table generated section in
 `documents/engineering/cluster_topology.md` regenerates clean because the
@@ -1344,7 +1370,7 @@ binding is forbidden"), the gap is scheduled through Sprint `1.12`.
   → positional `<sweep-id>`; `--backends cpu,cuda` → `linux-cpu,linux-cuda`)
   that are not load-bearing on any doctrine.
 
-Phases `2`–`15` remain `✅ Done` on their owned surfaces. CLI-surface ownership
+Phases `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, `12`, `15`, `16`, and `17` remain `✅ Done` on their owned surfaces. CLI-surface ownership
 lives in Phase `1` only per Plan Standards rule E; the reopen does not ripple.
 The doctrine-deviation interval is tracked in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) as
@@ -1361,7 +1387,7 @@ CommandLineTools) — **cannot run headless**: `tart run` of a macOS guest fails
 `VZErrorDomain Code=-9 … Failed to create new HostKey` because the Virtualization
 framework needs Secure Enclave access from an interactive Aqua GUI session. That
 blocks the headless JIT workflow jitML requires on every substrate and blocks
-Phase `14` live closure.
+Phase `16` live closure.
 
 The replacement architecture compiles the Metal shader **at runtime, in-process**
 via `MTLDevice.makeLibrary(source:options:)` (only the OS `Metal.framework`; no
@@ -1394,21 +1420,21 @@ below.
   field removed from Dhall + Haskell + `daemon.surface`, 30
   `jitml-daemon-lifecycle` pass.
 
-Phase `14` (Apple Silicon Closure) was re-scoped — Sprint `14.1` moved from
+Phase `16` (Apple Silicon Closure) was re-scoped — Sprint `16.1` moved from
 "provision the Tart VM" to "host CLT Swift toolchain + headless Metal device
-probe", and the `14.2` / `14.3` / `14.5` live gates moved from "VM running" to
-"Metal device usable headless" — and is now **✅ Done**: all sprints (`14.1`–`14.5`)
+probe", and the `16.2` / `16.3` / `16.5` live gates moved from "VM running" to
+"Metal device usable headless" — and is now **✅ Done**: all sprints (`16.1`–`16.5`)
 plus item-8's Apple-host Playwright panel matrix were live-validated headless on an
 Apple M1 / macOS 26 host (2026-05-30/31), including the full host↔cluster RPC
-round-trip through two running daemon processes. Phase `15` later re-closed on
+round-trip through two running daemon processes. Phase `17` later re-closed on
 2026-06-04 after Sprint `1.11` retired the final source-pin/vendor helper;
-Sprint `15.1` is `✅ Done` after the 2026-06-03 Linux/Apple report-bundle
-comparison passed. Sprint `15.2` is `✅ Done` after the 2026-06-04
+Sprint `17.1` is `✅ Done` after the 2026-06-03 Linux/Apple report-bundle
+comparison passed. Sprint `17.2` is `✅ Done` after the 2026-06-04
 fresh Apple live cluster validation: bootstrap selected fallback
 `edge_port: 9091`, all eight `jitml test all --live` report stanzas
 passed, and the report card captured RL reward, AlphaZero win rate,
 tuning objective, JIT cache hit rate, and daemon health measurements.
-Phases `0`, `3`, `4`, `6`, and `9`–`13` remain `✅ Done` on their owned
+Phases `0`, `3`, `4`, `6`, and `9`, `10`, `11`, `12`, and `15` remain `✅ Done` on their owned
 surfaces — none of the headless-Metal obligations change them. Phases `1` and
 `8` later reopened on 2026-06-04 for the two remaining final-handoff ledger
 rows; that reopen is independent of the headless-Metal workstream. The Tart
@@ -1446,7 +1472,7 @@ At that 2025-05-29 scope change, Phases `6`–`12` remained `✅ Done` on their
 owned surfaces (numerical core, JIT codegen, SL/RL framework, RL
 catalog/AlphaZero/tuning, checkpointing, frontend, test stanzas); none of the
 four workstreams changed those surfaces. The live exercise of every
-reopened-phase obligation was owned by Phase `13` (`✅ Done` 2026-05-30 on the
+reopened-phase obligation was owned by Phase `15` (`✅ Done` 2026-05-30 on the
 RTX 3090; all 15 / 15 sprints closed — then reopened `🔄 Active` 2026-06-06 for
 re-validation on the RTX 5090).
 The doctrine-deviation removals (the `JITML_*` IPC and the embedded `sh -c`
@@ -1460,12 +1486,12 @@ As of 2026-06-16, the no-caveat end-to-end product target is open. Phases
 publication came up and `./.build/jitml test jitml-integration --apple-silicon`
 passed 71 / 71. Phases `11` and `12` re-closed `✅ Done` on 2026-06-16 (Sprints
 `11.9` / `12.13` closed on their owned code surface, with the live-runtime
-obligations deduped to Phases `13`/`14`/`17` per rule E), so Phases `0`–`12` are
-`✅ Done`; Phase `16` is `🔄 Active`, Phases `13`–`15` are `⏸️ Blocked` on the
-expanded runtime/browser work, Phases `17`–`18` remain blocked by their upstream
+obligations deduped to Phases `15`/`16`/`14` per rule E), so Phases `0`–`12` are
+`✅ Done`; Phase `13` is `🔄 Active`, Phases `15`–`17` are `⏸️ Blocked` on the
+expanded runtime/browser work, Phases `14` and `18` remain blocked by their upstream
 phases, Pending Removal is non-empty again, and final handoff is not complete.
 The true-headless Apple Metal fixed-bridge workstream (`1.15`, `2.12`, `5.10`,
-`7.11`, `14.9`, `15.5`, `15.6`) remains closed as dated 2026-06-12 evidence,
+`7.11`, `16.9`, `17.5`, `17.6`) remains closed as dated 2026-06-12 evidence,
 and the later Apple host-resident workload placement audit also remains closed
 as dated 2026-06-13 evidence. The historical closure notes below are retained
 as dated evidence and do not override the current status above.
@@ -1495,7 +1521,7 @@ typed Dhall `RunConfig` + BootConfig-mounted worker dispatch that retires the
 `JITML_*` env IPC (Sprint `5.7`). See
 [Reopened phases (2026-05-29)](#reopened-phases-2026-05-29) for the per-phase
 scope. Live re-validation of every reopened-phase obligation is owned by Phase
-`13`.
+`15`.
 
 Phases `2`, `5`, and `7` **reopened on 2026-05-30 and re-closed `✅ Done` on
 2026-05-31** for the headless Apple Metal JIT workstream: runtime
@@ -1504,12 +1530,12 @@ Phases `2`, `5`, and `7` **reopened on 2026-05-30 and re-closed `✅ Done` on
 Phase `7` (Sprint `7.8`) landed the runtime-compile codegen + host build; Phase
 `2` (Sprint `2.10`) retired `container.tart` and the `jitml internal vm` commands;
 Phase `5` (Sprint `5.8`) retired `LiveConfig.tartIdleTimeout` and the daemon tart
-spin-up. **Phase `14` is now `✅ Done`** — re-scoped to the headless toolchain
-(host Swift toolchain + headless Metal probe; the `14.2` / `14.3` / `14.5` live
+spin-up. **Phase `16` is now `✅ Done`** — re-scoped to the headless toolchain
+(host Swift toolchain + headless Metal probe; the `16.2` / `16.3` / `16.5` live
 gates became "Metal device usable headless"), all five sprints plus item-8's
 Apple-host Playwright panel matrix live-validated on Apple M1 / macOS 26
 (2026-05-30/31), including the full host↔cluster RPC round-trip through two
-running daemon processes. The later Phase `15` scope
+running daemon processes. The later Phase `17` scope
   (then-planned cross-substrate comparison + report card + empty ledger) closed after Sprint
   `1.11` retired the source-pin/vendor helper: the
 `linux-cpu` / `linux-cuda` weighted drift assertion passed on the
@@ -1589,7 +1615,7 @@ framework), `9` (RL catalog, AlphaZero, tuning), `10` (checkpointing
 and inference), `11` (PureScript frontend and demo), and `12` (test
 stanzas and cross-cluster) closed on 2026-05-25 after every owned
 code-surface obligation landed in the worktree; each phase's live
-obligations migrated to Phases `13` / `14` / `15` per
+obligations migrated to Phases `15` / `16` / `17` per
 [Execution Roadmap](#execution-roadmap). Phase `8` and Phase `9` are now
 reopened for the copyright-free `KeyDoorGrid-v0` replacement work. Phase `8` Sprint `8.3`'s
 lunar-lander and atari-subset environments originally closed through
@@ -1597,8 +1623,8 @@ pure-Haskell ports in `src/JitML/RL/Simulator.hs`; the 2026-06-04
 Sprint `8.8` reopen retired the `atari-subset` stand-in behind explicit ROM
 handling; the later static-foreign-source correction removed the checked-in
 C++ shim path.
-Phase `13` Sprints `13.1` / `13.2` / `13.3` / `13.7` / `13.10` /
-`13.12` partially validated on 2026-05-25 against a Linux+NVIDIA host (RTX 3090, CUDA 12.8, Ubuntu
+Phase `15` Sprints `15.1` / `15.2` / `15.3` / `15.7` / `15.10` /
+`15.12` partially validated on 2026-05-25 against a Linux+NVIDIA host (RTX 3090, CUDA 12.8, Ubuntu
 24.04, Docker 29.5.0). The validation set covers: a live `jitml
 bootstrap --linux-cuda` rollout (typed `Subprocess` boundary) bringing
 up `jitml-linux-cuda-control-plane` with all 9 helm releases deployed
@@ -1638,33 +1664,33 @@ orphan container or Docker volume. The 2026-05-25 retry-loop fix to
 re-validated on a fresh bootstrap: every expected topic from
 `pulsarTopics` returns `HTTP 409 "This topic already exists"` to a
 manual `pulsar-admin topics create`. Code-only landings include
-`src/JitML/RL/ConvergenceThresholds.hs` (Sprint `13.6` literature-
+`src/JitML/RL/ConvergenceThresholds.hs` (Sprint `15.6` literature-
 anchored per-(algo, env) threshold table) and
-`src/JitML/Engines/Tolerance.hs` (Sprint `15.1` per-layer-family L∞
+`src/JitML/Engines/Tolerance.hs` (Sprint `17.1` per-layer-family L∞
 cross-substrate tolerance band), both unit-tested. The 2026-05-26
-session added the Sprint `13.7` `gc_reaped` Pulsar event surface
+session added the Sprint `15.7` `gc_reaped` Pulsar event surface
 (`JitML.Proto.Gc.GcReapedEvent` envelope with text + proto3 codecs,
 `gc.event.<substrate>` topic registered in
 `JitML.Cluster.PulsarBootstrap.substrateTopics` extending the topic
 family from 26 to 29, `publishGcReapedEvents` wired into
 `JitML.App.runInternalGc`, 4 new `jitml-unit` round-trip tests), the
-Sprint `13.12` typed inference `AppError` variants
+Sprint `15.12` typed inference `AppError` variants
 (`InferenceCheckpointMissing :: Text -> AppError` and
 `InferenceManifestShaMismatch :: Text -> Text -> AppError`,
 `renderError` boundary updates, `runInference` mapping `pointer read
 failed` / `manifest read failed` to `InferenceCheckpointMissing`,
 `runInspectReplay` `assertManifestShaMatches` against
 `Checkpoint.manifestContentSha`, golden render fixture extended), and
-the Sprint `13.6` convergence-assertion wiring through
+the Sprint `15.6` convergence-assertion wiring through
 `jitml-rl-canonicals` (`cohortThreshold` lookups asserted for every
 in-evaluation-matrix algorithm × env pair, `passesConvergence`
 predicate exercised against literature targets and
 `literatureTarget − 2 × slack` synthetic medians). The 2026-05-26
-session also closed Sprint `13.2` (live `HasHarbor` tag-promotion
+session also closed Sprint `15.2` (live `HasHarbor` tag-promotion
 round-trip + the `jitml-service` subscription-acquisition assertion
 on all four daemon command topics; flipped to ✅ Done), closed
-Sprint `13.7` (live `gc.event.<substrate>` publish-stream
-validation; flipped to ✅ Done), and landed both Linux CPU and CUDA halves of Sprint `13.11`'s weighted
+Sprint `15.7` (live `gc.event.<substrate>` publish-stream
+validation; flipped to ✅ Done), and landed both Linux CPU and CUDA halves of Sprint `15.11`'s weighted
 runner: new substrate-symmetric `jitml_weighted_kernel(float*,
 const float*, size_t, const float*, size_t)` ABI emitted by
 `JitML.Codegen.OneDnn` (Linux CPU) and `JitML.Codegen.Cuda` (CUDA),
@@ -1682,11 +1708,11 @@ accepts; both substrate toolchain fingerprints are extended; and
 substrate's weighted Dense2D GEMM (CUDA case skips when the runtime
 probe fails — currently the case on the compose-managed
 `jitml:local` container where `nvidia-smi` cannot reach the host
-driver, separate from Sprint `13.11`'s code scope). Other
+driver, separate from Sprint `15.11`'s code scope). Other
 family-specific weighted bodies (Conv2D / Conv3D / BatchNorm /
 LayerNorm / MHA / Embedding) and the daemon
 `daemonWorkloadDispatcherWithInference` widening to thread the
-weighted callback remain as Sprint `13.11` Remaining Work. The 2026-05-27 session re-validated the entire `Live` cohort
+weighted callback remain as Sprint `15.11` Remaining Work. The 2026-05-27 session re-validated the entire `Live` cohort
 against a fresh `jitml bootstrap --linux-cuda` rollout on the same
 RTX 3090 / CUDA 12.8 host: 12 / 12 Live cases in `jitml-integration`
 pass (HasMinIO/HasPulsar/HasHarbor capability round-trips, daemon
@@ -1697,14 +1723,14 @@ event publication, `jitml internal gc` CLI, the JIT-kernel-backed
 persistence), and `kubectl logs deploy/jitml-service` reports four
 held subscriptions on `training.command.linux-cuda`,
 `tune.command.linux-cuda`, `rl.command.linux-cuda`, and
-`inference.request.linux-cuda` as `jitml-service`. Sprint `13.12`
+`inference.request.linux-cuda` as `jitml-service`. Sprint `15.12`
 (Live `jitml inference run` / `jitml inspect replay`) flipped from
 Active to ✅ Done after the JIT-kernel path exercised the real
 nvcc → `.so` → dlopen → device kernel launch chain against MinIO,
 including the corrective fix of the pre-existing
 `--use_fast_math=false` nvcc syntax (replaced with omission since
 default fast-math-off honours the determinism contract). Sprint
-`13.11` (CUDA + Linux CPU production weight loading) also flipped
+`15.11` (CUDA + Linux CPU production weight loading) also flipped
 to ✅ Done after the per-family weighted bodies for Conv2D /
 Conv3D / BatchNorm / LayerNorm / Embedding / MHA landed on both
 substrates (`JitML.Codegen.OneDnn.weightedFamilyImpl` +
@@ -1714,22 +1740,22 @@ cache-key fingerprint bumps invalidated pre-2026-05-27 cache
 entries, and `cabal test jitml-cross-backend -p weighted`
 inside `jitml:local` confirmed 3 / 3 bit-deterministic runs
 across Dense2D (CPU + CUDA) and the new family bodies (CPU).
-Sprint `13.15`'s benchmark payload was extended from the 2-float
+Sprint `15.15`'s benchmark payload was extended from the 2-float
 smoke fixture to a 32-element deterministic full-tensor payload
 in `JitML.App.benchmarkSampleInput` so the persisted `TuningChoice`
 reflects measurement against realistic kernel shapes, and
 `ensureKernelArtifactWithWeightedBenchmarkTuning` wires the
 weighted candidate runner into the first-cache-miss path for
 callers that have a checkpoint's weight tensor available. Sprint
-`13.9`'s `SelfPlayBuffer` CBOR codec lands through
+`15.9`'s `SelfPlayBuffer` CBOR codec lands through
 `writeSelfPlayBuffer` / `readSelfPlayBuffer` (the `SelfPlayBuffer`,
 `SelfPlayGame`, and `GameState` types all derive `Serialise`),
 validated by a new `jitml-integration` "SelfPlayBuffer CBOR
 round-trip" filesystem test that asserts structural equality after
 the write→read round-trip through the typed `HasMinIO` boundary;
 the JIT-engine-backed `PriorOracle` callsite remains the
-substantial multi-day item for full Sprint `13.9` closure.
-Sprint `13.10`'s `publishWorkerTuneEvent` was extended to iterate
+substantial multi-day item for full Sprint `15.9` closure.
+Sprint `15.10`'s `publishWorkerTuneEvent` was extended to iterate
 the canonical sampler × scheduler × pruner cross-product
 (11 × 4 × 3 = 132 combinations, capped by `JITML_TRIAL_BUDGET`)
 rather than synthetic seed iteration: each trial picks a real
@@ -1738,44 +1764,44 @@ rather than synthetic seed iteration: each trial picks a real
 a real JSON parameters payload, and publishes `TuneTrialStarted`
 + `TuneTrialFinished` events with the actual selected combo.
 
-The 2026-05-26 / 2026-05-27 sessions also landed Sprint `13.3`'s
+The 2026-05-26 / 2026-05-27 sessions also landed Sprint `15.3`'s
 worker-side
 event publication (`publishWorkerTrainingEvent` /
 `publishWorkerRlEvent` / `publishWorkerTuneEvent` in `JitML.App`
 publish completion envelopes to `training.event.<substrate>` /
 `rl.event.<substrate>` / `tune.event.<substrate>` after the worker
 command's deterministic summary, gated on live publication +
-`JITML_EXPERIMENT_HASH`), Sprint `13.4`'s dataset fetch wiring
+`JITML_EXPERIMENT_HASH`), Sprint `15.4`'s dataset fetch wiring
 (`attemptFetchTrainingDataset` fetches
 `jitml-datasets/<name>/train/data.bin` through
 `Dataset.fetchDatasetRef` + `MinIOSubprocess`; real-MNIST upload +
-canonical SHA replacement remain), Sprint `13.10`'s per-trial
+canonical SHA replacement remain), Sprint `15.10`'s per-trial
 transcript persistence + events (`publishWorkerTuneEvent` iterates
 `JITML_TRIAL_BUDGET` seeds, persists each `TrialTranscript` to MinIO,
 publishes `TuneTrialStarted` + `TuneTrialFinished` per trial, then
-`TuneSweepDone`), Sprint `13.11`'s daemon dispatch widening + GPU
+`TuneSweepDone`), Sprint `15.11`'s daemon dispatch widening + GPU
 passthrough (parallel `*WithWeightedInference` variants throughout
 `JitML.Service.Workload` and `JitML.Service.Runtime`,
 `JitML.App.daemonWorkloadDispatcherForRuntime` routes Linux CPU +
 CUDA `SelfInference` through the weighted runners,
 `docker/Dockerfile` removes stubs from `LD_LIBRARY_PATH` +
 `ld.so.conf.d/cuda.conf`, `JitML.Engines.Engine` passes
-`-L/usr/local/cuda/lib64/stubs` explicitly to nvcc), Sprint `13.12`'s
+`-L/usr/local/cuda/lib64/stubs` explicitly to nvcc), Sprint `15.12`'s
 JIT-kernel-backed inference (`runInference` routes through
 `loadInferenceCheckpointWithWeights` with the substrate-appropriate
-weighted runner), and Sprint `13.15`'s weighted benchmark runner
+weighted runner), and Sprint `15.15`'s weighted benchmark runner
 (`linuxCpuWeightedBenchmarkCandidateRunner` consumes input + weights
 through `runLinuxCpuWeightedKernel`).
-Every other Sprint after `13.3` remains unmet on its live obligations
+Every other Sprint after `15.3` remains unmet on its live obligations
 (live cluster validation pass deferred) and on its larger remaining
-engineering items (real CUDA RL math in Sprint `13.8`,
-real network-backed AlphaZero in Sprint `13.9`, the other five
-Halogen panels beyond the Mnist template in Sprint `13.13`,
+engineering items (real CUDA RL math in Sprint `15.8`,
+real network-backed AlphaZero in Sprint `15.9`, the other five
+Halogen panels beyond the Mnist template in Sprint `15.13`,
 held-open WebSocket-upgrade proxy beyond the polling snapshot in
-Sprint `13.13`) — see each sprint's `### Remaining Work` block in
-`phase-13-linux-cuda-and-cluster-closure.md` and
-`phase-15-cross-substrate-and-handoff.md`. The 2026-05-27 session
-re-scoped Sprint `13.5` to the pure-Haskell-simulator approach Phase
+Sprint `15.13`) — see each sprint's `### Remaining Work` block in
+`phase-15-linux-cuda-and-cluster-closure.md` and
+`phase-17-cross-substrate-and-handoff.md`. The 2026-05-27 session
+re-scoped Sprint `15.5` to the pure-Haskell-simulator approach Phase
 8 Sprint `8.3` chose at the time and landed the simulator-loop wiring
 through the worker `jitml rl train`; the daemon-side dispatch already routes
 StartRLRun envelopes into a Job that invokes that wiring. The later
@@ -1785,24 +1811,24 @@ the runtime-loaded Haskell ALE boundary plus explicit ROM policy for
 C++ shim and requires any future project-owned adapter to be Haskell-generated.
 
 The 2026-05-27 code-only session also landed: a live dedup assertion
-for Sprint `13.3` (`live duplicate StartTraining produces one
+for Sprint `15.3` (`live duplicate StartTraining produces one
 daemon-side dedup-skip` in `jitml-integration`); `JitML.RL.
 SimulatorLoop` plus the per-episode `RlEpisode (EpisodeDone)`
-publication chain for Sprint `13.5`; the run-to-run simulator-loop
-determinism assertion in `jitml-rl-canonicals` for Sprint `13.6`;
+publication chain for Sprint `15.5`; the run-to-run simulator-loop
+determinism assertion in `jitml-rl-canonicals` for Sprint `15.6`;
 `JitML.RL.AlphaZero.EnginePrior.buildLinuxCpuPriorOracle` and
 `runSelfPlayWithPrior` plus the `reportCardSelfPlayConfig` helper
 and a `Live` `writeSelfPlayBuffer` / `readSelfPlayBuffer` round-trip
-for Sprint `13.9`; the canonical sampler × scheduler × pruner grid
+for Sprint `15.9`; the canonical sampler × scheduler × pruner grid
 resume-equality assertion in `jitml-hyperparameter` for Sprint
-`13.10`; `JitML.Web.Server.liveEventSnapshotResponse` plus the
+`15.10`; `JitML.Web.Server.liveEventSnapshotResponse` plus the
 typed Mnist Halogen `State` / `Action` / `handleAction` /
-`render` machinery as the panel template for Sprint `13.13`;
+`render` machinery as the panel template for Sprint `15.13`;
 and the `playwright/jitml-demo.spec.ts` live-edge selection that
-honours `cluster-publication.json` when present for Sprint `13.14`.
+honours `cluster-publication.json` when present for Sprint `15.14`.
 
 The 2026-05-27 **fourth session** closed the algorithmic seam
-Sprints 13.8 and 13.9 hung off:
+Sprints 15.8 and 15.9 hung off:
 
 - **`JitML.Numerics.Mlp`** — pure-Haskell differentiable MLP
   (forward + manual reverse-mode backprop + Adam optimiser).
@@ -1847,9 +1873,9 @@ upgrade proxy under `JitML.Service.WebSocket` +
 topic with RFC 6455 §1.3 known-answer test coverage; a typed
 `jitml internal upload-dataset` CLI command plus
 `JitML.SL.Dataset.canonicalSha256For` (with the canonical
-upstream MNIST train + test SHAs) closes Sprint 13.4's
+upstream MNIST train + test SHAs) closes Sprint 15.4's
 real-MNIST + canonical-SHA code surface; and the full Sprint
-13.8 catalog of **14 pure-Haskell RL algorithm loss modules** —
+15.8 catalog of **14 pure-Haskell RL algorithm loss modules** —
 `PpoLoss` / `A2cLoss` / `TrpoLoss` / `MaskablePpoLoss` /
 `RecurrentPpoLoss` / `DqnLoss` / `QrDqnLoss` / `DdpgLoss` /
 `Td3Loss` / `SacLoss` / `CrossQLoss` / `TqcLoss` / `ArsLoss` /
@@ -1865,7 +1891,7 @@ crossovers, and run-to-run bit-equality.
 The 2026-05-28 session closed the remaining non-deferred trainer,
 AlphaZero-target, and demo-bridge code surfaces:
 
-- **Sprint 13.8 — the full 14-algorithm trainer catalog now exists**
+- **Sprint 15.8 — the full 14-algorithm trainer catalog now exists**
   as real MLP-backed loops, not just the loss math. The continuous
   prerequisite is gone: `JitML.RL.Simulator` gains a `Pendulum-v1`
   continuous-action env (`ContinuousEnvironment` boundary), and
@@ -1879,15 +1905,15 @@ AlphaZero-target, and demo-bridge code surfaces:
   `JitML.App.runTrainerEpisodes` route every algorithm to its trainer
   so the catalog is reachable from `jitml rl train` /
   `StartRLRun`. In that intermediate snapshot the multi-week CUDA-emitted
-  backward kernels were still deferred; later Phase `13` / Phase `14`
+  backward kernels were still deferred; later Phase `15` / Phase `16`
   validation superseded this note.
-- **Sprint 13.9 — true MCTS visit-count training targets.**
+- **Sprint 15.9 — true MCTS visit-count training targets.**
   `PolicyValueNet.mctsVisitDistribution` runs the search per position
   and trains the policy head on the normalised visit counts (the
   canonical AlphaZero target), replacing the network's-own-policy
   proxy. In that intermediate snapshot the multi-week CUDA/oneDNN network
   codegen was still deferred; later closure records superseded this note.
-- **Sprint 13.13 — the demo WebSocket bridge is activated.**
+- **Sprint 15.13 — the demo WebSocket bridge is activated.**
   `JitML.App.demoMain` now serves through
   `serveDemoWithBridgeEndpoint` (in-cluster broker endpoint via
   `JITML_DEMO_PULSAR_WS`), and the streaming Halogen panels (`Rl`,
@@ -1914,11 +1940,11 @@ Jobs now set `JITML_PULSAR_WS` (the in-cluster broker WS endpoint) and
 `JitML.App.workerBrokerTarget` resolves the worker's publish settings
 from it:
 
-- **Sprint 13.5 → ✅ Done** — a new `jitml-integration` Live case
+- **Sprint 15.5 → ✅ Done** — a new `jitml-integration` Live case
   publishes a `StartRLRun`, the daemon dispatches a `jitml-rl-<hash>`
   Job, and the per-episode `EpisodeDone` envelopes arrive on
   `rl.event.linux-cuda` in canonical order (16 / 16 Live cohort).
-- **Sprint 13.13 → ✅ Done** — the `jitml-demo` chart sets
+- **Sprint 15.13 → ✅ Done** — the `jitml-demo` chart sets
   `JITML_DEMO_PULSAR_WS` so the held-open `/api/ws` bridge consumes from
   the in-cluster broker; a WebSocket client on
   `/api/ws/training` received the exact payload published on
@@ -1927,9 +1953,9 @@ from it:
 
 The 2026-05-28 session (continued) advanced the two largest open Sprint
 families with real, GPU-validated work — without fabricating closure
-(13.8 / 13.9 subsequently closed 2026-05-30 — see Phase 13 doc):
+(15.8 / 15.9 subsequently closed 2026-05-30 — see Phase 15 doc):
 
-- **Sprint 13.4 — `jitml train` over real MNIST (code-surface, host-validated).**
+- **Sprint 15.4 — `jitml train` over real MNIST (code-surface, host-validated).**
   Added the MNIST label artefact surface (`DatasetArtifact`, `labels.bin`
   key, canonical label SHAs, `--artifact images|labels` on
   `jitml internal upload-dataset`), transparent gzip
@@ -1939,7 +1965,7 @@ families with real, GPU-validated work — without fabricating closure
   canonical MNIST SHAs were verified against the live CVDF-mirror
   downloads. Only the operationally-heavy live full-MNIST convergence run
   remains.
-- **Sprints 13.8 / 13.9 — nvcc forward/backward MLP kernels + device
+- **Sprints 15.8 / 15.9 — nvcc forward/backward MLP kernels + device
   training (GPU-validated).** `JitML.Codegen.MlpCuda` +
   `JitML.Numerics.MlpCuda` emit and run the MLP forward/backward passes as
   real CUDA kernels behind the `JitML.Numerics.Mlp` interface, and the
@@ -1968,17 +1994,17 @@ tracked-generated CLI artifacts, failing the image's `jitml check-code`;
 `jitml docs generate` regenerated them and `check-code` passed. An earlier
 `manifest unknown` claim about the MinIO client tag was a mis-paired
 pre-pull and is corrected — the chart tags pull fine.) Against the live
-cluster: **Sprint 13.4 live MNIST trained to `test_acc=0.9318`** (train
+cluster: **Sprint 15.4 live MNIST trained to `test_acc=0.9318`** (train
 0.9905; 10k×10-epoch budget, 5k test) through `jitml train` over
 MinIO-staged real MNIST — a real converging live SL run — and **Sprint
-13.6 live PPO** ran via the rebuilt binary (`avg-reward: 141.2` over a
+15.6 live PPO** ran via the rebuilt binary (`avg-reward: 141.2` over a
 short 25-iteration cohort).
 
-At that point the then-open Phase `13` items were the formalised live SL
+At that point the then-open Phase `15` items were the formalised live SL
 statistical-convergence assertion, the heavier RL cohort convergence runs, and
-the batched device-training hot path. Phase `13` later closed all 15 / 15
+the batched device-training hot path. Phase `15` later closed all 15 / 15
 sprints on 2026-05-30. The later dependency source-pin/vendor cleanup row owned
-by Phase `15` closed through Phase `1` Sprint `1.11` on 2026-06-04.
+by Phase `17` closed through Phase `1` Sprint `1.11` on 2026-06-04.
 
 The pre-2026-05-28 host suites were: `jitml-unit` (172),
 `jitml-sl-canonicals` (9), `jitml-rl-canonicals` (23),
@@ -1986,7 +2012,7 @@ The pre-2026-05-28 host suites were: `jitml-unit` (172),
 `jitml-e2e` (16), plus `jitml-integration` 46 non-oneDNN cases.
 
 **Live cluster validation (2026-05-27, fifth session, RTX 3090 /
-CUDA 12.8 / Ubuntu 24.04 host)**: with the Sprint 13.8/13.9
+CUDA 12.8 / Ubuntu 24.04 host)**: with the Sprint 15.8/15.9
 network seam landed, `docker compose build jitml` rebuilt the
 `jitml:local` image after a `--jobs=2 --ghc-options="+RTS -M2G
 -RTS"` cap was added to the Dockerfile's `cabal build -fcuda`
@@ -2000,7 +2026,7 @@ cluster: **`jitml-integration` Live 15 / 15 pass**,
 **`jitml-cross-backend` 19 / 19 pass** (all CUDA + CPU kernels
 on the RTX 3090), **`jitml-e2e` 16 / 16 pass**; `jitml internal
 upload-dataset` SHA-verified and uploaded both MNIST splits to
-live MinIO (Sprint 13.4 upload half); the real MLP-backed PPO
+live MinIO (Sprint 15.4 upload half); the real MLP-backed PPO
 trainer ran through the production binary
 (`jitml rl train ... JITML_RL_TRAINER=ppo`) reaching
 `avg-reward: 472.6` across 40 cartpole iterations (converged
@@ -2017,12 +2043,12 @@ steps) and all seven publication components landed Ready on
 edge port 9092. Inside `jitml:local` against the live cluster:
 
 - `cabal test jitml-integration --test-options='-p Live'` —
-  **15 / 15 Live cases pass** including the new Sprint 13.3
+  **15 / 15 Live cases pass** including the new Sprint 15.3
   dedup assertion (`live duplicate StartTraining produces one
-  daemon-side dedup-skip`), the new Sprint 13.10 daemon
+  daemon-side dedup-skip`), the new Sprint 15.10 daemon
   `TuneHandler dispatches StartSweep into a Kubernetes Job`
-  assertion, the Sprint 13.9 SelfPlayBuffer MinIO round-trip,
-  the Sprint 13.7 `gc.event.<substrate>` publish stream, Harbor
+  assertion, the Sprint 15.9 SelfPlayBuffer MinIO round-trip,
+  the Sprint 15.7 `gc.event.<substrate>` publish stream, Harbor
   tag promotion, daemon subscription acquisition on all four
   command topics, and the JIT-kernel-backed live `jitml
   inference run` against MinIO.
@@ -2030,33 +2056,33 @@ edge port 9092. Inside `jitml:local` against the live cluster:
   every Linux CPU + Linux CUDA kernel (identity, reduction,
   family scaffolds, weighted Dense2D / Conv2D / Conv3D /
   BatchNorm / LayerNorm / Embedding, cuBLAS + cuDNN bindings,
-  benchmark candidate runner) plus the new Sprint 13.15
+  benchmark candidate runner) plus the new Sprint 15.15
   first-cache-miss `TuningChoice` JSON persistence assertion.
 - `cabal test jitml-e2e` — **16 / 16 pass**.
 - `jitml cluster down` followed by `kind get clusters` confirms
   clean teardown with zero Kind clusters and zero containers.
 
-The Sprint 13.3 dedup assertion required a daemon-stdout line-
+The Sprint 15.3 dedup assertion required a daemon-stdout line-
 buffering fix in `JitML.App.runService` (`hSetBuffering stdout
 LineBuffering`) so Kubernetes pipe-based log capture flushes the
 per-delivery `service: deduplicated training <event-id>` lines
 as they land rather than batching them into 4 KB blocks.
 
-**Phase 13 closure status (2026-05-30)**: **All 15 of 15 sprints Done.**
-Sprint `13.1` reopened scope (kind-node cap + right-sized stack +
-typed-Haskell reconciler), Sprints `13.3` / `13.10` typed-Dhall
+**Phase 15 closure status (2026-05-30)**: **All 15 of 15 sprints Done.**
+Sprint `15.1` reopened scope (kind-node cap + right-sized stack +
+typed-Haskell reconciler), Sprints `15.3` / `15.10` typed-Dhall
 `RunConfig` worker dispatch (with the `workerExperimentHash` fix), Sprint
-`13.4` live-MNIST convergence (`778.27s` clearing the `mnist-shallow-mlp`
-threshold), Sprint `13.6` live PPO/cartpole convergence through daemon
-dispatch (`230.72s` clearing the literature threshold), Sprint `13.8`
+`15.4` live-MNIST convergence (`778.27s` clearing the `mnist-shallow-mlp`
+threshold), Sprint `15.6` live PPO/cartpole convergence through daemon
+dispatch (`230.72s` clearing the literature threshold), Sprint `15.8`
 14-algorithm catalog (GPU-validated through `jitml-cross-backend` 15/15),
-and Sprint `13.9` live AlphaZero generation drive with `.jmw1` MinIO
-round-trip are all live-validated. Phase 13 is closed. The remaining
+and Sprint `15.9` live AlphaZero generation drive with `.jmw1` MinIO
+round-trip are all live-validated. Phase 15 is closed. The remaining
 operational scope (per-cohort convergence drives for the other 12 RL
 cohorts, multi-hour each) reuses the same parameterised dispatch path
 proven by the PPO/cartpole live closure.
 
-**Sprint 13.8 / 13.9 algorithmic seam (2026-05-27 fourth
+**Sprint 15.8 / 15.9 algorithmic seam (2026-05-27 fourth
 session)**: the pure-Haskell differentiable network seam closed
 through four new modules: `JitML.Numerics.Mlp` (forward + manual
 reverse-mode backprop + Adam),
@@ -2070,30 +2096,30 @@ arena win-rate against uniform-random baseline). 5 new
 `jitml-unit` tests + 5 new `jitml-rl-canonicals` tests cover
 the seam.
 
-**Sprint 13.4 / 13.8 / 13.9 / 13.13 / 13.14 (2026-05-27 fifth
+**Sprint 15.4 / 15.8 / 15.9 / 15.13 / 15.14 (2026-05-27 fifth
 session)** pushed every Active sprint further (host cohort now
 **268 tests**, lint clean, image rebuilt + live-validated on the
 RTX 3090 cluster):
-- **13.9 production prior flip**:
+- **15.9 production prior flip**:
   `SelfPlay.runSelfPlayWithOracleFactory` threads a per-position
   oracle so `PolicyValueNet.runNetworkSelfPlay` drives the MCTS
   prior from the real network forward pass — the production
   self-play callsite no longer uses `priorFor` (the earlier
   "blocked on golden fixtures" claim was wrong; the transcripts
   are oracle-independent). The legacy ledger row is corrected.
-- **13.8 on-policy framework**: `OnPolicyVariant` parameterises
+- **15.8 on-policy framework**: `OnPolicyVariant` parameterises
   the PPO trainer so A2C / TRPO (with a KL trust-region gate) /
   MaskablePPO / RecurrentPPO share one loop; all four improve on
   cartpole in `jitml-rl-canonicals`. `DqnTrainer` now honours
   `dqnUseDouble` (real Double-DQN). Continuous-control
   (DDPG/TD3/SAC/CrossQ/TQC) was then blocked on a continuous-action
-  simulator; later Phase `13` closure superseded that intermediate status.
-- **13.4 SL classifier seam**: `JitML.SL.Classifier`
+  simulator; later Phase `15` closure superseded that intermediate status.
+- **15.4 SL classifier seam**: `JitML.SL.Classifier`
   (softmax-cross-entropy MLP + Adam + canonical MNIST IDX3/IDX1
   parsers) converges on a separable task; wiring it into
   `jitml train` over staged MNIST + the live convergence
   assertion remains.
-- **13.13 / 13.14 live render + Playwright**: the Dockerfile now
+- **15.13 / 15.14 live render + Playwright**: the Dockerfile now
   esbuild-bundles the spago output into a browser-loadable IIFE; the
   rebuilt image was `kind load`ed + the demo rollout-restarted, and the
   current **9-test Playwright matrix passes 9/9 against the live
@@ -2101,15 +2127,15 @@ RTX 3090 cluster):
   and the REST panels asserting rendered values. The live `/api/ws`
   broker-frame round-trip (demo `serveDemoWithBridge` wiring + in-cluster
   broker endpoint) was validated 2026-05-28, closing Sprint 13.13.
-- **13.1 ephemeral rollout**: the `jitml bootstrap` phased Helm
+- **15.1 ephemeral rollout**: the `jitml bootstrap` phased Helm
   rollout + `jitml cluster down` teardown is the ephemeral-cluster
   e2e orchestration (recorded typed in
-  `JitML.Test.LivePlan.liveE2EPlan`); Sprint 13.1 initially closed
+  `JitML.Test.LivePlan.liveE2EPlan`); Sprint 15.1 initially closed
   2026-05-28 and re-closed 2026-05-29 after the reopened-scope
   (kind-node cap + right-sized stack + typed-Haskell reconciler)
   live re-verification.
 
-The remaining open work in 13.8/13.9 is
+The remaining open work in 15.8/15.9 is
 infrastructure: CUDA-emitted backward kernels (multi-week — the
 pure-Haskell backward holds the determinism contract in the
 meantime per
@@ -2118,13 +2144,13 @@ and continuous-action env support for the actor-critic
 off-policy algorithms. The remaining unmet obligations against the Exit Definition are:
 the explicit ephemeral Kind e2e path
 for Exit 3; Apple Silicon Metal kernel compile/load/execute and the live
-Metal candidate measurement runner (owned by Phase `14`); real SL / RL /
+Metal candidate measurement runner (owned by Phase `16`); real SL / RL /
 AlphaZero training loops with statistical convergence assertions and
 run-to-run reward determinism (no committed reward fixtures per
 [README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets)),
 plus live tuner trial execution / persistence beyond the local TPE
 Dhall render path (Exit 6); the live `/api/ws` WebSocket proxy (Phase
-`13` Sprint `13.13`); the live `jitml-e2e` Helm + Playwright
+`15` Sprint `15.13`); the live `jitml-e2e` Helm + Playwright
 path against an ephemeral Kind stack (Exit 8, 9); and the empty legacy
 ledger that closes after the remaining runtime gates and toolchain
 cleanup close (Exit 18). Each gap is logged in the owning sprint's
@@ -2229,9 +2255,9 @@ flowchart TB
     P10[Phase 10: Checkpoint Code Surface]
     P11[Phase 11: PureScript Frontend Code Surface]
     P12[Phase 12: Test Stanzas Code Surface]
-    P13[Phase 13: Linux CUDA + Cluster Live Closure]
-    P14[Phase 14: Apple Silicon Live Closure]
-    P15[Phase 15: Substrate Reproducibility + Handoff]
+    P13[Phase 15: Linux CUDA + Cluster Live Closure]
+    P14[Phase 16: Apple Silicon Live Closure]
+    P15[Phase 17: Substrate Reproducibility + Handoff]
     P0 --> P1
     P1 --> P2
     P2 --> P3
@@ -2260,10 +2286,10 @@ inference-only read path) precedes Phase `11` (frontend) because the frontend's 
 surfaces consume the inference-only path. Phase `12` owns the test-stanza
 code surface. After the 2026-05-24 refactor, Phases `7`–`12` each carry only
 their code-surface obligations; every live-runtime obligation migrated to
-Phase `13` (Linux CUDA + Kind cluster + browser session), Phase `14` (Apple
-Silicon session), or Phase `15` (final cross-substrate handoff + populated report
-card + empty deletion ledger). Phases `13` and `14` are independent and may
-close in either order; Phase `15` requires both.
+Phase `15` (Linux CUDA + Kind cluster + browser session), Phase `16` (Apple
+Silicon session), or Phase `17` (final cross-substrate handoff + populated report
+card + empty deletion ledger). Phases `15` and `16` are independent and may
+close in either order; Phase `17` requires both.
 
 ## Exit Definition
 
@@ -2391,7 +2417,7 @@ This plan is complete only when all of the following are true:
     **Reopened 2026-06-10 (real-workflow refactor):** the synthetic/echo/dead-code
     stand-ins the refactor deleted were enqueued under `Pending Removal`; as of
     2026-06-12 they have moved to `Completed`, so the ledger is empty again.
-    Sprint `15.6` re-audited this after the Phase `14` live gate closed.
+    Sprint `17.6` re-audited this after the Phase `16` live gate closed.
 
 ## Related Documents
 

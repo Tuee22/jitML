@@ -422,7 +422,7 @@ blocks, or cleanup-ledger rows are required.
   `grep -RInE 'CommandSpec|OptionSpec|Example|name|summary|description|children|options|examples|longName|shortName|metavar|required|jitml commands|--tree|--json|jitml help <subcommand>' DEVELOPMENT_PLAN documents/engineering`
   Evidence: [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) lines
   `112`-`145`; [documents/engineering/cli_command_surface.md](../documents/engineering/cli_command_surface.md)
-  lines `14`-`31`.
+  lines `13`, `14`, `16`, `17`, `18`, `19`, `20`, `21`, `22`, `23`, `24`, `25`, `26`, `27`, `28`, `29`, `30`, and `31`.
 - GADT-indexed lifecycle state:
   `grep -RInE 'TrainingLifecycle|RLRunLifecycle|TuneSweepLifecycle|singleton witnesses|runtime-status-enum-with-manual-validation' DEVELOPMENT_PLAN documents/engineering`
   Evidence: [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md)
@@ -509,7 +509,7 @@ blocks, or cleanup-ledger rows are required.
 - Checkpoint format:
   `grep -RInE '\.jmw1|blobs/<sha256>|manifests/<sha256>|pointers/\{latest,best/<metric>,trial/<trial-hash>/\.\.\.\}|If-None-Match: \*|If-Match: <etag>|advanceLatest|advanceBestMaximised|advanceBestMinimised' DEVELOPMENT_PLAN documents/engineering`
   Evidence: [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md)
-  lines `15`-`19`, `55`-`78`, and `107`-`125`;
+  lines `13`, `14`, `17`, `18`, and `19`, `55`-`78`, and `107`-`125`;
   [documents/engineering/checkpoint_format.md](../documents/engineering/checkpoint_format.md)
   lines `136`-`146`.
 - Report-card knobs:

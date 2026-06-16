@@ -23,7 +23,7 @@
 ✅ **Done** (re-closed 2026-05-29; Sprint `3.2`'s right-sized PV layout
 (MinIO `4→1`, Pulsar `3→1`, Postgres `3→1`) landed in `JitML.Cluster.Storage` and
 validated against the container build + unit + integration renderer assertions;
-live hostPath-backed rollout exercise owned by Phase 13 Sprint 13.1). The phase owns
+live hostPath-backed rollout exercise owned by Phase 15 Sprint 15.1). The phase owns
 [Exit Definition](README.md#exit-definition) items 3 (`jitml bootstrap
 --<substrate>` deploys the umbrella Helm chart against the per-substrate
 Kind cluster shape with no kubeconfig pollution, Harbor up before later
@@ -57,7 +57,7 @@ The phase reopened so **Sprint `3.2`** (manual PVs / storage) can carry the
 right-sized manual-PV layout that follows the reduced platform replica counts
 (MinIO `4→1–2`, Pulsar `3→1`) introduced by Phase `4` Sprint `4.8` as part of the
 2026-05-29 cluster resource-guardrail work. Sprints `3.1`, `3.3`, `3.4`, and `3.5`
-stay closed; the live exercise of the new PV layout is owned by Phase `13`.
+stay closed; the live exercise of the new PV layout is owned by Phase `15`.
 
 ### Current Implementation Scope
 
@@ -133,7 +133,7 @@ the Linux CUDA node label `jitml.runtime/gpu=true`.
 
 ## Sprint 3.2: `kubernetes.io/no-provisioner` Storage and Manual PVs ✅
 
-**Status**: Done (re-closed 2026-05-29 after the right-sized PV layout landed; live hostPath-backed rollout owned by Phase 13 Sprint 13.1)
+**Status**: Done (re-closed 2026-05-29 after the right-sized PV layout landed; live hostPath-backed rollout owned by Phase 15 Sprint 15.1)
 **Implementation**: `chart/templates/storageclass-jitml-manual.yaml`,
 `chart/templates/pv-platform-minio-*.yaml`,
 `chart/templates/pv-platform-pulsar-bookkeeper-*.yaml`,
@@ -194,7 +194,7 @@ that enforces the discipline.
   `jitml check-code` inside the Dockerfile rejected the orphan PVs as missing
   `claimRef`).
 - The live hostPath-backed rollout with the reduced PV set is owned by Phase
-  `13` Sprint `13.1`'s Remaining Work.
+  `15` Sprint `15.1`'s Remaining Work.
 
 ## Sprint 3.3: Envoy Gateway and Single `127.0.0.1:<edge-port>` Listener ✅
 

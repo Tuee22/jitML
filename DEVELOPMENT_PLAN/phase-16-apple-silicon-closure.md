@@ -1,4 +1,4 @@
-# Phase 14: Apple Silicon Closure
+# Phase 16: Apple Silicon Closure
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,8 +9,8 @@
 [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
-[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md),
+[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
@@ -28,15 +28,15 @@
 ## Phase Status
 
 ⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Apple live validation). Sprint
-`14.11` revalidates the expanded runtime/browser product matrix on
-`apple-silicon`, but it is blocked until Phases `10`–`12`, Phase `16`, and
-Phase `17` land the remaining no-caveat surfaces. Phases `8` and `9` have
+`16.11` revalidates the expanded runtime/browser product matrix on
+`apple-silicon`, but it is blocked until Phases `10`–`12`, Phase `13`, and
+Phase `14` land the remaining no-caveat surfaces. Phases `8` and `9` have
 re-closed their local framework/runtime and RL/AlphaZero/tuning surfaces.
 
-✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `14.10`). The fixed
+✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `16.10`). The fixed
 Metal bridge and Apple backend lane remain valid, and the full Apple lifecycle
 now validates host-resident placement for Apple Metal-backed Training/RL/Tune
-starts. Sprint `14.10` closes after Phase `5` routes those starts to host
+starts. Sprint `16.10` closes after Phase `5` routes those starts to host
 workload topics, Phase `12` adds fail-fast placement checks, and
 `bootstrap/apple-silicon.sh test` passes the full Apple lane with no
 `jitml-train-*`, `jitml-rl-*`, or `jitml-tune-*` Kubernetes workload Jobs.
@@ -44,7 +44,7 @@ workload topics, Phase `12` adds fail-fast placement checks, and
 Prior closure history follows.
 
 ✅ **Done** (reopened 2026-06-12 — true-headless Apple Metal fixed-bridge
-doctrine; **re-closed the same day** after Sprint `14.9`). This phase owns the
+doctrine; **re-closed the same day** after Sprint `16.9`). This phase owns the
 live **apple-silicon** exercise of every reopened workflow (Phases `8`–`12`)
 through the fixed Metal bridge against a live Apple-Silicon cluster. Phase `7`
 Sprint `7.11` removed the generated Swift/Tart cache-miss path; Sprints `1.15`,
@@ -59,28 +59,28 @@ Silicon Tart-VM build-JIT doctrine reversal; **re-closed 2026-06-10** after the
 live apple-silicon lane was re-validated through the Tart-VM-built path on Apple
 M1). Under that now-retired doctrine, the lane built each Metal kernel family
 with the `jitml`-managed VM's `swift build`, copied the dylib out, and executed
-on the host GPU. Sprint `14.7` owned that re-validation; its
+on the host GPU. Sprint `16.7` owned that re-validation; its
 `### Live Closure (2026-06-10)` records the historical evidence —
 `jitml test jitml-backends --apple-silicon` ran all 17 within-substrate apple
 cases as real PASSes through the VM-built path. With this phase re-closed, the
-Phase `15` final handoff (Exit-Definition item 18, empty legacy ledger) is met
+Phase `17` final handoff (Exit-Definition item 18, empty legacy ledger) is met
 again as of 2026-06-10; that claim is superseded by the 2026-06-12 fixed-bridge
 closure above. See
-[Sprint 14.7](#sprint-147-re-validate-the-apple-silicon-lane-through-the-tart-vm-built-path--done).
+[Sprint 16.7](#sprint-147-re-validate-the-apple-silicon-lane-through-the-tart-vm-built-path--done).
 Prior closure history follows.
 
-✅ **Done** (re-closed 2026-06-09 after Sprint 14.6). The reproducibility
+✅ **Done** (re-closed 2026-06-09 after Sprint 16.6). The reproducibility
 contract is now "within a substrate: bit-for-bit reproducible; across
 substrates: NO guarantee"; the cross-substrate numeric parity surface is
 removed and the test suite is partitioned so each substrate's cases run **for
 real** in its own lane with **no skipped tests**. The `appleLiveReady` skip
 guards in the apple-silicon test bodies are removed — a missing Metal device
 now **fails** rather than skips. Within-substrate bit-for-bit reproducibility
-tests **stay**. Sprint 14.6 re-validated the guards-removed apple-silicon lane
+tests **stay**. Sprint 16.6 re-validated the guards-removed apple-silicon lane
 host-native on 2026-06-09: `jitml test jitml-cross-backend
 --test-options='-p apple-silicon'` ran the four within-substrate Metal cases
 as real PASSes (4 / 4, 88.90s, no skip-sentinels, no oneDNN / nvcc compiles).
-The phase reopened 2026-06-08 for Sprint 14.6 and is re-closed the same day.
+The phase reopened 2026-06-08 for Sprint 16.6 and is re-closed the same day.
 All historical dated evidence below (Apple M1, macOS 26) is retained intact as
 a dated record.
 
@@ -93,11 +93,11 @@ matrix on the Apple host). Closure required a single Apple Silicon machine with
 the Xcode **Command Line Tools** (`swiftc`) and a Metal-capable GPU — **no Tart
 VM and no full Xcode**.
 
-Sprints `14.1`–`14.5` are **Done and live-validated headless**: the host
+Sprints `16.1`–`16.5` are **Done and live-validated headless**: the host
 `swift build` + runtime `MTLDevice.makeLibrary(source:)` JIT, Metal FFI launch,
 the benchmark candidate runner, Apple Metal production weight loading, and the
 full host↔cluster RPC round-trip through **two running daemon processes**
-(Sprint `14.4`, validated against a standalone broker — **no Kind cluster
+(Sprint `16.4`, validated against a standalone broker — **no Kind cluster
 required**; the cluster-leg binary was the real `jitml:local` image, its hardcoded
 in-cluster Pulsar DNS redirected to the host broker via Docker `--add-host`).
 
@@ -111,11 +111,11 @@ passed — the Halogen bundle mounts the shell + all six panels (`mnist`, `cifar
 `connect4`, `rl`, `training`, `tune`) via `#<panel-id>` hash navigation. A
 negative control (pointing `edge_port` at a dead port) failed all 7 with
 `net::ERR_CONNECTION_REFUSED`, proving the green run genuinely exercised the live
-server rather than the offline DOM-stub fallback. Phase `13` Sprint `13.14`
+server rather than the offline DOM-stub fallback. Phase `15` Sprint `15.14`
 covers the substrate-agnostic panel mechanics against the cluster edge; this run
 is the Apple-host half. Web tooling stayed container-only per `CLAUDE.md`.
 
-**Historical 2026-05-31 closure**: all then-current Phase 14 obligations were
+**Historical 2026-05-31 closure**: all then-current Phase 16 obligations were
 closed under the host-Swift architecture that was later superseded.
 
 **Architecture (2026-05-30 reopen)**: the Apple Metal build moves from the
@@ -133,17 +133,17 @@ Metal compute needs no VM, so the live validations below become headless-runnabl
 live headless validations passed. `cabal run jitml-cross-backend -p apple-silicon`
 runs the real host `swift build` → `dlopen` → runtime `makeLibrary` → Metal
 dispatch and asserts identity-kernel bit-equality across three runs **(closes
-Sprint `14.1` host build + Sprint `14.2` FFI loader)** and weighted Dense2D ==
-`[1, 4, 9]` **(closes Sprint `14.5` same-host determinism)**. `JitML.Engines.HasEngine`
+Sprint `16.1` host build + Sprint `16.2` FFI loader)** and weighted Dense2D ==
+`[1, 4, 9]` **(closes Sprint `16.5` same-host determinism)**. `JitML.Engines.HasEngine`
 dispatches `apple-silicon` via `LocalAppleSiliconEngine`; the per-family weighted
 Metal bodies mirror the CUDA `weightedFamilyImpl`; the Apple daemon +
 `jitml inference run` dispatch route through the Metal weighted runner; 185 / 185
 `jitml-unit` pass; `cabal build all` clean. No Tart VM, no full Xcode.
 
-**Historical unmet work as of 2026-05-30**: Sprint `14.4`'s host↔cluster Pulsar
-RPC needed the full Kind cluster, host daemon, and live broker, and Phase `15`
-still owned the then-planned multi-host report comparison. Sprints `14.1` /
-`14.2` / `14.3` / `14.5` were closed under the now-superseded host-Swift path
+**Historical unmet work as of 2026-05-30**: Sprint `16.4`'s host↔cluster Pulsar
+RPC needed the full Kind cluster, host daemon, and live broker, and Phase `17`
+still owned the then-planned multi-host report comparison. Sprints `16.1` /
+`16.2` / `16.3` / `16.5` were closed under the now-superseded host-Swift path
 (validated headless on Apple M1).
 
 ### Current Implementation Scope
@@ -160,11 +160,11 @@ offline `metal` compiler, or keychain-changing commands.
 This phase batches the Apple-Silicon live runtime work so it can close in one
 Apple-machine session. The historical sprints below record the Metal loader,
 benchmark runner, host↔cluster RPC, production weight loading, skip-guard
-removal, and the now-superseded Tart-VM build-JIT validation. Sprint `14.9`
+removal, and the now-superseded Tart-VM build-JIT validation. Sprint `16.9`
 revalidates the backend lane, e2e lane, and real-workflow matrix through the
-fixed bridge, then unblocks Phase `15`.
+fixed bridge, then unblocks Phase `17`.
 
-## Sprint 14.1: Host Swift Toolchain and First-Cache-Miss Headless Build ✅
+## Sprint 16.1: Host Swift Toolchain and First-Cache-Miss Headless Build ✅
 
 **Status**: Done (validated headless 2026-05-30, Apple M1 / macOS 26)
 **Implementation**: `src/JitML/Engines/Engine.hs` (`compileSubprocess`
@@ -197,7 +197,7 @@ Typed Values` and `Prerequisites as Typed Effects` from
   `JitML.Cache.Symlink.repointSymlink`.
 - The cache-miss run completed headless without `AppError PrerequisiteUnmet` and
   at the time needed only the host Swift developer-tool gate (no full Xcode, no
-  Tart VM). Sprint `14.9` supersedes this with the fixed-bridge core path, which
+  Tart VM). Sprint `16.9` supersedes this with the fixed-bridge core path, which
   does not require SwiftPM or Xcode for training/inference cache misses.
 
 ### Validation
@@ -216,10 +216,10 @@ Typed Values` and `Prerequisites as Typed Effects` from
   Tart-VM provisioning obligation is retired (tracked in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)).
 
-## Sprint 14.2: Metal FFI Loading and Host Kernel Launch ✅
+## Sprint 16.2: Metal FFI Loading and Host Kernel Launch ✅
 
 **Status**: Done (validated headless 2026-05-30, Apple M1 / macOS 26)
-**Blocked by**: Sprint `14.1`
+**Blocked by**: Sprint `16.1`
 **Implementation**: `src/JitML/Engines/MetalRuntime.hs`,
 `src/JitML/Engines/Local.hs` (Apple branch), new
 `src/JitML/Engines/MetalLocal.hs`
@@ -228,7 +228,7 @@ Typed Values` and `Prerequisites as Typed Effects` from
 
 ### Objective
 
-Load the symlinked `.dylib` produced by Sprint `14.1`, look up
+Load the symlinked `.dylib` produced by Sprint `16.1`, look up
 `jitml_kernel`, `jitml_kernel_family_name`, and `jitml_kernel_output_count`
 through `dlopen`, build an `MTLDevice` + pipeline + command buffer, launch
 the kernel against a host input buffer, and copy the output back through
@@ -251,7 +251,7 @@ the FFI. Adopts `Capability Classes` from [../README.md](../README.md).
 
 ### Validation
 
-1. On Apple Silicon, after Sprint `14.1` completes: `cabal test
+1. On Apple Silicon, after Sprint `16.1` completes: `cabal test
    jitml-cross-backend --test-options='-p Apple'` exits `0` and asserts
    three successive identity-kernel runs produce bit-identical output.
 2. `JitML.Engines.MetalRuntime.probeMetalRuntime` reports Metal device
@@ -276,7 +276,7 @@ the FFI. Adopts `Capability Classes` from [../README.md](../README.md).
   `MetalLocal.runMetalFamilyKernel` when the Metal device is visible.
 - `jitml-cross-backend` adds the Apple same-host bit-equality case
   ("apple-silicon kernel output is bit-equal across repeated runs
-  (Sprint 14.2)"); it skips unless a Metal device is usable headless.
+  (Sprint 16.2)"); it skips unless a Metal device is usable headless.
 - All of the above compile host-native (`cabal build lib:jitml` +
   `cabal build jitml-cross-backend`, GHC `9.12.4`, exit 0).
 
@@ -288,10 +288,10 @@ the FFI. Adopts `Capability Classes` from [../README.md](../README.md).
   three bit-identical identity-kernel runs. No objC class collision (the launcher
   is free functions over `let` globals).
 
-## Sprint 14.3: Metal Benchmark Candidate Runner Live Execution ✅
+## Sprint 16.3: Metal Benchmark Candidate Runner Live Execution ✅
 
 **Status**: Done (validated headless 2026-05-31, Apple M1 / macOS 26)
-**Blocked by**: Sprint `14.2` (closed)
+**Blocked by**: Sprint `16.2` (closed)
 **Implementation**: `src/JitML/Engines/TuningBenchmark.hs`,
 `src/JitML/Engines/MetalLocal.hs`,
 `src/JitML/Engines/Loader.hs`
@@ -301,8 +301,8 @@ the FFI. Adopts `Capability Classes` from [../README.md](../README.md).
 
 Replace the guarded preflight `metalBenchmarkCandidateRunner` with the
 real Metal candidate runner: render the tuned Swift/Metal source,
-compile through Sprint `14.1`'s host `swift build`, load + runtime-compile
-through Sprint `14.2`'s FFI runner, measure latency, and capture an output digest.
+compile through Sprint `16.1`'s host `swift build`, load + runtime-compile
+through Sprint `16.2`'s FFI runner, measure latency, and capture an output digest.
 The benchmark driver in `ensureKernelArtifact`'s first-cache-miss path
 selects the Metal tuning choice for an `apple-silicon` kernel and
 persists it via `Engines.TuningStore`.
@@ -310,8 +310,8 @@ persists it via `Engines.TuningStore`.
 ### Deliverables
 
 - `metalBenchmarkCandidateRunner` becomes a non-stub: it renders the
-  candidate Metal source, drives the Sprint `14.1` host build, loads +
-  runtime-compiles through Sprint `14.2`'s runner, measures elapsed time, and
+  candidate Metal source, drives the Sprint `16.1` host build, loads +
+  runtime-compiles through Sprint `16.2`'s runner, measures elapsed time, and
   records the SHA-256 of the float output.
 - The benchmark driver wired into `ensureKernelArtifact` in Sprint
   `7.6`'s code-only Remaining Work invokes the Metal runner on the
@@ -360,12 +360,12 @@ persists it via `Engines.TuningStore`.
 
 - None.
 
-## Sprint 14.4: Apple Host↔Cluster Pulsar RPC Live Flow ✅
+## Sprint 16.4: Apple Host↔Cluster Pulsar RPC Live Flow ✅
 
 **Status**: Done (full two-daemon round-trip validated live 2026-05-31, Apple M1 / macOS 26)
-**Blocked by**: Sprint `14.2`, Phase `13` Sprint `13.1` (cluster up),
-Phase `13` Sprint `13.2` (live capability classes), Phase `13` Sprint
-`13.3` (daemon handlers consuming live broker)
+**Blocked by**: Sprint `16.2`, Phase `15` Sprint `15.1` (cluster up),
+Phase `15` Sprint `15.2` (live capability classes), Phase `15` Sprint
+`15.3` (daemon handlers consuming live broker)
 **Implementation**: `src/JitML/Service/AppleInferenceRpc.hs`,
 `src/JitML/Service/PulsarWebSocketSubprocess.hs`,
 `src/JitML/Service/MinIOSubprocess.hs`,
@@ -380,7 +380,7 @@ daemon publishes an `AppleInferenceCommand` on
 `inference.command.apple-silicon` with a MinIO-staged input tensor
 reference, the host-native `jitml service` consumes it through
 `HasPulsar.pulsarConsume`, loads the staged tensor through
-`HasMinIO.minioReadBytes`, runs the Metal kernel via Sprint `14.2`,
+`HasMinIO.minioReadBytes`, runs the Metal kernel via Sprint `16.2`,
 stages the output to MinIO, and publishes the
 `AppleInferenceEvent` reply on `inference.event.apple-silicon`. The
 in-cluster daemon correlates the reply by `call-id` through
@@ -402,7 +402,7 @@ in-cluster daemon correlates the reply by `call-id` through
 
 ### Validation
 
-1. With Phase `13` cluster up and the host-native Apple daemon running:
+1. With Phase `15` cluster up and the host-native Apple daemon running:
    a single `InferenceRequest` published from a test driver produces a
    matching `InferenceResult` reply within the typed `RetryPolicy`
    budget, and `kubectl logs` shows the in-cluster daemon correlating
@@ -510,7 +510,7 @@ The host runner deliberately ran the **error path** (no seeded MinIO checkpoint 
 `pointer read failed: SEUnauthorized "minioReadBytes: HTTP 403"`), which fully
 exercises the serve-loop plumbing — consume → route → handle → publish — through
 both real daemon binaries. The Metal compute step itself is validated bit-exact in
-Sprints `14.2`/`14.5`, so seeding a checkpoint for the success path adds no
+Sprints `16.2`/`16.5`, so seeding a checkpoint for the success path adds no
 serve-loop coverage and was skipped.
 
 ### Remaining Work
@@ -520,15 +520,15 @@ serve-loop coverage and was skipped.
   binary). The only delta from a Kubernetes-orchestrated deployment is the
   orchestration layer itself (Deployment + ConfigMap + in-cluster Service DNS),
   which is substrate-agnostic and validated live for the training/tune/RL daemons
-  in Phase `13`. Running this exact flow inside a Kind pod via
+  in Phase `15`. Running this exact flow inside a Kind pod via
   `jitml bootstrap --apple-silicon` remains available as an optional belt-and-braces
   check but is **not** a code gate; it is heavy on this 16 GiB host (the
   `cluster.host-memory` preflight is a no-op on macOS).
 
-## Sprint 14.5: Apple Metal Production Weight Loading ✅
+## Sprint 16.5: Apple Metal Production Weight Loading ✅
 
-**Status**: Done (same-host determinism validated headless 2026-05-30; cross-substrate ULP parity is Phase `15`)
-**Blocked by**: Sprint `14.2`, Phase `13` Sprint `13.7` (live MinIO
+**Status**: Done (same-host determinism validated headless 2026-05-30; cross-substrate ULP parity is Phase `17`)
+**Blocked by**: Sprint `16.2`, Phase `15` Sprint `15.7` (live MinIO
 checkpoint round-trip)
 **Implementation**: `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/Engines/MetalLocal.hs`,
@@ -559,7 +559,7 @@ loading per substrate).
    produces a deterministic output bit-identical to the same request
    run twice in sequence.
 2. The weighted output matches the cross-substrate ULP tolerance band
-   pinned by Phase `15` Sprint `15.1`.
+   pinned by Phase `17` Sprint `17.1`.
 
 ### Code Surface Landed (2026-05-30)
 
@@ -592,10 +592,10 @@ loading per substrate).
   Metal kernel runs bit-identically across three runs and equals `[1, 4, 9]`
   through the host build → runtime `makeLibrary` → FFI path. The cross-substrate
   ULP tolerance comparison of these Apple outputs against Linux CPU / CUDA is
-  owned by Phase `15` Sprint `15.1`; the `(AppleSilicon, ForwardToHost)`
-  cluster-side dispatch is owned by Sprint `14.4`.
+  owned by Phase `17` Sprint `17.1`; the `(AppleSilicon, ForwardToHost)`
+  cluster-side dispatch is owned by Sprint `16.4`.
 
-## Sprint 14.6: Re-validate the apple-silicon lane runs for real with the skip guards removed [✅ Done]
+## Sprint 16.6: Re-validate the apple-silicon lane runs for real with the skip guards removed [✅ Done]
 
 **Status**: Done
 **Implementation**: `test/cross-backend/Main.hs`
@@ -606,8 +606,8 @@ loading per substrate).
 
 With the `appleLiveReady` skip guards removed, re-validate the apple-silicon
 within-substrate cases run **for real** host-native: the Metal kernel
-bit-equality case (Sprint `14.2`), the weighted Dense2D determinism case
-(Sprint `14.5`), and the live Metal benchmark candidate runner (Sprint `14.3`).
+bit-equality case (Sprint `16.2`), the weighted Dense2D determinism case
+(Sprint `16.5`), and the live Metal benchmark candidate runner (Sprint `16.3`).
 A missing Metal device now **fails**, it does not skip. Within-substrate
 bit-for-bit reproducibility is the retained contract (across substrates carries
 **no** parity guarantee).
@@ -646,7 +646,7 @@ nvcc compile is invoked in the apple-silicon lane. The pure-logic
 `appleLiveReady` removal row is recorded in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md).
 
-## Sprint 14.7: Re-validate the apple-silicon lane through the Tart-VM-built path [✅ Done]
+## Sprint 16.7: Re-validate the apple-silicon lane through the Tart-VM-built path [✅ Done]
 
 **Status**: Done (re-closed 2026-06-10 — live apple-silicon lane exercised through the VM-built path on Apple M1)
 **Implementation**: `test/backends/Main.hs`, live apple-silicon lane
@@ -679,7 +679,7 @@ doctrine, now retired in favor of the fixed bridge (see
 
 - The stale "build runs inside the `jitml-build` Tart VM … logs a skip" comment in
   `test/backends/Main.hs` is corrected to the build-in-VM / copy-out /
-  execute-on-host story with no skip (Sprint 14.6 removed the guards).
+  execute-on-host story with no skip (Sprint 16.6 removed the guards).
 - Phases `1` / `2` / `5` code landed and validated; the VM boots headless on Apple
   M1.
 
@@ -694,8 +694,8 @@ out of the VM, and executed it on the host GPU:
 
 - **All 17 within-substrate apple-silicon cases PASS (62.84s, no skip sentinels).**
   This includes the four Metal cases the sprint owns: identity bit-equality across
-  three runs (Sprint 14.2), weighted Dense2D bit-determinism across three runs
-  (Sprint 14.5), the live Metal benchmark candidate runner (Sprint 14.3), and the
+  three runs (Sprint 16.2), weighted Dense2D bit-determinism across three runs
+  (Sprint 16.5), the live Metal benchmark candidate runner (Sprint 16.3), and the
   weighted-family-vs-reference agreement; plus the Phase-4 device cases (MLP
   forward/backward/batched, PPO, DQN, QR-DQN, HER, DDPG, AlphaZero PolicyValueNet).
 - `jitml-unit` 194 / 194 host-native; container `jitml check-code` green.
@@ -703,9 +703,9 @@ out of the VM, and executed it on the host GPU:
   deadlock of the VZ auxiliary-storage decryption, not a code defect (see
   [phase-7 Sprint 7.10 → Live Closure](phase-7-jit-codegen-and-substrates.md#sprint-710-route-the-apple-swift-build-through-the-tart-vm--done)).
 
-## Sprint 14.8: Retired VM-path apple-silicon Workflow Attempt [✅ Done]
+## Sprint 16.8: Retired VM-path apple-silicon Workflow Attempt [✅ Done]
 
-**Status**: Done (closed as historical failure evidence; superseded by Sprint `14.9`)
+**Status**: Done (closed as historical failure evidence; superseded by Sprint `16.9`)
 **Docs to update**: `system-components.md`
 
 ### Objective
@@ -713,7 +713,7 @@ out of the VM, and executed it on the host GPU:
 Record the final live attempt through the now-retired Tart VM path. The attempt
 proved the VM architecture violates the true-headless requirement because
 Virtualization.framework host-key creation depends on user keychain state in this
-headless shell. Sprint `14.9` replaces this path with the fixed bridge and closes
+headless shell. Sprint `16.9` replaces this path with the fixed bridge and closes
 the Apple workflow lane.
 
 ### Validation
@@ -725,7 +725,7 @@ the Apple workflow lane.
 
 ### Remaining Work
 
-- None. The live workflow obligation moved to and closed in Sprint `14.9` through
+- None. The live workflow obligation moved to and closed in Sprint `16.9` through
   the fixed bridge.
 
 ### Historical Evidence
@@ -753,7 +753,7 @@ the Apple workflow lane.
   sufficient for Virtualization.framework. Temporarily moving/replacing the real
   login keychain was not attempted because it is a sensitive user-state change.
 
-## Sprint 14.9: Live fixed-bridge apple-silicon workflow closure ✅
+## Sprint 16.9: Live fixed-bridge apple-silicon workflow closure ✅
 
 **Status**: Done
 **Docs to update**: `system-components.md`, `documents/engineering/jit_codegen_architecture.md`, `documents/engineering/apple_silicon_metal_headless_builds.md`
@@ -808,7 +808,7 @@ compiler, keychain unlocks, or GUI session assumptions.
 
 - None.
 
-## Sprint 14.10: Live Apple Host-Resident Workload Closure ✅
+## Sprint 16.10: Live Apple Host-Resident Workload Closure ✅
 
 **Status**: Done
 **Docs to update**: `../README.md`,
@@ -865,19 +865,19 @@ but no Apple Metal-backed command may create or run a Linux worker Job.
   `jitml-train-*`, `jitml-rl-*`, or `jitml-tune-*` workload Jobs.
 - `docker compose run --rm jitml jitml docs check`,
   `docker compose run --rm jitml jitml check-code`, and `git diff --check` are
-  the final documentation/code alignment gates after this Sprint `14.10`
+  the final documentation/code alignment gates after this Sprint `16.10`
   closure update.
 
 ### Remaining Work
 
-None. Phase `15` owns the final ledger walk-down and handoff.
+None. Phase `17` owns the final ledger walk-down and handoff.
 
-## Sprint 14.11: Apple No-Caveat Runtime and Browser Lane ⏸️
+## Sprint 16.11: Apple No-Caveat Runtime and Browser Lane ⏸️
 
 **Status**: Blocked
 **Implementation**: `bootstrap/apple-silicon.sh`, `src/JitML/Test/WorkflowMatrix.hs`,
 `playwright/jitml-demo.spec.ts`, `src/JitML/Service/Workload.hs`
-**Blocked by**: Phase `16` Sprint `16.1`; Phase `17` Sprint `17.2`; and the
+**Blocked by**: Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`; and the
 `apple-silicon` Mac host hardware this lane runs on (Sprints
 `9.12`/`10.6`/`11.9`/`12.13` are now `✅ Done` and no longer block this lane)
 **Docs to update**: `documents/engineering/apple_silicon_metal_headless_builds.md`,
@@ -920,17 +920,17 @@ Metal bridge and host-resident workload placement.
   on the M1 GPU, `91.9s`). The live `apple-silicon` cluster lane
   (`bootstrap/apple-silicon.sh test`, live `jitml-integration` / `jitml-e2e` /
   Playwright) was **not** re-exercised this session; it remains blocked by Phases
-  `16`/`17` (the same checkpoint-backed browser surface and per-family checkpoint
+  `13`/`14` (the same checkpoint-backed browser surface and per-family checkpoint
   serving that block `linux-cpu` Playwright) regardless of the Apple hardware
   being present.
 
 ## Doctrine Sections Cited
 
-- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 14.1, 14.3, 14.4, 14.7 — historical Tart-VM `swift build`, copy-out, MinIO, and Pulsar WebSocket subprocesses; Sprint 14.9 verifies the fixed-bridge path no longer uses Tart/SwiftPM subprocesses)
-- [../README.md → Capability Classes and Service Errors](../README.md#doctrine-scope) (Sprints 14.4, 14.5 — live `HasPulsar` / `HasMinIO` execution on Apple host)
-- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 14.4 — Apple host daemon ack-after-success)
-- [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprint 14.4 — typed `RetryPolicy` budget for RPC round-trip)
-- [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (Sprint 14.4 — host-native `jitml service` as second instance distinguished by Dhall)
+- [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 16.1, 16.3, 16.4, 16.7 — historical Tart-VM `swift build`, copy-out, MinIO, and Pulsar WebSocket subprocesses; Sprint 16.9 verifies the fixed-bridge path no longer uses Tart/SwiftPM subprocesses)
+- [../README.md → Capability Classes and Service Errors](../README.md#doctrine-scope) (Sprints 16.4, 16.5 — live `HasPulsar` / `HasMinIO` execution on Apple host)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 16.4 — Apple host daemon ack-after-success)
+- [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprint 16.4 — typed `RetryPolicy` budget for RPC round-trip)
+- [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (Sprint 16.4 — host-native `jitml service` as second instance distinguished by Dhall)
 
 ## Documentation Requirements
 
@@ -943,20 +943,20 @@ Metal bridge and host-resident workload placement.
   removal of the `appleLiveReady` skip guards (a missing Metal device fails
   rather than skips).
 - `documents/engineering/daemon_architecture.md` — record the live
-  Apple host↔cluster RPC flow once Sprint `14.4` closes, and the Sprint `14.10`
+  Apple host↔cluster RPC flow once Sprint `16.4` closes, and the Sprint `16.10`
   host-resident workload flow for Apple Metal-backed non-inference work.
 - `documents/engineering/cluster_topology.md` — note the host-native daemon's
   edge-port discovery and Apple session prerequisites; Tart HostKey /
   login-keychain requirements are historical evidence for the retired VM path,
   not current prerequisites; Linux pods must not execute Apple Metal work.
 - `documents/engineering/checkpoint_format.md` — Apple Metal weighted
-  inference path once Sprint `14.5` closes.
+  inference path once Sprint `16.5` closes.
 - `documents/engineering/determinism_contract.md` — Apple Metal
-  same-host bit-equality observation once Sprint `14.2` closes; record the
+  same-host bit-equality observation once Sprint `16.2` closes; record the
   clarified contract ("within a substrate: bit-for-bit reproducible; across
   substrates: NO guarantee") and the removed cross-substrate numeric parity
-  surface once Sprint `14.6` closes; cross-substrate ULP work lives in
-  Phase `15`.
+  surface once Sprint `16.6` closes; cross-substrate ULP work lives in
+  Phase `17`.
 
 **Product docs to create/update:**
 
@@ -965,7 +965,7 @@ Metal bridge and host-resident workload placement.
 **Cross-references to add:**
 
 - `system-components.md → Substrates` row for `apple-silicon` records Sprint
-  `14.9` as closed on the fixed-bridge backend lane and Sprint `14.10` as active
+  `16.9` as closed on the fixed-bridge backend lane and Sprint `16.10` as active
   for host-resident workload closure; keychain state is historical evidence for
   the retired VM path.
 
@@ -977,6 +977,6 @@ Metal bridge and host-resident workload placement.
 - [development_plan_standards.md](development_plan_standards.md)
 - [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md)
 - [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md)
-- [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-- [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+- [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+- [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
 - [../README.md](../README.md)

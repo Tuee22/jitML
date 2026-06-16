@@ -283,7 +283,7 @@ reproducibility witness surface; see
   code-quality runs, and exposes every host NVIDIA GPU only through the
   `jitml-cuda` companion service via the modern `gpus: all` shorthand for live
   in-container CUDA validation.
-- **MLP forward/backward network kernels (Sprint 13.8 / 13.9).**
+- **MLP forward/backward network kernels (Sprint 15.8 / 15.9).**
   `src/JitML/Codegen/MlpCuda.hs` renders a `kernel.cu` for the
   `JitML.Numerics.Mlp` feed-forward network: `jitml_mlp_forward`
   (`hidden_pre`, `hidden_act = tanh hidden_pre`, `output = W2 hidden_act +
@@ -300,7 +300,7 @@ reproducibility witness surface; see
   RTX 3090: forward + backward match the pure network within `1e-3` and are
   bit-equal across repeated runs. Routing the RL trainers and the AlphaZero
   `PolicyValueNet` through these device kernels (batched) plus the cuDNN
-  deterministic-pin are validated (Sprints 13.8 / 13.9 closed). Re-validated 2026-06-06 on an RTX 5090 / Blackwell `sm_120` — `nvcc -arch=sm_70` PTX forward-JITs at launch, `jitml-backends -fcuda` 38 / 38.
+  deterministic-pin are validated (Sprints 15.8 / 15.9 closed). Re-validated 2026-06-06 on an RTX 5090 / Blackwell `sm_120` — `nvcc -arch=sm_70` PTX forward-JITs at launch, `jitml-backends -fcuda` 38 / 38.
 
 ### `apple-silicon` — fixed Metal bridge
 

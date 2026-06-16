@@ -1,8 +1,8 @@
-# Phase 15: Substrate Reproducibility and Final Handoff
+# Phase 17: Substrate Reproducibility and Final Handoff
 
 > **Reopened 2026-06-14.** The no-caveat product target expands final handoff
 > beyond the prior scoped Dense-MLP / current-RL / panel-reachability closure.
-> Final handoff is blocked until Phases `9`–`14`, `16`, and `17` close the full
+> Final handoff is blocked until Phases `9`, `10`, `11`, `12`, `15`, and `16`, `13`, and `14` close the full
 > runtime and browser matrix and the legacy ledger is empty again.
 >
 > **Reopened and re-closed 2026-06-13.** The Apple Silicon host-residency
@@ -17,16 +17,16 @@
 > "within a substrate: bit-for-bit reproducible; across substrates: NO
 > guarantee" (RNG draw order and float reduction order differ between
 > substrates). The tolerance-band + weighted-cohort + drift-test +
-> `verify cross-backend` surface (Sprint `15.1`) and the report-card
-> `cross_substrate_parity` field (Sprint `15.2`) asserted a guarantee the
-> project does not make and are superseded by Sprint `15.4`. The later
+> `verify cross-backend` surface (Sprint `17.1`) and the report-card
+> `cross_substrate_parity` field (Sprint `17.2`) asserted a guarantee the
+> project does not make and are superseded by Sprint `17.4`. The later
 > true-headless Apple fixed-bridge doctrine reopened and re-closed final handoff
 > on 2026-06-12; within-substrate bit-for-bit reproducibility is validated per
-> substrate by Phases `13`/`14`, live report evidence is recorded, and the legacy
+> substrate by Phases `15`/`16`, live report evidence is recorded, and the legacy
 > ledger is empty.
 >
 > **Filename note**: this file deliberately retains the historical
-> `phase-15-cross-substrate-and-handoff.md` filename by exception.
+> `phase-17-cross-substrate-and-handoff.md` filename by exception.
 > Renaming it would cascade link updates across the plan suite; the H1
 > title and scope are reframed instead.
 
@@ -39,44 +39,44 @@
 [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
-[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md),
+[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
 > **Purpose**: Establish **within-substrate** bit-for-bit reproducibility
 > as the determinism contract (each substrate validated on its own host by
-> Phases `13`/`14`), **remove** the out-of-contract cross-substrate numeric
+> Phases `15`/`16`), **remove** the out-of-contract cross-substrate numeric
 > parity surface, populate the live `jitml test all` report card with
 > measured metrics from every preceding live phase, and reach the empty
 > legacy-ledger state required by Exit Definition item 18 and final handoff.
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-14 — no-caveat final handoff). Sprint `15.8`
+⏸️ **Blocked** (reopened 2026-06-14 — no-caveat final handoff). Sprint `17.8`
 updates the report card, within-substrate reproducibility evidence, and legacy
-ledger handoff for the expanded product scope. It is blocked by Phases `9`–`14`,
-Phase `16`, and Phase `17`.
+ledger handoff for the expanded product scope. It is blocked by Phases `9`, `10`, `11`, `12`, `15`, and `16`,
+Phase `13`, and Phase `14`.
 
-✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `15.7`). Final
+✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `17.7`). Final
 handoff is restored: Sprint `5.11` removes the stale Apple Metal-backed
 Kubernetes Job placement from dispatch planning, Sprint `12.12` adds fail-fast
-placement tests, Sprint `14.10` revalidates the full Apple lane, and
+placement tests, Sprint `16.10` revalidates the full Apple lane, and
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal)
 is empty again.
 
 Prior closure history follows.
 
 ✅ **Done** (reopened 2026-06-12 — true-headless Apple Metal fixed-bridge
-doctrine; **re-closed the same day** after Sprints `15.5` / `15.6`). This phase
+doctrine; **re-closed the same day** after Sprints `17.5` / `17.6`). This phase
 owns the confirmation that every real workflow runs for real on all three lanes
 and the final walk-down of the legacy ledger. The Linux live lanes remain closed
 from the 2026-06-11 CUDA machine validation, Phase `12` remains closed from the
-2026-06-12 `linux-cpu` WorkflowMatrix pass, and Phase `14` Sprint `14.9` now
+2026-06-12 `linux-cpu` WorkflowMatrix pass, and Phase `16` Sprint `16.9` now
 closes the fixed-bridge apple-silicon backend/e2e/WorkflowMatrix lane. The
 generated Swift/Tart codegen residue owned by Sprint `7.11` and the Apple
-validation/docs residue owned by Sprint `14.9` moved to `Completed`, so the
+validation/docs residue owned by Sprint `16.9` moved to `Completed`, so the
 Pending Removal ledger is empty and Exit Definition item 18 is met again. The
 2026-06-12 Tart HostKey/keychain failure is retained as dated evidence for
 retiring the old architecture, not as a final-handoff remediation step. The
@@ -84,19 +84,19 @@ prior closure narrative below is retained as dated record.
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`). The phase reopened 2026-06-08 for
-Sprint `15.4`. The cross-substrate numeric parity surface delivered by Sprints
-`15.1` and `15.2` is removed because cross-substrate equivalence is out of
-contract; see Sprint `15.4` for the deletions and the determinism-contract
-reframe. Sprints `15.1` and `15.2` are re-closed `✅ Done` as **superseded by
-Sprint `15.4`** (their delivered surface is removed; their historical dated
-evidence is retained as a dated record below). **The Sprint `15.4` deletions and
+Sprint `17.4`. The cross-substrate numeric parity surface delivered by Sprints
+`17.1` and `17.2` is removed because cross-substrate equivalence is out of
+contract; see Sprint `17.4` for the deletions and the determinism-contract
+reframe. Sprints `17.1` and `17.2` are re-closed `✅ Done` as **superseded by
+Sprint `17.4`** (their delivered surface is removed; their historical dated
+evidence is retained as a dated record below). **The Sprint `17.4` deletions and
 the determinism-contract doc reframe all landed 2026-06-09**:
 `src/JitML/Engines/Tolerance.hs` and `src/JitML/CrossBackend/Parity.hs` are
 deleted (and removed from `jitml.cabal`), the `cross_substrate_parity` field /
 `measureCrossSubstrateParity` / `verify cross-backend` handlers are gone, and
 the determinism docs are reframed to within-substrate-only. `jitml docs check`
 and the container `jitml check-code` are green; the within-substrate determinism
-claim is validated per substrate by Phases `13`/`14` and all three `jitml test`
+claim is validated per substrate by Phases `15`/`16` and all three `jitml test`
 lanes pass for real — the `apple-silicon` (4 / 4) and `linux-cpu` (10 / 10)
 lanes, and on **2026-06-09 the `linux-cuda` lane on the RTX 5090**
 (`docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
@@ -104,10 +104,10 @@ lanes, and on **2026-06-09 the `linux-cuda` lane on the RTX 5090**
 GPU lane landed, **Exit Definition item 18 (empty legacy ledger) is fully met**:
 every `legacy-tracking-for-deletion.md` row — including the last open
 `linux-cuda` half of the skip-guard removal owned jointly with Sprints `12.10` /
-`13.16` — is now `Completed`, so the final handoff is complete.
+`15.16` — is now `Completed`, so the final handoff is complete.
 
 **Final-handoff reopen/re-close (2026-06-10).** The Apple Silicon Tart-VM
-build-JIT doctrine reversal reopened Phases `1` / `2` / `5` / `7` / `14` and, with
+build-JIT doctrine reversal reopened Phases `1` / `2` / `5` / `7` / `16` and, with
 them, this final handoff: it enqueued six new `legacy-tracking-for-deletion.md`
 rows for the now-legacy headless-host Apple build surface, so Exit Definition
 item 18 (empty legacy ledger) was momentarily unmet. All six rows moved to
@@ -116,27 +116,27 @@ apple-silicon `jitml-backends` lane ran end-to-end through the Tart-VM-built pat
 on Apple M1 (`jitml test jitml-backends --apple-silicon`, 17 / 17, in-VM
 `swift build` + copy-out + host Metal execution, no skip sentinels). **The ledger
 is empty again, Exit Definition item 18 is met, and the final handoff is complete.**
-Phase `15`'s owned Sprints `15.1`–`15.4` stayed `✅ Done` throughout (the reopened
-ledger rows are owned by Phases `1` / `2` / `5` / `7` / `14`, not by Phase `15`).
+Phase `17`'s owned Sprints `17.1`–`17.4` stayed `✅ Done` throughout (the reopened
+ledger rows are owned by Phases `1` / `2` / `5` / `7` / `16`, not by Phase `17`).
 
 The 2026-06-10 final-handoff claim above is superseded by the 2026-06-12
 fixed-bridge reopen. The pre-reopen ✅ Done evidence is retained verbatim below
 as the dated historical record.
 
 ✅ **Done** (re-validated 2026-06-06 on the current **RTX 5090** host; Sprints
-`15.1` and `15.2` reopened 2026-06-06 and re-closed the same day). These two
-sprints consume Phase `13`'s live Linux/NVIDIA outputs; Phase `13` reopened
+`17.1` and `17.2` reopened 2026-06-06 and re-closed the same day). These two
+sprints consume Phase `15`'s live Linux/NVIDIA outputs; Phase `15` reopened
 2026-06-06 for full re-validation on the RTX 5090 (UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8, driver `570.211.01`,
 compute capability `12.0`) — every prior closure ran on an **RTX 3090** host —
 and re-closed the same day, so the dependent obligations were re-exercised here:
 
-- **Sprint `15.1`** (`linux-cpu` / `linux-cuda` weighted cross-substrate
+- **Sprint `17.1`** (`linux-cpu` / `linux-cuda` weighted cross-substrate
   tolerance) re-validated 2026-06-06:
   `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend`
   passed **38 / 38**, including the `CrossSubstrate` group (weighted cohort
   within the in-code tolerance table plus the over-band perturbation rejection).
-- **Sprint `15.2`** (the final test suite — live `jitml test all` report card
+- **Sprint `17.2`** (the final test suite — live `jitml test all` report card
   with measured metrics) re-validated 2026-06-06: against the fresh
   `linux-cuda` cluster,
   `docker compose run --rm jitml-cuda cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- test all --live`
@@ -150,20 +150,20 @@ and re-closed the same day, so the dependent obligations were re-exercised here:
   Linux/NVIDIA session). Note: on a CUDA host the aggregate must run through
   the **GPU-exposed** `jitml-cuda` service (the documented plain `docker run`
   omits `--gpus all`, whose prior closure ran on Apple where Metal cases skip);
-  without GPU visibility the Sprint 13.12 `jitml inference run` case fails
+  without GPU visibility the Sprint 15.12 `jitml inference run` case fails
   closed with `linux-cuda runtime unavailable: … gpu_devices=0`. The SL final
   loss is populated because the four canonical MNIST blobs were staged into the
   cluster MinIO via `jitml internal upload-dataset` (SHAs verified).
 
-**Sprint `15.3` remained ✅ Done on its owned surface** (the legacy ledger is
-empty — Exit Definition item 18); reopening `15.1`/`15.2` did not reopen the
+**Sprint `17.3` remained ✅ Done on its owned surface** (the legacy ledger is
+empty — Exit Definition item 18); reopening `17.1`/`17.2` did not reopen the
 ledger sweep. The RTX 3090 evidence below is retained as a dated historical
 record and is not rewritten as RTX 5090 evidence.
 
-**Remaining Work**: None. Sprints `15.1` and `15.2` were re-exercised on the
+**Remaining Work**: None. Sprints `17.1` and `17.2` were re-exercised on the
 RTX 5090 on 2026-06-06 with the evidence above.
 
-Previously ✅ **Done** (re-closed 2026-06-04 after Sprint `15.3` and Phase `1`
+Previously ✅ **Done** (re-closed 2026-06-04 after Sprint `17.3` and Phase `1`
 Sprint `1.11`). The phase owns [Exit Definition](README.md#exit-definition)
 item 18 (legacy ledger empty), the cross-substrate slices of items 5
 (per-substrate determinism contract — cross-substrate tolerance
@@ -172,11 +172,11 @@ live report card surfaces real measurements), plus the cross-cohort
 slice of `jitml-cross-backend` (Sprint 12.6) and the live report-card
 slice of `jitml test all` (Sprint 12.9).
 
-Phase `13` closed 2026-05-30 (15 / 15 sprints Done) and Phase `14` closed
+Phase `15` closed 2026-05-30 (15 / 15 sprints Done) and Phase `16` closed
 2026-05-31 (5 / 5 sprints Done), so each substrate produced its weighted
-outputs on its owning host; Sprint `15.1` closed the cross-host Linux/Apple
-report-bundle comparison on 2026-06-03, and Sprint `15.2` closed the full live
-report-card aggregate on 2026-06-04. Sprint `15.3` retired the demo placeholder
+outputs on its owning host; Sprint `17.1` closed the cross-host Linux/Apple
+report-bundle comparison on 2026-06-03, and Sprint `17.2` closed the full live
+report-card aggregate on 2026-06-04. Sprint `17.3` retired the demo placeholder
 row on 2026-06-04; Phase `1` Sprint `1.10` removed the scoped `allow-newer`
 block; Phase `1` Sprint `1.11` retired the source-pin/vendor helper by
 downgrading to the single GHC `9.12.4` baseline; and the superseded
@@ -185,14 +185,14 @@ Atari-subset RAM-state stub row, and Phase `8` Sprint `8.9` plus Phase `9`
 Sprint `9.8` closed the copyright-free `KeyDoorGrid-v0` replacement on
 2026-06-04. Final handoff has no active legacy-ledger rows.
 
-**Current validation evidence**: Phase `13` live outputs (Linux CUDA SL convergence
+**Current validation evidence**: Phase `15` live outputs (Linux CUDA SL convergence
 2026-05-29 `778.27s`, PPO/cartpole RL convergence 2026-05-30 `230.72s`,
 weighted inference / `gc.event.<substrate>` / live `jitml-integration`
-12 / 12 Live cohort) are available; Phase `14` Apple Metal weighted
+12 / 12 Live cohort) are available; Phase `16` Apple Metal weighted
 inference is available from the headless host path; the 2026-06-03
 Apple export bundle contains all eight weighted tensor families; and
 the `linux-cpu` / `linux-cuda` weighted cross-substrate cohort passed
-the Sprint `15.1` in-code tolerance assertion on the Linux/NVIDIA host
+the Sprint `17.1` in-code tolerance assertion on the Linux/NVIDIA host
 on 2026-06-01 and again on 2026-06-03. The 2026-06-03 Linux/Apple
 report-bundle comparison passed across all eight weighted tensor
 families against the same in-code tolerance table. The 2026-06-03 Apple
@@ -221,9 +221,9 @@ least their inference-producing sprints. The work is live cohort
 execution + tolerance assertion + final report-card population + ledger
 sweep-up.
 
-## Sprint 15.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands ✅
+## Sprint 17.1: Cross-Substrate Cohort Runs and In-Code Tolerance Bands ✅
 
-> **SUPERSEDED — surface removed by Sprint `15.4`.** The surface this
+> **SUPERSEDED — surface removed by Sprint `17.4`.** The surface this
 > sprint delivered (the `src/JitML/Engines/Tolerance.hs` per-layer-family
 > L∞ tolerance band, the `JitML.CrossBackend.Parity` weighted cohort, the
 > `CrossSubstrate` drift tests, and the `jitml verify cross-backend`
@@ -231,7 +231,7 @@ sweep-up.
 > determinism contract (cross-substrate equivalence is not guaranteed). The
 > content below is retained as a dated historical record only.
 
-**Status**: Done — superseded by Sprint `15.4` (surface removed 2026-06-09; was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090)
+**Status**: Done — superseded by Sprint `17.4` (surface removed 2026-06-09; was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090)
 **Implementation**: `src/JitML/CrossBackend/Parity.hs`,
 `src/JitML/App.hs`, `src/JitML/CLI/Spec.hs`,
 `test/cross-backend/Main.hs`,
@@ -293,14 +293,14 @@ authoritatively encode whichever substrate ran the calibration first.
   `withinTolerance family observed` helper is the assertion consumed
   by `jitml-cross-backend` and the report-bundle comparison path.
 - `jitml-unit` adds 4 new tests under the "Cross-substrate tolerance
-  bands (Sprint 15.1)" group asserting positive bounds, the
+  bands (Sprint 17.1)" group asserting positive bounds, the
   Identity/Embedding-tightest invariant, MHA ≥ Dense, and the
   `withinTolerance` predicate's edge cases.
 
 ### Code Surface Landed (2026-06-01)
 
 - `test/cross-backend/Main.hs` adds the "CrossSubstrate weighted drift
-  assertions (Sprint 15.1)" group. The live `linux-cpu` / `linux-cuda`
+  assertions (Sprint 17.1)" group. The live `linux-cpu` / `linux-cuda`
   case probes CUDA, runs the weighted family cohort across
   `Identity`, `Dense2D`, `Conv2DKernel`, `Conv3DKernel`,
   `BatchNormKernel`, `LayerNormKernel`, `MultiHeadAttentionKernel`, and
@@ -319,9 +319,9 @@ authoritatively encode whichever substrate ran the calibration first.
   that run also passed the container-only `jitml check-code` gate. This
   validates the `linux-cpu` / `linux-cuda` pair only; the `apple-silicon`
   comparison was outside that Linux/NVIDIA validation and was later superseded
-  by the within-substrate-only determinism contract plus the Phase `14` Apple
+  by the within-substrate-only determinism contract plus the Phase `16` Apple
   lane closure.
-- `src/JitML/CrossBackend/Parity.hs` now owns the Sprint `15.1`
+- `src/JitML/CrossBackend/Parity.hs` now owns the Sprint `17.1`
   weighted cohort, JSON encoding/decoding for ephemeral report bundles,
   pairwise L∞ drift comparison, and summary rendering. Both the
   `jitml-cross-backend` stanza and `jitml verify cross-backend` consume
@@ -349,16 +349,16 @@ authoritatively encode whichever substrate ran the calibration first.
   `jitml check-code` gate before running the test.
 - The host-visible Linux report bundle was regenerated with
   `docker compose run --rm -v /tmp:/tmp jitml jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu --export /tmp/jitml-linux-cpu.json`.
-  The bundle is `version` 1, `cohort` `sprint-15.1-weighted`, with a
+  The bundle is `version` 1, `cohort` `sprint-17.1-weighted`, with a
   single `linux-cpu` report.
 - The Apple host export command
   `cabal run exe:jitml -- verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json`
   passed on 2026-06-03. The ephemeral report bundle is `version` 1,
-  `cohort` `sprint-15.1-weighted`, with one `apple-silicon` report and
+  `cohort` `sprint-17.1-weighted`, with one `apple-silicon` report and
   8 weighted tensor families (`identity`, `dense`, `conv2d`, `conv3d`,
   `batchnorm`, `layernorm`, `mha`, `embedding`). The prior Linux-host
   Apple export gate remains fail-closed when no Metal device is visible;
-  that is expected and not a Sprint `15.1` failure.
+  that is expected and not a Sprint `17.1` failure.
 - The cross-host Linux/Apple report-bundle comparison passed on
   2026-06-03 using ignored build-output copies under
   `dist-newstyle/phase15/`. The Linux CPU bundle was regenerated in
@@ -369,17 +369,17 @@ authoritatively encode whichever substrate ran the calibration first.
   `2.384185791015625e-7` / `5e-4`, `layernorm` `0.0` / `5e-4`, `mha`
   `0.0` / `2e-3`, and `embedding` `0.0` / `1e-6`; every family passed.
 
-## Sprint 15.2: Live `jitml test all` Report Card with Measured Metrics ✅
+## Sprint 17.2: Live `jitml test all` Report Card with Measured Metrics ✅
 
 > **PARTIALLY SUPERSEDED — `cross_substrate_parity` field removed by Sprint
-> `15.4`.** The report-card `cross_substrate_parity` measured field this
+> `17.4`.** The report-card `cross_substrate_parity` measured field this
 > sprint added is **removed** because cross-substrate numeric parity left
 > the determinism contract. The rest of the live report card (SL final
 > loss, RL reward, AlphaZero arena win rate, tune objective, JIT cache hit
 > rate, daemon health) survives as a within-substrate obligation. The
 > content below is retained as a dated historical record only.
 
-**Status**: Done — `cross_substrate_parity` field removed by Sprint `15.4` (2026-06-09); the rest of the live report card survives as a within-substrate obligation (was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090, 2026-06-04)
+**Status**: Done — `cross_substrate_parity` field removed by Sprint `17.4` (2026-06-09); the rest of the live report card survives as a within-substrate obligation (was: Done, re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090, 2026-06-04)
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Test/Report.hs`,
 `src/JitML/CLI/Spec.hs`, `cabal.project`
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -406,7 +406,7 @@ Closes Exit Definition item 9's live report-card slice.
   SL final loss per canonical cell, RL final reward per cohort,
   AlphaZero arena win rate per generation, JIT cache hit rate, daemon
   `/healthz` status, and the then-planned cross-substrate comparison summary
-  from Sprint `15.1` (removed by Sprint `15.4`).
+  from Sprint `17.1` (removed by Sprint `17.4`).
 - The live integration test confirms the report card surfaces these
   measured values (not just the target-stanza summary).
 - The "Target-stanza-only report card" row in
@@ -451,8 +451,8 @@ Closes Exit Definition item 9's live report-card slice.
 1. `cabal build lib:jitml` passed on 2026-06-03 after the live
    telemetry changes and again after the full-response socket read plus
    fourmolu wrapping fix.
-2. `jitml test all --live` against an up cluster (Phase `13` Sprint
-   `13.1` + Phase `14` Sprint `14.1` at minimum) must still print a
+2. `jitml test all --live` against an up cluster (Phase `15` Sprint
+   `15.1` + Phase `16` Sprint `16.1` at minimum) must still print a
    report card with non-empty measured fields.
 3. A controlled regression — disabling one live source — surfaces
    `unavailable` in the corresponding measured field rather than a
@@ -491,7 +491,7 @@ Closes Exit Definition item 9's live report-card slice.
    completed with `episodes: 200` and `avg-reward:
    658.4104921102621`, clearing the in-code threshold.
 9. `docker run --rm -v "$PWD:/work" -w /work jitml:local jitml check-code`
-   passed on 2026-06-03 after the Phase `15` source edits preceding
+   passed on 2026-06-03 after the Phase `17` source edits preceding
    this documentation refresh.
 10. The full live aggregate passed on 2026-06-04 against a fresh
     Apple Silicon cluster published at `edge_port` `9091`. Setup:
@@ -517,7 +517,7 @@ Closes Exit Definition item 9's live report-card slice.
     `cross_substrate_parity` rendered `unavailable` because those live
     sources were not present in the cluster/report-card probe.
 
-## Sprint 15.3: Empty Legacy Ledger and Final Handoff ✅
+## Sprint 17.3: Empty Legacy Ledger and Final Handoff ✅
 
 **Status**: Done
 **Implementation**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
@@ -558,7 +558,7 @@ Definition item 18.
 ### Cleanup Landed (2026-06-03)
 
 - The Metal kernel-family validation residue moved to Completed after
-  the Apple host exported the Sprint `15.1` weighted bundle with all
+  the Apple host exported the Sprint `17.1` weighted bundle with all
   eight tensor families.
 - The deterministic MCTS `priorFor` helper was removed; the default
   mechanics oracle is neutral uniform and production self-play consumes
@@ -566,7 +566,7 @@ Definition item 18.
 - The target-stanza-only report-card row moved to Completed. `ReportCard`
   now carries `ReportMeasurements`, and `jitml test all --live` renders
   measured or `unavailable` fields.
-- The Sprint `15.2` cache and daemon live-report probes now use
+- The Sprint `17.2` cache and daemon live-report probes now use
   host-reachable daemon edge routes instead of a cache placeholder or a
   publication-file-only health check.
 - The committed numerical fixture tree under `test/golden/` was deleted.
@@ -654,7 +654,7 @@ Definition item 18.
 
 None.
 
-## Sprint 15.4: Remove the cross-substrate parity surface; reframe the determinism contract to within-substrate-only ✅
+## Sprint 17.4: Remove the cross-substrate parity surface; reframe the determinism contract to within-substrate-only ✅
 
 **Status**: Done (closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host after the live `linux-cuda` lane re-validation and the full legacy-ledger sweep)
 **Implementation**: deletions in `src/JitML/Engines/Tolerance.hs`,
@@ -680,7 +680,7 @@ the tolerance band, the weighted cohort, the drift tests, the
 `cross_substrate_parity` field all assert a guarantee the project does not
 make and must be removed. The surviving contract is: **within a
 substrate, bit-for-bit reproducible** (validated per substrate by Phases
-`13`/`14`); **across substrates, no guarantee**.
+`15`/`16`); **across substrates, no guarantee**.
 
 ### Deliverables
 
@@ -736,7 +736,7 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
   skip-sentinels). Exit Definition item 18 (empty legacy ledger) is now fully
   met: this sprint's own rows (`Tolerance.hs`, `CrossBackend.Parity`) were
   already `Completed`, and the last open row — the `linux-cuda` half of the
-  skip-guard removal owned jointly with Sprints `12.10` / `13.16` — moved to
+  skip-guard removal owned jointly with Sprints `12.10` / `15.16` — moved to
   `Completed` when the GPU lane landed. The ledger is fully swept and the sprint
   is `✅ Done`.
 
@@ -746,7 +746,7 @@ substrate, bit-for-bit reproducible** (validated per substrate by Phases
   is reframed to within-substrate-only, all three per-substrate lanes pass for
   real, and the legacy ledger is empty (Exit Definition item 18 met).
 
-## Sprint 15.5: Cross-Substrate Real-Workflow Confirmation ✅
+## Sprint 17.5: Cross-Substrate Real-Workflow Confirmation ✅
 
 **Status**: Done
 **Docs to update**: `system-components.md`
@@ -763,7 +763,7 @@ each (two fresh same-substrate / same-seed runs are bit-identical), via the
 - The linux-cpu and linux-cuda live lanes completed on the CUDA machine on
   2026-06-11; Phase `12` live WorkflowMatrix completed on linux-cpu on
   2026-06-12.
-- Phase `14` Sprint `14.9` completed the apple-silicon fixed-bridge lane:
+- Phase `16` Sprint `16.9` completed the apple-silicon fixed-bridge lane:
   `jitml-backends` 17 / 17, `jitml-e2e` 20 / 20, and live `WorkflowMatrix`
   1 / 1 against a published Apple cluster.
 - `docker compose build jitml` passed after the fixed-bridge source and docs
@@ -777,7 +777,7 @@ each (two fresh same-substrate / same-seed runs are bit-identical), via the
 
 - None.
 
-## Sprint 15.6: Real-Workflow Ledger Walk-Down and Final Handoff ✅
+## Sprint 17.6: Real-Workflow Ledger Walk-Down and Final Handoff ✅
 
 **Status**: Done
 **Docs to update**: `legacy-tracking-for-deletion.md`
@@ -792,7 +792,7 @@ refactor.
 ### Validation State (2026-06-12)
 
 - `legacy-tracking-for-deletion.md` Pending Removal is empty.
-- The Sprint `7.11` generated Swift/Tart cache-miss rows and the Sprint `14.9`
+- The Sprint `7.11` generated Swift/Tart cache-miss rows and the Sprint `16.9`
   Apple validation/docs residue row moved to `Completed`.
 - Exit Definition item 18 is met again.
 - Final validation confirms no open phase/blocker text remains in
@@ -803,7 +803,7 @@ refactor.
 
 - None.
 
-## Sprint 15.7: Apple Placement Ledger Walk-Down and Final Handoff ✅
+## Sprint 17.7: Apple Placement Ledger Walk-Down and Final Handoff ✅
 
 **Status**: Done
 **Implementation**: `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
@@ -832,12 +832,12 @@ execution, and restoring the final-handoff state.
 
 ### Validation
 
-- `bootstrap/apple-silicon.sh test` passed after Sprint `14.10`; all eight
+- `bootstrap/apple-silicon.sh test` passed after Sprint `16.10`; all eight
   report stanzas rendered PASS, including `jitml-integration` **71 / 71** and
   `jitml-backends` **17 / 17**.
 - Focused `linux-cpu` live dispatch/convergence selectors passed during Sprint
   `12.12`, preserving Linux Job-backed placement. The CUDA lane remains closed
-  from the real NVIDIA-host validation recorded in Phase `13`; no CUDA source
+  from the real NVIDIA-host validation recorded in Phase `15`; no CUDA source
   or contract changed in the Apple placement walk-down.
 - `legacy-tracking-for-deletion.md` Pending Removal is empty again after moving
   the Apple Metal-backed Training/RL/Tune Kubernetes Job placement row to
@@ -849,13 +849,13 @@ execution, and restoring the final-handoff state.
 
 None.
 
-## Sprint 15.8: Expanded No-Caveat Report Card and Ledger Handoff ⏸️
+## Sprint 17.8: Expanded No-Caveat Report Card and Ledger Handoff ⏸️
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/Report.hs`, `src/JitML/App.hs`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `README.md`
-**Blocked by**: Phase `13` Sprint `13.20`; Phase `14` Sprint `14.11`; Phase `16`
-Sprint `16.1`; Phase `17` Sprint `17.2` (Phases `9`/`10`/`11`/`12` Sprints
+**Blocked by**: Phase `15` Sprint `15.20`; Phase `16` Sprint `16.11`; Phase `13`
+Sprint `13.1`; Phase `14` Sprint `14.2` (Phases `9`/`10`/`11`/`12` Sprints
 `9.12`/`10.6`/`11.9`/`12.13` are now `✅ Done` and no longer block this handoff)
 **Docs to update**: `README.md`, `documents/engineering/unit_testing_policy.md`,
 `documents/engineering/training_workloads.md`,
@@ -882,57 +882,65 @@ Make the final report card and ledger reflect the no-caveat product definition.
   agree that the no-caveat product is either open or closed; no historical
   closure text is presented as current status.
 
+This phase is a `linux-cpu`-only **aggregation** (single host) per standards rule
+M(b)/(d): within-substrate reproducibility is proven per-lane in Sprint `15.20`
+(`linux-cuda`) and Sprint `16.11` (`apple-silicon`) and on `linux-cpu` in Phase
+`13`; this phase consumes the committed per-lane report-card fragments and merges
+them, and never re-runs an accelerator lane. No cross-substrate numeric-equivalence
+claim is added (the contract is within-substrate bit-for-bit only).
+
 ### Validation
 
-- `jitml test all --apple-silicon`
-- `docker compose run --rm jitml jitml test all --linux-cpu`
-- `docker compose run --rm jitml-cuda jitml test all --linux-cuda`
+- `docker compose run --rm jitml jitml test all --linux-cpu` (the `linux-cpu`
+  report-card lane plus the merge of the committed `linux-cuda` / `apple-silicon`
+  per-lane fragments)
 - `docker compose run --rm jitml jitml docs check`
 - `docker compose run --rm jitml jitml check-code`
 
 ### Remaining Work
 
-- Blocked on every upstream no-caveat runtime, browser, e2e, and live lane.
+- Blocked on every upstream no-caveat runtime, browser, e2e, and live lane
+  (Phases `13`–`16`), each of which commits its per-lane report-card fragment.
 
 ## Doctrine Sections Cited
 
-- [../README.md → Determinism Contract](../README.md#doctrine-scope) (Sprint 15.1 — cross-substrate ULP tolerance methodology)
-- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 15.1, 15.2 — `jitml-cross-backend` and `jitml test all` closure)
-- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprint 15.2 — `jitml test all --live` Plan/Apply surface)
-- [../README.md → Generated Artifacts → The generated-section registry](../README.md#doctrine-scope) (Sprint 15.3 — final ledger sweep aligns with generated-section discipline)
+- [../README.md → Determinism Contract](../README.md#doctrine-scope) (Sprint 17.1 — cross-substrate ULP tolerance methodology)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 17.1, 17.2 — `jitml-cross-backend` and `jitml test all` closure)
+- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprint 17.2 — `jitml test all --live` Plan/Apply surface)
+- [../README.md → Generated Artifacts → The generated-section registry](../README.md#doctrine-scope) (Sprint 17.3 — final ledger sweep aligns with generated-section discipline)
 
 ## Documentation Requirements
 
-The reframe (Sprint `15.4`) removes the cross-substrate numeric-parity
+The reframe (Sprint `17.4`) removes the cross-substrate numeric-parity
 documentation surface and replaces it with the within-substrate-only
-determinism contract. The Sprint `15.1`/`15.2` doc rows below are retained
-as a dated historical record; the live actions are the Sprint `15.4`
+determinism contract. The Sprint `17.1`/`17.2` doc rows below are retained
+as a dated historical record; the live actions are the Sprint `17.4`
 removals.
 
 **Engineering docs to create/update:**
 
 - `documents/engineering/determinism_contract.md` — **remove** the
-  "Cross-Substrate Tolerance Methodology" section (Sprint `15.4`) and
+  "Cross-Substrate Tolerance Methodology" section (Sprint `17.4`) and
   reframe the contract to within-substrate bit-for-bit reproducibility
   with an explicit no-cross-substrate-guarantee statement. (Historical:
-  Sprint `15.1` had recorded the in-code per-layer-family tolerance
+  Sprint `17.1` had recorded the in-code per-layer-family tolerance
   methodology and the `linux-cpu` / `linux-cuda` plus
   `linux-cpu` / `apple-silicon` assertions.)
 - `documents/engineering/unit_testing_policy.md` — **remove** the
   `jitml-cross-backend` CrossSubstrate tolerance-test and tolerance-band
-  documentation (Sprint `15.4`); keep the `jitml test all --live`
+  documentation (Sprint `17.4`); keep the `jitml test all --live`
   report-card surface (minus the `cross_substrate_parity` field),
   missing-source `unavailable` behavior, and the 2026-06-04 full
   live-cluster validation.
 - `documents/engineering/cli_command_surface.md` — **remove** the
   `jitml verify cross-backend --export/--compare` generated command-surface
-  rows (Sprint `15.4`); this leaf is deleted.
+  rows (Sprint `17.4`); this leaf is deleted.
 - `documents/engineering/training_workloads.md` — document the
   report-card measurement fields for SL / RL / AlphaZero / tune and
   the 2026-06-04 measured live aggregate (the `cross_substrate_parity`
-  field is dropped per Sprint `15.4`).
+  field is dropped per Sprint `17.4`).
 - `../README.md` — reframe the determinism doctrine to
-  within-substrate-only (Sprint `15.4`).
+  within-substrate-only (Sprint `17.4`).
 
 **Product docs to create/update:**
 
@@ -942,20 +950,20 @@ removals.
 
 - `system-components.md → Test runner` row reflects the `--live`
   measured fields (minus `cross_substrate_parity`, removed by Sprint
-  `15.4`) and the 2026-06-04 full live aggregate pass.
+  `17.4`) and the 2026-06-04 full live aggregate pass.
 - `system-components.md → Test Stanzas` row for `jitml-cross-backend` —
   **remove** the CrossSubstrate tolerance/drift cross-reference (Sprint
-  `15.4`). (Historical: it had recorded the 2026-06-01
+  `17.4`). (Historical: it had recorded the 2026-06-01
   `linux-cpu` / `linux-cuda` validation and the 2026-06-03
   `linux-cpu` / `apple-silicon` report-bundle comparison.)
 
 **Legacy ledger (rule G — Pending Removal rows owned by this phase):**
 
-- `legacy-tracking-for-deletion.md` rows owned by Sprint `15.4`:
+- `legacy-tracking-for-deletion.md` rows owned by Sprint `17.4`:
   `src/JitML/Engines/Tolerance.hs` (per-layer-family tolerance band) and
   `src/JitML/CrossBackend/Parity.hs` (weighted cross-substrate cohort).
   **Both moved to `Completed` on 2026-06-09**, and with the last unrelated row
-  (the `linux-cuda` skip-guard half, Sprint `13.16`) also swept to `Completed`
+  (the `linux-cuda` skip-guard half, Sprint `15.16`) also swept to `Completed`
   the same day, the ledger is empty — Exit Definition item 18 is met and the
   phase has re-closed.
 
@@ -966,6 +974,6 @@ removals.
 - [system-components.md](system-components.md)
 - [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
 - [development_plan_standards.md](development_plan_standards.md)
-- [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-- [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
+- [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+- [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md)
 - [../README.md](../README.md)

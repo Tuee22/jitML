@@ -1917,7 +1917,7 @@ The convergence check is the load-bearing test; the run-to-run
 determinism check runs every commit; the convergence check runs nightly
 or on labeled CI only.
 
-[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The target convergence check for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). That wrapper and its experiment Dhall are still target Phase 16 work; the current worktree carries the algorithm metadata, real-environment catalog compatibility surface, and trained-network loss validation, not `src/JitML/RL/Exploration.hs`.
+[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The target convergence check for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). That wrapper and its experiment Dhall are still target Phase 13 work; the current worktree carries the algorithm metadata, real-environment catalog compatibility surface, and trained-network loss validation, not `src/JitML/RL/Exploration.hs`.
 
 ---
 

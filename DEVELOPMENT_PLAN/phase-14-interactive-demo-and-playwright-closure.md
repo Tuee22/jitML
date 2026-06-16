@@ -1,4 +1,4 @@
-# Phase 17: Interactive Demo and Playwright Closure
+# Phase 14: Interactive Demo and Playwright Closure
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -8,7 +8,7 @@
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
+[phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
@@ -26,8 +26,8 @@ REST calls, and WebSocket subscriptions, but the no-caveat target requires a
 full interactive lab backed by the real runtime matrix. Phase `11` Sprint `11.9`
 (feature implementation) and Phase `12` Sprint `12.13` (test orchestration)
 closed `✅ Done` on 2026-06-16 on their owned code surface, and their live
-browser/product obligations were deduped into this phase (Sprints `17.1` /
-`17.2`) per rule E; this phase remains blocked by Phase `16` Sprint `16.1` (full
+browser/product obligations were deduped into this phase (Sprints `14.1` /
+`14.2`) per rule E; this phase remains blocked by Phase `13` Sprint `13.1` (full
 model runtime).
 
 ## Phase Summary
@@ -39,14 +39,14 @@ rendering panels: the tests must launch real workloads, observe real live events
 inspect real checkpoints, perform inference through those checkpoints, animate RL
 frames, and replay adversarial games from recorded state.
 
-## Sprint 17.1: Full Workflow Control Surface ⏸️
+## Sprint 14.1: Full Workflow Control Surface ⏸️
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Web/Contracts.hs`, `src/JitML/Web/Server.hs`,
 `web/src/Panels/*`, `src/JitML/App.hs`, `src/JitML/Service/*`
-**Blocked by**: Phase `16` Sprint `16.1` (Phase `11` Sprint `11.9` and Phase
+**Blocked by**: Phase `13` Sprint `13.1` (Phase `11` Sprint `11.9` and Phase
 `12` Sprint `12.13` are now `✅ Done`; their browser/product live obligations are
-owned here in Sprint `17.1` / `17.2` per rule E)
+owned here in Sprint `14.1` / `14.2` per rule E)
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `system-components.md`
 
@@ -76,10 +76,12 @@ the PureScript app.
 
 ### Validation
 
+This sprint closes on `linux-cpu` (single host) per standards rule M(b)/(d); the
+per-accelerator browser/Playwright lanes are owned downstream by Sprint `15.20`
+(`linux-cuda`) and Sprint `16.11` (`apple-silicon`).
+
 - `docker compose run --rm jitml jitml lint purescript`
 - `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
-- `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda`
-- `jitml test jitml-e2e --apple-silicon`
 
 ### Remaining Work
 
@@ -97,7 +99,7 @@ the PureScript app.
   no per-panel inference checkpoints are persisted/served — the live
   `jitml-checkpoints` bucket holds only RL/AlphaZero/tune/workflow-matrix
   artifacts, none at the experiment hashes the browser panels request (depends on
-  Sprint `16.1` per-family checkpoint persistence). The static panels (portals
+  Sprint `13.1` per-family checkpoint persistence). The static panels (portals
   home, shared header, RL timeline, training loss curve, tune heatmap) pass `5/5`.
 - Extend the Sprint `11.9` generated current-panel codecs into checkpoint
   browse, live-backed workflow-state reconciliation, adversarial multi-game
@@ -111,12 +113,12 @@ the PureScript app.
 - Finish real charts/canvases/animations/replay beyond the current summary
   bars, MCTS metadata, and tuning heatmap/frontier.
 
-## Sprint 17.2: Playwright No-Caveat Product Matrix ⏸️
+## Sprint 14.2: Playwright No-Caveat Product Matrix ⏸️
 
 **Status**: Blocked
 **Implementation**: `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs`,
 `src/JitML/Test/LivePlan.hs`
-**Blocked by**: Sprint `17.1`; Phase `16` Sprint `16.1`
+**Blocked by**: Sprint `14.1`; Phase `13` Sprint `13.1`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/unit_testing_policy.md`, `system-components.md`
 
@@ -144,9 +146,11 @@ its expected browser interaction.
 
 ### Validation
 
+This sprint closes the Playwright product matrix on `linux-cpu` (single host) per
+standards rule M(b)/(d); the same matrix is re-run per-accelerator by Sprint
+`15.20` (`linux-cuda`) and Sprint `16.11` (`apple-silicon`).
+
 - `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
-- `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda`
-- `jitml test jitml-e2e --apple-silicon`
 
 ### Remaining Work
 
@@ -156,9 +160,9 @@ its expected browser interaction.
 - **Live `linux-cpu` Playwright baseline (2026-06-16): `6/11`.** Against a live
   bootstrapped edge (`mcr.microsoft.com/playwright:v1.49.1-noble`, host network),
   the five static panels pass; the five checkpoint-backed panels fail `HTTP 503`
-  on the two Sprint `17.1` defects above (in-cluster demo MinIO endpoint + missing
-  per-panel checkpoint serving). Closing `17.2` to green requires those fixes plus
-  the Sprint `16.1` checkpoint persistence, then a rebuilt `jitml:local`
+  on the two Sprint `14.1` defects above (in-cluster demo MinIO endpoint + missing
+  per-panel checkpoint serving). Closing `14.2` to green requires those fixes plus
+  the Sprint `13.1` checkpoint persistence, then a rebuilt `jitml:local`
   re-bootstrap and a full re-run on every runnable lane.
 
 ## Documentation Requirements

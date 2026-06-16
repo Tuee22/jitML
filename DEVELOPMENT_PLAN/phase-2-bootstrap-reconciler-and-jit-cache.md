@@ -28,7 +28,7 @@ for non-core Swift module work but are not dependencies of cache misses,
 training, inference, backend tests, or `jitml service`. The Apple cache layout
 has a dedicated `<hash>.metal.json` source-metadata path, and
 `bootstrap purge` no longer deletes or invokes Tart. The former Tart lifecycle /
-generated Swift cache-miss residue is completed under Sprints `7.11` and `14.9`;
+generated Swift cache-miss residue is completed under Sprints `7.11` and `16.9`;
 the deletion ledger is empty.
 Prior closure history follows.
 
@@ -46,7 +46,7 @@ text below predates the reopen.
 against the container build, unit tests, integration renderer assertions,
 `jitml doctor --scope cluster`, `jitml bootstrap --dry-run`, and
 `jitml docs check`; live re-exercise of the kind-node cap, pod convergence under
-the cap, and the typed reconciler retries is owned by Phase 13 Sprint 13.1's
+the cap, and the typed reconciler retries is owned by Phase 15 Sprint 15.1's
 Remaining Work). The phase owns
 [Exit Definition](README.md#exit-definition) items 4 (stage-0 entrypoints
 plus the typed Haskell prerequisite DAG that performs all post-stage-0
@@ -70,7 +70,7 @@ host unresponsive and forced a manual reboot): **Sprint `2.8`** adds the Dhall
 cluster-resource profile, the kind-node memory/CPU cap, and the
 `cluster.host-memory` preflight; **Sprint `2.9`** moves the reconciler's embedded
 `sh -c` control-flow to typed Haskell with `RetryPolicy`. Both are listed below;
-their live exercise is owned by Phase `13`.
+their live exercise is owned by Phase `15`.
 
 ### Current Implementation Scope
 
@@ -451,7 +451,7 @@ prerequisite, CLI, and modules.
 ### Target Integration Notes
 
 - First-cache-miss Apple execution now belongs to the fixed-bridge path in
-  Sprint `7.11` and Phase `14` Sprint `14.9`.
+  Sprint `7.11` and Phase `16` Sprint `16.9`.
 
 ### Remaining Work
 
@@ -552,7 +552,7 @@ None.
 
 ## Sprint 2.8: Dhall Cluster-Resource Profile, Kind-Node Cap, and Host-RAM Preflight ✅
 
-**Status**: Done (code-surface closed 2026-05-29; live node-cap exercise owned by Phase 13 Sprint 13.1)
+**Status**: Done (code-surface closed 2026-05-29; live node-cap exercise owned by Phase 15 Sprint 15.1)
 **Implementation**: `dhall/cluster/Schema.dhall`, `dhall/cluster/resources.dhall`, `src/JitML/Cluster/Resources.hs`, `src/JitML/Bootstrap.hs`, `src/JitML/Prerequisite/Nodes/Cluster.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`, `system-components.md`
 
@@ -585,7 +585,7 @@ Effects`.
   with a remedy hint when `nodeMemoryMiB` exceeds host RAM.
 - `jitml bootstrap --<substrate> --dry-run` renders the plan including the node-cap
   step and exits `0`.
-- Live (owned by Phase `13`): after `kind create`, `docker inspect -f
+- Live (owned by Phase `15`): after `kind create`, `docker inspect -f
   '{{.HostConfig.Memory}}' jitml-<substrate>-control-plane` reports the cap, and a
   forced over-budget cluster OOM-kills pods inside the node cgroup while the host
   stays up.
@@ -608,14 +608,14 @@ Effects`.
 ### Remaining Work
 
 - The live node-cap exercise and the host-survives-over-budget validation are owned
-  by Phase `13` Sprint `13.1`'s Remaining Work.
+  by Phase `15` Sprint `15.1`'s Remaining Work.
 - The per-pod limits + right-sized replicas that make the stack converge under the
   cap are owned by Phase `4` Sprint `4.8` (and the PV-layout change by Phase `3`
   Sprint `3.2`).
 
 ## Sprint 2.9: Reconciler `sh -c` Control-Flow → Typed Haskell ✅
 
-**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 13 Sprint 13.1)
+**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 15 Sprint 15.1)
 **Implementation**: `src/JitML/Cluster/Helm.hs`, `src/JitML/Bootstrap.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`, `documents/engineering/haskell_code_guide.md`, `legacy-tracking-for-deletion.md`
 
@@ -639,7 +639,7 @@ the removed shell is tracked in the legacy ledger.
 ### Validation
 
 - `jitml bootstrap --<substrate> --dry-run` renders the equivalent typed plan.
-- Live (owned by Phase `13`): bootstrap converges and a forced topic/bucket
+- Live (owned by Phase `15`): bootstrap converges and a forced topic/bucket
   not-ready path retries and succeeds exactly as the prior shell loops did.
 
 ### Current Validation State
@@ -662,8 +662,8 @@ the removed shell is tracked in the legacy ledger.
 
 ### Remaining Work
 
-- Live re-validation of the converted reconciler steps is owned by Phase `13`
-  Sprint `13.1`'s Remaining Work.
+- Live re-validation of the converted reconciler steps is owned by Phase `15`
+  Sprint `15.1`'s Remaining Work.
 
 ## Sprint 2.10: Retire the Tart Prerequisite and `jitml internal vm` Commands ✅
 
@@ -753,7 +753,7 @@ from [../README.md](../README.md).
   `dhall/cluster/` profile and kind-node-cap rows; `legacy-tracking-for-deletion.md`
   carries the Sprint `2.9` embedded-`sh -c` removal row.
 - `legacy-tracking-for-deletion.md` has no Pending Removal rows; Sprints
-  `7.11` / `14.9` completed the remaining Tart lifecycle, generated Swift
+  `7.11` / `16.9` completed the remaining Tart lifecycle, generated Swift
   cache-miss, Apple generated-dylib cache residue, and validation/docs cleanup.
   The Sprint `2.12` prerequisite/bootstrap row and Sprint `5.10` daemon row
   also live in `Completed`.
@@ -894,7 +894,7 @@ values`, and `Built-artifact and JIT-cache discipline` from
 
 None. The remaining Tart lifecycle module, generated Swift package / VM
 `swift build` cache-miss path, and Apple generated dylib symlink surface are not
-Sprint `2.12` obligations; they remain tracked in Sprints `7.11` and `14.9`.
+Sprint `2.12` obligations; they remain tracked in Sprints `7.11` and `16.9`.
 
 ## Related Documents
 

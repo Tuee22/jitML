@@ -9,7 +9,7 @@
 [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md),
 [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
-[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
+[phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -53,13 +53,13 @@ filesystem-backed checkpoint write/read helpers, retention reconciler surface
 envelope codec, and the proto-lens cross-language bindings for
 `inference.proto`. Live MinIO conditional writes + checkpoint
 round-trip + GC publish are owned by
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprint `13.7`. Production weight loading (CUDA + Linux CPU) is owned by
-Phase `13` Sprint `13.11`; Apple Metal weight loading is owned by
-[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
-Sprint `14.5`. Per-substrate ULP tolerance documentation is owned by
-[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
-Sprint `15.1`.
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+Sprint `15.7`. Production weight loading (CUDA + Linux CPU) is owned by
+Phase `15` Sprint `15.11`; Apple Metal weight loading is owned by
+[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md)
+Sprint `16.5`. Per-substrate ULP tolerance documentation is owned by
+[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
+Sprint `17.1`.
 
 The phase owns
 [Exit Definition](README.md#exit-definition) item 7 (split-blob `.jmw1`
@@ -106,7 +106,7 @@ filesystem-backed `HasMinIO` instance. The weighted hook
 (`loadInferenceCheckpointWithWeights` +
 `JitML.Engines.Local.runLinuxCpuWeightedCheckpointInference`) decodes weight-only
 `.jmw1` blobs through `HasMinIO` before running the generated weighted kernel.
-Detailed live-runtime obligations remain owned by Phases `13` / `14`.
+Detailed live-runtime obligations remain owned by Phases `15` / `16`.
 `loadInferenceCheckpointWith` and `loadInferenceCheckpointWithWeights` validate
 the addressed manifest's experiment hash and content SHA before invoking a
 runner, and `loadWeightTensors` rejects `.jmw1` payloads whose decoded element
@@ -138,7 +138,7 @@ which loads decoded `.jmw1` weights before invoking the weighted runner. The sam
 validates the local Linux CPU generated-kernel FFI runner and the weighted local
 runner that consumes decoded `.jmw1` values. Live checkpoint writes after a real
 training step, live `gc_reaped` Pulsar publishing, and live per-substrate
-runtime exercise remain in Phases `13` / `14`.
+runtime exercise remain in Phases `15` / `16`.
 The Sprint `10.6` worktree also includes model-family manifest metadata,
 content-SHA/experiment validation before inference, tensor payload shape checks
 for decoded weights, and fail-closed demo REST routes that no longer instantiate
@@ -161,7 +161,7 @@ semantics.
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live MinIO
-bucket layout validation migrated to Phase `13` Sprint `13.7`.
+bucket layout validation migrated to Phase `15` Sprint `15.7`.
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Storage/Buckets.hs`
 **Docs to update**: `documents/engineering/checkpoint_format.md`
@@ -209,15 +209,15 @@ split-blob object-key renderers used by the inference summary surface.
 - No sprint-owned code-surface Remaining Work remains. Live MinIO bucket
   layout validation through `JitML.Service.MinIOSubprocess` after a real
   training step is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.7`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.7`.
 
 ## Sprint 10.2: `.jmw1` Wire Format and Manifest CBOR ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live MinIO
 conditional-write validation and CAS retry coverage migrated to Phase
-`13` Sprint `13.7`.
+`15` Sprint `15.7`.
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Checkpoint/Store.hs`
 **Docs to update**: `documents/engineering/checkpoint_format.md`
@@ -281,16 +281,16 @@ remain target runtime validation.
 - No sprint-owned code-surface Remaining Work remains. Live MinIO
   conditional-write validation and CAS retry integration coverage are
   owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.7`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.7`.
 
 ## Sprint 10.3: Bit-Determinism Contract and Retention Reconciler ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live MinIO blob
-deletion plus `gc_reaped` Pulsar event publication migrated to Phase `13`
-Sprint `13.7`. The per-substrate ULP tolerance measurement migrated to
-Phase `15` Sprint `15.1`.
+deletion plus `gc_reaped` Pulsar event publication migrated to Phase `15`
+Sprint `15.7`. The per-substrate ULP tolerance measurement migrated to
+Phase `17` Sprint `17.1`.
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/determinism_contract.md`,
 `documents/engineering/checkpoint_format.md`
@@ -341,10 +341,10 @@ per `### Remaining Work` below.
 - No sprint-owned code-surface Remaining Work remains. `gc_reaped`
   Pulsar event publication and live HTTP MinIO deletion validation are
   owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.7`. The per-substrate ULP tolerance measurement is owned by
-  [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
-  Sprint `15.1`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.7`. The per-substrate ULP tolerance measurement is owned by
+  [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
+  Sprint `17.1`.
 
 ## Sprint 10.4: Inference-Only Read Path ✅
 
@@ -357,9 +357,9 @@ the local proto3 bytes decode through
 `Proto.Jitml.Inference.InferenceRequest` round-trip). The
 user-facing live `jitml inference run` MinIO path, `jitml inspect
 replay` live MinIO manifest read, and per-substrate production weight
-loading (Linux CPU + CUDA) migrated to Phase `13`
-Sprints `13.11` / `13.12`. Apple Metal production weight loading
-migrated to Phase `14` Sprint `14.5`.
+loading (Linux CPU + CUDA) migrated to Phase `15`
+Sprints `15.11` / `15.12`. Apple Metal production weight loading
+migrated to Phase `16` Sprint `16.5`.
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/App.hs`
@@ -385,7 +385,7 @@ fetches, and production runtime exercise remain target runtime work.
   Linux CPU generated-kernel FFI path from a loaded checkpoint manifest.
   `runLinuxCpuWeightedCheckpointInference` validates the same generated-kernel
   path while consuming decoded weight values from `loadInferenceCheckpointWithWeights`;
-  Sprint `10.6` / Phase `16` expand production per-substrate live exercise to
+  Sprint `10.6` / Phase `13` expand production per-substrate live exercise to
   every no-caveat model-family checkpoint and inference path.
 - `jitml inference run` fails closed without a live publication and uses the
   selected substrate's weighted checkpoint runner when live MinIO is available.
@@ -424,12 +424,12 @@ fetches, and production runtime exercise remain target runtime work.
   value (wire-format byte-equivalence).
 - The user-facing `jitml inference run` live MinIO path and `jitml
   inspect replay` live MinIO manifest read are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.12`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.12`.
 - Per-substrate production weight loading: Linux CPU oneDNN and Linux
-  CUDA are owned by Phase `13` Sprint `13.11`; Apple Metal is owned by
-  [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
-  Sprint `14.5`.
+  CUDA are owned by Phase `15` Sprint `15.11`; Apple Metal is owned by
+  [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md)
+  Sprint `16.5`.
 
 ## Sprint 10.5: Remove the Synthetic Inference Offset ✅
 
@@ -484,7 +484,7 @@ fail-closed `Live` conditional test; without
 ### Remaining Work
 
 - No Sprint 10.5 code-surface Remaining Work remains. Live per-lane exercise of
-  the weighted read path remains owned by Phase 13 / Phase 14.
+  the weighted read path remains owned by Phase 15 / Phase 14.
 
 ## Sprint 10.6: No-Caveat Checkpoint and Inference Matrix ✅
 
@@ -577,7 +577,7 @@ checkpoint-backed models rather than demo-only or Dense-only readers.
 ### Remaining Work
 
 - No Sprint 10.6 Remaining Work remains. The broader all-model
-  train/checkpoint/reload/evaluate matrix is owned by Phase `16`.
+  train/checkpoint/reload/evaluate matrix is owned by Phase `13`.
 
 ## Doctrine Sections Cited
 

@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, determinism_contract.md, training_workloads.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, determinism_contract.md, training_workloads.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob
@@ -144,7 +144,7 @@ emits the `JMW1` magic, a little-endian 32-bit CBOR header length, a compact
 CBOR header, and little-endian `F64` payload bytes. `decodeJmw1` validates the
 same local `F64` payload shape and returns decoded weight values for the local
 inference loader. The richer header shape above is the Sprint `10.6` / Phase
-`16` durable contract for full runtime checkpoints across every no-caveat model
+`13` durable contract for full runtime checkpoints across every no-caveat model
 family.
 
 ## CBOR Manifest
@@ -374,5 +374,5 @@ order differ across substrates) per
 - [determinism_contract.md](determinism_contract.md)
 - [training_workloads.md](training_workloads.md)
 - [../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md](../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md)
-- [../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md)
+- [../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md)
 - [../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md](../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md)

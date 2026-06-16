@@ -8,7 +8,7 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
-[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
+[phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -31,7 +31,7 @@ worktree has removed the reward-derived algorithm-level projection helpers and
 the AlphaZero placeholder terminal evaluator. `jitml rl train`, `jitml rl
 rollout`, `jitml rl alphazero self-play`, and `jitml tune` now emit
 checkpoint/replay/transcript/trial artifact keys for the command paths that
-Phases `16` and `17` consume in the product matrix. No Phase `9` blocker or
+Phases `13` and `14` consume in the product matrix. No Phase `9` blocker or
 remaining work survives.
 
 ✅ **Historical closure** (re-closed 2026-06-11 — real-workflow refactor). The catalog,
@@ -44,8 +44,8 @@ per-algorithm rollouts step real environment dynamics, MCTS descends a real tree
 with value backup, device-backed MCTS leaf evaluation runs through the selected
 JIT `MlpDevice`, and tuning trials train a real model through the substrate
 device to produce measured objectives. The linux-cpu and linux-cuda live
-exercise closed in Phase `13` on 2026-06-11; apple-silicon live validation
-closed in Phase `14` on 2026-06-12. None of that live validation is an open
+exercise closed in Phase `15` on 2026-06-11; apple-silicon live validation
+closed in Phase `16` on 2026-06-12. None of that live validation is an open
 Phase `9` code-surface obligation. See
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior
 closure narrative below is retained as dated record.
@@ -59,9 +59,9 @@ the full sampler/scheduler/pruner catalog, the AlphaZero MCTS / SelfPlay
 decode, and the proto-lens bindings for `rl.proto` and `tune.proto`.
 Real CUDA RL loss execution and AlphaZero with real network priors are
 owned by
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprints `13.8` and `13.9`. Live tuner execution is owned by Phase `13`
-Sprint `13.10`.
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+Sprints `15.8` and `15.9`. Live tuner execution is owned by Phase `15`
+Sprint `15.10`.
 Sprint `9.8` retargeted the RL algorithm/convergence matrix away from
 `atari-subset` and onto the copyright-free Phase `8` Sprint `8.9`
 `KeyDoorGrid-v0` environment.
@@ -93,7 +93,7 @@ proto3-compatible byte command and event envelopes.
 real on-hardware training to canonical reward thresholds,
 real network forward / back passes through the JIT engine layer, live MinIO
 trial transcript persistence/resume, and live Pulsar handlers are owned by
-Phase `13` and are not open Phase `9` obligations.
+Phase `15` and are not open Phase `9` obligations.
 
 ### Current Implementation Scope
 
@@ -127,7 +127,7 @@ command/event envelopes, parses the deterministic local text command envelope,
 and round-trips the current command and event oneofs through proto3-compatible
 bytes via `JitML.Proto.Wire`.
 Live MinIO trial storage, live tuner resume, real network execution, and
-on-hardware reward thresholds closed in the Linux live lanes owned by Phase `13`.
+on-hardware reward thresholds closed in the Linux live lanes owned by Phase `15`.
 
 ## Phase Summary
 
@@ -152,7 +152,7 @@ on 2026-05-24 for PPO, A2C, TRPO, MaskablePPO, RecurrentPPO via
 files per [../README.md → Snapshot targets → Numerical-fixture
 prohibition](../README.md#snapshot-targets)). Real
 clipped-surrogate-loss / GAE / KL-trigger update code through the live
-CUDA JIT engine migrated to Phase `13` Sprint `13.8`.
+CUDA JIT engine migrated to Phase `15` Sprint `15.8`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo}.hs`,
 `test/rl-canonicals/Main.hs`
@@ -203,12 +203,12 @@ targets → Numerical-fixture prohibition](../README.md#snapshot-targets).
   scaffolding is scheduled for deletion per
   [legacy-tracking-for-deletion.md → Pending Removal](legacy-tracking-for-deletion.md#pending-removal).
   Live measured cross-substrate runs from real CUDA training are owned
-  by Phase `13` Sprint `13.8`.
+  by Phase `15` Sprint `15.8`.
 - Replacement of the deterministic-fixture rollout with real
   clipped-surrogate-loss / GAE / KL-trigger update code through the live
   CUDA JIT engine is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.8`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.8`.
 
 ## Sprint 9.2: Off-Policy Algorithm Metadata ✅
 
@@ -221,7 +221,7 @@ in-process and asserting bit-identity (no committed rollout-value files
 per [../README.md → Snapshot targets → Numerical-fixture
 prohibition](../README.md#snapshot-targets)). Real cuDNN deterministic
 algorithm pin executed against off-policy network forward /
-target-network update migrated to Phase `13` Sprint `13.8`.
+target-network update migrated to Phase `15` Sprint `15.8`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{Dqn,QrDqn,Ddpg,Td3,Sac}.hs`,
 `test/rl-canonicals/Main.hs`
@@ -262,8 +262,8 @@ Land the current off-policy algorithm metadata rows.
   files are committed.
 - Wiring the deterministic-cuDNN algorithm pin into the real off-policy
   network forward / target-network update path is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.8`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.8`.
 
 ## Sprint 9.3: Specialised Algorithm Metadata ✅
 
@@ -277,7 +277,7 @@ comparing bit-for-bit) are both in place; no `test/golden/rl/`
 files are committed per [../README.md → Snapshot targets →
 Numerical-fixture prohibition](../README.md#snapshot-targets). Real
 specialised algorithm execution through live CUDA migrated to
-Phase `13` Sprint `13.8`.
+Phase `15` Sprint `15.8`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Algorithms/{CrossQ,Tqc,Ars,Her}.hs`,
 `test/rl-canonicals/Main.hs`
@@ -322,8 +322,8 @@ Land the current specialised algorithm metadata rows.
   Numerical-fixture prohibition](../README.md#snapshot-targets).
 - Real CUDA specialised-update execution (CrossQ multi-critic, TQC
   quantile TD, ARS evolution strategy, HER hindsight relabel) is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.8`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.8`.
 
 ## Sprint 9.4: Local RL Canonical Tests ✅
 
@@ -334,7 +334,7 @@ traditional algorithm × canonical environment pairing via
 `checkRolloutDeterminism`, and the `rl-canonicals consumes
 cabal.project rl_steps and rl_eval_episodes knobs` case closed on the
 same date. Per-seed final-reward distribution check consuming live
-training output migrated to Phase `13` Sprint `13.6`.
+training output migrated to Phase `15` Sprint `15.6`.
 **Implementation**: `test/unit/Main.hs`, `test/integration/Main.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -383,8 +383,8 @@ into the dedicated local RL canonical stanza.
   are populated (closed 2026-05-24).
 - The per-seed final-reward distribution check (form 3) consuming live
   training output is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.6`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.6`.
 
 ## Sprint 9.5: AlphaZero Connect 4 Transcript Surface ✅
 
@@ -394,7 +394,7 @@ into the dedicated local RL canonical stanza.
 closed on 2026-05-24 alongside Sprint `9.4`'s knob consumption. Real
 network evaluation via the JIT engine for `runSearch` prior, live MinIO
 self-play buffer round-trip, and live arena promotion migrated to Phase
-`13` Sprint `13.9`.
+`15` Sprint `15.9`.
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
 `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
@@ -462,8 +462,8 @@ AlphaZero summary.
 - Wiring the `runSearch` prior into a real network evaluation via the JIT
   engine and validating the SelfPlayBuffer round-trip against live HTTP
   MinIO are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.9`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.9`.
 
 ## Sprint 9.6: Connect 4 Local Game Surface ✅
 
@@ -475,8 +475,8 @@ connectivity), and Gomoku (line-of-five) closed on 2026-05-24 in
 `othelloBoardAfter`; `hexLegalMove` + `hexConnected`; `gomokuLegalMove`
 + `hasGomokuLine`); `selfPlayTranscriptFor` advances past illegal
 candidates via `nextLegalMove`. The JIT-backed network position
-evaluation that consumes these rules is owned by Phase `13`
-Sprint `13.9`.
+evaluation that consumes these rules is owned by Phase `15`
+Sprint `15.9`.
 **Implementation**: `src/JitML/RL/AlphaZero.hs`,
 `src/JitML/Web/Contracts.hs`, `test/rl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -536,8 +536,8 @@ catalog, and corresponding browser-contract endpoint metadata.
   prohibition](../README.md#snapshot-targets).
 - JIT-backed network position evaluation that consumes these rule
   engines is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.9`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.9`.
 
 ## Sprint 9.7: Hyperparameter Tuning (Sampler × Scheduler × Pruner) ✅
 
@@ -548,7 +548,7 @@ closed on 2026-05-24 (`gen/Proto/Jitml/Tune.hs` +
 `gen/Proto/Jitml/Tune_Fields.hs` re-exported by the cabal library).
 Daemon-side tune handler against live broker, live MinIO trial
 persistence, and the full canonical sampler × scheduler × pruner grid
-against live tuner execution migrated to Phase `13` Sprint `13.10`.
+against live tuner execution migrated to Phase `15` Sprint `15.10`.
 **Implementation**: `src/JitML/Tune/Catalog.hs`,
 `src/JitML/App.hs`, `src/JitML/Proto/Tune.hs`,
 `test/hyperparameter/Main.hs`
@@ -631,8 +631,8 @@ summary.
   / `replaySweep` validation against live HTTP MinIO, and the full
   canonical sampler × scheduler × pruner grid against live tuner
   execution are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.10`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.10`.
 
 ## Sprint 9.8: Copyright-Free RL Matrix Retargeting ✅
 
@@ -721,7 +721,7 @@ policy on-device. Owns the catalog slice of
 ### Validation
 
 - `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
-  (per-algorithm on-device rollouts; live half in Sprint 13.17).
+  (per-algorithm on-device rollouts; live half in Sprint 15.17).
 - Offline `jitml rl eval` → `InferenceCheckpointMissing`; offline `jitml rl
   rollout` → `InvalidConfig`; neither prints a synthetic trajectory.
 - `jitml check-code` + `jitml docs check` green inside `jitml:local`.
@@ -864,7 +864,7 @@ tautology with a genuine resume-equality check. Owns the tuning slice of
 ### Validation
 
 - `docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu`
-  (real measured objective; live half in Sprint 13.17 / 13.10).
+  (real measured objective; live half in Sprint 15.17 / 15.10).
 - `jitml check-code` + `jitml docs check` green inside `jitml:local`.
 
 ### Current Validation State

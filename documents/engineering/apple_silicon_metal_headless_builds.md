@@ -141,7 +141,7 @@ MinIO, Harbor, public routing, and orchestration. Inference and
 daemon-dispatched Training/RL/Tune starts are delivered to the host daemon as
 typed Pulsar envelopes with MinIO object refs; direct Apple backend work,
 including AlphaZero policy/value validation, executes host-native through the
-same fixed bridge. Phase `14` Sprint `14.10` validates the full Apple lane with
+same fixed bridge. Phase `16` Sprint `16.10` validates the full Apple lane with
 no Metal-backed Linux worker Jobs.
 Mounting the host build tree into a Linux pod does not make the bridge usable:
 the bridge dylib links macOS Foundation/Metal frameworks and requires a host

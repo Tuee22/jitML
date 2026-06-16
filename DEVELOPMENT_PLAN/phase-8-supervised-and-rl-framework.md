@@ -9,7 +9,7 @@
 [phase-6-numerical-core.md](phase-6-numerical-core.md),
 [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md),
 [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md),
-[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
+[phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -30,7 +30,7 @@ the live MNIST convergence assertion clears the unchanged threshold through the
 same `JitML.SL.Architecture` runtime; and the RL framework publishes typed event
 payloads rich enough for browser animation/replay instead of string/zero-display
 projections. Full cross-model statistical convergence, checkpoint reload, and
-inference closure are Phase `16` product-matrix obligations that consume this
+inference closure are Phase `13` product-matrix obligations that consume this
 surface rather than Phase `8` local-framework obligations.
 
 ✅ **Historical closure** (re-closed 2026-06-11 — real-workflow refactor). The SL/RL framework
@@ -46,8 +46,8 @@ VisionTransformer trainable forward/backward JIT support was treated as later
 architecture growth. That historical scope is superseded by the 2026-06-14
 no-caveat product target: Sprint `8.12` now owns the full canonical SL catalog
 trainable-runtime obligation. The live per-lane validation was owned by Phases
-`13`/`14`; the linux-cpu and linux-cuda live lanes closed in Phase `13` on
-2026-06-11, and the apple-silicon live lane closed in Phase `14` on
+`15`/`16`; the linux-cpu and linux-cuda live lanes closed in Phase `15` on
+2026-06-11, and the apple-silicon live lane closed in Phase `16` on
 2026-06-12. See
 [README.md → Reopened phases (2026-06-10)](README.md#reopened-phases-2026-06-10--real-workflow-refactor).
 The prior closure narrative below is retained as dated record.
@@ -68,8 +68,8 @@ daemon handlers, and live statistical convergence + run-to-run reward
 determinism (no per-substrate reward fixtures per
 [../README.md → Snapshot targets → Numerical-fixture
 prohibition](../README.md#snapshot-targets)) are owned by
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprints `13.3` / `13.4` / `13.5` / `13.6`. Sprint `8.8` retired the
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+Sprints `15.3` / `15.4` / `15.5` / `15.6`. Sprint `8.8` retired the
 deterministic atari-subset RAM-state stub behind the runtime-loaded
 `JitML.RL.ALE` boundary and explicit ROM handling. The later static
 foreign-source correction removed the checked-in C++ shim and Dockerfile/lint
@@ -97,7 +97,7 @@ exception, and the scripted `"simulator"` default is gone. The proto surfaces
 command / event topic family and round-trip the current command/event envelopes
 through proto3-compatible bytes. Live MinIO dataset fetch, live Pulsar
 publish/consume, and real-hardware convergence assertions are owned by Phase
-`13`. Non-Dense Conv2D / residual / attention SL training remains a named
+`15`. Non-Dense Conv2D / residual / attention SL training remains a named
 follow-on that Sprint `8.12` now reclassifies as required no-caveat product
 scope.
 
@@ -118,9 +118,9 @@ checked-in replacement RL example instead of `atari-subset`.
 **Owned obligations after refactor**: code-surface only. Live dataset
 fetching through `JitML.Service.MinIOSubprocess`, daemon-backed training
 loop on real hardware, live measured convergence fixtures, and the live
-SL convergence assertion in `jitml-sl-canonicals` migrated to Phase `13`
-Sprint `13.4`. See
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md).
+SL convergence assertion in `jitml-sl-canonicals` migrated to Phase `15`
+Sprint `15.4`. See
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md).
 **Implementation**: `src/JitML/SL/Canonicals.hs`,
 `test/sl-canonicals/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -156,8 +156,8 @@ prohibition](../README.md#snapshot-targets)).
   the `HasMinIO` capability boundary.
 - Live Pulsar training events backed by real `HasPulsar` and real
   MinIO-staged datasets are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprints `13.2`, `13.3`, and `13.4` once the cluster is up.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprints `15.2`, `15.3`, and `15.4` once the cluster is up.
 
 ### Validation
 
@@ -181,8 +181,8 @@ prohibition](../README.md#snapshot-targets)).
   path (`fetchDatasetRef` plumbing into `TrainingHandler`, daemon-backed
   loop, and the live SL statistical convergence assertion against the
   in-code literature-target threshold) is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.4`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.4`.
 
 ## Sprint 8.2: `jitml train` Local CLI Summary ✅
 
@@ -194,8 +194,8 @@ cabal library re-exports them, `cabal.project` resolves `lens-family` /
 `lens-family-core` from plain Hackage under GHC `9.12.4`, and
 `jitml-daemon-lifecycle` validates the cross-language wire-byte
 equivalence). Daemon-side `TrainingHandler` against live broker and
-the live publish/consume integration test migrated to Phase `13`
-Sprints `13.3` / `13.4`.
+the live publish/consume integration test migrated to Phase `15`
+Sprints `15.3` / `15.4`.
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`,
 `src/JitML/Proto/Training.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
@@ -271,8 +271,8 @@ local summary body. Pulsar command/event publication remains target daemon work.
   envelopes as the daemon-side handler lands).
 - The daemon-side `TrainingHandler` against live broker and the live
   publish/consume integration test are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprints `13.3` / `13.4`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprints `15.3` / `15.4`.
 
 ## Sprint 8.3: RL Catalog Hook for Canonical Tests ✅
 
@@ -288,7 +288,7 @@ route over Box2D / ALE FFI because the README admits native Haskell envs and
 the determinism contract disfavors cross-version float drift in third-party
 physics libraries; the 2026-06-04 Sprint `8.8` reopen supersedes the ALE half
 of that choice and keeps ROM handling explicit. The daemon-backed environment
-loop migrated to Phase `13` Sprint `13.5`.
+loop migrated to Phase `15` Sprint `15.5`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`,
 `src/JitML/RL/Simulator.hs`,
@@ -367,14 +367,14 @@ canonical RL stanza.
   it identically when the real binding lands.
 - The daemon-backed environment loop driven by the Phase `5` Pulsar
   consumer is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.5`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.5`.
 
 ## Sprint 8.4: RL Metadata Primitives ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live HTTP MinIO
-wiring of `AsyncSink` migrated to Phase `13` Sprints `13.2` / `13.7`.
+wiring of `AsyncSink` migrated to Phase `15` Sprints `15.2` / `15.7`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Framework.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -423,8 +423,8 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 
 - No sprint-owned code-surface Remaining Work remains. The live HTTP
   MinIO wiring of `AsyncSink` is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprints `13.2` and `13.7`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprints `15.2` and `15.7`.
 
 ## Sprint 8.5: RL CLI Summaries and Report Hooks ✅
 
@@ -435,7 +435,7 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 re-exported by the cabal library; `parseRlCommand` remains the
 deterministic local text-envelope parser). Daemon-side `RlHandler`
 against live broker and the live `StartRLRun → EpisodeDone`
-integration test migrated to Phase `13` Sprints `13.3` / `13.6`.
+integration test migrated to Phase `15` Sprints `15.3` / `15.6`.
 **Implementation**: `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Framework.hs`, `src/JitML/Proto/Rl.hs`,
 `src/JitML/Test/Report.hs`, `src/JitML/App.hs`
@@ -497,15 +497,15 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
   byte-equivalent binding for other-language proto3 clients.
 - The daemon-side `RlHandler` against live broker and the live
   `StartRLRun → EpisodeDone` round-trip are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprints `13.3` and `13.6`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprints `15.3` and `15.6`.
 
 ## Sprint 8.6: RL Training Plan Surface ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Daemon `RlHandler`
 plumb-through, live reward-threshold + checkpoint/resume equality
-assertion migrated to Phase `13` Sprints `13.3` / `13.6`.
+assertion migrated to Phase `15` Sprints `15.3` / `15.6`.
 **Implementation**: `src/JitML/App.hs`, `src/JitML/Plan/Plan.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
 
@@ -528,7 +528,7 @@ remain target runtime work.
   and recording the rollout in a typed `ReplayBuffer`.
 - Historical Sprint `8.4` note: daemon-backed training execution against live
   Pulsar / live MinIO was later implemented for the scoped workflow surface;
-  Sprint `9.12` / Phase `16` now expand the same standard to the full
+  Sprint `9.12` / Phase `13` now expand the same standard to the full
   no-caveat RL matrix.
 
 ### Validation
@@ -549,8 +549,8 @@ remain target runtime work.
   `RlHandler` plumb-through, the live broker + capability classes, and
   the live reward-threshold + checkpoint/resume equality assertion are
   owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprints `13.3` and `13.6`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprints `15.3` and `15.6`.
 
 ## Sprint 8.7: `RLRunLifecycle` GADT Retrofit ✅
 
@@ -793,7 +793,7 @@ the canonical Dense-MLP cohort and item 7 inference-read slice (`runEval`).
 ### Validation
 
 - `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu`
-  (device-backed convergence; live half in Sprint 13.17).
+  (device-backed convergence; live half in Sprint 15.17).
 - Offline `jitml train` → typed error, exit 2, no number printed/published.
 - `jitml check-code` + `jitml docs check` green inside `jitml:local`.
 
@@ -835,7 +835,7 @@ Container (`jitml:local`, oneDNN present) — boundary gate **passed**:
   convergence) instead of skipping.
 - `docker compose run --rm jitml-cuda jitml test jitml-sl-canonicals
   --linux-cuda` → **15/15 PASS** on 2026-06-11 against the RTX 5090 CUDA lane.
-- Live linux-cpu and linux-cuda workflow exercise closed in Phase `13` on
+- Live linux-cpu and linux-cuda workflow exercise closed in Phase `15` on
   2026-06-11: both lanes bootstrapped clean data and passed full live
   `jitml-integration` **67/67** plus `jitml-e2e` **20/20**.
 - Continuation audit (2026-06-11): `docker compose run --rm jitml jitml test
@@ -866,7 +866,7 @@ None.
 
 Historical note: this follow-on scope was superseded on 2026-06-14. Conv2D /
 ResidualBlock / VisionTransformer forward+backward JIT codegen and backward
-kernels are now part of Sprint `8.12` / Phase `16` no-caveat product closure,
+kernels are now part of Sprint `8.12` / Phase `13` no-caveat product closure,
 not non-blocking future growth.
 
 ## Sprint 8.11: RL Framework Substrate Routing ✅
@@ -895,7 +895,7 @@ Route every MLP-backed RL trainer through the substrate engine selected by
 ### Validation
 
 - `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
-  (on-device reward improvement; live half in Sprint 13.17).
+  (on-device reward improvement; live half in Sprint 15.17).
 - Unknown `JITML_RL_TRAINER` → typed `InvalidConfig`, no episodes published.
 
 ### Current Validation State
@@ -937,7 +937,7 @@ and full live integration passed on both lanes.
   (`dqnUpdateDevice` and the `QrDqnTrainer` / `ContinuousTrainer` / `HerTrainer`
   peers) now **fail closed** on a mid-run device `Left` (no pure-Haskell
   fallback); the ledger row moved to `Completed`. The live `--linux-cpu` /
-  `--apple-silicon` on-device reward exercise is owned by Phases `13`/`14`.
+  `--apple-silicon` on-device reward exercise is owned by Phases `15`/`16`.
 
 ## Sprint 8.12: No-Caveat SL/RL Framework Runtime ✅
 
@@ -964,7 +964,7 @@ instead of scoped Dense-MLP and text-event closure.
 - `JitML.SL.Canonicals.denseMlpCohort` stops being the product gate; all
   canonical SL rows run against real staged dataset bytes through the
   substrate-backed architecture runtime with no synthetic dataset or curve
-  fallback. Phase `16` promotes that staged-byte train/eval surface to the full
+  fallback. Phase `13` promotes that staged-byte train/eval surface to the full
   median-convergence, checkpoint, reload, and inference matrix.
 - RL command/event payloads include typed episode frames, observations/actions,
   policy probabilities, replay-buffer state, and checkpoint references required
@@ -993,7 +993,7 @@ instead of scoped Dense-MLP and text-event closure.
   generated animation record, preserves unsigned hash/cursor/timestamp fields
   as exact strings rather than lossy browser `Int` values, and rejects the old
   catch-all `data:` placeholder. The interactive browser replay control remains
-  Phase `17` work.
+  Phase `14` work.
 - `src/JitML/SL/Architecture.hs` now owns the all-row supervised architecture
   runtime. It maps every `JitML.SL.Canonicals.canonicalProblems` row to a
   substrate-backed trainable topology: the Dense and DeepDense rows are device
@@ -1193,11 +1193,11 @@ Current validated subset (2026-06-14):
 
 ### Remaining Work
 
-None on the Phase `8` framework/runtime surface. Phase `16` owns the full
+None on the Phase `8` framework/runtime surface. Phase `13` owns the full
 cross-model median-convergence, checkpoint, reload, and inference matrix that
-consumes this all-row SL runtime. Phase `17` owns browser replay controls and
+consumes this all-row SL runtime. Phase `14` owns browser replay controls and
 Playwright assertions over the typed RL animation/replay payloads. The legacy
-Dense-only compatibility helper is tracked for Phase `16` cleanup in
+Dense-only compatibility helper is tracked for Phase `13` cleanup in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#pending-removal).
 
 ## Doctrine Sections Cited

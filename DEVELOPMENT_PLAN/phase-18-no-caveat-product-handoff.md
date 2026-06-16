@@ -6,11 +6,11 @@
 [development_plan_standards.md](development_plan_standards.md),
 [system-components.md](system-components.md),
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
-[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
-[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
-[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
-[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
+[phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md),
+[phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md),
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md),
+[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
+[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -21,9 +21,9 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (opened 2026-06-14). This phase is blocked by Phase `13` and
-Phase `14` live revalidation, Phase `15` expanded reproducibility/report-card
-handoff, Phase `16` full model runtime closure, and Phase `17` browser product
+⏸️ **Blocked** (opened 2026-06-14). This phase is blocked by Phase `15` and
+Phase `16` live revalidation, Phase `17` expanded reproducibility/report-card
+handoff, Phase `13` full model runtime closure, and Phase `14` browser product
 closure.
 
 ## Phase Summary
@@ -37,8 +37,8 @@ matrices are validated on `apple-silicon`, `linux-cpu`, and `linux-cuda`.
 **Status**: Blocked
 **Implementation**: `bootstrap/*.sh`, `src/JitML/Test/*`,
 `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
-**Blocked by**: Phase `13` Sprint `13.20`; Phase `14` Sprint `14.11`; Phase
-`15` Sprint `15.8`; Phase `16` Sprint `16.1`; Phase `17` Sprint `17.2`
+**Blocked by**: Phase `15` Sprint `15.20`; Phase `16` Sprint `16.11`; Phase
+`17` Sprint `17.8`; Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`
 **Docs to update**: `README.md`, `documents/engineering/purescript_frontend.md`,
 `documents/engineering/training_workloads.md`, `system-components.md`
 
@@ -46,31 +46,41 @@ matrices are validated on `apple-silicon`, `linux-cpu`, and `linux-cuda`.
 
 Prove the final product definition with no caveats.
 
+This is a `linux-cpu`-only **aggregation** handoff (single host) per standards
+rule M(b)/(d). Each lane's full runtime + Playwright matrix is run and attested in
+its **owning** single-accelerator phase — `bootstrap/linux-cuda.sh test` in Sprint
+`15.20`, `bootstrap/apple-silicon.sh test` in Sprint `16.11`, and
+`bootstrap/linux-cpu.sh test` across Phases `13`/`14`. This phase consumes the
+committed per-lane attestations and proves the product is no-caveat; it never runs
+an accelerator lane itself, so it closes on any single Docker host.
+
 ### Deliverables
 
-- `bootstrap/apple-silicon.sh test`, `bootstrap/linux-cpu.sh test`, and
-  `bootstrap/linux-cuda.sh test` each run the full no-caveat runtime +
-  Playwright matrix for their lane.
-- `jitml test all --live` reports every SL/RL/AlphaZero/tuning/demo measurement
-  as available and includes no placeholder, skipped, synthetic, or unavailable
-  product row when the required lane hardware is present.
+- The committed per-lane attestations from Sprints `15.20` (`linux-cuda`),
+  `16.11` (`apple-silicon`), and Phases `13`/`14` (`linux-cpu`) are present and
+  each shows the full no-caveat runtime + Playwright matrix passing for its lane.
+- `jitml test all --live` (merged on `linux-cpu` from the per-lane report-card
+  fragments) reports every SL/RL/AlphaZero/tuning/demo measurement as available
+  and includes no placeholder, skipped, synthetic, or unavailable product row for
+  any lane whose attestation is present.
 - The legacy ledger `Pending Removal` section is empty, with every row moved to
-  `Completed` only after the replacement path is validated.
+  `Completed` only after the replacement path is validated in its owning phase.
 - `README.md`, `documents/engineering/*`, and the development plan agree on
   phase status, closure evidence, and no-caveat product scope.
 
 ### Validation
 
-- `bootstrap/apple-silicon.sh test`
-- `docker compose run --rm jitml bootstrap/linux-cpu.sh test`
-- `docker compose run --rm jitml-cuda bootstrap/linux-cuda.sh test`
+- `docker compose run --rm jitml jitml test all --linux-cpu` (the `linux-cpu`
+  lane plus the merge of the committed `linux-cuda` / `apple-silicon` per-lane
+  attestations)
 - `docker compose run --rm jitml jitml check-code`
 - `docker compose run --rm jitml jitml docs check`
 
 ### Remaining Work
 
 - All upstream runtime, browser, Playwright, live-validation, and ledger
-  obligations remain open.
+  obligations remain open; each is attested in its owning single-accelerator
+  phase (`13`/`14`/`15`/`16`/`17`) and merged here.
 
 ## Documentation Requirements
 

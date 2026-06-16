@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, checkpoint_format.md, numerical_core.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, checkpoint_format.md, numerical_core.md
 **Generated sections**: training.rl.catalog, training.tune.samplers, training.tune.schedulers, training.tune.pruners
 
 > **Purpose**: Project-specific training-workload doctrine for jitML — the
@@ -25,7 +25,7 @@ runtime in `src/JitML/SL/Architecture.hs`.
   capability, and verifies fetched bytes against the pinned SHA-256. The
   filesystem-backed `HasMinIO` test covers the capability boundary; live
   routed MinIO fetch exists for the current MNIST artifact path and expands to
-  every canonical dataset/model row under Sprint `8.12` / Phase `16`.
+  every canonical dataset/model row under Sprint `8.12` / Phase `13`.
 
 ### Canonical SL Problems
 
@@ -66,7 +66,7 @@ gate uses 60 full-batch device epochs at `1.0e-2` and leaves the in-code
 threshold unchanged. The focused Sprint `8.12` live matrix now also fetches
 staged bytes for every canonical row from live MinIO, materializes bounded
 train/test examples, trains through the selected linux-cpu `MlpDevice`, and
-verifies finite train/eval metrics. Phase `16` strengthens that staged-byte
+verifies finite train/eval metrics. Phase `13` strengthens that staged-byte
 smoke into median convergence, checkpoint reload, evaluation, and inference for
 every canonical SL row.
 
@@ -126,7 +126,7 @@ selected `MlpDevice`. Tiny ImageNet now uses `JuicyPixels` plus a narrow
 Zip64-aware central-directory reader to decode JPEG tensors from the pinned
 archive.
 `jitml train` routes staged CIFAR, Tiny ImageNet, and California archives
-through these archive-backed decoders before training. Phase `16` wires
+through these archive-backed decoders before training. Phase `13` wires
 California checkpoint/inference plus a regression convergence gate, then
 promotes the current all-row staged-byte smoke into median convergence for every
 row before the all-row live convergence gate can close.
@@ -138,7 +138,7 @@ proto3-compatible bytes via `JitML.Proto.Wire`. `encodeTrainingEventProto`
 and `decodeTrainingEventProto` round-trip the current `TrainingEvent` oneof,
 including checkpoint metric entries, through the same local wire helper.
 Generated cross-language proto-lens output remains target work. Sprint `8.12`
-/ Phase `16` extend the runtime to resolve and SHA-hash every supported
+/ Phase `13` extend the runtime to resolve and SHA-hash every supported
 experiment Dhall, reconcile prerequisites, materialize the dataset, publish
 `StartTraining` on `training.command.<mode>`, consume `training.event.<mode>`
 through the daemon, and persist checkpoints for every canonical model family.
@@ -167,7 +167,7 @@ reward-derived algorithm-level projection helpers from canonical validation and
 writes `.jmw1` checkpoints plus line-oriented replay artifacts from `jitml rl
 train` / `jitml rl rollout`. Sprint `10.6` records RL policy model-family
 metadata, policy-distribution output decoders, and replay/transcript pointers in
-the checkpoint manifest. Phase `16` consumes those artifacts for the full product
+the checkpoint manifest. Phase `13` consumes those artifacts for the full product
 matrix: every algorithm trains, evaluates, rolls out, checkpoints, and provides
 browser replay/animation payloads.
 
@@ -280,7 +280,7 @@ starts to `rl.host-command.apple-silicon` and the host daemon publishes normal
 `rl.event.apple-silicon` events from the completed host run. Running the same
 `jitml rl train` worker in a Linux pod for `apple-silicon` is not a valid
 fallback; Phase `12` keeps the focused live no-Job assertion in the integration
-suite, and Phase `14` validates the full Apple lane with no Metal-backed
+suite, and Phase `16` validates the full Apple lane with no Metal-backed
 workload Jobs.
 
 `jitml rl eval --checkpoint <id>` shares `runCheckpointEval` with `jitml eval`
@@ -334,7 +334,7 @@ aggregated by `Registry.algorithmModuleRegistry`. PPO/CartPole determinism
 is asserted by `jitml-rl-canonicals` as run-to-run equality on the same
 substrate and seed (two fresh runs compared against each other). Richer Dhall
 types at `dhall/rl/algos/<algo>.dhall`, trained-policy checkpoint loading, and
-all-algorithm update/eval/rollout closure are Sprint `9.12` / Phase `16` work.
+all-algorithm update/eval/rollout closure are Sprint `9.12` / Phase `13` work.
 Per-algorithm trajectory `.txt` fixtures are explicitly
 **not** committed — see [unit_testing_policy.md → Snapshot Tests and
 the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
@@ -358,7 +358,7 @@ game and writes local `.jmw1` policy/value checkpoints from
 `alphazero-transcript` artifact carrying the sampled states, MCTS visit
 distributions, and outcome labels consumed by replay/inspection surfaces. Sprint
 `10.6` records AlphaZero policy/value model-family metadata, policy/value/MCTS
-output decoders, and transcript pointers in the manifest. Phase `16` / `17`
+output decoders, and transcript pointers in the manifest. Phase `13` / `14`
 still own full product-matrix consumption of those artifacts.
 
 | Component | Current / target |
@@ -367,7 +367,7 @@ still own full product-matrix consumption of those artifacts.
 | Perfect-information game metadata | Current: `src/JitML/RL/AlphaZero.hs` |
 | Two-headed network metadata | Current: `src/JitML/RL/AlphaZero.hs` |
 | MCTS with PUCT and persistent tree state | Current recursive module: `src/JitML/RL/AlphaZero/Mcts.hs`; position-aware network prior/evaluator via `PolicyValueNet.netOracleFactory`; device-backed effectful leaf evaluation via `PolicyValueNet.netOracleFactoryWithDevice` / `mctsVisitDistributionWithDevice` |
-| Self-play loop and replay buffer | Current module: `src/JitML/RL/AlphaZero/SelfPlay.hs`; `jitml rl alphazero self-play` emits checkpoint keys plus an `alphazero-transcript` artifact; Phase `16` / `17` consume those artifacts across every game/browser workflow |
+| Self-play loop and replay buffer | Current module: `src/JitML/RL/AlphaZero/SelfPlay.hs`; `jitml rl alphazero self-play` emits checkpoint keys plus an `alphazero-transcript` artifact; Phase `13` / `14` consume those artifacts across every game/browser workflow |
 | Arena gating | Current measured helper: `src/JitML/RL/AlphaZero/PolicyValueNet.hs` arena win-rate evaluation; terminal/winner/draw detection flows through `GameOutcome` for Connect 4, Othello, Hex, and Gomoku; the standalone `Arena` module is deleted |
 
 ### Persistent MCTS State
@@ -517,7 +517,7 @@ The current local surface in `src/JitML/Tune/Catalog.hs` exposes
 `trialStorageKey`, `resumeMatchesFullRun`, and `renderTrialResumeSummary` for
 deterministic key and resume-equality checks. `src/JitML/Tune/Resume.hs`
 provides `persistTrialTranscript` and `replaySweep` over `HasMinIO`, validated
-against the filesystem-backed instance; Sprint `9.12` / Phase `17` require live
+against the filesystem-backed instance; Sprint `9.12` / Phase `14` require live
 HTTP MinIO persistence, checkpoint promotion, and browser-visible sweep state
 for the no-caveat product workflow. Sampler behaviour is exercised by
 `jitml-hyperparameter` as
@@ -543,7 +543,7 @@ trial's trained weights as a `.jmw1` checkpoint, emits a `tune-trials` artifact,
 and promotes daemon-dispatched trial weights into `jitml-checkpoints` alongside
 the `jitml-trials` transcript. Sprint `10.6` records tuning model-family
 metadata, objective/regression output decoders, and trial transcript pointers in
-the checkpoint manifest. Phase `17` publishes browser sweep
+the checkpoint manifest. Phase `14` publishes browser sweep
 controls/frontier state over the daemon's at-least-once `TuneHandler`. The
 current proto mirror covers local text command
 envelopes plus proto3-compatible byte envelopes for the command and event
@@ -580,5 +580,5 @@ example](../../README.md#concrete-some-tuning--example).
 - [daemon_architecture.md](daemon_architecture.md)
 - [../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md](../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md)
 - [../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md](../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md)
-- [../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-16-no-caveat-model-runtime.md)
-- [../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-17-interactive-demo-and-playwright-closure.md)
+- [../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md)
+- [../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md)

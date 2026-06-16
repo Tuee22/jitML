@@ -9,7 +9,7 @@
 [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
+[phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -24,14 +24,14 @@
 
 ✅ **Done** (Sprint `11.9` re-closed 2026-06-16 on its owned interactive-demo
 code surface; the live browser/product obligations were deduped to Phases
-`13`/`14`/`17` per standards rule E). The 2026-06-14 reopen had expanded this
+`15`/`16`/`14` per standards rule E). The 2026-06-14 reopen had expanded this
 phase from panel reachability and a small real-REST slice toward the full browser
 lab (generated typed payload codecs, workflow controls, checkpoint-backed model
 interactions, real visualizations, RL animations, adversarial-game rendering,
 interactive replay); the owned code surface landed and is validated
 (`jitml lint purescript` + the contract spec; `jitml-e2e --linux-cpu` 23 / 23;
 `check-code`), and the remaining live three-substrate Playwright product proof is
-owned by Sprints `17.1` / `17.2` and the Phase `13` / `14` live lanes.
+owned by Sprints `14.1` / `14.2` and the Phase `15` / `16` live lanes.
 
 ✅ **Historical closure** (re-closed 2026-06-11 after Sprint `11.8`; HTTP value
 responses superseded by Phase `10` Sprint `10.6`). The demo HTTP endpoints then
@@ -62,13 +62,13 @@ browser contracts under
 `purescript-spec` smoke suite invoked through `jitml lint purescript` and the
 Node `spec-node` runner,
 demo HTTP server (the deterministic local stream-frame stand-in later
-retired by Phase `15` Sprint `15.3`), compiled bundle baked into
+retired by Phase `17` Sprint `17.3`), compiled bundle baked into
 `jitml:local`, and Playwright DOM-shape matrix at
 `playwright/jitml-demo.spec.ts`. The later live work — `/api/ws`
 WebSocket proxy bridging the demo server to Pulsar event topics, and
 Playwright against the live edge route — closed in
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprints `13.13` / `13.14`; Phase `15` Sprint `15.3` removed the
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+Sprints `15.13` / `15.14`; Phase `17` Sprint `17.3` removed the
 offline Playwright and local stream fallbacks on 2026-06-04.
 Phase `11` reopened and reclosed on 2026-06-04 for Sprint `11.3` runner
 cleanup: `web/test/Main.purs` now uses
@@ -122,13 +122,13 @@ runner API and no longer emits the `runSpec` deprecation warning. Sprint
 `web/src/Panels/*.purs` module as a typed Halogen `H.component` plus
 `mount` driver, and updating `web/src/Main.purs` to dispatch on the URL
 hash. The 2026-05-24 in-container `docker compose build jitml` produced
-the initial PureScript output; later Phase `13` bundling emits the
+the initial PureScript output; later Phase `15` bundling emits the
 browser-loadable `web/dist/Main/bundle.js`, and
 `docker compose run --rm jitml jitml lint purescript` returned `ok`.
 **Later closure**: the live `/api/ws` proxy against real daemon Pulsar
 topics, compiled bundle serving from the Kind-deployed demo pod, and
-Playwright against the live `jitml-demo` edge route closed in Phase `13`.
-Phase `15` Sprint `15.3` retired the offline DOM and deterministic stream
+Playwright against the live `jitml-demo` edge route closed in Phase `15`.
+Phase `17` Sprint `17.3` retired the offline DOM and deterministic stream
 fallbacks. Sprint `11.7` adds `Generated.AdminPortals`, the portals home,
 the shared header, and live Playwright coverage for the portals/header
 matrix.
@@ -316,8 +316,8 @@ PureScript build and esbuild bundle step to produce
 `demoHttpRoutesWithBundle` serve the compiled bundle when present.
 `playwright/jitml-demo.spec.ts` historically covered the canonical six-panel
 DOM-shape matrix; the current file has expanded. The live `/api/ws` WebSocket proxy migrated to
-Phase `13` Sprint `13.13`; live edge-route Playwright migrated to
-Phase `13` Sprint `13.14`.
+Phase `15` Sprint `15.13`; live edge-route Playwright migrated to
+Phase `15` Sprint `15.14`.
 **Implementation**: `src/JitML/Web/Contracts.hs`,
 `src/JitML/Web/Bundle.hs`,
 `web/spago.yaml`, `web/src/Main.purs`, `web/src/Generated/Contracts.purs`,
@@ -379,20 +379,20 @@ remains target runtime validation.
   render plus a `mount :: Effect Unit` that drives `Halogen.Aff` +
   `Halogen.VDom.Driver.runUI`. `web/src/Main.purs` dispatches on the
   `location.hash` and mounts the matching panel (default: MNIST).
-  `spago build --output dist` runs in `docker/Dockerfile`; Phase `13`
+  `spago build --output dist` runs in `docker/Dockerfile`; Phase `15`
   adds the esbuild step that emits `web/dist/Main/bundle.js` for the
   demo image.
 - The live `/api/ws` WebSocket proxy that bridges the demo server to
   the daemon's metric/event Pulsar topics is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.13`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.13`.
 
 ## Sprint 11.5: `jitml-demo` Executable Shim ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. The live
 `/api/ws` proxy bridging browser clients to Pulsar event topics
-migrated to Phase `13` Sprint `13.13`.
+migrated to Phase `15` Sprint `15.13`.
 **Implementation**: `app/Demo.hs`, `src/JitML/App.hs`,
 `chart/templates/deployment-jitml-demo.yaml`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
@@ -433,23 +433,23 @@ HTTP server, and chart deployment surface.
 4. 2026-05-23 validation: `docker run --rm jitml:local jitml-demo --host
    0.0.0.0 --port 8080` serves `/` with the bundle-script-tagged shell and
    `/bundle/main.js` from the baked image.
-5. Later live validation: Phase `13` validated the live `/api/ws` proxy
-   against daemon metric/event Pulsar topics and Phase `15` validated the
+5. Later live validation: Phase `15` validated the live `/api/ws` proxy
+   against daemon metric/event Pulsar topics and Phase `17` validated the
    live-only Playwright matrix after removing offline fallbacks.
 
 ### Remaining Work
 
 - None remaining for Sprint `11.4`. The browser-loadable bundle path is
   `web/dist/Main/bundle.js`, the demo route appends `/bundle/main.js`
-  when that file exists, and later Phase `13` / Phase `15` work closed
+  when that file exists, and later Phase `15` / Phase `17` work closed
   the live WebSocket and fallback-removal surfaces.
 
 ## Sprint 11.6: Playwright E2E Suite ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live edge-route
-Playwright execution against the running cluster migrated to Phase `13`
-Sprint `13.14`; Phase `15` Sprint `15.3` removed the inline
+Playwright execution against the running cluster migrated to Phase `15`
+Sprint `15.14`; Phase `17` Sprint `17.3` removed the inline
 `page.setContent` DOM fallback.
 **Implementation**: `playwright/jitml-demo.spec.ts`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
@@ -468,7 +468,7 @@ Land the Playwright scaffold for the future interactive panel suite.
   Playwright execution is target work on the explicit e2e orchestration path.
 - Historical scaffold note: Playwright execution originally stayed out of the
   default local Cabal matrix until panels consumed live-backed state through
-  `jitml-demo`; Sprint `12.13` / Phase `17` supersede that with the explicit
+  `jitml-demo`; Sprint `12.13` / Phase `14` supersede that with the explicit
   live no-caveat product matrix. Static scaffold assertions remain covered by
   the current Haskell e2e and PureScript lint targets.
 
@@ -646,8 +646,8 @@ run passed **9 / 9** against the published `linux-cuda` edge route, and
 
 ### Remaining Work
 
-- None. Apple Silicon can re-run the same live Playwright suite under Phase `14`
-  once Sprint `14.8` is on an Apple host; no Phase `11` code-surface obligation
+- None. Apple Silicon can re-run the same live Playwright suite under Phase `16`
+  once Sprint `16.8` is on an Apple host; no Phase `11` code-surface obligation
   remains.
 
 ## Sprint 11.9: Full Interactive Demo Surface ✅
@@ -780,20 +780,20 @@ on this host:
 
 Every remaining obligation is **live-runtime** and is already owned by a
 downstream sprint, so it lives there per standards rule E (one obligation, one
-place) and the live-obligation consolidation doctrine (Phases `13`–`15` extract
+place) and the live-obligation consolidation doctrine (Phases `15`–`17` extract
 every live-runtime obligation from Phases `7`–`12`):
 
 - Live checkpoint-backed REST + `/api/runs/<run-id>/command` publication proof
   on every substrate, persisted queued/running/failed/done status
   reconciliation, the pause/resume/promote/adversarial command-topic extension,
   and the richer charts/canvases/replay-artifact/transcript-backed-replay
-  surface → **Sprint `17.1` (Full Workflow Control Surface)**, which already
+  surface → **Sprint `14.1` (Full Workflow Control Surface)**, which already
   names "Live-validate the Sprint `11.9` checkpoint-backed … calls", "Extend the
   Sprint `11.9` request-aware command route…", and "Finish real
   charts/canvases/animations/replay…".
 - The live Playwright product matrix exercising those behaviours →
-  **Sprint `17.2` (Playwright No-Caveat Product Matrix)** and the per-lane live
-  runs in **Sprint `13.20` (linux-cpu / linux-cuda)** and **Sprint `14.11`
+  **Sprint `14.2` (Playwright No-Caveat Product Matrix)** and the per-lane live
+  runs in **Sprint `15.20` (linux-cpu / linux-cuda)** and **Sprint `16.11`
   (apple-silicon)**.
 
 ## Doctrine Sections Cited

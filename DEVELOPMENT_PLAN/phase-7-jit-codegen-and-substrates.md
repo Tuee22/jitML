@@ -38,7 +38,7 @@ RTX 3090 live-CUDA validation records in Sprint `7.4` and below (the
 `nvcc → .so → dlopen → kernel launch → copy-back` path proven on
 2026-05-24) are retained as dated history but no longer reflect the current
 hardware: the live Linux CUDA execution obligation is owned by
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md),
 which reopened 2026-06-06 for full re-validation on the current **RTX 5090**
 host. See that phase's `## Phase Status` for the re-validation surface and the
 `-arch=sm_70` / Blackwell `sm_120` risk that `JitML.Engines.Engine`'s CUDA
@@ -66,14 +66,14 @@ storage, the typed Subprocess plans for `metal` / `nvcc` / `g++`, the
 typed runtime probes, the typed candidate-runner scaffold, and the
 benchmark-runner wiring into the first-cache-miss path. The live Apple
 Metal execution path migrated to
-[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md);
+[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md);
 the live Linux CPU full-tensor benchmark payload + first-cache-miss
 execution path migrated to
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprint `13.15`; cross-substrate equality / per-substrate ULP tolerance
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+Sprint `15.15`; cross-substrate equality / per-substrate ULP tolerance
 migrated to
-[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
-Sprint `15.1`.
+[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
+Sprint `17.1`.
 
 The phase owns
 [Exit Definition](README.md#exit-definition) item 1 (three substrate JIT
@@ -584,8 +584,8 @@ sections from [../README.md](../README.md).
 **Owned obligations after refactor**: code-surface only. Every live
 Apple-Silicon obligation (retired Tart provisioning, Metal FFI loading,
 host↔cluster Pulsar RPC, Apple Metal candidate runner, Apple Metal
-production weight loading) migrated to Phase `14`. See
-[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md).
+production weight loading) migrated to Phase `16`. See
+[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md).
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalRuntime.hs`,
 `src/JitML/Engines/MetalLocal.hs`,
@@ -649,8 +649,8 @@ longer part of this surface.
   correlates completed/error `AppleInferenceEvent` envelopes back to the
   original call id.
 - Metal FFI loading, MinIO tensor handoff, and live Pulsar RPC are live-closed
-  by [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
-  Sprints `14.2` and `14.4`; this sprint's current code-surface obligations
+  by [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md)
+  Sprints `16.2` and `16.4`; this sprint's current code-surface obligations
   (Swift package renderer, host build plan, Metal probe, RPC planning surface)
   are met.
 
@@ -696,22 +696,22 @@ longer part of this surface.
 - No sprint-owned code-surface Remaining Work remains for Sprint `7.5`.
   Apple Silicon live validation (first-cache-miss host build, Metal FFI
   loading, host↔cluster Pulsar RPC, full host-resident inference) is closed by
-  [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
-  Sprints `14.1`, `14.2`, `14.4`.
+  [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md)
+  Sprints `16.1`, `16.2`, `16.4`.
 
 ## Sprint 7.6: Hardware Auto-Tuning Within the Determinism Contract ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. The Metal
-candidate runner live execution migrated to Phase `14` Sprint `14.3`.
+candidate runner live execution migrated to Phase `16` Sprint `16.3`.
 The Linux CPU full-tensor benchmark payload migration and live
-first-cache-miss measurement migrated to Phase `13` Sprint `13.15`.
-The cross-substrate equality test migrated to Phase `15` Sprint `15.1`.
+first-cache-miss measurement migrated to Phase `15` Sprint `15.15`.
+The cross-substrate equality test migrated to Phase `17` Sprint `17.1`.
 The code-only benchmark-runner wiring into `ensureKernelArtifact`'s
 first-cache-miss path closed on 2026-05-24 through
 `JitML.Engines.TuningBenchmark.{ensureKernelArtifactWithBenchmarkTuning,
 ensureTuningSelection,candidateRunnerForSubstrate}`; the live runtime
-validation remains owned by Phase `13` Sprint `13.15`.
+validation remains owned by Phase `15` Sprint `15.15`.
 **Implementation**: `src/JitML/Cache/Key.hs`,
 `src/JitML/Engines/Tuning.hs`, `src/JitML/Engines/TuningBenchmark.hs`,
 `src/JitML/Engines/TuningStore.hs`,
@@ -778,7 +778,7 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
   carries the JIT cache root.
 - In the historical Sprint `7.6` snapshot,
   `JitML.Engines.TuningBenchmark.metalBenchmarkCandidateRunner` was still a
-  guarded preflight. Later Sprint `14.3`/`14.9` validation superseded that
+  guarded preflight. Later Sprint `16.3`/`16.9` validation superseded that
   snapshot: live Metal candidate measurement now runs through the fixed bridge
   on Apple Silicon.
 
@@ -837,17 +837,17 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
   selection through `TuningStore`, and re-resolves the tuned
   `TuningCachePlan` before invoking `ensureKernelArtifact`. `jitml build`
   routes Linux CPU and Linux CUDA non-dry-run builds through the tuned ensure
-  path; Phase `14` Sprint `14.3` closed the Apple Metal candidate-runner live
+  path; Phase `16` Sprint `16.3` closed the Apple Metal candidate-runner live
   path on top of the same headless Swift/Metal build surface. The 2026-05-24 in-container
   `cabal test jitml-unit -p "ensureTuningSelection"` validates the
   synthetic runner is invoked exactly once per candidate on first call
   and is not invoked again on the cached re-resolution. The live runtime
   validation that hardware-tuned choices get selected during real
-  compilation is owned by Phase `13` Sprint `13.15` (Linux CPU) and Phase
-  `14` Sprint `14.3` (Metal). The cross-substrate equality test (linux-cpu
+  compilation is owned by Phase `15` Sprint `15.15` (Linux CPU) and Phase
+  `16` Sprint `16.3` (Metal). The cross-substrate equality test (linux-cpu
   vs apple-silicon vs linux-cuda) and the full-tensor benchmark payload
-  migration moved to Phase `15` Sprint `15.1` and Phase `13` Sprint
-  `13.15` respectively.
+  migration moved to Phase `17` Sprint `17.1` and Phase `15` Sprint
+  `15.15` respectively.
 
 ## Sprint 7.7: Haskell-Owned Runtime JIT Source Generation ✅
 
@@ -1042,7 +1042,7 @@ companion for direct CUDA tests.
 
 - [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (Sprints 7.3, 7.4, 7.5)
 - [../README.md → Long-Running Daemons in the Same Binary](../README.md#doctrine-scope) (Sprint 7.5 — target host/cluster split represented by local config/topic surfaces)
-- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 7.5 — host↔cluster RPC topics documented; live consumer owned by [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md) Sprint `14.4`)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprint 7.5 — host↔cluster RPC topics documented; live consumer owned by [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) Sprint `16.4`)
 - [../README.md → Toolchain pinning](../README.md#toolchain-pinning) (Sprints 7.3, 7.4, 7.5)
 
 ## Documentation Requirements
@@ -1135,9 +1135,9 @@ the shared-mount package path (`/Volumes/My Shared Files/jitml/.build/jit-src/..
   and JIT-compiled the embedded MSL via `MTLDevice.makeLibrary(source:)`.
 - All **17** within-substrate apple-silicon cases PASS (62.84s, no skip
   sentinels): the identity kernel is **bit-equal across three runs** (Sprint
-  14.2), the weighted Dense2D GEMM is **bit-deterministic across three runs**
-  (Sprint 14.5), and the live Metal benchmark candidate runner produces a
-  measurement (Sprint 14.3).
+  16.2), the weighted Dense2D GEMM is **bit-deterministic across three runs**
+  (Sprint 16.5), and the live Metal benchmark candidate runner produces a
+  measurement (Sprint 16.3).
 - `jitml-unit` 194 / 194 host-native (incl. the Metal-probe regression:
   device-visible + no host toolchain ⇒ available); container `jitml check-code`
   green.

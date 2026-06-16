@@ -18,11 +18,11 @@
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md),
-[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
-[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
-[phase-16-no-caveat-model-runtime.md](phase-16-no-caveat-model-runtime.md),
-[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
+[phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md),
+[phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md),
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md),
+[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
+[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md),
 [../README.md](../README.md)
@@ -173,11 +173,11 @@ DEVELOPMENT_PLAN/
 ├── phase-10-checkpointing-and-inference.md
 ├── phase-11-purescript-frontend-and-demo.md
 ├── phase-12-test-stanzas-and-cross-cluster.md
-├── phase-13-linux-cuda-and-cluster-closure.md
-├── phase-14-apple-silicon-closure.md
-├── phase-15-cross-substrate-and-handoff.md
-├── phase-16-no-caveat-model-runtime.md
-├── phase-17-interactive-demo-and-playwright-closure.md
+├── phase-13-no-caveat-model-runtime.md
+├── phase-14-interactive-demo-and-playwright-closure.md
+├── phase-15-linux-cuda-and-cluster-closure.md
+├── phase-16-apple-silicon-closure.md
+├── phase-17-cross-substrate-and-handoff.md
 └── phase-18-no-caveat-product-handoff.md
 ```
 
@@ -185,18 +185,26 @@ No phase may be skipped. No sprint may exist in two phases. CLI-surface ownershi
 bootstrap-reconciler ownership, cluster-substrate ownership, platform-services
 ownership, daemon ownership, numerical-core ownership, per-substrate JIT-codegen
 ownership, SL/RL-framework ownership, RL-algorithm/AlphaZero/tuning ownership,
-checkpointing ownership, frontend ownership, test-stanza ownership,
-Linux-CUDA/cluster-closure ownership, Apple-Silicon-closure ownership, and
-cross-substrate-handoff ownership, no-caveat model-runtime closure ownership,
-interactive-demo/Playwright closure ownership, and no-caveat product-handoff
-ownership each live in one place only. Phases `13`–`15`
-extract every live-runtime obligation from Phases `7`–`12` and consolidate them by
-machine-affinity (Linux/NVIDIA, Apple Silicon, then cross-substrate) so each phase
-remains independently closeable on a single machine session. Phases `16`–`18`
-extend the original handoff after the 2026-06-14 no-caveat expansion: Phase `16`
-owns every remaining full-model runtime gap that is wider than a single earlier
-phase, Phase `17` owns the browser product surface plus Playwright assertions for
-that full runtime, and Phase `18` owns the final all-substrate no-caveat handoff.
+checkpointing ownership, frontend ownership, test-stanza ownership, no-caveat
+model-runtime closure ownership, interactive-demo/Playwright closure ownership,
+Linux-CUDA/cluster-closure ownership, Apple-Silicon-closure ownership,
+cross-substrate-handoff ownership, and no-caveat product-handoff ownership each
+live in one place only.
+
+The closure phases form a **forward chain** (renumbered 2026-06-16 per the
+forward-DAG doctrine in rule M): Phase `13` owns the full no-caveat model runtime
+(consuming the reopened Phases `8`–`10`), Phase `14` owns the browser product
+surface plus Playwright assertions for that runtime, and both close on the
+always-available `linux-cpu` lane. Phases `15`–`17` then carry every live-runtime
+obligation extracted from Phases `7`–`14` and consolidate it by machine-affinity
+so each phase is independently closeable on a single host with **at most one**
+accelerator plus `linux-cpu`: Phase `15` is the `linux-cuda` live lane (NVIDIA
+host), Phase `16` is the `apple-silicon` live lane (Mac host, independent of Phase
+`15`), and Phase `17` aggregates within-substrate reproducibility from the
+committed per-lane artifacts on `linux-cpu`. Phase `18` is the final
+`linux-cpu`-only handoff that merges the per-lane evidence into one no-caveat
+report card. Every Blocked-by and dependency edge references a strictly
+lower-numbered phase (rule M), so the plan is workable in numerical order.
 
 ### F. System Component Inventory
 
@@ -360,6 +368,47 @@ Structure`).
   cleanup.
 - If a doctrine section changes, the same change updates every governed doc that
   references it.
+
+### M. Forward-Only, Single-Accelerator, Numerically-Ordered Phases
+
+The phase graph is a strict forward DAG that is workable in numerical order, and
+every phase closes on one host. These four invariants are mandatory and any plan
+change that would violate one is rejected.
+
+- **(a) Forward-only dependencies.** A phase's owned obligations, its sprints'
+  `**Blocked by**:` lines, and every dependency edge it declares may reference
+  only **equal-or-lower-numbered** phases and sprints. A later phase must never
+  appear in an earlier phase's `Blocked by`. A later phase *may* own an obligation
+  migrated out of an earlier phase — that is an ownership transfer (the earlier
+  phase's `Done` is then defined on its retained surface only), not a blocker.
+  Phases `0`–`12` retain forward "deferral" prose only as ownership transfers to
+  the downstream owner, never as blockers.
+- **(b) Single accelerator per phase.** No single phase's closure may require both
+  `apple-silicon` and `linux-cuda`. A phase that needs an accelerator selects
+  **exactly one** of `{linux-cuda, apple-silicon}` plus `linux-cpu`. A contract
+  that must hold on both accelerators is split into two sibling phases (one per
+  accelerator) or attested per-lane in independent sessions and aggregated by a
+  later `linux-cpu`-only phase. A phase's `### Validation` block must not list a
+  single must-pass-together gate spanning both accelerators.
+- **(c) Numerical-order execution.** The plan is workable strictly in numerical
+  order: every `Depends-On`/`Blocked by` edge references a strictly lower number
+  (a consequence of (a)), and each phase is **fully validated** — its owned
+  Exit-Definition obligations met per rule C — before the next phase begins.
+- **(d) Single-host closeability.** Each phase is fully closeable in a single
+  machine session on a single host: a `linux-cpu`-only phase closes on any Docker
+  host; a `linux-cuda` phase closes on the NVIDIA host (which also provides
+  `linux-cpu`); an `apple-silicon` phase closes on the Mac host (which also
+  provides `linux-cpu`). No phase requires two hosts. Cross-substrate
+  reproducibility and final handoff are therefore `linux-cpu`-only **aggregation**
+  phases that consume per-lane artifacts committed by the earlier
+  single-accelerator phases — they never re-run an accelerator lane.
+
+Already-`Done` phases whose historical Validation listed all three substrates in
+one block (for example, the per-lane SL/RL/e2e gates) are re-documented as
+**validated per-lane in separate single-host sessions** to satisfy (b)/(d); this
+is a documentation note, not a code change, and does not reopen them. When the
+closure phases are renumbered to honor (a)–(d), the renumbering is recorded at the
+top of [README.md](README.md) `Closure Status` with an explicit old→new map.
 
 ## Related Documents
 

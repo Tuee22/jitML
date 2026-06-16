@@ -8,7 +8,7 @@
 [phase-0-planning-documentation.md](phase-0-planning-documentation.md),
 [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
-[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
+[phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -28,13 +28,13 @@
 
 ✅ **Done** (Sprint `12.13` re-closed 2026-06-16 on its owned host-validatable
 e2e/matrix/report structure; the live Playwright product-matrix execution was
-deduped to Sprints `17.2` / `13.20` / `14.11` per standards rule E). The
+deduped to Sprints `14.2` / `15.20` / `16.11` per standards rule E). The
 2026-06-14 reopen had expanded this phase from route/panel/value checks and
 workflow-matrix command execution toward product-level browser validation; the
 owned `JitML.Test.WorkflowMatrix.browserProductMatrix` enumeration and the
 `browser_product_matrix` report-card field landed and are validated
 (`jitml-e2e --linux-cpu` 23 / 23; `check-code`), and the live Playwright product
-matrix is owned by Sprint `17.2`.
+matrix is owned by Sprint `14.2`.
 
 ✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `12.12`). The Apple
 Silicon full test run found a failed `jitml-rl-*` Kubernetes Job but the
@@ -65,7 +65,7 @@ database ownership before Harbor migrations, removing stale publications before
 rollout, and right-sizing the Envoy data-plane request; the edge returned
 `HTTP/1.1 200 OK` from `/healthz`, and the live `WorkflowMatrix` case passed
 against the clean `linux-cpu` cluster. The Apple live lane then closed in
-Phase `14`, and the final handoff closed in Phase `15`, both on 2026-06-12.
+Phase `16`, and the final handoff closed in Phase `17`, both on 2026-06-12.
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host after
 Sprint `12.10`'s live `linux-cuda` lane re-validation). The phase reopened
@@ -103,11 +103,11 @@ prohibition](../README.md#snapshot-targets), and the typed
 `JitML.Test.LivePlan` live-plan surface. Live execution
 of the `jitml-e2e` ephemeral-Kind rollout + Playwright on
 the edge route is owned by
-[phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-Sprints `13.1` and `13.14`. Cross-substrate cohort runs against
+[phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+Sprints `15.1` and `15.14`. Cross-substrate cohort runs against
 in-code tolerance bands + populated live report card are owned by
-[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
-Sprints `15.1` and `15.2`.
+[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
+Sprints `17.1` and `17.2`.
 
 The phase owns
 [Exit Definition](README.md#exit-definition) item 9 (`jitml test all`
@@ -115,7 +115,7 @@ runs every test-only Cabal test-suite stanza with the report-card knobs pinned i
 `cabal.project`; the `jitml-e2e` stanza orchestrates an ephemeral Kind
 stack via `jitml bootstrap` + the typed `JitML.Test.LivePlan` live plan)
 and item 18 (empty
-legacy ledger after the open Exit-Definition items, including item `15`, close).
+legacy ledger after the open Exit-Definition items, including item `17`, close).
 **Met today**: Sprint `12.1`
 (`jitml-unit` body) and Sprint `12.7` (`jitml-daemon-lifecycle` body)
 close their owned obligations because their entire body is pure-logic /
@@ -140,14 +140,14 @@ ordering before invoking the live path. 2026-05-21 local validation re-ran
 stanzas passed and the report card rendered `passed: 8`, `failed: 0`.
 **Migrated live obligations**: Sprint `12.2`'s live checkpoint /
 Pulsar / cluster capability effects and real per-substrate run-to-run
-determinism are owned by Phase `13` Sprint `13.7` and Phase `15`
-Sprint `15.1`. Sprints `12.3`–`12.6`'s live statistical SL
+determinism are owned by Phase `15` Sprint `15.7` and Phase `17`
+Sprint `17.1`. Sprints `12.3`–`12.6`'s live statistical SL
 convergence, live RL trajectory determinism, live hyperparameter
 reproducibility, and the historical cross-substrate comparison work are owned by
-Phase `13` Sprints `13.4` / `13.6` / `13.10` and Phase `15`
-Sprint `15.1` / `15.4` history. Sprint `12.8`'s live Helm + Playwright path
-is owned by Phase `13` Sprints `13.1` / `13.14`. Sprint `12.9`'s live
-report-card consumption is owned by Phase `15` Sprint `15.2`. No
+Phase `15` Sprints `15.4` / `15.6` / `15.10` and Phase `17`
+Sprint `17.1` / `17.4` history. Sprint `12.8`'s live Helm + Playwright path
+is owned by Phase `15` Sprints `15.1` / `15.14`. Sprint `12.9`'s live
+report-card consumption is owned by Phase `17` Sprint `17.2`. No
 code-surface Remaining Work survives in this phase.
 
 ### Current Implementation Scope
@@ -237,9 +237,9 @@ prohibition](../README.md#snapshot-targets)) remain target work.
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live HTTP MinIO
-checkpoint round-trip migrated to Phase `13` Sprint `13.7`. The
+checkpoint round-trip migrated to Phase `15` Sprint `15.7`. The
 per-substrate determinism assertion against real CUDA and Metal
-production kernels migrated to Phase `15` Sprint `15.1`.
+production kernels migrated to Phase `17` Sprint `17.1`.
 **Implementation**: `test/integration/`,
 `jitml.cabal` (the `jitml-integration` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`
@@ -292,11 +292,11 @@ same-substrate training determinism per `### Remaining Work` below.
 - No sprint-owned code-surface Remaining Work remains. Real checkpoint
   round-trip against `JitML.Service.MinIOSubprocess` and the live
   `HasMinIO` capability class is owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.7`. The per-substrate determinism assertion against real
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.7`. The per-substrate determinism assertion against real
   CUDA and Metal production kernels is owned by
-  [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
-  Sprint `15.1`.
+  [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
+  Sprint `17.1`.
 
 ## Sprint 12.3: `jitml-sl-canonicals` Stanza ✅
 
@@ -311,8 +311,8 @@ Live `jitml train` against canonical SL cells with real MinIO
 datasets and live statistical convergence assertions against in-code
 literature-target thresholds (no per-substrate fixtures per
 [../README.md → Snapshot targets → Numerical-fixture
-prohibition](../README.md#snapshot-targets)) migrated to Phase `13`
-Sprint `13.4`.
+prohibition](../README.md#snapshot-targets)) migrated to Phase `15`
+Sprint `15.4`.
 **Implementation**: `test/sl-canonicals/`,
 `jitml.cabal` (the `jitml-sl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -366,8 +366,8 @@ prohibition](../README.md#snapshot-targets).
   datasets and asserting median accuracy clears the in-code
   literature-derived threshold (rather than against a per-substrate
   committed fixture) are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.4`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.4`.
 
 ## Sprint 12.4: `jitml-rl-canonicals` Stanza ✅
 
@@ -382,7 +382,7 @@ plus rule-conformance properties (no `test/golden/rl/` fixtures per
 prohibition](../README.md#snapshot-targets)). Live `jitml rl train`
 against algorithm × environment cohorts with real env simulators and
 live statistical convergence + run-to-run determinism migrated to
-Phase `13` Sprint `13.6`.
+Phase `15` Sprint `15.6`.
 **Implementation**: `test/rl-canonicals/`,
 `jitml.cabal` (the `jitml-rl-canonicals` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -442,8 +442,8 @@ determinism over real environment dynamics, and Connect 4 transcript checks.
   simulators, the AlphaZero arena-promotion gating assertion against
   the in-code threshold, and the per-seed final-reward statistical
   assertion are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.6`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.6`.
 
 ## Sprint 12.5: `jitml-hyperparameter` Stanza ✅
 
@@ -459,7 +459,7 @@ per [../README.md → Snapshot targets → Numerical-fixture
 prohibition](../README.md#snapshot-targets)). Live `jitml tune`
 against the full canonical sampler × scheduler × pruner grid through
 the live tuner and resume-from-partial-sweep equality test against
-live MinIO migrated to Phase `13` Sprint `13.10`.
+live MinIO migrated to Phase `15` Sprint `15.10`.
 **Implementation**: `test/hyperparameter/`,
 `jitml.cabal` (the `jitml-hyperparameter` stanza)
 **Docs to update**: `documents/engineering/unit_testing_policy.md`,
@@ -520,8 +520,8 @@ and deterministic trial-value checks.
   pruner grid through the live tuner, extending knob consumption to the
   full grid, and the resume-from-partial-sweep equality test against
   live MinIO are owned by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.10`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.10`.
 
 ## Sprint 12.6: `jitml-cross-backend` Stanza ✅
 
@@ -531,8 +531,8 @@ cohort runs and per-tensor drift assertion against the **in-code**
 per-layer-family tolerance band at `src/JitML/Engines/Tolerance.hs`
 (no per-tensor stored fixtures per
 [../README.md → Snapshot targets → Numerical-fixture
-prohibition](../README.md#snapshot-targets)) migrated to Phase `15`
-Sprint `15.1`.
+prohibition](../README.md#snapshot-targets)) migrated to Phase `17`
+Sprint `17.1`.
 **Implementation**: `test/cross-backend/`,
 `jitml.cabal` (the `jitml-cross-backend` stanza),
 `src/JitML/Test/Report.hs`
@@ -558,7 +558,7 @@ cross-substrate tolerance testing remains the overall handoff gate.
 - It dispatches a generated family kernel through the local Linux CPU
   `HasEngine` interpreter and verifies the loaded family metadata.
 - It does not train SL canon cohorts yet (the canon-cohort run lives
-  in Phase `15` Sprint `15.1`). The in-code per-layer-family tolerance
+  in Phase `17` Sprint `17.1`). The in-code per-layer-family tolerance
   band at `src/JitML/Engines/Tolerance.hs` will be the **only** drift
   reference; no `test/golden/cross-backend/` fixtures will be created
   per [../README.md → Snapshot targets → Numerical-fixture
@@ -586,8 +586,8 @@ cross-substrate tolerance testing remains the overall handoff gate.
 - No sprint-owned code-surface Remaining Work remains. The
   cross-substrate cohort runs and the per-tensor drift assertion
   against the in-code per-layer-family tolerance band are owned by
-  [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
-  Sprint `15.1`.
+  [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
+  Sprint `17.1`.
 
 ## Sprint 12.7: `jitml-daemon-lifecycle` Stanza ✅
 
@@ -632,7 +632,7 @@ the current boot → ready → serve → SIGHUP reload → drain → exit contro
 **Owned obligations after refactor**: code-surface only. Live phased
 Helm + Pulsar rollout against a real Kind cluster, live Playwright
 against the edge route, and full live teardown leak-detection migrated
-to Phase `13` Sprints `13.1` and `13.14`.
+to Phase `15` Sprints `15.1` and `15.14`.
 **Implementation**: `src/JitML/Test/LivePlan.hs`,
 `test/e2e/`,
 `jitml.cabal` (the `jitml-e2e` stanza)
@@ -673,7 +673,7 @@ external container/runtime state, and validates teardown.
 - Default `cabal test jitml-e2e` remains local. The full live path is a separate
   explicit orchestration command, not a process-environment gate.
 - Playwright invocation is represented in the typed live plan and is validated
-  live against the demo edge route (Phase `13` Sprint `13.14`, 7/7 panel
+  live against the demo edge route (Phase `15` Sprint `15.14`, 7/7 panel
   matrix).
 
 ### Validation
@@ -694,17 +694,17 @@ external container/runtime state, and validates teardown.
 - No sprint-owned code-surface Remaining Work remains. Live phased Helm
   + Pulsar topic creation rollout against a real Kind cluster is owned
   by
-  [phase-13-linux-cuda-and-cluster-closure.md](phase-13-linux-cuda-and-cluster-closure.md)
-  Sprint `13.1`; live Playwright against the edge route and full live
-  teardown leak-detection are owned by Phase `13` Sprint `13.14`.
+  [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
+  Sprint `15.1`; live Playwright against the edge route and full live
+  teardown leak-detection are owned by Phase `15` Sprint `15.14`.
 
 ## Sprint 12.9: `jitml test all` Orchestrator and Report Card ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Live `jitml
 test all` mode threading live measurements into the report card and the
-live integration test that surfaces real metrics migrated to Phase `15`
-Sprint `15.2`.
+live integration test that surfaces real metrics migrated to Phase `17`
+Sprint `17.2`.
 **Implementation**: `src/JitML/App.hs`,
 `src/JitML/Test/Report.hs`,
 `cabal.project` (report-card knob block)
@@ -776,8 +776,8 @@ health, and the then-planned cross-substrate comparison summary).
   population of canonical report-card metrics with real data, and the
   live integration test that confirms the populated report card are
   owned by
-  [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
-  Sprint `15.2`.
+  [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
+  Sprint `17.2`.
 
 ## Sprint 12.10: Substrate-partitioned test lanes; remove the cross-substrate parity test surface ✅
 
@@ -886,7 +886,7 @@ skip-sentinels):
   compose-service contract and every historical CUDA evidence line; the
   flag-free `jitml test` orchestrator owns the apple-silicon / linux-cpu lanes).
   This closes the sprint's one remaining obligation — owned jointly with Sprint
-  `13.16`, whose [GPU Re-validation Evidence](phase-13-linux-cuda-and-cluster-closure.md#gpu-re-validation-evidence-2026-06-09-rtx-5090)
+  `15.16`, whose [GPU Re-validation Evidence](phase-15-linux-cuda-and-cluster-closure.md#gpu-re-validation-evidence-2026-06-09-rtx-5090)
   records the full case list. Sprint `12.10` is `✅ Done`.
 
 ## Sprint 12.11: DRY Real-Workflow Matrix, Fail-Closed ✅
@@ -1036,8 +1036,8 @@ Linux live validation is no longer blocked on this machine:
 
 None. The integration `Live` group is the sprint-owned real-workflow matrix
 executor; `jitml-e2e` remains the structural/browser/live-plan stanza. The
-Apple matrix execution belongs to Phase `14`, and final handoff belongs to
-Phase `15`. The later failed-Job observation gap is owned by Sprint `12.12`.
+Apple matrix execution belongs to Phase `16`, and final handoff belongs to
+Phase `17`. The later failed-Job observation gap is owned by Sprint `12.12`.
 
 ## Sprint 12.12: Live Job Failure Observation and Apple Placement Assertions ✅
 
@@ -1105,7 +1105,7 @@ waiting for domain events that can never arrive.
 
 ### Remaining Work
 
-None. Phase `14` owns the full Apple lifecycle lane and Phase `15` owns the
+None. Phase `16` owns the full Apple lifecycle lane and Phase `17` owns the
 final ledger walk-down.
 
 ## Sprint 12.13: Playwright No-Caveat E2E Matrix ✅
@@ -1170,7 +1170,7 @@ for the no-caveat browser/product matrix:
   Playwright lane iterates.
 - `JitML.Test.Report.ReportMeasurements` gains a `measuredBrowserProductMatrix`
   field; the live collector (`collectLiveReportMeasurements`) reports it
-  `MeasurementUnavailable` until Phase `17` exercises the matrix live, so a live
+  `MeasurementUnavailable` until Phase `14` exercises the matrix live, so a live
   report card that has not proven the browser product surface keeps the
   no-caveat handoff honestly open (Sprint `18.1`) instead of omitting the row.
 - Validated: `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
@@ -1187,11 +1187,11 @@ place) and the live-obligation consolidation doctrine:
 - Replacing the panel-visibility Playwright assertions with the no-caveat
   workflow-launch/event/checkpoint/inference/animation/replay/control product
   matrix, and populating `measuredBrowserProductMatrix` with a real measured
-  value → **Sprint `17.2` (Playwright No-Caveat Product Matrix)**, which already
+  value → **Sprint `14.2` (Playwright No-Caveat Product Matrix)**, which already
   owns exactly this expansion.
 - Executing that matrix live and failing closed on any missing
   `browserProductMatrix` cell artifact → the per-lane live runs in
-  **Sprint `13.20` (linux-cpu / linux-cuda)** and **Sprint `14.11`
+  **Sprint `15.20` (linux-cpu / linux-cuda)** and **Sprint `16.11`
   (apple-silicon)**.
 
 The host-validatable structure Sprint `12.13` owns — the

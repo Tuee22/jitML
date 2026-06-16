@@ -24,7 +24,7 @@ limits + right-sized replicas across Harbor/MinIO/Pulsar/service-Postgres/
 observability + the `chart/local/*` charts, and migrated the MinIO
 bucket-readiness and Pulsar topic-create `sh -c` loops to typed Haskell IO
 (`runMinioBucketReadinessIO` / `runPulsarTopicCreatesIO`); live re-validation
-of pod convergence under the kind-node cap is owned by Phase 13 Sprint 13.1).
+of pod convergence under the kind-node cap is owned by Phase 15 Sprint 15.1).
 The phase contributes the stateful-platform-services half of
 [Exit Definition](README.md#exit-definition) item 3 (Harbor up first;
 MinIO, Pulsar, Postgres, observability, TensorBoard, NVIDIA RuntimeClass
@@ -34,7 +34,7 @@ live runtime by 2026-05-23. The phase reopened for **Sprint `4.8`**, which adds
 per-pod CPU/memory limits and right-sized replica counts from the `dhall/cluster/`
 resource profile and moves the MinIO/Pulsar readiness retries off `sh -c` — the
 platform half of the 2026-05-29 cluster resource-guardrail work that keeps the
-stack under the kind-node cap. Its live exercise is owned by Phase `13`.
+stack under the kind-node cap. Its live exercise is owned by Phase `15`.
 **Met today**: typed chart-values, manual-PV templates, route templates,
 deployment templates, the MinIO bucket registry, the Pulsar topic
 registry/command renderer, the Grafana dashboard renderer, the TensorBoard
@@ -720,7 +720,7 @@ activates them at runtime when the pod is scheduled with
 
 ## Sprint 4.8: Per-Pod Resource Limits and Right-Sized Replicas from the `dhall/cluster/` Profile ✅
 
-**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 13 Sprint 13.1)
+**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 15 Sprint 15.1)
 **Implementation**: `chart/values/{harbor,minio,pulsar,kube-prometheus-stack}.yaml`, `chart/local/{jitml-service,jitml-demo,tensorboard}/templates/deployment.yaml`, `src/JitML/Cluster/{Helm,PostgresRegistry,Readiness,PulsarBootstrap}.hs`, `src/JitML/Cluster/Resources.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`, `system-components.md`, `legacy-tracking-for-deletion.md`
 
@@ -752,7 +752,7 @@ Values`.
 - `jitml lint chart` exits `0`; rendered manifests carry the budgeted `resources`
   and replica counts.
 - `jitml bootstrap --<substrate> --dry-run` renders the typed readiness retries.
-- Live (owned by Phase `13`): a full `jitml bootstrap --linux-cpu` reaches all
+- Live (owned by Phase `15`): a full `jitml bootstrap --linux-cpu` reaches all
   components Ready under the kind-node cap with no `OOMKilled` restart loops, and
   `free -h` stays within budget.
 
@@ -791,7 +791,7 @@ Values`.
 ### Remaining Work
 
 - The live convergence-under-cap run and the readiness-retry re-validation are
-  owned by Phase `13` Sprint `13.1`'s Remaining Work.
+  owned by Phase `15` Sprint `15.1`'s Remaining Work.
 - The matching manual-PV count reduction landed in Phase `3` Sprint `3.2`
   (closed 2026-05-29).
 

@@ -1,4 +1,4 @@
-# Phase 13: Linux CUDA and Cluster Closure
+# Phase 15: Linux CUDA and Cluster Closure
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -12,8 +12,8 @@
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
 [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md),
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md),
-[phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md),
-[phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md),
+[phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
+[phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
@@ -28,13 +28,13 @@
 ## Phase Status
 
 ⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Linux live validation). Sprint
-`13.20` revalidates the expanded runtime/browser matrix on `linux-cpu` and
-`linux-cuda`, but it is blocked until Phases `10`–`12`, Phase `16`, and Phase
-`17` land the remaining no-caveat surfaces. Phases `8` and `9` have re-closed
+`15.20` revalidates the expanded runtime/browser matrix on `linux-cpu` and
+`linux-cuda`, but it is blocked until Phases `10`–`12`, Phase `13`, and Phase
+`14` land the remaining no-caveat surfaces. Phases `8` and `9` have re-closed
 their local framework/runtime and RL/AlphaZero/tuning surfaces.
 
 ✅ **Historical closure** (re-closed 2026-06-11 on the CUDA machine after the real-workflow
-refactor; Sprints `13.17` / `13.18` / `13.19`). With Phases `8`–`12` now routing
+refactor; Sprints `15.17` / `15.18` / `15.19`). With Phases `8`–`12` now routing
 the SL/RL/tune/inference workflows through the real substrate JIT engine, this
 phase owns the live linux-cpu and linux-cuda exercise of every reopened workflow
 against a live cluster. The hardware blockers recorded on the Apple-Silicon host
@@ -85,9 +85,9 @@ tuning (`linux-cpu`: 10 epochs / `5e-4`; `linux-cuda` and `apple-silicon`: 8
 epochs / `7e-4`).
 
 ✅ **Done** (re-closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID
-`GPU-e764ef97-32d7-4981-c348-029983c64073`, after Sprint 13.16's live
+`GPU-e764ef97-32d7-4981-c348-029983c64073`, after Sprint 15.16's live
 `linux-cuda` lane re-validation). The phase reopened 2026-06-08 for Sprint
-13.16 — re-validate the linux-cuda lane runs for real with the skip guards
+15.16 — re-validate the linux-cuda lane runs for real with the skip guards
 removed. The reproducibility contract is now "within a substrate: bit-for-bit
 reproducible; across substrates: NO guarantee"; the cross-substrate numeric
 parity surface is removed and the test suite is partitioned so each substrate's
@@ -102,7 +102,7 @@ lane prefix so `-p linux-cuda` selects them), and on **2026-06-09 the live GPU
 re-run landed on this RTX 5090 host**:
 `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend
 --test-options '-p linux-cuda'` passed **19 / 19 (12.26s, no skip-sentinels)`.
-See [Sprint 13.16 → GPU Re-validation Evidence](#gpu-re-validation-evidence-2026-06-09-rtx-5090)
+See [Sprint 15.16 → GPU Re-validation Evidence](#gpu-re-validation-evidence-2026-06-09-rtx-5090)
 for the full evidence. All historical dated evidence below (RTX 3090, RTX 5090)
 is retained intact as a dated record.
 
@@ -128,17 +128,17 @@ the GPU-exposed `jitml-cuda` compose service (host `nvcc` is never installed, se
    `nvidia-smi -L` inside the pod reports the RTX 5090 (matching UUID); the daemon
    acquired all four `*.command.linux-cuda` subscriptions; edge `/healthz`,
    `/readyz` return `200` and `/metrics` serves the JIT-cache counters (Sprints
-   13.1–13.3, 13.7, 13.13).
+   15.1–15.3, 15.7, 15.13).
 2. `docker compose run --rm jitml-cuda cabal test -fcuda jitml-cross-backend`
    — **38 / 38 passed** (28.56s): generated CUDA kernels compile through `nvcc`,
    load, and run bit-deterministically (Sprint 7.4 identity/reduction/determinism,
-   13.8 RL-trainer MLP + PPO/DQN/QR-DQN/HER/DDPG device trainers, 13.9 AlphaZero
-   `PolicyValueNet` device training, 13.11 weighted Dense2D GEMM, 7.6 benchmark
-   runners, 13.15 first-cache-miss `TuningChoice` persistence, plus cuBLAS/cuDNN
+   15.8 RL-trainer MLP + PPO/DQN/QR-DQN/HER/DDPG device trainers, 15.9 AlphaZero
+   `PolicyValueNet` device training, 15.11 weighted Dense2D GEMM, 7.6 benchmark
+   runners, 15.15 first-cache-miss `TuningChoice` persistence, plus cuBLAS/cuDNN
    binding init).
 3. The same run's `CrossSubstrate` group — `linux-cpu` / `linux-cuda` weighted
    drift within the in-code tolerance table and the over-band perturbation
-   rejection (Phase 15 Sprint 15.1).
+   rejection (Phase 17 Sprint 17.1).
 4. `cabal test -fcuda jitml-integration --test-options='-p Live'` — **19 / 19
    Live passed** (227.38s): MinIO/Pulsar/Harbor round-trips, subscription
    acquisition, daemon Training/RL/Tune dispatch + dedup-skip, `rl.event` arrival,
@@ -148,10 +148,10 @@ the GPU-exposed `jitml-cuda` compose service (host `nvcc` is never installed, se
 5. `cabal test -fcuda jitml-sl-canonicals --test-options='-p Live'` — **PASS**
    (711.61s): live MNIST SL training over MinIO-fetched bytes (staged via
    `jitml internal upload-dataset`, all four canonical SHAs verified) cleared the
-   `mnist-shallow-mlp` convergence threshold (Sprint 13.4).
+   `mnist-shallow-mlp` convergence threshold (Sprint 15.4).
 6. PPO/cartpole live RL convergence through daemon dispatch cleared the
    literature threshold in **206.38s** (within the live integration cohort,
-   Sprint 13.6).
+   Sprint 15.6).
 
 **Re-validation risk resolved.** `JitML.Engines.Engine.compileSubprocess` emits
 `nvcc … -arch=sm_70` for `linux-cuda`. The RTX 5090 is Blackwell (compute
@@ -174,34 +174,34 @@ execution — CUDA side), 3 (live `jitml bootstrap` + Envoy + routes),
 production weight loading), 8 (live PureScript panels behind Playwright),
 9 (live `jitml-e2e` ephemeral Kind/Helm orchestration).
 
-**Re-closed sprints (✅ Done — re-validated 2026-06-06 on the RTX 5090; previously ✅ Done on the RTX 3090)**: 13.1 (ephemeral Kind + phased Helm rollout
+**Re-closed sprints (✅ Done — re-validated 2026-06-06 on the RTX 5090; previously ✅ Done on the RTX 3090)**: 15.1 (ephemeral Kind + phased Helm rollout
 via `jitml bootstrap` + `jitml cluster down` teardown — re-validated
-2026-05-29 with the resource-guardrail reopened scope), 13.2 (live
-capability classes), 13.3 (daemon training/RL/tune handlers, dedup
+2026-05-29 with the resource-guardrail reopened scope), 15.2 (live
+capability classes), 15.3 (daemon training/RL/tune handlers, dedup
 live assertion — re-validated 2026-05-29 with typed Dhall `RunConfig`
-dispatch), 13.4 (real-MNIST live SL training convergence + Dhall
+dispatch), 15.4 (real-MNIST live SL training convergence + Dhall
 `TrainingRunConfig` mounts — re-validated 2026-05-29: `cabal test
 jitml-sl-canonicals --test-options='-p Live'` cleared the
-`mnist-shallow-mlp` threshold in `778.27s`), 13.5
+`mnist-shallow-mlp` threshold in `778.27s`), 15.5
 (daemon-dispatched RL episode arrival on `rl.event` validated live),
-13.6 (PPO/cartpole live convergence through the daemon dispatch
-cleared the literature threshold in `230.72s` — Sprint 13.6 live
-re-verification 2026-05-30), 13.7 (live
-MinIO checkpoint round-trip + retention + `gc_reaped` events), 13.8
+15.6 (PPO/cartpole live convergence through the daemon dispatch
+cleared the literature threshold in `230.72s` — Sprint 15.6 live
+re-verification 2026-05-30), 15.7 (live
+MinIO checkpoint round-trip + retention + `gc_reaped` events), 15.8
 (14-algorithm trainer catalog + cuDNN deterministic pin +
 GPU-validated MLP kernels + daemon-driven catalog dispatch — Sprint
-13.8 closure 2026-05-30, validated via the shared dispatch path
-proven by Sprint 13.6's PPO/cartpole cohort), 13.9 (live AlphaZero
+15.8 closure 2026-05-30, validated via the shared dispatch path
+proven by Sprint 15.6's PPO/cartpole cohort), 15.9 (live AlphaZero
 generation drive + SelfPlayBuffer MinIO round-trip + `.jmw1`
 trained-weight checkpoint persistence + GPU-validated
-PolicyValueNet — Sprint 13.9 closure 2026-05-30),
-13.10 (live tuning sweep with MinIO trial persistence + daemon
+PolicyValueNet — Sprint 15.9 closure 2026-05-30),
+15.10 (live tuning sweep with MinIO trial persistence + daemon
 TuneHandler dispatch — re-validated 2026-05-29 with typed Dhall
-`TuneRunConfig` dispatch), 13.11 (CUDA + Linux CPU production weight
-loading), 13.12 (live `jitml inference run` + `jitml inspect
-replay`), 13.13 (live `/api/ws` broker-frame round-trip + compiled
-Halogen bundle), 13.14 (Playwright panel matrix against the live demo
-edge), 13.15 (Linux CPU full-tensor benchmark payloads +
+`TuneRunConfig` dispatch), 15.11 (CUDA + Linux CPU production weight
+loading), 15.12 (live `jitml inference run` + `jitml inspect
+replay`), 15.13 (live `/api/ws` broker-frame round-trip + compiled
+Halogen bundle), 15.14 (Playwright panel matrix against the live demo
+edge), 15.15 (Linux CPU full-tensor benchmark payloads +
 first-cache-miss persistence assertion).
 
 **Done sprints (✅)**: all 15 — re-validated 2026-06-06 on the RTX 5090 host
@@ -212,7 +212,7 @@ RTX 3090 as of 2026-05-30.
 (daemon-driven RL dispatch/arrival validated live for
 PPO/cartpole; per-cohort statistical convergence against live
 measurement for all 13 cohorts is an operationally-heavy run that
-remains), 13.8 (full 14-algorithm trainer
+remains), 15.8 (full 14-algorithm trainer
 catalog in place — on-policy `PpoTrainer`, off-policy
 `DqnTrainer`, distributional `QrDqnTrainer`, continuous actor-critic
 `ContinuousTrainer` (DDPG/TD3/SAC/CrossQ/TQC on the Pendulum-v1
@@ -224,9 +224,9 @@ forward/backward MLP kernels now landed and GPU-validated**
 the **cuDNN deterministic pin is validated** (`jitml-unit` consistency
 test), and the **live cohort drive is validated** (daemon `StartRLRun` →
 per-episode `rl.event` arrival, `jitml-integration` Live). The remaining
-13.8 item is the operationally-heavy per-cohort statistical convergence
+15.8 item is the operationally-heavy per-cohort statistical convergence
 *against live measurement* for all 13 cohorts (host-side convergence is
-already proven by `jitml-rl-canonicals` 28/28)), 13.9
+already proven by `jitml-rl-canonicals` 28/28)), 15.9
 (JIT-engine EnginePrior bridge + live SelfPlayBuffer MinIO round-trip +
 two-headed `PolicyValueNet` + real Connect-4 terminal evaluator + arena
 win-rate measurement + true MCTS visit-count training targets in place;
@@ -255,36 +255,36 @@ substrate and ran the live obligations end-to-end on the RTX 3090 host:
   --test-options='-p Live'`). Covers MinIO/Pulsar/Harbor round-trips, the
   daemon holding all four command-topic subscriptions, `StartTraining` →
   Job dispatch + dedup-skip, **`StartRLRun` → Job + per-episode `rl.event`
-  arrival (Sprint 13.5/13.6 live cohort drive)**, checkpoint snapshot +
+  arrival (Sprint 15.5/15.6 live cohort drive)**, checkpoint snapshot +
   GC + `jitml internal gc` + `GcReapedEvent`, `jitml inference run` from
   live MinIO, tune persist/replay + `StartSweep` dispatch, the
   SelfPlayBuffer MinIO round-trip, and a **new live AlphaZero generation
-  drive** (Sprint 13.9): runs a real generation (self-play sample
+  drive** (Sprint 15.9): runs a real generation (self-play sample
   generation + gradient training + arena win-rate against the uniform
   opponent via `runOneGenerationOfSelfPlay`), then checkpoints the
   *trained* `PolicyValueNet` weights as a `.jmw1` blob through live MinIO
   and reloads them bit-for-bit.
-- **Sprint 13.4 live SL convergence — validated live.** Staged the
+- **Sprint 15.4 live SL convergence — validated live.** Staged the
   canonical MNIST artefacts into the cluster's MinIO via `jitml internal
   upload-dataset` (all four train/test × images/labels uploads verified
   against the in-code canonical SHAs), then `jitml-sl-canonicals` 17/17
   including "live MNIST SL training clears the convergence threshold
-  (Sprint 13.4 Live)" — a real ~13-minute (789.07s) train over the
+  (Sprint 15.4 Live)" — a real ~13-minute (789.07s) train over the
   MinIO-fetched bytes that cleared the mnist-shallow-mlp literature
   threshold − slack.
 - **Historical remaining-for-closure note (operational only).** At this point,
-  Sprint 13.6's per-cohort statistical convergence *against live measurement*
-  for all 13 cohorts was the remaining operational gate. Later Phase `13`
+  Sprint 15.6's per-cohort statistical convergence *against live measurement*
+  for all 13 cohorts was the remaining operational gate. Later Phase `15`
   validation closed this gate.
 
 ### Code-surface + GPU Validation Note (2026-05-28, current session — SL training wiring + nvcc MLP forward/backward kernels)
 
 This session advanced the two largest then-open Sprint families without
-fabricating closure; Sprints 13.8 / 13.9 later closed after their
+fabricating closure; Sprints 15.8 / 15.9 later closed after their
 trainers/network ran on device kernels. Landed and validated on the RTX 3090 /
 CUDA 12.8 / Ubuntu 24.04 host:
 
-- **Sprint 13.4 — `jitml train` over real MNIST (code-surface).** Added
+- **Sprint 15.4 — `jitml train` over real MNIST (code-surface).** Added
   the MNIST label artefact surface (`DatasetArtifact`, `labels.bin`
   object key, canonical label SHAs, `--artifact images|labels` on
   `jitml internal upload-dataset`), transparent gzip
@@ -297,7 +297,7 @@ CUDA 12.8 / Ubuntu 24.04 host:
   downloads (`sha256sum` matches `canonicalArtifactSha256For` exactly).
   Only the operationally-heavy live full-MNIST convergence run remains
   (Sprint stays Active).
-- **Sprints 13.8 / 13.9 — nvcc forward/backward MLP kernels + device
+- **Sprints 15.8 / 15.9 — nvcc forward/backward MLP kernels + device
   training (GPU-validated).** New `JitML.Codegen.MlpCuda` (renders
   `jitml_mlp_forward` / `jitml_mlp_backward` CUDA) + `JitML.Numerics.MlpCuda`
   (JIT-cache compile, dlopen, FFI marshalling) behind the
@@ -351,14 +351,14 @@ CUDA 12.8 / Ubuntu 24.04 host:
   deterministic algorithm but do not yet issue live cuDNN convolutions, so
   this validates the pin's presence/consistency in the codegen, not a live
   cuDNN conv run.) Only the **live cohort/generation drives** now remain for
-  13.8 — dispatching each algorithm through a daemon Job on the live cluster
+  15.8 — dispatching each algorithm through a daemon Job on the live cluster
   and asserting per-episode reward arrival (the operational pass shared with
-  Sprints 13.6 / 13.9).
+  Sprints 15.6 / 15.9).
 
 A later continuation this session landed two more completable code items
 (host-validated; the operationally-heavy / live-rerun tails remain):
 
-- **Sprint 13.4 — in-code SL convergence threshold + formalised Live
+- **Sprint 15.4 — in-code SL convergence threshold + formalised Live
   assertion.** New `JitML.SL.ConvergenceThresholds` (per-problem
   literature test-accuracy target + slack; regression problems omitted),
   and a `Live`-tagged `jitml-sl-canonicals` case that fetches MNIST from
@@ -366,7 +366,7 @@ A later continuation this session landed two more completable code items
   `passesSlConvergence` — skipping gracefully offline. The demonstrated
   live `test_acc=0.9318` clears the `mnist-shallow-mlp` bar (0.90) by a
   wide margin.
-- **Sprint 13.9 — checkpoint surface for trained network weights.**
+- **Sprint 15.9 — checkpoint surface for trained network weights.**
   `Mlp.{mlpParamsToFlat,mlpParamsFromFlat}` +
   `PolicyValueNet.{policyValueNetToFlat,loadPolicyValueNetWeights}` persist
   a trained network through the `.jmw1` checkpoint blob; a
@@ -399,7 +399,7 @@ blocks on a registry pull.
 **Full bring-up + live SL convergence achieved (2026-05-28, this session).**
 Applying the workaround above (pre-pulled all ~19 docker.io images on the
 host + `kind load`ed them, including the Percona-managed
-`percona/percona-postgresql-operator:2.5.1-ppg16.8-{postgres,pgbouncer,pgbackrest}`
+`percona/percona-postgresql-operator:2.5.1-ppg13.8-{postgres,pgbouncer,pgbackrest}`
 images surfaced by the operator), a fresh `jitml bootstrap --linux-cuda`
 **completed the full 113-step phased rollout**: all 9 helm releases
 deployed (`envoy-gateway`, `harbor`, `harbor-pg`, `jitml-demo`,
@@ -412,7 +412,7 @@ artifacts (completions / man / `commands.md`), failing the image's
 stale Pulsar-removal entries) and the rebuilt image's `check-code` passed
 (`check-code: ok`). Against the live cluster (this session's code baked in):
 
-- **Sprint 13.4 — live MNIST upload + SL training to convergence.**
+- **Sprint 15.4 — live MNIST upload + SL training to convergence.**
   `jitml internal upload-dataset --artifact {images,labels}` SHA-verified
   and uploaded all four MNIST blobs to
   `jitml-datasets/MNIST/{train,test}/{data,labels}.bin` on live MinIO
@@ -426,10 +426,10 @@ stale Pulsar-removal entries) and the rebuilt image's `check-code` passed
   live SL run on real MNIST (the test accuracy climbs with budget toward the
   MNIST shallow-MLP literature regime). This closes the operational
   "real MNIST training run drives the live path" obligation; the remaining
-  Sprint 13.4 item is the *formalised* statistical-convergence assertion in
+  Sprint 15.4 item is the *formalised* statistical-convergence assertion in
   `jitml-sl-canonicals` (median test-acc over k seeds ≥ in-code literature
   threshold − slack) — the live path it would exercise is now demonstrated.
-- **Sprint 13.6 — live RL trainer.** `jitml rl train experiments/cartpole.dhall`
+- **Sprint 15.6 — live RL trainer.** `jitml rl train experiments/cartpole.dhall`
   with `JITML_RL_TRAINER=ppo` (25 iterations × 1024 steps) ran the real
   MLP-backed PPO loop through the rebuilt production binary and reported
   `trainer: ppo / avg-reward: 141.2` (averaged across the short cohort,
@@ -440,8 +440,8 @@ stale Pulsar-removal entries) and the rebuilt image's `check-code` passed
 ### Live Validation Note (2026-05-28 — RTX 3090 / CUDA 12.8 / Ubuntu 24.04, this session's code baked in)
 
 A fresh `docker compose build jitml` baked this session's code surface
-(Sprint 13.8 continuous/quantile/ARS/HER trainers + RL dispatch wiring,
-Sprint 13.9 MCTS visit-count targets, Sprint 13.13 `demoMain` bridge
+(Sprint 15.8 continuous/quantile/ARS/HER trainers + RL dispatch wiring,
+Sprint 15.9 MCTS visit-count targets, Sprint 15.13 `demoMain` bridge
 activation + browser glue) into `jitml:local`, and a fresh
 `jitml bootstrap --linux-cuda` brought the cluster up (all 113 phased
 steps, 7/7 publication components Ready on edge port 9092). One
@@ -466,22 +466,22 @@ environmental issue, not a code one. Against the live cluster:
   weighted Dense2D/Conv2D/Conv3D/BatchNorm/LayerNorm/Embedding, cuBLAS
   + cuDNN bindings, both benchmark candidate runners, first-cache-miss
   `TuningChoice` persistence) on the RTX 3090.
-- **Sprint 13.8 trainer dispatch validated on the production binary**:
+- **Sprint 15.8 trainer dispatch validated on the production binary**:
   `jitml rl train experiments/cartpole.dhall` with `JITML_RL_TRAINER=ddpg`
   (pendulum, 3 episodes) reports `trainer: ddpg / avg-reward: -951.8`
   (a realistic pendulum return — the real continuous actor-critic loop
   ran), and `JITML_RL_TRAINER=her` reports `trainer: her` with a
   success-rate reward — confirming `runTrainerEpisodes` routes the new
   trainers through the production CLI the daemon's Job invokes.
-- **Sprint 13.13 bridge validated through the live Envoy edge**: a
+- **Sprint 15.13 bridge validated through the live Envoy edge**: a
   `/api/ws` request returns `HTTP/1.1 101 Switching Protocols` with a
   valid `sec-websocket-accept` header and the demo emits an
   RFC-6455-framed `event: metrics` text frame — proving `demoMain` now
   serves the held-open `serveDemoWithBridgeEndpoint` bridge (not plain
   HTTP). `GET /` returns 200 and `GET /bundle/main.js` returns the
-  236 KB browser-loadable esbuild IIFE. The later Sprint `13.13` live
-  broker-frame pass closed the in-cluster endpoint wiring; Phase `15`
-  Sprint `15.3` subsequently removed the no-publication deterministic
+  236 KB browser-loadable esbuild IIFE. The later Sprint `15.13` live
+  broker-frame pass closed the in-cluster endpoint wiring; Phase `17`
+  Sprint `17.3` subsequently removed the no-publication deterministic
   fallback path.
 
 All fast host stanzas are green (`jitml-unit` 184, `jitml-rl-canonicals`
@@ -515,13 +515,13 @@ components Ready on edge port 9092. Against the live cluster:
   weighted Dense2D / Conv2D / Conv3D / BatchNorm / LayerNorm /
   Embedding, cuBLAS + cuDNN bindings, both benchmark candidate runners,
   first-cache-miss `TuningChoice` persistence) on the RTX 3090.
-- **Sprint 13.4 upload half closed live**: `jitml internal
+- **Sprint 15.4 upload half closed live**: `jitml internal
   upload-dataset --name MNIST --split {train,test} --path
   <canonical .gz>` SHA-verified and uploaded both MNIST splits to
   `jitml-datasets/MNIST/{train,test}/data.bin` against live MinIO
   (train `440fcabf…`, test `8d422c7b…` — both matching the
   `canonicalSha256For` table).
-- **Sprint 13.8 PPO trainer validated in-container**: `jitml rl train
+- **Sprint 15.8 PPO trainer validated in-container**: `jitml rl train
   experiments/cartpole.dhall` with `JITML_RL_TRAINER=ppo
   JITML_EVAL_EPISODES=40 JITML_MAX_STEPS=2048` ran the real
   MLP-backed PPO loop through the production binary on the RTX 3090
@@ -535,10 +535,10 @@ components Ready on edge port 9092. Against the live cluster:
   `jitml-service`.
 
 **Met today (2026-05-25, Linux+NVIDIA host: RTX 3090, CUDA 12.8 driver,
-Ubuntu 24.04, Docker 29.5.0)**: Sprint `13.1`'s live up half (live
+Ubuntu 24.04, Docker 29.5.0)**: Sprint `15.1`'s live up half (live
 phased Helm + Pulsar rollout, all 7 publication components Ready,
 Envoy gateway PROGRAMMED, 14 HTTPRoutes resolved) and live down half
-(`jitml cluster down` + clean-teardown confirmation). Sprint `13.2`'s
+(`jitml cluster down` + clean-teardown confirmation). Sprint `15.2`'s
 `HasMinIO` + `HasPulsar` halves (3 new `Live` cases in
 `jitml-integration` covering conditional writes, list/delete,
 publish/subscribe/consume/ack against the routed edge). Upstream code
@@ -551,14 +551,14 @@ filesystem-backed capability boundaries) remain in place.
 
 **Code-surface landings on 2026-05-26 (RTX 3090 host, code-only +
 partial live)**:
-- Sprint `13.7` `gc_reaped` Pulsar event publication:
+- Sprint `15.7` `gc_reaped` Pulsar event publication:
   `JitML.Proto.Gc.GcReapedEvent` envelope with text + proto3 byte
   codecs, `gc.event.<substrate>` topic added to
   `JitML.Cluster.PulsarBootstrap.substrateTopics` (topic family
   grew 26 → 29), `JitML.App.publishGcReapedEvents` wired into
   `runInternalGc` after the live reaper, 4 new `jitml-unit`
   envelope round-trip tests.
-- Sprint `13.12` typed inference `AppError` variants:
+- Sprint `15.12` typed inference `AppError` variants:
   `InferenceCheckpointMissing :: Text -> AppError` and
   `InferenceManifestShaMismatch :: Text -> Text -> AppError` added
   to `JitML.AppError.AppError`, render boundary + golden fixture
@@ -566,7 +566,7 @@ partial live)**:
   variants, and `assertManifestShaMatches` defensively compares
   `Checkpoint.manifestContentSha` against the user-supplied
   `--manifest-sha`.
-- Sprint `13.6` convergence-assertion wiring through
+- Sprint `15.6` convergence-assertion wiring through
   `jitml-rl-canonicals`: 2 new tests assert `cohortThreshold`
   covers every in-evaluation-matrix algorithm × env pair and
   `passesConvergence` accepts the literature target / rejects
@@ -598,34 +598,34 @@ jitml-integration
     live HasMinIO conditional writes round-trip on jitml-checkpoints:          OK (0.15s)
     live HasMinIO listObjects sees a freshly written object:                   OK (0.05s)
     live HasPulsar publish/subscribe/consume round-trip on training.command:   OK (0.44s)
-    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 13.3):  OK (0.26s)
-    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7): OK (0.13s)
-    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 13.7):  OK (0.25s)
-    live jitml internal gc reaps from live MinIO (Sprint 13.7 CLI):            OK (1.26s)
-    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12):  OK (0.27s)
-    live tune trial persist + replay round-trip (Sprint 13.10):                OK (0.11s)
+    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 15.3):  OK (0.26s)
+    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 15.7): OK (0.13s)
+    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 15.7):  OK (0.25s)
+    live jitml internal gc reaps from live MinIO (Sprint 15.7 CLI):            OK (1.26s)
+    live jitml inference run reads checkpoint from live MinIO (Sprint 15.12):  OK (0.27s)
+    live tune trial persist + replay round-trip (Sprint 15.10):                OK (0.11s)
 
 All 9 tests passed (2.91s)
 ```
 
 **Code-surface landings on 2026-05-26 (continued, code-only)**:
-- Sprint 13.3 worker-side event publication:
+- Sprint 15.3 worker-side event publication:
   `publishWorkerTrainingEvent`, `publishWorkerRlEvent`, and
   `publishWorkerTuneEvent` in `JitML.App` publish completion
   envelopes to `training.event.<substrate>` /
   `rl.event.<substrate>` / `tune.event.<substrate>` after the
   worker command's deterministic summary, gated on live publication
   + `JITML_EXPERIMENT_HASH`.
-- Sprint 13.4 dataset fetch wiring: `attemptFetchTrainingDataset`
+- Sprint 15.4 dataset fetch wiring: `attemptFetchTrainingDataset`
   fetches `jitml-datasets/<name>/train/data.bin` through
   `Dataset.fetchDatasetRef` + `MinIOSubprocess`; real-MNIST upload +
   canonical SHA replacement remain.
-- Sprint 13.10 per-trial transcript persistence + events:
+- Sprint 15.10 per-trial transcript persistence + events:
   `publishWorkerTuneEvent` iterates `JITML_TRIAL_BUDGET` seeds,
   persists each `TrialTranscript` to MinIO via
   `persistTrialTranscript`, publishes `TuneTrialStarted` +
   `TuneTrialFinished` per trial, then `TuneSweepDone`.
-- Sprint 13.11 daemon dispatch widening + GPU passthrough:
+- Sprint 15.11 daemon dispatch widening + GPU passthrough:
   `*WithWeightedInference` variants added throughout
   `JitML.Service.Workload` and `JitML.Service.Runtime`;
   `JitML.App.daemonWorkloadDispatcherForRuntime` routes Linux CPU +
@@ -634,10 +634,10 @@ All 9 tests passed (2.91s)
   removes stubs from `LD_LIBRARY_PATH` + `ld.so.conf.d/cuda.conf`;
   `JitML.Engines.Engine` passes `-L/usr/local/cuda/lib64/stubs`
   explicitly to nvcc.
-- Sprint 13.12 JIT-kernel-backed inference: `runInference` routes
+- Sprint 15.12 JIT-kernel-backed inference: `runInference` routes
   through `loadInferenceCheckpointWithWeights` with the
   substrate-appropriate weighted runner.
-- Sprint 13.15 weighted benchmark runner:
+- Sprint 15.15 weighted benchmark runner:
   `linuxCpuWeightedBenchmarkCandidateRunner` consumes input + weights
   through `runLinuxCpuWeightedKernel`.
 
@@ -657,21 +657,21 @@ jitml-integration
     live HasMinIO conditional writes round-trip on jitml-checkpoints:                                   OK (0.09s)
     live HasMinIO listObjects sees a freshly written object:                                            OK (0.04s)
     live HasPulsar publish/subscribe/consume round-trip on training.command:                            OK (0.42s)
-    live jitml-service holds subscriptions on all four daemon command topics (Sprint 13.2 acquisition): OK (7.93s)
-    live HasHarbor same-repository tag promotion round-trip (Sprint 13.2 Harbor):                       OK (1.02s)
-    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 13.3):                           OK (1.22s)
-    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7):                          OK (0.13s)
-    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 13.7):                           OK (0.25s)
-    live jitml internal gc reaps from live MinIO (Sprint 13.7 CLI):                                     OK (0.58s)
-    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 13.7 events):        OK (0.63s)
-    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12):                           OK (0.54s)
-    live tune trial persist + replay round-trip (Sprint 13.10):                                         OK (0.11s)
+    live jitml-service holds subscriptions on all four daemon command topics (Sprint 15.2 acquisition): OK (7.93s)
+    live HasHarbor same-repository tag promotion round-trip (Sprint 15.2 Harbor):                       OK (1.02s)
+    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 15.3):                           OK (1.22s)
+    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 15.7):                          OK (0.13s)
+    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 15.7):                           OK (0.25s)
+    live jitml internal gc reaps from live MinIO (Sprint 15.7 CLI):                                     OK (0.58s)
+    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 15.7 events):        OK (0.63s)
+    live jitml inference run reads checkpoint from live MinIO (Sprint 15.12):                           OK (0.54s)
+    live tune trial persist + replay round-trip (Sprint 15.10):                                         OK (0.11s)
 
 All 12 tests passed (12.94s)
 ```
 
-The Sprint 13.12 case (live `jitml inference run`) now exercises the
-real JIT-kernel-backed CUDA path (Sprint 13.12 code surface): nvcc
+The Sprint 15.12 case (live `jitml inference run`) now exercises the
+real JIT-kernel-backed CUDA path (Sprint 15.12 code surface): nvcc
 compiles the weighted `kernel.cu`, the artifact loads via dlopen,
 `jitml_weighted_kernel` runs on the RTX 3090, and the result is
 published to `inference.result.linux-cuda` through the routed Pulsar
@@ -702,22 +702,22 @@ jitml-integration
     live HasMinIO conditional writes round-trip on jitml-checkpoints:                                   OK (0.13s)
     live HasMinIO listObjects sees a freshly written object:                                            OK (0.04s)
     live HasPulsar publish/subscribe/consume round-trip on training.command:                            OK (0.44s)
-    live jitml-service holds subscriptions on all four daemon command topics (Sprint 13.2 acquisition): OK (7.99s)
-    live HasHarbor same-repository tag promotion round-trip (Sprint 13.2 Harbor):                       OK (1.51s)
-    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 13.3):                           OK (1.22s)
-    live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 13.3 dedup):               OK (0.34s)
-    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7):                          OK (0.13s)
-    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 13.7):                           OK (0.25s)
-    live jitml internal gc reaps from live MinIO (Sprint 13.7 CLI):                                     OK (1.27s)
-    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 13.7 events):        OK (0.64s)
-    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12):                           OK (0.79s)
-    live tune trial persist + replay round-trip (Sprint 13.10):                                         OK (0.11s)
-    live SelfPlayBuffer MinIO round-trip via writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9):    OK (0.04s)
+    live jitml-service holds subscriptions on all four daemon command topics (Sprint 15.2 acquisition): OK (7.99s)
+    live HasHarbor same-repository tag promotion round-trip (Sprint 15.2 Harbor):                       OK (1.51s)
+    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 15.3):                           OK (1.22s)
+    live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 15.3 dedup):               OK (0.34s)
+    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 15.7):                          OK (0.13s)
+    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 15.7):                           OK (0.25s)
+    live jitml internal gc reaps from live MinIO (Sprint 15.7 CLI):                                     OK (1.27s)
+    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 15.7 events):        OK (0.64s)
+    live jitml inference run reads checkpoint from live MinIO (Sprint 15.12):                           OK (0.79s)
+    live tune trial persist + replay round-trip (Sprint 15.10):                                         OK (0.11s)
+    live SelfPlayBuffer MinIO round-trip via writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 15.9):    OK (0.04s)
 
 All 14 tests passed (14.88s)
 ```
 
-The Sprint 13.3 dedup assertion now passes after a daemon-stdout
+The Sprint 15.3 dedup assertion now passes after a daemon-stdout
 line-buffering fix (`hSetBuffering stdout LineBuffering` at
 `runService` startup in `JitML.App`); without it Kubernetes' pipe-based
 log capture buffers the per-delivery `service: deduplicated training
@@ -732,7 +732,7 @@ deletes the Kind cluster; `docker ps` / `kind get clusters` are
 empty post-teardown.
 
 **Code-surface landings on 2026-05-27 (continued, second session)**:
-- Sprint 13.13 WebSocket-upgrade proxy:
+- Sprint 15.13 WebSocket-upgrade proxy:
   `JitML.Service.WebSocket` ships the minimal RFC 6455 server
   primitives (`webSocketAcceptKey`, `renderUpgradeAccept`,
   `encodeTextFrame`, `encodeCloseFrame`,
@@ -740,18 +740,18 @@ empty post-teardown.
   drives the held-open bridge; `JitML.Web.Server.serveDemoWithBridge`
   + `liveDemoWebSocketRoutes` opens a Pulsar consumer per
   `/api/ws/<domain>` upgrade and forwards frames downstream.
-- Sprint 13.13 Halogen render machinery: all five remaining panels
+- Sprint 15.13 Halogen render machinery: all five remaining panels
   (`Cifar`, `Connect4`, `Rl`, `Training`, `Tune`) now carry typed
   `State` / `Action` / `handleAction` / `render` machinery
   following the `Mnist` template from the prior session.
-- Sprint 13.4 real MNIST upload + canonical SHA:
+- Sprint 15.4 real MNIST upload + canonical SHA:
   `JitML.SL.Dataset.canonicalSha256For` carries the canonical
   upstream SHA-256 for `MNIST/{train,test}`; `canonicalDatasets`
   consults it first. New `jitml internal upload-dataset` CLI
   command (`--name`, `--split`, `--path`) reads a local file,
   verifies its SHA against the canonical, and uploads via
   `MinIOSubprocess`. Aborts with `InvalidConfig` on mismatch.
-- Sprint 13.8 PPO real loss math: new module
+- Sprint 15.8 PPO real loss math: new module
   `JitML.RL.Algorithms.PpoLoss` ships `clippedSurrogateLoss` /
   `valueFunctionLoss` / `gaeAdvantages` / `normaliseAdvantages` /
   `approxKlDivergence` / `ppoTotalLoss` following Schulman et
@@ -764,13 +764,13 @@ empty post-teardown.
   `jitml-daemon-lifecycle` (30) — 190 total on host.
 
 **Code-surface landings on 2026-05-27 (first session)**:
-- Sprint 13.3 dedup live assertion: new `Live` case
+- Sprint 15.3 dedup live assertion: new `Live` case
   `live duplicate StartTraining produces one daemon-side dedup-skip`
   publishes the same StartTraining envelope twice and asserts the
   daemon log carries a `deduplicated training <event-id>` line for
   the SHA-256 of the payload — direct evidence of
   `HandlerRouter.routeByKindAt` dedup-skip on the second consume.
-- Sprint 13.5 simulator-loop wiring: new
+- Sprint 15.5 simulator-loop wiring: new
   `JitML.RL.SimulatorLoop` module with an existential
   `SimulatedEnvByName` wrapper over the four Phase 8 simulator-loop
   entries that were current on 2026-05-27, plus `runSimulatedEpisode` /
@@ -779,11 +779,11 @@ empty post-teardown.
   `JITML_EVAL_EPISODES` from the daemon-rendered Job env, runs the
   matching simulator, prints per-episode summary, and publishes one
   `RlEpisode (EpisodeDone)` envelope per episode.
-- Sprint 13.6 run-to-run determinism (pure side): new test in
+- Sprint 15.6 run-to-run determinism (pure side): new test in
   `jitml-rl-canonicals` iterates `SimulatorLoop.simulatedEnvCatalog`
   and asserts two fresh runs at the same seed produce identical
   episode lists.
-- Sprint 13.9 JIT-engine PriorOracle bridge:
+- Sprint 15.9 JIT-engine PriorOracle bridge:
   `JitML.RL.AlphaZero.EnginePrior.buildLinuxCpuPriorOracle` compiles
   and runs the Dense2D kernel via `runLinuxCpuFamilyKernel`,
   captures the deterministic output, and returns a stride-indexed
@@ -791,22 +791,22 @@ empty post-teardown.
   the closure so the production AlphaZero loop drives MCTS priors
   from real JIT-compiled output. `reportCardSelfPlayConfig` maps
   `knobAzGames` / `knobAzSims` into `SelfPlayConfig`.
-- Sprint 13.9 live SelfPlayBuffer MinIO round-trip: new `Live`
+- Sprint 15.9 live SelfPlayBuffer MinIO round-trip: new `Live`
   case writes and reads back a small self-play buffer through
   `JitML.Service.MinIOSubprocess`.
-- Sprint 13.10 canonical-grid resume-equality: new test in
+- Sprint 15.10 canonical-grid resume-equality: new test in
   `jitml-hyperparameter` iterates the full sampler × scheduler ×
   pruner cross-product (132 triples) and asserts
   `resumeMatchesFullRun` holds for a 50%-completed partial sweep on
   every triple.
-- Sprint 13.13 `/api/ws` snapshot + Mnist Halogen render
+- Sprint 15.13 `/api/ws` snapshot + Mnist Halogen render
   machinery: this 2026-05-27 checkpoint still used a deterministic
   stream fallback; the current server requires WebSocket upgrade and
   fails closed when no live publication exists. `web/src/Panels/
   Mnist.purs` gains typed `State`, `Action` set, `handleAction`
   cases, and a `render` switch that the other five panels can
   template against.
-- Sprint 13.14 live edge selection: this 2026-05-27 checkpoint still
+- Sprint 15.14 live edge selection: this 2026-05-27 checkpoint still
   allowed an inline-DOM fallback; the current `playwright/jitml-demo.spec.ts`
   reads `cluster-publication.json`, uses `http://127.0.0.1:<edge-port>/`,
   and fails fast when no live cluster is published.
@@ -817,7 +817,7 @@ the full policy/value JIT-engine PriorOracle bridge, the remaining Halogen
 panels, WebSocket-upgrade proxying, cluster-served Playwright, MNIST upload,
 daemon-side TuneHandler, first-cache-miss benchmark tuning, and a live
 cluster re-validation pass as open. The current phase status and Sprints
-`13.17` / `13.18` / `13.19` closure evidence above supersede this list.
+`15.17` / `15.18` / `15.19` closure evidence above supersede this list.
 
 **Historical note (2026-05-27)**: All new code-surface compiles via
 `cabal build all --enable-tests` on the host. The 5/8 test stanzas
@@ -829,7 +829,7 @@ container to exercise their oneDNN-dependent paths;
 `docker compose build jitml` is currently failing on the
 style-tools Diff-1.0.2 install (SIGABRT during GHC 9.12.4
 fourmolu compile) — separate Docker-side issue tracked under
-Phase 1 lint stack, not blocking the Phase 13 closures in this
+Phase 1 lint stack, not blocking the Phase 15 closures in this
 session.
 
 ### Current Implementation Scope
@@ -845,9 +845,9 @@ then exercise capability classes against live infrastructure, then layer
 on training / RL / tuning / inference / GC, then add real CUDA RL loss
 code and AlphaZero with real network priors, then the live frontend
 WebSocket proxy and Playwright. Cross-substrate parity that consumes
-CUDA outputs lives in Phase `15`.
+CUDA outputs lives in Phase `17`.
 
-## Sprint 13.1: Ephemeral Kind + Helm Rollout ✅
+## Sprint 15.1: Ephemeral Kind + Helm Rollout ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-29 after the reopened-scope live re-verification
 on `linux-cuda` — see the **Live re-verification (2026-05-29 …)** block in the
@@ -1042,7 +1042,7 @@ deleted the cluster with no orphan container or `jitml-*` Docker volume.
   `manualPVs` list — so future replica re-tunes never leave stale PV manifests
   behind. The orphan files were also removed from the worktree. End-to-end
   Pulsar topic-create IO (Sprint 4.8), `jitml-service` + `jitml-demo` deploy +
-  Playwright (Sprints 13.3+ / 13.13+), and the daemon-dispatch round-trip with
+  Playwright (Sprints 15.3+ / 15.13+), and the daemon-dispatch round-trip with
   `RunConfig` (Sprint 5.7) follow on a re-run of `jitml bootstrap --linux-cpu`
   once the rebuilt `jitml:local` image lands.
 
@@ -1082,7 +1082,7 @@ deleted the cluster with no orphan container or `jitml-*` Docker volume.
     `jitml-service-boot` / `jitml-demo-boot` ConfigMaps mounted at
     `/etc/jitml/service/`, so no run-param or wiring env survives on the
     Job/Deployment surface.
-  - **Sprint `13.1` (filter for in-bootstrap docker build).** The
+  - **Sprint `15.1` (filter for in-bootstrap docker build).** The
     `filterDockerBuildWhenImageExists` filter detected the host-side
     `jitml:local` image (the bootstrap container shares the host Docker
     socket) and skipped the otherwise-redundant 12-minute mirror build — the
@@ -1094,15 +1094,15 @@ deleted the cluster with no orphan container or `jitml-*` Docker volume.
   - **Host health.** No OOM, no slowdown, no kernel pressure — the cluster
     fits well under the 10 GiB cap.
   This closes the reopened-scope (WS1–WS4) on `linux-cuda` end-to-end; the
-  remaining open work in Phase `13` is the heavier per-cohort statistical
-  convergence drives (Sprints 13.6 / 13.8) on top of the now-validated
-  cluster, plus the Apple-side closure (Phase `14`) and the cross-substrate
-  handoff (Phase `15`).
+  remaining open work in Phase `15` is the heavier per-cohort statistical
+  convergence drives (Sprints 15.6 / 15.8) on top of the now-validated
+  cluster, plus the Apple-side closure (Phase `16`) and the cross-substrate
+  handoff (Phase `17`).
 
-## Sprint 13.2: Live Capability Class Validation (MinIO + Pulsar + Harbor) ✅
+## Sprint 15.2: Live Capability Class Validation (MinIO + Pulsar + Harbor) ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-26)
-**Blocked by**: Sprint `13.1`
+**Blocked by**: Sprint `15.1`
 **Implementation**: `src/JitML/Service/MinIOSubprocess.hs`,
 `src/JitML/Service/PulsarWebSocketSubprocess.hs`,
 `src/JitML/Service/HarborSubprocess.hs`,
@@ -1137,16 +1137,16 @@ and the live MinIO halves of items 7 and 5.
 
 ### Validation
 
-1. On Linux+Docker+NVIDIA, with the cluster from Sprint `13.1` up: a
+1. On Linux+Docker+NVIDIA, with the cluster from Sprint `15.1` up: a
    targeted `jitml-integration --test-options='-p Live'` (or equivalent
    bespoke driver) exercises the three capability classes and exits `0`.
 
 ### Live Validation Note (2026-05-25)
 
-Validation host: same Linux+NVIDIA host as Sprint 13.1 (RTX 3090, CUDA
+Validation host: same Linux+NVIDIA host as Sprint 15.1 (RTX 3090, CUDA
 12.8 driver, Ubuntu 24.04, Docker 29.5.0). Driver:
 `docker compose run --rm jitml cabal test --builddir=/root/dist-jitml
-jitml-integration --test-options='-p Live'` against the Sprint 13.1
+jitml-integration --test-options='-p Live'` against the Sprint 15.1
 cluster at `127.0.0.1:9092`.
 
 ```
@@ -1178,7 +1178,7 @@ daemon uses — and reads the leased edge port from
 ### Live Validation Note (2026-05-26, Harbor tag promotion)
 
 Closes the live Harbor capability slice. New `Live` case `live
-HasHarbor same-repository tag promotion round-trip (Sprint 13.2
+HasHarbor same-repository tag promotion round-trip (Sprint 15.2
 Harbor)` in `test/integration/Main.hs`:
 (a) calls `ensureLocalImage "alpine:3.20"` so the host docker daemon
 has a ~5MB source image, (b) `docker tag alpine:3.20
@@ -1194,7 +1194,7 @@ cleanup deletes the test repository through the Harbor REST API.
 ```
 jitml-integration
   Live
-    live HasHarbor same-repository tag promotion round-trip (Sprint 13.2 Harbor): OK (0.97s)
+    live HasHarbor same-repository tag promotion round-trip (Sprint 15.2 Harbor): OK (0.97s)
 ```
 
 Validated against the same RTX 3090 cluster from the 2026-05-26
@@ -1203,9 +1203,9 @@ bring-up (edge port 9092, Harbor admin password from
 
 ### Live Validation Note (2026-05-26, subscription acquisition)
 
-Closes the last remaining 13.2 obligation. New `Live` case `live
+Closes the last remaining 15.2 obligation. New `Live` case `live
 jitml-service holds subscriptions on all four daemon command topics
-(Sprint 13.2 acquisition)`: iterates the four daemon-side command
+(Sprint 15.2 acquisition)`: iterates the four daemon-side command
 topics
 (`training.command.<substrate>`, `tune.command.<substrate>`,
 `rl.command.<substrate>`, `inference.request.<substrate>`), runs
@@ -1217,7 +1217,7 @@ non-empty array on every topic.
 ```
 jitml-integration
   Live
-    live jitml-service holds subscriptions on all four daemon command topics (Sprint 13.2 acquisition): OK (7.73s)
+    live jitml-service holds subscriptions on all four daemon command topics (Sprint 15.2 acquisition): OK (7.73s)
 ```
 
 Full Live cohort: 12/12 in 12.53s.
@@ -1226,12 +1226,12 @@ Full Live cohort: 12/12 in 12.53s.
 
 - None remaining for Sprint 13.2. Sprint closed 2026-05-26.
 
-## Sprint 13.3: Daemon Training/RL/Tune Handlers on Live Broker ✅
+## Sprint 15.3: Daemon Training/RL/Tune Handlers on Live Broker ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-29 — the reopened scope for typed Dhall
 `RunConfig` dispatch was live-validated end-to-end. See the **Live re-verification
 (2026-05-29, post `workerExperimentHash` fix)** block below.)
-**Blocked by**: Sprint `13.2`
+**Blocked by**: Sprint `15.2`
 **Implementation**: `src/JitML/Service/Runtime.hs`,
 `src/JitML/Service/Consumer.hs`,
 `src/JitML/Service/Workload.hs`, `test/integration/Main.hs`
@@ -1282,7 +1282,7 @@ Event Processing` and `Retry Policy as First-Class Values` from
 ### Code Surface Landed (2026-05-25)
 
 - A new `Live` test case `live daemon dispatches StartTraining into a
-  Kubernetes Job (Sprint 13.3)` in `test/integration/Main.hs` publishes
+  Kubernetes Job (Sprint 15.3)` in `test/integration/Main.hs` publishes
   a `StartTraining` envelope on the substrate-scoped command topic
   through the routed Pulsar WebSocket subprocess, waits up to 15
   seconds for the daemon to consume + dispatch, then asserts via
@@ -1296,7 +1296,7 @@ Event Processing` and `Retry Policy as First-Class Values` from
 ### Code Surface Landed (2026-05-27, dedup live assertion)
 
 - New `Live` case `live duplicate StartTraining produces one daemon-
-  side dedup-skip (Sprint 13.3 dedup)` in `test/integration/Main.hs`:
+  side dedup-skip (Sprint 15.3 dedup)` in `test/integration/Main.hs`:
   (a) snapshots the cluster daemon log byte length via
   `kubectl logs deploy/jitml-service`, (b) publishes the *identical*
   `StartTraining` payload twice on `training.command.<substrate>`
@@ -1321,9 +1321,9 @@ Event Processing` and `Retry Policy as First-Class Values` from
 
 ### Live Validation Note (2026-05-25)
 
-Validation host: same Linux+NVIDIA host as Sprints 13.1 / 13.2. Driver:
+Validation host: same Linux+NVIDIA host as Sprints 15.1 / 13.2. Driver:
 `docker compose run --rm jitml cabal test --builddir=/root/dist-jitml
-jitml-integration --test-options='-p Live'` against the Sprint 13.1
+jitml-integration --test-options='-p Live'` against the Sprint 15.1
 cluster at `127.0.0.1:9092`.
 
 ```
@@ -1332,7 +1332,7 @@ jitml-integration
     live HasMinIO conditional writes round-trip on jitml-checkpoints:         OK (0.10s)
     live HasMinIO listObjects sees a freshly written object:                  OK (0.04s)
     live HasPulsar publish/subscribe/consume round-trip on training.command:  OK (0.36s)
-    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 13.3): OK (1.22s)
+    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 15.3): OK (1.22s)
 
 All 51 tests passed (1.92s)
 Test suite jitml-integration: PASS
@@ -1355,7 +1355,7 @@ experiments/mnist.dhall` and exited `Complete` (durations ~4s). The Job
 stdout shows the deterministic local SL summary
 (`final_loss: 0.7496644`); the Job does **not** yet publish a Pulsar
 `EpochCompleted` event back through the broker. Closing that loop is
-Sprint `13.4`'s responsibility — the daemon's dispatch path is
+Sprint `15.4`'s responsibility — the daemon's dispatch path is
 validated here, the worker-side event publication is the next phase.
 
 ### Code Surface Landed (2026-05-26, worker-side event publication)
@@ -1388,7 +1388,7 @@ Ubuntu 24.04 host) — 14 / 14 Live cases pass in 14.88s, including
 the new dedup assertion:
 
 ```
-live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 13.3 dedup): OK (0.34s)
+live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 15.3 dedup): OK (0.34s)
 ```
 
 The dedup assertion required a daemon-stdout line-buffering fix in
@@ -1405,10 +1405,10 @@ deploy/jitml-service`.
 
 ### Live re-verification (2026-05-29, post `workerExperimentHash` fix)
 
-Validation host: same Linux+NVIDIA host as the rest of Phase `13`. Driver:
+Validation host: same Linux+NVIDIA host as the rest of Phase `15`. Driver:
 `docker compose run --rm jitml cabal test --builddir=/root/dist-jitml
 jitml-integration --test-options='-p Live'` against the bootstrapped
-`linux-cuda` cluster (Sprint 13.1 closure, kind node cap 10 GiB / 6 CPUs).
+`linux-cuda` cluster (Sprint 15.1 closure, kind node cap 10 GiB / 6 CPUs).
 
 The reopened scope — daemon dispatch through typed Dhall `RunConfig` +
 `BootConfig` mounts with the `JITML_*` run-parameter env IPC removed — was
@@ -1429,20 +1429,20 @@ live-validated end-to-end:
     live HasMinIO conditional writes round-trip on jitml-checkpoints                                                                  OK (0.12s)
     live HasMinIO listObjects sees a freshly written object                                                                           OK (0.04s)
     live HasPulsar publish/subscribe/consume round-trip on training.command                                                           OK (0.44s)
-    live jitml-service holds subscriptions on all four daemon command topics (Sprint 13.2 acquisition)                                OK (8.23s)
-    live HasHarbor same-repository tag promotion round-trip (Sprint 13.2 Harbor)                                                      OK (1.79s)
-    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 13.3)                                                          OK (1.22s)
-    live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 13.3 dedup)                                              OK (0.35s)
-    live daemon dispatches StartRLRun into a Job and per-episode events arrive on rl.event (Sprint 13.5/13.6)                         OK (1.73s)
-    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 13.7)                                                         OK (0.14s)
-    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 13.7)                                                          OK (0.25s)
-    live jitml internal gc reaps from live MinIO (Sprint 13.7 CLI)                                                                    OK (1.24s)
-    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 13.7 events)                                       OK (0.69s)
-    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12)                                                          OK (0.71s)
-    live tune trial persist + replay round-trip (Sprint 13.10)                                                                        OK (0.11s)
-    live daemon TuneHandler dispatches StartSweep into a Kubernetes Job (Sprint 13.10 daemon)                                         OK (1.24s)
-    live SelfPlayBuffer MinIO round-trip via writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9)                                   OK (0.04s)
-    live AlphaZero generation drive: self-play + training, then .jmw1 weight checkpoint round-trips through live MinIO (Sprint 13.9)  OK (0.04s)
+    live jitml-service holds subscriptions on all four daemon command topics (Sprint 15.2 acquisition)                                OK (8.23s)
+    live HasHarbor same-repository tag promotion round-trip (Sprint 15.2 Harbor)                                                      OK (1.79s)
+    live daemon dispatches StartTraining into a Kubernetes Job (Sprint 15.3)                                                          OK (1.22s)
+    live duplicate StartTraining produces one daemon-side dedup-skip (Sprint 15.3 dedup)                                              OK (0.35s)
+    live daemon dispatches StartRLRun into a Job and per-episode events arrive on rl.event (Sprint 15.5/15.6)                         OK (1.73s)
+    live checkpoint snapshot round-trip through MinIOSubprocess (Sprint 15.7)                                                         OK (0.14s)
+    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 15.7)                                                          OK (0.25s)
+    live jitml internal gc reaps from live MinIO (Sprint 15.7 CLI)                                                                    OK (1.24s)
+    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 15.7 events)                                       OK (0.69s)
+    live jitml inference run reads checkpoint from live MinIO (Sprint 15.12)                                                          OK (0.71s)
+    live tune trial persist + replay round-trip (Sprint 15.10)                                                                        OK (0.11s)
+    live daemon TuneHandler dispatches StartSweep into a Kubernetes Job (Sprint 15.10 daemon)                                         OK (1.24s)
+    live SelfPlayBuffer MinIO round-trip via writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 15.9)                                   OK (0.04s)
+    live AlphaZero generation drive: self-play + training, then .jmw1 weight checkpoint round-trips through live MinIO (Sprint 15.9)  OK (0.04s)
   All 17 tests passed (18.36s)
   ```
 - The dispatched training/RL/tune Jobs carry zero `JITML_*` run-parameter env
@@ -1451,15 +1451,15 @@ live-validated end-to-end:
   at `/etc/jitml/service/`). The worker observably published `EpisodeDone`
   envelopes on `rl.event.linux-cuda` keyed by the experiment hash carried in
   the mounted `RunConfig` — exactly the live-event arrival the Sprint
-  `13.5`/`13.6` assertion required.
+  `15.5`/`15.6` assertion required.
 
-## Sprint 13.4: Live SL Training E2E with Real Datasets ✅
+## Sprint 15.4: Live SL Training E2E with Real Datasets ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-29 — the live MNIST SL training cleared the
 literature-derived convergence threshold against the bootstrapped `linux-cuda`
 cluster in `778.27s`. See the **Live re-verification (2026-05-29)** block in
 Remaining Work.)
-**Blocked by**: Sprint `13.3`
+**Blocked by**: Sprint `15.3`
 **Implementation**: `src/JitML/SL/Dataset.hs`, `src/JitML/SL/Loop.hs`,
 `src/JitML/App.hs`,
 `src/JitML/Service/Workload.hs`, `src/JitML/Service/Runtime.hs`
@@ -1537,7 +1537,7 @@ slice.
   `MinIOSubprocess.minioSettingsForLocalEdge`. Wires through the
   same typed `Subprocess` boundary the rest of the daemon uses.
 - The CLI command is registered in
-  `JitML.CLI.Spec.internalCommand` (Sprint 13.4 leaf with positional
+  `JitML.CLI.Spec.internalCommand` (Sprint 15.4 leaf with positional
   `--name` / `--split` / `--path` and shared `dryRunOption` /
   `planFileOption`); `jitml-unit`'s `canonicalLeafPaths` golden is
   updated to include the new leaf so the registry-coverage assertion
@@ -1562,7 +1562,7 @@ upload-dataset: MNIST/test uploaded (1648877 bytes, sha256=8d422c7b0a1c1c79245a5
 After this the SL training loop's `attemptFetchTrainingDataset`
 returns the real bytes. The remaining open item is the SL training
 network seam (the SL analogue of the RL `JitML.Numerics.Mlp` /
-`PpoTrainer` seam landed for Sprint 13.8) plus the live convergence
+`PpoTrainer` seam landed for Sprint 15.8) plus the live convergence
 assertion — the SL loop still emits the deterministic synthetic
 five-point curve.
 
@@ -1580,7 +1580,7 @@ The SL training network seam now exists as real differentiable code:
   IDX1 on-disk format (big-endian magic + dims, pixels scaled to
   @[0,1]@) so the classifier consumes the exact
   `train-images-idx3-ubyte` / `train-labels-idx1-ubyte` payloads the
-  Sprint 13.4 upload half stages in MinIO.
+  Sprint 15.4 upload half stages in MinIO.
 - `jitml-sl-canonicals` adds three tests: the classifier converges on a
   deterministic in-code separable 3-class task (train accuracy ≥ 0.95,
   cross-entropy < 0.5 vs. the log(3) ≈ 1.10 random baseline), training
@@ -1650,12 +1650,12 @@ literature threshold − slack:
 
 ```
 jitml-sl-canonicals
-  live MNIST SL training clears the convergence threshold (Sprint 13.4 Live): OK (778.27s)
+  live MNIST SL training clears the convergence threshold (Sprint 15.4 Live): OK (778.27s)
 All 1 tests passed (778.27s)
 ```
 
 This is the formalised `Live` case from `slLiteratureTarget` /
-`slSlack` (Sprint 13.4 Live Validation in this section), executed
+`slSlack` (Sprint 15.4 Live Validation in this section), executed
 against a real live cluster bring-up — closing the live-cluster
 gap.
 
@@ -1664,7 +1664,7 @@ gap.
   (`JitML.SL.ConvergenceThresholds` — per-problem `slLiteratureTarget` /
   `slSlack`, regression problems omitted) and the formalised
   `Live`-tagged `jitml-sl-canonicals` case ("live MNIST SL training clears
-  the convergence threshold (Sprint 13.4 Live)") are now in place: the case
+  the convergence threshold (Sprint 15.4 Live)") are now in place: the case
   fetches MNIST from live MinIO, trains the bounded classifier, and asserts
   `passesSlConvergence` (median test-acc ≥ `slLiteratureTarget − slSlack`);
   it skips gracefully offline. Host-side table-sanity + predicate tests pass
@@ -1692,10 +1692,10 @@ gap.
 - **Consume `sl_epochs` / `sl_batch` report-card knobs** from
   `cabal.project` in the live assertion.
 
-## Sprint 13.5: Real RL Environment Simulators and Daemon Env Loop ✅
+## Sprint 15.5: Real RL Environment Simulators and Daemon Env Loop ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-28)
-**Blocked by**: Sprint `13.3`
+**Blocked by**: Sprint `15.3`
 **Implementation**: `src/JitML/RL/Environments.hs`,
 `src/JitML/RL/Loop.hs`,
 `src/JitML/RL/Simulator.hs`,
@@ -1733,7 +1733,7 @@ under the daemon's dispatch chain.
 ### Validation
 
 1. On Linux: `cabal test jitml-rl-canonicals` exercises the
-   simulator-loop run-to-run determinism assertion (Sprint 13.6
+   simulator-loop run-to-run determinism assertion (Sprint 15.6
    shared closure) for every entry in
    `SimulatorLoop.simulatedEnvCatalog`.
 2. End-to-end: a live `jitml rl train experiments/cartpole.dhall`
@@ -1754,7 +1754,7 @@ under the daemon's dispatch chain.
   episode driver around it.
 - `JitML.App.runRl ["rl", "train"]` now reads `JITML_ENVIRONMENT`,
   `JITML_SEED`, `JITML_MAX_STEPS`, `JITML_EVAL_EPISODES` from the
-  daemon-rendered Job env (Sprint 13.3 `renderRlJob`), looks up the
+  daemon-rendered Job env (Sprint 15.3 `renderRlJob`), looks up the
   matching simulator through `SimulatorLoop.lookupSimulatedEnvByName`,
   runs `runSimulatedEpisodesByName`, prints the per-episode summary,
   and calls `publishWorkerRlEpisode` per episode. The legacy
@@ -1794,7 +1794,7 @@ via `kubectl logs deploy/jitml-service`).
 
 ### Live Validation Note (2026-05-28 — daemon-dispatched RL episode arrival)
 
-Closes Sprint 13.5's last obligation. To make the worker publish events
+Closes Sprint 15.5's last obligation. To make the worker publish events
 back from inside a Job pod (which cannot reach the host edge
 `127.0.0.1:<edge-port>`), the daemon-rendered Job now sets
 `JITML_PULSAR_WS` (the in-cluster broker WebSocket endpoint
@@ -1804,7 +1804,7 @@ back from inside a Job pod (which cannot reach the host edge
 from `JITML_PULSAR_WS` + `JITML_SUBSTRATE` (falling back to the host-edge
 publication for offline runs). New `jitml-integration` Live case `live
 daemon dispatches StartRLRun into a Job and per-episode events arrive on
-rl.event (Sprint 13.5/13.6)` publishes a `StartRLRun` on
+rl.event (Sprint 15.5/15.6)` publishes a `StartRLRun` on
 `rl.command.linux-cuda`, waits for the dispatched `jitml-rl-<hash>` Job,
 and consumes the per-episode `EpisodeDone` envelopes off
 `rl.event.linux-cuda`, asserting they arrive in non-decreasing episode
@@ -1812,7 +1812,7 @@ order. Validated against the live RTX 3090 / CUDA 12.8 cluster (rebuilt
 `jitml:local` image with the worker→broker wiring):
 
 ```
-live daemon dispatches StartRLRun into a Job and per-episode events arrive on rl.event (Sprint 13.5/13.6): OK (1.77s)
+live daemon dispatches StartRLRun into a Job and per-episode events arrive on rl.event (Sprint 15.5/15.6): OK (1.77s)
 ```
 
 Full Live cohort: 16 / 16 pass.
@@ -1821,13 +1821,13 @@ Full Live cohort: 16 / 16 pass.
 
 - None remaining for Sprint 13.5. Sprint closed 2026-05-28.
 
-## Sprint 13.6: Live RL Training E2E with Statistical Convergence Assertions ✅
+## Sprint 15.6: Live RL Training E2E with Statistical Convergence Assertions ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-30 — the PPO/cartpole cohort cleared the
 in-code literature threshold − slack through full daemon dispatch in
 `230.72s`. See the **Live re-verification (2026-05-30)** block in
 Remaining Work. Remaining 12 cohorts are operational scope.)
-**Blocked by**: Sprint `13.5`
+**Blocked by**: Sprint `15.5`
 **Implementation**: `src/JitML/RL/Loop.hs`,
 `src/JitML/Service/Workload.hs`, `src/JitML/Service/Runtime.hs`,
 `test/rl-canonicals/Main.hs`
@@ -1836,7 +1836,7 @@ Remaining Work. Remaining 12 cohorts are operational scope.)
 ### Objective
 
 Drive `jitml rl train` against every algorithm × canonical environment
-cohort with the real simulators from Sprint `13.5` and assert
+cohort with the real simulators from Sprint `15.5` and assert
 correctness through (a) run-to-run trajectory determinism on the same
 substrate / same seed (compared between two fresh runs, not against a
 stored file) and (b) statistical convergence — `median(final_reward
@@ -1876,10 +1876,10 @@ prohibition](../README.md#snapshot-targets).
   uses an arena win-rate metric, not a return threshold). Slack values
   come from the SB3-zoo benchmark variance bands and are calibrated
   per-algorithm rather than per-host. `passesConvergence threshold
-  medianReward` is the assertion helper consumed by Sprint 13.6 once
+  medianReward` is the assertion helper consumed by Sprint 15.6 once
   live RL training lands.
 - `jitml-unit` adds 4 new tests (under the "RL convergence threshold
-  table (Sprint 13.6)" group) asserting catalog coverage, positive
+  table (Sprint 15.6)" group) asserting catalog coverage, positive
   slack, valid env names, and the sign convention for mountain-car.
 
 ### Code Surface Landed (2026-05-26, canonical-stanza convergence-assertion wiring)
@@ -1887,9 +1887,9 @@ prohibition](../README.md#snapshot-targets).
 - `test/rl-canonicals/Main.hs` imports
   `JitML.RL.ConvergenceThresholds.{cohortThreshold,passesConvergence,
   ConvergenceThreshold(..)}` and adds two new test cases under Sprint
-  `13.6`:
+  `15.6`:
   - "convergence threshold lookup covers every algorithm rollout cohort
-    (Sprint 13.6)" walks the canonical algorithm × env rollout cohort
+    (Sprint 15.6)" walks the canonical algorithm × env rollout cohort
     list and asserts `cohortThreshold` returns `Just _` for every
     in-evaluation-matrix pair (15 pairs: PPO/A2C/TRPO/MaskablePPO/
     RecurrentPPO/DQN/QR-DQN/ARS on their canonical envs plus
@@ -1897,11 +1897,11 @@ prohibition](../README.md#snapshot-targets).
     DQN-family pairings on continuous envs are excluded per the
     threshold table's coverage policy).
   - "passesConvergence accepts the literature target and rejects below
-    the slack band (Sprint 13.6)" asserts the predicate accepts a
+    the slack band (Sprint 15.6)" asserts the predicate accepts a
     measured median equal to `literatureTarget` and rejects a measured
     median two slacks below it. The predicate path is now exercised
     from the canonical stanza in addition to `jitml-unit`'s 4 table
-    sanity tests; once Sprint `13.5`'s real simulators land, replacing
+    sanity tests; once Sprint `15.5`'s real simulators land, replacing
     the synthetic median with the live measurement leaves the
     assertion shape untouched.
 - `jitml-rl-canonicals` now reports 15/15 passing (up from 13/13).
@@ -1910,7 +1910,7 @@ prohibition](../README.md#snapshot-targets).
 
 - `test/rl-canonicals/Main.hs` adds the test
   "simulator loop is run-to-run deterministic across the canonical env
-  catalog (Sprint 13.6 + 13.5)" iterating
+  catalog (Sprint 15.6 + 15.5)" iterating
   `SimulatorLoop.simulatedEnvCatalog`. Each env's
   `runSimulatedEpisodesByName seed=17 episodes=4 maxSteps=64` is
   computed twice and asserted equal. The pure-loop assertion is the
@@ -1918,7 +1918,7 @@ prohibition](../README.md#snapshot-targets).
 
 ### Code Surface Landed (2026-05-27, fifth session — PPO convergence assertion)
 
-- `test/rl-canonicals/Main.hs` adds two Sprint 13.8/13.9-seam tests
+- `test/rl-canonicals/Main.hs` adds two Sprint 15.8/15.9-seam tests
   that exercise the real `JitML.RL.Algorithms.PpoTrainer` network
   forward/backward loop: "PPO trainer learns cartpole through the
   differentiable MLP" (asserts the last iteration's mean reward
@@ -1932,11 +1932,11 @@ prohibition](../README.md#snapshot-targets).
 ### Live Validation Note (2026-05-28 — daemon-driven RL cohort arrival)
 
 The daemon-driven RL dispatch → worker → broker loop is validated live
-(see Sprint 13.5's note): the `jitml-integration` Live case publishes a
+(see Sprint 15.5's note): the `jitml-integration` Live case publishes a
 `StartRLRun`, the daemon dispatches a `jitml-rl-<hash>` Job, the worker
 runs PPO on cartpole, and the per-episode `EpisodeDone` envelopes arrive
 on `rl.event.linux-cuda` in non-decreasing episode order. With every
-catalog algorithm now wired to its real trainer (Sprint 13.8) through
+catalog algorithm now wired to its real trainer (Sprint 15.8) through
 `rlTrainerForAlgorithm` / `runTrainerEpisodes`, the cohort drive is one
 parameterised path; the open item below is the per-cohort statistical
 convergence measurement, not the dispatch/arrival mechanics.
@@ -1951,7 +1951,7 @@ convergence measurement, not the dispatch/arrival mechanics.
 
 A new live `jitml-integration` case
 `live PPO cartpole convergence through daemon dispatch clears the literature
-threshold (Sprint 13.6)` drove a full PPO/cartpole convergence run end-to-end
+threshold (Sprint 15.6)` drove a full PPO/cartpole convergence run end-to-end
 through the cluster daemon: publishes `StartRLRun` with `evalEpisodes=200`,
 `maxSteps=2048` on `rl.command.linux-cuda`; the daemon dispatched
 `jitml-rl-livecv<id>` (Job completed in `3m11s` on the RTX 3090 host); the
@@ -1964,10 +1964,10 @@ last-half tail, and asserted
 
 ```
 jitml-integration / Live
-  live PPO cartpole convergence through daemon dispatch clears the literature threshold (Sprint 13.6): OK (230.72s)
+  live PPO cartpole convergence through daemon dispatch clears the literature threshold (Sprint 15.6): OK (230.72s)
 ```
 
-This closes the Sprint 13.6 dispatch + convergence path for the canonical
+This closes the Sprint 15.6 dispatch + convergence path for the canonical
 PPO/cartpole baseline. The remaining 12 cohorts (A2C / TRPO / MaskablePPO /
 RecurrentPPO / DQN / QR-DQN / ARS on their canonical envs, plus DDPG / TD3 /
 SAC / CrossQ / TQC on Pendulum) reuse the same parameterised path; only
@@ -1976,10 +1976,10 @@ convergence for every cohort is already proven by `jitml-rl-canonicals`
 (28/28), the threshold table covers all 13, and the live mechanics here are
 the substantive proof-of-concept.
 
-## Sprint 13.7: Live MinIO Checkpoint Round-Trip and Retention ✅
+## Sprint 15.7: Live MinIO Checkpoint Round-Trip and Retention ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-26)
-**Blocked by**: Sprint `13.2`
+**Blocked by**: Sprint `15.2`
 **Implementation**: `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/App.hs`, `test/integration/Main.hs`
 **Docs to update**: `documents/engineering/checkpoint_format.md`,
@@ -2018,7 +2018,7 @@ steady state.
 ### Code Surface Landed (2026-05-25)
 
 - New `Live` case `live checkpoint snapshot round-trip through
-  MinIOSubprocess (Sprint 13.7)` in `test/integration/Main.hs` writes
+  MinIOSubprocess (Sprint 15.7)` in `test/integration/Main.hs` writes
   a `CheckpointManifest` plus a single `TensorBlob` payload to live
   MinIO through `JitML.Service.MinIOSubprocess`, asserts the first
   write produces `PointerWritten`, asserts the second identical write
@@ -2029,8 +2029,8 @@ steady state.
 
 ### Live Validation Note (2026-05-25)
 
-Validation host: same Linux+NVIDIA host as Sprints 13.1 / 13.2 / 13.3.
-The 13.7 Live case ran inside the
+Validation host: same Linux+NVIDIA host as Sprints 15.1 / 15.2 / 13.3.
+The 15.7 Live case ran inside the
 `docker compose run --rm jitml cabal test --builddir=/root/dist-jitml
 jitml-integration --test-options='-p Live'` cohort against the
 running cluster (edge port `127.0.0.1:9092`) and exited `OK (0.13s)`,
@@ -2054,7 +2054,7 @@ the routed S3 SigV4 path.
   manifest + blob, so combining `listCheckpointManifestsMinIO →
   buildGcPlan → executeGcPlan` is a complete live-MinIO GC pipeline.
 - A new `Live` case `live GC: listCheckpointManifestsMinIO +
-  executeGcPlan reap (Sprint 13.7)` in `test/integration/Main.hs`
+  executeGcPlan reap (Sprint 15.7)` in `test/integration/Main.hs`
   stages 3 manifests + per-step blobs under a unique
   `live-gc-<suffix>` experiment hash via `putBlobBytesIfAbsent`,
   asserts `listCheckpointManifestsMinIO` returns the expected 3
@@ -2067,10 +2067,10 @@ the routed S3 SigV4 path.
 ### Live Validation Note (2026-05-25, GC half)
 
 `cabal test jitml-integration --test-options='-p Live'` cohort on the
-Sprint 13.1 cluster:
+Sprint 15.1 cluster:
 
 ```
-    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 13.7):  OK (0.25s)
+    live GC: listCheckpointManifestsMinIO + executeGcPlan reap (Sprint 15.7):  OK (0.25s)
 ```
 
 All 7 Live cases pass (`1.31s` total).
@@ -2078,7 +2078,7 @@ All 7 Live cases pass (`1.31s` total).
 ### Live Validation Note (2026-05-26, CLI wiring)
 
 ```
-    live jitml internal gc reaps from live MinIO (Sprint 13.7 CLI):            OK (0.64s)
+    live jitml internal gc reaps from live MinIO (Sprint 15.7 CLI):            OK (0.64s)
 ```
 
 `cabal test jitml-integration --test-options='-p Live'` cohort on a
@@ -2101,7 +2101,7 @@ the typed `Subprocess` boundary, asserts the stdout reports
   `kept=<N> reaped=<M> reaped-blobs=<K>` so the live test can assert
   the reap counts.
 - A new `Live` case `live jitml internal gc reaps from live MinIO
-  (Sprint 13.7 CLI)` in `test/integration/Main.hs` (a) stages six
+  (Sprint 15.7 CLI)` in `test/integration/Main.hs` (a) stages six
   manifests + blobs under a unique
   `live-cli-gc-<suffix>` experiment hash, (b) spawns
   `./.build/jitml internal gc --experiment-hash <hash>` via the typed
@@ -2136,7 +2136,7 @@ the typed `Subprocess` boundary, asserts the stdout reports
   short-circuit the reconciler (at-least-once handles the missed
   event on a subsequent run).
 - `jitml-unit` adds 4 new tests under the "GC reaped event envelope
-  (Sprint 13.7)" group covering the substrate-scoped topic name, the
+  (Sprint 15.7)" group covering the substrate-scoped topic name, the
   proto3 byte round-trip, the text render/parse round-trip, and the
   empty-blobs degenerate case (107/107 unit tests pass).
 - `jitml-integration` updates the "Pulsar bootstrap registers the
@@ -2146,9 +2146,9 @@ the typed `Subprocess` boundary, asserts the stdout reports
 
 ### Live Validation Note (2026-05-26, gc.event publish stream)
 
-Closes Sprint 13.7's last open Remaining Work item. New `Live` case
+Closes Sprint 15.7's last open Remaining Work item. New `Live` case
 `live jitml internal gc publishes GcReapedEvent on
-gc.event.<substrate> (Sprint 13.7 events)` in
+gc.event.<substrate> (Sprint 15.7 events)` in
 `test/integration/Main.hs`: (a) subscribes to
 `ProtoGc.gcEventTopic substrate` with a unique-suffix subscription
 through `PulsarWebSocketSubprocess`, (b) stages 6 manifests + blobs
@@ -2165,7 +2165,7 @@ post-validation cleanup removes the remaining 5 manifests + 6 blobs.
 ```
 jitml-integration
   Live
-    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 13.7 events): OK (0.69s)
+    live jitml internal gc publishes GcReapedEvent on gc.event.<substrate> (Sprint 15.7 events): OK (0.69s)
 ```
 
 Run via `cabal test jitml-integration --test-options='-p Live'` against
@@ -2177,7 +2177,7 @@ bring-up). The full Live cohort is 10/10 in ~2.92s.
 
 - None remaining for Sprint 13.7. Sprint closed 2026-05-26.
 
-## Sprint 13.8: Real CUDA RL Algorithm Losses Through JIT Engine ✅
+## Sprint 15.8: Real CUDA RL Algorithm Losses Through JIT Engine ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-30 — every catalog trainer is GPU-validated
 through the nvcc forward/backward MLP kernels via `jitml-cross-backend`
@@ -2185,10 +2185,10 @@ through the nvcc forward/backward MLP kernels via `jitml-cross-backend`
 14-algorithm catalog is fully wired through `rlTrainerForAlgorithm` and
 `runTrainerEpisodes`, and the daemon-driven catalog dispatch is validated
 end-to-end with a passing live PPO/cartpole convergence run through the
-shared dispatch path (Sprint 13.6 live re-verification 2026-05-30 — same
+shared dispatch path (Sprint 15.6 live re-verification 2026-05-30 — same
 code path is the parameterised dispatch for every other catalog cohort).
 Remaining per-cohort live measurement runs are operational scope.)
-**Blocked by**: Sprint `13.3`
+**Blocked by**: Sprint `15.3`
 **Implementation**: `src/JitML/RL/Algorithms/{Ppo,A2c,Trpo,MaskablePpo,RecurrentPpo,Dqn,QrDqn,Ddpg,Td3,Sac,CrossQ,Tqc,Ars,Her}.hs`,
 `src/JitML/Engines/CudaLocal.hs`,
 `src/JitML/Engines/CublasBindings.hs`,
@@ -2217,7 +2217,7 @@ from [../README.md](../README.md).
 - Per-algorithm + per-environment correctness for the real algorithm
   output is asserted by run-to-run trajectory determinism (two fresh
   same-substrate / same-seed runs compared against each other) plus
-  the statistical convergence inequality from Sprint `13.6`. No
+  the statistical convergence inequality from Sprint `15.6`. No
   `test/golden/rl/<algo>/<env>/trajectory.txt` files are committed
   per [../README.md → Snapshot targets → Numerical-fixture
   prohibition](../README.md#snapshot-targets).
@@ -2229,7 +2229,7 @@ from [../README.md](../README.md).
 
 1. `cabal test -fcuda jitml-rl-canonicals` on Linux+NVIDIA exits `0`
    with run-to-run trajectory determinism for every algorithm and the
-   statistical convergence inequality from Sprint `13.6` for every
+   statistical convergence inequality from Sprint `15.6` for every
    algorithm × env cohort.
 2. Reward thresholds for each algorithm × env cohort clear the
    in-code `(literature_target, slack)` from
@@ -2242,7 +2242,7 @@ from [../README.md](../README.md).
 
 The 14-algorithm catalog now has a real, differentiable forward/backward
 network seam that the on-policy and off-policy halves consume. Three new
-modules close the algorithmic seam that Sprint 13.8's plan called for:
+modules close the algorithmic seam that Sprint 15.8's plan called for:
 
 - **`JitML.Numerics.Mlp`** — pure-Haskell differentiable MLP:
   - Glorot/Xavier seeded initialisation (`mlpInit`, `MlpShape`)
@@ -2305,7 +2305,7 @@ text is interpreted as the **algorithmic seam** — substrate-portable
 forward/backward computation that satisfies the determinism contract —
 rather than mandatory nvcc-emitted backward codegen, which is multi-week
 follow-on infrastructure work. The Linux CPU oneDNN forward path
-(Sprint 13.11) provides the production weighted forward pass; the pure-
+(Sprint 15.11) provides the production weighted forward pass; the pure-
 Haskell backward implementation here closes the seam without requiring a
 backward-kernel codegen.
 
@@ -2365,7 +2365,7 @@ PPO/cartpole rollout" assertion that wires `PpoLoss.ppoTotalLoss`
 through a trained PPO/cartpole policy rollout.
 
 `jitml-rl-canonicals` adds an
-"every Sprint 13.8 loss module returns a finite value on the
+"every Sprint 15.8 loss module returns a finite value on the
 canonical trajectory" assertion that drives all 14 algorithm
 loss modules end-to-end against trained PPO/DQN network outputs
 and real simulator rollout rewards. Each loss is
@@ -2420,7 +2420,7 @@ per-module unit-test groups in `jitml-unit`.
     the canonical PPO early-stop signal.
   - `ppoTotalLoss eps c_v c_h ...` — combined objective the
     optimiser minimises: `-L^CLIP + c_v * L^VF - c_h * S[π]`.
-- New `jitml-unit` group "PPO loss math (Sprint 13.8)" — 12 cases
+- New `jitml-unit` group "PPO loss math (Sprint 15.8)" — 12 cases
   cover: empty-batch zero return, identical-policy zero return,
   unclipped ratio band, clip when ratio > 1+eps, MSE value loss,
   single-step GAE = TD residual, multi-step GAE backwards
@@ -2536,7 +2536,7 @@ item. Validated host-side by `jitml-unit` (184 tests) and
   now maps every catalog algorithm to its trainer key, and
   `JitML.App.runTrainerEpisodes` dispatches `jitml rl train` to the
   matching real trainer (projecting each trainer's per-iteration summary
-  into the `SimulatedEpisode`/`EpisodeDone` envelope so the Sprint 13.5
+  into the `SimulatedEpisode`/`EpisodeDone` envelope so the Sprint 15.5
   publication path is unchanged). The whole 14-algorithm catalog is now
   reachable end-to-end from `jitml rl train` / a daemon-dispatched
   `StartRLRun`.
@@ -2564,7 +2564,7 @@ kernels behind the same `JitML.Numerics.Mlp` interface:
   across the FFI, and returns the same `MlpForward` / `MlpGradient` the
   pure network produces. Distinct kernel-spec + toolchain fingerprint
   keep the artifact in its own JIT-cache slot.
-- **GPU validation.** `jitml-cross-backend` adds three Sprint 13.8/13.9
+- **GPU validation.** `jitml-cross-backend` adds three Sprint 15.8/15.9
   cases run on the RTX 3090 / CUDA 12.8 host (in `jitml:local`): the CUDA
   forward output matches the pure-Haskell forward within a `1e-3`
   single-precision tolerance, the CUDA backward gradients match the
@@ -2613,7 +2613,7 @@ kernels behind the same `JitML.Numerics.Mlp` interface:
   per-sample online SGD is inherently sequential and unbatchable; the CUDA
   path uses proper minibatch GD — standard PPO.) `jitml-cross-backend`
   ("linux-cuda on-policy PPO trainer trains through the batched device path
-  (Sprint 13.8)") confirms on the RTX 3090 that it completes its iterations
+  (Sprint 15.8)") confirms on the RTX 3090 that it completes its iterations
   with finite rewards and is run-to-run deterministic on the device
   (12 / 12 CUDA cases pass). The pure refactor is behaviour-preserving
   (`jitml-rl-canonicals` 28 / 28, incl. "every on-policy variant trains and
@@ -2697,18 +2697,18 @@ kernels behind the same `JitML.Numerics.Mlp` interface:
   presence/consistency in the codegen, not a live cuDNN conv run.
 - **Open: live cohort drive (operational).** With every backprop trainer
   device-adopted + GPU-validated and the cuDNN pin checked, the remaining
-  Sprint 13.8 item is the live cohort drive — dispatch each algorithm
+  Sprint 15.8 item is the live cohort drive — dispatch each algorithm
   through a daemon Job on the live cluster and assert per-episode reward
-  arrival (the operational pass shared with Sprints 13.6 / 13.9).
+  arrival (the operational pass shared with Sprints 15.6 / 15.9).
 - **Live cohort drive through the daemon.** Dispatching each algorithm
   through a daemon-rendered Kubernetes Job on the live cluster and
   asserting per-episode reward arrival on `rl.event.<substrate>` is the
-  Sprint 13.6 live-validation pass (the worker-side trainers + dispatch
+  Sprint 15.6 live-validation pass (the worker-side trainers + dispatch
   wiring are in place and host-validated; the live arrival assertion
   needs a cluster image baking this session's `rlTrainerForAlgorithm`
   widening).
 
-## Sprint 13.9: AlphaZero with Real Network Priors ✅
+## Sprint 15.9: AlphaZero with Real Network Priors ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-30 — `JitML.RL.AlphaZero.Mcts` routes its
 prior through the real network forward pass via `PriorOracle` /
@@ -2719,10 +2719,10 @@ the two-headed Connect-4 network on the device through
 MinIO round-trips `writeSelfPlayBuffer` / `readSelfPlayBuffer` and the
 `.jmw1` trained-weight checkpoint blob; the live `jitml-integration` case
 "live AlphaZero generation drive: self-play + training, then .jmw1 weight
-checkpoint round-trips through live MinIO (Sprint 13.9)" passes; the
+checkpoint round-trips through live MinIO (Sprint 15.9)" passes; the
 deterministic `priorFor` legacy ledger row is closed. Remaining per-cohort
 arena-promotion drives are operational scope.)
-**Blocked by**: Sprint `13.8`
+**Blocked by**: Sprint `15.8`
 **Implementation**: `src/JitML/RL/AlphaZero/Mcts.hs`,
 `src/JitML/RL/AlphaZero/SelfPlay.hs`,
 `src/JitML/RL/AlphaZero/Arena.hs`
@@ -2774,7 +2774,7 @@ the arena promotion path with the real network's win rate. Closes the
   `runSearchWithPrior` / `runSearchWithTableAndPrior` instead of
   patching the deterministic stub.
 - `jitml-unit` adds "MCTS PriorOracle plumbing routes through expand
-  and simulate (Sprint 13.9)" that asserts a uniform oracle produces
+  and simulate (Sprint 15.9)" that asserts a uniform oracle produces
   uniform edge priors (proving the oracle threads through both
   `expandWithPrior` and `simulateWithPrior` rather than being silently
   dropped).
@@ -2787,7 +2787,7 @@ the arena promotion path with the real network's win rate. Closes the
   `bufferStorageKey` helper enumerates the canonical path so callers
   share one addressing convention.
 - `jitml-integration` adds "SelfPlayBuffer CBOR round-trip via
-  writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9)" that
+  writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 15.9)" that
   exercises the new CBOR path through the filesystem `HasMinIO`
   instance: write a deterministic buffer, read it back, assert
   structural equality and hash stability. Validates the full
@@ -2798,7 +2798,7 @@ the arena promotion path with the real network's win rate. Closes the
 
 `JitML.RL.AlphaZero.PolicyValueNet` is the production two-headed
 policy/value network for AlphaZero, built on the differentiable MLP
-seam (Sprint 13.8 closure). Surface:
+seam (Sprint 15.8 closure). Surface:
 
 - `PolicyValueNet { pvnParams, pvnActionCount, pvnObservationSize }` plus
   `initPolicyValueNet observationSize actionCount hiddenUnits seed` and
@@ -2845,7 +2845,7 @@ Three new tests in `jitml-rl-canonicals` cover the new surface:
   produce bit-identical sample count and win rate, and that the win
   rate lies in `[0, 1]`.
 
-Follow-on scope outside full 13.9 closure:
+Follow-on scope outside full 15.9 closure:
 
 - **Per-game richer encoders.** `encodeGameState` currently falls back
   to the Connect 4 encoder for othello / hex / gomoku. Bespoke
@@ -2881,7 +2881,7 @@ Follow-on scope outside full 13.9 closure:
   helper so the per-host run count is governed by the report-card
   knobs (already asserted-positive by `jitml-rl-canonicals`).
 - New `Live` case `live SelfPlayBuffer MinIO round-trip via
-  writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 13.9)` in
+  writeSelfPlayBuffer / readSelfPlayBuffer (Sprint 15.9)` in
   `test/integration/Main.hs` constructs a tiny `SelfPlayConfig`
   (2 games × 4 sims × 6 plies), runs `runSelfPlay`, writes the
   buffer to live MinIO via `writeSelfPlayBuffer`, reads it back via
@@ -2908,7 +2908,7 @@ callsites switch to the engine-backed oracle" obligation:
   is the production self-play entry point that no longer touches
   `priorFor`.
 - `jitml-rl-canonicals` adds "network-driven MCTS self-play is
-  deterministic and legal (Sprint 13.9 production prior)": two fresh
+  deterministic and legal (Sprint 15.9 production prior)": two fresh
   `runNetworkSelfPlay` runs at the same init seed produce
   bit-identical buffers (`bufferTranscriptHash` equal) and every move
   in every transcript is a legal Connect 4 column.
@@ -2916,7 +2916,7 @@ callsites switch to the engine-backed oracle" obligation:
 The earlier claim that the flip was blocked on the
 `selfPlayTranscript` golden fixtures was incorrect — those transcripts
 come from the oracle-independent `selfPlayTranscriptFor` move
-generator. The Phase `15` cleanup later deleted the committed
+generator. The Phase `17` cleanup later deleted the committed
 `test/golden/` fixture tree and removed `priorFor`; network-free MCTS
 mechanics unit tests now use a neutral uniform `defaultPriorOracle`.
 
@@ -2939,7 +2939,7 @@ than the network's-own-policy proxy. Validated by `jitml-rl-canonicals`
   `sampleVisitDist` training target; `runOneGenerationOfSelfPlay` threads
   `sims` through.
 - New `jitml-rl-canonicals` case "MCTS visit-count target is a valid
-  search-derived distribution (Sprint 13.9 visit targets)" asserts the
+  search-derived distribution (Sprint 15.9 visit targets)" asserts the
   distribution is well-formed (length = action space, non-negative,
   sums to 1), run-to-run deterministic, and genuinely search-shaped
   (concentrates visits beyond the uniform 1/7 baseline).
@@ -2958,7 +2958,7 @@ than the network's-own-policy proxy. Validated by `jitml-rl-canonicals`
   refactored to share the head math between the pure and device paths
   (behavior-preserving — host `jitml-unit` 184 / `jitml-rl-canonicals` 27
   unchanged). `jitml-cross-backend` adds "linux-cuda AlphaZero
-  PolicyValueNet trains on the device and reduces loss (Sprint 13.9)":
+  PolicyValueNet trains on the device and reduces loss (Sprint 15.9)":
   80 device gradient passes on the RTX 3090 drove the policy+value loss
   below its starting value (the same loss-reduction contract the pure
   `jitml-rl-canonicals` test asserts). **9 / 9 CUDA cross-backend cases
@@ -2970,7 +2970,7 @@ than the network's-own-policy proxy. Validated by `jitml-rl-canonicals`
   persist a trained network through the checkpoint `.jmw1` weight blob
   (`JitML.Checkpoint.Format.encodeJmw1` / `decodeJmw1`). `jitml-rl-canonicals`
   adds "trained PolicyValueNet weights round-trip through the .jmw1
-  checkpoint blob (Sprint 13.9)": a trained net flattens → `encodeJmw1` →
+  checkpoint blob (Sprint 15.9)": a trained net flattens → `encodeJmw1` →
   `decodeJmw1` → `loadPolicyValueNetWeights` reconstructs bit-identical
   parameters (F64 round-trip is lossless). 28 / 28 `jitml-rl-canonicals`
   pass.
@@ -2978,18 +2978,18 @@ than the network's-own-policy proxy. Validated by `jitml-rl-canonicals`
   against a live Connect 4 cohort inside the cluster daemon with the
   SelfPlayBuffer MinIO round-trip + trained-weight checkpoint persistence
   (both round-trips now in place / live-validated individually) is the
-  remaining Sprint 13.9 item.
+  remaining Sprint 15.9 item.
 
-## Sprint 13.10: Live Tuning Sweep with MinIO Trial Persistence ✅
+## Sprint 15.10: Live Tuning Sweep with MinIO Trial Persistence ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-29 — the reopened scope for typed Dhall
-`RunConfig` dispatch was live-validated alongside Sprint `13.3`; the
+`RunConfig` dispatch was live-validated alongside Sprint `15.3`; the
 `lookupTrialBudget` / `lookupSweepSeed` lookups already prefer the mounted
 `TuneRunConfig` over the legacy `JITML_TRIAL_BUDGET` / `JITML_SWEEP_SEED` env
 vars, and the live tuning Live cases all pass against a daemon dispatch with
 no `JITML_*` env on the Job. See the **Live re-verification (2026-05-29)**
-block in Sprint `13.3`.)
-**Blocked by**: Sprint `13.3`
+block in Sprint `15.3`.)
+**Blocked by**: Sprint `15.3`
 **Implementation**: `src/JitML/Tune/Catalog.hs`, `src/JitML/Tune/Resume.hs`,
 `test/hyperparameter/Main.hs`, `test/integration/Main.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`
@@ -3024,7 +3024,7 @@ outcome bit-for-bit.
 ### Code Surface Landed (2026-05-25)
 
 - New `Live` case `live tune trial persist + replay round-trip (Sprint
-  13.10)` in `test/integration/Main.hs` constructs three
+  15.10)` in `test/integration/Main.hs` constructs three
   `TrialTranscript` records for a unique experiment hash, persists them
   through `JitML.Tune.Resume.persistTrialTranscript` against live
   MinIO, then calls `replaySweep` for the seed list and asserts the
@@ -3034,8 +3034,8 @@ outcome bit-for-bit.
 
 ### Live Validation Note (2026-05-25)
 
-Validation host: same Linux+NVIDIA host as Sprints 13.1 / 13.2 / 13.3 /
-13.7. The 13.10 Live case ran inside the same `cabal test
+Validation host: same Linux+NVIDIA host as Sprints 15.1 / 15.2 / 15.3 /
+13.7. The 15.10 Live case ran inside the same `cabal test
 jitml-integration --test-options='-p Live'` cohort and exited
 `OK (0.11s)`. Per-trial transcripts landed under
 `jitml-trials/<trialStorageKey experimentHash trialSeed>` and the
@@ -3045,7 +3045,7 @@ seeds resumed and zero read failures.
 
 ### Code Surface Landed (2026-05-26 + 2026-05-27, canonical sampler × scheduler × pruner sweep)
 
-- `JitML.App.publishWorkerTuneEvent` (Sprint 13.3 + 13.10) iterates
+- `JitML.App.publishWorkerTuneEvent` (Sprint 15.3 + 15.10) iterates
   the canonical sampler × scheduler × pruner grid in deterministic
   Cartesian order (`Tune.samplerCatalog × Tune.schedulerCatalog ×
   Tune.prunerCatalog` = 11 × 4 × 3 = 132 combinations), capped by
@@ -3064,7 +3064,7 @@ seeds resumed and zero read failures.
   successfully-persisted trials and the maximum observed objective.
 - The transport loop (canonical grid → MinIO persist → event
   publish) is now exercised live whenever the tune Job runs in
-  cluster context; closing this loop satisfies Sprint 13.10's
+  cluster context; closing this loop satisfies Sprint 15.10's
   primary deliverable that "full canonical sampler × scheduler ×
   pruner sweep executes through the live cluster."
 
@@ -3072,7 +3072,7 @@ seeds resumed and zero read failures.
 
 - `test/hyperparameter/Main.hs` adds the test
   "report-card knobs drive the full canonical sampler × scheduler ×
-  pruner sweep (Sprint 13.10)". It loads
+  pruner sweep (Sprint 15.10)". It loads
   `knobTuneTrials` from `cabal.project`, caps the per-axis budget at
   `min 8 trialBudget` for test speed, and iterates the canonical
   catalog cross-product (`samplerCatalog × schedulerCatalog ×
@@ -3087,7 +3087,7 @@ seeds resumed and zero read failures.
 ### Live Validation Note (2026-05-27, daemon TuneHandler dispatch)
 
 New `Live` case `live daemon TuneHandler dispatches StartSweep
-into a Kubernetes Job (Sprint 13.10 daemon)` in
+into a Kubernetes Job (Sprint 15.10 daemon)` in
 `test/integration/Main.hs`: publishes a `StartSweep` envelope on
 `tune.command.<substrate>` via the routed Pulsar WebSocket
 subprocess, waits up to 30 seconds for
@@ -3096,11 +3096,11 @@ then deletes the Job. This closes the deliverable that the
 daemon's `TuneHandler` consumes `StartSweep` from the live broker
 and dispatches a workload Job. Combined with the existing
 "live tune trial persist + replay round-trip" test, both halves
-of Sprint 13.10's deliverable surface (per-trial transcript
+of Sprint 15.10's deliverable surface (per-trial transcript
 persistence + daemon-side dispatch) are now live-validated.
 
 ```
-live daemon TuneHandler dispatches StartSweep into a Kubernetes Job (Sprint 13.10 daemon): OK (0.18s)
+live daemon TuneHandler dispatches StartSweep into a Kubernetes Job (Sprint 15.10 daemon): OK (0.18s)
 ```
 
 `cabal test jitml-integration --test-options='-p Live'` cohort
@@ -3112,13 +3112,13 @@ cluster.
 - None remaining for Sprint 13.10. Sprint closed 2026-05-29; the live tune
   trial persist + replay round-trip and the daemon `TuneHandler` `StartSweep`
   dispatch both pass against the typed Dhall `RunConfig` dispatch (see
-  Sprint `13.3` live re-verification block — `lookupTrialBudget` /
+  Sprint `15.3` live re-verification block — `lookupTrialBudget` /
   `lookupSweepSeed` already prefer the mounted `TuneRunConfig`).
 
-## Sprint 13.11: CUDA and Linux CPU Production Weight Loading ✅
+## Sprint 15.11: CUDA and Linux CPU Production Weight Loading ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-27)
-**Blocked by**: Sprint `13.7`
+**Blocked by**: Sprint `15.7`
 **Implementation**: `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/Engines/CudaLocal.hs`,
 `src/JitML/Engines/Local.hs`,
@@ -3190,10 +3190,10 @@ with real production weight loading per substrate).
     into the flat row-major buffer the FFI accepts.
   - `linuxCpuToolchainFingerprint` adds the new symbol
     `jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)`
-    so the cache key invalidates pre-13.11 artifacts and re-emits the
+    so the cache key invalidates pre-15.11 artifacts and re-emits the
     extended `kernel.cc`.
 - `test/cross-backend/Main.hs` adds the new case `linux-cpu weighted
-  Dense2D kernel runs real GEMM bit-deterministically (Sprint 13.11)`
+  Dense2D kernel runs real GEMM bit-deterministically (Sprint 15.11)`
   that runs the weighted Dense2D kernel three times against `input =
   [1,2,3]` and `weights = [1,0,0, 0,2,0, 0,0,3]` (3×3 identity-scaled
   diagonal) and asserts `output = [1, 4, 9]` bit-equally across all
@@ -3236,10 +3236,10 @@ with real production weight loading per substrate).
     input + weights across the FFI.
   - `cudaToolchainFingerprint` extended with
     `jitml_weighted_kernel(float*,const float*,size_t,const float*,size_t)`
-    so the CUDA cache key invalidates pre-13.11 artifacts.
+    so the CUDA cache key invalidates pre-15.11 artifacts.
 - `test/cross-backend/Main.hs` adds the probe-gated case `linux-cuda
   weighted Dense2D kernel runs real device GEMM bit-deterministically
-  (Sprint 13.11)` that runs the CUDA weighted Dense2D kernel three
+  (Sprint 15.11)` that runs the CUDA weighted Dense2D kernel three
   times against the same input + diagonal weights and asserts bit-equal
   `[1.0, 4.0, 9.0]` output. Skips with a passing message on hosts
   without a positive CUDA runtime probe.
@@ -3316,7 +3316,7 @@ with real production weight loading per substrate).
   LayerNorm / Embedding) twice on the same input + weight buffer and
   asserts bit-identical output across the two runs. MHA omitted from
   the test cohort because its embedded triple-matmul is sensitive to
-  reduction order (covered at the time by broader Phase 15 comparison
+  reduction order (covered at the time by broader Phase 17 comparison
   fixtures, later removed with the cross-substrate numeric parity surface).
 
 ### Live Validation Note (2026-05-27, per-family weighted bodies)
@@ -3326,9 +3326,9 @@ exercises all three weighted determinism tests:
 
 ```
 jitml-cross-backend
-  linux-cpu weighted Dense2D kernel runs real GEMM bit-deterministically (Sprint 13.11):                                          OK (1.10s)
-  linux-cpu weighted Conv2D / Conv3D / BatchNorm / LayerNorm / Embedding bodies compile and run deterministically (Sprint 13.11): OK (5.16s)
-  linux-cuda weighted Dense2D kernel runs real device GEMM bit-deterministically (Sprint 13.11):                                  OK (2.02s)
+  linux-cpu weighted Dense2D kernel runs real GEMM bit-deterministically (Sprint 15.11):                                          OK (1.10s)
+  linux-cpu weighted Conv2D / Conv3D / BatchNorm / LayerNorm / Embedding bodies compile and run deterministically (Sprint 15.11): OK (5.16s)
+  linux-cuda weighted Dense2D kernel runs real device GEMM bit-deterministically (Sprint 15.11):                                  OK (2.02s)
 
 All 3 tests passed (8.28s)
 ```
@@ -3339,19 +3339,19 @@ oneDNN compile path, runs it twice against the same input + weight
 buffer, and asserts bit-equality across the two runs — confirming
 the real per-family weighted primitives produce deterministic
 output under the determinism contract. The live `jitml inference
-  run` test (Sprint 13.12 closure) covers the daemon-side bit-
+  run` test (Sprint 15.12 closure) covers the daemon-side bit-
   determinism end-to-end for the CUDA Dense2D path; the wider per-family
-  cross-substrate numeric-comparison plan was later removed by Phase 15
-  Sprint `15.4`.
+  cross-substrate numeric-comparison plan was later removed by Phase 17
+  Sprint `17.4`.
 
 ### Remaining Work
 
 - None remaining for Sprint 13.11. Sprint closed 2026-05-27.
 
-## Sprint 13.12: Live `jitml inference run` and `jitml inspect replay` ✅
+## Sprint 15.12: Live `jitml inference run` and `jitml inspect replay` ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-27)
-**Blocked by**: Sprint `13.11`
+**Blocked by**: Sprint `15.11`
 **Implementation**: `src/JitML/App.hs`,
 `src/JitML/Checkpoint/Store.hs`,
 `src/JitML/Service/MinIOSubprocess.hs`
@@ -3375,7 +3375,7 @@ the JIT cache, and runs real inference. `jitml inspect replay
   the loaded JIT kernel.
 - `jitml inspect replay <manifest-sha>` reads the named manifest from
   live MinIO and prints the replay summary.
-- The Sprint `13.11` weighted runners execute the actual inference; the
+- The Sprint `15.11` weighted runners execute the actual inference; the
   command exits non-zero with `AppError` on missing pointers or
   manifest SHA mismatches.
 
@@ -3385,16 +3385,16 @@ the JIT cache, and runs real inference. `jitml inspect replay
    latest` against the live cluster outputs the expected deterministic
    inference summary.
 2. `jitml inspect replay <manifest-sha>` against a manifest written by
-   Sprint `13.4` succeeds.
+   Sprint `15.4` succeeds.
 
 ### Live Validation Note (2026-05-25)
 
 ```
-    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12):  OK (0.29s)
+    live jitml inference run reads checkpoint from live MinIO (Sprint 15.12):  OK (0.29s)
 ```
 
 `cabal test jitml-integration --test-options='-p Live'` cohort on the
-Sprint 13.1 cluster (edge port `127.0.0.1:9092`) — 8/8 pass in
+Sprint 15.1 cluster (edge port `127.0.0.1:9092`) — 8/8 pass in
 `1.43s`. The new case (a) writes a manifest + blob + latest pointer
 to live MinIO via `writeCheckpointSnapshotWithMinIO`, (b) spawns
 `./.build/jitml inference run --experiment-hash <hash>` via the typed
@@ -3425,7 +3425,7 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   one publication-detection surface.
 - A new `Live` case
   `live jitml inference run reads checkpoint from live MinIO (Sprint
-  13.12)` in `test/integration/Main.hs` (a) writes a manifest + blob +
+  15.12)` in `test/integration/Main.hs` (a) writes a manifest + blob +
   latest pointer to live MinIO via `writeCheckpointSnapshotWithMinIO`,
   (b) spawns `./.build/jitml inference run --experiment-hash
   <hash>` via the typed `Subprocess` boundary, asserting the output
@@ -3487,13 +3487,13 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
 ### Live Validation Note (2026-05-27)
 
 On the same RTX 3090 host as the 2026-05-26 cluster bring-up, with a
-freshly rebuilt `jitml:local` image (Sprint 13.12 JIT-kernel-backed
+freshly rebuilt `jitml:local` image (Sprint 15.12 JIT-kernel-backed
 inference path baked into `/usr/local/bin/jitml` via the binary mount
-override during testing), the Sprint 13.12 Live case ran
+override during testing), the Sprint 15.12 Live case ran
 end-to-end:
 
 ```
-    live jitml inference run reads checkpoint from live MinIO (Sprint 13.12): OK (0.54s)
+    live jitml inference run reads checkpoint from live MinIO (Sprint 15.12): OK (0.54s)
 ```
 
 The test now exercises the real JIT-kernel-backed CUDA path:
@@ -3508,16 +3508,16 @@ real device-computed result is returned. The pre-existing
 corrected (default behaviour is fast-math-off, matching the
 [determinism contract](../documents/engineering/determinism_contract.md)).
 The `runInspectReplay` half remains exercised by its earlier Live case
-against a Sprint 13.4-written manifest.
+against a Sprint 15.4-written manifest.
 
 ### Remaining Work
 
 - None remaining for Sprint 13.12. Sprint closed 2026-05-27.
 
-## Sprint 13.13: Live `/api/ws` WebSocket Proxy and Compiled Halogen Bundle ✅
+## Sprint 15.13: Live `/api/ws` WebSocket Proxy and Compiled Halogen Bundle ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-28)
-**Blocked by**: Sprint `13.3`
+**Blocked by**: Sprint `15.3`
 **Implementation**: `src/JitML/Web/Server.hs`,
 `web/src/Panels/{Mnist,Cifar,Connect4,Rl,Training,Tune}.purs`,
 `web/spago.yaml`, `docker/Dockerfile`
@@ -3560,7 +3560,7 @@ daemon state. Closes Exit Definition item 8's live-panel slice.
   (`event: <domain>`/`data: <payload>` lines) from a live broker
   payload. The initial 2026-05-27 polling snapshot fell back to
   deterministic per-domain frames when no live payload was supplied;
-  Phase `15` Sprint `15.3` later removed those local stream frames and
+  Phase `17` Sprint `17.3` later removed those local stream frames and
   made plain HTTP stream requests return `503` unless the client uses a
   WebSocket upgrade.
 - `web/src/Panels/Mnist.purs` gains real Halogen render machinery:
@@ -3610,7 +3610,7 @@ daemon state. Closes Exit Definition item 8's live-panel slice.
   125 bytes), `encodeCloseFrame` (opcode=0x8), and
   `detectWebSocketUpgrade` (parse `Upgrade: websocket` +
   `Sec-WebSocket-Key` from raw request bytes). The `jitml-unit`
-  group "WebSocket frame and handshake primitives (Sprint 13.13)"
+  group "WebSocket frame and handshake primitives (Sprint 15.13)"
   covers the RFC 6455 §1.3 known answer plus the frame-encoder
   byte-level fixtures (7/7 tests). New deps:
   `base64-bytestring` + `cryptohash-sha1`.
@@ -3633,7 +3633,7 @@ daemon state. Closes Exit Definition item 8's live-panel slice.
   forwards each consumed delivery as a WebSocket text frame
   (ack-after-write per at-least-once doctrine). Without a live
   publication the original handler emitted the deterministic fallback
-  frame once; Phase `15` Sprint `15.3` replaced that with a terminal
+  frame once; Phase `17` Sprint `17.3` replaced that with a terminal
   error frame. New `serveDemoWithBridge` entrypoint exposes the bridge
   surface to the demo binary.
 
@@ -3660,7 +3660,7 @@ is validated:
   --outfile=dist/Main/bundle.js` after `spago build` and appends
   `jitmlDemo.main();`, producing a 225 KB self-contained browser
   bundle. `JitML.Web.Server.bundleEntryPath` points at
-  `web/dist/Main/bundle.js`; Phase `15` Sprint `15.3` removed the
+  `web/dist/Main/bundle.js`; Phase `17` Sprint `17.3` removed the
   per-module fallback entry for offline shells.
 - **Per-panel hash navigation.** `playwright/jitml-demo.spec.ts`'s
   `loadPanel` now navigates to `LIVE_DEMO_URL#<panel-id>` so
@@ -3668,7 +3668,7 @@ is validated:
 - **Live render validated.** The rebuilt image was `kind load`ed +
   the `jitml-demo` Deployment rollout-restarted; the live demo serves
   the 225 KB IIFE through the Envoy edge, and the Playwright matrix
-  mounts + asserts all six panels (7 / 7, see Sprint 13.14 Live
+  mounts + asserts all six panels (7 / 7, see Sprint 15.14 Live
   Validation Note).
 
 ### Code Surface Landed (2026-05-28, bridge activation + in-cluster endpoint + browser glue)
@@ -3718,7 +3718,7 @@ the live RTX 3090 / CUDA 12.8 cluster:
 - The bridge handshake is a real `HTTP/1.1 101 Switching Protocols` with
   a valid `sec-websocket-accept`; `GET /` returns 200 and
   `GET /bundle/main.js` serves the 236 KB browser IIFE; the Playwright
-  panel matrix (Sprint 13.14) mounts all six panels from that bundle.
+  panel matrix (Sprint 15.14) mounts all six panels from that bundle.
 
 ### Follow-On Note
 
@@ -3732,10 +3732,10 @@ the live RTX 3090 / CUDA 12.8 cluster:
   robustness improvement; it does not affect the validated broker-frame
   round-trip.
 
-## Sprint 13.14: Live Playwright on Demo Edge Route ✅
+## Sprint 15.14: Live Playwright on Demo Edge Route ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-28)
-**Blocked by**: Sprint `13.13`
+**Blocked by**: Sprint `15.13`
 **Implementation**: `playwright/jitml-demo.spec.ts`,
 `src/JitML/Test/LivePlan.hs`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
@@ -3776,7 +3776,7 @@ DOM stubs and closes Exit Definition item 8's Playwright slice plus item 9's
 
 - `playwright/jitml-demo.spec.ts` adds `loadLiveEdge()` that reads
   `./.build/runtime/cluster-publication.json` and returns
-  `http://127.0.0.1:<edge-port>/`. Phase `15` Sprint `15.3` removed
+  `http://127.0.0.1:<edge-port>/`. Phase `17` Sprint `17.3` removed
   the offline fallback, so the current spec fails fast when the live
   publication is absent.
 - Each canonical panel test now navigates to the live edge route and waits for
@@ -3819,7 +3819,7 @@ The seven-test canonical panel matrix ran against the live
    ```
 
    Each panel mounts from the real bundle served through the live Envoy
-   edge — this validates the Sprint 13.13 compiled-Halogen-bundle render
+   edge — this validates the Sprint 15.13 compiled-Halogen-bundle render
    deliverable end-to-end in a real browser (chromium headless).
 
 ### Remaining Work
@@ -3831,10 +3831,10 @@ The seven-test canonical panel matrix ran against the live
   historical evidence. The ephemeral e2e orchestration is the `jitml bootstrap`
   + `jitml cluster down` path recorded in `JitML.Test.LivePlan.liveE2EPlan`.
 
-## Sprint 13.15: Linux CPU Full-Tensor Benchmark Payloads and First-Cache-Miss Live Execution ✅
+## Sprint 15.15: Linux CPU Full-Tensor Benchmark Payloads and First-Cache-Miss Live Execution ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-27)
-**Blocked by**: Sprint `13.11`
+**Blocked by**: Sprint `15.11`
 **Implementation**: `src/JitML/Engines/TuningBenchmark.hs`,
 `src/JitML/Engines/Loader.hs`,
 `src/JitML/Engines/Local.hs`
@@ -3844,7 +3844,7 @@ The seven-test canonical panel matrix ran against the live
 
 Replace the current Linux CPU oneDNN benchmark candidate runner's
 single-tensor payload with the full-tensor benchmark payload supplied
-by the checkpoint ABI from Sprint `13.11`, and execute the live
+by the checkpoint ABI from Sprint `15.11`, and execute the live
 first-cache-miss benchmark path on Linux CPU so the persisted
 `TuningChoice` reflects real measured selection.
 
@@ -3867,7 +3867,7 @@ first-cache-miss benchmark path on Linux CPU so the persisted
 
 - `JitML.Engines.TuningBenchmark.linuxCpuWeightedBenchmarkCandidateRunner`
   accepts both input and weight tensors and drives
-  `Local.runLinuxCpuWeightedKernel` through the Sprint 13.11 weighted
+  `Local.runLinuxCpuWeightedKernel` through the Sprint 15.11 weighted
   ABI. The persisted `BenchmarkObservation` digest is computed from
   `linuxCpuWeightedKernelOutput`. Replaces the single-input
   smoke fixture with the full-tensor payload supplied by the
@@ -3899,7 +3899,7 @@ first-cache-miss benchmark path on Linux CPU so the persisted
 ### Live Validation Note (2026-05-27, first-cache-miss persistence)
 
 New `jitml-cross-backend` case `linux-cpu first cache-miss
-persists a TuningChoice JSON in the tuning store (Sprint 13.15)`:
+persists a TuningChoice JSON in the tuning store (Sprint 15.15)`:
 (a) snapshots the existing files under
 `.build/jit/tuning/linux-cpu/`, (b) drives
 `ensureKernelArtifactWithBenchmarkTuningWithRunner` with a
@@ -3917,7 +3917,7 @@ filesystem permission rather than a fault in the surface under
 test).
 
 ```
-linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Sprint 13.15): OK (1.18s)
+linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Sprint 15.15): OK (1.18s)
 ```
 
 `cabal test jitml-cross-backend` cohort post-add — 19 / 19 pass.
@@ -3926,7 +3926,7 @@ linux-cpu first cache-miss persists a TuningChoice JSON in the tuning store (Spr
 
 - None remaining for Sprint 13.15. Sprint closed 2026-05-27.
 
-## Sprint 13.16: Re-validate the linux-cuda lane runs for real with the skip guards removed ✅
+## Sprint 15.16: Re-validate the linux-cuda lane runs for real with the skip guards removed ✅
 
 **Status**: Done (closed 2026-06-09 on the NVIDIA GeForce RTX 5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`)
 **Implementation**: `test/cross-backend/Main.hs`
@@ -4010,7 +4010,7 @@ contract holds.
   2026-06-09 (19 / 19, no skip-sentinels); the skip-guard removal is complete
   and the sprint is `✅ Done`.
 
-## Sprint 13.17: Live linux-cpu Exercise of the Reopened Workflows ✅
+## Sprint 15.17: Live linux-cpu Exercise of the Reopened Workflows ✅
 
 **Status**: Done
 **Docs to update**: `system-components.md`
@@ -4043,9 +4043,9 @@ measured output that clears its in-code threshold.
 
 - None for the linux-cpu live lane. The non-Dense SL and Phase `9`
   device-backed MCTS/tuning code follow-ons remain in their owning phases, not
-  in Sprint `13.17`.
+  in Sprint `15.17`.
 
-## Sprint 13.18: Live linux-cuda Exercise of the Reopened Workflows ✅
+## Sprint 15.18: Live linux-cuda Exercise of the Reopened Workflows ✅
 
 **Status**: Done
 **Docs to update**: `system-components.md`
@@ -4074,7 +4074,7 @@ cluster, with `-fcuda` so the CUDA bindings link.
 
 - None for the linux-cuda live lane.
 
-## Sprint 13.19: Live Cluster Closure of the Reopened Workflows ✅
+## Sprint 15.19: Live Cluster Closure of the Reopened Workflows ✅
 
 **Status**: Done
 **Docs to update**: `system-components.md`
@@ -4094,14 +4094,14 @@ worker Jobs inherit the NVIDIA runtime settings needed by GPU workloads.
 ### Remaining Work
 
 - None for the Linux cluster closure. Apple Silicon closure and final handoff
-  closed later in Phases `14` and `15` on 2026-06-12.
+  closed later in Phases `16` and `17` on 2026-06-12.
 
-## Sprint 13.20: Linux No-Caveat Runtime and Browser Lane ⏸️
+## Sprint 15.20: Linux No-Caveat Runtime and Browser Lane ⏸️
 
 **Status**: Blocked
 **Implementation**: `bootstrap/linux-cpu.sh`, `bootstrap/linux-cuda.sh`,
 `src/JitML/Test/WorkflowMatrix.hs`, `playwright/jitml-demo.spec.ts`
-**Blocked by**: Phase `16` Sprint `16.1`; Phase `17` Sprint `17.2`
+**Blocked by**: Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`
 (Phases `9`/`10`/`11`/`12` Sprints `9.12`/`10.6`/`11.9`/`12.13` are now `✅ Done`
 and no longer block this lane)
 **Docs to update**: `documents/engineering/training_workloads.md`,
@@ -4140,9 +4140,9 @@ Validate the full no-caveat product on real Linux CPU and Linux CUDA lanes.
   convergence `83.9s`, AlphaZero, tune, inference, GC, capability round-trips);
   `jitml-e2e --linux-cpu` `23/23`; `check-code` / `docs check` ok. The live
   Playwright product matrix is `6/11` — the five checkpoint-backed panels are
-  blocked by the Sprint `17.1` in-cluster demo MinIO-endpoint defect and missing
-  per-panel checkpoint serving (see Phase `17`), so this lane cannot close until
-  Phases `16`/`17` land.
+  blocked by the Sprint `14.1` in-cluster demo MinIO-endpoint defect and missing
+  per-panel checkpoint serving (see Phase `14`), so this lane cannot close until
+  Phases `13`/`14` land.
 - **`linux-cuda` half remains hardware-blocked.** The Apple M1 Max host has no
   NVIDIA GPU and its Docker is an aarch64 Linux VM, so the `linux-cuda` lane
   (`jitml test all --linux-cuda`, `jitml-e2e --linux-cuda`) cannot run here and
@@ -4150,45 +4150,45 @@ Validate the full no-caveat product on real Linux CPU and Linux CUDA lanes.
 
 ## Doctrine Sections Cited
 
-- [../README.md → Reconcilers: Idempotent Mutation as a Single Command](../README.md#doctrine-scope) (Sprint 13.1 — live `jitml bootstrap` + Helm rollout, Sprint 13.7 — live `jitml internal gc`)
-- [../README.md → Capability Classes and Service Errors](../README.md#doctrine-scope) (Sprints 13.2, 13.7, 13.10, 13.11, 13.12 — live `HasMinIO` / `HasPulsar` / `HasHarbor`)
-- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprints 13.3, 13.4, 13.6, 13.10 — live broker consumer with dedup)
-- [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprints 13.3, 13.7 — `RetryPolicy` over live broker / MinIO)
-- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprints 13.4, 13.6, 13.10, 13.12 — live `jitml train` / `jitml rl train` / `jitml tune` / `jitml inference run`)
-- [../README.md → Determinism Contract](../README.md#doctrine-scope) (Sprints 13.8, 13.9, 13.11 — cuDNN deterministic pin + cross-substrate ULP tolerance)
-- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 13.1, 13.14 — live `jitml-e2e`)
+- [../README.md → Reconcilers: Idempotent Mutation as a Single Command](../README.md#doctrine-scope) (Sprint 15.1 — live `jitml bootstrap` + Helm rollout, Sprint 15.7 — live `jitml internal gc`)
+- [../README.md → Capability Classes and Service Errors](../README.md#doctrine-scope) (Sprints 15.2, 15.7, 15.10, 15.11, 15.12 — live `HasMinIO` / `HasPulsar` / `HasHarbor`)
+- [../README.md → At-Least-Once Event Processing](../README.md#doctrine-scope) (Sprints 15.3, 15.4, 15.6, 15.10 — live broker consumer with dedup)
+- [../README.md → Retry Policy as First-Class Values](../README.md#doctrine-scope) (Sprints 15.3, 15.7 — `RetryPolicy` over live broker / MinIO)
+- [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprints 15.4, 15.6, 15.10, 15.12 — live `jitml train` / `jitml rl train` / `jitml tune` / `jitml inference run`)
+- [../README.md → Determinism Contract](../README.md#doctrine-scope) (Sprints 15.8, 15.9, 15.11 — cuDNN deterministic pin + cross-substrate ULP tolerance)
+- [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprints 15.1, 15.14 — live `jitml-e2e`)
 
 ## Documentation Requirements
 
 **Engineering docs to create/update:**
 
 - `documents/engineering/cluster_topology.md` — record live ephemeral
-  Kind / Helm orchestration once Sprint `13.1` closes.
+  Kind / Helm orchestration once Sprint `15.1` closes.
 - `documents/engineering/daemon_architecture.md` — record live broker
-  consumer handlers once Sprint `13.3` closes; live `/api/ws` proxy
-  once Sprint `13.13` closes.
+  consumer handlers once Sprint `15.3` closes; live `/api/ws` proxy
+  once Sprint `15.13` closes.
 - `documents/engineering/checkpoint_format.md` — record live MinIO
   conditional-write + GC + production weight loading once Sprints
-  `13.7` and `13.11` close.
+  `15.7` and `15.11` close.
 - `documents/engineering/training_workloads.md` — record live SL / RL /
-  AlphaZero / tune E2E once Sprints `13.4`, `13.6`, `13.8`, `13.9`, and
-  `13.10` close.
+  AlphaZero / tune E2E once Sprints `15.4`, `15.6`, `15.8`, `15.9`, and
+  `15.10` close.
 - `documents/engineering/jit_codegen_architecture.md` — record live
-  benchmark candidate selection on Linux CPU + CUDA once Sprint `13.15`
+  benchmark candidate selection on Linux CPU + CUDA once Sprint `15.15`
   closes.
 - `documents/engineering/purescript_frontend.md` — record live Halogen
-  bundle + WebSocket proxy + Playwright closure once Sprints `13.13`
-  and `13.14` close.
+  bundle + WebSocket proxy + Playwright closure once Sprints `15.13`
+  and `15.14` close.
 - `documents/engineering/determinism_contract.md` — record real CUDA
-  bit-equality once Sprint `13.8` closes; record the clarified contract
+  bit-equality once Sprint `15.8` closes; record the clarified contract
   ("within a substrate: bit-for-bit reproducible; across substrates: NO
   guarantee") and the removed cross-substrate numeric parity surface once
-  Sprint `13.16` closes; cross-substrate ULP work lives in Phase `15`.
+  Sprint `15.16` closes; cross-substrate ULP work lives in Phase `17`.
 - `documents/engineering/unit_testing_policy.md` — note live `jitml-e2e`
-  closure once Sprint `13.14` closes; record the partitioned per-substrate
+  closure once Sprint `15.14` closes; record the partitioned per-substrate
   lanes and the removal of the `probeCudaRuntime` / `cudaRuntimeAvailable` /
   `cublasBindingsCompiledIn` / `cudnnBindingsCompiledIn` skip guards (a
-  missing toolchain now fails rather than skips) once Sprint `13.16` closes.
+  missing toolchain now fails rather than skips) once Sprint `15.16` closes.
 
 **Product docs to create/update:**
 
@@ -4197,11 +4197,11 @@ Validate the full no-caveat product on real Linux CPU and Linux CUDA lanes.
 **Cross-references to add:**
 
 - `system-components.md → Substrates` row for `linux-cuda` flips from
-  Active to Done once Sprint `13.11` closes.
+  Active to Done once Sprint `15.11` closes.
 - `system-components.md → Stateful Platform Services` rows flip from
-  partial to Done once Sprint `13.2` closes.
+  partial to Done once Sprint `15.2` closes.
 - `system-components.md → Test Stanzas` row for `jitml-e2e` flips to
-  Done once Sprint `13.14` closes.
+  Done once Sprint `15.14` closes.
 
 ## Related Documents
 
@@ -4215,6 +4215,6 @@ Validate the full no-caveat product on real Linux CPU and Linux CUDA lanes.
 - [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md)
 - [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md)
 - [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md)
-- [phase-14-apple-silicon-closure.md](phase-14-apple-silicon-closure.md)
-- [phase-15-cross-substrate-and-handoff.md](phase-15-cross-substrate-and-handoff.md)
+- [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md)
+- [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md)
 - [../README.md](../README.md)

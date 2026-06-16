@@ -35,7 +35,7 @@ and publishes the normal `training.event.apple-silicon`,
 validation: `docker compose run --rm jitml cabal test jitml-daemon-lifecycle
 --test-show-details=direct` passed 34 / 34, including the Sprint `5.11`
 placement assertions. Live failed-Job observation remains Phase `12`; full Apple
-lane validation remains Phase `14`; final ledger walk-down remains Phase `15`.
+lane validation remains Phase `16`; final ledger walk-down remains Phase `17`.
 
 Prior closure history follows.
 
@@ -47,7 +47,7 @@ now probes the OS Metal runtime plus the fixed Metal bridge, records
 `apple_metal_acquire` in the daemon runtime summary, and fails closed before
 subscription acquisition if either boundary is unavailable. The remaining Apple
 generated Swift/Tart cache-miss residue is completed under Phase `7` Sprint
-`7.11` / Phase `14` Sprint `14.9`; the deletion ledger was empty at that
+`7.11` / Phase `16` Sprint `16.9`; the deletion ledger was empty at that
 2026-06-12 closure.
 
 ✅ **Done** (reopened 2026-05-30 for the headless Apple Metal JIT workstream;
@@ -61,7 +61,7 @@ text below predates the reopen.
 ✅ **Done** (re-closed 2026-05-29 after Sprint `5.7` landed the typed Dhall
 `RunConfig` + BootConfig-mounted worker dispatch and retired the `JITML_*`
 run-parameter IPC; live re-validation of the daemon→worker dispatch with the env
-IPC removed is owned by Phase 13 Sprints `13.3` / `13.4` / `13.8` / `13.10`).
+IPC removed is owned by Phase 15 Sprints `15.3` / `15.4` / `15.8` / `15.10`).
 The phase owns
 [Exit Definition](README.md#exit-definition) item 2 (`jitml service` is
 the canonical long-running daemon, parameterised by Dhall `BootConfig` /
@@ -820,7 +820,7 @@ No sprint-owned Phase `5.6` Remaining Work remains.
 
 ## Sprint 5.7: Typed Dhall `RunConfig` and BootConfig-Mounted Worker Dispatch ✅
 
-**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 13 Sprints `13.3`/`13.4`/`13.8`/`13.10`)
+**Status**: Done (code-surface closed 2026-05-29; live re-validation owned by Phase 15 Sprints `15.3`/`15.4`/`15.8`/`15.10`)
 **Implementation**: `dhall/run/Schema.dhall`, `src/JitML/Service/RunConfig.hs`, `src/JitML/Service/Workload.hs`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`, `documents/engineering/daemon_architecture.md`, `system-components.md`, `legacy-tracking-for-deletion.md`
 
@@ -856,7 +856,7 @@ ledger.
 - `jitml rl train` / `jitml train` / `jitml tune` decode their parameters from the
   typed Dhall with no `JITML_*` run-parameter or wiring env on the Job; a
   missing/bad field fails typed rather than silently defaulting.
-- Live (owned by Phase `13`): a dispatched train/rl/tune run produces the same
+- Live (owned by Phase `15`): a dispatched train/rl/tune run produces the same
   results with the env IPC removed.
 
 ### Current Validation State
@@ -892,7 +892,7 @@ ledger.
 ### Remaining Work
 
 - The live daemon→worker dispatch validation with the env IPC removed is owned by
-  Phase `13` Sprints `13.3` / `13.4` / `13.8` / `13.10`'s Remaining Work.
+  Phase `15` Sprints `15.3` / `15.4` / `15.8` / `15.10`'s Remaining Work.
 
 ## Sprint 5.8: Retire Tart VM Lifecycle from the Daemon ✅
 
@@ -975,7 +975,7 @@ in the Same Binary` and `Application Environment` from [../README.md](../README.
   with the implemented boot/live config, lifecycle, endpoint, logger,
   consumer, and retry surfaces.
 - `legacy-tracking-for-deletion.md` records the stale Apple Metal-backed
-  Kubernetes Job placement path; Sprint `15.7` later moved that row to
+  Kubernetes Job placement path; Sprint `17.7` later moved that row to
   `Completed`.
 
 ## Sprint 5.9: Reinstate the Dhall-configured build-VM block and daemon acquire [✅ Done]
@@ -1093,7 +1093,7 @@ daemon acquire only the fixed Metal bridge and OS Metal runtime. Adopts
 
 None. The daemon no longer owns a build VM or idle timeout. Remaining Tart /
 SwiftPM generated-cache-miss residue belongs to Phase `7` Sprint `7.11`, and
-Apple live validation belongs to Phase `14` Sprint `14.9`. The later Apple
+Apple live validation belongs to Phase `16` Sprint `16.9`. The later Apple
 host-residency placement defect is owned by Sprint `5.11`.
 
 ## Sprint 5.11: Workload Placement Planner and Apple Host Workload Dispatch ✅
@@ -1139,7 +1139,7 @@ Environment` from [../README.md](../README.md).
   clients and tests do not gain a second result surface.
 - Record the stale Apple Kubernetes-Job placement row in
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md#completed)
-  for Sprint `15.7`'s final audit after the live Apple lane validates; that row
+  for Sprint `17.7`'s final audit after the live Apple lane validates; that row
   has since moved to `Completed`.
 
 ### Validation
@@ -1174,7 +1174,7 @@ Environment` from [../README.md](../README.md).
 ### Remaining Work
 
 - None. Phase `12` completed the failed-Job/no-Apple-Job integration assertions,
-  Phase `14` completed the live Apple full-lane validation, and Phase `15`
+  Phase `16` completed the live Apple full-lane validation, and Phase `17`
   completed the final legacy-ledger move to `Completed`.
 
 ## Related Documents

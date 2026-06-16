@@ -1,4 +1,4 @@
-# Phase 16: No-Caveat Model Runtime Closure
+# Phase 13: No-Caveat Model Runtime Closure
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -9,7 +9,7 @@
 [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md),
 [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md),
 [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md),
-[phase-17-interactive-demo-and-playwright-closure.md](phase-17-interactive-demo-and-playwright-closure.md),
+[phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
 [../README.md](../README.md)
 **Generated sections**: none
@@ -27,7 +27,7 @@ original Dense-MLP / current-RL closure into the full advertised model matrix.
 Phase `8` Sprint `8.12` has landed the all-row SL trainable architecture and
 typed RL event-payload surface consumed here. Phase `9` Sprint `9.12` provides
 the RL/AlphaZero/tuning runtime surface, and Phase `10` Sprint `10.6` provides
-checkpoint/inference support across every model family. Phase `16` now owns the
+checkpoint/inference support across every model family. Phase `13` now owns the
 remaining cross-model runtime proof across those surfaces.
 
 ## Phase Summary
@@ -40,7 +40,7 @@ command envelope, run on the selected substrate, write a checkpoint, reload that
 checkpoint, serve inference/evaluation, and produce deterministic same-substrate
 results without an offline, echo, synthetic, or demo-only substitute.
 
-## Sprint 16.1: Full Canonical Model Matrix Runtime 🔄
+## Sprint 13.1: Full Canonical Model Matrix Runtime 🔄
 
 **Status**: Active
 **Implementation**: `src/JitML/SL/`, `src/JitML/RL/`, `src/JitML/Tune/`,
@@ -78,12 +78,16 @@ currently narrowed Dense-MLP / selected-RL subset.
 
 ### Validation
 
+This phase closes on the always-available `linux-cpu` lane (single host, no
+accelerator) per standards rule M(b)/(d). Per-accelerator runtime convergence is
+**owned downstream**: the `linux-cuda` runtime lane is Sprint `15.20` and the
+`apple-silicon` runtime lane is Sprint `16.11`; this phase does not run either
+accelerator.
+
 - `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu`
 - `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
 - `docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu`
 - `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
-- `docker compose run --rm jitml-cuda jitml test all --linux-cuda`
-- `jitml test all --apple-silicon`
 - `docker compose run --rm jitml jitml check-code`
 - `docker compose run --rm jitml jitml docs check`
 
@@ -108,8 +112,8 @@ product matrix scored `6/11`: the five checkpoint-backed panels fail `HTTP 503`
 because (a) the in-cluster `jitml-demo` runtime handler reads MinIO at the
 external edge `127.0.0.1:<edge>` (`App.hs:244 minioSettingsForLocalEdge`,
 unreachable from inside the pod) and (b) no per-panel inference checkpoints are
-persisted/served. Both are open Sprint `16.1` (per-family checkpoint persistence)
-/ Sprint `17.1` (in-cluster demo MinIO endpoint + checkpoint-backed browser
+persisted/served. Both are open Sprint `13.1` (per-family checkpoint persistence)
+/ Sprint `14.1` (in-cluster demo MinIO endpoint + checkpoint-backed browser
 calls) work — confirming this phase is genuinely incomplete beyond the hardware
 limits, not merely awaiting `linux-cuda`.
 
@@ -185,13 +189,13 @@ family checkpoint-inference breadth.
 
 - Phase `8` provides the all-row trainable SL architecture runtime, live
   linux-cpu staged-byte smoke, and typed RL animation/replay event payloads.
-  Phase `16` must consume that surface to run the full canonical SL catalog
+  Phase `13` must consume that surface to run the full canonical SL catalog
   through median convergence, checkpoint reload, evaluation, and inference.
-- Phase `9` provides the real RL/AlphaZero/tuning runtime surface. Phase `16`
+- Phase `9` provides the real RL/AlphaZero/tuning runtime surface. Phase `13`
   consumes that surface to retire the remaining catalog rollout compatibility
   helper and close the full checkpoint-backed train/evaluate/rollout matrix.
 - Phase `10` provides checkpoint/inference metadata, weight layouts, and
-  preprocessing/output decoders for every model family. Phase `16` consumes
+  preprocessing/output decoders for every model family. Phase `13` consumes
   that surface across the full runtime matrix.
 
 ## Documentation Requirements
