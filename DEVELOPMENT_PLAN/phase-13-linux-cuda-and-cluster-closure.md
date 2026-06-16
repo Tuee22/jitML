@@ -4133,6 +4133,20 @@ Validate the full no-caveat product on real Linux CPU and Linux CUDA lanes.
 ### Remaining Work
 
 - Blocked on the no-caveat runtime and browser implementation phases.
+- **`linux-cpu` half re-validated (2026-06-16, Apple M1 Max host).** Clean
+  `jitml bootstrap --linux-cpu` (85 steps, 7/7 ready, edge `9091`); 12 dataset
+  blobs staged + SHA-verified; `jitml-sl-canonicals --linux-cpu` `24/24` (live
+  MNIST convergence `431s`); `jitml-integration --linux-cpu` `71/71` (PPO/cartpole
+  convergence `83.9s`, AlphaZero, tune, inference, GC, capability round-trips);
+  `jitml-e2e --linux-cpu` `23/23`; `check-code` / `docs check` ok. The live
+  Playwright product matrix is `6/11` — the five checkpoint-backed panels are
+  blocked by the Sprint `17.1` in-cluster demo MinIO-endpoint defect and missing
+  per-panel checkpoint serving (see Phase `17`), so this lane cannot close until
+  Phases `16`/`17` land.
+- **`linux-cuda` half remains hardware-blocked.** The Apple M1 Max host has no
+  NVIDIA GPU and its Docker is an aarch64 Linux VM, so the `linux-cuda` lane
+  (`jitml test all --linux-cuda`, `jitml-e2e --linux-cuda`) cannot run here and
+  was not re-claimed; it requires the NVIDIA validation host.
 
 ## Doctrine Sections Cited
 

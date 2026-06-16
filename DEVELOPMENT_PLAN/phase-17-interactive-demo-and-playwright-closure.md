@@ -83,6 +83,22 @@ the PureScript app.
 
 ### Remaining Work
 
+- **Confirmed defect (2026-06-16, live `linux-cpu` Playwright `6/11`).** The five
+  checkpoint-backed panels (MNIST inference, generic inference, CIFAR upload,
+  checkpoint compare, Connect 4 move) return `HTTP 503` against the live edge.
+  Root cause 1: the in-cluster `jitml-demo` checkpoint runtime handler reads MinIO
+  at the external edge URL `127.0.0.1:<edge_port>`
+  (`src/JitML/App.hs:244`, `minioSettingsForLocalEdge`), which inside the demo pod
+  resolves to the pod's own localhost (`minioReadBytes: curl exit 7: Failed to
+  connect to 127.0.0.1 port 9091`); it must instead use the in-cluster MinIO
+  service (`minio.platform.svc.cluster.local:9000`) the daemon already uses via
+  `minioSettingsForEndpoint` — e.g. an env-driven endpoint on the `jitml-demo`
+  deployment mirroring the existing `JITML_DEMO_PULSAR_WS` override. Root cause 2:
+  no per-panel inference checkpoints are persisted/served — the live
+  `jitml-checkpoints` bucket holds only RL/AlphaZero/tune/workflow-matrix
+  artifacts, none at the experiment hashes the browser panels request (depends on
+  Sprint `16.1` per-family checkpoint persistence). The static panels (portals
+  home, shared header, RL timeline, training loss curve, tune heatmap) pass `5/5`.
 - Extend the Sprint `11.9` generated current-panel codecs into checkpoint
   browse, live-backed workflow-state reconciliation, adversarial multi-game
   replay, and persisted replay artifact payloads.
@@ -137,6 +153,13 @@ its expected browser interaction.
 - The existing Playwright suite asserts panel visibility and a few REST values;
   it must expand to workload-launch, event, checkpoint, animation, replay, and
   model-interaction assertions across the full matrix.
+- **Live `linux-cpu` Playwright baseline (2026-06-16): `6/11`.** Against a live
+  bootstrapped edge (`mcr.microsoft.com/playwright:v1.49.1-noble`, host network),
+  the five static panels pass; the five checkpoint-backed panels fail `HTTP 503`
+  on the two Sprint `17.1` defects above (in-cluster demo MinIO endpoint + missing
+  per-panel checkpoint serving). Closing `17.2` to green requires those fixes plus
+  the Sprint `16.1` checkpoint persistence, then a rebuilt `jitml:local`
+  re-bootstrap and a full re-run on every runnable lane.
 
 ## Documentation Requirements
 

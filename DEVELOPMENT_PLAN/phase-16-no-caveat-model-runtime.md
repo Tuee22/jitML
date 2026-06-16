@@ -89,6 +89,30 @@ currently narrowed Dense-MLP / selected-RL subset.
 
 ### Current Validation State
 
+**Apple M1 Max host re-validation (2026-06-16; runnable lanes only).** On an Apple
+M1 Max workstation (no NVIDIA GPU; Docker is an aarch64 Linux VM, so `linux-cuda`
+is physically unavailable and was not re-claimed), the runnable surface was
+re-exercised end to end. A stale `jitml-unit` golden (the demo panel/route list
+predating the Sprint `11.9` `generic-inference-lab` / `checkpoint-compare-lab`
+additions) was fixed; `jitml-unit` is now `197/197` on both lanes. The complete
+non-live surface passes on `apple-silicon` (host-native, incl. `jitml-backends`
+Metal GPU `17/17`) and `linux-cpu` (`jitml:local`, incl. `jitml-backends` oneDNN
+`23/23`), with `check-code: ok` and `docs check: ok`. A clean `jitml bootstrap
+--linux-cpu` came up (85 steps, 7/7 ready, edge `9091`); all 12 canonical dataset
+blobs were staged + SHA-verified into live MinIO; `jitml-sl-canonicals
+--linux-cpu` passed `24/24` (live MNIST convergence `431s`; all-row materialize
+`41s`); `jitml-integration --linux-cpu` passed `71/71` (PPO/cartpole convergence
+`83.9s`, AlphaZero generation, tune persist/replay, inference run, GC, MinIO /
+Pulsar / Harbor); `jitml-e2e --linux-cpu` passed `23/23`. The live Playwright
+product matrix scored `6/11`: the five checkpoint-backed panels fail `HTTP 503`
+because (a) the in-cluster `jitml-demo` runtime handler reads MinIO at the
+external edge `127.0.0.1:<edge>` (`App.hs:244 minioSettingsForLocalEdge`,
+unreachable from inside the pod) and (b) no per-panel inference checkpoints are
+persisted/served. Both are open Sprint `16.1` (per-family checkpoint persistence)
+/ Sprint `17.1` (in-cluster demo MinIO endpoint + checkpoint-backed browser
+calls) work — confirming this phase is genuinely incomplete beyond the hardware
+limits, not merely awaiting `linux-cuda`.
+
 **Live `linux-cpu` validation (2026-06-16).** A live `jitml bootstrap
 --linux-cpu` cluster was brought up on this host (85 rollout steps; all seven
 components — harbor, minio, pulsar, postgres, observability, jitml-service,

@@ -2285,6 +2285,8 @@ main =
       , testCase "frontend bundle and panel surfaces cover the demo panels" $ do
           fmap WebBundle.panelName WebBundle.panelSurfaces
             @?= [ "mnist-live-inference"
+                , "generic-inference-lab"
+                , "checkpoint-compare-lab"
                 , "cifar-imagenet-upload"
                 , "connect4-human-vs-alphazero"
                 , "rl-trajectory"
@@ -2294,8 +2296,11 @@ main =
           fmap WebBundle.demoRoutePath WebBundle.demoRoutes
             @?= [ "/"
                 , "/api"
+                , "/api/runs/{runId}/command"
                 , "/api/inference"
+                , "/api/inference/generic"
                 , "/api/images"
+                , "/api/checkpoints/compare"
                 , "/api/connect4/move"
                 , "/api/ws"
                 , "/api/ws/training"
@@ -2307,8 +2312,11 @@ main =
               [ "demo-routes:"
               , "- / static-shell <- web/src/Main.purs"
               , "- /api contract-index <- src/JitML/Web/Contracts.hs"
+              , "- /api/runs/{runId}/command workflow-command-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/inference inference-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/inference/generic generic-inference-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/images image-upload-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/checkpoints/compare checkpoint-compare-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/connect4/move connect4-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/ws metrics-stream-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/ws/training training-stream-contract <- src/JitML/Web/Contracts.hs"

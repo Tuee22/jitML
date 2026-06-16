@@ -911,6 +911,18 @@ Metal bridge and host-resident workload placement.
 ### Remaining Work
 
 - Blocked on the no-caveat runtime and browser implementation phases.
+- **Apple non-live surface re-validated (2026-06-16, Apple M1 Max host).** The
+  fixed Metal bridge built and its probe succeeded; host-native stanzas passed:
+  `jitml-unit 197/197` (after the stale demo-panel golden fix), `jitml-rl-canonicals
+  29/29`, `jitml-hyperparameter 16/16`, `jitml-daemon-lifecycle 34/34`,
+  `jitml-sl-canonicals 24/24` (offline), and `jitml-backends --apple-silicon`
+  `17/17` (real MSL compiled in-process via `MTLDevice.makeLibrary` and dispatched
+  on the M1 GPU, `91.9s`). The live `apple-silicon` cluster lane
+  (`bootstrap/apple-silicon.sh test`, live `jitml-integration` / `jitml-e2e` /
+  Playwright) was **not** re-exercised this session; it remains blocked by Phases
+  `16`/`17` (the same checkpoint-backed browser surface and per-family checkpoint
+  serving that block `linux-cpu` Playwright) regardless of the Apple hardware
+  being present.
 
 ## Doctrine Sections Cited
 

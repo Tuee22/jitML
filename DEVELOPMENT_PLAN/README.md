@@ -43,6 +43,60 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Session re-validation (2026-06-16 — Apple M1 Max host; runnable lanes only).**
+A full runnable-lane validation pass ran on an Apple M1 Max workstation (macOS,
+arm64; Docker Desktop aarch64 Linux VM, 9 CPUs / 47 GiB; no NVIDIA GPU). The host
+runs the `apple-silicon` lane (Metal GPU + fixed bridge) and the `linux-cpu` lane
+(aarch64 oneDNN container); the `linux-cuda` lane is **physically impossible here**
+(no NVIDIA GPU, Docker is aarch64), so every `linux-cuda` obligation remains
+hardware-blocked and was not re-claimed on this host.
+
+- **Bug fixed (code).** `jitml-unit` failed `1/197`: the demo panel/route golden in
+  `test/unit/Main.hs` was stale against the Sprint `11.9` no-caveat additions
+  (`generic-inference-lab`, `checkpoint-compare-lab`, `/api/runs/{runId}/command`,
+  `/api/inference/generic`, `/api/checkpoints/compare`). The fixture was synced to
+  the `JitML.Web.Bundle` source of truth; `jitml-unit` is now `197/197` on both
+  lanes and `check-code` / `docs check` stay green.
+- **Non-live surface — both lanes green.** `apple-silicon` (host-native) and
+  `linux-cpu` (`jitml:local` container): `jitml-unit 197`, `jitml-rl-canonicals 29`,
+  `jitml-hyperparameter 16`, `jitml-daemon-lifecycle 34`, `jitml-sl-canonicals 24`
+  (offline), `jitml-backends` (`apple-silicon` Metal GPU `17/17`, 91.9s; `linux-cpu`
+  oneDNN `23/23`). `check-code: ok`, `docs check: ok`.
+- **`linux-cpu` live lane — re-validated.** `jitml bootstrap --linux-cpu` brought up
+  a clean cluster (85 steps; all 7 components ready; edge `9091`); all 12 canonical
+  dataset blobs staged + SHA-verified into live MinIO; `jitml-sl-canonicals
+  --linux-cpu` **24/24** (live MNIST convergence `OK 431s`, all-row materialize `OK
+  41s`); `jitml-integration --linux-cpu` **71/71** (live WorkflowMatrix, PPO/cartpole
+  convergence `OK 83.9s`, AlphaZero generation, tune persist/replay, inference run,
+  GC + `gc.event`, MinIO/Pulsar/Harbor round-trips — the Harbor case needed
+  `alpine:3.20` pre-cached from a non-rate-limited mirror to dodge a Docker Hub
+  anonymous-pull rate limit, an environmental flake, not a product defect);
+  `jitml-e2e --linux-cpu` **23/23**.
+- **Playwright product matrix — `6/11` against the live `linux-cpu` edge; Phase
+  `17` confirmed genuinely incomplete.** The static panels (portals home, shared
+  header, RL timeline, training loss curve, tune heatmap) pass; the five
+  checkpoint-backed panels (MNIST inference, generic inference, CIFAR upload,
+  checkpoint compare, Connect 4 move) fail with `HTTP 503`. Two real,
+  root-caused defects block them, both owned by open sprints and **neither is a
+  hardware limit**: (1) the in-cluster `jitml-demo` checkpoint runtime handler
+  reads MinIO at the external edge `127.0.0.1:<edge>`
+  (`App.hs:244 minioSettingsForLocalEdge`), which from inside the pod is its own
+  localhost (`curl exit 7`) — it must use the in-cluster service
+  `minio.platform.svc.cluster.local:9000` as the daemon does; and (2) no
+  per-panel inference checkpoints are persisted/served — the `jitml-checkpoints`
+  bucket holds only RL/AlphaZero/tune/workflow-matrix artifacts, none at the
+  experiment hashes the browser panels request. Both are recorded as Sprint
+  `17.1` Remaining Work (with Sprint `16.1` owning per-family checkpoint
+  persistence).
+- **Status unchanged.** Phase `16` stays `🔄 Active`; Phases `13`–`15`, `17`–`18`
+  stay `⏸️ Blocked`. Nothing closed: the no-caveat closure still needs the
+  `linux-cuda` lane (absent hardware), deep-model (`ResNet-50`/`ViT`) **median
+  convergence** (impractical without the GPU lane), the full RL-catalog / 4-game
+  AlphaZero-arena / all-model-family checkpoint-inference breadth, and the
+  checkpoint-backed browser surface above. The `apple-silicon` live cluster lane
+  (Phase `14.11`) was not re-exercised this session and remains blocked by Phases
+  `16`/`17` regardless.
+
 **Closure update (2026-06-16 — Phases `11` and `12` re-closed `✅ Done`).**
 Sprints `11.9` (Full Interactive Demo Surface) and `12.13` (Playwright No-Caveat
 E2E Matrix) closed on their **owned** surfaces, so Phases `11` and `12` are
