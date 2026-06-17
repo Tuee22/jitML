@@ -3,7 +3,14 @@ FROM ubuntu:24.04
 ARG GHC_VERSION=9.12.4
 ARG CABAL_VERSION=3.16.1.0
 ARG NODE_VERSION=22.16.0
-ARG CUDA_TOOLKIT_PACKAGE=cuda-toolkit-12-8
+# jitML's JIT path needs the CUDA compiler (nvcc) and the dev libraries
+# (cudart, cublas, nvrtc, …). It does NOT need the Nsight GUI profilers or
+# docs that the `cuda-toolkit-12-8` metapackage drags in via
+# `cuda-tools-12-8` — those balloon the image to ~21GB and the large
+# `nsight-compute` .deb has downloaded corrupt (lzma) on constrained hosts,
+# producing layer blobs that break `docker save` / `kind load`. Install the
+# compiler + dev-library metapackages directly so Nsight is never fetched.
+ARG CUDA_TOOLKIT_PACKAGE="cuda-compiler-12-8 cuda-libraries-dev-12-8 cuda-nvrtc-dev-12-8 cuda-nvml-dev-12-8"
 ARG CUDNN_PACKAGE=libcudnn9-dev-cuda-12
 ARG ALE_VERSION=v0.12.0
 ARG ALE_COMMIT=94c24368664b8539c53857522e50652ddcc44b20
@@ -121,6 +128,7 @@ RUN mkdir -p "${JITML_STYLE_TOOLS_ROOT}/bin" \
         --installdir "${JITML_STYLE_TOOLS_ROOT}/bin" \
         --install-method=copy \
         --jobs=1 \
+        --ghc-options="+RTS -M2G -RTS" \
         happy-1.20.1.1 \
     && export PATH="${JITML_STYLE_TOOLS_ROOT}/bin:${PATH}" \
     && ghcup run --ghc "${GHC_VERSION}" -- cabal install \
@@ -128,6 +136,7 @@ RUN mkdir -p "${JITML_STYLE_TOOLS_ROOT}/bin" \
         --installdir "${JITML_STYLE_TOOLS_ROOT}/bin" \
         --install-method=copy \
         --jobs=1 \
+        --ghc-options="+RTS -M2G -RTS" \
         --constraint="happy ==1.20.1.1" \
         fourmolu-0.19.0.1 \
         hlint-3.10 \
@@ -155,7 +164,15 @@ WORKDIR /jitml
 
 COPY . .
 
-RUN cabal build -fcuda --jobs=2 --ghc-options="+RTS -M2G -RTS" exe:jitml exe:jitml-demo \
+# Bound cabal's build parallelism for every build in this layer — including
+# the `cabal build all --ghc-options=-Werror` warning-clean pass that
+# `jitml check-code` runs, which has no --jobs flag of its own and otherwise
+# defaults to one GHC per core. On a 16-core / 15GiB host that fans out to 16
+# concurrent GHC processes and OOM-SIGSEGVs the compile; `jobs: 1` keeps the
+# warning-clean build serial and within memory. The explicit `--jobs=2` on
+# the binary build below still overrides this for the (heap-capped) exe build.
+RUN printf 'jobs: 1\n' >> /root/.cabal/config \
+    && cabal build -fcuda --jobs=1 --ghc-options="+RTS -M2G -RTS" exe:jitml exe:jitml-demo \
     && cp "$(cabal list-bin -fcuda exe:jitml)" /usr/local/bin/jitml \
     && cp "$(cabal list-bin -fcuda exe:jitml-demo)" /usr/local/bin/jitml-demo \
     && chmod 0755 /usr/local/bin/jitml /usr/local/bin/jitml-demo \

@@ -28,6 +28,7 @@ import System.Directory
   , removeFile
   , renameFile
   )
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 
@@ -792,12 +793,31 @@ cachedThirdPartyImageFromLoad sub =
 isCachedThirdPartyImageLoad :: Subprocess -> Bool
 isCachedThirdPartyImageLoad = isJust . cachedThirdPartyImageFromLoad
 
--- | Repo-owned images must be rebuilt during bootstrap. A stale `jitml:local`
--- tag can otherwise leave the live daemon running old code while the worktree
--- and host binary are current. Third-party warm-cache image loads are still
--- filtered separately by `filterCachedThirdPartyImageLoads`.
+-- | Repo-owned images must be rebuilt during bootstrap by default. A stale
+-- `jitml:local` tag can otherwise leave the live daemon running old code while
+-- the worktree and host binary are current. Third-party warm-cache image loads
+-- are still filtered separately by `filterCachedThirdPartyImageLoads`.
+--
+-- Escape hatch for resource-constrained hosts: when
+-- @JITML_BOOTSTRAP_SKIP_IMAGE_BUILD@ is set (@1@/@true@/@yes@) and a local
+-- @jitml:local@ image already exists, the in-rollout @docker build@ is filtered
+-- out so the bootstrap reuses a pre-built image (the subsequent @kind load@
+-- still runs). This lets a host whose RAM cannot compile the project in-place
+-- while the cluster is running pre-build the image with the cluster down, then
+-- bootstrap against it. The default (env unset) is unchanged: always rebuild.
 filterDockerBuildWhenImageExists :: [Subprocess] -> IO [Subprocess]
-filterDockerBuildWhenImageExists = pure
+filterDockerBuildWhenImageExists subs = do
+  skipRequested <- lookupEnv "JITML_BOOTSTRAP_SKIP_IMAGE_BUILD"
+  case fmap (Text.toLower . Text.pack) skipRequested of
+    Just flag
+      | flag `elem` ["1", "true", "yes"] -> do
+          imagePresent <- imageExistsLocally "jitml:local"
+          pure $ if imagePresent then filter (not . isDockerBuildStep) subs else subs
+    _ -> pure subs
+ where
+  isDockerBuildStep s =
+    subprocessPath s == "docker"
+      && take 1 (subprocessArguments s) == ["build"]
 
 imageExistsLocally :: Text -> IO Bool
 imageExistsLocally tag = do

@@ -49,6 +49,7 @@ complete -c jitml -a 'internal materialize-substrate' -d 'Materialize substrate 
 complete -c jitml -a 'internal list-prereqs' -d 'List prerequisite checks.'
 complete -c jitml -a 'internal install-metal-bridge' -d 'Build the fixed Apple Metal bridge.'
 complete -c jitml -a 'internal upload-dataset' -d 'Upload a real dataset blob to MinIO.'
+complete -c jitml -a 'internal seed-demo-checkpoints' -d 'Seed demo inference checkpoints into MinIO.'
 complete -c jitml -a 'internal gc' -d 'Apply checkpoint retention.'
 complete -c jitml -a 'internal cache stat' -d 'Print cache stats.'
 complete -c jitml -a 'internal cache list' -d 'List cache entries.'

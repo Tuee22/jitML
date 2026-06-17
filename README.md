@@ -847,6 +847,7 @@ mindmap
       list-prereqs
       install-metal-bridge
       upload-dataset
+      seed-demo-checkpoints
       gc
       cache
         stat
@@ -910,6 +911,7 @@ mindmap
 | `jitml internal list-prereqs` | List prerequisite checks. | `jitml internal list-prereqs` |
 | `jitml internal install-metal-bridge` | Build the fixed Apple Metal bridge. | `jitml internal install-metal-bridge` |
 | `jitml internal upload-dataset` | Upload a real dataset blob to MinIO. | `jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]` |
+| `jitml internal seed-demo-checkpoints` | Seed demo inference checkpoints into MinIO. | `jitml internal seed-demo-checkpoints` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |
 | `jitml internal cache stat` | Print cache stats. | `jitml internal cache stat` |
 | `jitml internal cache list` | List cache entries. | `jitml internal cache list` |
