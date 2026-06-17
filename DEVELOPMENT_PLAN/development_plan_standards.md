@@ -371,9 +371,16 @@ Structure`).
 
 ### M. Forward-Only, Single-Accelerator, Numerically-Ordered Phases
 
-The phase graph is a strict forward DAG that is workable in numerical order, and
-every phase closes on one host. These four invariants are mandatory and any plan
-change that would violate one is rejected.
+This rule is the binding form of the project doctrine
+[Substrate-Affinity Phasing](../README.md#substrate-affinity-phasing) (in the
+[../README.md](../README.md) `Doctrine scope` registry). Its two primary
+invariants are **(a) Forward-Only Phase Dependencies** and **(b)
+Single-Accelerator Phase Validation**; **(c) numerical-order execution** and
+**(d) single-host closeability** are corollaries. The phase graph is a strict
+forward DAG that is workable in numerical order, and every phase closes on one
+host with at most one accelerator. These four invariants are mandatory; any plan
+change that would violate one is rejected, and the `### M. Enforcement` checks
+below make the plan self-policing.
 
 - **(a) Forward-only dependencies.** A phase's owned obligations, its sprints'
   `**Blocked by**:` lines, and every dependency edge it declares may reference
@@ -410,6 +417,37 @@ is a documentation note, not a code change, and does not reopen them. When the
 closure phases are renumbered to honor (a)–(d), the renumbering is recorded at the
 top of [README.md](README.md) `Closure Status` with an explicit old→new map.
 
+#### M. Enforcement
+
+Invariants (a) and (b) are machine-checkable, so the plan polices itself rather
+than relying on reviewer vigilance. A plan change closes only when all three
+checks below report their zero-tolerance count, and the maintenance pass
+(`Maintenance Guidelines`) runs them alongside `jitml check-code` / `jitml docs
+check`. Each check is a deterministic scan over `phase-*.md` (no model judgement
+required):
+
+1. **Zero backward edges — enforces (a)/(c).** Build the dependency graph from
+   every sprint `**Blocked by**:` line and every declared dependency edge; the
+   pass condition is **0 edges** pointing from a lower-numbered phase/sprint to a
+   higher-numbered one. Ownership-transfer prose is not an edge and is excluded by
+   construction. (Reference scan: for each `phase-N-*.md`, every `N'.M` and
+   `Phase N'` named in a `**Blocked by**:` line satisfies `N' <= N`.)
+2. **No dual-accelerator validation gate — enforces (b).** For every phase, **no
+   single `### Validation` gate** names both an `apple-silicon` lane
+   (`--apple-silicon` / `apple-silicon.sh`) and a `linux-cuda` lane
+   (`--linux-cuda` / `linux-cuda.sh` / `-fcuda`). A phase may name both
+   accelerators only across *separate* per-lane gates, or as historical /
+   aggregation prose — never in one must-pass-together gate. Pass condition:
+   dual-accelerator-gate count == 0.
+3. **Aggregation-phase no-rerun — enforces (d).** A `linux-cpu`-aggregation
+   phase's `### Validation` contains only `--linux-cpu` invocations plus
+   "merge committed per-lane fragment" steps — no `-fcuda` / `--apple-silicon`
+   lane re-runs. Pass condition: per such phase, accelerator-invocation count == 0.
+
+Any future automation (a `jitml docs check` lint or CI step) implements exactly
+these three predicates; until then they are run as the documented deterministic
+scan before closing a plan change.
+
 ## Related Documents
 
 - [README.md](README.md)
@@ -434,8 +472,12 @@ top of [README.md](README.md) `Closure Status` with an explicit old→new map.
 3. Update the governed engineering docs listed in `Docs to update`.
 4. Update [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) whenever
    cleanup scope changes.
-5. Run `jitml check-code` inside `jitml:local` before closing the work (once Phase
+5. Run the three `### M. Enforcement` deterministic scans over `phase-*.md` and
+   confirm each reports its zero-tolerance count (0 backward edges; 0
+   dual-accelerator validation gates; 0 accelerator re-runs in an aggregation
+   phase). A non-zero count blocks closure.
+6. Run `jitml check-code` inside `jitml:local` before closing the work (once Phase
    1 lands the command; until then, run `fourmolu --mode check`, `hlint`, and
    `cabal format` manually inside the container).
-6. If the change touched Mermaid, render every Mermaid block in `DEVELOPMENT_PLAN/`
+7. If the change touched Mermaid, render every Mermaid block in `DEVELOPMENT_PLAN/`
    and verify the edited diagram in the target viewer before closing the work.

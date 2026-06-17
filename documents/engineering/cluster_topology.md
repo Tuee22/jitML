@@ -134,7 +134,14 @@ subchart `.tgz` directly instead of installing the umbrella chart.
 
 The single Kind node hosts the entire platform stack on one host, so the cluster
 is bounded by a typed Dhall resource profile (`dhall/cluster/`, decoded by
-`JitML.Cluster.Resources`) rather than running unbounded. The profile is the
+`JitML.Cluster.Resources`) rather than running unbounded. This single-host
+cluster shape is the operational basis for single-host phase closeability under
+the project's
+[Substrate-affinity phasing](../../README.md#substrate-affinity-phasing)
+doctrine — each development phase brings its lane up on one host with at most one
+accelerator plus `linux-cpu` (bound by
+[`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md)).
+The profile is the
 single source of truth for two guardrails introduced after the 2026-05-29 host
 OOM-storm incident:
 

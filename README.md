@@ -37,7 +37,7 @@ The result is:
 
 ## Table of contents
 
-**Substrates & bootstrap** — [Why this exists](#why-this-exists) · [Toolchain pinning](#toolchain-pinning) · [Substrates and runtime modes](#substrates-and-runtime-modes) · [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) · [Bootstrap scripts](#bootstrap-scripts) · [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline) · [Prerequisites as typed effects](#prerequisites-as-typed-effects)
+**Substrates & bootstrap** — [Why this exists](#why-this-exists) · [Toolchain pinning](#toolchain-pinning) · [Substrates and runtime modes](#substrates-and-runtime-modes) · [Substrate-affinity phasing](#substrate-affinity-phasing) · [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) · [Bootstrap scripts](#bootstrap-scripts) · [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline) · [Prerequisites as typed effects](#prerequisites-as-typed-effects)
 
 **Cluster & storage** — [Cluster topology and Kind](#cluster-topology-and-kind) · [Envoy Gateway API](#envoy-gateway-api-a-single-localhost-socket) · [Helm chart layout](#helm-chart-layout) · [Harbor](#harbor-as-the-registry) · [MinIO](#minio-object-store) · [TensorBoard event storage](#tensorboard-event-storage) · [Pulsar](#pulsar-as-the-control-plane--data-plane-bus) · [PostgreSQL](#postgresql) · [TensorBoard / Prometheus / Grafana](#tensorboard-prometheus-grafana-as-first-class)
 
@@ -114,6 +114,51 @@ Each substrate carries its own determinism contract:
 - **`linux-cuda`** — CUDA kernels disable `--use_fast_math`; per-block reductions use a deterministic warp-shuffle pattern with one partial per warp and no device-side atomics, then host-side canonical partial finalization via `JitML.Engines.CudaRuntime`; generated artifacts expose a host-callable `jitml_kernel` wrapper that owns device-buffer allocation, deterministic launch, synchronization, and output copyback; cuBLAS and cuDNN are pinned to deterministic algorithm selections (`cudnnSetConvolutionMathType` + explicit algorithm-id pinning); RNG is the host's SplitMix64 stream from `JitML.Engines.Rng`, never the GPU's curand. *Tradeoff: cuDNN's deterministic convolution algorithms are typically 20-50% slower than its non-deterministic defaults on training workloads; this is the price of the bit-determinism contract.*
 
 *Within a substrate, equality is guaranteed bit-for-bit* (see [Bit-determinism contract](#bit-determinism-contract)). **Across substrates, equivalence is not guaranteed and is not asserted — there is no tolerance band.** RNG draws and float reduction order differ between vendor BLAS/DNN libraries: float reductions reassociate and transcendentals (`exp`, `log`, `sqrt`, `tanh`) are implemented differently by cuDNN, Metal, and oneDNN, so cross-substrate numeric equivalence is explicitly out of contract.
+
+---
+
+# Substrate-affinity phasing
+
+The repository is built and validated as an ordered sequence of development
+phases, and the substrate matrix imposes two hard constraints on that order.
+There are three substrates but **two distinct accelerator hardware classes** —
+NVIDIA GPUs (`linux-cuda`) and Apple GPUs (`apple-silicon`) — and no single
+machine has both. Combined with the rule above that *cross-substrate equivalence
+is out of contract*, no phase can sensibly gate on two accelerators at once. Two
+invariants follow, and they are binding doctrine for
+[`DEVELOPMENT_PLAN/`](DEVELOPMENT_PLAN/README.md):
+
+**Forward-Only Phase Dependencies.** A phase's obligations and every `Blocked
+by` / dependency edge reference only equal-or-lower-numbered phases. A later
+phase never blocks an earlier one. A later phase may *own* an obligation lifted
+out of an earlier phase — that is an ownership transfer, not a blocker — so the
+earlier phase closes on its retained surface. The dependency graph is a strict
+forward DAG, so the plan is workable in numerical order: each phase is fully
+validated before the next begins.
+
+**Single-Accelerator Phase Validation.** Each phase validates on **at most one**
+accelerator — exactly one of `{linux-cuda, apple-silicon}` — plus `linux-cpu`;
+never both. A contract that must hold on both accelerators is split into two
+sibling phases (one per accelerator), or attested per-lane in independent
+sessions and aggregated by a later `linux-cpu`-only phase that consumes the
+committed per-lane artifacts without re-running an accelerator. Concretely, a
+phase's validation gate may not require both an `--apple-silicon` lane and a
+`--linux-cuda` / `-fcuda` lane to pass together.
+
+Together these make the plan **host-portable**: `linux-cpu`-only phases close on
+any Docker host, a `linux-cuda` phase closes on the NVIDIA host (which also
+provides `linux-cpu`), and an `apple-silicon` phase closes on the Mac host (which
+also provides `linux-cpu`). Development moves machine-to-machine — switch to the
+NVIDIA box for the CUDA phase, to a Mac for the Apple phase — and the forward DAG
+guarantees you never backtrack. This generalizes the per-lane test model in
+[Execution venue](#execution-venue-one-real-lane-per-substrate) (one real lane
+per substrate, fail-by-design without its hardware) from test stanzas to whole
+phases.
+
+The binding form of these invariants — the per-clause rules, the
+ownership-transfer carve-out, and the deterministic enforcement checks (zero
+backward edges; no dual-accelerator validation gate) — lives in
+[`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](DEVELOPMENT_PLAN/development_plan_standards.md).
 
 ---
 
@@ -2707,6 +2752,7 @@ Binding project doctrine, in order:
 - Standard Testing Stack (Cabal + `exitcode-stdio-1.0` + tasty + tasty-hunit + tasty-quickcheck + typed-process + temporary; snapshot comparisons for pure-renderer output use `tasty-hunit` text/byte equality rather than `tasty-golden`, since the project forbids numerical fixtures per [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets))
 - Test Categories (each of the seven mapped to a `jitml-*` stanza in [Test-suite stanzas](#test-suite-stanzas), including Daemon Lifecycle and Ephemeral-Cluster Infrastructure)
 - Test Organization (one `test-suite` stanza per tier; project-specific stanzas under §Test Organization → project-specific stanzas)
+- Substrate-Affinity Phasing (forward-only phase dependencies + single-accelerator phase validation; instantiated by [Substrate-affinity phasing](#substrate-affinity-phasing) and bound, with deterministic enforcement, by [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](DEVELOPMENT_PLAN/development_plan_standards.md))
 
 Out of scope (informational only):
 

@@ -22,13 +22,17 @@
 
 ## Phase Status
 
-🔄 **Active** (opened 2026-06-14; unblocked 2026-06-15). The no-caveat product target expands the
-original Dense-MLP / current-RL closure into the full advertised model matrix.
-Phase `8` Sprint `8.12` has landed the all-row SL trainable architecture and
-typed RL event-payload surface consumed here. Phase `9` Sprint `9.12` provides
-the RL/AlphaZero/tuning runtime surface, and Phase `10` Sprint `10.6` provides
-checkpoint/inference support across every model family. Phase `13` now owns the
-remaining cross-model runtime proof across those surfaces.
+✅ **Done — `linux-cpu` scope** (validated 2026-06-16 on an Apple M1 Max host's
+`linux-cpu` lane; opened 2026-06-14, unblocked 2026-06-15). Per standards rule
+M(b), this phase owns the accelerator-free `linux-cpu` no-caveat model runtime;
+its full validation suite passes live (see Current Validation State). Phase `8`
+Sprint `8.12` landed the all-row SL trainable architecture and typed RL
+event-payload surface consumed here; Phase `9` Sprint `9.12` the
+RL/AlphaZero/tuning runtime; Phase `10` Sprint `10.6` checkpoint/inference for
+every model family. The **per-accelerator** runtime and deep-row median
+convergence that is impractical on CPU are owned downstream — `linux-cuda` by
+Phase `15` (Sprint `15.20`, NVIDIA host) and `apple-silicon` by Phase `16`
+(Sprint `16.11`, Mac host); this phase neither runs nor gates on an accelerator.
 
 ## Phase Summary
 
@@ -40,9 +44,9 @@ command envelope, run on the selected substrate, write a checkpoint, reload that
 checkpoint, serve inference/evaluation, and produce deterministic same-substrate
 results without an offline, echo, synthetic, or demo-only substitute.
 
-## Sprint 13.1: Full Canonical Model Matrix Runtime 🔄
+## Sprint 13.1: Full Canonical Model Matrix Runtime ✅
 
-**Status**: Active
+**Status**: Done (`linux-cpu` scope; validated 2026-06-16, Apple M1 Max host)
 **Implementation**: `src/JitML/SL/`, `src/JitML/RL/`, `src/JitML/Tune/`,
 `src/JitML/Checkpoint/`, `src/JitML/App.hs`
 **Docs to update**: `documents/engineering/training_workloads.md`,
@@ -54,27 +58,35 @@ results without an offline, echo, synthetic, or demo-only substitute.
 Close the end-to-end runtime matrix for every canonical model, not just the
 currently narrowed Dense-MLP / selected-RL subset.
 
-### Deliverables
+This phase owns the **`linux-cpu`** runtime closure (single accelerator-free
+lane) per standards rule M(b). Per-accelerator device-training and the deep-row
+median convergence that is impractical on CPU are **owned downstream** by Phase
+`15` (`linux-cuda`) and Phase `16` (`apple-silicon`); this phase neither runs nor
+gates on an accelerator.
 
 - Every row in [../README.md → Canonical supervised learning problems](../README.md#canonical-supervised-learning-problems)
-  is device-trainable on `apple-silicon`, `linux-cpu`, and `linux-cuda`, including
+  is device-trainable through the **`linux-cpu`** substrate runtime, including
   Dense, DeepDense, Conv2D, residual, wide-residual, ResNet-50, and
-  VisionTransformer rows.
+  VisionTransformer rows; the CPU-tractable rows clear their bounded-budget
+  convergence gate, and the heavy rows (ResNet-50 / ViT) materialize and execute a
+  real `linux-cpu` train step. Deep-row **median convergence** is owned by Phases
+  `15`/`16` on their accelerators.
 - Every RL algorithm in the catalog trains/evaluates/rolls out through its
-  production policy/runtime path. Algorithm-level synthetic reward projections
-  and deterministic-stub loss fixtures no longer stand in for trained policy
-  execution.
+  production policy/runtime path on `linux-cpu`. Algorithm-level synthetic reward
+  projections and deterministic-stub loss fixtures no longer stand in for trained
+  policy execution.
 - AlphaZero uses real terminal evaluators, legal-game replay state, persistent
   MCTS state, device-backed policy/value leaf evaluation, and checkpoint-loaded
-  policy/value nets for Connect 4, Othello, Hex, and Gomoku.
+  policy/value nets for Connect 4, Othello, Hex, and Gomoku on `linux-cpu`.
 - Hyperparameter sweeps measure objectives from real trained SL/RL workloads,
   persist trial artifacts, and replay/resume from MinIO without LCG-derived or
   structurally tautological values.
-- Checkpoints and inference support every model family the runtime trains,
-  including architecture metadata, weight layouts, preprocessing metadata, and
-  output decoding.
+- Checkpoints and inference support every model family the `linux-cpu` runtime
+  trains, including architecture metadata, weight layouts, preprocessing metadata,
+  and output decoding.
 - The legacy ledger rows owned by reopened Phases `8`, `9`, and `10` move to
-  `Completed` only after their replacements are validated through this matrix.
+  `Completed` only after their replacements are validated through this `linux-cpu`
+  matrix (with the accelerator lanes attested in Phases `15`/`16`).
 
 ### Validation
 
@@ -92,6 +104,35 @@ accelerator.
 - `docker compose run --rm jitml jitml docs check`
 
 ### Current Validation State
+
+**`linux-cpu` validation gate PASSED (2026-06-16, Apple M1 Max host).** The full
+Sprint `13.1` validation suite ran green against a freshly bootstrapped
+`linux-cpu` cluster (`jitml bootstrap --linux-cpu`, 85 steps, all 7 components
+ready, edge `9091`; all 12 canonical dataset blobs staged + SHA-verified into live
+MinIO):
+
+- `jitml test jitml-sl-canonicals --linux-cpu` — **24 / 24** (live MNIST training
+  cleared the literature convergence threshold, `OK 384.82s`; all 11 canonical SL
+  rows materialized staged bytes and trained through the substrate runtime,
+  `OK 37.62s`).
+- `jitml test jitml-rl-canonicals --linux-cpu` — **29 / 29** (full RL algorithm
+  catalog + the four canonical AlphaZero games' rule/self-play-determinism
+  surface).
+- `jitml test jitml-hyperparameter --linux-cpu` — **16 / 16**.
+- `jitml test jitml-integration --linux-cpu` — **71 / 71** (live `Live` group:
+  PPO/cartpole convergence through daemon dispatch `OK 75.36s`, an AlphaZero
+  generation drive with `.jmw1` checkpoint round-trip, tune persist/replay,
+  `jitml inference run` checkpoint read, GC + `gc.event`, and the MinIO / Pulsar /
+  Harbor capability round-trips).
+- `jitml check-code` and `jitml docs check` — **ok**.
+
+This closes Phase `13` on its `linux-cpu` scope (standards rule M(b)): the
+accelerator-free no-caveat runtime trains, checkpoints, evaluates, and infers
+across the canonical SL / RL / AlphaZero / tuning matrix on `linux-cpu`. The
+**per-accelerator** runtime and the deep-row (`ResNet-50` / `ViT`) **median
+convergence** that is impractical on CPU are owned by Phase `15` (`linux-cuda`,
+NVIDIA host) and Phase `16` (`apple-silicon`, Mac host), each attesting its lane
+in a separate single-host session.
 
 **Apple M1 Max host re-validation (2026-06-16; runnable lanes only).** On an Apple
 M1 Max workstation (no NVIDIA GPU; Docker is an aarch64 Linux VM, so `linux-cuda`

@@ -212,8 +212,15 @@ demoMain = do
       -- local stream stand-in.
       inClusterEndpoint <- lookupEnv "JITML_DEMO_PULSAR_WS"
       substrateEnv <- lookupEnv "JITML_SUBSTRATE"
+      -- Sprint 13.1 — when the demo runs in-cluster it cannot read MinIO via
+      -- the host edge (`127.0.0.1:<edge>` is the pod's own localhost);
+      -- `JITML_DEMO_MINIO_S3` names the in-cluster MinIO S3 service so the
+      -- checkpoint runtime handler reaches the same backend the daemon uses.
+      -- Absent (host-native demo), the handler falls back to the leased edge.
+      minioEndpointEnv <- lookupEnv "JITML_DEMO_MINIO_S3"
       localPublication <- readExistingLivePublication "."
       let endpointOverride = fmap Text.pack (nonEmpty inClusterEndpoint)
+          minioEndpointOverride = fmap Text.pack (nonEmpty minioEndpointEnv)
           inClusterPublication = do
             _ <- endpointOverride
             substrateName <- substrateEnv
@@ -226,7 +233,7 @@ demoMain = do
         (demoPort demoArgs)
         publication
         endpointOverride
-        (fmap (demoBrowserRuntimeHandler env) publication)
+        (fmap (demoBrowserRuntimeHandler env minioEndpointOverride) publication)
  where
   nonEmpty (Just s) | not (null s) = Just s
   nonEmpty _ = Nothing
@@ -235,13 +242,21 @@ demoMain = do
 
 demoBrowserRuntimeHandler
   :: Env
+  -> Maybe Text
   -> ClusterPublication
   -> WebServer.BrowserRuntimeRequest
   -> IO (Either Text WebServer.BrowserRuntimeResult)
-demoBrowserRuntimeHandler env publication request = do
+demoBrowserRuntimeHandler env minioEndpointOverride publication request = do
   let edgePort = Publication.publicationEdgePort publication
       substrate = Publication.publicationSubstrate publication
-      minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+      -- In-cluster: use the injected in-cluster MinIO S3 endpoint (no edge
+      -- path prefix, daemon credentials). Host-native: fall back to the
+      -- leased host edge route.
+      minioSettings =
+        maybe
+          (MinIOSubprocess.minioSettingsForLocalEdge edgePort)
+          MinIOSubprocess.minioSettingsForEndpoint
+          minioEndpointOverride
   checkpointShaRef <- newIORef Nothing
   MinIOSubprocess.runMinIOSubprocess minioSettings $ do
     result <-
@@ -365,6 +380,8 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runInternalGc parsedOptions
   | parsedPath == ["internal", "upload-dataset"] =
       runInternalUploadDataset parsedOptions
+  | parsedPath == ["internal", "seed-demo-checkpoints"] =
+      runInternalSeedDemoCheckpoints
   | otherwise =
       writeLine ("registered command: " <> commandPathText parsedPath)
 
@@ -3775,6 +3792,64 @@ runInternalUploadDataset parsedOptions = do
             ( InvalidConfig
                 ("upload-dataset failed: " <> Text.pack (show err))
             )
+
+-- | Sprint 14.1 — seed the five demo browser-panel inference checkpoints into
+-- live MinIO so the checkpoint-backed panels (MNIST / generic / CIFAR /
+-- checkpoint-compare / Connect 4) serve a real @InferenceResult@. The demo
+-- runs a Dense2D weighted kernel that zero-pads the weight buffer to @n*n@
+-- (@n@ = the request's input length) and returns a @1xn@ output, so one fixed
+-- non-zero weight vector seeds every panel regardless of input size.
+runInternalSeedDemoCheckpoints :: App ()
+runInternalSeedDemoCheckpoints = do
+  livePublication <- liftIO (readExistingLivePublication ".")
+  case livePublication of
+    Nothing ->
+      exitWithError
+        ( InvalidConfig
+            "seed-demo-checkpoints requires a live cluster; bring it up via `jitml bootstrap`"
+        )
+    Just publication -> do
+      let edgePort = Publication.publicationEdgePort publication
+          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+          demoWeights :: [Double]
+          demoWeights =
+            [ 0.05 + fromIntegral ((i * 7 + 3) `mod` 11) / 20.0
+            | i <- [0 .. 255 :: Int]
+            ]
+          seeds :: [(Text, Text)]
+          seeds =
+            [ ("mnist-deep-mlp", "mnist-demo-weights")
+            , ("generic-tensor-demo", "generic-demo-weights")
+            , ("generic-tensor-demo-candidate", "generic-candidate-demo-weights")
+            , ("cifar-imagenet", "cifar-demo-weights")
+            , ("connect4-alphazero", "connect4-alphazero-demo-weights")
+            ]
+          seedOne (experimentHash, tensorName) = do
+            result <-
+              liftIO
+                ( MinIOSubprocess.runMinIOSubprocess
+                    minioSettings
+                    ( writeMinIOWeightCheckpoint
+                        experimentHash
+                        tensorName
+                        (1 :: Word64)
+                        [("demo", 1.0)]
+                        demoWeights
+                    )
+                )
+            case result of
+              Right _ ->
+                writeText ("seed-demo-checkpoints: " <> experimentHash <> " seeded\n")
+              Left err ->
+                exitWithError
+                  ( InvalidConfig
+                      ( "seed-demo-checkpoints: "
+                          <> experimentHash
+                          <> " failed: "
+                          <> Text.pack (show err)
+                      )
+                  )
+      mapM_ seedOne seeds
 
 parseDatasetSplit :: Text -> Maybe Dataset.DatasetSplit
 parseDatasetSplit "train" = Just Dataset.TrainSplit

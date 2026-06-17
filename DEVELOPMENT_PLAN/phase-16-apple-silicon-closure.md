@@ -899,6 +899,11 @@ Metal bridge and host-resident workload placement.
 - The lane fails fast on missing datasets, missing checkpoints, missing host
   command events, placeholder browser data, synthetic report-card rows, or
   absent Playwright product assertions.
+- This sprint **owns and commits the `apple-silicon` per-lane report-card
+  fragment** (within-substrate reproducibility + measured no-caveat rows)
+  produced on the Mac host. The Phase `17` aggregation (Sprint `17.8`) and the
+  Phase `18` handoff consume this committed fragment on `linux-cpu`; they never
+  re-run the `apple-silicon` lane (standards rule M(b)/(d)).
 
 ### Validation
 

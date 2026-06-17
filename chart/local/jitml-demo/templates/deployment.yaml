@@ -35,6 +35,10 @@ spec:
             # <domain>.event.<substrate> topic family.
             - name: JITML_DEMO_PULSAR_WS
               value: "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
+            # Sprint 13.1 — the demo pod reads checkpoints from the in-cluster
+            # MinIO S3 service; the host edge port is unreachable from the pod.
+            - name: JITML_DEMO_MINIO_S3
+              value: "http://minio.platform.svc.cluster.local:9000"
             - name: JITML_SUBSTRATE
               value: "{{ .Values.substrate }}"
           ports:

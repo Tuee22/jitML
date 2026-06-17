@@ -161,6 +161,16 @@ A lane is selected with `jitml test jitml-backends
 --test-options='-p <substrate>'`. Within-substrate bit-for-bit
 reproducibility is the only equality asserted here.
 
+This one-real-lane-per-substrate model is the test-stanza instance of the
+project's [Substrate-affinity phasing](../../README.md#substrate-affinity-phasing)
+doctrine: each accelerator lane is exercised on its own host with no
+cross-substrate cohort. The development plan generalizes it to whole phases —
+each closure phase validates at most one of `{linux-cuda, apple-silicon}` plus
+`linux-cpu`, and cross-lane evidence is aggregated on `linux-cpu` — bound, with
+deterministic enforcement, by
+[`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md).
+Phase order, blockers, and closure status live in the development plan, not here.
+
 `jitml-unit` owns the CUDA runtime-probe parser snapshots for `nvcc`,
 `nvidia-smi`, and `ldconfig`, plus the guarded CUDA benchmark-runner preflight
 checks for wrong-substrate rejection, unavailable runtime summaries, and

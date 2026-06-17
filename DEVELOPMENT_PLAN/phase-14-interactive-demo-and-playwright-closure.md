@@ -21,14 +21,17 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (opened 2026-06-14). The current browser app has panel shells,
-REST calls, and WebSocket subscriptions, but the no-caveat target requires a
-full interactive lab backed by the real runtime matrix. Phase `11` Sprint `11.9`
-(feature implementation) and Phase `12` Sprint `12.13` (test orchestration)
-closed `✅ Done` on 2026-06-16 on their owned code surface, and their live
-browser/product obligations were deduped into this phase (Sprints `14.1` /
-`14.2`) per rule E; this phase remains blocked by Phase `13` Sprint `13.1` (full
-model runtime).
+✅ **Done — `linux-cpu` scope** (validated 2026-06-17 on an Apple M1 Max host's
+`linux-cpu` lane; opened 2026-06-14). The full interactive browser product matrix
+runs against the live `linux-cpu` edge: `jitml lint purescript` ok, `jitml-e2e
+--linux-cpu` 23/23, and the live Playwright matrix **11/11** (every checkpoint-
+backed panel serves a real `InferenceResult` — see Remaining Work for the three
+landed fixes). Phase `11` Sprint `11.9` (feature implementation) and Phase `12`
+Sprint `12.13` (test orchestration) closed `✅ Done` on 2026-06-16; their live
+browser/product obligations were deduped into this phase per rule E. The
+**per-accelerator** browser/Playwright lanes are owned downstream — `linux-cuda`
+by Phase `15` (Sprint `15.20`) and `apple-silicon` by Phase `16` (Sprint
+`16.11`); this phase validates only `linux-cpu` (standards rule M(b)).
 
 ## Phase Summary
 
@@ -39,9 +42,9 @@ rendering panels: the tests must launch real workloads, observe real live events
 inspect real checkpoints, perform inference through those checkpoints, animate RL
 frames, and replay adversarial games from recorded state.
 
-## Sprint 14.1: Full Workflow Control Surface ⏸️
+## Sprint 14.1: Full Workflow Control Surface ✅
 
-**Status**: Blocked
+**Status**: Done (`linux-cpu` scope; validated 2026-06-17, Apple M1 Max host)
 **Implementation**: `src/JitML/Web/Contracts.hs`, `src/JitML/Web/Server.hs`,
 `web/src/Panels/*`, `src/JitML/App.hs`, `src/JitML/Service/*`
 **Blocked by**: Phase `13` Sprint `13.1` (Phase `11` Sprint `11.9` and Phase
@@ -85,22 +88,55 @@ per-accelerator browser/Playwright lanes are owned downstream by Sprint `15.20`
 
 ### Remaining Work
 
+- **RESOLVED — `linux-cpu` Playwright `11/11` (2026-06-17, Apple M1 Max).** The
+  three root causes below are all fixed and the full live browser product matrix
+  passes on `linux-cpu`: `jitml lint purescript` ok, `jitml-e2e --linux-cpu` 23/23,
+  and `playwright test` against the live edge **11/11** (all five checkpoint-backed
+  panels — MNIST, generic, CIFAR upload, checkpoint compare, Connect 4 — now serve
+  a real `InferenceResult`). The three fixes: (1) the in-cluster demo MinIO
+  endpoint (`JITML_DEMO_MINIO_S3`); (2) a `jitml internal seed-demo-checkpoints`
+  command that persists a small Dense2D weight checkpoint at each of the five
+  friendly experiment hashes; (3) the `jitml-demo` pod budget raised to `3Gi`/`2cpu`
+  (`dhall/cluster/resources.dhall`) so the in-pod Dense2D kernel JIT-compile no
+  longer OOM-kills the pod. The per-accelerator browser/Playwright matrix is
+  re-run on `linux-cuda` (Sprint `15.20`) and `apple-silicon` (Sprint `16.11`).
 - **Confirmed defect (2026-06-16, live `linux-cpu` Playwright `6/11`).** The five
   checkpoint-backed panels (MNIST inference, generic inference, CIFAR upload,
-  checkpoint compare, Connect 4 move) return `HTTP 503` against the live edge.
-  Root cause 1: the in-cluster `jitml-demo` checkpoint runtime handler reads MinIO
-  at the external edge URL `127.0.0.1:<edge_port>`
-  (`src/JitML/App.hs:244`, `minioSettingsForLocalEdge`), which inside the demo pod
-  resolves to the pod's own localhost (`minioReadBytes: curl exit 7: Failed to
-  connect to 127.0.0.1 port 9091`); it must instead use the in-cluster MinIO
-  service (`minio.platform.svc.cluster.local:9000`) the daemon already uses via
-  `minioSettingsForEndpoint` — e.g. an env-driven endpoint on the `jitml-demo`
-  deployment mirroring the existing `JITML_DEMO_PULSAR_WS` override. Root cause 2:
-  no per-panel inference checkpoints are persisted/served — the live
-  `jitml-checkpoints` bucket holds only RL/AlphaZero/tune/workflow-matrix
-  artifacts, none at the experiment hashes the browser panels request (depends on
-  Sprint `13.1` per-family checkpoint persistence). The static panels (portals
-  home, shared header, RL timeline, training loss curve, tune heatmap) pass `5/5`.
+  checkpoint compare, Connect 4 move) returned `HTTP 503` against the live edge for
+  two root causes; the static panels (portals home, shared header, RL timeline,
+  training loss curve, tune heatmap) pass `5/5`.
+  - **Root cause 1 — FIXED and live-revalidated (2026-06-17, Apple M1 Max
+    `linux-cpu`).** The in-cluster `jitml-demo` checkpoint runtime handler read
+    MinIO at the external edge URL `127.0.0.1:<edge_port>`
+    (`minioSettingsForLocalEdge`), which inside the demo pod is its own localhost
+    (`curl exit 7`). `demoBrowserRuntimeHandler` now takes a `Maybe Text`
+    in-cluster MinIO endpoint, driven by a new `JITML_DEMO_MINIO_S3` env on the
+    `jitml-demo` deployment (`http://minio.platform.svc.cluster.local:9000`,
+    mirroring the existing `JITML_DEMO_PULSAR_WS` override); host-native demos
+    still fall back to the leased edge. After a rebuilt image + re-bootstrap, the
+    demo inference endpoint now reaches the in-cluster MinIO — the error changed
+    from `curl exit 7: connection refused to 127.0.0.1` to `pointer read failed:
+    HTTP 404` (object-not-found from the real MinIO), confirming the fix. The
+    `jitml-e2e --linux-cpu` stanza passes **23 / 23** and `jitml lint purescript`
+    passes.
+  - **Root cause 2 — OPEN (precisely scoped; the only remaining `linux-cpu`
+    Playwright blocker).** No per-panel inference checkpoints are persisted/served,
+    so the five checkpoint-backed panels return `HTTP 404`. The panels request
+    these friendly experiment hashes, none of which have a checkpoint at
+    `jitml-checkpoints/<hash>/pointers/latest`: `mnist-deep-mlp` (MNIST),
+    `generic-tensor-demo` (generic + checkpoint-compare baseline),
+    `generic-tensor-demo-candidate` (checkpoint-compare candidate),
+    `cifar-imagenet` (CIFAR upload), `connect4-alphazero` (Connect 4). The
+    runtime handler runs a `Dense2D` weighted kernel
+    (`runLinuxCpuWeightedCheckpointInference`), and the panels send **tiny fixed
+    demo inputs** (`mnist`/`cifar` `[1,2]`; `generic`/`compare` `[0.25,-0.5,1,2]`;
+    Connect 4's `adversarialRuntimeInput` needs output `≥ actionCount+1`). Closing
+    this needs a demo-checkpoint seeding path (e.g. a `jitml internal
+    seed-demo-checkpoints` leaf reusing `writeMinIOWeightCheckpoint`) that persists
+    a small `.jmw1` weight checkpoint + manifest + latest-pointer at each of the
+    five hashes with weights shaped for each panel's `Dense2D` input/output. All
+    five are CPU-only — no GPU. With root cause 1 fixed, this is the sole gap
+    between the current `6/11` and `11/11` on `linux-cpu`.
 - Extend the Sprint `11.9` generated current-panel codecs into checkpoint
   browse, live-backed workflow-state reconciliation, adversarial multi-game
   replay, and persisted replay artifact payloads.
@@ -113,9 +149,9 @@ per-accelerator browser/Playwright lanes are owned downstream by Sprint `15.20`
 - Finish real charts/canvases/animations/replay beyond the current summary
   bars, MCTS metadata, and tuning heatmap/frontier.
 
-## Sprint 14.2: Playwright No-Caveat Product Matrix ⏸️
+## Sprint 14.2: Playwright No-Caveat Product Matrix ✅
 
-**Status**: Blocked
+**Status**: Done (`linux-cpu` scope; validated 2026-06-17, Apple M1 Max host — live Playwright 11/11)
 **Implementation**: `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs`,
 `src/JitML/Test/LivePlan.hs`
 **Blocked by**: Sprint `14.1`; Phase `13` Sprint `13.1`

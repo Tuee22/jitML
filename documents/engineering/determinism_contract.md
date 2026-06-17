@@ -176,6 +176,14 @@ ULP-shifted floats as if they were the originator's. It is not a
 cross-substrate numeric-parity check: across substrates no equivalence is
 asserted.
 
+This within-substrate-only contract is the numerical rationale for the project's
+[Substrate-affinity phasing](../../README.md#substrate-affinity-phasing)
+doctrine: because cross-substrate equivalence is out of contract, no development
+phase gates on two accelerators at once — each accelerator lane's
+within-substrate reproducibility is validated on its own host, and the
+development plan binds this as
+[`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md).
+
 ## Same-Substrate Bit-Equality (RL Caveat)
 
 For off-policy RL algorithms (DQN, DDPG, TD3, SAC, CrossQ, TQC), full-run

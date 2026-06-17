@@ -59,6 +59,19 @@ updates the report card, within-substrate reproducibility evidence, and legacy
 ledger handoff for the expanded product scope. It is blocked by Phases `9`, `10`, `11`, `12`, `15`, and `16`,
 Phase `13`, and Phase `14`.
 
+> **Substrate-affinity note (standards rule M(b)/(d)).** This is a
+> **`linux-cpu`-only aggregation** phase. Each substrate's within-substrate
+> bit-reproducibility is **owned and validated in its own single-accelerator
+> phase** — `linux-cuda` in Phase `15` (Sprint `15.20`, NVIDIA host) and
+> `apple-silicon` in Phase `16` (Sprint `16.11`, Mac host), with `linux-cpu` in
+> Phases `13`/`14`. Phase `17` **consumes the committed per-lane report-card
+> fragments** and merges them on `linux-cpu`; it never re-runs an accelerator
+> lane. Where the already-`Done` sprints below record running `--apple-silicon`
+> and `-fcuda`/`--linux-cuda` lanes for this phase, read that as
+> per-lane evidence attested in separate single-host sessions and aggregated here
+> (rule M's documentation escape hatch) — those numbers are retained as dated
+> history; no single live gate in this phase spans both accelerators.
+
 ✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `17.7`). Final
 handoff is restored: Sprint `5.11` removes the stale Apple Metal-backed
 Kubernetes Job placement from dispatch planning, Sprint `12.12` adds fail-fast

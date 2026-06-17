@@ -56,11 +56,15 @@ in    { nodeMemoryMiB = 10240
         , memoryLimit = "2Gi"
         }
       , jitmlDemo =
+        -- Sprint 14.1 — the demo serves checkpoint-backed inference by
+        -- JIT-compiling the Dense2D weighted kernel in-pod on first use; the
+        -- g++/oneDNN compile OOM-kills a 256Mi pod, so the budget is raised to
+        -- 3Gi/2cpu (validated 2026-06-17: live linux-cpu Playwright 11/11).
         { replicas = 1
-        , cpuRequest = "50m"
-        , cpuLimit = "250m"
-        , memoryRequest = "128Mi"
-        , memoryLimit = "256Mi"
+        , cpuRequest = "250m"
+        , cpuLimit = "2"
+        , memoryRequest = "512Mi"
+        , memoryLimit = "3Gi"
         }
       , tensorboard =
         { replicas = 1
