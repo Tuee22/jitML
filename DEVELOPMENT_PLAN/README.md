@@ -43,6 +43,36 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Common-shape reopen (Pulsar ML-Workflow convergence).** jitML and the `infernix`
+sister project are converging on one shared contract,
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+— a three-role split (**Engine** = compute-only; **Coordinator** = topic-lifecycle
+ownership + coordination + training-completion readiness gating; **Webapp** = thin
+websocket, substrate-agnostic, no ML compute), a derived **topic algebra**, the
+`Work*` envelope family unifying training and inference, the artifact + `.ready`
+readiness contract, websocket snapshot/patch, and a reflected-Dhall-schema one-binary
+role model. This **reopens Phases `5`, `10`, `11`, and `12`** for the convergence
+deltas, and **reframes the closure Phases `13`–`18`** around the new arc (the Apple
+in-pod-Metal browser-forward that blocked Phase `16` *dissolves* under the
+substrate-agnostic Webapp role — the webapp publishes `inference.request.<substrate>`
+and never computes). Each delta's current surface is recorded in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md):
+
+- **Phase `5`** — `jitml service` becomes a one-binary **Engine / Coordinator /
+  Webapp** role model selected by typed Dhall, the **Coordinator** owns explicit
+  topic lifecycle (retiring the hardcoded `PulsarBootstrap` topic list), and the
+  binary emits its own reflected Dhall schema.
+- **Phase `10`** — inference becomes an async `Work*` workflow; a serveable
+  `ArtifactRef` is mintable only from a completed training derivation (`.ready`
+  sentinel), and the triplicated inference path collapses into the Engine.
+- **Phase `11`** — `jitml-demo` folds into the **Webapp** role; the inference panels
+  become websocket-driven (snapshot/patch); the demo computes nothing.
+- **Phase `12`** — new workflow/topic-algebra/websocket-inference test coverage.
+
+The single-accelerator and forward-only-DAG rules (standards rule M) are unchanged and
+now cross-link the shared contract. The historical closure narrative below predates
+this reopen.
+
 **Phase 15 closed (2026-06-18 — NVIDIA GeForce RTX 5090 host, UUID
 `GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8).** Sprint `15.20`
 re-closed `✅ Done`, so **Phase `15` is `✅ Done`** on its `linux-cpu`+`linux-cuda`

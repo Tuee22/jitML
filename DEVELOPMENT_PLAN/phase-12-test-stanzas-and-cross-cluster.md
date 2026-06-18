@@ -26,6 +26,16 @@
 
 ## Phase Status
 
+🔄 **Active — common-shape reopen (Pulsar ML-Workflow convergence).** Phase `12`
+reopens to add test coverage for the common shape: the `Work*` workflow envelopes
+(training + inference correlated by `callId`), the derived **topic algebra** (the
+coordinator's reconciled topic set equals the validated routing graph), the
+`.ready` readiness gate, and websocket-driven inference panels (snapshot/patch). See
+[README.md](README.md) → Closure Status, the shared
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+contract, and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The
+prior closure narrative below is retained as dated history.
+
 ✅ **Done** (Sprint `12.13` re-closed 2026-06-16 on its owned host-validatable
 e2e/matrix/report structure; the live Playwright product-matrix execution was
 deduped to Sprints `14.2` / `15.20` / `16.11` per standards rule E). The

@@ -25,6 +25,18 @@
 
 ## Phase Status
 
+🔄 **Active — common-shape reopen (Pulsar ML-Workflow convergence).** Phase `10`
+reopens to make inference an **asynchronous `Work*` workflow** owned by the single
+**Engine** (collapsing the triplicated demo / CLI / daemon inference path into one
+worker), and to gate inference on a **`.ready` readiness** witness: a serveable
+`ArtifactRef` is mintable only from a completed training derivation (checkpoint
+manifest `step ≥ 1` + resolvable `latest` pointer → coordinator-written sentinel),
+so "infer on an untrained model" is unrepresentable in the domain. See
+[README.md](README.md) → Closure Status, the shared
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+contract, and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The
+prior closure narrative below is retained as dated history.
+
 ✅ **Done** (reopened 2026-06-14; re-closed 2026-06-15). Sprint `10.6`
 expands this phase from weighted
 Dense-MLP checkpoint inference to architecture-aware checkpoint,

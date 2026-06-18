@@ -635,6 +635,25 @@ The **scalar values themselves** at each `(tag, step)` *are* deterministic under
 
 # Pulsar as the control-plane ↔ data-plane bus
 
+> **Convergence target — common Pulsar ML-workflow shape.** jitML and the `infernix`
+> sister project are converging on one shared contract,
+> [documents/engineering/pulsar_ml_workflow.md](documents/engineering/pulsar_ml_workflow.md):
+> a three-role split (**Engine** = compute-only, talks only to Pulsar + MinIO;
+> **Coordinator** = topic-lifecycle ownership + coordination + training-completion
+> readiness gating; **Webapp** = thin websocket, substrate-agnostic, no ML compute), a
+> derived **topic algebra** (no hand-written topic strings), the `Work*` envelope
+> family unifying training and inference, the artifact + `.ready` readiness contract,
+> websocket snapshot/patch, and a reflected-Dhall-schema one-binary role model. Five
+> deltas from the shape are in progress and tracked as reopened plan work (Phases
+> `5`/`10`/`11`/`12`, see
+> [DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)):
+> the demo stops computing inference in-process (the single **Engine** owns all
+> compute); the in-process inference path is no longer triplicated across demo / CLI /
+> daemon; topics are derived rather than hardcoded; `jitml-demo` folds into the
+> one-binary **Webapp** role; and the browser inference panels become websocket-driven.
+> Once landed, this makes the substrate-agnostic webapp dissolve the Apple in-pod-Metal
+> forwarding special case entirely. The topic family below is the current surface.
+
 Apache Pulsar HA chart: 3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, with the admin API routed at `/pulsar/admin`. The Pulsar WebSocket route is `/pulsar/ws`; it rewrites to `/ws` and targets the broker HTTP service (`pulsar-broker:8080`) with `webSocketServiceEnabled=true`. Live validation on 2026-05-19 publishes and consumes through that route with `JitML.Service.PulsarWebSocketSubprocess`; 2026-05-20 validation reconciles the substrate-scoped command/event family and publishes/consumes on `training.command.linux-cpu` from `jitml:local`. The same topic family includes Apple host-command topics for Metal-backed training, tuning, and RL placement. The image carries a pinned Node.js 22 runtime; the subprocess script uses `globalThis.WebSocket` when available and retains an `undici.WebSocket` fallback for older Node runtimes. The PureScript frontend subscribes to live events through the `jitml-demo` proxy at `/api/ws`.
 
 Topic family (substrate-scoped — `<mode>` ∈ `apple-silicon`, `linux-cpu`, `linux-cuda`):

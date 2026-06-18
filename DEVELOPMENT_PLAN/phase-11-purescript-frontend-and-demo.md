@@ -22,6 +22,19 @@
 
 ## Phase Status
 
+🔄 **Active — common-shape reopen (Pulsar ML-Workflow convergence).** Phase `11`
+reopens to fold `jitml-demo` into the one-binary **Webapp** role (thin websocket
+server, talks only to Pulsar + MinIO, computes no inference) and to make the browser
+inference panels **websocket-driven** via snapshot/patch frames — exactly the
+`subscribeStream` pattern the training/RL/tune panels already use — retiring the
+synchronous compute-and-return REST handlers and the panels' blocking fetch. Because
+the Webapp is substrate-agnostic, this **dissolves the Apple in-pod-Metal
+browser-forward** problem entirely (the webapp publishes `inference.request.<substrate>`
+and never touches Metal). See [README.md](README.md) → Closure Status, the shared
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+contract, and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The
+prior closure narrative below is retained as dated history.
+
 ✅ **Done** (Sprint `11.9` re-closed 2026-06-16 on its owned interactive-demo
 code surface; the live browser/product obligations were deduped to Phases
 `15`/`16`/`14` per standards rule E). The 2026-06-14 reopen had expanded this

@@ -24,6 +24,19 @@
 
 ## Phase Status
 
+🔄 **Active — common-shape reopen (Pulsar ML-Workflow convergence).** Phase `5`
+reopens to make `jitml service` a **one-binary Engine / Coordinator / Webapp** role
+model selected by typed Dhall `activeRole` (run through the shared role-lifecycle
+skeleton), give the **Coordinator** explicit Pulsar **topic-lifecycle ownership**
+(deriving every topic from a typed topology descriptor + validated routing graph,
+retiring the hardcoded `PulsarBootstrap` topic list created inline during bootstrap),
+and have the binary emit its own **reflected** Dhall schema. See
+[README.md](README.md) → Closure Status, standards rule M, the shared
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+contract, and the rows in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The prior closure
+narrative below is retained as dated history.
+
 ✅ **Done** (reopened and re-closed 2026-06-13 for Sprint `5.11`). The daemon
 derives subscriptions from `BootConfig`, plans workload placement before
 rendering side effects, keeps Linux CPU/CUDA Training/RL/Tune commands on the

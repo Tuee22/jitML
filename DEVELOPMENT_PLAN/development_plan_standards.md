@@ -380,7 +380,11 @@ Single-Accelerator Phase Validation**; **(c) numerical-order execution** and
 forward DAG that is workable in numerical order, and every phase closes on one
 host with at most one accelerator. These four invariants are mandatory; any plan
 change that would violate one is rejected, and the `### M. Enforcement` checks
-below make the plan self-policing.
+below make the plan self-policing. Invariants (a) and (b) are shared verbatim with
+the `infernix` sister project as the cross-project
+[Pulsar ML-Workflow Contract](../documents/engineering/pulsar_ml_workflow.md)
+(`Phasing rules`), so both repos converge on one forward-only,
+single-accelerator-per-phase shape.
 
 - **(a) Forward-only dependencies.** A phase's owned obligations, its sprints'
   `**Blocked by**:` lines, and every dependency edge it declares may reference
