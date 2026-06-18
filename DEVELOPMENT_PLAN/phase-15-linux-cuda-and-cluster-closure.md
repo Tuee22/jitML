@@ -27,11 +27,19 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Linux live validation). Sprint
-`15.20` revalidates the expanded runtime/browser matrix on `linux-cpu` and
-`linux-cuda`, but it is blocked until Phases `10`–`12`, Phase `13`, and Phase
-`14` land the remaining no-caveat surfaces. Phases `8` and `9` have re-closed
-their local framework/runtime and RL/AlphaZero/tuning surfaces.
+✅ **Done** (re-closed 2026-06-18 on the NVIDIA GeForce RTX 5090 host, UUID
+`GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8). Sprint `15.20`
+revalidated the expanded no-caveat runtime/browser matrix on both `linux-cpu` and
+`linux-cuda`: `jitml test all --linux-cpu` 8/8, `jitml test all --linux-cuda` 8/8
+(including `jitml-backends` 20/20 with the real cuBLAS/cuDNN bindings on the
+attached GPU), `jitml test jitml-e2e --linux-cuda` 23/23, `docs check`,
+`check-code`, the live `linux-cuda` report card with every runtime measurement,
+and the live Playwright product matrix 11/11 on the `linux-cuda` edge. Closing the
+lane fixed the stale `jitml-unit` registry golden, the `jitml-demo` `linux-cuda`
+GPU/memory defect (demo pod now carries `runtimeClassName: nvidia` + a 4Gi budget
+for the in-process `nvcc` JIT compile), and the `measureBrowserProductMatrix`
+report-card stub. The committed per-lane fragment is
+[attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md).
 
 ✅ **Historical closure** (re-closed 2026-06-11 on the CUDA machine after the real-workflow
 refactor; Sprints `15.17` / `15.18` / `15.19`). With Phases `8`–`12` now routing
@@ -4096,14 +4104,16 @@ worker Jobs inherit the NVIDIA runtime settings needed by GPU workloads.
 - None for the Linux cluster closure. Apple Silicon closure and final handoff
   closed later in Phases `16` and `17` on 2026-06-12.
 
-## Sprint 15.20: Linux No-Caveat Runtime and Browser Lane ⏸️
+## Sprint 15.20: Linux No-Caveat Runtime and Browser Lane ✅
 
-**Status**: Blocked
+**Status**: Done (closed 2026-06-18 on the NVIDIA GeForce RTX 5090 host, UUID
+`GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8)
 **Implementation**: `bootstrap/linux-cpu.sh`, `bootstrap/linux-cuda.sh`,
-`src/JitML/Test/WorkflowMatrix.hs`, `playwright/jitml-demo.spec.ts`
-**Blocked by**: Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`
-(Phases `9`/`10`/`11`/`12` Sprints `9.12`/`10.6`/`11.9`/`12.13` are now `✅ Done`
-and no longer block this lane)
+`src/JitML/Test/WorkflowMatrix.hs`, `playwright/jitml-demo.spec.ts`,
+`chart/local/jitml-demo/templates/deployment.yaml` (linux-cuda demo GPU +
+JIT-compile memory budget), `src/JitML/App.hs`
+(`measureBrowserProductMatrix` live probe), `test/unit/Main.hs`
+(command-registry golden)
 **Docs to update**: `documents/engineering/training_workloads.md`,
 `documents/engineering/purescript_frontend.md`, `system-components.md`
 
@@ -4135,23 +4145,43 @@ Validate the full no-caveat product on real Linux CPU and Linux CUDA lanes.
 - `docker compose run --rm jitml jitml docs check`
 - `docker compose run --rm jitml jitml check-code`
 
-### Remaining Work
+### Validation State (2026-06-18, RTX 5090 host)
 
-- Blocked on the no-caveat runtime and browser implementation phases.
-- **`linux-cpu` half re-validated (2026-06-16, Apple M1 Max host).** Clean
-  `jitml bootstrap --linux-cpu` (85 steps, 7/7 ready, edge `9091`); 12 dataset
-  blobs staged + SHA-verified; `jitml-sl-canonicals --linux-cpu` `24/24` (live
-  MNIST convergence `431s`); `jitml-integration --linux-cpu` `71/71` (PPO/cartpole
-  convergence `83.9s`, AlphaZero, tune, inference, GC, capability round-trips);
-  `jitml-e2e --linux-cpu` `23/23`; `check-code` / `docs check` ok. The live
-  Playwright product matrix is `6/11` — the five checkpoint-backed panels are
-  blocked by the Sprint `14.1` in-cluster demo MinIO-endpoint defect and missing
-  per-panel checkpoint serving (see Phase `14`), so this lane cannot close until
-  Phases `13`/`14` land.
-- **`linux-cuda` half remains hardware-blocked.** The Apple M1 Max host has no
-  NVIDIA GPU and its Docker is an aarch64 Linux VM, so the `linux-cuda` lane
-  (`jitml test all --linux-cuda`, `jitml-e2e --linux-cuda`) cannot run here and
-  was not re-claimed; it requires the NVIDIA validation host.
+Both lanes closed on a single NVIDIA host (which also provides `linux-cpu`),
+satisfying standards rule M's single-accelerator-per-phase invariant.
+
+- **`linux-cpu` lane.** Live `jitml bootstrap --linux-cpu` cluster (edge `9091`);
+  all 12 canonical dataset blobs staged + SHA-verified into live MinIO;
+  `jitml test all --linux-cpu` **8/8 stanzas** — `jitml-unit` 197/197 (after the
+  stale registry-golden fix), `jitml-integration` live group, `jitml-sl-canonicals`
+  24/24 (live MNIST convergence `267.7s`, all-row materialize `29.8s`),
+  `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-daemon-lifecycle`,
+  `jitml-e2e` 23/23, `jitml-backends` (oneDNN).
+- **`linux-cuda` lane.** Live `jitml bootstrap --linux-cuda` cluster (edge `9092`,
+  GPU-attached `jitml-service` + `jitml-demo`); `jitml test all --linux-cuda`
+  **8/8 stanzas** including `jitml-backends` **20/20** with the real cuBLAS/cuDNN
+  bindings compiled and executed on the RTX 5090; `jitml test jitml-e2e
+  --linux-cuda` **23/23**. The live report card measured every runtime row
+  (`sl_final_loss=mnist-shallow-mlp 0.65`, `rl_final_reward=ppo/cartpole 131.2`,
+  `alphazero_arena_win_rate=connect4/gen0 0.75`, `tune_best_objective=TPE 1.0`,
+  `jit_cache_hit_rate=1.0`, `daemon_healthz=200`).
+- **Browser product matrix `11/11` on the `linux-cuda` edge.** The five
+  checkpoint-backed panels (MNIST inference, generic inference, CIFAR upload,
+  checkpoint compare, Connect-4 move) initially failed `503 runtime unavailable:
+  libcuda=no` because the `jitml-demo` pod had no GPU on `linux-cuda` and its
+  256Mi limit OOM-killed the in-process `nvcc` JIT compile. Fixed in
+  `chart/local/jitml-demo/templates/deployment.yaml` (adds `runtimeClassName:
+  nvidia`, the NVIDIA env, and a 4Gi/2-CPU budget on `linux-cuda`); after
+  `jitml internal seed-demo-checkpoints`, all five panels serve real
+  checkpoint-backed results and the live Playwright spec passes **11/11**.
+- **Real defects fixed (all in the worktree):** the `jitml-unit` registry golden
+  (`test/unit/Main.hs`), the demo `linux-cuda` GPU/memory gap (chart), and the
+  `measureBrowserProductMatrix` report-card stub (now a live endpoint probe in
+  `src/JitML/App.hs`).
+- **Environmental notes (non-product, shared host):** Apache BookKeeper went
+  read-only under co-tenant disk pressure — the bookie `diskUsageThreshold` was
+  raised on the jitML clusters only — and a co-tenant disk-full event was ridden
+  out. Neither is a jitML defect.
 
 ## Doctrine Sections Cited
 

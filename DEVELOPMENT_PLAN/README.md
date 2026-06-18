@@ -43,6 +43,39 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**Phase 15 closed (2026-06-18 — NVIDIA GeForce RTX 5090 host, UUID
+`GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8).** Sprint `15.20`
+re-closed `✅ Done`, so **Phase `15` is `✅ Done`** on its `linux-cpu`+`linux-cuda`
+no-caveat lane. The full five-command validation gate passed:
+`docker compose run --rm jitml jitml test all --linux-cpu` **8/8 stanzas**,
+`docker compose run --rm jitml-cuda jitml test all --linux-cuda` **8/8 stanzas**
+(including `jitml-backends` **20/20** with the real cuBLAS/cuDNN bindings on the
+attached RTX 5090), `jitml test jitml-e2e --linux-cuda` **23/23**, `jitml docs
+check`, and `jitml check-code` all green; the live `linux-cuda` report card
+measured every runtime row (`sl_final_loss`, `rl_final_reward`,
+`alphazero_arena_win_rate`, `tune_best_objective`, `jit_cache_hit_rate`,
+`daemon_healthz`), and the **live Playwright product matrix passed 11/11 on the
+`linux-cuda` edge**. Closing this lane required fixing three real defects (none a
+product-logic flaw, all now landed in the worktree): (1) a stale `jitml-unit`
+command-registry golden missing the `internal seed-demo-checkpoints` leaf
+(`test/unit/Main.hs`); (2) **the `jitml-demo` pod had no GPU on `linux-cuda`** so
+in-process checkpoint inference failed `503 runtime unavailable: libcuda=no`, and
+its 256Mi limit OOM-killed the `nvcc` JIT compile — fixed in
+`chart/local/jitml-demo/templates/deployment.yaml` (adds `runtimeClassName:
+nvidia`, the NVIDIA env, and a 4Gi/2-CPU budget on `linux-cuda`, mirroring
+`jitml-service`); and (3) the `measureBrowserProductMatrix` report-card row was a
+hardcoded `unavailable` stub — now wired (`src/JitML/App.hs`) to probe the live
+checkpoint-backed product endpoints. Two environmental, non-product issues were
+also worked around on this shared host: Apache BookKeeper going read-only under
+co-tenant disk pressure (the bookie disk-usage threshold was raised on the jitML
+clusters only) and a co-tenant-induced disk-full event. **Phases `16`, `17`, and
+`18` stay `⏸️ Blocked`**: Phase `16` (`apple-silicon`) needs Mac/Metal hardware
+that the x86_64 Linux+CUDA host physically lacks, and Phases `17`/`18` aggregate
+the committed per-lane fragments including the absent `apple-silicon` one, so they
+cannot close without a Mac session. The committed `linux-cuda` per-lane fragment
+lives at
+[attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md).
+
 **Phase renumbering (2026-06-16 — forward-DAG / single-accelerator doctrine).**
 The closure phases were reordered into a strict forward chain so that no later
 phase blocks an earlier one, each phase closes on at most one accelerator plus
@@ -958,10 +991,10 @@ obligation exists.
 | 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.13 re-closed 2026-06-16 on its owned e2e/matrix/report structure; live Playwright product matrix deduped to Phases 15/14/17 per rule E) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ✅ Done — `linux-cpu` scope (validated 2026-06-16, Apple M1 Max; sl 24/24, rl 29/29, hyperparameter 16/16, integration 71/71; per-accelerator convergence owned by 15/16) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
 | 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ✅ Done — `linux-cpu` scope (validated 2026-06-17, Apple M1 Max; lint ok, e2e 23/23, live Playwright 11/11; per-accelerator browser owned by 15/16) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
-| 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 13–14) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
-| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 13–14 + apple-silicon Mac hardware; independent of Phase 15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
-| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ⏸️ Blocked (reopened 2026-06-14; blocked on Phases 15–16) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ⏸️ Blocked (new 2026-06-14; blocked on Phases 13–17) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done — `linux-cpu`+`linux-cuda` scope (validated 2026-06-18 on the NVIDIA GeForce RTX 5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`; `test all --linux-cpu` 8/8, `test all --linux-cuda` 8/8 incl. `jitml-backends` 20/20 real cuBLAS/cuDNN, `jitml-e2e --linux-cuda` 23/23, docs check, check-code; live cuda report card all measured; live Playwright 11/11 on the cuda edge after the Sprint 15.20 demo-GPU fix) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
+| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ⏸️ Blocked (reopened 2026-06-14; sole remaining blocker is `apple-silicon` Mac hardware — Phases 13–15 are Done; physically un-runnable on the current x86_64 Linux+CUDA host) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
+| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ⏸️ Blocked (reopened 2026-06-14; blocked on Phase 16 — consumes its committed `apple-silicon` per-lane fragment, which needs a Mac session; Phase 15's `linux-cuda` fragment is committed) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ⏸️ Blocked (new 2026-06-14; blocked on Phases 16–17 — needs the `apple-silicon` per-lane fragment) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-14 — no-caveat end-to-end product target)
 

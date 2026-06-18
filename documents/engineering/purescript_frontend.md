@@ -278,6 +278,17 @@ demo image, `jitml-demo` command, and explicit `--host 0.0.0.0 --port 80`
 arguments so Envoy can reach the pod IP. HTTPRoutes for `/`, `/api`, `/api/ws`
 (Sprint `3.4`) point at `jitml-demo:80`.
 
+On `linux-cuda` the demo serves checkpoint-backed inference **in-process**
+through the cluster substrate runtime, which JIT-compiles (`nvcc`) and dispatches
+CUDA kernels. The deployment therefore carries `runtimeClassName: nvidia`, the
+NVIDIA device env, and a raised CPU/memory budget (4Gi) on `linux-cuda` exactly
+like `jitml-service` (Sprint `15.20`,
+`chart/local/jitml-demo/templates/deployment.yaml`); without GPU access the panels
+fail `503 runtime unavailable: libcuda=no`, and a too-small memory limit
+OOM-kills the JIT compile. The `linux-cpu` budget is unchanged (oneDNN CPU
+inference). Validated 2026-06-18 by the live Playwright product matrix passing
+`11/11` on the `linux-cuda` edge.
+
 ## Playwright E2E
 
 `playwright/jitml-demo.spec.ts` is the current TypeScript Playwright scaffold.

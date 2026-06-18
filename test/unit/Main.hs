@@ -3416,6 +3416,7 @@ canonicalLeafPaths =
   , ["internal", "list-prereqs"]
   , ["internal", "install-metal-bridge"]
   , ["internal", "upload-dataset"]
+  , ["internal", "seed-demo-checkpoints"]
   , ["internal", "gc"]
   , ["internal", "cache", "stat"]
   , ["internal", "cache", "list"]

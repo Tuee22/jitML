@@ -3557,14 +3557,68 @@ measureDaemonHealthz = do
                   ("http://127.0.0.1:" <> Text.pack (show edgePort) <> "/healthz status=200")
           _ -> MeasurementUnavailable
 
--- | The no-caveat browser/product matrix (Sprint 12.13) is reported
--- 'MeasurementUnavailable' until Phase `17`'s live Playwright product run
--- exercises every model/product interaction cell. Reporting it unavailable
--- keeps the no-caveat handoff honestly open (Sprint 18.1 requires no
--- unavailable product row when the lane hardware is present) rather than
--- vacuously omitting the row from the live report card.
+-- | The no-caveat browser/product matrix (Sprint 15.20): probe every
+-- checkpoint-backed product panel's REST endpoint at the live demo edge with
+-- the panel's canonical default request and confirm each serves a real
+-- checkpoint-backed result. The report card then carries a measured
+-- browser-product row (e.g. @5/5 served@) instead of a hardcoded stub.
+-- 'MeasurementUnavailable' only when no live cluster publication exists or a
+-- panel endpoint does not serve its result kind (so the no-caveat handoff stays
+-- honestly open until the live browser surface is real).
 measureBrowserProductMatrix :: App ReportMeasurement
-measureBrowserProductMatrix = pure MeasurementUnavailable
+measureBrowserProductMatrix = do
+  cluster <- liftIO (readExistingLivePublication ".")
+  case cluster of
+    Nothing -> pure MeasurementUnavailable
+    Just publication -> do
+      let edgePort = Publication.publicationEdgePort publication
+      results <- liftIO (traverse (probeBrowserProductPanel edgePort) browserProductPanelProbes)
+      let served = length (filter id results)
+          total = length browserProductPanelProbes
+      pure $
+        if served == total && total > 0
+          then
+            MeasurementAvailable
+              ( "checkpoint-backed product panels "
+                  <> Text.pack (show served)
+                  <> "/"
+                  <> Text.pack (show total)
+                  <> " served at edge :"
+                  <> Text.pack (show edgePort)
+              )
+          else MeasurementUnavailable
+
+-- | @(endpoint path, request body, expected result-kind marker)@ for each
+-- checkpoint-backed browser product panel. Bodies use the panels' canonical
+-- default requests (@web/src/Panels/*.purs@) so the probe exercises the same
+-- contract the browser submits.
+browserProductPanelProbes :: [(Text, Text, Text)]
+browserProductPanelProbes =
+  [ ("/api/inference", mnistBody, "kind: InferenceResult")
+  , ("/api/inference/generic", genericBody, "kind: GenericInferenceResult")
+  , ("/api/images", cifarBody, "kind: ImageInferenceResult")
+  , ("/api/checkpoints/compare", compareBody, "kind: CheckpointCompareResult")
+  , ("/api/connect4/move", connect4Body, "kind: AdversarialMoveResult")
+  ]
+ where
+  mnistBody =
+    "kind: BrowserInferenceRequest\npanel: mnist-live-inference\nmodel-id: mnist-deep-mlp\nexperiment-hash: mnist-deep-mlp\ninput: 1.0,2.0\n"
+  genericBody =
+    "kind: BrowserGenericInferenceRequest\npanel: generic-inference-lab\nexperiment-hash: generic-tensor-demo\ninput: 0.25,-0.5,1.0,2.0\n"
+  cifarBody =
+    "kind: BrowserImageRequest\npanel: cifar-imagenet-upload\ndataset: CIFAR-10\nexperiment-hash: cifar-imagenet\nimage-base64: \ninput: 1.0,2.0\n"
+  compareBody =
+    "kind: BrowserCheckpointCompareRequest\npanel: checkpoint-compare-lab\nbaseline-experiment-hash: generic-tensor-demo\ncandidate-experiment-hash: generic-tensor-demo-candidate\ninput: 0.25,-0.5,1.0,2.0\n"
+  connect4Body =
+    "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: connect4\nexperiment-hash: connect4-alphazero\nmoves: \nhuman-is-player: 0\nsimulations-per-move: 8\n"
+
+probeBrowserProductPanel :: Int -> (Text, Text, Text) -> IO Bool
+probeBrowserProductPanel port (path, body, marker) = do
+  response <- httpPostLocal port path body
+  pure $
+    case response >>= httpOkBody of
+      Right okBody -> marker `Text.isInfixOf` okBody
+      Left _ -> False
 
 measuredShow :: (Show a) => Text -> a -> ReportMeasurement
 measuredShow prefix value =
@@ -3603,6 +3657,42 @@ httpGetRequest path =
     "GET "
       <> Text.unpack path
       <> " HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+
+-- | POST a plain-text body to a local edge route and return the raw HTTP
+-- response. Used by 'measureBrowserProductMatrix' to exercise the demo's
+-- checkpoint-backed product endpoints in-process.
+httpPostLocal :: Int -> Text -> Text -> IO (Either Text Text)
+httpPostLocal port path body = do
+  result <-
+    tryAny $
+      withSocketsDo $ do
+        addresses <-
+          getAddrInfo
+            (Just defaultHints {addrSocketType = Stream})
+            (Just "127.0.0.1")
+            (Just (show port))
+        case addresses of
+          [] -> ioError (userError "no address for jitml browser product probe")
+          addr : _ ->
+            bracket (openLocalSocket addr) close $ \client -> do
+              sendAll client (httpPostRequest path body)
+              Text.pack . ByteString.Char8.unpack <$> recvAll client
+  pure $
+    case result of
+      Left err -> Left (Text.pack (displayException err))
+      Right response -> Right response
+
+httpPostRequest :: Text -> Text -> Data.ByteString.ByteString
+httpPostRequest path body =
+  let bodyBytes = ByteString.Char8.pack (Text.unpack body)
+   in ByteString.Char8.pack
+        ( "POST "
+            <> Text.unpack path
+            <> " HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Type: text/plain\r\nContent-Length: "
+            <> show (Data.ByteString.length bodyBytes)
+            <> "\r\n\r\n"
+        )
+        <> bodyBytes
 
 recvAll :: Socket -> IO Data.ByteString.ByteString
 recvAll client = do

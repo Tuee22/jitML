@@ -6,7 +6,7 @@ nodes:
     image: kindest/node:v1.34.0
     extraPortMappings:
       - containerPort: 30090
-        hostPort: 9091
+        hostPort: 9092
         listenAddress: 127.0.0.1
         protocol: TCP
     extraMounts:

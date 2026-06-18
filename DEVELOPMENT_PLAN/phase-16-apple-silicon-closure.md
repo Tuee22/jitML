@@ -27,11 +27,17 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Apple live validation). Sprint
-`16.11` revalidates the expanded runtime/browser product matrix on
-`apple-silicon`, but it is blocked until Phases `10`–`12`, Phase `13`, and
-Phase `14` land the remaining no-caveat surfaces. Phases `8` and `9` have
-re-closed their local framework/runtime and RL/AlphaZero/tuning surfaces.
+⏸️ **Blocked** (reopened 2026-06-14 — no-caveat Apple live validation).
+**Update 2026-06-18:** every upstream code/runtime dependency is now `✅ Done`
+— Phases `13`/`14` (the `linux-cpu` no-caveat runtime + browser closure) and
+Phase `15` (the `linux-cuda` lane) have all closed. The **sole remaining blocker
+is `apple-silicon` Mac hardware**: Sprint `16.11` runs `bootstrap/apple-silicon.sh
+test` against a live Apple Metal cluster on a Mac host, which is physically
+un-runnable on the x86_64 Linux+CUDA validation host that closed Phase `15`
+(no Apple GPU, no Tart-capable macOS). The browser-product fix landed for the
+GPU lane in Phase `15` (the `jitml-demo` GPU/JIT-memory chart fix and the
+`measureBrowserProductMatrix` live probe) applies equally to the Apple lane and
+will be exercised when a Mac session runs Sprint `16.11`.
 
 ✅ **Historical closure** (reopened and re-closed 2026-06-13 for Sprint `16.10`). The fixed
 Metal bridge and Apple backend lane remain valid, and the full Apple lifecycle

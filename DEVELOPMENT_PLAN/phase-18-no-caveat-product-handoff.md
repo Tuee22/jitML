@@ -21,10 +21,14 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (opened 2026-06-14). This phase is blocked by Phase `15` and
-Phase `16` live revalidation, Phase `17` expanded reproducibility/report-card
-handoff, Phase `13` full model runtime closure, and Phase `14` browser product
-closure.
+⏸️ **Blocked** (opened 2026-06-14). **Update 2026-06-18:** Phases `13`, `14`, and
+`15` are now `✅ Done` (the `linux-cpu` runtime + browser closure and the
+`linux-cuda` lane on the RTX 5090 host, with the committed `linux-cuda` per-lane
+fragment). This phase remains blocked by Phase `16` (the `apple-silicon` live
+lane) and Phase `17` (the within-substrate aggregation that consumes Phase `16`'s
+fragment) — both require a Mac/Metal session that the x86_64 Linux+CUDA host
+cannot provide. The final no-caveat handoff merges all three per-lane
+attestations; the `apple-silicon` one is still outstanding.
 
 ## Phase Summary
 

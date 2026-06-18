@@ -13,6 +13,13 @@ spec:
       labels:
         app: jitml-demo
     spec:
+      {{- if eq .Values.substrate "linux-cuda" }}
+      # Sprint 15.20 — the demo serves checkpoint-backed inference in-process
+      # through the cluster substrate runtime; on linux-cuda that JIT-compiles
+      # and dispatches CUDA kernels, so the demo pod needs the NVIDIA runtime
+      # class and an attached GPU exactly like jitml-service.
+      runtimeClassName: nvidia
+      {{- end }}
       containers:
         - name: jitml-demo
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -20,13 +27,21 @@ spec:
           command: ["jitml-demo"]
           args: ["--host", "0.0.0.0", "--port", "80"]
           # Sprint 4.8 — pod budget from dhall/cluster/resources.dhall (`jitmlDemo`).
+          # Sprint 15.20 — linux-cuda raises the budget because the in-process
+          # `nvcc` JIT compile of the inference kernel needs far more than the
+          # 256Mi CPU-lane ceiling (a too-small limit OOM-kills the compile).
           resources:
             requests:
               cpu: 50m
               memory: 128Mi
             limits:
+              {{- if eq .Values.substrate "linux-cuda" }}
+              cpu: "2"
+              memory: 4Gi
+              {{- else }}
               cpu: 250m
               memory: 256Mi
+              {{- end }}
           env:
             # Sprint 13.13 — point the held-open /api/ws bridge at the
             # in-cluster Pulsar broker WebSocket service (the demo pod
@@ -41,6 +56,12 @@ spec:
               value: "http://minio.platform.svc.cluster.local:9000"
             - name: JITML_SUBSTRATE
               value: "{{ .Values.substrate }}"
+            {{- if eq .Values.substrate "linux-cuda" }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            {{- end }}
           ports:
             - name: http
               containerPort: 80

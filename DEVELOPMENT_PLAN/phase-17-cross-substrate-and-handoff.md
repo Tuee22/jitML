@@ -56,8 +56,13 @@
 
 ⏸️ **Blocked** (reopened 2026-06-14 — no-caveat final handoff). Sprint `17.8`
 updates the report card, within-substrate reproducibility evidence, and legacy
-ledger handoff for the expanded product scope. It is blocked by Phases `9`, `10`, `11`, `12`, `15`, and `16`,
-Phase `13`, and Phase `14`.
+ledger handoff for the expanded product scope. **Update 2026-06-18:** Phases
+`13`, `14`, and `15` are now `✅ Done`, and Phase `15` committed its `linux-cuda`
+per-lane report-card fragment
+([../DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md)).
+The **sole remaining blocker is Phase `16`**: this aggregation consumes the
+committed `apple-silicon` per-lane fragment, which only a Mac session can
+produce, so it cannot close on the current x86_64 Linux+CUDA host.
 
 > **Substrate-affinity note (standards rule M(b)/(d)).** This is a
 > **`linux-cpu`-only aggregation** phase. Each substrate's within-substrate
