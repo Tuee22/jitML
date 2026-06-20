@@ -83,6 +83,14 @@ import JitML.Service.Endpoints (MetricsSnapshot (..), endpointStatus, healthz, m
 import JitML.Service.Http (withHttpRoutesOnce)
 import JitML.Service.Lifecycle (LifecyclePhase (..), lifecyclePlan)
 import JitML.Service.Retry (RetryPolicy (..), ServiceError (..), retryServiceAction)
+import JitML.Service.RoleLifecycle
+  ( computeRoles
+  , profileComputes
+  , profileOwnsTopics
+  , profileServesWebsocket
+  , roleLifecyclePlan
+  , roleProfile
+  )
 import JitML.Service.Runtime
   ( DaemonRuntime (daemonAppleMetalAcquireStatus, daemonReady)
   , daemonHttpRoutes
@@ -123,6 +131,22 @@ main =
       "jitml-daemon-lifecycle"
       [ testCase "lifecycle order reaches ready before serve" $
           lifecyclePlan @?= [Load, Prereq, Acquire, Ready, Serve, Drain, Exit]
+      , testCase "role model: exactly the Engine computes; every role shares the skeleton" $ do
+          -- The Engine is the only compute role (Webapp/Coordinator run no ML).
+          computeRoles @?= [BootConfig.Engine]
+          profileComputes (roleProfile BootConfig.Engine) @?= True
+          profileComputes (roleProfile BootConfig.Coordinator) @?= False
+          profileComputes (roleProfile BootConfig.Webapp) @?= False
+          -- The Coordinator owns topic lifecycle; the Webapp serves the websocket.
+          profileOwnsTopics (roleProfile BootConfig.Coordinator) @?= True
+          profileServesWebsocket (roleProfile BootConfig.Webapp) @?= True
+          -- Every role runs the same lifecycle skeleton in the same order.
+          mapM_
+            (\role -> roleLifecyclePlan role @?= lifecyclePlan)
+            [BootConfig.Engine, BootConfig.Coordinator, BootConfig.Webapp]
+          -- BootConfig defaults to the Engine role (preserves current behaviour).
+          BootConfig.bootActiveRole (BootConfig.defaultBootConfig LinuxCPU BootConfig.Cluster)
+            @?= BootConfig.Engine
       , testCase "endpoint status codes follow readiness" $ do
           endpointStatus healthz @?= 200
           endpointStatus (readyz False) @?= 503

@@ -23,6 +23,7 @@ import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Chrome.Header as Header
 import Panels.Api (requestText)
+import Panels.Stream (subscribeStream)
 
 type Connect4MoveRequest =
   { panel :: String
@@ -33,7 +34,7 @@ type Connect4MoveRequest =
   , simulationsPerMove :: Int
   }
 
-type Connect4MoveResponse = Contracts.AdversarialMoveResult
+type Connect4MoveResponse = Contracts.MoveFrame
 
 type GameSpec =
   { name :: String
@@ -54,8 +55,10 @@ type State =
   }
 
 data Action
-  = PlayMove Int
-  | MoveText String
+  = Initialize
+  | PlayMove Int
+  | MoveAck String
+  | FrameText String
   | MoveReceived Connect4MoveResponse
   | MoveFailed String
   | SelectGame GameSpec
@@ -136,10 +139,12 @@ component =
   H.mkComponent
     { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction, initialize = Just Initialize }
     }
   where
   handleAction = case _ of
+    Initialize ->
+      subscribeStream "/api/ws/inference" FrameText MoveFailed
     PlayMove move -> do
       state <- H.get
       let
@@ -163,14 +168,19 @@ component =
             state.humanIsPlayer
             defaultSimulations
         )
-        MoveText
+        MoveAck
         MoveFailed
-    MoveText payload ->
-      case Contracts.parseAdversarialMoveResult payload of
-        Just response ->
-          handleAction (MoveReceived response)
-        Nothing ->
-          handleAction (MoveFailed ("unexpected move response: " <> payload))
+    MoveAck _ ->
+      pure unit
+    FrameText payload -> do
+      state <- H.get
+      case Contracts.fieldValue "experiment-hash" payload of
+        Just hash | hash == state.game.experimentHash ->
+          case Contracts.parseMoveFrame payload of
+            Just response -> handleAction (MoveReceived response)
+            Nothing -> handleAction (MoveFailed ("unexpected move frame: " <> payload))
+        _ ->
+          pure unit
     MoveReceived response ->
       H.modify_
         ( \s ->

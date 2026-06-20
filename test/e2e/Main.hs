@@ -152,7 +152,7 @@ main =
       , testCase "publication leases stable per-substrate edge ports" $
           publicationEdgePort (defaultPublication LinuxCUDA) @?= 9092
       , testCase "browser contracts expose interactive surfaces" $
-          length apiEndpoints @?= 10
+          length apiEndpoints @?= 11
       , testCase "demo route manifest covers edge listener paths" $
           fmap demoRoutePath demoRoutes
             @?= [ "/"
@@ -167,6 +167,7 @@ main =
                 , "/api/ws/training"
                 , "/api/ws/rl"
                 , "/api/ws/tune"
+                , "/api/ws/inference"
                 ]
       , testCase "demo HTTP routes cover generated stream endpoints" $
           fmap httpRoutePath demoHttpRoutes
@@ -182,6 +183,7 @@ main =
                 , "/api/ws/training"
                 , "/api/ws/rl"
                 , "/api/ws/tune"
+                , "/api/ws/inference"
                 ]
       , testCase "gateway class attaches the local EnvoyProxy service shape" $ do
           gatewayClass <- Text.IO.readFile "chart/templates/gatewayclass-jitml.yaml"
@@ -438,13 +440,16 @@ fakeBrowserRuntime request =
         , browserRuntimeOutput =
             case browserRuntimeSurface request of
               BrowserRuntimeInference -> [0.1, 1.1, 0.2]
-              BrowserRuntimeGeneric ->
-                if "candidate" `Text.isInfixOf` browserRuntimeExperimentHash request
-                  then [0.75, 0.5]
-                  else [0.25, 0.5]
+              BrowserRuntimeGeneric -> genericOutput
+              BrowserRuntimeCompare -> genericOutput
               BrowserRuntimeImage -> [0.1, 1.1, 0.2, 0.4, 0.3]
               BrowserRuntimeAdversarial -> [0.1, 0.2, 0.7, 0.3, 0.2, 0.1, 0.1, 0.5]
         }
+ where
+  genericOutput =
+    if "candidate" `Text.isInfixOf` browserRuntimeExperimentHash request
+      then [0.75, 0.5]
+      else [0.25, 0.5]
 
 httpGet :: Int -> String -> IO String
 httpGet port path =

@@ -1,3 +1,9 @@
+-- | Generic tensor-inference panel.
+-- |
+-- | Sprint 11.10 (Pulsar ML-Workflow convergence) — asynchronous to the
+-- | browser: subscribes to `/api/ws/inference`, publishes the request
+-- | fire-and-forget, and renders the Engine-decoded `DecodedInference`
+-- | (generic output vector) matched by `experiment-hash`.
 module Panels.GenericInference where
 
 import Prelude
@@ -15,10 +21,11 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Panels.Api (requestText)
+import Panels.Stream (subscribeStream)
 
 type GenericInferenceRequest = Contracts.BrowserGenericInferenceRequest
 
-type GenericInferenceResponse = Contracts.GenericInferenceResult
+type GenericInferenceResponse = Contracts.DecodedInference
 
 type State =
   { lastResponse :: Maybe GenericInferenceResponse
@@ -27,8 +34,10 @@ type State =
   }
 
 data Action
-  = RunInference
-  | InferenceText String
+  = Initialize
+  | RunInference
+  | RunAck String
+  | FrameText String
   | InferenceReceived GenericInferenceResponse
   | InferenceFailed String
 
@@ -60,24 +69,30 @@ component =
   H.mkComponent
     { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction, initialize = Just Initialize }
     }
   where
   handleAction = case _ of
+    Initialize ->
+      subscribeStream "/api/ws/inference" FrameText InferenceFailed
     RunInference -> do
       H.modify_ (_ { pendingInference = true, lastError = Nothing })
       requestText
         "POST"
         "/api/inference/generic"
         (Contracts.renderBrowserGenericInferenceRequest panelName defaultExperimentHash defaultInput)
-        InferenceText
+        RunAck
         InferenceFailed
-    InferenceText payload ->
-      case Contracts.parseGenericInferenceResult payload of
-        Just response ->
-          handleAction (InferenceReceived response)
-        Nothing ->
-          handleAction (InferenceFailed ("unexpected generic inference response: " <> payload))
+    RunAck _ ->
+      pure unit
+    FrameText payload ->
+      case Contracts.fieldValue "experiment-hash" payload of
+        Just hash | hash == defaultExperimentHash ->
+          case Contracts.parseDecodedInference payload of
+            Just decoded -> handleAction (InferenceReceived decoded)
+            Nothing -> handleAction (InferenceFailed ("unexpected generic inference frame: " <> payload))
+        _ ->
+          pure unit
     InferenceReceived response ->
       H.modify_
         ( _
@@ -120,8 +135,7 @@ component =
           [ HP.id (panelName <> "-result")
           , HP.classes [ H.ClassName "jitml-inference-result" ]
           ]
-          [ HH.div_ [ HH.text ("checkpoint " <> response.checkpointSha) ]
-          , HH.div_ [ HH.text ("latency " <> show response.latencyMs <> " ms") ]
+          [ HH.div_ [ HH.text ("kind " <> response.kind) ]
           , HH.ol
               [ HP.id (panelName <> "-output")
               , HP.classes [ H.ClassName "jitml-distribution" ]
@@ -155,6 +169,6 @@ renderOutputSnapshot response =
     ( response
         # map
             ( \r ->
-                "generic-output: " <> show r.output <> " checkpoint=" <> r.checkpointSha
+                "generic-output: " <> show r.output <> " kind=" <> r.kind
             )
     )

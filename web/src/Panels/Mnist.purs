@@ -1,20 +1,12 @@
 -- | MNIST live-inference panel.
 -- |
--- | Sprint 13.13 — adds Halogen render machinery (slot + state + action
--- | handler) on top of the panel-payload contract from Sprint 11.4. The
--- | panel:
--- |
--- |   1. Initialises with no prediction.
--- |   2. On `Predict` click, takes the canvas pixels, calls
--- |      `/api/inference` via `Fetch`, and stores the parsed
--- |      `MnistInferenceResponse` in state.
--- |   3. Re-renders the prediction badge whenever state changes
--- |      (Halogen's VDom diff handles minimal DOM patching).
--- |
--- | A live `/api/ws` WebSocket bridge that streams real broker frames
--- | is owned by Sprint 13.13's server-side proxy work; this module is
--- | the client-side render surface that consumes those frames once the
--- | bridge is in place.
+-- | Sprint 11.10 (Pulsar ML-Workflow convergence) — the panel is now
+-- | __asynchronous to the browser__: it subscribes to the
+-- | `/api/ws/inference` websocket stream, publishes the inference request
+-- | fire-and-forget via `POST /api/inference` (which the Webapp role turns
+-- | into an Engine `WorkCommand`), and renders the streamed, Engine-decoded
+-- | `DecodedInference` frame (matched by `experiment-hash`). The panel does
+-- | __no compute__ — argmax/softmax happen once, in the Engine.
 module Panels.Mnist where
 
 import Prelude
@@ -32,6 +24,7 @@ import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Chrome.Header as Header
 import Panels.Api (requestText)
+import Panels.Stream (subscribeStream)
 
 type MnistInferenceRequest =
   { panel :: String
@@ -39,18 +32,20 @@ type MnistInferenceRequest =
   , modelId :: String
   }
 
-type MnistInferenceResponse = Contracts.InferenceResult
+type Prediction = Contracts.DecodedInference
 
 type State =
-  { lastPrediction :: Maybe MnistInferenceResponse
+  { lastPrediction :: Maybe Prediction
   , pendingInference :: Boolean
   , lastError :: Maybe String
   }
 
 data Action
-  = Predict
-  | PredictionText String
-  | PredictionReceived MnistInferenceResponse
+  = Initialize
+  | Predict
+  | PredictAck String
+  | FrameText String
+  | PredictionReceived Prediction
   | PredictionFailed String
 
 panelName :: String
@@ -87,29 +82,36 @@ component =
   H.mkComponent
     { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction, initialize = Just Initialize }
     }
   where
   handleAction = case _ of
+    Initialize ->
+      subscribeStream "/api/ws/inference" FrameText PredictionFailed
     Predict -> do
       H.modify_ (_ { pendingInference = true, lastError = Nothing })
       requestText
         "POST"
         "/api/inference"
         (Contracts.renderBrowserInferenceRequest panelName defaultModelId defaultExperimentHash defaultInferenceInput)
-        PredictionText
+        PredictAck
         PredictionFailed
-    PredictionText payload ->
-      case Contracts.parseInferenceResult payload of
-        Just response ->
-          handleAction (PredictionReceived response)
-        Nothing ->
-          handleAction (PredictionFailed ("unexpected inference response: " <> payload))
-    PredictionReceived response ->
+    PredictAck _ ->
+      -- The POST only publishes; the decoded result arrives on the stream.
+      pure unit
+    FrameText payload ->
+      case Contracts.fieldValue "experiment-hash" payload of
+        Just hash | hash == defaultExperimentHash ->
+          case Contracts.parseDecodedInference payload of
+            Just decoded -> handleAction (PredictionReceived decoded)
+            Nothing -> handleAction (PredictionFailed ("unexpected inference frame: " <> payload))
+        _ ->
+          pure unit
+    PredictionReceived decoded ->
       H.modify_
         ( _
             { pendingInference = false
-            , lastPrediction = Just response
+            , lastPrediction = Just decoded
             , lastError = Nothing
             }
         )
@@ -154,17 +156,12 @@ component =
                   ( "predicted "
                       <> show prediction.topClass
                       <> " from "
-                      <> prediction.modelId
+                      <> defaultModelId
                       <> " (confidence "
                       <> show prediction.confidence
-                      <> ", "
-                      <> show prediction.latencyMs
-                      <> " ms)"
+                      <> ")"
                   )
               ]
-          , HH.div
-              [ HP.id (panelName <> "-checkpoint") ]
-              [ HH.text ("checkpoint " <> prediction.checkpointSha) ]
           , HH.ol
               [ HP.id (panelName <> "-distribution")
               , HP.classes [ H.ClassName "jitml-distribution" ]
@@ -204,11 +201,9 @@ mount = do
   ui <- runUI component unit body
   pure ui.dispose
 
--- | Provide a deterministic textual snapshot of the predicted-class
--- | badge so the Playwright stub can assert against a pure string. Once
--- | the live `/api/inference` round-trip lands the assertion checks the
--- | actual rendered badge.
-renderPredictionSnapshot :: Maybe MnistInferenceResponse -> String
+-- | Deterministic textual snapshot of the predicted-class badge for the
+-- | Playwright stub to assert against as a pure string.
+renderPredictionSnapshot :: Maybe Prediction -> String
 renderPredictionSnapshot prediction =
   Maybe.fromMaybe
     "predicted: (none)"

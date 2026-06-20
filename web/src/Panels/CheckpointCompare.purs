@@ -1,3 +1,10 @@
+-- | Checkpoint-comparison panel.
+-- |
+-- | Sprint 11.10 (Pulsar ML-Workflow convergence) — asynchronous to the
+-- | browser: publishes a checkpoint-compare `WorkCommand` fire-and-forget and
+-- | renders the Engine-computed `CompareFrame` (two inferences + delta, computed
+-- | in the daemon) streamed on `/api/ws/inference`, matched by
+-- | `baseline-experiment-hash`. No webapp/panel compute.
 module Panels.CheckpointCompare where
 
 import Prelude
@@ -15,10 +22,11 @@ import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Panels.Api (requestText)
+import Panels.Stream (subscribeStream)
 
 type CheckpointCompareRequest = Contracts.BrowserCheckpointCompareRequest
 
-type CheckpointCompareResponse = Contracts.CheckpointCompareResult
+type CheckpointCompareResponse = Contracts.CompareFrame
 
 type State =
   { lastResponse :: Maybe CheckpointCompareResponse
@@ -27,8 +35,10 @@ type State =
   }
 
 data Action
-  = CompareCheckpoints
-  | CompareText String
+  = Initialize
+  | CompareCheckpoints
+  | CompareAck String
+  | FrameText String
   | CompareReceived CheckpointCompareResponse
   | CompareFailed String
 
@@ -64,10 +74,12 @@ component =
   H.mkComponent
     { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction, initialize = Just Initialize }
     }
   where
   handleAction = case _ of
+    Initialize ->
+      subscribeStream "/api/ws/inference" FrameText CompareFailed
     CompareCheckpoints -> do
       H.modify_ (_ { pendingCompare = true, lastError = Nothing })
       requestText
@@ -79,14 +91,18 @@ component =
             defaultCandidateExperimentHash
             defaultInput
         )
-        CompareText
+        CompareAck
         CompareFailed
-    CompareText payload ->
-      case Contracts.parseCheckpointCompareResult payload of
-        Just response ->
-          handleAction (CompareReceived response)
-        Nothing ->
-          handleAction (CompareFailed ("unexpected checkpoint compare response: " <> payload))
+    CompareAck _ ->
+      pure unit
+    FrameText payload ->
+      case Contracts.fieldValue "baseline-experiment-hash" payload of
+        Just hash | hash == defaultBaselineExperimentHash ->
+          case Contracts.parseCompareFrame payload of
+            Just frame -> handleAction (CompareReceived frame)
+            Nothing -> handleAction (CompareFailed ("unexpected compare frame: " <> payload))
+        _ ->
+          pure unit
     CompareReceived response ->
       H.modify_
         ( _
@@ -136,11 +152,10 @@ component =
           [ HP.id (panelName <> "-result")
           , HP.classes [ H.ClassName "jitml-compare-result" ]
           ]
-          [ HH.div_ [ HH.text ("baseline " <> response.baselineCheckpointSha) ]
-          , HH.div_ [ HH.text ("candidate " <> response.candidateCheckpointSha) ]
+          [ HH.div_ [ HH.text ("baseline " <> response.baselineExperimentHash) ]
+          , HH.div_ [ HH.text ("candidate " <> response.candidateExperimentHash) ]
           , HH.div_ [ HH.text ("max delta " <> show response.maxAbsDelta) ]
           , HH.div_ [ HH.text ("mean delta " <> show response.meanAbsDelta) ]
-          , HH.div_ [ HH.text ("latency " <> show response.latencyMs <> " ms") ]
           , HH.ol
               [ HP.id (panelName <> "-baseline-output")
               , HP.classes [ H.ClassName "jitml-distribution" ]

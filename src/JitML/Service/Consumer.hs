@@ -41,6 +41,14 @@ import Data.Text.Encoding qualified as Text.Encoding
 import System.Posix.Time (epochTime)
 
 import JitML.AppError.AppError (AppError (..))
+import JitML.Coordinator.Topology
+  ( Phase (..)
+  , Workflow (..)
+  , defaultNamespace
+  , defaultTenant
+  , topicFor
+  , topicName
+  )
 import JitML.Service.BootConfig
   ( BootConfig (..)
   , Residency (..)
@@ -51,7 +59,7 @@ import JitML.Service.Capabilities
   , TopicName (..)
   )
 import JitML.Service.Retry (ServiceError, serviceErrorToAppError)
-import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Substrate (Substrate (..))
 
 newtype EventId = EventId
   { unEventId :: Text
@@ -115,34 +123,37 @@ data DaemonSubscription = DaemonSubscription
   }
   deriving stock (Eq, Show)
 
+-- Sprint 5.13 — the daemon subscription plan derives every topic from the
+-- Coordinator's validated topic algebra ('topicFor'), not ad-hoc string prefixes,
+-- so the subscriptions cannot drift from the reconciled topic set.
 daemonSubscriptionsForBootConfig :: BootConfig -> [DaemonSubscription]
 daemonSubscriptionsForBootConfig bootConfig =
   case (bootSubstrate bootConfig, bootResidency bootConfig) of
     (AppleSilicon, Host) ->
-      [ daemonSubscription "inference.command" AppleSilicon "jitml-host"
-      , daemonHostWorkloadSubscription "training.host-command"
-      , daemonHostWorkloadSubscription "tune.host-command"
-      , daemonHostWorkloadSubscription "rl.host-command"
+      [ daemonSubscription Infer Command AppleSilicon "jitml-host"
+      , daemonSubscription Train HostCommand AppleSilicon "jitml-host"
+      , daemonSubscription Tune HostCommand AppleSilicon "jitml-host"
+      , daemonSubscription Rl HostCommand AppleSilicon "jitml-host"
       ]
     -- Sprint 14.4 — the Apple in-cluster (`ForwardToHost`) daemon also subscribes
     -- to `inference.event.apple-silicon` so it receives the host's reply events
     -- and republishes the correlated result on the client result topic.
     (AppleSilicon, Cluster) ->
       fmap
-        (\prefix -> daemonSubscription prefix AppleSilicon "jitml-service")
-        [ "training.command"
-        , "tune.command"
-        , "rl.command"
-        , "inference.request"
-        , "inference.event"
+        (\(workflow, phase) -> daemonSubscription workflow phase AppleSilicon "jitml-service")
+        [ (Train, Command)
+        , (Tune, Command)
+        , (Rl, Command)
+        , (Infer, Request)
+        , (Infer, Event)
         ]
     _ ->
       fmap
-        (\prefix -> daemonSubscription prefix (bootSubstrate bootConfig) "jitml-service")
-        [ "training.command"
-        , "tune.command"
-        , "rl.command"
-        , "inference.request"
+        (\(workflow, phase) -> daemonSubscription workflow phase (bootSubstrate bootConfig) "jitml-service")
+        [ (Train, Command)
+        , (Tune, Command)
+        , (Rl, Command)
+        , (Infer, Request)
         ]
 
 subscribeDaemonTopics
@@ -159,20 +170,12 @@ subscribeDaemonTopics =
         (daemonSubscriptionName subscription)
     pure (subscription, result)
 
-daemonSubscription :: Text -> Substrate -> Text -> DaemonSubscription
-daemonSubscription prefix substrate subscriptionName =
+daemonSubscription :: Workflow -> Phase -> Substrate -> Text -> DaemonSubscription
+daemonSubscription workflow phase substrate subscriptionName =
   DaemonSubscription
     { daemonSubscriptionTopic =
-        TopicName ("persistent://public/default/" <> prefix <> "." <> renderSubstrate substrate)
+        TopicName (topicName (topicFor defaultTenant defaultNamespace workflow phase substrate))
     , daemonSubscriptionName = subscriptionName
-    }
-
-daemonHostWorkloadSubscription :: Text -> DaemonSubscription
-daemonHostWorkloadSubscription prefix =
-  DaemonSubscription
-    { daemonSubscriptionTopic =
-        TopicName ("persistent://public/default/" <> prefix <> ".apple-silicon")
-    , daemonSubscriptionName = "jitml-host"
     }
 
 -- | Per-handler LRU dedup cache. The capacity + TTL come from the LiveConfig.

@@ -24,8 +24,12 @@ spec:
         - name: jitml-demo
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: IfNotPresent
-          command: ["jitml-demo"]
-          args: ["--host", "0.0.0.0", "--port", "80"]
+          # Sprint 11.10 — the demo is the one-binary Webapp role: `jitml service`
+          # with activeRole=Webapp (typed Dhall config), folding in the retired
+          # `jitml-demo` executable. It serves the bundle + /api/ws bridge and
+          # publishes inference WorkCommands to the Engine; it computes nothing.
+          command: ["jitml", "service", "--config", "/etc/jitml/BootConfig.dhall"]
+          workingDir: /jitml
           # Sprint 4.8 — pod budget from dhall/cluster/resources.dhall (`jitmlDemo`).
           # Sprint 15.20 — linux-cuda raises the budget because the in-process
           # `nvcc` JIT compile of the inference kernel needs far more than the
@@ -42,26 +46,21 @@ spec:
               cpu: 250m
               memory: 256Mi
               {{- end }}
+          {{- if eq .Values.substrate "linux-cuda" }}
           env:
-            # Sprint 13.13 — point the held-open /api/ws bridge at the
-            # in-cluster Pulsar broker WebSocket service (the demo pod
-            # cannot reach the host edge port) so live event frames are
-            # forwarded to browser clients. JITML_SUBSTRATE selects the
-            # <domain>.event.<substrate> topic family.
-            - name: JITML_DEMO_PULSAR_WS
-              value: "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
-            # Sprint 13.1 — the demo pod reads checkpoints from the in-cluster
-            # MinIO S3 service; the host edge port is unreachable from the pod.
-            - name: JITML_DEMO_MINIO_S3
-              value: "http://minio.platform.svc.cluster.local:9000"
-            - name: JITML_SUBSTRATE
-              value: "{{ .Values.substrate }}"
-            {{- if eq .Values.substrate "linux-cuda" }}
             - name: NVIDIA_VISIBLE_DEVICES
               value: all
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: compute,utility
-            {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: webapp-config
+              mountPath: /etc/jitml
+              readOnly: true
           ports:
             - name: http
               containerPort: 80
+      volumes:
+        - name: webapp-config
+          configMap:
+            name: jitml-webapp-config

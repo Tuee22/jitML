@@ -61,6 +61,7 @@ import JitML.Codegen.KernelFamily (KernelFamily (..))
 import JitML.Codegen.Metal qualified as Metal
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Codegen.SourceFile (SourceFile (..))
+import JitML.Coordinator.Topology qualified as Topology
 import JitML.Engines.CpuFeatures qualified as CpuFeatures
 import JitML.Engines.CublasBindings qualified as Cublas
 import JitML.Engines.CudaLocal qualified as CudaLocal
@@ -87,6 +88,8 @@ import JitML.Generated.Registry
   ( GeneratedSectionRule (..)
   , generatedSectionRules
   )
+import JitML.Inference.AdversarialMove qualified as AdversarialMove
+import JitML.Inference.Decode qualified as Decode
 import JitML.Lint.Chart (checkChartFiles)
 import JitML.Lint.DhallNumerics (checkDhallNumerics)
 import JitML.Lint.DhallRL (checkDhallRL)
@@ -119,6 +122,7 @@ import JitML.Prerequisite.Registry
   )
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.Proto.Gc qualified as ProtoGc
+import JitML.Proto.Inference qualified as ProtoInference
 import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms qualified as RLAlgorithms
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
@@ -152,6 +156,13 @@ import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
 import JitML.RL.Simulator qualified as Sim
 import JitML.Routes qualified as Routes
 import JitML.Service.Capabilities qualified as Capabilities
+import JitML.Service.DhallSchema
+  ( bootConfigSchema
+  , canonicalDhallType
+  , configSchemas
+  , liveConfigSchema
+  , runSchemaDhall
+  )
 import JitML.Service.HotReload qualified as HotReload
 import JitML.Service.LiveConfig qualified as LiveConfig
 import JitML.Service.WebSocket qualified as WS
@@ -164,6 +175,7 @@ import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.AdminPortals qualified as WebAdminPortals
 import JitML.Web.Bundle qualified as WebBundle
 import JitML.Web.Contracts qualified as WebContracts
+import JitML.Work.Envelope qualified as Work
 
 newtype CommandSchema = CommandSchema
   { schemaCommands :: [Value]
@@ -388,6 +400,131 @@ main =
           catalog <- loadRlCatalogSchema "."
           validateRlCatalogSchema catalog @?= Right ()
           checkDhallRL >>= (@?= [])
+      , testCase "reflected BootConfig Dhall schema equals the checked-in file" $ do
+          fileText <- Text.IO.readFile "dhall/service/BootConfig.dhall"
+          canonicalDhallType fileText @?= Right bootConfigSchema
+      , testCase "reflected LiveConfig Dhall schema equals the checked-in file" $ do
+          fileText <- Text.IO.readFile "dhall/service/LiveConfig.dhall"
+          canonicalDhallType fileText @?= Right liveConfigSchema
+      , testCase "reflected RunConfig let-record equals dhall/run/Schema.dhall" $ do
+          fileText <- Text.IO.readFile "dhall/run/Schema.dhall"
+          canonicalDhallType fileText @?= canonicalDhallType runSchemaDhall
+      , testCase "every reflected config schema is well-formed Dhall and reflexive" $
+          -- Each reflected schema must itself parse + canonicalise back to itself,
+          -- proving the emitted type is valid Dhall (anti-drift for RunConfig too).
+          [ name
+          | (name, schemaText) <- configSchemas
+          , canonicalDhallType schemaText /= Right schemaText
+          ]
+            @?= []
+      , testCase "Coordinator topic algebra derives the substrate-scoped family" $ do
+          let names = fmap Topology.topicName Topology.coordinatorTopics
+          -- 9 substrate-scoped (workflow,phase) pairs × 3 substrates (27) +
+          -- 5 apple-only internal/host-command legs = 32.
+          length names @?= 32
+          mapM_
+            ( \t ->
+                assertBool
+                  ("derived topic " <> Text.unpack t)
+                  (t `elem` names)
+            )
+            [ "persistent://public/default/training.command.linux-cpu"
+            , "persistent://public/default/gc.event.linux-cuda"
+            , "persistent://public/default/inference.command.apple-silicon"
+            , "persistent://public/default/rl.host-command.apple-silicon"
+            ]
+      , testCase "Coordinator routing graph validates and rejects one-sided links" $ do
+          Topology.validateTopology Topology.jitmlTopology @?= Right ()
+          assertBool
+            "a command-only routing entry is rejected as one-sided"
+            ( Topology.validateTopology
+                [Topology.RouteEntry Topology.Train Topology.Command Substrate.allSubstrates]
+                /= Right ()
+            )
+      , testCase "Work* readiness gate: ArtifactRef mintable only from a trained derivation" $ do
+          let trained = (Checkpoint.emptyManifest "m" "exp1" []) {Checkpoint.manifestStep = 5}
+              untrained = Checkpoint.emptyManifest "m" "exp1" []
+          fmap Work.artifactRefStep (Work.mintArtifactRef trained) @?= Just 5
+          Work.mintArtifactRef untrained @?= Nothing
+          assertBool
+            "readiness sentinel ends in .ready"
+            (".ready" `Text.isSuffixOf` Work.readinessSentinelKey "exp1")
+      , testCase "Work* command parse rejects malformed / unready commands with typed rejections" $ do
+          let ready = Work.mintArtifactRef ((Checkpoint.emptyManifest "m" "exp1" []) {Checkpoint.manifestStep = 1})
+              parseInfer art =
+                Work.parseWorkCommand
+                  Topology.Infer
+                  Substrate.LinuxCPU
+                  "call-1"
+                  "exp1"
+                  art
+                  "1,2,3"
+                  "inference.result.linux-cpu"
+          -- inference requires a ready derived artifact
+          Work.parseWorkCommand Topology.Infer Substrate.LinuxCPU "c" "exp1" Nothing "1" "reply"
+            @?= Left (Work.ArtifactNotReady Topology.Infer)
+          -- with a minted artifact it parses
+          case parseInfer ready of
+            Right cmd -> Work.wcCallId cmd @?= Work.CallId "call-1"
+            Left rej -> assertFailure ("expected Right, got " <> show rej)
+          -- training consumes no artifact; missing callId / replyTopic are typed rejections
+          Work.parseWorkCommand Topology.Train Substrate.LinuxCPU "" "exp1" Nothing "p" "reply"
+            @?= Left Work.MissingCallId
+          Work.parseWorkCommand Topology.Train Substrate.LinuxCPU "c" "exp1" Nothing "p" ""
+            @?= Left Work.MissingReplyTopic
+          assertBool
+            "training parses with no artifact"
+            ( either
+                (const False)
+                (const True)
+                (Work.parseWorkCommand Topology.Train Substrate.LinuxCPU "c" "exp1" Nothing "p" "reply")
+            )
+      , testCase "Engine output decoding lifts a raw vector into a typed DecodedInference" $ do
+          let clsDecoder =
+                Checkpoint.OutputDecoder "mnist" Checkpoint.ClassificationOutput ["0", "1", "2"] Nothing Nothing
+              genDecoder =
+                Checkpoint.OutputDecoder "g" Checkpoint.GenericOutput [] Nothing Nothing
+          case Decode.decodeInference clsDecoder [1.0, 3.0, 2.0] of
+            Decode.DecodedClassification top _confidence probabilities labels -> do
+              top @?= 1
+              length probabilities @?= 3
+              labels @?= ["0", "1", "2"]
+            other -> assertFailure ("expected DecodedClassification, got " <> show other)
+          Decode.decodeInference genDecoder [1.0, 2.0] @?= Decode.DecodedGeneric [1.0, 2.0]
+      , testCase "Engine composite commands round-trip + the MCTS move is legal" $ do
+          let compareCommand =
+                ProtoInference.CheckpointCompareCommand "c1" "base" "cand" "inference.result.linux-cpu" [1.0, 2.0]
+          ProtoInference.parseCheckpointCompareCommand
+            (ProtoInference.renderCheckpointCompareCommand compareCommand)
+            @?= Just compareCommand
+          let moveCommand =
+                ProtoInference.AdversarialMoveCommand
+                  "m1"
+                  "connect4"
+                  "connect4-alphazero"
+                  "inference.result.linux-cpu"
+                  [3]
+                  1
+                  8
+                  []
+          ProtoInference.parseAdversarialMoveCommand (ProtoInference.renderAdversarialMoveCommand moveCommand)
+            @?= Just moveCommand
+          -- the Engine's MCTS picks a legal connect-4 column from a uniform output
+          let outcome = AdversarialMove.computeAdversarialMove "connect4" [3] 1 8 (replicate 8 0.1)
+          assertBool
+            "chosen column is legal"
+            (AdversarialMove.amoChosenColumn outcome `elem` AdversarialMove.amoLegalMoves outcome)
+          -- the Engine renders typed `decoded-*` wire lines for the panels
+          let rendered =
+                Decode.renderDecodedInference (Decode.DecodedClassification 1 0.5 [0.2, 0.5, 0.3] ["a", "b", "c"])
+          assertBool "decoded-kind line" ("decoded-kind: classification" `elem` rendered)
+          assertBool "decoded-top-class line" ("decoded-top-class: 1" `elem` rendered)
+      , testCase "Work* callId dedup is a pure effectively-once fold" $ do
+          let mk c = case Work.parseWorkCommand Topology.Train Substrate.LinuxCPU c "exp1" Nothing "p" "reply" of
+                Right cmd -> cmd
+                Left _ -> error "unexpected rejection in dedup test"
+              log' = [mk "a", mk "b", mk "a", mk "c", mk "b"]
+          fmap (Work.unCallId . Work.wcCallId) (Work.dedupByCallId log') @?= ["a", "b", "c"]
       , testCase "AppError render golden covers canonical variants" $ do
           expected <- Text.IO.readFile "test/snapshots/cli/app-error-render.txt"
           Text.intercalate "---\n" (fmap renderError canonicalErrors) @?= expected
@@ -2306,6 +2443,7 @@ main =
                 , "/api/ws/training"
                 , "/api/ws/rl"
                 , "/api/ws/tune"
+                , "/api/ws/inference"
                 ]
           WebBundle.renderDemoRouteManifest
             @?= Text.unlines
@@ -2322,6 +2460,7 @@ main =
               , "- /api/ws/training training-stream-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/ws/rl rl-stream-contract <- src/JitML/Web/Contracts.hs"
               , "- /api/ws/tune tune-stream-contract <- src/JitML/Web/Contracts.hs"
+              , "- /api/ws/inference inference-stream-contract <- src/JitML/Web/Contracts.hs"
               ]
           WebContracts.contractGeneratorName @?= "local-purescript-bridge-compatible-renderer"
           fmap (Routes.routeName . fst) Routes.adminPortalRoutes
@@ -3417,6 +3556,7 @@ canonicalLeafPaths =
   , ["internal", "install-metal-bridge"]
   , ["internal", "upload-dataset"]
   , ["internal", "seed-demo-checkpoints"]
+  , ["internal", "dhall-schema"]
   , ["internal", "gc"]
   , ["internal", "cache", "stat"]
   , ["internal", "cache", "list"]

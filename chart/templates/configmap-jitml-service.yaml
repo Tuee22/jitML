@@ -5,7 +5,8 @@ metadata:
   namespace: platform
 data:
   BootConfig.dhall: |
-    { substrate = "linux-cuda"
+    { activeRole = < Engine | Coordinator | Webapp >.Engine
+    , substrate = "linux-cpu"
     , residency = < Cluster | Host >.Cluster
     , inferenceMode = < SelfInference | ForwardToHost >.SelfInference
     , pulsarServiceUrl = "pulsar://pulsar-proxy.platform.svc.cluster.local:6650"
@@ -13,6 +14,7 @@ data:
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
     , harborRegistry = "harbor-registry.platform.svc.cluster.local:5000/library"
     , httpListener = Some { host = "0.0.0.0", port = 8080 }
+    , webappPulsarWsUrl = None Text
     }
   LiveConfig.dhall: |
     { logLevel = Info

@@ -296,6 +296,25 @@ main = runSpecAndExitProcess [ consoleReporter ] do
               4.5
               "ok"
           )
+      Contracts.parseDecodedInference
+        ( "experiment-hash: mnist-deep-mlp\n"
+            <> "decoded-kind: classification\n"
+            <> "decoded-top-class: 2\n"
+            <> "decoded-confidence: 0.9\n"
+            <> "decoded-probabilities: 0.05,0.05,0.9\n"
+            <> "decoded-labels: a,b,c\n"
+        )
+        `shouldEqual` Just
+          { kind: "classification"
+          , topClass: 2
+          , confidence: 0.9
+          , probabilities: [ 0.05, 0.05, 0.9 ]
+          , labels: [ "a", "b", "c" ]
+          , values: []
+          , value: 0.0
+          , output: []
+          }
+      Contracts.parseDecodedInference "status: ok" `shouldEqual` Nothing
       Contracts.parseInferenceResult "prediction: value=0" `shouldEqual` Nothing
       Contracts.parseImageInferenceResult "image: topK=0,1,2" `shouldEqual` Nothing
       Contracts.parseAdversarialMoveResult "move: 3" `shouldEqual` Nothing

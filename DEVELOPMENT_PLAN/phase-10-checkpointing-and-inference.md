@@ -25,13 +25,19 @@
 
 ## Phase Status
 
-🔄 **Active — common-shape reopen (Pulsar ML-Workflow convergence).** Phase `10`
-reopens to make inference an **asynchronous `Work*` workflow** owned by the single
-**Engine** (collapsing the triplicated demo / CLI / daemon inference path into one
-worker), and to gate inference on a **`.ready` readiness** witness: a serveable
-`ArtifactRef` is mintable only from a completed training derivation (checkpoint
-manifest `step ≥ 1` + resolvable `latest` pointer → coordinator-written sentinel),
-so "infer on an untrained model" is unrepresentable in the domain. See
+✅ **Done — common-shape reopen (Pulsar ML-Workflow convergence) closed on its
+retained surface (Sprint `10.7`).** The `Work*` envelope family
+(`JitML.Work.Envelope`: `WorkCommand`/`WorkEvent`/`WorkResult` correlated by
+`callId`, parse-don't-validate wire boundary, `callId` dedup fold), the **`.ready`
+readiness gate** (opaque `ArtifactRef` mintable only from a completed training
+derivation — checkpoint manifest `step ≥ 1` — so "infer on an untrained model" is
+unrepresentable), and the **single-Engine compute collapse** (`engineWeightedInference`
+replaces the triplicated demo/CLI/daemon dispatch) are landed and validated
+**statically in-container** (`check-code`, `docs check`, `jitml-unit` 206/206) and
+**live on `linux-cpu`** (`jitml-integration` 71/71, inference round-trip). The
+remaining **publish-only async behavior** (CLI/demo publish a `WorkCommand` instead
+of computing) is an ownership-transfer to Phase `11` Sprint `11.10` (shared
+websocket/publish infrastructure) per standards rules E/M. See
 [README.md](README.md) → Closure Status, the shared
 [../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
 contract, and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The
@@ -596,6 +602,106 @@ checkpoint-backed models rather than demo-only or Dense-only readers.
 - [../README.md → Plan / Apply commands](../README.md#doctrine-scope) (Sprints 10.3, 10.4)
 - [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 10.4 — unit / integration bodies consume explicit checkpoint runner hooks and the weighted checkpoint loader)
 - [../README.md → Reconcilers and No-Op Exit](../README.md#doctrine-scope) (Sprint 10.3 — `jitml internal gc` command summary and local no-op exit `3`; live MinIO deletion / Pulsar `gc_reaped` events remain Sprint 10.3 Remaining Work)
+
+## Sprint 10.7: Async `Work*` Inference Workflow and `.ready` Readiness Gate ✅
+
+**Status**: Done on its retained surface (Work* envelope family + `.ready`/
+`ArtifactRef` readiness gate + single-Engine compute collapse — static + live
+validated). The remaining **publish-only async behavior** (the CLI/demo publish a
+`WorkCommand` and render the streamed `WorkResult` instead of computing locally)
+is an ownership-transfer to Phase `11` Sprint `11.10`, which owns the
+websocket/publish-only infrastructure that both the demo panels and the CLI share
+(standards rule E — one obligation in one place; rule M — forward transfer to a
+later phase).
+**Depends-On**: Sprint `5.13` (Coordinator topic algebra), Sprint `5.14`
+(one-binary role model — Engine is the sole compute role)
+**Implementation**: `src/JitML/Work/Envelope.hs` (new), `src/JitML/App.hs`,
+`src/JitML/Service/Workload.hs`, `src/JitML/Service/Runtime.hs`,
+`src/JitML/Checkpoint/Format.hs`, `test/integration/Main.hs`,
+`test/daemon-lifecycle/Main.hs`
+**Docs to update**: `../documents/engineering/checkpoint_format.md`,
+`../documents/engineering/training_workloads.md`,
+`../documents/engineering/pulsar_ml_workflow.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Recast inference as an **asynchronous `Work*` workflow** owned by the single
+**Engine**, and make a serveable artifact **unrepresentable** unless it comes from
+a completed derivation. Implements the `Work*` envelope family and the `Artifact +
+readiness contract` of
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md),
+and retires the "Triplicated inference path" ledger row. Adopts `At-Least-Once
+Event Processing`, `Capability Classes and Service Errors`, and `Parse, don't
+validate` from [../README.md](../README.md).
+
+### Deliverables
+
+- Add `JitML.Work.Envelope` with `WorkCommand { callId, workflow, lane,
+  subjectRef, artifactRef?, payload, replyTopic }`, `WorkEvent { callId, workflow,
+  progress }`, `WorkResult { callId, status, outputRefs }`, correlated by
+  `callId`; training and inference share this shape.
+- Collapse the triplicated load→pick-runner→run-kernel logic (demo
+  `weightedInferenceForBrowser`, CLI `inferenceForSubstrate`/`runInference`, daemon
+  `daemonWorkloadDispatcherWithWeightedInference`) into the single Engine consumer
+  path; the CLI/demo publish a `WorkCommand` and render the streamed `WorkResult`.
+- Make a serveable `ArtifactRef` obtainable **only** from a training `WorkResult`
+  whose checkpoint manifest has `step ≥ 1` and a resolvable `latest` pointer; the
+  coordinator writes a `.ready` sentinel **last**. A malformed wire command parses
+  into a typed rejection event, never a silent bad state.
+- Move the "Triplicated inference path" ledger row to `Completed`.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+  covers the `Work*` correlation, the `.ready` gate (infer-before-ready →
+  typed rejection), and single-Engine dispatch.
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+  (live `Work*` inference round-trip through the Engine; per standards rule M(b)
+  this `linux-cpu` lane is the closure gate, with the accelerator lanes attested
+  in Phases `15`/`16`).
+- `docker compose run --rm jitml jitml docs check` and `jitml check-code`.
+
+### Validation State (host-native, apple-silicon lane)
+
+- **Landed and validated host-native.** `JitML.Work.Envelope` defines the
+  `Work*` family (`WorkCommand`/`WorkEvent`/`WorkResult`/`WorkStatus`) correlated
+  by `CallId`, the **parse-don't-validate** wire boundary (`parseWorkCommand` →
+  typed `WorkRejection`), and the producer-side `dedupByCallId` pure fold
+  (effectively-once). The **readiness gate** is enforced in the types: `ArtifactRef`
+  is opaque and obtainable only via `mintArtifactRef` (`Just` iff checkpoint
+  manifest `step ≥ 1`), with `readinessSentinelKey` naming the `.ready` witness —
+  so "infer over an untrained model" is unrepresentable (`parseWorkCommand Infer`
+  with no ready artifact → `ArtifactNotReady`).
+- **Triplicated compute collapsed.** The per-substrate weighted-runner dispatch is
+  single-sourced in `engineWeightedInference`; the demo handler, the `jitml
+  inference run` CLI (`inferenceForSubstrate`), and the daemon consumer all route
+  through it. The "Triplicated inference path" ledger row moved to `Completed`.
+- `cabal build lib:jitml` warning-clean (`-Wall`); `jitml-unit` **206 / 206**
+  (three new `Work*` cases: readiness gate, typed-rejection parse, effectively-once
+  dedup), `jitml-daemon-lifecycle` **35 / 35** (behavior-preserving).
+- **Container gates pass authoritatively.** `docker compose build jitml` exits `0`
+  with the baked `jitml check-code` layer clean (fourmolu + hlint + warning-clean
+  `-fcuda` build) on the full Phase `5`+`10` change set; and against the built
+  `jitml:local` image: `jitml docs check` → `docs check: ok`, `jitml test
+  jitml-unit --linux-cpu` → **206 / 206**, `jitml test jitml-daemon-lifecycle
+  --linux-cpu` → **35 / 35**.
+- **Live `linux-cpu` validation.** Against a freshly bootstrapped cluster
+  (`jitml bootstrap --linux-cpu`, 84 steps), `jitml test jitml-integration
+  --linux-cpu` passes **71 / 71** including the `Live` inference round-trip, which
+  exercises the single-sourced `engineWeightedInference` through the daemon —
+  confirming the compute collapse is behavior-preserving and live-correct.
+
+### Remaining Work
+
+- None on the retained surface. The **publish-only async behavior** (`jitml
+  inference run` and the demo publish a `WorkCommand` and render the streamed
+  `WorkResult` instead of computing locally) is transferred to Phase `11` Sprint
+  `11.10` (it shares that sprint's websocket/publish-only infrastructure; both the
+  demo panels and the CLI become thin publishers). Wiring the live
+  coordinator-written `.ready` sentinel into the Engine readiness path (the pure
+  gate + `ArtifactRef` minting are landed and tested) likewise lands with the
+  Coordinator-role serve path in Phase `15`.
 
 ## Documentation Requirements
 

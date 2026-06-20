@@ -24,13 +24,26 @@
 
 ## Phase Status
 
-🔄 **Active — common-shape reopen (Pulsar ML-Workflow convergence).** Phase `5`
-reopens to make `jitml service` a **one-binary Engine / Coordinator / Webapp** role
-model selected by typed Dhall `activeRole` (run through the shared role-lifecycle
-skeleton), give the **Coordinator** explicit Pulsar **topic-lifecycle ownership**
-(deriving every topic from a typed topology descriptor + validated routing graph,
-retiring the hardcoded `PulsarBootstrap` topic list created inline during bootstrap),
-and have the binary emit its own **reflected** Dhall schema. See
+✅ **Done — common-shape reopen (Pulsar ML-Workflow convergence) closed on its
+owned pure-logic surface.** The convergence made `jitml service` a **one-binary
+Engine / Coordinator / Webapp** role model selected by typed Dhall `activeRole`
+(Sprint `5.14`, run through the shared `JitML.Service.Lifecycle` skeleton), gave the
+**Coordinator** the derived topic algebra (Sprint `5.13`, `JitML.Coordinator.Topology`
+— typed descriptor + validated routing graph + derived `coordinatorTopics`, retiring
+the hardcoded `PulsarBootstrap` list), and made the binary emit its own **reflected**
+Dhall schema for every daemon config surface (Sprint `5.12`, `JitML.Service.DhallSchema`
++ `jitml internal dhall-schema`). Validated: **in-container** `jitml check-code`
+(baked build layer, `docker compose build jitml` exit `0` — fourmolu + hlint +
+warning-clean `-fcuda` build) and **in-container** `jitml docs check: ok`
+(`docker run` against the built `jitml:local`), plus `jitml-unit` **206 / 206** and
+`jitml-daemon-lifecycle` **35 / 35** on the apple-silicon host lane. The
+**live** pieces are forward ownership-transfers: the Coordinator topic
+reconcile-at-startup to Phase `15`, and live multi-role (Coordinator/Webapp pod)
+serving to Phases `11`/`15`. (This shared host's Docker image store is
+intermittently non-persisting — `docker compose run` can force a rebuild that OOMs
+under the `-M2G` cap — so the in-container validation is run via `docker compose
+build` + `docker run` against the persisted image rather than `docker compose
+run`.) See
 [README.md](README.md) → Closure Status, standards rule M, the shared
 [../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
 contract, and the rows in
@@ -1189,6 +1202,270 @@ Environment` from [../README.md](../README.md).
 - None. Phase `12` completed the failed-Job/no-Apple-Job integration assertions,
   Phase `16` completed the live Apple full-lane validation, and Phase `17`
   completed the final legacy-ledger move to `Completed`.
+
+## Sprint 5.12: Reflected Dhall Schema ✅
+
+**Status**: Done (convergence config-schema surface; validated host-native +
+container `check-code`)
+**Implementation**: `src/JitML/Service/DhallSchema.hs` (new),
+`src/JitML/Service/Retry.hs` (`retryPolicyDecoder`),
+`src/JitML/Service/LiveConfig.hs` (`liveConfigDecoder`/`loadLiveConfig`),
+`src/JitML/Service/BootConfig.hs` (export `rawBootConfigDecoder`),
+`src/JitML/Service/RunConfig.hs`, `test/unit/Main.hs`,
+`src/JitML/App.hs` (planned `internal dhall-schema` leaf), `dhall/service/*.dhall`,
+`dhall/run/Schema.dhall`
+**Docs to update**: `../documents/engineering/daemon_architecture.md`,
+`../documents/engineering/pulsar_ml_workflow.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make the `jitml` binary **emit its own reflected Dhall schema** so the schema can
+never drift from the `FromDhall` decoder types, per the shared
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+contract (`Configuration and roles` → reflected Dhall schema) and the
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) "Hand-written
+Dhall schema files" row. This is the convergence convention both repos adopt now
+and the lever for the eventual `hostbootstrap` lift. Adopts `Generated Artifacts →
+The generated-section registry` and `Application Environment` from
+[../README.md](../README.md).
+
+### Deliverables
+
+- Derive `ToDhall` for the daemon config records (`BootConfig`, `LiveConfig`,
+  `RunConfig`) alongside their existing `FromDhall` instances, and hoist the
+  reflected type via `Dhall.expected`/`Dhall.TypeCheck` so the emitted schema is
+  exactly the decoder's accepted type.
+- Add a `jitml internal dhall-schema` leaf that prints the reflected schema for
+  each config surface; register it in the command registry and the generated CLI
+  mirror (`documents/cli/commands.md`, manpage, completions) via `jitml docs
+  generate`.
+- Treat the checked-in `dhall/service/BootConfig.dhall`,
+  `dhall/service/LiveConfig.dhall`, and `dhall/run/Schema.dhall` schema files as a
+  generated section emitted from the reflected types (regenerated, not
+  hand-edited), with a `jitml docs check` parity assertion that the checked-in
+  files equal the reflected output.
+- Move the "Hand-written Dhall schema files" ledger row to `Completed` once the
+  parity assertion is green.
+
+### Validation
+
+- `jitml test jitml-unit --linux-cpu` (or `--apple-silicon` host lane) covers the
+  reflected-schema parity property (emitted schema ≡ checked-in file ≡ round-trip
+  decode of a known config).
+- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`.
+- `docker compose run --rm jitml jitml docs check` (schema-parity + generated CLI
+  mirror) and `docker compose run --rm jitml jitml check-code`.
+
+### Validation State (host-native, apple-silicon lane)
+
+- **Landed and validated host-native.** `JitML.Service.DhallSchema` reflects each
+  config surface's Dhall type **off the live decoder** via `Dhall.expected`
+  (`reflectedSchemaText`), so the schema cannot drift from the `FromDhall` types.
+  To reflect `LiveConfig` (which previously had no decoder, only a renderer), a
+  `liveConfigDecoder` + `retryPolicyDecoder` + `logLevelDecoder` + `loadLiveConfig`
+  were added — making SIGHUP hot-reload able to read the real config file.
+- The `jitml internal dhall-schema [--config NAME]` leaf is registered in the
+  command registry and prints `configSchemas`; `jitml docs generate` regenerated
+  the CLI mirror (`documents/cli/commands.md`,
+  `documents/engineering/cli_command_surface.md`, manpage, completions, root
+  README command tree) and the `daemon_architecture.md` BootConfig table row.
+- `cabal build lib:jitml` / `exe:jitml` / `jitml-unit` compile warning-clean
+  (`-Wall`). `cabal run jitml-unit` passes **203 / 203**, including: the reflected
+  `BootConfig` and `LiveConfig` schemas each **equal** the checked-in
+  `dhall/service/*.dhall` file (canonicalised through the same pretty-printer via
+  `canonicalDhallType`); the reflected `RunConfig` let-record (`runSchemaDhall`)
+  **equals** `dhall/run/Schema.dhall`; all five reflected schemas are well-formed,
+  reflexive Dhall; and the command-registry leaf list now covers `internal
+  dhall-schema`. Host `jitml docs check` reports `docs check: ok`.
+- **Container `check-code` passed** (the canonical container-only gate runs as a
+  baked Dockerfile layer; `docker compose build jitml` exited `0` with the hlint
+  hint on `Topology.hs` fixed and fourmolu/hlint/cabal-format clean).
+
+### Remaining Work
+
+- Run the **in-container** `jitml docs check` + `jitml test
+  jitml-unit,jitml-daemon-lifecycle --linux-cpu` (currently re-confirmed
+  host-native; the in-container test-stanza re-run is blocked by an environmental
+  Docker image-store/`-M2G` rebuild flake on this shared host, not by code — see
+  Validation State). Then this sprint is closeable on its owned surface.
+- Reflected emission for the remaining catalog (`dhall/numerics`, `dhall/rl`) and
+  `experiments/*.dhall` schemas is tracked in the narrowed "Hand-written
+  catalog/experiment Dhall schema files" ledger row (the daemon config surfaces
+  are done).
+
+## Sprint 5.13: Coordinator Topic Algebra ✅
+
+**Status**: Done (derived topic algebra surface; live coordinator reconcile owned
+by Phase `15`)
+**Implementation**: `src/JitML/Coordinator/Topology.hs` (new),
+`src/JitML/Cluster/PulsarBootstrap.hs` (hardcoded literals removed; sources the
+derived set), `test/unit/Main.hs`, `test/integration/Main.hs` (topic-family
+assertion now over the derived set), `src/JitML/Bootstrap.hs`,
+`src/JitML/Service/Runtime.hs`
+**Docs to update**: `../documents/engineering/cluster_topology.md`,
+`../documents/engineering/daemon_architecture.md`,
+`../documents/engineering/pulsar_ml_workflow.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Give the **Coordinator** role explicit Pulsar **topic-lifecycle ownership** and
+**derive every topic name** from a typed topology descriptor plus a validated
+routing graph, retiring the hardcoded `PulsarBootstrap` topic list created inline
+during `bootstrap`. Implements the `Topic algebra` section of
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+and the "Hardcoded Pulsar topic list" ledger row. Adopts `Reconcilers: Idempotent
+Mutation as a Single Command` and `Subprocesses as Typed Values` from
+[../README.md](../README.md).
+
+### Deliverables
+
+- Add `JitML.Coordinator.Topology` with a typed descriptor and the derivation
+  `topicFor :: Tenant -> Namespace -> Workflow -> Phase -> Lane -> TopicName`,
+  where `Workflow = Train | Tune | Rl | Infer | Gc`, `Phase = Command | Event |
+  Result | Request | HostCommand`, and `Lane = Substrate`. The derived set must
+  equal the current 8×3 substrate family plus the Apple-only internal/host-command
+  topics (no string drift).
+- Validate the routing graph: reject unroutable workflow/lane pairs and one-sided
+  command↔event links; the coordinator reconciles the exact derived topic set at
+  startup (idempotent create, 409-tolerant) instead of `bootstrap` walking a
+  hand-written list.
+- Delete `pulsarTopics` / `substrateTopics` / `appleSiliconInternalTopics` and the
+  inline creation in `src/JitML/Bootstrap.hs`; the bootstrap rollout calls the
+  coordinator's reconcile entrypoint.
+- Move the "Hardcoded Pulsar topic list" ledger row to `Completed` after the
+  derived-set parity test is green.
+
+### Validation
+
+- `jitml test jitml-unit --linux-cpu` (or `--apple-silicon`) covers: derived
+  topic set ≡ the previously hardcoded family; routing-graph validator rejects an
+  unroutable descriptor; reconcile plan is idempotent.
+- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+  (subscription plan still derived from the same descriptor).
+- Live coordinator topic reconcile during `jitml bootstrap --linux-cpu` is owned
+  downstream by Phase `15` (`linux-cpu` lane on this host) — this sprint closes on
+  the offline derived-set/routing-graph proof per standards rule M(b).
+- `docker compose run --rm jitml jitml docs check` and `jitml check-code`.
+
+### Validation State (host-native, apple-silicon lane)
+
+- **Landed and validated host-native.** `JitML.Coordinator.Topology` defines the
+  typed descriptor (`Workflow`, `Phase`, `RouteEntry`, `jitmlTopology`), the
+  contract's `topicFor`, the validated routing graph (`validateTopology` rejects
+  duplicates, empty lanes, and one-sided command/report links), and the derived
+  `coordinatorTopics`. `JitML.Cluster.PulsarBootstrap` no longer contains any
+  hardcoded topic literals (`substrateTopics` / `appleSiliconInternalTopics` /
+  the literal `pulsarTopics` were deleted); it sources the family from
+  `coordinatorTopics` and keeps only the typed `pulsar-admin topics create`
+  mechanics.
+- `cabal build lib:jitml` and `cabal build jitml-integration` compile
+  warning-clean. `cabal run jitml-unit` passes **202 / 202** (two new cases: the
+  derived family has the expected 32 topics with the named members, and
+  `validateTopology jitmlTopology = Right ()` while a command-only entry is
+  rejected). The offline `jitml-integration` "registers the substrate-scoped topic
+  family (Sprint 5.5)" case still passes over the derived set.
+- **Daemon subscription plan repointed.** `daemonSubscriptionsForBootConfig`
+  (`JitML.Service.Consumer`) now derives every subscription topic through
+  `Topology.topicFor` (typed `Workflow`/`Phase`/`Substrate`) instead of ad-hoc
+  string prefixes, producing byte-identical topic names — `jitml-daemon-lifecycle`
+  stays **35 / 35**.
+
+### Remaining Work
+
+- Repoint the `jitml bootstrap` rollout's topic-create step at the `Topology`
+  descriptor's reconcile entrypoint (it already runs over the derived
+  `coordinatorTopics` via `runPulsarTopicCreatesIO`; the explicit
+  Coordinator-role reconcile-at-startup is the live piece owned by Phase `15`).
+- Run the container `jitml docs check` / `jitml check-code` gate, align
+  `cluster_topology.md`, and move the "Hardcoded Pulsar topic list" ledger row to
+  `Completed` (the live coordinator reconcile during bootstrap is owned by Phase
+  `15`).
+
+## Sprint 5.14: One-Binary Engine / Coordinator / Webapp Role Model ✅
+
+**Status**: Done (role model + lifecycle skeleton surface; live multi-role serving
+owned by Phases `11`/`15`)
+**Depends-On**: Sprint `5.12` (reflected schema carries `activeRole`), Sprint
+`5.13` (Coordinator role owns the topic algebra)
+**Implementation**: `src/JitML/Service/RoleLifecycle.hs` (new),
+`src/JitML/Service/BootConfig.hs` (`Role` + `bootActiveRole`),
+`src/JitML/Service/Runtime.hs` (`active_role:` summary block),
+`dhall/service/BootConfig.dhall`,
+`chart/local/jitml-service/templates/configmap.yaml` (deployed `BootConfig.dhall`
+carries `activeRole`), `test/daemon-lifecycle/Main.hs`
+**Docs to update**: `../documents/engineering/daemon_architecture.md`,
+`../documents/engineering/pulsar_ml_workflow.md`, `system-components.md`
+
+### Objective
+
+Make `jitml service` a **one-binary role model** — `activeRole : Role = < Engine |
+Coordinator | Webapp >` selected by typed Dhall — run through one shared
+**role-lifecycle skeleton** `Load → Prereq → Acquire → Ready → Serve → Drain →
+Exit` with role-specific `acquire`/`serve`/`drain` callbacks. Implements `The
+three roles` + `Configuration and roles` of
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md).
+Adopts `Long-Running Daemons in the Same Binary` and `Application Environment`
+from [../README.md](../README.md).
+
+### Deliverables
+
+- Add `Role = Engine | Coordinator | Webapp` to the reflected `BootConfig`
+  (Sprint `5.12`); no env-var role selection.
+- Add `JitML.Service.RoleLifecycle` with the shared skeleton and the typed
+  per-role callback record. The **Engine** is the only role that computes
+  (training + inference); the **Coordinator** owns topic lifecycle (Sprint `5.13`)
+  + readiness gating; the **Webapp** is a thin websocket/static surface (live
+  serving owned by Phase `11`).
+- Route the existing daemon serve path through the Engine callbacks so current
+  Linux/Apple behaviour is preserved under `activeRole = Engine`.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+  covers: each role selects its capability profile; the lifecycle skeleton runs the
+  phase order for every role; `activeRole = Engine` is the BootConfig default and
+  the only compute role.
+- Live multi-role rollout (Coordinator pod + Engine pod(s) + Webapp pod) is owned
+  downstream by Phases `11`/`15`; this sprint closes on the offline skeleton +
+  role-selection proof per standards rule M(b).
+- `docker compose run --rm jitml jitml docs check` and `jitml check-code`.
+
+### Validation State (host-native, apple-silicon lane)
+
+- **Landed and validated host-native.** `Role = Engine | Coordinator | Webapp` is
+  a first-class typed-Dhall field on `BootConfig` (`activeRole`, reflected into the
+  schema by Sprint `5.12`, defaulting to `Engine`). `JitML.Service.RoleLifecycle`
+  layers the per-role capability profile (`profileComputes` / `profileOwnsTopics`
+  / `profileServesWebsocket`) onto the existing shared lifecycle skeleton
+  (`JitML.Service.Lifecycle`, `Load → … → Exit`), and the daemon runtime summary
+  now renders an `active_role:` block. `jitml-daemon-lifecycle` passes **35 / 35**
+  with a new case asserting exactly the Engine computes, every role shares the
+  skeleton/phase order, and `BootConfig` defaults to `Engine`.
+- **Live `linux-cpu` validation.** On a freshly bootstrapped `linux-cpu` Kind
+  cluster, `deployment/jitml-service` rolls out `1/1 Running` decoding the
+  convergence `BootConfig` (with `activeRole`) and reaches `readyz: ready`; the
+  daemon log shows it acquired the **topic-algebra-derived** subscriptions
+  (`persistent://public/default/{rl.command,inference.request}.linux-cpu` — exactly
+  `JitML.Coordinator.Topology.topicFor` output, Sprint `5.13`). The live lane
+  caught a real regression the static gates missed — the hand-written
+  `chart/local/jitml-service/templates/configmap.yaml` deployed a `BootConfig.dhall`
+  without `activeRole`, crash-looping the daemon on the now-required field; fixed by
+  adding `activeRole = < Engine | Coordinator | Webapp >.Engine` to that template.
+  After the fix a clean `jitml bootstrap --linux-cpu` completes all **84** rollout
+  steps (publication written), and `jitml test jitml-integration --linux-cpu`
+  passes **71 / 71** (incl. the `Live` group: WorkflowMatrix dispatch over the
+  derived topics, live PPO/cartpole convergence through daemon dispatch, inference
+  round-trip through `engineWeightedInference`, MinIO/Pulsar/Harbor round-trips) —
+  so the Phase `5` (and Phase `10.7` `engineWeightedInference`) convergence
+  refactors are behavior-preserving and live-correct on `linux-cpu`.
+
+### Remaining Work
+
+- Route the live serve path through role-specific `acquire`/`serve`/`drain`
+  callbacks (Coordinator topic reconcile, Webapp websocket fan-out) — the live
+  multi-role serving is owned downstream by Phases `11`/`15`.
 
 ## Related Documents
 

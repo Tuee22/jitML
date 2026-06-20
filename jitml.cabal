@@ -53,6 +53,8 @@ library
         JitML.Codegen.SourceFile
         JitML.Checkpoint.Format
         JitML.Checkpoint.Store
+        JitML.Inference.AdversarialMove
+        JitML.Inference.Decode
         JitML.Cluster.DockerImage
         JitML.Cluster.EdgePort
         JitML.Cluster.Gateway
@@ -61,6 +63,8 @@ library
         JitML.Cluster.PostgresRegistry
         JitML.Cluster.Publication
         JitML.Cluster.PulsarBootstrap
+        JitML.Coordinator.Topology
+        JitML.Work.Envelope
         JitML.Cluster.Readiness
         JitML.Cluster.Resources
         JitML.Cluster.Storage
@@ -182,6 +186,8 @@ library
         JitML.RL.VecEnv
         JitML.Routes
         JitML.Service.BootConfig
+        JitML.Service.DhallSchema
+        JitML.Service.RoleLifecycle
         JitML.Service.AppleInferenceRpc
         JitML.Service.Capabilities
         JitML.Service.Clients
@@ -248,6 +254,7 @@ library
         containers,
         cryptohash-sha1,
         cryptohash-sha256,
+        either,
         proto-lens,
         proto-lens-runtime,
         dhall,
@@ -289,15 +296,6 @@ library
 
 executable jitml
     main-is:          Main.hs
-    hs-source-dirs:   app
-    default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
-    build-depends:
-        base >=4.21 && <4.22,
-        jitml
-
-executable jitml-demo
-    main-is:          Demo.hs
     hs-source-dirs:   app
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat

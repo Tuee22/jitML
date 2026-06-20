@@ -1223,6 +1223,56 @@ assertions — is in place and validated (`jitml-e2e --linux-cpu` 23 / 23,
 - [../README.md → Test Categories](../README.md#test-suite-stanzas) (Sprint 12.10 — drops the cross-substrate parity category; the within-substrate categories per lane stay)
 - [../README.md → Test Organization](../README.md#test-suite-stanzas) (Sprint 12.10 — substrate-partitioned lanes via `--test-options='-p <substrate>'` keep each stanza's `exitcode-stdio-1.0` + `tasty` shape with no spanning tree)
 
+## Sprint 12.14: Common-Shape Workflow, Topic-Algebra, and Websocket Coverage ⏸️
+
+**Status**: Blocked
+**Blocked by**: Sprint `11.10` (websocket panels). Upstream Sprints `5.13`
+(topic algebra), `5.14` (role model), and `10.7` (async `Work*` inference +
+`.ready`) are Done; this sprint's `Work*`/topic-algebra/`.ready` unit coverage
+already landed with them (`jitml-unit` 206/206), leaving the websocket
+snapshot/patch + live coverage that depends on `11.10`.
+**Implementation**: `test/unit/Main.hs`, `test/daemon-lifecycle/Main.hs`,
+`test/integration/Main.hs`, `test/e2e/Main.hs`, `web/test/Main.purs`
+**Docs to update**: `../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/pulsar_ml_workflow.md`, `system-components.md`
+
+### Objective
+
+Add the test coverage for the common Pulsar ML-workflow shape so the convergence
+deltas are gated, per the
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+`Conformance checklist`. Adopts `Test Organization` and `At-Least-Once Event
+Processing` from [../README.md](../README.md).
+
+### Deliverables
+
+- `Work*` envelope coverage: training and inference share `WorkCommand →
+  WorkEvent* → WorkResult` correlated by `callId`; producer-side dedup keyed by
+  `callId` is a pure fold over the work log (offline, no broker).
+- Topic-algebra coverage: the coordinator's reconciled topic set **equals** the
+  validated routing graph's derived set; the validator rejects an unroutable
+  descriptor and one-sided command↔event links.
+- `.ready` readiness-gate coverage: infer-before-ready yields a typed rejection;
+  a serveable `ArtifactRef` is mintable only from a completed training derivation.
+- Websocket coverage: snapshot/patch frames apply mechanically in the browser
+  (`web/test`), and inference is asynchronous to the browser (no synchronous
+  compute-and-return).
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`,
+  `jitml-daemon-lifecycle --linux-cpu`, `jitml-integration --linux-cpu`,
+  `jitml-e2e --linux-cpu` (per standards rule M(b), the `linux-cpu` lane is the
+  closure gate; accelerator lanes are attested in Phases `15`/`16`).
+- `jitml lint purescript` for the `web/test` snapshot/patch spec.
+- `docker compose run --rm jitml jitml docs check` and `jitml check-code`.
+
+### Remaining Work
+
+- Add the `Work*`, topic-algebra, `.ready`, and websocket snapshot/patch test
+  groups across the unit / daemon-lifecycle / integration / e2e / `web/test`
+  stanzas once Sprints `5.13` / `5.14` / `10.7` / `11.10` land.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**

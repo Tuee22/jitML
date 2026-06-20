@@ -46,6 +46,7 @@ import JitML.Service.BootConfig
   , HttpListener (..)
   , InferenceMode (..)
   , Residency (..)
+  , Role (..)
   , defaultBootConfig
   , renderBootConfigDhall
   )
@@ -101,6 +102,13 @@ import JitML.Service.LiveConfig
   , renderLiveConfigDhall
   )
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Service.RoleLifecycle
+  ( profileComputes
+  , profileOwnsTopics
+  , profileServesWebsocket
+  , roleLabel
+  , roleProfile
+  )
 import JitML.Service.Signal
   ( DaemonSignal
   , DaemonSignalAction (..)
@@ -333,11 +341,30 @@ serveDaemonOnce runtime =
     Just listener -> serveHttpRoutesOnce listener (daemonHttpRoutes runtime)
     Nothing -> pure ()
 
+-- | Sprint 5.14 — surface the selected one-binary role and its capability
+-- profile in the daemon runtime summary so operators can see which role
+-- (Engine / Coordinator / Webapp) this process is running.
+renderActiveRole :: Role -> Text
+renderActiveRole role =
+  Text.intercalate
+    "\n"
+    [ "role: " <> roleLabel role
+    , "computes: " <> boolText (profileComputes profile)
+    , "owns_topics: " <> boolText (profileOwnsTopics profile)
+    , "serves_websocket: " <> boolText (profileServesWebsocket profile)
+    ]
+ where
+  profile = roleProfile role
+  boolText True = "true"
+  boolText False = "false"
+
 renderDaemonRuntimeSummary :: DaemonRuntime -> Text
 renderDaemonRuntimeSummary runtime =
   Text.unlines
     [ "lifecycle:"
     , "  - " <> Text.intercalate "\n  - " (fmap renderLifecyclePhase lifecyclePlan)
+    , "active_role:"
+    , indentText (renderActiveRole (bootActiveRole (daemonBootConfig runtime)))
     , "boot_config:"
     , indentText (renderBootConfigDhall (daemonBootConfig runtime))
     , "live_config:"

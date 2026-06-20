@@ -1,14 +1,10 @@
 -- | CIFAR / ImageNet upload-then-inference panel.
 -- |
--- | Sprint 13.13 — typed Halogen render machinery following the
--- | 'Panels.Mnist' template:
--- |
--- |   * 'State' carries the last 'CifarInferenceResponse', pending
--- |     flag, and an optional error message.
--- |   * 'Action' covers user 'UploadImage' clicks plus
--- |     server-response landings.
--- |   * 'render' switches on state to display the upload control,
--- |     pending spinner, top-k probability list, and error badge.
+-- | Sprint 11.10 (Pulsar ML-Workflow convergence) — asynchronous to the
+-- | browser: subscribes to `/api/ws/inference`, publishes the upload request
+-- | fire-and-forget, and renders the Engine-decoded `DecodedInference`
+-- | (classification: top class + the full probability distribution) matched by
+-- | `experiment-hash`. No browser-side ranking/argmax — the Engine decodes.
 module Panels.Cifar where
 
 import Prelude
@@ -27,6 +23,7 @@ import Halogen.HTML.Properties as HP
 import Halogen.VDom.Driver (runUI)
 import Chrome.Header as Header
 import Panels.Api (requestText)
+import Panels.Stream (subscribeStream)
 
 type CifarUploadRequest =
   { panel :: String
@@ -34,7 +31,7 @@ type CifarUploadRequest =
   , datasetName :: String
   }
 
-type CifarInferenceResponse = Contracts.ImageInferenceResult
+type CifarInferenceResponse = Contracts.DecodedInference
 
 type State =
   { lastResponse :: Maybe CifarInferenceResponse
@@ -43,8 +40,10 @@ type State =
   }
 
 data Action
-  = UploadImage
-  | UploadText String
+  = Initialize
+  | UploadImage
+  | UploadAck String
+  | FrameText String
   | UploadCompleted CifarInferenceResponse
   | UploadFailed String
 
@@ -79,24 +78,30 @@ component =
   H.mkComponent
     { initialState: \_ -> initialState
     , render
-    , eval: H.mkEval H.defaultEval { handleAction = handleAction }
+    , eval: H.mkEval H.defaultEval { handleAction = handleAction, initialize = Just Initialize }
     }
   where
   handleAction = case _ of
+    Initialize ->
+      subscribeStream "/api/ws/inference" FrameText UploadFailed
     UploadImage -> do
       H.modify_ (_ { pendingUpload = true, lastError = Nothing })
       requestText
         "POST"
         "/api/images"
         (Contracts.renderBrowserImageRequest panelName defaultDataset defaultExperimentHash "" defaultInferenceInput)
-        UploadText
+        UploadAck
         UploadFailed
-    UploadText payload ->
-      case Contracts.parseImageInferenceResult payload of
-        Just response ->
-          handleAction (UploadCompleted response)
-        Nothing ->
-          handleAction (UploadFailed ("unexpected image response: " <> payload))
+    UploadAck _ ->
+      pure unit
+    FrameText payload ->
+      case Contracts.fieldValue "experiment-hash" payload of
+        Just hash | hash == defaultExperimentHash ->
+          case Contracts.parseDecodedInference payload of
+            Just decoded -> handleAction (UploadCompleted decoded)
+            Nothing -> handleAction (UploadFailed ("unexpected image frame: " <> payload))
+        _ ->
+          pure unit
     UploadCompleted response ->
       H.modify_
         ( _
@@ -138,31 +143,19 @@ component =
       Just response ->
         HH.div_
           [ HH.div
-              [ HP.id (panelName <> "-checkpoint") ]
-              [ HH.text ("checkpoint " <> response.checkpointSha) ]
+              [ HP.id (panelName <> "-top-class") ]
+              [ HH.text ("top class " <> show response.topClass) ]
           , HH.ol
               [ HP.id (panelName <> "-topk")
               , HP.classes [ H.ClassName "jitml-topk" ]
               ]
-              (renderTopK response)
-          , HH.div
-              [ HP.id (panelName <> "-latency") ]
-              [ HH.text
-                  ( "preprocess "
-                      <> show response.preprocessingMs
-                      <> " ms, inference "
-                      <> show response.inferenceMs
-                      <> " ms"
-                  )
-              ]
+              (renderDistribution response)
           ]
 
-  renderTopK response =
+  renderDistribution response =
     let
       pairs =
-        Array.zipWith (\classIx prob -> { classIx, prob })
-          response.topK
-          response.probabilities
+        Array.mapWithIndex (\classIx prob -> { classIx, prob }) response.probabilities
     in
       map
         ( \pair ->
@@ -193,6 +186,6 @@ renderTopKSnapshot response =
     ( response
         # map
             ( \r ->
-                "topk: " <> show r.topK <> " probs=" <> show r.probabilities
+                "topk: " <> show r.topClass <> " probs=" <> show r.probabilities
             )
     )

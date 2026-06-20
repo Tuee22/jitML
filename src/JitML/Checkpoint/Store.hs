@@ -17,6 +17,7 @@ module JitML.Checkpoint.Store
   , listCheckpointManifestsMinIO
   , loadInferenceCheckpointWith
   , loadInferenceCheckpointWithWeights
+  , loadInferenceCheckpointDecodedWithWeights
   , loadWeightTensors
   , objectPathForKey
   , readCheckpointManifest
@@ -62,6 +63,7 @@ import JitML.Checkpoint.Format
   , manifestKey
   , weightOnlyTensors
   )
+import JitML.Inference.Decode (DecodedInference, decodeManifestOutput)
 import JitML.Service.Capabilities
   ( BucketName (..)
   , ETag
@@ -457,7 +459,41 @@ loadInferenceCheckpointWithWeights
   -> [Double]
   -- ^ inference input
   -> m (Either Text [Double])
-loadInferenceCheckpointWithWeights runInference experimentHash input = do
+loadInferenceCheckpointWithWeights runInference experimentHash input =
+  withWeightedCheckpoint
+    (\manifest weights -> runInference manifest weights input)
+    experimentHash
+
+-- | Sprint 11.10 — variant that, after running weighted inference, applies the
+-- manifest's __output decoder__ in the Engine and returns the typed
+-- 'DecodedInference' alongside the raw output. This is the single place output
+-- decoding happens; the webapp and browser panels render the decoded value
+-- without computing.
+loadInferenceCheckpointDecodedWithWeights
+  :: (HasMinIO m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> Text
+  -- ^ experiment hash
+  -> [Double]
+  -- ^ inference input
+  -> m (Either Text ([Double], DecodedInference))
+loadInferenceCheckpointDecodedWithWeights runInference experimentHash input =
+  withWeightedCheckpoint
+    ( \manifest weights ->
+        fmap
+          (fmap (\output -> (output, decodeManifestOutput manifest output)))
+          (runInference manifest weights input)
+    )
+    experimentHash
+
+-- | Shared core for the weighted-inference loaders: read + validate the latest
+-- manifest, decode the weight-only tensors, and run a continuation with both.
+withWeightedCheckpoint
+  :: (HasMinIO m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> m (Either Text a))
+  -> Text
+  -> m (Either Text a)
+withWeightedCheckpoint continuation experimentHash = do
   let pointerRef = checkpointObjectRef (latestPointerKey experimentHash)
   pointerResult <- minioReadObject pointerRef
   case pointerResult of
@@ -471,7 +507,7 @@ loadInferenceCheckpointWithWeights runInference experimentHash input = do
         Right rawManifest ->
           case decodeManifestCbor (LazyByteString.fromStrict rawManifest) of
             Left err -> pure (Left ("manifest decode failed: " <> err))
-            Right manifest -> do
+            Right manifest ->
               case validateLoadedManifest experimentHash manifestSha manifest of
                 Left err -> pure (Left err)
                 Right validManifest -> do
@@ -479,7 +515,7 @@ loadInferenceCheckpointWithWeights runInference experimentHash input = do
                   loadedWeights <- loadWeightTensors weightOnly
                   case loadedWeights of
                     Left err -> pure (Left err)
-                    Right weights -> runInference weightOnly weights input
+                    Right weights -> continuation weightOnly weights
 
 loadWeightTensors
   :: (HasMinIO m)

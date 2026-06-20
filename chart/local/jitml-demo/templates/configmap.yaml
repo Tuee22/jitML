@@ -1,11 +1,16 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: jitml-service-config
+  name: jitml-webapp-config
   namespace: platform
 data:
+  # Sprint 11.10 — the demo is folded into the one-binary Webapp role. The pod
+  # runs `jitml service` with activeRole=Webapp: it serves the compiled browser
+  # bundle + the held-open /api/ws Pulsar bridge and publishes inference
+  # WorkCommands to the Engine (it computes nothing). webappPulsarWsUrl names the
+  # in-cluster broker WebSocket service the bridge + publish client use.
   BootConfig.dhall: |
-    { activeRole = < Engine | Coordinator | Webapp >.Engine
+    { activeRole = < Engine | Coordinator | Webapp >.Webapp
     , substrate = "{{ .Values.substrate }}"
     , residency = < Cluster | Host >.Cluster
     , inferenceMode = {{ if eq .Values.substrate "apple-silicon" }}< SelfInference | ForwardToHost >.ForwardToHost{{ else }}< SelfInference | ForwardToHost >.SelfInference{{ end }}
@@ -13,8 +18,8 @@ data:
     , pulsarAdminUrl = "http://pulsar-proxy.platform.svc.cluster.local:80"
     , minioEndpoint = "http://minio.platform.svc.cluster.local:9000"
     , harborRegistry = "harbor-registry.platform.svc.cluster.local:5000/library"
-    , httpListener = Some { host = "0.0.0.0", port = 8080 }
-    , webappPulsarWsUrl = None Text
+    , httpListener = Some { host = "0.0.0.0", port = 80 }
+    , webappPulsarWsUrl = Some "ws://pulsar-broker.platform.svc.cluster.local:8080/ws"
     }
   LiveConfig.dhall: |
     { logLevel = Info

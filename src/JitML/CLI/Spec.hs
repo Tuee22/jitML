@@ -647,6 +647,24 @@ internalCommand =
             "Seed the five demo panel checkpoints into live MinIO."
         ]
     , leaf
+        "dhall-schema"
+        "Print the reflected Dhall config schema."
+        "Sprint 5.12 (Pulsar ML-Workflow convergence) — prints the binary's own reflected Dhall schema for each daemon config surface (BootConfig, LiveConfig, TrainingRunConfig, TuneRunConfig, RlRunConfig). The schema is read back off the live FromDhall decoder via Dhall.expected, so it cannot drift from the decoder types. With --config NAME it prints one surface; otherwise it prints every surface."
+        [ value
+            "config"
+            Nothing
+            "config"
+            False
+            "Config surface to print (BootConfig/LiveConfig/TrainingRunConfig/TuneRunConfig/RlRunConfig); defaults to all."
+        ]
+        [ Example
+            "jitml internal dhall-schema"
+            "Print the reflected Dhall schema for every daemon config surface."
+        , Example
+            "jitml internal dhall-schema --config BootConfig"
+            "Print only the reflected BootConfig schema."
+        ]
+    , leaf
         "gc"
         "Apply checkpoint retention."
         "Reconciles the experiment retention policy against the checkpoint store."

@@ -1,6 +1,11 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Sprint 5.13 — the topic /family/ is no longer a hardcoded list here. The
+-- Coordinator owns the topic algebra in 'JitML.Coordinator.Topology'; this module
+-- keeps only the typed creation mechanics (@pulsar-admin topics create@ through
+-- the toolset pod) and sources its topics from the validated routing graph via
+-- 'coordinatorTopics'.
 module JitML.Cluster.PulsarBootstrap
   ( Topic (..)
   , pulsarTopics
@@ -16,19 +21,14 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import System.Exit (ExitCode (..))
 
+import JitML.Coordinator.Topology (Topic (..), coordinatorTopics)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
-import JitML.Substrate (Substrate, allSubstrates, renderSubstrate)
 
-newtype Topic = Topic
-  { topicName :: Text
-  }
-  deriving stock (Eq, Show)
-
+-- | The derived topic family the bootstrap rollout creates, sourced from the
+-- Coordinator's validated routing graph ('coordinatorTopics').
 pulsarTopics :: [Topic]
-pulsarTopics =
-  concatMap substrateTopics allSubstrates
-    <> appleSiliconInternalTopics
+pulsarTopics = coordinatorTopics
 
 renderPulsarAdminCommands :: [Text]
 renderPulsarAdminCommands =
@@ -88,32 +88,3 @@ runPulsarTopicCreatesIO = goTopics pulsarTopics
         | otherwise -> do
             threadDelay 2_000_000
             attempt topic (n - 1)
-
-substrateTopics :: Substrate -> [Topic]
-substrateTopics substrate =
-  fmap
-    (Topic . (<> "." <> renderSubstrate substrate))
-    [ "persistent://public/default/training.command"
-    , "persistent://public/default/training.event"
-    , "persistent://public/default/tune.command"
-    , "persistent://public/default/tune.event"
-    , "persistent://public/default/rl.command"
-    , "persistent://public/default/rl.event"
-    , "persistent://public/default/inference.request"
-    , "persistent://public/default/inference.result"
-    , -- Sprint 13.7: gc_reaped events emitted by `jitml internal gc` after
-      -- each MinIO `deleteObject` succeeds. One topic per substrate so
-      -- consumers can scope auditing to a specific cohort's reconciler.
-      "persistent://public/default/gc.event"
-    ]
-
-appleSiliconInternalTopics :: [Topic]
-appleSiliconInternalTopics =
-  fmap
-    Topic
-    [ "persistent://public/default/inference.command.apple-silicon"
-    , "persistent://public/default/inference.event.apple-silicon"
-    , "persistent://public/default/training.host-command.apple-silicon"
-    , "persistent://public/default/tune.host-command.apple-silicon"
-    , "persistent://public/default/rl.host-command.apple-silicon"
-    ]

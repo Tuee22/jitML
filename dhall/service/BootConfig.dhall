@@ -1,4 +1,5 @@
-{ substrate : Text
+{ activeRole : < Engine | Coordinator | Webapp >
+, substrate : Text
 , residency : < Cluster | Host >
 , inferenceMode : < SelfInference | ForwardToHost >
 , pulsarServiceUrl : Text
@@ -6,4 +7,5 @@
 , minioEndpoint : Text
 , harborRegistry : Text
 , httpListener : Optional { host : Text, port : Natural }
+, webappPulsarWsUrl : Optional Text
 }

@@ -1489,6 +1489,29 @@ Examples:
       Seed the five demo panel checkpoints into live MinIO.
 ```
 
+### `jitml internal dhall-schema`
+
+```text
+jitml internal dhall-schema
+
+Print the reflected Dhall config schema.
+
+Sprint 5.12 (Pulsar ML-Workflow convergence) — prints the binary's own reflected Dhall schema for each daemon config surface (BootConfig, LiveConfig, TrainingRunConfig, TuneRunConfig, RlRunConfig). The schema is read back off the live FromDhall decoder via Dhall.expected, so it cannot drift from the decoder types. With --config NAME it prints one surface; otherwise it prints every surface.
+
+Usage:
+  jitml internal dhall-schema [--config <config>]
+
+Options:
+  --config <config>  Config surface to print (BootConfig/LiveConfig/TrainingRunConfig/TuneRunConfig/RlRunConfig); defaults to all.
+
+
+Examples:
+  jitml internal dhall-schema
+      Print the reflected Dhall schema for every daemon config surface.
+  jitml internal dhall-schema --config BootConfig
+      Print only the reflected BootConfig schema.
+```
+
 ### `jitml internal gc`
 
 ```text

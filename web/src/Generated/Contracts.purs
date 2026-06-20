@@ -4,7 +4,7 @@ import Prelude
 
 import Data.Array as Array
 import Data.Int as Int
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Number as Number
 import Data.String as String
 import Data.String.Pattern (Pattern(..))
@@ -186,6 +186,45 @@ type WorkflowStatus =
   , runId :: String
   , status :: String
   , detail :: String
+  }
+
+-- Sprint 11.10 — the Engine-decoded inference result (one discriminated
+-- record over OutputDecoderKind). The panels render its fields directly; no
+-- browser-side decode (argmax/softmax) happens.
+type DecodedInference =
+  { kind :: String
+  , topClass :: Int
+  , confidence :: Number
+  , probabilities :: Array Number
+  , labels :: Array String
+  , values :: Array Number
+  , value :: Number
+  , output :: Array Number
+  }
+
+-- Sprint 11.10 — the Engine-computed checkpoint-compare frame (two
+-- inferences + delta, all in the daemon).
+type CompareFrame =
+  { baselineExperimentHash :: String
+  , candidateExperimentHash :: String
+  , baselineOutput :: Array Number
+  , candidateOutput :: Array Number
+  , maxAbsDelta :: Number
+  , meanAbsDelta :: Number
+  }
+
+-- Sprint 11.10 — the Engine-computed adversarial-move frame (inference +
+-- MCTS, all in the daemon).
+type MoveFrame =
+  { experimentHash :: String
+  , game :: String
+  , chosenColumn :: Int
+  , legalMoves :: Array Int
+  , visitCounts :: Array Int
+  , policyPriors :: Array Number
+  , valueEstimate :: Number
+  , gameOver :: Boolean
+  , transcriptId :: String
   }
 
 renderStartTrainingCommand :: String -> String -> Int -> Int -> Int -> String
@@ -492,6 +531,48 @@ parseInferenceResult payload
         <*> fieldValue "status" payload
   | otherwise = Nothing
 
+parseDecodedInference :: String -> Maybe DecodedInference
+parseDecodedInference payload =
+  case fieldValue "decoded-kind" payload of
+    Nothing -> Nothing
+    Just decodedKind -> Just
+      { kind: decodedKind
+      , topClass: fromMaybe 0 (intField "decoded-top-class" payload)
+      , confidence: fromMaybe 0.0 (numberField "decoded-confidence" payload)
+      , probabilities: fromMaybe [] (numberListField "decoded-probabilities" payload)
+      , labels: fromMaybe [] (stringListField "decoded-labels" payload)
+      , values: fromMaybe [] (numberListField "decoded-values" payload)
+      , value: fromMaybe 0.0 (numberField "decoded-value" payload)
+      , output: fromMaybe [] (numberListField "decoded-output" payload)
+      }
+
+parseCompareFrame :: String -> Maybe CompareFrame
+parseCompareFrame payload
+  | fieldValue "kind" payload == Just "CheckpointCompareResult" =
+      (\baselineExperimentHash candidateExperimentHash baselineOutput candidateOutput maxAbsDelta meanAbsDelta -> { baselineExperimentHash, candidateExperimentHash, baselineOutput, candidateOutput, maxAbsDelta, meanAbsDelta })
+        <$> fieldValue "baseline-experiment-hash" payload
+        <*> fieldValue "candidate-experiment-hash" payload
+        <*> numberListField "baseline-output" payload
+        <*> numberListField "candidate-output" payload
+        <*> numberField "max-abs-delta" payload
+        <*> numberField "mean-abs-delta" payload
+  | otherwise = Nothing
+
+parseMoveFrame :: String -> Maybe MoveFrame
+parseMoveFrame payload
+  | fieldValue "kind" payload == Just "AdversarialMoveResult" =
+      (\experimentHash game chosenColumn legalMoves visitCounts policyPriors valueEstimate gameOver transcriptId -> { experimentHash, game, chosenColumn, legalMoves, visitCounts, policyPriors, valueEstimate, gameOver, transcriptId })
+        <$> fieldValue "experiment-hash" payload
+        <*> fieldValue "game" payload
+        <*> intField "chosen-column" payload
+        <*> intListField "legal-moves" payload
+        <*> intListField "visit-counts" payload
+        <*> numberListField "policy-priors" payload
+        <*> numberField "value-estimate" payload
+        <*> Just (fieldValue "game-over" payload == Just "true")
+        <*> fieldValue "transcript-id" payload
+  | otherwise = Nothing
+
 parseImageInferenceResult :: String -> Maybe ImageInferenceResult
 parseImageInferenceResult payload
   | fieldValue "kind" payload == Just "ImageInferenceResult" =
@@ -658,6 +739,13 @@ numberListField key payload =
     Just raw -> traverse (Number.fromString <<< String.trim) (String.split (Pattern ",") raw)
     Nothing -> Nothing
 
+stringListField :: String -> String -> Maybe (Array String)
+stringListField key payload =
+  case fieldValue key payload of
+    Just raw | String.trim raw == "" -> Just []
+    Just raw -> Just (map String.trim (String.split (Pattern ",") raw))
+    Nothing -> Nothing
+
 boolField :: String -> String -> Maybe Boolean
 boolField key payload =
   case fieldValue key payload of
@@ -691,4 +779,5 @@ endpoints =
   , { name: "TrainingStream", method: "GET", path: "/api/ws/training" }
   , { name: "RlStream", method: "GET", path: "/api/ws/rl" }
   , { name: "TuneStream", method: "GET", path: "/api/ws/tune" }
+  , { name: "InferenceStream", method: "GET", path: "/api/ws/inference" }
   ]

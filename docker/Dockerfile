@@ -172,10 +172,9 @@ COPY . .
 # warning-clean build serial and within memory. The explicit `--jobs=2` on
 # the binary build below still overrides this for the (heap-capped) exe build.
 RUN printf 'jobs: 1\n' >> /root/.cabal/config \
-    && cabal build -fcuda --jobs=1 --ghc-options="+RTS -M2G -RTS" exe:jitml exe:jitml-demo \
+    && cabal build -fcuda --jobs=1 --ghc-options="+RTS -M2G -RTS" exe:jitml \
     && cp "$(cabal list-bin -fcuda exe:jitml)" /usr/local/bin/jitml \
-    && cp "$(cabal list-bin -fcuda exe:jitml-demo)" /usr/local/bin/jitml-demo \
-    && chmod 0755 /usr/local/bin/jitml /usr/local/bin/jitml-demo \
+    && chmod 0755 /usr/local/bin/jitml \
     && jitml check-code
 
 # Bake the compiled PureScript bundle into the image. `spago build

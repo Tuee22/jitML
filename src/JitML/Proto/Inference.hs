@@ -1,14 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Proto.Inference
-  ( AppleInferenceCommand (..)
+  ( AdversarialMoveCommand (..)
+  , AdversarialMoveResult (..)
+  , AppleInferenceCommand (..)
   , AppleInferenceCommandKind (..)
   , AppleInferenceEvent (..)
   , AppleInferenceEventKind (..)
+  , CheckpointCompareCommand (..)
+  , CheckpointCompareResult (..)
   , InferenceRequest (..)
   , InferenceResult (..)
   , appleInferenceCommandTopic
   , appleInferenceEventTopic
+  , parseAdversarialMoveCommand
+  , parseCheckpointCompareCommand
+  , renderAdversarialMoveResult
+  , renderAdversarialMoveCommand
+  , renderCheckpointCompareCommand
+  , renderCheckpointCompareResult
   , decodeInferenceRequestProto
   , decodeInferenceResultProto
   , encodeInferenceRequestProto
@@ -19,6 +29,7 @@ module JitML.Proto.Inference
   , parseAppleInferenceEvent
   , parseInferenceInput
   , parseInferenceRequest
+  , parseInferenceResult
   , renderAppleInferenceCommand
   , renderAppleInferenceEvent
   , renderInferenceInput
@@ -55,6 +66,58 @@ data InferenceResult = InferenceResult
   { iresCallId :: Text
   , iresExperimentHash :: Text
   , iresOutput :: [Double]
+  }
+  deriving stock (Eq, Show)
+
+-- | Sprint 11.10 — checkpoint-compare as an __Engine__ job: the daemon runs two
+-- inferences and computes the delta (it no longer happens in the webapp). Rides
+-- the inference request/result topics with its own @kind@.
+data CheckpointCompareCommand = CheckpointCompareCommand
+  { cccCallId :: Text
+  , cccBaselineExperimentHash :: Text
+  , cccCandidateExperimentHash :: Text
+  , cccReplyTopic :: Text
+  , cccInput :: [Double]
+  }
+  deriving stock (Eq, Show)
+
+data CheckpointCompareResult = CheckpointCompareResult
+  { ccrCallId :: Text
+  , ccrBaselineExperimentHash :: Text
+  , ccrCandidateExperimentHash :: Text
+  , ccrBaselineOutput :: [Double]
+  , ccrCandidateOutput :: [Double]
+  , ccrMaxAbsDelta :: Double
+  , ccrMeanAbsDelta :: Double
+  }
+  deriving stock (Eq, Show)
+
+-- | Sprint 11.10 — adversarial (Connect-4) move selection as an __Engine__ job:
+-- the daemon runs the policy/value inference __and__ the MCTS tree search (it no
+-- longer happens in the webapp) and emits the chosen move.
+data AdversarialMoveCommand = AdversarialMoveCommand
+  { amcCallId :: Text
+  , amcGame :: Text
+  , amcExperimentHash :: Text
+  , amcReplyTopic :: Text
+  , amcMoves :: [Int]
+  , amcHumanIsPlayer :: Int
+  , amcSimulationsPerMove :: Int
+  , amcInput :: [Double]
+  }
+  deriving stock (Eq, Show)
+
+data AdversarialMoveResult = AdversarialMoveResult
+  { amrCallId :: Text
+  , amrExperimentHash :: Text
+  , amrGame :: Text
+  , amrChosenColumn :: Int
+  , amrLegalMoves :: [Int]
+  , amrVisitCounts :: [Int]
+  , amrPolicyPriors :: [Double]
+  , amrValueEstimate :: Double
+  , amrGameOver :: Bool
+  , amrTranscriptId :: Text
   }
   deriving stock (Eq, Show)
 
@@ -171,6 +234,19 @@ inferenceRequestFromFields value =
     <*> value "reply-topic"
     <*> (value "input" >>= parseInferenceInput)
 
+-- | Sprint 11.10 — parse the daemon's @renderInferenceResult@ reply text (the
+-- inference @WorkResult@) so the CLI / Webapp publisher can render the streamed
+-- result instead of computing in-process.
+parseInferenceResult :: Text -> Maybe InferenceResult
+parseInferenceResult payload = do
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+  "InferenceResult" <- value "kind"
+  InferenceResult
+    <$> value "call-id"
+    <*> value "experiment-hash"
+    <*> (value "output" >>= parseInferenceInput)
+
 renderInferenceResult :: InferenceResult -> Text
 renderInferenceResult result =
   Text.unlines
@@ -179,6 +255,95 @@ renderInferenceResult result =
     , "experiment-hash: " <> iresExperimentHash result
     , "output: " <> renderInferenceInput (iresOutput result)
     ]
+
+renderCheckpointCompareCommand :: CheckpointCompareCommand -> Text
+renderCheckpointCompareCommand command =
+  Text.unlines
+    [ "kind: CheckpointCompareCommand"
+    , "call-id: " <> cccCallId command
+    , "baseline-experiment-hash: " <> cccBaselineExperimentHash command
+    , "candidate-experiment-hash: " <> cccCandidateExperimentHash command
+    , "reply-topic: " <> cccReplyTopic command
+    , "input: " <> renderInferenceInput (cccInput command)
+    ]
+
+parseCheckpointCompareCommand :: Text -> Maybe CheckpointCompareCommand
+parseCheckpointCompareCommand payload = do
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+  "CheckpointCompareCommand" <- value "kind"
+  CheckpointCompareCommand
+    <$> value "call-id"
+    <*> value "baseline-experiment-hash"
+    <*> value "candidate-experiment-hash"
+    <*> value "reply-topic"
+    <*> (value "input" >>= parseInferenceInput)
+
+renderCheckpointCompareResult :: CheckpointCompareResult -> Text
+renderCheckpointCompareResult result =
+  Text.unlines
+    [ "kind: CheckpointCompareResult"
+    , "call-id: " <> ccrCallId result
+    , "baseline-experiment-hash: " <> ccrBaselineExperimentHash result
+    , "candidate-experiment-hash: " <> ccrCandidateExperimentHash result
+    , "baseline-output: " <> renderInferenceInput (ccrBaselineOutput result)
+    , "candidate-output: " <> renderInferenceInput (ccrCandidateOutput result)
+    , "max-abs-delta: " <> Text.pack (show (ccrMaxAbsDelta result))
+    , "mean-abs-delta: " <> Text.pack (show (ccrMeanAbsDelta result))
+    ]
+
+renderAdversarialMoveCommand :: AdversarialMoveCommand -> Text
+renderAdversarialMoveCommand command =
+  Text.unlines
+    [ "kind: AdversarialMoveCommand"
+    , "call-id: " <> amcCallId command
+    , "game: " <> amcGame command
+    , "experiment-hash: " <> amcExperimentHash command
+    , "reply-topic: " <> amcReplyTopic command
+    , "moves: " <> renderIntList (amcMoves command)
+    , "human-is-player: " <> Text.pack (show (amcHumanIsPlayer command))
+    , "simulations-per-move: " <> Text.pack (show (amcSimulationsPerMove command))
+    , "input: " <> renderInferenceInput (amcInput command)
+    ]
+
+parseAdversarialMoveCommand :: Text -> Maybe AdversarialMoveCommand
+parseAdversarialMoveCommand payload = do
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+  "AdversarialMoveCommand" <- value "kind"
+  AdversarialMoveCommand
+    <$> value "call-id"
+    <*> value "game"
+    <*> value "experiment-hash"
+    <*> value "reply-topic"
+    <*> (value "moves" >>= parseIntList)
+    <*> (value "human-is-player" >>= readText)
+    <*> (value "simulations-per-move" >>= readText)
+    <*> (value "input" >>= parseInferenceInput)
+
+renderAdversarialMoveResult :: AdversarialMoveResult -> Text
+renderAdversarialMoveResult result =
+  Text.unlines
+    [ "kind: AdversarialMoveResult"
+    , "call-id: " <> amrCallId result
+    , "experiment-hash: " <> amrExperimentHash result
+    , "game: " <> amrGame result
+    , "chosen-column: " <> Text.pack (show (amrChosenColumn result))
+    , "legal-moves: " <> renderIntList (amrLegalMoves result)
+    , "visit-counts: " <> renderIntList (amrVisitCounts result)
+    , "policy-priors: " <> renderInferenceInput (amrPolicyPriors result)
+    , "value-estimate: " <> Text.pack (show (amrValueEstimate result))
+    , "game-over: " <> (if amrGameOver result then "true" else "false")
+    , "transcript-id: " <> amrTranscriptId result
+    ]
+
+renderIntList :: [Int] -> Text
+renderIntList = Text.intercalate "," . fmap (Text.pack . show)
+
+parseIntList :: Text -> Maybe [Int]
+parseIntList value
+  | Text.null (Text.strip value) = Just []
+  | otherwise = traverse (readText . Text.strip) (Text.splitOn "," value)
 
 renderAppleInferenceEvent :: AppleInferenceEvent -> Text
 renderAppleInferenceEvent event =
@@ -224,8 +389,9 @@ renderInferenceInput =
   Text.intercalate "," . fmap (Text.pack . show)
 
 parseInferenceInput :: Text -> Maybe [Double]
-parseInferenceInput value =
-  traverse (readText . Text.strip) (Text.splitOn "," value)
+parseInferenceInput value
+  | Text.null (Text.strip value) = Just []
+  | otherwise = traverse (readText . Text.strip) (Text.splitOn "," value)
 
 renderAppleInferenceCommandKind :: AppleInferenceCommandKind -> Text
 renderAppleInferenceCommandKind AppleCommandTraining = "training"

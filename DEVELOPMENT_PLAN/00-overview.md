@@ -883,6 +883,37 @@ for the governing rule.
 
 ## Current Baseline
 
+**Reopened (Pulsar ML-Workflow convergence).** Phases `5`, `10`, `11`, and `12`
+are `🔄 Active` for the cross-project
+[../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
+convergence — a one-binary **Engine / Coordinator / Webapp** role model selected by
+typed Dhall, a derived **topic algebra** owned by the Coordinator (retiring the
+hardcoded `PulsarBootstrap` list), a reflected Dhall schema, the `Work*` envelope
+family unifying training + inference, the artifact + `.ready` readiness contract,
+and websocket snapshot/patch inference. The decomposed convergence sprints are
+**Phase `5`**: `5.12` (reflected Dhall schema), `5.13` (Coordinator topic algebra),
+`5.14` (one-binary role model) — **all `✅ Done`** on their owned pure-logic
+surfaces (validated by container `jitml check-code`, host `jitml docs check`,
+`jitml-unit` 203/203, `jitml-daemon-lifecycle` 35/35; live coordinator
+reconcile / multi-role serving are forward ownership-transfers to Phases
+`11`/`15`); **Phase `10`**: `10.7` (async `Work*` inference + `.ready` gate,
+collapsing the triplicated inference path into the Engine) — **`✅ Done`** on its
+retained surface (`Work*` envelope family, readiness gate, single-`engineWeightedInference`
+compute collapse), validated **statically in-container** (`check-code`/`docs
+check`/`jitml-unit` 206) **and live on `linux-cpu`** (clean 84-step bootstrap +
+`jitml-integration` 71/71 incl. inference round-trip); the publish-only async
+behavior (CLI/demo publish a `WorkCommand`) transferred to `11.10`. **Phase `11`**:
+`11.10` (Webapp role + websocket-driven panels + the transferred CLI publish,
+folding `jitml-demo` in and dissolving the Apple in-pod-Metal browser-forward) —
+now `📋 Planned` (upstream `5.14`/`10.7` Done); **Phase `12`**: `12.14`
+(common-shape test coverage) — `⏸️ Blocked` by `11.10`. Every convergence
+`Blocked by` edge references a strictly lower-numbered sprint (forward-DAG, rule
+M), and each closes on the `linux-cpu` / pure-logic lane with no dual-accelerator
+gate. The live `linux-cpu` convergence validation caught and fixed a real
+regression (the hand-written jitml-service chart ConfigMap lacked the new
+`activeRole` field). The closure narrative below predates this reopen and is retained as dated
+history.
+
 **Reopened 2026-06-14 (no-caveat end-to-end product target).** The current
 worktree has re-closed Phase `8` on all-row SL trainable runtime coverage and
 typed RL event payloads, but the intended product is stricter: every RL

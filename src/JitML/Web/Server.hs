@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.Web.Server
-  ( BrowserRuntimeRequest (..)
+  ( BrowserCommandPublishers (..)
+  , BrowserRuntimeRequest (..)
   , BrowserRuntimeResult (..)
   , BrowserRuntimeSurface (..)
   , BrowserRuntimeHandler
@@ -64,6 +65,10 @@ data BrowserRuntimeSurface
   | BrowserRuntimeGeneric
   | BrowserRuntimeImage
   | BrowserRuntimeAdversarial
+  | -- | Sprint 11.10 — checkpoint-compare runs two inferences; its own surface
+    -- keeps it on the synchronous publish-and-await path while the
+    -- single-inference panels (inference/generic) move to the async stream.
+    BrowserRuntimeCompare
   deriving stock (Eq, Show)
 
 data BrowserRuntimeRequest = BrowserRuntimeRequest
@@ -80,6 +85,18 @@ data BrowserRuntimeResult = BrowserRuntimeResult
   deriving stock (Eq, Show)
 
 type BrowserRuntimeHandler = BrowserRuntimeRequest -> IO (Either Text BrowserRuntimeResult)
+
+-- | Sprint 11.10 — fire-and-forget publishers for the composite-inference panels
+-- (checkpoint compare, adversarial move). When present (the live Webapp role),
+-- the endpoints publish an Engine @WorkCommand@ and return an ack; the panel
+-- renders the streamed result. When absent (tests), the endpoints fall back to
+-- the synchronous runtime-handler path.
+data BrowserCommandPublishers = BrowserCommandPublishers
+  { publishCompareCommand :: Text -> Text -> [Double] -> IO (Either Text ())
+  -- ^ baseline hash, candidate hash, input
+  , publishMoveCommand :: Text -> Text -> [Int] -> Int -> Int -> IO (Either Text ())
+  -- ^ game, experiment hash, moves, human-is-player, simulations
+  }
 
 demoListener :: Text -> Int -> HttpListener
 demoListener =
@@ -117,7 +134,7 @@ serveDemoWithBridge host port livePublication =
 serveDemoWithBridgeEndpoint
   :: Text -> Int -> Maybe Publication.ClusterPublication -> Maybe Text -> IO ()
 serveDemoWithBridgeEndpoint host port livePublication endpointOverride =
-  serveDemoWithBridgeEndpointWithRuntime host port livePublication endpointOverride Nothing
+  serveDemoWithBridgeEndpointWithRuntime host port livePublication endpointOverride Nothing Nothing
 
 serveDemoWithBridgeEndpointWithRuntime
   :: Text
@@ -125,12 +142,13 @@ serveDemoWithBridgeEndpointWithRuntime
   -> Maybe Publication.ClusterPublication
   -> Maybe Text
   -> Maybe BrowserRuntimeHandler
+  -> Maybe BrowserCommandPublishers
   -> IO ()
-serveDemoWithBridgeEndpointWithRuntime host port livePublication endpointOverride runtimeHandler = do
+serveDemoWithBridgeEndpointWithRuntime host port livePublication endpointOverride runtimeHandler publishers = do
   bundle <- loadBundleEntry
   serveHttpRoutesWithWebSockets
     (demoListener host port)
-    (demoHttpRoutesWithLiveBundle bundle livePublication endpointOverride runtimeHandler)
+    (demoHttpRoutesWithLiveBundle bundle livePublication endpointOverride runtimeHandler publishers)
     (liveDemoWebSocketRoutes livePublication endpointOverride)
 
 -- | Build the WebSocket route table for the demo. With a live
@@ -144,6 +162,11 @@ liveDemoWebSocketRoutes publication endpointOverride =
   , webSocketRouteFor "/api/ws/training" "training" publication endpointOverride
   , webSocketRouteFor "/api/ws/tune" "tune" publication endpointOverride
   , webSocketRouteFor "/api/ws/rl" "rl" publication endpointOverride
+  , -- Sprint 11.10 — the inference result stream: the Webapp publishes an
+    -- inference `WorkCommand` to the Engine and the browser panels render the
+    -- streamed `WorkResult` (the `inference.result.<substrate>` frames) over this
+    -- websocket, instead of a synchronous compute-and-return fetch.
+    webSocketRouteFor "/api/ws/inference" "inference" publication endpointOverride
   ]
 
 webSocketRouteFor
@@ -216,6 +239,10 @@ consumeLoop topic subscriptionName writeFrame = do
 eventTopicFor :: Text -> Substrate -> Text
 eventTopicFor "metrics" substrate =
   "persistent://public/default/training.event." <> renderSubstrate substrate
+-- Sprint 11.10 — inference results stream off `inference.result.<substrate>`
+-- (the Engine's `WorkResult` topic), not an `inference.event` topic.
+eventTopicFor "inference" substrate =
+  "persistent://public/default/inference.result." <> renderSubstrate substrate
 eventTopicFor domain substrate =
   "persistent://public/default/" <> domain <> ".event." <> renderSubstrate substrate
 
@@ -251,19 +278,20 @@ demoHttpRoutes = demoHttpRoutesWithBundle Nothing
 -- serves the bundle bytes.
 demoHttpRoutesWithBundle :: Maybe Text -> [HttpRoute]
 demoHttpRoutesWithBundle bundle =
-  demoHttpRoutesWithLiveBundle bundle Nothing Nothing Nothing
+  demoHttpRoutesWithLiveBundle bundle Nothing Nothing Nothing Nothing
 
 demoHttpRoutesWithRuntime :: BrowserRuntimeHandler -> [HttpRoute]
 demoHttpRoutesWithRuntime runtimeHandler =
-  demoHttpRoutesWithLiveBundle Nothing Nothing Nothing (Just runtimeHandler)
+  demoHttpRoutesWithLiveBundle Nothing Nothing Nothing (Just runtimeHandler) Nothing
 
 demoHttpRoutesWithLiveBundle
   :: Maybe Text
   -> Maybe Publication.ClusterPublication
   -> Maybe Text
   -> Maybe BrowserRuntimeHandler
+  -> Maybe BrowserCommandPublishers
   -> [HttpRoute]
-demoHttpRoutesWithLiveBundle bundle livePublication endpointOverride runtimeHandler =
+demoHttpRoutesWithLiveBundle bundle livePublication endpointOverride runtimeHandler publishers =
   [ htmlRoute "GET" "/" (EndpointResponse 200 (renderDemoIndexWithBundle bundle))
   , textRoute "GET" "/api" (EndpointResponse 200 renderApiIndex)
   , textRouteHandler
@@ -273,12 +301,16 @@ demoHttpRoutesWithLiveBundle bundle livePublication endpointOverride runtimeHand
   , textRouteHandler "POST" "/api/inference" (browserInferenceResponse runtimeHandler)
   , textRouteHandler "POST" "/api/inference/generic" (browserGenericInferenceResponse runtimeHandler)
   , textRouteHandler "POST" "/api/images" (browserImageResponse runtimeHandler)
-  , textRouteHandler "POST" "/api/checkpoints/compare" (browserCheckpointCompareResponse runtimeHandler)
-  , textRouteHandler "POST" "/api/connect4/move" (browserAdversarialResponse runtimeHandler)
+  , textRouteHandler
+      "POST"
+      "/api/checkpoints/compare"
+      (browserCheckpointCompareResponse publishers runtimeHandler)
+  , textRouteHandler "POST" "/api/connect4/move" (browserAdversarialResponse publishers runtimeHandler)
   , textRoute "GET" "/api/ws" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/training" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/rl" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/tune" liveStreamUpgradeRequired
+  , textRoute "GET" "/api/ws/inference" liveStreamUpgradeRequired
   ]
     <> case bundle of
       Just js ->
@@ -426,28 +458,58 @@ browserImageResponse runtimeHandler request =
         (renderImageInferenceResultResponse imageRequest)
 
 browserCheckpointCompareResponse
-  :: Maybe BrowserRuntimeHandler -> HttpRequest -> IO EndpointResponse
-browserCheckpointCompareResponse runtimeHandler request =
+  :: Maybe BrowserCommandPublishers -> Maybe BrowserRuntimeHandler -> HttpRequest -> IO EndpointResponse
+browserCheckpointCompareResponse publishers runtimeHandler request =
   case parseBrowserCheckpointCompareRequest (httpRequestBody request) of
     Left err -> pure (badRequestResponse "checkpoint-compare-request-invalid" err)
     Right compareRequest ->
-      withTimedCheckpointCompare runtimeHandler compareRequest
+      case publishers of
+        Just p -> do
+          published <-
+            publishCompareCommand
+              p
+              (bccBaselineExperimentHash compareRequest)
+              (bccCandidateExperimentHash compareRequest)
+              (bccInput compareRequest)
+          pure (publishedAckResponse "CheckpointComparePublished" published)
+        Nothing ->
+          withTimedCheckpointCompare runtimeHandler compareRequest
 
 browserAdversarialResponse
-  :: Maybe BrowserRuntimeHandler -> HttpRequest -> IO EndpointResponse
-browserAdversarialResponse runtimeHandler request =
+  :: Maybe BrowserCommandPublishers -> Maybe BrowserRuntimeHandler -> HttpRequest -> IO EndpointResponse
+browserAdversarialResponse publishers runtimeHandler request =
   case parseBrowserAdversarialRequest (httpRequestBody request) of
     Left err -> pure (badRequestResponse "adversarial-request-invalid" err)
     Right moveRequest ->
-      withTimedRuntime
-        runtimeHandler
-        "connect4"
-        ( BrowserRuntimeRequest
-            BrowserRuntimeAdversarial
-            (barExperimentHash moveRequest)
-            (adversarialRuntimeInput moveRequest)
-        )
-        (renderAdversarialMoveResultResponse moveRequest)
+      case publishers of
+        Just p -> do
+          published <-
+            publishMoveCommand
+              p
+              (barGame moveRequest)
+              (barExperimentHash moveRequest)
+              (barMoves moveRequest)
+              (barHumanIsPlayer moveRequest)
+              (barSimulationsPerMove moveRequest)
+          pure (publishedAckResponse "AdversarialMovePublished" published)
+        Nothing ->
+          withTimedRuntime
+            runtimeHandler
+            "connect4"
+            ( BrowserRuntimeRequest
+                BrowserRuntimeAdversarial
+                (barExperimentHash moveRequest)
+                (adversarialRuntimeInput moveRequest)
+            )
+            (renderAdversarialMoveResultResponse moveRequest)
+
+-- | Sprint 11.10 — ack returned by the fire-and-forget composite-inference
+-- endpoints; the decoded result arrives on @/api/ws/inference@.
+publishedAckResponse :: Text -> Either Text () -> EndpointResponse
+publishedAckResponse kind published =
+  case published of
+    Left err -> EndpointResponse 502 (Text.unlines ["kind: " <> kind, "status: failed", "error: " <> err])
+    Right () -> EndpointResponse 200 (Text.unlines ["kind: " <> kind, "status: published"])
 
 withTimedRuntime
   :: Maybe BrowserRuntimeHandler
@@ -486,14 +548,14 @@ withTimedCheckpointCompare (Just runtimeHandler) request = do
   baselineResult <-
     runtimeHandler
       ( BrowserRuntimeRequest
-          BrowserRuntimeGeneric
+          BrowserRuntimeCompare
           (bccBaselineExperimentHash request)
           (bccInput request)
       )
   candidateResult <-
     runtimeHandler
       ( BrowserRuntimeRequest
-          BrowserRuntimeGeneric
+          BrowserRuntimeCompare
           (bccCandidateExperimentHash request)
           (bccInput request)
       )

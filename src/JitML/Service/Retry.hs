@@ -4,6 +4,7 @@ module JitML.Service.Retry
   ( RetryPolicy (..)
   , ServiceError (..)
   , renderRetryPolicyDhall
+  , retryPolicyDecoder
   , retryServiceAction
   , serviceErrorToAppError
   )
@@ -11,6 +12,8 @@ where
 
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Dhall qualified
+import Numeric.Natural (Natural)
 
 import JitML.AppError.AppError (AppError (..))
 
@@ -42,6 +45,34 @@ renderRetryPolicyDhall (ExponentialN attempts baseMillis capMillis) =
     <> " }"
 renderRetryPolicyDhall (RetryUntil deadlineMillis) =
   "RetryUntil { deadlineMillis = " <> showText deadlineMillis <> " }"
+
+-- | Sprint 5.12 — decode the @retryPolicy@ union so 'JitML.Service.LiveConfig'
+-- is loadable from Dhall (real SIGHUP hot-reload) and so the reflected schema in
+-- 'JitML.Service.DhallSchema' is derived from this decoder, not hand-written.
+-- Constructor and field order mirror @dhall/service/LiveConfig.dhall@.
+retryPolicyDecoder :: Dhall.Decoder RetryPolicy
+retryPolicyDecoder =
+  Dhall.union $
+    Dhall.constructor "Once" (Once <$ Dhall.unit)
+      <> Dhall.constructor "LinearN" linearN
+      <> Dhall.constructor "ExponentialN" exponentialN
+      <> Dhall.constructor "RetryUntil" retryUntil
+ where
+  linearN =
+    Dhall.record (LinearN <$> natField "attempts" <*> natField "delayMillis")
+  exponentialN =
+    Dhall.record
+      ( ExponentialN
+          <$> natField "attempts"
+          <*> natField "baseMillis"
+          <*> natField "capMillis"
+      )
+  retryUntil =
+    Dhall.record (RetryUntil <$> natField "deadlineMillis")
+  natField name = fmap naturalToInt (Dhall.field name Dhall.natural)
+
+naturalToInt :: Natural -> Int
+naturalToInt = fromIntegral
 
 retryServiceAction
   :: RetryPolicy -> (env -> IO (Either ServiceError a)) -> env -> IO (Either AppError a)

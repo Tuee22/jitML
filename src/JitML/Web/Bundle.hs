@@ -72,6 +72,7 @@ demoRoutes =
   , DemoRoute "/api/ws/training" "training-stream-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/ws/rl" "rl-stream-contract" "src/JitML/Web/Contracts.hs"
   , DemoRoute "/api/ws/tune" "tune-stream-contract" "src/JitML/Web/Contracts.hs"
+  , DemoRoute "/api/ws/inference" "inference-stream-contract" "src/JitML/Web/Contracts.hs"
   ]
 
 renderBundleManifest :: Text

@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module JitML.App
-  ( demoMain
-  , main
+  ( main
   )
 where
 
@@ -19,7 +18,6 @@ import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
-import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Text (Text)
@@ -163,6 +161,7 @@ import JitML.Service.Consumer
   , HandlerRouter
   , consumerStepWithActions
   )
+import JitML.Service.DhallSchema qualified as DhallSchema
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.Retry (ServiceError (..))
@@ -186,108 +185,27 @@ import JitML.Test.Report
   )
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Tune.Resume qualified as Tune
-import JitML.Web.Bundle qualified as WebBundle
 import JitML.Web.Server qualified as WebServer
 
 main :: IO ()
 main = getArgs >>= runArgs
 
-demoMain :: IO ()
-demoMain = do
-  args <- getArgs
-  case parseDemoArgs args of
-    Left err -> exitWithErrorIO (InvalidConfig err)
-    Right demoArgs -> do
-      writeLineIO WebBundle.demoStatusLine
-      -- Sprint 13.13 — serve the demo with the held-open Pulsar→WebSocket
-      -- bridge active. Two deployment shapes:
-      --   * in-cluster `jitml-demo` pod — `JITML_DEMO_PULSAR_WS` names the
-      --     in-cluster broker WebSocket endpoint (the pod cannot reach the
-      --     host edge port), with `JITML_SUBSTRATE` selecting the event
-      --     topic family;
-      --   * local run — the bridge derives host-edge settings from the
-      --     leased edge port in `./.build/runtime/cluster-publication.json`.
-      -- With no live publication the bridge completes the `/api/ws`
-      -- handshake and emits one terminal error frame instead of a
-      -- local stream stand-in.
-      inClusterEndpoint <- lookupEnv "JITML_DEMO_PULSAR_WS"
-      substrateEnv <- lookupEnv "JITML_SUBSTRATE"
-      -- Sprint 13.1 — when the demo runs in-cluster it cannot read MinIO via
-      -- the host edge (`127.0.0.1:<edge>` is the pod's own localhost);
-      -- `JITML_DEMO_MINIO_S3` names the in-cluster MinIO S3 service so the
-      -- checkpoint runtime handler reaches the same backend the daemon uses.
-      -- Absent (host-native demo), the handler falls back to the leased edge.
-      minioEndpointEnv <- lookupEnv "JITML_DEMO_MINIO_S3"
-      localPublication <- readExistingLivePublication "."
-      let endpointOverride = fmap Text.pack (nonEmpty inClusterEndpoint)
-          minioEndpointOverride = fmap Text.pack (nonEmpty minioEndpointEnv)
-          inClusterPublication = do
-            _ <- endpointOverride
-            substrateName <- substrateEnv
-            substrate <- parseSubstrate (Text.pack substrateName)
-            pure (defaultPublication substrate)
-          publication = inClusterPublication `orElse` localPublication
-      env <- buildEnv defaultGlobalFlags
-      WebServer.serveDemoWithBridgeEndpointWithRuntime
-        (demoHost demoArgs)
-        (demoPort demoArgs)
-        publication
-        endpointOverride
-        (fmap (demoBrowserRuntimeHandler env minioEndpointOverride) publication)
- where
-  nonEmpty (Just s) | not (null s) = Just s
-  nonEmpty _ = Nothing
-  orElse (Just x) _ = Just x
-  orElse Nothing y = y
-
-demoBrowserRuntimeHandler
-  :: Env
-  -> Maybe Text
-  -> ClusterPublication
-  -> WebServer.BrowserRuntimeRequest
-  -> IO (Either Text WebServer.BrowserRuntimeResult)
-demoBrowserRuntimeHandler env minioEndpointOverride publication request = do
-  let edgePort = Publication.publicationEdgePort publication
-      substrate = Publication.publicationSubstrate publication
-      -- In-cluster: use the injected in-cluster MinIO S3 endpoint (no edge
-      -- path prefix, daemon credentials). Host-native: fall back to the
-      -- leased host edge route.
-      minioSettings =
-        maybe
-          (MinIOSubprocess.minioSettingsForLocalEdge edgePort)
-          MinIOSubprocess.minioSettingsForEndpoint
-          minioEndpointOverride
-  checkpointShaRef <- newIORef Nothing
-  MinIOSubprocess.runMinIOSubprocess minioSettings $ do
-    result <-
-      CheckpointStore.loadInferenceCheckpointWithWeights
-        ( \manifest weights values ->
-            liftIO $ do
-              writeIORef checkpointShaRef (Just (Checkpoint.manifestContentSha manifest))
-              weightedInferenceForBrowser env substrate manifest weights values
-        )
-        (WebServer.browserRuntimeExperimentHash request)
-        (WebServer.browserRuntimeInput request)
-    checkpointSha <- liftIO (readIORef checkpointShaRef)
-    pure $
-      case result of
-        Left err -> Left err
-        Right values ->
-          Right
-            WebServer.BrowserRuntimeResult
-              { WebServer.browserRuntimeCheckpointSha =
-                  fromMaybe (WebServer.browserRuntimeExperimentHash request) checkpointSha
-              , WebServer.browserRuntimeOutput = values
-              }
-
-weightedInferenceForBrowser
+-- | Sprint 10.7 (Pulsar ML-Workflow convergence) — THE single Engine inference
+-- compute: the one place that picks the substrate's weighted checkpoint runner
+-- and runs the kernel. The demo HTTP handler, the `jitml inference run` CLI, and
+-- the daemon consumer all route through this function, so the
+-- @load→pick-runner→run-kernel@ pick-runner step is no longer copied across three
+-- sites (it lives here). Per the contract the Engine (daemon) is the role that
+-- actually serves this compute in production; the demo/CLI publish-only,
+-- websocket-async routing is owned by Phase `11` Sprint `11.10`.
+engineWeightedInference
   :: Env
   -> Substrate
   -> Checkpoint.CheckpointManifest
   -> [CheckpointStore.LoadedWeightTensor]
   -> [Double]
   -> IO (Either Text [Double])
-weightedInferenceForBrowser env substrate manifest weights values =
+engineWeightedInference env substrate manifest weights values =
   case substrate of
     LinuxCPU ->
       runLinuxCpuWeightedCheckpointInference env manifest weights values
@@ -382,6 +300,8 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runInternalUploadDataset parsedOptions
   | parsedPath == ["internal", "seed-demo-checkpoints"] =
       runInternalSeedDemoCheckpoints
+  | parsedPath == ["internal", "dhall-schema"] =
+      runInternalDhallSchema parsedOptions
   | otherwise =
       writeLine ("registered command: " <> commandPathText parsedPath)
 
@@ -670,6 +590,96 @@ runService parsedOptions = do
           value : _ -> value
   env <- ask
   runtime <- loadDaemonRuntime configPath explicitConfig
+  -- Sprint 11.10 — one-binary role dispatch. `activeRole = Webapp` serves the
+  -- browser surface (thin websocket + publish-only inference) and computes
+  -- nothing; every other role runs the Engine consumer path.
+  case BootConfig.bootActiveRole (ServiceRuntime.daemonBootConfig runtime) of
+    BootConfig.Webapp -> runWebappRole runtime
+    _ -> runEngineServe env configPath consumeOnceRequested consumeOnceBudget runtime
+
+-- | Sprint 11.10 — the Webapp role: serve the compiled browser bundle + the
+-- held-open @/api/ws@ Pulsar bridge, deriving host/port/substrate/WS endpoint
+-- from the typed Dhall 'BootConfig'. The browser-runtime handler __publishes__
+-- an inference @WorkCommand@ to the Engine (via 'requestInferenceViaEngine') and
+-- renders the streamed result; the Webapp itself computes no inference.
+runWebappRole :: ServiceRuntime.DaemonRuntime -> App ()
+runWebappRole runtime = do
+  let boot = ServiceRuntime.daemonBootConfig runtime
+      substrate = BootConfig.bootSubstrate boot
+      (host, port) =
+        case BootConfig.bootHttpListener boot of
+          Just listener -> (BootConfig.listenerHost listener, BootConfig.listenerPort listener)
+          Nothing -> ("0.0.0.0", 8080)
+      wsEndpoint = BootConfig.bootWebappPulsarWsUrl boot
+      publication = defaultPublication substrate
+      pulsarSettings =
+        case wsEndpoint of
+          Just url -> PulsarWebSocketSubprocess.pulsarSettingsForEndpoint url
+          Nothing ->
+            PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge
+              (Publication.publicationEdgePort publication)
+      -- Sprint 11.10 — the single-inference panels are async to the browser: the
+      -- MNIST surface publishes the inference @WorkCommand@ fire-and-forget and
+      -- the panel renders the streamed @DecodedInference@ off @/api/ws/inference@.
+      -- The remaining surfaces (generic/image/compare/connect4) still
+      -- publish-and-await until they are converted in turn.
+      ackResult request =
+        WebServer.BrowserRuntimeResult
+          { WebServer.browserRuntimeCheckpointSha =
+              WebServer.browserRuntimeExperimentHash request
+          , WebServer.browserRuntimeOutput = []
+          }
+      publishesAsync surface =
+        surface == WebServer.BrowserRuntimeInference
+          || surface == WebServer.BrowserRuntimeGeneric
+          || surface == WebServer.BrowserRuntimeImage
+      handler request
+        | publishesAsync (WebServer.browserRuntimeSurface request) =
+            fmap
+              (fmap (const (ackResult request)))
+              ( publishInferenceRequestOnly
+                  pulsarSettings
+                  substrate
+                  (WebServer.browserRuntimeExperimentHash request)
+                  (WebServer.browserRuntimeInput request)
+              )
+        | otherwise =
+            fmap
+              ( fmap
+                  ( \output ->
+                      WebServer.BrowserRuntimeResult
+                        { WebServer.browserRuntimeCheckpointSha =
+                            WebServer.browserRuntimeExperimentHash request
+                        , WebServer.browserRuntimeOutput = output
+                        }
+                  )
+              )
+              ( requestInferenceViaEngine
+                  pulsarSettings
+                  substrate
+                  (WebServer.browserRuntimeExperimentHash request)
+                  (WebServer.browserRuntimeInput request)
+              )
+      publishers =
+        WebServer.BrowserCommandPublishers
+          { WebServer.publishCompareCommand =
+              publishCheckpointCompareCommandOnly pulsarSettings substrate
+          , WebServer.publishMoveCommand =
+              publishAdversarialMoveCommandOnly pulsarSettings substrate
+          }
+  writeLine ("webapp: serving " <> host <> ":" <> Text.pack (show port))
+  liftIO
+    ( WebServer.serveDemoWithBridgeEndpointWithRuntime
+        host
+        port
+        (Just publication)
+        wsEndpoint
+        (Just handler)
+        (Just publishers)
+    )
+
+runEngineServe :: Env -> Text -> Bool -> Int -> ServiceRuntime.DaemonRuntime -> App ()
+runEngineServe env configPath consumeOnceRequested consumeOnceBudget runtime = do
   metalAcquire <- acquireAppleMetalBridge runtime
   metalReadyRuntime <-
     case metalAcquire of
@@ -822,10 +832,10 @@ daemonWorkloadDispatcherForRuntime env runtime =
     -- summary path.
     (LinuxCPU, BootConfig.SelfInference) ->
       ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
-        liftIO (runLinuxCpuWeightedCheckpointInference env manifest weights input)
+        liftIO (engineWeightedInference env LinuxCPU manifest weights input)
     (LinuxCUDA, BootConfig.SelfInference) ->
       ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
-        liftIO (runCudaWeightedCheckpointInference env manifest weights input)
+        liftIO (engineWeightedInference env LinuxCUDA manifest weights input)
     -- Sprint 14.5 — the Apple host-native daemon (`Host + SelfInference`)
     -- routes inference through the Metal weighted runner so it executes the
     -- generated `jitml_weighted_kernel` against `.jmw1`-decoded tensors.
@@ -859,7 +869,7 @@ appleHostInferenceRunner env command = do
   let inputs = fromMaybe [] (Inference.parseInferenceInput (Inference.appleCommandInputs command))
   result <-
     CheckpointStore.loadInferenceCheckpointWithWeights
-      (\manifest weights vals -> liftIO (runMetalWeightedCheckpointInference env manifest weights vals))
+      (\manifest weights vals -> liftIO (engineWeightedInference env AppleSilicon manifest weights vals))
       (Inference.appleCommandModelId command)
       inputs
   case result of
@@ -920,7 +930,7 @@ daemonWorkloadDispatcherHostingAppleWorkloads env domain eventId payload =
   hostInferenceFallback =
     ServiceRuntime.daemonWorkloadDispatcherHostingAppleInference
       (appleHostInferenceRunner env)
-      (\manifest weights input -> liftIO (runMetalWeightedCheckpointInference env manifest weights input))
+      (\manifest weights input -> liftIO (engineWeightedInference env AppleSilicon manifest weights input))
 
 runHostAppleTraining
   :: Env
@@ -3174,21 +3184,17 @@ runInference parsedOptions = do
   case livePublication of
     Just publication -> do
       let edgePort = Publication.publicationEdgePort publication
-          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
           substrate = Publication.publicationSubstrate publication
-      env <- ask
-      -- Sprint 13.12 — when a live publication is present, route the
-      -- inference call through the substrate-bound weighted runner so the
-      -- generated JIT kernel reads the decoded `.jmw1` weight tensors and
-      -- produces real output. Linux substrates use the weighted runner;
-      -- Apple Silicon routes through the Metal weighted runner; there is no
-      -- manifest-only fallback.
+      -- Sprint 11.10 — `jitml inference run` no longer computes in-process: it
+      -- publishes an inference `WorkCommand` to the Engine (daemon) over
+      -- `inference.request.<substrate>` and renders the streamed `WorkResult`
+      -- from the reply topic. The Engine is the only role that computes (it reads
+      -- the `.jmw1` checkpoint and runs the substrate kernel) and owns the
+      -- `.ready` gate. The default probe input is `[1.0, 2.0]`.
       result <-
         liftIO
-          ( MinIOSubprocess.runMinIOSubprocess
-              minioSettings
-              (inferenceForSubstrate env substrate experimentHash)
-          )
+          (requestInferenceViaEngine pulsarSettings substrate experimentHash [1.0, 2.0])
       case result of
         Right values ->
           writeLine
@@ -3200,7 +3206,7 @@ runInference parsedOptions = do
                 <> Text.pack (show values)
             )
         Left err ->
-          exitWithError (classifyCheckpointLoadError experimentHash err)
+          exitWithError (InferenceCheckpointMissing (experimentHash <> ": " <> err))
     Nothing ->
       -- Sprint 10.5 — fail closed: without a live cluster publication there is
       -- no checkpoint to read, so emit a typed `InferenceCheckpointMissing`
@@ -3220,28 +3226,173 @@ inferenceForSubstrate
   -> Text
   -> m (Either Text [Double])
 inferenceForSubstrate env substrate experimentHash =
-  case substrate of
-    LinuxCPU ->
-      CheckpointStore.loadInferenceCheckpointWithWeights
-        ( \manifest weights values ->
-            liftIO (runLinuxCpuWeightedCheckpointInference env manifest weights values)
-        )
-        experimentHash
-        [1.0, 2.0]
-    LinuxCUDA ->
-      CheckpointStore.loadInferenceCheckpointWithWeights
-        ( \manifest weights values ->
-            liftIO (runCudaWeightedCheckpointInference env manifest weights values)
-        )
-        experimentHash
-        [1.0, 2.0]
-    AppleSilicon ->
-      CheckpointStore.loadInferenceCheckpointWithWeights
-        ( \manifest weights values ->
-            liftIO (runMetalWeightedCheckpointInference env manifest weights values)
-        )
-        experimentHash
-        [1.0, 2.0]
+  -- Sprint 10.7 — route through the single Engine compute ('engineWeightedInference')
+  -- instead of re-picking the substrate runner here.
+  CheckpointStore.loadInferenceCheckpointWithWeights
+    ( \manifest weights values ->
+        liftIO (engineWeightedInference env substrate manifest weights values)
+    )
+    experimentHash
+    [1.0, 2.0]
+
+-- | Sprint 11.10 (Pulsar ML-Workflow convergence) — the shared __publish a
+-- @WorkCommand@ to the Engine and render the streamed @WorkResult@__ client. The
+-- publisher (the @jitml inference run@ CLI; the Webapp panels) does __not__
+-- compute: it publishes an inference @WorkCommand@ (the 'Inference.InferenceRequest'
+-- wire form, per 'JitML.Work.Envelope') to @inference.request.<substrate>@ and
+-- consumes the correlated @WorkResult@ off the reply topic. The single __Engine__
+-- (daemon) is the only role that computes, and it owns the @.ready@/@ArtifactRef@
+-- gate (it has the checkpoint manifest); the publisher carries no
+-- 'JitML.Work.Envelope.ArtifactRef'.
+requestInferenceViaEngine
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> Substrate
+  -> Text
+  -- ^ experiment hash (the work's subject ref)
+  -> [Double]
+  -- ^ inference input payload
+  -> IO (Either Text [Double])
+requestInferenceViaEngine settings substrate experimentHash input = do
+  callId <- Text.pack . show <$> getPOSIXTime
+  let replyTopic = Inference.inferenceResultTopic substrate
+      requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      replyTopicName = Capabilities.TopicName replyTopic
+      subscriptionName = "jitml-infer-" <> callId
+      request =
+        Inference.InferenceRequest
+          { Inference.irCallId = callId
+          , Inference.irExperimentHash = experimentHash
+          , Inference.irReplyTopic = replyTopic
+          , Inference.irInput = input
+          }
+  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
+    -- Subscribe to the reply topic BEFORE publishing so the Engine's result is
+    -- never missed.
+    subscribed <- Capabilities.pulsarSubscribe replyTopicName subscriptionName
+    case subscribed of
+      Left err ->
+        pure (Left ("inference request subscribe failed: " <> Text.pack (show err)))
+      Right subscriptionId -> do
+        published <-
+          Capabilities.pulsarPublish requestTopic (Inference.renderInferenceRequest request)
+        case published of
+          Left err ->
+            pure (Left ("inference request publish failed: " <> Text.pack (show err)))
+          Right _ -> consumeMatchingInferenceResult subscriptionId callId inferenceReplyAttempts
+
+-- | Bounded poll for the @WorkResult@ correlated to our @callId@ on the shared
+-- reply topic (other callers' results are skipped).
+consumeMatchingInferenceResult
+  :: (Capabilities.HasPulsar m)
+  => SubscriptionId
+  -> Text
+  -> Int
+  -> m (Either Text [Double])
+consumeMatchingInferenceResult subscriptionId callId attempts
+  | attempts <= 0 =
+      pure (Left "inference result: no matching reply received from the Engine")
+  | otherwise = do
+      consumed <- Capabilities.pulsarConsume subscriptionId
+      case consumed of
+        Right (_topic, payload)
+          | Just result <- Inference.parseInferenceResult payload
+          , Inference.iresCallId result == callId ->
+              pure (Right (Inference.iresOutput result))
+        _ -> consumeMatchingInferenceResult subscriptionId callId (attempts - 1)
+
+inferenceReplyAttempts :: Int
+inferenceReplyAttempts = 10
+
+-- | Sprint 11.10 — fire-and-forget publish of an inference @WorkCommand@ for the
+-- async (websocket) browser panels: publish the request to the Engine and return
+-- immediately; the panel renders the streamed @DecodedInference@ off
+-- @/api/ws/inference@ rather than blocking on the reply.
+publishInferenceRequestOnly
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> Substrate
+  -> Text
+  -> [Double]
+  -> IO (Either Text ())
+publishInferenceRequestOnly settings substrate experimentHash input = do
+  callId <- Text.pack . show <$> getPOSIXTime
+  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      request =
+        Inference.InferenceRequest
+          { Inference.irCallId = callId
+          , Inference.irExperimentHash = experimentHash
+          , Inference.irReplyTopic = Inference.inferenceResultTopic substrate
+          , Inference.irInput = input
+          }
+  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
+    published <-
+      Capabilities.pulsarPublish requestTopic (Inference.renderInferenceRequest request)
+    pure $
+      case published of
+        Left err -> Left ("inference request publish failed: " <> Text.pack (show err))
+        Right _ -> Right ()
+
+-- | Sprint 11.10 — fire-and-forget publish of a checkpoint-compare @WorkCommand@;
+-- the Engine runs both inferences + the delta and the panel renders the streamed
+-- 'Inference.CheckpointCompareResult'.
+publishCheckpointCompareCommandOnly
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> Substrate
+  -> Text
+  -> Text
+  -> [Double]
+  -> IO (Either Text ())
+publishCheckpointCompareCommandOnly settings substrate baselineHash candidateHash input = do
+  callId <- Text.pack . show <$> getPOSIXTime
+  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      command =
+        Inference.CheckpointCompareCommand
+          { Inference.cccCallId = callId
+          , Inference.cccBaselineExperimentHash = baselineHash
+          , Inference.cccCandidateExperimentHash = candidateHash
+          , Inference.cccReplyTopic = Inference.inferenceResultTopic substrate
+          , Inference.cccInput = input
+          }
+  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
+    published <-
+      Capabilities.pulsarPublish requestTopic (Inference.renderCheckpointCompareCommand command)
+    pure $
+      case published of
+        Left err -> Left ("compare command publish failed: " <> Text.pack (show err))
+        Right _ -> Right ()
+
+-- | Sprint 11.10 — fire-and-forget publish of an adversarial-move @WorkCommand@;
+-- the Engine runs the policy/value inference + MCTS and the panel renders the
+-- streamed 'Inference.AdversarialMoveResult'.
+publishAdversarialMoveCommandOnly
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> Substrate
+  -> Text
+  -> Text
+  -> [Int]
+  -> Int
+  -> Int
+  -> IO (Either Text ())
+publishAdversarialMoveCommandOnly settings substrate game experimentHash moves humanIsPlayer simulations = do
+  callId <- Text.pack . show <$> getPOSIXTime
+  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      command =
+        Inference.AdversarialMoveCommand
+          { Inference.amcCallId = callId
+          , Inference.amcGame = game
+          , Inference.amcExperimentHash = experimentHash
+          , Inference.amcReplyTopic = Inference.inferenceResultTopic substrate
+          , Inference.amcMoves = moves
+          , Inference.amcHumanIsPlayer = humanIsPlayer
+          , Inference.amcSimulationsPerMove = simulations
+          , Inference.amcInput = []
+          }
+  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
+    published <-
+      Capabilities.pulsarPublish requestTopic (Inference.renderAdversarialMoveCommand command)
+    pure $
+      case published of
+        Left err -> Left ("move command publish failed: " <> Text.pack (show err))
+        Right _ -> Right ()
 
 runVerify :: [Text] -> [ParsedOption] -> App ()
 runVerify path parsedOptions =
@@ -3889,6 +4040,34 @@ runInternalUploadDataset parsedOptions = do
 -- runs a Dense2D weighted kernel that zero-pads the weight buffer to @n*n@
 -- (@n@ = the request's input length) and returns a @1xn@ output, so one fixed
 -- non-zero weight vector seeds every panel regardless of input size.
+-- | Sprint 5.12 — print the binary's own reflected Dhall config schema. The
+-- schema is read back off the live @FromDhall@ decoder (see
+-- 'DhallSchema.configSchemas'), so it cannot drift from the decoder types.
+runInternalDhallSchema :: [ParsedOption] -> App ()
+runInternalDhallSchema parsedOptions =
+  case selectedValue "config" "" parsedOptions of
+    "" ->
+      writeText
+        ( Text.intercalate
+            "\n"
+            [ "-- " <> name <> "\n" <> schema
+            | (name, schema) <- DhallSchema.configSchemas
+            ]
+        )
+    name ->
+      case lookup name DhallSchema.configSchemas of
+        Just schema -> writeText (schema <> "\n")
+        Nothing ->
+          exitWithError
+            ( InvalidConfig
+                ( "dhall-schema: unknown config surface "
+                    <> name
+                    <> " (expected one of: "
+                    <> Text.intercalate ", " (fmap fst DhallSchema.configSchemas)
+                    <> ")"
+                )
+            )
+
 runInternalSeedDemoCheckpoints :: App ()
 runInternalSeedDemoCheckpoints = do
   livePublication <- liftIO (readExistingLivePublication ".")
@@ -4194,52 +4373,6 @@ extractGlobalFlags = go defaultGlobalFlags []
     case args of
       [] -> Left (InvalidConfig ("missing value for " <> Text.pack flagName))
       value : remaining -> applyValue value remaining
-
-data DemoArgs = DemoArgs
-  { demoHost :: Text
-  , demoPort :: Int
-  }
-  deriving stock (Eq, Show)
-
-defaultDemoArgs :: DemoArgs
-defaultDemoArgs =
-  DemoArgs
-    { demoHost = "127.0.0.1"
-    , demoPort = 8080
-    }
-
-parseDemoArgs :: [String] -> Either Text DemoArgs
-parseDemoArgs = go defaultDemoArgs
- where
-  go demoArgs [] = Right demoArgs
-  go demoArgs ("--host" : value : rest)
-    | null value = Left "invalid --host value: empty"
-    | otherwise = go demoArgs {demoHost = Text.pack value} rest
-  go _ ["--host"] = Left "missing value for --host"
-  go demoArgs ("--port" : value : rest) =
-    maybe
-      (Left ("invalid --port value: " <> Text.pack value))
-      (\port -> go demoArgs {demoPort = port} rest)
-      (readMaybeInt value)
-  go _ ["--port"] = Left "missing value for --port"
-  go demoArgs (arg : rest)
-    | Just value <- stripPrefix "--host=" arg =
-        if null value
-          then Left "invalid --host value: empty"
-          else go demoArgs {demoHost = Text.pack value} rest
-    | Just value <- stripPrefix "--port=" arg =
-        maybe
-          (Left ("invalid --port value: " <> Text.pack value))
-          (\port -> go demoArgs {demoPort = port} rest)
-          (readMaybeInt value)
-    | otherwise = Left ("unknown jitml-demo argument: " <> Text.pack arg)
-
-readMaybeInt :: String -> Maybe Int
-readMaybeInt value =
-  case reads value of
-    [(parsed, "")]
-      | parsed > 0 && parsed <= 65535 -> Just parsed
-    _ -> Nothing
 
 parseOutputFormat :: String -> Either AppError OutputFormat
 parseOutputFormat "plain" = Right OutputPlain

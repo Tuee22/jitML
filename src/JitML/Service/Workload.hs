@@ -54,11 +54,25 @@ import Data.Text qualified as Text
 import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Checkpoint.Store (LoadedWeightTensor)
 import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Inference.AdversarialMove
+  ( AdversarialMoveOutcome (..)
+  , adversarialRuntimeInput
+  , computeAdversarialMove
+  )
+import JitML.Inference.Decode qualified as Decode
 import JitML.Proto.Inference
-  ( InferenceRequest (..)
+  ( AdversarialMoveCommand (..)
+  , AdversarialMoveResult (..)
+  , CheckpointCompareCommand (..)
+  , CheckpointCompareResult (..)
+  , InferenceRequest (..)
   , InferenceResult (..)
+  , parseAdversarialMoveCommand
+  , parseCheckpointCompareCommand
   , parseInferenceInput
   , parseInferenceRequest
+  , renderAdversarialMoveResult
+  , renderCheckpointCompareResult
   , renderInferenceRequest
   , renderInferenceResult
   )
@@ -433,12 +447,27 @@ dispatchDomainPayloadWithWeightedInference
 dispatchDomainPayloadWithWeightedInference runInference domain payload =
   case domain of
     InferenceDomain ->
+      -- Sprint 11.10 — one inference lane carries three command kinds: a single
+      -- inference, a checkpoint compare (two inferences + delta), and an
+      -- adversarial move (inference + MCTS). All compute in the Engine.
       case parseInferenceRequest payload of
-        Nothing -> pure []
         Just request ->
           fmap
             (pure . fmap InferenceResultPublished)
             (runInferenceRequestWithWeightedInference runInference request)
+        Nothing ->
+          case parseCheckpointCompareCommand payload of
+            Just command ->
+              fmap
+                (pure . fmap InferenceResultPublished)
+                (runCheckpointCompareRequestWithWeightedInference runInference command)
+            Nothing ->
+              case parseAdversarialMoveCommand payload of
+                Just command ->
+                  fmap
+                    (pure . fmap InferenceResultPublished)
+                    (runAdversarialMoveRequestWithWeightedInference runInference command)
+                Nothing -> pure []
     _ ->
       runWorkloadEffectsWithWeightedInference
         runInference
@@ -450,15 +479,18 @@ runInferenceRequestWithWeightedInference
   -> InferenceRequest
   -> m (Either ServiceError Text)
 runInferenceRequestWithWeightedInference runInference request = do
+  -- Sprint 11.10 — the Engine decodes the output (the manifest's output decoder)
+  -- and appends the typed `decoded-*` lines to the `WorkResult` so the browser
+  -- panels render the decoded value without computing.
   result <-
-    CheckpointStore.loadInferenceCheckpointWithWeights
+    CheckpointStore.loadInferenceCheckpointDecodedWithWeights
       runInference
       (irExperimentHash request)
       (irInput request)
   case result of
     Left err ->
       pure (Left (SETransient ("inference: " <> err)))
-    Right output ->
+    Right (output, decoded) ->
       pulsarPublish
         (TopicName (irReplyTopic request))
         ( renderInferenceResult
@@ -467,7 +499,113 @@ runInferenceRequestWithWeightedInference runInference request = do
               , iresExperimentHash = irExperimentHash request
               , iresOutput = output
               }
+            <> Text.unlines (Decode.renderDecodedInference decoded)
         )
+
+-- | Sprint 11.10 — checkpoint compare as an Engine job: run both inferences and
+-- compute the delta in the daemon, then publish one 'CheckpointCompareResult'.
+runCheckpointCompareRequestWithWeightedInference
+  :: (HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> CheckpointCompareCommand
+  -> m (Either ServiceError Text)
+runCheckpointCompareRequestWithWeightedInference runInference command = do
+  baseline <-
+    CheckpointStore.loadInferenceCheckpointDecodedWithWeights
+      runInference
+      (cccBaselineExperimentHash command)
+      (cccInput command)
+  candidate <-
+    CheckpointStore.loadInferenceCheckpointDecodedWithWeights
+      runInference
+      (cccCandidateExperimentHash command)
+      (cccInput command)
+  case (baseline, candidate) of
+    (Left err, _) -> pure (Left (SETransient ("compare baseline: " <> err)))
+    (_, Left err) -> pure (Left (SETransient ("compare candidate: " <> err)))
+    (Right (baselineOutput, _), Right (candidateOutput, _)) ->
+      let deltas = absoluteDeltas baselineOutput candidateOutput
+       in pulsarPublish
+            (TopicName (cccReplyTopic command))
+            ( renderCheckpointCompareResult
+                CheckpointCompareResult
+                  { ccrCallId = cccCallId command
+                  , ccrBaselineExperimentHash = cccBaselineExperimentHash command
+                  , ccrCandidateExperimentHash = cccCandidateExperimentHash command
+                  , ccrBaselineOutput = baselineOutput
+                  , ccrCandidateOutput = candidateOutput
+                  , ccrMaxAbsDelta = maximumOrZero deltas
+                  , ccrMeanAbsDelta = meanOrZero deltas
+                  }
+            )
+
+-- | Sprint 11.10 — adversarial move as an Engine job: run the policy/value
+-- inference and the MCTS search in the daemon, then publish one
+-- 'AdversarialMoveResult'.
+runAdversarialMoveRequestWithWeightedInference
+  :: (HasMinIO m, HasPulsar m)
+  => (CheckpointManifest -> [LoadedWeightTensor] -> [Double] -> m (Either Text [Double]))
+  -> AdversarialMoveCommand
+  -> m (Either ServiceError Text)
+runAdversarialMoveRequestWithWeightedInference runInference command = do
+  let runtimeInput =
+        adversarialRuntimeInput
+          (amcGame command)
+          (amcMoves command)
+          (amcHumanIsPlayer command)
+          (amcSimulationsPerMove command)
+  result <-
+    CheckpointStore.loadInferenceCheckpointDecodedWithWeights
+      runInference
+      (amcExperimentHash command)
+      runtimeInput
+  case result of
+    Left err -> pure (Left (SETransient ("adversarial: " <> err)))
+    Right (output, _) ->
+      let outcome =
+            computeAdversarialMove
+              (amcGame command)
+              (amcMoves command)
+              (amcHumanIsPlayer command)
+              (amcSimulationsPerMove command)
+              output
+          transcript =
+            Text.intercalate
+              ":"
+              [ amcGame command
+              , Text.intercalate "," (fmap (Text.pack . show) (amcMoves command <> [amoChosenColumn outcome]))
+              , Text.pack (show (amcHumanIsPlayer command))
+              ]
+       in pulsarPublish
+            (TopicName (amcReplyTopic command))
+            ( renderAdversarialMoveResult
+                AdversarialMoveResult
+                  { amrCallId = amcCallId command
+                  , amrExperimentHash = amcExperimentHash command
+                  , amrGame = amcGame command
+                  , amrChosenColumn = amoChosenColumn outcome
+                  , amrLegalMoves = amoLegalMoves outcome
+                  , amrVisitCounts = amoVisitCounts outcome
+                  , amrPolicyPriors = amoPolicyPriors outcome
+                  , amrValueEstimate = amoValueEstimate outcome
+                  , amrGameOver = amoGameOver outcome
+                  , amrTranscriptId = transcript
+                  }
+            )
+
+absoluteDeltas :: [Double] -> [Double] -> [Double]
+absoluteDeltas baseline candidate =
+  let count = max (length baseline) (length candidate)
+      padded values = take count (values <> repeat 0.0)
+   in zipWith (\left right -> abs (left - right)) (padded baseline) (padded candidate)
+
+maximumOrZero :: [Double] -> Double
+maximumOrZero [] = 0.0
+maximumOrZero values = maximum values
+
+meanOrZero :: [Double] -> Double
+meanOrZero [] = 0.0
+meanOrZero values = sum values / fromIntegral (length values)
 
 -- | Sprint 5.7 — render a typed 'TrainingRunConfig' from a 'StartTraining'
 -- envelope. SL caps are left absent here: the worker uses sensible defaults
