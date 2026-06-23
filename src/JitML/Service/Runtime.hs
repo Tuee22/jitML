@@ -124,14 +124,8 @@ import JitML.Service.Workload qualified as Workload
 import JitML.Substrate (Substrate (..))
 
 import JitML.Proto.Inference
-  ( AppleInferenceCommand
-  , InferenceRequest (..)
-  , inferenceResultTopic
-  , parseAppleInferenceCommand
-  , parseAppleInferenceEvent
-  , parseInferenceRequest
+  ( appleInferenceCommandTopic
   )
-import JitML.Service.AppleInferenceRpc qualified as AppleRpc
 
 data DaemonRuntime = DaemonRuntime
   { daemonBootConfig :: BootConfig
@@ -645,45 +639,47 @@ daemonWorkloadDispatcherWithWeightedInference runInference domain _eventId paylo
       workloadEffectsToUnit
         <$> Workload.dispatchDomainPayloadWithWeightedInference runInference domain payload
 
--- | Sprint 14.4 — cluster-side `ForwardToHost` inference dispatch. Instead of
--- running inference in-cluster, the daemon publishes an `AppleInferenceCommand`
--- on `inference.command.apple-silicon` (via "JitML.Service.AppleInferenceRpc")
--- for the host-native Apple daemon to execute on Metal; the reply event is
--- correlated separately on `inference.event.apple-silicon`. Non-inference
--- payloads fall through to the standard workload dispatcher.
+-- | Sprint 14.4 / Sprint 16.11 — cluster-side `ForwardToHost` inference dispatch.
+-- Metal cannot run in-pod, so the in-cluster daemon does not compute: it bridges
+-- the client `inference.request.apple-silicon` topic to the host daemon's
+-- `inference.command.apple-silicon` topic by forwarding the raw `RunInference`
+-- payload unchanged (the values model of the Pulsar ML-Workflow convergence). The
+-- host-native Apple daemon is the Engine for `apple-silicon`: it consumes the
+-- forwarded `RunInference`, runs the Metal weighted kernel, and publishes the
+-- `InferenceResult` (inline output values) to the request's reply-topic
+-- (`inference.result.apple-silicon`) directly, where the `jitml inference run` CLI
+-- and the Webapp panels read it. The `inference.request` topic carries
+-- `RunInference`, `CheckpointCompareCommand`, and `AdversarialMoveCommand` (the
+-- demo's compare / connect4 panels); forwarding EVERY inference-domain command raw
+-- (rather than only `RunInference`) is what lets the host Engine's
+-- `dispatchDomainPayloadWithWeightedInference` parse each and publish the matching
+-- `InferenceResult` / `CheckpointCompareResult` / `AdversarialMoveResult` to the
+-- request's reply-topic, where the CLI and the Webapp's `/api/ws/inference` stream
+-- read it. Non-inference domains (training / tune / rl) still route to the standard
+-- dispatcher, which performs the host-command workload placement for Apple
+-- Metal-backed work.
 daemonWorkloadDispatcherForwardingInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
   => EventDomain
   -> EventId
   -> Text
   -> m (Either ServiceError ())
-daemonWorkloadDispatcherForwardingInference domain eventId payload =
-  case parseAppleInferenceEvent payload of
-    -- Closing leg: a host reply event arriving on inference.event.apple-silicon
-    -- is correlated (it self-identifies by call-id) and republished to the
-    -- client result topic for the frontend. Stateless — the event carries its
-    -- own call-id and output references.
-    Just _event ->
-      void <$> pulsarPublish (TopicName (inferenceResultTopic AppleSilicon)) payload
-    Nothing ->
-      case parseInferenceRequest payload of
-        Just request -> do
-          let plan = AppleRpc.appleInferenceRpcPlan (irExperimentHash request) request
-          void <$> AppleRpc.publishAppleInferenceRpcCommand plan
-        Nothing ->
-          daemonWorkloadDispatcher domain eventId payload
+daemonWorkloadDispatcherForwardingInference domain eventId payload
+  | domain == InferenceDomain =
+      void <$> pulsarPublish (TopicName appleInferenceCommandTopic) payload
+  | otherwise =
+      daemonWorkloadDispatcher domain eventId payload
 
--- | Sprint 14.4 — host-native Apple daemon dispatch. When a message off
--- `inference.command.apple-silicon` parses as an `AppleInferenceCommand` (a
--- cluster `ForwardToHost` forward), run it through `handleAppleInferenceCommand`
--- (the injected runner executes the Metal kernel and stages its output to MinIO,
--- returning the output refs) and publish the `AppleInferenceEvent` reply on
--- `inference.event.apple-silicon`. Anything else (a direct `RunInference`) falls
--- through to the weighted self-inference dispatcher.
+-- | Sprint 14.4 — host-native Apple daemon dispatch. The host daemon is the
+-- Engine for `apple-silicon`: it consumes the cluster-forwarded inference command
+-- off `inference.command.apple-silicon` (a raw `RunInference` /
+-- `CheckpointCompareCommand` / `AdversarialMoveCommand`), runs the Metal weighted
+-- kernel, and publishes the matching `InferenceResult` / `CheckpointCompareResult`
+-- / `AdversarialMoveResult` to the request's reply-topic directly (the converged
+-- values model). This is an alias for the weighted self-inference dispatcher.
 daemonWorkloadDispatcherHostingAppleInference
   :: (HasHarbor m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => (AppleInferenceCommand -> m (Either Text [Text]))
-  -> ( CheckpointManifest
+  => ( CheckpointManifest
        -> [Workload.LoadedWeightTensor]
        -> [Double]
        -> m (Either Text [Double])
@@ -692,13 +688,8 @@ daemonWorkloadDispatcherHostingAppleInference
   -> EventId
   -> Text
   -> m (Either ServiceError ())
-daemonWorkloadDispatcherHostingAppleInference runAppleCommand runWeighted domain eventId payload =
-  case parseAppleInferenceCommand payload of
-    Just command -> do
-      event <- AppleRpc.handleAppleInferenceCommand runAppleCommand command
-      void <$> AppleRpc.publishAppleInferenceEvent event
-    Nothing ->
-      daemonWorkloadDispatcherWithWeightedInference runWeighted domain eventId payload
+daemonWorkloadDispatcherHostingAppleInference =
+  daemonWorkloadDispatcherWithWeightedInference
 
 workloadEffectToUnit
   :: Maybe (Either ServiceError Workload.WorkloadEffectResult)

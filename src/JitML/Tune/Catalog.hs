@@ -43,8 +43,11 @@ import Dhall qualified
 import GHC.Generics (Generic)
 import Numeric.Natural (Natural)
 
-import JitML.Numerics.Mlp (mlpParamsToFlat)
-import JitML.Numerics.MlpDevice (MlpDevice)
+import System.IO.Unsafe (unsafePerformIO)
+
+import JitML.Numerics.MlpDevice (MlpDevice, pureReferenceMlpDevice)
+import JitML.SL.Architecture qualified as Architecture
+import JitML.SL.Canonicals (CanonicalProblem (..))
 import JitML.SL.Classifier qualified as Classifier
 
 data Sampler
@@ -197,38 +200,64 @@ trialObjectiveResultsWithDevice device sampler count =
 
 -- | The real measured objective for one trial plus the trained weights that can
 -- be promoted into a checkpoint. The sampler + trial index pick a
--- hyperparameter configuration, the reference classifier trains on
--- 'tuningObjectiveDataset', and the objective is train accuracy. The weight
--- vector is the exact trained model measured by the objective.
+-- hyperparameter configuration, the fixed Dense architecture trains on
+-- 'tuningObjectiveDataset' through the production 'JitML.SL.Architecture' seam
+-- (the same one the no-caveat SL runtime uses), and the objective is train
+-- accuracy. The weight vector is the exact trained model measured by the
+-- objective. The offline path trains through the toolchain-free pure reference
+-- device so 'deterministicTrials' stays pure and runnable without a substrate.
 trialObjectiveResult :: Sampler -> Int -> TrialObjectiveResult
 trialObjectiveResult sampler trialIndex =
   let config = sampledClassifierConfig sampler trialIndex
-      trained = Classifier.trainClassifier config tuningObjectiveDataset
-   in TrialObjectiveResult
-        { trialResultIndex = trialIndex
-        , trialResultObjective = objectiveFromTrained trained
-        , trialResultWeights = mlpParamsToFlat (Classifier.trainedParams trained)
-        }
+   in case pureTuningObjective config of
+        Right (objective, weights) ->
+          TrialObjectiveResult
+            { trialResultIndex = trialIndex
+            , trialResultObjective = objective
+            , trialResultWeights = weights
+            }
+        Left err ->
+          error ("tuning objective (pure reference device) failed: " <> Text.unpack err)
 
 trialObjectiveResultWithDevice
   :: MlpDevice -> Sampler -> Int -> IO (Either Text TrialObjectiveResult)
 trialObjectiveResultWithDevice device sampler trialIndex = do
   let config = sampledClassifierConfig sampler trialIndex
-  trainedResult <- Classifier.trainClassifierWithDevice device config tuningObjectiveDataset
+  result <- trainTuningObjective device config
   pure $
-    case trainedResult of
-      Left err -> Left err
-      Right (trained, accuracyValue) ->
-        Right
+    fmap
+      ( \(objective, weights) ->
           TrialObjectiveResult
             { trialResultIndex = trialIndex
-            , trialResultObjective = accuracyValue
-            , trialResultWeights = mlpParamsToFlat (Classifier.trainedParams trained)
+            , trialResultObjective = objective
+            , trialResultWeights = weights
             }
+      )
+      result
 
-objectiveFromTrained :: Classifier.TrainedClassifier -> Double
-objectiveFromTrained trained =
-  Classifier.accuracy trained tuningObjectiveDataset
+-- | Train the fixed Dense tuning architecture for one sampled config on
+-- 'tuningObjectiveDataset' through @device@, returning
+-- @(train-accuracy, flat-weights)@.
+trainTuningObjective
+  :: MlpDevice -> Classifier.ClassifierConfig -> IO (Either Text (Double, [Double]))
+trainTuningObjective device config = do
+  let spec = Architecture.architectureSpecForProblem config tuningObjectiveProblem
+  result <- Architecture.trainArchitectureWithDevice device spec config tuningObjectiveDataset
+  pure (fmap (\(trained, acc) -> (acc, Architecture.trainedArchitectureWeights trained)) result)
+
+-- | The pure-reference-device evaluation of 'trainTuningObjective' — the
+-- toolchain-free objective used by the offline sweep ('deterministicTrials').
+-- The reference device performs no IO, so 'unsafePerformIO' here is
+-- referentially transparent (the result is a pure function of @config@).
+pureTuningObjective :: Classifier.ClassifierConfig -> Either Text (Double, [Double])
+pureTuningObjective config =
+  unsafePerformIO (trainTuningObjective pureReferenceMlpDevice config)
+{-# NOINLINE pureTuningObjective #-}
+
+-- | The fixed Dense canonical problem the tuning objective trains: a small
+-- single-hidden-layer MLP sized from each sampled 'ClassifierConfig'.
+tuningObjectiveProblem :: CanonicalProblem
+tuningObjectiveProblem = CanonicalProblem "tune-dense" "synthetic" "Dense" 0
 
 -- | Deterministic hyperparameter sample for one trial: the sampler seed and the
 -- trial index pick a learning rate and hidden width from a fixed grid (the

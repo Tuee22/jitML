@@ -5,8 +5,7 @@
 -- the exact same 'Dhall.Decoder' its loader uses, via 'Dhall.expected', so the
 -- emitted schema can never drift from the @FromDhall@ decoder types. This is the
 -- convergence convention shared with the @infernix@ sister project
--- (@documents/engineering/pulsar_ml_workflow.md@ → /Configuration and roles/) and
--- the lever for the eventual @hostbootstrap@ lift.
+-- (@documents/engineering/pulsar_ml_workflow.md@ → /Configuration and roles/).
 --
 -- The checked-in @dhall/**@ schema files are a generated section emitted from
 -- these reflected types: 'canonicalDhallType' canonicalises a checked-in schema

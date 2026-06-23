@@ -3,6 +3,7 @@
 module JitML.Bootstrap
   ( LiveExecutionResult (..)
   , bootstrapPlanSteps
+  , cachedThirdPartyRolloutImages
   , hostBootConfigForPublication
   , livePhasedRolloutSubprocesses
   , liveExecutePhasedRollout
@@ -13,7 +14,19 @@ module JitML.Bootstrap
 where
 
 import Control.Monad (filterM, when)
-import Data.Aeson (FromJSON (..), eitherDecode, encode, withObject, (.:))
+import Data.Aeson
+  ( FromJSON (..)
+  , Value (..)
+  , decode
+  , eitherDecode
+  , encode
+  , object
+  , withObject
+  , (.:)
+  , (.=)
+  )
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List (isPrefixOf, isSuffixOf)
 import Data.Maybe (fromMaybe, isJust)
@@ -24,6 +37,7 @@ import Data.Text.IO qualified as Text.IO
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
+  , getHomeDirectory
   , listDirectory
   , removeFile
   , renameFile
@@ -180,6 +194,11 @@ materializeBootstrapFiles root substrate = do
   publicationChanged <-
     writeLazyByteStringIfChanged (runtimeRoot </> "cluster-publication.json") $
       encode (defaultPublication substrate)
+  -- Sprint 2.14 — materialize the in-cluster Docker Hub imagePullSecret manifest
+  -- from the host login (the credential lands only in this gitignored file).
+  hostRegcred <- discoverHostDockerHubRegcred
+  regcredChanged <-
+    writeTextFileIfChanged (runtimeRoot </> "regcred.yaml") (renderRegcredManifest hostRegcred)
   pure
     ( or
         ( results
@@ -188,7 +207,7 @@ materializeBootstrapFiles root substrate = do
             <> routeResults
             <> configResults
             <> hostResults
-            <> [publicationChanged, legacyValuesChanged, standaloneValuesChanged]
+            <> [publicationChanged, legacyValuesChanged, standaloneValuesChanged, regcredChanged]
         )
     )
  where
@@ -241,6 +260,10 @@ livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
     <> kindPreparePostgresPvSubprocesses substrate
     <> cachedThirdPartyImageLoadSteps substrate
     <> foundationManifestApplySubprocesses chartPath
+    -- Sprint 2.14 — bind the host Docker Hub login to the platform namespace's
+    -- default ServiceAccount (regcred imagePullSecret) before any release pulls,
+    -- so the kind node's pods pull Docker Hub images authenticated (no 429).
+    <> [kubectlApplyFileSubprocess regcredManifestPath]
     <> concatMap releaseSteps minioBootstrapReleases
     <> Readiness.minioBootstrapReadinessSubprocesses
     <> concatMap releaseSteps postgresOperatorReleases
@@ -466,6 +489,81 @@ kubectlApplyFileSubprocess path =
     , "-f"
     , Text.pack path
     ]
+
+-- | Sprint 2.14 — the repo-relative path of the materialized in-cluster Docker
+-- Hub @imagePullSecret@ manifest. It lives under the gitignored @.build/runtime@
+-- so the Docker Hub credential never enters the repo tree.
+regcredManifestPath :: FilePath
+regcredManifestPath = ".build" </> "runtime" </> "regcred.yaml"
+
+-- | Sprint 2.14 — discover the host's Docker Hub credential and project the
+-- minimal @docker.io@-only @dockerconfigjson@ (mirroring the host
+-- @config.json@ @auths@ filtering, so private-registry / Harbor creds are not
+-- forwarded into the cluster). Reads, never writes, the host config. Returns
+-- 'Nothing' when the host is not logged in to Docker Hub (the cluster then falls
+-- back to anonymous pulls). This is jitML's own self-contained Docker Hub
+-- credential-forwarding path for the bootstrap.
+discoverHostDockerHubRegcred :: IO (Maybe Text)
+discoverHostDockerHubRegcred = do
+  dockerConfigDir <- lookupEnv "DOCKER_CONFIG"
+  home <- getHomeDirectory
+  let configPath = case dockerConfigDir of
+        Just dir | not (null dir) -> dir </> "config.json"
+        _ -> home </> ".docker" </> "config.json"
+  configExists <- doesFileExist configPath
+  if not configExists
+    then pure Nothing
+    else do
+      raw <- LazyByteString.readFile configPath
+      pure $ case decode raw of
+        Just (Object top) -> case KeyMap.lookup "auths" top of
+          Just (Object auths) ->
+            let hub = KeyMap.filterWithKey (\k _ -> "docker.io" `Text.isInfixOf` Key.toText k) auths
+             in if KeyMap.null hub
+                  then Nothing
+                  else
+                    Just . Text.Encoding.decodeUtf8 . LazyByteString.toStrict $
+                      encode (object ["auths" .= Object hub])
+          _ -> Nothing
+        _ -> Nothing
+
+-- | Sprint 2.14 — render the in-cluster Docker Hub @imagePullSecret@ manifest for
+-- the @platform@ namespace. Always declares the namespace (an idempotent ensure
+-- the Helm @--create-namespace@ then no-ops); when the host is logged in, also
+-- declares the @regcred@ @dockerconfigjson@ Secret and binds it to the namespace
+-- @default@ ServiceAccount so every pod pulls Docker Hub images authenticated
+-- (no anonymous 429). @stringData@ carries the credential plaintext so the kube
+-- API server base64-encodes it; the credential persists only in the gitignored
+-- materialized file.
+renderRegcredManifest :: Maybe Text -> Text
+renderRegcredManifest mDockerConfigJson =
+  Text.unlines $
+    [ "apiVersion: v1"
+    , "kind: Namespace"
+    , "metadata:"
+    , "  name: platform"
+    ]
+      <> case mDockerConfigJson of
+        Nothing -> []
+        Just dockerConfigJson ->
+          [ "---"
+          , "apiVersion: v1"
+          , "kind: Secret"
+          , "metadata:"
+          , "  name: regcred"
+          , "  namespace: platform"
+          , "type: kubernetes.io/dockerconfigjson"
+          , "stringData:"
+          , "  .dockerconfigjson: '" <> dockerConfigJson <> "'"
+          , "---"
+          , "apiVersion: v1"
+          , "kind: ServiceAccount"
+          , "metadata:"
+          , "  name: default"
+          , "  namespace: platform"
+          , "imagePullSecrets:"
+          , "  - name: regcred"
+          ]
 
 postgresClusterApplySubprocesses :: [Subprocess]
 postgresClusterApplySubprocesses =

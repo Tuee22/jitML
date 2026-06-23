@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 tqcModule :: AlgorithmModule
@@ -19,7 +18,6 @@ tqcModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "TQC" Specialized True
     , moduleHyperparameters = tqcHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "TQC"
     }
 
 tqcHyperparameters :: [AlgorithmHyperparameter]

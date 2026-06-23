@@ -321,6 +321,55 @@ main = runSpecAndExitProcess [ consoleReporter ] do
       Contracts.parseGenericInferenceResult "prediction: generic" `shouldEqual` Nothing
       Contracts.parseCheckpointCompareResult "compare: generic" `shouldEqual` Nothing
 
+    -- Sprint 12.14 — the Engine-computed composite frames (compare delta, MCTS
+    -- move) apply mechanically as websocket snapshot frames; the panels carry no
+    -- compute. Both ride `/api/ws/inference` and match on `experiment-hash`.
+    it "Engine-computed compare/move frames apply mechanically (websocket snapshot)" do
+      Contracts.parseCompareFrame
+        ( "kind: CheckpointCompareResult\n"
+            <> "call-id: c1\n"
+            <> "baseline-experiment-hash: generic-tensor-demo\n"
+            <> "candidate-experiment-hash: generic-tensor-demo-candidate\n"
+            <> "baseline-output: 0.25,0.5\n"
+            <> "candidate-output: 0.75,0.5\n"
+            <> "max-abs-delta: 0.5\n"
+            <> "mean-abs-delta: 0.25\n"
+        )
+        `shouldEqual` Just
+          { baselineExperimentHash: "generic-tensor-demo"
+          , candidateExperimentHash: "generic-tensor-demo-candidate"
+          , baselineOutput: [ 0.25, 0.5 ]
+          , candidateOutput: [ 0.75, 0.5 ]
+          , maxAbsDelta: 0.5
+          , meanAbsDelta: 0.25
+          }
+      Contracts.parseMoveFrame
+        ( "kind: AdversarialMoveResult\n"
+            <> "call-id: m1\n"
+            <> "experiment-hash: connect4-alphazero\n"
+            <> "game: connect4\n"
+            <> "chosen-column: 3\n"
+            <> "legal-moves: 0,1,2,3,4,5,6\n"
+            <> "visit-counts: 1,2,9,4,2,1,1\n"
+            <> "policy-priors: 0.1,0.1,0.4,0.1,0.1,0.1,0.1\n"
+            <> "value-estimate: 0.42\n"
+            <> "game-over: false\n"
+            <> "transcript-id: connect4:3:1\n"
+        )
+        `shouldEqual` Just
+          { experimentHash: "connect4-alphazero"
+          , game: "connect4"
+          , chosenColumn: 3
+          , legalMoves: [ 0, 1, 2, 3, 4, 5, 6 ]
+          , visitCounts: [ 1, 2, 9, 4, 2, 1, 1 ]
+          , policyPriors: [ 0.1, 0.1, 0.4, 0.1, 0.1, 0.1, 0.1 ]
+          , valueEstimate: 0.42
+          , gameOver: false
+          , transcriptId: "connect4:3:1"
+          }
+      Contracts.parseCompareFrame "kind: InferenceResult" `shouldEqual` Nothing
+      Contracts.parseMoveFrame "kind: InferenceResult" `shouldEqual` Nothing
+
     it "Training frame pins the panel name and validation loss" do
       let frame = Training.renderFrame "sha" 4 0.5 0.25 1234
       frame.panel `shouldEqual` Training.panelName

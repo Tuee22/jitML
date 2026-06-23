@@ -40,7 +40,6 @@ module JitML.SL.Classifier
   , defaultClassifierConfig
   , TrainedClassifier (..)
   , trainClassifier
-  , trainClassifierFromIdx
   , trainClassifierFromIdxBounded
   , decodeBoundedDataset
   , classify
@@ -49,8 +48,6 @@ module JitML.SL.Classifier
 
     -- * Substrate-backed classifier (Sprint 8.10)
   , trainClassifierWithDevice
-  , trainClassifierWithDeviceFromIdxBounded
-  , classifyWithDevice
   , accuracyWithDevice
   )
 where
@@ -61,7 +58,6 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.List qualified
 import Data.Text (Text)
-import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 
@@ -361,25 +357,14 @@ crossEntropyLoss trained dataset =
          in if p <= 0 then 1.0e9 else negate (log p)
    in sum (map lossOne dataset) / fromIntegral (length dataset)
 
--- | Sprint 13.4 — the end-to-end training entry point the worker's
--- @jitml train@ command drives over real MNIST: parse the canonical IDX3
--- image bytes and IDX1 label bytes, zip them into a 'Dataset', train the
+-- | Train over at most @limit@ examples (drawn in dataset order) when
+-- @Just limit@ is supplied; an unbounded pass otherwise. Parse the canonical
+-- IDX3 image bytes and IDX1 label bytes, zip them into a 'Dataset', train the
 -- softmax classifier, and return the trained model plus its train-set
 -- accuracy. The input width (@clfInputs@) is taken from the parsed image
 -- dimensions so the network shape matches the data. Pure and
 -- bit-deterministic on the same seed; the worker fetches the two byte
 -- blobs from MinIO and the rest is this function.
-trainClassifierFromIdx
-  :: ClassifierConfig
-  -> ByteString
-  -- ^ raw IDX3 image bytes (@data.bin@)
-  -> ByteString
-  -- ^ raw IDX1 label bytes (@labels.bin@)
-  -> Either String (TrainedClassifier, Double)
-trainClassifierFromIdx config = trainClassifierFromIdxBounded config Nothing
-
--- | Bounded variant of 'trainClassifierFromIdx': train over at most
--- @limit@ examples (drawn in dataset order) when @Just limit@ is supplied.
 -- The full 60k-example MNIST pass under the pure-Haskell MLP is
 -- operationally heavy; the worker's @jitml train@ caps the example count
 -- (via @JITML_SL_TRAIN_LIMIT@) so a live cluster run is tractable while
@@ -471,25 +456,6 @@ trainClassifierWithDevice device config dataset
           accE <- accuracyWithDevice device trained dataset
           pure (fmap (trained,) accE)
 
--- | Sprint 8.10 — the device-backed end-to-end worker entry: parse the
--- canonical IDX3 image / IDX1 label bytes, bound the example count, and train
--- the substrate-backed classifier. Mirrors 'trainClassifierFromIdxBounded'
--- but routes through 'trainClassifierWithDevice', so a missing/failed device
--- surfaces as a 'Left' rather than a pure-Haskell training run.
-trainClassifierWithDeviceFromIdxBounded
-  :: MlpDevice
-  -> ClassifierConfig
-  -> Maybe Int
-  -> ByteString
-  -- ^ raw IDX3 image bytes (@data.bin@)
-  -> ByteString
-  -- ^ raw IDX1 label bytes (@labels.bin@)
-  -> IO (Either Text (TrainedClassifier, Double))
-trainClassifierWithDeviceFromIdxBounded device config subsetLimit imageBytes labelBytes =
-  case decodeBoundedDataset config subsetLimit imageBytes labelBytes of
-    Left err -> pure (Left (Text.pack err))
-    Right (configForData, dataset) -> trainClassifierWithDevice device configForData dataset
-
 -- | Shared IDX decode + bound used by the pure and device worker entries.
 decodeBoundedDataset
   :: ClassifierConfig
@@ -530,18 +496,6 @@ scaleMlpGradient s grad =
     , gradW2 = VU.map (* s) (gradW2 grad)
     , gradB2 = VU.map (* s) (gradB2 grad)
     }
-
--- | Predict a single feature vector's class through the device forward
--- (argmax of the softmax over the first @clfClasses@ logits). Returns 'Left'
--- when the device forward is unavailable.
-classifyWithDevice :: MlpDevice -> TrainedClassifier -> Vector Double -> IO (Either Text Int)
-classifyWithDevice device trained features = do
-  outE <- mlpdForwardBatch device (trainedParams trained) [features]
-  pure $ case outE of
-    Left e -> Left e
-    Right (outputVec : _) ->
-      Right (VU.maxIndex (VU.take (clfClasses (trainedConfig trained)) outputVec))
-    Right [] -> Left "classifyWithDevice: device returned no output"
 
 -- | Held-out accuracy in @[0, 1]@ computed through the device forward over the
 -- whole dataset in one batched round-trip. Returns 'Left' on device failure.

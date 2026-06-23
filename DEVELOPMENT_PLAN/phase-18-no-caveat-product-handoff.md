@@ -21,14 +21,40 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (opened 2026-06-14). **Update 2026-06-18:** Phases `13`, `14`, and
-`15` are now `✅ Done` (the `linux-cpu` runtime + browser closure and the
-`linux-cuda` lane on the RTX 5090 host, with the committed `linux-cuda` per-lane
-fragment). This phase remains blocked by Phase `16` (the `apple-silicon` live
-lane) and Phase `17` (the within-substrate aggregation that consumes Phase `16`'s
-fragment) — both require a Mac/Metal session that the x86_64 Linux+CUDA host
-cannot provide. The final no-caveat handoff merges all three per-lane
-attestations; the `apple-silicon` one is still outstanding.
+✅ **Done** (opened 2026-06-14; **closed 2026-06-23**). The no-caveat product
+handoff is complete: Phases `13`–`17` are all `✅ Done`, **all three per-lane
+report-card fragments are committed** (`linux-cpu` from Phases `13`/`14`,
+`linux-cuda` from Phase `15`, `apple-silicon` from Phase `16`), the **`Pending
+Removal` ledger is empty** (Exit Definition item 18 met), and the merged
+`linux-cpu` aggregation run is green.
+
+- **Structural blocker dissolved.** jitML is treated as **self-contained**: the
+  bootstrap defers no credential work to any external foundation, and the Sprint
+  `2.13` Docker-Hub pre-pull (plus the Sprint `2.14` in-cluster `imagePullSecret`)
+  is jitML's **own owned, self-contained** credential path (its ledger row is
+  `Completed`, adopted as owned).
+- **`linux-cpu` aggregation green.** A live `bootstrap/linux-cpu.sh up` (110-step
+  rollout, edge `9091`) + `jitml test all --live --linux-cpu` gave **8/8 stanzas
+  PASS** (`cabal_test: passed: 8, failed: 0`), every report-card measurement
+  populated (no `unavailable` row; all 12 canonical datasets staged + SHA-verified,
+  5 demo checkpoints seeded), and the **live Playwright product matrix 14/14**
+  (exit `0`), committed at
+  [attestations/linux-cpu-report-card.md](attestations/linux-cpu-report-card.md).
+  The image under test included the reflected-catalog-schema, the
+  tuning-objective migration onto `JitML.SL.Architecture`
+  (`tune_best_objective: TPE=1.0` unchanged), and the three Sprint `14.1` browser
+  product features.
+- **Ledger empty.** Every `Pending Removal` row is `Completed`: Docker-Hub
+  adopted-as-owned, the reflected catalog Dhall-schema (`JitML.Service.CatalogSchema`),
+  the tuning-objective migration (live-validated), and the two **Sprint `14.1`**
+  browser product features — **checkpoint browse**, **live-backed workflow-state
+  reconciliation**, and **persisted-transcript adversarial multi-game replay** —
+  implemented as real Engine workflows + Webapp panels and live-validated by the
+  `linux-cpu` Playwright matrix (11→14/14, exit 0; the persisted transcript object
+  is confirmed in the `jitml-transcripts` MinIO bucket).
+
+No out-of-scope foundation, no accelerator hardware, and no missing fragment
+remains. The no-caveat product is closed.
 
 ## Phase Summary
 
@@ -36,13 +62,15 @@ This is the final handoff for the expanded product definition. It supersedes the
 previous "all phases done" handoff only after the no-caveat runtime and browser
 matrices are validated on `apple-silicon`, `linux-cpu`, and `linux-cuda`.
 
-## Sprint 18.1: Three-Substrate No-Caveat Handoff ⏸️
+## Sprint 18.1: Three-Substrate No-Caveat Handoff ✅
 
-**Status**: Blocked
+**Status**: Done (closed 2026-06-23; all fragments committed, ledger empty,
+merged `linux-cpu` aggregation green)
 **Implementation**: `bootstrap/*.sh`, `src/JitML/Test/*`,
-`playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
-**Blocked by**: Phase `15` Sprint `15.20`; Phase `16` Sprint `16.11`; Phase
-`17` Sprint `17.8`; Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`
+`playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
+`DEVELOPMENT_PLAN/attestations/`
+**Was blocked by** (all now `✅ Done`): Phase `15` Sprint `15.20`; Phase `16` Sprint
+`16.11`; Phase `17` Sprint `17.8`; Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`
 **Docs to update**: `README.md`, `documents/engineering/purescript_frontend.md`,
 `documents/engineering/training_workloads.md`, `system-components.md`
 
@@ -82,9 +110,11 @@ an accelerator lane itself, so it closes on any single Docker host.
 
 ### Remaining Work
 
-- All upstream runtime, browser, Playwright, live-validation, and ledger
-  obligations remain open; each is attested in its owning single-accelerator
-  phase (`13`/`14`/`15`/`16`/`17`) and merged here.
+None. All three per-lane fragments are committed (`13`/`14` → `linux-cpu`, `15` →
+`linux-cuda`, `16` → `apple-silicon`), the merged `jitml test all --live
+--linux-cpu` aggregation is green (8/8 stanzas, every measurement populated,
+Playwright 14/14), and the `Pending Removal` ledger is empty (Exit Definition item
+18 met). The no-caveat product handoff is complete.
 
 ## Documentation Requirements
 

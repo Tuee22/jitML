@@ -43,6 +43,7 @@ build() {
 
 up() {
   build
+  prepull_apple_third_party_images
   run_apple_bootstrap "$@"
 }
 

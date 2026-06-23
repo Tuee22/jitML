@@ -51,6 +51,7 @@ import Network.Socket.ByteString (recv, sendAll)
 import JitML.AppError.AppError (AppError (..))
 import JitML.Bootstrap
   ( LiveExecutionResult (..)
+  , cachedThirdPartyRolloutImages
   , liveExecutePhasedRollout
   , materializeBootstrapFiles
   , readExistingLivePublication
@@ -153,6 +154,7 @@ import JitML.SL.TinyImageNet qualified as TinyImageNet
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities (SubscriptionId)
 import JitML.Service.Capabilities qualified as Capabilities
+import JitML.Service.CatalogSchema qualified as CatalogSchema
 import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.Consumer
   ( ConsumerOutcome (..)
@@ -167,6 +169,7 @@ import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubpr
 import JitML.Service.Retry (ServiceError (..))
 import JitML.Service.RunConfig qualified as RunConfig
 import JitML.Service.Runtime qualified as ServiceRuntime
+import JitML.Service.WorkflowStatus qualified as WorkflowStatus
 import JitML.Service.Workload qualified as Workload
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
@@ -302,6 +305,10 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runInternalSeedDemoCheckpoints
   | parsedPath == ["internal", "dhall-schema"] =
       runInternalDhallSchema parsedOptions
+  | parsedPath == ["internal", "third-party-images"] =
+      -- Sprint 2.13 — the single source for the third-party chart image list the
+      -- stage-0 scripts pre-pull (authenticated, on the host) before `kind load`.
+      writeText (Text.unlines cachedThirdPartyRolloutImages)
   | otherwise =
       writeLine ("registered command: " <> commandPathText parsedPath)
 
@@ -666,6 +673,10 @@ runWebappRole runtime = do
               publishCheckpointCompareCommandOnly pulsarSettings substrate
           , WebServer.publishMoveCommand =
               publishAdversarialMoveCommandOnly pulsarSettings substrate
+          , WebServer.publishListCheckpointsCommand =
+              publishListCheckpointsCommandOnly pulsarSettings substrate
+          , WebServer.publishLoadTranscriptCommand =
+              publishLoadTranscriptCommandOnly pulsarSettings substrate
           }
   writeLine ("webapp: serving " <> host <> ":" <> Text.pack (show port))
   liftIO
@@ -740,9 +751,22 @@ serviceListeningLine runtime =
         <> Text.pack (show (BootConfig.listenerPort listener))
 
 startDaemonConsumerWorkers :: Env -> ServiceRuntime.DaemonRuntime -> IO [ThreadId]
-startDaemonConsumerWorkers env runtime = do
-  routerRef <- newMVar (ServiceRuntime.daemonHandlerRouter runtime)
-  traverse (forkIO . daemonConsumerWorkerLoop env runtime routerRef) (acquiredSubscriptionIds runtime)
+startDaemonConsumerWorkers env runtime =
+  -- Sprint 16.11 — one dedup-cache MVar PER worker, not one shared across every
+  -- worker. The dispatch compute runs inside `modifyMVar routerRef`
+  -- (`handleDaemonConsumerDelivery`), so a single shared MVar serialized all
+  -- workers: a long host Metal training/RL/tune workload (dispatched on its own
+  -- `*.host-command` topic, 10s-100s of compute) held the one MVar and blocked the
+  -- `inference.command` worker for the whole duration — so under a backlog of
+  -- placement-dispatched host workloads a client's bounded inference reply poll
+  -- timed out (head-of-line blocking across domains). Each subscription maps to a
+  -- single topic/domain and redeliveries return to the same worker, so a
+  -- per-worker router gives identical dedup semantics with no cross-worker lock.
+  traverse startWorker (acquiredSubscriptionIds runtime)
+ where
+  startWorker subscription = do
+    routerRef <- newMVar (ServiceRuntime.daemonHandlerRouter runtime)
+    forkIO (daemonConsumerWorkerLoop env runtime routerRef subscription)
 
 stopDaemonConsumerWorkers :: [ThreadId] -> IO ()
 stopDaemonConsumerWorkers =
@@ -822,75 +846,69 @@ daemonWorkloadDispatcherForRuntime
   -> EventId
   -> Text
   -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-daemonWorkloadDispatcherForRuntime env runtime =
-  case ( BootConfig.bootSubstrate (ServiceRuntime.daemonBootConfig runtime)
-       , BootConfig.bootInferenceMode (ServiceRuntime.daemonBootConfig runtime)
-       ) of
-    -- Sprint 13.11 — both Linux substrates route SelfInference through the
-    -- weighted runners so the daemon executes the substrate-specific weighted
-    -- kernel against `.jmw1`-decoded tensors instead of the deterministic
-    -- summary path.
-    (LinuxCPU, BootConfig.SelfInference) ->
-      ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
-        liftIO (engineWeightedInference env LinuxCPU manifest weights input)
-    (LinuxCUDA, BootConfig.SelfInference) ->
-      ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
-        liftIO (engineWeightedInference env LinuxCUDA manifest weights input)
-    -- Sprint 14.5 — the Apple host-native daemon (`Host + SelfInference`)
-    -- routes inference through the Metal weighted runner so it executes the
-    -- generated `jitml_weighted_kernel` against `.jmw1`-decoded tensors.
-    -- Sprint 14.4 — the host-native Apple daemon (`Host + SelfInference`) also
-    -- serves `AppleInferenceCommand` forwards off `inference.command.apple-silicon`:
-    -- it runs the Metal weighted kernel, stages the output to MinIO, and publishes
-    -- the `AppleInferenceEvent` reply. Direct `RunInference` payloads still route
-    -- to the weighted self-inference path. Sprint 5.11 extends that host-resident
-    -- execution rule to Metal-backed training/RL/tune command envelopes forwarded
-    -- by the in-cluster Apple daemon on the host-command topics.
-    (AppleSilicon, BootConfig.SelfInference) ->
-      daemonWorkloadDispatcherHostingAppleWorkloads env
-    -- Sprint 14.4 — the in-cluster Apple daemon (`Cluster + ForwardToHost`)
-    -- forwards inference to the host-native daemon: it publishes an
-    -- `AppleInferenceCommand` on `inference.command.apple-silicon` rather than
-    -- running Metal in-pod (Metal cannot be containerized).
-    (AppleSilicon, BootConfig.ForwardToHost) ->
-      ServiceRuntime.daemonWorkloadDispatcherForwardingInference
-    _ ->
-      ServiceRuntime.daemonWorkloadDispatcher
+daemonWorkloadDispatcherForRuntime env runtime domain eventId payload = do
+  -- Sprint 14.1 (Feature C) — the Engine's workflow-status projector: alongside
+  -- the underlying command dispatch, project the observed training / tune / rl
+  -- lifecycle transition into a reconciled `WorkflowStatus` frame and republish
+  -- it onto `workflow.status.<substrate>`, which the workflow panel renders live.
+  projectWorkflowStatus substrate domain payload
+  innerDispatcher domain eventId payload
+ where
+  substrate = BootConfig.bootSubstrate (ServiceRuntime.daemonBootConfig runtime)
+  innerDispatcher =
+    case ( substrate
+         , BootConfig.bootInferenceMode (ServiceRuntime.daemonBootConfig runtime)
+         ) of
+      -- Sprint 13.11 — both Linux substrates route SelfInference through the
+      -- weighted runners so the daemon executes the substrate-specific weighted
+      -- kernel against `.jmw1`-decoded tensors instead of the deterministic
+      -- summary path.
+      (LinuxCPU, BootConfig.SelfInference) ->
+        ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
+          liftIO (engineWeightedInference env LinuxCPU manifest weights input)
+      (LinuxCUDA, BootConfig.SelfInference) ->
+        ServiceRuntime.daemonWorkloadDispatcherWithWeightedInference $ \manifest weights input ->
+          liftIO (engineWeightedInference env LinuxCUDA manifest weights input)
+      -- Sprint 14.5 — the Apple host-native daemon (`Host + SelfInference`)
+      -- routes inference through the Metal weighted runner so it executes the
+      -- generated `jitml_weighted_kernel` against `.jmw1`-decoded tensors. The host
+      -- daemon is the Engine for `apple-silicon`: it consumes the cluster-forwarded
+      -- inference command off `inference.command.apple-silicon`, runs the Metal
+      -- weighted kernel, and publishes the matching `InferenceResult` to the
+      -- request's reply-topic directly (the converged values model). Sprint 5.11
+      -- extends that host-resident execution rule to Metal-backed training/RL/tune
+      -- command envelopes forwarded by the in-cluster Apple daemon on the
+      -- host-command topics.
+      (AppleSilicon, BootConfig.SelfInference) ->
+        daemonWorkloadDispatcherHostingAppleWorkloads env
+      -- Sprint 14.4 — the in-cluster Apple daemon (`Cluster + ForwardToHost`)
+      -- forwards inference to the host-native daemon: it republishes the raw
+      -- inference command on `inference.command.apple-silicon` rather than running
+      -- Metal in-pod (Metal cannot be containerized).
+      (AppleSilicon, BootConfig.ForwardToHost) ->
+        ServiceRuntime.daemonWorkloadDispatcherForwardingInference
+      _ ->
+        ServiceRuntime.daemonWorkloadDispatcher
 
--- | Sprint 14.4 — host-native runner for an `AppleInferenceCommand`: parse the
--- command's inputs, run the substrate's Metal weighted checkpoint inference for
--- the requested model, stage the float output to a `call-id`-keyed MinIO object,
--- and return that object reference for the `AppleInferenceEvent` reply.
-appleHostInferenceRunner
-  :: Env
-  -> Inference.AppleInferenceCommand
-  -> ServiceClients.DaemonServiceClient (Either Text [Text])
-appleHostInferenceRunner env command = do
-  let inputs = fromMaybe [] (Inference.parseInferenceInput (Inference.appleCommandInputs command))
-  result <-
-    CheckpointStore.loadInferenceCheckpointWithWeights
-      (\manifest weights vals -> liftIO (engineWeightedInference env AppleSilicon manifest weights vals))
-      (Inference.appleCommandModelId command)
-      inputs
-  case result of
-    Left err -> pure (Left err)
-    Right outputs -> do
-      let outputRef =
-            Capabilities.ObjectRef
-              (Capabilities.BucketName "jitml-checkpoints")
-              ( Capabilities.ObjectKey
-                  ("inference/" <> Inference.appleCommandCallId command <> "/output.json")
-              )
-      staged <- Capabilities.putBlobIfAbsent outputRef (Inference.renderInferenceInput outputs)
-      pure $
-        case staged of
-          Left err -> Left ("apple host inference output stage failed: " <> Text.pack (show err))
-          Right _ ->
-            Right
-              [ Capabilities.unBucketName (Capabilities.objectBucket outputRef)
-                  <> "/"
-                  <> Capabilities.unObjectKey (Capabilities.objectKey outputRef)
-              ]
+-- | Sprint 14.1 (Feature C) — project an observed lifecycle transition into a
+-- reconciled `WorkflowStatus` frame and publish it onto
+-- `workflow.status.<substrate>`. Inference-domain payloads carry no run status
+-- and are skipped; a publish failure is swallowed (the projection is a
+-- best-effort live overlay, never a hard dependency of the underlying dispatch).
+projectWorkflowStatus
+  :: Substrate
+  -> EventDomain
+  -> Text
+  -> ServiceClients.DaemonServiceClient ()
+projectWorkflowStatus substrate domain payload =
+  case WorkflowStatus.workflowStatusFrameForCommand domain payload of
+    Nothing -> pure ()
+    Just frame -> do
+      _ <-
+        Capabilities.pulsarPublish
+          (Capabilities.TopicName (WorkflowStatus.workflowStatusTopic substrate))
+          (WorkflowStatus.renderWorkflowStatusFrame frame)
+      pure ()
 
 daemonWorkloadDispatcherHostingAppleWorkloads
   :: Env
@@ -929,7 +947,6 @@ daemonWorkloadDispatcherHostingAppleWorkloads env domain eventId payload =
  where
   hostInferenceFallback =
     ServiceRuntime.daemonWorkloadDispatcherHostingAppleInference
-      (appleHostInferenceRunner env)
       (\manifest weights input -> liftIO (engineWeightedInference env AppleSilicon manifest weights input))
 
 runHostAppleTraining
@@ -3394,6 +3411,56 @@ publishAdversarialMoveCommandOnly settings substrate game experimentHash moves h
         Left err -> Left ("move command publish failed: " <> Text.pack (show err))
         Right _ -> Right ()
 
+-- | Sprint 14.1 (Feature A) — fire-and-forget publish of a checkpoint-browse
+-- @WorkCommand@; the Engine lists the seeded experiments' manifests from MinIO
+-- and the panel renders the streamed 'Inference.ListCheckpointsCommand' result
+-- (a @CheckpointList@ frame).
+publishListCheckpointsCommandOnly
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> Substrate
+  -> IO (Either Text ())
+publishListCheckpointsCommandOnly settings substrate = do
+  callId <- Text.pack . show <$> getPOSIXTime
+  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      command =
+        Inference.ListCheckpointsCommand
+          { Inference.lccCallId = callId
+          , Inference.lccReplyTopic = Inference.inferenceResultTopic substrate
+          }
+  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
+    published <-
+      Capabilities.pulsarPublish requestTopic (Inference.renderListCheckpointsCommand command)
+    pure $
+      case published of
+        Left err -> Left ("list-checkpoints command publish failed: " <> Text.pack (show err))
+        Right _ -> Right ()
+
+-- | Sprint 14.1 (Feature B) — fire-and-forget publish of a transcript-replay
+-- @WorkCommand@ for the supplied persisted transcript key; the Engine reads the
+-- transcript record from MinIO and the replay panel renders the streamed
+-- 'Inference.LoadTranscriptCommand' result (a @TranscriptReplay@ frame).
+publishLoadTranscriptCommandOnly
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> Substrate
+  -> Text
+  -> IO (Either Text ())
+publishLoadTranscriptCommandOnly settings substrate transcriptId = do
+  callId <- Text.pack . show <$> getPOSIXTime
+  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      command =
+        Inference.LoadTranscriptCommand
+          { Inference.ltcCallId = callId
+          , Inference.ltcTranscriptId = transcriptId
+          , Inference.ltcReplyTopic = Inference.inferenceResultTopic substrate
+          }
+  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
+    published <-
+      Capabilities.pulsarPublish requestTopic (Inference.renderLoadTranscriptCommand command)
+    pure $
+      case published of
+        Left err -> Left ("load-transcript command publish failed: " <> Text.pack (show err))
+        Right _ -> Right ()
+
 runVerify :: [Text] -> [ParsedOption] -> App ()
 runVerify path parsedOptions =
   writeLine
@@ -4045,28 +4112,48 @@ runInternalUploadDataset parsedOptions = do
 -- 'DhallSchema.configSchemas'), so it cannot drift from the decoder types.
 runInternalDhallSchema :: [ParsedOption] -> App ()
 runInternalDhallSchema parsedOptions =
-  case selectedValue "config" "" parsedOptions of
-    "" ->
-      writeText
-        ( Text.intercalate
-            "\n"
-            [ "-- " <> name <> "\n" <> schema
-            | (name, schema) <- DhallSchema.configSchemas
-            ]
-        )
-    name ->
-      case lookup name DhallSchema.configSchemas of
-        Just schema -> writeText (schema <> "\n")
+  case selectedValue "catalog" "" parsedOptions of
+    "" -> printConfigSchema
+    catalogSelector ->
+      case CatalogSchema.catalogGroup catalogSelector of
+        Just entries ->
+          writeText
+            ( Text.intercalate
+                "\n"
+                ["-- " <> name <> "\n" <> schema | (name, schema) <- entries]
+            )
         Nothing ->
           exitWithError
             ( InvalidConfig
-                ( "dhall-schema: unknown config surface "
-                    <> name
-                    <> " (expected one of: "
-                    <> Text.intercalate ", " (fmap fst DhallSchema.configSchemas)
-                    <> ")"
+                ( "dhall-schema: unknown catalog surface "
+                    <> catalogSelector
+                    <> " (expected one of: numerics, rl, all)"
                 )
             )
+ where
+  printConfigSchema =
+    case selectedValue "config" "" parsedOptions of
+      "" ->
+        writeText
+          ( Text.intercalate
+              "\n"
+              [ "-- " <> name <> "\n" <> schema
+              | (name, schema) <- DhallSchema.configSchemas
+              ]
+          )
+      name ->
+        case lookup name DhallSchema.configSchemas of
+          Just schema -> writeText (schema <> "\n")
+          Nothing ->
+            exitWithError
+              ( InvalidConfig
+                  ( "dhall-schema: unknown config surface "
+                      <> name
+                      <> " (expected one of: "
+                      <> Text.intercalate ", " (fmap fst DhallSchema.configSchemas)
+                      <> ")"
+                  )
+              )
 
 runInternalSeedDemoCheckpoints :: App ()
 runInternalSeedDemoCheckpoints = do

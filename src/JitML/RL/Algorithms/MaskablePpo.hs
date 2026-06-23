@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 maskablePpoModule :: AlgorithmModule
@@ -19,7 +18,6 @@ maskablePpoModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "MaskablePPO" OnPolicy False
     , moduleHyperparameters = maskablePpoHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "MaskablePPO"
     }
 
 maskablePpoHyperparameters :: [AlgorithmHyperparameter]

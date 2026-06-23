@@ -231,6 +231,43 @@ build_linux_image() {
   (cd "$root" && run_command docker compose build jitml)
 }
 
+# Sprint 2.13 — pre-pull the third-party chart images on the host (authenticated
+# via the host's existing `docker login`) so the Kind cluster's containerd does
+# not pull them anonymously from Docker Hub and hit the 429 rate limit during the
+# Helm waits. Reads the image list on stdin, one per line. Best-effort: a failed
+# pull degrades to the prior in-cluster anonymous fallback rather than aborting
+# the bootstrap. Reads (never writes) ~/.docker/config.json, honoring the
+# bootstrap no-touch invariant. This is jitML's own self-contained Docker Hub
+# credential path.
+prepull_third_party_images() {
+  if ! have docker; then
+    return 0
+  fi
+  local pulled=0 skipped=0 img
+  while IFS= read -r img; do
+    [ -n "$img" ] || continue
+    if docker pull "$img" >/dev/null 2>&1; then
+      pulled=$((pulled + 1))
+    else
+      skipped=$((skipped + 1))
+    fi
+  done
+  info "third-party image pre-pull: $pulled pulled, $skipped skipped (host docker auth)"
+}
+
+prepull_linux_third_party_images() {
+  local root
+  root=$(repo_root)
+  (cd "$root" && docker compose run --rm jitml jitml internal third-party-images 2>/dev/null) \
+    | prepull_third_party_images
+}
+
+prepull_apple_third_party_images() {
+  local root
+  root=$(repo_root)
+  ("$root/.build/jitml" internal third-party-images 2>/dev/null) | prepull_third_party_images
+}
+
 cluster_name_for_substrate() {
   printf 'jitml-%s\n' "$1"
 }

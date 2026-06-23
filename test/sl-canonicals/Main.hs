@@ -47,7 +47,7 @@ import JitML.SL.Classifier
   )
 
 import JitML.Bootstrap (readExistingLivePublication)
-import JitML.Cluster.Publication (publicationEdgePort)
+import JitML.Cluster.Publication (publicationEdgePort, publicationSubstrate)
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
@@ -69,7 +69,6 @@ import JitML.Proto.Training
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals
   ( canonicalProblems
-  , denseMlpCohort
   , problemName
   , trainableCanonicalCohort
   )
@@ -124,14 +123,6 @@ main =
                 , "tiny-imagenet-resnet50"
                 , "california-housing-mlp"
                 ]
-      , testCase "Dense-MLP cohort is deterministic and catalog-backed (Sprint 8.10)" $ do
-          let first = fmap problemName denseMlpCohort
-              second = fmap problemName denseMlpCohort
-          first @?= second
-          first @?= ["mnist-shallow-mlp", "fashion-mnist-mlp", "california-housing-mlp"]
-          assertBool
-            "every cohort member is in the canonical catalog"
-            (all (`elem` canonicalProblems) denseMlpCohort)
       , testCase "trainable canonical SL cohort covers every product row (Sprint 8.12)" $ do
           fmap problemName trainableCanonicalCohort @?= fmap problemName canonicalProblems
           let config =
@@ -700,7 +691,14 @@ main =
                   case (trainImg, trainLbl, testImg, testLbl) of
                     (Right ti, Right tl, Right vi, Right vl) -> do
                       env <- buildEnv defaultGlobalFlags
-                      let device = mlpDeviceForSubstrate LinuxCPU env
+                      -- Sprint 16.11 — run the live MNIST convergence on the
+                      -- publication's substrate device, not a hardcoded
+                      -- `LinuxCPU` (oneDNN) device. On the Mac host the linux-cpu
+                      -- oneDNN kernel cannot link (`library 'dnnl' not found`), so
+                      -- the apple-silicon lane must train through the Metal device
+                      -- the cluster actually runs; on the linux-cpu lane this
+                      -- resolves to the same oneDNN device as before.
+                      let device = mlpDeviceForSubstrate (publicationSubstrate pub) env
                           config =
                             defaultClassifierConfig
                               { clfEpochs = 60

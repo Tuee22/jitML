@@ -206,6 +206,8 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically and the root `compose.yaml` runs that service with host networking so the outer-container Kind kubeconfig loopback endpoint is reachable. The in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
 - `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast before any CUDA Kind cluster is created. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same headless, host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU label on the single Kind node, node-local containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap. Direct live CUDA tests that need the outer container itself to see NVIDIA devices use the companion `jitml-cuda` compose service.
 
+> **Authenticated third-party image pre-pull.** The `docker.io/*` third-party chart images (MinIO, Pulsar, Harbor, …) are pre-pulled **authenticated on the host** and `kind load`ed before the cluster rolls out, so the Kind node's containerd never pulls them anonymously from Docker Hub and trips the Docker Hub **429** rate limit on a cold host. The pre-pull only **reads** the host's existing `docker login` (so `docker login` to Docker Hub once per host); it never writes `~/.docker/config.json`, preserving the no-touch invariant below. This is jitML's own self-contained Docker Hub credential path, owned by the project.
+
 Cleanup semantics matter:
 
 - `down` tears down the cluster; preserves `./.data/` and `./.build/`.
@@ -868,6 +870,7 @@ mindmap
       upload-dataset
       seed-demo-checkpoints
       dhall-schema
+      third-party-images
       gc
       cache
         stat
@@ -932,7 +935,8 @@ mindmap
 | `jitml internal install-metal-bridge` | Build the fixed Apple Metal bridge. | `jitml internal install-metal-bridge` |
 | `jitml internal upload-dataset` | Upload a real dataset blob to MinIO. | `jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]` |
 | `jitml internal seed-demo-checkpoints` | Seed demo inference checkpoints into MinIO. | `jitml internal seed-demo-checkpoints` |
-| `jitml internal dhall-schema` | Print the reflected Dhall config schema. | `jitml internal dhall-schema [--config <config>]` |
+| `jitml internal dhall-schema` | Print the reflected Dhall config schema. | `jitml internal dhall-schema [--config <config>] [--catalog <catalog>]` |
+| `jitml internal third-party-images` | Print the third-party chart image list. | `jitml internal third-party-images` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |
 | `jitml internal cache stat` | Print cache stats. | `jitml internal cache stat` |
 | `jitml internal cache list` | List cache entries. | `jitml internal cache list` |

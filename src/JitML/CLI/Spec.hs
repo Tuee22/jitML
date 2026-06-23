@@ -649,13 +649,19 @@ internalCommand =
     , leaf
         "dhall-schema"
         "Print the reflected Dhall config schema."
-        "Sprint 5.12 (Pulsar ML-Workflow convergence) — prints the binary's own reflected Dhall schema for each daemon config surface (BootConfig, LiveConfig, TrainingRunConfig, TuneRunConfig, RlRunConfig). The schema is read back off the live FromDhall decoder via Dhall.expected, so it cannot drift from the decoder types. With --config NAME it prints one surface; otherwise it prints every surface."
+        "Sprint 5.12 (Pulsar ML-Workflow convergence) — prints the binary's own reflected Dhall schema for each daemon config surface (BootConfig, LiveConfig, TrainingRunConfig, TuneRunConfig, RlRunConfig). The schema is read back off the live FromDhall decoder via Dhall.expected, so it cannot drift from the decoder types. With --config NAME it prints one surface; otherwise it prints every surface. With --catalog numerics|rl|all it instead prints the reflected numerics/RL catalog Dhall leaves, emitted from the Haskell catalogs so the checked-in dhall/numerics and dhall/rl leaves cannot drift."
         [ value
             "config"
             Nothing
             "config"
             False
             "Config surface to print (BootConfig/LiveConfig/TrainingRunConfig/TuneRunConfig/RlRunConfig); defaults to all."
+        , value
+            "catalog"
+            Nothing
+            "catalog"
+            False
+            "Catalog surface to print (numerics/rl/all) emitted from the Haskell catalogs; prints catalog Dhall instead of the config schema."
         ]
         [ Example
             "jitml internal dhall-schema"
@@ -663,7 +669,16 @@ internalCommand =
         , Example
             "jitml internal dhall-schema --config BootConfig"
             "Print only the reflected BootConfig schema."
+        , Example
+            "jitml internal dhall-schema --catalog numerics"
+            "Print the reflected numerics catalog Dhall leaves."
         ]
+    , leaf
+        "third-party-images"
+        "Print the third-party chart image list."
+        "Sprint 2.13 (Docker Hub credential path) — prints the third-party chart images (MinIO, Pulsar, Harbor, etc.) the bootstrap loads into the Kind cluster, one per line. The stage-0 bootstrap scripts pipe this list into an authenticated host `docker pull` before `kind load`, so the cluster never pulls these images anonymously from Docker Hub (avoiding the 429 rate limit on a cold host). This is jitML's own self-contained Docker Hub credential path."
+        []
+        [Example "jitml internal third-party-images" "Print the third-party chart image list."]
     , leaf
         "gc"
         "Apply checkpoint retention."

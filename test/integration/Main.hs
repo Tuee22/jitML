@@ -514,9 +514,9 @@ main =
             )
       , testCase "Pulsar bootstrap registers the substrate-scoped topic family (Sprint 5.5)" $ do
           let topics = fmap PulsarBootstrap.topicName PulsarBootstrap.pulsarTopics
-          -- 9 substrate-scoped topics × 3 substrates + 5 apple-only internal
-          -- topics = 32 (Sprint 5.11 added host workload command topics).
-          length topics @?= 32
+          -- 9 substrate-scoped topics × 3 substrates + 4 apple-only internal
+          -- topics = 31 (Sprint 5.11 added host workload command topics).
+          length topics @?= 31
           traverse_
             ( \topic ->
                 assertBool
@@ -540,7 +540,6 @@ main =
             , "persistent://public/default/rl.command.linux-cuda"
             , "persistent://public/default/inference.request.linux-cuda"
             , "persistent://public/default/inference.command.apple-silicon"
-            , "persistent://public/default/inference.event.apple-silicon"
             , "persistent://public/default/training.host-command.apple-silicon"
             , "persistent://public/default/tune.host-command.apple-silicon"
             , "persistent://public/default/rl.host-command.apple-silicon"

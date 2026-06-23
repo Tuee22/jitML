@@ -58,7 +58,7 @@ import JitML.Service.Capabilities
   , SubscriptionId
   , TopicName (..)
   )
-import JitML.Service.Retry (ServiceError, serviceErrorToAppError)
+import JitML.Service.Retry (ServiceError (..), serviceErrorToAppError)
 import JitML.Substrate (Substrate (..))
 
 newtype EventId = EventId
@@ -135,9 +135,11 @@ daemonSubscriptionsForBootConfig bootConfig =
       , daemonSubscription Tune HostCommand AppleSilicon "jitml-host"
       , daemonSubscription Rl HostCommand AppleSilicon "jitml-host"
       ]
-    -- Sprint 14.4 — the Apple in-cluster (`ForwardToHost`) daemon also subscribes
-    -- to `inference.event.apple-silicon` so it receives the host's reply events
-    -- and republishes the correlated result on the client result topic.
+    -- Sprint 14.4 — the Apple in-cluster (`ForwardToHost`) daemon subscribes to
+    -- the inference request topic and forwards each command raw to the host
+    -- daemon's `inference.command.apple-silicon` topic; the host Engine publishes
+    -- the `InferenceResult` to the request's reply-topic directly (the converged
+    -- values model), so the cluster daemon no longer correlates a reply event.
     (AppleSilicon, Cluster) ->
       fmap
         (\(workflow, phase) -> daemonSubscription workflow phase AppleSilicon "jitml-service")
@@ -145,7 +147,6 @@ daemonSubscriptionsForBootConfig bootConfig =
         , (Tune, Command)
         , (Rl, Command)
         , (Infer, Request)
-        , (Infer, Event)
         ]
     _ ->
       fmap
@@ -156,6 +157,18 @@ daemonSubscriptionsForBootConfig bootConfig =
         , (Infer, Request)
         ]
 
+-- | Sprint 16.11 — the host daemon's Pulsar-WS subscribe through the Envoy edge
+-- intermittently fails the WebSocket upgrade (@pulsarSubscribe: node exit 1:
+-- Received network error or non-101 status code@). A single attempt left
+-- `inference.command`/`*.host-command` subscriptions in `failed transient`, so
+-- `acquiredSubscriptionIds` dropped them, no `daemonConsumerWorkerLoop` was
+-- spawned, and apple-silicon inference requests were never served. Retry transient
+-- (and timeout) acquisition failures so every subscription is acquired; the node
+-- WS subprocess spawn latency naturally spaces the attempts (no explicit delay /
+-- `MonadIO` needed, keeping the `HasPulsar`-only constraint).
+daemonSubscriptionAcquireAttempts :: Int
+daemonSubscriptionAcquireAttempts = 8
+
 subscribeDaemonTopics
   :: (HasPulsar m)
   => [DaemonSubscription]
@@ -164,11 +177,27 @@ subscribeDaemonTopics =
   traverse subscribeOne
  where
   subscribeOne subscription = do
-    result <-
-      pulsarSubscribe
-        (daemonSubscriptionTopic subscription)
-        (daemonSubscriptionName subscription)
+    result <- attempt daemonSubscriptionAcquireAttempts
     pure (subscription, result)
+   where
+    attempt n = do
+      result <-
+        pulsarSubscribe
+          (daemonSubscriptionTopic subscription)
+          (daemonSubscriptionName subscription)
+      case result of
+        Right _ -> pure result
+        Left err
+          | n > 1 && acquisitionRetryable err -> attempt (n - 1)
+          | otherwise -> pure (Left err)
+
+-- | Retry only transient/timeout acquisition failures; surface auth/conflict
+-- errors immediately (retrying them cannot help).
+acquisitionRetryable :: ServiceError -> Bool
+acquisitionRetryable (SETransient _) = True
+acquisitionRetryable (SETimeout _) = True
+acquisitionRetryable (SEConflict _) = False
+acquisitionRetryable (SEUnauthorized _) = False
 
 daemonSubscription :: Workflow -> Phase -> Substrate -> Text -> DaemonSubscription
 daemonSubscription workflow phase substrate subscriptionName =

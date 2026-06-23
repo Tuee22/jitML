@@ -22,15 +22,18 @@
 
 ## Phase Status
 
-🔄 **Active — common-shape reopen (Pulsar ML-Workflow convergence).** Phase `11`
-reopens to fold `jitml-demo` into the one-binary **Webapp** role (thin websocket
-server, talks only to Pulsar + MinIO, computes no inference) and to make the browser
-inference panels **websocket-driven** via snapshot/patch frames — exactly the
-`subscribeStream` pattern the training/RL/tune panels already use — retiring the
-synchronous compute-and-return REST handlers and the panels' blocking fetch. Because
-the Webapp is substrate-agnostic, this **dissolves the Apple in-pod-Metal
-browser-forward** problem entirely (the webapp publishes `inference.request.<substrate>`
-and never touches Metal). See [README.md](README.md) → Closure Status, the shared
+✅ **Done — common-shape reopen (Pulsar ML-Workflow convergence) closed on its
+owned surface** (Sprint `11.10`, re-closed 2026-06-20). `jitml-demo` is folded
+into the one-binary **Webapp** role (thin websocket server, talks only to Pulsar
++ MinIO, computes no ML), and **all five** browser inference panels are
+websocket-driven over `/api/ws/inference` (the typed-decode pipeline; the
+synchronous compute-and-return REST handlers and blocking fetch are retired),
+with CheckpointCompare + Connect4 moved to Engine workflows. Because the Webapp
+is substrate-agnostic, this **dissolved the Apple in-pod-Metal browser-forward**
+problem (the webapp publishes `inference.request.<substrate>` and never touches
+Metal). The **live Playwright product proof** of the panels is an ownership
+transfer to Sprints `14.2` / `16.x` (rule E / M(a)). See [README.md](README.md) →
+Closure Status, the shared
 [../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
 contract, and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The
 prior closure narrative below is retained as dated history.
@@ -819,9 +822,19 @@ every live-runtime obligation from Phases `7`–`12`):
 - [../README.md → Lint matrix](../README.md#lint-matrix) (Sprint 11.3 — local project-specific lint target via `jitml lint purescript`)
 - [../README.md → Routes Published at the Edge](../README.md#envoy-gateway-api-a-single-localhost-socket) (Sprint 11.7 — the demo bundle is the single localhost surface; the SPA owns the in-app directory for the bundled admin portals declared in the route registry)
 
-## Sprint 11.10: Webapp Role and Websocket-Driven Inference Panels 📋
+## Sprint 11.10: Webapp Role and Websocket-Driven Inference Panels ✅
 
-**Status**: Planned (upstream Sprints `5.14` and `10.7` are Done)
+**Status**: Done — on its owned surface: `jitml-demo` folded into the one-binary
+**Webapp** role (computes no ML), the CLI publishes an inference `WorkCommand`,
+and **all five** inference panels are asynchronous over `/api/ws/inference` via
+the typed-decode pipeline (Engine `decodeInference` → `decoded-*` `WorkResult` →
+bridge `DecodedInference` → thin pure render), with **CheckpointCompare** and
+**Connect4** moved to Engine workflows (delta + MCTS computed in the daemon).
+Validated: `cabal build all` clean, `jitml-unit` 208/208, `jitml-e2e` 23/23,
+`spago build` 0 errors + `spago test` 17/17, `jitml lint purescript`/`docs
+check`/`check-code` ok, and live on `linux-cpu` (Webapp pod serves the bundle;
+CLI publish round-trip via `jitml-integration`). The **live Playwright product
+proof** of the panels transfers to Sprints `14.2` / `16.x` (rule E / M(a)).
 **Depends-On**: Sprint `5.14` (one-binary role model — the `Webapp` role), Sprint
 `10.7` (async `Work*` inference workflow + envelope family)
 **Implementation**: `jitml.cabal` (retire `exe:jitml-demo`), `app/Demo.hs`

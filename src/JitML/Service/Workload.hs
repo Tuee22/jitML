@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module JitML.Service.Workload
   ( LoadedWeightTensor
@@ -27,6 +28,9 @@ module JitML.Service.Workload
   , runInferenceRequest
   , runInferenceRequestWith
   , runInferenceRequestWithWeightedInference
+  , runListCheckpointsRequest
+  , runLoadTranscriptRequest
+  , seededDemoExperimentHashes
   , runWorkloadEffect
   , runWorkloadEffectWithInference
   , runWorkloadEffectWithWeightedInference
@@ -51,7 +55,11 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
-import JitML.Checkpoint.Format (CheckpointManifest)
+import JitML.Checkpoint.Format
+  ( CheckpointManifest (..)
+  , ModelFamily (..)
+  , manifestContentSha
+  )
 import JitML.Checkpoint.Store (LoadedWeightTensor)
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Inference.AdversarialMove
@@ -67,10 +75,14 @@ import JitML.Proto.Inference
   , CheckpointCompareResult (..)
   , InferenceRequest (..)
   , InferenceResult (..)
+  , ListCheckpointsCommand (..)
+  , LoadTranscriptCommand (..)
   , parseAdversarialMoveCommand
   , parseCheckpointCompareCommand
   , parseInferenceInput
   , parseInferenceRequest
+  , parseListCheckpointsCommand
+  , parseLoadTranscriptCommand
   , renderAdversarialMoveResult
   , renderCheckpointCompareResult
   , renderInferenceRequest
@@ -117,6 +129,11 @@ import JitML.Service.RunConfig
   , renderRlRunConfigDhall
   , renderTrainingRunConfigDhall
   , renderTuneRunConfigDhall
+  )
+import JitML.Service.Transcript
+  ( TranscriptRecord (..)
+  , readTranscriptRecord
+  , writeTranscriptRecord
   )
 import JitML.Substrate (Substrate (..), renderSubstrate, substrateRuntimeClass)
 
@@ -467,7 +484,19 @@ dispatchDomainPayloadWithWeightedInference runInference domain payload =
                   fmap
                     (pure . fmap InferenceResultPublished)
                     (runAdversarialMoveRequestWithWeightedInference runInference command)
-                Nothing -> pure []
+                Nothing ->
+                  case parseListCheckpointsCommand payload of
+                    Just command ->
+                      fmap
+                        (pure . fmap InferenceResultPublished)
+                        (runListCheckpointsRequest command)
+                    Nothing ->
+                      case parseLoadTranscriptCommand payload of
+                        Just command ->
+                          fmap
+                            (pure . fmap InferenceResultPublished)
+                            (runLoadTranscriptRequest command)
+                        Nothing -> pure []
     _ ->
       runWorkloadEffectsWithWeightedInference
         runInference
@@ -561,7 +590,7 @@ runAdversarialMoveRequestWithWeightedInference runInference command = do
       runtimeInput
   case result of
     Left err -> pure (Left (SETransient ("adversarial: " <> err)))
-    Right (output, _) ->
+    Right (output, _) -> do
       let outcome =
             computeAdversarialMove
               (amcGame command)
@@ -569,29 +598,172 @@ runAdversarialMoveRequestWithWeightedInference runInference command = do
               (amcHumanIsPlayer command)
               (amcSimulationsPerMove command)
               output
-          transcript =
+          -- Sprint 14.1 (Feature B) — the full move sequence (the human moves
+          -- plus the AI's chosen column) is what the replay panel scrubs.
+          fullMoves = amcMoves command <> [amoChosenColumn outcome]
+          analysis =
+            "value="
+              <> Text.pack (show (amoValueEstimate outcome))
+              <> " visits="
+              <> Text.intercalate "," (fmap (Text.pack . show) (amoVisitCounts outcome))
+          record =
+            TranscriptRecord
+              { transcriptGame = amcGame command
+              , transcriptExperimentHash = amcExperimentHash command
+              , transcriptMoves = fullMoves
+              , transcriptAnalysis = analysis
+              }
+          -- The synthesized fallback id is only used if the persist write fails
+          -- (so the move frame still carries a non-empty transcript reference).
+          synthesizedId =
             Text.intercalate
               ":"
               [ amcGame command
-              , Text.intercalate "," (fmap (Text.pack . show) (amcMoves command <> [amoChosenColumn outcome]))
+              , Text.intercalate "," (fmap (Text.pack . show) fullMoves)
               , Text.pack (show (amcHumanIsPlayer command))
               ]
+      -- Persist the transcript to the `jitml-transcripts` bucket and key the
+      -- result frame to the REAL MinIO object key (the replay panel reads it
+      -- back through `LoadTranscriptCommand`).
+      persisted <- writeTranscriptRecord record
+      let transcriptId =
+            case persisted of
+              Right (key, _etag) -> key
+              Left _ -> synthesizedId
+      pulsarPublish
+        (TopicName (amcReplyTopic command))
+        ( renderAdversarialMoveResult
+            AdversarialMoveResult
+              { amrCallId = amcCallId command
+              , amrExperimentHash = amcExperimentHash command
+              , amrGame = amcGame command
+              , amrChosenColumn = amoChosenColumn outcome
+              , amrLegalMoves = amoLegalMoves outcome
+              , amrVisitCounts = amoVisitCounts outcome
+              , amrPolicyPriors = amoPolicyPriors outcome
+              , amrValueEstimate = amoValueEstimate outcome
+              , amrGameOver = amoGameOver outcome
+              , amrTranscriptId = transcriptId
+              }
+        )
+
+-- | Sprint 14.1 (Feature A) — the five seeded demo experiment hashes the
+-- checkpoint-browse panel lists (mirrors `runInternalSeedDemoCheckpoints` in
+-- `JitML.App`). The browse Engine job lists each experiment's manifests from
+-- MinIO and folds them into one `CheckpointList` frame.
+seededDemoExperimentHashes :: [Text]
+seededDemoExperimentHashes =
+  [ "mnist-deep-mlp"
+  , "generic-tensor-demo"
+  , "generic-tensor-demo-candidate"
+  , "cifar-imagenet"
+  , "connect4-alphazero"
+  ]
+
+-- | Sprint 14.1 (Feature A) — checkpoint browse as an Engine job: for each
+-- seeded experiment hash, list its manifests from the `jitml-checkpoints`
+-- MinIO bucket and publish a single `CheckpointList` frame summarising every
+-- manifest, on the command's reply topic.
+runListCheckpointsRequest
+  :: (HasMinIO m, HasPulsar m)
+  => ListCheckpointsCommand
+  -> m (Either ServiceError Text)
+runListCheckpointsRequest command = do
+  listings <-
+    traverse
+      ( \experimentHash -> do
+          manifests <- CheckpointStore.listCheckpointManifestsMinIO experimentHash
+          pure (fmap (experimentHash,) manifests)
+      )
+      seededDemoExperimentHashes
+  case sequence listings of
+    Left err -> pure (Left err)
+    Right perExperiment ->
+      let summaries = concatMap (uncurry checkpointSummaries) perExperiment
        in pulsarPublish
-            (TopicName (amcReplyTopic command))
-            ( renderAdversarialMoveResult
-                AdversarialMoveResult
-                  { amrCallId = amcCallId command
-                  , amrExperimentHash = amcExperimentHash command
-                  , amrGame = amcGame command
-                  , amrChosenColumn = amoChosenColumn outcome
-                  , amrLegalMoves = amoLegalMoves outcome
-                  , amrVisitCounts = amoVisitCounts outcome
-                  , amrPolicyPriors = amoPolicyPriors outcome
-                  , amrValueEstimate = amoValueEstimate outcome
-                  , amrGameOver = amoGameOver outcome
-                  , amrTranscriptId = transcript
-                  }
-            )
+            (TopicName (lccReplyTopic command))
+            (renderCheckpointListResult (lccCallId command) summaries)
+
+-- | Render the per-experiment manifests into `checkpoint-summary:` lines, one
+-- per manifest. Each summary is a tab-separated tuple of
+-- experiment-hash / sha / step / model-family / tensor-count.
+checkpointSummaries :: Text -> [CheckpointManifest] -> [Text]
+checkpointSummaries experimentHash =
+  fmap (checkpointSummaryLine experimentHash)
+
+checkpointSummaryLine :: Text -> CheckpointManifest -> Text
+checkpointSummaryLine experimentHash manifest =
+  Text.intercalate
+    "\t"
+    [ experimentHash
+    , manifestContentSha manifest
+    , Text.pack (show (manifestStep manifest))
+    , renderModelFamily (manifestModelFamily manifest)
+    , Text.pack (show (length (manifestTensors manifest)))
+    ]
+
+renderModelFamily :: ModelFamily -> Text
+renderModelFamily family =
+  case family of
+    GenericModelFamily -> "generic"
+    SupervisedModelFamily -> "supervised"
+    ReinforcementLearningPolicyFamily -> "rl-policy"
+    AlphaZeroPolicyValueFamily -> "alphazero"
+    HyperparameterTuningFamily -> "hyperparameter"
+
+-- | Sprint 14.1 (Feature A) — the `CheckpointList` result frame. Each
+-- `checkpoint-summary:` line carries one tab-separated manifest summary; the
+-- browser panel splits them into a `CheckpointSummary` list.
+renderCheckpointListResult :: Text -> [Text] -> Text
+renderCheckpointListResult callId summaries =
+  Text.unlines $
+    [ "kind: CheckpointList"
+    , "call-id: " <> callId
+    , "panel: checkpoint-browse"
+    , "count: " <> Text.pack (show (length summaries))
+    ]
+      <> fmap ("checkpoint-summary: " <>) summaries
+
+-- | Sprint 14.1 (Feature B) — transcript replay as an Engine job: read the
+-- persisted transcript record from the `jitml-transcripts` MinIO bucket keyed
+-- by the command's transcript id and publish a `TranscriptReplay` frame on the
+-- reply topic.
+runLoadTranscriptRequest
+  :: (HasMinIO m, HasPulsar m)
+  => LoadTranscriptCommand
+  -> m (Either ServiceError Text)
+runLoadTranscriptRequest command = do
+  record <- readTranscriptRecord (ltcTranscriptId command)
+  -- A missing/unreadable transcript is terminal, not retryable: always publish a
+  -- reply (an empty replay on failure) so the consumer acks rather than
+  -- NACK-retrying a poison message forever (which would back the consumer up and
+  -- delay real replies). The replay panel renders the empty frame as no moves.
+  let transcript =
+        case record of
+          Right t -> t
+          Left err ->
+            TranscriptRecord
+              { transcriptGame = ""
+              , transcriptExperimentHash = ""
+              , transcriptMoves = []
+              , transcriptAnalysis = "transcript unavailable: " <> err
+              }
+  pulsarPublish
+    (TopicName (ltcReplyTopic command))
+    (renderTranscriptReplayResult (ltcCallId command) (ltcTranscriptId command) transcript)
+
+renderTranscriptReplayResult :: Text -> Text -> TranscriptRecord -> Text
+renderTranscriptReplayResult callId transcriptId record =
+  Text.unlines
+    [ "kind: TranscriptReplay"
+    , "call-id: " <> callId
+    , "panel: transcript-replay"
+    , "transcript-id: " <> transcriptId
+    , "game: " <> transcriptGame record
+    , "experiment-hash: " <> transcriptExperimentHash record
+    , "moves: " <> Text.intercalate "," (fmap (Text.pack . show) (transcriptMoves record))
+    , "analysis: " <> Text.replace "\n" " " (transcriptAnalysis record)
+    ]
 
 absoluteDeltas :: [Double] -> [Double] -> [Double]
 absoluteDeltas baseline candidate =

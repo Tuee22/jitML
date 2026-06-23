@@ -51,6 +51,7 @@ complete -c jitml -a 'internal install-metal-bridge' -d 'Build the fixed Apple M
 complete -c jitml -a 'internal upload-dataset' -d 'Upload a real dataset blob to MinIO.'
 complete -c jitml -a 'internal seed-demo-checkpoints' -d 'Seed demo inference checkpoints into MinIO.'
 complete -c jitml -a 'internal dhall-schema' -d 'Print the reflected Dhall config schema.'
+complete -c jitml -a 'internal third-party-images' -d 'Print the third-party chart image list.'
 complete -c jitml -a 'internal gc' -d 'Apply checkpoint retention.'
 complete -c jitml -a 'internal cache stat' -d 'Print cache stats.'
 complete -c jitml -a 'internal cache list' -d 'List cache entries.'

@@ -126,6 +126,29 @@ MinIO):
   Harbor capability round-trips).
 - `jitml check-code` and `jitml docs check` — **ok**.
 
+**Update 2026-06-23 — tuning objective migrated onto the production seam.** The
+hyperparameter tuning objective no longer trains the legacy Dense-only
+`Classifier.trainClassifier` / `trainClassifierWithDevice`. It now trains a fixed
+Dense `CanonicalProblem` through the production `JitML.SL.Architecture` seam
+(`trainArchitectureWithDevice`) — the same runtime the no-caveat SL canonicals
+use — with the offline sweep routed through a new toolchain-free
+`pureReferenceMlpDevice` (`JitML.Numerics.MlpDevice`, built on the pure
+`mlpForward` / `mlpBackward` / `mlpInputGradient`) so `deterministicTrials` stays
+pure and the device sweep + report card route through the real substrate device;
+trial weights come from `Architecture.trainedArchitectureWeights`. Host-validated:
+`cabal build all` clean, `jitml-hyperparameter` **16/16** (determinism, `[0,1]`
+bounds, checkpointable weights, device-backed executor). **Live-validated on
+`linux-cpu` (2026-06-23):** `jitml test all --live --linux-cpu` ran the migrated
+`deterministicTrialsWithDevice` through the substrate device and measured
+`tune_best_objective: TPE=1.0` — **unchanged** from the pre-migration value (the
+deterministic separable tuning dataset still admits a 100%-accuracy trial), so the
+committed `apple-silicon` / `linux-cuda` `TPE=1.0` fragments stay consistent and no
+per-lane re-baseline is needed; the Sprint `13.1` ledger row is `Completed`
+(see [the committed `linux-cpu` fragment](attestations/linux-cpu-report-card.md)).
+The now-test-only `trainClassifier` / `accuracy` / `trainClassifierWithDevice` are
+retained as legitimate pure-numerics `jitml-sl-canonicals` coverage of the pure MLP
+classifier path.
+
 This closes Phase `13` on its `linux-cpu` scope (standards rule M(b)): the
 accelerator-free no-caveat runtime trains, checkpoints, evaluates, and infers
 across the canonical SL / RL / AlphaZero / tuning matrix on `linux-cpu`. The

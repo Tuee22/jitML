@@ -486,7 +486,9 @@ component =
           ]
           [ HH.div_ [ HH.text ("engine action: " <> show response.chosenColumn) ]
           , HH.div_ [ HH.text ("value: " <> show response.valueEstimate) ]
-          , HH.div_ [ HH.text ("transcript: " <> response.transcriptId) ]
+          , HH.div
+              [ HP.id (panelName <> "-transcript") ]
+              [ HH.text ("transcript: " <> response.transcriptId) ]
           , HH.ol
               [ HP.id (panelName <> "-visits") ]
               (map renderVisit (Array.zipWith (\move visits -> { move, visits }) response.legalMoves response.visitCounts))

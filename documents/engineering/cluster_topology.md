@@ -204,7 +204,22 @@ The target `jitml bootstrap --<substrate>` runs the phased rollout:
    selected Kind cluster with `kind load docker-image`. The `jitml:local` build
    is also the exclusive Haskell style/code-quality gate: it uses the same
    pinned GHC `9.12.4` to build pinned Fourmolu / HLint binaries and fails the
-   image build on Haskell style or warning-clean build drift.
+   image build on Haskell style or warning-clean build drift. The third-party
+   chart images (`docker.io/*` — MinIO, Pulsar, Harbor, etc.) are **pre-pulled
+   authenticated on the host and `kind load`ed** (Sprint `2.13`) so the Kind
+   node's containerd never pulls them anonymously from Docker Hub during the
+   final-phase Helm waits — anonymous pulls on a cold host hit the Docker Hub
+   **429** rate limit. The pre-pull **reads** the host's existing `docker login`
+   (the in-container bootstrap's client is not logged in, so `linux-cpu` /
+   `linux-cuda` pre-pull in the stage-0 host script before delegating; the
+   host-native `apple-silicon` bootstrap pre-pulls directly) and **never writes**
+   `~/.docker/config.json`, honoring the bootstrap no-touch invariant
+   ([../../README.md → Bootstrap scripts](../../README.md#bootstrap-scripts)). This
+   is jitML's own self-contained Docker Hub credential path: host `config.json`
+   discovery → authenticated host `docker pull` → `kind load` into the Kind node,
+   plus the in-cluster `imagePullSecret` projected from the host Docker Hub
+   credential (Sprint `2.14`). It is owned by the project, not a transitional
+   stand-in.
 3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,
 TensorBoard, the `jitml-service` workload (all substrates: Linux
    self-inference plus Apple forward-to-host), and the `jitml-demo` workload
@@ -250,11 +265,15 @@ manifest apply, platform readiness, and Pulsar-topic subprocesses through the
 build or image load cannot be masked by later Helm rollout failures. The topic
 subprocesses register the substrate-scoped
 family consumed by `jitml service`: eight command/event topics for each
-substrate plus the Apple-only inference RPC pair and the Apple host-command
-topics `training.host-command.apple-silicon`, `tune.host-command.apple-silicon`,
-and `rl.host-command.apple-silicon`. The Apple placement path forwards
-Metal-backed starts to those host-command topics rather than rendering Linux
-worker Jobs; Phase `12` owns the live no-Job assertion. The live path rewrites the
+substrate plus the Apple-only `inference.command.apple-silicon` forward topic
+and the Apple host-command topics `training.host-command.apple-silicon`,
+`tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`. The
+in-cluster Apple daemon forwards each raw inference command onto
+`inference.command.apple-silicon`, and the host Engine publishes the
+`InferenceResult` to the request's reply-topic directly (the converged values
+model). The Apple placement path forwards Metal-backed starts to the
+host-command topics rather than rendering Linux worker Jobs; Phase `12` owns the
+live no-Job assertion. The live path rewrites the
 Kind/Gateway/EnvoyProxy inputs from the selected edge-port lease, writes
 `./.build/runtime/cluster-publication.json` with that lease and measured Helm
 release status, and patches the Apple host Dhall from the publication.

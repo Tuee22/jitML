@@ -227,6 +227,35 @@ type MoveFrame =
   , transcriptId :: String
   }
 
+-- Sprint 14.1 (Feature A) — one seeded checkpoint manifest summary, parsed
+-- from a tab-separated `checkpoint-summary:` line of the Engine's
+-- `CheckpointList` frame.
+type CheckpointSummary =
+  { experimentHash :: String
+  , sha :: String
+  , step :: Int
+  , modelFamily :: String
+  , tensorCount :: Int
+  }
+
+-- Sprint 14.1 (Feature A) — the Engine-listed checkpoint catalogue (all
+-- seeded experiments' manifests, listed from MinIO in the daemon).
+type CheckpointList =
+  { kind :: String
+  , panel :: String
+  , checkpoints :: Array CheckpointSummary
+  }
+
+-- Sprint 14.1 (Feature B) — a persisted adversarial-game transcript replayed
+-- from the `jitml-transcripts` bucket (read back in the daemon).
+type TranscriptReplay =
+  { kind :: String
+  , game :: String
+  , experimentHash :: String
+  , moves :: Array Int
+  , analysis :: String
+  }
+
 renderStartTrainingCommand :: String -> String -> Int -> Int -> Int -> String
 renderStartTrainingCommand experimentHash dhallObjectKey seed epochs batchSize =
   String.joinWith "\n"
@@ -573,6 +602,35 @@ parseMoveFrame payload
         <*> fieldValue "transcript-id" payload
   | otherwise = Nothing
 
+parseCheckpointList :: String -> Maybe CheckpointList
+parseCheckpointList payload
+  | fieldValue "kind" payload == Just "CheckpointList" =
+      Just
+        { kind: "CheckpointList"
+        , panel: fromMaybe "checkpoint-browse" (fieldValue "panel" payload)
+        , checkpoints: Array.mapMaybe parseCheckpointSummary (fieldValues "checkpoint-summary" payload)
+        }
+  | otherwise = Nothing
+
+parseCheckpointSummary :: String -> Maybe CheckpointSummary
+parseCheckpointSummary raw =
+  case String.split (Pattern "\t") raw of
+    [ experimentHash, sha, stepRaw, modelFamily, tensorCountRaw ] ->
+      (\step tensorCount -> { experimentHash, sha, step, modelFamily, tensorCount })
+        <$> Int.fromString (String.trim stepRaw)
+        <*> Int.fromString (String.trim tensorCountRaw)
+    _ -> Nothing
+
+parseTranscriptReplay :: String -> Maybe TranscriptReplay
+parseTranscriptReplay payload
+  | fieldValue "kind" payload == Just "TranscriptReplay" =
+      (\game experimentHash moves analysis -> { kind: "TranscriptReplay", game, experimentHash, moves, analysis })
+        <$> fieldValue "game" payload
+        <*> fieldValue "experiment-hash" payload
+        <*> intListField "moves" payload
+        <*> Just (fromMaybe "" (fieldValue "analysis" payload))
+  | otherwise = Nothing
+
 parseImageInferenceResult :: String -> Maybe ImageInferenceResult
 parseImageInferenceResult payload
   | fieldValue "kind" payload == Just "ImageInferenceResult" =
@@ -711,11 +769,13 @@ parseTuneSweepDoneFrame payload
 
 fieldValue :: String -> String -> Maybe String
 fieldValue key payload =
-  Array.head
-    ( Array.mapMaybe
-        (String.stripPrefix (Pattern (key <> ": ")) <<< String.trim)
-        (String.split (Pattern "\n") payload)
-    )
+  Array.head (fieldValues key payload)
+
+fieldValues :: String -> String -> Array String
+fieldValues key payload =
+  Array.mapMaybe
+    (String.stripPrefix (Pattern (key <> ": ")) <<< String.trim)
+    (String.split (Pattern "\n") payload)
 
 intField :: String -> String -> Maybe Int
 intField key payload =
@@ -780,4 +840,7 @@ endpoints =
   , { name: "RlStream", method: "GET", path: "/api/ws/rl" }
   , { name: "TuneStream", method: "GET", path: "/api/ws/tune" }
   , { name: "InferenceStream", method: "GET", path: "/api/ws/inference" }
+  , { name: "CheckpointList", method: "POST", path: "/api/checkpoints" }
+  , { name: "WorkflowStream", method: "GET", path: "/api/ws/workflow" }
+  , { name: "TranscriptReplay", method: "POST", path: "/api/transcripts/replay" }
   ]

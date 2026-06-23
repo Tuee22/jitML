@@ -40,7 +40,6 @@ import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
 import JitML.Proto.Tune qualified as Tune
-import JitML.Service.AppleInferenceRpc qualified as AppleRpc
 import JitML.Service.BootConfig (HttpListener (..))
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities
@@ -215,139 +214,6 @@ main =
                 @?= Inference.irInput request
               let reencoded = ProtoLens.encodeMessage decoded
               Inference.decodeInferenceRequestProto reencoded @?= Right request
-      , testCase "Apple host inference RPC envelopes render and parse (Sprint 7.5)" $ do
-          let command =
-                Inference.AppleInferenceCommand
-                  { Inference.appleCommandCallId = "call-apple"
-                  , Inference.appleCommandKind = Inference.AppleCommandInference
-                  , Inference.appleCommandModelId = "jitml-build"
-                  , Inference.appleCommandStartingSnapshot = "manifest-sha"
-                  , Inference.appleCommandReplyTopic = Inference.appleInferenceEventTopic
-                  , Inference.appleCommandInputs = "minio://jitml-checkpoints/input-a"
-                  }
-              event =
-                Inference.AppleInferenceEvent
-                  { Inference.appleEventCallId = "call-apple"
-                  , Inference.appleEventKind = Inference.AppleEventCompleted
-                  , Inference.appleEventOutputRefs =
-                      ["minio://jitml-checkpoints/output-a"]
-                  , Inference.appleEventErrorCode = Nothing
-                  , Inference.appleEventMessage = Nothing
-                  }
-              staleEvent =
-                Inference.AppleInferenceEvent
-                  { Inference.appleEventCallId = "call-apple"
-                  , Inference.appleEventKind = Inference.AppleEventError
-                  , Inference.appleEventOutputRefs = []
-                  , Inference.appleEventErrorCode = Just "stale-starting-snapshot"
-                  , Inference.appleEventMessage = Just "latest pointer advanced"
-                  }
-          Inference.appleInferenceCommandTopic @?= "inference.command.apple-silicon"
-          Inference.appleInferenceEventTopic @?= "inference.event.apple-silicon"
-          Inference.parseAppleInferenceCommand (Inference.renderAppleInferenceCommand command)
-            @?= Just command
-          Inference.parseAppleInferenceEvent (Inference.renderAppleInferenceEvent event)
-            @?= Just event
-          Inference.parseAppleInferenceEvent (Inference.renderAppleInferenceEvent staleEvent)
-            @?= Just staleEvent
-      , testCase "Apple host inference RPC plan publishes and correlates events (Sprint 7.5)" $ do
-          clientLogRef <- newIORef []
-          let request =
-                Inference.InferenceRequest
-                  { Inference.irCallId = "call-apple-rpc"
-                  , Inference.irExperimentHash = "manifest-sha"
-                  , Inference.irReplyTopic = "inference.result.apple-silicon"
-                  , Inference.irInput = [1.0, -2.5]
-                  }
-              plan = AppleRpc.appleInferenceRpcPlan "snapshot-sha" request
-              command = AppleRpc.appleRpcCommand plan
-              completedEvent =
-                Inference.AppleInferenceEvent
-                  { Inference.appleEventCallId = "call-apple-rpc"
-                  , Inference.appleEventKind = Inference.AppleEventCompleted
-                  , Inference.appleEventOutputRefs =
-                      ["minio://jitml-checkpoints/apple-output"]
-                  , Inference.appleEventErrorCode = Nothing
-                  , Inference.appleEventMessage = Nothing
-                  }
-              mismatchedEvent =
-                completedEvent {Inference.appleEventCallId = "different-call"}
-              errorEvent =
-                Inference.AppleInferenceEvent
-                  { Inference.appleEventCallId = "call-apple-rpc"
-                  , Inference.appleEventKind = Inference.AppleEventError
-                  , Inference.appleEventOutputRefs = []
-                  , Inference.appleEventErrorCode = Just "stale-starting-snapshot"
-                  , Inference.appleEventMessage = Just "latest pointer advanced"
-                  }
-              renderedPlan = AppleRpc.renderAppleInferenceRpcPlan plan
-          AppleRpc.appleRpcCommandTopic plan
-            @?= TopicName Inference.appleInferenceCommandTopic
-          AppleRpc.appleRpcEventTopic plan
-            @?= TopicName Inference.appleInferenceEventTopic
-          AppleRpc.appleRpcClientReplyTopic plan
-            @?= TopicName "inference.result.apple-silicon"
-          Inference.appleCommandCallId command @?= "call-apple-rpc"
-          Inference.appleCommandModelId command @?= "manifest-sha"
-          Inference.appleCommandStartingSnapshot command @?= "snapshot-sha"
-          Inference.appleCommandReplyTopic command @?= Inference.appleInferenceEventTopic
-          Inference.appleCommandInputs command @?= "1.0,-2.5"
-          Inference.parseAppleInferenceCommand (AppleRpc.appleRpcCommandPayload plan)
-            @?= Just command
-          assertBool
-            "rendered plan names Apple command topic"
-            (Inference.appleInferenceCommandTopic `Text.isInfixOf` renderedPlan)
-          published <-
-            evalStateT
-              (AppleRpc.publishAppleInferenceRpcCommand plan)
-              (SyntheticClientState clientLogRef)
-          published @?= Right "synthetic-message-id"
-          clientLog <- readIORef clientLogRef
-          clientLog @?= ["pulsar:publish:inference.command.apple-silicon"]
-          AppleRpc.correlateAppleInferenceEvent command completedEvent
-            @?= Right ["minio://jitml-checkpoints/apple-output"]
-          AppleRpc.correlateAppleInferenceEvent command mismatchedEvent
-            @?= Left "apple inference event call-id mismatch: expected call-apple-rpc, got different-call"
-          AppleRpc.correlateAppleInferenceEvent command errorEvent
-            @?= Left "apple inference event error stale-starting-snapshot: latest pointer advanced"
-      , testCase
-          "Apple host<->cluster RPC round-trip: command -> host handle -> event -> correlate (Sprint 14.4)"
-          $ do
-            -- Sprint 14.4 — the full RPC dispatch logic, exercised deterministically
-            -- through the synthetic broker: the cluster builds an
-            -- AppleInferenceCommand, the host handler runs inference (stub) and
-            -- emits the AppleInferenceEvent reply, and the cluster correlates it
-            -- back to the staged output refs. The host also publishes the reply on
-            -- inference.event.apple-silicon through HasPulsar.
-            eventLogRef <- newIORef []
-            let request =
-                  Inference.InferenceRequest
-                    { Inference.irCallId = "call-14-4"
-                    , Inference.irExperimentHash = "exp-14-4"
-                    , Inference.irReplyTopic = "inference.result.apple-silicon"
-                    , Inference.irInput = [0.5, 1.5]
-                    }
-                plan = AppleRpc.appleInferenceRpcPlan "exp-14-4" request
-                command = AppleRpc.appleRpcCommand plan
-                stubRun cmd =
-                  pure (Right ["minio://jitml-checkpoints/out/" <> Inference.appleCommandCallId cmd])
-                failRun _cmd = pure (Left "metal launch failed")
-            completed <- AppleRpc.handleAppleInferenceCommand stubRun command
-            Inference.appleEventCallId completed @?= "call-14-4"
-            Inference.appleEventKind completed @?= Inference.AppleEventCompleted
-            AppleRpc.correlateAppleInferenceEvent command completed
-              @?= Right ["minio://jitml-checkpoints/out/call-14-4"]
-            failed <- AppleRpc.handleAppleInferenceCommand failRun command
-            Inference.appleEventKind failed @?= Inference.AppleEventError
-            AppleRpc.correlateAppleInferenceEvent command failed
-              @?= Left "apple inference event error inference-failed: metal launch failed"
-            publishedEvent <-
-              evalStateT
-                (AppleRpc.publishAppleInferenceEvent completed)
-                (SyntheticClientState eventLogRef)
-            publishedEvent @?= Right "synthetic-message-id"
-            eventLog <- readIORef eventLogRef
-            eventLog @?= ["pulsar:publish:inference.event.apple-silicon"]
       , testCase "domainFor accepts fully-qualified Pulsar topics (Sprint 5.5)" $ do
           domainFor "persistent://public/default/training.command.linux-cpu" @?= Just TrainingDomain
           domainFor "persistent://public/default/tune.command.linux-cuda" @?= Just TuneDomain
@@ -375,8 +241,10 @@ main =
                 , "persistent://public/default/rl.host-command.apple-silicon"
                 ]
           fmap daemonSubscriptionName hostSubscriptions @?= replicate 4 "jitml-host"
-          -- Sprint 14.4 — the Apple in-cluster (ForwardToHost) daemon also
-          -- subscribes to inference.event.apple-silicon to receive host replies.
+          -- Sprint 14.4 — the Apple in-cluster (ForwardToHost) daemon subscribes to
+          -- the inference request topic and forwards each command raw to the host
+          -- daemon; the host Engine publishes the InferenceResult to the reply-topic
+          -- directly, so there is no host reply-event subscription.
           let appleClusterSubscriptions =
                 daemonSubscriptionsForBootConfig
                   (BootConfig.defaultBootConfig AppleSilicon BootConfig.Cluster)
@@ -385,7 +253,6 @@ main =
                 , "persistent://public/default/tune.command.apple-silicon"
                 , "persistent://public/default/rl.command.apple-silicon"
                 , "persistent://public/default/inference.request.apple-silicon"
-                , "persistent://public/default/inference.event.apple-silicon"
                 ]
       , testCase "workload placement routes Apple Metal starts to host command topics (Sprint 5.11)" $ do
           planWorkloadPlacement BootConfig.Cluster WorkloadRl AppleSilicon

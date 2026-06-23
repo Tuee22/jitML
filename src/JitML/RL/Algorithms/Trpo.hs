@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 trpoModule :: AlgorithmModule
@@ -19,7 +18,6 @@ trpoModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "TRPO" OnPolicy False
     , moduleHyperparameters = trpoHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "TRPO"
     }
 
 trpoHyperparameters :: [AlgorithmHyperparameter]

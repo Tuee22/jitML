@@ -18,6 +18,7 @@ module JitML.SL.Architecture
   , allCanonicalArchitectureSpecs
   , trainArchitectureWithDevice
   , accuracyArchitectureWithDevice
+  , trainedArchitectureWeights
   )
 where
 
@@ -39,6 +40,7 @@ import JitML.Numerics.Mlp
   , adamStep
   , defaultAdamConfig
   , mlpInit
+  , mlpParamsToFlat
   , softmax
   )
 import JitML.Numerics.MlpDevice (MlpDevice (..))
@@ -279,6 +281,21 @@ accuracyArchitectureWithDevice device trained dataset = do
                 (filter id (zipWith (==) predicted (fmap exampleLabel dataset)))
          in Right (fromIntegral correct / fromIntegral (length dataset))
       TokenBatch _ -> Left "accuracyArchitectureWithDevice: final representation is token-shaped"
+
+-- | Flatten a trained architecture's per-layer 'MlpParams' into one weight
+-- vector, in layer order, so a trained architecture can be promoted into a
+-- checkpoint (the shape the tuning sweep's @trialResultWeights@ round-trips
+-- through the @.jmw1@ codec). Parameterless layers (mean-pool) contribute
+-- nothing.
+trainedArchitectureWeights :: TrainedArchitecture -> [Double]
+trainedArchitectureWeights trained =
+  concatMap layerWeights (trainedArchLayers trained)
+ where
+  layerWeights (DenseState _ params _) = mlpParamsToFlat params
+  layerWeights (ResidualState _ _ params _) = mlpParamsToFlat params
+  layerWeights (PatchState _ _ params _) = mlpParamsToFlat params
+  layerWeights (AttentionState _ params _) = mlpParamsToFlat params
+  layerWeights (MeanPoolState _) = []
 
 trainEpoch
   :: MlpDevice

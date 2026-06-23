@@ -475,27 +475,24 @@ engines remains Phase 10 / Phase 7 work.
 ## Apple Silicon Hybrid Pattern
 
 Target Apple Silicon runtime: the clustered daemon (Dhall: `Cluster +
-ForwardToHost`) runs the
-`InferenceProxy`:
+ForwardToHost`) forwards inference rather than computing it (Metal cannot run
+in-pod):
 
-- On `inference.request.apple-silicon`, reads the model snapshot from MinIO,
-  publishes an `inference.command.apple-silicon` envelope.
-- Awaits the `inference.event.apple-silicon` ACK from the host daemon.
-- Republishes on `inference.result.apple-silicon` to the demo frontend.
+- On `inference.request.apple-silicon`, it forwards every inference-domain
+  command payload — `RunInference`, `CheckpointCompareCommand`, and
+  `AdversarialMoveCommand` — unchanged onto `inference.command.apple-silicon`.
+- It does not await or republish a reply: the host Engine publishes the result
+  to the request's reply-topic (`inference.result.apple-silicon`) directly.
 
-The host daemon (Dhall: `Host + SelfInference`) subscribes to
-`inference.command.apple-silicon`, executes the kernel via Metal, writes
-large outputs directly to MinIO, and ACKs on `inference.event.apple-silicon`
-with the small envelope (call-id, kind tag, MinIO refs).
-`JitML.Proto.Inference` owns the typed Apple-only command/event envelope
-render/parse surface for those two topics. `JitML.Service.AppleInferenceRpc`
-owns the local proxy plan: it converts a demo-facing `InferenceRequest` plus
-starting snapshot into an Apple command envelope, publishes that command through
-`HasPulsar`, records the client reply topic, and correlates completed/error
-events by call id. The command envelope carries the call id,
-training/inference kind, model id, starting snapshot, reply topic, and small
-input descriptor; the event envelope carries completion/error kind, output
-refs, and recoverable error fields.
+The host daemon (Dhall: `Host + SelfInference`) is the Engine for
+`apple-silicon`: it subscribes to `inference.command.apple-silicon`, runs the
+Metal weighted kernel, and publishes the matching `InferenceResult` /
+`CheckpointCompareResult` / `AdversarialMoveResult` (inline output values, the
+converged values model) to the request's reply-topic, where the `jitml
+inference run` CLI and the Webapp panels read it. `JitML.Proto.Inference` owns
+the typed command/result render/parse surface; forwarding the raw payload (not
+converting it into a refs-carrying envelope) is what makes the host reply parse
+as the `InferenceResult` the client expects.
 
 `jitml bootstrap --apple-silicon` writes the cluster publication to
 `./.build/runtime/cluster-publication.json` and the explicit live rollout patches

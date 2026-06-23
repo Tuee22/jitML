@@ -133,7 +133,6 @@ jitmlTopology =
   , RouteEntry Infer Result allSubstrates
   , RouteEntry Gc Event allSubstrates
   , RouteEntry Infer Command [AppleSilicon]
-  , RouteEntry Infer Event [AppleSilicon]
   , RouteEntry Train HostCommand [AppleSilicon]
   , RouteEntry Tune HostCommand [AppleSilicon]
   , RouteEntry Rl HostCommand [AppleSilicon]

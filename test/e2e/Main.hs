@@ -152,7 +152,10 @@ main =
       , testCase "publication leases stable per-substrate edge ports" $
           publicationEdgePort (defaultPublication LinuxCUDA) @?= 9092
       , testCase "browser contracts expose interactive surfaces" $
-          length apiEndpoints @?= 11
+          -- Sprint 14.1 — +3 endpoints: checkpoint browse (`/api/checkpoints`),
+          -- the workflow-status stream (`/api/ws/workflow`), and transcript
+          -- replay (`/api/transcripts/replay`).
+          length apiEndpoints @?= 14
       , testCase "demo route manifest covers edge listener paths" $
           fmap demoRoutePath demoRoutes
             @?= [ "/"
@@ -179,11 +182,16 @@ main =
                 , "/api/images"
                 , "/api/checkpoints/compare"
                 , "/api/connect4/move"
+                , -- Sprint 14.1 — checkpoint browse + transcript replay POST surfaces.
+                  "/api/checkpoints"
+                , "/api/transcripts/replay"
                 , "/api/ws"
                 , "/api/ws/training"
                 , "/api/ws/rl"
                 , "/api/ws/tune"
                 , "/api/ws/inference"
+                , -- Sprint 14.1 — workflow-status stream upgrade surface.
+                  "/api/ws/workflow"
                 ]
       , testCase "gateway class attaches the local EnvoyProxy service shape" $ do
           gatewayClass <- Text.IO.readFile "chart/templates/gatewayclass-jitml.yaml"
@@ -367,7 +375,7 @@ main =
               assertBool "image HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` image)
               assertBool "typed image result" ("kind: ImageInferenceResult" `isInfixOf` image)
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
-              compare <-
+              compareResp <-
                 httpPost
                   port
                   "/api/checkpoints/compare"
@@ -379,10 +387,10 @@ main =
                       , "input: 1.0,2.0"
                       ]
                   )
-              assertBool "compare HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` compare)
-              assertBool "typed compare result" ("kind: CheckpointCompareResult" `isInfixOf` compare)
-              assertBool "compare max delta" ("max-abs-delta: 0.5" `isInfixOf` compare)
-              assertBool "compare mean delta" ("mean-abs-delta: 0.25" `isInfixOf` compare)
+              assertBool "compare HTTP 200" ("HTTP/1.1 200 OK" `isInfixOf` compareResp)
+              assertBool "typed compare result" ("kind: CheckpointCompareResult" `isInfixOf` compareResp)
+              assertBool "compare max delta" ("max-abs-delta: 0.5" `isInfixOf` compareResp)
+              assertBool "compare mean delta" ("mean-abs-delta: 0.25" `isInfixOf` compareResp)
             withHttpRoutesOnce (HttpListener "127.0.0.1" 0) (demoHttpRoutesWithRuntime fakeBrowserRuntime) $ \port -> do
               move <-
                 httpPost

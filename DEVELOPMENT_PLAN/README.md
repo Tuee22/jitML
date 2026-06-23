@@ -43,31 +43,142 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**Common-shape reopen (Pulsar ML-Workflow convergence).** jitML and the `infernix`
-sister project are converging on one shared contract,
+**🎉 ALL PHASES `0`–`18` ARE `✅ Done` — the no-caveat product handoff is complete
+(2026-06-23).** Phases `17` and `18` closed on 2026-06-23: all three per-lane
+report-card fragments are committed (`linux-cpu` from Phases `13`/`14`,
+`linux-cuda` from Phase `15`, `apple-silicon` from Phase `16`), the `linux-cpu`
+aggregation ran green (`jitml test all --live --linux-cpu` 8/8 stanzas, every
+measurement populated, live Playwright **14/14**), the **`Pending Removal` ledger
+is empty** (Exit Definition item 18 met), and the structural blocker is dissolved
+(jitML is self-contained — its Docker-Hub credential path is an owned mechanism,
+not a deferral to any external foundation). The final 2026-06-23
+work this session: removed the prior external-foundation framing, landed the reflected
+numerics/RL catalog Dhall schema (`JitML.Service.CatalogSchema`), migrated the
+tuning objective onto the production `JitML.SL.Architecture` seam
+(`tune_best_objective` unchanged at `TPE=1.0`), ran the `linux-cpu` live
+aggregation to commit its fragment, and implemented + live-validated the three
+Sprint `14.1` browser product features (checkpoint browse, workflow-state
+reconciliation, persisted-transcript adversarial replay). The detailed phase
+history follows.
+
+**Phase `16` closed (2026-06-22 — Apple M1 Max, macOS 26.5, Metal 4; live
+`apple-silicon` cluster + host Metal daemon).** Sprint `16.11` re-closed `✅ Done`,
+so **Phase `16` is `✅ Done`** on its no-caveat `apple-silicon` lane:
+`jitml test all --apple-silicon` **8/8 stanzas** (`jitml-backends` 17/17 on the M1
+GPU via the fixed Metal bridge), `jitml-integration -p Live` **20/20**, the live
+report card **7/7 measured rows** (`sl_final_loss=0.65` from real Metal MNIST
+training, `rl_final_reward`, `alphazero_arena_win_rate`, `tune_best_objective`,
+`jit_cache_hit_rate`, `daemon_healthz`, **`browser_product_matrix` 5/5**), and the
+live Playwright product matrix **11/11**. The committed `apple-silicon` per-lane
+fragment lives at
+[attestations/apple-silicon-report-card.md](attestations/apple-silicon-report-card.md).
+Closing the live inference path (the 2 cases the 2026-06-22 note below mis-read as
+the cluster "not forwarding") required **five real daemon/forwarding defect fixes**,
+none a product-logic flaw, all in the worktree: (1) the daemon consumer subscription
+`Exclusive`→`Failover` (`PulsarWebSocketSubprocess.hs`) — an `Exclusive` sub
+rejects a redeployed pod's second consumer with a non-101 WS upgrade, so the daemon
+crash-loops (`hGetLine: EOF`) and serves nothing until the broker reaps the prior
+consumer; (2) the Apple `ForwardToHost` cluster dispatcher forwarding the **raw
+`RunInference`** (values model) so the host `InferenceResult` reply parses, not an
+`AppleInferenceEvent` refs reply (`Runtime.hs`); (3) in-process WS auto-reconnect in
+the consumer worker (`PulsarWebSocketSubprocess.hs`); (4) a **per-worker dedup
+MVar** (`startDaemonConsumerWorkers`, `App.hs`) — the shared `modifyMVar routerRef`
+ran the whole dispatch compute, so a long host Metal training blocked the inference
+worker past the client's bounded reply poll (the deterministic 1/20 Live failure;
+per-worker routers cut Live wall-time 227s→78s); and (5) forwarding **every**
+inference-domain command (compare/connect4 were dropped). Plus a test-bug fix
+(`jitml-sl-canonicals` live MNIST trained a hardcoded `LinuxCPU` oneDNN device that
+cannot link on the Mac → now the publication substrate, real Metal MNIST
+convergence) and a demo ack-kind alignment (`Web/Server.hs`). The superseded
+`AppleInferenceCommand`/`AppleInferenceEvent` refs RPC was **removed** 2026-06-22
+(Sprint `16.12`, now `Completed` in
+[legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md); host-native
+`-Werror` build + `jitml-unit` 208 + `jitml-daemon-lifecycle` 32 green).
+
+**Phases `17`/`18`** remain `⏸️ Blocked`, but the **structural** blocker is now
+**dissolved** and the remaining work is entirely **in-scope** (no out-of-scope
+foundation). Update **2026-06-23**: jitML is treated as **self-contained** — the bootstrap no
+longer defers any credential work to an external foundation, and the Sprint `2.13`
+Docker-Hub pre-pull (plus the Sprint `2.14` in-cluster `imagePullSecret`) is now
+jitML's **own owned, self-contained** credential path, so its `Pending Removal`
+row is `Completed`
+(adopted as owned, not a deletion). That removes the one row that previously held
+the empty-ledger gate open "structurally," so **Phase `18` can now reach an empty
+ledger within jitML scope**. Two more rows closed the same day: the **reflected
+catalog Dhall-schema** row (Phase `5`) is `Completed` — the numerics/RL catalog
+`.dhall` leaves are now reflected-emitted from the Haskell catalogs
+(`JitML.Service.CatalogSchema`, `jitml internal dhall-schema --catalog`,
+`jitml-unit` parity test) — and the **Dense-only SL tuning-objective** row (Sprint
+`13.1`) had its objective **migrated** off the Dense-only classifier onto the
+production `JitML.SL.Architecture` seam (host-validated: `cabal build all` clean,
+`jitml-hyperparameter` 16/16) and **live-validated on `linux-cpu`** (the report
+card measured `tune_best_objective: TPE=1.0` **unchanged**, so the committed
+accelerator fragments stay consistent — that row is `Completed`, no re-baseline
+needed). **The `linux-cpu` aggregation also ran and its fragment is committed**: a
+live `bootstrap/linux-cpu.sh up` (110-step rollout, edge `9091`) + `jitml test all
+--live --linux-cpu` gave **8/8 stanzas PASS**, every report-card measurement
+populated (all 12 canonical datasets staged + SHA-verified, 5 demo checkpoints
+seeded), and live **Playwright 14/14** — committed at
+[attestations/linux-cpu-report-card.md](attestations/linux-cpu-report-card.md), so
+all three per-lane fragments now exist. **The `Pending Removal` ledger is now
+EMPTY**: the final two rows — the **Sprint `14.1`** browser product features
+(checkpoint browse, live-backed workflow-state reconciliation,
+persisted-transcript adversarial multi-game replay) — are **implemented as real
+Engine workflows + Webapp panels and live-validated** on `linux-cpu` (the
+Playwright matrix grew 11→**14/14**, exit 0; the persisted transcript object is
+confirmed in the `jitml-transcripts` MinIO bucket). With the ledger empty (Exit
+Definition item 18 met), all three per-lane fragments committed, and the
+`linux-cpu` aggregation run green, **Phases `17` and `18` are unblocked** — no
+out-of-scope foundation, no accelerator hardware, no missing fragment remains.
+
+**Phase `2` reopened + re-closed (2026-06-20 — authenticated third-party image
+pre-pull).** Phase `2` reopened for **Sprint `2.13`** and **re-closed `✅ Done`**
+on its retained surface: the bootstrap pre-pulls the `docker.io/*` third-party
+chart images authenticated **on the host** (reading, never writing, the host
+`docker login`) before `kind load`, closing the cold-host **429** where the Kind
+cluster's containerd otherwise pulls them anonymously. Live-proven (no 429 on the
+host pull); on an overlay2 docker store the pre-pull + `kind load` closes the
+in-cluster 429 directly. The in-cluster credential closure is jitML's **own,
+self-contained** Sprint `2.14` `imagePullSecret` (projected from the host Docker
+Hub credential, authenticating the kind node's pulls); the host-dependent
+containerd-image-store `kind load` behavior (the colima `ctr import` quirk) is a
+known characteristic that owned path accommodates. This is an owned project
+mechanism, not a transfer to any external foundation. Sprints `2.1`–`2.12` stay
+closed; the single-accelerator / forward-DAG rules (rule M) are unaffected
+(Sprint `2.13` has no backward edge and closes on the `linux-cpu` lane).
+
+**Common-shape reopen (Pulsar ML-Workflow convergence) — re-closed on owned
+surfaces (2026-06-20).** jitML and the `infernix` sister project converged on one
+shared contract,
 [../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
 — a three-role split (**Engine** = compute-only; **Coordinator** = topic-lifecycle
 ownership + coordination + training-completion readiness gating; **Webapp** = thin
 websocket, substrate-agnostic, no ML compute), a derived **topic algebra**, the
 `Work*` envelope family unifying training and inference, the artifact + `.ready`
 readiness contract, websocket snapshot/patch, and a reflected-Dhall-schema one-binary
-role model. This **reopens Phases `5`, `10`, `11`, and `12`** for the convergence
-deltas, and **reframes the closure Phases `13`–`18`** around the new arc (the Apple
-in-pod-Metal browser-forward that blocked Phase `16` *dissolves* under the
-substrate-agnostic Webapp role — the webapp publishes `inference.request.<substrate>`
-and never computes). Each delta's current surface is recorded in
+role model. This reopened Phases `5`, `10`, `11`, and `12` for the convergence
+deltas (**all now `✅ Done` on their owned surfaces**), and **reframed the closure
+Phases `13`–`18`** around the new arc (the Apple in-pod-Metal browser-forward that
+blocked Phase `16` *dissolved* under the substrate-agnostic Webapp role — the webapp
+publishes `inference.request.<substrate>` and never computes). Each delta's current
+surface is recorded in
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md):
 
-- **Phase `5`** — `jitml service` becomes a one-binary **Engine / Coordinator /
+- **Phase `5` ✅** — `jitml service` is a one-binary **Engine / Coordinator /
   Webapp** role model selected by typed Dhall, the **Coordinator** owns explicit
-  topic lifecycle (retiring the hardcoded `PulsarBootstrap` topic list), and the
-  binary emits its own reflected Dhall schema.
-- **Phase `10`** — inference becomes an async `Work*` workflow; a serveable
+  topic lifecycle (the hardcoded `PulsarBootstrap` topic list retired), and the
+  binary emits its own reflected Dhall schema. Live coordinator reconcile /
+  multi-role serving transfer to Phases `11`/`15`.
+- **Phase `10` ✅** — inference is an async `Work*` workflow; a serveable
   `ArtifactRef` is mintable only from a completed training derivation (`.ready`
-  sentinel), and the triplicated inference path collapses into the Engine.
-- **Phase `11`** — `jitml-demo` folds into the **Webapp** role; the inference panels
-  become websocket-driven (snapshot/patch); the demo computes nothing.
-- **Phase `12`** — new workflow/topic-algebra/websocket-inference test coverage.
+  sentinel), and the triplicated inference path collapsed into the Engine.
+- **Phase `11` ✅** — `jitml-demo` folded into the **Webapp** role (computes no
+  ML); all five inference panels are websocket-driven over `/api/ws/inference`
+  (typed-decode pipeline; compare + Connect-4 as Engine workflows). Live Playwright
+  product proof transfers to Sprints `14.2`/`16.x`.
+- **Phase `12` ✅** — the workflow/topic-algebra/`.ready`/websocket-inference test
+  coverage landed (`jitml-unit` 208, `web/test` snapshot frames); the `-p Live`
+  integration lane is the standard runtime gate.
 
 The single-accelerator and forward-only-DAG rules (standards rule M) are unchanged and
 now cross-link the shared contract. The historical closure narrative below predates
@@ -99,11 +210,28 @@ checkpoint-backed product endpoints. Two environmental, non-product issues were
 also worked around on this shared host: Apache BookKeeper going read-only under
 co-tenant disk pressure (the bookie disk-usage threshold was raised on the jitML
 clusters only) and a co-tenant-induced disk-full event. **Phases `16`, `17`, and
-`18` stay `⏸️ Blocked`**: Phase `16` (`apple-silicon`) needs Mac/Metal hardware
-that the x86_64 Linux+CUDA host physically lacks, and Phases `17`/`18` aggregate
-the committed per-lane fragments including the absent `apple-silicon` one, so they
-cannot close without a Mac session. The committed `linux-cuda` per-lane fragment
-lives at
+`18`** were `⏸️ Blocked` on the x86_64 Linux+CUDA host (no Mac/Metal hardware).
+**Update 2026-06-20 (Apple M1 Max session):** Phase `16` moves to `🔄 Active` —
+the Mac-hardware blocker is resolved and the **host Apple Metal lane is validated**
+on M1 Max (`jitml-backends --apple-silicon` 17/17 via the fixed Metal bridge on
+the host GPU; pure-logic stanzas host-native green), re-confirmed on the
+post-convergence worktree. **Update 2026-06-21:** Phase `2` Sprint `2.14` (in-cluster Docker Hub
+`imagePullSecret`) closed the cluster-pull blocker — the **live Apple cluster now
+comes up authenticated** (110-step rollout, no blocking 429), and `jitml-integration
+-p Live` passes **18/20** against it. The remaining Phase `16` slice is the **2
+host-daemon inference cases** (`no matching reply from the Engine`). **Update
+2026-06-22:** the host-daemon half is fixed — `subscribeDaemonTopics` now retries
+transient acquisition failures (`Consumer.hs`; validated, all four host
+subscriptions acquire live). The remaining blocker is the **in-cluster
+`jitml-service` not forwarding** `inference.request.apple-silicon` →
+`inference.command.apple-silicon` (broker counts 2→0), with its node Pulsar-WS
+consumer subprocess crash-looping (`hGetLine: end of file`); details in
+[phase-16](phase-16-apple-silicon-closure.md). Plus the **Playwright product
+matrix**, then committing the `apple-silicon` report-card fragment. Phases `17`/`18`
+stay `⏸️ Blocked` — they aggregate
+the committed per-lane fragments including the `apple-silicon` one, which is
+committed only when Phase `16`'s live slice runs green. The committed `linux-cuda`
+per-lane fragment lives at
 [attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md).
 
 **Phase renumbering (2026-06-16 — forward-DAG / single-accelerator doctrine).**

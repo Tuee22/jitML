@@ -1225,10 +1225,26 @@ never drift from the `FromDhall` decoder types, per the shared
 [../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
 contract (`Configuration and roles` → reflected Dhall schema) and the
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) "Hand-written
-Dhall schema files" row. This is the convergence convention both repos adopt now
-and the lever for the eventual `hostbootstrap` lift. Adopts `Generated Artifacts →
+Dhall schema files" row. This is the convergence convention both repos adopt now.
+Adopts `Generated Artifacts →
 The generated-section registry` and `Application Environment` from
 [../README.md](../README.md).
+
+**Update 2026-06-23 — catalog schemas reflected (common-shape reopen closed).**
+The reflected-schema surface now extends past the daemon config to the
+**numerics and RL catalog** `.dhall` leaves. Because those leaves are Dhall
+/values/ (lists of layer/optimizer/loss names; algorithm records) rather than a
+type, `JitML.Service.CatalogSchema` emits them by rendering the catalog data from
+the same `expectedNumericsCatalog` / `expectedRlCatalogSchema` mirror data the
+decoders read, exposed by `jitml internal dhall-schema --catalog numerics|rl|all`.
+A `jitml-unit` parity case ("every numerics/RL catalog Dhall leaf equals the
+emitted catalog", `canonicalDhallType` file ≡ emitted) complements the existing
+decode-and-compare mirror so drift fails in both directions; the RL
+`Algorithm.dhall` emission is byte-identical to the checked-in file. This closes
+the `Phase 5` "Hand-written catalog Dhall schema files" ledger row (the
+`experiments/*.dhall` files are instance/data fixtures validated by typed decode,
+not hand-written schema *type* files). Host-validated: `cabal build lib:jitml
+exe:jitml` clean, `jitml-unit` catalog-parity case PASS, `jitml docs check: ok`.
 
 ### Deliverables
 

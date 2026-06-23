@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 recurrentPpoModule :: AlgorithmModule
@@ -19,7 +18,6 @@ recurrentPpoModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "RecurrentPPO" OnPolicy False
     , moduleHyperparameters = recurrentPpoHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "RecurrentPPO"
     }
 
 recurrentPpoHyperparameters :: [AlgorithmHyperparameter]

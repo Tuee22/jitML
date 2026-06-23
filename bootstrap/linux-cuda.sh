@@ -36,6 +36,7 @@ doctor() {
 
 up() {
   doctor
+  prepull_linux_third_party_images
   run_linux_compose_bootstrap "$substrate" "$@"
 }
 

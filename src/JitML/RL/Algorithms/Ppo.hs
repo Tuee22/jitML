@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 ppoModule :: AlgorithmModule
@@ -19,7 +18,6 @@ ppoModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "PPO" OnPolicy False
     , moduleHyperparameters = ppoHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "PPO"
     }
 
 ppoHyperparameters :: [AlgorithmHyperparameter]

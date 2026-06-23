@@ -88,6 +88,26 @@ per-accelerator browser/Playwright lanes are owned downstream by Sprint `15.20`
 
 ### Remaining Work
 
+- **RESOLVED — the three net-new browser product features landed and are
+  live-validated; `linux-cpu` Playwright is now `14/14` (2026-06-23, Apple M1 Max
+  host).** The last open Sprint `14.1` items — **checkpoint browse**,
+  **live-backed workflow-state reconciliation**, and **persisted-transcript
+  adversarial multi-game replay** — are implemented as real, live-backed surfaces
+  (not route-only / published-ack placeholders) and pass the live `linux-cpu`
+  Playwright matrix: checkpoint browse is a `ListCheckpoints` Engine workflow that
+  lists the seeded checkpoints from MinIO (`Checkpoints.purs`); workflow status
+  renders reconciled `WorkflowStatus` frames the Engine projects to
+  `workflow.status.<substrate>` over a new `/api/ws/workflow` bridge
+  (`Workflow.purs`); and transcript replay scrubs a game's moves read back from a
+  real persisted `jitml-transcripts` MinIO object (`Transcript.hs`,
+  `Replay.purs`). Validation: `cabal build --ghc-options=-Werror` clean, `jitml
+  lint haskell` / `lint purescript` / `docs check` ok, `jitml-unit` 209 /
+  `jitml-e2e` 23 / `jitml-daemon-lifecycle` 32, in-image `check-code` ok, and the
+  full live Playwright matrix **14/14** (exit 0; the 11 baseline + 3 new, the
+  checkpoint-backed panels flaky on the cold-JIT first attempt then passing on
+  retry). This closes both Sprint `14.1` `legacy-tracking` rows. The
+  per-accelerator browser/Playwright matrix is re-run on `linux-cuda` (Sprint
+  `15.20`) and `apple-silicon` (Sprint `16.11`).
 - **RESOLVED — `linux-cpu` Playwright `11/11` (2026-06-17, Apple M1 Max).** The
   three root causes below are all fixed and the full live browser product matrix
   passes on `linux-cpu`: `jitml lint purescript` ok, `jitml-e2e --linux-cpu` 23/23,

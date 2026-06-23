@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 herModule :: AlgorithmModule
@@ -19,7 +18,6 @@ herModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "HER" Specialized True
     , moduleHyperparameters = herHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "HER"
     }
 
 herHyperparameters :: [AlgorithmHyperparameter]

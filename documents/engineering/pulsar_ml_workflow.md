@@ -10,8 +10,8 @@
 > three-role split (Engine / Coordinator / Webapp), the derived topic algebra,
 > the `Work*` envelope family, the artifact + readiness contract, the
 > websocket snapshot/patch surface, and the coordination primitives. jitML and
-> `infernix` both implement this shape so the eventual migration onto the shared
-> `hostbootstrap` base is a lift-and-shift rather than two divergent rewrites.
+> `infernix` both implement this shape so the two projects stay convergent rather
+> than diverging into two incompatible rewrites.
 
 ## Why this contract exists
 
@@ -130,7 +130,7 @@ unrepresentable in the domain.
   per-role config is read from typed Dhall at startup (no env-var role selection).
 - **Reflected Dhall schema**: the binary emits the schema its decoders accept
   (so the schema cannot drift from the types). This is the convention both repos
-  adopt now and the lever for the eventual `hostbootstrap` lift.
+  adopt.
 
 ## Phasing rules (both repos)
 

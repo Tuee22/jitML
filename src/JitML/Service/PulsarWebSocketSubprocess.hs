@@ -420,7 +420,20 @@ consumerUrlWithReceiverQueue settings receiverQueueSize subscription =
     <> topicPath (TopicName (subscriptionTopic subscription))
     <> "/"
     <> pathSegment (subscriptionName subscription)
-    <> "?subscriptionType=Exclusive&receiverQueueSize="
+    -- Sprint 16.11 — `Failover`, not `Exclusive`. An `Exclusive` subscription
+    -- rejects a second consumer with a non-101 WebSocket upgrade
+    -- (`Received network error or non-101 status code`), so when a daemon pod
+    -- restarts/redeploys before the broker reaps the previous incarnation's
+    -- consumer, the new `daemonConsumerWorkerLoop` worker's connect is rejected,
+    -- the node subprocess exits, the Haskell side reads `hGetLine: end of file`,
+    -- and the 1s respawn re-collides forever — an unrecoverable crash-loop that
+    -- serves nothing (observed wedging the in-cluster apple-silicon daemon for
+    -- ~28h). `Failover` instead admits the new consumer as a standby and promotes
+    -- it to active once the stale consumer is reaped, so a redeploy recovers
+    -- cleanly. Delivery stays single-active and ordered (one logical consumer per
+    -- subscription), identical to `Exclusive` for the one-shot unique-subscription
+    -- consume paths.
+    <> "?subscriptionType=Failover&receiverQueueSize="
     <> Text.pack (show receiverQueueSize)
     <> "&ackTimeoutMillis=30000"
     <> "&negativeAckRedeliveryDelay=1000"
@@ -589,12 +602,26 @@ consumerScript =
     , "});"
     ]
 
+-- Sprint 16.11 — the long-lived daemon consumer worker. Under sustained load the
+-- Pulsar WebSocket connection intermittently drops (the node side observes
+-- `close`/`error`); the prior script reacted with `process.exit(1)`, which closed
+-- the Haskell side's stdout pipe (`hGetLine: end of file`), tore down the whole
+-- worker, and forced a fresh subprocess respawn — a delivery gap during which the
+-- in-flight `inference.command` (or training/rl/tune) message sat undelivered,
+-- redelivered through the respawn, and could miss a client's bounded reply poll.
+-- Instead the worker now **auto-reconnects in-process**: on a transient `close` it
+-- re-opens the WebSocket to the same `Failover` subscription (promoted from standby
+-- once the broker reaps the dropped connection) without exiting, so the Haskell
+-- worker loop stays alive, its per-domain dedup cache persists (redeliveries are
+-- deduplicated, not re-executed), and deliveries resume within ~1s. An ack written
+-- while the socket is mid-reconnect is skipped; the broker redelivers the unacked
+-- message to the reconnected consumer and the dedup cache acks it idempotently.
 consumerWorkerScript :: Text
 consumerWorkerScript =
   Text.unlines
     [ "const WebSocketCtor = globalThis.WebSocket || require('undici').WebSocket;"
     , "const [url] = process.argv.slice(1);"
-    , "const ws = new WebSocketCtor(url);"
+    , "let ws = null;"
     , "let ackBuffer = '';"
     , "process.stdin.setEncoding('utf8');"
     , "process.stdin.on('data', (chunk) => {"
@@ -604,6 +631,7 @@ consumerWorkerScript =
     , "  for (const line of lines) {"
     , "    const raw = line.trim();"
     , "    if (raw.length === 0) { continue; }"
+    , "    if (!ws || ws.readyState !== 1) { continue; }"
     , "    try {"
     , "      const command = JSON.parse(raw);"
     , "      if (command.type === 'negativeAcknowledge' && command.messageId) {"
@@ -617,13 +645,20 @@ consumerWorkerScript =
     , "    }"
     , "  }"
     , "});"
-    , "ws.addEventListener('message', (event) => {"
-    , "  const message = JSON.parse(String(event.data));"
-    , "  const payload = Buffer.from(message.payload || '', 'base64').toString('utf8');"
-    , "  process.stdout.write(JSON.stringify({ messageId: message.messageId || '', payload }) + '\\n');"
-    , "});"
-    , "ws.addEventListener('error', (event) => { console.error(event.message || 'websocket error'); process.exit(1); });"
-    , "ws.addEventListener('close', (event) => { console.error(`consumer closed: ${event.code} ${event.reason || ''}`); process.exit(1); });"
+    , "function connect() {"
+    , "  ws = new WebSocketCtor(url);"
+    , "  ws.addEventListener('message', (event) => {"
+    , "    const message = JSON.parse(String(event.data));"
+    , "    const payload = Buffer.from(message.payload || '', 'base64').toString('utf8');"
+    , "    process.stdout.write(JSON.stringify({ messageId: message.messageId || '', payload }) + '\\n');"
+    , "  });"
+    , "  ws.addEventListener('error', (event) => { console.error(`consumer ws error: ${event.message || ''}`); });"
+    , "  ws.addEventListener('close', (event) => {"
+    , "    console.error(`consumer reconnecting after close: ${event.code} ${event.reason || ''}`);"
+    , "    setTimeout(connect, 1000);"
+    , "  });"
+    , "}"
+    , "connect();"
     ]
 
 acknowledgeScript :: Text

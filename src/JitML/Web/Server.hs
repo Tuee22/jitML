@@ -57,6 +57,7 @@ import JitML.Service.Http
   , serveHttpRoutesWithWebSockets
   )
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
+import JitML.Service.WorkflowStatus (workflowStatusTopic)
 import JitML.Substrate (Substrate, renderSubstrate)
 import JitML.Web.Contracts qualified as Contracts
 
@@ -96,6 +97,12 @@ data BrowserCommandPublishers = BrowserCommandPublishers
   -- ^ baseline hash, candidate hash, input
   , publishMoveCommand :: Text -> Text -> [Int] -> Int -> Int -> IO (Either Text ())
   -- ^ game, experiment hash, moves, human-is-player, simulations
+  , publishListCheckpointsCommand :: IO (Either Text ())
+  -- ^ Sprint 14.1 (Feature A) — publish a checkpoint-browse command; the Engine
+  -- lists the seeded experiments' manifests and replies with a @CheckpointList@.
+  , publishLoadTranscriptCommand :: Text -> IO (Either Text ())
+  -- ^ Sprint 14.1 (Feature B) — publish a transcript-replay command (carrying a
+  -- persisted transcript key); the Engine replies with a @TranscriptReplay@.
   }
 
 demoListener :: Text -> Int -> HttpListener
@@ -167,6 +174,12 @@ liveDemoWebSocketRoutes publication endpointOverride =
     -- streamed `WorkResult` (the `inference.result.<substrate>` frames) over this
     -- websocket, instead of a synchronous compute-and-return fetch.
     webSocketRouteFor "/api/ws/inference" "inference" publication endpointOverride
+  , -- Sprint 14.1 (Feature C) — the reconciled workflow-status stream: the Engine's
+    -- status projector republishes a `WorkflowStatus` frame onto
+    -- `workflow.status.<substrate>` whenever it observes a training/RL/tune
+    -- lifecycle transition, and the workflow panel renders the live status table
+    -- off this websocket.
+    webSocketRouteFor "/api/ws/workflow" "workflow" publication endpointOverride
   ]
 
 webSocketRouteFor
@@ -243,6 +256,11 @@ eventTopicFor "metrics" substrate =
 -- (the Engine's `WorkResult` topic), not an `inference.event` topic.
 eventTopicFor "inference" substrate =
   "persistent://public/default/inference.result." <> renderSubstrate substrate
+-- Sprint 14.1 (Feature C) — the workflow panel streams the Engine's reconciled
+-- `WorkflowStatus` frames off `workflow.status.<substrate>` (the status
+-- projector's republished topic), not a `workflow.event` topic.
+eventTopicFor "workflow" substrate =
+  "persistent://public/default/" <> workflowStatusTopic substrate
 eventTopicFor domain substrate =
   "persistent://public/default/" <> domain <> ".event." <> renderSubstrate substrate
 
@@ -306,11 +324,14 @@ demoHttpRoutesWithLiveBundle bundle livePublication endpointOverride runtimeHand
       "/api/checkpoints/compare"
       (browserCheckpointCompareResponse publishers runtimeHandler)
   , textRouteHandler "POST" "/api/connect4/move" (browserAdversarialResponse publishers runtimeHandler)
+  , textRouteHandler "POST" "/api/checkpoints" (browserListCheckpointsResponse publishers)
+  , textRouteHandler "POST" "/api/transcripts/replay" (browserLoadTranscriptResponse publishers)
   , textRoute "GET" "/api/ws" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/training" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/rl" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/tune" liveStreamUpgradeRequired
   , textRoute "GET" "/api/ws/inference" liveStreamUpgradeRequired
+  , textRoute "GET" "/api/ws/workflow" liveStreamUpgradeRequired
   ]
     <> case bundle of
       Just js ->
@@ -471,7 +492,7 @@ browserCheckpointCompareResponse publishers runtimeHandler request =
               (bccBaselineExperimentHash compareRequest)
               (bccCandidateExperimentHash compareRequest)
               (bccInput compareRequest)
-          pure (publishedAckResponse "CheckpointComparePublished" published)
+          pure (publishedAckResponse "CheckpointCompareResult" published)
         Nothing ->
           withTimedCheckpointCompare runtimeHandler compareRequest
 
@@ -491,7 +512,7 @@ browserAdversarialResponse publishers runtimeHandler request =
               (barMoves moveRequest)
               (barHumanIsPlayer moveRequest)
               (barSimulationsPerMove moveRequest)
-          pure (publishedAckResponse "AdversarialMovePublished" published)
+          pure (publishedAckResponse "AdversarialMoveResult" published)
         Nothing ->
           withTimedRuntime
             runtimeHandler
@@ -503,8 +524,54 @@ browserAdversarialResponse publishers runtimeHandler request =
             )
             (renderAdversarialMoveResultResponse moveRequest)
 
--- | Sprint 11.10 — ack returned by the fire-and-forget composite-inference
--- endpoints; the decoded result arrives on @/api/ws/inference@.
+-- | Sprint 14.1 (Feature A) — checkpoint browse: publish a @ListCheckpointsCommand@
+-- fire-and-forget; the Engine lists the seeded experiments' manifests and replies
+-- with a @CheckpointList@ frame on @/api/ws/inference@, which the panel renders.
+-- The request body is a trigger only (no fields required).
+browserListCheckpointsResponse
+  :: Maybe BrowserCommandPublishers -> HttpRequest -> IO EndpointResponse
+browserListCheckpointsResponse publishers _request =
+  case publishers of
+    Just p -> do
+      published <- publishListCheckpointsCommand p
+      pure (publishedAckResponse "CheckpointList" published)
+    Nothing ->
+      pure (checkpointBackedDemoRequired "checkpoint-browse")
+
+-- | Sprint 14.1 (Feature B) — transcript replay: publish a @LoadTranscriptCommand@
+-- fire-and-forget for the requested transcript id; the Engine reads the persisted
+-- transcript from MinIO and replies with a @TranscriptReplay@ frame on
+-- @/api/ws/inference@, which the replay panel scrubs.
+browserLoadTranscriptResponse
+  :: Maybe BrowserCommandPublishers -> HttpRequest -> IO EndpointResponse
+browserLoadTranscriptResponse publishers request =
+  case parseBrowserLoadTranscriptRequest (httpRequestBody request) of
+    Left err -> pure (badRequestResponse "transcript-replay-request-invalid" err)
+    Right transcriptKey ->
+      case publishers of
+        Just p -> do
+          published <- publishLoadTranscriptCommand p transcriptKey
+          pure (publishedAckResponse "TranscriptReplay" published)
+        Nothing ->
+          pure (checkpointBackedDemoRequired "transcript-replay")
+
+parseBrowserLoadTranscriptRequest :: Text -> Either Text Text
+parseBrowserLoadTranscriptRequest payload =
+  let fields = parseFields payload
+      value key = lookup key fields
+   in case value "kind" of
+        Just "BrowserLoadTranscriptRequest" ->
+          required value "transcript-id"
+        _ -> Left "expected kind: BrowserLoadTranscriptRequest"
+
+-- | Sprint 11.10 / Sprint 16.11 — ack returned by the fire-and-forget composite-
+-- inference endpoints (checkpoint-compare, adversarial-move); the decoded result
+-- arrives on @/api/ws/inference@. The ack carries the panel's @kind:@ result
+-- marker (@CheckpointCompareResult@ / @AdversarialMoveResult@) with
+-- @status: published@, matching the inference / generic / image panels' async
+-- acks which likewise render their @kind:@ result marker before the websocket
+-- delivers the data — so the report-card browser-product probe sees every
+-- checkpoint-backed panel serve its result kind uniformly.
 publishedAckResponse :: Text -> Either Text () -> EndpointResponse
 publishedAckResponse kind published =
   case published of

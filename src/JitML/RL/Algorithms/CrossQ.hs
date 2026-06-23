@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 crossQModule :: AlgorithmModule
@@ -19,7 +18,6 @@ crossQModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "CrossQ" Specialized True
     , moduleHyperparameters = crossQHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "CrossQ"
     }
 
 crossQHyperparameters :: [AlgorithmHyperparameter]

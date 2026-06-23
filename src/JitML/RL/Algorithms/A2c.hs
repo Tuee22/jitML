@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 a2cModule :: AlgorithmModule
@@ -19,7 +18,6 @@ a2cModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "A2C" OnPolicy False
     , moduleHyperparameters = a2cHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "A2C"
     }
 
 a2cHyperparameters :: [AlgorithmHyperparameter]

@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 td3Module :: AlgorithmModule
@@ -19,7 +18,6 @@ td3Module =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "TD3" OffPolicy True
     , moduleHyperparameters = td3Hyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "TD3"
     }
 
 td3Hyperparameters :: [AlgorithmHyperparameter]

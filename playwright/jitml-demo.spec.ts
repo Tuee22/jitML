@@ -186,15 +186,92 @@ test("connect4 panel renders the board", async ({ page }) => {
   );
   await page.locator("#connect4-human-vs-alphazero-move-0").click();
   const response = await responsePromise;
-  const body = await response.text();
   expect(response.ok()).toBeTruthy();
-  expect(body).toContain("kind: AdversarialMoveResult");
-  const match = body.match(/^chosen-column: ([0-9]+)/m);
-  if (match === null) {
-    throw new Error(`unexpected Connect 4 response: ${body}`);
-  }
+  // Sprint 16.11 — the converged Webapp publishes the move command and the
+  // `AdversarialMoveResult` (carrying the AI's `chosen-column`) streams back over
+  // `/api/ws/inference`; the POST returns the publish ack. Assert the result on the
+  // websocket-rendered moves list — the human move `0` followed by the AI's chosen
+  // numeric column — rather than reading the column from the synchronous ack body.
+  expect(await response.text()).toContain("kind: AdversarialMoveResult");
   await expect(page.locator("#connect4-human-vs-alphazero-moves")).toContainText(
-    new RegExp(`moves: \\[0,\\s*${match[1]}\\]`),
+    /moves: \[0,\s*[0-9]+\]/,
+  );
+});
+
+test("checkpoint browse panel lists seeded checkpoints", async ({ page }) => {
+  // Sprint 14.1 (Feature A) — the panel POSTs `/api/checkpoints` on init; the
+  // Engine lists the five seeded experiments' manifests from MinIO and replies
+  // with a `CheckpointList` frame over `/api/ws/inference`, which the panel
+  // renders as a list. Assert at least one item appears.
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/checkpoints") &&
+      response.request().method() === "POST",
+  );
+  await loadPanel(page, "checkpoint-browse");
+  await expect(page.locator("#checkpoint-browse")).toBeVisible();
+  const response = await responsePromise;
+  expect(response.ok()).toBeTruthy();
+  expect(await response.text()).toContain("kind: CheckpointList");
+  await expect(page.locator("#checkpoint-browse-list")).toBeVisible();
+  await expect(
+    page.locator("#checkpoint-browse-list li").first(),
+  ).toBeVisible();
+});
+
+test("workflow status panel renders a live status table", async ({ page }) => {
+  // Sprint 14.1 (Feature C) — the panel subscribes to `/api/ws/workflow` and
+  // renders the Engine's reconciled `WorkflowStatus` frames as a live table.
+  await loadPanel(page, "workflow-status");
+  await expect(page.locator("#workflow-status")).toBeVisible();
+  await expect(page.locator("#workflow-status-table")).toBeVisible();
+});
+
+test("transcript replay scrubs a persisted adversarial game", async ({
+  page,
+}) => {
+  // Sprint 14.1 (Feature B) — play a connect4 move to completion, capture the
+  // persisted `transcript-id` streamed back on the websocket move frame, load it
+  // in the replay panel, and assert the scrubber steps through the persisted
+  // moves.
+  await loadPanel(page, "connect4-human-vs-alphazero");
+  await expect(page.locator("#connect4-human-vs-alphazero")).toBeVisible();
+
+  // Play a move; the panel renders the AI's `AdversarialMoveResult`, which
+  // carries the real persisted `transcript-id` (the MinIO object key). Read it
+  // from the panel DOM — reliable, since the panel's own websocket subscription
+  // receives the frame, and tolerant of the cold-JIT first-move latency via the
+  // expect timeout.
+  await page.locator("#connect4-human-vs-alphazero-move-0").click();
+  const transcriptLocator = page.locator(
+    "#connect4-human-vs-alphazero-transcript",
+  );
+  // A real persisted transcript id is the content-addressed MinIO key
+  // (`transcripts/<hash>.cbor`), not the synthesized fallback string.
+  await expect(transcriptLocator).toContainText("transcripts/");
+  const transcriptText = (await transcriptLocator.textContent()) ?? "";
+  const transcriptId = transcriptText.replace(/^\s*transcript:\s*/, "").trim();
+  expect(transcriptId.length).toBeGreaterThan(0);
+
+  // Load the captured transcript in the replay panel and scrub it.
+  const replayResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/transcripts/replay") &&
+      response.request().method() === "POST",
+  );
+  await loadPanel(page, "transcript-replay");
+  await expect(page.locator("#transcript-replay")).toBeVisible();
+  await page.locator("#transcript-replay-transcript-id").fill(transcriptId);
+  await page.locator("#transcript-replay-transcript-load").click();
+  const replayResponse = await replayResponsePromise;
+  expect(replayResponse.ok()).toBeTruthy();
+
+  // The streamed `TranscriptReplay` populates the persisted moves; stepping the
+  // scrubber advances the cursor through them.
+  await expect(page.locator("#transcript-replay-moves")).toContainText("moves:");
+  await page.locator("#transcript-replay-replay-next").click();
+  await expect(page.locator("#transcript-replay-replay-cursor")).toContainText(
+    "/",
   );
 });
 

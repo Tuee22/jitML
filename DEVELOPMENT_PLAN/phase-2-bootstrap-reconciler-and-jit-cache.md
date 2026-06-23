@@ -20,6 +20,19 @@
 
 ## Phase Status
 
+✅ **Done** (reopened 2026-06-20 for Sprint `2.13`; **re-closed 2026-06-20** on
+its retained surface). Sprint `2.13` adds an authenticated host pre-pull of the
+`docker.io/*` third-party chart images before `kind load`, closing the cold-host
+bootstrap gap where the Kind cluster's containerd otherwise pulls those images
+anonymously from Docker Hub and hits the **429** rate limit. The authenticated
+pre-pull is done + live-proven (no 429 on the host pull); on an overlay2 docker
+store it closes the in-cluster 429 directly via the existing `kind load`. The
+**containerd-image-store** in-cluster load/auth closure (the colima `kind load`
+↔ `ctr import` incompatibility) is owned and closed by jitML's own Sprint `2.14`
+in-cluster `imagePullSecret` (containerd-registry-auth), a self-contained
+mechanism. All prior Sprints `2.1`–`2.12` remain `✅ Done`; the prior closure
+history follows.
+
 ✅ **Done** (reopened 2026-06-12 for the true-headless Apple Metal
 fixed-bridge doctrine; **re-closed 2026-06-12** after Sprint `2.12`). The core
 Apple prerequisite graph now uses `apple.metal-runtime` and
@@ -729,8 +742,11 @@ from [../README.md](../README.md).
 
 - `documents/engineering/cluster_topology.md` — bootstrap surface, hostPath
   layout, the `~/.kube/config` and `~/.docker/config.json` non-touch
-  invariants, and (Sprint `2.8`) the `dhall/cluster/` resource profile +
-  kind-node memory/CPU cap.
+  invariants, (Sprint `2.8`) the `dhall/cluster/` resource profile +
+  kind-node memory/CPU cap, and (Sprint `2.13`) the authenticated host pre-pull
+  of `docker.io/*` third-party chart images before `kind load` (reads, never
+  writes, the host login) as jitML's own self-contained Docker Hub
+  credential-reading path.
 - `documents/engineering/jit_codegen_architecture.md` and
   `documents/engineering/apple_silicon_metal_headless_builds.md` — JIT cache
   layout, content-addressing, Apple fixed-bridge prerequisite surface, and
@@ -895,6 +911,203 @@ values`, and `Built-artifact and JIT-cache discipline` from
 None. The remaining Tart lifecycle module, generated Swift package / VM
 `swift build` cache-miss path, and Apple generated dylib symlink surface are not
 Sprint `2.12` obligations; they remain tracked in Sprints `7.11` and `16.9`.
+
+## Sprint 2.13: Authenticated third-party image pre-pull before `kind load` ✅
+
+**Status**: Done — a fully **owned, self-contained** mechanism (the authenticated
+host pre-pull), offline-validated and live-proven (the cold-host run pulled all 25
+third-party images authenticated into the host dockerd with **no 429** on the
+pull). On a classic docker (overlay2) store the pre-pull + existing `kind load`
+closes the in-cluster 429 directly. The **containerd-image-store** in-cluster
+load/auth closure (the colima `kind load` ↔ `ctr import` incompatibility) is owned
+and closed by jitML's own Sprint `2.14` in-cluster `imagePullSecret`
+containerd-registry-auth — see Remaining Work.
+**Implementation**: `src/JitML/Bootstrap.hs` (`cachedThirdPartyRolloutImages`
+now exported), `src/JitML/CLI/Spec.hs` + `src/JitML/App.hs` (the
+`jitml internal third-party-images` leaf — the single source of the image list),
+`bootstrap/_lib.sh` (`prepull_third_party_images` / `prepull_linux_third_party_images`
+/ `prepull_apple_third_party_images`), `bootstrap/{apple-silicon,linux-cpu,linux-cuda}.sh`
+(each `up()` pre-pulls on the host before delegating)
+**Docs to update**: `documents/engineering/cluster_topology.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+**Doctrine**: `Reconcilers: Idempotent Mutation as a Single Command`,
+`Subprocesses as Typed Values`, `Prerequisites as Typed Effects`
+
+### Objective
+
+Close a cold-host robustness gap in the bootstrap image mirror that contributes to
+[Exit Definition](README.md#exit-definition) item 4 (stage-0 entrypoints + typed
+reconciler). Today `cachedThirdPartyImageLoadSteps` only `kind load`s third-party
+chart images **already warm in the host Docker cache** and, by its own design
+(`Bootstrap.hs:293–296`), "first-run behavior still falls back to Kubernetes
+pulls." On a cold/pruned host the `docker.io/*` chart images (`bitnamilegacy/minio`,
+`minio-client`, `apachepulsar/pulsar-all`, …) are filtered out, so the Kind
+cluster's containerd pulls them **anonymously** from Docker Hub during the Helm
+waits and hits the anonymous **429 rate limit**, aborting the rollout.
+
+The Kind containerd pull path does not read `~/.docker/config.json`, so a host
+`docker login` alone does not fix it; the images must be present in the (shared
+host) Docker store before `kind load`.
+
+### Deliverables
+
+- The bootstrap **pre-pulls the `docker.io/*` subset of `cachedThirdPartyRolloutImages`
+  authenticated, on the host**, before the existing `kind load` step, so the images
+  populate the host dockerd store that the in-container `kind load` reads over the
+  mounted socket. The cluster then never pulls those images from Docker Hub.
+  - `linux-cpu` / `linux-cuda`: the in-container bootstrap's docker client is not
+    logged in, so the pre-pull runs in the **stage-0 host script** (which runs as
+    the authenticated host user) before delegating to `docker compose run`, sourcing
+    the image list from the binary (a typed `jitml internal third-party-images`
+    leaf, or `_lib.sh`). `apple-silicon`: the host-native bootstrap pre-pulls
+    directly via a typed `dockerPullSubprocess`.
+  - The mechanism **reads** the existing host Docker Hub login that `docker` itself
+    resolves; it does **not** write or mutate `~/.docker/config.json`, honoring the
+    bootstrap no-touch invariant (`../README.md#bootstrap-scripts`).
+  - Idempotent + restartable: re-running pulls already-present tags cheaply; the
+    `kind load` step is unchanged and still filters to present images, so a logged-out
+    host degrades gracefully to the prior anonymous fallback (no hard failure).
+- This is jitML's own **owned, self-contained** Docker Hub credential-reading
+  path (host `config.json` discovery → authenticated host pre-pull); it is a
+  permanent part of the bootstrap surface, not a transitional stand-in.
+
+### Validation
+
+- `docker compose run --rm jitml jitml docs check` and `jitml check-code`.
+- `jitml-unit` covers the extended `cachedThirdPartyRolloutImages` / pull-plan
+  renderer (typed pull subprocess emitted for the `docker.io/*` subset).
+- Live `linux-cpu` closure (rule M(b) lane): on a **cold** host (post-prune), an
+  authenticated `bootstrap/linux-cpu.sh up` completes the phased rollout with **no
+  Docker Hub 429** during the MinIO/Pulsar/Harbor Helm waits.
+
+### Current Validation State
+
+Implementation landed and **offline-validated**: `cabal build all` clean,
+`jitml internal third-party-images` prints the 25-image list, `jitml docs
+generate` regenerated the command tree / registry / CLI manpage+completions
+(`docs generate: no changes` on re-run), `jitml docs check: ok`, `jitml
+check-code: ok` (fresh binary + baked style tools), `jitml-unit` **208/208**
+(registry-leaf golden updated), `jitml-e2e` **23/23**, hlint/fourmolu clean,
+`bash -n` clean on all four bootstrap scripts.
+
+### Live Findings (2026-06-20 cold-host `linux-cpu` run)
+
+The authenticated pre-pull **works**: a cold-host `bootstrap/linux-cpu.sh up`
+(rebuilt image with the leaf, host logged in) pre-pulled all 25 third-party
+images authenticated into the host dockerd — including `bitnamilegacy/minio`,
+the exact image that previously 429'd — **with no 429 on the host pull**. The
+credential half of the gap is closed.
+
+A **separate, pre-existing** blocker then surfaced on this host: `kind load
+docker-image` fails with `ctr images import --all-platforms: content digest not
+found`. Root cause: colima's Docker uses the **containerd image store**
+(`docker info` → `Storage Driver: overlayfs`, `driver-type:
+io.containerd.snapshotter.v1`), whose `docker save` export is incompatible with
+kind's `ctr import`. So `cachedThirdPartyImageLoadSteps` cannot load the
+pre-pulled images into the kind node's containerd on a containerd-image-store
+host, and the in-cluster MinIO pod still pulls from Docker Hub and 429s
+(`ImagePullBackOff` in kubelet events; helm reports only `context deadline
+exceeded`). This is **orthogonal to Sprint 2.13's credential fix** — it is a
+kind ↔ docker-containerd-store incompatibility in the existing warm-cache load
+path, not a Docker Hub auth problem.
+
+### Remaining Work
+
+- **Full cold-host closure on a containerd-image-store host** needs the
+  third-party images to reach the kind node's containerd despite the
+  `kind load` / `ctr import` incompatibility. The credential half is done; the
+  durable fix is the **containerd-registry-auth** path (authenticate the kind
+  node's containerd to Docker Hub so in-cluster pulls succeed) — exactly what
+  jitML's own Sprint `2.14` in-cluster `imagePullSecret` provides (host
+  `config.json` discovery → in-cluster `imagePullSecret` / containerd auth). On a
+  **classic docker (overlay2) store** — native-Linux `linux-cpu` hosts — the
+  pre-pull + `kind load` path closes the 429 directly; only the
+  containerd-image-store host (this colima Mac) hits the `ctr import` blocker.
+- **Why no interim colima load-path was added (deliberate).** The only load that
+  works on a containerd-image-store host is the binary stream
+  `docker save <tag> | docker exec <node> ctr -n k8s.io images import -` (no
+  `--all-platforms`; both `kind load docker-image` and `kind load image-archive`
+  fail, and a `docker save -o file` + `docker cp` path breaks on the colima
+  VM/host filesystem split). The typed `Subprocess` model carries stdin as
+  `Text` (`subprocessStdin :: Maybe Text`), so it cannot represent a multi-GB
+  **binary** process-to-process pipe; the only typed encoding is an `sh -c`
+  pipe, which is the control-flow form Sprint `2.9` deliberately removed. Rather
+  than re-introduce an `sh -c` stand-in for a path that jitML's own Sprint `2.14`
+  containerd-auth supersedes outright, the containerd-store closure is owned and
+  resolved by that in-cluster `imagePullSecret` mechanism; Sprint `2.13` owns the
+  authenticated host pre-pull, which is done.
+
+## Sprint 2.14: In-cluster Docker Hub `imagePullSecret` (authenticated pod pulls) ✅
+
+**Status**: Done — the live Apple cluster bring-up **completed** with the regcred
+imagePullSecret. On the M1 Max host, `bootstrap/apple-silicon.sh up` ran the full
+**110-step** phased rollout to a ready `cluster-publication.json` (all components
+`"ready"`, every pod Running/Completed) with the `regcred`-bound `platform`
+default ServiceAccount — **no blocking 429** (the same rollout previously died at
+MinIO step 40 on a cold host). Two transient `ImagePullBackOff` events
+(grafana, kube-state-metrics — pods that pull via non-default SAs) self-recovered
+and ended Running; a follow-up may widen regcred coverage beyond the default SA,
+but it did not block the rollout. Offline-validated: `cabal build` clean
+host-native, `jitml-unit` 208/208, `jitml-integration -p rollout` 3/3,
+hlint/fourmolu clean, `docs check: ok`, `regcred.yaml` docker.io-only + gitignored.
+**Implementation**: `src/JitML/Bootstrap.hs` (`discoverHostDockerHubRegcred`,
+`renderRegcredManifest`, `regcredManifestPath`, materialize in
+`materializeBootstrapFiles`, apply step in `livePreGrantSubprocessesForPort`)
+**Docs to update**: `documents/engineering/cluster_topology.md`,
+`system-components.md`, `legacy-tracking-for-deletion.md`
+**Doctrine**: `Reconcilers: Idempotent Mutation as a Single Command`,
+`Subprocesses as Typed Values`
+
+### Objective
+
+Make the Kind cluster's pods pull Docker Hub images **authenticated**, closing the
+cold-host **429** at the layer that actually pulls — the node's containerd /
+kubelet — rather than via `kind load` (which Sprint `2.13` showed is broken on a
+containerd-image-store host). This is the durable fix the live `apple-silicon`
+(and colima `linux-cpu`) clusters need, contributing to
+[Exit Definition](README.md#exit-definition) item 4.
+
+### Deliverables
+
+- The bootstrap materializes an in-cluster **`regcred`** `dockerconfigjson` Secret
+  from the host's Docker Hub login — the minimal `docker.io`-only `auths`
+  projection (private-registry / Harbor creds are filtered out) — into the
+  **gitignored** `.build/runtime/regcred.yaml`
+  (the credential never enters the repo tree), and binds it to the `platform`
+  namespace's `default` ServiceAccount (`imagePullSecrets`), applied **before** any
+  release pulls. Every pod in `platform` then pulls Docker Hub authenticated.
+- Reads — never writes — `~/.docker/config.json` (honors the bootstrap no-touch
+  invariant). Graceful: when the host is not logged in, only the namespace is
+  declared (anonymous fallback, no failure). Idempotent (`kubectl apply`).
+- **Relationship to Sprint `2.13`:** this supersedes the pre-pull as the *primary*
+  429 fix on any docker store (it needs no `kind load`); the Sprint `2.13` host
+  pre-pull remains a warm-cache optimization on classic overlay2 hosts. It is
+  jitML's own, self-contained containerd-auth mechanism, which can later be
+  extended in-place (credential-helper resolution, cred forwarding into the
+  in-container `linux` bootstrap).
+  - Scope note: the host-native `apple-silicon` bootstrap reads the host login
+    directly; the **in-container** `linux-cpu` / `linux-cuda` bootstrap's docker
+    client is logged out, so `regcred` is empty there until a future jitML
+    enhancement forwards the host cred into the container frame.
+
+### Validation
+
+- `cabal build exe:jitml` clean (host-native); `jitml-unit` **208/208**,
+  `jitml-integration -p rollout` **3/3** (host-native); hlint/fourmolu clean
+  (baked tools); `jitml docs check: ok`. `regcred.yaml` materializes with the
+  `docker.io`-only auth, no Harbor leak, and is `git check-ignore`d.
+- **Live `apple-silicon` closure (in progress):** `bootstrap/apple-silicon.sh up`
+  on this M1 Max host completes the phased rollout with the `regcred`-bound default
+  SA and **no Docker Hub 429** during the MinIO/Pulsar/Harbor Helm waits.
+
+### Remaining Work
+
+- None for the owned obligation (authenticated in-cluster pulls; live Apple bring-up
+  completed). **Follow-up (minor):** widen regcred beyond the `platform` default
+  ServiceAccount so pods using chart-specific ServiceAccounts (grafana,
+  kube-state-metrics) also pull authenticated — they transiently `ImagePullBackOff`
+  on docker.io before self-recovering; harmless to the rollout but worth closing.
+  This is a self-contained extension of jitML's own `imagePullSecret` mechanism.
 
 ## Related Documents
 

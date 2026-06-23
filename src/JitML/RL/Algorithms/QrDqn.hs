@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 qrDqnModule :: AlgorithmModule
@@ -19,7 +18,6 @@ qrDqnModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "QR-DQN" OffPolicy True
     , moduleHyperparameters = qrDqnHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "QR-DQN"
     }
 
 qrDqnHyperparameters :: [AlgorithmHyperparameter]

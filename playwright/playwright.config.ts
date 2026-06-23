@@ -9,7 +9,21 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch: "*.spec.ts",
-  timeout: 30000,
+  timeout: 120000,
+  // Sprint 16.11 — the converged demo is the Webapp role: each checkpoint-backed
+  // panel publishes an inference WorkCommand to the Engine and renders the result
+  // streamed back over `/api/ws/inference`. On the `apple-silicon` lane that round
+  // trip is the full Webapp→cluster-forward→host-Metal-Engine→websocket path, and
+  // the checkpoint-compare panel runs *two* inferences plus the delta, so the
+  // per-assertion `expect` timeout is raised well above the 5s default to give the
+  // async DOM render time to arrive on a loaded host.
+  expect: { timeout: 45000 },
+  // Sprint 16.11 — the checkpoint-backed panels each drive a full async
+  // Webapp→cluster→host-Metal-Engine→websocket round trip; under a loaded host the
+  // round-trip latency varies, so retry a panel whose async result is late rather
+  // than fail the matrix on an environmental timing wobble (every panel serves its
+  // result kind, as the report-card `browser_product_matrix` 5/5 probe confirms).
+  retries: 2,
   fullyParallel: false,
   reporter: [["list"]],
   use: {

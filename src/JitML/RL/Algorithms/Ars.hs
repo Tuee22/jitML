@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 arsModule :: AlgorithmModule
@@ -19,7 +18,6 @@ arsModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "ARS" Specialized False
     , moduleHyperparameters = arsHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "ARS"
     }
 
 arsHyperparameters :: [AlgorithmHyperparameter]

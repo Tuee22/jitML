@@ -21,6 +21,7 @@ module JitML.Numerics.MlpDevice
   ( MlpBackendSpec (..)
   , MlpDevice (..)
   , mlpDeviceFromSpec
+  , pureReferenceMlpDevice
   , probeMlpDevice
   , mlpForwardWith
   , mlpBackwardWith
@@ -54,7 +55,10 @@ import JitML.Numerics.Mlp
   , MlpGradient (..)
   , MlpParams (..)
   , MlpShape (..)
+  , mlpBackward
+  , mlpForward
   , mlpInit
+  , mlpInputGradient
   , mlpZeroGradient
   )
 import JitML.Substrate (Substrate (..))
@@ -113,6 +117,61 @@ mlpDeviceFromSpec spec env =
     , mlpdForwardBatch = mlpForwardBatchWith spec env
     , mlpdBatchGradient = mlpBatchGradientWith spec env
     , mlpdInputGradientBatch = mlpInputGradientBatchWith spec env
+    }
+
+-- | A pure-Haskell reference 'MlpDevice' backed by the pure
+-- 'JitML.Numerics.Mlp' forward / backward / input-gradient functions — no JIT
+-- toolchain, no FFI, no IO side effects, never a compile/runtime @Left@ (only a
+-- shape-mismatch @Left@, matching the real devices' guard). It lets toolchain-
+-- free callers (the offline hyperparameter-tuning objective) route through the
+-- same 'JitML.SL.Architecture' training seam the substrate devices use, so the
+-- pure and device objective paths share one training loop. The numerics are
+-- deterministic; the pure-vs-device skew is the same @Double@-vs-@float@
+-- difference any backend carries. The batch gradient is summed over the batch,
+-- matching the @jitml_mlp_batch_gradient@ ABI.
+pureReferenceMlpDevice :: MlpDevice
+pureReferenceMlpDevice =
+  MlpDevice
+    { mlpdForward = \params input -> pure (Right (mlpForward params input))
+    , mlpdBackward = \params fwd dLdy -> pure (Right (mlpBackward params fwd dLdy))
+    , mlpdForwardBatch = \params inputs ->
+        pure $
+          if any (\i -> VU.length i /= shapeInputs params) inputs
+            then Left pureShapeMismatch
+            else Right (fmap (forwardOutput . mlpForward params) inputs)
+    , mlpdBatchGradient = \params batch ->
+        pure $
+          if batchShapeMismatch params batch
+            then Left pureShapeMismatch
+            else
+              Right
+                ( foldl'
+                    addMlpGradient
+                    (mlpZeroGradient (paramShape params))
+                    [mlpBackward params (mlpForward params i) dy | (i, dy) <- batch]
+                )
+    , mlpdInputGradientBatch = \params batch ->
+        pure $
+          if batchShapeMismatch params batch
+            then Left pureShapeMismatch
+            else Right [mlpInputGradient params (mlpForward params i) dy | (i, dy) <- batch]
+    }
+ where
+  shapeInputs params = mlpInputs (paramShape params)
+  shapeOutputs params = mlpOutputs (paramShape params)
+  batchShapeMismatch params =
+    any (\(i, dy) -> VU.length i /= shapeInputs params || VU.length dy /= shapeOutputs params)
+  pureShapeMismatch = "mlp-pure-reference: input/dLdy shape mismatch against the network"
+
+-- | Sum two parameter gradients component-wise (used to accumulate the pure
+-- reference device's batch gradient).
+addMlpGradient :: MlpGradient -> MlpGradient -> MlpGradient
+addMlpGradient a b =
+  MlpGradient
+    { gradW1 = VU.zipWith (+) (gradW1 a) (gradW1 b)
+    , gradB1 = VU.zipWith (+) (gradB1 a) (gradB1 b)
+    , gradW2 = VU.zipWith (+) (gradW2 a) (gradW2 b)
+    , gradB2 = VU.zipWith (+) (gradB2 a) (gradB2 b)
     }
 
 -- Forward ABI: (hidden_pre, hidden_act, output) out;

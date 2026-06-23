@@ -3,35 +3,32 @@
 module JitML.Proto.Inference
   ( AdversarialMoveCommand (..)
   , AdversarialMoveResult (..)
-  , AppleInferenceCommand (..)
-  , AppleInferenceCommandKind (..)
-  , AppleInferenceEvent (..)
-  , AppleInferenceEventKind (..)
   , CheckpointCompareCommand (..)
   , CheckpointCompareResult (..)
   , InferenceRequest (..)
   , InferenceResult (..)
+  , ListCheckpointsCommand (..)
+  , LoadTranscriptCommand (..)
   , appleInferenceCommandTopic
-  , appleInferenceEventTopic
   , parseAdversarialMoveCommand
   , parseCheckpointCompareCommand
+  , parseListCheckpointsCommand
+  , parseLoadTranscriptCommand
   , renderAdversarialMoveResult
   , renderAdversarialMoveCommand
   , renderCheckpointCompareCommand
   , renderCheckpointCompareResult
+  , renderListCheckpointsCommand
+  , renderLoadTranscriptCommand
   , decodeInferenceRequestProto
   , decodeInferenceResultProto
   , encodeInferenceRequestProto
   , encodeInferenceResultProto
   , inferenceRequestTopic
   , inferenceResultTopic
-  , parseAppleInferenceCommand
-  , parseAppleInferenceEvent
   , parseInferenceInput
   , parseInferenceRequest
   , parseInferenceResult
-  , renderAppleInferenceCommand
-  , renderAppleInferenceEvent
   , renderInferenceInput
   , renderInferenceRequest
   , renderInferenceResult
@@ -121,32 +118,25 @@ data AdversarialMoveResult = AdversarialMoveResult
   }
   deriving stock (Eq, Show)
 
-data AppleInferenceCommandKind
-  = AppleCommandTraining
-  | AppleCommandInference
-  deriving stock (Eq, Show)
-
-data AppleInferenceCommand = AppleInferenceCommand
-  { appleCommandCallId :: Text
-  , appleCommandKind :: AppleInferenceCommandKind
-  , appleCommandModelId :: Text
-  , appleCommandStartingSnapshot :: Text
-  , appleCommandReplyTopic :: Text
-  , appleCommandInputs :: Text
+-- | Sprint 14.1 (Feature A) — checkpoint browse as an __Engine__ job: the Webapp
+-- publishes this command on the inference request topic and the Engine lists the
+-- seeded experiments' manifests from MinIO, replying with a @CheckpointList@
+-- frame on the reply topic. Carries no input beyond the reply topic.
+data ListCheckpointsCommand = ListCheckpointsCommand
+  { lccCallId :: Text
+  , lccReplyTopic :: Text
   }
   deriving stock (Eq, Show)
 
-data AppleInferenceEventKind
-  = AppleEventCompleted
-  | AppleEventError
-  deriving stock (Eq, Show)
-
-data AppleInferenceEvent = AppleInferenceEvent
-  { appleEventCallId :: Text
-  , appleEventKind :: AppleInferenceEventKind
-  , appleEventOutputRefs :: [Text]
-  , appleEventErrorCode :: Maybe Text
-  , appleEventMessage :: Maybe Text
+-- | Sprint 14.1 (Feature B) — transcript replay as an __Engine__ job: the Webapp
+-- publishes this command (carrying a persisted transcript key) on the inference
+-- request topic and the Engine reads the transcript record from the
+-- @jitml-transcripts@ MinIO bucket, replying with a @TranscriptReplay@ frame on
+-- the reply topic.
+data LoadTranscriptCommand = LoadTranscriptCommand
+  { ltcCallId :: Text
+  , ltcTranscriptId :: Text
+  , ltcReplyTopic :: Text
   }
   deriving stock (Eq, Show)
 
@@ -161,10 +151,6 @@ inferenceResultTopic substrate =
 appleInferenceCommandTopic :: Text
 appleInferenceCommandTopic =
   "inference.command.apple-silicon"
-
-appleInferenceEventTopic :: Text
-appleInferenceEventTopic =
-  "inference.event.apple-silicon"
 
 renderInferenceRequest :: InferenceRequest -> Text
 renderInferenceRequest request =
@@ -182,31 +168,6 @@ parseInferenceRequest payload = do
       value key = lookup key fields
   "RunInference" <- value "kind"
   inferenceRequestFromFields value
-
-renderAppleInferenceCommand :: AppleInferenceCommand -> Text
-renderAppleInferenceCommand command =
-  Text.unlines
-    [ "envelope: AppleInferenceCommand"
-    , "call-id: " <> appleCommandCallId command
-    , "kind: " <> renderAppleInferenceCommandKind (appleCommandKind command)
-    , "model-id: " <> appleCommandModelId command
-    , "starting-snapshot: " <> appleCommandStartingSnapshot command
-    , "reply-topic: " <> appleCommandReplyTopic command
-    , "inputs: " <> appleCommandInputs command
-    ]
-
-parseAppleInferenceCommand :: Text -> Maybe AppleInferenceCommand
-parseAppleInferenceCommand payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "AppleInferenceCommand" <- value "envelope"
-  AppleInferenceCommand
-    <$> value "call-id"
-    <*> (value "kind" >>= parseAppleInferenceCommandKind)
-    <*> value "model-id"
-    <*> value "starting-snapshot"
-    <*> value "reply-topic"
-    <*> value "inputs"
 
 encodeInferenceRequestProto :: InferenceRequest -> ByteString
 encodeInferenceRequestProto request =
@@ -321,6 +282,42 @@ parseAdversarialMoveCommand payload = do
     <*> (value "simulations-per-move" >>= readText)
     <*> (value "input" >>= parseInferenceInput)
 
+renderListCheckpointsCommand :: ListCheckpointsCommand -> Text
+renderListCheckpointsCommand command =
+  Text.unlines
+    [ "kind: ListCheckpointsCommand"
+    , "call-id: " <> lccCallId command
+    , "reply-topic: " <> lccReplyTopic command
+    ]
+
+parseListCheckpointsCommand :: Text -> Maybe ListCheckpointsCommand
+parseListCheckpointsCommand payload = do
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+  "ListCheckpointsCommand" <- value "kind"
+  ListCheckpointsCommand
+    <$> value "call-id"
+    <*> value "reply-topic"
+
+renderLoadTranscriptCommand :: LoadTranscriptCommand -> Text
+renderLoadTranscriptCommand command =
+  Text.unlines
+    [ "kind: LoadTranscriptCommand"
+    , "call-id: " <> ltcCallId command
+    , "transcript-id: " <> ltcTranscriptId command
+    , "reply-topic: " <> ltcReplyTopic command
+    ]
+
+parseLoadTranscriptCommand :: Text -> Maybe LoadTranscriptCommand
+parseLoadTranscriptCommand payload = do
+  let fields = mapMaybe parseField (Text.lines payload)
+      value key = lookup key fields
+  "LoadTranscriptCommand" <- value "kind"
+  LoadTranscriptCommand
+    <$> value "call-id"
+    <*> value "transcript-id"
+    <*> value "reply-topic"
+
 renderAdversarialMoveResult :: AdversarialMoveResult -> Text
 renderAdversarialMoveResult result =
   Text.unlines
@@ -344,29 +341,6 @@ parseIntList :: Text -> Maybe [Int]
 parseIntList value
   | Text.null (Text.strip value) = Just []
   | otherwise = traverse (readText . Text.strip) (Text.splitOn "," value)
-
-renderAppleInferenceEvent :: AppleInferenceEvent -> Text
-renderAppleInferenceEvent event =
-  Text.unlines $
-    [ "envelope: AppleInferenceEvent"
-    , "call-id: " <> appleEventCallId event
-    , "kind: " <> renderAppleInferenceEventKind (appleEventKind event)
-    , "output-refs: " <> renderTextList (appleEventOutputRefs event)
-    ]
-      <> optionalField "error-code" (appleEventErrorCode event)
-      <> optionalField "message" (appleEventMessage event)
-
-parseAppleInferenceEvent :: Text -> Maybe AppleInferenceEvent
-parseAppleInferenceEvent payload = do
-  let fields = mapMaybe parseField (Text.lines payload)
-      value key = lookup key fields
-  "AppleInferenceEvent" <- value "envelope"
-  AppleInferenceEvent
-    <$> value "call-id"
-    <*> (value "kind" >>= parseAppleInferenceEventKind)
-    <*> (value "output-refs" >>= Just . parseTextList)
-    <*> Just (value "error-code")
-    <*> Just (value "message")
 
 encodeInferenceResultProto :: InferenceResult -> ByteString
 encodeInferenceResultProto result =
@@ -392,37 +366,6 @@ parseInferenceInput :: Text -> Maybe [Double]
 parseInferenceInput value
   | Text.null (Text.strip value) = Just []
   | otherwise = traverse (readText . Text.strip) (Text.splitOn "," value)
-
-renderAppleInferenceCommandKind :: AppleInferenceCommandKind -> Text
-renderAppleInferenceCommandKind AppleCommandTraining = "training"
-renderAppleInferenceCommandKind AppleCommandInference = "inference"
-
-parseAppleInferenceCommandKind :: Text -> Maybe AppleInferenceCommandKind
-parseAppleInferenceCommandKind "training" = Just AppleCommandTraining
-parseAppleInferenceCommandKind "inference" = Just AppleCommandInference
-parseAppleInferenceCommandKind _ = Nothing
-
-renderAppleInferenceEventKind :: AppleInferenceEventKind -> Text
-renderAppleInferenceEventKind AppleEventCompleted = "completed"
-renderAppleInferenceEventKind AppleEventError = "error"
-
-parseAppleInferenceEventKind :: Text -> Maybe AppleInferenceEventKind
-parseAppleInferenceEventKind "completed" = Just AppleEventCompleted
-parseAppleInferenceEventKind "error" = Just AppleEventError
-parseAppleInferenceEventKind _ = Nothing
-
-renderTextList :: [Text] -> Text
-renderTextList =
-  Text.intercalate ","
-
-parseTextList :: Text -> [Text]
-parseTextList value
-  | Text.null (Text.strip value) = []
-  | otherwise = fmap Text.strip (Text.splitOn "," value)
-
-optionalField :: Text -> Maybe Text -> [Text]
-optionalField _ Nothing = []
-optionalField fieldName (Just value) = [fieldName <> ": " <> value]
 
 parseField :: Text -> Maybe (Text, Text)
 parseField line =

@@ -5,8 +5,6 @@ module JitML.SL.Canonicals
   , canonicalProblems
   , trainableCanonicalCohort
   , isTrainableCanonicalProblem
-  , denseMlpCohort
-  , isDenseMlpProblem
   , loadCanonicalProblemExperiment
   )
 where
@@ -50,17 +48,6 @@ trainableCanonicalCohort = filter isTrainableCanonicalProblem canonicalProblems
 
 isTrainableCanonicalProblem :: CanonicalProblem -> Bool
 isTrainableCanonicalProblem _ = True
-
--- | Legacy Sprint 8.10 compatibility cohort for callers that still need to
--- name the older single-hidden-layer @Dense@ subset explicitly. It is no
--- longer the product gate; see 'trainableCanonicalCohort'.
-denseMlpCohort :: [CanonicalProblem]
-denseMlpCohort = filter isDenseMlpProblem canonicalProblems
-
--- | True for the historical single-hidden-layer @Dense@ canonical problems
--- (@mnist-shallow-mlp@, @fashion-mnist-mlp@, @california-housing-mlp@).
-isDenseMlpProblem :: CanonicalProblem -> Bool
-isDenseMlpProblem problem = problemModel problem == "Dense"
 
 -- | Decode a supervised experiment Dhall file and resolve it to the canonical
 -- SL problem row it names. Matching is strict on dataset/model, and prefers an

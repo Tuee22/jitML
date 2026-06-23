@@ -156,6 +156,7 @@ import JitML.RL.Schema (loadRlCatalogSchema, validateRlCatalogSchema)
 import JitML.RL.Simulator qualified as Sim
 import JitML.Routes qualified as Routes
 import JitML.Service.Capabilities qualified as Capabilities
+import JitML.Service.CatalogSchema (catalogFileSchemas)
 import JitML.Service.DhallSchema
   ( bootConfigSchema
   , canonicalDhallType
@@ -417,11 +418,27 @@ main =
           , canonicalDhallType schemaText /= Right schemaText
           ]
             @?= []
+      , testCase "every numerics/RL catalog Dhall leaf equals the emitted catalog" $ do
+          -- Reflected catalog emission (the reverse of the decode-and-compare
+          -- mirror above): each checked-in import-free catalog leaf must equal the
+          -- Dhall emitted from the Haskell catalog, canonicalised on both sides.
+          mismatches <-
+            Control.Monad.foldM
+              ( \acc (path, emitted) -> do
+                  fileText <- Text.IO.readFile path
+                  pure $
+                    if canonicalDhallType fileText == canonicalDhallType emitted
+                      then acc
+                      else Text.pack path : acc
+              )
+              []
+              catalogFileSchemas
+          mismatches @?= []
       , testCase "Coordinator topic algebra derives the substrate-scoped family" $ do
           let names = fmap Topology.topicName Topology.coordinatorTopics
           -- 9 substrate-scoped (workflow,phase) pairs × 3 substrates (27) +
-          -- 5 apple-only internal/host-command legs = 32.
-          length names @?= 32
+          -- 4 apple-only internal/host-command legs = 31.
+          length names @?= 31
           mapM_
             ( \t ->
                 assertBool
@@ -3557,6 +3574,7 @@ canonicalLeafPaths =
   , ["internal", "upload-dataset"]
   , ["internal", "seed-demo-checkpoints"]
   , ["internal", "dhall-schema"]
+  , ["internal", "third-party-images"]
   , ["internal", "gc"]
   , ["internal", "cache", "stat"]
   , ["internal", "cache", "list"]

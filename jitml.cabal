@@ -186,9 +186,9 @@ library
         JitML.RL.VecEnv
         JitML.Routes
         JitML.Service.BootConfig
+        JitML.Service.CatalogSchema
         JitML.Service.DhallSchema
         JitML.Service.RoleLifecycle
-        JitML.Service.AppleInferenceRpc
         JitML.Service.Capabilities
         JitML.Service.Clients
         JitML.Service.ConfigMap
@@ -208,8 +208,10 @@ library
         JitML.Service.RunConfig
         JitML.Service.Runtime
         JitML.Service.Signal
+        JitML.Service.Transcript
         JitML.Service.WebSocket
         JitML.Service.Workload
+        JitML.Service.WorkflowStatus
         JitML.SL.Archive
         JitML.SL.Architecture
         JitML.SL.Canonicals

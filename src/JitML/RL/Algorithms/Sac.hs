@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 sacModule :: AlgorithmModule
@@ -19,7 +18,6 @@ sacModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "SAC" OffPolicy True
     , moduleHyperparameters = sacHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "SAC"
     }
 
 sacHyperparameters :: [AlgorithmHyperparameter]

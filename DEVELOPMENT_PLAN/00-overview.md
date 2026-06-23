@@ -883,8 +883,34 @@ for the governing rule.
 
 ## Current Baseline
 
-**Reopened (Pulsar ML-Workflow convergence).** Phases `5`, `10`, `11`, and `12`
-are `🔄 Active` for the cross-project
+**🎉 Current status (2026-06-23): ALL phases `0`–`18` are `✅ Done`; the no-caveat
+product handoff is complete.** All three per-lane report-card fragments are
+committed (`linux-cpu`, `linux-cuda`, `apple-silicon`), the `linux-cpu` aggregation
+is green (`jitml test all --live --linux-cpu` 8/8 stanzas, every measurement
+populated, live Playwright 14/14), and the `Pending Removal` ledger is empty (Exit
+Definition item 18 met). jitML is self-contained (its Docker-Hub credential path
+is an owned mechanism, not a deferral to any external foundation).
+The dated reopen/re-close narrative below is retained as historical record.
+
+**Reopened + re-closed (2026-06-20 — authenticated third-party image pre-pull).**
+Phase `2` reopened for **Sprint `2.13`** and re-closed `✅ Done` on its retained
+surface: the bootstrap pre-pulls the `docker.io/*` third-party chart images
+authenticated on the host (reading, never writing, the host `docker login`)
+before `kind load`, closing the cold-host **429** (live-proven: no 429 on the host
+pull; overlay2 stores close the in-cluster 429 directly via `kind load`). The
+in-cluster credential closure is jitML's own, self-contained Sprint `2.14`
+`imagePullSecret` (projected from the host Docker Hub credential), which
+authenticates the kind node's pulls; the host-dependent containerd-image-store
+`kind load` behavior (the colima `ctr import` quirk) is a known characteristic
+that owned path accommodates. It is an owned project mechanism, not a transfer to
+any external foundation.
+
+**Reopened + re-closed (Pulsar ML-Workflow convergence; closed 2026-06-20 on
+owned surfaces).** Phases `5`, `10`, `11`, and `12` are **all `✅ Done`** on their
+owned convergence surfaces (`5.12`/`5.13`/`5.14`, `10.7`, `11.10`, `12.14`); the
+live behaviours — coordinator reconcile / multi-role serving and the panels' live
+Playwright product proof — are forward ownership-transfers to Phases `11`/`15`/`16`
+(rule M(a)). They were reopened for the cross-project
 [../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
 convergence — a one-binary **Engine / Coordinator / Webapp** role model selected by
 typed Dhall, a derived **topic algebra** owned by the Coordinator (retiring the
@@ -905,11 +931,16 @@ check`/`jitml-unit` 206) **and live on `linux-cpu`** (clean 84-step bootstrap +
 behavior (CLI/demo publish a `WorkCommand`) transferred to `11.10`. **Phase `11`**:
 `11.10` (Webapp role + websocket-driven panels + the transferred CLI publish,
 folding `jitml-demo` in and dissolving the Apple in-pod-Metal browser-forward) —
-now `📋 Planned` (upstream `5.14`/`10.7` Done); **Phase `12`**: `12.14`
-(common-shape test coverage) — `⏸️ Blocked` by `11.10`. Every convergence
-`Blocked by` edge references a strictly lower-numbered sprint (forward-DAG, rule
-M), and each closes on the `linux-cpu` / pure-logic lane with no dual-accelerator
-gate. The live `linux-cpu` convergence validation caught and fixed a real
+**`✅ Done`** on its owned surface (all five panels async over `/api/ws/inference`
+via the typed-decode pipeline; CheckpointCompare + Connect-4 as Engine workflows;
+validated `cabal build all` / `jitml-unit` 208 / `jitml-e2e` 23 / `spago test`
+17/17 / `check-code`, and live on `linux-cpu` for the Webapp pod + CLI publish;
+live Playwright transfers to `14.2`/`16.x`); **Phase `12`**: `12.14`
+(common-shape test coverage) — **`✅ Done`** (`jitml-unit` 208 + `web/test`
+snapshot frames; `-p Live` integration is the standard runtime gate). Every
+convergence `Blocked by` edge references a strictly lower-numbered sprint
+(forward-DAG, rule M), and each closes on the `linux-cpu` / pure-logic lane with no
+dual-accelerator gate. The live `linux-cpu` convergence validation caught and fixed a real
 regression (the hand-written jitml-service chart ConfigMap lacked the new
 `activeRole` field). The closure narrative below predates this reopen and is retained as dated
 history.

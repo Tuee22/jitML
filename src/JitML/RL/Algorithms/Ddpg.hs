@@ -11,7 +11,6 @@ import JitML.RL.Algorithms.Common
   ( AlgorithmHyperparameter
   , AlgorithmModule (..)
   , hyperparameterRow
-  , trajectoryRollout
   )
 
 ddpgModule :: AlgorithmModule
@@ -19,7 +18,6 @@ ddpgModule =
   AlgorithmModule
     { moduleAlgorithm = RLAlgorithm "DDPG" OffPolicy True
     , moduleHyperparameters = ddpgHyperparameters
-    , moduleRolloutGenerator = trajectoryRollout "DDPG"
     }
 
 ddpgHyperparameters :: [AlgorithmHyperparameter]

@@ -54,15 +54,35 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-14 — no-caveat final handoff). Sprint `17.8`
-updates the report card, within-substrate reproducibility evidence, and legacy
-ledger handoff for the expanded product scope. **Update 2026-06-18:** Phases
-`13`, `14`, and `15` are now `✅ Done`, and Phase `15` committed its `linux-cuda`
-per-lane report-card fragment
-([../DEVELOPMENT_PLAN/attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md)).
-The **sole remaining blocker is Phase `16`**: this aggregation consumes the
-committed `apple-silicon` per-lane fragment, which only a Mac session can
-produce, so it cannot close on the current x86_64 Linux+CUDA host.
+✅ **Done** (reopened 2026-06-14 — no-caveat final handoff; **re-closed 2026-06-23**).
+Sprint `17.8` updated the report card, within-substrate reproducibility evidence,
+and legacy ledger handoff for the expanded product scope, and is now `✅ Done`. **All
+three per-lane report-card fragments are committed and the `Pending Removal` ledger
+is empty.** A live `bootstrap/linux-cpu.sh up` (110-step rollout, edge `9091`) plus
+`jitml test all --live --linux-cpu` produced
+[attestations/linux-cpu-report-card.md](attestations/linux-cpu-report-card.md):
+**8/8 stanzas PASS** (`cabal_test: passed: 8, failed: 0`), **every report-card
+measurement populated** (no `unavailable` row — all 12 canonical datasets staged +
+SHA-verified, 5 demo checkpoints seeded), and the **live Playwright product matrix
+14/14** (exit `0`; the checkpoint-backed panels flaky on cold-JIT first attempt,
+pass on retry). So all three per-lane fragments exist (`linux-cpu` here,
+`linux-cuda` Phase `15`, `apple-silicon` Phase `16`). The image under test included
+the 2026-06-23 reflected-catalog-schema, tuning-objective-migration, and the three
+Sprint `14.1` browser product features, all live-validated on this lane.
+
+Every `Pending Removal` ledger row moved to `Completed` on 2026-06-23: the
+Docker-Hub pre-pull row (adopted as jitML's own owned, self-contained credential
+path), the reflected catalog Dhall-schema row (numerics/RL leaves reflected-emitted
+via `JitML.Service.CatalogSchema`), the tuning-objective row (migrated onto
+`JitML.SL.Architecture`; live-validated with `tune_best_objective: TPE=1.0`
+**unchanged**, so the committed accelerator fragments stay consistent), and the two
+**Sprint `14.1`** browser product features — **checkpoint browse**, **live-backed
+workflow-state reconciliation**, and **persisted-transcript adversarial multi-game
+replay** — implemented as real Engine workflows + Webapp panels and live-validated
+by the `linux-cpu` Playwright matrix (11→14/14). With the ledger empty (Exit
+Definition item 18 met) and all three fragments committed, this phase has no
+remaining obligation. (Earlier this phase was blocked on the `apple-silicon`
+fragment and a structural out-of-scope row; both are resolved.)
 
 > **Substrate-affinity note (standards rule M(b)/(d)).** This is a
 > **`linux-cpu`-only aggregation** phase. Each substrate's within-substrate
@@ -867,14 +887,14 @@ execution, and restoring the final-handoff state.
 
 None.
 
-## Sprint 17.8: Expanded No-Caveat Report Card and Ledger Handoff ⏸️
+## Sprint 17.8: Expanded No-Caveat Report Card and Ledger Handoff ✅
 
-**Status**: Blocked
+**Status**: Done (re-closed 2026-06-23; all per-lane fragments committed, ledger empty)
 **Implementation**: `src/JitML/Test/Report.hs`, `src/JitML/App.hs`,
-`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `README.md`
-**Blocked by**: Phase `15` Sprint `15.20`; Phase `16` Sprint `16.11`; Phase `13`
-Sprint `13.1`; Phase `14` Sprint `14.2` (Phases `9`/`10`/`11`/`12` Sprints
-`9.12`/`10.6`/`11.9`/`12.13` are now `✅ Done` and no longer block this handoff)
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
+`DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`, `README.md`
+**Was blocked by** (all now `✅ Done`): Phase `15` Sprint `15.20`; Phase `16` Sprint
+`16.11`; Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`
 **Docs to update**: `README.md`, `documents/engineering/unit_testing_policy.md`,
 `documents/engineering/training_workloads.md`,
 `documents/engineering/purescript_frontend.md`, `system-components.md`,
@@ -917,8 +937,10 @@ claim is added (the contract is within-substrate bit-for-bit only).
 
 ### Remaining Work
 
-- Blocked on every upstream no-caveat runtime, browser, e2e, and live lane
-  (Phases `13`–`16`), each of which commits its per-lane report-card fragment.
+None. All three per-lane report-card fragments are committed (`linux-cpu`,
+`linux-cuda`, `apple-silicon`), the `linux-cpu` aggregation ran green (8/8
+stanzas, every measurement populated, Playwright 14/14), and every `Pending
+Removal` ledger row is `Completed` (Exit Definition item 18 met).
 
 ## Doctrine Sections Cited
 

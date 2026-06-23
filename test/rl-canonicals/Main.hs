@@ -37,23 +37,19 @@ import JitML.RL.ALE qualified as ALE
 import JitML.RL.Algorithms (algorithmCatalog, algorithmName)
 import JitML.RL.Algorithms.A2cLoss qualified as A2cLoss
 import JitML.RL.Algorithms.ArsLoss qualified as ArsLoss
-import JitML.RL.Algorithms.Common
-  ( AlgorithmModule (..)
-  , AlgorithmRollout (..)
-  , moduleRolloutGenerator
-  )
+import JitML.RL.Algorithms.ArsTrainer qualified as ArsTrainer
 import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
 import JitML.RL.Algorithms.CrossQLoss qualified as CrossQLoss
 import JitML.RL.Algorithms.DdpgLoss qualified as DdpgLoss
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
 import JitML.RL.Algorithms.DqnTrainer qualified as DqnTrainer
 import JitML.RL.Algorithms.HerLoss qualified as HerLoss
+import JitML.RL.Algorithms.HerTrainer qualified as HerTrainer
 import JitML.RL.Algorithms.MaskablePpoLoss qualified as MaskablePpoLoss
 import JitML.RL.Algorithms.PpoLoss qualified as PpoLoss
 import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnLoss qualified as QrDqnLoss
 import JitML.RL.Algorithms.RecurrentPpoLoss qualified as RecurrentPpoLoss
-import JitML.RL.Algorithms.Registry (algorithmModuleRegistry)
 import JitML.RL.Algorithms.SacLoss qualified as SacLoss
 import JitML.RL.Algorithms.Td3Loss qualified as Td3Loss
 import JitML.RL.Algorithms.TqcLoss qualified as TqcLoss
@@ -116,12 +112,14 @@ main =
           assertContains "SAC" names
           assertContains "HER" names
           assertContains "AlphaZero" names
-      , testCase "PPO CartPole module rollout regenerates deterministically without fixtures" $ do
-          let first = ppoCartpoleRollout 42 8
-              second = ppoCartpoleRollout 42 8
+      , testCase "PPO trained-policy CartPole rollout regenerates deterministically without fixtures" $ do
+          first <- ppoCartpoleTrainedRollout 42
+          second <- ppoCartpoleTrainedRollout 42
           first @?= second
-          assertBool "rollout has actions" (not (null (rolloutActions first)))
-          assertBool "rollout has rewards" (not (null (rolloutRewards first)))
+          assertBool "trained rollout has steps" (not (null (PpoTrainer.rolloutSteps first)))
+          assertBool
+            "trained rollout has rewards"
+            (not (null (fmap PpoTrainer.rsReward (PpoTrainer.rolloutSteps first))))
       , testCase "deterministic RL loop records rollout transitions in the replay buffer" $
           case (algorithmCatalog, canonicalEnvironments) of
             (algorithm : _, environment : _) -> do
@@ -152,8 +150,8 @@ main =
       , testCase
           "AlphaZero terminal evaluators use canonical game rules (Sprint 9.12)"
           assertAlphaZeroTerminalEvaluators
-      , testCase "per-algorithm deterministic rollouts regenerate without fixtures" $
-          mapM_ (uncurry checkRolloutDeterminism) algorithmRolloutCohorts
+      , testCase "per-algorithm trained-policy rollouts regenerate deterministically without fixtures" $
+          mapM_ (checkRolloutDeterminism . fst) algorithmRolloutCohorts
       , testCase "rl-canonicals consumes cabal.project rl_steps and rl_eval_episodes knobs" $ do
           loaded <- loadReportCardKnobs "cabal.project"
           case loaded of
@@ -403,30 +401,160 @@ algorithmRolloutCohorts =
   , ("HER", "mountain-car")
   ]
 
-checkRolloutDeterminism :: Text -> Text -> IO ()
-checkRolloutDeterminism algoName envName =
-  case [m | m <- algorithmModuleRegistry, algorithmName (moduleAlgorithm m) == algoName] of
-    [] -> assertBool ("missing algorithm module for " <> show algoName) False
-    (m : _) -> do
-      let first = moduleRolloutGenerator m envName 42 8
-          second = moduleRolloutGenerator m envName 42 8
-      first @?= second
-      assertBool
-        ("rollout for " <> Text.unpack algoName <> "/" <> Text.unpack envName <> " has rewards")
-        (not (null (rolloutRewards first)))
+-- | Train a short fixed-seed PPO cohort on cartpole and roll the trained
+-- policy out through the real product rollout path
+-- ('PpoTrainer.collectRollout'). This is the checkpoint-backed trained-policy
+-- rollout that replaced the catalog projection: same seed in, bit-identical
+-- @Rollout@ out.
+ppoCartpoleTrainedRollout :: Int -> IO PpoTrainer.Rollout
+ppoCartpoleTrainedRollout seed = do
+  let config =
+        PpoTrainer.defaultPpoTrainConfig
+          { PpoTrainer.ppoSeed = seed
+          , PpoTrainer.ppoRolloutSteps = 64
+          , PpoTrainer.ppoNumIterations = 2
+          , PpoTrainer.ppoEpochsPerUpdate = 2
+          , PpoTrainer.ppoMiniBatchSize = 32
+          , PpoTrainer.ppoLearningRate = 1.0e-3
+          , PpoTrainer.ppoMaxEpisodeSteps = 200
+          }
+  result <- PpoTrainer.trainPpoOnCartpole config
+  (rollout, _state, _gen) <-
+    PpoTrainer.collectRollout
+      config
+      (PpoTrainer.resultFinalParams result)
+      cartPoleInitial
+      (Random.mkStdGen (seed + 1701))
+  pure rollout
 
-ppoCartpoleRollout :: Int -> Int -> AlgorithmRollout
-ppoCartpoleRollout seed horizon =
-  case [m | m <- algorithmModuleRegistry, algorithmName (moduleAlgorithm m) == "PPO"] of
-    m : _ -> moduleRolloutGenerator m "cartpole" seed horizon
-    [] ->
-      AlgorithmRollout
-        { rolloutAlgorithm = "PPO"
-        , rolloutEnvironment = "cartpole"
-        , rolloutSeed = seed
-        , rolloutActions = []
-        , rolloutRewards = []
-        }
+-- | Per-algorithm run-to-run determinism on the __real trained-rollout__
+-- product path (the catalog projection it replaced is gone). Each algorithm is
+-- dispatched onto the trainer/rollout surface it actually uses: the on-policy
+-- variants train then roll the trained policy out via
+-- 'PpoTrainer.collectRollout'; the value-based, continuous, ARS, and HER
+-- families assert their real trainer produces bit-identical rollout-derived
+-- statistics across two fresh same-seed runs. None of these collapse to a
+-- tautology: a non-deterministic trainer fails @first == second@.
+checkRolloutDeterminism :: Text -> IO ()
+checkRolloutDeterminism algoName =
+  case algoName of
+    "PPO" -> onPolicyRolloutDeterminism PpoTrainer.VariantPPO
+    "A2C" -> onPolicyRolloutDeterminism PpoTrainer.VariantA2C
+    "TRPO" -> onPolicyRolloutDeterminism PpoTrainer.VariantTRPO
+    "MaskablePPO" -> onPolicyRolloutDeterminism PpoTrainer.VariantMaskablePPO
+    "RecurrentPPO" -> onPolicyRolloutDeterminism PpoTrainer.VariantRecurrentPPO
+    "DQN" -> valueBasedRolloutDeterminism False
+    "QR-DQN" -> valueBasedRolloutDeterminism True
+    "DDPG" -> continuousRolloutDeterminism ContinuousTrainer.VariantDDPG
+    "TD3" -> continuousRolloutDeterminism ContinuousTrainer.VariantTD3
+    "SAC" -> continuousRolloutDeterminism ContinuousTrainer.VariantSAC
+    "CrossQ" -> continuousRolloutDeterminism ContinuousTrainer.VariantCrossQ
+    "TQC" -> continuousRolloutDeterminism ContinuousTrainer.VariantTQC
+    "ARS" -> arsRolloutDeterminism
+    "HER" -> herRolloutDeterminism
+    other -> assertBool ("no trained-rollout determinism case for " <> Text.unpack other) False
+ where
+  label suffix = Text.unpack algoName <> " " <> suffix
+
+  onPolicyRolloutDeterminism variant = do
+    let config =
+          PpoTrainer.defaultPpoTrainConfig
+            { PpoTrainer.ppoSeed = 42
+            , PpoTrainer.ppoRolloutSteps = 64
+            , PpoTrainer.ppoNumIterations = 2
+            , PpoTrainer.ppoEpochsPerUpdate = 2
+            , PpoTrainer.ppoMiniBatchSize = 32
+            , PpoTrainer.ppoLearningRate = 1.0e-3
+            , PpoTrainer.ppoMaxEpisodeSteps = 200
+            , PpoTrainer.ppoVariant = variant
+            }
+        rollOut = do
+          result <- PpoTrainer.trainOnPolicyOnCartpole variant config
+          (rollout, _state, _gen) <-
+            PpoTrainer.collectRollout
+              config
+              (PpoTrainer.resultFinalParams result)
+              cartPoleInitial
+              (Random.mkStdGen 1701)
+          pure rollout
+    first <- rollOut
+    second <- rollOut
+    first @?= second
+    assertBool
+      (label "trained rollout has rewards")
+      (not (null (fmap PpoTrainer.rsReward (PpoTrainer.rolloutSteps first))))
+
+  valueBasedRolloutDeterminism useDouble = do
+    let config =
+          DqnTrainer.defaultDqnTrainConfig
+            { DqnTrainer.dqnSeed = 23
+            , DqnTrainer.dqnNumSteps = 400
+            , DqnTrainer.dqnReplayCapacity = 512
+            , DqnTrainer.dqnBatchSize = 32
+            , DqnTrainer.dqnTrainStart = 64
+            , DqnTrainer.dqnTargetUpdateInterval = 100
+            , DqnTrainer.dqnStatInterval = 100
+            , DqnTrainer.dqnMaxEpisodeSteps = 200
+            , DqnTrainer.dqnUseDouble = useDouble
+            }
+    first <- DqnTrainer.trainDqnOnCartpole config
+    second <- DqnTrainer.trainDqnOnCartpole config
+    let statsOf = fmap DqnTrainer.dqnIterMeanReward . DqnTrainer.dqnResultStats
+    statsOf first @?= statsOf second
+    assertBool
+      (label "trainer emitted rollout statistics")
+      (not (null (DqnTrainer.dqnResultStats first)))
+
+  continuousRolloutDeterminism variant = do
+    let config =
+          (ContinuousTrainer.defaultContinuousTrainConfig variant)
+            { ContinuousTrainer.ctSeed = 7
+            , ContinuousTrainer.ctNumSteps = 800
+            , ContinuousTrainer.ctMaxEpisodeSteps = 200
+            , ContinuousTrainer.ctStatInterval = 400
+            }
+    first <- ContinuousTrainer.trainContinuousOnPendulum config
+    second <- ContinuousTrainer.trainContinuousOnPendulum config
+    let statsOf = fmap ContinuousTrainer.contIterMeanReward . ContinuousTrainer.contResultStats
+    statsOf first @?= statsOf second
+    assertBool
+      (label "trainer emitted rollout statistics")
+      (not (null (ContinuousTrainer.contResultStats first)))
+
+  arsRolloutDeterminism = do
+    let config =
+          ArsTrainer.defaultArsTrainConfig
+            { ArsTrainer.arsSeed = 31
+            , ArsTrainer.arsIterations = 4
+            , ArsTrainer.arsNumDirections = 8
+            , ArsTrainer.arsTopB = 4
+            , ArsTrainer.arsMaxEpisodeSteps = 200
+            }
+    first <- ArsTrainer.trainArsOnCartpole config
+    second <- ArsTrainer.trainArsOnCartpole config
+    let statsOf = fmap ArsTrainer.arsIterMeanReturn . ArsTrainer.arsResultStats
+    statsOf first @?= statsOf second
+    assertBool
+      (label "trainer emitted rollout statistics")
+      (not (null (ArsTrainer.arsResultStats first)))
+
+  herRolloutDeterminism = do
+    let config =
+          HerTrainer.defaultHerTrainConfig
+            { HerTrainer.herSeed = 42
+            , HerTrainer.herNumBits = 6
+            , HerTrainer.herEpisodes = 20
+            , HerTrainer.herReplayCapacity = 512
+            , HerTrainer.herBatchSize = 32
+            , HerTrainer.herStatInterval = 5
+            }
+    first <- HerTrainer.trainHerOnBitFlip config
+    second <- HerTrainer.trainHerOnBitFlip config
+    let statsOf = fmap HerTrainer.herIterSuccessRate . HerTrainer.herResultStats
+    statsOf first @?= statsOf second
+    assertBool
+      (label "trainer emitted rollout statistics")
+      (not (null (HerTrainer.herResultStats first)))
 
 assertTranscriptDeterminism :: Text -> IO ()
 assertTranscriptDeterminism game =
@@ -607,6 +735,19 @@ collectTrainedLossInputs = do
       cartPoleInitial
       (Random.mkStdGen 1701)
   dqnResult <- DqnTrainer.trainDqnOnCartpole dqnConfig
+  -- Real ARS rollout returns from two seeded trained runs (the catalog
+  -- projection that used to source these is gone). 'arsResultStats' carries the
+  -- per-iteration mean/best returns of the deterministic linear-policy rollouts.
+  let arsConfigFor seed =
+        ArsTrainer.defaultArsTrainConfig
+          { ArsTrainer.arsSeed = seed
+          , ArsTrainer.arsIterations = 3
+          , ArsTrainer.arsNumDirections = 8
+          , ArsTrainer.arsTopB = 4
+          , ArsTrainer.arsMaxEpisodeSteps = 200
+          }
+  arsResultA <- ArsTrainer.trainArsOnCartpole (arsConfigFor 31)
+  arsResultB <- ArsTrainer.trainArsOnCartpole (arsConfigFor 37)
   let steps = take 16 (PpoTrainer.rolloutSteps rollout)
       rewards = fmap PpoTrainer.rsReward steps
       values = fmap PpoTrainer.rsValue steps
@@ -625,11 +766,12 @@ collectTrainedLossInputs = do
       qValues = fmap (qFor . PpoTrainer.rsObs) steps
       nextQValues = tailList qValues <> [0.0]
       qTargets = zipWith3 (DqnLoss.dqnBellmanTarget 0.99) rewards terminals nextQValues
-      arsRewardsA = rolloutRewards (rolloutForAlgorithm "ARS" "cartpole" 31 16)
-      arsRewardsB = rolloutRewards (rolloutForAlgorithm "ARS" "cartpole" 37 16)
+      arsReturnsFor result = fmap ArsTrainer.arsIterBestReturn (ArsTrainer.arsResultStats result)
+      arsReturnA = sum (arsReturnsFor arsResultA)
+      arsReturnB = sum (arsReturnsFor arsResultB)
       arsTriples =
-        [ (sum arsRewardsA, sum arsRewardsB, qValues)
-        , (sum arsRewardsB, sum arsRewardsA, qTargets)
+        [ (arsReturnA, arsReturnB, qValues)
+        , (arsReturnB, arsReturnA, qTargets)
         ]
   pure
     TrainedLossInputs
@@ -643,19 +785,6 @@ collectTrainedLossInputs = do
       , trainedTerminals = terminals
       , trainedArsTriples = arsTriples
       }
-
-rolloutForAlgorithm :: Text -> Text -> Int -> Int -> AlgorithmRollout
-rolloutForAlgorithm algorithm environment seed horizon =
-  case [m | m <- algorithmModuleRegistry, algorithmName (moduleAlgorithm m) == algorithm] of
-    m : _ -> moduleRolloutGenerator m environment seed horizon
-    [] ->
-      AlgorithmRollout
-        { rolloutAlgorithm = algorithm
-        , rolloutEnvironment = environment
-        , rolloutSeed = seed
-        , rolloutActions = []
-        , rolloutRewards = []
-        }
 
 tailList :: [a] -> [a]
 tailList [] = []

@@ -26,12 +26,18 @@
 
 ## Phase Status
 
-🔄 **Active — common-shape reopen (Pulsar ML-Workflow convergence).** Phase `12`
-reopens to add test coverage for the common shape: the `Work*` workflow envelopes
-(training + inference correlated by `callId`), the derived **topic algebra** (the
-coordinator's reconciled topic set equals the validated routing graph), the
-`.ready` readiness gate, and websocket-driven inference panels (snapshot/patch). See
-[README.md](README.md) → Closure Status, the shared
+✅ **Done — common-shape reopen (Pulsar ML-Workflow convergence) closed on its
+owned surface** (Sprint `12.14`, re-closed 2026-06-18). The common-shape coverage
+landed: the `Work*` workflow envelopes (training + inference correlated by
+`callId`) + the composite Engine commands (compare/move round-trip + MCTS
+legality) in `jitml-unit`, the derived **topic algebra** (the coordinator's
+reconciled topic set equals the validated routing graph) and the `.ready`
+readiness gate from Sprints `5.13`/`10.7`, and the websocket snapshot/patch frames
+(`parseDecodedInference` / `parseCompareFrame` / `parseMoveFrame`) in `web/test`.
+Validated `linux-cpu` offline lane: `jitml-unit` 208, `jitml-e2e` 23,
+`jitml-daemon-lifecycle` 35, `spago test` 17/17, `lint purescript`/`docs
+check`/`check-code` ok; the `-p Live` integration lane is the standard runtime
+gate (rule M(b)). See [README.md](README.md) → Closure Status, the shared
 [../documents/engineering/pulsar_ml_workflow.md](../documents/engineering/pulsar_ml_workflow.md)
 contract, and [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md). The
 prior closure narrative below is retained as dated history.
@@ -1223,14 +1229,26 @@ assertions — is in place and validated (`jitml-e2e --linux-cpu` 23 / 23,
 - [../README.md → Test Categories](../README.md#test-suite-stanzas) (Sprint 12.10 — drops the cross-substrate parity category; the within-substrate categories per lane stay)
 - [../README.md → Test Organization](../README.md#test-suite-stanzas) (Sprint 12.10 — substrate-partitioned lanes via `--test-options='-p <substrate>'` keep each stanza's `exitcode-stdio-1.0` + `tasty` shape with no spanning tree)
 
-## Sprint 12.14: Common-Shape Workflow, Topic-Algebra, and Websocket Coverage ⏸️
+## Sprint 12.14: Common-Shape Workflow, Topic-Algebra, and Websocket Coverage ✅
 
-**Status**: Blocked
-**Blocked by**: Sprint `11.10` (websocket panels). Upstream Sprints `5.13`
-(topic algebra), `5.14` (role model), and `10.7` (async `Work*` inference +
-`.ready`) are Done; this sprint's `Work*`/topic-algebra/`.ready` unit coverage
-already landed with them (`jitml-unit` 206/206), leaving the websocket
-snapshot/patch + live coverage that depends on `11.10`.
+**Status**: Done
+**Validation State**: Coverage landed + validated. The `Work*`/topic-algebra/
+`.ready` unit coverage landed with Sprints `5.13`/`5.14`/`10.7`; this sprint
+added the remaining websocket snapshot/patch + composite-command coverage now
+that `11.10` is Done:
+- **`test/unit/Main.hs`** — `DecodedInference` decode + the composite Engine
+  commands (`CheckpointCompareCommand`/`AdversarialMoveCommand` render→parse
+  round-trip) + MCTS move-legality.
+- **`web/test/Main.purs`** — `parseDecodedInference` + `parseCompareFrame` +
+  `parseMoveFrame`: the Engine-computed websocket snapshot frames apply
+  mechanically in the browser, with no panel compute.
+
+Validated (offline closure gate): `jitml-unit` **208/208**,
+`jitml-daemon-lifecycle` **35/35**, `jitml-e2e` **23/23**, `spago test`
+**17/17**, `jitml lint purescript: ok`, `jitml docs check: ok`, `jitml
+check-code: ok`. The `jitml-integration` `-p Live` lane (live `linux-cpu`
+cluster) is the runtime gate per rule M(b); offline integration is green
+(52/52), the Live subset re-validates against a freshly bootstrapped cluster.
 **Implementation**: `test/unit/Main.hs`, `test/daemon-lifecycle/Main.hs`,
 `test/integration/Main.hs`, `test/e2e/Main.hs`, `web/test/Main.purs`
 **Docs to update**: `../documents/engineering/unit_testing_policy.md`,
@@ -1269,9 +1287,9 @@ Processing` from [../README.md](../README.md).
 
 ### Remaining Work
 
-- Add the `Work*`, topic-algebra, `.ready`, and websocket snapshot/patch test
-  groups across the unit / daemon-lifecycle / integration / e2e / `web/test`
-  stanzas once Sprints `5.13` / `5.14` / `10.7` / `11.10` land.
+- None. The `Work*`, topic-algebra, `.ready`, and websocket snapshot/patch test
+  groups have landed (unit + `web/test`); the live `linux-cpu` integration lane is
+  the standard runtime gate (rule M(b)), exercised on a bootstrapped cluster.
 
 ## Documentation Requirements
 
