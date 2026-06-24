@@ -30,6 +30,7 @@ module JitML.Coordinator.Topology
   , topologyTopics
   , coordinatorTopics
   , validateTopology
+  , topologyLogicalNames
   )
 where
 
@@ -149,6 +150,18 @@ topologyTopics entries =
 -- | The coordinator's reconciled topic set, derived from 'jitmlTopology'.
 coordinatorTopics :: [Topic]
 coordinatorTopics = topologyTopics jitmlTopology
+
+-- | Sprint 5.15 — the distinct logical @workflow.phase@ topic names,
+-- substrate-stripped. This is the logical topic family that the durable-state
+-- registry ('JitML.Project.Config') declares and is anti-drift-checked against, so
+-- the registry is the single declared source for the topic set and the
+-- per-substrate routing here cannot silently diverge from it.
+topologyLogicalNames :: [RouteEntry] -> [Text]
+topologyLogicalNames entries =
+  nubOrd
+    [ workflowSegment (reWorkflow entry) <> "." <> phaseSegment (rePhase entry)
+    | entry <- entries
+    ]
 
 -- | Validate the routing graph. A graph is unroutable when it contains a
 -- duplicate topic, an entry with no lanes, or a __one-sided link__: an input

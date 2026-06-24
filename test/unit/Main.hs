@@ -32,6 +32,8 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Info qualified as SystemInfo
 import Test.Tasty (defaultMain, testGroup)
+
+import DurableStateTopology (durableStateTopologyTests)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
@@ -193,7 +195,8 @@ main =
   defaultMain $
     testGroup
       "jitml-unit"
-      [ testCase "registry covers canonical command leaves" $
+      [ durableStateTopologyTests
+      , testCase "registry covers canonical command leaves" $
           leafPaths commandRegistry @?= canonicalLeafPaths
       , testCase "every leaf has an example" $
           fmap fst (filter (null . examples . snd) (commandLeaves commandRegistry)) @?= []
@@ -3567,6 +3570,7 @@ canonicalLeafPaths =
   , ["docs", "generate"]
   , ["check-code"]
   , ["build"]
+  , ["project", "init"]
   , ["kubectl"]
   , ["internal", "materialize-substrate"]
   , ["internal", "list-prereqs"]

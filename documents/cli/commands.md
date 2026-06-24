@@ -1224,6 +1224,36 @@ jitml build --dry-run --substrate linux-cuda
 Render the CUDA generated-source build plan.
 
 
+## `jitml project init`
+
+Generate a default jitml.dhall durable-state config.
+
+Writes a self-contained, self-validating jitml.dhall (the closed StoreRegistry of MinIO buckets + Pulsar topics, the typed RetentionPolicy, and an assert : contractOK self === True that rejects an over-budget / over-quota / write-to-Retired / malformed-retention topology). Refuses to overwrite an existing file unless --force is given.
+
+```text
+jitml project init [--output <path>] [--force]
+```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--output <path>` | value | no | Output path for the generated config (default ./jitml.dhall). |
+| `--force` | flag | no | Overwrite an existing config file. |
+
+Examples:
+
+```text
+jitml project init
+```
+
+Write a default ./jitml.dhall.
+
+```text
+jitml project init --output cfg.dhall --force
+```
+
+Overwrite cfg.dhall with the default durable-state config.
+
+
 ## `jitml kubectl`
 
 Run kubectl against the jitML kubeconfig.

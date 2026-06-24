@@ -24,6 +24,15 @@
 
 ## Phase Status
 
+✅ **Done** (reopened 2026-06-23 for Sprint `5.15`; unblocked by Phases 2/4's
+2026-06-24 close, **re-closed 2026-06-24**) — the durable-state registry
+(`JitML.Project.Config`) now declares the logical Pulsar topic family, and a
+`jitml-unit` anti-drift test holds `JitML.Coordinator.Topology`'s per-substrate
+routing exactly consistent with it (`topologyLogicalNames jitmlTopology` equals the
+registry's 13 `MessageTopic` names), so the registry is the single declared source
+and the two cannot silently diverge. Validated: `jitml-unit` 218/218. All prior
+Sprints `5.1`–`5.14` remain `✅ Done`; the prior closure history follows.
+
 ✅ **Done — common-shape reopen (Pulsar ML-Workflow convergence) closed on its
 owned pure-logic surface.** The convergence made `jitml service` a **one-binary
 Engine / Coordinator / Webapp** role model selected by typed Dhall `activeRole`
@@ -1482,6 +1491,50 @@ from [../README.md](../README.md).
 - Route the live serve path through role-specific `acquire`/`serve`/`drain`
   callbacks (Coordinator topic reconcile, Webapp websocket fan-out) — the live
   multi-role serving is owned downstream by Phases `11`/`15`.
+
+## Sprint 5.15: Reconcile the Pulsar Topic Family with the `StoreRegistry` [✅ Done]
+
+**Status**: Done (reopened 2026-06-23; re-closed 2026-06-24) — unblocked by Phase 2
+Sprint `2.15` and Phase 4 Sprint `4.9`.
+
+Make the durable-state registry the single declared source for the logical Pulsar
+topic family, and hold `JitML.Coordinator.Topology` consistent with it:
+
+- The registry (`JitML.Project.Config.defaultProjectConfig`) declares the 13 logical
+  `MessageTopic` names (`training.command`/`event`, `tune.*`, `rl.*`,
+  `inference.request`/`result`/`command`, `gc.event`, and the three `*.host-command`
+  legs).
+- New `JitML.Coordinator.Topology.topologyLogicalNames` projects `jitmlTopology` to
+  its distinct substrate-stripped `workflow.phase` names; a `jitml-unit` anti-drift
+  test asserts the registry's `MessageTopic` set equals it, so the per-substrate
+  routing cannot diverge from the declared family.
+
+Note (granularity): the registry declares the *logical* family; `jitmlTopology` owns
+the *per-substrate* expansion (the routing graph + `validateTopology`). Sprint `5.15`
+reconciles the two — one declared source, anti-drift-checked — rather than deleting
+the per-substrate routing, which is load-bearing.
+
+### Exit Definition
+
+- The registry's `MessageTopic` logical-name set equals
+  `topologyLogicalNames jitmlTopology` (anti-drift test green); the registry is the
+  single declared source for the topic family.
+
+### Validation State (2026-06-24)
+
+- `cabal build lib:jitml` clean (`Coordinator.Topology` + `Project.Config` recompile).
+- `jitml-unit` **218/218**, incl. "registry MessageTopic names mirror the Coordinator
+  topology logical family".
+
+### Remaining Work
+
+- None on the topic source-of-truth surface. Folding the daemon's reflected
+  `BootConfig`/subscription schema onto the same registry types is a follow-on; the
+  topic *family* is now registry-declared + anti-drift-checked.
+- Documentation Requirements: **met (2026-06-24)** — `daemon_architecture.md` notes the
+  logical topic family is registry-declared and anti-drift-checked (`topologyLogicalNames`),
+  cross-linking `durable_state_dsl.md`; the README durable-state registry note covers the
+  Pulsar topic prose.
 
 ## Related Documents
 

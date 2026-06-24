@@ -2,13 +2,19 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, code_quality.md, daemon_architecture.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, code_quality.md, daemon_architecture.md, durable_state_dsl.md
 **Generated sections**: cluster.routes
 
 > **Purpose**: Project-specific cluster topology for jitML — Kind cluster
 > shapes per substrate, the umbrella Helm chart, the storage discipline, the
 > Envoy Gateway listener, the typed route registry, the `jitml bootstrap
 > --<substrate>` rollout contract, and the no-kubeconfig-pollution invariant.
+
+**Durable-state source of truth (Sprint 4.9):** the MinIO bucket set and the logical
+Pulsar topic family are now projected from the durable-state registry
+(`JitML.Project.Config.defaultProjectConfig`) — `JitML.Storage.Buckets.bucketNames` is
+the `ObjectBucket` projection, and the topic logical names are anti-drift-checked
+against `JitML.Coordinator.Topology`. See [durable_state_dsl.md](durable_state_dsl.md).
 
 ## Substrates and Cluster Shapes
 

@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, determinism_contract.md, training_workloads.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob
@@ -10,6 +10,11 @@
 > once + If-Match CAS protocol, retention reconciler, inference-only read
 > path, inference request/result protobuf envelopes, and the reopened
 > architecture-aware checkpoint target for every no-caveat model family.
+
+**Durable-state retention (Sprint 10.8):** the checkpoint GC retention is a typed
+`RetentionPolicy` sourced from the durable-state registry's `checkpoints` store
+(`JitML.Project.Config.lookupStoreRetention`), replacing the former hardcoded
+`LastN 5` literal. See [durable_state_dsl.md](durable_state_dsl.md).
 
 ## No-Caveat Checkpoint Target
 

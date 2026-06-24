@@ -116,6 +116,7 @@ library
         JitML.Plan.Apply
         JitML.Plan.Plan
         JitML.Plan.Render
+        JitML.Project.Config
         JitML.Proto.Gc
         JitML.Proto.Inference
         JitML.Proto.Rl
@@ -309,12 +310,14 @@ test-suite jitml-unit
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   test/unit
+    other-modules:    DurableStateTopology
     default-language: GHC2024
     ghc-options:      -Wall -Wcompat
     build-depends:
         base >=4.21 && <4.22,
         aeson,
         bytestring,
+        dhall,
         directory,
         filepath,
         jitml,

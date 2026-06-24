@@ -217,14 +217,22 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-06-23): Pending Removal is EMPTY.** Every row from the
-2026-06-15 no-caveat product audit is now `Completed` (see below): the Docker-Hub
-pre-pull adopted-as-owned, the reflected catalog Dhall schema, the
-tuning-objective migration, and — landing 2026-06-23 — the two Sprint `14.1`
-browser product features (checkpoint browse, persisted-transcript adversarial
-multi-game replay, live-backed workflow-state reconciliation), all live-validated
-by the `linux-cpu` Playwright matrix **14/14**. With the ledger empty, Exit
-Definition item 18 is met.
+**Current state (2026-06-24): the durable-state Dhall DSL has landed — Pending Removal
+is empty and Exit Definition item 18 is re-met (Phase 18 Sprint `18.2` re-aggregated the
+no-caveat handoff 2026-06-24).** The 2026-06-15
+no-caveat product-audit rows remain `Completed` (below). The durable-state DSL
+refactor supersedes the parallel un-typed Haskell surfaces: Phase 2 Sprint `2.15`
+shipped the closed `jitml.dhall` registry + `jitml project init`; Phase 4 Sprint
+`4.9` retired the hand-written `JitML.Storage.Buckets.bucketNames :: [Text]` literal
+(now a projection of the registry's `ObjectBucket` entries — deletion complete); Phase
+5 Sprint `5.15` made the registry the declared source for the logical Pulsar topic
+family, anti-drift-checked against `JitML.Coordinator.Topology` (the topic-defs
+deviation resolved — they are now reconciled, not a second un-routed source); Phase 10
+Sprint `10.8` retired the hardcoded checkpoint-GC `LastN 5` retention literal (the GC
+retention is now registry-sourced via `lookupStoreRetention`). All four reopened work
+sprints (`2.15` / `4.9` / `5.15` / `10.8`) have landed and Pending Removal is empty
+again; only the Phase 18 re-aggregation remains. Item 18 re-mets when
+Phase 18 Sprint `18.2` re-aggregates after the ledger is empty again.
 
 | Stand-in / dead code to delete | Location | Reason (rule I / L) | Owning sprint |
 |---|---|---|---|

@@ -49,6 +49,7 @@ import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 
 import JitML.AppError.AppError (AppError (..))
+import JitML.Project.Config qualified as ProjectConfig
 import JitML.Bootstrap
   ( LiveExecutionResult (..)
   , cachedThirdPartyRolloutImages
@@ -259,6 +260,8 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runCluster parsedPath parsedOptions
   | parsedPath == ["build"] =
       runBuild parsedOptions
+  | parsedPath == ["project", "init"] =
+      runProjectInit parsedOptions
   | parsedPath == ["kubectl"] =
       runKubectl parsedOptions
   | parsedPath == ["train"] =
@@ -450,6 +453,23 @@ runDocsGenerate = do
       writeLine "docs generate: updated"
     Right GeneratedNoop ->
       exitWithError (ReconcilerNoop "docs generate: no changes")
+
+-- | Sprint 2.15 — write a default, self-validating @jitml.dhall@ durable-state
+-- config. Refuses to clobber an existing file unless @--force@ is given.
+runProjectInit :: [ParsedOption] -> App ()
+runProjectInit parsedOptions = do
+  let outputPath = case optionValues "output" parsedOptions of
+        (path : _) -> Text.unpack path
+        [] -> "jitml.dhall"
+      rendered = ProjectConfig.renderProjectConfigDhall ProjectConfig.defaultProjectConfig
+  exists <- liftIO (doesFileExist outputPath)
+  if exists && not (hasOption "force" parsedOptions)
+    then
+      exitWithError
+        (InvalidConfig ("jitml project init: " <> Text.pack outputPath <> " already exists (pass --force to overwrite)"))
+    else do
+      liftIO (writeFile outputPath (Text.unpack rendered))
+      writeLine ("project init: wrote " <> Text.pack outputPath)
 
 isLintPath :: [Text] -> Bool
 isLintPath ("lint" : _) = True
@@ -3982,8 +4002,9 @@ targetStanzas targets = targets
 -- | `jitml internal gc <experiment-hash>` reconciler. When a live
 -- `cluster-publication.json` is present, walks the live MinIO bucket
 -- `jitml-checkpoints/<experiment-hash>/manifests/` through
--- `JitML.Checkpoint.Store.listCheckpointManifestsMinIO`, applies
--- `LastN 5` retention through `Store.buildGcPlan`, and executes the
+-- `JitML.Checkpoint.Store.listCheckpointManifestsMinIO`, applies the
+-- registry-sourced `checkpoints` retention (Sprint 10.8) through
+-- `Store.buildGcPlan`, and executes the
 -- plan through `Store.executeGcPlan` over `JitML.Service.MinIOSubprocess`.
 -- Without a live publication the reconciler falls back to walking the
 -- local on-disk manifest store. Exits `3` (`ReconcilerNoop`) when the
@@ -4231,10 +4252,23 @@ hexEncodeBytes =
     | n < 10 = toEnum (fromEnum '0' + n)
     | otherwise = toEnum (fromEnum 'a' + n - 10)
 
+-- | Sprint 10.8 — the checkpoint GC retention, sourced from the durable-state
+-- registry's `checkpoints` store (replacing the former hardcoded `LastN 5`). The
+-- registry's typed `RetentionPolicy` is mapped onto the GC-supported subset
+-- (`KeepAll`/`LastN`); age/bytes policies fall back to `KeepAll` — object-store ILM,
+-- not the manifest-chain GC, governs those.
+checkpointsGcRetention :: CheckpointStore.RetentionPolicy
+checkpointsGcRetention =
+  case ProjectConfig.lookupStoreRetention "checkpoints" ProjectConfig.defaultProjectConfig of
+    Just (ProjectConfig.LastN n) -> CheckpointStore.LastN (fromIntegral n)
+    Just (ProjectConfig.LastNWithinAge keep _) -> CheckpointStore.LastN (fromIntegral keep)
+    Just ProjectConfig.KeepAll -> CheckpointStore.KeepAll
+    _ -> CheckpointStore.KeepAll
+
 runInternalGc :: [ParsedOption] -> App ()
 runInternalGc parsedOptions = do
   let experimentHash = selectedValue "experiment-hash" "default" parsedOptions
-      retention = CheckpointStore.LastN 5
+      retention = checkpointsGcRetention
   livePublication <- liftIO (readExistingLivePublication ".")
   case livePublication of
     Just publication -> do

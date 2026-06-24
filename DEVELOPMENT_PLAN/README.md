@@ -43,8 +43,20 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🎉 ALL PHASES `0`–`18` ARE `✅ Done` — the no-caveat product handoff is complete
-(2026-06-23).** Phases `17` and `18` closed on 2026-06-23: all three per-lane
+**🎉 ALL PHASES `0`–`18` ARE `✅ Done` — the durable-state Dhall DSL has landed
+(2026-06-24) and the no-caveat product handoff is re-aggregated.** The durable-state
+DSL refactor (reopened 2026-06-23) is complete: **Phase `2`** (Sprint `2.15` — the
+closed, self-validating `jitml.dhall` foundation + `jitml project init` + the asserted
+`Budget`/`fitsWithin`), **Phase `4`** (Sprint `4.9` — `bucketNames` projected from the
+registry), **Phase `5`** (Sprint `5.15` — the registry declares the logical Pulsar
+topic family, anti-drift-checked against the topology), **Phase `10`** (Sprint `10.8` —
+checkpoint GC retention registry-sourced, `LastN 5` retired), and **Phase `18`** (Sprint
+`18.2` — re-aggregation) are all `✅ Done`. Validated: `jitml-unit` 219/219, `jitml-e2e`
+23/23, `cabal build all` clean; the `Pending Removal` ledger is empty again (Exit
+Definition item 18 re-met). The prior no-caveat closure narrative follows.
+
+**🎉 ALL PHASES `0`–`18` reached `✅ Done` — the no-caveat product handoff completed
+(2026-06-23, prior to the durable-state DSL reopen above).** Phases `17` and `18` closed on 2026-06-23: all three per-lane
 report-card fragments are committed (`linux-cpu` from Phases `13`/`14`,
 `linux-cuda` from Phase `15`, `apple-silicon` from Phase `16`), the `linux-cpu`
 aggregation ran green (`jitml test all --live --linux-cpu` 8/8 stanzas, every
@@ -1136,23 +1148,23 @@ obligation exists.
 |-------|------|--------|----------|
 | 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
 | 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (re-closed 2026-06-12 — removed `jitml internal vm`, Sprint 1.15) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
-| 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done (reopened/re-closed 2026-06-12 — fixed-bridge Apple prerequisites, device-only Metal runtime probe, bootstrap Tart cleanup removed, `.metal.json` cache layout; Sprint 2.12) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
+| 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — durable-state Dhall DSL foundation: `jitml.dhall` / `dhall/project/Schema.dhall`, `jitml project init`, the asserted `Budget`/`fitsWithin`; Sprint 2.15, jitml-unit 217/217) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
-| 4 | Stateful Platform Services | ✅ Done | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
-| 5 | `jitml service` Daemon | ✅ Done (reopened/re-closed 2026-06-13 — Apple host-resident workload-placement planner and host command topics, Sprint 5.11) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
+| 4 | Stateful Platform Services | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 4.9: `bucketNames` now projected from the durable-state `StoreRegistry`, hand-written `[Text]` retired; jitml-unit 217/217, jitml-e2e 23/23) | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
+| 5 | `jitml service` Daemon | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 5.15: registry declares the logical Pulsar topic family + topology anti-drift check; jitml-unit 218/218) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (reopened/re-closed 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done (reopened/re-closed 2026-06-14 — all-row SL runtime and typed RL event payloads, Sprint 8.12) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
 | 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat RL/AlphaZero/tuning runtime validated on linux-cpu, apple-silicon, and linux-cuda, Sprint 9.12) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat checkpoint/inference matrix validated on linux-cpu, linux-cuda, and apple-silicon, Sprint 10.6) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 10.8: checkpoint GC retention registry-sourced, `LastN 5` literal retired; jitml-unit 219/219) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (Sprint 11.9 re-closed 2026-06-16 on its owned interactive-demo code surface; live obligations deduped to Phases 15/14/17 per rule E) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.13 re-closed 2026-06-16 on its owned e2e/matrix/report structure; live Playwright product matrix deduped to Phases 15/14/17 per rule E) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ✅ Done — `linux-cpu` scope (validated 2026-06-16, Apple M1 Max; sl 24/24, rl 29/29, hyperparameter 16/16, integration 71/71; per-accelerator convergence owned by 15/16) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
 | 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ✅ Done — `linux-cpu` scope (validated 2026-06-17, Apple M1 Max; lint ok, e2e 23/23, live Playwright 11/11; per-accelerator browser owned by 15/16) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done — `linux-cpu`+`linux-cuda` scope (validated 2026-06-18 on the NVIDIA GeForce RTX 5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`; `test all --linux-cpu` 8/8, `test all --linux-cuda` 8/8 incl. `jitml-backends` 20/20 real cuBLAS/cuDNN, `jitml-e2e --linux-cuda` 23/23, docs check, check-code; live cuda report card all measured; live Playwright 11/11 on the cuda edge after the Sprint 15.20 demo-GPU fix) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
-| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ⏸️ Blocked (reopened 2026-06-14; sole remaining blocker is `apple-silicon` Mac hardware — Phases 13–15 are Done; physically un-runnable on the current x86_64 Linux+CUDA host) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
-| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ⏸️ Blocked (reopened 2026-06-14; blocked on Phase 16 — consumes its committed `apple-silicon` per-lane fragment, which needs a Mac session; Phase 15's `linux-cuda` fragment is committed) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ⏸️ Blocked (new 2026-06-14; blocked on Phases 16–17 — needs the `apple-silicon` per-lane fragment) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (re-closed 2026-06-22 — full no-caveat Apple live lane validated on the M1 Max) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
+| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (re-closed 2026-06-23 — within-substrate reproducibility evidence and handoff prep complete; consumes the committed `apple-silicon` + `linux-cuda` fragments) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 18.2: durable-state DSL re-aggregated; all 0–18 Done, ledger empty, item 18 re-met; jitml-unit 219/219, jitml-e2e 23/23) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-14 — no-caveat end-to-end product target)
 

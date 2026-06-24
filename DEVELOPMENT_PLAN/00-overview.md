@@ -883,14 +883,23 @@ for the governing rule.
 
 ## Current Baseline
 
-**🎉 Current status (2026-06-23): ALL phases `0`–`18` are `✅ Done`; the no-caveat
-product handoff is complete.** All three per-lane report-card fragments are
-committed (`linux-cpu`, `linux-cuda`, `apple-silicon`), the `linux-cpu` aggregation
-is green (`jitml test all --live --linux-cpu` 8/8 stanzas, every measurement
-populated, live Playwright 14/14), and the `Pending Removal` ledger is empty (Exit
-Definition item 18 met). jitML is self-contained (its Docker-Hub credential path
-is an owned mechanism, not a deferral to any external foundation).
-The dated reopen/re-close narrative below is retained as historical record.
+**🎉 Current status (2026-06-24): ALL phases `0`–`18` are `✅ Done`; the durable-state
+Dhall DSL has landed.** Phases
+`0`–`18` reached `✅ Done` (the prior no-caveat closure; all three per-lane
+report-card fragments committed, `linux-cpu` aggregation green, live Playwright
+14/14). The durable-state DSL refactor then reopened **Phases `2`/`4`/`5`/`10`/`18`**:
+**Phase `2`** is **`✅ Done`** again (Sprint `2.15` — the closed self-validating
+`jitml.dhall` foundation + `jitml project init` + the asserted `Budget`/`fitsWithin`,
+`jitml-unit` 217/217); **Phase `4`** is **`✅ Done`** too (Sprint `4.9` — `bucketNames`
+projected from the registry, `jitml-e2e` 23/23), and **Phase `5`** is **`✅ Done`**
+(Sprint `5.15` — registry declares the logical Pulsar topic family,
+anti-drift-checked), and **Phase `10`** is **`✅ Done`** (Sprint `10.8` — checkpoint GC
+retention registry-sourced), and **Phase `18`** (Sprint `18.2`) re-aggregated the
+no-caveat handoff — **all phases `0`–`18` are `✅ Done` again** with the durable-state
+DSL landed. The `Pending Removal` ledger is empty again (Exit Definition item 18
+re-met); `jitml-unit` 219/219, `jitml-e2e` 23/23, `cabal build all` clean. Phases `0`,
+`1`, `3`, `6`–`9`, `11`–`17` remain `✅ Done`. The dated reopen/re-close narrative
+below is retained as historical record.
 
 **Reopened + re-closed (2026-06-20 — authenticated third-party image pre-pull).**
 Phase `2` reopened for **Sprint `2.13`** and re-closed `✅ Done` on its retained

@@ -75,6 +75,7 @@ commandRegistry =
     , docsCommand
     , checkCodeCommand
     , buildCommand
+    , projectCommand
     , kubectlCommand
     , internalCommand
     , commandsCommand
@@ -548,6 +549,27 @@ docsCommand =
         "Updates tracked generated documentation."
         []
         [Example "jitml docs generate" "Regenerate tracked documentation."]
+    ]
+
+projectCommand :: CommandSpec
+projectCommand =
+  group
+    "project"
+    "Project-local durable-state configuration."
+    "Generate and manage the self-validating jitml.dhall durable-state config (the closed store registry of MinIO buckets + Pulsar topics, typed retention, and the contractOK assert)."
+    [projectInitCommand]
+
+projectInitCommand :: CommandSpec
+projectInitCommand =
+  leaf
+    "init"
+    "Generate a default jitml.dhall durable-state config."
+    "Writes a self-contained, self-validating jitml.dhall (the closed StoreRegistry of MinIO buckets + Pulsar topics, the typed RetentionPolicy, and an assert : contractOK self === True that rejects an over-budget / over-quota / write-to-Retired / malformed-retention topology). Refuses to overwrite an existing file unless --force is given."
+    [ value "output" Nothing "path" False "Output path for the generated config (default ./jitml.dhall)."
+    , flag "force" Nothing False "Overwrite an existing config file."
+    ]
+    [ Example "jitml project init" "Write a default ./jitml.dhall."
+    , Example "jitml project init --output cfg.dhall --force" "Overwrite cfg.dhall with the default durable-state config."
     ]
 
 checkCodeCommand :: CommandSpec

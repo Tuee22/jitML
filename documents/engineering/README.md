@@ -11,7 +11,7 @@
 
 The engineering docs split into four **doctrine-overlap** docs (which defer to
 [../../README.md](../../README.md) for the patterns it owns
-and retain only project-specific elaborations) and nine **project-specific**
+and retain only project-specific elaborations) and eleven **project-specific**
 docs (which own their content outright with no doctrine overlap).
 
 ### Doctrine-Overlap
@@ -30,6 +30,7 @@ docs (which own their content outright with no doctrine overlap).
 | [determinism_contract.md](determinism_contract.md) | Per-substrate floating-point semantics, RNG split, per-experiment seed derivation, JIT cache content-addressing, bit-determinism envelope, within-substrate determinism contract (no cross-substrate guarantee) |
 | [cluster_topology.md](cluster_topology.md) | Kind cluster shapes per substrate, Helm umbrella chart, Helm-values ownership, storage discipline, Envoy Gateway, route registry, no-kubeconfig-pollution invariant |
 | [daemon_architecture.md](daemon_architecture.md) | `jitml service` lifecycle, BootConfig / LiveConfig, hot reload, healthz/readyz/metrics, structured logging, recoverable vs fatal errors, at-least-once Pulsar consumer |
+| [durable_state_dsl.md](durable_state_dsl.md) | The closed self-validating `jitml.dhall` durable-state config: the store registry (MinIO buckets + Pulsar topics), typed retention, the closed `StoreId` selector + `contractOK` assert, `jitml project init`, and the runtime projections (`bucketNames`, topology anti-drift, registry-sourced GC retention) |
 | [jit_codegen_architecture.md](jit_codegen_architecture.md) | Content-addressed cache, per-substrate compilers (Metal/oneDNN/CUDA), local kernel handle/envelope surface, Linux CPU libdnnl-linked FFI and `HasEngine` execution, guarded CUDA FFI runner boundary, Apple Silicon fixed-bridge Metal JIT, hardware auto-tuning, and live Metal/CUDA validation boundary; on Apple Silicon jitML writes `.metal.json` source metadata, calls the fixed host bridge, and the bridge JIT-compiles MSL via `MTLDevice.makeLibrary(source:)` before executing on the host GPU |
 | [apple_silicon_metal_headless_builds.md](apple_silicon_metal_headless_builds.md) | True-headless Apple Silicon Metal JIT architecture: fixed host bridge, runtime MSL compilation via `MTLDevice.makeLibrary(source:options:)`, host-resident Metal workload placement, source/metadata cache artifacts, optional Swift JIT lane, and rationale for rejecting Tart, full Xcode, offline `.metallib`, and per-cache-miss Swift builds |
 | [numerical_core.md](numerical_core.md) | Current local numerical catalog, Dhall mirrors, and cross-type audit |
