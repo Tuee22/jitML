@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, checkpoint_format.md, numerical_core.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md
 **Generated sections**: training.rl.catalog, training.tune.samplers, training.tune.schedulers, training.tune.pruners
 
 > **Purpose**: Project-specific training-workload doctrine for jitML — the
@@ -10,6 +10,17 @@
 > helpers, and hyperparameter tuning catalogs, plus the reopened no-caveat
 > runtime target for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
+
+**Real learning, real metrics (Sprints `8.13`/`9.13` — ✅ landed, validated on both the
+`apple-silicon` and `linux-cpu` lanes).** SL uses a three-way train/test/validation split
+where the **validation** partition drives model selection / early-stop and **test** is the
+held-out final metric; the published loss is a real cross-entropy/MSE value (not
+`1 − accuracy`). RL convergence is a real measured-median return per cohort (not a
+literature-target probe), and AlphaZero converges on an **arena win-rate**. Both report a
+non-wall-clock performance metric (SL throughput; RL sample efficiency). The live
+end-to-end re-attest is Sprint `13.2`, and the demo's real-trained checkpoints are Sprint
+`10.9` (🔄 Active); see the DEVELOPMENT_PLAN for per-sprint status. Definitions:
+[training_metrics_and_splits.md](training_metrics_and_splits.md).
 
 ## SL Training Loops
 

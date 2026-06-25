@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | The MinIO bucket set.
 --
 -- Phase 4, Sprint 4.9 (durable-state DSL adoption) — retired the former

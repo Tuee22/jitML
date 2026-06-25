@@ -9,7 +9,7 @@ import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as ByteString
 import Data.Foldable (traverse_)
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import Data.List (find, isInfixOf)
+import Data.List (find, isInfixOf, nub)
 import Data.List qualified as List
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -37,6 +37,7 @@ import DurableStateTopology (durableStateTopologyTests)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
+import JitML.App (SeededDemoCheckpoint (..), seededDemoCheckpoints)
 import JitML.AppError.AppError (AppError)
 import JitML.AppError.AppError qualified as AppError
 import JitML.AppError.Render (renderError)
@@ -2494,6 +2495,51 @@ main =
           assertBool
             "admin portal renderer emits the generated module"
             ("module Generated.AdminPortals where" `Text.isInfixOf` WebAdminPortals.renderPureScriptAdminPortals)
+      , -- Sprint 10.9 (review hardening) — the seeded demo checkpoints are real-trained,
+        -- distinct, and self-describing (per-layer shapes), so Phase 14.3 can reshape them.
+        testGroup
+          "demo checkpoints (Sprint 10.9)"
+          [ -- One case so the (real-trained) checkpoints are forced once, not duplicated
+            -- across tasty's parallel cases.
+            testCase "are real-trained, distinct, and self-describing (per-layer shapes)" $ do
+              -- exactly the five demo families, in order
+              fmap sdcExperimentHash seededDemoCheckpoints
+                @?= [ "mnist-deep-mlp"
+                    , "generic-tensor-demo"
+                    , "generic-tensor-demo-candidate"
+                    , "cifar-imagenet"
+                    , "connect4-alphazero"
+                    ]
+              -- every family's trained weights are pairwise distinct (no shared ramp)
+              length (nub (fmap sdcWeights seededDemoCheckpoints)) @?= 5
+              -- non-constant in O(n) (NOT `nub`, which is O(n²) on the 74k-element
+              -- CIFAR weight vector): some element differs from the first.
+              let nonConstant ws = case ws of
+                    (w : rest) -> any (/= w) rest
+                    [] -> False
+              mapM_
+                ( \spec -> do
+                    -- real-trained: non-empty and non-constant (not a synthetic ramp)
+                    assertBool
+                      (Text.unpack (sdcExperimentHash spec) <> " has weights")
+                      (not (null (sdcWeights spec)))
+                    assertBool
+                      (Text.unpack (sdcExperimentHash spec) <> " is non-constant (real-trained, not a ramp)")
+                      (nonConstant (sdcWeights spec))
+                    -- self-describing: the per-layer tensor shapes sum to the flat length
+                    sum [product (Checkpoint.tensorSpecShape ts) | ts <- sdcLayerSpecs spec]
+                      @?= length (sdcWeights spec)
+                )
+                seededDemoCheckpoints
+              -- Phase 14.3 contract: the output spec records the model's class/output count
+              let outputWidth h =
+                    [ Checkpoint.tensorSpecShape (sdcOutputSpec s) | s <- seededDemoCheckpoints, sdcExperimentHash s == h
+                    ]
+              outputWidth "mnist-deep-mlp" @?= [[10]]
+              outputWidth "cifar-imagenet" @?= [[10]]
+              outputWidth "generic-tensor-demo" @?= [[3]]
+              outputWidth "connect4-alphazero" @?= [[8]]
+          ]
       , -- Sprint 13.6 — convergence threshold table sanity.
         testGroup
           "RL convergence threshold table (Sprint 13.6)"

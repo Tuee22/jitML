@@ -43,8 +43,49 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🎉 ALL PHASES `0`–`18` ARE `✅ Done` — the durable-state Dhall DSL has landed
-(2026-06-24) and the no-caveat product handoff is re-aggregated.** The durable-state
+**🔄 Reopened 2026-06-24 for real SL/RL — no hardcoded weights, convergence + performance
+metrics, train/test/validation splits, RL convergence.** Phases `0`–`18` reached `✅ Done`
+(the durable-state DSL closure, recorded below); the real-SL/RL refactor then reopened
+**Phases `8`/`9`/`10`/`13`/`14`/`18`**.
+
+**Progress 2026-06-24 (foundational code chain — Phases 8/9 re-closed, 10 code-complete).**
+**Phase `8` Sprint `8.13`** (real cross-entropy/MSE SL loss + real held-out validation
+loss, validation-driven model selection, the non-wall-clock `examples_processed`
+throughput metric, and the new `training_metrics_and_splits.md`) and **Phase `9` Sprint
+`9.13`** (the synthetic convergence probe replaced with a real measured-median
+PPO/cartpole convergence through `passesConvergence`, the env-steps-to-threshold
+sample-efficiency metric, and the typed AlphaZero arena-win-rate convergence form) are
+**`✅ Done` — validated on BOTH the `apple-silicon` and `linux-cpu` lanes**
+(`jitml-sl-canonicals` 24/24 + 24/24; `jitml-rl-canonicals` 31/31 + 31/31; `jitml docs
+check: ok`; `jitml check-code` green in the `jitml:local` image build). **Phase `10`
+Sprint `10.9`** (the byte-identical synthetic `demoWeights` ramp replaced with
+`seededDemoCheckpoints` — distinct, provenance-tagged, real-trained weights per demo
+family, each **self-describing** with per-layer shapes + a class-count output spec so
+Sprint `14.3` can reshape them) is **`🔄 Active`: code landed + non-live validated**
+(grep-clean + the `jitml-unit` "demo checkpoints (Sprint 10.9)" distinctness/self-describing
+case + `jitml-e2e` 23/23 + `check-code`); its only remaining gate is **Phase 10's OWN
+self-contained `linux-cpu` live family-distinct `jitml inference run` proof** (bootstrap →
+seed → inference), so Phase 10 closes in numerical order (rule M(d)) — Sprint `13.2`
+re-exercises the path but does not gate it. **Container `check-code`
+cleanup:** the in-container gate (`fourmolu` + `hlint` + `cabal build all -Werror` +
+`cabal format`) was found red on **committed** code — 3 stale `hlint` hints
+(`Project/Config.hs` eta-reduce, `Storage/Buckets.hs` unused pragma,
+`DurableStateTopology.hs` use-void) plus `fourmolu` drift in `CLI/Spec.hs` /
+`Project/Config.hs` left by the durable-state DSL closure, so the prior "check-code green"
+was stale. All 8 `hlint` hints (5 new + 3 stale) are fixed and the `src`/`app`/`test` tree
+is now `fourmolu`-clean (verified via the pinned `fourmolu-0.19.0.1 --mode check`).
+**Remaining work:** the live `linux-cpu` cluster + Playwright pass — **Phases `13`/`14`/`18`**
+(`13.2` re-attest the runtime via `jitml test all --live --linux-cpu`, which also
+exercises `10.9`'s live family-distinct inference proof; `14.3` the real multi-layer demo
+forward + canvas/upload input + Playwright; `18.3` re-aggregation) remain `⏸️ Blocked`
+behind that live pass. The `Pending Removal` ledger stays open (the synthetic-weight /
+faked-metric stand-ins' code is removed in the worktree; the rows move to `Completed` as
+each owning sprint's full validation closes), so Exit Definition item 18 is again open
+until `18.3` re-closes. Phases `0`–`7`, `11`, `12`, `15`–`17` remain `✅ Done`. The prior
+closures follow.
+
+**🎉 ALL PHASES `0`–`18` reached `✅ Done` — the durable-state Dhall DSL landed
+(2026-06-24, prior to the real-SL/RL reopen above).** The durable-state
 DSL refactor (reopened 2026-06-23) is complete: **Phase `2`** (Sprint `2.15` — the
 closed, self-validating `jitml.dhall` foundation + `jitml project init` + the asserted
 `Budget`/`fitsWithin`), **Phase `4`** (Sprint `4.9` — `bucketNames` projected from the
@@ -1154,17 +1195,17 @@ obligation exists.
 | 5 | `jitml service` Daemon | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 5.15: registry declares the logical Pulsar topic family + topology anti-drift check; jitml-unit 218/218) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (reopened/re-closed 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | ✅ Done (reopened/re-closed 2026-06-14 — all-row SL runtime and typed RL event payloads, Sprint 8.12) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (reopened/re-closed 2026-06-15 — no-caveat RL/AlphaZero/tuning runtime validated on linux-cpu, apple-silicon, and linux-cuda, Sprint 9.12) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 10.8: checkpoint GC retention registry-sourced, `LastN 5` literal retired; jitml-unit 219/219) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 8 | Supervised Learning and RL Framework | ✅ Done (reopened + re-closed 2026-06-24 for Sprint 8.13 — real CE/MSE SL loss + held-out validation loss, validation-driven selection, `examples_processed` throughput, new training_metrics_and_splits.md; sl-canonicals **--apple-silicon 24/24 + --linux-cpu 24/24**, docs check + check-code green) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (reopened + re-closed 2026-06-24 for Sprint 9.13 — real RL measured-median convergence + sample-efficiency metric + AlphaZero arena-win-rate; rl-canonicals **--apple-silicon 31/31 + --linux-cpu 31/31**, check-code green) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 10 | Checkpointing and Inference-Only Read Path | 🔄 Active (reopened 2026-06-24 for Sprint 10.9 — real trained, distinct, self-describing demo checkpoints, synthetic weight ramp retired; **8.13/9.13 landed → unblocked; code landed, host-native grep-clean + the unit distinctness/self-describing case + e2e 23/23**; remaining gate is Phase 10's OWN `linux-cpu` live family-distinct `jitml inference run` proof; Sprints 10.1–10.8 Done) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (Sprint 11.9 re-closed 2026-06-16 on its owned interactive-demo code surface; live obligations deduped to Phases 15/14/17 per rule E) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.13 re-closed 2026-06-16 on its owned e2e/matrix/report structure; live Playwright product matrix deduped to Phases 15/14/17 per rule E) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
-| 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ✅ Done — `linux-cpu` scope (validated 2026-06-16, Apple M1 Max; sl 24/24, rl 29/29, hyperparameter 16/16, integration 71/71; per-accelerator convergence owned by 15/16) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
-| 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ✅ Done — `linux-cpu` scope (validated 2026-06-17, Apple M1 Max; lint ok, e2e 23/23, live Playwright 11/11; per-accelerator browser owned by 15/16) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
+| 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ⏸️ Blocked (reopened 2026-06-24 for Sprint 13.2 — re-attest with real CE/MSE losses + convergence/performance metrics; blocked by Phases 8/9/10; prior `linux-cpu` close 2026-06-16) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
+| 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ⏸️ Blocked (reopened 2026-06-24 for Sprint 14.3 — real multi-layer forward + real user input + all families; blocked by Phases 10/13; prior `linux-cpu` close 2026-06-17) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done — `linux-cpu`+`linux-cuda` scope (validated 2026-06-18 on the NVIDIA GeForce RTX 5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`; `test all --linux-cpu` 8/8, `test all --linux-cuda` 8/8 incl. `jitml-backends` 20/20 real cuBLAS/cuDNN, `jitml-e2e --linux-cuda` 23/23, docs check, check-code; live cuda report card all measured; live Playwright 11/11 on the cuda edge after the Sprint 15.20 demo-GPU fix) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (re-closed 2026-06-22 — full no-caveat Apple live lane validated on the M1 Max) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (re-closed 2026-06-23 — within-substrate reproducibility evidence and handoff prep complete; consumes the committed `apple-silicon` + `linux-cuda` fragments) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 18.2: durable-state DSL re-aggregated; all 0–18 Done, ledger empty, item 18 re-met; jitml-unit 219/219, jitml-e2e 23/23) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ⏸️ Blocked (reopened 2026-06-24 for Sprint 18.3 — re-aggregate after the real-SL/RL chain; blocked by Phases 13/14) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-14 — no-caveat end-to-end product target)
 
@@ -2546,7 +2587,15 @@ This plan is complete only when all of the following are true:
    Conv2D, ResNet, Wide-ResNet, ViT, deep MLP, Dense MLP, and tabular canonical
    SL rows. No per-substrate numerical fixtures are committed per
    [../README.md → Snapshot targets → Numerical-fixture prohibition](../README.md#snapshot-targets),
-   and a Dense-only product gate is not an acceptable final state.
+   and a Dense-only product gate is not an acceptable final state. **SL uses a
+   three-way train/test/validation split: model selection / early-stop runs against
+   the validation partition and the test partition is the held-out final metric; the
+   published loss is a real cross-entropy/MSE value (not `1 − accuracy`).** Both SL and
+   RL additionally report a **non-wall-clock performance metric** (SL examples/sec
+   throughput; RL sample efficiency / env-steps-to-threshold) — wall-clock is excluded
+   from the determinism contract, so the performance metric is a distinct non-timing
+   measure. (Reopened 2026-06-24 — Sprints 8.13/9.13/13.2 own these; see
+   [../documents/engineering/training_metrics_and_splits.md](../documents/engineering/training_metrics_and_splits.md).)
 7. Checkpoints write the split-blob `.jmw1` format with the typed manifest and the
    inference-only read path; the bit-determinism contract holds — a checkpoint
    reproduced on the same substrate against the same toolchain pin is
@@ -2610,6 +2659,11 @@ This plan is complete only when all of the following are true:
     HTTPRoute resource emitted by the umbrella chart's renderer.
 18. [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md)
     contains no unresolved cleanup rows at final handoff.
+    **Current 2026-06-24 state:** open again — Pending Removal carries 3 rows for the
+    real-SL/RL refactor (synthetic demo weights, single-fixed-vector demo forward,
+    constant panel inputs). The faked-SL-loss and synthetic-RL-convergence-probe rows
+    moved to `Completed` when Sprints `8.13`/`9.13` re-closed on both lanes; item 18
+    re-mets on Phase 18 Sprint `18.3`'s re-aggregation.
     **Current 2026-06-15 state:** Pending Removal is open again for the
     no-caveat product audit rows covering incomplete browser visualization /
     replay renderers, browser product-contract expansion, the catalog rollout

@@ -21,6 +21,13 @@
 
 ## Phase Status
 
+⏸️ **Blocked** (reopened 2026-06-24 for Sprint `18.3` — re-aggregate the no-caveat
+handoff after the real-SL/RL chain re-closes its owning phases). **Blocked by**:
+Phase 13 Sprint `13.2`, Phase 14 Sprint `14.3`. The `linux-cpu`-only aggregation
+re-runs and the `Pending Removal` ledger re-empties (Exit Definition item 18 re-met)
+once Sprints 8.13/9.13/10.9/13.2/14.3 land. All prior Sprints `18.1`–`18.2` remain
+`✅ Done`; the prior closure history follows.
+
 ✅ **Done** (reopened 2026-06-23 for Sprint `18.2`; **re-closed 2026-06-24**) — the
 no-caveat product handoff is re-aggregated after the durable-state DSL landed (Phases
 2/4/5/10 re-closed). All phases `0`–`18` are `✅ Done`; the `Pending Removal` ledger is
@@ -176,6 +183,30 @@ re-met with the DSL in place.
   no-caveat handoff re-aggregated. The accompanying `documents/`/README doc pass landed
   2026-06-24 (new `durable_state_dsl.md` + engineering-doc cross-references + the README
   durable-state registry note + `jitml docs generate`/`docs check` green).
+
+## Sprint 18.3: Re-Aggregate the No-Caveat Handoff after the Real-SL/RL Chain [⏸️ Blocked]
+
+**Status**: Blocked — reopened 2026-06-24.
+
+**Blocked by**: Phase 13 Sprint `13.2`, Phase 14 Sprint `14.3`.
+
+The real-SL/RL refactor reopens new owned obligations in Phases 8/9/10/13/14, so the
+`linux-cpu`-only no-caveat aggregation must re-run once those sprints re-close and
+their legacy-tracking rows reach `Completed`.
+
+### Exit Definition
+
+- Phases 8/9/10/13/14 re-closed; the `Pending Removal` ledger is empty again (Exit
+  Definition item 18 re-met); all status surfaces re-harmonized to Done.
+
+### Validation
+
+- `jitml test all --live --linux-cpu` green with the real metrics; ledger empty.
+
+### Remaining Work
+
+- Re-run the `linux-cpu` aggregation and re-close 13–18 after the chain lands; the
+  validation lands here.
 
 ## Related Documents
 

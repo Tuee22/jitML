@@ -2,6 +2,10 @@
 
 module JitML.App
   ( main
+
+    -- * Sprint 10.9 — exposed for the host-native demo-checkpoint distinctness test
+  , SeededDemoCheckpoint (..)
+  , seededDemoCheckpoints
   )
 where
 
@@ -49,7 +53,6 @@ import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 
 import JitML.AppError.AppError (AppError (..))
-import JitML.Project.Config qualified as ProjectConfig
 import JitML.Bootstrap
   ( LiveExecutionResult (..)
   , cachedThirdPartyRolloutImages
@@ -111,7 +114,7 @@ import JitML.Lint.Stack
   , runCheckCode
   , runLint
   )
-import JitML.Numerics.Mlp (mlpParamsToFlat)
+import JitML.Numerics.Mlp (MlpShape (..), mlpParamsToFlat, paramShape)
 import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate, rlDeviceForSubstrate)
 import JitML.Plan.Apply (writePlanFile)
@@ -131,6 +134,7 @@ import JitML.Prerequisite.Registry
   , renderPrerequisiteRegistry
   , scopeRootNodeId
   )
+import JitML.Project.Config qualified as ProjectConfig
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.Proto.Inference qualified as Inference
 import JitML.Proto.Rl qualified as ProtoRl
@@ -466,7 +470,9 @@ runProjectInit parsedOptions = do
   if exists && not (hasOption "force" parsedOptions)
     then
       exitWithError
-        (InvalidConfig ("jitml project init: " <> Text.pack outputPath <> " already exists (pass --force to overwrite)"))
+        ( InvalidConfig
+            ("jitml project init: " <> Text.pack outputPath <> " already exists (pass --force to overwrite)")
+        )
     else do
       liftIO (writeFile outputPath (Text.unpack rendered))
       writeLine ("project init: wrote " <> Text.pack outputPath)
@@ -993,13 +999,13 @@ runHostAppleTraining env start
               )
           case result of
             Left err -> pure (Left (SETransient ("host Apple training failed: " <> err)))
-            Right loss -> publishTrainingEpoch start loss
+            Right metrics -> publishTrainingEpoch start metrics
 
 publishTrainingEpoch
   :: ProtoTraining.StartTraining
-  -> Double
+  -> TrainingMetrics
   -> ServiceClients.DaemonServiceClient (Either ServiceError ())
-publishTrainingEpoch start loss = do
+publishTrainingEpoch start metrics = do
   timestampNs <- liftIO currentTimestampNs
   let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic AppleSilicon)
       epochNumber = max 1 (ProtoTraining.stEpochs start)
@@ -1008,8 +1014,9 @@ publishTrainingEpoch start loss = do
           ( ProtoTraining.EpochCompleted
               { ProtoTraining.ecExperimentHash = ProtoTraining.stExperimentHash start
               , ProtoTraining.ecEpoch = epochNumber
-              , ProtoTraining.ecLoss = loss
-              , ProtoTraining.ecValidationLoss = loss
+              , -- Sprint 8.13 — real train + held-out validation loss.
+                ProtoTraining.ecLoss = tmTrainLoss metrics
+              , ProtoTraining.ecValidationLoss = tmValidationLoss metrics
               , ProtoTraining.ecTimestampNs = timestampNs
               }
           )
@@ -1515,7 +1522,7 @@ runTrain parsedOptions = do
   result <- runDeviceMnistTraining substrate problem
   case result of
     Left reason -> exitWithError (TrainingPrerequisiteUnmet reason)
-    Right loss -> publishWorkerTrainingEvent loss
+    Right metrics -> publishWorkerTrainingEvent metrics
 
 resolveTrainingProblem :: [ParsedOption] -> App SL.CanonicalProblem
 resolveTrainingProblem parsedOptions = do
@@ -1525,16 +1532,99 @@ resolveTrainingProblem parsedOptions = do
     Left err -> exitWithError (DhallTypeError err)
     Right problem -> pure problem
 
+-- | Sprint 8.13 — the real supervised-learning run metrics surfaced by
+-- @jitml train@. The published loss is a measured cross-entropy (classifier)
+-- or MSE (regression) value, never @1 − accuracy@; the validation loss is a
+-- real held-out measurement on the validation partition (the quantity that
+-- drives validation-driven model selection); the throughput field is a
+-- deterministic, non-wall-clock performance metric (train examples × epochs);
+-- and the held-out metric is the test-partition accuracy/error reported once on
+-- the selected model.
+data TrainingMetrics = TrainingMetrics
+  { tmTrainLoss :: !Double
+  , tmValidationLoss :: !Double
+  , tmExamplesProcessed :: !Int
+  , tmHeldOutMetric :: !(Maybe (Text, Double))
+  }
+  deriving stock (Eq, Show)
+
+-- | Sprint 8.13 — deterministically carve a held-out validation partition off
+-- the tail of the (bounded) training examples. The validation slice is never
+-- folded into the gradient-update set, so model selection on it is honest. The
+-- canonical archives that ship no separate validation partition (CIFAR-10/100)
+-- still get an honest held-out slice here rather than reusing the test split as
+-- validation (the prohibition in @training_metrics_and_splits.md@). Tiny inputs
+-- (≤1 example) degenerate to using the same set for both, which only happens in
+-- unit fixtures, never in a budgeted live run.
+splitTrainValidation :: [a] -> ([a], [a])
+splitTrainValidation examples =
+  let n = length examples
+      valCount = max 1 (n `div` 6)
+      trainCount = n - valCount
+   in if trainCount < 1
+        then (examples, examples)
+        else splitAt trainCount examples
+
+-- | Sprint 8.13 — promote the architecture's 'Architecture.SlRunMetrics' plus
+-- the held-out test metric into the App-level 'TrainingMetrics' the publishers
+-- consume.
+trainingMetricsFor :: Architecture.SlRunMetrics -> Maybe Double -> Text -> TrainingMetrics
+trainingMetricsFor metrics heldOut metricLabel =
+  TrainingMetrics
+    { tmTrainLoss = Architecture.slmTrainLoss metrics
+    , tmValidationLoss = Architecture.slmValidationLoss metrics
+    , tmExamplesProcessed = Architecture.slmExamplesProcessed metrics
+    , tmHeldOutMetric = fmap (metricLabel,) heldOut
+    }
+
+-- | Sprint 8.13 — render the @jitml train@ stdout summary with the real
+-- cross-entropy train/validation losses, the deterministic throughput metric,
+-- the train accuracy, and the held-out test metric. Replaces the prior
+-- @train_acc=…@-only line that hid the faked loss.
+renderTrainingMetricsLine
+  :: Substrate
+  -> SL.CanonicalProblem
+  -> Maybe Text
+  -> Int
+  -> Int
+  -> Architecture.SlRunMetrics
+  -> Maybe Double
+  -> Text
+  -> Text
+renderTrainingMetricsLine substrate problem archiveName trainLimit epochs metrics heldOut metricLabel =
+  "train: "
+    <> SL.problemName problem
+    <> " model="
+    <> SL.problemModel problem
+    <> " substrate="
+    <> renderSubstrate substrate
+    <> maybe "" (" archive=" <>) archiveName
+    <> " limit="
+    <> Text.pack (show (max 1 trainLimit))
+    <> " epochs="
+    <> Text.pack (show (max 1 epochs))
+    <> " train_loss="
+    <> Text.pack (show (Architecture.slmTrainLoss metrics))
+    <> " val_loss="
+    <> Text.pack (show (Architecture.slmValidationLoss metrics))
+    <> " train_acc="
+    <> Text.pack (show (Architecture.slmTrainAccuracy metrics))
+    <> " examples_processed="
+    <> Text.pack (show (Architecture.slmExamplesProcessed metrics))
+    <> maybe "" (\a -> " " <> metricLabel <> "=" <> Text.pack (show a)) heldOut
+    <> "\n"
+
 -- | Sprint 8.10 — drive the substrate-backed differentiable SL classifier
--- over the canonical dataset bytes staged in MinIO. Returns @Right loss@ (a
--- loss-shaped scalar, @1 − accuracy@, from the live measurement) when real
--- device training ran, or @Left reason@ when a hard prerequisite (live
--- publication, staged dataset ref, staged bytes) is absent or the device
--- training itself failed. There is no synthetic fallback: a missing
--- prerequisite is a 'Left', never a fabricated curve. The example count and
--- epoch budget are capped by the mounted @TrainingRunConfig@ or the
--- @JITML_SL_*@ env vars so a live run stays tractable.
-runDeviceMnistTraining :: Substrate -> SL.CanonicalProblem -> App (Either Text Double)
+-- over the canonical dataset bytes staged in MinIO. Returns @Right metrics@
+-- (real cross-entropy train + held-out validation loss, deterministic
+-- throughput, and the held-out test accuracy) when real device training ran, or
+-- @Left reason@ when a hard prerequisite (live publication, staged dataset ref,
+-- staged bytes) is absent or the device training itself failed. There is no
+-- synthetic fallback: a missing prerequisite is a 'Left', never a fabricated
+-- curve. The example count and epoch budget are capped by the mounted
+-- @TrainingRunConfig@ or the @JITML_SL_*@ env vars so a live run stays
+-- tractable.
+runDeviceMnistTraining :: Substrate -> SL.CanonicalProblem -> App (Either Text TrainingMetrics)
 runDeviceMnistTraining substrate problem = do
   -- Sprint 5.7 — prefer the typed Dhall `TrainingRunConfig` mount; fall back to
   -- env vars when no mount is present. Sprint 5.11 reuses the helper below for
@@ -1556,7 +1646,7 @@ runDeviceMnistTraining substrate problem = do
   runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit
 
 runDeviceMnistTrainingWithLimits
-  :: Substrate -> SL.CanonicalProblem -> Int -> Int -> Int -> App (Either Text Double)
+  :: Substrate -> SL.CanonicalProblem -> Int -> Int -> Int -> App (Either Text TrainingMetrics)
 runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit = do
   env <- ask
   cluster <- liftIO (readExistingLivePublication ".")
@@ -1588,36 +1678,23 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                     Left err -> pure (Left (Text.pack err))
                     Right (configForData, dataset) -> do
                       let spec = Architecture.architectureSpecForProblem configForData problem
+                          (trainSet, validationSet) = splitTrainValidation dataset
                       trainedE <-
                         liftIO
-                          ( Architecture.trainArchitectureWithDevice
+                          ( Architecture.trainArchitectureWithDeviceSelected
                               device
                               spec
                               configForData
-                              dataset
+                              trainSet
+                              validationSet
                           )
                       case trainedE of
                         Left err -> pure (Left ("substrate training failed: " <> err))
-                        Right (trained, trainAcc) -> do
+                        Right (trained, metrics) -> do
                           testAcc <- evaluateTestSplitDevice device minioSettings trainRef trained testLimit
-                          let reportedAcc = fromMaybe trainAcc testAcc
                           writeText
-                            ( "train: "
-                                <> SL.problemName problem
-                                <> " model="
-                                <> SL.problemModel problem
-                                <> " substrate="
-                                <> renderSubstrate substrate
-                                <> " limit="
-                                <> Text.pack (show (max 1 trainLimit))
-                                <> " epochs="
-                                <> Text.pack (show (max 1 epochs))
-                                <> " train_acc="
-                                <> Text.pack (show trainAcc)
-                                <> maybe "" (\a -> " test_acc=" <> Text.pack (show a)) testAcc
-                                <> "\n"
-                            )
-                          pure (Right (1.0 - reportedAcc))
+                            (renderTrainingMetricsLine substrate problem Nothing trainLimit epochs metrics testAcc "test_acc")
+                          pure (Right (trainingMetricsFor metrics testAcc "test_acc"))
                 _ ->
                   pure
                     ( Left
@@ -1679,7 +1756,7 @@ runDeviceArchiveClassifierTraining
        -> Data.ByteString.ByteString
        -> Either String (Classifier.ClassifierConfig, Classifier.Dataset)
      )
-  -> App (Either Text Double)
+  -> App (Either Text TrainingMetrics)
 runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs testLimit publication decodeArchive = do
   env <- ask
   let edgePort = Publication.publicationEdgePort publication
@@ -1696,43 +1773,37 @@ runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs 
         Left err -> pure (Left (Text.pack err))
         Right (configForData, dataset) -> do
           let spec = Architecture.architectureSpecForProblem configForData problem
+              (trainSet, validationSet) = splitTrainValidation dataset
           trainedE <-
             liftIO
-              ( Architecture.trainArchitectureWithDevice
+              ( Architecture.trainArchitectureWithDeviceSelected
                   device
                   spec
                   configForData
-                  dataset
+                  trainSet
+                  validationSet
               )
           case trainedE of
             Left err -> pure (Left ("substrate archive training failed: " <> err))
-            Right (trained, trainAcc) -> do
+            Right (trained, metrics) -> do
               testAcc <-
                 case decodeArchive configForData Dataset.TestSplit (Just (max 1 testLimit)) archiveBytes of
                   Left _ -> pure Nothing
                   Right (_, testSet) -> do
                     accE <- liftIO (Architecture.accuracyArchitectureWithDevice device trained testSet)
                     pure (eitherToMaybe accE)
-              let reportedAcc = fromMaybe trainAcc testAcc
               writeText
-                ( "train: "
-                    <> SL.problemName problem
-                    <> " model="
-                    <> SL.problemModel problem
-                    <> " substrate="
-                    <> renderSubstrate substrate
-                    <> " archive="
-                    <> Dataset.datasetName trainRef
-                    <> " limit="
-                    <> Text.pack (show (max 1 trainLimit))
-                    <> " epochs="
-                    <> Text.pack (show (max 1 epochs))
-                    <> " train_acc="
-                    <> Text.pack (show trainAcc)
-                    <> maybe "" (\a -> " test_acc=" <> Text.pack (show a)) testAcc
-                    <> "\n"
+                ( renderTrainingMetricsLine
+                    substrate
+                    problem
+                    (Just (Dataset.datasetName trainRef))
+                    trainLimit
+                    epochs
+                    metrics
+                    testAcc
+                    "test_acc"
                 )
-              pure (Right (1.0 - reportedAcc))
+              pure (Right (trainingMetricsFor metrics testAcc "test_acc"))
 
 runDeviceCaliforniaHousingTraining
   :: Substrate
@@ -1741,7 +1812,7 @@ runDeviceCaliforniaHousingTraining
   -> Int
   -> Int
   -> ClusterPublication
-  -> App (Either Text Double)
+  -> App (Either Text TrainingMetrics)
 runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs publication = do
   env <- ask
   let edgePort = Publication.publicationEdgePort publication
@@ -1760,15 +1831,39 @@ runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs 
             Nothing -> pure (Left "California Housing archive produced no rows")
             Just firstExample -> do
               let normalizedDataset = Regression.standardizeRegressionExamples dataset
-              let config =
+                  (trainSet, validationSet) = splitTrainValidation normalizedDataset
+                  config =
                     Regression.defaultRegressionConfig
                       { Regression.regInputs = VU.length (Regression.regressionFeatures firstExample)
                       , Regression.regEpochs = max 1 epochs
                       }
-              trainedE <- liftIO (Regression.trainRegressorWithDevice device config normalizedDataset)
+              trainedE <- liftIO (Regression.trainRegressorWithDevice device config trainSet)
               case trainedE of
                 Left err -> pure (Left ("substrate regression training failed: " <> err))
-                Right (_, trainMse) -> do
+                Right (trained, trainMse) -> do
+                  -- Sprint 8.13 — real held-out validation MSE on the carved
+                  -- validation partition (never trained on); the published loss
+                  -- and validation loss are both real device measurements.
+                  validationMseE <-
+                    liftIO
+                      ( Regression.meanSquaredErrorWithDevice
+                          device
+                          trained
+                          (if null validationSet then trainSet else validationSet)
+                      )
+                  -- Sprint 10.9 review hardening — surface the rare device-failure
+                  -- fallback rather than silently publishing train MSE as validation MSE.
+                  validationMse <- case validationMseE of
+                    Right mse -> pure mse
+                    Left err -> do
+                      writeText
+                        ( "train: warning: held-out validation MSE unavailable ("
+                            <> err
+                            <> "); publishing train MSE as a conservative fallback\n"
+                        )
+                      pure trainMse
+                  let epochsBudget = max 1 epochs
+                      examplesProcessed = length trainSet * epochsBudget
                   writeText
                     ( "train: "
                         <> SL.problemName problem
@@ -1781,12 +1876,24 @@ runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs 
                         <> " limit="
                         <> Text.pack (show (max 1 trainLimit))
                         <> " epochs="
-                        <> Text.pack (show (max 1 epochs))
+                        <> Text.pack (show epochsBudget)
                         <> " train_mse="
                         <> Text.pack (show trainMse)
+                        <> " val_mse="
+                        <> Text.pack (show validationMse)
+                        <> " examples_processed="
+                        <> Text.pack (show examplesProcessed)
                         <> "\n"
                     )
-                  pure (Right trainMse)
+                  pure
+                    ( Right
+                        TrainingMetrics
+                          { tmTrainLoss = trainMse
+                          , tmValidationLoss = validationMse
+                          , tmExamplesProcessed = examplesProcessed
+                          , tmHeldOutMetric = Nothing
+                          }
+                    )
 
 -- | True when a problem's dataset has a published canonical label SHA, i.e.
 -- real label bytes are stageable in MinIO (not the synthetic per-(name,
@@ -1963,8 +2070,8 @@ workerExperimentHash = do
                 Just value | not (null value) -> Just (Text.pack value)
                 _ -> Nothing
 
-publishWorkerTrainingEvent :: Double -> App ()
-publishWorkerTrainingEvent finalLoss = do
+publishWorkerTrainingEvent :: TrainingMetrics -> App ()
+publishWorkerTrainingEvent metrics = do
   target <- workerBrokerTarget
   experimentHashMaybe <- liftIO workerExperimentHash
   case (target, experimentHashMaybe) of
@@ -1976,8 +2083,10 @@ publishWorkerTrainingEvent finalLoss = do
               ( ProtoTraining.EpochCompleted
                   { ProtoTraining.ecExperimentHash = experimentHash
                   , ProtoTraining.ecEpoch = 1
-                  , ProtoTraining.ecLoss = finalLoss
-                  , ProtoTraining.ecValidationLoss = finalLoss
+                  , -- Sprint 8.13 — real cross-entropy/MSE training loss and a
+                    -- distinct real held-out validation loss, never @1 − acc@.
+                    ProtoTraining.ecLoss = tmTrainLoss metrics
+                  , ProtoTraining.ecValidationLoss = tmValidationLoss metrics
                   , ProtoTraining.ecTimestampNs = timestampNs
                   }
               )
@@ -2723,6 +2832,65 @@ buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights =
           , Checkpoint.manifestMetrics = metrics
           }
    in (manifest, [(blobObjectKey, payload)])
+
+-- | Sprint 10.9 (review hardening) — like 'writeMinIOWeightCheckpoint' but writes a
+-- __self-describing__ manifest: it records the model's input/output 'Checkpoint.TensorSpec'
+-- and its per-layer weight layout (the @W1/b1/W2/b2@ tensors in flatten order) instead of a
+-- single flat blob. This makes the checkpoint carry correct per-tensor shapes (the Sprint
+-- 10.9 Exit Definition) and lets a downstream multi-layer-forward consumer (Phase 14.3,
+-- output width = class count) reshape the flat weight blob unambiguously.
+writeMinIOWeightCheckpointShaped
+  :: (Capabilities.HasMinIO m)
+  => Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> Checkpoint.TensorSpec
+  -> Checkpoint.TensorSpec
+  -> [Checkpoint.TensorSpec]
+  -> m (Either ServiceError CheckpointStore.StoredCheckpoint)
+writeMinIOWeightCheckpointShaped experimentHash tensorName step metrics weights inputSpec outputSpec layerSpecs =
+  let (manifest, payloads) =
+        buildShapedWeightCheckpointSnapshot
+          experimentHash
+          tensorName
+          step
+          metrics
+          weights
+          inputSpec
+          outputSpec
+          layerSpecs
+   in CheckpointStore.writeCheckpointSnapshotWithMinIO manifest payloads Nothing
+
+-- | Sprint 10.9 (review hardening) — augment 'buildWeightCheckpointSnapshot' with the
+-- model's input/output specs and per-layer weight layout. Reuses the flat builder for the
+-- blob + model-family + metric population and overrides only the architecture inputs/outputs
+-- and the weight layout, so the flat @.jmw1@ blob is unchanged while the manifest now
+-- describes how to split it per layer.
+buildShapedWeightCheckpointSnapshot
+  :: Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> Checkpoint.TensorSpec
+  -> Checkpoint.TensorSpec
+  -> [Checkpoint.TensorSpec]
+  -> (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
+buildShapedWeightCheckpointSnapshot experimentHash tensorName step metrics weights inputSpec outputSpec layerSpecs =
+  let (manifest, payloads) =
+        buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights
+      manifest' =
+        manifest
+          { Checkpoint.manifestArchitecture =
+              (Checkpoint.manifestArchitecture manifest)
+                { Checkpoint.architectureInputs = [inputSpec]
+                , Checkpoint.architectureOutputs = [outputSpec]
+                }
+          , Checkpoint.manifestWeightLayout = Checkpoint.NamedTensorWeightLayout layerSpecs
+          }
+   in (manifest', payloads)
 
 checkpointModelFamilyForTensor :: Text -> Checkpoint.ModelFamily
 checkpointModelFamilyForTensor tensorName
@@ -4122,12 +4290,6 @@ runInternalUploadDataset parsedOptions = do
                 ("upload-dataset failed: " <> Text.pack (show err))
             )
 
--- | Sprint 14.1 — seed the five demo browser-panel inference checkpoints into
--- live MinIO so the checkpoint-backed panels (MNIST / generic / CIFAR /
--- checkpoint-compare / Connect 4) serve a real @InferenceResult@. The demo
--- runs a Dense2D weighted kernel that zero-pads the weight buffer to @n*n@
--- (@n@ = the request's input length) and returns a @1xn@ output, so one fixed
--- non-zero weight vector seeds every panel regardless of input size.
 -- | Sprint 5.12 — print the binary's own reflected Dhall config schema. The
 -- schema is read back off the live @FromDhall@ decoder (see
 -- 'DhallSchema.configSchemas'), so it cannot drift from the decoder types.
@@ -4176,6 +4338,12 @@ runInternalDhallSchema parsedOptions =
                   )
               )
 
+-- | Seed the five demo browser-panel inference checkpoints into live MinIO so the
+-- checkpoint-backed panels (MNIST / generic / CIFAR / checkpoint-compare / Connect 4)
+-- serve a real @InferenceResult@. Each checkpoint is a real-trained, distinct,
+-- provenance-tagged 'SeededDemoCheckpoint' written self-describing (per-layer tensor
+-- shapes + input/output specs) via 'writeMinIOWeightCheckpointShaped' (Sprint 10.9). The
+-- demo inference path that consumes them at full multi-layer width is Sprint 14.3.
 runInternalSeedDemoCheckpoints :: App ()
 runInternalSeedDemoCheckpoints = do
   livePublication <- liftIO (readExistingLivePublication ".")
@@ -4188,45 +4356,151 @@ runInternalSeedDemoCheckpoints = do
     Just publication -> do
       let edgePort = Publication.publicationEdgePort publication
           minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-          demoWeights :: [Double]
-          demoWeights =
-            [ 0.05 + fromIntegral ((i * 7 + 3) `mod` 11) / 20.0
-            | i <- [0 .. 255 :: Int]
-            ]
-          seeds :: [(Text, Text)]
-          seeds =
-            [ ("mnist-deep-mlp", "mnist-demo-weights")
-            , ("generic-tensor-demo", "generic-demo-weights")
-            , ("generic-tensor-demo-candidate", "generic-candidate-demo-weights")
-            , ("cifar-imagenet", "cifar-demo-weights")
-            , ("connect4-alphazero", "connect4-alphazero-demo-weights")
-            ]
-          seedOne (experimentHash, tensorName) = do
+          seedOne spec = do
             result <-
               liftIO
                 ( MinIOSubprocess.runMinIOSubprocess
                     minioSettings
-                    ( writeMinIOWeightCheckpoint
-                        experimentHash
-                        tensorName
+                    ( writeMinIOWeightCheckpointShaped
+                        (sdcExperimentHash spec)
+                        (sdcTensorName spec)
                         (1 :: Word64)
-                        [("demo", 1.0)]
-                        demoWeights
+                        (sdcProvenance spec)
+                        (sdcWeights spec)
+                        (sdcInputSpec spec)
+                        (sdcOutputSpec spec)
+                        (sdcLayerSpecs spec)
                     )
                 )
             case result of
               Right _ ->
-                writeText ("seed-demo-checkpoints: " <> experimentHash <> " seeded\n")
+                writeText
+                  ( "seed-demo-checkpoints: "
+                      <> sdcExperimentHash spec
+                      <> " seeded ("
+                      <> Text.pack (show (length (sdcWeights spec)))
+                      <> " trained weights, "
+                      <> Text.pack (show (length (sdcLayerSpecs spec)))
+                      <> " typed tensors)\n"
+                  )
               Left err ->
                 exitWithError
                   ( InvalidConfig
                       ( "seed-demo-checkpoints: "
-                          <> experimentHash
+                          <> sdcExperimentHash spec
                           <> " failed: "
                           <> Text.pack (show err)
                       )
                   )
-      mapM_ seedOne seeds
+      mapM_ seedOne seededDemoCheckpoints
+
+-- | Sprint 10.9 (review hardening) — a self-describing demo checkpoint spec: the trained
+-- flat weights plus the per-layer tensor shapes and input/output specs the manifest records.
+-- Carrying the shapes makes the checkpoint satisfy the "correct per-tensor shapes" Exit
+-- Definition and lets a downstream multi-layer-forward consumer (Phase 14.3) reshape the flat
+-- @.jmw1@ blob into its layers without a hardcoded per-family lookup.
+data SeededDemoCheckpoint = SeededDemoCheckpoint
+  { sdcExperimentHash :: !Text
+  , sdcTensorName :: !Text
+  , sdcWeights :: ![Double]
+  , sdcProvenance :: ![(Text, Double)]
+  , sdcInputSpec :: !Checkpoint.TensorSpec
+  , sdcOutputSpec :: !Checkpoint.TensorSpec
+  , sdcLayerSpecs :: ![Checkpoint.TensorSpec]
+  }
+  deriving stock (Eq, Show)
+
+-- | Per-layer tensor specs for a single-hidden-layer MLP, in the 'mlpParamsToFlat' order
+-- (@W1 ++ b1 ++ W2 ++ b2@). The product of the shapes sums to the flat weight length.
+mlpLayerTensorSpecs :: MlpShape -> [Checkpoint.TensorSpec]
+mlpLayerTensorSpecs shape =
+  [ Checkpoint.TensorSpec "W1" [mlpHidden shape, mlpInputs shape] "F64"
+  , Checkpoint.TensorSpec "b1" [mlpHidden shape] "F64"
+  , Checkpoint.TensorSpec "W2" [mlpOutputs shape, mlpHidden shape] "F64"
+  , Checkpoint.TensorSpec "b2" [mlpOutputs shape] "F64"
+  ]
+
+seededDemoCheckpoints :: [SeededDemoCheckpoint]
+seededDemoCheckpoints =
+  [ classifierDemo "mnist-deep-mlp" "mnist-demo-weights" 2001 784 24 10
+  , classifierDemo "generic-tensor-demo" "generic-demo-weights" 2003 4 8 3
+  , classifierDemo "generic-tensor-demo-candidate" "generic-candidate-demo-weights" 2004 4 8 3
+  , classifierDemo "cifar-imagenet" "cifar-demo-weights" 2002 3072 24 10
+  , alphaZeroDemo "connect4-alphazero" "connect4-alphazero-demo-weights" 2005
+  ]
+ where
+  classifierDemo experimentHash tensorName seed inputs hidden classes =
+    let config =
+          Classifier.defaultClassifierConfig
+            { Classifier.clfSeed = seed
+            , Classifier.clfInputs = inputs
+            , Classifier.clfHidden = hidden
+            , Classifier.clfClasses = classes
+            , Classifier.clfEpochs = 15
+            , Classifier.clfLearningRate = 5.0e-3
+            }
+        dataset = demoClassifierDataset seed inputs classes
+        trained = Classifier.trainClassifier config dataset
+        params = Classifier.trainedParams trained
+        shape = paramShape params
+     in SeededDemoCheckpoint
+          { sdcExperimentHash = experimentHash
+          , sdcTensorName = tensorName
+          , sdcWeights = mlpParamsToFlat params
+          , sdcProvenance =
+              [ ("train_loss", Classifier.crossEntropyLoss trained dataset)
+              , ("train_accuracy", Classifier.accuracy trained dataset)
+              , ("seed", fromIntegral seed)
+              ]
+          , sdcInputSpec = Checkpoint.TensorSpec "input" [mlpInputs shape] "F64"
+          , -- the classifier MLP carries @classes + 1@ raw output units (the class
+            -- logits plus one value head from the shared policy/value structure); the
+            -- semantic output width a demo forward renders is the class count, so the
+            -- output spec records @classes@ while the layer specs keep the raw tensors.
+            sdcOutputSpec = Checkpoint.TensorSpec "logits" [classes] "F64"
+          , sdcLayerSpecs = mlpLayerTensorSpecs shape
+          }
+  alphaZeroDemo experimentHash tensorName seed =
+    let net0 = PolicyValueNet.initPolicyValueNet 43 7 32 seed
+        adam0 = PolicyValueNet.initAdamFor net0
+        generation = PolicyValueNet.runOneGenerationOfSelfPlay net0 adam0 12 42 16 40 16 seed
+        net = PolicyValueNet.genNet generation
+        params = PolicyValueNet.pvnParams net
+        shape = paramShape params
+     in SeededDemoCheckpoint
+          { sdcExperimentHash = experimentHash
+          , sdcTensorName = tensorName
+          , sdcWeights = mlpParamsToFlat params
+          , sdcProvenance =
+              [ ("arena_win_rate", PolicyValueNet.genArenaWinRate generation)
+              , ("self_play_samples", fromIntegral (PolicyValueNet.genSamplesCount generation))
+              , ("seed", fromIntegral seed)
+              ]
+          , -- the AlphaZero net outputs @actionCount@ policy logits + 1 value head.
+            sdcInputSpec = Checkpoint.TensorSpec "board" [mlpInputs shape] "F64"
+          , sdcOutputSpec = Checkpoint.TensorSpec "policy_value" [mlpOutputs shape] "F64"
+          , sdcLayerSpecs = mlpLayerTensorSpecs shape
+          }
+
+-- | Sprint 10.9 — a small, deterministic, linearly-separable classification task
+-- for the real-trained demo checkpoints. Class @c@ carries high signal at the
+-- feature positions congruent to @c@ modulo the class count, with a tiny
+-- seed-derived jitter, so a softmax MLP learns a real (non-trivial) decision
+-- boundary. Generated in-code per the numerical-fixture prohibition.
+demoClassifierDataset :: Int -> Int -> Int -> Classifier.Dataset
+demoClassifierDataset seed inputs classes =
+  [ Classifier.LabeledExample (VU.fromList (feature c i)) c
+  | c <- [0 .. max 1 classes - 1]
+  , i <- [0 .. 3 :: Int]
+  ]
+ where
+  feature c i =
+    [ signal j + jitter j
+    | j <- [0 .. max 1 inputs - 1]
+    ]
+   where
+    signal j = if j `mod` max 1 classes == c then 1.0 else 0.0
+    jitter j = fromIntegral ((seed + c * 31 + i * 7 + j * 13) `mod` 5) / 100.0
 
 parseDatasetSplit :: Text -> Maybe Dataset.DatasetSplit
 parseDatasetSplit "train" = Just Dataset.TrainSplit

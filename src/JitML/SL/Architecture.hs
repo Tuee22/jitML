@@ -14,10 +14,13 @@ module JitML.SL.Architecture
   ( ArchitectureFamily (..)
   , ArchitectureSpec (..)
   , TrainedArchitecture (..)
+  , SlRunMetrics (..)
   , architectureSpecForProblem
   , allCanonicalArchitectureSpecs
   , trainArchitectureWithDevice
+  , trainArchitectureWithDeviceSelected
   , accuracyArchitectureWithDevice
+  , crossEntropyArchitectureWithDevice
   , trainedArchitectureWeights
   )
 where
@@ -74,6 +77,27 @@ data TrainedArchitecture = TrainedArchitecture
   { trainedArchSpec :: !ArchitectureSpec
   , trainedArchLayers :: ![LayerState]
   , trainedArchConfig :: !ClassifierConfig
+  }
+  deriving stock (Eq, Show)
+
+-- | Sprint 8.13 — real supervised-learning run metrics. The published loss is
+-- a measured mean softmax cross-entropy, never @1 − accuracy@; the validation
+-- loss is a real held-out measurement on the validation partition; and the
+-- throughput field is a deterministic, non-wall-clock performance metric (the
+-- count of training examples the device pushed through forward+backward across
+-- every epoch), so it stays inside the determinism contract that excludes
+-- wall-clock timing.
+data SlRunMetrics = SlRunMetrics
+  { slmTrainLoss :: !Double
+  -- ^ Real mean softmax cross-entropy on the train partition of the
+  --   validation-selected model.
+  , slmValidationLoss :: !Double
+  -- ^ Real mean softmax cross-entropy on the held-out validation partition of
+  --   the selected model — the quantity that drove model selection.
+  , slmTrainAccuracy :: !Double
+  -- ^ Train-partition accuracy of the selected model.
+  , slmExamplesProcessed :: !Int
+  -- ^ Deterministic throughput metric: train examples × epochs.
   }
   deriving stock (Eq, Show)
 
@@ -281,6 +305,109 @@ accuracyArchitectureWithDevice device trained dataset = do
                 (filter id (zipWith (==) predicted (fmap exampleLabel dataset)))
          in Right (fromIntegral correct / fromIntegral (length dataset))
       TokenBatch _ -> Left "accuracyArchitectureWithDevice: final representation is token-shaped"
+
+-- | Sprint 8.13 — real mean softmax cross-entropy of a trained architecture
+-- over a dataset, computed through the device forward. This is the SL loss the
+-- runtime publishes; it replaces the @1 − accuracy@ stand-in. An empty dataset
+-- yields @0.0@ (the caller never trains on an empty split).
+crossEntropyArchitectureWithDevice
+  :: MlpDevice -> TrainedArchitecture -> Dataset -> IO (Either Text Double)
+crossEntropyArchitectureWithDevice _ _ [] = pure (Right 0.0)
+crossEntropyArchitectureWithDevice device trained dataset = do
+  outE <- forwardOnly device (trainedArchLayers trained) (FlatBatch (fmap exampleFeatures dataset))
+  pure $ do
+    outs <- outE
+    case outs of
+      FlatBatch vectors ->
+        let classes = clfClasses (trainedArchConfig trained)
+            losses = zipWith (crossEntropyOne classes) vectors (fmap exampleLabel dataset)
+         in Right (sum losses / fromIntegral (length dataset))
+      TokenBatch _ -> Left "crossEntropyArchitectureWithDevice: final representation is token-shaped"
+
+-- | Softmax cross-entropy of one example: @-log p[label]@ over the first
+-- @numClasses@ logits.
+crossEntropyOne :: Int -> Vector Double -> Int -> Double
+crossEntropyOne numClasses outputVec label =
+  let probs = softmax (VU.take numClasses outputVec)
+      p = if label >= 0 && label < VU.length probs then probs VU.! label else 0.0
+   in negate (log (max 1.0e-12 p))
+
+-- | Sprint 8.13 — train a canonical architecture with validation-driven model
+-- selection. Trains epoch by epoch, measures the held-out validation
+-- cross-entropy after each epoch, and returns the snapshot with the lowest
+-- validation loss (early-stop / model selection on the validation partition,
+-- never on test). The returned 'SlRunMetrics' carries the selected model's real
+-- train and validation cross-entropy plus the deterministic throughput metric.
+-- The validation partition must be a held-out slice that the caller never folds
+-- into @trainSet@; when it is empty the trainer falls back to the train set for
+-- the selection signal (still returning the best epoch, never a faked loss).
+trainArchitectureWithDeviceSelected
+  :: MlpDevice
+  -> ArchitectureSpec
+  -> ClassifierConfig
+  -> Dataset
+  -- ^ train partition (gradient updates only)
+  -> Dataset
+  -- ^ validation partition (selection only; never trained on)
+  -> IO (Either Text (TrainedArchitecture, SlRunMetrics))
+trainArchitectureWithDeviceSelected device spec config trainSet validationSet
+  | null trainSet = pure (Left "trainArchitectureWithDeviceSelected: empty training dataset")
+  | otherwise = do
+      let adamConfig = defaultAdamConfig {adamLearningRate = clfLearningRate config}
+          inputs = FlatBatch (fmap exampleFeatures trainSet)
+          labels = fmap exampleLabel trainSet
+          epochs = max 1 (clfEpochs config)
+          selectionSet = if null validationSet then trainSet else validationSet
+          mkTrained states =
+            TrainedArchitecture
+              { trainedArchSpec = spec
+              , trainedArchLayers = states
+              , trainedArchConfig = config
+              }
+      statesE <- initialiseLayers (clfSeed config) (archLayers spec)
+      case statesE of
+        Left err -> pure (Left err)
+        Right states0 -> do
+          folded <-
+            foldM
+              ( \acc _epoch -> case acc of
+                  Left err -> pure (Left err)
+                  Right (states, best) -> do
+                    stepE <- trainEpoch device adamConfig (clfClasses config) labels states inputs
+                    case stepE of
+                      Left err -> pure (Left err)
+                      Right states' -> do
+                        valE <- crossEntropyArchitectureWithDevice device (mkTrained states') selectionSet
+                        case valE of
+                          Left err -> pure (Left err)
+                          Right valLoss ->
+                            let best' = case best of
+                                  Just (_, bestVal) | bestVal <= valLoss -> best
+                                  _ -> Just (states', valLoss)
+                             in pure (Right (states', best'))
+              )
+              (Right (states0, Nothing))
+              [1 .. epochs]
+          case folded of
+            Left err -> pure (Left err)
+            Right (_, Nothing) ->
+              pure (Left "trainArchitectureWithDeviceSelected: no epoch produced a validation measurement")
+            Right (_, Just (bestStates, bestValLoss)) -> do
+              let trained = mkTrained bestStates
+              trainLossE <- crossEntropyArchitectureWithDevice device trained trainSet
+              trainAccE <- accuracyArchitectureWithDevice device trained trainSet
+              pure $ do
+                trainLoss <- trainLossE
+                trainAcc <- trainAccE
+                Right
+                  ( trained
+                  , SlRunMetrics
+                      { slmTrainLoss = trainLoss
+                      , slmValidationLoss = bestValLoss
+                      , slmTrainAccuracy = trainAcc
+                      , slmExamplesProcessed = length trainSet * epochs
+                      }
+                  )
 
 -- | Flatten a trained architecture's per-layer 'MlpParams' into one weight
 -- vector, in layer order, so a trained architecture can be promoted into a

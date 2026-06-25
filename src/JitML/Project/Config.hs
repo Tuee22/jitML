@@ -215,15 +215,31 @@ renderRetention (LastN n) = "RetentionPolicy.LastN " <> renderNat n
 renderRetention (MaxAgeSeconds s) = "RetentionPolicy.MaxAgeSeconds " <> renderNat s
 renderRetention (MaxBytes b) = "RetentionPolicy.MaxBytes " <> renderNat b
 renderRetention (LastNWithinAge keep age) =
-  "RetentionPolicy.LastNWithinAge { keep = " <> renderNat keep <> ", maxAgeSeconds = " <> renderNat age <> " }"
+  "RetentionPolicy.LastNWithinAge { keep = "
+    <> renderNat keep
+    <> ", maxAgeSeconds = "
+    <> renderNat age
+    <> " }"
 
 renderBudget :: Budget -> Text
 renderBudget b =
-  "{ cpu = " <> renderNat (budgetCpu b) <> ", memory = " <> renderNat (budgetMemory b) <> ", storage = " <> renderNat (budgetStorage b) <> " }"
+  "{ cpu = "
+    <> renderNat (budgetCpu b)
+    <> ", memory = "
+    <> renderNat (budgetMemory b)
+    <> ", storage = "
+    <> renderNat (budgetStorage b)
+    <> " }"
 
 renderPod :: PodResources -> Text
 renderPod p =
-  "{ replicas = " <> renderNat (podReplicas p) <> ", cpuLimit = " <> renderNat (podCpuLimit p) <> ", memoryLimit = " <> renderNat (podMemoryLimit p) <> " }"
+  "{ replicas = "
+    <> renderNat (podReplicas p)
+    <> ", cpuLimit = "
+    <> renderNat (podCpuLimit p)
+    <> ", memoryLimit = "
+    <> renderNat (podMemoryLimit p)
+    <> " }"
 
 renderStoreEntry :: StoreEntry -> Text
 renderStoreEntry e =
@@ -313,7 +329,10 @@ renderProjectConfigDhall cfg =
       , "      , budget = " <> renderBudget (projectBudget cfg)
       , "      , pods = " <> renderList (map renderPod (projectPods cfg)) "PodResources"
       , "      , stores = " <> renderList (map (\e -> "storeFor StoreId." <> ctorOf e) stores) "StoreEntry"
-      , "      , writers = " <> renderList (map (\w -> "refFor StoreId." <> storeIdConstructor (refLogicalName w)) (projectWriters cfg)) "StoreRef"
+      , "      , writers = "
+          <> renderList
+            (map (\w -> "refFor StoreId." <> storeIdConstructor (refLogicalName w)) (projectWriters cfg))
+            "StoreRef"
       , "      }"
       ]
 
@@ -451,8 +470,8 @@ projectSchemaDhall =
 -- ---------------------------------------------------------------------------
 
 bucket :: Text -> Text -> Natural -> RetentionPolicy -> StoreEntry
-bucket logical physical quota retention =
-  StoreEntry logical physical ObjectBucket Live quota retention
+bucket logical physical =
+  StoreEntry logical physical ObjectBucket Live
 
 topic :: Text -> StoreEntry
 topic logical = StoreEntry logical logical MessageTopic Live 0 KeepAll

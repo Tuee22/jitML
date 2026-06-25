@@ -21,6 +21,16 @@
 
 ## Phase Status
 
+⏸️ **Blocked** (reopened 2026-06-24 for Sprint `14.3` — real demo inference: real
+multi-layer forward at full width, real user input, every trained family rendered).
+**Blocked by**: Phase 10 Sprint `10.9` (the trained checkpoints) and Phase 13 Sprint
+`13.2` (the re-attested runtime). Sprint `14.3` routes the demo through the real
+multi-layer MLP forward (the kernels exist in `Codegen/Mlp{OneDnn,Cuda,Metal}.hs`)
+instead of the single fixed-vector Dense2D path, wires the drawn-canvas / uploaded
+image into the request (replacing the constant panel inputs), renders the unrendered
+families, and adds a Playwright assertion that the prediction tracks the input. All
+prior Sprints `14.1`–`14.2` remain `✅ Done`; the prior closure history follows.
+
 ✅ **Done — `linux-cpu` scope** (validated 2026-06-17 on an Apple M1 Max host's
 `linux-cpu` lane; opened 2026-06-14). The full interactive browser product matrix
 runs against the live `linux-cpu` edge: `jitml lint purescript` ok, `jitml-e2e
@@ -239,6 +249,46 @@ standards rule M(b)/(d); the same matrix is re-run per-accelerator by Sprint
 
 - Update `system-components.md` frontend and test rows to mark this phase as the
   owner of no-caveat browser closure.
+
+## Sprint 14.3: Real Demo Inference — Full-Width Multi-Layer Forward, Real Input, All Families [⏸️ Blocked]
+
+**Status**: Blocked — reopened 2026-06-24.
+
+**Blocked by**: Phase 10 Sprint `10.9` (trained checkpoints) and Phase 13 Sprint
+`13.2` (re-attested runtime).
+
+Make the demo render real, input-driven predictions for every trained family:
+
+- Route the demo forward through the real multi-layer MLP kernels (which exist in
+  `Codegen/Mlp{OneDnn,Cuda,Metal}.hs`) instead of the single fixed-vector Dense2D path
+  (`Engines/Local.hs` `runLinuxCpuWeightedCheckpointInference`, which hardcodes `Dense2D`),
+  so output width is the real class count (MNIST → 10). **Consumes the 10.9 shape
+  contract:** the seeded checkpoints are self-describing — the manifest's per-layer
+  `WeightLayout` tensor specs (`W1/b1/W2/b2` in flatten order) drive the reshape of the
+  flat `.jmw1` blob into layers, and the output `TensorSpec` width is the class count to
+  render (the classifier MLP's extra raw value-head output beyond `classes` is dropped).
+  No hardcoded per-family shape lookup is needed.
+- Wire the drawn-canvas / uploaded image into the inference request, replacing the
+  constant panel inputs (`[1.0,2.0]` Mnist/Cifar; `[0.25,-0.5,1.0,2.0]`
+  GenericInference/CheckpointCompare).
+- Render the unrendered families (SL regression, TinyImageNet, othello/hex/gomoku, the
+  RL algorithm catalog) via panels/selectors + seeded checkpoints.
+- Add a Playwright assertion that the rendered prediction tracks the user's input.
+
+### Exit Definition
+
+- Each demo family renders a real, full-width, input-driven prediction; no constant
+  panel input or single-Dense2D collapse remains; Playwright asserts input-tracking.
+
+### Validation
+
+- Live Playwright demo matrix green on the `linux-cpu` edge, asserting the prediction
+  changes with the drawn input and the output width equals the class count.
+
+### Remaining Work
+
+- Implement the real-forward routing, input wiring, the new panels/selectors, and the
+  Playwright assertion; the code lands here.
 
 ## Related Documents
 

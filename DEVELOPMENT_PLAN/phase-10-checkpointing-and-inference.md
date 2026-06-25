@@ -25,6 +25,21 @@
 
 ## Phase Status
 
+🔄 **Active** (reopened 2026-06-24 for Sprint `10.9` — ship real trained demo
+checkpoints and delete the synthetic weight ramp). Phases 8/9 (the real SL/RL training
+this reuses) have landed, so this phase is unblocked; Sprint `10.9`'s **code has landed
+and is validated host-native** (grep-clean for the ramp + the `jitml-unit` "demo
+checkpoints (Sprint 10.9)" distinctness/self-describing case + `jitml-e2e` 23/23):
+`runInternalSeedDemoCheckpoints`' hardcoded `demoWeights` ramp (byte-identical across all
+five seeds) is replaced with `seededDemoCheckpoints` — distinct, provenance-tagged,
+real-trained, **self-describing** weights per family (four softmax MLP classifiers + one
+self-play-trained AlphaZero policy/value net), each carrying per-layer tensor shapes + a
+class-count output spec so Sprint `14.3` can reshape them. The **remaining gate** is this
+phase's OWN self-contained `linux-cpu` live family-distinct `jitml inference run` proof
+(rule M(d): closes on the always-available `linux-cpu` host); Sprint `13.2` re-exercises
+the same path in its full-runtime re-attest but does not gate Phase 10. All prior Sprints
+`10.1`–`10.8` remain `✅ Done`; the prior closure history follows.
+
 ✅ **Done** (reopened 2026-06-23 for Sprint `10.8`; unblocked by Phase 2's 2026-06-24
 close, **re-closed 2026-06-24**) — the checkpoint GC retention is now sourced from the
 durable-state registry's `checkpoints` store (`JitML.Project.Config`'s typed
@@ -772,6 +787,71 @@ config value (`LastN 0` etc. rejected at typecheck) rather than a magic constant
   retention is a typed, registry-sourced `RetentionPolicy` (not the former `LastN 5`
   literal), cross-linking `durable_state_dsl.md`; the README durable-state registry note
   covers the retention prose.
+
+## Sprint 10.9: Real Trained Demo Checkpoints (Delete the Synthetic Weight Ramp) [🔄 Active]
+
+**Status**: Active — reopened 2026-06-24. **Code landed and validated host-native
+(grep-clean + the `jitml-unit` "demo checkpoints (Sprint 10.9)" distinctness/self-describing
+case + `jitml-e2e` 23/23); the remaining gate is this phase's OWN self-contained
+`linux-cpu` live family-distinct `jitml inference run` proof (a `linux-cpu`-lane closure
+on a single host, rule M(d)) — NOT a dependency on Sprint `13.2`.** Phase 8 Sprint `8.13`
+and Phase 9 Sprint `9.13` (the real training surfaces this reuses) have landed.
+
+**Implementation**: `src/JitML/App.hs` (`seededDemoCheckpoints` + `SeededDemoCheckpoint`,
+`demoClassifierDataset`, `mlpLayerTensorSpecs`, `buildShapedWeightCheckpointSnapshot` /
+`writeMinIOWeightCheckpointShaped`, the rewritten `runInternalSeedDemoCheckpoints`),
+`test/unit/Main.hs` (the distinctness test).
+
+**Blocked by**: none (Phases 8/9 landed).
+
+The hardcoded `demoWeights = [0.05 + ((i*7+3) mod 11)/20 | i in 0..255]` ramp
+(byte-identical across all five seeded "models") is **removed**.
+`runInternalSeedDemoCheckpoints` now seeds `seededDemoCheckpoints`: one **real, distinct,
+provenance-tagged, self-describing** checkpoint per demo family — the four classifier
+families (`mnist-deep-mlp` 784→24→10, `cifar-imagenet` 3072→24→10, `generic-tensor-demo`
+and `generic-tensor-demo-candidate` 4→8→3, distinct seeds) train a real softmax MLP
+(`Classifier.trainClassifier`) on a small in-code separable task and flatten the trained
+`MlpParams`; `connect4-alphazero` trains a real policy/value network through self-play
+(`runOneGenerationOfSelfPlay`) and flattens it (`policyValueNetToFlat`). Each checkpoint's
+manifest metric map records the run's provenance (training loss/accuracy or arena
+win-rate, plus the seed).
+
+**Self-describing checkpoints — the 10.9 → 14.3 shape contract.** `writeMinIOWeightCheckpointShaped`
+records each model's **per-layer tensor shapes** (`W1/b1/W2/b2` in the `mlpParamsToFlat`
+flatten order) plus an input `TensorSpec` and an output `TensorSpec` whose width is the
+**class count** (`logits` `[10]`/`[3]`; AlphaZero `policy_value` `[8]`), so the checkpoint
+satisfies "correct per-tensor shapes" and the downstream multi-layer-forward consumer
+(Sprint `14.3`, "output width = class count") can reshape the flat `.jmw1` blob into its
+layers without a hardcoded per-family lookup. (The classifier MLP carries one extra raw
+value-head output, `classes + 1`, from the shared policy/value structure; the output spec
+records the semantic class count and the layer specs keep the raw tensor shapes.)
+
+### Exit Definition
+
+- No synthetic/hardcoded weight ramp remains in `App.hs`; each demo family's checkpoint
+  is distinct, trained, provenance-tagged, and self-describing (per-layer shapes +
+  class-count output spec). The legacy ledger row for the ramp moves to `Completed`. ✅
+  (code; grep-clean + the distinctness/self-describing unit test confirm the worktree.)
+
+### Validation
+
+- Grep clean for the ramp — **confirmed** (`demoWeights` removed; no ramp remains).
+- `jitml-unit` "demo checkpoints (Sprint 10.9)" — the five families are distinct,
+  real-trained (non-constant), self-describing (per-layer shapes sum to the flat length),
+  and the output spec width equals the class count. **Host-native, no cluster.**
+- `jitml-e2e` chart/bucket guards green — **23/23**; the five demo experiment hashes are
+  preserved.
+- **Live (this phase owns it, `linux-cpu`):** `jitml bootstrap --linux-cpu` →
+  `jitml internal seed-demo-checkpoints` → `jitml inference run` over the five seeded
+  checkpoints returns family-distinct outputs. Self-contained on the `linux-cpu` host (no
+  accelerator), so Phase 10 closes in numerical order. Sprint `13.2`'s `jitml test all
+  --live --linux-cpu` re-exercises this path as part of the full-runtime re-attest, but
+  does **not** gate Phase 10.
+
+### Remaining Work
+
+- Run this phase's own `linux-cpu` live family-distinct `jitml inference run` proof, then
+  flip to ✅ Done.
 
 ## Related Documents
 

@@ -480,6 +480,81 @@ main =
                   assertBool
                     ("expected device train accuracy >= 0.9, got " <> show acc)
                     (acc >= 0.9)
+      , testCase "real SL metrics: validation-driven selection, real CE loss, throughput (Sprint 8.13)" $ do
+          -- Sprint 8.13 — exercise the real-metric SL path through whichever
+          -- substrate JIT device is real on this host: Apple Metal on the Mac
+          -- host (`--apple-silicon`), oneDNN in the linux-cpu container
+          -- (`--linux-cpu`). Asserts the published loss is a real mean softmax
+          -- cross-entropy that dropped below its log(numClasses) random baseline
+          -- (never `1 − accuracy`); the held-out validation loss is a real,
+          -- finite measurement on a partition the trainer never updated on; the
+          -- throughput metric is the deterministic train-examples × epochs count
+          -- (non-wall-clock, inside the determinism contract); and a fresh
+          -- device cross-entropy on the validation-selected model reproduces the
+          -- published train loss. Skips with a passing message on a host with no
+          -- substrate device. No committed fixtures.
+          env <- buildEnv defaultGlobalFlags
+          let firstDevice [] = pure Nothing
+              firstDevice (substrate : rest) = do
+                let candidate = mlpDeviceForSubstrate substrate env
+                probe <- probeMlpDevice candidate
+                case probe of
+                  Right () -> pure (Just candidate)
+                  Left _ -> firstDevice rest
+          deviceMaybe <- firstDevice [AppleSilicon, LinuxCPU]
+          case deviceMaybe of
+            Nothing ->
+              assertBool "no substrate JIT device available; real-metric SL path skipped" True
+            Just device -> do
+              let config =
+                    defaultClassifierConfig
+                      { clfSeed = 11
+                      , clfInputs = 4
+                      , clfHidden = 16
+                      , clfClasses = 3
+                      , clfEpochs = 40
+                      , clfLearningRate = 1.0e-2
+                      }
+                  denseProblem =
+                    case filter ((== "Dense") . SL.problemModel) canonicalProblems of
+                      (p : _) -> p
+                      [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
+                  spec = Architecture.architectureSpecForProblem config denseProblem
+                  examples = syntheticDataset
+                  valCount = max 1 (length examples `div` 6)
+                  trainCount = length examples - valCount
+                  trainSet = take trainCount examples
+                  validationSet = drop trainCount examples
+              result <-
+                Architecture.trainArchitectureWithDeviceSelected device spec config trainSet validationSet
+              case result of
+                Left err -> assertFailure ("real-metric SL training failed: " <> Text.unpack err)
+                Right (trained, metrics) -> do
+                  assertBool
+                    ( "expected a real train cross-entropy in (0, log 3 ~ 1.0986), got "
+                        <> show (Architecture.slmTrainLoss metrics)
+                    )
+                    (Architecture.slmTrainLoss metrics > 0 && Architecture.slmTrainLoss metrics < log 3)
+                  assertBool
+                    ( "expected a finite held-out validation loss >= 0, got "
+                        <> show (Architecture.slmValidationLoss metrics)
+                    )
+                    ( Architecture.slmValidationLoss metrics >= 0
+                        && not (isNaN (Architecture.slmValidationLoss metrics))
+                        && not (isInfinite (Architecture.slmValidationLoss metrics))
+                    )
+                  Architecture.slmExamplesProcessed metrics @?= trainCount * clfEpochs config
+                  reMeasured <- Architecture.crossEntropyArchitectureWithDevice device trained trainSet
+                  case reMeasured of
+                    Left err -> assertFailure ("re-measured device cross-entropy failed: " <> Text.unpack err)
+                    Right ce ->
+                      assertBool
+                        ( "expected re-measured CE to reproduce the published train loss, got "
+                            <> show ce
+                            <> " vs "
+                            <> show (Architecture.slmTrainLoss metrics)
+                        )
+                        (abs (ce - Architecture.slmTrainLoss metrics) < 1.0e-9)
       , testCase "SL regression converges through the substrate JIT device (Sprint 8.12 --linux-cpu)" $ do
           env <- buildEnv defaultGlobalFlags
           let device = mlpDeviceForSubstrate LinuxCPU env

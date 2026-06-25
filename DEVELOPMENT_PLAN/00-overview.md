@@ -883,8 +883,24 @@ for the governing rule.
 
 ## Current Baseline
 
-**🎉 Current status (2026-06-24): ALL phases `0`–`18` are `✅ Done`; the durable-state
-Dhall DSL has landed.** Phases
+**🔄 Current status (2026-06-24): reopened for real SL/RL — no hardcoded weights,
+convergence + performance metrics, train/test/validation splits, RL convergence.**
+Phases `8`/`9`/`10`/`13`/`14`/`18` are reopened. **Phase `8` Sprint `8.13`** (real CE/MSE
+SL loss + held-out validation loss, validation-driven selection, `examples_processed`
+throughput) and **Phase `9` Sprint `9.13`** (real measured-median RL convergence +
+env-steps sample-efficiency + AlphaZero arena-win-rate) are **`✅ Done` — validated on
+both the `apple-silicon` and `linux-cpu` lanes** (`sl-canonicals` 24/24 + 24/24,
+`rl-canonicals` 31/31 + 31/31, `docs check: ok`, `check-code` green). **Phase `10` Sprint
+`10.9`** (real trained, distinct, **self-describing** demo checkpoints — per-layer shapes
++ class-count output spec so Sprint `14.3` can reshape them — ramp retired) is **`🔄
+Active`: code landed + non-live validated** (grep-clean + the `unit` distinctness/self-describing
+case + `e2e` 23/23 + `check-code`); its remaining gate is Phase 10's OWN self-contained
+`linux-cpu` live family-distinct `jitml inference run` proof (so it closes in numerical
+order; Sprint `13.2` re-exercises but does not gate it).
+The live `linux-cpu` cluster + Playwright pass closes **Phases `13`/`14`/`18`**
+(`⏸️ Blocked` behind it). The `Pending Removal` ledger stays open (Exit Definition item 18
+again open) until they re-close. The durable-state DSL closure (below)
+stands. Phases
 `0`–`18` reached `✅ Done` (the prior no-caveat closure; all three per-lane
 report-card fragments committed, `linux-cpu` aggregation green, live Playwright
 14/14). The durable-state DSL refactor then reopened **Phases `2`/`4`/`5`/`10`/`18`**:

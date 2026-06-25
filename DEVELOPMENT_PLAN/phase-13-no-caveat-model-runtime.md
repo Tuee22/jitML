@@ -22,6 +22,14 @@
 
 ## Phase Status
 
+⏸️ **Blocked** (reopened 2026-06-24 for Sprint `13.2` — re-attest the no-caveat
+runtime with real SL/RL losses + metrics). **Blocked by**: Phase 8 Sprint `8.13`,
+Phase 9 Sprint `9.13`, Phase 10 Sprint `10.9`. Sprint `13.2` lands the real
+cross-entropy/MSE + held-out validation loss and re-attests R1–R5 on the
+`linux-cpu` lane (no synthetic weights, no faked loss, validation-driven selection,
+convergence-and-performance metrics). All prior Sprints `13.1` remain `✅ Done`; the
+prior closure history follows.
+
 ✅ **Done — `linux-cpu` scope** (validated 2026-06-16 on an Apple M1 Max host's
 `linux-cpu` lane; opened 2026-06-14, unblocked 2026-06-15). Per standards rule
 M(b), this phase owns the accelerator-free `linux-cpu` no-caveat model runtime;
@@ -283,6 +291,30 @@ family checkpoint-inference breadth.
 
 - Update `system-components.md` training, checkpoint, and test rows to mark this
   phase as the owner of no-caveat runtime closure.
+
+## Sprint 13.2: Re-Attest the No-Caveat Runtime with Real Losses + Metrics [⏸️ Blocked]
+
+**Status**: Blocked — reopened 2026-06-24.
+
+**Blocked by**: Phase 8 Sprint `8.13`, Phase 9 Sprint `9.13`, Phase 10 Sprint `10.9`.
+
+Re-run the `linux-cpu` no-caveat runtime attestation with the real SL/RL learning in
+place — no synthetic weights, no faked loss, validation-driven selection, and
+convergence-AND-performance metrics for both SL and RL.
+
+### Exit Definition
+
+- R1–R5 re-attested on the `linux-cpu` lane: trained weights only, real CE/MSE +
+  held-out validation loss, measured-median RL convergence, SL+RL performance metrics.
+
+### Validation
+
+- `jitml test all --live --linux-cpu` (cluster) green with the real metrics; the
+  per-lane convergence cohorts pass against the literature thresholds.
+
+### Remaining Work
+
+- Re-attest after Sprints 8.13/9.13/10.9 land; the code/validation lands here.
 
 ## Related Documents
 

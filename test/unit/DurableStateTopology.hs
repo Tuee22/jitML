@@ -8,6 +8,7 @@
 module DurableStateTopology (durableStateTopologyTests) where
 
 import Control.Exception (SomeException, try)
+import Control.Monad (void)
 import Data.List (sort)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -25,7 +26,7 @@ import JitML.Project.Config
 typechecks :: Text -> IO Bool
 typechecks t =
   either (const False) (const True)
-    <$> (try (() <$ Dhall.inputExpr t) :: IO (Either SomeException ()))
+    <$> (try (void (Dhall.inputExpr t)) :: IO (Either SomeException ()))
 
 durableStateTopologyTests :: TestTree
 durableStateTopologyTests =

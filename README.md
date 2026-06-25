@@ -1128,7 +1128,7 @@ Loss functions are represented declaratively in Dhall: scalar losses, multi-head
 
 # Concrete Dhall worked example
 
-A canonical SL experiment, end-to-end. The `dataset.train` field is the source for *both* train and validation splits — `Split.PermuteUnderSeed` slices `fullTrain` into a 55 000-example training partition and a 5 000-example validation partition under a fixed seed. `dataset.test` is the held-out final-evaluation set used by the convergence check, never seen during training. The `metrics` list declares each metric's direction (`Maximise` for accuracy, `Minimise` for loss), which the trainer's `pointers/best/<m>` CAS predicate consumes (see [Concurrency model](#concurrency-model)). The `tuning` field is `None Tuning` for single-run experiments; setting it to `Some Tuning::{ … }` turns the definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
+A canonical SL experiment, end-to-end. The `dataset.train` field is the source for *both* train and validation splits — `Split.PermuteUnderSeed` slices `fullTrain` into a 55 000-example training partition and a 5 000-example validation partition under a fixed seed. `dataset.test` is the held-out final-evaluation set — the **validation** partition drives model selection / early-stop, and `test` is measured once on the selected model, never seen during training or selection. All weights are real trained values (no hardcoded/synthetic weights) and the published loss is a real cross-entropy/MSE value, not `1 − accuracy` (see [documents/engineering/training_metrics_and_splits.md](documents/engineering/training_metrics_and_splits.md)). The `metrics` list declares each metric's direction (`Maximise` for accuracy, `Minimise` for loss), which the trainer's `pointers/best/<m>` CAS predicate consumes (see [Concurrency model](#concurrency-model)). The `tuning` field is `None Tuning` for single-run experiments; setting it to `Some Tuning::{ … }` turns the definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
 
 ```dhall
 -- experiments/mnist-mlp.dhall
@@ -1989,6 +1989,12 @@ test):
 | LunarLander-v2 | PPO | TBD | TBD |
 | LunarLander-v2 | DQN | TBD | TBD |
 | LunarLander-v2 | SAC | TBD | TBD |
+
+> Reopened 2026-06-24 (Sprints 9.13/13.2): the `reward` (convergence) and `timesteps`
+> (sample-efficiency performance) columns are populated by the **real measured-median**
+> over `k` seeds — not literature-target placeholders — and AlphaZero convergence is
+> measured by **arena win-rate**. See
+> [documents/engineering/training_metrics_and_splits.md](documents/engineering/training_metrics_and_splits.md).
 
 The convergence check is the load-bearing test; the run-to-run
 determinism check runs every commit; the convergence check runs nightly

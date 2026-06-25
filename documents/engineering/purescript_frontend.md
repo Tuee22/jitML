@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/system-components.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/system-components.md, training_metrics_and_splits.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
@@ -10,6 +10,20 @@
 > metadata, demo-route manifest, Playwright scaffold, demo deployment template,
 > and `jitml-demo` HTTP server, including the Halogen panels, compiled bundle,
 > live WebSocket proxy, and the reopened no-caveat Playwright product matrix.
+
+**Real demo inference — target (Sprint `14.3` — ⏸️ Blocked, reopened 2026-06-24; not yet
+implemented).** The intended end state: each panel sends the user's real input (drawn canvas
+/ uploaded image), the Engine runs the model's real full-width multi-layer forward over real
+trained weights (output width = the model's class count), and every trained family is
+rendered; a Playwright assertion checks that the prediction tracks the input. **Current
+state:** the panels still send constant inputs (`defaultInferenceInput` `[1.0, 2.0]` in
+`Mnist.purs` / `Cifar.purs`; `[0.25, -0.5, 1.0, 2.0]` in `GenericInference.purs` /
+`CheckpointCompare.purs`) and the inference path runs the single fixed-vector `Dense2D`
+kernel (`src/JitML/Engines/Local.hs` `runLinuxCpuWeightedCheckpointInference`) — Sprint
+`14.3` closes both. The demo's seeded checkpoints already carry real trained weights
+(Sprint `10.9`). See
+[training_metrics_and_splits.md](training_metrics_and_splits.md) and
+[DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
 
 ## Stack
 

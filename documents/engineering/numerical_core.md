@@ -2,13 +2,25 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-6-numerical-core.md, training_workloads.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-6-numerical-core.md, training_workloads.md, training_metrics_and_splits.md
 **Generated sections**: numerics.layers, numerics.activations, numerics.spectral, numerics.optimizers, numerics.schedulers, numerics.losses
 
 > **Purpose**: Project-specific numerical-core catalog for jitML — the current
 > local Haskell catalog under `src/JitML/Numerics/Catalog.hs`, the Dhall mirror
 > list tree under `dhall/numerics/`, and the generated documentation tables
 > rendered from those sources.
+
+**Real forward path.** SL training + evaluation already run the model's real multi-layer
+forward pass through the substrate-selected `MlpDevice` (`JitML.SL.Architecture`
+`forwardOnly` / `accuracyArchitectureWithDevice` / `crossEntropyArchitectureWithDevice`),
+and regression reports a real MSE metric — landed by Sprint `8.13` (✅ Done). **Target
+(Sprint `14.3` — ⏸️ Blocked, not yet implemented):** the *demo / checkpoint inference*
+path must do the same. Today `runLinuxCpuWeightedCheckpointInference`
+(`src/JitML/Engines/Local.hs`) still hardcodes a single collapsed `Dense2D` weighted
+kernel for every family; Sprint `14.3` routes it through the real multi-layer MLP kernels
+(`Codegen/Mlp{OneDnn,Cuda,Metal}.hs`) so the output width is the model's class count. See
+[training_metrics_and_splits.md](training_metrics_and_splits.md) and
+[DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
 
 ## Catalog Shape
 

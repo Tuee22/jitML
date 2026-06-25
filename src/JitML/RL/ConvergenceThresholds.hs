@@ -30,6 +30,9 @@ module JitML.RL.ConvergenceThresholds
   , cohortThreshold
   , cohortThresholds
   , passesConvergence
+  , AlphaZeroArenaThreshold (..)
+  , alphaZeroArenaThreshold
+  , passesAlphaZeroArena
   )
 where
 
@@ -135,3 +138,31 @@ cohortThresholds =
   , (("ARS", "lunar-lander"), ConvergenceThreshold 200.0 120.0)
   , (("ARS", "key-door-grid"), ConvergenceThreshold 1.0 0.45)
   ]
+
+-- | Sprint 9.13 — AlphaZero convergence is a deliberate __non-return__ metric:
+-- the trained network's __arena win rate__ against the baseline opponent, not
+-- an episode-return threshold. This is the scheduled convergence form noted
+-- above for the AlphaZero cohort, distinct from the return table because a
+-- two-player self-play game has no per-episode "return" in the same sense as the
+-- single-agent control envs. Both fields are win-rate fractions in @[0, 1]@.
+data AlphaZeroArenaThreshold = AlphaZeroArenaThreshold
+  { azTargetWinRate :: Double
+  -- ^ Target arena win rate against the baseline (uniform-random / prior-best)
+  --   opponent.
+  , azSlack :: Double
+  -- ^ Additive tolerance below the target a measured win rate must still clear.
+  }
+  deriving stock (Eq, Show)
+
+-- | The canonical AlphaZero arena-win-rate convergence bar: a trained
+-- policy/value network must beat the uniform-random baseline opponent
+-- decisively. The slack absorbs the bounded self-play budget the host stanza
+-- runs (the full-budget live arena clears the target outright).
+alphaZeroArenaThreshold :: AlphaZeroArenaThreshold
+alphaZeroArenaThreshold = AlphaZeroArenaThreshold 0.60 0.10
+
+-- | Decide whether a measured arena win rate passes the AlphaZero convergence
+-- assertion (higher is better; @>= target − slack@).
+passesAlphaZeroArena :: AlphaZeroArenaThreshold -> Double -> Bool
+passesAlphaZeroArena threshold measuredWinRate =
+  measuredWinRate >= azTargetWinRate threshold - azSlack threshold

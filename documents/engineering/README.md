@@ -11,7 +11,7 @@
 
 The engineering docs split into four **doctrine-overlap** docs (which defer to
 [../../README.md](../../README.md) for the patterns it owns
-and retain only project-specific elaborations) and eleven **project-specific**
+and retain only project-specific elaborations) and twelve **project-specific**
 docs (which own their content outright with no doctrine overlap).
 
 ### Doctrine-Overlap
@@ -34,6 +34,7 @@ docs (which own their content outright with no doctrine overlap).
 | [jit_codegen_architecture.md](jit_codegen_architecture.md) | Content-addressed cache, per-substrate compilers (Metal/oneDNN/CUDA), local kernel handle/envelope surface, Linux CPU libdnnl-linked FFI and `HasEngine` execution, guarded CUDA FFI runner boundary, Apple Silicon fixed-bridge Metal JIT, hardware auto-tuning, and live Metal/CUDA validation boundary; on Apple Silicon jitML writes `.metal.json` source metadata, calls the fixed host bridge, and the bridge JIT-compiles MSL via `MTLDevice.makeLibrary(source:)` before executing on the host GPU |
 | [apple_silicon_metal_headless_builds.md](apple_silicon_metal_headless_builds.md) | True-headless Apple Silicon Metal JIT architecture: fixed host bridge, runtime MSL compilation via `MTLDevice.makeLibrary(source:options:)`, host-resident Metal workload placement, source/metadata cache artifacts, optional Swift JIT lane, and rationale for rejecting Tart, full Xcode, offline `.metallib`, and per-cache-miss Swift builds |
 | [numerical_core.md](numerical_core.md) | Current local numerical catalog, Dhall mirrors, and cross-type audit |
+| [training_metrics_and_splits.md](training_metrics_and_splits.md) | SL train/test/validation split discipline (validation drives selection, test held-out) + SL/RL convergence-and-performance metric definitions (real CE/MSE loss, measured-median, throughput, AlphaZero arena win-rate); the no-hardcoded-weights / no-faked-metrics invariants |
 | [training_workloads.md](training_workloads.md) | Current local SL/RL/AlphaZero/tuning catalogs, RL Dhall mirror, copyright-free `KeyDoorGrid-v0` default visual RL demo coverage, optional `atari-subset` ROM policy with generated/external ALE adapter boundary, statistical convergence-assertion methodology, plus the reopened no-caveat train/eval/rollout/self-play/tune/checkpoint/inference workload target |
 | [checkpoint_format.md](checkpoint_format.md) | Current local checkpoint key/CAS/store/inference helpers plus target split-blob format, retention reconciler, and full-family no-caveat checkpoint/inference metadata |
 | [purescript_frontend.md](purescript_frontend.md) | Current PureScript shell, generated contracts, panel/demo-route metadata, `spec-node` smoke-test runner, demo shim, Playwright scaffold, typed live-plan step, and reopened no-caveat browser/animation/replay/Playwright product matrix |

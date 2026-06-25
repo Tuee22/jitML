@@ -569,7 +569,9 @@ projectInitCommand =
     , flag "force" Nothing False "Overwrite an existing config file."
     ]
     [ Example "jitml project init" "Write a default ./jitml.dhall."
-    , Example "jitml project init --output cfg.dhall --force" "Overwrite cfg.dhall with the default durable-state config."
+    , Example
+        "jitml project init --output cfg.dhall --force"
+        "Overwrite cfg.dhall with the default durable-state config."
     ]
 
 checkCodeCommand :: CommandSpec
