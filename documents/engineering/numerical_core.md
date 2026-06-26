@@ -10,16 +10,19 @@
 > list tree under `dhall/numerics/`, and the generated documentation tables
 > rendered from those sources.
 
-**Real forward path.** SL training + evaluation already run the model's real multi-layer
-forward pass through the substrate-selected `MlpDevice` (`JitML.SL.Architecture`
-`forwardOnly` / `accuracyArchitectureWithDevice` / `crossEntropyArchitectureWithDevice`),
-and regression reports a real MSE metric — landed by Sprint `8.13` (✅ Done). **Target
-(Sprint `14.3` — ⏸️ Blocked, not yet implemented):** the *demo / checkpoint inference*
-path must do the same. Today `runLinuxCpuWeightedCheckpointInference`
-(`src/JitML/Engines/Local.hs`) still hardcodes a single collapsed `Dense2D` weighted
-kernel for every family; Sprint `14.3` routes it through the real multi-layer MLP kernels
-(`Codegen/Mlp{OneDnn,Cuda,Metal}.hs`) so the output width is the model's class count. See
-[training_metrics_and_splits.md](training_metrics_and_splits.md) and
+**Real forward path and reopened eligibility gate.** SL training + evaluation
+already run model forward passes through the substrate-selected `MlpDevice`
+(`JitML.SL.Architecture` `forwardOnly` /
+`accuracyArchitectureWithDevice` / `crossEntropyArchitectureWithDevice`), and
+regression reports a real MSE metric. The current audit reopens the broader
+claim: checkpoint/demo inference is complete only when every model-family
+checkpoint is produced by its fixed training budget and inference accepts only
+the `InferenceEligibleCheckpoint` witness defined in
+[training_metrics_and_splits.md](training_metrics_and_splits.md). The numerical
+core owns substrate execution; the development plan owns the reopened
+all-family trained-artifact closure in
+[DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md](../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md)
+and browser consumption in
 [DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
 
 ## Catalog Shape

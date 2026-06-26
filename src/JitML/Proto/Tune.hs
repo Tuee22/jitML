@@ -44,6 +44,12 @@ import JitML.Proto.Wire
   , uint64Field
   )
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
+import JitML.Training.Budget
+  ( CompletedTraining
+  , decodeCompletedTraining
+  , encodeCompletedTraining
+  , renderCompletedTraining
+  )
 
 data StartSweep = StartSweep
   { ssExperimentHash :: Text
@@ -87,6 +93,7 @@ data SweepDone = SweepDone
   , sdTrialsCompleted :: Word32
   , sdTrialsPruned :: Word32
   , sdBestObjective :: Double
+  , sdCompletedTraining :: Maybe CompletedTraining
   }
   deriving stock (Eq, Show)
 
@@ -219,12 +226,17 @@ renderTuneEvent envelope =
         ]
     TuneSweepDone d ->
       Text.unlines
-        [ "kind: SweepDone"
-        , "experiment-hash: " <> sdExperimentHash d
-        , "trials-completed: " <> Text.pack (show (sdTrialsCompleted d))
-        , "trials-pruned: " <> Text.pack (show (sdTrialsPruned d))
-        , "best-objective: " <> Text.pack (show (sdBestObjective d))
-        ]
+        ( [ "kind: SweepDone"
+          , "experiment-hash: " <> sdExperimentHash d
+          , "trials-completed: " <> Text.pack (show (sdTrialsCompleted d))
+          , "trials-pruned: " <> Text.pack (show (sdTrialsPruned d))
+          , "best-objective: " <> Text.pack (show (sdBestObjective d))
+          ]
+            <> maybe
+              []
+              (\completed -> ["completed-training: " <> renderCompletedTraining completed])
+              (sdCompletedTraining d)
+        )
 
 parseField :: Text -> Maybe (Text, Text)
 parseField line =
@@ -323,21 +335,30 @@ decodeTrialFinishedProto bytes = do
 
 encodeSweepDoneProto :: SweepDone -> ByteString
 encodeSweepDoneProto done =
-  encodeMessage
+  encodeMessage $
     [ stringField 1 (sdExperimentHash done)
     , uint32Field 2 (sdTrialsCompleted done)
     , uint32Field 3 (sdTrialsPruned done)
     , doubleField 4 (sdBestObjective done)
     ]
+      <> maybe
+        []
+        (\completed -> [messageField 5 (encodeCompletedTraining completed)])
+        (sdCompletedTraining done)
 
 decodeSweepDoneProto :: ByteString -> Either Text SweepDone
 decodeSweepDoneProto bytes = do
   fields <- decodeMessage bytes
+  completed <-
+    case fieldMessage 5 fields of
+      Nothing -> Right Nothing
+      Just completedBytes -> Just <$> decodeCompletedTraining completedBytes
   SweepDone
     <$> require "experiment_hash" (fieldString 1 fields)
     <*> require "trials_completed" (fieldWord32 2 fields)
     <*> require "trials_pruned" (fieldWord32 3 fields)
     <*> require "best_objective" (fieldDouble 4 fields)
+    <*> pure completed
 
 require :: Text -> Maybe a -> Either Text a
 require fieldName =

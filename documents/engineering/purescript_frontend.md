@@ -11,16 +11,20 @@
 > workload, including the Halogen panels, compiled bundle, live WebSocket proxy,
 > and the no-caveat Playwright product matrix.
 
-**Real demo inference (Sprint `14.3` — ✅ Done, re-closed 2026-06-26).** Each
-checkpoint-backed panel sends user-derived input, and the Engine runs the
-model's real full-width multi-layer forward over real trained weights (output
-width = the model's class count). The seeded product set covers eight hashes
-(`mnist-deep-mlp`, `generic-tensor-demo`, `generic-tensor-demo-candidate`,
-`cifar-imagenet`, `connect4-alphazero`, `othello-alphazero`, `hex-alphazero`,
-`gomoku-alphazero`). Direct live endpoint probes return full Engine-backed
-frames, and the live Playwright product matrix passed **15/15**. See
-[training_metrics_and_splits.md](training_metrics_and_splits.md) and
+**Current audit status (2026-06-26).** The `linux-cpu` all-model product
+baseline and the real `linux-cuda` all-model browser lane are closed again. The
+frontend selects only inference-eligible checkpoints from the fixed-budget
+trained-artifact contract, exposes convergence statistics from the
+checkpoint/TensorBoard payload, and provides model-appropriate interactions for
+every supported SL, RL, and AlphaZero row.
+See [training_metrics_and_splits.md](training_metrics_and_splits.md) and
 [DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
+The Haskell checkpoint-list selector omits incomplete manifests from
+`CheckpointSummary`, and the live Playwright matrix proves all-model rendering
+plus partial/untrained rejection for the `linux-cpu` baseline. The same
+Playwright matrix passed 15/15 on the published `linux-cuda` edge on
+2026-06-26; the remaining downstream browser work is the real
+`apple-silicon` lane and handoff aggregation.
 
 ## Stack
 
@@ -39,7 +43,7 @@ frames, and the live Playwright product matrix passed **15/15**. See
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Eight Halogen panels with REST or live WebSocket actions; Sprint `11.9` consumes generated typed payloads for current controls, metrics, animation, inference, checkpoint comparison, and replay instead of text-marker/default-value parsers | `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Live-only spec covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, and adversarial selectors; Phase `14` validates the no-caveat product matrix against the routed app (15/15 on 2026-06-26) | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Live-only spec covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, adversarial selectors, and all-model trained-artifact/convergence-statistics proof | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Webapp role | HTTP/WebSocket server selected by typed `BootConfig.activeRole = Webapp` | `src/JitML/App.hs`, `chart/local/jitml-demo` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -120,19 +124,30 @@ starts or selects real SL, RL, AlphaZero, and tuning runs; consumes typed
 payloads generated from Haskell-owned contracts; renders model-appropriate
 interactions; animates RL trajectories from real event frames; renders canonical
 adversarial games with legal move handling, MCTS/value/policy details, and
-interactive replay; and exposes tuning sweep controls/frontiers tied to real
-trial state. Playwright proves those behaviors through the explicit live
-`jitml-e2e` orchestration path. The 2026-06-26 Phase `14` closure passed
-**15/15** against the live `linux-cpu` edge, and Phase `18` re-aggregated that
-evidence into the no-caveat handoff.
+interactive replay; exposes tuning sweep controls/frontiers tied to real trial
+state; and shows the completed-budget/convergence-statistics payload attached
+to each selected checkpoint. Playwright proves those behaviors through the
+explicit live `jitml-e2e` orchestration path; the 2026-06-26 `linux-cpu` run
+closed this target for the baseline, with CUDA and Apple reruns owned by
+downstream phases.
 
 ## Browser-Contract ADTs
 
 `src/JitML/Web/Contracts.hs` is the **source of truth** for every ADT
 crossed by the REST / WebSocket surface. The current local renderer produces
-`web/src/Generated/Contracts.purs` and identifies itself as
-`local-purescript-bridge-compatible-renderer`. The generated contract path is
-an active `trackingGeneratedPaths` entry; hand edits fail `jitml docs check`.
+`web/src/Generated/Contracts.purs`, identifies itself as
+`local-purescript-bridge-compatible-renderer`, and the generated contract path
+is an active `trackingGeneratedPaths` entry; hand edits fail
+`jitml docs check`. `CheckpointSummary` now carries only Engine-listed
+inference-eligible artifacts and includes the manifest SHA, step, model family,
+tensor count, eligibility string, completed-budget rendering,
+convergence-metric rendering, and TensorBoard prefix. The browser contract
+therefore receives the same `CompletedTraining`/checkpoint eligibility state
+that the Haskell loader enforces, instead of inferring readiness from seeded or
+smoke manifests.
+The non-live integration selector test constructs one completed and one partial
+manifest and asserts that only the completed manifest appears in the browser
+summary list.
 
 The current endpoint metadata covers:
 
@@ -184,7 +199,7 @@ and adversarial multi-game replay payloads.
 
 ## Panels
 
-Every panel renders inside `Chrome.Header.render` (the slim shared header — `jitML` wordmark plus `[home]` link to `#portals`), so the directory is one click away from any panel view. `Main.purs`'s empty-hash fallback routes to the portals home; the named hashes below continue to address each panel directly. Panel mounts return their Halogen disposer to the hash dispatcher, which runs the previous disposer before mounting a new route. The portals home is itself a `Panels.Portals` Halogen component composing `PanelRegistry.panels` (left column) with `Generated.AdminPortals.adminPortals` (right column), the latter generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` so the registry remains the single source of truth.
+Every panel renders inside `Chrome.Header.render` (the slim shared header — `jitML` wordmark plus `[home]` link to `#portals`), so the directory is one click away from any panel view. `Main.purs`'s empty-hash fallback routes to the portals home; the named hashes below continue to address each panel directly. Panel mounts return their Halogen disposer to the hash dispatcher, which runs the previous disposer before mounting a new route. The portals home is itself a `Panels.Portals` Halogen component composing `PanelRegistry.panels` (left column) with `Generated.AdminPortals.adminPortals` (right column), the latter generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` so the registry remains the single source of truth. Admin backends stay as top-level routed links rather than iframes. Grafana, Prometheus, TensorBoard, Harbor, MinIO, and Pulsar each own authentication, CSP, websocket/base-path behavior, and internal navigation; the consistent jitML UI is the generated portal directory and shared chrome, not an embedded frame around each upstream console.
 
 `Panels.Api.requestText` is the dependency-free text request bridge used by the
 REST panels. MNIST, generic tensor inference, CIFAR/ImageNet, checkpoint
@@ -211,7 +226,8 @@ queued/running/failed/done browser state. The server route fails with `503`
 when no live publication exists; with a publication it resolves the browser
 `substrate: live` token to the publication substrate and publishes valid
 start/stop envelopes to the matching daemon command topic. Live-backed
-cross-session status reconciliation remains Phase `14` work. The training
+cross-session status reconciliation and all-model checkpoint eligibility are
+validated for the `linux-cpu` baseline. The training
 panel renders the latest throughput/device/checkpoint and
 TensorBoard fields from `TrainingEventFrame` plus a window-normalized
 throughput-telemetry sparkline; the RL panel parses both
@@ -265,7 +281,7 @@ Pulsar event topics by `liveDemoWebSocketRoutes`.
 | Connect 4 move | POST | `/api/connect4/move` | `Connect4Move` |
 | Workflow command | POST | `/api/runs/<run-id>/command` | `WorkflowCommandAck` |
 | Live event WS | GET | `/api/ws`, `/api/ws/training`, `/api/ws/rl`, `/api/ws/tune` | typed event envelopes |
-| Checkpoint browse | GET | `/api/checkpoints/<experiment-hash>` | manifest list (cross-link to TB sidecars) |
+| Checkpoint browse | GET | `/api/checkpoints/<experiment-hash>` | inference-eligible checkpoint summary list (cross-link to TB sidecars) |
 
 ## Webapp HTTP Server
 
@@ -282,7 +298,7 @@ The `chart/local/jitml-demo` Deployment mounts `BootConfig.dhall` from the
 `jitml-webapp-config` ConfigMap and points HTTPRoutes for `/`, `/api`, and
 `/api/ws` at `jitml-demo:80`. Browser inference requests publish WorkCommands
 to the Engine through Pulsar; the Webapp does not compile kernels or compute ML.
-The `linux-cuda` chart still keeps the live-validated Sprint `15.20`
+The `linux-cuda` chart still keeps the live-validated Sprint `15.20` / `15.21`
 runtime/budget envelope, but CUDA execution belongs to the Engine role.
 
 ## Playwright E2E
@@ -310,23 +326,24 @@ covers the smoke shell plus the eight current panel hashes:
 - Training / Tune: load the streaming metric panels through the live edge
   route.
 
-Sprint `12.13` / Phase `14` replaced that reachability matrix with the
-no-caveat product matrix. The expanded spec starts real workflows, waits for
-typed training/checkpoint/inference evidence, interacts with supported model
-families, observes non-identical RL animation frames, drives canonical
-adversarial-game boards, verifies legal engine moves, saves and replays
-transcripts through step/scrub controls, launches tuning workflows, and asserts
-that browser state is backed by live workflow artifacts rather than fixture or
-inline demo state. The current live `linux-cpu` matrix passed **15/15**.
+Sprint `12.13` / Phase `14` replaced the original reachability matrix with a
+broader product matrix, and the 2026-06-26 fixed-budget audit re-closed that
+target on `linux-cpu`: Phase `14.4` covers every documented model family with
+completed `InferenceEligibleCheckpoint` artifacts, visible convergence/
+completion state, negative infer-before-complete checks, RL animations from
+trained policies, adversarial-game boards from trained policy/value checkpoints,
+transcript replay, tuning controls, and TensorBoard/checkpoint links. Phase
+`15.21` then passed the same live Playwright product matrix 15/15 on the
+published `linux-cuda` edge.
 
 Playwright execution runs through the typed `Subprocess` boundary on the
 explicit live orchestration path; it belongs to the doctrine's
 Ephemeral-Cluster Infrastructure test category and does not have its own Cabal
 stanza. Static route/API scaffold checks stay in the local Haskell e2e and
 PureScript lint targets.
-The 2026-06-11 CUDA-machine run used
+The 2026-06-26 CUDA-machine run used
 `mcr.microsoft.com/playwright:v1.49.1-noble` with host networking against the
-published `linux-cuda` edge and passed **9 / 9**.
+published `linux-cuda` edge and passed **15 / 15**.
 The local PureScript smoke suite is `purescript-spec` executed through
 `spec-node` by `spago test`; Playwright remains live-only and separate from the
 default Cabal matrix.

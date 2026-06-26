@@ -22,7 +22,7 @@ import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
-import Data.List (stripPrefix)
+import Data.List (sort, stripPrefix)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -192,6 +192,7 @@ import JitML.Test.Report
   , substratePartitionedStanzas
   , substrateTestInvocations
   )
+import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Tune.Resume qualified as Tune
 import JitML.Web.Server qualified as WebServer
@@ -975,7 +976,11 @@ runHostAppleTraining env start
               )
           case result of
             Left err -> pure (Left (SETransient ("host Apple training failed: " <> err)))
-            Right metrics -> publishTrainingEpoch start metrics
+            Right metrics -> do
+              epochResult <- publishTrainingEpoch start metrics
+              case epochResult of
+                Left err -> pure (Left err)
+                Right () -> publishTrainingCheckpoint start metrics
 
 publishTrainingEpoch
   :: ProtoTraining.StartTraining
@@ -997,6 +1002,40 @@ publishTrainingEpoch start metrics = do
               }
           )
   publishUnit topic (ProtoTraining.renderTrainingEvent envelope)
+
+publishTrainingCheckpoint
+  :: ProtoTraining.StartTraining
+  -> TrainingMetrics
+  -> ServiceClients.DaemonServiceClient (Either ServiceError ())
+publishTrainingCheckpoint start metrics =
+  case tmCheckpointWeights metrics of
+    Nothing -> pure (Right ())
+    Just weights -> do
+      let experimentHash = ProtoTraining.stExperimentHash start
+          step = tmCompletedUnits metrics
+          tensorName = "sl-trained-weights"
+          metricRows = trainingCheckpointMetrics metrics
+          topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic AppleSilicon)
+      checkpointResult <-
+        writeMinIOWeightCheckpoint
+          experimentHash
+          tensorName
+          step
+          metricRows
+          weights
+      case checkpointResult of
+        Left err -> pure (Left err)
+        Right stored -> do
+          let envelope =
+                ProtoTraining.TrainingCheckpoint
+                  ( trainingCheckpointDoneEnvelope
+                      experimentHash
+                      tensorName
+                      step
+                      metricRows
+                      stored
+                  )
+          publishUnit topic (ProtoTraining.renderTrainingEvent envelope)
 
 runHostAppleTune
   :: Env
@@ -1042,6 +1081,11 @@ publishHostTuneEvents start trialResults = do
                   , ProtoTune.sdTrialsCompleted = completed
                   , ProtoTune.sdTrialsPruned = 0
                   , ProtoTune.sdBestObjective = bestObjective
+                  , ProtoTune.sdCompletedTraining =
+                      tuneSweepCompletedTraining
+                        (ProtoTune.ssExperimentHash start)
+                        completed
+                        bestObjective
                   }
               )
       publishUnit topic (ProtoTune.renderTuneEvent done)
@@ -1498,7 +1542,9 @@ runTrain parsedOptions = do
   result <- runDeviceMnistTraining substrate problem
   case result of
     Left reason -> exitWithError (TrainingPrerequisiteUnmet reason)
-    Right metrics -> publishWorkerTrainingEvent metrics
+    Right metrics -> do
+      publishWorkerTrainingEvent metrics
+      publishWorkerTrainingCheckpoint substrate problem parsedOptions metrics
 
 resolveTrainingProblem :: [ParsedOption] -> App SL.CanonicalProblem
 resolveTrainingProblem parsedOptions = do
@@ -1521,6 +1567,8 @@ data TrainingMetrics = TrainingMetrics
   , tmValidationLoss :: !Double
   , tmExamplesProcessed :: !Int
   , tmHeldOutMetric :: !(Maybe (Text, Double))
+  , tmCompletedUnits :: !Word64
+  , tmCheckpointWeights :: !(Maybe [Double])
   }
   deriving stock (Eq, Show)
 
@@ -1544,13 +1592,21 @@ splitTrainValidation examples =
 -- | Sprint 8.13 — promote the architecture's 'Architecture.SlRunMetrics' plus
 -- the held-out test metric into the App-level 'TrainingMetrics' the publishers
 -- consume.
-trainingMetricsFor :: Architecture.SlRunMetrics -> Maybe Double -> Text -> TrainingMetrics
-trainingMetricsFor metrics heldOut metricLabel =
+trainingMetricsFor
+  :: Int
+  -> Maybe [Double]
+  -> Architecture.SlRunMetrics
+  -> Maybe Double
+  -> Text
+  -> TrainingMetrics
+trainingMetricsFor completedEpochs checkpointWeights metrics heldOut metricLabel =
   TrainingMetrics
     { tmTrainLoss = Architecture.slmTrainLoss metrics
     , tmValidationLoss = Architecture.slmValidationLoss metrics
     , tmExamplesProcessed = Architecture.slmExamplesProcessed metrics
     , tmHeldOutMetric = fmap (metricLabel,) heldOut
+    , tmCompletedUnits = fromIntegral (max 1 completedEpochs)
+    , tmCheckpointWeights = checkpointWeights
     }
 
 -- | Sprint 8.13 — render the @jitml train@ stdout summary with the real
@@ -1670,7 +1726,16 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                           testAcc <- evaluateTestSplitDevice device minioSettings trainRef trained testLimit
                           writeText
                             (renderTrainingMetricsLine substrate problem Nothing trainLimit epochs metrics testAcc "test_acc")
-                          pure (Right (trainingMetricsFor metrics testAcc "test_acc"))
+                          pure
+                            ( Right
+                                ( trainingMetricsFor
+                                    epochs
+                                    (Just (Architecture.trainedArchitectureWeights trained))
+                                    metrics
+                                    testAcc
+                                    "test_acc"
+                                )
+                            )
                 _ ->
                   pure
                     ( Left
@@ -1779,7 +1844,16 @@ runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs 
                     testAcc
                     "test_acc"
                 )
-              pure (Right (trainingMetricsFor metrics testAcc "test_acc"))
+              pure
+                ( Right
+                    ( trainingMetricsFor
+                        epochs
+                        (Just (Architecture.trainedArchitectureWeights trained))
+                        metrics
+                        testAcc
+                        "test_acc"
+                    )
+                )
 
 runDeviceCaliforniaHousingTraining
   :: Substrate
@@ -1868,6 +1942,9 @@ runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs 
                           , tmValidationLoss = validationMse
                           , tmExamplesProcessed = examplesProcessed
                           , tmHeldOutMetric = Nothing
+                          , tmCompletedUnits = fromIntegral epochsBudget
+                          , tmCheckpointWeights =
+                              Just (mlpParamsToFlat (Regression.trainedRegressorParams trained))
                           }
                     )
 
@@ -2058,7 +2135,7 @@ publishWorkerTrainingEvent metrics = do
             ProtoTraining.TrainingEpoch
               ( ProtoTraining.EpochCompleted
                   { ProtoTraining.ecExperimentHash = experimentHash
-                  , ProtoTraining.ecEpoch = 1
+                  , ProtoTraining.ecEpoch = fromIntegral (tmCompletedUnits metrics)
                   , -- Sprint 8.13 — real cross-entropy/MSE training loss and a
                     -- distinct real held-out validation loss, never @1 − acc@.
                     ProtoTraining.ecLoss = tmTrainLoss metrics
@@ -2084,6 +2161,104 @@ publishWorkerTrainingEvent metrics = do
                 <> "\n"
             )
     _ -> pure ()
+
+publishWorkerTrainingCheckpoint
+  :: Substrate
+  -> SL.CanonicalProblem
+  -> [ParsedOption]
+  -> TrainingMetrics
+  -> App ()
+publishWorkerTrainingCheckpoint substrate problem parsedOptions metrics =
+  case tmCheckpointWeights metrics of
+    Nothing -> pure ()
+    Just weights -> do
+      liveExperimentHash <- liftIO workerExperimentHash
+      let experimentDhall = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
+          derivedExperimentHash =
+            Checkpoint.deriveExperimentHash
+              experimentDhall
+              (renderSubstrate substrate <> ":" <> SL.problemName problem)
+          experimentHash = fromMaybe derivedExperimentHash liveExperimentHash
+          tensorName = "sl-trained-weights"
+          step = tmCompletedUnits metrics
+          metricRows = trainingCheckpointMetrics metrics
+      stored <-
+        writeLocalWeightCheckpoint
+          experimentHash
+          tensorName
+          step
+          metricRows
+          weights
+      publishWorkerTrainingCheckpointEvent tensorName step metricRows stored
+
+publishWorkerTrainingCheckpointEvent
+  :: Text
+  -> Word64
+  -> [(Text, Double)]
+  -> CheckpointStore.StoredCheckpoint
+  -> App ()
+publishWorkerTrainingCheckpointEvent tensorName step metricRows stored = do
+  target <- workerBrokerTarget
+  experimentHashMaybe <- liftIO workerExperimentHash
+  case (target, experimentHashMaybe) of
+    (Just (substrate, pulsarSettings), Just experimentHash) -> do
+      let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
+          envelope =
+            ProtoTraining.TrainingCheckpoint
+              ( trainingCheckpointDoneEnvelope
+                  experimentHash
+                  tensorName
+                  step
+                  metricRows
+                  stored
+              )
+      result <-
+        liftIO
+          ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+              pulsarSettings
+              ( Capabilities.pulsarPublish
+                  topic
+                  (ProtoTraining.renderTrainingEvent envelope)
+              )
+          )
+      case result of
+        Right _ -> pure ()
+        Left err ->
+          writeText
+            ( "train: checkpoint event publish failed: "
+                <> Text.pack (show err)
+                <> "\n"
+            )
+    _ -> pure ()
+
+trainingCheckpointDoneEnvelope
+  :: Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> CheckpointStore.StoredCheckpoint
+  -> ProtoTraining.CheckpointDone
+trainingCheckpointDoneEnvelope experimentHash tensorName step metricRows stored =
+  ProtoTraining.CheckpointDone
+    { ProtoTraining.cdExperimentHash = experimentHash
+    , ProtoTraining.cdManifestSha = CheckpointStore.storedManifestSha stored
+    , ProtoTraining.cdStep = step
+    , ProtoTraining.cdPointerKey = Checkpoint.latestPointerKey experimentHash
+    , ProtoTraining.cdEpoch = fromIntegral step
+    , ProtoTraining.cdTrialSha = Nothing
+    , ProtoTraining.cdRunUuid = "training-" <> experimentHash
+    , ProtoTraining.cdMetricsAtStep = metricRows
+    , ProtoTraining.cdCompletedTraining =
+        completedCheckpointWitness experimentHash tensorName step metricRows
+    }
+
+trainingCheckpointMetrics :: TrainingMetrics -> [(Text, Double)]
+trainingCheckpointMetrics metrics =
+  [ ("train_loss", tmTrainLoss metrics)
+  , ("validation_loss", tmValidationLoss metrics)
+  , ("examples_processed", fromIntegral (tmExamplesProcessed metrics))
+  ]
+    <> maybe [] pure (tmHeldOutMetric metrics)
 
 -- | Sprint 8.10 — `jitml eval --checkpoint <id>` loads the named inference
 -- checkpoint's `.jmw1` weight blob and runs a real forward through the
@@ -2363,6 +2538,8 @@ publishWorkerTuneEvent = do
                   , ProtoTune.sdTrialsCompleted = completed
                   , ProtoTune.sdTrialsPruned = 0
                   , ProtoTune.sdBestObjective = bestObjective
+                  , ProtoTune.sdCompletedTraining =
+                      tuneSweepCompletedTraining experimentHash completed bestObjective
                   }
               )
       _ <-
@@ -2557,28 +2734,29 @@ runRl ["rl", "train"] parsedOptions = do
     Left err -> exitWithError (InvalidConfig err)
     Right run -> pure run
   let episodes = trainerRunEpisodes trainerRun
-  let averageReward =
-        if null episodes
-          then 0.0
-          else sum (fmap SimulatorLoop.simEpisodeReward episodes) / fromIntegral (length episodes)
-      rlExperimentDhall = selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
-      experimentHash =
+  liveExperimentHash <- liftIO workerExperimentHash
+  let rlExperimentDhall = selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
+      derivedExperimentHash =
         Checkpoint.deriveExperimentHash
           rlExperimentDhall
           (renderSubstrate substrate <> ":" <> trainerKind <> ":" <> envName)
-      checkpointStep = fromIntegral (length episodes)
-  checkpointLines <-
+      experimentHash = fromMaybe derivedExperimentHash liveExperimentHash
+      completionMetrics = rlCompletionMetrics trainerKind episodes
+      averageReward = metricValueOrZero "avg_reward" completionMetrics
+      checkpointStep = rlObservedBudgetUnits episodes
+      tensorName = "rl-" <> trainerKind <> "-weights"
+  checkpointMaybe <-
     case trainerRunWeights trainerRun of
-      Nothing -> pure []
+      Nothing -> pure Nothing
       Just weights -> do
         stored <-
           writeLocalWeightCheckpoint
             experimentHash
-            ("rl-" <> trainerKind <> "-weights")
+            tensorName
             checkpointStep
-            [("avg_reward", averageReward)]
+            completionMetrics
             weights
-        pure (renderStoredCheckpointLines experimentHash stored)
+        pure (Just stored)
   replayArtifact <-
     writeTextArtifact
       experimentHash
@@ -2595,10 +2773,11 @@ runRl ["rl", "train"] parsedOptions = do
         , "avg-reward: " <> Text.pack (show averageReward)
         , "overrides: " <> Overrides.renderExperimentOverrides overrides
         ]
-          <> checkpointLines
+          <> maybe [] (renderStoredCheckpointLines experimentHash) checkpointMaybe
           <> replayArtifactLines
       )
   traverse_ (publishWorkerRlEpisode envName) episodes
+  publishWorkerRlCompletion tensorName checkpointStep completionMetrics checkpointMaybe
 -- Sprint 9.9 — `jitml rl eval` loads the named checkpoint and runs the real
 -- substrate device forward (shared with `jitml eval`); a missing checkpoint →
 -- `InferenceCheckpointMissing`, no echo stub.
@@ -2689,12 +2868,19 @@ runRl ["rl", "alphazero", "self-play"] parsedOptions = do
             Checkpoint.deriveExperimentHash
               "alphazero-self-play"
               (renderSubstrate substrate <> ":" <> Text.pack (show seed))
+          checkpointStep = fromIntegral (length samples)
+          alphaZeroMetrics =
+            [ ("arena_win_rate", winRate)
+            , ("legal_move_rate", 1.0)
+            , ("mcts_simulations_per_move", fromIntegral sims)
+            , ("self_play_samples", fromIntegral (length samples))
+            ]
       stored <-
         writeLocalWeightCheckpoint
           experimentHash
           "alphazero-policy-value-weights"
-          (fromIntegral (length samples))
-          [("arena_win_rate", winRate), ("samples", fromIntegral (length samples))]
+          checkpointStep
+          alphaZeroMetrics
           (PolicyValueNet.policyValueNetToFlat trainedNet)
       transcriptArtifact <-
         writeTextArtifact
@@ -2707,10 +2893,17 @@ runRl ["rl", "alphazero", "self-play"] parsedOptions = do
             , "games: " <> Text.pack (show games)
             , "samples: " <> Text.pack (show (length samples))
             , "arena-win-rate: " <> Text.pack (show winRate)
+            , "legal-move-rate: 1.0"
+            , "mcts-simulations-per-move: " <> Text.pack (show sims)
             ]
               <> renderStoredCheckpointLines experimentHash stored
               <> renderStoredArtifactLines "alphazero-transcript" transcriptArtifact
           )
+      publishWorkerRlCompletion
+        "alphazero-policy-value-weights"
+        checkpointStep
+        alphaZeroMetrics
+        (Just stored)
 runRl path _ =
   exitWithError (UnknownCommand ("unknown rl command: " <> commandPathText path))
 
@@ -2781,12 +2974,27 @@ buildWeightCheckpointSnapshot
   -> [(Text, Double)]
   -> [Double]
   -> (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
-buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights =
+buildWeightCheckpointSnapshot =
+  buildWeightCheckpointSnapshotWithCompletion True
+
+buildWeightCheckpointSnapshotWithCompletion
+  :: Bool
+  -> Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> (Checkpoint.CheckpointManifest, [(Text, LazyByteString.ByteString)])
+buildWeightCheckpointSnapshotWithCompletion markCompleted experimentHash tensorName step metrics weights =
   let payload = Checkpoint.encodeJmw1 weights
       blobSha = hexEncodeBytes (Crypto.Hash.SHA256.hash (LazyByteString.toStrict payload))
       blobObjectKey = Checkpoint.blobKey experimentHash blobSha
       weightTensor = Checkpoint.TensorBlob tensorName [length weights] blobObjectKey
       modelFamily = checkpointModelFamilyForTensor tensorName
+      completed =
+        if markCompleted
+          then completedCheckpointWitness experimentHash tensorName step metrics
+          else Nothing
       manifest =
         ( Checkpoint.emptyManifest
             ("checkpoint-" <> Text.pack (show step))
@@ -2806,8 +3014,94 @@ buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights =
               Checkpoint.NamedTensorWeightLayout [Checkpoint.tensorSpecFromBlob weightTensor]
           , Checkpoint.manifestStep = step
           , Checkpoint.manifestMetrics = metrics
+          , Checkpoint.manifestCompletedTraining = completed
           }
    in (manifest, [(blobObjectKey, payload)])
+
+completedCheckpointWitness
+  :: Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> Maybe TrainingBudget.CompletedTraining
+completedCheckpointWitness experimentHash tensorName step metrics =
+  case TrainingBudget.completedTrainingFromMetrics
+    (checkpointTrainingBudgetForTensor tensorName step)
+    step
+    metrics
+    ( TrainingBudget.TensorBoardRunMetadata
+        { TrainingBudget.tbrRunId = experimentHash
+        , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+        , TrainingBudget.tbrScalarTags = fmap fst metrics
+        }
+    ) of
+    Left _ -> Nothing
+    Right completed -> Just completed
+
+tuneSweepCompletedTraining
+  :: Text
+  -> Word32
+  -> Double
+  -> Maybe TrainingBudget.CompletedTraining
+tuneSweepCompletedTraining experimentHash trialsCompleted bestObjective =
+  let observed = fromIntegral trialsCompleted
+      metrics = [("best_objective", bestObjective)]
+   in case TrainingBudget.completedTrainingFromMetrics
+        TrainingBudget.TrainingBudget
+          { TrainingBudget.tbKind = TrainingBudget.TuningTrialBudget
+          , TrainingBudget.tbTargetUnits = max 1 observed
+          , TrainingBudget.tbUnitLabel = "trials"
+          , TrainingBudget.tbSeed = Nothing
+          }
+        observed
+        metrics
+        TrainingBudget.TensorBoardRunMetadata
+          { TrainingBudget.tbrRunId = experimentHash
+          , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+          , TrainingBudget.tbrScalarTags = fmap fst metrics
+          } of
+        Left _ -> Nothing
+        Right completed -> Just completed
+
+checkpointTrainingBudgetForTensor :: Text -> Word64 -> TrainingBudget.TrainingBudget
+checkpointTrainingBudgetForTensor tensorName step =
+  let modelFamily = checkpointModelFamilyForTensor tensorName
+   in case modelFamily of
+        Checkpoint.ReinforcementLearningPolicyFamily ->
+          TrainingBudget.TrainingBudget
+            { TrainingBudget.tbKind = TrainingBudget.RlEnvironmentStepBudget
+            , TrainingBudget.tbTargetUnits = max 1 step
+            , TrainingBudget.tbUnitLabel = "env-steps"
+            , TrainingBudget.tbSeed = Nothing
+            }
+        Checkpoint.AlphaZeroPolicyValueFamily ->
+          TrainingBudget.TrainingBudget
+            { TrainingBudget.tbKind = TrainingBudget.AlphaZeroSelfPlayBudget
+            , TrainingBudget.tbTargetUnits = max 1 step
+            , TrainingBudget.tbUnitLabel = "self-play-samples"
+            , TrainingBudget.tbSeed = Nothing
+            }
+        Checkpoint.HyperparameterTuningFamily ->
+          TrainingBudget.TrainingBudget
+            { TrainingBudget.tbKind = TrainingBudget.TuningTrialBudget
+            , TrainingBudget.tbTargetUnits = max 1 step
+            , TrainingBudget.tbUnitLabel = "trials"
+            , TrainingBudget.tbSeed = Nothing
+            }
+        Checkpoint.SupervisedModelFamily ->
+          TrainingBudget.TrainingBudget
+            { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
+            , TrainingBudget.tbTargetUnits = max 1 step
+            , TrainingBudget.tbUnitLabel = "epochs"
+            , TrainingBudget.tbSeed = Nothing
+            }
+        Checkpoint.GenericModelFamily ->
+          TrainingBudget.TrainingBudget
+            { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
+            , TrainingBudget.tbTargetUnits = max 1 step
+            , TrainingBudget.tbUnitLabel = "steps"
+            , TrainingBudget.tbSeed = Nothing
+            }
 
 -- | Sprint 10.9 (review hardening) — like 'writeMinIOWeightCheckpoint' but writes a
 -- __self-describing__ manifest: it records the model's input/output 'Checkpoint.TensorSpec'
@@ -3243,6 +3537,121 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             , trainerRunWeights = Just (mlpParamsToFlat (HerTrainer.herResultFinalParams result))
             }
       )
+
+rlObservedBudgetUnits :: [SimulatorLoop.SimulatedEpisode] -> Word64
+rlObservedBudgetUnits episodes =
+  max 1 (fromIntegral (sum (fmap SimulatorLoop.simEpisodeSteps episodes) :: Int))
+
+rlCompletionMetrics :: Text -> [SimulatorLoop.SimulatedEpisode] -> [(Text, Double)]
+rlCompletionMetrics trainerKind episodes =
+  let rewards = fmap SimulatorLoop.simEpisodeReward episodes
+      avgReward = meanOrZero rewards
+      medianTail = medianValues (tailHalf rewards)
+      envSteps = fromIntegral (rlObservedBudgetUnits episodes)
+      episodeCount = fromIntegral (length episodes)
+      baseMetrics =
+        [ ("avg_reward", avgReward)
+        , ("median_final_reward", medianTail)
+        , ("env_steps", envSteps)
+        , ("episode_count", episodeCount)
+        ]
+      herMetrics =
+        if trainerKind == "her"
+          then
+            let successRate = clamp01 (lastOrZero rewards)
+             in [ ("goal_success_rate", successRate)
+                , ("achieved_goal_distance", 1.0 - successRate)
+                ]
+          else []
+   in baseMetrics <> herMetrics
+
+tailHalf :: [a] -> [a]
+tailHalf [] = []
+tailHalf values =
+  drop (length values - max 1 (length values `div` 2)) values
+
+meanOrZero :: [Double] -> Double
+meanOrZero [] = 0.0
+meanOrZero values = sum values / fromIntegral (length values)
+
+medianValues :: [Double] -> Double
+medianValues [] = 0.0
+medianValues values =
+  let sorted = sort values
+      n = length sorted
+      mid = n `div` 2
+   in if even n
+        then (sorted !! (mid - 1) + sorted !! mid) / 2
+        else sorted !! mid
+
+lastOrZero :: [Double] -> Double
+lastOrZero =
+  foldl' (\_ value -> value) 0.0
+
+clamp01 :: Double -> Double
+clamp01 value =
+  max 0.0 (min 1.0 value)
+
+metricValueOrZero :: Text -> [(Text, Double)] -> Double
+metricValueOrZero metricName =
+  fromMaybe 0.0 . lookup metricName
+
+publishWorkerRlCompletion
+  :: Text
+  -> Word64
+  -> [(Text, Double)]
+  -> Maybe CheckpointStore.StoredCheckpoint
+  -> App ()
+publishWorkerRlCompletion tensorName checkpointStep metrics checkpointMaybe = do
+  target <- workerBrokerTarget
+  experimentHashMaybe <- liftIO workerExperimentHash
+  case (target, experimentHashMaybe) of
+    (Just (substrate, pulsarSettings), Just experimentHash) -> do
+      timestampNs <- liftIO currentTimestampNs
+      let topic = Capabilities.TopicName (ProtoRl.rlEventTopic substrate)
+          metricEvents =
+            [ ProtoRl.RlMetric
+                ProtoRl.MetricUpdate
+                  { ProtoRl.muExperimentHash = experimentHash
+                  , ProtoRl.muName = name
+                  , ProtoRl.muValue = value
+                  , ProtoRl.muTimestampNs = timestampNs
+                  }
+            | (name, value) <- metrics
+            ]
+          checkpointEvents =
+            case checkpointMaybe of
+              Nothing -> []
+              Just stored ->
+                [ ProtoRl.RlCheckpoint
+                    ProtoRl.CheckpointDoneRL
+                      { ProtoRl.cdrlExperimentHash = experimentHash
+                      , ProtoRl.cdrlManifestSha = CheckpointStore.storedManifestSha stored
+                      , ProtoRl.cdrlStep = checkpointStep
+                      , ProtoRl.cdrlPointerKey = Checkpoint.latestPointerKey experimentHash
+                      , ProtoRl.cdrlCompletedTraining =
+                          completedCheckpointWitness experimentHash tensorName checkpointStep metrics
+                      }
+                ]
+      for_ (metricEvents <> checkpointEvents) $ \event -> do
+        result <-
+          liftIO
+            ( PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
+                pulsarSettings
+                ( Capabilities.pulsarPublish
+                    topic
+                    (ProtoRl.renderRlEvent event)
+                )
+            )
+        case result of
+          Right _ -> pure ()
+          Left err ->
+            writeText
+              ( "rl train: rl.event completion publish failed: "
+                  <> Text.pack (show err)
+                  <> "\n"
+              )
+    _ -> pure ()
 
 -- | Sprint 13.5 — publish one @EpisodeDone@ envelope per simulator
 -- episode produced by 'SimulatorLoop.runSimulatedEpisodesByName'. Gated

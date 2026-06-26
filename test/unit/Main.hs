@@ -15,6 +15,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.Word (Word64)
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure)
 import Path (toFilePath)
 import Path.IO (resolveDir')
@@ -176,6 +177,8 @@ import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate qualified as Substrate
 import JitML.Test.Report (substrateTestInvocations)
+import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
+import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Web.AdminPortals qualified as WebAdminPortals
 import JitML.Web.Bundle qualified as WebBundle
@@ -186,6 +189,34 @@ newtype CommandSchema = CommandSchema
   { schemaCommands :: [Value]
   }
   deriving stock (Eq, Show)
+
+completedTestManifest :: Word64 -> Checkpoint.CheckpointManifest
+completedTestManifest step =
+  let metrics = [("validation_accuracy", 0.95)]
+      completed =
+        either
+          (error . Text.unpack)
+          id
+          ( TrainingBudget.completedTrainingFromMetrics
+              TrainingBudget.TrainingBudget
+                { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
+                , TrainingBudget.tbTargetUnits = max 1 step
+                , TrainingBudget.tbUnitLabel = "epochs"
+                , TrainingBudget.tbSeed = Nothing
+                }
+              step
+              metrics
+              TrainingBudget.TensorBoardRunMetadata
+                { TrainingBudget.tbrRunId = "unit-test"
+                , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/unit-test"
+                , TrainingBudget.tbrScalarTags = fmap fst metrics
+                }
+          )
+   in (Checkpoint.emptyManifest "m" "exp1" [])
+        { Checkpoint.manifestStep = step
+        , Checkpoint.manifestMetrics = metrics
+        , Checkpoint.manifestCompletedTraining = Just completed
+        }
 
 instance FromJSON CommandSchema where
   parseJSON =
@@ -464,15 +495,17 @@ main =
                 /= Right ()
             )
       , testCase "Work* readiness gate: ArtifactRef mintable only from a trained derivation" $ do
-          let trained = (Checkpoint.emptyManifest "m" "exp1" []) {Checkpoint.manifestStep = 5}
+          let trained = completedTestManifest 5
               untrained = Checkpoint.emptyManifest "m" "exp1" []
+              stepOnly = (Checkpoint.emptyManifest "m" "exp1" []) {Checkpoint.manifestStep = 5}
           fmap Work.artifactRefStep (Work.mintArtifactRef trained) @?= Just 5
           Work.mintArtifactRef untrained @?= Nothing
+          Work.mintArtifactRef stepOnly @?= Nothing
           assertBool
             "readiness sentinel ends in .ready"
             (".ready" `Text.isSuffixOf` Work.readinessSentinelKey "exp1")
       , testCase "Work* command parse rejects malformed / unready commands with typed rejections" $ do
-          let ready = Work.mintArtifactRef ((Checkpoint.emptyManifest "m" "exp1" []) {Checkpoint.manifestStep = 1})
+          let ready = Work.mintArtifactRef (completedTestManifest 1)
               parseInfer art =
                 Work.parseWorkCommand
                   Topology.Infer
@@ -2674,6 +2707,30 @@ main =
                         (ConvergenceThresholds.literatureTarget threshold < 0)
                 )
                 ConvergenceThresholds.cohortThresholds
+          , testCase "HER and every AlphaZero game have fixed-budget convergence metrics" $ do
+              let her = ConvergenceThresholds.herGoalMetric
+                  games =
+                    fmap ConvergenceThresholds.azgGame ConvergenceThresholds.alphaZeroGameConvergenceRows
+              assertBool
+                "HER success metric passes"
+                (TrainingBudget.convergencePassed (ConvergenceThresholds.hgmSuccessRate her))
+              assertBool
+                "HER achieved-goal distance metric passes"
+                (TrainingBudget.convergencePassed (ConvergenceThresholds.hgmAchievedGoalDistance her))
+              games @?= ["connect4", "othello", "hex", "gomoku"]
+          , testCase "all-model workflow matrix enumerates SL/RL/HER/AlphaZero trained-artifact cells" $ do
+              let cells = WorkflowMatrix.allModelCells
+                  names = fmap WorkflowMatrix.modelCellName cells
+              length (filter ((== WorkflowMatrix.SupervisedModelCell) . WorkflowMatrix.modelCellKind) cells)
+                @?= 11
+              assertBool "HER model cell is present" ("HER/goal-reaching" `elem` names)
+              assertBool "Connect 4 AlphaZero model cell is present" ("connect4" `elem` names)
+              assertBool
+                "model cells are unique"
+                (length names == length (nub names))
+              assertBool
+                "every model cell requires a trained artifact"
+                (all WorkflowMatrix.modelCellRequiresTrainedArtifact cells)
           ]
       , -- Sprint 12.10 — backend-agnostic invariants relocated out of
         -- jitml-backends (which is now a per-substrate live lane). These

@@ -28,6 +28,7 @@ module JitML.Service.Workload
   , runInferenceRequest
   , runInferenceRequestWith
   , runInferenceRequestWithWeightedInference
+  , checkpointSummaries
   , runListCheckpointsRequest
   , runLoadTranscriptRequest
   , seededDemoExperimentHashes
@@ -58,7 +59,9 @@ import Data.Text qualified as Text
 import JitML.Checkpoint.Format
   ( CheckpointManifest (..)
   , ModelFamily (..)
+  , eligibleCheckpointCompletedTraining
   , manifestContentSha
+  , requireInferenceEligibleCheckpoint
   )
 import JitML.Checkpoint.Store (LoadedWeightTensor)
 import JitML.Checkpoint.Store qualified as CheckpointStore
@@ -136,6 +139,16 @@ import JitML.Service.Transcript
   , writeTranscriptRecord
   )
 import JitML.Substrate (Substrate (..), renderSubstrate, substrateRuntimeClass)
+import JitML.Training.Budget
+  ( ConvergenceObservation
+  , coMetricName
+  , coMetricValue
+  , completedTrainingBudget
+  , completedTrainingMetrics
+  , completedTrainingTensorBoard
+  , renderTrainingBudget
+  , tbrLogPrefix
+  )
 
 data WorkloadKind
   = WorkloadInference
@@ -688,21 +701,40 @@ runListCheckpointsRequest command = do
             (renderCheckpointListResult (lccCallId command) summaries)
 
 -- | Render the per-experiment manifests into `checkpoint-summary:` lines, one
--- per manifest. Each summary is a tab-separated tuple of
--- experiment-hash / sha / step / model-family / tensor-count.
+-- per inference-eligible manifest. Each summary is a tab-separated tuple of
+-- experiment-hash / sha / step / model-family / tensor-count / eligibility /
+-- completed budget / convergence metrics / TensorBoard prefix.
 checkpointSummaries :: Text -> [CheckpointManifest] -> [Text]
 checkpointSummaries experimentHash =
-  fmap (checkpointSummaryLine experimentHash)
+  mapMaybe (checkpointSummaryLine experimentHash)
 
-checkpointSummaryLine :: Text -> CheckpointManifest -> Text
+checkpointSummaryLine :: Text -> CheckpointManifest -> Maybe Text
 checkpointSummaryLine experimentHash manifest =
+  let manifestSha = manifestContentSha manifest
+   in case requireInferenceEligibleCheckpoint manifestSha manifest of
+        Left _ -> Nothing
+        Right eligible ->
+          let completed = eligibleCheckpointCompletedTraining eligible
+           in Just $
+                Text.intercalate
+                  "\t"
+                  [ experimentHash
+                  , manifestSha
+                  , Text.pack (show (manifestStep manifest))
+                  , renderModelFamily (manifestModelFamily manifest)
+                  , Text.pack (show (length (manifestTensors manifest)))
+                  , "eligible"
+                  , renderTrainingBudget (completedTrainingBudget completed)
+                  , renderConvergenceMetrics (completedTrainingMetrics completed)
+                  , tbrLogPrefix (completedTrainingTensorBoard completed)
+                  ]
+
+renderConvergenceMetrics :: [ConvergenceObservation] -> Text
+renderConvergenceMetrics metrics =
   Text.intercalate
-    "\t"
-    [ experimentHash
-    , manifestContentSha manifest
-    , Text.pack (show (manifestStep manifest))
-    , renderModelFamily (manifestModelFamily manifest)
-    , Text.pack (show (length (manifestTensors manifest)))
+    ","
+    [ coMetricName metric <> "=" <> Text.pack (show (coMetricValue metric))
+    | metric <- metrics
     ]
 
 renderModelFamily :: ModelFamily -> Text

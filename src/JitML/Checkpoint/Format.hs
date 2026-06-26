@@ -7,6 +7,8 @@ module JitML.Checkpoint.Format
   , ArchitectureMetadata (..)
   , CheckpointManifest (..)
   , CheckpointPartKind (..)
+  , EligibilityError (..)
+  , InferenceEligibleCheckpoint
   , MetricDirection (..)
   , ModelFamily (..)
   , OptimizerBlob (..)
@@ -38,6 +40,11 @@ module JitML.Checkpoint.Format
   , manifestContentSha
   , manifestKey
   , manifestPointer
+  , renderEligibilityError
+  , requireInferenceEligibleCheckpoint
+  , eligibleCheckpointCompletedTraining
+  , eligibleCheckpointManifest
+  , eligibleCheckpointManifestSha
   , tensorSpecFromBlob
   , trialPointerKey
   , weightOnlyTensors
@@ -57,6 +64,16 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word32, Word64, Word8)
 import GHC.Float (castDoubleToWord64, castWord64ToDouble)
 import GHC.Generics (Generic)
+
+import JitML.Training.Budget
+  ( CompletedTraining
+  , coMetricName
+  , completedTrainingMetrics
+  , completedTrainingObservedUnits
+  , completedTrainingTensorBoard
+  , convergencePassed
+  , tbrScalarTags
+  )
 
 data CheckpointPartKind
   = WeightPart
@@ -183,10 +200,26 @@ data CheckpointManifest = CheckpointManifest
   , manifestRng :: [RngBlob]
   , manifestStep :: Word64
   , manifestMetrics :: [(Text, Double)]
+  , manifestCompletedTraining :: Maybe CompletedTraining
   , manifestParentManifestSha :: Maybe Text
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (Serialise)
+
+data InferenceEligibleCheckpoint = InferenceEligibleCheckpoint
+  { eligibleCheckpointManifest :: CheckpointManifest
+  , eligibleCheckpointManifestSha :: Text
+  , eligibleCheckpointCompletedTraining :: CompletedTraining
+  }
+  deriving stock (Eq, Show)
+
+data EligibilityError
+  = MissingCompletedTraining
+  | CompletedTrainingHasNoMetrics
+  | CompletedTrainingHasFailedMetrics [Text]
+  | CompletedTrainingOutrunsManifest Word64 Word64
+  | TensorBoardMetadataMissing
+  deriving stock (Eq, Show)
 
 data PointerWrite = PointerWrite
   { pointerWriteKey :: Text
@@ -275,8 +308,58 @@ emptyManifest mid experiment tensors =
     , manifestRng = []
     , manifestStep = 0
     , manifestMetrics = []
+    , manifestCompletedTraining = Nothing
     , manifestParentManifestSha = Nothing
     }
+
+requireInferenceEligibleCheckpoint
+  :: Text
+  -- ^ manifest content sha already validated by the caller
+  -> CheckpointManifest
+  -> Either EligibilityError InferenceEligibleCheckpoint
+requireInferenceEligibleCheckpoint manifestSha manifest =
+  case manifestCompletedTraining manifest of
+    Nothing -> Left MissingCompletedTraining
+    Just completed
+      | completedTrainingObservedUnits completed > manifestStep manifest ->
+          Left
+            ( CompletedTrainingOutrunsManifest
+                (completedTrainingObservedUnits completed)
+                (manifestStep manifest)
+            )
+      | null (completedTrainingMetrics completed) ->
+          Left CompletedTrainingHasNoMetrics
+      | null (tbrScalarTags (completedTrainingTensorBoard completed)) ->
+          Left TensorBoardMetadataMissing
+      | otherwise ->
+          case filter (not . convergencePassed) (completedTrainingMetrics completed) of
+            [] ->
+              Right
+                InferenceEligibleCheckpoint
+                  { eligibleCheckpointManifest = manifest
+                  , eligibleCheckpointManifestSha = manifestSha
+                  , eligibleCheckpointCompletedTraining = completed
+                  }
+            failed ->
+              Left (CompletedTrainingHasFailedMetrics (fmap coMetricName failed))
+
+renderEligibilityError :: EligibilityError -> Text
+renderEligibilityError err =
+  case err of
+    MissingCompletedTraining ->
+      "manifest has no completed-training witness"
+    CompletedTrainingHasNoMetrics ->
+      "completed-training witness has no convergence metrics"
+    CompletedTrainingHasFailedMetrics metrics ->
+      "completed-training witness has failed convergence metrics: "
+        <> Text.intercalate "," metrics
+    CompletedTrainingOutrunsManifest observed manifestStepValue ->
+      "completed-training witness observes "
+        <> Text.pack (show observed)
+        <> " units but manifest step is "
+        <> Text.pack (show manifestStepValue)
+    TensorBoardMetadataMissing ->
+      "completed-training witness has no TensorBoard scalar metadata"
 
 defaultArchitectureMetadata :: ModelFamily -> ArchitectureMetadata
 defaultArchitectureMetadata family =

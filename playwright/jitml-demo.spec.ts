@@ -39,6 +39,29 @@ function loadLiveEdge(): string {
 
 const LIVE_DEMO_URL = loadLiveEdge();
 
+function loadExpectedModelNames(): string[] {
+  const path = "./web/src/Generated/Contracts.purs";
+  if (!fs.existsSync(path)) {
+    throw new Error("Generated.Contracts.purs is required for the browser model matrix");
+  }
+  const raw = fs.readFileSync(path, "utf-8");
+  const matrixMatch = raw.match(
+    /allModelMatrixRows :: Array ModelMatrixRow[\s\S]*?\n  \]/,
+  );
+  if (!matrixMatch) {
+    throw new Error("Generated.Contracts.purs contains no allModelMatrixRows block");
+  }
+  const rows = [...matrixMatch[0].matchAll(/name: "([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+  if (rows.length === 0) {
+    throw new Error("Generated.Contracts.purs contains no allModelMatrixRows entries");
+  }
+  return rows;
+}
+
+const EXPECTED_MODEL_NAMES = loadExpectedModelNames();
+
 async function loadShell(page: import("@playwright/test").Page): Promise<void> {
   await page.goto(LIVE_DEMO_URL);
   await page
@@ -260,11 +283,13 @@ test("adversarial game selectors submit seeded policy-value hashes", async ({
   }
 });
 
-test("checkpoint browse panel lists seeded checkpoints", async ({ page }) => {
+test("checkpoint browse panel lists eligible checkpoints and every model row", async ({ page }) => {
   // Sprint 14.1 (Feature A) — the panel POSTs `/api/checkpoints` on init; the
   // Engine lists the seeded experiments' manifests from MinIO and replies
   // with a `CheckpointList` frame over `/api/ws/inference`, which the panel
-  // renders as a list. Assert at least one item appears.
+  // renders as a list. Sprint 14.4 also renders the generated all-model matrix
+  // so the browser surface covers every trained-artifact row in the shared
+  // Haskell/PureScript registry.
   const responsePromise = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/checkpoints") &&
@@ -274,11 +299,30 @@ test("checkpoint browse panel lists seeded checkpoints", async ({ page }) => {
   await expect(page.locator("#checkpoint-browse")).toBeVisible();
   const response = await responsePromise;
   expect(response.ok()).toBeTruthy();
-  expect(await response.text()).toContain("kind: CheckpointList");
+  const body = await response.text();
+  expect(body).toContain("kind: CheckpointList");
+  expect(body).toContain("status: published");
   await expect(page.locator("#checkpoint-browse-list")).toBeVisible();
-  await expect(
-    page.locator("#checkpoint-browse-list li").first(),
-  ).toBeVisible();
+  const firstCheckpoint = page.locator("#checkpoint-browse-list li").first();
+  await expect(firstCheckpoint).toBeVisible();
+  await expect(firstCheckpoint).toContainText("eligibility: eligible");
+  await expect(firstCheckpoint).toContainText("budget:");
+  await expect(firstCheckpoint).toContainText("convergence:");
+  await expect(firstCheckpoint).toContainText("jitml-tensorboard/");
+  await expect(firstCheckpoint.locator("a[href^='/tensorboard/#']")).toBeVisible();
+  const checkpointText = (await page.locator("#checkpoint-browse-list").textContent()) ?? "";
+  expect(checkpointText).not.toContain("partial");
+  expect(checkpointText).not.toContain("untrained");
+  expect(checkpointText).not.toContain("smoke");
+  expect(checkpointText).not.toContain("fake-runtime");
+
+  const modelRows = page.locator("#checkpoint-browse-model-matrix-list li");
+  await expect(modelRows).toHaveCount(EXPECTED_MODEL_NAMES.length);
+  const matrix = page.locator("#checkpoint-browse-model-matrix-list");
+  for (const modelName of EXPECTED_MODEL_NAMES) {
+    await expect(matrix).toContainText(`model: ${modelName}`);
+  }
+  await expect(matrix).toContainText("requires trained artifact: yes");
 });
 
 test("workflow status panel renders a live status table", async ({ page }) => {

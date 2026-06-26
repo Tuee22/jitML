@@ -122,6 +122,7 @@ import JitML.Service.Workload
   , runWorkloadEffects
   )
 import JitML.Substrate (Substrate (..))
+import JitML.Training.Budget qualified as TrainingBudget
 
 main :: IO ()
 main =
@@ -991,10 +992,36 @@ instance HasPulsar (StateT SyntheticClientState IO) where
 
 syntheticInferenceManifest :: Checkpoint.CheckpointManifest
 syntheticInferenceManifest =
-  Checkpoint.emptyManifest
-    "inference-exp"
-    "inference-exp"
-    [Checkpoint.TensorBlob "dense.weight" [2] "blob-a"]
+  let step = 1
+      manifestMetrics = [("validation_accuracy", 0.99)]
+      completed =
+        either
+          (error . Text.unpack)
+          id
+          ( TrainingBudget.completedTrainingFromMetrics
+              TrainingBudget.TrainingBudget
+                { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
+                , TrainingBudget.tbTargetUnits = step
+                , TrainingBudget.tbUnitLabel = "epochs"
+                , TrainingBudget.tbSeed = Nothing
+                }
+              step
+              manifestMetrics
+              TrainingBudget.TensorBoardRunMetadata
+                { TrainingBudget.tbrRunId = "inference-exp"
+                , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/inference-exp"
+                , TrainingBudget.tbrScalarTags = fmap fst manifestMetrics
+                }
+          )
+   in ( Checkpoint.emptyManifest
+          "inference-exp"
+          "inference-exp"
+          [Checkpoint.TensorBlob "dense.weight" [2] "blob-a"]
+      )
+        { Checkpoint.manifestStep = step
+        , Checkpoint.manifestMetrics = manifestMetrics
+        , Checkpoint.manifestCompletedTraining = Just completed
+        }
 
 instance HasPulsar (StateT SyntheticBrokerState IO) where
   pulsarPublish _ _ = pure (Right "synthetic-message-id")

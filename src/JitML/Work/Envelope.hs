@@ -50,7 +50,7 @@ module JitML.Work.Envelope
   )
 where
 
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -60,6 +60,7 @@ import Data.Word (Word64)
 import JitML.Checkpoint.Format
   ( CheckpointManifest
   , latestPointerKey
+  , manifestCompletedTraining
   , manifestExperiment
   , manifestStep
   )
@@ -97,7 +98,8 @@ artifactRefStep = arStep
 -- yields 'Nothing', so it can never back a served inference.
 mintArtifactRef :: CheckpointManifest -> Maybe ArtifactRef
 mintArtifactRef manifest
-  | manifestStep manifest >= 1 =
+  | manifestStep manifest >= 1
+      && isJust (manifestCompletedTraining manifest) =
       Just ArtifactRef {arExperiment = manifestExperiment manifest, arStep = manifestStep manifest}
   | otherwise = Nothing
 

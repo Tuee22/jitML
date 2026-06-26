@@ -21,15 +21,18 @@
 
 ## Phase Status
 
-✅ **Done — `linux-cpu` scope** (re-closed 2026-06-26 for Sprint `14.3`; prior
-close 2026-06-17). The interactive browser product matrix now runs against the
+✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `14.4` — all-model
+trained-artifact browser and Playwright closure on `linux-cpu`). Sprint `14.3`
+remains historically closed for selected seeded-demo inference; prior close
+2026-06-17. The interactive browser product matrix ran against the
 real full-width checkpoint runtime on the live `linux-cpu` edge: the Webapp
 publishes through the Engine and returns deterministic Engine-backed POST frames
 for inference, checkpoint compare, adversarial moves, and transcript replay;
-the demo checkpoints are real-trained, self-describing `W1`/`b1`/`W2`/`b2` MLP
-manifests; MNIST, CIFAR/ImageNet, generic tensor inference, checkpoint compare,
-Connect 4, Othello, Hex, and Gomoku all use seeded checkpoint hashes; and the
-PureScript panels submit user-derived input instead of constants.
+the demo checkpoints are completed seeded, self-describing `W1`/`b1`/`W2`/`b2`
+MLP fixture manifests carrying `CompletedTraining`; MNIST, CIFAR/ImageNet,
+generic tensor inference, checkpoint compare, Connect 4, Othello, Hex, and
+Gomoku all use inference-eligible checkpoint hashes; and the PureScript panels
+submit user-derived input instead of constants.
 
 Validation for the re-close: `spago test` **17/17**, `jitml-unit` **222/222**,
 `jitml check-code` **ok**, `docker compose build jitml` **ok** (embedded
@@ -42,6 +45,8 @@ and expected widths (`InferenceResult` 10 MNIST probabilities/logits,
 `ImageInferenceResult` top-k 10, generic output width 3, compare output width
 3/3, `AdversarialMoveResult` with transcript id, `TranscriptReplay` with moves),
 and the live Playwright matrix passed **15/15** against `http://127.0.0.1:9091`.
+Sprint `14.4` extended that proof with the generated all-model matrix and
+trained-artifact metadata assertions.
 Phase `11` Sprint `11.9` (feature implementation) and Phase `12` Sprint `12.13`
 (test orchestration) stay closed; their live browser/product obligations are
 deduped into this phase per rule E. The **per-accelerator** browser/Playwright
@@ -63,9 +68,9 @@ frames, and replay adversarial games from recorded state.
 **Status**: Done (`linux-cpu` scope; validated 2026-06-17, Apple M1 Max host)
 **Implementation**: `src/JitML/Web/Contracts.hs`, `src/JitML/Web/Server.hs`,
 `web/src/Panels/*`, `src/JitML/App.hs`, `src/JitML/Service/*`
-**Blocked by**: Phase `13` Sprint `13.1` (Phase `11` Sprint `11.9` and Phase
-`12` Sprint `12.13` are now `✅ Done`; their browser/product live obligations are
-owned here in Sprint `14.1` / `14.2` per rule E)
+**Previously blocked by**: Phase `13` Sprint `13.1` (Phase `11` Sprint `11.9`
+and Phase `12` Sprint `12.13` are now `✅ Done`; their browser/product live
+obligations are owned here in Sprint `14.1` / `14.2` per rule E)
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `system-components.md`
 
@@ -115,7 +120,7 @@ runtime replacement.
 **Status**: Done (`linux-cpu` scope; re-validated 2026-06-26 — live Playwright 15/15)
 **Implementation**: `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs`,
 `src/JitML/Test/LivePlan.hs`
-**Blocked by**: Sprint `14.1`; Phase `13` Sprint `13.1`
+**Previously blocked by**: Sprint `14.1`; Phase `13` Sprint `13.1`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/unit_testing_policy.md`, `system-components.md`
 
@@ -236,9 +241,76 @@ Make the demo render real, input-driven predictions for every trained family:
 
 ### Remaining Work
 
-None. The two Phase `14.3` legacy rows moved to `Completed`; the `Pending Removal`
-ledger is empty for Phase `14` and the final re-aggregation belongs to Phase
-`18.3`.
+None for historical Sprint `14.3`. The two Phase `14.3` legacy rows moved to
+`Completed`; Sprint `14.4` reopens the browser proof for the expanded all-model
+contract.
+
+## Sprint 14.4: All-Model Browser and Playwright Trained-Artifact Matrix [✅ Done]
+
+**Status**: Done
+**Implementation**: `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs`,
+`web/src/Panels/*.purs`, `src/JitML/Web/Server.hs`,
+`src/JitML/Test/WorkflowMatrix.hs`
+**Docs to update**: `../documents/engineering/purescript_frontend.md`,
+`../documents/engineering/unit_testing_policy.md`,
+`../documents/engineering/training_metrics_and_splits.md`,
+`system-components.md`
+
+### Objective
+
+Playwright proves every supported model through the real browser, not merely
+that representative panels and routes respond. The browser must reject
+untrained artifacts, select trained artifacts, show convergence statistics, and
+drive the model's natural interaction.
+
+### Deliverables
+
+- Add Playwright cells for every SL model row, every RL algorithm row, and every
+  AlphaZero game.
+- Assert the displayed checkpoint includes completed budget, convergence
+  metric, substrate, TensorBoard link, and readiness status.
+- Drive model-appropriate interactions: drawing for MNIST, upload for image
+  classifiers, tensor/regression inputs for tabular/generic models, trajectory
+  replay for RL, and legal board moves for AlphaZero games.
+- Assert that partial, random, hardcoded, smoke, and fake-runtime checkpoints do
+  not appear as selectable inference artifacts.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
+- live Playwright against a bootstrapped `linux-cpu` edge
+- `docker compose run --rm jitml jitml docs check`
+
+### Current Validation State
+
+- `docker compose run --rm jitml cabal test jitml-e2e --test-show-details=direct`
+  passed **23 / 23** with the regenerated trained-artifact contract present.
+- `docker compose run --rm jitml cabal run jitml -- test jitml-e2e --linux-cpu`
+  passed through the project wrapper with **23 / 23** tests.
+- `docker compose run --rm jitml cabal run jitml -- lint purescript` passed
+  (`jitml lint purescript: ok`).
+- `docker compose run --rm jitml cabal run jitml -- docs check` passed
+  (`docs check: ok`).
+- `docker compose run --rm jitml cabal run jitml -- check-code` passed
+  (`check-code: ok`).
+- `./bootstrap/linux-cpu.sh up` completed the live `linux-cpu` rollout
+  (**111** steps), leaving a live edge publication at `127.0.0.1:9091`.
+- `docker compose build jitml` passed after the Phase `14.4` browser and
+  generated-contract changes, including embedded `check-code: ok` and a clean
+  PureScript bundle build.
+- The rebuilt `jitml:local` / `jitml-demo:local` image was loaded into the
+  `jitml-linux-cpu` Kind cluster, `deployment/jitml-service` and
+  `deployment/jitml-demo` rolled out successfully, and
+  `jitml internal seed-demo-checkpoints` seeded all eight completed demo
+  checkpoints into live MinIO.
+- Live Playwright passed **15 / 15** against `http://127.0.0.1:9091`. The
+  checkpoint browse test asserts completed-budget, convergence, TensorBoard
+  link, eligibility, absence of partial/untrained/smoke/fake artifacts, and
+  every generated `WorkflowMatrix.allModelCells` browser row.
+
+### Remaining Work
+
+- None.
 
 ## Related Documents
 

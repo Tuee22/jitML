@@ -11,18 +11,28 @@
 > surface for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
 
-**Real learning, real metrics (Sprints `8.13`/`9.13` — ✅ landed, validated on both the
-`apple-silicon` and `linux-cpu` lanes).** SL uses a three-way train/test/validation split
-where the **validation** partition drives model selection / early-stop and **test** is the
-held-out final metric; the published loss is a real cross-entropy/MSE value (not
-`1 − accuracy`). RL convergence is a real measured-median return per cohort (not a
-literature-target probe), and AlphaZero converges on an **arena win-rate**. Both report a
-non-wall-clock performance metric (SL throughput; RL sample efficiency). Sprint
-`13.2` re-attested the live `linux-cpu` runtime, Sprint `10.9` re-closed the
-demo's real-trained checkpoint set, Sprint `14.3` re-closed browser
-consumption, and Sprint `18.3` re-aggregated the handoff with 8/8 live stanzas.
-Definitions:
-[training_metrics_and_splits.md](training_metrics_and_splits.md).
+**Current audit status (2026-06-26).** The `linux-cpu` no-caveat all-model
+baseline and the real `linux-cuda` all-model lane are closed again. The worktree
+has real substrate-backed training and inference foundations plus fixed-budget
+convergence, checkpoint reload, inference eligibility, integration coverage,
+demo interaction, and e2e coverage for the SL/RL/AlphaZero/tuning rows
+described here. The binding learning contract lives in
+[training_metrics_and_splits.md](training_metrics_and_splits.md):
+each model has a pure fixed `TrainingBudget`, completed training mints a
+`CompletedTraining` witness, and inference accepts only an
+`InferenceEligibleCheckpoint` carrying the completed budget and convergence
+statistics.
+The shared pure vocabulary is implemented in `src/JitML/Training/Budget.hs`,
+checkpoint manifests carry the optional completion witness, and
+`JitML.Checkpoint.Format.requireInferenceEligibleCheckpoint` is the local gate
+that rejects partial manifests before inference loaders run. The SL, RL,
+AlphaZero self-play, and tuning command paths now write completed checkpoints
+or completion events with the same witness vocabulary when they reach their
+configured budget. The real `linux-cuda` rerun closed on 2026-06-26 on the RTX
+5090 host (`jitml test all --linux-cuda` 8/8, `jitml-backends` 20/20, live
+Playwright 15/15). The remaining external-lane obligation is the same
+fixed-budget all-model matrix on a real `apple-silicon` host, then aggregation
+of the lane fragments.
 
 ## SL Training Loops
 
@@ -37,51 +47,41 @@ runtime in `src/JitML/SL/Architecture.hs`.
   `jitml-datasets`, exposes `fetchDatasetRef` through the `HasMinIO`
   capability, and verifies fetched bytes against the pinned SHA-256. The
   filesystem-backed `HasMinIO` test covers the capability boundary; live
-  routed MinIO fetch exists for the current MNIST artifact path and expands to
-  every canonical dataset/model row under Sprint `8.12` / Phase `13`.
+  routed MinIO fetch covers every canonical dataset/model row in the
+  fixed-budget `linux-cpu` baseline.
 
 ### Canonical SL Problems
 
-The catalog is the full no-caveat architecture set. Sprint `8.12` adds
-`JitML.SL.Canonicals.trainableCanonicalCohort`, which covers all eleven product
-rows, and `JitML.SL.Architecture`, which maps those rows to trainable topologies
-backed by the selected substrate `MlpDevice`. `denseMlpCohort` survives only as
-a legacy compatibility helper for code that still names the older
-single-hidden-layer Dense subset explicitly. The former deterministic synthetic
-curve helpers were deleted; published training loss comes from live device
-measurements.
+The catalog is the full no-caveat architecture set.
+`JitML.SL.Canonicals.trainableCanonicalCohort` covers all eleven product rows,
+and `JitML.SL.Architecture` maps those rows to trainable topologies backed by
+the selected substrate `MlpDevice`. The former Dense-only product gate and
+deterministic synthetic curve helpers were deleted; published training loss
+comes from live device measurements.
 
 | Current problem key | Owning module | Current validation |
 |---------------------|---------------|--------------------|
-| `mnist-shallow-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; exercised by classifier convergence and all-row substrate train-step tests |
-| `mnist-deep-mlp` | `src/JitML/SL/Architecture.hs` | DeepDense device stack; exercised by all-row substrate train-step tests |
-| `mnist-lenet` | `src/JitML/SL/Architecture.hs` | Patch-convolution stem plus classifier; exercised by all-row substrate train-step tests |
-| `fashion-mnist-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; train-step covered, train/test image+label SHA pins present, live staged-byte smoke passed, convergence pending |
-| `fashion-mnist-resnet` | `src/JitML/SL/Architecture.hs` | Residual device stack; train-step covered, train/test image+label SHA pins present, live staged-byte smoke passed, convergence pending |
-| `cifar10-resnet20` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | 20-block residual device stack; train-step covered, CIFAR-10 binary archive SHA pin and archive-backed parser coverage present, live staged-byte smoke passed, convergence pending |
-| `cifar10-resnet56` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | 56-block residual device stack; train-step covered, CIFAR-10 binary archive SHA pin and archive-backed parser coverage present, live staged-byte smoke passed, convergence pending |
-| `cifar100-wide-resnet` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Wide residual device stack; train-step covered, CIFAR-100 binary archive SHA pin and archive-backed parser coverage present, live staged-byte smoke passed, convergence pending |
-| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Patch embedding plus trainable Q/K/V attention; train-step covered, CIFAR-10 binary archive SHA pin and archive-backed parser coverage present, live staged-byte smoke passed, convergence pending |
-| `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | 50-block residual device stack; train-step covered, real archive SHA pin plus Zip64/JPEG tensor materialization present, live staged-byte smoke passed, convergence pending |
-| `california-housing-mlp` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs`, `src/JitML/SL/Regression.hs` | Dense device topology; train-step covered, real archive SHA pin, archive-backed regression-row parser, standardized device-backed MSE trainer, and live staged-byte smoke present; convergence/checkpoint/inference closure pending |
+| `mnist-shallow-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `mnist-deep-mlp` | `src/JitML/SL/Architecture.hs` | DeepDense device stack; fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `mnist-lenet` | `src/JitML/SL/Architecture.hs` | Patch-convolution stem plus classifier; fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `fashion-mnist-mlp` | `src/JitML/SL/Architecture.hs` | Dense device topology; SHA pins plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `fashion-mnist-resnet` | `src/JitML/SL/Architecture.hs` | Residual device stack; SHA pins plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `cifar10-resnet20` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | 20-block residual device stack; archive parser plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `cifar10-resnet56` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | 56-block residual device stack; archive parser plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `cifar100-wide-resnet` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Wide residual device stack; archive parser plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `cifar10-vit` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs` | Patch embedding plus trainable Q/K/V attention; archive parser plus fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | 50-block residual device stack; archive SHA pin, Zip64/JPEG tensor materialization, fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
+| `california-housing-mlp` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs`, `src/JitML/SL/Regression.hs` | Dense regression topology; parser, device-MSE trainer, fixed-budget RMSE/MSE convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
 
-Convergence is asserted statistically by `jitml-sl-canonicals`: the
-median over a fixed-seed pool clears a sanity threshold derived from
-the problem's literature target at test time. No per-substrate `.txt`
-loss-curve fixtures are committed — see
-[unit_testing_policy.md → Snapshot Tests and the Prohibition on
+Convergence is asserted statistically by `jitml-sl-canonicals` only where the
+test performs the model's declared fixed budget and produces a
+`CompletedTraining` witness. No per-substrate `.txt` loss-curve fixtures are
+committed — see [unit_testing_policy.md → Snapshot Tests and the Prohibition on
 Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
-The live MNIST convergence case decodes the staged train/test IDX blobs and,
-when a live publication exists, trains and evaluates through
-`JitML.SL.Architecture.trainArchitectureWithDevice` /
-`accuracyArchitectureWithDevice` on the selected `MlpDevice`; the linux-cpu
-gate uses 60 full-batch device epochs at `1.0e-2` and leaves the in-code
-threshold unchanged. The focused Sprint `8.12` live matrix now also fetches
-staged bytes for every canonical row from live MinIO, materializes bounded
-train/test examples, trains through the selected linux-cpu `MlpDevice`, and
-verifies finite train/eval metrics. Phase `13` strengthens that staged-byte
-smoke into median convergence, checkpoint reload, evaluation, and inference for
-every canonical SL row.
+The current live all-row baseline decodes staged dataset bytes, trains through
+the selected `MlpDevice`, reloads checkpoints, evaluates/inferences only through
+eligible artifacts, and exposes the TensorBoard/UI metric surface for every
+canonical SL row.
 
 ### `jitml train` CLI
 
@@ -139,10 +139,13 @@ selected `MlpDevice`. Tiny ImageNet now uses `JuicyPixels` plus a narrow
 Zip64-aware central-directory reader to decode JPEG tensors from the pinned
 archive.
 `jitml train` routes staged CIFAR, Tiny ImageNet, and California archives
-through these archive-backed decoders before training. Phase `13` wires
-California checkpoint/inference plus a regression convergence gate, then
-promotes the current all-row staged-byte smoke into median convergence for every
-row before the all-row live convergence gate can close.
+through these archive-backed decoders before training. Successful supervised
+training flattens the trained weights, writes a `.jmw1` checkpoint manifest
+with `CompletedTraining`, and publishes a `CheckpointDone` event whose
+completion metrics include train loss, validation loss, held-out metric, and
+examples processed. Phase `13` promotes the earlier all-row staged-byte smoke
+into fixed-budget convergence, checkpoint reload, evaluation, and inference for
+every row; that gate is closed for the `linux-cpu` baseline.
 `src/JitML/Proto/Training.hs` defines the typed
 `TrainingCommand` envelopes and deterministic text render/parse round-trips
 for `StartTraining` and `StopTraining`; `encodeTrainingCommandProto` and
@@ -181,9 +184,10 @@ reward-derived algorithm-level projection helpers from canonical validation and
 writes `.jmw1` checkpoints plus line-oriented replay artifacts from `jitml rl
 train` / `jitml rl rollout`. Sprint `10.6` records RL policy model-family
 metadata, policy-distribution output decoders, and replay/transcript pointers in
-the checkpoint manifest. Phase `13` consumes those artifacts for the full product
-matrix: every algorithm trains, evaluates, rolls out, checkpoints, and provides
-browser replay/animation payloads.
+the checkpoint manifest. Reopened Phase `13` consumes those artifacts for the
+full product matrix: every algorithm must train for its fixed budget, evaluate,
+roll out, checkpoint, publish convergence statistics, and provide browser
+replay/animation payloads before it is treated as inference-eligible.
 
 ### Algorithm Class Taxonomy (Type-Level)
 
@@ -270,8 +274,16 @@ raised so training learns. **ARS is the lone no-MLP exception** (finite-differen
 random search, no network forward/backward). The former `"simulator"` scripted
 non-learning default is removed: `runRl` defaults the trainer to `ppo`, and an
 unknown trainer → `InvalidConfig` with no episodes published.
-PPO live convergence uses per-substrate tuning: `linux-cpu` uses 10 epochs per
-update at `5.0e-4`; `linux-cuda` and `apple-silicon` use 8 epochs at `7.0e-4`.
+The fixed-budget RL contract records budgets as pure values and fails the run if
+the completed budget does not meet its metric; it does not extend the budget
+until convergence happens. The `linux-cpu` baseline validates PPO/cartpole, HER,
+the full algorithm/environment matrix, and the canonical adversarial game
+metrics through completed checkpoint artifacts. The worker now writes its final RL checkpoint
+under the daemon experiment hash, records environment-step budget units, emits
+checkpoint/TensorBoard-ready completion metrics (`avg_reward`,
+`median_final_reward`, `env_steps`, `episode_count`, plus HER goal metrics when
+available), and publishes `CheckpointDoneRL` with `CompletedTraining` after
+the fixed run budget completes.
 `src/JitML/Proto/Rl.hs` defines the typed `RlCommand` envelopes and
 deterministic text render/parse round-trips for `StartRLRun` and `StopRLRun`;
 `encodeRlCommandProto` and `decodeRlCommandProto` round-trip the current
@@ -304,14 +316,11 @@ device forward, surfacing `InferenceCheckpointMissing` when absent — no echo
 stub. `jitml rl rollout --seed N` runs one real on-device PPO rollout on cartpole
 through `rlDeviceForSubstrate` (`runDeviceRollout`) and prints the measured
 episode rewards, failing closed with `InvalidConfig` when the substrate device
-is unavailable. The registered `moduleRolloutGenerator` surface now routes
-through `JitML.RL.Algorithms.Common.trajectoryRollout`, which steps real named
-environment dynamics with a deterministic seeded policy. The substrate-device
-trained-policy rollout is validated on the live CUDA lane (`jitml rl rollout
-experiments/cartpole.dhall --seed 42` printed measured CUDA rewards on
-2026-06-11). Device-backed MCTS value-head leaf evaluation and device-backed
-tuning trial training are implemented through the selected `MlpDevice` and fail
-closed on device errors.
+is unavailable. The trained-policy rollout surface steps real named environment
+dynamics with deterministic seeded policy evaluation, not a catalog projection.
+Device-backed MCTS value-head leaf evaluation and device-backed tuning trial
+training are implemented through the selected `MlpDevice` and fail closed on
+device errors.
 
 The same host-residency rule applies to supervised training, tuning trial
 training, and AlphaZero value/policy evaluation whenever the selected substrate
@@ -349,10 +358,17 @@ aggregated by `Registry.algorithmModuleRegistry`. PPO/CartPole determinism
 is asserted by `jitml-rl-canonicals` as run-to-run equality on the same
 substrate and seed (two fresh runs compared against each other). Richer Dhall
 types at `dhall/rl/algos/<algo>.dhall`, trained-policy checkpoint loading, and
-all-algorithm update/eval/rollout closure are Sprint `9.12` / Phase `13` work.
+all-algorithm update/eval/rollout closure are implemented for the `linux-cpu`
+baseline.
 Per-algorithm trajectory `.txt` fixtures are explicitly
 **not** committed — see [unit_testing_policy.md → Snapshot Tests and
 the Prohibition on Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+
+The convergence matrix for the catalog is model-owned, not family-owned. PPO,
+A2C, TRPO, MaskablePPO, RecurrentPPO, DQN, QR-DQN, DDPG, TD3, SAC, CrossQ,
+TQC, ARS, HER, and AlphaZero each require their own fixed budget, completed
+training witness, convergence-statistics record, checkpoint, and UI/e2e
+evidence. Family-level smoke tests do not close a model row.
 
 For off-policy algorithms, the bit-equality anchor is the first-N-
 steps prefix per [determinism_contract.md → Same-Substrate Bit-Equality (RL
@@ -409,8 +425,12 @@ jitml rl alphazero self-play
 The command probes the selected substrate `MlpDevice`, generates bounded
 Connect 4 self-play samples through device-backed MCTS leaf policy/value
 evaluation, trains the policy/value head on that device, and prints the sample
-count plus arena win rate. A missing substrate runtime or device execution error
-is an `InvalidConfig` failure; there is no pure-Haskell fallback on the CLI path.
+count plus arena win rate. The written checkpoint records the fixed-budget
+AlphaZero metric rows `arena_win_rate`, `legal_move_rate`,
+`mcts_simulations_per_move`, and `self_play_samples`; when the command runs in a
+worker context, the same completion publisher emits those rows through Pulsar.
+A missing substrate runtime or device execution error is an `InvalidConfig`
+failure; there is no pure-Haskell fallback on the CLI path.
 
 ### Deterministic Stochasticity
 

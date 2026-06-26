@@ -8,8 +8,9 @@
 > **Purpose**: Project-specific testing policy for jitML. Defers to the
 > doctrine for the per-tier stanza model, the standard testing stack, the
 > seven test categories, and the test-organization invariants; names the
-> eight jitML test stanzas, the doctrine-category mapping, and the reopened
-> no-caveat live workflow/Playwright product test target.
+> eight jitML test stanzas, the doctrine-category mapping, and the closed
+> `linux-cpu` all-model fixed-budget convergence / Playwright product test
+> target.
 
 ## Doctrine Deferrals
 
@@ -36,19 +37,21 @@ This doc defers to [../../README.md](../../README.md) for:
 ## jitML Stanzas
 
 The eight Cabal test-suite stanzas are declared in `jitml.cabal`. Current bodies
-exercise the local deterministic contracts for their owning surfaces while live
-cluster validation remains phase-gated:
+exercise the local deterministic contracts for their owning surfaces, and the
+`linux-cpu` live aggregate validates the all-model fixed-budget product
+baseline. Accelerator live validation remains phase-gated by Phases `15` and
+`16`.
 
 | Stanza | Current body | Final Tier | Owning Sprint |
 |--------|--------------|------------|---------------|
-| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, and frontend bundle/panel/demo-route surfaces | Pure Logic + Parser + Property + Snapshot | Sprint 12.1 |
-| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table snapshot fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated oneDNN FFI kernel with decoded `.jmw1` weights, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, single-node Kind rendering, required `jitml-service` anti-affinity plus single-node rollout strategy/RBAC rendering, Dhall numerics decode, linkable oneDNN runtime probing, typed service command shapes, and the Sprint 12.11 `JitML.Test.WorkflowMatrix` live case that fails closed without a publication and runs every current-substrate workflow by canonical CLI command when a live cluster exists. Sprint 12.13 expands that live workflow matrix to feed the no-caveat Playwright product tests with real run/checkpoint/replay artifacts. | Integration | Sprint 12.2 / Sprint 12.11 / Sprint 12.12 / Sprint 12.13 |
-| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix as property tests over the typed `TrainingLifecycle` — loss is finite, decreases monotonically over the budget, and the median over `k` seeds clears a literature-derived sanity threshold computed at test time — dataset fetch verification, and Training command/event envelope round-trips. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 12.3 |
-| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog as property tests (finite-and-decreasing loss, finite gradients, monotone evaluator reward over a sliding window, run-to-run bit-identical trajectory on the same substrate / same seed), the canonical-game RL surface (legal-move generation, terminal detection, draw conditions), and RL command/event envelope round-trips. No per-substrate trajectory or reward-distribution fixtures are committed. | Integration (project-specific) | Sprint 12.4 |
-| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), and Tune command/event envelope round-trips. Sampler trial values are checked as properties (e.g. resume equality, sampler-state purity, scheduler ordering invariants) rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
+| `jitml-unit` | `test/unit/Main.hs` covers current CLI, docs, prerequisite, env, app-error, plan, subprocess, bootstrap-script, cache, hot-reload, capability, RL framework, AlphaZero, tuning resume, checkpoint key/CAS/store, `.jmw1` encode/decode, TensorBoard scalar-event codec / TFRecord writer / sidecar, Grafana fixture, frontend bundle/panel/demo-route surfaces, the `CompletedTraining`/`InferenceEligibleCheckpoint` readiness gate, and pure all-model workflow-matrix enumeration | Pure Logic + Parser + Property + Snapshot | Sprint 12.1 |
+| `jitml-integration` | `test/integration/Main.hs` covers typed subprocess execution, bootstrap/live-rollout renderers, route-table snapshot fixture, real-binary spawn matrix, filesystem-backed `HasMinIO` checkpoint / inference / resume coverage, local Linux CPU checkpoint inference through a generated oneDNN FFI kernel with decoded `.jmw1` weights, infer-before-complete rejection for partial manifests, routed MinIO/Pulsar subprocess command rendering including the WebSocket subscribe probe, substrate-scoped Pulsar topic bootstrap, BootConfig-derived daemon client settings, single-node Kind rendering, required `jitml-service` anti-affinity plus single-node rollout strategy/RBAC rendering, Dhall numerics decode, linkable oneDNN runtime probing, typed service command shapes, and the `JitML.Test.WorkflowMatrix` live case that fails closed without a publication and runs current-substrate workflow/model cells by canonical CLI command when a live cluster exists. Sprint 12.15 expands this from workflow-category coverage to fixed-budget trained-artifact cells and negative inference checks. | Integration | Sprint 12.2 / Sprint 12.11 / Sprint 12.12 / Sprint 12.13 / Sprint 12.15 |
+| `jitml-sl-canonicals` | `test/sl-canonicals/Main.hs` covers the canonical SL `(dataset, model)` matrix, dataset fetch verification, Training command/event envelope round-trips, fixed `TrainingBudget` execution, completed-training witness minting, convergence-statistics recording, eligible-checkpoint writes, and infer-before-complete rejection. No per-substrate numerical fixtures are committed. | Integration (project-specific) | Sprint 12.3 / Sprint 12.15 |
+| `jitml-rl-canonicals` | `test/rl-canonicals/Main.hs` covers the RL algorithm catalog, canonical-game surface, RL command/event envelope round-trips, measured convergence for the catalog rows, and AlphaZero per-game fixed-budget metrics. No per-substrate trajectory or reward-distribution fixtures are committed. | Integration (project-specific) | Sprint 12.4 / Sprint 12.15 |
+| `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), checkpointable trained weights for measured trial objectives, fixed trial-budget completion, promoted-checkpoint eligibility, and Tune command/event envelope round-trips. Sampler trial values are checked as properties rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
 | `jitml-backends` | `test/backends/Main.hs` covers per-substrate JIT backend validation, **symmetric across all three backends**: generated kernel compile/load/run + family/output-count symbols, weighted-family numeric correctness vs the pure `JitML.Numerics.FamilyReference` oracle, MLP forward/backward/batched-gradient/input-gradient vs the pure `JitML.Numerics.Mlp` network, the PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence — each substrate's cases run **for real** in their own lane (Apple host-native Metal; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA in the `jitml-cuda` GPU container), selected via `--test-options='-p <substrate>'`, with **no skipped tests**. Correctness is asserted within-lane against the in-process pure-Haskell oracle within `1e-3`; no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, inference request/result protobuf byte round-trips, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, typed live-plan surfaces, and the Sprint 12.11 structural assertion that `JitML.Test.WorkflowMatrix` covers every reopened workflow × substrate with a command. Sprint 12.13 / Phase 14 make the live Playwright path launch workflows, validate model interactions, observe RL animations, replay adversarial games, and exercise tuning controls against real artifacts. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Phase 14 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, typed live-plan surfaces, and the Sprint 12.11 structural assertion that `JitML.Test.WorkflowMatrix` covers every workflow category × substrate with a command. Sprint 12.15 / Phase 14 make the live Playwright path launch or select every fixed-budget trained artifact, validate model-specific interactions, observe RL animations, replay adversarial games, exercise tuning controls, and prove inference rejection before training completion. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Sprint 12.15 / Phase 14 |
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 `Test Organization`.
@@ -85,28 +88,28 @@ separate; use `docker compose run --rm jitml jitml lint *` and
 ### `jitml-sl-canonicals` — SL canon coverage
 
 The current body exercises the eleven canonical cells from
-`src/JitML/SL/Canonicals.hs` as property tests over the typed
-`TrainingLifecycle`: loss values are finite, decrease monotonically over the
-training budget, and the median over a small fixed-seed pool clears a
-sanity threshold derived from the literature reference at test time
-(no per-substrate stored fixture). The stanza also verifies dataset fetch
-and SHA validation through `HasMinIO`, and round-trips Training
-command/event envelopes. No `.txt` / `.json` files of hardcoded per-epoch
-loss values are committed — see [Snapshot Tests and the Prohibition on
-Numerical Fixtures](#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+`src/JitML/SL/Canonicals.hs`, verifies dataset fetch and SHA validation through
+`HasMinIO`, round-trips Training command/event envelopes, and asserts the
+fixed-budget trained-artifact contract for every SL row: complete budget,
+convergence-statistics payload, checkpoint reload, inference eligibility, and
+infer-before-complete rejection. No `.txt` / `.json` files of hardcoded
+per-epoch loss values are committed — see [Snapshot Tests and the Prohibition
+on Numerical Fixtures](#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
 ### `jitml-rl-canonicals` — RL canon coverage
 
-The current body checks representative entries in `algorithmCatalog`,
-verifies same-substrate, same-seed run-to-run trajectory equality
+The current body checks entries in `algorithmCatalog`, verifies same-substrate,
+same-seed run-to-run trajectory equality
 (two fresh runs compared bit-for-bit against each other — no stored
 trajectory file), property-tests the canonical environments (legal-move
 generation, terminal detection, draw conditions for Connect 4, Othello,
-Hex, and Gomoku), and round-trips RL command/event envelopes.
-Convergence is asserted statistically: median evaluator reward over a
-fixed-seed pool clears a literature-derived threshold computed at test
-time. No per-substrate trajectory, reward-distribution, or AlphaZero
-transcript files are committed.
+Hex, and Gomoku), and round-trips RL command/event envelopes. Sprint `12.15`
+requires and now validates that every RL algorithm row and every AlphaZero game
+has a fixed budget, completed-training witness, stand-alone
+convergence-statistics payload, checkpoint reload, inference/rollout
+eligibility, and infer-before-complete rejection for the `linux-cpu` baseline.
+No per-substrate trajectory, reward-distribution, or AlphaZero transcript files
+are committed.
 
 `KeyDoorGrid-v0` is the required visual discrete-control canonical demo target
 for the reopened Phase `8` / Phase `9` replacement work. Its tests assert
@@ -170,6 +173,11 @@ each closure phase validates at most one of `{linux-cuda, apple-silicon}` plus
 deterministic enforcement, by
 [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md).
 Phase order, blockers, and closure status live in the development plan, not here.
+Current 2026-06-26 evidence: the `linux-cuda` all-model lane revalidated on the
+RTX 5090 host with `docker compose run --rm jitml-cuda jitml test all
+--linux-cuda` passing all 8 stanzas, `jitml-backends` passing 20/20 on the GPU,
+and the live Playwright product matrix passing 15/15 at the published CUDA edge.
+The remaining external lane blocker is the Apple Silicon host.
 
 `jitml-unit` owns the CUDA runtime-probe parser snapshots for `nvcc`,
 `nvidia-smi`, and `ldconfig`, plus the guarded CUDA benchmark-runner preflight
@@ -271,8 +279,8 @@ and are never committed as golden numerical fixtures.
 
 ### Real-Workflow Matrix
 
-`JitML.Test.WorkflowMatrix` is the Sprint 12.11 source of truth for reopened
-workflow coverage. It enumerates SL train/eval, RL train/eval/rollout, tune,
+`JitML.Test.WorkflowMatrix` is the Sprint 12.11 source of truth for workflow
+coverage. It enumerates SL train/eval, RL train/eval/rollout, tune,
 inference, and AlphaZero self-play for each canonical substrate, with the
 canonical `jitml` command for each cell. The integration `Live` group filters
 the matrix to the current publication substrate, stages the required minimal

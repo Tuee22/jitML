@@ -31,7 +31,15 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **No-caveat product target:** The full end-to-end product target is closed again as of 2026-06-26: supported SL, RL, AlphaZero, and tuning workflows train or run for real, checkpoint, infer/evaluate, surface browser interactions, render live visualizations, and pass the Playwright e2e product matrix in the demo app. The closure evidence is tracked by Phases `8`–`18` in the development plan; the temporary demo/parser/runtime stand-ins have moved to `Completed` in [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+> **Current product status (reopened 2026-06-26):** The codebase has real
+> substrate-backed training and inference foundations, but the no-caveat
+> all-model product target is **not closed**. The reopened work is tracked in
+> Phases `8`–`18`: every supported SL/RL/AlphaZero model must train for a pure
+> fixed budget, record convergence statistics in its checkpoint/TensorBoard
+> stream, mint an inference-eligible trained-artifact witness, and be covered by
+> integration, demo, Playwright, and e2e tests. Known stand-ins and compatibility
+> residues live in
+> [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 ---
 
@@ -627,7 +635,7 @@ data TbCheckpointMarker = TbCheckpointMarker
   }
 ```
 
-Sidecars are CBOR canonical-form, content-addressed-style, and written with `If-None-Match: *`. The PureScript frontend lists the `checkpoints/` prefix once at panel-load and overlays clickable markers on the TB iframe's loss curve — clicking a marker opens the [Inference panel](#panels) pre-loaded with that manifest SHA. The overlay is a positioned div on top of the iframe; we do not ship a TensorBoard plugin (which would require a TB-extension build chain). This is the single design move that turns TB from passive telemetry into a navigable index into the checkpoint store, and it costs two extra MinIO PUTs per checkpoint event.
+Sidecars are CBOR canonical-form, content-addressed-style, and written with `If-None-Match: *`. The PureScript frontend lists the `checkpoints/` prefix once at panel-load and overlays clickable markers on the TB loss curve — clicking a marker opens the [Inference panel](#panels) pre-loaded with that manifest SHA only when the manifest has an inference-eligible trained-artifact witness. The overlay is a positioned div over the TensorBoard view; we do not ship a TensorBoard plugin (which would require a TB-extension build chain). This is the single design move that turns TB from passive telemetry into a navigable index into the checkpoint store, and it costs two extra MinIO PUTs per checkpoint event. Reopened Phase `10` / Phase `14` adds the fixed-budget completion counters, convergence-statistics scalars, and readiness status used by both TensorBoard and the SPA.
 
 ## Determinism caveat
 
@@ -753,7 +761,7 @@ Percona Kubernetes Operator manages a Patroni-backed HA Postgres cluster. The lo
 
 # TensorBoard, Prometheus, Grafana as first-class
 
-**TensorBoard.** A `tensorboard` pod routed at `/tensorboard`, with a MinIO-client sidecar mirroring the `jitml-tensorboard` bucket into the pod logdir. The TB pod is stateless and reschedulable. See [TensorBoard event storage](#tensorboard-event-storage) for the event-file format, bucket layout, shard rotation, concurrency model, cross-link to checkpoint manifests, and determinism caveat. TensorBoard is the headline visualization for SL training; the PureScript frontend's training panel embeds the TB iframe and overlays clickable checkpoint markers.
+**TensorBoard.** A `tensorboard` pod routed at `/tensorboard`, with a MinIO-client sidecar mirroring the `jitml-tensorboard` bucket into the pod logdir. The TB pod is stateless and reschedulable. See [TensorBoard event storage](#tensorboard-event-storage) for the event-file format, bucket layout, shard rotation, concurrency model, cross-link to checkpoint manifests, and determinism caveat. TensorBoard is the headline visualization for SL training; the PureScript training panel may show a run-scoped TensorBoard scalar view with clickable checkpoint overlays, while the full TensorBoard console remains a top-level reverse-proxied portal link rather than a framed admin backend.
 
 **Prometheus.** Deployed via `kube-prometheus-stack`. The generated `ScrapeConfig`, declared as a typed Haskell value in `src/JitML/Observability/Prometheus.hs`, currently scrapes:
 
@@ -1119,7 +1127,7 @@ Loss functions are represented declaratively in Dhall: scalar losses, multi-head
 
 # Concrete Dhall worked example
 
-A canonical SL experiment, end-to-end. The `dataset.train` field is the source for *both* train and validation splits — `Split.PermuteUnderSeed` slices `fullTrain` into a 55 000-example training partition and a 5 000-example validation partition under a fixed seed. `dataset.test` is the held-out final-evaluation set — the **validation** partition drives model selection / early-stop, and `test` is measured once on the selected model, never seen during training or selection. All weights are real trained values (no hardcoded/synthetic weights) and the published loss is a real cross-entropy/MSE value, not `1 − accuracy` (see [documents/engineering/training_metrics_and_splits.md](documents/engineering/training_metrics_and_splits.md)). The `metrics` list declares each metric's direction (`Maximise` for accuracy, `Minimise` for loss), which the trainer's `pointers/best/<m>` CAS predicate consumes (see [Concurrency model](#concurrency-model)). The `tuning` field is `None Tuning` for single-run experiments; setting it to `Some Tuning::{ … }` turns the definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
+A canonical SL experiment, end-to-end. The `dataset.train` field is the source for *both* train and validation splits — `Split.PermuteUnderSeed` slices `fullTrain` into a 55 000-example training partition and a 5 000-example validation partition under a fixed seed. `dataset.test` is the held-out final-evaluation set — the **validation** partition drives model selection / early-stop, and `test` is measured once on the selected model, never seen during training or selection. The target invariant is that every inference-eligible checkpoint contains real trained values (no hardcoded/synthetic weights) and publishes a real cross-entropy/MSE value, not `1 − accuracy`; the 2026-06-26 reopen makes that invariant explicit through the fixed `TrainingBudget`, `CompletedTraining`, and `InferenceEligibleCheckpoint` contract (see [documents/engineering/training_metrics_and_splits.md](documents/engineering/training_metrics_and_splits.md)). The `metrics` list declares each metric's direction (`Maximise` for accuracy, `Minimise` for loss), which the trainer's `pointers/best/<m>` CAS predicate consumes (see [Concurrency model](#concurrency-model)). The `tuning` field is `None Tuning` for single-run experiments; setting it to `Some Tuning::{ … }` turns the definition into a sweep — see [Hyperparameter tuning](#hyperparameter-tuning-first-class).
 
 ```dhall
 -- experiments/mnist-mlp.dhall
@@ -1379,10 +1387,13 @@ The PureScript frontend's hyperparameter panel subscribes to `tune.event.<mode>`
 Eleven problems spanning the architectural breadth of the [Layer catalog](#layer-catalog), each compact enough to baseline on a single reference host.
 
 The no-caveat product target treats every row below as an implementation
-obligation, not a brochure row. Historical Dense-MLP training is real and
-checkpoint-backed, but final closure requires every listed model family to
-train, checkpoint, evaluate, infer, and appear in the Playwright-validated demo
-surface on each real substrate lane where that lane is selected.
+obligation, not a brochure row. Current code proves selected real paths and
+all-row train-step/smoke coverage, but final closure is reopened: every listed
+model family must train for its declared fixed `TrainingBudget`, mint a
+completed-training witness, checkpoint convergence statistics, evaluate, infer
+only through an inference-eligible checkpoint, and appear in the
+Playwright-validated demo surface on each real substrate lane where that lane is
+selected.
 
 | Dataset | Model | Architectural features showcased | Literature target | Citation |
 |---|---|---|---|---|
@@ -1413,7 +1424,9 @@ Each dataset's source URL is pinned, the source bytes' SHA-256 is recorded (in t
 
 ## Threshold methodology
 
-The literature-target column above is a **sanity-check expectation** consumed at test time. The convergence assertion for `(dataset, model)` is
+The literature-target column above is a **sanity-check expectation** consumed at
+test time after the model's fixed, terminating budget has completed. The
+convergence assertion for `(dataset, model)` is
 
 ```
 median(test_acc over k=5 seeds, current run, current substrate)
@@ -1432,9 +1445,9 @@ prohibition on numerical fixtures](#snapshot-targets) and
 
 If a substrate's `k=5` median falls below `literature_target − slack`,
 that's an investigation trigger — the test fails loudly rather than
-silently re-baselining. Treating either the literature target or any
-particular host's measured median as load-bearing for cross-substrate
-comparison is forbidden.
+silently re-baselining or extending the budget until convergence happens.
+Treating either the literature target or any particular host's measured median
+as load-bearing for cross-substrate comparison is forbidden.
 
 ## Citations
 
@@ -1457,7 +1470,9 @@ commit numerical fixtures for the substrate-sensitive parts of training
 (per [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets)):
 
 - **Run-to-run determinism** — `train` produces bit-identical checkpoint files on the same substrate, same seed, when run twice. The two runs are compared against each other via `sha256(weights.bin)`; no reference checkpoint is committed.
-- **Convergence (statistical)** — `median(test_acc over k=5 seeds) ≥ literature_target − slack`, with `slack` a per-problem-class constant declared in code (see [Threshold methodology](#threshold-methodology)).
+- **Convergence (statistical)** — after the fixed budget completes,
+  `median(test_acc over k=5 seeds) ≥ literature_target − slack`, with `slack` a
+  per-problem-class constant declared in code (see [Threshold methodology](#threshold-methodology)).
 - **Curve sanity (properties, not fixtures)** — over the training budget, the loss is finite at every step, is monotonically decreasing modulo a small per-class noise window, gradients are finite, and the final-epoch loss improves over the first-epoch loss by at least a per-problem-class margin. No stored per-epoch curve file.
 
 ---
@@ -1935,13 +1950,15 @@ read a committed numerical fixture:
    Runs in `jitml-unit`; costs seconds.
 
 2. **Convergence (the headline check, statistical).**
-   Fix `(env, algo, seed_pool of k=5 seeds, hyperparameters)`. Train
-   each seed to the budgeted timesteps. Assertion:
+   Fix `(env, algo, seed_pool of k=5 seeds, hyperparameters)` and the pure,
+   terminating `TrainingBudget`. Train each seed for exactly the budgeted
+   timesteps. Assertion:
    `median(final_reward) ≥ literature_target − slack`, where `slack`
    is a per-(env, algo) constant declared in code — never a
    per-substrate empirical fixture. Regression detection is by
-   threshold violation; if a substrate's median falls below the
-   threshold, the test fails loudly rather than silently re-baselining.
+   threshold violation; if a substrate's median falls below the threshold, the
+   test fails loudly rather than silently re-baselining or continuing training
+   until convergence happens.
    Runs in `jitml-rl-canonicals`; costs minutes-to-hours per `(env, algo)`.
 
 3. **Replay-from-checkpoint determinism.**
@@ -1967,21 +1984,20 @@ depending on the runner.
 
 The canonical convergence matrix is declared in
 `src/JitML/RL/ConvergenceThresholds.hs`; the README does not carry duplicate
-placeholder fixtures. Current coverage:
+placeholder fixtures. Target coverage:
 
-| algorithm family | canonical environments |
+| algorithm family | required convergence surface |
 |---|---|
-| PPO / A2C / TRPO / MaskablePPO / RecurrentPPO | cartpole, mountain-car, lunar-lander, key-door-grid |
-| DQN / QR-DQN | cartpole, mountain-car, key-door-grid |
-| DDPG / TD3 / SAC / CrossQ / TQC | lunar-lander |
-| ARS | cartpole, mountain-car, lunar-lander, key-door-grid |
-| HER | omitted from the required matrix; no goal-conditioned canonical env exists |
-| AlphaZero | tracked by arena win-rate, not episode return |
+| PPO / A2C / TRPO / MaskablePPO / RecurrentPPO | cartpole, mountain-car, lunar-lander, key-door-grid median evaluation return |
+| DQN / QR-DQN | cartpole, mountain-car, key-door-grid median evaluation return |
+| DDPG / TD3 / SAC / CrossQ / TQC | lunar-lander median evaluation return |
+| ARS | cartpole, mountain-car, lunar-lander, key-door-grid median evaluation return plus accepted-direction improvement |
+| HER | goal-conditioned canonical env success rate plus achieved-goal distance |
+| AlphaZero | per-game arena win-rate for Connect 4, Othello, Hex, and Gomoku |
 
-> Reopened 2026-06-24 (Sprints 9.13/13.2): the `reward` (convergence) and `timesteps`
-> (sample-efficiency performance) columns are populated by the **real measured-median**
-> over `k` seeds — not literature-target placeholders — and AlphaZero convergence is
-> measured by **arena win-rate**. See
+> Reopened 2026-06-26: current measured convergence is representative, not
+> all-model. The closure target is one fixed-budget completed-training witness
+> and convergence-statistics payload per row above. See
 > [documents/engineering/training_metrics_and_splits.md](documents/engineering/training_metrics_and_splits.md).
 
 The convergence check is the load-bearing test; the run-to-run
@@ -2104,6 +2120,9 @@ A checkpoint is an immutable deterministic snapshot of one point in training, RL
 - replay buffers (RL)
 - exploration caches (RL / MCTS)
 - training metadata
+- fixed training-budget and completed-training witness metadata
+- convergence-statistics metadata
+- TensorBoard scalar/run metadata
 - hardware compilation metadata
 
 Persistence backend: MinIO bucket `jitml-checkpoints`, laid out per [Checkpoint object layout](#checkpoint-object-layout) and written under the [Concurrency model](#concurrency-model). Checkpoint replay is guaranteed deterministic; the [Replay-from-checkpoint determinism check](#convergence-and-determinism-checks-for-rl) enforces this through the test suite, not just by design statement.
@@ -2114,7 +2133,7 @@ A checkpoint is **N + 1 content-addressed objects** in MinIO — not one monolit
 
 | Part | Required for | Why separate |
 |---|---|---|
-| `weights.bin` (`.jmw1`) | always | inference-at-any-point reads only this part; downloading the optimizer state would double bandwidth for Adam/AdamW |
+| `weights.bin` (`.jmw1`) | always | inference reads only this part after the manifest mints an inference-eligible trained artifact; downloading the optimizer state would double bandwidth for Adam/AdamW |
 | `optimizer_state.bin` (`.jmw1`) | training & resume | rarely needed by readers; ~2× weights for Adam |
 | `rng_state.bin` | always | tiny, but separately addressed so consecutive checkpoints dedup when only the step counter changes |
 | `replay_buffer.bin` | off-policy RL | can dwarf the policy itself; never needed for inference |
@@ -2178,6 +2197,10 @@ data CheckpointManifest = CheckpointManifest
   , cmSchemaVersion  :: !Word32
   , cmParts          :: ![CheckpointPart]    -- canonical-ordered by role
   , cmMetrics        :: ![(Text, Double)]    -- metric snapshot at this checkpoint (sorted by metric name)
+  , cmBudgetHash     :: !Hash32              -- fixed TrainingBudget identity
+  , cmCompleted      :: !CompletedTraining   -- proof the fixed budget ran
+  , cmConvergence    :: !ConvergenceStats    -- model-owned metric payload
+  , cmTensorBoardRun :: !Text                -- scalar run/prefix for UI links
   , cmParentManifest :: !(Maybe Hash32)      -- lineage chain; set on resume
   }
 
@@ -2203,11 +2226,16 @@ jitML keeps no derived index in Postgres. Every fact about a training run, a hyp
 
 ## Inference-only read path
 
-The target inference-at-any-point primitive reads *only* the `Weights` part of a
-manifest. The current implementation uses
+The target inference primitive reads *only* the `Weights` part of a manifest,
+but only after the manifest has minted an inference-eligible trained artifact.
+Intermediate checkpoints can be inspected and resumed from; they are not
+representable as inference inputs unless their fixed budget completed and their
+convergence-statistics payload satisfies the model's metric predicate. The
+current implementation uses
 `JitML.Checkpoint.Store.loadInferenceCheckpointWithWeights` for latest-pointer →
-manifest → decoded `.jmw1` weights → substrate weighted runner flow; the default
-manifest-only path fails closed rather than manufacturing an inference value.
+manifest → decoded `.jmw1` weights → substrate weighted runner flow; reopened
+Phase `10` makes that loader return an inference-eligible checkpoint rather
+than raw weights whenever the caller is an inference/eval/demo surface.
 The CLI surface is the `Inference` constructor of the top-level `Command` (see
 [CLI command topology, typed](#cli-command-topology-typed)):
 
@@ -2330,15 +2358,15 @@ The PureScript frontend is not a metrics dashboard with passive read-only panes;
 
 Every panel renders inside a slim shared header (`Chrome.Header` — the `jitML` wordmark plus a `[home]` link to `#portals`), so the directory is one click away from any view. The hash dispatcher disposes the previous Halogen root before mounting the next panel, so hash navigation leaves a single active app root. The empty-hash landing routes to the portals home below; the named `#mnist-live-inference` / `#cifar-imagenet-upload` / `#training-progress` / `#hyperparameter-sweep` / `#rl-trajectory` / `#connect4-human-vs-alphazero` hashes continue to address each panel directly.
 
-- **Portals home.** Default landing for `127.0.0.1:<edge-port>/`. A two-column directory: the left column lists the in-SPA panels from `web/src/PanelRegistry.purs`; the right column lists every Envoy-routed admin portal from `web/src/Generated/AdminPortals.purs` (generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` — Grafana, Prometheus, TensorBoard, Harbor, MinIO console, Pulsar admin). The home page is an unauthenticated directory of upstreams, not a sign-in surface; each upstream owns its own auth (see [TLS posture](#envoy-gateway-api-a-single-localhost-socket) above). The list stays in sync with the chart's HTTPRoutes because the registry is the single source of truth, gated by `jitml docs check`.
+- **Portals home.** Default landing for `127.0.0.1:<edge-port>/`. A two-column directory: the left column lists the in-SPA panels from `web/src/PanelRegistry.purs`; the right column lists every Envoy-routed admin portal from `web/src/Generated/AdminPortals.purs` (generated from `src/JitML/Routes.hs` via `JitML.Web.AdminPortals` — Grafana, Prometheus, TensorBoard, Harbor, MinIO console, Pulsar admin). Admin consoles open as top-level reverse-proxied links, not iframes: Grafana, Prometheus, TensorBoard, Harbor, MinIO, and Pulsar each own their auth, CSP, base-path, websocket, and internal navigation behavior. The consistent jitML UI is the generated portal directory plus shared chrome. The home page is an unauthenticated directory of upstreams, not a sign-in surface; each upstream owns its own auth (see [TLS posture](#envoy-gateway-api-a-single-localhost-socket) above). The list stays in sync with the chart's HTTPRoutes because the registry is the single source of truth, gated by `jitml docs check`.
 - **Run list.** All experiments + runs from MinIO `jitml-checkpoints`, with status, lineage tree, and one-click "branch a new run from this checkpoint."
-- **Live training panel.** Loss / validation curves, throughput sparkline, GPU-util gauge — animated from `training.event.<mode>` over WebSocket. Embeds the TensorBoard iframe at `/tensorboard/?run=<experiment-hash>` in a side tab. **Interactive controls:** start a new run from any committed experiment Dhall, pause/resume the current run, stop with optional final-checkpoint flush, change `LiveConfig` knobs (LR schedule, log level, retry budgets) and apply via SIGHUP. The control surface publishes `training.command.<mode>` envelopes; the daemon responds with `training.event.<mode>`.
+- **Live training panel.** Loss / validation curves, throughput sparkline, GPU-util gauge — animated from `training.event.<mode>` over WebSocket. Shows TensorBoard run context and checkpoint overlays for the selected experiment, with the full TensorBoard console available through the portals home as a top-level route. **Interactive controls:** start a new run from any committed experiment Dhall, pause/resume the current run, stop with optional final-checkpoint flush, change `LiveConfig` knobs (LR schedule, log level, retry budgets) and apply via SIGHUP. The control surface publishes `training.command.<mode>` envelopes; the daemon responds with `training.event.<mode>`.
 - **RL panel.** Episode-reward distribution (live), env render preview (canvas-rendered from `EpisodeFrame` events), replay-buffer fill, exploration rate. **Interactive controls:** start / pause / stop, swap policy, force-evaluate, scrub through a recorded trajectory.
 - **Hyperparameter panel.** Pareto frontier (live; populated by NSGA-II for multi-objective sweeps), trial-by-trial heatmap, per-axis (sampler / scheduler / pruner) state, PBT population view + hyperparameter-mutation lineage tree, trial detail drill-down. **Interactive controls:** launch a sweep, kill an individual trial, pin a trial as the "promote" candidate.
 - **MNIST handwriting panel.** A canvas component the user draws on with mouse or touchpad. The drawing is downsampled to 28×28, normalised, and fired at `inference.request.<mode>` against the configured MNIST checkpoint. The result panel shows the predicted class plus the full softmax distribution as a bar chart, updated live as the user draws (re-inference on stroke-end). The checkpoint is configurable to any committed MNIST run; the user can flip between the shallow-MLP run and the LeNet-5 CNN run to compare predictions side by side.
 - **Image-recognition panel (CIFAR / Tiny ImageNet).** Drag-and-drop or file-picker upload. The frontend center-crops + resizes to the model's input size client-side, posts to `/api/inference/image`, and shows top-K predictions with class probabilities. A "swap checkpoint" dropdown switches between ResNet-20 (CIFAR-10), Wide ResNet-28-10 (CIFAR-100), and ResNet-50 (Tiny ImageNet) without page reload.
 - **Game-play panel (Connect 4 et al.).** An interactive board for each game in [Canonical adversarial games](#canonical-adversarial-games). Click-to-drop on Connect 4; click-to-place or tile-select on Othello / Gomoku / Hex. The user plays against the AlphaZero policy at a chosen checkpoint, with sliders for `mctsSimsPerMove` and temperature. A side pane renders the MCTS visit distribution (which the user can compare against the policy head's raw logits), the value head's evaluation of the current position, and a one-click "request engine analysis" that runs a deeper search at temperature 0. A "swap opponent" dropdown pits the latest checkpoint against an older one, and the replay controls scrub through saved transcripts from self-play, arena, or human-vs-engine games.
-- **Cluster panel.** Embedded Grafana iframe at `/grafana` + the route table from `cluster status`.
+- **Cluster panel.** Route table from `cluster status` plus top-level portal links to Grafana and Prometheus; it does not embed admin consoles.
 - **Inference panel.** Catch-all for non-canvas, non-image, non-game inference — paste a tensor as JSON, see the output tensor.
 
 ## REST surfaces for interactive panels
@@ -2397,12 +2425,12 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 |---|---|---|---|
 | `jitml-unit` | Pure Logic + Parser + Property + Snapshot | `TestUnit` | CommandSpec snapshot, Dhall round-trip, autodiff property, optimizer-step property, route-registry render snapshot, Grafana-dashboard render snapshot, RNG mixer property, run-to-run trajectory-determinism for RL (compares two fresh runs against each other; no stored trajectory) |
 | `jitml-integration` | Integration | `TestIntegration` | `jitml` binary across all substrates; checkpoint round-trip; resume semantics; Dhall→typed-record decode; per-substrate run-to-run determinism |
-| `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): run-to-run determinism, statistical convergence against a literature-derived threshold, and per-epoch property checks — no committed numerical fixtures |
-| `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: run-to-run determinism, statistical convergence (median over k seeds ≥ in-code threshold), replay-from-checkpoint determinism, and per-evaluation curve property checks — no committed numerical fixtures |
+| `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): current coverage includes catalog properties, selected live convergence, and all-row smoke; reopened coverage requires fixed-budget convergence, checkpoint reload, and inference eligibility for every row — no committed numerical fixtures |
+| `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: current coverage includes catalog properties and representative measured convergence; reopened coverage requires fixed-budget convergence, checkpoint reload, rollout/eval eligibility, and per-evaluation curve properties for every algorithm/game row — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected via `--test-options='-p <substrate>'`, **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; the no-caveat live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves workflow training/checkpoint/inference/animation/replay/tuning interactions, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
+| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; the reopened no-caveat live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves all-model fixed-budget training/checkpoint/inference/animation/replay/tuning interactions, rejects inference before training completion, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
 
 `TestAll` fans out to every stanza above. It does not run lint, style, or
 code-quality gates; `jitml lint all` and `jitml check-code` are the separate

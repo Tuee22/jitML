@@ -6,6 +6,7 @@ import Data.List qualified as List
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Word (Word64)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
@@ -103,7 +104,34 @@ import JitML.Test.Report
   ( ReportCardKnobs (..)
   , loadReportCardKnobs
   )
+import JitML.Training.Budget qualified as TrainingBudget
 import System.Random qualified as Random
+
+completedTrainingFixture
+  :: TrainingBudget.BudgetKind
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> TrainingBudget.CompletedTraining
+completedTrainingFixture kind experimentHash observedUnits metrics =
+  either
+    (error . Text.unpack)
+    id
+    ( TrainingBudget.completedTrainingFromMetrics
+        TrainingBudget.TrainingBudget
+          { TrainingBudget.tbKind = kind
+          , TrainingBudget.tbTargetUnits = max 1 observedUnits
+          , TrainingBudget.tbUnitLabel = "units"
+          , TrainingBudget.tbSeed = Nothing
+          }
+        observedUnits
+        metrics
+        TrainingBudget.TensorBoardRunMetadata
+          { TrainingBudget.tbrRunId = experimentHash
+          , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+          , TrainingBudget.tbrScalarTags = fmap fst metrics
+          }
+    )
 
 main :: IO ()
 main =
@@ -284,6 +312,14 @@ main =
                     , cdrlManifestSha = "sha256:manifest"
                     , cdrlStep = 2048
                     , cdrlPointerKey = "checkpoints/cartpole/latest"
+                    , cdrlCompletedTraining =
+                        Just
+                          ( completedTrainingFixture
+                              TrainingBudget.RlEnvironmentStepBudget
+                              "sha256:cartpole"
+                              2048
+                              [("eval_return", 0.75)]
+                          )
                     }
               metric =
                 RlMetric

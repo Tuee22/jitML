@@ -50,6 +50,13 @@ import JitML.Proto.Wire
   , uint64Field
   )
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
+import JitML.Training.Budget
+  ( CompletedTraining
+  , decodeCompletedTraining
+  , encodeCompletedTraining
+  , parseCompletedTraining
+  , renderCompletedTraining
+  )
 
 data StartRLRun = StartRLRun
   { srlExperimentHash :: Text
@@ -91,6 +98,7 @@ data CheckpointDoneRL = CheckpointDoneRL
   , cdrlManifestSha :: Text
   , cdrlStep :: Word64
   , cdrlPointerKey :: Text
+  , cdrlCompletedTraining :: Maybe CompletedTraining
   }
   deriving stock (Eq, Show)
 
@@ -283,12 +291,17 @@ renderRlEvent envelope =
         ]
     RlCheckpoint c ->
       Text.unlines
-        [ "kind: CheckpointDoneRL"
-        , "experiment-hash: " <> cdrlExperimentHash c
-        , "manifest-sha: " <> cdrlManifestSha c
-        , "step: " <> Text.pack (show (cdrlStep c))
-        , "pointer-key: " <> cdrlPointerKey c
-        ]
+        ( [ "kind: CheckpointDoneRL"
+          , "experiment-hash: " <> cdrlExperimentHash c
+          , "manifest-sha: " <> cdrlManifestSha c
+          , "step: " <> Text.pack (show (cdrlStep c))
+          , "pointer-key: " <> cdrlPointerKey c
+          ]
+            <> maybe
+              []
+              (\completed -> ["completed-training: " <> renderCompletedTraining completed])
+              (cdrlCompletedTraining c)
+        )
     RlMetric m ->
       Text.unlines
         [ "kind: MetricUpdate"
@@ -361,6 +374,7 @@ parseRlEvent payload =
                     <*> value "manifest-sha"
                     <*> (value "step" >>= readText)
                     <*> value "pointer-key"
+                    <*> pure (value "completed-training" >>= parseCompletedTraining)
                 )
         Just "MetricUpdate" ->
           RlMetric
@@ -507,21 +521,30 @@ decodeEvalDoneProto bytes = do
 
 encodeCheckpointDoneRLProto :: CheckpointDoneRL -> ByteString
 encodeCheckpointDoneRLProto checkpoint =
-  encodeMessage
+  encodeMessage $
     [ stringField 1 (cdrlExperimentHash checkpoint)
     , stringField 2 (cdrlManifestSha checkpoint)
     , uint64Field 3 (cdrlStep checkpoint)
     , stringField 4 (cdrlPointerKey checkpoint)
     ]
+      <> maybe
+        []
+        (\completed -> [messageField 5 (encodeCompletedTraining completed)])
+        (cdrlCompletedTraining checkpoint)
 
 decodeCheckpointDoneRLProto :: ByteString -> Either Text CheckpointDoneRL
 decodeCheckpointDoneRLProto bytes = do
   fields <- decodeMessage bytes
+  completed <-
+    case fieldMessage 5 fields of
+      Nothing -> Right Nothing
+      Just completedBytes -> Just <$> decodeCompletedTraining completedBytes
   CheckpointDoneRL
     <$> require "experiment_hash" (fieldString 1 fields)
     <*> require "manifest_sha" (fieldString 2 fields)
     <*> require "step" (fieldWord64 3 fields)
     <*> require "pointer_key" (fieldString 4 fields)
+    <*> pure completed
 
 encodeMetricUpdateProto :: MetricUpdate -> ByteString
 encodeMetricUpdateProto metric =

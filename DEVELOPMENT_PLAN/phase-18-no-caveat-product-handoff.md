@@ -21,8 +21,15 @@
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-24 for Sprint `18.3`; **re-closed 2026-06-26**) —
-the no-caveat product handoff is re-aggregated after the real-SL/RL chain landed
+⏸️ **Blocked** (reopened 2026-06-26 for Sprint `18.4`; blocked by Phases
+`16`/`17`). The `linux-cpu` fixed-budget all-model trained-artifact baseline is
+closed again, Phases `13`/`14` are Done, Phase `15` has revalidated the real
+`linux-cuda` lane, and the `Pending Removal` ledger is empty. Final handoff
+still waits for the external `apple-silicon` all-model lane fragment plus
+handoff aggregation.
+
+Historical closure: reopened 2026-06-24 for Sprint `18.3`; re-closed
+2026-06-26. The no-caveat product handoff was re-aggregated after the real-SL/RL chain landed
 and Phases `8`/`9`/`10`/`13`/`14` re-closed. The `Pending Removal` ledger is
 empty again (Exit Definition item 18 re-met), the `linux-cpu` live aggregation
 passed **8/8 stanzas** with every report-card measurement populated, the browser
@@ -85,8 +92,9 @@ merged `linux-cpu` aggregation green)
 **Implementation**: `bootstrap/*.sh`, `src/JitML/Test/*`,
 `playwright/jitml-demo.spec.ts`, `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
 `DEVELOPMENT_PLAN/attestations/`
-**Was blocked by** (all now `✅ Done`): Phase `15` Sprint `15.20`; Phase `16` Sprint
-`16.11`; Phase `17` Sprint `17.8`; Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`
+**Was blocked by** (all now `✅ Done` for that historical closure): Phase `15`
+Sprint `15.20`; Phase `16` Sprint `16.11`; Phase `17` Sprint `17.8`; Phase
+`13` Sprint `13.1`; Phase `14` Sprint `14.2`
 **Docs to update**: `README.md`, `documents/engineering/purescript_frontend.md`,
 `documents/engineering/training_workloads.md`, `system-components.md`
 
@@ -97,16 +105,18 @@ Prove the final product definition with no caveats.
 This is a `linux-cpu`-only **aggregation** handoff (single host) per standards
 rule M(b)/(d). Each lane's full runtime + Playwright matrix is run and attested in
 its **owning** single-accelerator phase — `bootstrap/linux-cuda.sh test` in Sprint
-`15.20`, `bootstrap/apple-silicon.sh test` in Sprint `16.11`, and
-`bootstrap/linux-cpu.sh test` across Phases `13`/`14`. This phase consumes the
-committed per-lane attestations and proves the product is no-caveat; it never runs
-an accelerator lane itself, so it closes on any single Docker host.
+`15.20` and the expanded Sprint `15.21`, `bootstrap/apple-silicon.sh test` in
+Sprint `16.11`, and `bootstrap/linux-cpu.sh test` across Phases `13`/`14`. This
+phase consumes the committed per-lane attestations and proves the product is
+no-caveat; it never runs an accelerator lane itself, so it closes on any single
+Docker host.
 
 ### Deliverables
 
-- The committed per-lane attestations from Sprints `15.20` (`linux-cuda`),
-  `16.11` (`apple-silicon`), and Phases `13`/`14` (`linux-cpu`) are present and
-  each shows the full no-caveat runtime + Playwright matrix passing for its lane.
+- The committed per-lane attestations from Sprints `15.20` / `15.21`
+  (`linux-cuda`), `16.11` (`apple-silicon`), and Phases `13`/`14`
+  (`linux-cpu`) are present and each shows the full no-caveat runtime +
+  Playwright matrix passing for its lane.
 - `jitml test all --live` (merged on `linux-cpu` from the per-lane report-card
   fragments) reports every SL/RL/AlphaZero/tuning/demo measurement as available
   and includes no placeholder, skipped, synthetic, or unavailable product row for
@@ -227,6 +237,43 @@ re-closed and their legacy-tracking rows reached `Completed`.
 
 - None. The real-SL/RL no-caveat handoff is re-aggregated, the ledger is empty,
   and every final validation gate is green.
+
+## Sprint 18.4: Re-Aggregate after Fixed-Budget All-Model Closure [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Phase `16` Sprint `16.13`, Phase `17` Sprint `17.9`
+**Implementation**: `DEVELOPMENT_PLAN/attestations/`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `src/JitML/Test/Report.hs`
+**Docs to update**: `README.md`, `00-overview.md`, `system-components.md`,
+`../documents/engineering/training_workloads.md`,
+`../documents/engineering/purescript_frontend.md`,
+`../documents/engineering/unit_testing_policy.md`
+
+### Objective
+
+Re-aggregate the final no-caveat product handoff only after the fixed-budget
+all-model runtime, browser, per-lane, and cleanup obligations are complete.
+
+### Deliverables
+
+- Merge the `linux-cpu`, `linux-cuda`, and `apple-silicon` all-model fragments.
+- Verify every model row has completed-budget convergence statistics,
+  TensorBoard/UI visibility, checkpoint reload, and inference eligibility.
+- Verify the legacy ledger remains empty after external lane aggregation.
+- Run final docs/check-code/report-card gates.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test all --live --linux-cpu`
+- `docker compose run --rm jitml jitml check-code`
+- `docker compose run --rm jitml jitml docs check`
+
+### Remaining Work
+
+- Waiting for Phase `16` to close on real Apple Silicon hardware and for Phase
+  `17` to aggregate the lane fragments. The `linux-cpu` fixed-budget baseline,
+  the Phase `15` `linux-cuda` fragment, and the Pending Removal ledger are
+  closed.
 
 ## Related Documents
 

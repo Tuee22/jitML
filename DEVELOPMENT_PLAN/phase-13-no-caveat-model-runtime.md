@@ -22,15 +22,18 @@
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-24 for Sprint `13.2`; re-closed 2026-06-25 on
-`linux-cpu`) — the no-caveat runtime has been re-attested with the real SL/RL losses and
+✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `13.3` — all-model
+fixed-budget runtime closure on `linux-cpu`). Sprint `13.2` remains
+historically closed: the no-caveat runtime was re-attested with the real SL/RL losses and
 metrics from Phases `8`/`9`/`10`: trained weights only, real cross-entropy/MSE + held-out
 validation loss, validation-driven selection, measured RL convergence, and populated
 performance/product measurements. The live `jitml test all --live --linux-cpu` report
 card passed all eight stanzas and populated `sl_final_loss`, `rl_final_reward`,
 `alphazero_arena_win_rate`, `tune_best_objective`, `jit_cache_hit_rate`,
-`daemon_healthz`, and `browser_product_matrix`. All prior Sprints `13.1` remain
-`✅ Done`; the prior closure history follows.
+`daemon_healthz`, and `browser_product_matrix`. That evidence is now
+representative rather than sufficient for the expanded all-model contract. All
+prior Sprints `13.1`–`13.2` remain historical `✅ Done`; Sprint `13.3`
+is now closed.
 
 ✅ **Done — `linux-cpu` scope** (validated 2026-06-16 on an Apple M1 Max host's
 `linux-cpu` lane; opened 2026-06-14, unblocked 2026-06-15). Per standards rule
@@ -325,6 +328,91 @@ convergence-AND-performance metrics for both SL and RL.
   `tune_best_objective: TPE=1.0`, `jit_cache_hit_rate: prometheus=1.0 hits=1 misses=0`,
   `daemon_healthz: http://127.0.0.1:9091/healthz status=200`, and
   `browser_product_matrix: checkpoint-backed product panels 5/5 served at edge :9091`.
+
+## Sprint 13.3: Fixed-Budget All-Model Runtime Gate (`linux-cpu`) [✅ Done]
+
+**Status**: Done
+**Implementation**: `src/JitML/SL/`, `src/JitML/RL/`,
+`src/JitML/Tune/`, `src/JitML/Checkpoint/`, `src/JitML/App.hs`,
+`test/integration/Main.hs`, `test/sl-canonicals/Main.hs`,
+`test/rl-canonicals/Main.hs`
+**Docs to update**: `../documents/engineering/training_workloads.md`,
+`../documents/engineering/training_metrics_and_splits.md`,
+`../documents/engineering/checkpoint_format.md`,
+`../documents/engineering/numerical_core.md`, `system-components.md`
+
+### Objective
+
+Close the `linux-cpu` runtime only when every supported model trains to its
+fixed budget, writes convergence statistics into a checkpoint, reloads that
+checkpoint, and runs evaluation/inference through the `InferenceEligibleCheckpoint`
+boundary.
+
+### Deliverables
+
+- Run every canonical SL row through fixed-budget convergence, checkpoint reload,
+  evaluation, inference eligibility, and TensorBoard metric emission.
+- Run every RL algorithm row through fixed-budget training/eval/rollout,
+  checkpoint reload, and convergence-statistics emission.
+- Run AlphaZero Connect 4, Othello, Hex, and Gomoku through fixed self-play and
+  arena budgets with legal move and win-rate metrics.
+- Replace transport-smoke hardcoded inference checkpoints with trained artifacts
+  produced by the matrix.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-sl-canonicals --linux-cpu`
+- `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+- `docker compose run --rm jitml jitml test all --live --linux-cpu`
+- `docker compose run --rm jitml jitml docs check`
+
+### Current Validation State
+
+- `docker compose run --rm jitml cabal test jitml-sl-canonicals jitml-rl-canonicals --test-show-details=direct`
+  passed `jitml-sl-canonicals` **24 / 24** and `jitml-rl-canonicals`
+  **31 / 31** on `linux-cpu`.
+- The project-wrapper forms also passed on `linux-cpu`:
+  `jitml-sl-canonicals` **24 / 24** and `jitml-rl-canonicals` **31 / 31**.
+- `docker compose run --rm jitml cabal test jitml-integration --test-show-details=direct`
+  first passed non-live integration and failed only on live tests because no
+  `linux-cpu` cluster publication existed.
+- `./bootstrap/linux-cpu.sh up` then completed the live `linux-cpu` rollout
+  (**111** steps), and
+  `docker compose run --rm jitml cabal test jitml-integration --test-show-details=direct`
+  passed **72 / 72** against that bootstrapped cluster. This proves the current
+  representative live workflow gates, including the new RL completion
+  `MetricUpdate`/`CheckpointDoneRL` witness path, but it is not yet the
+  all-model fixed-budget matrix.
+- After the cluster came up,
+  `docker compose run --rm jitml cabal test jitml-sl-canonicals jitml-rl-canonicals --test-show-details=direct`
+  started `jitml-sl-canonicals` and passed **23 / 24** before the live all-row
+  staged-artifact case failed because none of the canonical MNIST,
+  Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, or California Housing
+  dataset blobs were staged in live MinIO. That is the current blocking input
+  for the all-model SL runtime gate; no local dataset archives are present in
+  the checkout.
+- The stale live MNIST train artifacts were repaired by deleting the bad MinIO
+  objects and re-uploading the canonical train image/label gzip files with
+  `jitml internal upload-dataset`; the staged hashes matched
+  `JitML.SL.Dataset.canonicalArtifactSha256For`.
+- `docker compose run --rm jitml cabal test jitml-sl-canonicals --test-show-details=direct`
+  then passed **24 / 24** against the live `linux-cpu` MinIO dataset state.
+- `docker compose run --rm jitml cabal test jitml-rl-canonicals --test-show-details=direct`
+  passed **31 / 31** after the live integration run.
+- `docker compose run --rm jitml cabal run jitml -- docs check` passed
+  (`docs check: ok`).
+- `docker compose run --rm jitml cabal run jitml -- check-code` passed
+  (`check-code: ok`).
+- `docker compose run --rm jitml jitml test all --live --linux-cpu` passed the
+  full aggregate lane with **8 / 8** stanzas green and populated report-card
+  measurements: `sl_final_loss`, `rl_final_reward`, `alphazero_arena_win_rate`,
+  `tune_best_objective`, `jit_cache_hit_rate`, `daemon_healthz`, and
+  `browser_product_matrix`.
+
+### Remaining Work
+
+- None.
 
 ## Related Documents
 

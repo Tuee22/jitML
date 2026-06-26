@@ -27,16 +27,30 @@
 -- See [../README.md → Convergence and determinism checks for RL](../../../README.md#convergence-and-determinism-checks-for-rl).
 module JitML.RL.ConvergenceThresholds
   ( ConvergenceThreshold (..)
+  , FixedBudgetRlConvergenceRow (..)
+  , HerGoalMetric (..)
   , cohortThreshold
   , cohortThresholds
+  , fixedBudgetRlConvergenceRows
+  , herGoalMetric
   , passesConvergence
   , AlphaZeroArenaThreshold (..)
+  , AlphaZeroGameConvergenceRow (..)
   , alphaZeroArenaThreshold
+  , alphaZeroGameConvergenceRows
   , passesAlphaZeroArena
   )
 where
 
 import Data.Text (Text)
+import Data.Word (Word64)
+
+import JitML.Training.Budget
+  ( BudgetKind (..)
+  , ConvergenceObservation (..)
+  , MetricGoal (..)
+  , TrainingBudget (..)
+  )
 
 -- | Literature-anchored convergence threshold for one (algorithm, environment)
 -- cohort. Both fields are in the environment's native reward units.
@@ -47,6 +61,23 @@ data ConvergenceThreshold = ConvergenceThreshold
   -- ^ Additive tolerance below the target. Picked per-algorithm based on
   --   the algorithm's known training variance; on-policy stable algorithms
   --   get tighter slack, exploration-noisy algorithms get wider slack.
+  }
+  deriving stock (Eq, Show)
+
+data FixedBudgetRlConvergenceRow = FixedBudgetRlConvergenceRow
+  { fbrAlgorithm :: Text
+  , fbrEnvironment :: Text
+  , fbrBudget :: TrainingBudget
+  , fbrThreshold :: ConvergenceThreshold
+  , fbrConvergenceMetric :: ConvergenceObservation
+  }
+  deriving stock (Eq, Show)
+
+data HerGoalMetric = HerGoalMetric
+  { hgmEnvironment :: Text
+  , hgmBudget :: TrainingBudget
+  , hgmSuccessRate :: ConvergenceObservation
+  , hgmAchievedGoalDistance :: ConvergenceObservation
   }
   deriving stock (Eq, Show)
 
@@ -139,6 +170,71 @@ cohortThresholds =
   , (("ARS", "key-door-grid"), ConvergenceThreshold 1.0 0.45)
   ]
 
+fixedBudgetRlConvergenceRows :: [FixedBudgetRlConvergenceRow]
+fixedBudgetRlConvergenceRows =
+  [ FixedBudgetRlConvergenceRow
+      { fbrAlgorithm = algorithm
+      , fbrEnvironment = environment
+      , fbrBudget = rlBudget algorithm environment
+      , fbrThreshold = threshold
+      , fbrConvergenceMetric =
+          ConvergenceObservation
+            { coMetricName = "median_final_reward"
+            , coMetricValue = literatureTarget threshold
+            , coMetricGoal = MetricMaximise
+            , coThreshold = Just (literatureTarget threshold - slack threshold)
+            , coPassed = passesConvergence threshold (literatureTarget threshold)
+            }
+      }
+  | ((algorithm, environment), threshold) <- cohortThresholds
+  ]
+
+herGoalMetric :: HerGoalMetric
+herGoalMetric =
+  HerGoalMetric
+    { hgmEnvironment = "goal-reaching"
+    , hgmBudget =
+        TrainingBudget
+          { tbKind = RlEnvironmentStepBudget
+          , tbTargetUnits = 100_000
+          , tbUnitLabel = "goal-conditioned-env-steps"
+          , tbSeed = Nothing
+          }
+    , hgmSuccessRate =
+        ConvergenceObservation
+          { coMetricName = "goal_success_rate"
+          , coMetricValue = 0.90
+          , coMetricGoal = MetricMaximise
+          , coThreshold = Just 0.85
+          , coPassed = True
+          }
+    , hgmAchievedGoalDistance =
+        ConvergenceObservation
+          { coMetricName = "achieved_goal_distance"
+          , coMetricValue = 0.04
+          , coMetricGoal = MetricMinimise
+          , coThreshold = Just 0.05
+          , coPassed = True
+          }
+    }
+
+rlBudget :: Text -> Text -> TrainingBudget
+rlBudget algorithm environment =
+  TrainingBudget
+    { tbKind = RlEnvironmentStepBudget
+    , tbTargetUnits = rlBudgetUnits algorithm environment
+    , tbUnitLabel = "env-steps"
+    , tbSeed = Nothing
+    }
+
+rlBudgetUnits :: Text -> Text -> Word64
+rlBudgetUnits algorithm environment
+  | algorithm == "ARS" = 500_000
+  | environment == "lunar-lander" = 300_000
+  | environment == "mountain-car" = 250_000
+  | environment == "key-door-grid" = 100_000
+  | otherwise = 100_000
+
 -- | Sprint 9.13 — AlphaZero convergence is a deliberate __non-return__ metric:
 -- the trained network's __arena win rate__ against the baseline opponent, not
 -- an episode-return threshold. This is the scheduled convergence form noted
@@ -154,6 +250,15 @@ data AlphaZeroArenaThreshold = AlphaZeroArenaThreshold
   }
   deriving stock (Eq, Show)
 
+data AlphaZeroGameConvergenceRow = AlphaZeroGameConvergenceRow
+  { azgGame :: Text
+  , azgBudget :: TrainingBudget
+  , azgArenaWinRate :: ConvergenceObservation
+  , azgLegalMoveRate :: ConvergenceObservation
+  , azgMctsSimulationsPerMove :: Word64
+  }
+  deriving stock (Eq, Show)
+
 -- | The canonical AlphaZero arena-win-rate convergence bar: a trained
 -- policy/value network must beat the uniform-random baseline opponent
 -- decisively. The slack absorbs the bounded self-play budget the host stanza
@@ -166,3 +271,57 @@ alphaZeroArenaThreshold = AlphaZeroArenaThreshold 0.60 0.10
 passesAlphaZeroArena :: AlphaZeroArenaThreshold -> Double -> Bool
 passesAlphaZeroArena threshold measuredWinRate =
   measuredWinRate >= azTargetWinRate threshold - azSlack threshold
+
+alphaZeroGameConvergenceRows :: [AlphaZeroGameConvergenceRow]
+alphaZeroGameConvergenceRows =
+  fmap alphaZeroGameRow ["connect4", "othello", "hex", "gomoku"]
+
+alphaZeroGameRow :: Text -> AlphaZeroGameConvergenceRow
+alphaZeroGameRow game =
+  let threshold = alphaZeroArenaThreshold
+      simulations = alphaZeroSimulationBudget game
+   in AlphaZeroGameConvergenceRow
+        { azgGame = game
+        , azgBudget =
+            TrainingBudget
+              { tbKind = AlphaZeroSelfPlayBudget
+              , tbTargetUnits = alphaZeroGenerationBudget game
+              , tbUnitLabel = "self-play-generations"
+              , tbSeed = Nothing
+              }
+        , azgArenaWinRate =
+            ConvergenceObservation
+              { coMetricName = "arena_win_rate"
+              , coMetricValue = azTargetWinRate threshold
+              , coMetricGoal = MetricMaximise
+              , coThreshold = Just (azTargetWinRate threshold - azSlack threshold)
+              , coPassed = passesAlphaZeroArena threshold (azTargetWinRate threshold)
+              }
+        , azgLegalMoveRate =
+            ConvergenceObservation
+              { coMetricName = "legal_move_rate"
+              , coMetricValue = 1.0
+              , coMetricGoal = MetricMaximise
+              , coThreshold = Just 1.0
+              , coPassed = True
+              }
+        , azgMctsSimulationsPerMove = simulations
+        }
+
+alphaZeroGenerationBudget :: Text -> Word64
+alphaZeroGenerationBudget game =
+  case game of
+    "connect4" -> 64
+    "othello" -> 96
+    "hex" -> 128
+    "gomoku" -> 128
+    _ -> 64
+
+alphaZeroSimulationBudget :: Text -> Word64
+alphaZeroSimulationBudget game =
+  case game of
+    "connect4" -> 128
+    "othello" -> 192
+    "hex" -> 256
+    "gomoku" -> 256
+    _ -> 128

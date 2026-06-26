@@ -74,6 +74,21 @@ Apple Silicon two daemons run, both the same binary distinguished by Dhall
 (`Cluster + ForwardToHost` in-pod and `Host + SelfInference` host-native) because
 Metal cannot be containerized.
 
+## Current Reopened Status
+
+The 2026-06-26 model-runtime audit reopened Phases `8`–`18`. The `linux-cpu`
+baseline re-closed the same day: Phases `8`–`14` now provide the pure fixed
+`TrainingBudget`, `CompletedTraining` witness, `InferenceEligibleCheckpoint`
+boundary, convergence/TensorBoard metadata, generated browser model matrix, and
+live Playwright proof for the expanded trained-artifact contract. Phase `15`
+then re-closed the real `linux-cuda` all-model lane on the NVIDIA RTX 5090 host:
+the live rollout reached edge `:9092`, `jitml test all --linux-cuda` passed
+8/8, `jitml-backends` passed 20/20 on the GPU, and the live Playwright product
+matrix passed 15/15. The current open work is the external Apple Silicon/Metal
+lane plus the downstream Phase `17`/`18` aggregation. The current ownership and
+blockers live in [README.md](README.md#closure-status); this overview records
+the architecture baseline only.
+
 `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is the canonical
 full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
 under `./.build/`, materializes the per-substrate Kind config from
@@ -111,10 +126,11 @@ The SL/RL surfaces ship today as deterministic catalogs and measured summaries:
 canonical SL cells, the Dense-MLP substrate-trainable cohort, RL algorithm rows,
 registered real-environment rollout generation, AlphaZero Connect 4 helpers,
 text command-envelope parsers for the current training/RL/tuning proto mirrors,
-and hyperparameter trial sequences. Real
-daemon-backed SL/RL/AlphaZero training loops, real env stepping, real
-checkpoint persistence, and Pulsar/MinIO-backed hyperparameter sweeps migrated
-to Phases `15` / `16` / `17` during the 2026-05-24 refactor. Phase `8`
+and hyperparameter trial sequences. Real daemon-backed SL/RL/AlphaZero training
+loops, real env stepping, real checkpoint persistence, and Pulsar/MinIO-backed
+hyperparameter sweeps are validated only when the current phase-owned
+fixed-budget model matrix closes; the older per-lane evidence remains
+historical. Phase `8`
 Sprint `8.8` retired the deterministic `atari-subset` stand-in and added the
 runtime-loaded Haskell ALE boundary plus explicit ROM policy. The later static
 foreign-source correction removed the checked-in C++ shim; any future ALE
@@ -170,14 +186,12 @@ adds the live measured report-card fields; the 2026-06-04 fresh Apple
 live validation passed the full aggregate and captured populated RL,
 AlphaZero, tune, JIT-cache, and daemon-health measurements.
 Sprint `12.11` adds `JitML.Test.WorkflowMatrix` as the single real-workflow
-matrix for reopened SL/RL/tune/inference/AlphaZero coverage. The local e2e body
-asserts complete matrix coverage; the integration `Live` body consumes the
-current-substrate matrix cells and fails closed without a live publication; the
-AlphaZero cell runs `jitml rl alphazero self-play`. On 2026-06-12 the
-`linux-cpu` bootstrap completed **83** rollout steps after the Docker Desktop
-Postgres PV, Harbor ownership, stale-publication, and Envoy request fixes; the
-edge returned `HTTP/1.1 200 OK` from `/healthz`, and the live
-`jitml-integration -p WorkflowMatrix` gate passed **1 / 1**; see
+matrix for SL/RL/tune/inference/AlphaZero coverage. Sprint `12.15` expands that
+workflow matrix into per-model cells and negative infer-before-complete checks.
+The live trained-artifact matrix is part of the `linux-cpu` baseline and the
+Phase `15` `linux-cuda` lane that re-closed on 2026-06-26 (`linux-cpu`: `jitml
+test all --live --linux-cpu` 8/8 and Playwright 15/15; `linux-cuda`: `jitml
+test all --linux-cuda` 8/8 and Playwright 15/15); see
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md).
 
 Haskell style and code-quality execution is container-exclusive. The
@@ -884,42 +898,20 @@ for the governing rule.
 
 ## Current Baseline
 
-**✅ Current status (2026-06-26): all phases `0`–`18` are Done again after the
-real-SL/RL chain re-aggregation.** The 2026-06-24 real-SL/RL audit reopened
-Phases `8`/`9`/`10`/`13`/`14`/`18` to remove hardcoded weights, fake loss /
-convergence metrics, missing train/test/validation split semantics, and demo
-input stand-ins. **Phase `8` Sprint `8.13`** (real CE/MSE SL loss + held-out
-validation loss, validation-driven selection, `examples_processed` throughput)
-and **Phase `9` Sprint `9.13`** (real measured-median RL convergence +
-env-steps sample-efficiency + AlphaZero arena-win-rate) re-closed on both the
-`apple-silicon` and `linux-cpu` lanes (`sl-canonicals` 24/24 + 24/24,
-`rl-canonicals` 31/31 + 31/31, `docs check: ok`, `check-code` green).
-**Phase `10` Sprint `10.9`** re-closed on `linux-cpu` with real trained,
-distinct, self-describing demo checkpoints and live family-distinct
-`jitml inference run` proof. **Phase `13` Sprint `13.2`** re-closed with
-`jitml test all --live --linux-cpu` passing 8/8 stanzas and all report-card
-metrics populated. **Phase `14` Sprint `14.3`** re-closed with real full-width
-MLP checkpoint forward for all eight seeded product hashes, user-derived panel
-inputs, direct live endpoint probes, and Playwright **15/15**. **Phase `18`
-Sprint `18.3`** re-closed with the final `linux-cpu` aggregation: all 12
-canonical dataset blobs staged, eight demo checkpoints seeded, `jitml test all
---live --linux-cpu` **8/8**, `browser_product_matrix` **8/8**, `jitml
-check-code: ok`, `jitml docs check: ok`, and the `Pending Removal` ledger empty
-again (Exit Definition item 18 re-met). The durable-state DSL closure (below)
-stands. The durable-state DSL refactor previously reopened **Phases
-`2`/`4`/`5`/`10`/`18`**:
-**Phase `2`** is **`✅ Done`** again (Sprint `2.15` — the closed self-validating
-`jitml.dhall` foundation + `jitml project init` + the asserted `Budget`/`fitsWithin`,
-`jitml-unit` 217/217); **Phase `4`** is **`✅ Done`** too (Sprint `4.9` — `bucketNames`
-projected from the registry, `jitml-e2e` 23/23), and **Phase `5`** is **`✅ Done`**
-(Sprint `5.15` — registry declares the logical Pulsar topic family,
-anti-drift-checked), and **Phase `10`** is **`✅ Done`** (Sprint `10.8` — checkpoint GC
-retention registry-sourced), and **Phase `18`** (Sprint `18.2`) re-aggregated the
-no-caveat handoff — **all phases `0`–`18` are `✅ Done` again** with the durable-state
-DSL landed. The `Pending Removal` ledger is empty again (Exit Definition item 18
-re-met); `jitml-unit` 219/219, `jitml-e2e` 23/23, `cabal build all` clean. Phases `0`,
-`1`, `3`, `6`–`9`, `11`–`17` remain `✅ Done`. The dated reopen/re-close narrative
-below is retained as historical record.
+**✅ Current status (2026-06-26): the `linux-cpu` model/product baseline and the
+real `linux-cuda` lane are closed.** Phases `8`–`14` are Done for the
+fixed-budget all-model trained-artifact contract. Validation includes `jitml
+test all --live --linux-cpu` **8 / 8**, live Playwright **15 / 15**, `docker
+compose build jitml` with embedded `check-code: ok`, `jitml lint purescript`,
+and `jitml docs check`. Phase `15` Sprint `15.21` also passed the real
+`linux-cuda` gate on the RTX 5090 host: live rollout 110 steps, `jitml test all
+--linux-cuda` **8 / 8**, `jitml-backends` **20 / 20**, eight demo checkpoints
+seeded, and live Playwright **15 / 15** at edge `:9092`.
+
+The remaining open phases are Phase `16` (`apple-silicon`, blocked by external
+Mac/Metal hardware), Phase `17` (blocked by that Apple per-lane fragment), and
+Phase `18` (blocked by Phases `16`–`17`). The dated reopen/re-close narrative
+below is retained as historical record only.
 
 **Reopened + re-closed (2026-06-20 — authenticated third-party image pre-pull).**
 Phase `2` reopened for **Sprint `2.13`** and re-closed `✅ Done` on its retained

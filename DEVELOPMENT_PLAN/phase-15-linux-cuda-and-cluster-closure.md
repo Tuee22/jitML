@@ -27,8 +27,25 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-18 on the NVIDIA GeForce RTX 5090 host, UUID
-`GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8). Sprint `15.20`
+✅ **Done** (re-closed 2026-06-26 for Sprint `15.21` on the NVIDIA GeForce RTX
+5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`, driver
+`570.211.01`, CUDA 12.8). The expanded `linux-cuda` all-model
+trained-artifact lane has been re-exercised after the `linux-cpu` baseline:
+`docker compose build jitml` passed its embedded `check-code: ok` and
+PureScript bundle build, `./bootstrap/linux-cuda.sh up` executed the live
+110-step rollout with all seven components Ready at edge `:9092`, all canonical
+SL dataset artifacts were staged and SHA-verified through
+`jitml internal upload-dataset`, focused `jitml-sl-canonicals` passed 24/24
+(`live MNIST` 136.49s; all canonical rows 24.42s), and
+`docker compose run --rm jitml-cuda jitml test all --linux-cuda` passed all 8
+stanzas including `jitml-backends` 20/20 on the attached GPU. The live
+integration cohort included the current-substrate WorkflowMatrix cell
+(`847.02s`) and PPO convergence (`266.21s`). `jitml internal
+seed-demo-checkpoints` seeded eight demo checkpoints, and the live Playwright
+product matrix passed 15/15 against the `linux-cuda` edge.
+
+Historical closure: re-closed 2026-06-18 on the NVIDIA GeForce RTX 5090 host,
+UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`, CUDA 12.8. Sprint `15.20`
 revalidated the expanded no-caveat runtime/browser matrix on both `linux-cpu` and
 `linux-cuda`: `jitml test all --linux-cpu` 8/8, `jitml test all --linux-cuda` 8/8
 (including `jitml-backends` 20/20 with the real cuBLAS/cuDNN bindings on the
@@ -4243,6 +4260,51 @@ satisfying standards rule M's single-accelerator-per-phase invariant.
   partial to Done once Sprint `15.2` closes.
 - `system-components.md → Test Stanzas` row for `jitml-e2e` flips to
   Done once Sprint `15.14` closes.
+
+## Sprint 15.21: Linux-CUDA All-Model Trained-Artifact Lane [✅ Done]
+
+**Status**: Done (closed 2026-06-26 on the NVIDIA GeForce RTX 5090 host)
+**Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`,
+`playwright/jitml-demo.spec.ts`, `src/JitML/Test/WorkflowMatrix.hs`
+**Docs to update**: `../documents/engineering/training_workloads.md`,
+`../documents/engineering/unit_testing_policy.md`, `system-components.md`
+
+### Objective
+
+Re-run the expanded all-model trained-artifact runtime and browser matrix on the
+real `linux-cuda` lane after the `linux-cpu` baseline closes.
+
+### Deliverables
+
+- Execute every fixed-budget SL/RL/AlphaZero model row on the CUDA substrate.
+- Prove convergence-statistics checkpointing, TensorBoard emission, and
+  inference eligibility on CUDA.
+- Run the expanded Playwright matrix against the CUDA edge.
+
+### Validation
+
+- `docker compose build jitml` — passed, including embedded `check-code: ok`
+  and the PureScript bundle build.
+- `./bootstrap/linux-cuda.sh up` — live Kind/Helm rollout executed 110 steps;
+  publication substrate `linux-cuda`, edge `9092`, all seven components Ready.
+- Canonical SL dataset staging through `jitml internal upload-dataset` —
+  MNIST, Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, and California
+  Housing artifacts uploaded to live MinIO with pinned SHA-256 verification.
+- `docker compose run --rm jitml-cuda cabal test -fcuda jitml-sl-canonicals
+  --test-show-details=direct` — 24/24 PASS, including live MNIST threshold
+  clearance and all canonical row materialization.
+- `docker compose run --rm jitml-cuda jitml test all --linux-cuda` — 8/8
+  stanzas PASS, including `jitml-backends` 20/20 on the attached RTX 5090 and
+  the live WorkflowMatrix/integration cells.
+- `docker compose run --rm jitml-cuda jitml internal seed-demo-checkpoints` —
+  seeded eight demo checkpoints for the browser product matrix.
+- Live `linux-cuda` Playwright product matrix — 15/15 PASS against
+  `http://127.0.0.1:9092/`.
+
+### Remaining Work
+
+None. The expanded `linux-cuda` all-model lane is closed; Phase `16` remains
+blocked on a separate Apple Silicon/Metal host.
 
 ## Related Documents
 

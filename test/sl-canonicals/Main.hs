@@ -13,11 +13,12 @@ import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (lefts)
 import Data.Maybe qualified
+import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.IO qualified as Text.IO
 import Data.Vector.Unboxed qualified as VU
-import Data.Word (Word8)
+import Data.Word (Word64, Word8)
 import Numeric (showOct)
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (defaultMain, testGroup)
@@ -103,6 +104,33 @@ import JitML.Test.Report
   ( ReportCardKnobs (..)
   , loadReportCardKnobs
   )
+import JitML.Training.Budget qualified as TrainingBudget
+
+completedTrainingFixture
+  :: TrainingBudget.BudgetKind
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> TrainingBudget.CompletedTraining
+completedTrainingFixture kind experimentHash observedUnits metrics =
+  either
+    (error . Text.unpack)
+    id
+    ( TrainingBudget.completedTrainingFromMetrics
+        TrainingBudget.TrainingBudget
+          { TrainingBudget.tbKind = kind
+          , TrainingBudget.tbTargetUnits = max 1 observedUnits
+          , TrainingBudget.tbUnitLabel = "units"
+          , TrainingBudget.tbSeed = Nothing
+          }
+        observedUnits
+        metrics
+        TrainingBudget.TensorBoardRunMetadata
+          { TrainingBudget.tbrRunId = experimentHash
+          , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+          , TrainingBudget.tbrScalarTags = fmap fst metrics
+          }
+    )
 
 main :: IO ()
 main =
@@ -412,6 +440,14 @@ main =
                     , cdTrialSha = Just "sha256:trial"
                     , cdRunUuid = "run-0001"
                     , cdMetricsAtStep = [("loss", 0.125), ("accuracy", 0.875)]
+                    , cdCompletedTraining =
+                        Just
+                          ( completedTrainingFixture
+                              TrainingBudget.SupervisedEpochBudget
+                              "sha256:mnist"
+                              4096
+                              [("loss", 0.125), ("accuracy", 0.875)]
+                          )
                     }
               failure =
                 TrainingFailure

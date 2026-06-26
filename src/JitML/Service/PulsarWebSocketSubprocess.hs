@@ -9,6 +9,7 @@ module JitML.Service.PulsarWebSocketSubprocess
   , pulsarConsumerWorkerSubprocess
   , pulsarConsumeSubprocess
   , pulsarPublishSubprocess
+  , pulsarSubscribeFromLatestSubprocess
   , pulsarSubscribeSubprocess
   , pulsarSettingsForEndpoint
   , pulsarSettingsForLocalEdge
@@ -149,6 +150,19 @@ pulsarSubscribeSubprocess settings topic subscription outputPath =
     [ "--eval"
     , subscribeScript
     , subscriptionProbeUrl settings (renderSubscriptionId topic subscription)
+    , unTopicName topic
+    , subscription
+    , Text.pack outputPath
+    ]
+
+pulsarSubscribeFromLatestSubprocess
+  :: PulsarWebSocketSettings -> TopicName -> Text -> FilePath -> Subprocess
+pulsarSubscribeFromLatestSubprocess settings topic subscription outputPath =
+  subprocess
+    (pulsarNodeBinary settings)
+    [ "--eval"
+    , subscribeScript
+    , subscriptionProbeUrlFromLatest settings (renderSubscriptionId topic subscription)
     , unTopicName topic
     , subscription
     , Text.pack outputPath
@@ -412,6 +426,11 @@ consumerUrl settings =
 subscriptionProbeUrl :: PulsarWebSocketSettings -> SubscriptionId -> Text
 subscriptionProbeUrl settings =
   consumerUrlWithReceiverQueue settings 0
+
+subscriptionProbeUrlFromLatest :: PulsarWebSocketSettings -> SubscriptionId -> Text
+subscriptionProbeUrlFromLatest settings subscription =
+  consumerUrlWithReceiverQueue settings 0 subscription
+    <> "&subscriptionInitialPosition=Latest"
 
 consumerUrlWithReceiverQueue :: PulsarWebSocketSettings -> Int -> SubscriptionId -> Text
 consumerUrlWithReceiverQueue settings receiverQueueSize subscription =

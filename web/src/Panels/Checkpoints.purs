@@ -94,6 +94,7 @@ component =
       , HH.h2_ [ HH.text "Checkpoint browse" ]
       , renderStatus state
       , renderList state
+      , renderModelMatrix
       , renderError state
       ]
 
@@ -126,6 +127,36 @@ component =
       , HH.div_ [ HH.text ("step: " <> show summary.step) ]
       , HH.div_ [ HH.text ("family: " <> summary.modelFamily) ]
       , HH.div_ [ HH.text ("tensors: " <> show summary.tensorCount) ]
+      , HH.div_ [ HH.text ("eligibility: " <> summary.eligibility) ]
+      , HH.div_ [ HH.text ("budget: " <> summary.completedBudget) ]
+      , HH.div_ [ HH.text ("convergence: " <> summary.convergenceMetrics) ]
+      , HH.div_
+          [ HH.a
+              [ HP.href ("/tensorboard/#" <> summary.tensorboardPrefix) ]
+              [ HH.text ("tensorboard: " <> summary.tensorboardPrefix) ]
+          ]
+      ]
+
+  renderModelMatrix =
+    HH.section
+      [ HP.id (panelName <> "-model-matrix") ]
+      [ HH.h3_ [ HH.text "All model artifact rows" ]
+      , HH.ol
+          [ HP.id (panelName <> "-model-matrix-list") ]
+          (map renderModelRow Contracts.allModelMatrixRows)
+      ]
+
+  renderModelRow row =
+    HH.li_
+      [ HH.div_ [ HH.text ("model: " <> row.name) ]
+      , HH.div_ [ HH.text ("kind: " <> row.kind) ]
+      , HH.div_ [ HH.text ("budget: " <> row.budget) ]
+      , HH.div_
+          [ HH.text
+              ( "requires trained artifact: "
+                  <> (if row.requiresTrainedArtifact then "yes" else "no")
+              )
+          ]
       ]
 
   renderError state =

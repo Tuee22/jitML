@@ -27,8 +27,13 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-22 — full no-caveat Apple live lane validated on the
-M1 Max). Sprint `16.11` closed on the live `apple-silicon` cluster + host Metal
+⏸️ **Blocked** (reopened 2026-06-26 for Sprint `16.13`; blocked by a real
+Apple Silicon host for the expanded all-model Metal lane). The prior Apple lane
+remains historical evidence, but it must be re-exercised on external Mac/Metal
+hardware after the now-closed `linux-cpu` baseline.
+
+Historical closure: re-closed 2026-06-22 — full no-caveat Apple live lane
+validated on the M1 Max. Sprint `16.11` closed on the live `apple-silicon` cluster + host Metal
 daemon: `jitml test all --apple-silicon` **8/8 stanzas**, the live integration
 lane `jitml-integration -p Live` **20/20**, the live report card **7/7 measured
 rows** (incl. `sl_final_loss=0.65` from real Metal MNIST training and
@@ -1191,6 +1196,38 @@ The historical "remaining slice" notes below predate this closure.
   `16.9` as closed on the fixed-bridge backend lane and Sprint `16.10` as active
   for host-resident workload closure; keychain state is historical evidence for
   the retired VM path.
+
+## Sprint 16.13: Apple-Silicon All-Model Trained-Artifact Lane [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: External Apple Silicon host with a Metal-capable GPU visible to
+`jitml`
+**Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`,
+`playwright/jitml-demo.spec.ts`, `src/JitML/Test/WorkflowMatrix.hs`
+**Docs to update**: `../documents/engineering/training_workloads.md`,
+`../documents/engineering/unit_testing_policy.md`, `system-components.md`
+
+### Objective
+
+Re-run the expanded all-model trained-artifact runtime and browser matrix on a
+real Apple Silicon host with the fixed Metal bridge.
+
+### Deliverables
+
+- Execute every fixed-budget SL/RL/AlphaZero model row on `apple-silicon`.
+- Prove convergence-statistics checkpointing, TensorBoard emission, and
+  inference eligibility through the host Metal daemon.
+- Run the expanded Playwright matrix against the Apple edge.
+
+### Validation
+
+- `jitml test all --apple-silicon`
+- live Apple Playwright product matrix
+
+### Remaining Work
+
+- Waiting for an external Apple Silicon host with a Metal-capable GPU visible to
+  `jitml`.
 
 ## Related Documents
 

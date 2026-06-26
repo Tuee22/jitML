@@ -2,8 +2,10 @@
 
 module Main where
 
+import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.Word (Word64)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
@@ -33,6 +35,7 @@ import JitML.Test.Report
   ( ReportCardKnobs (..)
   , parseReportCardKnobs
   )
+import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Catalog
   ( Pruner (..)
   , Sampler (..)
@@ -57,6 +60,31 @@ import JitML.Tune.Catalog
   , tuningSamplerKind
   , tuningSchedulerKind
   )
+
+completedTrainingFixture
+  :: Text
+  -> Word64
+  -> [(Text, Double)]
+  -> TrainingBudget.CompletedTraining
+completedTrainingFixture experimentHash observedUnits metrics =
+  either
+    (error . Text.unpack)
+    id
+    ( TrainingBudget.completedTrainingFromMetrics
+        TrainingBudget.TrainingBudget
+          { TrainingBudget.tbKind = TrainingBudget.TuningTrialBudget
+          , TrainingBudget.tbTargetUnits = max 1 observedUnits
+          , TrainingBudget.tbUnitLabel = "trials"
+          , TrainingBudget.tbSeed = Nothing
+          }
+        observedUnits
+        metrics
+        TrainingBudget.TensorBoardRunMetadata
+          { TrainingBudget.tbrRunId = experimentHash
+          , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+          , TrainingBudget.tbrScalarTags = fmap fst metrics
+          }
+    )
 
 main :: IO ()
 main =
@@ -259,6 +287,13 @@ main =
                     , sdTrialsCompleted = 8
                     , sdTrialsPruned = 1
                     , sdBestObjective = 0.9375
+                    , sdCompletedTraining =
+                        Just
+                          ( completedTrainingFixture
+                              "sha256:mnist-tune"
+                              8
+                              [("best_objective", 0.9375)]
+                          )
                     }
           decodeTuneEventProto (encodeTuneEventProto started) @?= Right started
           decodeTuneEventProto (encodeTuneEventProto finished) @?= Right finished

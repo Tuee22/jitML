@@ -2,8 +2,10 @@
 
 > **Reopened 2026-06-14.** The no-caveat product target expands final handoff
 > beyond the prior scoped Dense-MLP / current-RL / panel-reachability closure.
-> Final handoff is blocked until Phases `9`, `10`, `11`, `12`, `15`, and `16`, `13`, and `14` close the full
-> runtime and browser matrix and the legacy ledger is empty again.
+> Final handoff is blocked until the reopened runtime/browser matrix closes on
+> every lane and the legacy ledger is empty again. The `linux-cpu` and
+> `linux-cuda` fragments are now closed; the current blocker is the external
+> Apple Silicon lane.
 >
 > **Reopened and re-closed 2026-06-13.** The Apple Silicon host-residency
 > placement audit reopened final handoff until the stale Apple Kubernetes-Job
@@ -54,8 +56,13 @@
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-14 — no-caveat final handoff; **re-closed 2026-06-23**).
-Sprint `17.8` updated the report card, within-substrate reproducibility evidence,
+⏸️ **Blocked** (reopened 2026-06-26 for Sprint `17.9`; blocked by Phase `16`
+Sprint `16.13`). The prior handoff-prep evidence remains historical; the
+expanded `linux-cuda` all-model fragment now exists from Phase `15` Sprint
+`15.21`, and this aggregation waits for the expanded Apple Silicon fragment.
+
+Historical closure: reopened 2026-06-14 — no-caveat final handoff; re-closed
+2026-06-23. Sprint `17.8` updated the report card, within-substrate reproducibility evidence,
 and legacy ledger handoff for the expanded product scope, and is now `✅ Done`. **All
 three per-lane report-card fragments are committed and the `Pending Removal` ledger
 is empty.** A live `bootstrap/linux-cpu.sh up` (110-step rollout, edge `9091`) plus
@@ -87,7 +94,7 @@ fragment and a structural out-of-scope row; both are resolved.)
 > **Substrate-affinity note (standards rule M(b)/(d)).** This is a
 > **`linux-cpu`-only aggregation** phase. Each substrate's within-substrate
 > bit-reproducibility is **owned and validated in its own single-accelerator
-> phase** — `linux-cuda` in Phase `15` (Sprint `15.20`, NVIDIA host) and
+> phase** — `linux-cuda` in Phase `15` (Sprints `15.20` / `15.21`, NVIDIA host) and
 > `apple-silicon` in Phase `16` (Sprint `16.11`, Mac host), with `linux-cpu` in
 > Phases `13`/`14`. Phase `17` **consumes the committed per-lane report-card
 > fragments** and merges them on `linux-cpu`; it never re-runs an accelerator
@@ -376,7 +383,7 @@ authoritatively encode whichever substrate ran the calibration first.
   and `/tmp/jitml-linux-cuda.json` exports followed by
   `--compare /tmp/jitml-linux-cpu.json,/tmp/jitml-linux-cuda.json`.
 
-### Validation Re-run (2026-06-03)
+### Historical Validation Re-run (2026-06-03)
 
 - Linux/NVIDIA validation passed:
   `docker compose run --rm jitml cabal test -fcuda jitml-cross-backend --test-options='-p CrossSubstrate'`.
@@ -894,8 +901,9 @@ None.
 **Implementation**: `src/JitML/Test/Report.hs`, `src/JitML/App.hs`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
 `DEVELOPMENT_PLAN/attestations/linux-cpu-report-card.md`, `README.md`
-**Was blocked by** (all now `✅ Done`): Phase `15` Sprint `15.20`; Phase `16` Sprint
-`16.11`; Phase `13` Sprint `13.1`; Phase `14` Sprint `14.2`
+**Was blocked by** (all now `✅ Done` for that historical closure): Phase `15`
+Sprint `15.20`; Phase `16` Sprint `16.11`; Phase `13` Sprint `13.1`; Phase
+`14` Sprint `14.2`
 **Docs to update**: `README.md`, `documents/engineering/unit_testing_policy.md`,
 `documents/engineering/training_workloads.md`,
 `documents/engineering/purescript_frontend.md`, `system-components.md`,
@@ -1007,6 +1015,38 @@ removals.
   (the `linux-cuda` skip-guard half, Sprint `15.16`) also swept to `Completed`
   the same day, the ledger is empty — Exit Definition item 18 is met and the
   phase has re-closed.
+
+## Sprint 17.9: Expanded All-Model Lane Fragment Handoff [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Phase `16` Sprint `16.13`
+**Implementation**: `DEVELOPMENT_PLAN/attestations/`,
+`src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
+**Docs to update**: `system-components.md`,
+`../documents/engineering/unit_testing_policy.md`
+
+### Objective
+
+Aggregate the expanded `linux-cuda` and `apple-silicon` all-model lane
+fragments without re-running accelerator lanes.
+
+### Deliverables
+
+- Verify both lane fragments contain every fixed-budget model row.
+- Verify convergence-statistics, TensorBoard, inference eligibility, and browser
+  matrix fields are populated for each lane.
+- Prepare the final handoff evidence for Phase `18`.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test all --live --linux-cpu`
+- `docker compose run --rm jitml jitml docs check`
+
+### Remaining Work
+
+- Waiting for Phase `16` Sprint `16.13`. The Phase `15` Sprint `15.21`
+  `linux-cuda` fragment is available in
+  [attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md).
 
 ## Related Documents
 

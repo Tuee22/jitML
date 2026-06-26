@@ -236,6 +236,10 @@ type CheckpointSummary =
   , step :: Int
   , modelFamily :: String
   , tensorCount :: Int
+  , eligibility :: String
+  , completedBudget :: String
+  , convergenceMetrics :: String
+  , tensorboardPrefix :: String
   }
 
 -- Sprint 14.1 (Feature A) — the Engine-listed checkpoint catalogue (all
@@ -245,6 +249,73 @@ type CheckpointList =
   , panel :: String
   , checkpoints :: Array CheckpointSummary
   }
+
+-- Sprint 14.4 — browser-visible all-model trained-artifact matrix,
+-- generated from `JitML.Test.WorkflowMatrix.allModelCells` so the
+-- PureScript app and Playwright suite consume the same canonical model
+-- registry as the Haskell integration/e2e tests.
+type ModelMatrixRow =
+  { kind :: String
+  , name :: String
+  , budget :: String
+  , command :: Array String
+  , requiresTrainedArtifact :: Boolean
+  }
+
+allModelMatrixRows :: Array ModelMatrixRow
+allModelMatrixRows =
+  [ { kind: "supervised", name: "mnist-shallow-mlp", budget: "supervised-epochs:1:fixed-epochs:seed-1001", command: [ "train", "experiments/mnist-shallow-mlp.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "mnist-deep-mlp", budget: "supervised-epochs:1:fixed-epochs:seed-1002", command: [ "train", "experiments/mnist-deep-mlp.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "mnist-lenet", budget: "supervised-epochs:1:fixed-epochs:seed-1003", command: [ "train", "experiments/mnist-lenet.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "fashion-mnist-mlp", budget: "supervised-epochs:1:fixed-epochs:seed-1004", command: [ "train", "experiments/fashion-mnist-mlp.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "fashion-mnist-resnet", budget: "supervised-epochs:1:fixed-epochs:seed-1005", command: [ "train", "experiments/fashion-mnist-resnet.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "cifar10-resnet20", budget: "supervised-epochs:1:fixed-epochs:seed-1006", command: [ "train", "experiments/cifar10-resnet20.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "cifar10-resnet56", budget: "supervised-epochs:1:fixed-epochs:seed-1007", command: [ "train", "experiments/cifar10-resnet56.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "cifar100-wide-resnet", budget: "supervised-epochs:1:fixed-epochs:seed-1008", command: [ "train", "experiments/cifar100-wide-resnet.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "cifar10-vit", budget: "supervised-epochs:1:fixed-epochs:seed-1009", command: [ "train", "experiments/cifar10-vit.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "tiny-imagenet-resnet50", budget: "supervised-epochs:1:fixed-epochs:seed-1010", command: [ "train", "experiments/tiny-imagenet-resnet50.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "supervised", name: "california-housing-mlp", budget: "supervised-epochs:1:fixed-epochs:seed-1011", command: [ "train", "experiments/california-housing-mlp.dhall" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "PPO/cartpole", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/cartpole.dhall", "--algorithm", "PPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "PPO/mountain-car", budget: "rl-environment-steps:250000:env-steps:seedless", command: [ "rl", "train", "experiments/mountain-car.dhall", "--algorithm", "PPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "PPO/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "PPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "PPO/key-door-grid", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/key-door-grid.dhall", "--algorithm", "PPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "A2C/cartpole", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/cartpole.dhall", "--algorithm", "A2C" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "A2C/mountain-car", budget: "rl-environment-steps:250000:env-steps:seedless", command: [ "rl", "train", "experiments/mountain-car.dhall", "--algorithm", "A2C" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "A2C/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "A2C" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "A2C/key-door-grid", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/key-door-grid.dhall", "--algorithm", "A2C" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "TRPO/cartpole", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/cartpole.dhall", "--algorithm", "TRPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "TRPO/mountain-car", budget: "rl-environment-steps:250000:env-steps:seedless", command: [ "rl", "train", "experiments/mountain-car.dhall", "--algorithm", "TRPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "TRPO/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "TRPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "TRPO/key-door-grid", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/key-door-grid.dhall", "--algorithm", "TRPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "MaskablePPO/cartpole", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/cartpole.dhall", "--algorithm", "MaskablePPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "MaskablePPO/mountain-car", budget: "rl-environment-steps:250000:env-steps:seedless", command: [ "rl", "train", "experiments/mountain-car.dhall", "--algorithm", "MaskablePPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "MaskablePPO/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "MaskablePPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "MaskablePPO/key-door-grid", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/key-door-grid.dhall", "--algorithm", "MaskablePPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "RecurrentPPO/cartpole", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/cartpole.dhall", "--algorithm", "RecurrentPPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "RecurrentPPO/mountain-car", budget: "rl-environment-steps:250000:env-steps:seedless", command: [ "rl", "train", "experiments/mountain-car.dhall", "--algorithm", "RecurrentPPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "RecurrentPPO/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "RecurrentPPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "RecurrentPPO/key-door-grid", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/key-door-grid.dhall", "--algorithm", "RecurrentPPO" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "DQN/cartpole", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/cartpole.dhall", "--algorithm", "DQN" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "DQN/mountain-car", budget: "rl-environment-steps:250000:env-steps:seedless", command: [ "rl", "train", "experiments/mountain-car.dhall", "--algorithm", "DQN" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "DQN/key-door-grid", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/key-door-grid.dhall", "--algorithm", "DQN" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "QR-DQN/cartpole", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/cartpole.dhall", "--algorithm", "QR-DQN" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "QR-DQN/mountain-car", budget: "rl-environment-steps:250000:env-steps:seedless", command: [ "rl", "train", "experiments/mountain-car.dhall", "--algorithm", "QR-DQN" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "QR-DQN/key-door-grid", budget: "rl-environment-steps:100000:env-steps:seedless", command: [ "rl", "train", "experiments/key-door-grid.dhall", "--algorithm", "QR-DQN" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "DDPG/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "DDPG" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "TD3/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "TD3" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "SAC/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "SAC" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "CrossQ/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "CrossQ" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "TQC/lunar-lander", budget: "rl-environment-steps:300000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "TQC" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "ARS/cartpole", budget: "rl-environment-steps:500000:env-steps:seedless", command: [ "rl", "train", "experiments/cartpole.dhall", "--algorithm", "ARS" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "ARS/mountain-car", budget: "rl-environment-steps:500000:env-steps:seedless", command: [ "rl", "train", "experiments/mountain-car.dhall", "--algorithm", "ARS" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "ARS/lunar-lander", budget: "rl-environment-steps:500000:env-steps:seedless", command: [ "rl", "train", "experiments/lunar-lander.dhall", "--algorithm", "ARS" ], requiresTrainedArtifact: true }
+  , { kind: "rl", name: "ARS/key-door-grid", budget: "rl-environment-steps:500000:env-steps:seedless", command: [ "rl", "train", "experiments/key-door-grid.dhall", "--algorithm", "ARS" ], requiresTrainedArtifact: true }
+  , { kind: "her", name: "HER/goal-reaching", budget: "rl-environment-steps:100000:goal-conditioned-env-steps:seedless", command: [ "rl", "train", "experiments/goal-reaching.dhall", "--algorithm", "HER" ], requiresTrainedArtifact: true }
+  , { kind: "alphazero", name: "connect4", budget: "alphazero-self-play-generations:64:self-play-generations:seedless", command: [ "rl", "alphazero", "self-play", "--game", "connect4", "--sims", "128" ], requiresTrainedArtifact: true }
+  , { kind: "alphazero", name: "othello", budget: "alphazero-self-play-generations:96:self-play-generations:seedless", command: [ "rl", "alphazero", "self-play", "--game", "othello", "--sims", "192" ], requiresTrainedArtifact: true }
+  , { kind: "alphazero", name: "hex", budget: "alphazero-self-play-generations:128:self-play-generations:seedless", command: [ "rl", "alphazero", "self-play", "--game", "hex", "--sims", "256" ], requiresTrainedArtifact: true }
+  , { kind: "alphazero", name: "gomoku", budget: "alphazero-self-play-generations:128:self-play-generations:seedless", command: [ "rl", "alphazero", "self-play", "--game", "gomoku", "--sims", "256" ], requiresTrainedArtifact: true }
+  ]
 
 -- Sprint 14.1 (Feature B) — a persisted adversarial-game transcript replayed
 -- from the `jitml-transcripts` bucket (read back in the daemon).
@@ -615,8 +686,8 @@ parseCheckpointList payload
 parseCheckpointSummary :: String -> Maybe CheckpointSummary
 parseCheckpointSummary raw =
   case String.split (Pattern "\t") raw of
-    [ experimentHash, sha, stepRaw, modelFamily, tensorCountRaw ] ->
-      (\step tensorCount -> { experimentHash, sha, step, modelFamily, tensorCount })
+    [ experimentHash, sha, stepRaw, modelFamily, tensorCountRaw, eligibility, completedBudget, convergenceMetrics, tensorboardPrefix ] ->
+      (\step tensorCount -> { experimentHash, sha, step, modelFamily, tensorCount, eligibility, completedBudget, convergenceMetrics, tensorboardPrefix })
         <$> Int.fromString (String.trim stepRaw)
         <*> Int.fromString (String.trim tensorCountRaw)
     _ -> Nothing

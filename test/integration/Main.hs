@@ -16,6 +16,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding.Error qualified as Text.Encoding.Error
 import Data.Text.IO qualified as Text.IO
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Word (Word64)
 import System.Exit (ExitCode (..))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout qualified as Timeout
@@ -102,12 +103,46 @@ import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
 import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..))
 import JitML.Test.WorkflowMatrix qualified as WorkflowMatrix
+import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Catalog qualified as Tune
 import JitML.Tune.Resume qualified as TuneResume
 import Network.Socket qualified as Socket
 import System.Directory (createDirectoryIfMissing, doesFileExist, listDirectory, makeAbsolute)
 import System.FilePath ((</>))
 import System.Info qualified as SystemInfo
+
+completedCheckpointManifest
+  :: Text
+  -> Text
+  -> [Checkpoint.TensorBlob]
+  -> Word64
+  -> [(Text, Double)]
+  -> Checkpoint.CheckpointManifest
+completedCheckpointManifest manifestId experimentHash tensors step metrics =
+  let completed =
+        either
+          (error . Text.unpack)
+          id
+          ( TrainingBudget.completedTrainingFromMetrics
+              TrainingBudget.TrainingBudget
+                { TrainingBudget.tbKind = TrainingBudget.SupervisedEpochBudget
+                , TrainingBudget.tbTargetUnits = max 1 step
+                , TrainingBudget.tbUnitLabel = "steps"
+                , TrainingBudget.tbSeed = Nothing
+                }
+              step
+              metrics
+              TrainingBudget.TensorBoardRunMetadata
+                { TrainingBudget.tbrRunId = experimentHash
+                , TrainingBudget.tbrLogPrefix = "jitml-tensorboard/" <> experimentHash
+                , TrainingBudget.tbrScalarTags = fmap fst metrics
+                }
+          )
+   in (Checkpoint.emptyManifest manifestId experimentHash tensors)
+        { Checkpoint.manifestStep = step
+        , Checkpoint.manifestMetrics = metrics
+        , Checkpoint.manifestCompletedTraining = Just completed
+        }
 
 main :: IO ()
 main =
@@ -287,10 +322,12 @@ main =
               let experimentHash = "exp-write-minio"
                   blobObjectKey = Checkpoint.blobKey experimentHash "blob-weights"
                   manifest =
-                    Checkpoint.emptyManifest
+                    completedCheckpointManifest
                       "m1"
                       experimentHash
                       [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+                      1
+                      [("validation_accuracy", 0.9)]
                   payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
               firstWrite <-
                 CheckpointStore.writeCheckpointSnapshotWithMinIO
@@ -915,10 +952,12 @@ main =
               let experimentHash = "exp-inf"
                   blobObjectKey = Checkpoint.blobKey experimentHash "blob-weights"
                   manifest =
-                    Checkpoint.emptyManifest
+                    completedCheckpointManifest
                       "m1"
                       experimentHash
                       [Checkpoint.TensorBlob "dense" [2, 2] blobObjectKey]
+                      1
+                      [("validation_accuracy", 0.91)]
                   manifestSha = Checkpoint.manifestContentSha manifest
                   bucket = BucketName "jitml-checkpoints"
                   manifestRef =
@@ -967,13 +1006,55 @@ main =
               -- and input [1, 2, 3] × W produces [9, 2, 3].
               liftIO $
                 weightedInferred @?= Right [9.0, 2.0, 3.0]
+              let partialExperimentHash = "exp-inf-partial"
+                  partialBlobObjectKey = Checkpoint.blobKey partialExperimentHash "blob-weights"
+                  partialManifest =
+                    Checkpoint.emptyManifest
+                      "m-partial"
+                      partialExperimentHash
+                      [Checkpoint.TensorBlob "dense" [2, 2] partialBlobObjectKey]
+                  partialManifestSha = Checkpoint.manifestContentSha partialManifest
+                  partialManifestRef =
+                    CheckpointStore.checkpointObjectRef
+                      (Checkpoint.manifestKey partialExperimentHash partialManifestSha)
+                  partialPointerRef =
+                    CheckpointStore.checkpointObjectRef (Checkpoint.latestPointerKey partialExperimentHash)
+                  partialBlobRef = CheckpointStore.checkpointObjectRef partialBlobObjectKey
+                  partialManifestBytes =
+                    ByteString.Lazy.toStrict (Checkpoint.encodeManifestCbor partialManifest)
+              _ <- putBlobBytesIfAbsent partialBlobRef weightBytes
+              _ <- putBlobBytesIfAbsent partialManifestRef partialManifestBytes
+              _ <- casPointer partialPointerRef Nothing partialManifestSha
+              partialInference <-
+                CheckpointStore.loadInferenceCheckpointWithWeights
+                  ( \loadedManifest loadedWeights values ->
+                      liftIO
+                        ( runVisibleWeightedCheckpointInference
+                            env
+                            loadedManifest
+                            loadedWeights
+                            values
+                        )
+                  )
+                  partialExperimentHash
+                  [1.0, 2.0, 3.0]
+              liftIO $
+                case partialInference of
+                  Left err ->
+                    assertBool
+                      "partial checkpoint rejected before weight inference"
+                      ("not inference eligible" `Text.isInfixOf` err)
+                  Right values ->
+                    assertFailure ("partial checkpoint unexpectedly inferred: " <> show values)
               let badExperimentHash = "exp-inf-shape-mismatch"
                   badBlobObjectKey = Checkpoint.blobKey badExperimentHash "blob-weights"
                   badManifest =
-                    Checkpoint.emptyManifest
+                    completedCheckpointManifest
                       "m-bad"
                       badExperimentHash
                       [Checkpoint.TensorBlob "dense" [2, 3] badBlobObjectKey]
+                      1
+                      [("validation_accuracy", 0.91)]
                   badManifestSha = Checkpoint.manifestContentSha badManifest
                   badManifestRef =
                     CheckpointStore.checkpointObjectRef
@@ -1008,6 +1089,42 @@ main =
                   Right values ->
                     assertFailure
                       ("expected shape mismatch failure, got: " <> show values)
+      , testCase "checkpoint browse lists only inference-eligible completed manifests (Sprint 8.14/11.11)" $ do
+          let experimentHash = "exp-checkpoint-browser-negative"
+              completeBlob = Checkpoint.blobKey experimentHash "blob-complete"
+              partialBlob = Checkpoint.blobKey experimentHash "blob-partial"
+              completedManifest =
+                completedCheckpointManifest
+                  "m-complete"
+                  experimentHash
+                  [Checkpoint.TensorBlob "dense" [2, 2] completeBlob]
+                  3
+                  [("accuracy", 0.95)]
+              partialManifest =
+                ( Checkpoint.emptyManifest
+                    "m-partial"
+                    experimentHash
+                    [Checkpoint.TensorBlob "dense" [2, 2] partialBlob]
+                )
+                  { Checkpoint.manifestStep = 3
+                  , Checkpoint.manifestMetrics = [("accuracy", 0.95)]
+                  }
+              completedSha = Checkpoint.manifestContentSha completedManifest
+              partialSha = Checkpoint.manifestContentSha partialManifest
+              summaries =
+                Workload.checkpointSummaries
+                  experimentHash
+                  [partialManifest, completedManifest]
+          length summaries @?= 1
+          assertBool
+            "completed checkpoint appears in browser selector summary"
+            (any (completedSha `Text.isInfixOf`) summaries)
+          assertBool
+            "partial checkpoint is hidden from browser selector summary"
+            (not (any (partialSha `Text.isInfixOf`) summaries))
+          assertBool
+            "selector summary carries the eligibility marker"
+            (any ("\teligible\t" `Text.isInfixOf`) summaries)
       , testCase "Dhall numerics schema decodes against the full Haskell catalog" $ do
           -- Decodes dhall/numerics/Schema.dhall through `Dhall.inputFile`
           -- and asserts the resulting NumericsCatalog matches the
@@ -1153,6 +1270,7 @@ main =
                     , Training.cdTrialSha = Just "trial-1"
                     , Training.cdRunUuid = "run-daemon"
                     , Training.cdMetricsAtStep = [("loss", 0.125)]
+                    , Training.cdCompletedTraining = Nothing
                     }
                 payload =
                   Training.renderTrainingEvent
@@ -2278,7 +2396,7 @@ main =
                     -- Subscribe to rl.event BEFORE publishing so the unique
                     -- subscription captures every episode the worker publishes
                     -- back to the in-cluster broker after the dispatched Job runs.
-                    _ <- subscribeOrFail pulsarSettings eventTopic subscription "rl.event"
+                    _ <- subscribeLatestOrFail pulsarSettings eventTopic subscription "rl.event"
                     -- Publish StartRLRun; the cluster daemon dispatches it into a
                     -- `jitml-rl-<hash>` Job that runs `jitml rl train`.
                     publishOrFail pulsarSettings commandTopic commandPayload "StartRLRun"
@@ -2289,15 +2407,14 @@ main =
                     -- The worker publishes one `EpisodeDone` per episode to
                     -- `rl.event.<substrate>` through the in-cluster broker
                     -- (JITML_PULSAR_WS). Collect them off the subscription.
-                    episodes <-
-                      collectRlEpisodes
+                    (episodes, medianMetricSeen, checkpointSeen) <-
+                      collectRlEventEvidence
                         pulsarSettings
                         eventTopic
                         subscription
                         experimentHash
-                        evalEpisodes
                         (Just expectedJobName)
-                        10
+                        60
                     assertBool
                       ( "expected at least one EpisodeDone on rl.event for "
                           <> Text.unpack experimentHash
@@ -2308,6 +2425,12 @@ main =
                     assertBool
                       ("episode indices should arrive in non-decreasing order; got " <> show episodes)
                       (nonDecreasingInts episodes)
+                    assertBool
+                      "expected RL worker to publish a median_final_reward MetricUpdate"
+                      medianMetricSeen
+                    assertBool
+                      "expected RL worker to publish CheckpointDoneRL with completed-training"
+                      checkpointSeen
                     _ <- deleteJob expectedJobName
                     pure ()
           , testCase
@@ -2378,7 +2501,7 @@ main =
                       20
                     assertJobDoesNotAppear expectedJobName 5
                   _ -> do
-                    _ <- subscribeOrFail pulsarSettings eventTopic subscription "rl.event convergence"
+                    _ <- subscribeLatestOrFail pulsarSettings eventTopic subscription "rl.event convergence"
                     publishOrFail
                       pulsarSettings
                       commandTopic
@@ -2391,8 +2514,9 @@ main =
                           <> " to be applied by the daemon"
                       )
                       jobAppeared
-                    -- Allow plenty of consume attempts: 80 PPO iterations on the
-                    -- pure-Haskell MLP take longer than the 2-iteration smoke test.
+                    -- Collect the full run so the median is computed over the
+                    -- latter half of the convergence trajectory rather than the
+                    -- lower-reward warmup episodes.
                     rewards <-
                       collectRlEpisodeRewards
                         pulsarSettings
@@ -2431,10 +2555,12 @@ main =
               let experimentHash = "live-ckpt-" <> uniqueSuffix
                   blobObjectKey = Checkpoint.blobKey experimentHash "blob-weights"
                   manifest =
-                    Checkpoint.emptyManifest
+                    completedCheckpointManifest
                       "m1"
                       experimentHash
                       [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+                      1
+                      [("validation_accuracy", 0.9)]
                   payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
               MinIOSubprocess.runMinIOSubprocess settings $ do
                 first <-
@@ -2830,10 +2956,12 @@ main =
               let experimentHash = "live-inference-" <> uniqueSuffix
                   blobObjectKey = Checkpoint.blobKey experimentHash "blob-w"
                   manifest =
-                    Checkpoint.emptyManifest
+                    completedCheckpointManifest
                       "m1"
                       experimentHash
                       [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+                      1
+                      [("validation_accuracy", 0.9)]
                   payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
               -- Stage a real manifest + blob + latest pointer in live MinIO.
               MinIOSubprocess.runMinIOSubprocess settings $ do
@@ -3218,10 +3346,12 @@ stageWorkflowMatrixCheckpoint settings experimentHash =
   MinIOSubprocess.runMinIOSubprocess settings $ do
     let blobObjectKey = Checkpoint.blobKey experimentHash "workflow-matrix-weights"
         manifest =
-          Checkpoint.emptyManifest
+          completedCheckpointManifest
             "workflow-matrix"
             experimentHash
             [Checkpoint.TensorBlob "dense.weight" [2, 2] blobObjectKey]
+            1
+            [("validation_accuracy", 0.9)]
         manifestSha = Checkpoint.manifestContentSha manifest
         payload = Checkpoint.encodeJmw1 [1.0, 2.0, 3.0, 4.0]
         blobRef = CheckpointStore.checkpointObjectRef blobObjectKey
@@ -3593,6 +3723,37 @@ subscribeOrFail settings topic subscription label = do
             (label <> " subscribe failed live on " <> unTopicName topic <> ": " <> Text.pack (show err))
         )
 
+subscribeLatestOrFail
+  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  -> TopicName
+  -> Text
+  -> Text
+  -> IO SubscriptionId
+subscribeLatestOrFail settings topic subscription label =
+  withSystemTempDirectory "jitml-pulsar-subscribe-latest" $ \dir -> do
+    let outputPath = dir </> "subscription.txt"
+        command =
+          PulsarWebSocketSubprocess.pulsarSubscribeFromLatestSubprocess
+            settings
+            topic
+            subscription
+            outputPath
+    (exitCode, _stdoutText, stderrText) <- runStreaming defaultSubprocessEnv command
+    case exitCode of
+      ExitSuccess -> pure (SubscriptionId (unTopicName topic <> "\n" <> subscription))
+      ExitFailure code ->
+        assertFailureWithIO
+          ( Text.unpack
+              ( label
+                  <> " subscribe-latest failed live on "
+                  <> unTopicName topic
+                  <> " (exit "
+                  <> Text.pack (show code)
+                  <> "): "
+                  <> stderrText
+              )
+          )
+
 publishOrFail
   :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
   -> TopicName
@@ -3648,30 +3809,26 @@ assertHostCommandPublished settings topic subscriptionId experimentHash =
               then pure ()
               else go (remaining - 1)
 
--- | Sprint 13.5/13.6 — poll @rl.event.<substrate>@ for the per-episode
--- @EpisodeDone@ envelopes the worker publishes to the in-cluster broker
--- after a daemon-dispatched RL Job runs. Returns the matching episode
--- indices in arrival order. Each consume waits up to the consumer's
--- timeout; on a timeout we retry (the worker Job may not have published
--- yet) until @wanted@ matching episodes are collected or @attempts@ run
--- out. Non-matching frames are acked and skipped so the unique
--- subscription advances.
-collectRlEpisodes
+-- | Poll @rl.event.<substrate>@ once and collect the coupled evidence a worker
+-- publishes for a live RL run. The same subscription must observe episodes,
+-- completion metrics, and the checkpoint event because acknowledging a Pulsar
+-- frame advances the subscription cursor.
+collectRlEventEvidence
   :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
   -> TopicName
   -> Text
   -> Text
-  -> Int
   -> Maybe Text
   -> Int
-  -> IO [Int]
-collectRlEpisodes settings topic subscription experimentHash wanted watchedJob attempts =
-  go attempts []
+  -> IO ([Int], Bool, Bool)
+collectRlEventEvidence settings topic subscription experimentHash watchedJob attempts =
+  go attempts [] False False
  where
   subId = SubscriptionId (unTopicName topic <> "\n" <> subscription)
-  go n acc
-    | n <= 0 = pure (reverse acc)
-    | length acc >= wanted = pure (reverse acc)
+  go n episodeAcc metricSeen checkpointSeen
+    | n <= 0 = pure (reverse episodeAcc, metricSeen, checkpointSeen)
+    | not (null episodeAcc) && metricSeen && checkpointSeen =
+        pure (reverse episodeAcc, metricSeen, checkpointSeen)
     | otherwise = do
         traverse_ assertWatchedJobNotFailed watchedJob
         consumed <-
@@ -3683,21 +3840,31 @@ collectRlEpisodes settings topic subscription experimentHash wanted watchedJob a
             -- Timeout: the worker may not have published yet; retry.
             do
               traverse_ assertWatchedJobNotFailed watchedJob
-              go (n - 1) acc
+              go (n - 1) episodeAcc metricSeen checkpointSeen
           Right (_topicBack, payload) -> do
             _ <-
               PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess
                 settings
                 (pulsarAcknowledge topic payload)
             let matches =
-                  "kind: EpisodeDone"
-                    `Text.isInfixOf` payload
-                    && ("experiment-hash: " <> experimentHash) `Text.isInfixOf` payload
-            if matches
-              then case parseEpisodeIndex payload of
-                Just idx -> go (n - 1) (idx : acc)
-                Nothing -> go (n - 1) acc
-              else go (n - 1) acc
+                  ("experiment-hash: " <> experimentHash) `Text.isInfixOf` payload
+                nextEpisodes =
+                  if matches && "kind: EpisodeDone" `Text.isInfixOf` payload
+                    then maybe episodeAcc (: episodeAcc) (parseEpisodeIndex payload)
+                    else episodeAcc
+                nextMetricSeen =
+                  metricSeen
+                    || ( matches
+                           && "kind: MetricUpdate" `Text.isInfixOf` payload
+                           && "name: median_final_reward" `Text.isInfixOf` payload
+                       )
+                nextCheckpointSeen =
+                  checkpointSeen
+                    || ( matches
+                           && "kind: CheckpointDoneRL" `Text.isInfixOf` payload
+                           && "completed-training:" `Text.isInfixOf` payload
+                       )
+            go (n - 1) nextEpisodes nextMetricSeen nextCheckpointSeen
 
 -- | True when the list is in non-decreasing order. Manual recursion
 -- (not @zipWith (<=) xs (drop 1 xs)@) so hlint's @drop1@ hint does not

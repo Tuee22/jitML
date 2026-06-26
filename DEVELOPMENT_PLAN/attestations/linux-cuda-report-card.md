@@ -1,4 +1,4 @@
-# `linux-cuda` Per-Lane Attestation (Sprint 15.20)
+# `linux-cuda` Per-Lane Attestation (Sprints 15.20 / 15.21)
 
 **Status**: Authoritative source
 **Referenced by**: [../README.md](../README.md),
@@ -7,32 +7,36 @@
 [../phase-18-no-caveat-product-handoff.md](../phase-18-no-caveat-product-handoff.md)
 **Generated sections**: none
 
-> **Purpose**: The committed `linux-cuda` per-lane report-card fragment that
-> Sprint `15.20` owns. Phase `17` (Sprint `17.8`) and Phase `18` (Sprint `18.1`)
-> consume this fragment on `linux-cpu` and never re-run the `linux-cuda` lane
-> (standards rule M(b)/(d)).
+> **Purpose**: The committed `linux-cuda` per-lane report-card fragment. Sprint
+> `15.20` supplied the earlier no-caveat runtime/browser fragment, and Sprint
+> `15.21` revalidated the expanded fixed-budget all-model lane on the same real
+> NVIDIA host. Phase `17` and Phase `18` consume this fragment on `linux-cpu`
+> and never re-run the `linux-cuda` lane (standards rule M(b)/(d)).
 
 ## Host
 
 - NVIDIA GeForce RTX 5090, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`
-- CUDA 12.8, Ubuntu 24.04 (x86_64), Docker 29.x, NVIDIA Container Runtime
-- Validated 2026-06-18.
+- CUDA 12.8, driver `570.211.01`, Ubuntu 24.04 (x86_64), Docker 29.x,
+  NVIDIA Container Runtime
+- Revalidated 2026-06-26 for Sprint `15.21`.
 
-## Validation gate (all green)
+## Current Sprint 15.21 validation gate (all green)
 
 | Command | Result |
 |---|---|
-| `docker compose run --rm jitml jitml test all --linux-cpu` | 8/8 stanzas PASS |
-| `docker compose run --rm jitml-cuda jitml test all --linux-cuda` | 8/8 stanzas PASS (incl. `jitml-backends` 20/20 on the GPU) |
-| `docker compose run --rm jitml-cuda jitml test jitml-e2e --linux-cuda` | 23/23 |
-| `docker compose run --rm jitml jitml docs check` | ok |
-| `docker compose run --rm jitml jitml check-code` | ok |
+| `docker compose build jitml` | Image build PASS, including embedded `check-code: ok` and PureScript bundle build |
+| `./bootstrap/linux-cuda.sh up` | Live rollout PASS: 110 steps, edge `9092`, all seven components Ready |
+| `jitml internal upload-dataset` via `jitml-cuda` | MNIST, Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, and California Housing artifacts uploaded and SHA-verified |
+| `docker compose run --rm jitml-cuda cabal test -fcuda jitml-sl-canonicals --test-show-details=direct` | 24/24 PASS; live MNIST threshold 136.49s, all canonical rows 24.42s |
+| `docker compose run --rm jitml-cuda jitml test all --linux-cuda` | 8/8 stanzas PASS; `jitml-backends` 20/20 on the RTX 5090, live WorkflowMatrix current-substrate cell 847.02s, PPO convergence 266.21s |
+| `docker compose run --rm jitml-cuda jitml internal seed-demo-checkpoints` | 8 demo checkpoints seeded |
+| Live Playwright product matrix against `http://127.0.0.1:9092/` | 15/15 PASS |
 
 `jitml-backends --linux-cuda` compiled and executed the real cuBLAS/cuDNN
 bindings (`-fcuda`) on the attached RTX 5090 — every within-substrate
 `linux-cuda` kernel case a real device PASS.
 
-## Live `linux-cuda` report card
+## Historical Sprint 15.20 live `linux-cuda` report card
 
 ```
 jitML POC report card
@@ -70,39 +74,42 @@ cabal_test:
 
 Every measurement row is populated — **no `unavailable` product row**.
 
-## Browser product matrix — `11/11` via live Playwright
+## Current browser product matrix — `15/15` via live Playwright
 
 The authoritative browser proof is the live Playwright product matrix run against
 the `linux-cuda` Envoy edge (`http://127.0.0.1:9092/`) after
 `jitml internal seed-demo-checkpoints`:
 
 ```
-11 passed (chromium)
+15 passed (chromium)
   ✓ demo shell responds and renders the portals home
   ✓ portals home links to every bundled admin portal
   ✓ shared header is present on every panel
-  ✓ mnist panel renders an inference canvas         (kind: InferenceResult)
-  ✓ generic inference panel renders checkpoint output (kind: GenericInferenceResult)
-  ✓ cifar panel renders an upload control            (kind: ImageInferenceResult)
-  ✓ checkpoint compare panel renders output deltas   (kind: CheckpointCompareResult)
-  ✓ connect4 panel renders the board                 (kind: AdversarialMoveResult)
+  ✓ mnist panel renders an inference canvas
+  ✓ generic inference panel renders checkpoint output
+  ✓ cifar panel renders an upload control
+  ✓ checkpoint compare panel renders output deltas
+  ✓ connect4 panel renders the board
+  ✓ adversarial selectors render trained policy/value rows
+  ✓ checkpoint browse renders every model row
+  ✓ workflow status reconciles live state
+  ✓ transcript replay renders persisted game history
   ✓ rl panel renders an episode timeline
   ✓ training panel renders a loss curve
   ✓ tune panel renders the trial heatmap
 ```
 
-All five checkpoint-backed panels return real, checkpoint-backed results
-(HTTP 200) and were also confirmed via direct `5/5` REST probes of
-`/api/inference`, `/api/inference/generic`, `/api/images`,
-`/api/checkpoints/compare`, and `/api/connect4/move`.
+The matrix covers the checkpoint-backed inference panels, all-model checkpoint
+browse, workflow-state reconciliation, persisted transcript replay, RL/training
+state, and tuning controls against the published CUDA edge.
 
 ### `browser_product_matrix` row
 
 The `measureBrowserProductMatrix` probe (`src/JitML/App.hs`) POSTs each panel's
 canonical default request to the live demo edge and confirms each returns its
-checkpoint-backed result kind; it reports `5/5 served`. The two enablers landed
-in this sprint: the `jitml-demo` `runtimeClassName: nvidia` + 4Gi JIT-compile
-budget on `linux-cuda` (`chart/local/jitml-demo/templates/deployment.yaml`), and
-the probe itself replacing the prior hardcoded `unavailable` stub. (Earlier in
-the session the row read `unavailable` only because the report-card image
-predated the probe wiring; rebuilt with the probe, it reads `5/5`.)
+checkpoint-backed result kind; the historical Sprint `15.20` report card above
+records `5/5 served`. Sprint `15.21` keeps that live edge and expands the
+browser proof to the 15-case all-model product matrix. The `jitml-demo`
+`runtimeClassName: nvidia` + 4Gi JIT-compile budget on `linux-cuda`
+(`chart/local/jitml-demo/templates/deployment.yaml`) remains the validated
+Webapp scheduling envelope; CUDA execution itself belongs to the Engine role.

@@ -25,19 +25,20 @@
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-24 for Sprint `10.9`; re-closed 2026-06-25 on
-`linux-cpu`) — `runInternalSeedDemoCheckpoints`' hardcoded `demoWeights` ramp
+✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `10.10` —
+checkpoint manifests, readiness, TensorBoard metadata, and inference
+eligibility for fixed-budget trained artifacts). Sprint `10.9` remains historically closed: `runInternalSeedDemoCheckpoints`' hardcoded `demoWeights` ramp
 (byte-identical across all five seeds) is replaced with `seededDemoCheckpoints`:
-distinct, provenance-tagged, real-trained, **self-describing** weights per family (four
-softmax MLP classifiers + one self-play-trained AlphaZero policy/value net), each
+distinct, provenance-tagged, **self-describing seeded fixture** weights per family (four
+softmax MLP classifiers + one AlphaZero policy/value-shaped net), each
 carrying per-layer tensor shapes + a class-count output spec so Sprint `14.3` can reshape
 them. Validation is complete: grep-clean for the ramp, the `jitml-unit` "demo checkpoints
 (Sprint 10.9)" distinctness/self-describing case, `jitml-e2e` 23/23, `check-code` from
 the rebuilt `jitml:local` image, and this phase's own self-contained `linux-cpu` live
 family-distinct `jitml inference run` proof after a 109-step bootstrap and live MinIO
 seeding. Sprint `13.2` re-exercises the path in its full-runtime re-attest but no longer
-gates Phase 10. All prior Sprints `10.1`–`10.8` remain `✅ Done`; the prior closure
-history follows.
+gates Phase 10. All prior Sprints `10.1`–`10.9` remain historical `✅ Done`;
+Sprint `10.10` is now closed.
 
 ✅ **Done** (reopened 2026-06-23 for Sprint `10.8`; unblocked by Phase 2's 2026-06-24
 close, **re-closed 2026-06-24**) — the checkpoint GC retention is now sourced from the
@@ -233,7 +234,7 @@ split-blob object-key renderers used by the inference summary surface.
   and Phase 15 Sprint `15.7`; the current live checkpoint snapshot path
   round-trips through `JitML.Service.MinIOSubprocess`.
 
-### Validation
+### Historical Validation
 
 1. `src/JitML/Checkpoint/Format.hs` exposes the `TensorBlob`,
    `CheckpointManifest`, and `manifestPointer` helpers.
@@ -567,7 +568,7 @@ checkpoint-backed models rather than demo-only or Dense-only readers.
   route shape with an injected checkpoint runtime handler for current REST
   panels.
 
-### Validation
+### Historical Validation
 
 - ✅ `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed
   197 / 197 on 2026-06-15.
@@ -808,8 +809,8 @@ training surfaces this reuses) have landed.
 
 The hardcoded `demoWeights = [0.05 + ((i*7+3) mod 11)/20 | i in 0..255]` ramp
 (byte-identical across all five seeded "models") is **removed**.
-`runInternalSeedDemoCheckpoints` now seeds `seededDemoCheckpoints`: one **real, distinct,
-provenance-tagged, self-describing** checkpoint per demo family — the four classifier
+`runInternalSeedDemoCheckpoints` now seeds `seededDemoCheckpoints`: one **distinct,
+provenance-tagged, self-describing fixture** checkpoint per demo family — the four classifier
 families (`mnist-deep-mlp` 784→24→10, `cifar-imagenet` 3072→24→10, `generic-tensor-demo`
 and `generic-tensor-demo-candidate` 4→8→3, distinct seeds) train a real softmax MLP
 (`Classifier.trainClassifier`) on a small in-code separable task and flatten the trained
@@ -831,7 +832,7 @@ records the semantic class count and the layer specs keep the raw tensor shapes.
 ### Exit Definition
 
 - No synthetic/hardcoded weight ramp remains in `App.hs`; each demo family's checkpoint
-  is distinct, trained, provenance-tagged, and self-describing (per-layer shapes +
+  is distinct, provenance-tagged, and self-describing (per-layer shapes +
   class-count output spec). The legacy ledger row for the ramp moves to `Completed`. ✅
   (code; grep-clean + the distinctness/self-describing unit test confirm the worktree.)
 
@@ -839,7 +840,7 @@ records the semantic class count and the layer specs keep the raw tensor shapes.
 
 - Grep clean for the ramp — **confirmed** (`demoWeights` removed; no ramp remains).
 - `jitml-unit` "demo checkpoints (Sprint 10.9)" — the five families are distinct,
-  real-trained (non-constant), self-describing (per-layer shapes sum to the flat length),
+  non-constant, self-describing (per-layer shapes sum to the flat length),
   and the output spec width equals the class count. **Host-native, no cluster.**
 - `jitml-e2e` chart/bucket guards green — **23/23**; the five demo experiment hashes are
   preserved.
@@ -861,6 +862,82 @@ records the semantic class count and the layer specs keep the raw tensor shapes.
   `generic-tensor-demo-candidate` `[-1.4564321041107178,0.761154294013977]`,
   `cifar-imagenet` `[0.19340509176254272,3.598484769463539e-2]`, and
   `connect4-alphazero` `[0.2905381917953491,0.38741081953048706]`.
+
+## Sprint 10.10: Inference-Eligible Checkpoints and Convergence Statistics [✅ Done]
+
+**Status**: Done
+**Implementation**: `src/JitML/Checkpoint/Format.hs`,
+`src/JitML/Checkpoint/Store.hs`, `src/JitML/App.hs`,
+`src/JitML/Observability/TensorBoard.hs`,
+`src/JitML/Observability/TbSidecar.hs`
+**Docs to update**: `../documents/engineering/checkpoint_format.md`,
+`../documents/engineering/training_metrics_and_splits.md`,
+`../documents/engineering/purescript_frontend.md`, `system-components.md`
+
+### Objective
+
+Make the checkpoint manifest the enforcement point for trained-artifact
+eligibility. A manifest may be inspectable or resumable before completion, but
+only a completed fixed-budget manifest with convergence statistics can be used
+for inference, evaluation, RL rollout, or browser interaction.
+
+### Deliverables
+
+- Add completed-budget fields, convergence-statistics records, TensorBoard
+  scalar run metadata, and readiness witness data to the manifest contract.
+- Introduce an opaque `InferenceEligibleCheckpoint` value minted only after the
+  manifest's completed budget and convergence-statistics predicate pass.
+- Refactor `eval`, `inference run`, demo handlers, `rl eval`, `rl rollout`, and
+  AlphaZero game endpoints to accept the eligibility value, not raw weights.
+- Preserve raw manifest loading for inspection/resume without allowing it to
+  flow into inference.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+- `docker compose run --rm jitml jitml test jitml-e2e --linux-cpu`
+- `docker compose run --rm jitml jitml docs check`
+
+### Current Validation State
+
+- `docker compose run --rm jitml cabal test jitml-unit --test-show-details=direct`
+  passed **224 / 224**.
+- `docker compose run --rm jitml cabal test jitml-e2e --test-show-details=direct`
+  passed **23 / 23**.
+- `docker compose run --rm jitml cabal run jitml -- test jitml-e2e --linux-cpu`
+  passed through the project wrapper with **23 / 23** tests.
+- `docker compose run --rm jitml cabal test jitml-integration --test-show-details=direct`
+  passed the non-live checkpoint loader cases, including an
+  infer-before-complete rejection for a manifest without
+  `CompletedTraining`. The remaining integration failures were the expected live
+  cluster failures from missing `.build/runtime/cluster-publication.json`.
+- `docker compose run --rm jitml cabal test jitml-integration --test-show-details=direct`
+  later passed **53** non-live cases after the checkpoint-browser selector
+  gained a negative test that omits manifests without `CompletedTraining`; the
+  **19** live cases still fail fast without a bootstrapped cluster publication.
+- `./bootstrap/linux-cpu.sh up` completed the live `linux-cpu` rollout
+  (**111** steps), and
+  `docker compose run --rm jitml cabal test jitml-integration --test-show-details=direct`
+  passed **72 / 72** against the bootstrapped cluster, including live checkpoint
+  snapshot, GC, inference, TensorBoard sidecar, tune, RL, and AlphaZero
+  checkpoint paths.
+- `docker compose run --rm jitml cabal run jitml -- docs check` passed
+  (`docs check: ok`).
+- `docker compose run --rm jitml cabal run jitml -- check-code` passed
+  (`check-code: ok`).
+- `docker compose run --rm jitml jitml test all --live --linux-cpu` passed the
+  aggregate lane with **8 / 8** stanzas green. The run includes live checkpoint
+  snapshot, GC, inference, TensorBoard sidecar, tuning, RL, AlphaZero
+  checkpoint paths, and `jitml-backends` **23 / 23** through the
+  `InferenceEligibleCheckpoint` gate.
+- Live Playwright passed **15 / 15** against the rebuilt `linux-cpu` edge after
+  reseeding all eight demo checkpoints as completed, inference-eligible
+  manifests.
+
+### Remaining Work
+
+- None.
 
 ## Related Documents
 

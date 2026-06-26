@@ -230,6 +230,7 @@ library
         JitML.Test.LivePlan
         JitML.Test.Report
         JitML.Test.WorkflowMatrix
+        JitML.Training.Budget
         JitML.Tune.Catalog
         JitML.Tune.Resume
         JitML.Web.AdminPortals

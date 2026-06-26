@@ -46,6 +46,13 @@ import JitML.Proto.Wire
   , uint64Field
   )
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
+import JitML.Training.Budget
+  ( CompletedTraining
+  , decodeCompletedTraining
+  , encodeCompletedTraining
+  , parseCompletedTraining
+  , renderCompletedTraining
+  )
 
 data StartTraining = StartTraining
   { stExperimentHash :: Text
@@ -81,6 +88,7 @@ data CheckpointDone = CheckpointDone
   , cdTrialSha :: Maybe Text
   , cdRunUuid :: Text
   , cdMetricsAtStep :: [(Text, Double)]
+  , cdCompletedTraining :: Maybe CompletedTraining
   }
   deriving stock (Eq, Show)
 
@@ -222,6 +230,10 @@ renderTrainingEvent envelope =
           ]
             <> maybe [] (\trialSha -> ["trial-sha: " <> trialSha]) (cdTrialSha c)
             <> fmap renderMetric (cdMetricsAtStep c)
+            <> maybe
+              []
+              (\completed -> ["completed-training: " <> renderCompletedTraining completed])
+              (cdCompletedTraining c)
         )
     TrainingFailure f ->
       Text.unlines
@@ -244,6 +256,7 @@ parseTrainingCheckpointDone payload = do
       runUuid = fromMaybe pointerKey (value "run-uuid")
       trialSha = value "trial-sha"
       metrics = mapMaybe parseMetric [metric | ("metric", metric) <- fields]
+      completed = value "completed-training" >>= parseCompletedTraining
   pure
     CheckpointDone
       { cdExperimentHash = experimentHash
@@ -254,6 +267,7 @@ parseTrainingCheckpointDone payload = do
       , cdTrialSha = trialSha
       , cdRunUuid = runUuid
       , cdMetricsAtStep = metrics
+      , cdCompletedTraining = completed
       }
 
 renderMetric :: (Text, Double) -> Text
@@ -352,6 +366,10 @@ encodeCheckpointDoneProto checkpoint =
       <> fmap
         (messageField 8 . encodeScalarMetricProto)
         (cdMetricsAtStep checkpoint)
+      <> maybe
+        []
+        (\completed -> [messageField 9 (encodeCompletedTraining completed)])
+        (cdCompletedTraining checkpoint)
 
 decodeCheckpointDoneProto :: ByteString -> Either Text CheckpointDone
 decodeCheckpointDoneProto bytes = do
@@ -360,6 +378,10 @@ decodeCheckpointDoneProto bytes = do
     traverse
       decodeScalarMetricProto
       =<< require "metrics_at_step" (fieldMessages 8 fields)
+  completed <-
+    case fieldMessage 9 fields of
+      Nothing -> Right Nothing
+      Just completedBytes -> Just <$> decodeCompletedTraining completedBytes
   CheckpointDone
     <$> require "experiment_hash" (fieldString 1 fields)
     <*> require "manifest_sha" (fieldString 2 fields)
@@ -369,6 +391,7 @@ decodeCheckpointDoneProto bytes = do
     <*> pure (fieldString 6 fields)
     <*> require "run_uuid" (fieldString 7 fields)
     <*> pure metrics
+    <*> pure completed
 
 encodeScalarMetricProto :: (Text, Double) -> ByteString
 encodeScalarMetricProto (tag, value) =

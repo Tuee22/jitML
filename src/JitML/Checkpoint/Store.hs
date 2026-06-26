@@ -57,10 +57,13 @@ import JitML.Checkpoint.Format
   , blobKey
   , decodeJmw1
   , decodeManifestCbor
+  , eligibleCheckpointManifest
   , encodeManifestCbor
   , latestPointerKey
   , manifestContentSha
   , manifestKey
+  , renderEligibilityError
+  , requireInferenceEligibleCheckpoint
   , weightOnlyTensors
   )
 import JitML.Inference.Decode (DecodedInference, decodeManifestOutput)
@@ -445,9 +448,17 @@ loadInferenceCheckpointWith runInference experimentHash input = do
               case validateLoadedManifest experimentHash manifestSha manifest of
                 Left err -> pure (Left err)
                 Right validManifest ->
-                  let weightOnly = validManifest {manifestOptimizer = [], manifestRng = []}
-                      _ = weightOnlyTensors validManifest
-                   in runInference weightOnly input
+                  case requireInferenceEligibleCheckpoint manifestSha validManifest of
+                    Left err ->
+                      pure (Left ("manifest not inference eligible: " <> renderEligibilityError err))
+                    Right eligible ->
+                      let weightOnly =
+                            (eligibleCheckpointManifest eligible)
+                              { manifestOptimizer = []
+                              , manifestRng = []
+                              }
+                          _ = weightOnlyTensors validManifest
+                       in runInference weightOnly input
 
 -- | Variant of `loadInferenceCheckpointWith` that also reads and decodes
 -- weight-only `.jmw1` tensor blobs before invoking the supplied runner.
@@ -510,12 +521,20 @@ withWeightedCheckpoint continuation experimentHash = do
             Right manifest ->
               case validateLoadedManifest experimentHash manifestSha manifest of
                 Left err -> pure (Left err)
-                Right validManifest -> do
-                  let weightOnly = validManifest {manifestOptimizer = [], manifestRng = []}
-                  loadedWeights <- loadWeightTensors weightOnly
-                  case loadedWeights of
-                    Left err -> pure (Left err)
-                    Right weights -> continuation weightOnly weights
+                Right validManifest ->
+                  case requireInferenceEligibleCheckpoint manifestSha validManifest of
+                    Left err ->
+                      pure (Left ("manifest not inference eligible: " <> renderEligibilityError err))
+                    Right eligible -> do
+                      let weightOnly =
+                            (eligibleCheckpointManifest eligible)
+                              { manifestOptimizer = []
+                              , manifestRng = []
+                              }
+                      loadedWeights <- loadWeightTensors weightOnly
+                      case loadedWeights of
+                        Left err -> pure (Left err)
+                        Right weights -> continuation weightOnly weights
 
 loadWeightTensors
   :: (HasMinIO m)

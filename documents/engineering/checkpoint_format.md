@@ -9,20 +9,21 @@
 > layout, `.jmw1` dense weight blob wire format, typed CBOR manifest, write-
 > once + If-Match CAS protocol, retention reconciler, inference-only read
 > path, inference request/result protobuf envelopes, and the architecture-aware
-> checkpoint target for every no-caveat model family.
+> checkpoint target for every model family, including the trained-artifact
+> witness required before inference.
 
 **Durable-state retention (Sprint 10.8):** the checkpoint GC retention is a typed
 `RetentionPolicy` sourced from the durable-state registry's `checkpoints` store
 (`JitML.Project.Config.lookupStoreRetention`), replacing the former hardcoded
 `LastN 5` literal. See [durable_state_dsl.md](durable_state_dsl.md).
 
-**Real trained weights only (Sprint 10.9 — ✅ Done, re-closed 2026-06-25).**
-Checkpoint payloads carry real trained weights with correct per-tensor shapes;
-synthetic, zero-padded, or byte-identical-across-models weight payloads are
-prohibited. The demo's seeded checkpoints satisfy this contract:
-`seededDemoCheckpoints` replaced the byte-identical ramp, `jitml-unit` covers
-distinctness/self-describing metadata, and the Phase 10 `linux-cpu` live proof
-returned family-distinct `jitml inference run` outputs.
+**Real trained weights only.** Checkpoint payloads carry weights produced by the
+declared training workflow with correct per-tensor shapes; synthetic,
+zero-padded, byte-identical-across-models, randomly initialized, or untrained
+weight payloads are prohibited. The 2026-06-26 audit reopened the demo and
+all-model runtime closure because seeded and smoke checkpoints are not enough:
+inference must require the trained-artifact witness defined in
+[training_metrics_and_splits.md](training_metrics_and_splits.md).
 
 **Self-describing checkpoints (the 10.9 → 14.3 shape contract).** A weight checkpoint is
 self-describing: the manifest's `ArchitectureMetadata` records input/output `TensorSpec`s
@@ -32,23 +33,51 @@ consumer (the demo inference path, Sprint `14.3`) reshapes the flat `.jmw1`
 blob into its layers without a hardcoded per-family lookup and runs the real
 substrate MLP forward before trimming to the semantic output width.
 `writeMinIOWeightCheckpointShaped` (`src/JitML/App.hs`) writes this for the
-seeded demo checkpoints, and Phase `14` re-closed with eight live
-checkpoint-backed product hashes plus Playwright 15/15. See
+current seeded demo checkpoints. Reopened Phase `10` / Phase `13` work makes the
+self-describing shape contract subordinate to the stronger trained-artifact
+contract: the manifest shape is necessary but not sufficient for inference. See
 [training_metrics_and_splits.md](training_metrics_and_splits.md).
+
+## Inference Eligibility
+
+A checkpoint manifest can be loaded for inspection at any step, but only an
+`InferenceEligibleCheckpoint` may flow to `jitml eval`, `jitml inference run`,
+demo inference routes, RL evaluation/rollout, or AlphaZero game endpoints. That
+value is minted only when all of the following are true:
+
+- the manifest carries a `CompletedTraining` witness built from a
+  `TrainingBudget`;
+- the completed observed units meet the declared fixed budget and do not exceed
+  the manifest step;
+- required convergence-statistics fields are present and pass the model's metric
+  predicate;
+- the checkpoint payload includes real model weights and the model-family weight
+  layout;
+- TensorBoard scalar metadata exists for the same run and metric prefix.
+
+This is a shared loader boundary, not a best-effort runtime convention:
+`loadInferenceCheckpointWith`, `loadInferenceCheckpointWithWeights`, and the
+Engine-decoded weighted path reject partially trained, smoke-test, randomly
+initialized, hardcoded, demo-only, or transport-fixture checkpoints before
+weights are handed to a substrate runner. Raw manifest listing and manifest
+reads remain available for inspection, resume, and GC.
+The browser checkpoint-list selector uses the same eligibility boundary:
+incomplete manifests can be inspected by lower-level tooling, but they are
+omitted from `CheckpointSummary` rows served to model-selection panels.
 
 ## No-Caveat Checkpoint Target
 
-The current weighted checkpoint path is real for the implemented MLP-family
-payloads. Sprint `10.6` adds the typed manifest metadata needed by every model
-family that the runtime trains: Dense, DeepDense, Conv2D, residual,
-wide-residual, ResNet-50, VisionTransformer, RL policies, AlphaZero
-policy/value nets, and tuning trial checkpoints. The manifest carries
+The weighted checkpoint path is real for the implemented MLP-family payloads,
+but the no-caveat target is broader. Reopened Phase `10` adds the manifest
+metadata needed by every model family that the runtime trains: Dense, DeepDense,
+Conv2D, residual, wide-residual, ResNet-50, VisionTransformer, RL policies,
+AlphaZero policy/value nets, and tuning trial checkpoints. The manifest carries
 architecture metadata, preprocessing metadata, output-decoding metadata, replay
-/ transcript pointers, per-substrate artifact identity, and weight-layout
-information so `jitml eval`, `jitml rl eval`, `jitml inference run`, and the
-demo app can reject missing or incompatible checkpoints instead of using an
-inline demo-only model. Sprint `10.6` remains blocked on the live Linux
-CPU/CUDA and Apple Silicon integration validation lanes.
+/ transcript pointers, per-substrate artifact identity, weight-layout
+information, fixed-budget completion, and convergence statistics so `jitml
+eval`, `jitml rl eval`, `jitml inference run`, and the demo app reject missing,
+incomplete, smoke, or incompatible checkpoints instead of using an inline
+demo-only model.
 
 ## Storage Layout
 
@@ -74,12 +103,14 @@ jitml-checkpoints/
 Current local helpers cover `deriveExperimentHash`, `blobKey`, `manifestKey`,
 `latestPointerKey`, `bestPointerKey`, `trialPointerKey`, deterministic
 `encodeManifestCbor` / `decodeManifestCbor` / `manifestContentSha`, typed
-`AdvancePredicate`, and pure `applyPointerWrite` CAS decisions.
+`AdvancePredicate`, pure `applyPointerWrite` CAS decisions,
+`requireInferenceEligibleCheckpoint`, and `renderEligibilityError`.
 `JitML.Checkpoint.Store` provides the local filesystem-backed interpreter for
 write-once object writes, manifest writes/reads, latest-pointer CAS, retention
 planning, local manifest discovery for `jitml internal gc`, GC execution
 through `HasMinIO`, checkpoint snapshot writes through `HasMinIO`, and
-inference from the latest checkpoint. Store-level
+inference from the latest checkpoint only after the manifest mints an
+`InferenceEligibleCheckpoint`. Store-level
 `checkpointObjectRef` adapts the bucket-prefixed key renderers to live
 `HasMinIO` calls by carrying bucket `jitml-checkpoints` separately and using
 keys relative to that bucket.
@@ -114,8 +145,9 @@ automatically across consecutive checkpoints.
 Each manifest names the blob SHAs that constitute one logical checkpoint
 plus the metadata needed to interpret them: experiment hash, optional trial
 hash, step / epoch, telemetry wall-clock, substrate, schema version,
-canonical-ordered checkpoint parts, metrics, and parent manifest SHA for
-linear history. Same `If-None-Match: *` write protocol.
+fixed-budget completion witness, convergence statistics, TensorBoard metric
+prefix, canonical-ordered checkpoint parts, metrics, and parent manifest SHA
+for linear history. Same `If-None-Match: *` write protocol.
 
 The manifest's SHA is the canonical *checkpoint id* used by Pulsar
 `CheckpointDone` events, RPC envelopes, and `--resume <checkpoint-id>`.
@@ -200,7 +232,8 @@ The Haskell `CheckpointManifest` in `src/JitML/Checkpoint/Format.hs` carries the
 implemented local shape: manifest id, experiment hash, model-family identifier,
 architecture metadata, preprocessing metadata, output decoders, weight layout,
 replay/transcript pointers, per-substrate artifact identities, tensor blobs,
-optimizer blobs, RNG blobs, monotonic step, metrics, and optional parent
+optimizer blobs, RNG blobs, monotonic step, metrics, completed-budget metadata,
+convergence-statistics metadata, TensorBoard metadata, and optional parent
 manifest SHA. `TensorSpec`, `ArchitectureMetadata`,
 `PreprocessingMetadata`, `OutputDecoder`, `WeightLayout`, `ArtifactPointer`,
 and `SubstrateArtifact` are part of the serialized manifest contract.
