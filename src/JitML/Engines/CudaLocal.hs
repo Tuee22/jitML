@@ -44,7 +44,9 @@ import JitML.Engines.Loader
   , kernelArtifactHandle
   , withKernelSymbol
   )
+import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
 import JitML.Env.Env (Env)
+import JitML.Numerics.MlpCuda (mlpForwardCuda)
 import JitML.Substrate (Substrate (..))
 
 type KernelFunction =
@@ -156,15 +158,19 @@ runCudaWeightedCheckpointInference
   -> [LoadedWeightTensor]
   -> [Double]
   -> IO (Either Text [Double])
-runCudaWeightedCheckpointInference env _manifest weights input = do
-  let flatWeights = fmap realToFrac (concatMap loadedWeightValues weights)
-  kernelResult <-
-    runCudaWeightedFamilyKernel env Dense2D (fmap realToFrac input) flatWeights
-  pure $
-    case kernelResult of
-      Left err -> Left err
-      Right kernelRun ->
-        Right (fmap realToFrac (cudaWeightedKernelOutput kernelRun))
+runCudaWeightedCheckpointInference env manifest weights input = do
+  mlpResult <- runMlpCheckpointForwardWith (mlpForwardCuda env) manifest weights input
+  case mlpResult of
+    Just result -> pure result
+    Nothing -> do
+      let flatWeights = fmap realToFrac (concatMap loadedWeightValues weights)
+      kernelResult <-
+        runCudaWeightedFamilyKernel env Dense2D (fmap realToFrac input) flatWeights
+      pure $
+        case kernelResult of
+          Left err -> Left err
+          Right kernelRun ->
+            Right (fmap realToFrac (cudaWeightedKernelOutput kernelRun))
 
 runCudaWeightedFamilyKernel
   :: Env

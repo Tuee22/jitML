@@ -22,13 +22,15 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-24 for Sprint `13.2` — re-attest the no-caveat
-runtime with real SL/RL losses + metrics). **Blocked by**: Phase 8 Sprint `8.13`,
-Phase 9 Sprint `9.13`, Phase 10 Sprint `10.9`. Sprint `13.2` lands the real
-cross-entropy/MSE + held-out validation loss and re-attests R1–R5 on the
-`linux-cpu` lane (no synthetic weights, no faked loss, validation-driven selection,
-convergence-and-performance metrics). All prior Sprints `13.1` remain `✅ Done`; the
-prior closure history follows.
+✅ **Done** (reopened 2026-06-24 for Sprint `13.2`; re-closed 2026-06-25 on
+`linux-cpu`) — the no-caveat runtime has been re-attested with the real SL/RL losses and
+metrics from Phases `8`/`9`/`10`: trained weights only, real cross-entropy/MSE + held-out
+validation loss, validation-driven selection, measured RL convergence, and populated
+performance/product measurements. The live `jitml test all --live --linux-cpu` report
+card passed all eight stanzas and populated `sl_final_loss`, `rl_final_reward`,
+`alphazero_arena_win_rate`, `tune_best_objective`, `jit_cache_hit_rate`,
+`daemon_healthz`, and `browser_product_matrix`. All prior Sprints `13.1` remain
+`✅ Done`; the prior closure history follows.
 
 ✅ **Done — `linux-cpu` scope** (validated 2026-06-16 on an Apple M1 Max host's
 `linux-cpu` lane; opened 2026-06-14, unblocked 2026-06-15). Per standards rule
@@ -292,11 +294,10 @@ family checkpoint-inference breadth.
 - Update `system-components.md` training, checkpoint, and test rows to mark this
   phase as the owner of no-caveat runtime closure.
 
-## Sprint 13.2: Re-Attest the No-Caveat Runtime with Real Losses + Metrics [⏸️ Blocked]
+## Sprint 13.2: Re-Attest the No-Caveat Runtime with Real Losses + Metrics [✅ Done]
 
-**Status**: Blocked — reopened 2026-06-24.
-
-**Blocked by**: Phase 8 Sprint `8.13`, Phase 9 Sprint `9.13`, Phase 10 Sprint `10.9`.
+**Status**: Done — reopened 2026-06-24, unblocked and re-closed 2026-06-25 after Phases
+`8`/`9`/`10` re-closed.
 
 Re-run the `linux-cpu` no-caveat runtime attestation with the real SL/RL learning in
 place — no synthetic weights, no faked loss, validation-driven selection, and
@@ -311,10 +312,19 @@ convergence-AND-performance metrics for both SL and RL.
 
 - `jitml test all --live --linux-cpu` (cluster) green with the real metrics; the
   per-lane convergence cohorts pass against the literature thresholds.
-
-### Remaining Work
-
-- Re-attest after Sprints 8.13/9.13/10.9 land; the code/validation lands here.
+- **Live validation completed 2026-06-25 (`linux-cpu`):** after staging all 12 canonical
+  dataset artifacts into live MinIO with `jitml internal upload-dataset` and seeding the
+  five demo checkpoints, `docker compose run --rm jitml jitml test all --live --linux-cpu`
+  passed **8/8 stanzas**: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
+  `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends`,
+  `jitml-daemon-lifecycle`, and `jitml-e2e`. The report card measured:
+  `sl_final_loss: mnist-shallow-mlp=TrainingMetrics {tmTrainLoss =
+  1.8540104041609557, tmValidationLoss = 1.8269222023181846, tmExamplesProcessed = 5001,
+  tmHeldOutMetric = Just ("test_acc",0.348)}`, `rl_final_reward:
+  ppo/cartpole=123.09870143334923`, `alphazero_arena_win_rate: connect4/gen0=0.75`,
+  `tune_best_objective: TPE=1.0`, `jit_cache_hit_rate: prometheus=1.0 hits=1 misses=0`,
+  `daemon_healthz: http://127.0.0.1:9091/healthz status=200`, and
+  `browser_product_matrix: checkpoint-backed product panels 5/5 served at edge :9091`.
 
 ## Related Documents
 

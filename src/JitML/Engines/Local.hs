@@ -49,7 +49,9 @@ import JitML.Engines.Loader
   , kernelArtifactHandle
   , withKernelSymbol
   )
+import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
 import JitML.Env.Env (Env)
+import JitML.Numerics.MlpOneDnn (mlpForwardOneDnn)
 import JitML.Substrate (Substrate (..))
 
 type KernelFunction =
@@ -173,19 +175,23 @@ runLinuxCpuWeightedCheckpointInference
   -> [LoadedWeightTensor]
   -> [Double]
   -> IO (Either Text [Double])
-runLinuxCpuWeightedCheckpointInference env _manifest weights input = do
-  let flatWeights = flattenLoadedWeights weights
-  kernelResult <-
-    runLinuxCpuWeightedFamilyKernel
-      env
-      Dense2D
-      (fmap realToFrac input)
-      flatWeights
-  pure $
-    case kernelResult of
-      Left err -> Left err
-      Right kernelRun ->
-        Right (fmap realToFrac (linuxCpuWeightedKernelOutput kernelRun))
+runLinuxCpuWeightedCheckpointInference env manifest weights input = do
+  mlpResult <- runMlpCheckpointForwardWith (mlpForwardOneDnn env) manifest weights input
+  case mlpResult of
+    Just result -> pure result
+    Nothing -> do
+      let flatWeights = flattenLoadedWeights weights
+      kernelResult <-
+        runLinuxCpuWeightedFamilyKernel
+          env
+          Dense2D
+          (fmap realToFrac input)
+          flatWeights
+      pure $
+        case kernelResult of
+          Left err -> Left err
+          Right kernelRun ->
+            Right (fmap realToFrac (linuxCpuWeightedKernelOutput kernelRun))
 
 -- | Flatten a list of `LoadedWeightTensor` into a row-major Float
 -- buffer suitable for the `jitml_weighted_kernel` ABI. Tensors are

@@ -21,12 +21,15 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-24 for Sprint `18.3` — re-aggregate the no-caveat
-handoff after the real-SL/RL chain re-closes its owning phases). **Blocked by**:
-Phase 13 Sprint `13.2`, Phase 14 Sprint `14.3`. The `linux-cpu`-only aggregation
-re-runs and the `Pending Removal` ledger re-empties (Exit Definition item 18 re-met)
-once Sprints 8.13/9.13/10.9/13.2/14.3 land. All prior Sprints `18.1`–`18.2` remain
-`✅ Done`; the prior closure history follows.
+✅ **Done** (reopened 2026-06-24 for Sprint `18.3`; **re-closed 2026-06-26**) —
+the no-caveat product handoff is re-aggregated after the real-SL/RL chain landed
+and Phases `8`/`9`/`10`/`13`/`14` re-closed. The `Pending Removal` ledger is
+empty again (Exit Definition item 18 re-met), the `linux-cpu` live aggregation
+passed **8/8 stanzas** with every report-card measurement populated, the browser
+product matrix reports **8/8** checkpoint-backed panels served at edge `:9091`,
+the Phase `14` live Playwright matrix passed **15/15**, and the final
+`jitml check-code` plus `jitml docs check` gates are green. All prior Sprints
+`18.1`–`18.2` remain `✅ Done`; the prior closure history follows.
 
 ✅ **Done** (reopened 2026-06-23 for Sprint `18.2`; **re-closed 2026-06-24**) — the
 no-caveat product handoff is re-aggregated after the durable-state DSL landed (Phases
@@ -184,15 +187,14 @@ re-met with the DSL in place.
   2026-06-24 (new `durable_state_dsl.md` + engineering-doc cross-references + the README
   durable-state registry note + `jitml docs generate`/`docs check` green).
 
-## Sprint 18.3: Re-Aggregate the No-Caveat Handoff after the Real-SL/RL Chain [⏸️ Blocked]
+## Sprint 18.3: Re-Aggregate the No-Caveat Handoff after the Real-SL/RL Chain [✅ Done]
 
-**Status**: Blocked — reopened 2026-06-24.
+**Status**: Done — reopened 2026-06-24; unblocked and re-closed 2026-06-26 after
+Phase 13 Sprint `13.2` and Phase 14 Sprint `14.3` re-closed.
 
-**Blocked by**: Phase 13 Sprint `13.2`, Phase 14 Sprint `14.3`.
-
-The real-SL/RL refactor reopens new owned obligations in Phases 8/9/10/13/14, so the
-`linux-cpu`-only no-caveat aggregation must re-run once those sprints re-close and
-their legacy-tracking rows reach `Completed`.
+The real-SL/RL refactor reopened owned obligations in Phases 8/9/10/13/14; this
+sprint re-ran the `linux-cpu`-only no-caveat aggregation after those sprints
+re-closed and their legacy-tracking rows reached `Completed`.
 
 ### Exit Definition
 
@@ -201,12 +203,30 @@ their legacy-tracking rows reach `Completed`.
 
 ### Validation
 
-- `jitml test all --live --linux-cpu` green with the real metrics; ledger empty.
+- `docker compose run --rm jitml jitml test all --live --linux-cpu` passed
+  **8/8 stanzas** (`jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
+  `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-backends`,
+  `jitml-daemon-lifecycle`, `jitml-e2e`) with real report-card metrics populated:
+  `sl_final_loss`, `rl_final_reward`, `alphazero_arena_win_rate`,
+  `tune_best_objective`, `jit_cache_hit_rate`, `daemon_healthz`, and
+  `browser_product_matrix`.
+- The live aggregation used the staged canonical datasets in MinIO
+  (12 dataset blobs) and the eight seeded demo checkpoints from Sprint `14.3`.
+  The report card ended with `cabal_test: passed: 8, failed: 0` and
+  `browser_product_matrix: checkpoint-backed product panels 8/8 served at edge
+  :9091`.
+- Phase `14`'s live Playwright product matrix passed **15/15** against the same
+  `linux-cpu` edge after the real full-width MLP demo forward, user-derived panel
+  inputs, direct live endpoint probes, and persisted adversarial replay were in
+  place.
+- `docker compose run --rm jitml jitml check-code` returned `check-code: ok`.
+- `docker compose run --rm jitml jitml docs check` returned `docs check: ok`.
+- `Pending Removal` is empty again.
 
 ### Remaining Work
 
-- Re-run the `linux-cpu` aggregation and re-close 13–18 after the chain lands; the
-  validation lands here.
+- None. The real-SL/RL no-caveat handoff is re-aggregated, the ledger is empty,
+  and every final validation gate is green.
 
 ## Related Documents
 

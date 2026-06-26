@@ -95,12 +95,12 @@ type BrowserRuntimeHandler = BrowserRuntimeRequest -> IO (Either Text BrowserRun
 data BrowserCommandPublishers = BrowserCommandPublishers
   { publishCompareCommand :: Text -> Text -> [Double] -> IO (Either Text ())
   -- ^ baseline hash, candidate hash, input
-  , publishMoveCommand :: Text -> Text -> [Int] -> Int -> Int -> IO (Either Text ())
+  , publishMoveCommand :: Text -> Text -> [Int] -> Int -> Int -> IO (Either Text Text)
   -- ^ game, experiment hash, moves, human-is-player, simulations
   , publishListCheckpointsCommand :: IO (Either Text ())
   -- ^ Sprint 14.1 (Feature A) — publish a checkpoint-browse command; the Engine
   -- lists the seeded experiments' manifests and replies with a @CheckpointList@.
-  , publishLoadTranscriptCommand :: Text -> IO (Either Text ())
+  , publishLoadTranscriptCommand :: Text -> IO (Either Text Text)
   -- ^ Sprint 14.1 (Feature B) — publish a transcript-replay command (carrying a
   -- persisted transcript key); the Engine replies with a @TranscriptReplay@.
   }
@@ -485,6 +485,9 @@ browserCheckpointCompareResponse publishers runtimeHandler request =
     Left err -> pure (badRequestResponse "checkpoint-compare-request-invalid" err)
     Right compareRequest ->
       case publishers of
+        _
+          | Just _ <- runtimeHandler ->
+              withTimedCheckpointCompare runtimeHandler compareRequest
         Just p -> do
           published <-
             publishCompareCommand
@@ -504,7 +507,7 @@ browserAdversarialResponse publishers runtimeHandler request =
     Right moveRequest ->
       case publishers of
         Just p -> do
-          published <-
+          frame <-
             publishMoveCommand
               p
               (barGame moveRequest)
@@ -512,7 +515,7 @@ browserAdversarialResponse publishers runtimeHandler request =
               (barMoves moveRequest)
               (barHumanIsPlayer moveRequest)
               (barSimulationsPerMove moveRequest)
-          pure (publishedAckResponse "AdversarialMoveResult" published)
+          pure (frameResponse "AdversarialMoveResult" frame)
         Nothing ->
           withTimedRuntime
             runtimeHandler
@@ -550,8 +553,8 @@ browserLoadTranscriptResponse publishers request =
     Right transcriptKey ->
       case publishers of
         Just p -> do
-          published <- publishLoadTranscriptCommand p transcriptKey
-          pure (publishedAckResponse "TranscriptReplay" published)
+          frame <- publishLoadTranscriptCommand p transcriptKey
+          pure (frameResponse "TranscriptReplay" frame)
         Nothing ->
           pure (checkpointBackedDemoRequired "transcript-replay")
 
@@ -577,6 +580,12 @@ publishedAckResponse kind published =
   case published of
     Left err -> EndpointResponse 502 (Text.unlines ["kind: " <> kind, "status: failed", "error: " <> err])
     Right () -> EndpointResponse 200 (Text.unlines ["kind: " <> kind, "status: published"])
+
+frameResponse :: Text -> Either Text Text -> EndpointResponse
+frameResponse kind frame =
+  case frame of
+    Left err -> EndpointResponse 502 (Text.unlines ["kind: " <> kind, "status: failed", "error: " <> err])
+    Right payload -> EndpointResponse 200 payload
 
 withTimedRuntime
   :: Maybe BrowserRuntimeHandler
@@ -679,7 +688,7 @@ renderImageInferenceResultResponse
   :: BrowserImageRequest -> BrowserRuntimeResult -> Double -> EndpointResponse
 renderImageInferenceResultResponse request runtimeResult latencyMs =
   let probabilities = probabilityVector (browserRuntimeOutput runtimeResult)
-      top = topIndices 5 probabilities
+      top = topIndices 10 probabilities
    in EndpointResponse
         200
         ( Text.unlines
@@ -710,6 +719,8 @@ renderCheckpointCompareResultResponse request baseline candidate latencyMs =
         ( Text.unlines
             [ "kind: CheckpointCompareResult"
             , "panel: " <> bccPanel request
+            , "baseline-experiment-hash: " <> bccBaselineExperimentHash request
+            , "candidate-experiment-hash: " <> bccCandidateExperimentHash request
             , "baseline-checkpoint-sha: " <> browserRuntimeCheckpointSha baseline
             , "candidate-checkpoint-sha: " <> browserRuntimeCheckpointSha candidate
             , "baseline-output: " <> renderDoubleList baselineOutput

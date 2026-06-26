@@ -37,10 +37,12 @@ type State =
   { lastResponse :: Maybe CifarInferenceResponse
   , pendingUpload :: Boolean
   , lastError :: Maybe String
+  , imageToken :: String
   }
 
 data Action
   = Initialize
+  | SelectImageToken String
   | UploadImage
   | UploadAck String
   | FrameText String
@@ -56,9 +58,6 @@ defaultDataset = "CIFAR-10"
 defaultExperimentHash :: String
 defaultExperimentHash = "cifar-imagenet"
 
-defaultInferenceInput :: Array Number
-defaultInferenceInput = [ 1.0, 2.0 ]
-
 renderUploadRequest :: String -> CifarUploadRequest
 renderUploadRequest imageBase64 =
   { panel: panelName
@@ -71,6 +70,7 @@ initialState =
   { lastResponse: Nothing
   , pendingUpload: false
   , lastError: Nothing
+  , imageToken: ""
   }
 
 component :: forall query input output m. MonadAff m => H.Component query input output m
@@ -84,16 +84,23 @@ component =
   handleAction = case _ of
     Initialize ->
       subscribeStream "/api/ws/inference" FrameText UploadFailed
+    SelectImageToken token ->
+      H.modify_ (_ { imageToken = token })
     UploadImage -> do
+      state <- H.get
       H.modify_ (_ { pendingUpload = true, lastError = Nothing })
       requestText
         "POST"
         "/api/images"
-        (Contracts.renderBrowserImageRequest panelName defaultDataset defaultExperimentHash "" defaultInferenceInput)
+        (Contracts.renderBrowserImageRequest panelName defaultDataset defaultExperimentHash state.imageToken (cifarInferenceInput state))
         UploadAck
         UploadFailed
-    UploadAck _ ->
-      pure unit
+    UploadAck payload ->
+      case Contracts.parseImageInferenceResult payload of
+        Just result | result.datasetName == defaultDataset ->
+          handleAction (UploadCompleted (imageAckToDecoded result))
+        _ ->
+          pure unit
     FrameText payload ->
       case Contracts.fieldValue "experiment-hash" payload of
         Just hash | hash == defaultExperimentHash ->
@@ -126,6 +133,7 @@ component =
       , HH.input
           [ HP.id (panelName <> "-file")
           , HP.type_ HP.InputFile
+          , HE.onValueInput SelectImageToken
           ]
       , HH.button
           [ HP.id (panelName <> "-submit")
@@ -172,6 +180,20 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("upload error: " <> message) ]
+
+  cifarInferenceInput state =
+    Array.replicate 3072 (if state.imageToken == "" then 0.0 else 1.0)
+
+  imageAckToDecoded result =
+    { kind: "classification"
+    , topClass: Maybe.fromMaybe 0 (Array.head result.topK)
+    , confidence: Maybe.fromMaybe 0.0 (Array.head result.probabilities)
+    , probabilities: result.probabilities
+    , labels: []
+    , values: []
+    , value: 0.0
+    , output: result.probabilities
+    }
 
 mount :: Aff (Aff Unit)
 mount = do

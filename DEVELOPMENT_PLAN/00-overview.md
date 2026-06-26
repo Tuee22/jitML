@@ -883,27 +883,30 @@ for the governing rule.
 
 ## Current Baseline
 
-**🔄 Current status (2026-06-24): reopened for real SL/RL — no hardcoded weights,
-convergence + performance metrics, train/test/validation splits, RL convergence.**
-Phases `8`/`9`/`10`/`13`/`14`/`18` are reopened. **Phase `8` Sprint `8.13`** (real CE/MSE
-SL loss + held-out validation loss, validation-driven selection, `examples_processed`
-throughput) and **Phase `9` Sprint `9.13`** (real measured-median RL convergence +
-env-steps sample-efficiency + AlphaZero arena-win-rate) are **`✅ Done` — validated on
-both the `apple-silicon` and `linux-cpu` lanes** (`sl-canonicals` 24/24 + 24/24,
-`rl-canonicals` 31/31 + 31/31, `docs check: ok`, `check-code` green). **Phase `10` Sprint
-`10.9`** (real trained, distinct, **self-describing** demo checkpoints — per-layer shapes
-+ class-count output spec so Sprint `14.3` can reshape them — ramp retired) is **`🔄
-Active`: code landed + non-live validated** (grep-clean + the `unit` distinctness/self-describing
-case + `e2e` 23/23 + `check-code`); its remaining gate is Phase 10's OWN self-contained
-`linux-cpu` live family-distinct `jitml inference run` proof (so it closes in numerical
-order; Sprint `13.2` re-exercises but does not gate it).
-The live `linux-cpu` cluster + Playwright pass closes **Phases `13`/`14`/`18`**
-(`⏸️ Blocked` behind it). The `Pending Removal` ledger stays open (Exit Definition item 18
-again open) until they re-close. The durable-state DSL closure (below)
-stands. Phases
-`0`–`18` reached `✅ Done` (the prior no-caveat closure; all three per-lane
-report-card fragments committed, `linux-cpu` aggregation green, live Playwright
-14/14). The durable-state DSL refactor then reopened **Phases `2`/`4`/`5`/`10`/`18`**:
+**✅ Current status (2026-06-26): all phases `0`–`18` are Done again after the
+real-SL/RL chain re-aggregation.** The 2026-06-24 real-SL/RL audit reopened
+Phases `8`/`9`/`10`/`13`/`14`/`18` to remove hardcoded weights, fake loss /
+convergence metrics, missing train/test/validation split semantics, and demo
+input stand-ins. **Phase `8` Sprint `8.13`** (real CE/MSE SL loss + held-out
+validation loss, validation-driven selection, `examples_processed` throughput)
+and **Phase `9` Sprint `9.13`** (real measured-median RL convergence +
+env-steps sample-efficiency + AlphaZero arena-win-rate) re-closed on both the
+`apple-silicon` and `linux-cpu` lanes (`sl-canonicals` 24/24 + 24/24,
+`rl-canonicals` 31/31 + 31/31, `docs check: ok`, `check-code` green).
+**Phase `10` Sprint `10.9`** re-closed on `linux-cpu` with real trained,
+distinct, self-describing demo checkpoints and live family-distinct
+`jitml inference run` proof. **Phase `13` Sprint `13.2`** re-closed with
+`jitml test all --live --linux-cpu` passing 8/8 stanzas and all report-card
+metrics populated. **Phase `14` Sprint `14.3`** re-closed with real full-width
+MLP checkpoint forward for all eight seeded product hashes, user-derived panel
+inputs, direct live endpoint probes, and Playwright **15/15**. **Phase `18`
+Sprint `18.3`** re-closed with the final `linux-cpu` aggregation: all 12
+canonical dataset blobs staged, eight demo checkpoints seeded, `jitml test all
+--live --linux-cpu` **8/8**, `browser_product_matrix` **8/8**, `jitml
+check-code: ok`, `jitml docs check: ok`, and the `Pending Removal` ledger empty
+again (Exit Definition item 18 re-met). The durable-state DSL closure (below)
+stands. The durable-state DSL refactor previously reopened **Phases
+`2`/`4`/`5`/`10`/`18`**:
 **Phase `2`** is **`✅ Done`** again (Sprint `2.15` — the closed self-validating
 `jitml.dhall` foundation + `jitml project init` + the asserted `Budget`/`fitsWithin`,
 `jitml-unit` 217/217); **Phase `4`** is **`✅ Done`** too (Sprint `4.9` — `bucketNames`

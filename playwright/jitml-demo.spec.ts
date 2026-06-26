@@ -107,6 +107,7 @@ test("mnist panel renders an inference canvas", async ({ page }) => {
   await loadPanel(page, "mnist-live-inference");
   await expect(page.locator("#mnist-live-inference")).toBeVisible();
   await expect(page.locator("#mnist-live-inference canvas")).toHaveCount(1);
+  await page.locator("#mnist-live-inference-ink").fill("0.42");
 
   const responsePromise = page.waitForResponse(
     (response) =>
@@ -116,17 +117,22 @@ test("mnist panel renders an inference canvas", async ({ page }) => {
   await page.locator("#mnist-live-inference-submit").click();
   const response = await responsePromise;
   const body = await response.text();
+  expect(response.request().postData() ?? "").toContain("input: 0.42,0.42");
   expect(response.ok()).toBeTruthy();
   expect(body).toContain("kind: InferenceResult");
   expect(body).toContain("checkpoint-sha:");
   await expect(page.locator("#mnist-live-inference-prediction")).toContainText(
     "predicted",
   );
+  await expect(page.locator("#mnist-live-inference-distribution li")).toHaveCount(
+    10,
+  );
 });
 
 test("generic inference panel renders checkpoint output", async ({ page }) => {
   await loadPanel(page, "generic-inference-lab");
   await expect(page.locator("#generic-inference-lab")).toBeVisible();
+  await page.locator("#generic-inference-lab-input-0").fill("0.9");
 
   const responsePromise = page.waitForResponse(
     (response) =>
@@ -136,14 +142,21 @@ test("generic inference panel renders checkpoint output", async ({ page }) => {
   await page.locator("#generic-inference-lab-submit").click();
   const response = await responsePromise;
   const body = await response.text();
+  expect(response.request().postData() ?? "").toContain("input: 0.9,-0.5,1.0,2.0");
   expect(response.ok()).toBeTruthy();
   expect(body).toContain("kind: GenericInferenceResult");
   await expect(page.locator("#generic-inference-lab-result")).toBeVisible();
+  await expect(page.locator("#generic-inference-lab-output li")).toHaveCount(3);
 });
 
 test("cifar panel renders an upload control", async ({ page }) => {
   await loadPanel(page, "cifar-imagenet-upload");
   await expect(page.locator("#cifar-imagenet-upload")).toBeVisible();
+  await page.locator("#cifar-imagenet-upload-file").setInputFiles({
+    name: "sample-cifar.bin",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from([1, 2, 3, 4]),
+  });
 
   const responsePromise = page.waitForResponse(
     (response) =>
@@ -153,14 +166,18 @@ test("cifar panel renders an upload control", async ({ page }) => {
   await page.locator("#cifar-imagenet-upload-submit").click();
   const response = await responsePromise;
   await expect(page.locator("#cifar-imagenet-upload-topk")).toBeVisible();
-  await expect(page.locator("#cifar-imagenet-upload-topk li").first()).toBeVisible();
+  await expect(page.locator("#cifar-imagenet-upload-topk li")).toHaveCount(10);
   expect(response.ok()).toBeTruthy();
+  const postData = response.request().postData() ?? "";
+  expect(postData).toContain("sample-cifar.bin");
+  expect(postData).toContain("input: 1.0,1.0");
   expect(await response.text()).toContain("kind: ImageInferenceResult");
 });
 
 test("checkpoint compare panel renders output deltas", async ({ page }) => {
   await loadPanel(page, "checkpoint-compare-lab");
   await expect(page.locator("#checkpoint-compare-lab")).toBeVisible();
+  await page.locator("#checkpoint-compare-lab-input-0").fill("0.7");
 
   const responsePromise = page.waitForResponse(
     (response) =>
@@ -170,9 +187,16 @@ test("checkpoint compare panel renders output deltas", async ({ page }) => {
   await page.locator("#checkpoint-compare-lab-submit").click();
   const response = await responsePromise;
   const body = await response.text();
+  expect(response.request().postData() ?? "").toContain("input: 0.7,-0.5,1.0,2.0");
   expect(response.ok()).toBeTruthy();
   expect(body).toContain("kind: CheckpointCompareResult");
   await expect(page.locator("#checkpoint-compare-lab-result")).toBeVisible();
+  await expect(page.locator("#checkpoint-compare-lab-baseline-output li")).toHaveCount(
+    3,
+  );
+  await expect(page.locator("#checkpoint-compare-lab-candidate-output li")).toHaveCount(
+    3,
+  );
 });
 
 test("connect4 panel renders the board", async ({ page }) => {
@@ -198,9 +222,47 @@ test("connect4 panel renders the board", async ({ page }) => {
   );
 });
 
+test("adversarial game selectors submit seeded policy-value hashes", async ({
+  page,
+}) => {
+  await loadPanel(page, "connect4-human-vs-alphazero");
+  const games: ReadonlyArray<{
+    name: string;
+    hash: string;
+    move: number;
+    cell: number;
+  }> = [
+    { name: "othello", hash: "othello-alphazero", move: 19, cell: 19 },
+    { name: "hex", hash: "hex-alphazero", move: 0, cell: 0 },
+    { name: "gomoku", hash: "gomoku-alphazero", move: 0, cell: 0 },
+  ];
+
+  for (const game of games) {
+    await page.locator(`#connect4-human-vs-alphazero-game-${game.name}`).click();
+    const responsePromise = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/connect4/move") &&
+        response.request().method() === "POST",
+    );
+    await page
+      .locator("#connect4-human-vs-alphazero-grid button")
+      .nth(game.cell)
+      .click();
+    const response = await responsePromise;
+    const postData = response.request().postData() ?? "";
+    expect(response.ok()).toBeTruthy();
+    expect(postData).toContain(`game: ${game.name}`);
+    expect(postData).toContain(`experiment-hash: ${game.hash}`);
+    expect(postData).toContain(`moves: ${game.move}`);
+    await expect(page.locator("#connect4-human-vs-alphazero-moves")).toContainText(
+      new RegExp(`moves: \\[${game.move},\\s*[0-9]+\\]`),
+    );
+  }
+});
+
 test("checkpoint browse panel lists seeded checkpoints", async ({ page }) => {
   // Sprint 14.1 (Feature A) — the panel POSTs `/api/checkpoints` on init; the
-  // Engine lists the five seeded experiments' manifests from MinIO and replies
+  // Engine lists the seeded experiments' manifests from MinIO and replies
   // with a `CheckpointList` frame over `/api/ws/inference`, which the panel
   // renders as a list. Assert at least one item appears.
   const responsePromise = page.waitForResponse(

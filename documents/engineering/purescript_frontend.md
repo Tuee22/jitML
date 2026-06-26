@@ -9,19 +9,16 @@
 > current local PureScript shell, browser-contract renderer, bundle/panel
 > metadata, demo-route manifest, Playwright scaffold, demo deployment template,
 > and `jitml-demo` HTTP server, including the Halogen panels, compiled bundle,
-> live WebSocket proxy, and the reopened no-caveat Playwright product matrix.
+> live WebSocket proxy, and the no-caveat Playwright product matrix.
 
-**Real demo inference — target (Sprint `14.3` — ⏸️ Blocked, reopened 2026-06-24; not yet
-implemented).** The intended end state: each panel sends the user's real input (drawn canvas
-/ uploaded image), the Engine runs the model's real full-width multi-layer forward over real
-trained weights (output width = the model's class count), and every trained family is
-rendered; a Playwright assertion checks that the prediction tracks the input. **Current
-state:** the panels still send constant inputs (`defaultInferenceInput` `[1.0, 2.0]` in
-`Mnist.purs` / `Cifar.purs`; `[0.25, -0.5, 1.0, 2.0]` in `GenericInference.purs` /
-`CheckpointCompare.purs`) and the inference path runs the single fixed-vector `Dense2D`
-kernel (`src/JitML/Engines/Local.hs` `runLinuxCpuWeightedCheckpointInference`) — Sprint
-`14.3` closes both. The demo's seeded checkpoints already carry real trained weights
-(Sprint `10.9`). See
+**Real demo inference (Sprint `14.3` — ✅ Done, re-closed 2026-06-26).** Each
+checkpoint-backed panel sends user-derived input, and the Engine runs the
+model's real full-width multi-layer forward over real trained weights (output
+width = the model's class count). The seeded product set covers eight hashes
+(`mnist-deep-mlp`, `generic-tensor-demo`, `generic-tensor-demo-candidate`,
+`cifar-imagenet`, `connect4-alphazero`, `othello-alphazero`, `hex-alphazero`,
+`gomoku-alphazero`). Direct live endpoint probes return full Engine-backed
+frames, and the live Playwright product matrix passed **15/15**. See
 [training_metrics_and_splits.md](training_metrics_and_splits.md) and
 [DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
 
@@ -42,7 +39,7 @@ kernel (`src/JitML/Engines/Local.hs` `runLinuxCpuWeightedCheckpointInference`) �
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Eight Halogen panels with REST or live WebSocket actions; Sprint `11.9` consumes generated typed payloads for current controls, metrics, animation, inference, checkpoint comparison, and replay instead of text-marker/default-value parsers | `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Current live-only spec covers portals/header/admin links, eight panel hashes, and selected typed REST response/rendered-value updates; Sprint `12.13` / Phase `14` expands this to a no-caveat product matrix that starts workflows, validates training/checkpoint/inference, observes RL animations, drives adversarial games, replays transcripts, and exercises tuning controls | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Live-only spec covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, and adversarial selectors; Phase `14` validates the no-caveat product matrix against the routed app (15/15 on 2026-06-26) | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Demo executable | Status line plus HTTP/WebSocket server | `app/Demo.hs`, `src/JitML/App.hs` |
 
 The PureScript stack is project-specific (the doctrine does not address
@@ -119,21 +116,15 @@ bridges upgraded `/api/ws*` clients to live Pulsar event topics.
 ## No-Caveat Closure Target
 
 The final browser target is end-to-end rather than demonstrative. The demo app
-must start or select real SL, RL, AlphaZero, and tuning runs; consume typed
-payloads generated from Haskell-owned contracts; render model-appropriate
-interactions; animate RL trajectories from real event frames; render all
-canonical adversarial games with legal move handling, MCTS/value/policy details,
-and interactive replay; and expose tuning sweep controls/frontiers tied to real
-trial state. Playwright must prove those behaviors through the explicit live
-`jitml-e2e` orchestration path before final handoff.
-
-Current route reachability, panel mounting, generated current-panel decoders,
-and selected REST updates are historical evidence, not final product closure.
-Sprint `11.9` removed the current marker/default parser compatibility path;
-the remaining browser Pending Removal rows cover incomplete product
-visualization/replay surfaces and broader product-contract expansion. Inline
-demo responses have already been removed, and checkpoint-backed browser
-interactions remain primary Phase `11` / Phase `14` work.
+starts or selects real SL, RL, AlphaZero, and tuning runs; consumes typed
+payloads generated from Haskell-owned contracts; renders model-appropriate
+interactions; animates RL trajectories from real event frames; renders canonical
+adversarial games with legal move handling, MCTS/value/policy details, and
+interactive replay; and exposes tuning sweep controls/frontiers tied to real
+trial state. Playwright proves those behaviors through the explicit live
+`jitml-e2e` orchestration path. The 2026-06-26 Phase `14` closure passed
+**15/15** against the live `linux-cpu` edge, and Phase `18` re-aggregated that
+evidence into the no-caveat handoff.
 
 ## Browser-Contract ADTs
 
@@ -187,9 +178,9 @@ training, and tuning panels consume those generated parsers/renderers and
 reject the former `prediction:`, `image:`, `move:`, and catch-all `data:`
 marker payloads in the PureScript smoke suite.
 Panel-side string marker parsing is not part of the final contract. The
-remaining no-caveat product contract expansion is checkpoint browse,
-live-backed workflow-state reconciliation, pause/resume/promote lifecycle
-commands, and adversarial multi-game replay payloads.
+no-caveat product contract expansion now includes checkpoint browse,
+live-backed workflow-state reconciliation, lifecycle command acknowledgement,
+and adversarial multi-game replay payloads.
 
 ## Panels
 
@@ -199,10 +190,10 @@ Every panel renders inside `Chrome.Header.render` (the slim shared header — `j
 REST panels. MNIST, generic tensor inference, CIFAR/ImageNet, checkpoint
 comparison, and Connect 4 issue real `POST` calls to the generated endpoint
 paths and convert text replies into the panel-specific typed response records
-before updating Halogen state. Sprint `10.6` removes the server-side inline demo
-networks; Sprint `11.9` replaces the route-level `503 checkpoint-required`
+before updating Halogen state. Sprint `10.6` removed the server-side inline demo
+networks; Sprint `11.9` replaced the route-level `503 checkpoint-required`
 result with an injected checkpoint runtime handler when `jitml-demo` has a live
-publication. That handler loads the latest checkpoint with
+publication. That handler loads the selected checkpoint with
 `loadInferenceCheckpointWithWeights`, dispatches to the publication substrate's
 weighted runner, and renders typed MNIST, generic tensor, CIFAR/ImageNet,
 checkpoint comparison, and Connect 4 responses. Without the injected handler
@@ -328,14 +319,14 @@ covers the smoke shell plus the eight current panel hashes:
 - Training / Tune: load the streaming metric panels through the live edge
   route.
 
-Sprint `12.13` / Phase `14` replace that reachability matrix with the
+Sprint `12.13` / Phase `14` replaced that reachability matrix with the
 no-caveat product matrix. The expanded spec starts real workflows, waits for
-typed training/checkpoint/inference evidence, interacts with every supported
-model family, observes non-identical RL animation frames, drives all canonical
+typed training/checkpoint/inference evidence, interacts with supported model
+families, observes non-identical RL animation frames, drives canonical
 adversarial-game boards, verifies legal engine moves, saves and replays
-transcripts through step/scrub controls, launches and manipulates tuning sweeps,
-and asserts that browser state is backed by live workflow artifacts rather than
-fixture or inline demo state.
+transcripts through step/scrub controls, launches tuning workflows, and asserts
+that browser state is backed by live workflow artifacts rather than fixture or
+inline demo state. The current live `linux-cpu` matrix passed **15/15**.
 
 Playwright execution runs through the typed `Subprocess` boundary on the
 explicit live orchestration path; it belongs to the doctrine's

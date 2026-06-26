@@ -7,8 +7,8 @@
 
 > **Purpose**: Project-specific training-workload doctrine for jitML — the
 > current local SL summaries, RL metadata/framework surfaces, AlphaZero game
-> helpers, and hyperparameter tuning catalogs, plus the reopened no-caveat
-> runtime target for real train/eval/rollout/self-play/tune/checkpoint/inference
+> helpers, and hyperparameter tuning catalogs, plus the no-caveat runtime
+> surface for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
 
 **Real learning, real metrics (Sprints `8.13`/`9.13` — ✅ landed, validated on both the
@@ -17,9 +17,11 @@ where the **validation** partition drives model selection / early-stop and **tes
 held-out final metric; the published loss is a real cross-entropy/MSE value (not
 `1 − accuracy`). RL convergence is a real measured-median return per cohort (not a
 literature-target probe), and AlphaZero converges on an **arena win-rate**. Both report a
-non-wall-clock performance metric (SL throughput; RL sample efficiency). The live
-end-to-end re-attest is Sprint `13.2`, and the demo's real-trained checkpoints are Sprint
-`10.9` (🔄 Active); see the DEVELOPMENT_PLAN for per-sprint status. Definitions:
+non-wall-clock performance metric (SL throughput; RL sample efficiency). Sprint
+`13.2` re-attested the live `linux-cpu` runtime, Sprint `10.9` re-closed the
+demo's real-trained checkpoint set, Sprint `14.3` re-closed browser
+consumption, and Sprint `18.3` re-aggregated the handoff with 8/8 live stanzas.
+Definitions:
 [training_metrics_and_splits.md](training_metrics_and_splits.md).
 
 ## SL Training Loops
@@ -162,9 +164,9 @@ Machines`, the run lifecycle is the phase-indexed GADT
 phases are `RLCollect → RLComputeAdvantages → RLOptimise → RLEvaluate →
 RLCheckpoint`; `src/JitML/RL/Loop.hs` provides the deterministic local
 `RLLoop` / `runRLLoop` surface, including deterministic rollout transition
-capture into the local `ReplayBuffer`. The reopened no-caveat target brackets
-this with live load/ready/serve/drain states and trained-policy artifacts for
-every supported algorithm.
+capture into the local `ReplayBuffer`. The no-caveat closure brackets this with
+live load/ready/serve/drain states and trained-policy artifacts for the
+supported algorithm matrix.
 
 Current local surfaces live in `src/JitML/RL/Algorithms.hs`,
 `src/JitML/RL/Environments.hs`, `src/JitML/RL/Framework.hs`, and

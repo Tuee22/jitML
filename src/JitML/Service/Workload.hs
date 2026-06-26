@@ -647,7 +647,7 @@ runAdversarialMoveRequestWithWeightedInference runInference command = do
               }
         )
 
--- | Sprint 14.1 (Feature A) — the five seeded demo experiment hashes the
+-- | Sprint 14.1 / 14.3 (Feature A) — the seeded demo experiment hashes the
 -- checkpoint-browse panel lists (mirrors `runInternalSeedDemoCheckpoints` in
 -- `JitML.App`). The browse Engine job lists each experiment's manifests from
 -- MinIO and folds them into one `CheckpointList` frame.
@@ -658,6 +658,9 @@ seededDemoExperimentHashes =
   , "generic-tensor-demo-candidate"
   , "cifar-imagenet"
   , "connect4-alphazero"
+  , "othello-alphazero"
+  , "hex-alphazero"
+  , "gomoku-alphazero"
   ]
 
 -- | Sprint 14.1 (Feature A) — checkpoint browse as an Engine job: for each

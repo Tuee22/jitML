@@ -10,8 +10,10 @@ module Panels.CheckpointCompare where
 import Prelude
 
 import Chrome.Header as Header
+import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
+import Data.Number as Number
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Generated.Contracts as Contracts
@@ -32,10 +34,12 @@ type State =
   { lastResponse :: Maybe CheckpointCompareResponse
   , pendingCompare :: Boolean
   , lastError :: Maybe String
+  , inputText :: Array String
   }
 
 data Action
   = Initialize
+  | SetInput Int String
   | CompareCheckpoints
   | CompareAck String
   | FrameText String
@@ -51,8 +55,8 @@ defaultBaselineExperimentHash = "generic-tensor-demo"
 defaultCandidateExperimentHash :: String
 defaultCandidateExperimentHash = "generic-tensor-demo-candidate"
 
-defaultInput :: Array Number
-defaultInput = [ 0.25, -0.5, 1.0, 2.0 ]
+defaultInputText :: Array String
+defaultInputText = [ "0.25", "-0.5", "1.0", "2.0" ]
 
 renderRequest :: Array Number -> CheckpointCompareRequest
 renderRequest input =
@@ -67,6 +71,7 @@ initialState =
   { lastResponse: Nothing
   , pendingCompare: false
   , lastError: Nothing
+  , inputText: defaultInputText
   }
 
 component :: forall query input output m. MonadAff m => H.Component query input output m
@@ -80,7 +85,16 @@ component =
   handleAction = case _ of
     Initialize ->
       subscribeStream "/api/ws/inference" FrameText CompareFailed
+    SetInput index value ->
+      H.modify_
+        ( \s ->
+            s
+              { inputText =
+                  Maybe.fromMaybe s.inputText (Array.updateAt index value s.inputText)
+              }
+        )
     CompareCheckpoints -> do
+      state <- H.get
       H.modify_ (_ { pendingCompare = true, lastError = Nothing })
       requestText
         "POST"
@@ -89,12 +103,16 @@ component =
             panelName
             defaultBaselineExperimentHash
             defaultCandidateExperimentHash
-            defaultInput
+            (compareInput state)
         )
         CompareAck
         CompareFailed
-    CompareAck _ ->
-      pure unit
+    CompareAck payload ->
+      case Contracts.parseCompareFrame payload of
+        Just frame | frame.baselineExperimentHash == defaultBaselineExperimentHash ->
+          handleAction (CompareReceived frame)
+        _ ->
+          pure unit
     FrameText payload ->
       case Contracts.fieldValue "baseline-experiment-hash" payload of
         Just hash | hash == defaultBaselineExperimentHash ->
@@ -131,9 +149,12 @@ component =
                   <> " vs "
                   <> defaultCandidateExperimentHash
                   <> " on "
-                  <> show defaultInput
+                  <> show (compareInput state)
               )
           ]
+      , HH.div
+          [ HP.id (panelName <> "-input") ]
+          (Array.mapWithIndex renderInput state.inputText)
       , HH.button
           [ HP.id (panelName <> "-submit")
           , HP.disabled state.pendingCompare
@@ -170,6 +191,20 @@ component =
 
   renderOutputValue value =
     HH.li_ [ HH.text (show value) ]
+
+  renderInput index value =
+    HH.input
+      [ HP.id (panelName <> "-input-" <> show index)
+      , HP.type_ HP.InputText
+      , HP.value value
+      , HE.onValueInput (SetInput index)
+      ]
+
+  compareInput state =
+    map parseNumber state.inputText
+
+  parseNumber raw =
+    Maybe.fromMaybe 0.0 (Number.fromString raw)
 
   renderError state =
     case state.lastError of

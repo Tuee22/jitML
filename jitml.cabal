@@ -80,6 +80,7 @@ library
         JitML.Engines.HasEngine
         JitML.Engines.Loader
         JitML.Engines.Local
+        JitML.Engines.MlpCheckpoint
         JitML.Engines.MetalBridge
         JitML.Engines.MetalLocal
         JitML.Engines.MetalRuntime

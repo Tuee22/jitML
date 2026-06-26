@@ -8,29 +8,32 @@
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob
 > layout, `.jmw1` dense weight blob wire format, typed CBOR manifest, write-
 > once + If-Match CAS protocol, retention reconciler, inference-only read
-> path, inference request/result protobuf envelopes, and the reopened
-> architecture-aware checkpoint target for every no-caveat model family.
+> path, inference request/result protobuf envelopes, and the architecture-aware
+> checkpoint target for every no-caveat model family.
 
 **Durable-state retention (Sprint 10.8):** the checkpoint GC retention is a typed
 `RetentionPolicy` sourced from the durable-state registry's `checkpoints` store
 (`JitML.Project.Config.lookupStoreRetention`), replacing the former hardcoded
 `LastN 5` literal. See [durable_state_dsl.md](durable_state_dsl.md).
 
-**Real trained weights only (Sprint 10.9 — 🔄 Active: code complete, `linux-cpu` live
-proof pending).** Checkpoint payloads carry real trained weights with correct per-tensor
-shapes; synthetic, zero-padded, or byte-identical-across-models weight payloads are
-prohibited. The demo's seeded checkpoints satisfy this in the worktree
-(`seededDemoCheckpoints` replaced the byte-identical ramp, verified by the `jitml-unit`
-distinctness/self-describing test); the remaining gate is Phase 10's own `linux-cpu` live
-family-distinct `jitml inference run` proof.
+**Real trained weights only (Sprint 10.9 — ✅ Done, re-closed 2026-06-25).**
+Checkpoint payloads carry real trained weights with correct per-tensor shapes;
+synthetic, zero-padded, or byte-identical-across-models weight payloads are
+prohibited. The demo's seeded checkpoints satisfy this contract:
+`seededDemoCheckpoints` replaced the byte-identical ramp, `jitml-unit` covers
+distinctness/self-describing metadata, and the Phase 10 `linux-cpu` live proof
+returned family-distinct `jitml inference run` outputs.
 
 **Self-describing checkpoints (the 10.9 → 14.3 shape contract).** A weight checkpoint is
 self-describing: the manifest's `ArchitectureMetadata` records input/output `TensorSpec`s
 (the output width is the model's class count) and the `WeightLayout` records the per-layer
 tensor specs (`W1/b1/W2/b2`) in the `mlpParamsToFlat` flatten order, so a multi-layer-forward
-consumer (the demo inference path, Sprint `14.3`) can reshape the flat `.jmw1` blob into
-its layers without a hardcoded per-family lookup. `writeMinIOWeightCheckpointShaped`
-(`src/JitML/App.hs`) writes this for the seeded demo checkpoints. See
+consumer (the demo inference path, Sprint `14.3`) reshapes the flat `.jmw1`
+blob into its layers without a hardcoded per-family lookup and runs the real
+substrate MLP forward before trimming to the semantic output width.
+`writeMinIOWeightCheckpointShaped` (`src/JitML/App.hs`) writes this for the
+seeded demo checkpoints, and Phase `14` re-closed with eight live
+checkpoint-backed product hashes plus Playwright 15/15. See
 [training_metrics_and_splits.md](training_metrics_and_splits.md).
 
 ## No-Caveat Checkpoint Target

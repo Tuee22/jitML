@@ -23,7 +23,7 @@ import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (isRight)
 import Data.Foldable (for_, traverse_)
 import Data.List (stripPrefix)
-import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -148,6 +148,7 @@ import JitML.RL.Algorithms.DqnTrainer qualified as DqnTrainer
 import JitML.RL.Algorithms.HerTrainer qualified as HerTrainer
 import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
+import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PolicyValueNet
 import JitML.RL.SimulatorLoop qualified as SimulatorLoop
 import JitML.SL.Architecture qualified as Architecture
@@ -651,48 +652,23 @@ runWebappRole runtime = do
           Nothing ->
             PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge
               (Publication.publicationEdgePort publication)
-      -- Sprint 11.10 — the single-inference panels are async to the browser: the
-      -- MNIST surface publishes the inference @WorkCommand@ fire-and-forget and
-      -- the panel renders the streamed @DecodedInference@ off @/api/ws/inference@.
-      -- The remaining surfaces (generic/image/compare/connect4) still
-      -- publish-and-await until they are converted in turn.
-      ackResult request =
-        WebServer.BrowserRuntimeResult
-          { WebServer.browserRuntimeCheckpointSha =
-              WebServer.browserRuntimeExperimentHash request
-          , WebServer.browserRuntimeOutput = []
-          }
-      publishesAsync surface =
-        surface == WebServer.BrowserRuntimeInference
-          || surface == WebServer.BrowserRuntimeGeneric
-          || surface == WebServer.BrowserRuntimeImage
-      handler request
-        | publishesAsync (WebServer.browserRuntimeSurface request) =
-            fmap
-              (fmap (const (ackResult request)))
-              ( publishInferenceRequestOnly
-                  pulsarSettings
-                  substrate
-                  (WebServer.browserRuntimeExperimentHash request)
-                  (WebServer.browserRuntimeInput request)
+      handler request =
+        fmap
+          ( fmap
+              ( \output ->
+                  WebServer.BrowserRuntimeResult
+                    { WebServer.browserRuntimeCheckpointSha =
+                        WebServer.browserRuntimeExperimentHash request
+                    , WebServer.browserRuntimeOutput = output
+                    }
               )
-        | otherwise =
-            fmap
-              ( fmap
-                  ( \output ->
-                      WebServer.BrowserRuntimeResult
-                        { WebServer.browserRuntimeCheckpointSha =
-                            WebServer.browserRuntimeExperimentHash request
-                        , WebServer.browserRuntimeOutput = output
-                        }
-                  )
-              )
-              ( requestInferenceViaEngine
-                  pulsarSettings
-                  substrate
-                  (WebServer.browserRuntimeExperimentHash request)
-                  (WebServer.browserRuntimeInput request)
-              )
+          )
+          ( requestInferenceViaEngine
+              pulsarSettings
+              substrate
+              (WebServer.browserRuntimeExperimentHash request)
+              (WebServer.browserRuntimeInput request)
+          )
       publishers =
         WebServer.BrowserCommandPublishers
           { WebServer.publishCompareCommand =
@@ -3505,36 +3481,38 @@ consumeMatchingInferenceResult subscriptionId callId attempts
               pure (Right (Inference.iresOutput result))
         _ -> consumeMatchingInferenceResult subscriptionId callId (attempts - 1)
 
+consumeMatchingKindPayload
+  :: (Capabilities.HasPulsar m)
+  => SubscriptionId
+  -> Text
+  -> Text
+  -> Int
+  -> m (Either Text Text)
+consumeMatchingKindPayload subscriptionId kind callId attempts
+  | attempts <= 0 =
+      pure (Left (kind <> ": no matching reply received from the Engine"))
+  | otherwise = do
+      consumed <- Capabilities.pulsarConsume subscriptionId
+      case consumed of
+        Right (_topic, payload)
+          | frameField "kind" payload == Just kind
+          , frameField "call-id" payload == Just callId ->
+              pure (Right payload)
+        _ -> consumeMatchingKindPayload subscriptionId kind callId (attempts - 1)
+
+frameField :: Text -> Text -> Maybe Text
+frameField key =
+  lookup key . mapMaybe parseFrameField . Text.lines
+ where
+  parseFrameField line =
+    case Text.breakOn ": " line of
+      (field, rest)
+        | not (Text.null field) && ": " `Text.isPrefixOf` rest ->
+            Just (Text.strip field, Text.strip (Text.drop 2 rest))
+      _ -> Nothing
+
 inferenceReplyAttempts :: Int
 inferenceReplyAttempts = 10
-
--- | Sprint 11.10 — fire-and-forget publish of an inference @WorkCommand@ for the
--- async (websocket) browser panels: publish the request to the Engine and return
--- immediately; the panel renders the streamed @DecodedInference@ off
--- @/api/ws/inference@ rather than blocking on the reply.
-publishInferenceRequestOnly
-  :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
-  -> Substrate
-  -> Text
-  -> [Double]
-  -> IO (Either Text ())
-publishInferenceRequestOnly settings substrate experimentHash input = do
-  callId <- Text.pack . show <$> getPOSIXTime
-  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
-      request =
-        Inference.InferenceRequest
-          { Inference.irCallId = callId
-          , Inference.irExperimentHash = experimentHash
-          , Inference.irReplyTopic = Inference.inferenceResultTopic substrate
-          , Inference.irInput = input
-          }
-  PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    published <-
-      Capabilities.pulsarPublish requestTopic (Inference.renderInferenceRequest request)
-    pure $
-      case published of
-        Left err -> Left ("inference request publish failed: " <> Text.pack (show err))
-        Right _ -> Right ()
 
 -- | Sprint 11.10 — fire-and-forget publish of a checkpoint-compare @WorkCommand@;
 -- the Engine runs both inferences + the delta and the panel renders the streamed
@@ -3565,9 +3543,10 @@ publishCheckpointCompareCommandOnly settings substrate baselineHash candidateHas
         Left err -> Left ("compare command publish failed: " <> Text.pack (show err))
         Right _ -> Right ()
 
--- | Sprint 11.10 — fire-and-forget publish of an adversarial-move @WorkCommand@;
--- the Engine runs the policy/value inference + MCTS and the panel renders the
--- streamed 'Inference.AdversarialMoveResult'.
+-- | Sprint 11.10 / 14.3 — publish an adversarial-move @WorkCommand@ after
+-- subscribing to its reply topic, then return the matching Engine
+-- 'Inference.AdversarialMoveResult' frame. The same result is also visible to the
+-- browser websocket bridge on its own subscription.
 publishAdversarialMoveCommandOnly
   :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
   -> Substrate
@@ -3576,28 +3555,37 @@ publishAdversarialMoveCommandOnly
   -> [Int]
   -> Int
   -> Int
-  -> IO (Either Text ())
+  -> IO (Either Text Text)
 publishAdversarialMoveCommandOnly settings substrate game experimentHash moves humanIsPlayer simulations = do
   callId <- Text.pack . show <$> getPOSIXTime
-  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+  let replyTopic = Inference.inferenceResultTopic substrate
+      requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      replyTopicName = Capabilities.TopicName replyTopic
+      subscriptionName = "jitml-move-" <> callId
       command =
         Inference.AdversarialMoveCommand
           { Inference.amcCallId = callId
           , Inference.amcGame = game
           , Inference.amcExperimentHash = experimentHash
-          , Inference.amcReplyTopic = Inference.inferenceResultTopic substrate
+          , Inference.amcReplyTopic = replyTopic
           , Inference.amcMoves = moves
           , Inference.amcHumanIsPlayer = humanIsPlayer
           , Inference.amcSimulationsPerMove = simulations
           , Inference.amcInput = []
           }
   PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    published <-
-      Capabilities.pulsarPublish requestTopic (Inference.renderAdversarialMoveCommand command)
-    pure $
-      case published of
-        Left err -> Left ("move command publish failed: " <> Text.pack (show err))
-        Right _ -> Right ()
+    subscribed <- Capabilities.pulsarSubscribe replyTopicName subscriptionName
+    case subscribed of
+      Left err ->
+        pure (Left ("move command subscribe failed: " <> Text.pack (show err)))
+      Right subscriptionId -> do
+        published <-
+          Capabilities.pulsarPublish requestTopic (Inference.renderAdversarialMoveCommand command)
+        case published of
+          Left err ->
+            pure (Left ("move command publish failed: " <> Text.pack (show err)))
+          Right _ ->
+            consumeMatchingKindPayload subscriptionId "AdversarialMoveResult" callId inferenceReplyAttempts
 
 -- | Sprint 14.1 (Feature A) — fire-and-forget publish of a checkpoint-browse
 -- @WorkCommand@; the Engine lists the seeded experiments' manifests from MinIO
@@ -3623,31 +3611,40 @@ publishListCheckpointsCommandOnly settings substrate = do
         Left err -> Left ("list-checkpoints command publish failed: " <> Text.pack (show err))
         Right _ -> Right ()
 
--- | Sprint 14.1 (Feature B) — fire-and-forget publish of a transcript-replay
--- @WorkCommand@ for the supplied persisted transcript key; the Engine reads the
--- transcript record from MinIO and the replay panel renders the streamed
--- 'Inference.LoadTranscriptCommand' result (a @TranscriptReplay@ frame).
+-- | Sprint 14.1 (Feature B) — publish a transcript-replay @WorkCommand@ after
+-- subscribing to its reply topic, then return the matching @TranscriptReplay@
+-- frame. The Engine still owns the MinIO read; the Webapp only brokers the
+-- correlated response back to the browser POST.
 publishLoadTranscriptCommandOnly
   :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
   -> Substrate
   -> Text
-  -> IO (Either Text ())
+  -> IO (Either Text Text)
 publishLoadTranscriptCommandOnly settings substrate transcriptId = do
   callId <- Text.pack . show <$> getPOSIXTime
-  let requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+  let replyTopic = Inference.inferenceResultTopic substrate
+      requestTopic = Capabilities.TopicName (Inference.inferenceRequestTopic substrate)
+      replyTopicName = Capabilities.TopicName replyTopic
+      subscriptionName = "jitml-transcript-" <> callId
       command =
         Inference.LoadTranscriptCommand
           { Inference.ltcCallId = callId
           , Inference.ltcTranscriptId = transcriptId
-          , Inference.ltcReplyTopic = Inference.inferenceResultTopic substrate
+          , Inference.ltcReplyTopic = replyTopic
           }
   PulsarWebSocketSubprocess.runPulsarWebSocketSubprocess settings $ do
-    published <-
-      Capabilities.pulsarPublish requestTopic (Inference.renderLoadTranscriptCommand command)
-    pure $
-      case published of
-        Left err -> Left ("load-transcript command publish failed: " <> Text.pack (show err))
-        Right _ -> Right ()
+    subscribed <- Capabilities.pulsarSubscribe replyTopicName subscriptionName
+    case subscribed of
+      Left err ->
+        pure (Left ("load-transcript command subscribe failed: " <> Text.pack (show err)))
+      Right subscriptionId -> do
+        published <-
+          Capabilities.pulsarPublish requestTopic (Inference.renderLoadTranscriptCommand command)
+        case published of
+          Left err ->
+            pure (Left ("load-transcript command publish failed: " <> Text.pack (show err)))
+          Right _ ->
+            consumeMatchingKindPayload subscriptionId "TranscriptReplay" callId inferenceReplyAttempts
 
 runVerify :: [Text] -> [ParsedOption] -> App ()
 runVerify path parsedOptions =
@@ -3967,7 +3964,7 @@ measureDaemonHealthz = do
 -- checkpoint-backed product panel's REST endpoint at the live demo edge with
 -- the panel's canonical default request and confirm each serves a real
 -- checkpoint-backed result. The report card then carries a measured
--- browser-product row (e.g. @5/5 served@) instead of a hardcoded stub.
+-- browser-product row (e.g. @N/N served@) instead of a hardcoded stub.
 -- 'MeasurementUnavailable' only when no live cluster publication exists or a
 -- panel endpoint does not serve its result kind (so the no-caveat handoff stays
 -- honestly open until the live browser surface is real).
@@ -4005,6 +4002,9 @@ browserProductPanelProbes =
   , ("/api/images", cifarBody, "kind: ImageInferenceResult")
   , ("/api/checkpoints/compare", compareBody, "kind: CheckpointCompareResult")
   , ("/api/connect4/move", connect4Body, "kind: AdversarialMoveResult")
+  , ("/api/connect4/move", othelloBody, "kind: AdversarialMoveResult")
+  , ("/api/connect4/move", hexBody, "kind: AdversarialMoveResult")
+  , ("/api/connect4/move", gomokuBody, "kind: AdversarialMoveResult")
   ]
  where
   mnistBody =
@@ -4017,6 +4017,12 @@ browserProductPanelProbes =
     "kind: BrowserCheckpointCompareRequest\npanel: checkpoint-compare-lab\nbaseline-experiment-hash: generic-tensor-demo\ncandidate-experiment-hash: generic-tensor-demo-candidate\ninput: 0.25,-0.5,1.0,2.0\n"
   connect4Body =
     "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: connect4\nexperiment-hash: connect4-alphazero\nmoves: \nhuman-is-player: 0\nsimulations-per-move: 8\n"
+  othelloBody =
+    "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: othello\nexperiment-hash: othello-alphazero\nmoves: 19\nhuman-is-player: 0\nsimulations-per-move: 8\n"
+  hexBody =
+    "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: hex\nexperiment-hash: hex-alphazero\nmoves: 0\nhuman-is-player: 0\nsimulations-per-move: 8\n"
+  gomokuBody =
+    "kind: BrowserAdversarialMoveRequest\npanel: connect4-human-vs-alphazero\ngame: gomoku\nexperiment-hash: gomoku-alphazero\nmoves: 0\nhuman-is-player: 0\nsimulations-per-move: 8\n"
 
 probeBrowserProductPanel :: Int -> (Text, Text, Text) -> IO Bool
 probeBrowserProductPanel port (path, body, marker) = do
@@ -4338,12 +4344,12 @@ runInternalDhallSchema parsedOptions =
                   )
               )
 
--- | Seed the five demo browser-panel inference checkpoints into live MinIO so the
--- checkpoint-backed panels (MNIST / generic / CIFAR / checkpoint-compare / Connect 4)
--- serve a real @InferenceResult@. Each checkpoint is a real-trained, distinct,
--- provenance-tagged 'SeededDemoCheckpoint' written self-describing (per-layer tensor
--- shapes + input/output specs) via 'writeMinIOWeightCheckpointShaped' (Sprint 10.9). The
--- demo inference path that consumes them at full multi-layer width is Sprint 14.3.
+-- | Seed the demo browser-panel inference checkpoints into live MinIO so the
+-- checkpoint-backed panels serve real full-width inference results. The original
+-- MNIST / generic / CIFAR / Connect 4 rows are trained demo networks; Sprint
+-- 14.3 also seeds the Othello / Hex / Gomoku selector hashes with deterministic,
+-- self-describing policy/value MLPs. The demo inference path that consumes them
+-- at full multi-layer width is Sprint 14.3.
 runInternalSeedDemoCheckpoints :: App ()
 runInternalSeedDemoCheckpoints = do
   livePublication <- liftIO (readExistingLivePublication ".")
@@ -4426,7 +4432,31 @@ seededDemoCheckpoints =
   , classifierDemo "generic-tensor-demo" "generic-demo-weights" 2003 4 8 3
   , classifierDemo "generic-tensor-demo-candidate" "generic-candidate-demo-weights" 2004 4 8 3
   , classifierDemo "cifar-imagenet" "cifar-demo-weights" 2002 3072 24 10
-  , alphaZeroDemo "connect4-alphazero" "connect4-alphazero-demo-weights" 2005
+  , trainedConnect4Demo
+      "connect4-alphazero"
+      "connect4-alphazero-demo-weights"
+      2005
+  , policyValuePanelDemo
+      "othello-alphazero"
+      "othello-alphazero-demo-weights"
+      "othello"
+      2006
+      (8 * 8 + 1)
+      32
+  , policyValuePanelDemo
+      "hex-alphazero"
+      "hex-alphazero-demo-weights"
+      "hex"
+      2007
+      (11 * 11 + 1)
+      32
+  , policyValuePanelDemo
+      "gomoku-alphazero"
+      "gomoku-alphazero-demo-weights"
+      "gomoku"
+      2008
+      (15 * 15 + 1)
+      32
   ]
  where
   classifierDemo experimentHash tensorName seed inputs hidden classes =
@@ -4460,7 +4490,7 @@ seededDemoCheckpoints =
             sdcOutputSpec = Checkpoint.TensorSpec "logits" [classes] "F64"
           , sdcLayerSpecs = mlpLayerTensorSpecs shape
           }
-  alphaZeroDemo experimentHash tensorName seed =
+  trainedConnect4Demo experimentHash tensorName seed =
     let net0 = PolicyValueNet.initPolicyValueNet 43 7 32 seed
         adam0 = PolicyValueNet.initAdamFor net0
         generation = PolicyValueNet.runOneGenerationOfSelfPlay net0 adam0 12 42 16 40 16 seed
@@ -4478,6 +4508,24 @@ seededDemoCheckpoints =
               ]
           , -- the AlphaZero net outputs @actionCount@ policy logits + 1 value head.
             sdcInputSpec = Checkpoint.TensorSpec "board" [mlpInputs shape] "F64"
+          , sdcOutputSpec = Checkpoint.TensorSpec "policy_value" [mlpOutputs shape] "F64"
+          , sdcLayerSpecs = mlpLayerTensorSpecs shape
+          }
+  policyValuePanelDemo experimentHash tensorName game seed observationSize hidden =
+    let actionCount = AlphaZero.policyHeadSize (AlphaZero.twoHeadedNetworkFor game)
+        net = PolicyValueNet.initPolicyValueNet observationSize actionCount hidden seed
+        params = PolicyValueNet.pvnParams net
+        shape = paramShape params
+     in SeededDemoCheckpoint
+          { sdcExperimentHash = experimentHash
+          , sdcTensorName = tensorName
+          , sdcWeights = mlpParamsToFlat params
+          , sdcProvenance =
+              [ ("panel_seeded_policy_value", 1.0)
+              , ("action_count", fromIntegral actionCount)
+              , ("seed", fromIntegral seed)
+              ]
+          , sdcInputSpec = Checkpoint.TensorSpec "board" [mlpInputs shape] "F64"
           , sdcOutputSpec = Checkpoint.TensorSpec "policy_value" [mlpOutputs shape] "F64"
           , sdcLayerSpecs = mlpLayerTensorSpecs shape
           }

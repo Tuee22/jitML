@@ -52,7 +52,9 @@ import JitML.Engines.Loader
   )
 import JitML.Engines.MetalBridge qualified as MetalBridge
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
+import JitML.Engines.MlpCheckpoint (runMlpCheckpointForwardWith)
 import JitML.Env.Env (Env)
+import JitML.Numerics.MlpMetal (mlpForwardMetal)
 import JitML.Substrate (Substrate (..))
 
 data MetalKernelRun = MetalKernelRun
@@ -138,15 +140,19 @@ runMetalWeightedCheckpointInference
   -> [LoadedWeightTensor]
   -> [Double]
   -> IO (Either Text [Double])
-runMetalWeightedCheckpointInference env _manifest weights input = do
-  let flatWeights = fmap realToFrac (concatMap loadedWeightValues weights)
-  kernelResult <-
-    runMetalWeightedFamilyKernel env Dense2D (fmap realToFrac input) flatWeights
-  pure $
-    case kernelResult of
-      Left err -> Left err
-      Right kernelRun ->
-        Right (fmap realToFrac (metalWeightedKernelOutput kernelRun))
+runMetalWeightedCheckpointInference env manifest weights input = do
+  mlpResult <- runMlpCheckpointForwardWith (mlpForwardMetal env) manifest weights input
+  case mlpResult of
+    Just result -> pure result
+    Nothing -> do
+      let flatWeights = fmap realToFrac (concatMap loadedWeightValues weights)
+      kernelResult <-
+        runMetalWeightedFamilyKernel env Dense2D (fmap realToFrac input) flatWeights
+      pure $
+        case kernelResult of
+          Left err -> Left err
+          Right kernelRun ->
+            Right (fmap realToFrac (metalWeightedKernelOutput kernelRun))
 
 runMetalWeightedFamilyKernel
   :: Env

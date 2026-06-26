@@ -74,6 +74,7 @@ import JitML.Engines.Engine qualified as Engine
 import JitML.Engines.Loader qualified as Loader
 import JitML.Engines.Local qualified as LocalEngine
 import JitML.Engines.MetalRuntime qualified as MetalRuntime
+import JitML.Engines.MlpCheckpoint qualified as MlpCheckpoint
 import JitML.Engines.OneDnnRuntime qualified as OneDnnRuntime
 import JitML.Engines.Rng qualified as Rng
 import JitML.Engines.Tuning qualified as Tuning
@@ -2495,23 +2496,26 @@ main =
           assertBool
             "admin portal renderer emits the generated module"
             ("module Generated.AdminPortals where" `Text.isInfixOf` WebAdminPortals.renderPureScriptAdminPortals)
-      , -- Sprint 10.9 (review hardening) — the seeded demo checkpoints are real-trained,
-        -- distinct, and self-describing (per-layer shapes), so Phase 14.3 can reshape them.
+      , -- Sprint 10.9 / 14.3 — the seeded demo checkpoints are distinct and
+        -- self-describing (per-layer shapes), so Phase 14.3 can reshape them.
         testGroup
-          "demo checkpoints (Sprint 10.9)"
-          [ -- One case so the (real-trained) checkpoints are forced once, not duplicated
+          "demo checkpoints (Sprint 10.9 + 14.3)"
+          [ -- One case so the generated checkpoints are forced once, not duplicated
             -- across tasty's parallel cases.
-            testCase "are real-trained, distinct, and self-describing (per-layer shapes)" $ do
-              -- exactly the five demo families, in order
+            testCase "are distinct and self-describing (per-layer shapes)" $ do
+              -- exactly the demo families, in order
               fmap sdcExperimentHash seededDemoCheckpoints
                 @?= [ "mnist-deep-mlp"
                     , "generic-tensor-demo"
                     , "generic-tensor-demo-candidate"
                     , "cifar-imagenet"
                     , "connect4-alphazero"
+                    , "othello-alphazero"
+                    , "hex-alphazero"
+                    , "gomoku-alphazero"
                     ]
-              -- every family's trained weights are pairwise distinct (no shared ramp)
-              length (nub (fmap sdcWeights seededDemoCheckpoints)) @?= 5
+              -- every family's weights are pairwise distinct (no shared ramp)
+              length (nub (fmap sdcWeights seededDemoCheckpoints)) @?= 8
               -- non-constant in O(n) (NOT `nub`, which is O(n²) on the 74k-element
               -- CIFAR weight vector): some element differs from the first.
               let nonConstant ws = case ws of
@@ -2519,12 +2523,12 @@ main =
                     [] -> False
               mapM_
                 ( \spec -> do
-                    -- real-trained: non-empty and non-constant (not a synthetic ramp)
+                    -- non-empty and non-constant (not a synthetic ramp)
                     assertBool
                       (Text.unpack (sdcExperimentHash spec) <> " has weights")
                       (not (null (sdcWeights spec)))
                     assertBool
-                      (Text.unpack (sdcExperimentHash spec) <> " is non-constant (real-trained, not a ramp)")
+                      (Text.unpack (sdcExperimentHash spec) <> " is non-constant (not a ramp)")
                       (nonConstant (sdcWeights spec))
                     -- self-describing: the per-layer tensor shapes sum to the flat length
                     sum [product (Checkpoint.tensorSpecShape ts) | ts <- sdcLayerSpecs spec]
@@ -2539,6 +2543,85 @@ main =
               outputWidth "cifar-imagenet" @?= [[10]]
               outputWidth "generic-tensor-demo" @?= [[3]]
               outputWidth "connect4-alphazero" @?= [[8]]
+              outputWidth "othello-alphazero" @?= [[65]]
+              outputWidth "hex-alphazero" @?= [[122]]
+              outputWidth "gomoku-alphazero" @?= [[226]]
+          ]
+      , testGroup
+          "MLP checkpoint inference plan (Sprint 14.3)"
+          [ testCase "detects named W1/b1/W2/b2 tensors, fits input, and trims semantic output width" $ do
+              let shape =
+                    Mlp.MlpShape
+                      { Mlp.mlpInputs = 3
+                      , Mlp.mlpHidden = 2
+                      , Mlp.mlpOutputs = 4
+                      }
+                  flatWeights =
+                    [ 0.1
+                    , 0.2
+                    , 0.3
+                    , -0.1
+                    , 0.4
+                    , 0.5
+                    , 0.01
+                    , -0.02
+                    , 0.2
+                    , -0.1
+                    , 0.3
+                    , 0.4
+                    , -0.3
+                    , 0.2
+                    , -0.5
+                    , 0.1
+                    , 0.03
+                    , 0.04
+                    , 0.05
+                    , 0.06
+                    ]
+                  specs =
+                    [ Checkpoint.TensorSpec "W2" [4, 2] "F64"
+                    , Checkpoint.TensorSpec "b2" [4] "F64"
+                    , Checkpoint.TensorSpec "W1" [2, 3] "F64"
+                    , Checkpoint.TensorSpec "b1" [2] "F64"
+                    ]
+                  manifest =
+                    ( Checkpoint.emptyManifest
+                        "mlp-demo"
+                        "exp"
+                        [Checkpoint.TensorBlob "weights" [length flatWeights] "blob"]
+                    )
+                      { Checkpoint.manifestWeightLayout = Checkpoint.NamedTensorWeightLayout specs
+                      , Checkpoint.manifestArchitecture =
+                          Checkpoint.ArchitectureMetadata
+                            { Checkpoint.architectureName = "demo-mlp"
+                            , Checkpoint.architectureModelFamily = Checkpoint.SupervisedModelFamily
+                            , Checkpoint.architectureInputs = [Checkpoint.TensorSpec "input" [3] "F64"]
+                            , Checkpoint.architectureOutputs = [Checkpoint.TensorSpec "logits" [2] "F64"]
+                            }
+                      }
+                  loaded =
+                    [ CheckpointStore.LoadedWeightTensor
+                        (Checkpoint.TensorBlob "weights" [length flatWeights] "blob")
+                        flatWeights
+                    ]
+              case Mlp.mlpParamsFromFlat shape flatWeights of
+                Left err -> assertFailure err
+                Right params -> do
+                  result <-
+                    MlpCheckpoint.runMlpCheckpointForwardWith
+                      (\p input -> pure (Right (Mlp.mlpForward p input)))
+                      manifest
+                      loaded
+                      [1.0, 2.0]
+                  let expected =
+                        take 2 $
+                          Data.Vector.Unboxed.toList $
+                            Mlp.forwardOutput $
+                              Mlp.mlpForward params (MlpCheckpoint.fitMlpInput 3 [1.0, 2.0])
+                  result @?= Just (Right expected)
+          , testCase "leaves legacy non-MLP checkpoint manifests on the Dense2D fallback path" $ do
+              let manifest = Checkpoint.emptyManifest "dense" "exp" [Checkpoint.TensorBlob "dense.weight" [2, 2] "blob"]
+              MlpCheckpoint.mlpCheckpointPlan manifest @?= Right Nothing
           ]
       , -- Sprint 13.6 — convergence threshold table sanity.
         testGroup

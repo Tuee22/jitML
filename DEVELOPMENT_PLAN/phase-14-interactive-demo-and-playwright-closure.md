@@ -21,27 +21,33 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-24 for Sprint `14.3` — real demo inference: real
-multi-layer forward at full width, real user input, every trained family rendered).
-**Blocked by**: Phase 10 Sprint `10.9` (the trained checkpoints) and Phase 13 Sprint
-`13.2` (the re-attested runtime). Sprint `14.3` routes the demo through the real
-multi-layer MLP forward (the kernels exist in `Codegen/Mlp{OneDnn,Cuda,Metal}.hs`)
-instead of the single fixed-vector Dense2D path, wires the drawn-canvas / uploaded
-image into the request (replacing the constant panel inputs), renders the unrendered
-families, and adds a Playwright assertion that the prediction tracks the input. All
-prior Sprints `14.1`–`14.2` remain `✅ Done`; the prior closure history follows.
+✅ **Done — `linux-cpu` scope** (re-closed 2026-06-26 for Sprint `14.3`; prior
+close 2026-06-17). The interactive browser product matrix now runs against the
+real full-width checkpoint runtime on the live `linux-cpu` edge: the Webapp
+publishes through the Engine and returns deterministic Engine-backed POST frames
+for inference, checkpoint compare, adversarial moves, and transcript replay;
+the demo checkpoints are real-trained, self-describing `W1`/`b1`/`W2`/`b2` MLP
+manifests; MNIST, CIFAR/ImageNet, generic tensor inference, checkpoint compare,
+Connect 4, Othello, Hex, and Gomoku all use seeded checkpoint hashes; and the
+PureScript panels submit user-derived input instead of constants.
 
-✅ **Done — `linux-cpu` scope** (validated 2026-06-17 on an Apple M1 Max host's
-`linux-cpu` lane; opened 2026-06-14). The full interactive browser product matrix
-runs against the live `linux-cpu` edge: `jitml lint purescript` ok, `jitml-e2e
---linux-cpu` 23/23, and the live Playwright matrix **11/11** (every checkpoint-
-backed panel serves a real `InferenceResult` — see Remaining Work for the three
-landed fixes). Phase `11` Sprint `11.9` (feature implementation) and Phase `12`
-Sprint `12.13` (test orchestration) closed `✅ Done` on 2026-06-16; their live
-browser/product obligations were deduped into this phase per rule E. The
-**per-accelerator** browser/Playwright lanes are owned downstream — `linux-cuda`
-by Phase `15` (Sprint `15.20`) and `apple-silicon` by Phase `16` (Sprint
-`16.11`); this phase validates only `linux-cpu` (standards rule M(b)).
+Validation for the re-close: `spago test` **17/17**, `jitml-unit` **222/222**,
+`jitml check-code` **ok**, `docker compose build jitml` **ok** (embedded
+`check-code: ok`; PureScript build warnings/errors `0/0`), live
+`jitml internal seed-demo-checkpoints` seeded all eight demo hashes
+(`mnist-deep-mlp`, `generic-tensor-demo`, `generic-tensor-demo-candidate`,
+`cifar-imagenet`, `connect4-alphazero`, `othello-alphazero`, `hex-alphazero`,
+`gomoku-alphazero`), direct live endpoint probes returned full response bodies
+and expected widths (`InferenceResult` 10 MNIST probabilities/logits,
+`ImageInferenceResult` top-k 10, generic output width 3, compare output width
+3/3, `AdversarialMoveResult` with transcript id, `TranscriptReplay` with moves),
+and the live Playwright matrix passed **15/15** against `http://127.0.0.1:9091`.
+Phase `11` Sprint `11.9` (feature implementation) and Phase `12` Sprint `12.13`
+(test orchestration) stay closed; their live browser/product obligations are
+deduped into this phase per rule E. The **per-accelerator** browser/Playwright
+lanes remain owned downstream — `linux-cuda` by Phase `15` (Sprint `15.20`) and
+`apple-silicon` by Phase `16` (Sprint `16.11`); this phase validates only
+`linux-cpu` (standards rule M(b)).
 
 ## Phase Summary
 
@@ -98,90 +104,15 @@ per-accelerator browser/Playwright lanes are owned downstream by Sprint `15.20`
 
 ### Remaining Work
 
-- **RESOLVED — the three net-new browser product features landed and are
-  live-validated; `linux-cpu` Playwright is now `14/14` (2026-06-23, Apple M1 Max
-  host).** The last open Sprint `14.1` items — **checkpoint browse**,
-  **live-backed workflow-state reconciliation**, and **persisted-transcript
-  adversarial multi-game replay** — are implemented as real, live-backed surfaces
-  (not route-only / published-ack placeholders) and pass the live `linux-cpu`
-  Playwright matrix: checkpoint browse is a `ListCheckpoints` Engine workflow that
-  lists the seeded checkpoints from MinIO (`Checkpoints.purs`); workflow status
-  renders reconciled `WorkflowStatus` frames the Engine projects to
-  `workflow.status.<substrate>` over a new `/api/ws/workflow` bridge
-  (`Workflow.purs`); and transcript replay scrubs a game's moves read back from a
-  real persisted `jitml-transcripts` MinIO object (`Transcript.hs`,
-  `Replay.purs`). Validation: `cabal build --ghc-options=-Werror` clean, `jitml
-  lint haskell` / `lint purescript` / `docs check` ok, `jitml-unit` 209 /
-  `jitml-e2e` 23 / `jitml-daemon-lifecycle` 32, in-image `check-code` ok, and the
-  full live Playwright matrix **14/14** (exit 0; the 11 baseline + 3 new, the
-  checkpoint-backed panels flaky on the cold-JIT first attempt then passing on
-  retry). This closes both Sprint `14.1` `legacy-tracking` rows. The
-  per-accelerator browser/Playwright matrix is re-run on `linux-cuda` (Sprint
-  `15.20`) and `apple-silicon` (Sprint `16.11`).
-- **RESOLVED — `linux-cpu` Playwright `11/11` (2026-06-17, Apple M1 Max).** The
-  three root causes below are all fixed and the full live browser product matrix
-  passes on `linux-cpu`: `jitml lint purescript` ok, `jitml-e2e --linux-cpu` 23/23,
-  and `playwright test` against the live edge **11/11** (all five checkpoint-backed
-  panels — MNIST, generic, CIFAR upload, checkpoint compare, Connect 4 — now serve
-  a real `InferenceResult`). The three fixes: (1) the in-cluster demo MinIO
-  endpoint (`JITML_DEMO_MINIO_S3`); (2) a `jitml internal seed-demo-checkpoints`
-  command that persists a small Dense2D weight checkpoint at each of the five
-  friendly experiment hashes; (3) the `jitml-demo` pod budget raised to `3Gi`/`2cpu`
-  (`dhall/cluster/resources.dhall`) so the in-pod Dense2D kernel JIT-compile no
-  longer OOM-kills the pod. The per-accelerator browser/Playwright matrix is
-  re-run on `linux-cuda` (Sprint `15.20`) and `apple-silicon` (Sprint `16.11`).
-- **Confirmed defect (2026-06-16, live `linux-cpu` Playwright `6/11`).** The five
-  checkpoint-backed panels (MNIST inference, generic inference, CIFAR upload,
-  checkpoint compare, Connect 4 move) returned `HTTP 503` against the live edge for
-  two root causes; the static panels (portals home, shared header, RL timeline,
-  training loss curve, tune heatmap) pass `5/5`.
-  - **Root cause 1 — FIXED and live-revalidated (2026-06-17, Apple M1 Max
-    `linux-cpu`).** The in-cluster `jitml-demo` checkpoint runtime handler read
-    MinIO at the external edge URL `127.0.0.1:<edge_port>`
-    (`minioSettingsForLocalEdge`), which inside the demo pod is its own localhost
-    (`curl exit 7`). `demoBrowserRuntimeHandler` now takes a `Maybe Text`
-    in-cluster MinIO endpoint, driven by a new `JITML_DEMO_MINIO_S3` env on the
-    `jitml-demo` deployment (`http://minio.platform.svc.cluster.local:9000`,
-    mirroring the existing `JITML_DEMO_PULSAR_WS` override); host-native demos
-    still fall back to the leased edge. After a rebuilt image + re-bootstrap, the
-    demo inference endpoint now reaches the in-cluster MinIO — the error changed
-    from `curl exit 7: connection refused to 127.0.0.1` to `pointer read failed:
-    HTTP 404` (object-not-found from the real MinIO), confirming the fix. The
-    `jitml-e2e --linux-cpu` stanza passes **23 / 23** and `jitml lint purescript`
-    passes.
-  - **Root cause 2 — OPEN (precisely scoped; the only remaining `linux-cpu`
-    Playwright blocker).** No per-panel inference checkpoints are persisted/served,
-    so the five checkpoint-backed panels return `HTTP 404`. The panels request
-    these friendly experiment hashes, none of which have a checkpoint at
-    `jitml-checkpoints/<hash>/pointers/latest`: `mnist-deep-mlp` (MNIST),
-    `generic-tensor-demo` (generic + checkpoint-compare baseline),
-    `generic-tensor-demo-candidate` (checkpoint-compare candidate),
-    `cifar-imagenet` (CIFAR upload), `connect4-alphazero` (Connect 4). The
-    runtime handler runs a `Dense2D` weighted kernel
-    (`runLinuxCpuWeightedCheckpointInference`), and the panels send **tiny fixed
-    demo inputs** (`mnist`/`cifar` `[1,2]`; `generic`/`compare` `[0.25,-0.5,1,2]`;
-    Connect 4's `adversarialRuntimeInput` needs output `≥ actionCount+1`). Closing
-    this needs a demo-checkpoint seeding path (e.g. a `jitml internal
-    seed-demo-checkpoints` leaf reusing `writeMinIOWeightCheckpoint`) that persists
-    a small `.jmw1` weight checkpoint + manifest + latest-pointer at each of the
-    five hashes with weights shaped for each panel's `Dense2D` input/output. All
-    five are CPU-only — no GPU. With root cause 1 fixed, this is the sole gap
-    between the current `6/11` and `11/11` on `linux-cpu`.
-- Extend the Sprint `11.9` generated current-panel codecs into checkpoint
-  browse, live-backed workflow-state reconciliation, adversarial multi-game
-  replay, and persisted replay artifact payloads.
-- Live-validate the Sprint `11.9` checkpoint-backed MNIST/generic/CIFAR/
-  checkpoint-compare/Connect 4 runtime calls against real persisted
-  checkpoints on every substrate.
-- Extend the Sprint `11.9` request-aware command route with live publication
-  proof across all substrates, persisted queued/running/failed/done status
-  reconciliation, and unsupported pause/resume/promote lifecycle operations.
-- Finish real charts/canvases/animations/replay beyond the current summary
-  bars, MCTS metadata, and tuning heatmap/frontier.
+None for the `linux-cpu` scope owned by Sprint `14.1`. The historical gaps in
+checkpoint browse, workflow-state reconciliation, and persisted transcript replay
+remain closed by the 2026-06-23 live Playwright expansion, and Sprint `14.3`
+re-validates the broader browser matrix at **15/15** after the full-width demo
+runtime replacement.
 
 ## Sprint 14.2: Playwright No-Caveat Product Matrix ✅
 
-**Status**: Done (`linux-cpu` scope; validated 2026-06-17, Apple M1 Max host — live Playwright 11/11)
+**Status**: Done (`linux-cpu` scope; re-validated 2026-06-26 — live Playwright 15/15)
 **Implementation**: `playwright/jitml-demo.spec.ts`, `test/e2e/Main.hs`,
 `src/JitML/Test/LivePlan.hs`
 **Blocked by**: Sprint `14.1`; Phase `13` Sprint `13.1`
@@ -220,16 +151,11 @@ standards rule M(b)/(d); the same matrix is re-run per-accelerator by Sprint
 
 ### Remaining Work
 
-- The existing Playwright suite asserts panel visibility and a few REST values;
-  it must expand to workload-launch, event, checkpoint, animation, replay, and
-  model-interaction assertions across the full matrix.
-- **Live `linux-cpu` Playwright baseline (2026-06-16): `6/11`.** Against a live
-  bootstrapped edge (`mcr.microsoft.com/playwright:v1.49.1-noble`, host network),
-  the five static panels pass; the five checkpoint-backed panels fail `HTTP 503`
-  on the two Sprint `14.1` defects above (in-cluster demo MinIO endpoint + missing
-  per-panel checkpoint serving). Closing `14.2` to green requires those fixes plus
-  the Sprint `13.1` checkpoint persistence, then a rebuilt `jitml:local`
-  re-bootstrap and a full re-run on every runnable lane.
+None for the `linux-cpu` scope owned by Sprint `14.2`. The live Playwright matrix
+now covers the portals/header surfaces, MNIST, generic inference, CIFAR/ImageNet,
+checkpoint compare, Connect 4, Othello/Hex/Gomoku adversarial selectors,
+checkpoint browse, workflow status, persisted transcript replay, RL, training,
+and tuning panels against the live edge, and it passes **15/15**.
 
 ## Documentation Requirements
 
@@ -250,12 +176,19 @@ standards rule M(b)/(d); the same matrix is re-run per-accelerator by Sprint
 - Update `system-components.md` frontend and test rows to mark this phase as the
   owner of no-caveat browser closure.
 
-## Sprint 14.3: Real Demo Inference — Full-Width Multi-Layer Forward, Real Input, All Families [⏸️ Blocked]
+## Sprint 14.3: Real Demo Inference — Full-Width Multi-Layer Forward, Real Input, All Families [✅ Done]
 
-**Status**: Blocked — reopened 2026-06-24.
+**Status**: Done — reopened 2026-06-24; unblocked 2026-06-25 after Phase 10
+Sprint `10.9` and Phase 13 Sprint `13.2` re-closed; re-closed 2026-06-26 on the
+live `linux-cpu` edge.
 
-**Blocked by**: Phase 10 Sprint `10.9` (trained checkpoints) and Phase 13 Sprint
-`13.2` (re-attested runtime).
+**Implementation**: checkpoint-backed demo inference detects self-describing
+`W1`/`b1`/`W2`/`b2` manifests and routes them through the real substrate MLP
+forward (`oneDNN` / CUDA / Metal), trimming classifier outputs to the semantic
+output spec. The browser panels submit user-derived inputs instead of constants,
+and the adversarial selector hashes (`othello-alphazero`, `hex-alphazero`,
+`gomoku-alphazero`) are seeded as full-width policy/value MLP checkpoints
+alongside the original five browser hashes.
 
 Make the demo render real, input-driven predictions for every trained family:
 
@@ -284,11 +217,28 @@ Make the demo render real, input-driven predictions for every trained family:
 
 - Live Playwright demo matrix green on the `linux-cpu` edge, asserting the prediction
   changes with the drawn input and the output width equals the class count.
+- `docker compose run --rm -w /home/matt/jitML/web jitml spago test` — **17/17**.
+- `docker compose run --rm jitml cabal test jitml-unit` — **222/222**.
+- `docker compose run --rm jitml jitml check-code` — **check-code: ok**.
+- `docker compose build jitml` — **ok**, including embedded `check-code: ok`
+  and PureScript production build warnings/errors `0/0`.
+- `docker compose run --rm jitml jitml internal seed-demo-checkpoints` — seeded
+  all eight demo hashes with trained weights and four typed tensors each.
+- Live direct endpoint probes:
+  `/api/inference` returned MNIST `InferenceResult` with 10 probabilities and
+  10 logits; `/api/images` returned `ImageInferenceResult` top-k 10; `/api/inference/generic`
+  returned output width 3; `/api/checkpoints/compare` returned baseline/candidate
+  outputs and deltas; `/api/connect4/move` returned `AdversarialMoveResult` with
+  legal moves, policy priors, value, and transcript id; `/api/transcripts/replay`
+  returned `TranscriptReplay` with persisted moves.
+- `docker run --rm --network host -v "$PWD:/work:ro" -w /work mcr.microsoft.com/playwright:v1.49.1-noble ...`
+  — live Playwright **15/15**.
 
 ### Remaining Work
 
-- Implement the real-forward routing, input wiring, the new panels/selectors, and the
-  Playwright assertion; the code lands here.
+None. The two Phase `14.3` legacy rows moved to `Completed`; the `Pending Removal`
+ledger is empty for Phase `14` and the final re-aggregation belongs to Phase
+`18.3`.
 
 ## Related Documents
 

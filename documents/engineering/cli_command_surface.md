@@ -1501,7 +1501,7 @@ jitml internal seed-demo-checkpoints
 
 Seed demo inference checkpoints into MinIO.
 
-Writes a small Dense2D weight checkpoint (manifest + .jmw1 + latest-pointer) at each of the five demo browser-panel experiment hashes (mnist-deep-mlp, generic-tensor-demo, generic-tensor-demo-candidate, cifar-imagenet, connect4-alphazero) through the routed MinIOSubprocess, so the live jitml-demo checkpoint-backed panels (MNIST / generic / CIFAR / checkpoint-compare / Connect 4) serve a real InferenceResult. The Dense2D weighted kernel zero-pads the weights to the request's input size, so one fixed weight vector serves every panel. Requires a live cluster.
+Writes self-describing MLP weight checkpoints (manifest + .jmw1 + latest-pointer) at the demo browser-panel experiment hashes (mnist-deep-mlp, generic-tensor-demo, generic-tensor-demo-candidate, cifar-imagenet, connect4-alphazero, othello-alphazero, hex-alphazero, gomoku-alphazero) through the routed MinIOSubprocess, so the live jitml-demo checkpoint-backed panels serve real full-width inference results. Requires a live cluster.
 
 Usage:
   jitml internal seed-demo-checkpoints
@@ -1510,7 +1510,7 @@ Usage:
 
 Examples:
   jitml internal seed-demo-checkpoints
-      Seed the five demo panel checkpoints into live MinIO.
+      Seed the demo panel checkpoints into live MinIO.
 ```
 
 ### `jitml internal dhall-schema`

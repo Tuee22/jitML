@@ -31,7 +31,7 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **No-caveat product target:** The current plan is reopened for full end-to-end closure: every supported SL, RL, AlphaZero, and tuning workflow must train or run for real, checkpoint, infer/evaluate, surface appropriate browser interactions, render live visualizations, and pass Playwright-based e2e tests in the demo app. The open work is tracked by Phases `8`–`18` in the development plan; temporary demo/parser/runtime stand-ins are tracked in [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+> **No-caveat product target:** The full end-to-end product target is closed again as of 2026-06-26: supported SL, RL, AlphaZero, and tuning workflows train or run for real, checkpoint, infer/evaluate, surface browser interactions, render live visualizations, and pass the Playwright e2e product matrix in the demo app. The closure evidence is tracked by Phases `8`–`18` in the development plan; the temporary demo/parser/runtime stand-ins have moved to `Completed` in [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 ---
 
@@ -2325,7 +2325,7 @@ PureScript framework, signals model fits live-events well).
 
 ## Generated contracts
 
-`jitml docs generate` emits `./web/src/Generated/Contracts.purs` from Haskell-owned browser-contract ADTs in `src/JitML/Web/Contracts.hs` and `./web/src/Generated/AdminPortals.purs` from the labelled admin-portal subset of `src/JitML/Routes.hs`, both via the tracked generated-path registry (see [Generated documentation flow](#generated-documentation-flow)) and paired with `jitml docs check`. The reopened no-caveat browser-contract work expands the generated surface from endpoint metadata to the command, event, inference, animation, and replay payload ADTs consumed by the panels; hand-maintained marker parsing is temporary legacy residue.
+`jitml docs generate` emits `./web/src/Generated/Contracts.purs` from Haskell-owned browser-contract ADTs in `src/JitML/Web/Contracts.hs` and `./web/src/Generated/AdminPortals.purs` from the labelled admin-portal subset of `src/JitML/Routes.hs`, both via the tracked generated-path registry (see [Generated documentation flow](#generated-documentation-flow)) and paired with `jitml docs check`. The no-caveat browser-contract work expands the generated surface from endpoint metadata to the command, event, inference, animation, and replay payload ADTs consumed by the panels; hand-maintained marker parsing is retired.
 
 ## Backend integration
 
@@ -2371,11 +2371,11 @@ runs the `purescript-spec` smoke suite in `./web/test/` through the Node
 `spec-node` runner (`runSpecAndExitProcess`), so the test process exits with
 the real suite status and does not use the deprecated generic `runSpec` alias.
 The `jitml-e2e` test stanza validates demo HTTP routing, report-card output,
-Playwright plan shape, and the local browser scaffold. The reopened no-caveat
-matrix extends the explicit live `jitml-e2e` orchestration path so Playwright
-starts real workflows, waits for training/checkpoint/inference evidence,
-exercises model-specific browser interactions, observes RL animation frames,
-drives adversarial-game boards, replays saved transcripts, and validates tuning
+Playwright plan shape, and the local browser scaffold. The no-caveat matrix
+extends the explicit live `jitml-e2e` orchestration path so Playwright starts
+real workflows, waits for training/checkpoint/inference evidence, exercises
+model-specific browser interactions, observes RL animation frames, drives
+adversarial-game boards, replays saved transcripts, and validates tuning
 controls against the real Envoy route surface.
 
 ## Deployment
@@ -2412,7 +2412,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected via `--test-options='-p <substrate>'`, **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
-| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; reopened no-caveat live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves workflow training/checkpoint/inference/animation/replay/tuning interactions, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
+| `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; the no-caveat live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves workflow training/checkpoint/inference/animation/replay/tuning interactions, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
 
 `TestAll` fans out to every stanza above. It does not run lint, style, or
 code-quality gates; `jitml lint all` and `jitml check-code` are the separate

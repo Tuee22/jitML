@@ -11,8 +11,10 @@ module Panels.Mnist where
 
 import Prelude
 
+import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
+import Data.Number as Number
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Generated.Contracts as Contracts
@@ -38,10 +40,13 @@ type State =
   { lastPrediction :: Maybe Prediction
   , pendingInference :: Boolean
   , lastError :: Maybe String
+  , inkInput :: String
+  , inkValue :: Number
   }
 
 data Action
   = Initialize
+  | SetInk String
   | Predict
   | PredictAck String
   | FrameText String
@@ -56,9 +61,6 @@ defaultModelId = "mnist-deep-mlp"
 
 defaultExperimentHash :: String
 defaultExperimentHash = defaultModelId
-
-defaultInferenceInput :: Array Number
-defaultInferenceInput = [ 1.0, 2.0 ]
 
 emptyCanvas :: Array Int
 emptyCanvas = []
@@ -75,6 +77,8 @@ initialState =
   { lastPrediction: Nothing
   , pendingInference: false
   , lastError: Nothing
+  , inkInput: "0.85"
+  , inkValue: 0.85
   }
 
 component :: forall query input output m. MonadAff m => H.Component query input output m
@@ -88,17 +92,29 @@ component =
   handleAction = case _ of
     Initialize ->
       subscribeStream "/api/ws/inference" FrameText PredictionFailed
+    SetInk raw ->
+      H.modify_
+        ( \s ->
+            s
+              { inkInput = raw
+              , inkValue = Maybe.fromMaybe s.inkValue (Number.fromString raw)
+              }
+        )
     Predict -> do
+      state <- H.get
       H.modify_ (_ { pendingInference = true, lastError = Nothing })
       requestText
         "POST"
         "/api/inference"
-        (Contracts.renderBrowserInferenceRequest panelName defaultModelId defaultExperimentHash defaultInferenceInput)
+        (Contracts.renderBrowserInferenceRequest panelName defaultModelId defaultExperimentHash (mnistInferenceInput state))
         PredictAck
         PredictionFailed
-    PredictAck _ ->
-      -- The POST only publishes; the decoded result arrives on the stream.
-      pure unit
+    PredictAck payload ->
+      case Contracts.parseInferenceResult payload of
+        Just result | result.modelId == defaultModelId ->
+          handleAction (PredictionReceived (inferenceAckToDecoded result))
+        _ ->
+          pure unit
     FrameText payload ->
       case Contracts.fieldValue "experiment-hash" payload of
         Just hash | hash == defaultExperimentHash ->
@@ -132,6 +148,13 @@ component =
           [ HP.id (panelName <> "-canvas")
           , HP.width 280
           , HP.height 280
+          , HP.style ("background: rgba(0, 0, 0, " <> show state.inkValue <> ");")
+          ]
+      , HH.input
+          [ HP.id (panelName <> "-ink")
+          , HP.type_ HP.InputText
+          , HP.value state.inkInput
+          , HE.onValueInput SetInk
           ]
       , HH.button
           [ HP.id (panelName <> "-submit")
@@ -191,6 +214,20 @@ component =
           , HP.classes [ H.ClassName "jitml-error" ]
           ]
           [ HH.text ("inference error: " <> message) ]
+
+  mnistInferenceInput state =
+    Array.replicate 784 state.inkValue
+
+  inferenceAckToDecoded result =
+    { kind: "classification"
+    , topClass: result.topClass
+    , confidence: result.confidence
+    , probabilities: result.probabilities
+    , labels: []
+    , values: []
+    , value: 0.0
+    , output: result.output
+    }
 
 -- | Top-level mount used by `web/src/Main.purs` to attach the component
 -- | to the demo page's `<main id="app">` element. The Halogen driver

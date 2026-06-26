@@ -170,8 +170,16 @@ component =
         )
         MoveAck
         MoveFailed
-    MoveAck _ ->
-      pure unit
+    MoveAck payload -> do
+      state <- H.get
+      case Contracts.parseMoveFrame payload of
+        Just response -> handleAction (MoveReceived response)
+        Nothing ->
+          case Contracts.parseAdversarialMoveResult payload of
+            Just result | result.game == state.game.name ->
+              handleAction (MoveReceived (moveAckToFrame state.game.experimentHash result))
+            _ ->
+              pure unit
     FrameText payload -> do
       state <- H.get
       case Contracts.fieldValue "experiment-hash" payload of
@@ -184,16 +192,23 @@ component =
     MoveReceived response ->
       H.modify_
         ( \s ->
-            let
-              nextMoves = Array.snoc s.moves response.chosenColumn
-            in
-              s
-                { moves = nextMoves
-                , replayIndex = Array.length nextMoves
-                , pendingMove = false
-                , lastResponse = Just response
-                , lastError = Nothing
-                }
+            case s.lastResponse of
+              Just previous | previous.transcriptId == response.transcriptId ->
+                s
+                  { pendingMove = false
+                  , lastError = Nothing
+                  }
+              _ ->
+                let
+                  nextMoves = Array.snoc s.moves response.chosenColumn
+                in
+                  s
+                    { moves = nextMoves
+                    , replayIndex = Array.length nextMoves
+                    , pendingMove = false
+                    , lastResponse = Just response
+                    , lastError = Nothing
+                    }
         )
     MoveFailed message ->
       H.modify_
@@ -497,6 +512,18 @@ component =
   renderVisit item =
     HH.li_
       [ HH.text ("move " <> show item.move <> ": " <> show item.visits <> " visits") ]
+
+  moveAckToFrame experimentHash result =
+    { experimentHash
+    , game: result.game
+    , chosenColumn: result.chosenColumn
+    , legalMoves: result.legalMoves
+    , visitCounts: result.visitCounts
+    , policyPriors: result.policyPriors
+    , valueEstimate: result.valueEstimate
+    , gameOver: result.gameOver
+    , transcriptId: result.transcriptId
+    }
 
   renderError state =
     case state.lastError of

@@ -9,8 +9,10 @@ module Panels.GenericInference where
 import Prelude
 
 import Chrome.Header as Header
+import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Data.Maybe as Maybe
+import Data.Number as Number
 import Effect.Aff (Aff)
 import Effect.Aff.Class (class MonadAff)
 import Generated.Contracts as Contracts
@@ -31,10 +33,12 @@ type State =
   { lastResponse :: Maybe GenericInferenceResponse
   , pendingInference :: Boolean
   , lastError :: Maybe String
+  , inputText :: Array String
   }
 
 data Action
   = Initialize
+  | SetInput Int String
   | RunInference
   | RunAck String
   | FrameText String
@@ -47,8 +51,8 @@ panelName = "generic-inference-lab"
 defaultExperimentHash :: String
 defaultExperimentHash = "generic-tensor-demo"
 
-defaultInput :: Array Number
-defaultInput = [ 0.25, -0.5, 1.0, 2.0 ]
+defaultInputText :: Array String
+defaultInputText = [ "0.25", "-0.5", "1.0", "2.0" ]
 
 renderRequest :: Array Number -> GenericInferenceRequest
 renderRequest input =
@@ -62,6 +66,7 @@ initialState =
   { lastResponse: Nothing
   , pendingInference: false
   , lastError: Nothing
+  , inputText: defaultInputText
   }
 
 component :: forall query input output m. MonadAff m => H.Component query input output m
@@ -75,16 +80,29 @@ component =
   handleAction = case _ of
     Initialize ->
       subscribeStream "/api/ws/inference" FrameText InferenceFailed
+    SetInput index value ->
+      H.modify_
+        ( \s ->
+            s
+              { inputText =
+                  Maybe.fromMaybe s.inputText (Array.updateAt index value s.inputText)
+              }
+        )
     RunInference -> do
+      state <- H.get
       H.modify_ (_ { pendingInference = true, lastError = Nothing })
       requestText
         "POST"
         "/api/inference/generic"
-        (Contracts.renderBrowserGenericInferenceRequest panelName defaultExperimentHash defaultInput)
+        (Contracts.renderBrowserGenericInferenceRequest panelName defaultExperimentHash (genericInput state))
         RunAck
         InferenceFailed
-    RunAck _ ->
-      pure unit
+    RunAck payload ->
+      case Contracts.parseGenericInferenceResult payload of
+        Just result | result.experimentHash == defaultExperimentHash ->
+          handleAction (InferenceReceived (genericAckToDecoded result))
+        _ ->
+          pure unit
     FrameText payload ->
       case Contracts.fieldValue "experiment-hash" payload of
         Just hash | hash == defaultExperimentHash ->
@@ -116,7 +134,7 @@ component =
       , HH.h2_ [ HH.text "Generic tensor inference" ]
       , HH.div
           [ HP.id (panelName <> "-input") ]
-          [ HH.text ("input " <> show defaultInput) ]
+          (Array.mapWithIndex renderInput state.inputText)
       , HH.button
           [ HP.id (panelName <> "-submit")
           , HP.disabled state.pendingInference
@@ -145,6 +163,31 @@ component =
 
   renderOutputValue value =
     HH.li_ [ HH.text (show value) ]
+
+  renderInput index value =
+    HH.input
+      [ HP.id (panelName <> "-input-" <> show index)
+      , HP.type_ HP.InputText
+      , HP.value value
+      , HE.onValueInput (SetInput index)
+      ]
+
+  genericInput state =
+    map parseNumber state.inputText
+
+  parseNumber raw =
+    Maybe.fromMaybe 0.0 (Number.fromString raw)
+
+  genericAckToDecoded result =
+    { kind: "GenericInferenceResult"
+    , topClass: 0
+    , confidence: 0.0
+    , probabilities: []
+    , labels: []
+    , values: []
+    , value: 0.0
+    , output: result.output
+    }
 
   renderError state =
     case state.lastError of

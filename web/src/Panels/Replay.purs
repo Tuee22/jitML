@@ -97,8 +97,10 @@ component =
         )
         LoadAck
         ReplayFailed
-    LoadAck _ ->
-      pure unit
+    LoadAck payload ->
+      case Contracts.parseTranscriptReplay payload of
+        Just frame -> handleAction (ReplayReceived frame)
+        Nothing -> pure unit
     FrameText payload ->
       case Contracts.parseTranscriptReplay payload of
         Just frame -> handleAction (ReplayReceived frame)

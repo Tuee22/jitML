@@ -40,6 +40,12 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-06-26 — real-SL/RL chain re-closed; ledger empty.** The final real-SL/RL
+rows are `Completed`, and Phase `18` Sprint `18.3` re-met Exit Definition item
+18 with the live `linux-cpu` aggregation (`jitml test all --live --linux-cpu`
+8/8, all report-card metrics populated, browser product matrix 8/8) plus final
+`jitml check-code` and `jitml docs check` gates.
+
 **2026-06-14 — no-caveat end-to-end product target (reopened; ledger
 non-empty).** The product bar is now explicit: every supported SL/RL/AlphaZero
 / tuning workflow must run end to end with real training, checkpointing,
@@ -217,36 +223,22 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-06-24): reopened for the real-SL/RL refactor — Pending Removal
-carries 3 rows, so Exit Definition item 18 is again open (re-mets on Phase 18 Sprint
-`18.3`'s re-aggregation).** The real-SL/RL refactor (Phases 8/9/10/13/14/18) supersedes
-the hardcoded-weight + faked-metric stand-ins, each owned by its reopened sprint and
-moving to `Completed` once the replacement is verified in the worktree (standards rule I).
-**Two rows moved to `Completed` on 2026-06-24** when Sprints `8.13` and `9.13` re-closed
-on both lanes (`jitml-sl-canonicals` --apple-silicon 24/24 + --linux-cpu 24/24;
-`jitml-rl-canonicals` --apple-silicon 31/31 + --linux-cpu 31/31; `docs check` +
-`check-code` green): the **faked SL loss** (`1 − accuracy`; replaced with real
-cross-entropy/MSE + held-out validation loss in the SL runners + both training-event
-publishers, by Sprint `8.13`) and the **synthetic RL convergence probe**
-(`literatureTarget ± slack`; replaced with `assertMeasuredMedianConvergence` +
-`assertAlphaZeroArenaConvergence`, by Sprint `9.13`). The **synthetic `demoWeights` ramp**
-is removed in the worktree (Sprint `10.9` → `seededDemoCheckpoints`; grep-clean + e2e
-23/23) but its row stays Pending until `10.9`'s live family-distinct `jitml inference run`
-proof runs in Sprint `13.2`. The two demo-forward / panel-input rows (Phase 14 Sprint
-`14.3`) are not yet replaced. The durable-state DSL closure stands (its rows `Completed`):
-Phase 2 Sprint `2.15` shipped the closed `jitml.dhall` registry + `jitml project init`;
-Phase 4 Sprint `4.9` retired the hand-written `bucketNames :: [Text]` literal; Phase 5
-Sprint `5.15` reconciled the Pulsar topic family; Phase 10 Sprint `10.8` retired the
-`LastN 5` retention literal. (Sprints `8.13`/`9.13` additionally cleared 3 stale committed
-`hlint` hints + tree-wide `fourmolu` drift left by the durable-state closure, restoring an
-actually-green container `check-code` gate.) The 2026-06-15 no-caveat product-audit rows
-remain `Completed` (below).
+**Current state (2026-06-26): Pending Removal is empty again.** The real-SL/RL
+refactor rows have all moved to `Completed` after their owning sprints re-closed:
+Sprints `8.13`/`9.13` replaced the faked SL loss and synthetic RL convergence
+probe, Sprint `10.9` replaced the synthetic `demoWeights` ramp, and Sprint `14.3`
+replaced the single fixed-vector Dense2D demo forward plus constant browser panel
+inputs. Exit Definition item 18 was re-met by Phase `18.3`'s final aggregation. The
+durable-state DSL closure stands (its rows `Completed`): Phase 2 Sprint `2.15`
+shipped the closed `jitml.dhall` registry + `jitml project init`; Phase 4 Sprint
+`4.9` retired the hand-written `bucketNames :: [Text]` literal; Phase 5 Sprint
+`5.15` reconciled the Pulsar topic family; Phase 10 Sprint `10.8` retired the
+`LastN 5` retention literal. The 2026-06-15 no-caveat product-audit rows remain
+`Completed` (below).
 
 | Stand-in / dead code to delete | Location | Reason (rule I / L) | Owning sprint | Worktree status |
 |---|---|---|---|---|
-| Synthetic `demoWeights` ramp (byte-identical across all 5 seeds) | `src/JitML/App.hs` (`runInternalSeedDemoCheckpoints`) | rule L: superseded by real trained, provenance-tagged, self-describing demo checkpoints | Phase 10 Sprint `10.9` | **Removed** — replaced by `seededDemoCheckpoints`; grep-clean + the `jitml-unit` distinctness/self-describing case + e2e 23/23. Row → `Completed` on Phase 10's own `linux-cpu` live `jitml inference run` proof. |
-| Single fixed-vector Dense2D demo forward (collapses every family; output width = input length) | `src/JitML/App.hs` + `src/JitML/Engines/Local.hs:170-188` (`runLinuxCpuWeightedCheckpointInference` hardcodes `Dense2D`) | rule L: superseded by the real multi-layer MLP forward (`Codegen/Mlp{OneDnn,Cuda,Metal}.hs`) | Phase 14 Sprint `14.3` | Pending — not yet replaced. |
-| Constant panel inputs (ignore user input) | `web/src/Panels/{Mnist,Cifar}.purs` (`[1.0,2.0]`) + `{GenericInference,CheckpointCompare}.purs` (`[0.25,-0.5,1.0,2.0]`) | rule L: superseded by the drawn-canvas / uploaded-image request | Phase 14 Sprint `14.3` | Pending — not yet replaced. |
+| None. | N/A | Pending Removal is empty. | N/A | N/A |
 
 New rows are enqueued here only when a sprint introduces or discovers a
 doctrine deviation or temporary stand-in (per standards rule I / L).
@@ -343,6 +335,9 @@ explicitly schedules their deletion.
 |------|------------|-------|
 | Faked SL loss (`1 − accuracy`; `ecValidationLoss = finalLoss`) | Sprint `8.13` (2026-06-24) | The SL training runners (`runDeviceMnistTrainingWithLimits`, `runDeviceArchiveClassifierTraining`, `runDeviceCaliforniaHousingTraining`) and both training-event publishers (`publishWorkerTrainingEvent`, `publishTrainingEpoch`) in `src/JitML/App.hs` now publish a real mean softmax cross-entropy / MSE training loss (`crossEntropyArchitectureWithDevice` / `meanSquaredErrorWithDevice`) and a distinct real held-out **validation** loss from the carved validation partition (`splitTrainValidation` + `trainArchitectureWithDeviceSelected`'s lowest-validation-loss selection). Validation: `jitml-sl-canonicals` --apple-silicon 24/24 (real Metal device) + --linux-cpu 24/24 (real oneDNN), `docs check` + `check-code` green. |
 | Synthetic RL convergence probes (`literatureTarget ± slack`) | Sprint `9.13` (2026-06-24) | Removed `assertConvergencePredicate` (which fed the literature target in as if measured) from `test/rl-canonicals/Main.hs`; replaced with `assertMeasuredMedianConvergence` (real `trainPpoOnCartpole` over k seeds → measured median through the production `passesConvergence`, plus the env-steps-to-threshold sample-efficiency metric) and `assertAlphaZeroArenaConvergence` (real self-play → arena win-rate through the new typed `AlphaZeroArenaThreshold` / `passesAlphaZeroArena` in `src/JitML/RL/ConvergenceThresholds.hs`); a pure `assertPassesConvergenceBoundary` keeps the predicate unit test. Validation: `jitml-rl-canonicals` --apple-silicon 31/31 + --linux-cpu 31/31, `check-code` green. |
+| Synthetic `demoWeights` ramp (byte-identical across all 5 seeds) | Sprint `10.9` (2026-06-25) | Removed the hardcoded `demoWeights = [0.05 + ((i*7+3) mod 11)/20 | i in 0..255]` ramp from `runInternalSeedDemoCheckpoints`; replaced it with `seededDemoCheckpoints`, one distinct real-trained, provenance-tagged, self-describing checkpoint per demo family (per-layer `W1`/`b1`/`W2`/`b2` tensor shapes + class-count output spec). Validation: grep-clean, the `jitml-unit` "demo checkpoints (Sprint 10.9)" distinctness/self-describing case, `jitml-e2e` 23/23, `check-code` green in the rebuilt `jitml:local` image, and a live `linux-cpu` proof: 109-step bootstrap, `jitml internal seed-demo-checkpoints`, then sequential `jitml inference run` for `mnist-deep-mlp`, `generic-tensor-demo`, `generic-tensor-demo-candidate`, `cifar-imagenet`, and `connect4-alphazero`, all returning family-distinct outputs. |
+| Single fixed-vector Dense2D demo forward (collapses every family; output width = input length) | Sprint `14.3` (2026-06-26) | The demo checkpoint runtime now detects self-describing `W1`/`b1`/`W2`/`b2` checkpoint tensors and routes them through the real substrate MLP forward on `oneDNN`, CUDA, or Metal (`JitML.Engines.MlpCheckpoint`, `Local`, `CudaLocal`, `MetalLocal`) before trimming to the semantic output width. The seeded demo set expanded to eight trained, typed checkpoints (`mnist-deep-mlp`, `generic-tensor-demo`, `generic-tensor-demo-candidate`, `cifar-imagenet`, `connect4-alphazero`, `othello-alphazero`, `hex-alphazero`, `gomoku-alphazero`). Validation: `jitml-unit` 222/222, `spago test` 17/17, `jitml check-code: ok`, `docker compose build jitml` green (embedded `check-code` + PureScript warnings/errors 0/0), live endpoint probes returned full-width outputs (`MNIST` 10, image top-k 10, generic 3, compare 3/3, adversarial move + replay), and live Playwright passed 15/15. |
+| Constant panel inputs (ignore user input) | Sprint `14.3` (2026-06-26) | The PureScript panels now send user-derived input: MNIST uses the ink control to fill the 784-value request, CIFAR/ImageNet uses upload token state with a 3072-value request, generic inference and checkpoint compare use panel numeric inputs, and adversarial selectors submit the selected game/checkpoint hash. POST ack handlers parse full Engine-backed result frames directly, removing the websocket race that previously left empty output lists. Validation is shared with the Sprint `14.3` row above: unit 222/222, web tests 17/17, image build green, direct live POST probes with non-empty outputs, and Playwright 15/15. |
 | Stale committed `hlint` hints + tree-wide `fourmolu` drift (durable-state DSL closure residue) | Sprints `8.13`/`9.13` (2026-06-24) | The container `check-code` gate (fourmolu + hlint + `cabal build all -Werror` + cabal format) was red on **committed** code: 3 stale `hlint` hints (`Project/Config.hs` eta-reduce, `Storage/Buckets.hs` unused `OverloadedStrings`, `DurableStateTopology.hs` use-`void`) and `fourmolu` drift in `CLI/Spec.hs` / `Project/Config.hs`. All fixed (8 hlint hints total + `fourmolu --mode inplace` over `src`/`app`/`test`, pinned `fourmolu-0.19.0.1`); the `jitml:local` image now builds with `check-code` green again. |
 | Incomplete visualization and replay renderers (transcript-backed adversarial replay) | `web/src/Panels/Replay.purs` (new), `web/src/Panels/Connect4.purs`, `src/JitML/Service/Transcript.hs` (new), `src/JitML/Service/Workload.hs` | Sprint `14.1` (2026-06-23) | The adversarial replay is now **transcript-backed from recorded engine transcripts**: the Engine persists every adversarial game's full move sequence + analysis to the `jitml-transcripts` MinIO bucket (content-addressed CBOR, `JitML.Service.Transcript`), keying the result frame to the **real** MinIO object key (the synthesized fallback is used only if the write genuinely fails); a `LoadTranscriptCommand` Engine workflow reads it back and publishes a `TranscriptReplay` frame; and `web/src/Panels/Replay.purs` scrubs the persisted moves move-by-move (reusing the Connect4 board reconstruction). The Connect4 panel surfaces the real transcript id at `#connect4-human-vs-alphazero-transcript`. **Live-validated:** `linux-cpu` Playwright "transcript replay scrubs a persisted adversarial game" passes (the persisted object is confirmed in MinIO). A robustness fix makes a missing/unreadable transcript publish an empty reply (ack) rather than NACK-retry forever. |
 | Browser product-contract expansion gap (checkpoint browse + workflow-state reconciliation) | `src/JitML/Web/Contracts.hs`, `web/src/Generated/Contracts.purs`, `web/src/Panels/{Checkpoints,Workflow}.purs` (new), `src/JitML/Service/{Workload,WorkflowStatus}.hs` | Sprint `14.1` (2026-06-23) | The generated contract surface now covers the no-caveat product instead of route-only/published-ack placeholders: **checkpoint browse** is a real `ListCheckpoints` Engine workflow (`CheckpointList`/`CheckpointSummary` contracts → lists the seeded checkpoints from MinIO via `listCheckpointManifestsMinIO` → `Checkpoints.purs` panel), and **live-backed workflow-state reconciliation** publishes reconciled `WorkflowStatus` frames to `workflow.status.<substrate>` from the Engine's command-lifecycle projector (`JitML.Service.WorkflowStatus`), bridged to the browser over a new `/api/ws/workflow` and rendered live by `Workflow.purs`. **Live-validated:** `linux-cpu` Playwright "checkpoint browse panel lists seeded checkpoints" and "workflow status panel renders a live status table" pass. Validation across both rows (host-native + live): `cabal build --ghc-options=-Werror` clean, `jitml lint haskell`/`lint purescript`/`docs check` ok, `jitml-unit` 209 + `jitml-e2e` 23 + `jitml-daemon-lifecycle` 32, in-image `check-code` ok, and the full `linux-cpu` Playwright matrix **14/14** (exit 0). |
