@@ -122,7 +122,7 @@ baseline that solves from plain Hackage.
 ## Sprint 1.1: Toolchain Pin and Library-First Cabal Project ✅
 
 **Status**: Done
-**Implementation**: `jitml.cabal`, `cabal.project`, `app/Main.hs`, `app/Demo.hs`,
+**Implementation**: `jitml.cabal`, `cabal.project`, `app/Main.hs`,
 `src/JitML/App.hs`, `.gitignore`, `.dockerignore`
 **Docs to update**: `documents/engineering/cli_command_surface.md`,
 `documents/engineering/code_quality.md`,
@@ -131,15 +131,17 @@ baseline that solves from plain Hackage.
 ### Objective
 
 Pin GHC `9.12.4` and Cabal `3.16.1.0` in the cabal manifest and project files,
-declare both `jitml` and `jitml-demo` executables as six-line shims into
-`App.main`, and lay down the library-first source tree with the standardized
-library set per doctrine `Overview → standardized stack`.
+declare the `jitml` executable as a thin shim into `App.main`, and lay down the
+library-first source tree with the standardized library set per doctrine
+`Overview → standardized stack`. The former `jitml-demo` executable shim was
+retired by Phase `11` Sprint `11.10`; the demo workload now runs the Webapp role
+through `jitml service`.
 
 ### Deliverables
 
 - `jitml.cabal` declares `cabal-version: 3.16`, `tested-with: ghc ==9.12.4`, the
-  `jitml` library exposing `src/JitML/`, the two executables `jitml` and
-  `jitml-demo` as six-line shims into `App.main`, and the ten test-suite stanzas
+  `jitml` library exposing `src/JitML/`, the `jitml` executable as a thin shim
+  into `App.main`, and the eight test-suite stanzas
   named in [system-components.md → Test
   Stanzas](system-components.md#test-stanzas) (each `type: exitcode-stdio-1.0`).
 - `cabal.project` declares `with-compiler: ghc-9.12.4`, records codegen-toolchain
@@ -149,10 +151,9 @@ library set per doctrine `Overview → standardized stack`.
 - `cabal.project` carries no `allow-newer` override, no source-repository
   package pins, and no local dependency packages. The GHC `9.12.4` /
   `base-4.21` package set solves from plain Hackage.
-- `app/Main.hs` and `app/Demo.hs` are six-line shims into `App.main` and
-  `App.demoMain`. No business logic in `app/`.
-- `src/JitML/App.hs` exports `main` and `demoMain` and is the single composition
-  root for the CLI runner per doctrine
+- `app/Main.hs` is a six-line shim into `App.main`. No business logic in `app/`.
+- `src/JitML/App.hs` exports `main` and is the single composition
+  root for the CLI runner and role dispatch per doctrine
   [§Project Structure](../README.md).
 - The standardized library set is declared in `jitml.cabal`'s
   `library.build-depends`: `optparse-applicative`, `text`, `bytestring`, `aeson`,
@@ -169,8 +170,8 @@ library set per doctrine `Overview → standardized stack`.
 
 ### Validation
 
-1. `cabal build all` builds the `jitml` and `jitml-demo` shells under GHC
-   `9.12.4`.
+1. `cabal build all` builds the one supported `jitml` executable under GHC
+   `9.12.4`; the Webapp is selected by `BootConfig.activeRole = Webapp`.
 2. `cabal test all` runs the eight declared test stanzas; Phase `12` now supplies the
    dedicated deterministic bodies.
 3. `grep '^tested-with' jitml.cabal` returns `tested-with:   ghc ==9.12.4`.

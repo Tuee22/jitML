@@ -36,9 +36,10 @@ attached GPU), `jitml test jitml-e2e --linux-cuda` 23/23, `docs check`,
 `check-code`, the live `linux-cuda` report card with every runtime measurement,
 and the live Playwright product matrix 11/11 on the `linux-cuda` edge. Closing the
 lane fixed the stale `jitml-unit` registry golden, the `jitml-demo` `linux-cuda`
-GPU/memory defect (demo pod now carries `runtimeClassName: nvidia` + a 4Gi budget
-for the in-process `nvcc` JIT compile), and the `measureBrowserProductMatrix`
-report-card stub. The committed per-lane fragment is
+scheduling envelope (the Webapp chart still carries the live-validated
+`runtimeClassName: nvidia` + 4Gi budget on that lane, while current Webapp compute
+is publish-only and CUDA execution remains Engine-owned), and the
+`measureBrowserProductMatrix` report-card stub. The committed per-lane fragment is
 [attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md).
 
 ✅ **Historical closure** (re-closed 2026-06-11 on the CUDA machine after the real-workflow
@@ -562,8 +563,9 @@ partial live)**:
 - Sprint `15.7` `gc_reaped` Pulsar event publication:
   `JitML.Proto.Gc.GcReapedEvent` envelope with text + proto3 byte
   codecs, `gc.event.<substrate>` topic added to
-  `JitML.Cluster.PulsarBootstrap.substrateTopics` (topic family
-  grew 26 → 29), `JitML.App.publishGcReapedEvents` wired into
+  the derived `JitML.Cluster.PulsarBootstrap.pulsarTopics` family
+  (historically 26 → 29 before later Apple host-command additions brought the
+  current derived family to 31), `JitML.App.publishGcReapedEvents` wired into
   `runInternalGc` after the live reaper, 4 new `jitml-unit`
   envelope round-trip tests.
 - Sprint `15.12` typed inference `AppError` variants:
@@ -594,9 +596,10 @@ to topics in loaded bundles, as documented on 2026-05-25); the 8
 apple-silicon non-internal topics are loaded but
 not in the listed bundles, confirmed by `pulsar-admin topics create
 persistent://public/default/training.command.apple-silicon` returning
-`HTTP 409 "This topic already exists"`. The expanded 29-topic family
-including the 3 new `gc.event.<substrate>` entries is therefore
-present after rollout — the retry-loop fix in
+  `HTTP 409 "This topic already exists"`. The then-expanded 29-topic family
+  including the 3 new `gc.event.<substrate>` entries was therefore present after
+  rollout; the current topology later grows to 31 topics via Apple host-command
+  additions. The retry-loop fix in
 `pulsarTopicCreateSubprocess` re-validated. The full `Live` cohort of
 `jitml-integration` (9 cases) passes against the cluster:
 
@@ -960,17 +963,17 @@ NVIDIA container toolkit (`nvidia-container-runtime`, `libnvidia-ml.so.1`,
   bootstrap's `pulsarTopicCreateSubprocess` shell script has been
   updated in the worktree (5-attempt retry loop with 2-second backoff,
   `HTTP code: 409` / "already exists" treated as success). After the
-  fix, a fresh bootstrap landed all 26 topics — confirmed by
+  fix, a fresh bootstrap landed all then-current 26 topics — confirmed by
   `pulsar-admin topics create <topic>` returning `HTTP 409 "This topic
   already exists"` for every expected topic. Note: `pulsar-admin
-  topics list public/default` returns only 23 of 26 entries on this
+  topics list public/default` returned only 23 of those 26 entries on this
   cluster (the broker's list endpoint truncates to topics in loaded
   bundles); `pulsar-admin topics stats <topic>` confirms each of the
-  three "missing-from-list" topics — `inference.command.apple-silicon`,
-  `inference.event.apple-silicon`, `inference.result.linux-cuda` —
-  exists with `ownerBroker = pulsar-broker-0`. The list-truncation
-  quirk is a pulsar-admin display issue; topic existence is not in
-  doubt.
+  three "missing-from-list" topics from that historical family —
+  `inference.command.apple-silicon`, `inference.event.apple-silicon`,
+  `inference.result.linux-cuda` — existed with `ownerBroker =
+  pulsar-broker-0`. The current topology has removed the Apple `inference.event`
+  refs-RPC topic and derives 31 topics.
 - Teardown: `jitml cluster down` (typed `Helm.kindDeleteSubprocess`)
   exited `0` with the message
   `cluster down: jitml-linux-cuda deleted; ./.build and ./.data
@@ -996,11 +999,11 @@ The ephemeral-cluster e2e orchestration is the `jitml bootstrap` +
 Kind renderer (`JitML.Cluster.Kind.kindConfigForEdgePort`) uses the
 substrate-default cluster name (`substrateClusterName`).
 
-### Live Validation Note (2026-05-28 — full rollout + 29-topic family)
+### Live Validation Note (2026-05-28 — full rollout + then-current 29-topic family)
 
 Re-validated against a fresh `jitml bootstrap --linux-cuda` on the
 RTX 3090 / CUDA 12.8 host: all 113 phased steps completed, all 7
-publication components Ready on edge port 9092, and the 29-topic
+publication components Ready on edge port 9092, and the then-current 29-topic
 substrate-scoped Pulsar family registered (the `pulsarTopicCreateSubprocess`
 5-attempt retry loop landed every topic; `pulsar-admin topics create`
 returns `HTTP 409 "already exists"` for each). `jitml cluster down`
@@ -2128,9 +2131,10 @@ the typed `Subprocess` boundary, asserts the stdout reports
   proto3-compatible byte codecs sharing `JitML.Proto.Wire`.
 - `JitML.Proto.Gc.gcEventTopic Substrate` returns
   `persistent://public/default/gc.event.<substrate>`; the matching
-  topic is registered in `JitML.Cluster.PulsarBootstrap.substrateTopics`
-  alongside the existing 8 substrate-scoped topics (the topic family
-  size grew from 26 to 29: 9 × 3 substrates + 2 apple-only internal).
+  topic is registered in the derived `JitML.Cluster.PulsarBootstrap.pulsarTopics`
+  family. At that checkpoint the topic family size grew from 26 to 29
+  (`gc.event.<substrate>` added); later Apple host-command additions brought the
+  current topology to 31.
 - `proto/jitml/gc.proto` describes the same envelope for cross-binding
   use through `proto-lens`.
 - `JitML.App.runInternalGc` now invokes
@@ -2147,10 +2151,11 @@ the typed `Subprocess` boundary, asserts the stdout reports
   (Sprint 15.7)" group covering the substrate-scoped topic name, the
   proto3 byte round-trip, the text render/parse round-trip, and the
   empty-blobs degenerate case (107/107 unit tests pass).
-- `jitml-integration` updates the "Pulsar bootstrap registers the
-  substrate-scoped topic family" assertion to `length topics @?= 29`
-  with the three new `gc.event.<substrate>` entries (47/47 non-Live
-  integration tests pass).
+- `jitml-integration` updated the "Pulsar bootstrap registers the
+  substrate-scoped topic family" assertion to the then-current 29 topics with
+  the three new `gc.event.<substrate>` entries (47/47 non-Live integration
+  tests passed). The current assertion is 31 topics after the host-command
+  additions.
 
 ### Live Validation Note (2026-05-26, gc.event publish stream)
 
@@ -4168,10 +4173,11 @@ satisfying standards rule M's single-accelerator-per-phase invariant.
 - **Browser product matrix `11/11` on the `linux-cuda` edge.** The five
   checkpoint-backed panels (MNIST inference, generic inference, CIFAR upload,
   checkpoint compare, Connect-4 move) initially failed `503 runtime unavailable:
-  libcuda=no` because the `jitml-demo` pod had no GPU on `linux-cuda` and its
-  256Mi limit OOM-killed the in-process `nvcc` JIT compile. Fixed in
-  `chart/local/jitml-demo/templates/deployment.yaml` (adds `runtimeClassName:
-  nvidia`, the NVIDIA env, and a 4Gi/2-CPU budget on `linux-cuda`); after
+  libcuda=no` under the older checkpoint-runtime Webapp shape because the
+  `jitml-demo` pod had no GPU on `linux-cuda` and its 256Mi limit could not support
+  that path. Fixed in `chart/local/jitml-demo/templates/deployment.yaml` (adds
+  `runtimeClassName: nvidia`, the NVIDIA env, and a 4Gi/2-CPU budget on
+  `linux-cuda`); after
   `jitml internal seed-demo-checkpoints`, all five panels serve real
   checkpoint-backed results and the live Playwright spec passes **11/11**.
 - **Real defects fixed (all in the worktree):** the `jitml-unit` registry golden

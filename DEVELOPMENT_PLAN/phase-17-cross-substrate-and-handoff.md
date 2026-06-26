@@ -309,9 +309,10 @@ authoritatively encode whichever substrate ran the calibration first.
 
 ### Validation
 
-1. `docker compose run --rm jitml cabal test -fcuda jitml-cross-backend --test-options='-p CrossSubstrate'`
-   exits `0`, with per-tensor drift fitting the in-code per-layer-family
-   tolerance band for every locally runnable substrate pair.
+1. Historical CUDA-enabled cross-backend stanza evidence exited `0`, with
+   per-tensor drift fitting the in-code per-layer-family tolerance band for
+   every locally runnable substrate pair. This superseded parity gate is not a
+   current Phase `17` aggregation command.
 2. A controlled regression — perturbing one substrate's output by more
    than the in-code tolerance band — fails the assertion.
 3. `jitml verify cross-backend --compare <linux-report>,<apple-report>`
@@ -504,10 +505,10 @@ Closes Exit Definition item 9's live report-card slice.
    with only the then-existing PureScript test-runner warning. Reopened
    Phase `11` Sprint `11.3` retired that warning on 2026-06-04 by switching
    the smoke suite to `spec-node`.
-6. A live Apple Silicon bootstrap/report-card attempt on 2026-06-03
-   used the rebuilt `jitml:local` image with host networking and a
-   repo-local Cabal build directory:
-   `docker run --rm --name jitml-phase15-live --network host -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:$PWD" -w "$PWD" jitml:local sh -lc 'mkdir -p /tmp/jitml-cache && export XDG_CACHE_HOME=/tmp/jitml-cache && cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- bootstrap --apple-silicon && cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- test all --live'`.
+6. A historical live Apple Silicon bootstrap/report-card attempt on
+   2026-06-03 used the rebuilt `jitml:local` image with host networking and a
+   repo-local Cabal build directory. It is retained here as dated per-lane
+   evidence, not as a current Phase `17` aggregation command.
    Bootstrap completed and reported `bootstrap: live phased rollout
    executed 85 steps`; the generated
    `.build/runtime/cluster-publication.json` reported Harbor, MinIO,
@@ -541,8 +542,8 @@ Closes Exit Definition item 9's live report-card slice.
     steps, wrote a ready publication, and `/healthz` returned `200 ok`.
     Focused `jitml-integration` live reruns passed 19 / 19 before the
     aggregate was rerun.
-11. `docker run --rm --name jitml-report-card --network host -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:$PWD" -w "$PWD" jitml:local cabal --builddir=.build/live-cabal run -fcuda exe:jitml -- test all --live`
-    exited `0` on 2026-06-04. All report stanzas passed:
+11. The historical host-networked live report-card run exited `0` on
+    2026-06-04. All report stanzas passed:
     `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`,
     `jitml-rl-canonicals`, `jitml-hyperparameter`,
     `jitml-cross-backend`, `jitml-daemon-lifecycle`, and `jitml-e2e`.
@@ -870,7 +871,7 @@ execution, and restoring the final-handoff state.
 
 ### Validation
 
-- `bootstrap/apple-silicon.sh test` passed after Sprint `16.10`; all eight
+- The Phase `16` Apple-Silicon lane test passed after Sprint `16.10`; all eight
   report stanzas rendered PASS, including `jitml-integration` **71 / 71** and
   `jitml-backends` **17 / 17**.
 - Focused `linux-cpu` live dispatch/convergence selectors passed during Sprint

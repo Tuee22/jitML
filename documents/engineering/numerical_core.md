@@ -32,9 +32,9 @@ metadata surface. The implementation source is
 `schedulerCatalog`, `lossCatalog`, and `renderNumericalCatalog`.
 
 The current schema mirror is a constructor-name audit, not a full parameterized
-model schema. The target runtime keeps the same ownership model but adds richer
-parameterized constructors and typed records for layer shapes, optimizer
-hyperparameters, scheduler parameters, and loss parameters.
+model schema. Future schema extensions should keep the same ownership model and
+add richer parameterized constructors and typed records for layer shapes,
+optimizer hyperparameters, scheduler parameters, and loss parameters.
 
 ## Layers
 
@@ -123,7 +123,7 @@ Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
 
 Owning module today: `src/JitML/Numerics/Catalog.hs`; Dhall mirror:
 `dhall/numerics/Optimizer.dhall`. Separate optimizer modules and parameterized
-records remain target work.
+records are future extension work beyond the current catalog mirror.
 
 ## Schedulers
 

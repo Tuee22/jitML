@@ -399,8 +399,8 @@ command materializes bootstrap inputs only.
   `9.12.4`, Cabal `3.16.1.0`, GCC/G++, LLVM, Docker CLI, Node.js/npm, Python,
   Poetry, PureScript, spago, architecture-aware `kubectl` / `kind`, `helm`,
   CUDA/NVCC/cuBLAS/cuDNN, oneDNN, and the Sprint `1.4`
-  style-tools/code-quality image gate, then installs the `jitml` and
-  `jitml-demo` executables into `/usr/local/bin`.
+  style-tools/code-quality image gate, then installs the `jitml` executable into
+  `/usr/local/bin`.
 - `compose.yaml` declares the shared `jitml:local` image/build/mount/network
   shape once, exposes it as the default headless `jitml` service, and adds a
   `jitml-cuda` companion with `gpus: all` for direct live CUDA tests. Both
@@ -413,9 +413,9 @@ command materializes bootstrap inputs only.
   automatically when needed.
 - Current `jitml bootstrap --<substrate>` materializes the repo-local bootstrap
   files and reports no-op materialization with exit code `3`. The live Phase `3`
-  apply path builds `jitml:local` / `jitml-demo:local` and loads those tags
-  explicitly into Kind; live Harbor image push/pull is owned by the Phase `4`
-  platform-service and Phase `5` daemon capability work.
+  apply path builds `jitml:local`, retags it as `jitml-demo:local`, and loads
+  those tags explicitly into Kind; live Harbor image push/pull is owned by the
+  Phase `4` platform-service and Phase `5` daemon capability work.
 - Current `jitml build --dry-run` renders `/opt/build/jitml`, selected tuning
   metadata, engine metadata, generated-source locations, and the typed compile
   subprocess for the selected substrate. Non-dry-run `jitml build` now routes
@@ -513,8 +513,9 @@ status presentation.
 
 ### Validation
 
-- `bash -n bootstrap/_lib.sh bootstrap/apple-silicon.sh
-  bootstrap/linux-cpu.sh bootstrap/linux-cuda.sh` exits `0`.
+- `bash -n bootstrap/_lib.sh bootstrap/apple-silicon.sh` exits `0`.
+- `bash -n bootstrap/_lib.sh bootstrap/linux-cpu.sh` exits `0`.
+- `bash -n bootstrap/_lib.sh bootstrap/linux-cuda.sh` exits `0`.
 - `bootstrap/apple-silicon.sh status` reads
   `./.build/runtime/cluster-publication.json`.
 - Cabal test stanzas cover the registered test and script surfaces.

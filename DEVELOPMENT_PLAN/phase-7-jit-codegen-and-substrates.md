@@ -16,7 +16,7 @@
 > oneDNN C++, CUDA), the engine ABI between the Haskell daemon and the
 > substrate-specific kernels, the content-addressed cache key inputs from the
 > numerical core, the Apple Silicon hybrid pattern (host daemon + fixed Metal
-> bridge + cluster RPC envelope), and the hardware auto-tuning surface that
+> bridge + raw-payload forwarding topic), and the hardware auto-tuning surface that
 > preserves the per-substrate determinism contract.
 
 ## Phase Status
@@ -115,11 +115,10 @@ buffers, launches the deterministic device kernel, synchronizes, and copies
 outputs back to the host. `JitML.Engines.CudaRuntime` mirrors that launch
 geometry to validate partial counts and fold CUDA reduction partials on the
 host in canonical index order.
-The generated Apple Swift package now exports the same
-`jitml_kernel_family_name` metadata symbol and
-`jitml_kernel_output_count` shape symbol; its reduction metadata reports the
-ceiling number of simdgroup partial outputs produced by the generated Metal
-kernel.
+The Apple renderer now writes `.metal.json` metadata carrying the rendered MSL,
+family name, output-count policy, bridge ABI, launch policy, and deterministic
+Metal options; the fixed bridge compiles and dispatches that source on the host
+GPU.
 `JitML.Engines.Local.runLinuxCpuFamilyKernel` now drives every generated
 Linux CPU oneDNN family kernel through the shared cache artifact loader and
 local FFI symbol boundary, including the exported
@@ -201,8 +200,8 @@ cache-miss path was replaced by fixed-bridge source metadata in Sprint `7.11`.
 Populate the local cache-key input surface and kernel-handle/cache-decision
 surface, and lock the cache key derivation over `KernelSpec`, `Kind`,
 `Substrate`, `ToolchainFingerprint`, `RuntimeSourcePayload`, and
-`TuningChoice`. General production FFI loading remains target runtime work; the
-local Linux CPU identity runner is owned by Sprint `7.3`.
+`TuningChoice`. Downstream runtime phases consume the generic FFI loading
+surface; the local Linux CPU identity runner is owned by Sprint `7.3`.
 
 ### Deliverables
 
@@ -221,8 +220,8 @@ local Linux CPU identity runner is owned by Sprint `7.3`.
   `KernelArtifact` with the chosen `KernelHandle`.
 - `JitML.Engines.Loader.withKernelSymbol` owns the reusable `dlopen`/`dlsym`
   helper used by the local Linux CPU FFI fixture.
-- The production `HasEngine` graph-launch capability remains target runtime
-  work.
+- The production `HasEngine` graph-launch capability is consumed and
+  validated by the later runtime and per-lane closure phases.
 
 ### Validation
 
@@ -256,9 +255,9 @@ shapes, deterministic launch envelope, and renderable build plan.
 - `KernelInputs`, `KernelOutputs`, and `EngineEnvelope` record the local launch
   ABI and reproducibility witness surface.
 - `renderEngineEnvelope` renders the envelope for deterministic inspection.
-- Full production non-CPU `HasEngine` graph execution remains target runtime
-  work; the local Linux CPU oneDNN primitive execution path is implemented in
-  `JitML.Engines.Local` and exposed through
+- Full production non-CPU `HasEngine` graph execution is validated by the
+  Linux-CUDA and Apple-Silicon closure phases; the local Linux CPU oneDNN
+  primitive execution path is implemented in `JitML.Engines.Local` and exposed through
   `JitML.Engines.HasEngine.LocalLinuxCpuEngine`.
 
 ### Validation
@@ -500,8 +499,8 @@ sections from [../README.md](../README.md).
   (`cuda-toolkit-12-8`) and matching cuDNN 9 dev headers
   (`libcudnn9-dev-cuda-12`), exposes `/usr/local/cuda/bin` /
   `/usr/local/cuda/lib64` on `PATH` / `LD_LIBRARY_PATH`, and runs
-  `cabal build -fcuda exe:jitml exe:jitml-demo` so the installed
-  `/usr/local/bin/jitml` binary carries the real cuBLAS/cuDNN bindings.
+  a CUDA-enabled build of `exe:jitml` so the installed `/usr/local/bin/jitml`
+  binary carries the real cuBLAS/cuDNN bindings.
 - `compose.yaml` keeps the default `jitml` service headless for code-quality,
   bootstrap, and non-GPU command runs, and exposes every host NVIDIA GPU to the
   `jitml-cuda` companion service via the modern `gpus: all` shorthand so live
@@ -578,118 +577,74 @@ sections from [../README.md](../README.md).
   [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md),
   not by Sprint `7.4`.
 
-## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Hybrid Host↔Cluster RPC Scaffolding ✅
+## Sprint 7.5: Apple Silicon Engine, Metal Codegen, Host Forwarding Scaffolding ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. Every live
 Apple-Silicon obligation (retired Tart provisioning, Metal FFI loading,
-host↔cluster Pulsar RPC, Apple Metal candidate runner, Apple Metal
-production weight loading) migrated to Phase `16`. See
+host↔cluster forwarding, Apple Metal candidate runner, Apple Metal production
+weight loading) migrated to Phase `16`. The early Swift-package and
+`AppleInferenceCommand`/`AppleInferenceEvent` refs-RPC scaffolds were later
+retired by Sprint `7.11` and Sprint `16.12`; the retained current surface is
+`.metal.json` source metadata, the fixed bridge, and raw inference-domain
+payload forwarding on `inference.command.apple-silicon`. See
 [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md).
 **Implementation**: `src/JitML/Engines/Engine.hs`,
 `src/JitML/Codegen/Metal.hs`, `src/JitML/Engines/MetalRuntime.hs`,
-`src/JitML/Engines/MetalLocal.hs`,
-`src/JitML/Service/AppleInferenceRpc.hs`
+`src/JitML/Engines/MetalBridge.hs`, `src/JitML/Engines/MetalLocal.hs`,
+`src/JitML/Service/Runtime.hs`, `src/JitML/Proto/Inference.hs`
 **Docs to update**: `documents/engineering/jit_codegen_architecture.md`,
 `documents/engineering/determinism_contract.md`,
 `documents/engineering/daemon_architecture.md`
 
 ### Objective
 
-Land the `apple-silicon` engine metadata, generated Swift/Metal package
-renderer, host CommandLineTools `swift build` cache-miss path, runtime
-`MTLDevice.makeLibrary(source:)` shader compilation, and Apple RPC topic names.
-The deleted Tart VM executor and `jitml internal vm` command group are no
-longer part of this surface.
+Land the `apple-silicon` engine metadata, Metal renderer, host runtime probe,
+fixed-bridge cache-miss shape, and Apple host-forwarding topic names. The
+deleted Tart VM executor, Swift package cache-miss path, `jitml internal vm`
+command group, and refs/event Apple RPC are no longer part of this surface.
 
 ### Deliverables
 
 - `engineForSubstrate AppleSilicon` records backend `metal` and artifact
-  extension `.dylib`.
-- `renderMetalPackage` emits `Package.swift` and
-  `Sources/JitMLMetal/JitMLMetal.swift`; the Swift source embeds the MSL string
-  instead of writing a separate `Kernels.metal` resource.
-- `compileSubprocess` renders host CommandLineTools `swift build
-  --package-path <generated-source-dir> -c release`; the generated Swift
-  launcher embeds the MSL source and compiles it at runtime with
-  `MTLDevice.makeLibrary(source:)` and fast-math disabled.
-- The route/topic documentation records `inference.command.apple-silicon` and
-  `inference.event.apple-silicon` as the target host↔cluster RPC topics.
-  `JitML.Proto.Inference` defines typed Apple-only command/event envelopes for
-  those topics: `AppleInferenceCommand` carries
-  `(call-id, kind, model-id, starting-snapshot, reply-topic, inputs)`, and
-  `AppleInferenceEvent` carries `(call-id, kind, output-refs, error-code,
-  message)`.
-- `renderMetalFamilyPackage` extends the local Metal renderer to embed
-  the per-substrate threadgroup-size knob into the generated Swift
-  enum and emits family-aware Metal kernels (the `reduction` family
-  uses `simd_sum` with single-stream launch ordering). The threadgroup
-  axis is enumerated by `Engines.Tuning.appleSiliconKnobs`.
-- Generated Swift source exports `jitml_kernel_family_name` and
-  `jitml_kernel_output_count` metadata symbols so Metal FFI loading can inspect
-  the loaded family and output shape through the same metadata contract used by
-  the Linux CPU local runner. Reduction metadata reports the deterministic
-  simdgroup partial-output count (`ceil(n / 32)`).
-- `JitML.Engines.Loader.ensureKernelArtifact` runs the ordered Apple
-  first-cache-miss plan on the host: validate the CommandLineTools Swift
-  toolchain, run `swift build` against the generated package, publish
-  `libJitMLMetal.dylib` into `./.build/jit/apple-silicon/<hash>.dylib`, and
-  repoint the host-stable FFI symlink through
-  `JitML.Cache.Symlink.repointSymlink`.
+  extension `.metal.json`.
+- `renderMetalFamilyMetadata` emits `kernel.metal.json` with the rendered MSL
+  source, family name, output-count policy, bridge ABI, deterministic compile
+  options, launch policy, source hash, and threadgroup size.
+- `JitML.Engines.Loader.ensureKernelArtifact` fills an Apple cache miss by
+  writing `./.build/jit/apple-silicon/<hash>.metal.json`; it does not invoke
+  SwiftPM, Tart, the offline `metal` compiler, or a generated dylib symlink.
+- `JitML.Engines.MetalBridge` is the fixed host bridge ABI. `MetalLocal` calls
+  the bridge to compile MSL with `MTLDevice.makeLibrary(source:options:)`,
+  disable fast math, create/reuse pipelines, bind buffers, and dispatch on the
+  host GPU.
 - `JitML.Engines.MetalRuntime.probeMetalRuntime` establishes the typed host
-  Metal runtime availability boundary for the host FFI launcher: it probes
-  `swift --version`, `xcrun -find metal`, `xcrun -find swiftc`, and
-  `system_profiler SPDisplaysDataType` through typed subprocesses, parses Swift
-  version/tool paths and Metal device visibility, and renders a stable probe
-  summary.
-- `JitML.Service.AppleInferenceRpc` owns the local Apple host↔cluster RPC
-  planning boundary: it converts a demo-facing `InferenceRequest` plus starting
-  snapshot into an `AppleInferenceCommand`, records the command/event/client
-  reply topics, publishes the command through `HasPulsar.pulsarPublish`, and
-  correlates completed/error `AppleInferenceEvent` envelopes back to the
-  original call id.
-- Metal FFI loading, MinIO tensor handoff, and live Pulsar RPC are live-closed
-  by [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md)
-  Sprints `16.2` and `16.4`; this sprint's current code-surface obligations
-  (Swift package renderer, host build plan, Metal probe, RPC planning surface)
-  are met.
+  Metal runtime availability boundary without making `swiftc`, `xcrun metal`,
+  Tart, or login-keychain state core prerequisites.
+- The route/topic documentation records `inference.command.apple-silicon` as
+  the Apple-only host-forwarding topic. `JitML.Service.Runtime` forwards raw
+  `RunInference`, `CheckpointCompareCommand`, and `AdversarialMoveCommand`
+  payloads to that topic; the host Engine publishes the matching result directly
+  to the request's reply topic.
+- Metal bridge loading, MinIO tensor handoff, and live Pulsar forwarding are
+  live-closed by [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md)
+  Sprints `16.2`, `16.4`, `16.9`, and `16.12`; this sprint's retained
+  code-surface obligations are met.
 
 ### Validation
 
-1. `docker compose run --rm jitml jitml build --dry-run --substrate
-   apple-silicon` renders a generated Swift/Metal source directory and host
-   `swift build` subprocess.
-2. `docker compose run --rm jitml cabal test jitml-unit` on 2026-05-22
-   validates that the generated Swift package exports
-   `jitml_kernel_family_name` and `jitml_kernel_output_count`, that reduction
-   output-count metadata matches the simdgroup partial-output shape, and that
-   the Apple Silicon rendered-source cache-key snapshot changes when the Swift
-   payload changes. The same test stanza validates the host build/cache
-   publication boundary and the absence of the retired Tart prerequisite.
-3. `docker compose build jitml` and
-   `docker compose run --rm jitml jitml build --dry-run --substrate
-   apple-silicon` on 2026-05-22 validate the installed container CLI renders
-   the `apple_cache_miss` plan with host Swift-version validation, generated
-   package build, content-addressed `.dylib` publish, and stable FFI symlink
-   repoint steps.
-4. `docker compose run --rm jitml cabal test jitml-daemon-lifecycle` on
-   2026-05-22 validates the typed Apple command/event envelope render/parse
-   round-trip, canonical Apple internal topic names, Apple RPC command
-   planning, synthetic `HasPulsar` command publication, and completed/error
-   event correlation by call id.
-5. `jitml-unit` validates deterministic `JitML.Engines.MetalRuntime`
-   parser/rendering fixtures for Swift version output, `xcrun -find` output,
-   and Metal device visibility. `docker compose run --rm jitml cabal test
-   jitml-integration --test-options='-p Metal'` validates the live typed
-   subprocess probe logs Swift, `xcrun`, and `system_profiler` attempts even
-   when the local validation environment is not macOS.
-6. Live validation: on the first JIT cache miss for `apple-silicon`, the host
-   CommandLineTools build atomically writes the resulting `.dylib` under
-   `./.build/jit/apple-silicon/`, repoints the host-stable symlink, and the
-   host daemon loads the kernel through FFI. The cluster orchestrator
-   round-trips a typed `(call-id, kind, model-id, inputs)` envelope on
-   `inference.command.apple-silicon` and gets a typed reply on
-   `inference.event.apple-silicon`.
+1. `jitml build --dry-run --substrate apple-silicon` renders the Apple
+   `.metal.json` source metadata plan rather than a generated Swift package.
+2. `jitml-unit` validates deterministic Metal metadata rendering, output-count
+   policy, cache-key changes when the MSL payload changes, and the absence of the
+   retired Tart/SwiftPM core prerequisites.
+3. `jitml test jitml-backends --apple-silicon` fills a fresh cache miss as
+   `<hash>.metal.json`, runs identity/weighted kernels through the fixed bridge,
+   and proves same-substrate bit equality on Apple hardware.
+4. `jitml-daemon-lifecycle` / `jitml-integration` validate the live Apple topic
+   names and values-model forwarding: the cluster publishes raw inference-domain
+   commands on `inference.command.apple-silicon`, and the host Engine publishes
+   results on each request's reply topic.
 
 ### Remaining Work
 
@@ -819,7 +774,7 @@ benchmarking and per-substrate auto-tuning per `### Remaining Work` below.
    `docker compose run --rm jitml jitml docs check`, and
    `docker compose run --rm jitml jitml check-code` passed on 2026-05-21,
    confirming the container-owned documentation and code-quality path.
-9. Live validation (target): per-substrate knob spaces drive
+9. Transferred live validation: per-substrate knob spaces drive
    benchmark-based selection on real hardware (matmul tile sizes,
    reduction strategies, cuDNN deterministic algorithm IDs) and the
    chosen tuning influences the cache key without breaking determinism.

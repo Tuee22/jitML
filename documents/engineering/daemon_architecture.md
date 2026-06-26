@@ -401,8 +401,8 @@ protobuf message hash and is opaque to the broker.
   `JitML.Proto.Wire`; Training, RL, and Tune event envelopes use the same
   local wire helper; `JitML.Proto.Inference` does the same for the
   `InferenceRequest` / `InferenceResult` topic envelopes declared in
-  `proto/jitml/inference.proto`. Cross-language generated proto-lens bindings
-  remain target work.
+  `proto/jitml/inference.proto`. Generated proto-lens Haskell bindings live
+  under `gen/Proto/Jitml/` and are exposed by the cabal library.
 - Per-handler `dedupCache :: TVar (LRUSet EventID)` provides at-least-once
   → effectively-once for the duration the entry stays cached. Cache size
   and TTL are `LiveConfig` knobs; the current runtime uses both when
@@ -540,7 +540,7 @@ Direct k8s API access from the host is hlint-forbidden.
 | SIGHUP reload decision | `JitML.Service.HotReload` | Pure reload/ignore/restart-required decision surface |
 | POSIX signal wiring | `JitML.Service.Signal` and `JitML.Service.Runtime` | SIGHUP increments reload generation; SIGINT/SIGTERM begin graceful drain and drop readiness |
 | Consumer idempotency | `JitML.Service.Consumer` | Pure payload-hash deduplication surface |
-| HTTP listener | `JitML.Service.Http` | Low-level typed route server shared by `jitml service` and `jitml-demo` one-shot tests |
+| HTTP listener | `JitML.Service.Http` | Low-level typed route server shared by `jitml service` and Webapp route tests |
 <!-- jitml:daemon.surface:end -->
 
 ## Cross-References

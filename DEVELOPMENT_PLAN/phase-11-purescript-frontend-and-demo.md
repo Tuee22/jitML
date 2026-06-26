@@ -16,7 +16,8 @@
 > **Purpose**: Stand up the PureScript frontend surface under `web/`, the
 > generated browser contracts from `src/JitML/Web/Contracts.hs`, typed bundle
 > and panel/demo-route metadata from `src/JitML/Web/Bundle.hs`, the Playwright
-> scaffold, the demo deployment template, and the `jitml-demo` executable shim.
+> scaffold, the Webapp workload deployment, and the `jitml-demo` route/service
+> surface.
 > The target architecture later expands this into Halogen panels, live REST/WS
 > handlers, and a compiled browser bundle.
 
@@ -155,7 +156,8 @@ The worktree implements a minimal PureScript entrypoint, generated
 contract file, typed bundle/panel/demo-route metadata,
 `web/package.json` script surface, `web/test/Main.purs`, eight
 `web/src/Panels/*.purs` payload modules, live-only Playwright spec,
-`jitml-demo` executable shim, and demo deployment template. Halogen
+the one-binary Webapp role, and the `chart/local/jitml-demo` deployment
+template. Halogen
 dependency/mount machinery, the browser-loadable bundle output, and live
 WebSocket proxying have landed in later phase work. Sprint `11.9` has
 reopened the phase for the no-caveat browser product surface: the current
@@ -175,9 +177,9 @@ checkpoint comparison, and browser-visible workflow status are locally wired
 and validated; unsupported lifecycle operations (pause/resume/promote),
 transcript-backed adversarial replay plus richer per-game analysis, live
 all-substrate command publication proof, and the live no-caveat Playwright
-matrix remain open.
-`jitml-demo` serves the present route/API surface through
-`src/JitML/Web/Server.hs`.
+matrix later closed in Phases `14`/`15`/`16`/`18`. The `jitml-demo` workload
+serves the present route/API surface through `src/JitML/Web/Server.hs` by
+running `jitml service` with `activeRole = Webapp`.
 
 ## Phase Summary
 
@@ -185,7 +187,7 @@ This phase delivers the browser-side shell: generated browser contracts from
 typed Haskell ADTs in `src/JitML/Web/Contracts.hs`, typed bundle/panel/demo-route
 metadata in `src/JitML/Web/Bundle.hs`, a PureScript entrypoint under `web/src/`, a
 contract smoke test under `web/test/`, a Playwright scaffold under
-`playwright/`, and the `jitml-demo` sibling binary that serves the generated
+`playwright/`, and the `jitml-demo` Webapp workload that serves the generated
 frontend/API surface from the same typed demo metadata. The
 PureScript stack is
 project-specific; command and build invocations are represented through the
@@ -343,10 +345,11 @@ Phase `15` Sprint `15.14`.
 ### Objective
 
 Land the current endpoint-contract metadata and typed panel/bundle manifest that
-the future interactive panels will consume. The current `jitml-demo` server
-serves deterministic local REST-style responses for the API index, inference,
-image upload, Connect 4 move, and metrics stream routes; live WebSocket proxying
-remains target runtime validation.
+the interactive panels consume. The current `jitml-demo` workload is the
+Webapp role of the one `jitml` binary; it serves the API index and bundle
+routes, publishes browser inference/command requests to the Engine when a live
+publication is present, and fails closed without live handlers. Live WebSocket
+proxying is validated by the later Webapp closure sprints.
 
 ### Deliverables
 
@@ -355,9 +358,11 @@ remains target runtime validation.
 - `src/JitML/Web/Bundle.hs` declares the local bundle asset manifest, panel
   surfaces for MNIST inference, image upload, Connect 4, RL trajectory,
   training progress, and hyperparameter sweep rendering, and the demo route
-  manifest for the full current local HTTP surface:
-  `/`, `/api`, `/api/inference`, `/api/images`, `/api/connect4/move`,
-  `/api/ws`, `/api/ws/training`, and `/api/ws/tune`.
+  manifest for the full current Webapp HTTP surface:
+  `/`, `/api`, `/api/inference`, `/api/inference/generic`, `/api/images`,
+  `/api/checkpoints/compare`, `/api/connect4/move`,
+  `/api/runs/{runId}/command`, `/api/ws`, `/api/ws/training`,
+  `/api/ws/tune`, and `/api/ws/rl`.
 - `web/src/Generated/Contracts.purs` contains the generated local PureScript
   contract output.
 - `test/e2e/Main.hs` checks the browser contract endpoint count.
@@ -368,9 +373,9 @@ remains target runtime validation.
   typed per-panel request / response payload shapes and the panel
   `mount` entry point; the Haskell `JitML.Web.Bundle.panelSurfaces`
   catalog enumerates all six panel names.
-- The live WebSocket proxy that bridges `/api/ws` to real daemon Pulsar
-  topics remains target runtime validation; the current stream routes return
-  deterministic local scaffold frames.
+- The live WebSocket proxy bridges `/api/ws*` to real daemon Pulsar event
+  topics when the cluster publication is present; plain HTTP stream GETs
+  fail closed unless the client performs a WebSocket upgrade.
 
 ### Validation
 
@@ -380,10 +385,9 @@ remains target runtime validation.
 2. `docker compose run --rm jitml jitml lint purescript` validates the
    generated contract file exists.
 3. `jitml-unit` verifies the bundle, panel, and demo-route metadata.
-4. Live validation (target): each Halogen panel module renders against
-   live daemon state, the `/api/ws` WebSocket proxy streams real metric
-   updates from the daemon, and panel uploads / inferences round-trip
-   through the daemon's real handlers.
+4. Transferred live validation: Phase `15` Sprint `15.13`, Phase `17`
+   Sprint `17.3`, and Phase `14` validate the live WebSocket proxy, bundle
+   serving, and panel request/response round-trips against the routed Webapp.
 
 ### Remaining Work
 
@@ -403,52 +407,51 @@ remains target runtime validation.
   [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
   Sprint `15.13`.
 
-## Sprint 11.5: `jitml-demo` Executable Shim ✅
+## Sprint 11.5: Webapp Route and Deployment Surface ✅
 
 **Status**: Done
 **Owned obligations after refactor**: code-surface only. The live
 `/api/ws` proxy bridging browser clients to Pulsar event topics
 migrated to Phase `15` Sprint `15.13`.
-**Implementation**: `app/Demo.hs`, `src/JitML/App.hs`,
-`chart/templates/deployment-jitml-demo.yaml`
+**Implementation**: `src/JitML/App.hs`, `chart/local/jitml-demo/templates/deployment.yaml`
 **Docs to update**: `documents/engineering/purescript_frontend.md`,
 `documents/engineering/daemon_architecture.md`
 
 ### Objective
 
-Stand up the `jitml-demo` sibling executable shim, typed demo route manifest,
-HTTP server, and chart deployment surface.
+Stand up the demo route manifest, HTTP server, and chart deployment surface.
+Sprint `11.10` folds the historical two-binary shape into the Webapp role
+workload, which is the current owned surface.
 
 ### Deliverables
 
-- `app/Demo.hs` is a six-line shim into `App.demoMain`.
-- `src/JitML/App.hs` owns `demoMain`, which prints the typed `demoStatusLine`
-  from `src/JitML/Web/Bundle.hs` and then starts `WebServer.serveDemo`.
+- `src/JitML/App.hs` owns the Webapp role entrypoint, which starts
+  `WebServer.serveDemoWithBridgeEndpointWithRuntime`.
 - `src/JitML/Web/Server.hs` serves the frontend/API route
   surface.
 - `src/JitML/Web/Bundle.hs` declares `demoRoutes` for the full current
   local HTTP surface: `/`, `/api`, `/api/inference`, `/api/images`,
   `/api/connect4/move`, `/api/ws`, `/api/ws/training`, and `/api/ws/tune`.
-- The `Deployment/jitml-demo` template is populated with the demo image,
-  `jitml-demo` command, and explicit `--host 0.0.0.0 --port 80` arguments so
-  Envoy can reach the pod IP.
+- The `Deployment/jitml-demo` local chart runs `jitml service` with
+  `activeRole = Webapp`, using the mounted typed Dhall config so Envoy can
+  reach the pod IP.
 - HTTPRoutes for `/`, `/api`, `/api/ws` (Sprint `3.4`) point at
   `jitml-demo:80`.
 
 ### Validation
 
-1. Running `jitml-demo` prints the generated-frontend status line and
-   starts the HTTP listener.
-2. The `Deployment/jitml-demo` chart template names the demo image and
+1. Running `jitml service` with a Webapp `BootConfig` prints the generated
+   frontend status line and starts the HTTP listener.
+2. The `Deployment/jitml-demo` local chart template names the demo image and
    exposes container port `80`.
 3. `jitml-e2e` verifies the demo route manifest covers `/`, `/api`, and
-   `/api/ws`, that the deployment starts `jitml-demo` with explicit host/port
-   listener arguments, and that a
-   one-shot demo HTTP server serves the API index. The same stanza verifies
-   the typed demo route manifest covers the current local API surface.
-4. 2026-05-23 validation: `docker run --rm jitml:local jitml-demo --host
-   0.0.0.0 --port 8080` serves `/` with the bundle-script-tagged shell and
-   `/bundle/main.js` from the baked image.
+   `/api/ws`, that the deployment starts `jitml service --config
+   /etc/jitml/BootConfig.dhall`, and that a one-shot demo HTTP server serves the
+   API index. The same stanza verifies the typed demo route manifest covers the
+   current local API surface.
+4. The old `jitml-demo --host ... --port ...` binary validation is superseded by
+   Sprint `11.10`; the current live validation is the `jitml-demo` Webapp pod
+   serving `/` and `/bundle/main.js` through the edge route.
 5. Later live validation: Phase `15` validated the live `/api/ws` proxy
    against daemon metric/event Pulsar topics and Phase `17` validated the
    live-only Playwright matrix after removing offline fallbacks.
@@ -478,10 +481,11 @@ Land the Playwright scaffold for the future interactive panel suite.
 ### Deliverables
 
 - `playwright/jitml-demo.spec.ts` exists as the current E2E scaffold.
-- The target suite covers MNIST, CIFAR/ImageNet, Connect 4, RL trajectory,
-  training, and tuning panel flows once those panels and the HTTP server land.
+- The live suite covers MNIST, CIFAR/ImageNet, Connect 4, RL trajectory,
+  training, and tuning panel flows through the routed Webapp.
 - The current `jitml-e2e` stanza validates the typed Playwright plan; live
-  Playwright execution is target work on the explicit e2e orchestration path.
+  Playwright execution is owned by the explicit e2e orchestration path and the
+  later product-matrix closure phases.
 - Historical scaffold note: Playwright execution originally stayed out of the
   default local Cabal matrix until panels consumed live-backed state through
   `jitml-demo`; Sprint `12.13` / Phase `14` supersede that with the explicit
@@ -746,7 +750,7 @@ surface and validates it locally:
   a live publication the route fails visibly with `503` instead of returning a
   fake queued acknowledgement.
 - `JitML.Web.Server` accepts an injected `BrowserRuntimeHandler` for
-  checkpoint-backed panel REST requests. `App.demoMain` supplies that handler
+  checkpoint-backed panel REST requests. The Webapp role supplies that handler
   from the live publication, loads the latest checkpoint through
   `loadInferenceCheckpointWithWeights`, dispatches to the selected substrate's
   weighted runner, returns the manifest content SHA, and renders typed MNIST,
@@ -816,8 +820,8 @@ every live-runtime obligation from Phases `7`–`12`):
 
 - [../README.md → Subprocesses as Typed Values](../README.md#doctrine-scope) (target frontend tool invocations flow through `Subprocess`; current checked-in bodies are local smoke tests)
 - [../README.md → Generated Artifacts](../README.md#generated-documentation-flow) (Sprint 11.2 — generated PureScript contracts)
-- [../README.md → Repository layout (target)](../README.md#repository-layout-target) (Sprint 11.5 — six-line `app/Demo.hs` shim)
-- [../README.md → Application Environment](../README.md#doctrine-scope) (target demo server uses the full `Env`; current `demoMain` reads explicit `--port`, prints `demoStatusLine`, and starts the local HTTP server)
+- [../README.md → Repository layout (target)](../README.md#repository-layout-target) (Sprint 11.10 — Webapp role folded into the one `jitml` binary)
+- [../README.md → Application Environment](../README.md#doctrine-scope) (the Webapp role uses the full `Env`/BootConfig path and starts the local HTTP server from typed Dhall)
 - [../README.md → Test-suite stanzas](../README.md#test-suite-stanzas) (Sprint 11.6 — Playwright scaffold belongs to the target Ephemeral-Cluster Infrastructure category via `jitml-e2e`)
 - [../README.md → Lint matrix](../README.md#lint-matrix) (Sprint 11.3 — local project-specific lint target via `jitml lint purescript`)
 - [../README.md → Routes Published at the Edge](../README.md#envoy-gateway-api-a-single-localhost-socket) (Sprint 11.7 — the demo bundle is the single localhost surface; the SPA owns the in-app directory for the bundled admin portals declared in the route registry)
@@ -838,8 +842,8 @@ proof** of the panels transfers to Sprints `14.2` / `16.x` (rule E / M(a)).
 **Depends-On**: Sprint `5.14` (one-binary role model — the `Webapp` role), Sprint
 `10.7` (async `Work*` inference workflow + envelope family)
 **Implementation**: `jitml.cabal` (retire `exe:jitml-demo`), `app/Demo.hs`
-(retired), `src/JitML/App.hs` (`demoMain`, `demoBrowserRuntimeHandler`,
-`weightedInferenceForBrowser` retired), `src/JitML/Web/Server.hs`,
+(retired), `src/JitML/App.hs` (`runWebappRole`; retired `demoMain`,
+`demoBrowserRuntimeHandler`, `weightedInferenceForBrowser`), `src/JitML/Web/Server.hs`,
 `src/JitML/Service/WebSocket.hs`, `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4}.purs`,
 `web/src/Generated/Contracts.purs`
 **Docs to update**: `../documents/engineering/purescript_frontend.md`,

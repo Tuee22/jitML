@@ -157,9 +157,9 @@ convergence) and a demo ack-kind alignment (`Web/Server.hs`). The superseded
 [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md); host-native
 `-Werror` build + `jitml-unit` 208 + `jitml-daemon-lifecycle` 32 green).
 
-**Phases `17`/`18`** remain `⏸️ Blocked`, but the **structural** blocker is now
-**dissolved** and the remaining work is entirely **in-scope** (no out-of-scope
-foundation). Update **2026-06-23**: jitML is treated as **self-contained** — the bootstrap no
+At that point **Phases `17`/`18`** were still `⏸️ Blocked`, but the
+**structural** blocker had dissolved and the remaining work was entirely
+**in-scope** (no out-of-scope foundation). Update **2026-06-23**: jitML is treated as **self-contained** — the bootstrap no
 longer defers any credential work to an external foundation, and the Sprint `2.13`
 Docker-Hub pre-pull (plus the Sprint `2.14` in-cluster `imagePullSecret`) is now
 jitML's **own owned, self-contained** credential path, so its `Pending Removal`
@@ -289,10 +289,9 @@ subscriptions acquire live). The remaining blocker is the **in-cluster
 `inference.command.apple-silicon` (broker counts 2→0), with its node Pulsar-WS
 consumer subprocess crash-looping (`hGetLine: end of file`); details in
 [phase-16](phase-16-apple-silicon-closure.md). Plus the **Playwright product
-matrix**, then committing the `apple-silicon` report-card fragment. Phases `17`/`18`
-stay `⏸️ Blocked` — they aggregate
-the committed per-lane fragments including the `apple-silicon` one, which is
-committed only when Phase `16`'s live slice runs green. The committed `linux-cuda`
+matrix**, then committing the `apple-silicon` report-card fragment. At this
+2026-06-22 checkpoint, Phases `17`/`18` were still `⏸️ Blocked` because they
+aggregated the missing `apple-silicon` fragment. The committed `linux-cuda`
 per-lane fragment lives at
 [attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md).
 
@@ -367,14 +366,15 @@ hardware-blocked and was not re-claimed on this host.
   experiment hashes the browser panels request. Both are recorded as Sprint
   `14.1` Remaining Work (with Sprint `13.1` owning per-family checkpoint
   persistence).
-- **Status unchanged.** Phase `13` stays `🔄 Active`; Phases `15`–`17`, `14` and `18`
-  stay `⏸️ Blocked`. Nothing closed: the no-caveat closure still needs the
+- **Status at this 2026-06-16 checkpoint.** Phase `13` was `🔄 Active`; Phases
+  `15`–`17`, `14`, and `18` were `⏸️ Blocked`. Nothing closed in that session:
+  the no-caveat closure still needed the
   `linux-cuda` lane (absent hardware), deep-model (`ResNet-50`/`ViT`) **median
   convergence** (impractical without the GPU lane), the full RL-catalog / 4-game
   AlphaZero-arena / all-model-family checkpoint-inference breadth, and the
   checkpoint-backed browser surface above. The `apple-silicon` live cluster lane
-  (Phase `16.11`) was not re-exercised this session and remains blocked by Phases
-  `13`/`14` regardless.
+  (Phase `16.11`) was not re-exercised in that session and was still blocked by
+  Phases `13`/`14` at that checkpoint.
 
 **Closure update (2026-06-16 — Phases `11` and `12` re-closed `✅ Done`).**
 Sprints `11.9` (Full Interactive Demo Surface) and `12.13` (Playwright No-Caveat
@@ -392,9 +392,9 @@ throughput-telemetry, and rules-complete adversarial annotations (validated by
 `jitml lint purescript` + the contract spec); `12.13` landed the
 `JitML.Test.WorkflowMatrix.browserProductMatrix` enumeration and the
 `browser_product_matrix` report-card field (validated by `jitml-e2e --linux-cpu`
-23 / 23 and `check-code`). Phase `13` stays `🔄 Active`; Phases `15`–`17` and
-`14` and `18` stay `⏸️ Blocked`, now with `11.9` / `12.13` removed from their
-`Blocked by` lines.
+23 / 23 and `check-code`). At this 2026-06-16 checkpoint, Phase `13` still
+stayed `🔄 Active`, and Phases `15`–`17`, `14`, and `18` still stayed
+`⏸️ Blocked`, now with `11.9` / `12.13` removed from their `Blocked by` lines.
 
 **Reopen note (2026-06-14 — no-caveat end-to-end product target).** The current
 implementation has re-closed Phase `8` on the all-row SL framework/runtime and
@@ -850,8 +850,8 @@ proto3-compatible byte codecs for the current Training/RL/Tune command and
 event envelopes via `JitML.Proto.Wire`, plus
 `proto/jitml/inference.proto` and
 `JitML.Proto.Inference` byte codecs for `RunInference` / `InferenceResult`,
-`JitML.Service.AppleInferenceRpc` planning and correlating Apple-only
-host↔cluster command/event envelopes,
+Apple-only values-model forwarding through `JitML.Service.Runtime`
+(`inference.command.apple-silicon` raw payloads → reply-topic results),
 the typed daemon capability
 surface with full `HasMinIO` / `HasPulsar` / `HasHarbor` / `HasKubectl`
 methods + per-domain `HandlerRouter` + filesystem-backed `HasMinIO`
@@ -901,10 +901,10 @@ daemon negative-acks the failed delivery, the
 LiveConfig-derived dedup cache size used by the handler router, the
 typed phased Helm rollout
 (`JitML.Cluster.Helm.helmPhasedRolloutPlan`) plus
-`pulsarTopicCreateSubprocesses` registering the same 29-topic
-substrate-scoped Pulsar family (8 product topics × 3 substrates + 2
-apple-only internal + 3 `gc.event.<substrate>` topics added in
-Sprint 15.7) and actually invoked through
+`pulsarTopicCreateSubprocesses` registering the same derived 31-topic
+Pulsar family (nine substrate-scoped workflow/phase topics across three
+substrates plus Apple-only inference-forwarding and host-command topics) and
+actually invoked through
 `JitML.Bootstrap.liveExecutePhasedRollout` from
 `jitml bootstrap --<substrate>`,
 the service-Postgres registry lint wired into `JitML.Lint.Chart` plus the
@@ -921,7 +921,8 @@ consumes through the edge, plus 2026-05-20 live validation proving the then-curr
 26-topic substrate-scoped Pulsar family was registered and routed
 publish/consume worked on `training.command.linux-cpu` from
 `jitml:local` (the family grew to 29 topics on 2026-05-26 when
-Sprint 15.7 added `gc.event.<substrate>`), plus the current
+Sprint 15.7 added `gc.event.<substrate>` and now derives to 31 after Apple
+host-command additions), plus the current
 single-node Linux CUDA Kind config wiring the node-local containerd `nvidia`
 runtime handler and `RuntimeClass/nvidia` selector; the 2026-05-23 live CUDA
 `nvidia-smi -L` probe on a GPU validation host (RTX 5090, CUDA 12.8)
@@ -1734,20 +1735,16 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-06-16, the no-caveat end-to-end product target is open. Phases
-`8`, `9`, and `10` are `✅ Done`; Phase `10` re-closed after the Apple Silicon
-publication came up and `./.build/jitml test jitml-integration --apple-silicon`
-passed 71 / 71. Phases `11` and `12` re-closed `✅ Done` on 2026-06-16 (Sprints
-`11.9` / `12.13` closed on their owned code surface, with the live-runtime
-obligations deduped to Phases `15`/`16`/`14` per rule E), so Phases `0`–`12` are
-`✅ Done`; Phase `13` is `🔄 Active`, Phases `15`–`17` are `⏸️ Blocked` on the
-expanded runtime/browser work, Phases `14` and `18` remain blocked by their upstream
-phases, Pending Removal is non-empty again, and final handoff is not complete.
-The true-headless Apple Metal fixed-bridge workstream (`1.15`, `2.12`, `5.10`,
-`7.11`, `16.9`, `17.5`, `17.6`) remains closed as dated 2026-06-12 evidence,
-and the later Apple host-resident workload placement audit also remains closed
-as dated 2026-06-13 evidence. The historical closure notes below are retained
-as dated evidence and do not override the current status above.
+As of 2026-06-26, all phases `0`–`18` are `✅ Done` again. The latest
+real-SL/RL re-aggregation re-closed Phases `8`/`9`/`10`/`13`/`14`/`18` with real
+SL losses and validation splits, measured RL convergence, distinct
+self-describing demo checkpoints, live `linux-cpu` runtime aggregation,
+checkpoint-backed browser interactions, Playwright `15/15`, `jitml check-code:
+ok`, `jitml docs check: ok`, and an empty Pending Removal ledger. The
+true-headless Apple Metal fixed-bridge workstream, Apple host-resident workload
+placement audit, Linux CUDA lane closure, and final handoff remain closed as
+dated evidence above and in the phase files. The historical closure notes below
+are retained as dated evidence and do not override this current status.
 
 Phase `11`
 reopened and re-closed on 2026-06-05 for Sprint `11.7` — SPA portals
@@ -2410,10 +2407,8 @@ cleanup close (Exit 18). Each gap is logged in the owning sprint's
 `### Remaining Work` block; the dependency-ordered sequence is in
 [Execution Roadmap](#execution-roadmap) above.
 
-The local worktree implementation that backs the six Done phases and the typed
-scaffolding inside the Active phases
-comprises: `app/Main.hs` and
-`app/Demo.hs` (six-line shims into the library-first `src/JitML/` tree);
+The local worktree implementation behind the current done plan comprises:
+`app/Main.hs` (thin shim into the library-first `src/JitML/` tree);
 three stage-0 bootstrap scripts that delegate to `jitml bootstrap
 --<substrate>`; one Dockerfile and one root `compose.yaml` with the headless
 `jitml` service plus GPU-enabled `jitml-cuda` companion, both producing image
@@ -2475,8 +2470,8 @@ training, RL, and tuning command envelopes plus proto3-compatible byte codecs
 for current Training/RL/Tune command and event envelopes, plus
 `proto/jitml/inference.proto` mirrored by `JitML.Proto.Inference` with current
 text and proto3-compatible byte codecs for `RunInference` / `InferenceResult`;
-`JitML.Service.AppleInferenceRpc` owns the local Apple command publication plan
-and event call-id correlation;
+Apple-only inference forwarding is the values-model path in
+`JitML.Service.Runtime`, not the removed refs/event RPC;
 the extended checkpoint
 manifest (optimizer state, RNG streams, monotonic step, metrics,
 parent lineage), the typed `AdvancePredicate` ADT, the
@@ -2485,7 +2480,8 @@ parent lineage), the typed `AdvancePredicate` ADT, the
 `writeCheckpointSnapshotWithMinIO` / `loadInferenceCheckpointWithWeights`
 checkpoint write/read paths; the PureScript
 scaffold with the current panel payload modules under `web/src/Panels/`, the
-generated contracts, and the full typed local demo route manifest; the `jitml-demo` HTTP server; the Playwright
+generated contracts, and the full typed local demo route manifest; the
+`jitml-demo` Webapp workload; the Playwright
 canonical panel matrix at `playwright/jitml-demo.spec.ts`; the typed
 ephemeral-Kind live plan in `JitML.Test.LivePlan`; and the
 eight Cabal test-suite stanzas with deterministic bodies that

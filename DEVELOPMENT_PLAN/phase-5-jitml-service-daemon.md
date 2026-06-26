@@ -531,7 +531,7 @@ class surface per doctrine `Capability Classes and Service Errors`.
    `SEConflict`-emitting capability and asserts the policy is honoured.
 2. `jitml-unit` verifies the capability-class surface names all four
    doctrine-required classes.
-3. Live validation (target): integration coverage exercises
+3. Transferred live validation: integration coverage exercises
    `putBlobIfAbsent` against real MinIO and asserts `If-None-Match: *`
    `412` is treated as `SEConflict`; the MinIO portion is satisfied by
    2026-05-19 live validation through `JitML.Service.MinIOSubprocess`, and
@@ -686,11 +686,11 @@ deduplication key is the protobuf message hash and is opaque to the broker.
    routed consumer endpoint used for actual broker acquisition with
    `receiverQueueSize=0`, so acquisition does not prefetch pending work.
 4. `cabal test jitml-integration` verifies `JitML.Cluster.PulsarBootstrap`
-   registers the matching 26-topic substrate-scoped family and rejects retired
+   registers the matching 31-topic derived family and rejects retired
    `*.cluster` / `*.host` topic names.
-5. Live Linux CPU validation on 2026-05-20 confirms the live broker has the
-   matching 26-topic substrate-scoped family and the standalone routed
-   WebSocket path publishes/consumes on
+5. Live Linux CPU validation on 2026-05-20 confirmed the live broker had the
+   then-current 26-topic substrate-scoped family and the standalone routed
+   WebSocket path published/consumed on
    `persistent://public/default/training.command.linux-cpu`, the same current
    topic family the daemon subscription plan targets.
 6. `cabal test jitml-integration` verifies the routed WebSocket consume script
@@ -771,9 +771,9 @@ Dhall configs.
   happen in the cluster and the daemon knows that from its ConfigMap Dhall.
 - Deployment template mounts `./.build/` from the single-node hostPath into the
   pod at `/opt/build/` so the JIT cache is shared.
-- `chart/templates/deployment-jitml-demo.yaml` is the sibling Deployment for
-  the demo executable shim; Phase `11` owns the current frontend/demo scaffold
-  and target HTTP server behavior.
+- `chart/local/jitml-demo/templates/deployment.yaml` is the sibling Deployment
+  for the Webapp role workload; Phase `11` owns the current frontend/demo
+  scaffold and target HTTP server behavior.
 
 ### Validation
 
@@ -833,8 +833,8 @@ Dhall configs.
    `./bootstrap/apple-silicon.sh up` against the local single-node Kind
    topology. The stage-0 gates pass on macOS arm64, `./.build/jitml` is built
    host-native, Docker builds `jitml:local` with the in-container
-   `jitml check-code` gate, `jitml:local` and `jitml-demo:local` are loaded
-   into Kind, the live phased rollout executes 110 steps, and
+   `jitml check-code` gate, it is retagged as `jitml-demo:local`, both tags
+   are loaded into Kind, the live phased rollout executes 110 steps, and
    `./.build/runtime/cluster-publication.json` records all seven components
    `ready` on `edge_port: 9090`. The regenerated
    `./.build/conf/host/apple-silicon.dhall` contains routed edge coordinates
@@ -1350,8 +1350,8 @@ Mutation as a Single Command` and `Subprocesses as Typed Values` from
   `topicFor :: Tenant -> Namespace -> Workflow -> Phase -> Lane -> TopicName`,
   where `Workflow = Train | Tune | Rl | Infer | Gc`, `Phase = Command | Event |
   Result | Request | HostCommand`, and `Lane = Substrate`. The derived set must
-  equal the current 8×3 substrate family plus the Apple-only internal/host-command
-  topics (no string drift).
+  equal the current 9×3 substrate family plus the Apple-only internal/host-command
+  topics (31 total; no string drift).
 - Validate the routing graph: reject unroutable workflow/lane pairs and one-sided
   command↔event links; the coordinator reconciles the exact derived topic set at
   startup (idempotent create, 409-tolerant) instead of `bootstrap` walking a
@@ -1387,7 +1387,7 @@ Mutation as a Single Command` and `Subprocesses as Typed Values` from
   mechanics.
 - `cabal build lib:jitml` and `cabal build jitml-integration` compile
   warning-clean. `cabal run jitml-unit` passes **202 / 202** (two new cases: the
-  derived family has the expected 32 topics with the named members, and
+  derived family has the expected topic members, and
   `validateTopology jitmlTopology = Right ()` while a command-only entry is
   rejected). The offline `jitml-integration` "registers the substrate-scoped topic
   family (Sprint 5.5)" case still passes over the derived set.

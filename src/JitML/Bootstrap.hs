@@ -124,7 +124,7 @@ bootstrapPlanSteps substrate =
   , "apply jitml-manual StorageClass and manual PVs"
   , "install MinIO and Percona storage for Harbor"
   , "install Harbor bootstrap phase"
-  , "build jitml:local and jitml-demo:local and load them into Kind"
+  , "build jitml:local, retag jitml-demo:local, and load them into Kind"
   , "install Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
   , "write ./.build/runtime/cluster-publication.json"
   ]
@@ -301,11 +301,10 @@ livePhasedRolloutSubprocessesForPort substrate edgePort resources chartPath =
   livePreGrantSubprocessesForPort substrate edgePort resources chartPath
     <> livePostGrantSubprocessesForPort substrate edgePort chartPath
 
--- | The same Dockerfile produces both `jitml` and `jitml-demo`
--- binaries inside a single image, so build `jitml:local` once and
--- retag it as `jitml-demo:local` instead of running a second full
--- `docker build`. Both tags are then loaded into Kind so the local
--- charts can pull them by their distinct names.
+-- | The same one-binary image backs the daemon and the Webapp role, so build
+-- @jitml:local@ once and retag it as @jitml-demo:local@ instead of running a
+-- second full @docker build@. Both tags are loaded into Kind so the local
+-- charts can pull them by their distinct workload image names.
 mirrorBuildSteps :: Substrate -> [Subprocess]
 mirrorBuildSteps substrate =
   dockerBuildAndKindLoadPlan substrate "jitml:local" "."

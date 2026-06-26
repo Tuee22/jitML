@@ -181,7 +181,7 @@ main =
                 , "apply jitml-manual StorageClass and manual PVs"
                 , "install MinIO and Percona storage for Harbor"
                 , "install Harbor bootstrap phase"
-                , "build jitml:local and jitml-demo:local and load them into Kind"
+                , "build jitml:local, retag jitml-demo:local, and load them into Kind"
                 , "install Pulsar, Envoy Gateway, observability, jitml-service, jitml-demo"
                 , "write ./.build/runtime/cluster-publication.json"
                 ]

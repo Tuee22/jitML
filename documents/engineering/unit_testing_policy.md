@@ -194,8 +194,8 @@ responses, retry policy behavior, payload-hash deduplication,
 Inference request/result protobuf byte round-trips, and one-shot
 HTTP serving for `/healthz`. It also covers the `JitML.Service.Signal` mapping:
 `SIGHUP` increments reload generation, while `SIGINT` / `SIGTERM` begin drain
-and make readiness false. Real Pulsar redelivery remains target runtime
-validation.
+and make readiness false. Real Pulsar redelivery is live-validation coverage,
+with the local stanza retaining the synthetic broker checks.
 
 ### `jitml-e2e` and the ephemeral-cluster live driver
 

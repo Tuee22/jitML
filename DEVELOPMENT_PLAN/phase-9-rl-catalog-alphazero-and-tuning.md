@@ -16,7 +16,7 @@
 > 4 / AlphaZero transcript helpers, canonical game metadata, and deterministic
 > hyperparameter tuning catalogs. The current tree includes one module per
 > traditional RL algorithm and a local AlphaZero MCTS/self-play/arena substack;
-> the target runtime extends these surfaces into live trial storage/resume,
+> later closure phases extended these surfaces into live trial storage/resume,
 > JIT-backed network execution, and daemon-backed training.
 
 ## Phase Status
@@ -142,12 +142,12 @@ on-hardware reward thresholds closed in the Linux live lanes owned by Phase `15`
 
 ## Phase Summary
 
-This phase currently delivers local RL algorithm metadata, one module per
-traditional RL algorithm, Connect 4 / Othello / Hex / Gomoku transcript
-helpers, a local AlphaZero MCTS/self-play/arena substack, and deterministic
-tuning catalogs. The target runtime grows those surfaces into real
-JIT-backed network updates and a typed sweep manager that drives SL, RL, or
-AlphaZero training under a sampler × scheduler × pruner Dhall.
+This phase delivers local RL algorithm metadata, one module per traditional RL
+algorithm, Connect 4 / Othello / Hex / Gomoku transcript helpers, a local
+AlphaZero MCTS/self-play/arena substack, and deterministic tuning catalogs.
+Later closure phases connect those surfaces to real JIT-backed network updates
+and the typed sweep manager that drives SL, RL, or AlphaZero training under a
+sampler × scheduler × pruner Dhall.
 Sprint `9.8` keeps the catalog aligned with the copyright-free demo policy:
 required visual discrete-control coverage uses `KeyDoorGrid-v0`, and
 `atari-subset` is absent from required convergence cohorts.
@@ -190,7 +190,7 @@ targets → Numerical-fixture prohibition](../README.md#snapshot-targets).
 
 1. `cabal test jitml-rl-canonicals` verifies representative catalog
    entries.
-2. Live validation (target): each on-policy algorithm has a dedicated
+2. Transferred live validation: each on-policy algorithm has a dedicated
    module with real loss / policy / rollout-buffer code, reaches the
    in-code reward threshold for its canonical environment (`median
    over k seeds ≥ literature_target − slack`, no committed
@@ -251,13 +251,13 @@ Land the current off-policy algorithm metadata rows.
   deterministic hyperparameter rows and per-seed transcripts.
 - Replay-buffer primitives are present in `JitML.RL.Buffer`; real
   network update code and full per-algorithm run-to-run trajectory
-  determinism coverage are
-  still target work.
+  determinism coverage are closed by the later no-caveat runtime and
+  per-lane closure phases.
 
 ### Validation
 
 1. `algorithmCatalog` exposes the five checked-in off-policy rows.
-2. Live validation (target): each off-policy algorithm has a dedicated
+2. Transferred live validation: each off-policy algorithm has a dedicated
    module with real replay-buffer code and per-seed transcript
    determinism asserted by run-to-run equality (no committed transcript
    files per [../README.md → Snapshot targets → Numerical-fixture
@@ -312,7 +312,7 @@ Land the current specialised algorithm metadata rows.
 
 1. `algorithmCatalog` exposes the four checked-in specialised rows.
 2. `jitml docs check` validates the generated catalog table.
-3. Live validation (target): each specialised algorithm has a dedicated
+3. Transferred live validation: each specialised algorithm has a dedicated
    module exercised by `jitml-rl-canonicals` against run-to-run
    determinism plus rule-conformance properties (no committed numerical
    fixtures per [../README.md → Snapshot targets → Numerical-fixture
@@ -371,7 +371,7 @@ into the dedicated local RL canonical stanza.
 ### Validation
 
 1. `cabal test jitml-rl-canonicals` exits `0` for the body.
-2. Live validation (target): the stanza exercises the RL target matrix
+2. Transferred live validation: the stanza exercises the RL target matrix
    forms (2) same-substrate run-to-run trajectory determinism and (3)
    per-seed final-reward distribution against an in-code statistical
    threshold (median over k seeds ≥ literature_target − slack; no
@@ -443,13 +443,14 @@ AlphaZero summary.
   `selfPlayGamesPerGeneration` games), and `bufferTranscriptHash` (the
   SHA-256 used as MinIO pointer suffix).
 - The `SelfPlayBuffer` filesystem-backed `HasMinIO` round-trip is
-  validated by `jitml-integration`; wiring this buffer to
-  `JitML.Service.MinIOSubprocess` remains target work.
+  validated by `jitml-integration`; Phase 15 Sprint `15.9` closes the
+  live `JitML.Service.MinIOSubprocess` self-play buffer round-trip.
 - `src/JitML/RL/AlphaZero/PolicyValueNet.hs` owns the measured
   candidate-vs-reference arena win-rate helper used for promotion decisions;
   the dead standalone `Arena` module is deleted.
-- Live MinIO checkpoint round-trip of the persistent self-play buffer
-  remains gated on Phase 10 / Phase 4 platform services.
+- Live MinIO checkpoint round-trip of the persistent self-play buffer is
+  closed by Phase 15 Sprint `15.9` on top of the Phase 10 / Phase 4
+  platform services.
 
 ### Validation
 
@@ -457,7 +458,7 @@ AlphaZero summary.
 2. `cabal test jitml-rl-canonicals` checks legal Connect 4 columns.
 3. `jitml-unit` verifies the game catalog, network metadata, and arena
    win-rate helper.
-4. Live validation (target): real `Mcts.hs` runs `az_sims` simulations
+4. Live validation: real `Mcts.hs` runs `az_sims` simulations
    per move; `SelfPlay.hs` plays `az_games` games per generation;
    `PolicyValueNet.hs` evaluates the new network against the previous best and
    the new champion is promoted only when the win rate exceeds the
@@ -527,7 +528,7 @@ catalog, and corresponding browser-contract endpoint metadata.
 2. Local validation re-runs the per-game self-play transcript twice
    in-process and asserts bit-identity between the two outputs plus
    rule-conformance properties — no committed transcript fixtures.
-3. Live validation (target): Othello, Hex, and Gomoku graduate from the
+3. Transferred live validation: Othello, Hex, and Gomoku graduate from the
    deterministic local rules to full rule-complete position evaluators
    and JIT-backed network forward passes.
 
@@ -610,8 +611,9 @@ summary.
   `TuneCommand` oneof through proto3-compatible bytes.
   `encodeTuneEventProto` / `decodeTuneEventProto` round-trip the current
   `TuneEvent` oneof through proto3-compatible bytes.
-- Generated wire-format protobuf bindings (proto-lens) and live MinIO
-  persistence remain target runtime work.
+- Generated wire-format protobuf bindings (proto-lens) live under
+  `gen/Proto/Jitml/`; live MinIO persistence is validated by later live
+  closure sprints.
 
 ### Validation
 
@@ -626,7 +628,7 @@ summary.
 3. `jitml-unit` verifies the trial key and resume-equality helpers.
 4. `jitml-integration` spawns the real binary and verifies normal
    `jitml tune experiments/mnist-tune.dhall` execution renders `sampler: TPE`.
-5. Live validation (target): a real `Some Tuning::{ … }`-shaped Dhall
+5. Transferred live validation: a real `Some Tuning::{ … }`-shaped Dhall
    drives `jitml tune` end-to-end through the daemon, trial transcripts
    persist to MinIO bucket `jitml-trials/`, and resume-from-partial-sweep
    reproduces the same trial outcome bit-for-bit.
@@ -995,10 +997,10 @@ None.
   network loss validation, local RL/AlphaZero checkpoint writes, Connect 4
   transcript helper, and tuner catalog; target algorithm modules,
   AlphaZero/MCTS runtime, adversarial games, target sampler decode, and
-  full tuner storage/resume surface. The doc also distinguishes the
-  current tune text/proto3-compatible command and event envelope codecs from
-  target generated proto-lens bindings, and records `KeyDoorGrid-v0` as the
-  required visual discrete-control replacement for `atari-subset` cohorts.
+  full tuner storage/resume surface. The doc also covers the tune
+  text/proto3-compatible command and event envelope codecs plus the generated
+  proto-lens Haskell bindings, and records `KeyDoorGrid-v0` as the required
+  visual discrete-control replacement for `atari-subset` cohorts.
 - `documents/engineering/determinism_contract.md` — current deterministic
   local trajectory/transcript helpers and target AlphaZero
   deterministic-stochasticity narrative.

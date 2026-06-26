@@ -229,8 +229,9 @@ split-blob object-key renderers used by the inference summary surface.
 - `deriveExperimentHash resolvedDhall substrateFingerprint` computes
   the canonical `sha256(resolved-dhall || substrate-fingerprint)`
   used as the bucket prefix and pointer-key key.
-- Live MinIO bucket-layout validation remains target work owned by
-  Sprint 4.3.
+- Live MinIO bucket-layout validation is closed by Phase 4 Sprint `4.3`
+  and Phase 15 Sprint `15.7`; the current live checkpoint snapshot path
+  round-trips through `JitML.Service.MinIOSubprocess`.
 
 ### Validation
 
@@ -239,16 +240,17 @@ split-blob object-key renderers used by the inference summary surface.
 2. `cabal test jitml-cross-backend` exercises the manifest-based inference
    helper.
 3. `jitml-unit` verifies the split-key renderers.
-4. Live validation (target): a real MinIO bucket holds blobs and
-   manifests under the addressed split-blob paths after a real training
-   step; `experiment-hash` is derived from the resolved Dhall and
-   referenced by both the bucket prefix and the pointer key.
+4. Live validation: Phase 15 Sprint `15.7` validates that a real MinIO
+   bucket holds blobs and manifests under the addressed split-blob paths
+   after a real training step; `experiment-hash` is derived from the
+   resolved Dhall and referenced by both the bucket prefix and the
+   pointer key.
 
 ### Remaining Work
 
 - No sprint-owned code-surface Remaining Work remains. Live MinIO bucket
   layout validation through `JitML.Service.MinIOSubprocess` after a real
-  training step is owned by
+  training step is closed by
   [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
   Sprint `15.7`.
 
@@ -266,8 +268,8 @@ conditional-write validation and CAS retry coverage migrated to Phase
 
 Land the current `.jmw1` encoder, local deterministic manifest CBOR codec,
 manifest-content SHA helper, local pointer-CAS decision surface, and local
-write-once object-store interpreter. Live MinIO conditional-write effects
-remain target runtime validation.
+write-once object-store interpreter. Live MinIO conditional-write effects are
+validated by Phase `15` Sprint `15.7`.
 
 ### Deliverables
 
@@ -295,8 +297,8 @@ remain target runtime validation.
 - The typed `AdvancePredicate` ADT (`AdvanceLatest`,
   `AdvanceBestMaximised "<metric>"`, `AdvanceBestMinimised
   "<metric>"`) plus `applyAdvancePredicate` evaluate the typed CAS
-  predicates from README → Concurrency model. Live MinIO
-  conditional-write effects remain target runtime validation.
+  predicates from README → Concurrency model. Live MinIO conditional-write
+  effects are validated by Phase `15` Sprint `15.7`.
 
 ### Validation
 
@@ -310,7 +312,7 @@ remain target runtime validation.
    and reads the latest inference path.
 5. `jitml-integration` verifies the `HasMinIO` snapshot writer against the
    filesystem-backed MinIO instance, including latest-pointer CAS conflict.
-6. Live validation (target): `putBlobIfAbsent` against MinIO returns the
+6. Transferred live validation: `putBlobIfAbsent` against MinIO returns the
    blob's ETag on first write and `SEConflict` on subsequent identical
    PUTs through `If-None-Match: *`; `applyPointerWrite` against MinIO
    honours `If-Match: <etag>` and surfaces `412` as `SEConflict`; the
@@ -361,14 +363,15 @@ per `### Remaining Work` below.
   (`gcNoOp` flag flips when there are no reap events).
 - `JitML.Checkpoint.Store.listCheckpointManifests` is the local manifest
   discovery hook used by the CLI reconciler. Live blob deletion through
-  MinIO + Pulsar `gc_reaped` publish remain target runtime work.
+  MinIO + Pulsar `gc_reaped` publish is owned by the checkpoint-GC closure
+  path.
 
 ### Validation
 
 1. `jitml internal gc <experiment-hash> --dry-run` emits the typed plan.
 2. `jitml internal gc <experiment-hash>` prints the reconciliation
    summary.
-3. Live validation (target): the bit-determinism contract is verified by
+3. Transferred live validation: the bit-determinism contract is verified by
    `jitml-cross-backend` running real cross-substrate cohorts and the
    resulting per-tensor drift fitting the committed ULP tolerance band;
    `jitml internal gc` traverses the pointer live set, applies a `LastN`
@@ -411,7 +414,8 @@ migrated to Phase `16` Sprint `16.5`.
 Land the inference-only read path: latest pointer → manifest → explicit runner,
 plus the weighted latest-pointer → manifest → `.jmw1` weight loading path used
 by substrate checkpoint inference. Live MinIO pointer reads, live manifest
-fetches, and production runtime exercise remain target runtime work.
+fetches, and production runtime exercise are closed by Phase `10` Sprint
+`10.9` and the later per-lane closure phases.
 
 ### Deliverables
 
@@ -445,7 +449,7 @@ fetches, and production runtime exercise remain target runtime work.
    CPU generated-kernel FFI path.
 3. `jitml-daemon-lifecycle` verifies inference request/result protobuf byte
    round-trips.
-4. Live validation (target): `jitml inference run` reads the latest
+4. Transferred live validation: `jitml inference run` reads the latest
    pointer from MinIO bucket `jitml-checkpoints/<experiment-hash>/`,
    fetches the addressed manifest, loads weight-only blobs (no optimizer
    parts), loads the substrate-bound `KernelHandle` from the JIT cache,

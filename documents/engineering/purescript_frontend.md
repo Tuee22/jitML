@@ -7,9 +7,9 @@
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
 > current local PureScript shell, browser-contract renderer, bundle/panel
-> metadata, demo-route manifest, Playwright scaffold, demo deployment template,
-> and `jitml-demo` HTTP server, including the Halogen panels, compiled bundle,
-> live WebSocket proxy, and the no-caveat Playwright product matrix.
+> metadata, demo-route manifest, Playwright scaffold, and `jitml-demo` Webapp
+> workload, including the Halogen panels, compiled bundle, live WebSocket proxy,
+> and the no-caveat Playwright product matrix.
 
 **Real demo inference (Sprint `14.3` — ✅ Done, re-closed 2026-06-26).** Each
 checkpoint-backed panel sends user-derived input, and the Engine runs the
@@ -40,7 +40,7 @@ frames, and the live Playwright product matrix passed **15/15**. See
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Eight Halogen panels with REST or live WebSocket actions; Sprint `11.9` consumes generated typed payloads for current controls, metrics, animation, inference, checkpoint comparison, and replay instead of text-marker/default-value parsers | `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4,Rl,Training,Tune}.purs` |
 | Playwright | Live-only spec covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, and adversarial selectors; Phase `14` validates the no-caveat product matrix against the routed app (15/15 on 2026-06-26) | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
-| Demo executable | Status line plus HTTP/WebSocket server | `app/Demo.hs`, `src/JitML/App.hs` |
+| Webapp role | HTTP/WebSocket server selected by typed `BootConfig.activeRole = Webapp` | `src/JitML/App.hs`, `chart/local/jitml-demo` |
 
 The PureScript stack is project-specific (the doctrine does not address
 browser-side code). Npm / Spago / Playwright invocations flow through
@@ -267,32 +267,23 @@ Pulsar event topics by `liveDemoWebSocketRoutes`.
 | Live event WS | GET | `/api/ws`, `/api/ws/training`, `/api/ws/rl`, `/api/ws/tune` | typed event envelopes |
 | Checkpoint browse | GET | `/api/checkpoints/<experiment-hash>` | manifest list (cross-link to TB sidecars) |
 
-## `jitml-demo` HTTP Server
+## Webapp HTTP Server
 
-`app/Demo.hs` is a six-line shim into `App.demoMain`. The current `demoMain`
-prints `demoStatusLine` from `src/JitML/Web/Bundle.hs`:
-`jitml-demo: serving generated frontend contract surface`, then starts the
+The `jitml-demo` Kubernetes workload runs the one supported binary as
+`jitml service --config /etc/jitml/BootConfig.dhall` with
+`activeRole = Webapp`. `runWebappRole` in `src/JitML/App.hs` starts the
 low-level HTTP/WebSocket listener from `src/JitML/Web/Server.hs`. It serves the
 current route/API surface, `/bundle/main.js` from `web/dist/Main/bundle.js`
 when the bundle exists, and the held-open `/api/ws*` WebSocket bridge. When no
 live publication exists the bridge sends a terminal error frame instead of an
 offline deterministic stream.
 
-The `Deployment/jitml-demo` template (Sprint `4.1`) is populated with the
-demo image, `jitml-demo` command, and explicit `--host 0.0.0.0 --port 80`
-arguments so Envoy can reach the pod IP. HTTPRoutes for `/`, `/api`, `/api/ws`
-(Sprint `3.4`) point at `jitml-demo:80`.
-
-On `linux-cuda` the demo serves checkpoint-backed inference **in-process**
-through the cluster substrate runtime, which JIT-compiles (`nvcc`) and dispatches
-CUDA kernels. The deployment therefore carries `runtimeClassName: nvidia`, the
-NVIDIA device env, and a raised CPU/memory budget (4Gi) on `linux-cuda` exactly
-like `jitml-service` (Sprint `15.20`,
-`chart/local/jitml-demo/templates/deployment.yaml`); without GPU access the panels
-fail `503 runtime unavailable: libcuda=no`, and a too-small memory limit
-OOM-kills the JIT compile. The `linux-cpu` budget is unchanged (oneDNN CPU
-inference). Validated 2026-06-18 by the live Playwright product matrix passing
-`11/11` on the `linux-cuda` edge.
+The `chart/local/jitml-demo` Deployment mounts `BootConfig.dhall` from the
+`jitml-webapp-config` ConfigMap and points HTTPRoutes for `/`, `/api`, and
+`/api/ws` at `jitml-demo:80`. Browser inference requests publish WorkCommands
+to the Engine through Pulsar; the Webapp does not compile kernels or compute ML.
+The `linux-cuda` chart still keeps the live-validated Sprint `15.20`
+runtime/budget envelope, but CUDA execution belongs to the Engine role.
 
 ## Playwright E2E
 

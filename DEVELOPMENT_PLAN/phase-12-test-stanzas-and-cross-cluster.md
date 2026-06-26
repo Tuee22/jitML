@@ -196,8 +196,9 @@ with Phase-12-owned workloads per doctrine `Test Organization` (each
 `type: exitcode-stdio-1.0` with `tasty` as the in-stanza runner; a single `tasty`
 tree spanning all tiers is forbidden). It also lands the current `jitml test
 all` Plan/Apply report-card surface and the typed `JitML.Test.LivePlan`
-live-plan surface; the live ephemeral-Kind orchestration remains target e2e
-work. Current `jitml test all` delegates to Cabal for the eight test-only
+live-plan surface; live ephemeral-Kind orchestration is exercised by the
+later live matrix and product-handoff closure phases. Current `jitml test all`
+delegates to Cabal for the eight test-only
 stanzas and then renders the target-stanza report-card summary. The eight-stanza coverage
 maps every doctrine test category
 to the stanzas per [system-components.md → Test Categories Mapping (Doctrine
@@ -216,7 +217,8 @@ docs, prerequisite, environment, AppError, Plan/Subprocess, bootstrap-script,
 runtime-source, and cache surfaces. Broader per-domain snapshot suites
 (restricted to pure-renderer output per [../README.md → Snapshot
 targets → Numerical-fixture
-prohibition](../README.md#snapshot-targets)) remain target work.
+prohibition](../README.md#snapshot-targets)) are owned by the relevant
+domain-specific stanzas rather than this unit-stanza sprint.
 
 ### Deliverables
 
@@ -297,7 +299,7 @@ same-substrate training determinism per `### Remaining Work` below.
 ### Validation
 
 1. `cabal test jitml-integration` exits `0` for the body.
-2. Live validation (target): the stanza spawns the real `jitml` binary
+2. Transferred live validation: the stanza spawns the real `jitml` binary
    through the typed `Subprocess` boundary, exercises a real checkpoint
    round-trip via MinIO, validates resume-from-checkpoint semantics, and
    round-trips a Dhall experiment through the typed decoder against the
@@ -362,7 +364,7 @@ prohibition](../README.md#snapshot-targets).
 ### Validation
 
 1. `cabal test jitml-sl-canonicals` exits `0` for the body.
-2. Live validation (target): the stanza runs real training against every
+2. Transferred live validation: the stanza runs real training against every
    canonical SL problem with the `sl_epochs` / `sl_batch` knobs from
    `cabal.project`, asserts the median test accuracy over a fixed-seed
    pool clears the in-code literature-derived threshold per problem, and
@@ -431,7 +433,7 @@ determinism over real environment dynamics, and Connect 4 transcript checks.
 ### Validation
 
 1. `cabal test jitml-rl-canonicals` exits `0` for the body.
-2. Live validation (target): the stanza runs real RL training against
+2. Transferred live validation: the stanza runs real RL training against
    every algorithm × canonical environment cohort with the `rl_steps`,
    `rl_eval_episodes`, `az_games`, `az_sims` knobs from `cabal.project`,
    asserts run-to-run trajectory determinism (target matrix form 2)
@@ -513,7 +515,7 @@ and deterministic trial-value checks.
 ### Validation
 
 1. `cabal test jitml-hyperparameter` exits `0` for the body.
-2. Live validation (target): the stanza runs real tuning sweeps with the
+2. Transferred live validation: the stanza runs real tuning sweeps with the
    `tune_trials` / `tune_budget_per_trial` knobs, asserts per-sampler /
    per-scheduler / per-pruner reproducibility, and asserts
    resume-from-partial-sweep equality against trial transcripts persisted
@@ -589,7 +591,7 @@ cross-substrate tolerance testing remains the overall handoff gate.
 3. `docker compose run --rm jitml cabal test jitml-cross-backend` on
    2026-05-24 validates the local Linux CPU `HasEngine` dispatch over the
    generated oneDNN family FFI path in `jitml:local`.
-4. Live validation (target): the stanza runs the canonical SL cohorts
+4. Transferred live validation: the stanza runs the canonical SL cohorts
    on the `(linux-cpu, linux-cuda)` and `(linux-cpu, apple-silicon)`
    substrate pairs and asserts per-tensor drift fits the in-code
    per-layer-family tolerance band at
@@ -630,7 +632,8 @@ the current boot → ready → serve → SIGHUP reload → drain → exit contro
 - The test exercises the one-shot daemon HTTP listener against `/healthz`.
 - The test covers proto3-compatible byte round-trips for the current
   `JitML.Proto.Inference` request/result envelopes.
-- Live Pulsar idempotency remains target runtime validation.
+- Live Pulsar idempotency is validated by the later live daemon/runtime
+  closure phases.
 
 ### Validation
 
@@ -697,7 +700,7 @@ external container/runtime state, and validates teardown.
 1. `cabal test jitml-e2e` exits `0` for the scaffold body.
 2. `cabal test jitml-e2e` verifies the rendered live plan contains the
    Helm dependency-build and Playwright steps.
-3. Live validation (target): the explicit live e2e orchestration runs the full
+3. Transferred live validation: the explicit live e2e orchestration runs the full
    sequence: `helm dependency build chart`
    → `jitml bootstrap` (ephemeral Kind) → demo cohorts reach Ready behind the
    real Envoy listener → `npx playwright test` against every canonical
@@ -779,7 +782,7 @@ health, and the then-planned cross-substrate comparison summary).
    report-card knob block, and prints the target-stanza report card.
 3. `cabal test jitml-e2e` verifies report-card default rendering and that the
    `cabal.project` knob block matches the typed defaults.
-4. Live validation (target): the explicit live `jitml test all` path schedules
+4. Transferred live validation: the explicit live `jitml test all` path schedules
    the live `jitml-e2e` body too; the rendered report card adds live
    measurements (SL convergence, RL reward, AlphaZero arena win rate,
    JIT cache hit rate, daemon health, and final handoff fields)

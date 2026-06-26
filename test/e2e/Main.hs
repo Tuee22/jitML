@@ -200,12 +200,16 @@ main =
           assertBool
             "EnvoyProxy parametersRef namespace"
             ("namespace: platform" `Text.isInfixOf` gatewayClass)
-      , testCase "demo deployment starts the jitml-demo HTTP server" $ do
-          deployment <- Text.IO.readFile "chart/templates/deployment-jitml-demo.yaml"
-          assertBool "jitml-demo command" ("command: [\"jitml-demo\"]" `Text.isInfixOf` deployment)
+      , testCase "demo deployment starts the Webapp role through jitml service" $ do
+          deployment <- Text.IO.readFile "chart/local/jitml-demo/templates/deployment.yaml"
           assertBool
-            "explicit container listener args"
-            ("args: [\"--host\", \"0.0.0.0\", \"--port\", \"80\"]" `Text.isInfixOf` deployment)
+            "webapp service command"
+            ( "command: [\"jitml\", \"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]"
+                `Text.isInfixOf` deployment
+            )
+          assertBool
+            "uses typed webapp config"
+            ("mountPath: /etc/jitml" `Text.isInfixOf` deployment)
       , testCase "service deployment starts the jitml daemon binary" $ do
           deployment <- Text.IO.readFile "chart/templates/deployment-jitml-service.yaml"
           assertBool "jitml command" ("command: [\"jitml\"]" `Text.isInfixOf` deployment)

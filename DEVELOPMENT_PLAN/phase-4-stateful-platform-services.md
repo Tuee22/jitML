@@ -420,9 +420,9 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
   Family](system-components.md#pulsar-topic-family) and renders the
   idempotent `/pulsar/bin/pulsar-admin topics list` / `topics create`
   commands executed from `pulsar-toolset-0` after the phased bootstrap rollout.
-  The registered family is the eight command/event topics for each substrate
-  plus the Apple-only `inference.command.apple-silicon` /
-  `inference.event.apple-silicon` internal RPC pair.
+  The registered family is derived from `JitML.Coordinator.Topology`: nine
+  substrate-scoped workflow/phase topics per substrate plus the Apple-only
+  `inference.command.apple-silicon` forward topic and host-command topics.
 - HTTPRoutes for `/pulsar/admin` and `/pulsar/ws` (Sprint `3.4`).
   `/pulsar/ws` rewrites to `/ws` and now targets `pulsar-broker:8080`, the
   broker HTTP service that owns the embedded WebSocket endpoint.
@@ -437,8 +437,8 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 ### Validation
 
 1. `src/JitML/Cluster/PulsarBootstrap.hs` renders the typed topic-command
-   surface; `jitml-integration` asserts the 26-topic substrate-scoped family
-   and rejects the retired `*.cluster` / `*.host` topics.
+   surface; `jitml-integration` asserts the 31-topic derived family and rejects
+   the retired `*.cluster` / `*.host` topics.
 2. The route registry includes `/pulsar/admin` and `/pulsar/ws`.
 3. Live Linux CPU validation on 2026-05-18 reaches Ready Pulsar components and
    creates every topic in
@@ -450,10 +450,10 @@ Proxy, WebSocket enabled) and bootstrap the substrate-scoped topic family.
 5. Live Linux CPU validation on 2026-05-19 confirms every registered topic in
    [system-components.md → Pulsar Topic Family](system-components.md#pulsar-topic-family)
    exists in `public/default`.
-6. Live Linux CPU validation on 2026-05-20 reconciles the current
-   26-topic substrate-scoped family into `jitml-linux-cpu` through
-   `pulsar-toolset-0` and verifies all 26 current names are listed by the live
-   broker.
+6. Live Linux CPU validation on 2026-05-20 reconciled the then-current 26-topic
+   substrate-scoped family into `jitml-linux-cpu` through `pulsar-toolset-0`.
+   The current tree now derives 31 topics from `JitML.Coordinator.Topology`; the
+   live bootstrap creates that derived set.
 7. Live Linux CPU validation on 2026-05-19 opens a routed WebSocket consumer at
    `ws://127.0.0.1:9091/pulsar/ws/v2/consumer/...`, publishes through the
    matching routed producer endpoint, receives the same payload, and sends the

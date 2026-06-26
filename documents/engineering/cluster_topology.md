@@ -109,10 +109,11 @@ dependencies:
 | `tensorboard` | jitML-owned local chart with MinIO event-storage backing through a MinIO-client mirror sidecar | Sprint 4.6 |
 
 Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes rendered
-from the route registry, EnvoyProxy, manual PVs, `jitml-service` Deployment,
-`jitml-demo` Deployment, NVIDIA RuntimeClass for the CUDA substrate, service
+from the route registry, EnvoyProxy, manual PVs, the materialized
+`jitml-service` Deployment, NVIDIA RuntimeClass for the CUDA substrate, service
 ConfigMaps, generated Grafana dashboard ConfigMaps, and the generated
-Prometheus scrape config. The current typed renderers live under
+Prometheus scrape config. The `jitml-demo` Webapp workload lives in the local
+chart under `chart/local/jitml-demo`. The current typed renderers live under
 `src/JitML/Observability/`.
 
 Checked-in jitML-owned local charts live under `chart/local/`:
@@ -205,8 +206,8 @@ The target `jitml bootstrap --<substrate>` runs the phased rollout:
    gives the `harbor` role ownership of schema `public`, and Harbor then starts
    against `harbor-pg-pgbouncer.platform.svc` and the MinIO S3 backend using
    the direct subchart values file.
-2. **Image build/load phase**: the `jitml:local` image and the
-   `jitml-demo:local` image are built locally, then loaded explicitly into the
+2. **Image build/load phase**: the `jitml:local` image is built locally and
+   retagged as `jitml-demo:local`, then both tags are loaded explicitly into the
    selected Kind cluster with `kind load docker-image`. The `jitml:local` build
    is also the exclusive Haskell style/code-quality gate: it uses the same
    pinned GHC `9.12.4` to build pinned Fourmolu / HLint binaries and fails the
@@ -296,7 +297,7 @@ External Helm dependencies install from the `.tgz` archives produced by
 direct subchart installs need values; jitML-owned workloads install from
 `chart/local/`. Live Linux CPU validation on 2026-05-23 completed the
 single-node 110-step phased rollout plus readiness checks, built and loaded
-`jitml:local` and `jitml-demo:local` into Kind, served
+`jitml:local`, retagged it as `jitml-demo:local`, loaded both tags into Kind, served
 `http://127.0.0.1:9091/api` through Envoy, published the expected Pulsar topic
 family, wrote ready publication health, and validated `jitml cluster down`
 teardown plus the second-run no-op exit `3`. The 2026-05-19 live run confirms

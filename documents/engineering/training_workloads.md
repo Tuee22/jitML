@@ -150,8 +150,9 @@ for `StartTraining` and `StopTraining`; `encodeTrainingCommandProto` and
 proto3-compatible bytes via `JitML.Proto.Wire`. `encodeTrainingEventProto`
 and `decodeTrainingEventProto` round-trip the current `TrainingEvent` oneof,
 including checkpoint metric entries, through the same local wire helper.
-Generated cross-language proto-lens output remains target work. Sprint `8.12`
-/ Phase `13` extend the runtime to resolve and SHA-hash every supported
+Generated proto-lens Haskell bindings live under `gen/Proto/Jitml/Training.hs`
+and `gen/Proto/Jitml/Training_Fields.hs`. Sprint `8.12` / Phase `13` extend
+the runtime to resolve and SHA-hash every supported
 experiment Dhall, reconcile prerequisites, materialize the dataset, publish
 `StartTraining` on `training.command.<mode>`, consume `training.event.<mode>`
 through the daemon, and persist checkpoints for every canonical model family.
@@ -280,8 +281,9 @@ command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
 same local wire helper. `JitML.RL.SimulatorLoop` records per-step
 `SimulatedFrame` transitions from real environment dynamics, and the worker /
 host publishers project those frames into typed animation events on
-`rl.event.<mode>` when frames are available. Generated cross-language
-proto-lens output remains target work. The no-caveat runtime publishes
+`rl.event.<mode>` when frames are available. Generated proto-lens Haskell
+bindings live under `gen/Proto/Jitml/Rl.hs` and
+`gen/Proto/Jitml/Rl_Fields.hs`. The no-caveat runtime publishes
 `rl.command.<mode>` for the daemon's at-least-once `RlHandler` and requires the
 browser replay surface to consume the same typed animation/replay payloads.
 
@@ -459,8 +461,9 @@ deterministic text render/parse round-trips for `StartSweep` and `StopSweep`;
 `encodeTuneCommandProto` and `decodeTuneCommandProto` round-trip the current
 command oneof through proto3-compatible bytes via `JitML.Proto.Wire`.
 `encodeTuneEventProto` and `decodeTuneEventProto` round-trip the current
-`TuneEvent` oneof through the same local wire helper. Generated cross-language
-proto-lens output remains target work.
+`TuneEvent` oneof through the same local wire helper. Generated proto-lens
+Haskell bindings live under `gen/Proto/Jitml/Tune.hs` and
+`gen/Proto/Jitml/Tune_Fields.hs`.
 
 `TuneSweepLifecycle` GADT (`Sampled → Scheduled → Running → Pruned →
 Reported → Finished`) is the typed lifecycle.

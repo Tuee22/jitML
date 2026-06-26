@@ -150,7 +150,7 @@ renderDaemonSurface =
     , "| SIGHUP reload decision | `JitML.Service.HotReload` | Pure reload/ignore/restart-required decision surface |"
     , "| POSIX signal wiring | `JitML.Service.Signal` and `JitML.Service.Runtime` | SIGHUP increments reload generation; SIGINT/SIGTERM begin graceful drain and drop readiness |"
     , "| Consumer idempotency | `JitML.Service.Consumer` | Pure payload-hash deduplication surface |"
-    , "| HTTP listener | `JitML.Service.Http` | Low-level typed route server shared by `jitml service` and `jitml-demo` one-shot tests |"
+    , "| HTTP listener | `JitML.Service.Http` | Low-level typed route server shared by `jitml service` and Webapp route tests |"
     ]
 
 renderTrainingRlCatalog :: Text

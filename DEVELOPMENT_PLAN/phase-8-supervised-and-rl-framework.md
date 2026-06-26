@@ -142,8 +142,9 @@ Sprint `15.4`. See
 Stand up the supervised-learning catalog, dataset references, and local
 canonical test surface. Real dataset loaders, daemon-backed training loops,
 MinIO dataset access, and live statistical convergence assertions against
-in-code thresholds remain target runtime work (no per-substrate `.txt` curve
-fixtures will be committed per [../README.md → Snapshot targets → Numerical-fixture
+in-code thresholds are closed by the later no-caveat runtime and per-lane
+closure phases (no per-substrate `.txt` curve fixtures will be committed per
+[../README.md → Snapshot targets → Numerical-fixture
 prohibition](../README.md#snapshot-targets)).
 
 ### Deliverables
@@ -179,7 +180,7 @@ prohibition](../README.md#snapshot-targets)).
 2. `jitml train experiments/mnist.dhall` routes through the substrate-backed
    device path once a live publication and staged dataset are present; offline
    execution fails closed with `TrainingPrerequisiteUnmet`.
-3. Live validation (target): a real training run against MNIST clears the
+3. Transferred live validation: a real training run against MNIST clears the
    in-code convergence threshold (`median(test_acc over k seeds) ≥
    literature_target − slack`), the trained checkpoint round-trips, and
    two fresh same-substrate / same-seed runs produce bit-identical
@@ -216,7 +217,8 @@ Sprints `15.3` / `15.4`.
 ### Objective
 
 Wire `jitml train` into the CLI as a Plan/Apply-capable command with a current
-local summary body. Pulsar command/event publication remains target daemon work.
+local summary body. Pulsar command/event publication is daemon-owned and later
+validated by the workflow/runtime closure phases.
 
 ### Deliverables
 
@@ -260,7 +262,7 @@ local summary body. Pulsar command/event publication remains target daemon work.
 3. `cabal test jitml-sl-canonicals` covers render/parse round-trips for
    `StartTraining` and `StopTraining` text command envelopes and
    proto3-compatible binary command/event envelopes.
-4. Live validation (target): `jitml train` resolves and SHA-hashes the
+4. Transferred live validation: `jitml train` resolves and SHA-hashes the
    experiment Dhall, reconciles prerequisites, materializes the dataset,
    publishes `StartTraining` on `training.command.<mode>`, the daemon's
    `TrainingHandler` consumes it, and the resulting
@@ -338,7 +340,7 @@ canonical RL stanza.
    real-environment rollout surface.
 2. `jitml-unit` verifies the canonical environment catalog and
    deterministic step helper.
-3. Live validation (target): real cartpole / mountain-car / lunar-lander
+3. Transferred live validation: real cartpole / mountain-car / lunar-lander
    / atari-subset environments step under the daemon-backed env loop,
    render frames on request, and reproduce the per-seed trajectory
    determinism that the deterministic helper today only models.
@@ -427,7 +429,7 @@ catalog and the GADT-indexed lifecycle surfaces required by the doctrine.
 1. `cabal test jitml-rl-canonicals` verifies the algorithm catalog
    contains representative expected algorithms.
 2. `jitml-unit` verifies the run-plan rendering.
-3. Live validation (target): real `Policy`, `VecEnv`, replay/rollout
+3. Transferred live validation: real `Policy`, `VecEnv`, replay/rollout
    buffers, and `Async` write discipline are exercised end-to-end against
    running environments through the daemon.
 
@@ -480,8 +482,8 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 - `encodeRlCommandProto` / `decodeRlCommandProto` and
   `encodeRlEventProto` / `decodeRlEventProto` round-trip the current
   `RlCommand` and `RlEvent` oneofs through strict proto3-compatible bytes.
-  Generated cross-language bindings remain target work when
-  `proto-lens-protoc` lands.
+  Generated proto-lens Haskell bindings are checked in under
+  `gen/Proto/Jitml/Rl.hs` and `gen/Proto/Jitml/Rl_Fields.hs`.
 
 ### Validation
 
@@ -493,7 +495,7 @@ Wire the current RL CLI summaries, framework metadata, and report-card hooks.
 4. `cabal test jitml-rl-canonicals` covers render/parse round-trips for
    `StartRLRun` and `StopRLRun` text command envelopes and
    proto3-compatible binary command/event envelopes.
-5. Live validation (target): `jitml rl train` publishes `StartRLRun` on
+5. Transferred live validation: `jitml rl train` publishes `StartRLRun` on
    `rl.command.<mode>`; the daemon's `RlHandler` consumes it, runs the
    real RL loop, and publishes `rl.event.<mode>` envelopes
    (`EpisodeDone`, `EvalDone`, `CheckpointDone`, `MetricUpdate`) that
@@ -524,7 +526,7 @@ assertion migrated to Phase `15` Sprints `15.3` / `15.6`.
 ### Objective
 
 Expose the current RL training plan surface. Real typed RL training pipelines
-remain target runtime work.
+are closed by the later no-caveat runtime and per-lane closure phases.
 
 ### Deliverables
 
@@ -551,7 +553,7 @@ remain target runtime work.
    catalog summary.
 3. `cabal test jitml-rl-canonicals` verifies the deterministic local
    `RLLoop` records rollout transitions into its `ReplayBuffer`.
-4. Live validation (target): a real `RLLoop` executes against the daemon
+4. Transferred live validation: a real `RLLoop` executes against the daemon
    for one cartpole episode, reaches the reward threshold, and the
    resulting checkpoint resumes bit-deterministically to the same reward.
 
@@ -674,8 +676,10 @@ the current action/observation contract consumed by `AlgorithmModule`, `VecEnv`,
 
 - `docker compose build jitml` passed. The Docker image built ALE
   `v0.12.0` / commit `94c24368664b8539c53857522e50652ddcc44b20`, built
-  `exe:jitml` / `exe:jitml-demo`, ran image-local `jitml check-code` with
-  `check-code: ok`, built the PureScript bundle, and exported `jitml:local`.
+  the then-current `exe:jitml` / `exe:jitml-demo` pair, ran image-local
+  `jitml check-code` with `check-code: ok`, built the PureScript bundle, and
+  exported `jitml:local`. Sprint `11.10` later folded `jitml-demo` into the
+  one-binary Webapp role.
 - `docker compose run --rm jitml jitml check-code` passed with
   `check-code: ok`.
 - `docker compose run --rm jitml cabal test jitml-unit jitml-rl-canonicals

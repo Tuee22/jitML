@@ -241,8 +241,9 @@ per standards rule L.
     codegen pins: LLVM, NVCC (`--use_fast_math=false`, baseline `sm_70`),
     Metal/`swiftc`, oneDNN (AVX2 baseline), `kindest/node` pinned in the Kind
     config and mirror-pinned as a comment in `cabal.project`.
-  - **Project Structure**: `app/Main.hs` thin shim, `app/Demo.hs` thin shim,
-    `src/JitML/` library-first layout.
+  - **Project Structure**: `app/Main.hs` thin shim into the one supported
+    `jitml` executable, `src/JitML/` library-first layout, and the Webapp role
+    selected by typed `jitml service` Dhall rather than a separate demo binary.
   - **Command Topology / CommandSpec**: `Command`, `CommandSpec`, `OptionSpec`,
     `Example`, `name`, `summary`, `description`, `children`, `options`,
     `examples`, `longName`, `shortName`, `metavar`, `required`.
@@ -415,7 +416,7 @@ blocks, or cleanup-ledger rows are required.
   Evidence: [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) lines
   `57` and `62`-`65`; [system-components.md](system-components.md) lines `360`-`366`.
 - Project structure:
-  `grep -RInE 'app/Main\.hs|app/Demo\.hs|src/JitML/' DEVELOPMENT_PLAN documents/engineering`
+  `grep -RInE 'app/Main\.hs|src/JitML/' DEVELOPMENT_PLAN documents/engineering`
   Evidence: [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) lines
   `58`-`69`; [system-components.md](system-components.md) lines `404`-`405`.
 - `CommandSpec` and command topology:

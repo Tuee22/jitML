@@ -406,12 +406,15 @@ persists it via `Engines.TuningStore`.
 
 ## Sprint 16.4: Apple Host↔Cluster Pulsar RPC Live Flow ✅
 
-**Status**: Done (full two-daemon round-trip validated live 2026-05-31, Apple M1 / macOS 26)
+**Status**: Done as historical refs-RPC validation (full two-daemon round-trip
+validated live 2026-05-31, Apple M1 / macOS 26); superseded by Sprint `16.12`,
+which removed `AppleInferenceCommand` / `AppleInferenceEvent` and made raw
+values-model forwarding the current path.
 **Blocked by**: Sprint `16.2`, Phase `15` Sprint `15.1` (cluster up),
 Phase `15` Sprint `15.2` (live capability classes), Phase `15` Sprint
 `15.3` (daemon handlers consuming live broker)
-**Implementation**: `src/JitML/Service/AppleInferenceRpc.hs`,
-`src/JitML/Service/PulsarWebSocketSubprocess.hs`,
+**Implementation**: historical `src/JitML/Service/AppleInferenceRpc.hs`
+(retired), `src/JitML/Service/PulsarWebSocketSubprocess.hs`,
 `src/JitML/Service/MinIOSubprocess.hs`,
 `src/JitML/Engines/MetalLocal.hs`
 **Docs to update**: `documents/engineering/daemon_architecture.md`,
@@ -419,7 +422,8 @@ Phase `15` Sprint `15.2` (live capability classes), Phase `15` Sprint
 
 ### Objective
 
-Run the full Apple host↔cluster inference RPC end-to-end: the in-cluster
+Historical objective (retired by Sprint `16.12`): run the full Apple
+host↔cluster inference RPC end-to-end: the in-cluster
 daemon publishes an `AppleInferenceCommand` on
 `inference.command.apple-silicon` with a MinIO-staged input tensor
 reference, the host-native `jitml service` consumes it through

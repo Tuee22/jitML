@@ -5,9 +5,9 @@
 **Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md
 **Generated sections**: cli-commands.help-blocks
 
-> **Purpose**: Reference mirror of the README-owned CLI command matrix for
-> `jitml` and `jitml-demo`; defers to the doctrine for parser, generated
-> artifact, introspection, output, and standard-flag patterns.
+> **Purpose**: Reference mirror of the README-owned CLI command matrix for the
+> one supported executable, `jitml`; defers to the doctrine for parser,
+> generated artifact, introspection, output, and standard-flag patterns.
 
 ## Doctrine Deferrals
 
@@ -43,8 +43,9 @@ the tree below is the engineering reference mirror.
 
 ## Current Implementation Status
 
-Sprint `1.1` has landed the Cabal package, the `jitml` and `jitml-demo` shims, and
-the `src/JitML/App.hs` composition root. Sprint `1.2` has landed the
+Sprint `1.1` has landed the Cabal package, the `jitml` shim, and the
+`src/JitML/App.hs` composition root. Sprint `11.10` folded the old demo shim into
+the `jitml service` Webapp role. Sprint `1.2` has landed the
 `CommandSpec` registry, generated parser, command tree, `commands --json`, and
 focused `help <subcommand>` surfaces. Sprint `1.3` has landed the generated CLI
 reference, help blocks, manpage, shell completions, and paired docs
@@ -61,10 +62,9 @@ toolchain/container/cluster prerequisite nodes, `jitml doctor --remediate`,
 Homebrew remediation apply with postcondition validation, and the Apple
 host-build cache-miss prerequisite root (CommandLineTools `swift`; the
 former `container.tart` node was removed by Phase 2 Sprint `2.10`). The
-`bootstrap` parser leaf validates
-substrate selection; the full cluster apply body continues in the later Phase
-`3` rollout work. Command implementations that perform daemon, cluster,
-training, and substrate work remain blocked on their owning later sprints.
+`bootstrap` parser leaf validates substrate selection. Later sprints have
+landed the cluster apply, daemon, training, inference, and substrate execution
+surfaces on the same `jitml` command tree.
 
 ## jitML Command Tree
 
@@ -293,13 +293,12 @@ jitml internal gc <experiment-hash>
                   [--dry-run | --plan-file <path>]
 ```
 
-### `jitml-demo`
+### Webapp Workload
 
-Sibling binary serving the PureScript bundle plus the inference REST surface.
-
-```
-jitml-demo [--host <addr>] [--port <int>]
-```
+The Kubernetes workload named `jitml-demo` runs the one supported executable:
+`jitml service --config /etc/jitml/BootConfig.dhall` with
+`activeRole = Webapp`. There is no separate `jitml-demo` command in the current
+CLI surface.
 
 ## Generated Help Blocks
 

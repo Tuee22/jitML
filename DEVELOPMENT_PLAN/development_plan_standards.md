@@ -69,8 +69,9 @@ project management summaries.
   blocked prerequisites when they materially clarify closure.
 - Examples do not need to be verbatim copies of implementation files, but they must
   not contradict the supported architecture or command surface.
-- Command examples must use the canonical binary name `jitml` (or `jitml-demo` for the
-  bundled HTTP server).
+- Command examples must use the canonical binary name `jitml`. `jitml-demo`
+  names only the Kubernetes Webapp workload, service, Helm release, and image
+  tag for that same binary.
 - Substrate identifiers are `apple-silicon`, `linux-cpu`, and `linux-cuda` on the CLI
   and in Dhall configuration. Substrate identifiers may not be renamed, abbreviated,
   or pluralised in plan or doctrine prose.

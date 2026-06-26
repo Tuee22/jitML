@@ -170,7 +170,7 @@ Shape:
 
 - The clustered `jitml-service` Deployment runs on every substrate (stateless; pod anti-affinity = one per node). On Apple Silicon its Dhall sets `inferenceMode = ForwardToHost`, so it **still** performs Pulsar fan-in/fan-out, demo proxying, trial-state persistence to MinIO bucket `jitml-trials`, and placement planning, but it forwards the actual Metal execution to the host daemon. The placement rule is by workload kind plus device capability: Linux CPU/CUDA device work may become in-cluster Jobs, while Apple Metal-backed inference, training, RL, tuning trials, and AlphaZero value/policy work are host-resident.
 - `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall` runs **host-native** on Apple (Dhall: `residency = Host`, `inferenceMode = SelfInference`; no HTTP listener; Pulsar subscriber only). `./bootstrap/apple-silicon.sh` only performs stage-0 host gates and builds `./.build/jitml`; it then delegates to `./.build/jitml bootstrap --apple-silicon`, which writes the host and cluster Dhall files, brings up Kind, runs the phased Helm deploy from [Helm chart layout](#helm-chart-layout), and patches the host Dhall once the cluster publication is known.
-- The cluster daemon publishes typed inference RPC envelopes on the internal topic `inference.command.apple-silicon`. The host daemon **subscribes** to that topic and ACKs on `inference.event.apple-silicon` with typed small envelopes (call-id, kind tag, MinIO refs to outputs, or recoverable error fields). The same host-resident pattern now covers non-inference Metal work through `training.host-command.apple-silicon`, `tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`; focused live tests and the full Apple lane assert host-command forwarding and no Apple Metal workload Jobs, and the final ledger audit is closed in [DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+- The cluster daemon forwards raw inference-domain payloads on the internal topic `inference.command.apple-silicon`. The host daemon **subscribes** to that topic, runs the Metal-backed Engine path, and publishes the matching `InferenceResult` / `CheckpointCompareResult` / `AdversarialMoveResult` directly to the request's reply topic, such as `inference.result.apple-silicon`. The same host-resident pattern covers non-inference Metal work through `training.host-command.apple-silicon`, `tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`; focused live tests and the full Apple lane assert host-command forwarding and no Apple Metal workload Jobs, and the final ledger audit is closed in [DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 - The host daemon **reads and writes large artifacts directly to MinIO** through the routed `/minio/s3` surface — same protocol the cluster daemon uses. New snapshot weights, optimizer state, and inference outputs go to MinIO straight from the host; the ACK envelope just references the MinIO keys. This keeps Pulsar lean and lets MinIO's optimistic concurrency on HEAD updates serialize concurrent commits (see [Checkpoint snapshot model](#checkpoint-object-layout)).
 - On an Apple cache miss, the host daemon renders MSL plus launch metadata into
   the content-addressed cache, then calls the fixed host Metal bridge. The bridge
@@ -184,7 +184,7 @@ Shape:
 - Pulsar endpoint discovery: `jitml bootstrap --apple-silicon` writes the routed coordinates to `./.build/runtime/cluster-publication.json`, then updates `./.build/conf/host/apple-silicon.dhall` with the current `BootConfig` fields (`pulsarServiceUrl`, `pulsarAdminUrl`, `minioEndpoint`, `harborRegistry`). `JitML.Service.Clients` derives the host daemon's `/pulsar/ws`, `/minio/s3`, Harbor API, and repo-local kubectl settings from that Dhall. No service-discovery RPC; the cluster publishes its own coordinates to a known file and the host daemon reads its Dhall config.
 - The host daemon's only cluster contracts are Pulsar (RPC envelopes) and MinIO (large artifacts). Direct k8s API access from the host is forbidden and lint-enforced.
 
-On Linux substrates the clustered daemon's Dhall sets `inferenceMode = SelfInference`, so it executes kernels in-pod (the substrate image carries the full JIT toolchain and, for CUDA Jobs, the NVIDIA runtime). For `linux-cpu`, the service dispatcher runs the latest-pointer/manifest read through `loadInferenceCheckpointWith` and hands the manifest to `runLinuxCpuCheckpointInference`, so routed `RunInference` messages use the generated-kernel FFI runner before publishing `InferenceResult`. For `linux-cuda`, the same dispatcher shape calls the guarded CUDA checkpoint runner, which requires a positive CUDA runtime probe before compile/load/launch and otherwise returns a transient inference error before compilation. There is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and the internal-RPC topic pair is active; the host-command topic family generalizes that host-resident route beyond inference so the in-cluster Apple daemon does not schedule Metal-backed training/RL/tuning starts into Linux pods.
+On Linux substrates the clustered daemon's Dhall sets `inferenceMode = SelfInference`, so it executes kernels in-pod (the substrate image carries the full JIT toolchain and, for CUDA Jobs, the NVIDIA runtime). For `linux-cpu`, the service dispatcher runs the latest-pointer/manifest read through `loadInferenceCheckpointWithWeights` and hands decoded weights to `runLinuxCpuWeightedCheckpointInference`, so routed `RunInference` messages use the generated-kernel FFI runner before publishing `InferenceResult`. For `linux-cuda`, the same dispatcher shape calls the guarded CUDA weighted checkpoint runner, which requires a positive CUDA runtime probe before compile/load/launch and otherwise returns a transient inference error before compilation. There is no separate `inference.command.linux-*` topic; the Pulsar topology degenerates to the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair. Apple Silicon is the only substrate where a second daemon resides on the host and an Apple-only `inference.command.apple-silicon` forwarding topic exists; the superseded command/event refs RPC is removed. The host-command topic family generalizes host-resident routing beyond inference so the in-cluster Apple daemon does not schedule Metal-backed training/RL/tuning starts into Linux pods.
 
 ---
 
@@ -202,7 +202,7 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 > **Bootstrap verbs are not CLI verbs.** Historical script verbs such as `doctor`, `status`, `down`, and `purge` remain script conveniences, but the cluster bootstrap contract is the Haskell command `jitml bootstrap --apple-silicon | --linux-cpu | --linux-cuda`. Script `up` is a wrapper around that command.
 
-- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, the source-build prerequisites for `./.build/jitml` are available, and Homebrew is installed when typed remediation may need it. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, rebuilds the repo-owned `jitml:local` / `jitml-demo:local` images, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; `./bootstrap/apple-silicon.sh run-daemon` rebuilds / code-signs the host binary if needed, then starts `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install style tools or code-quality tooling during bootstrap. Core Apple Metal cache misses require only the OS Metal runtime and the fixed jitML bridge probe; optional Swift/SDK probes are for non-core Swift JIT modules, not training/inference cache misses.
+- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, the source-build prerequisites for `./.build/jitml` are available, and Homebrew is installed when typed remediation may need it. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local`, retags it as `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; `./bootstrap/apple-silicon.sh run-daemon` rebuilds / code-signs the host binary if needed, then starts `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install style tools or code-quality tooling during bootstrap. Core Apple Metal cache misses require only the OS Metal runtime and the fixed jitML bridge probe; optional Swift/SDK probes are for non-core Swift JIT modules, not training/inference cache misses.
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically and the root `compose.yaml` runs that service with host networking so the outer-container Kind kubeconfig loopback endpoint is reachable. The in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
 - `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast before any CUDA Kind cluster is created. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same headless, host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU label on the single Kind node, node-local containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap. Direct live CUDA tests that need the outer container itself to see NVIDIA devices use the companion `jitml-cuda` compose service.
 
@@ -386,7 +386,7 @@ Single umbrella chart at `./chart/`. `Chart.yaml` declares subchart dependencies
 - `kube-prometheus-stack` — Prometheus operator + Grafana.
 - `tensorboard` — a jitML-owned chart for TensorBoard with MinIO-backed event storage.
 
-Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes (rendered from the route registry), EnvoyProxy, manual PVs (one per replica, see below), the `jitml-service` Deployment, the `jitml-demo` Deployment, NVIDIA RuntimeClass for the CUDA substrate, Grafana datasources and dashboards (provisioned ConfigMaps), Prometheus scrape configs.
+Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes (rendered from the route registry), EnvoyProxy, manual PVs (one per replica, see below), the `jitml-service` Deployment, NVIDIA RuntimeClass for the CUDA substrate, Grafana datasources and dashboards (provisioned ConfigMaps), Prometheus scrape configs. The `jitml-demo` Webapp Deployment lives in `chart/local/jitml-demo`.
 
 Helm values ownership follows the same umbrella-chart rule as
 [documents/engineering/cluster_topology.md](documents/engineering/cluster_topology.md#helm-values-ownership):
@@ -425,7 +425,7 @@ Namespace: `platform` (fixed). `jitml bootstrap --<substrate>` creates it idempo
 **Phased deploy** (verbatim from infernix's lessons):
 
 1. **Harbor phase**: MinIO starts first so the `harbor-registry` bucket exists, the Percona operator applies and waits for the registered `harbor-pg` database, and Harbor then starts against those live dependencies.
-2. **Image build/load phase**: `jitml:local` and `jitml-demo:local` are rebuilt locally and loaded explicitly into the selected Kind cluster with `kind load docker-image`.
+2. **Image build/load phase**: `jitml:local` is rebuilt locally, retagged as `jitml-demo:local`, and both tags are loaded explicitly into the selected Kind cluster with `kind load docker-image`.
 3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack, TensorBoard, the jitML service workload (all substrates: Linux self-inference plus Apple forward-to-host), and the jitML-demo workload roll out after the local image tags are present in Kind. Bootstrap applies the repo-owned foundation manifests before Helm, waits on explicit platform rollout/readiness checks, and applies the repo-owned Gateway/HTTPRoute manifests after the controller is installed.
 
 This avoids a hidden DNS/trust assumption between the host Docker daemon, the Kind node runtime, and an in-cluster Harbor registry while still bringing Harbor up as the platform registry surface.
@@ -434,7 +434,7 @@ This avoids a hidden DNS/trust assumption between the host Docker daemon, the Ki
 
 # Harbor as the registry
 
-Harbor is the platform registry surface. The local Kind bootstrap path is explicit: it rebuilds `jitml:local` and `jitml-demo:local`, loads both into Kind with `kind load docker-image`, and sets the in-cluster workloads to `imagePullPolicy: IfNotPresent`. The Harbor Helm release receives an explicit localhost `externalURL` for the selected edge port, and the edge routes send Harbor's public portal/API/registry/token paths through the chart's public `harbor` nginx service. The `HasHarbor` subprocess client takes explicit registry/API settings, Docker host socket when the local daemon is not at Docker's default path, and a repo-local Docker config directory under `./.build/docker/harbor`; live Linux CPU validation has exercised push/promote, pull, artifact existence, and repository listing without environment variables or global Docker config writes.
+Harbor is the platform registry surface. The local Kind bootstrap path is explicit: it rebuilds `jitml:local`, retags it as `jitml-demo:local`, loads both tags into Kind with `kind load docker-image`, and sets the in-cluster workloads to `imagePullPolicy: IfNotPresent`. The Harbor Helm release receives an explicit localhost `externalURL` for the selected edge port, and the edge routes send Harbor's public portal/API/registry/token paths through the chart's public `harbor` nginx service. The `HasHarbor` subprocess client takes explicit registry/API settings, Docker host socket when the local daemon is not at Docker's default path, and a repo-local Docker config directory under `./.build/docker/harbor`; live Linux CPU validation has exercised push/promote, pull, artifact existence, and repository listing without environment variables or global Docker config writes.
 
 Harbor's own image-chart storage backend is **MinIO** (S3 API), so Harbor's blobs and MinIO's buckets share a durability story. Live Linux CPU validation has pushed an OCI artifact through Harbor's registry HTTP API and confirmed the matching repository objects in the `harbor-registry` bucket. The local Docker-backed path is also validated through the selected localhost edge: a repo-local Docker config logs into `127.0.0.1:<edge-port>`, pushes and pulls a test image, lists the repository through `/harbor/api`, and confirms the tag through Harbor's artifact API.
 
@@ -521,7 +521,7 @@ writeCheckpoint payload = do
   pure (CheckpointId manifest)
 ```
 
-Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook validates the manifest-to-engine boundary against the Linux CPU generated oneDNN FFI runner, and `loadInferenceCheckpointWithWeights` validates decoded `.jmw1` weight blobs feeding that local generated-kernel path. The daemon `RunInference` dispatcher can inject the same engine-backed checkpoint runner; `linux-cpu` + `SelfInference` service configs now use `runLinuxCpuCheckpointInference` between MinIO manifest loading and Pulsar `InferenceResult` publication. Production work remains to load real weight blobs into every non-local substrate engine. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
+Inference at any point in training or hyperparameter search is symmetric: read `pointers/latest` (or `pointers/best/<metric>`, or a known manifest SHA from a Pulsar `CheckpointDone` event), fetch `manifests/<sha>`, then fetch only the `Weights` part's blob — the optimizer-state and replay-buffer blobs are skipped on the inference path. The local `loadInferenceCheckpointWith` hook validates the manifest-to-engine boundary, while `loadInferenceCheckpointWithWeights` decodes `.jmw1` weight blobs and feeds the selected substrate's weighted checkpoint runner (`runLinuxCpuWeightedCheckpointInference`, `runCudaWeightedCheckpointInference`, or `runMetalWeightedCheckpointInference`). The daemon `RunInference` dispatcher uses the same engine-backed checkpoint path before Pulsar `InferenceResult` publication. The snapshot the reader operates against is immutable, so concurrent training advances are invisible to it.
 
 ## Retention and GC
 
@@ -639,24 +639,20 @@ The **scalar values themselves** at each `(tag, step)` *are* deterministic under
 
 # Pulsar as the control-plane ↔ data-plane bus
 
-> **Convergence target — common Pulsar ML-workflow shape.** jitML and the `infernix`
-> sister project are converging on one shared contract,
+> **Common Pulsar ML-workflow shape.** jitML and the `infernix`
+> sister project share one contract,
 > [documents/engineering/pulsar_ml_workflow.md](documents/engineering/pulsar_ml_workflow.md):
 > a three-role split (**Engine** = compute-only, talks only to Pulsar + MinIO;
 > **Coordinator** = topic-lifecycle ownership + coordination + training-completion
 > readiness gating; **Webapp** = thin websocket, substrate-agnostic, no ML compute), a
 > derived **topic algebra** (no hand-written topic strings), the `Work*` envelope
 > family unifying training and inference, the artifact + `.ready` readiness contract,
-> websocket snapshot/patch, and a reflected-Dhall-schema one-binary role model. Five
-> deltas from the shape are in progress and tracked as reopened plan work (Phases
-> `5`/`10`/`11`/`12`, see
-> [DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)):
-> the demo stops computing inference in-process (the single **Engine** owns all
-> compute); the in-process inference path is no longer triplicated across demo / CLI /
-> daemon; topics are derived rather than hardcoded; `jitml-demo` folds into the
-> one-binary **Webapp** role; and the browser inference panels become websocket-driven.
-> Once landed, this makes the substrate-agnostic webapp dissolve the Apple in-pod-Metal
-> forwarding special case entirely. The topic family below is the current surface.
+> websocket snapshot/patch, and a reflected-Dhall-schema one-binary role model.
+> The current tree has landed the jitML deltas: the Webapp does not compute ML,
+> demo / CLI / daemon inference share the Engine path, topics are derived from
+> `JitML.Coordinator.Topology`, the `jitml-demo` workload runs the one `jitml`
+> binary with `activeRole = Webapp`, and browser inference panels are
+> websocket-driven. The topic family below is the current surface.
 
 Apache Pulsar HA chart: 3× ZooKeeper, 3× BookKeeper, 3× Broker, 3× Proxy, with the admin API routed at `/pulsar/admin`. The Pulsar WebSocket route is `/pulsar/ws`; it rewrites to `/ws` and targets the broker HTTP service (`pulsar-broker:8080`) with `webSocketServiceEnabled=true`. Live validation on 2026-05-19 publishes and consumes through that route with `JitML.Service.PulsarWebSocketSubprocess`; 2026-05-20 validation reconciles the substrate-scoped command/event family and publishes/consumes on `training.command.linux-cpu` from `jitml:local`. The same topic family includes Apple host-command topics for Metal-backed training, tuning, and RL placement. The image carries a pinned Node.js 22 runtime; the subprocess script uses `globalThis.WebSocket` when available and retains an `undici.WebSocket` fallback for older Node runtimes. The PureScript frontend subscribes to live events through the `jitml-demo` proxy at `/api/ws`.
 
@@ -672,41 +668,36 @@ Topic family (substrate-scoped — `<mode>` ∈ `apple-silicon`, `linux-cpu`, `l
 | `rl.event.<mode>` | daemon → control plane / frontend | EpisodeDone, EvalDone, CheckpointDone, MetricUpdate |
 | `inference.request.<mode>` | demo frontend → daemon | inference requests (when demo is in inference mode) |
 | `inference.result.<mode>` | daemon → demo frontend | inference results |
-| `inference.command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | internal RPC envelopes — see below |
-| `inference.event.apple-silicon` (Apple only) | host daemon → cluster orchestrator | ACK envelopes — see below |
+| `inference.command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | forwarded raw inference-domain command payloads (`RunInference`, `CheckpointCompareCommand`, `AdversarialMoveCommand`) |
 | `training.host-command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | host-resident Metal-backed training starts |
 | `tune.host-command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | host-resident Metal-backed tuning starts |
 | `rl.host-command.apple-silicon` (Apple only) | cluster orchestrator → host daemon | host-resident Metal-backed RL starts |
 
-`JitML.Cluster.PulsarBootstrap.pulsarTopics` registers exactly this topic family
-during bootstrap: eight command/event topics for each substrate, the Apple-only
-internal RPC pair, and the Apple host-command topics for Metal-backed
-Training/RL/Tune starts.
+`JitML.Cluster.PulsarBootstrap.pulsarTopics` registers exactly this derived
+31-topic family during bootstrap: command/event/request/result/gc topics for
+each substrate, the Apple-only internal inference command topic, and the Apple
+host-command topics for Metal-backed Training/RL/Tune starts.
 
-The `inference.command.apple-silicon` / `inference.event.apple-silicon` pair only exists on Apple Silicon. On Linux substrates the orchestrator pod runs inference in-process, so the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair is the only inference topology. On Apple Silicon the cluster orchestrator publishes RPC envelopes on the internal topic, the host daemon consumes them and ACKs on the event topic; demo-facing topics still flow through the orchestrator unchanged. `JitML.Service.AppleInferenceRpc` owns the local proxy plan: request-to-command construction, command publication through `HasPulsar`, and completed/error event correlation by call id.
+The `inference.command.apple-silicon` internal topic only exists on Apple Silicon. On Linux substrates the orchestrator pod runs inference in-process, so the demo-facing `inference.request.<mode>` / `inference.result.<mode>` pair is the only inference topology. On Apple Silicon the cluster orchestrator forwards each inference-domain request payload to the host daemon unchanged; the host Engine consumes it, executes on Metal, and publishes the result directly to the request's reply topic.
 
-**Internal RPC envelope (Apple Silicon `inference.command.apple-silicon`):**
+**Internal forwarded payload (Apple Silicon `inference.command.apple-silicon`):**
 
-`JitML.Proto.Inference.AppleInferenceCommand` carries this command envelope;
-`AppleInferenceEvent` carries the corresponding `inference.event.apple-silicon`
-ACK/error envelope.
+`JitML.Proto.Inference` carries the forwarded values-model payload. For
+inference, that is the same text envelope used on the demo-facing request topic;
+checkpoint compare and adversarial move commands are forwarded with their own
+`kind:` frames.
 
-```jsonc
-{
-  "call-id":            "<uuid>",                    // for ACK correlation
-  "kind":               "training" | "inference",    // determines pre-flight checks
-  "model-id":           "<stable-id>",                // selects the shape-keyed JIT artifact
-  "starting-snapshot":  "<manifest-sha>",             // points at the checkpoint manifest in MinIO
-  "reply-topic":        "inference.event.apple-silicon",
-  "inputs": { /* training: batch-spec, n-steps; inference: input refs */ }
-}
+```text
+kind: RunInference
+call-id: <uuid>
+experiment-hash: <experiment-hash>
+reply-topic: inference.result.apple-silicon
+input: 1.0,2.0
 ```
 
-Pulsar carries small envelopes only. Per-layer weight blobs, optimizer state, and inference outputs travel through MinIO via the same protocol the orchestrator uses; the host daemon writes large artifacts to MinIO directly and the ACK envelope just references the resulting manifest SHAs.
+Pulsar carries small envelopes only. Per-layer weight blobs, optimizer state, and large inference artifacts travel through MinIO via the same protocol the orchestrator uses; the result envelope carries inline summary values or object references as appropriate.
 
-**Stale-starting-snapshot pre-flight (training only).** When `kind == "training"`, the host daemon's first step on receipt is to read `pointers/latest` for the model and compare against `starting-snapshot`. If they disagree (another trainer committed first), the daemon publishes an error envelope on `inference.event.apple-silicon` with shape `{ "call-id": "<uuid>", "kind": "error", "code": "stale-starting-snapshot", "expected": "<latest>", "got": "<starting>" }` and aborts. This is a **recoverable** error per README.md §Error Handling — the daemon stays healthy, the call is rejected, and the orchestrator either surfaces to the demo or rebases (rebase is a future enhancement; day 1 surfaces). Inference calls skip this check — running inference at any historical snapshot is a legitimate operation.
-
-**Protobuf contract.** Schemas in `./proto/jitml/` define the Pulsar command/event envelopes, and `proto/tensorboard/event.proto` defines the minimal TensorBoard scalar event path. Current Haskell mirrors live under `src/JitML/Proto/`; Training/RL/Tune command and event oneofs plus Inference request/result envelopes have proto3-compatible byte round-trips through `JitML.Proto.Wire`, while generated proto-lens interop remains target work. PureScript browser contracts are generated separately via the in-repo bridge renderer.
+**Protobuf contract.** Schemas in `./proto/jitml/` define the Pulsar command/event envelopes, and `proto/tensorboard/event.proto` defines the minimal TensorBoard scalar event path. Current Haskell mirrors live under `src/JitML/Proto/`; Training/RL/Tune command and event oneofs plus Inference request/result envelopes have proto3-compatible byte round-trips through `JitML.Proto.Wire`. Generated proto-lens Haskell bindings live under `gen/Proto/Jitml/` and are exposed by the cabal library. PureScript browser contracts are generated separately via the in-repo bridge renderer.
 
 **Fallback when Pulsar is absent.** Unit tests that do not start a real Pulsar
 broker use the repo-local topic spool at `./.build/runtime/pulsar/`. Tests use
@@ -799,7 +790,7 @@ code-quality execution path.
 
 # CLI command topology, typed
 
-Per doctrine §Command Topology, commands are modelled as ordinary Haskell data types and the parser is generated from a separate `CommandSpec`. Two Haskell executables share one Cabal library: `app/Main.hs` → `jitml` (control plane + daemon); `app/Demo.hs` → `jitml-demo` (HTTP server hosting the PureScript bundle).
+Per doctrine §Command Topology, commands are modelled as ordinary Haskell data types and the parser is generated from a separate `CommandSpec`. The current supported executable is `app/Main.hs` → `jitml` (control plane, daemon, Coordinator, Engine, and Webapp roles). The Kubernetes workload named `jitml-demo` is a Helm release/service/image tag that runs `jitml service --config /etc/jitml/BootConfig.dhall` with `activeRole = Webapp`; it is not a separate Cabal executable.
 
 This README is the authoritative documentation for the target command surface. In the implemented tree, `CommandSpec` is the code source that renders the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`bootstrap`, `cluster`, `rl`, `verify`, `inspect`, `bench`, `test`, `lint`, `docs`) hold substrate bootstrap, lifecycle, introspection, benchmarks, and tooling. Sub-ADTs that model >2-state workflows — `ClusterCommand`, `VerifyCommand`, the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `jitml bootstrap --<substrate>`, `cluster up`, `docs generate`, `lint --write`, and `internal gc` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers.
 
@@ -1974,21 +1965,18 @@ not asserted against a stored fixture; per-host throughput varies and a
 committed throughput target would either always pass or always fail
 depending on the runner.
 
-Target matrix (literature targets are declared in code per (env, algo);
-the `reward` column here is purely informational and not consumed by any
-test):
+The canonical convergence matrix is declared in
+`src/JitML/RL/ConvergenceThresholds.hs`; the README does not carry duplicate
+placeholder fixtures. Current coverage:
 
-| env | algo | timesteps | reward |
-|---|---|---|---|
-| CartPole-v1 | PPO | TBD | TBD |
-| CartPole-v1 | DQN | TBD | TBD |
-| Acrobot-v1 | PPO | TBD | TBD |
-| MountainCar-v0 | DQN[^mc-dqn] | TBD | TBD |
-| Pendulum-v1 | SAC | TBD | TBD |
-| Pendulum-v1 | TD3 | TBD | TBD |
-| LunarLander-v2 | PPO | TBD | TBD |
-| LunarLander-v2 | DQN | TBD | TBD |
-| LunarLander-v2 | SAC | TBD | TBD |
+| algorithm family | canonical environments |
+|---|---|
+| PPO / A2C / TRPO / MaskablePPO / RecurrentPPO | cartpole, mountain-car, lunar-lander, key-door-grid |
+| DQN / QR-DQN | cartpole, mountain-car, key-door-grid |
+| DDPG / TD3 / SAC / CrossQ / TQC | lunar-lander |
+| ARS | cartpole, mountain-car, lunar-lander, key-door-grid |
+| HER | omitted from the required matrix; no goal-conditioned canonical env exists |
+| AlphaZero | tracked by arena win-rate, not episode return |
 
 > Reopened 2026-06-24 (Sprints 9.13/13.2): the `reward` (convergence) and `timesteps`
 > (sample-efficiency performance) columns are populated by the **real measured-median**
@@ -2000,7 +1988,9 @@ The convergence check is the load-bearing test; the run-to-run
 determinism check runs every commit; the convergence check runs nightly
 or on labeled CI only.
 
-[^mc-dqn]: Vanilla DQN does not converge on MountainCar-v0 — the reward is `-1` per step until reaching a goal that random exploration almost never finds, so the Bellman target is uninformative. The target convergence check for this row uses DQN augmented with a *count-based intrinsic-motivation bonus* over a coarse position-velocity tile coding (Bellemare et al., "Unifying Count-Based Exploration", 2016). That wrapper and its experiment Dhall are still target Phase 13 work; the current worktree carries the algorithm metadata, real-environment catalog compatibility surface, and trained-network loss validation, not `src/JitML/RL/Exploration.hs`.
+MountainCar uses negative rewards, so the same `>= target - slack` comparison
+applies with less-negative values better. DQN and QR-DQN are included directly
+for MountainCar in the current threshold table.
 
 ---
 
@@ -2088,17 +2078,17 @@ The deterministic-search arc — replay-from-transcript, exploration-cache repro
 
 ### Determinism contract
 
-The run-to-run determinism check from [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) applies unchanged to AlphaZero self-play: two same-substrate, same-seed runs produce bit-identical game sequences and visit counts, compared against each other. The convergence assertion becomes: median ELO over a fixed-seed pool ≥ T against a fixed random baseline (and ≥ T' against a fixed depth-N alpha-beta baseline for Connect 4), with T and T' constants declared in code per the [Threshold methodology](#threshold-methodology) — not stored as per-substrate empirical fixtures.
+The run-to-run determinism check from [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) applies unchanged to AlphaZero self-play: two same-substrate, same-seed runs produce bit-identical game sequences and visit counts, compared against each other. The convergence assertion is an arena win-rate threshold against the baseline opponent, declared in `JitML.RL.ConvergenceThresholds.alphaZeroArenaThreshold` — not a stored per-substrate empirical fixture.
 
 ### Canonical adversarial games
 
 | Game | Players | Board / state | Action space | Branching | Notes / convergence anchor |
 |---|---|---|---|---|---|
 | Tic-Tac-Toe | 2 | 3×3 | `Masked Discrete(9)` | ≤ 9 | optimal play → draw; minimax-equivalence property |
-| Connect 4 | 2 | 6×7 (gravity) | `Masked Discrete(7)` | ≤ 7 | **canonical entry**; ELO vs random baseline; ELO vs depth-6 alpha-beta |
-| Othello (Reversi) | 2 | 8×8 | `Masked Discrete(64)` | ~ 5–15 | ELO targets TBD |
-| Gomoku-9x9 | 2 | 9×9 | `Masked Discrete(81)` | ≤ 81 | ELO targets TBD |
-| Hex-7x7 | 2 | 7×7 hex | `Masked Discrete(49)` | ≤ 49 | ELO targets TBD |
+| Connect 4 | 2 | 6×7 (gravity) | `Masked Discrete(7)` | ≤ 7 | **canonical entry**; arena win-rate threshold |
+| Othello (Reversi) | 2 | 8×8 | `Masked Discrete(64)` | ~ 5–15 | same AlphaZero arena surface |
+| Gomoku-9x9 | 2 | 9×9 | `Masked Discrete(81)` | ≤ 81 | same AlphaZero arena surface |
+| Hex-7x7 | 2 | 7×7 hex | `Masked Discrete(49)` | ≤ 49 | same AlphaZero arena surface |
 
 Connect 4 is the canonical AlphaZero target; the others share the same `PerfectInfoGame` interface and self-play loop — switching games is a Dhall change, not a code change. Tic-Tac-Toe doubles as a unit-level convergence anchor via a minimax property: the game is solved by minimax, so a sufficiently-trained AlphaZero policy's argmax-visit move at every reachable state must lie in the minimax-optimal move set. The property is checked at test time against a freshly-computed minimax oracle — no committed move-sequence file. (Raw visit *counts* are a function of `mctsSimsPerMove`, the PUCT exploration constant, the policy prior, and the Dirichlet root noise — those are not equal to minimax values; only the argmax over visits is, and only the argmax is asserted.)
 
@@ -2689,13 +2679,12 @@ After bootstrap, the full surface lives at one URL — `127.0.0.1:<edge-port>/` 
 
 # Repository layout (target)
 
-Per doctrine §Project Structure, jitML is **library-first**: nearly all logic lives in `src/JitML/`, not `app/`, so it is importable by tests and reusable by sibling binaries (`jitml-demo` shares the library with `jitml`). `app/Main.hs` and `app/Demo.hs` are six-line shims into `App.main`.
+Per doctrine §Project Structure, jitML is **library-first**: nearly all logic lives in `src/JitML/`, not `app/`, so it is importable by tests and reusable by role entrypoints. `app/Main.hs` is the thin shim into `App.main`; Webapp serving is selected at runtime by the `jitml service` Dhall config.
 
 ```
 jitML/
   app/                          -- Haskell CLI entry points (thin shims only)
     Main.hs                     -- jitml (control plane + daemon)
-    Demo.hs                     -- jitml-demo (HTTP server for the PureScript bundle)
   src/JitML/                    -- shared Haskell library (all logic lives here)
     CLI/                        -- CommandSpec, parser, docs, JSON, tree
     Cluster.hs                  -- kind + helm lifecycle, route registry consumer

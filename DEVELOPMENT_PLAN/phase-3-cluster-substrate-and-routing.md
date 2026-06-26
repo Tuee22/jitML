@@ -328,8 +328,8 @@ steady-state cluster is a no-op (exit code `3`).
      then the Percona operator plus registered `harbor-pg` database, then
      Harbor against those live dependencies.
   2. **Image build/load phase**: build the `jitml:local` container once,
-     `docker tag jitml:local jitml-demo:local` (same Dockerfile produces both
-     `jitml` and `jitml-demo` binaries inside a single image), then load both
+     `docker tag jitml:local jitml-demo:local` (the `jitml-demo` tag runs the
+     same `jitml` binary in the Webapp role), then load both
      tags explicitly into the selected Kind cluster with `kind load
      docker-image`.
   3. **Final phase**: Pulsar, Envoy Gateway, kube-prometheus-stack,

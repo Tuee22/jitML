@@ -276,9 +276,9 @@ reproducibility witness surface; see
 - `jitml:local` (`docker/Dockerfile`) installs the CUDA 12.8 toolkit
   (`cuda-toolkit-12-8`) and matching cuDNN 9 dev headers
   (`libcudnn9-dev-cuda-12`), exposes `/usr/local/cuda/bin` on `PATH` and
-  `/usr/local/cuda/lib64` on `LD_LIBRARY_PATH`, and runs
-  `cabal build -fcuda exe:jitml exe:jitml-demo` so the installed
-  `/usr/local/bin/jitml` binary links against libcublas / libcudnn.
+  `/usr/local/cuda/lib64` on `LD_LIBRARY_PATH`, and runs a CUDA-enabled build
+  of `exe:jitml` so the installed `/usr/local/bin/jitml` binary links against
+  libcublas / libcudnn.
   `compose.yaml` keeps the default `jitml` service headless for bootstrap and
   code-quality runs, and exposes every host NVIDIA GPU only through the
   `jitml-cuda` companion service via the modern `gpus: all` shorthand for live
