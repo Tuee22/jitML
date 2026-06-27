@@ -61,11 +61,20 @@ including `jitml-backends` **20 / 20** on the GPU, eight demo checkpoints were
 seeded, and the live Playwright product matrix passed **15 / 15** at edge
 `:9092`.
 
-**⏸️ Remaining open phases are Apple/handoff phases.** Phase `16` is blocked on
-an external Apple Silicon host with a Metal-capable GPU; Phase `17` is blocked
-by that remaining per-lane fragment; Phase `18` is blocked by Phases `16`–`17`.
-The prior closure narratives below remain historical records; they are not the
-current status.
+**🎉 ALL PHASES `0`–`18` reached `✅ Done` again (2026-06-26).** Phase `16`
+Sprint `16.13` revalidated the real Apple Silicon lane on an Apple M1 Max host
+with macOS 26.5 and Metal 4: live rollout 109 steps, host Metal daemon
+subscriptions acquired, `bootstrap/apple-silicon.sh test` passed **8 / 8**
+stanzas, and live Playwright passed **15 / 15**. Phase `17` Sprint `17.9`
+re-aggregated the lane fragments on `linux-cpu` with the 12 canonical dataset
+artifacts staged, eight demo checkpoints seeded, `jitml test all --live
+--linux-cpu` passing **8 / 8**, and `jitml docs check` green. Phase `18` Sprint
+`18.4` then ran the final `linux-cpu` handoff gates: `jitml test all --live
+--linux-cpu` **8 / 8** (`jitml-integration` **72 / 72**, `jitml-backends`
+**23 / 23**, populated report-card measurements, `browser_product_matrix`
+**8 / 8** at edge `:9091`), `check-code: ok`, and `docs check: ok`. The prior
+closure narratives below remain historical records; they are not the current
+status.
 
 **🎉 ALL PHASES `0`–`18` reached `✅ Done` — the durable-state Dhall DSL landed
 (2026-06-24, prior to the real-SL/RL reopen above).** The durable-state
@@ -1193,9 +1202,9 @@ obligation exists.
 | 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ✅ Done (Sprint 13.3 — linux-cpu aggregate runtime gate passed 8/8 stanzas) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
 | 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ✅ Done (Sprint 14.4 — live Playwright proves eligible trained-artifact metadata and all generated model rows) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.21 — expanded all-model lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
-| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ⏸️ Blocked by external Apple Silicon host/Metal GPU for the expanded all-model lane | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
-| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ⏸️ Blocked by Phase 16 all-model Apple lane fragment | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ⏸️ Blocked by Phases 16/17 all-model lane aggregation | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.13 — expanded all-model lane revalidated on Apple M1 Max / Metal 4 host) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
+| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.9 — per-lane fragments aggregated on `linux-cpu`) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (Sprint 18.4 — final `linux-cpu` handoff gates passed) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-26 — fixed-budget all-model trained-artifact contract)
 
@@ -1744,12 +1753,11 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-06-26, Phases `8`–`14` are `✅ Done` for the fixed-budget all-model
-trained-artifact `linux-cpu` baseline, and Phase `15` is `✅ Done` for the
-matching real `linux-cuda` lane. Phases `16`–`18` are `⏸️ Blocked` until the
-external Apple Silicon lane fragment closes and the handoff aggregation can run.
-The earlier real-SL/RL, seeded demo, Playwright, Apple, and CUDA closure notes
-remain dated evidence, but they do not override the current reopened status.
+As of 2026-06-26, Phases `0`–`18` are `✅ Done`. The fixed-budget all-model
+`linux-cpu` baseline, the real `linux-cuda` lane, the real `apple-silicon` lane,
+the Phase `17` `linux-cpu` aggregation, and the final Phase `18` handoff gates
+are all closed. The earlier real-SL/RL, seeded demo, Playwright, Apple, and CUDA
+closure notes remain dated evidence only.
 The historical closure notes below are retained as dated evidence only.
 
 Phase `11`

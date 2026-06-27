@@ -48,10 +48,11 @@ every documented model trains to a fixed terminating budget before inference.
 The worktree now carries the fixed-budget `CompletedTraining` witness,
 `InferenceEligibleCheckpoint` boundary, completed seeded demo manifests,
 all-model checkpoint/UI evidence, and live Playwright/product validation for
-the `linux-cpu` baseline. Phases `8`–`14` are Done again; Phase `15` also
-revalidated the real `linux-cuda` lane on 2026-06-26. Phases `16`–`18` remain
-blocked only by external `apple-silicon` lane revalidation and downstream
-aggregation. The rows introduced by this audit have moved to `Completed` below.
+the `linux-cpu` baseline. Phases `8`–`14` are Done again; Phase `15` revalidated
+the real `linux-cuda` lane, Phase `16` revalidated the real `apple-silicon`
+lane, Phase `17` aggregated the fragments, and Phase `18` re-closed the final
+handoff on 2026-06-26. The rows introduced by this audit have moved to
+`Completed` below.
 
 **2026-06-14 — no-caveat end-to-end product target (reopened; ledger
 non-empty).** The product bar is now explicit: every supported SL/RL/AlphaZero

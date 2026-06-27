@@ -21,12 +21,16 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-26 for Sprint `18.4`; blocked by Phases
-`16`/`17`). The `linux-cpu` fixed-budget all-model trained-artifact baseline is
-closed again, Phases `13`/`14` are Done, Phase `15` has revalidated the real
-`linux-cuda` lane, and the `Pending Removal` ledger is empty. Final handoff
-still waits for the external `apple-silicon` all-model lane fragment plus
-handoff aggregation.
+✅ **Done** (reopened 2026-06-26 for Sprint `18.4`; re-closed 2026-06-26).
+The fixed-budget all-model handoff is complete: the `linux-cpu` baseline is
+closed, Phase `15` has revalidated the real `linux-cuda` lane, Phase `16` has
+revalidated the real `apple-silicon` lane, Phase `17` has aggregated those
+fragments on `linux-cpu`, and the `Pending Removal` ledger is empty. Final
+`linux-cpu`-only validation passed `docker compose run --rm jitml jitml test all
+--live --linux-cpu` with **8/8 stanzas** (`jitml-integration` **72/72**,
+`jitml-backends` **23/23**, `cabal_test: passed: 8, failed: 0`), populated
+report-card measurements, `browser_product_matrix` **8/8** at edge `:9091`,
+`check-code: ok`, and `docs check: ok`.
 
 Historical closure: reopened 2026-06-24 for Sprint `18.3`; re-closed
 2026-06-26. The no-caveat product handoff was re-aggregated after the real-SL/RL chain landed
@@ -238,10 +242,10 @@ re-closed and their legacy-tracking rows reached `Completed`.
 - None. The real-SL/RL no-caveat handoff is re-aggregated, the ledger is empty,
   and every final validation gate is green.
 
-## Sprint 18.4: Re-Aggregate after Fixed-Budget All-Model Closure [⏸️ Blocked]
+## Sprint 18.4: Re-Aggregate after Fixed-Budget All-Model Closure [✅ Done]
 
-**Status**: Blocked
-**Blocked by**: Phase `16` Sprint `16.13`, Phase `17` Sprint `17.9`
+**Status**: Done (unblocked and re-closed 2026-06-26 after Phase `16` Sprint
+`16.13` and Phase `17` Sprint `17.9` closed)
 **Implementation**: `DEVELOPMENT_PLAN/attestations/`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `src/JitML/Test/Report.hs`
 **Docs to update**: `README.md`, `00-overview.md`, `system-components.md`,
@@ -264,16 +268,18 @@ all-model runtime, browser, per-lane, and cleanup obligations are complete.
 
 ### Validation
 
-- `docker compose run --rm jitml jitml test all --live --linux-cpu`
-- `docker compose run --rm jitml jitml check-code`
-- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm jitml jitml test all --live --linux-cpu` passed
+  **8/8 stanzas** with `jitml-integration` **72/72**, `jitml-backends` **23/23**,
+  `cabal_test: passed: 8, failed: 0`, populated report-card measurements, and
+  `browser_product_matrix` **8/8** at edge `:9091`.
+- `docker compose run --rm jitml jitml check-code` returned `check-code: ok`.
+- `docker compose run --rm jitml jitml docs check` returned `docs check: ok`.
 
 ### Remaining Work
 
-- Waiting for Phase `16` to close on real Apple Silicon hardware and for Phase
-  `17` to aggregate the lane fragments. The `linux-cpu` fixed-budget baseline,
-  the Phase `15` `linux-cuda` fragment, and the Pending Removal ledger are
-  closed.
+- None. The `linux-cpu` fixed-budget baseline, the Phase `15` `linux-cuda`
+  fragment, the Phase `16` `apple-silicon` fragment, Phase `17` aggregation,
+  the final `linux-cpu` handoff gates, and the Pending Removal ledger are closed.
 
 ## Related Documents
 

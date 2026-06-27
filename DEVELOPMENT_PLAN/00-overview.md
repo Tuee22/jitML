@@ -76,18 +76,18 @@ Metal cannot be containerized.
 
 ## Current Reopened Status
 
-The 2026-06-26 model-runtime audit reopened Phases `8`–`18`. The `linux-cpu`
-baseline re-closed the same day: Phases `8`–`14` now provide the pure fixed
+The 2026-06-26 model-runtime audit reopened Phases `8`–`18`, and every reopened
+phase is closed again. Phases `8`–`14` provide the pure fixed
 `TrainingBudget`, `CompletedTraining` witness, `InferenceEligibleCheckpoint`
 boundary, convergence/TensorBoard metadata, generated browser model matrix, and
-live Playwright proof for the expanded trained-artifact contract. Phase `15`
-then re-closed the real `linux-cuda` all-model lane on the NVIDIA RTX 5090 host:
-the live rollout reached edge `:9092`, `jitml test all --linux-cuda` passed
-8/8, `jitml-backends` passed 20/20 on the GPU, and the live Playwright product
-matrix passed 15/15. The current open work is the external Apple Silicon/Metal
-lane plus the downstream Phase `17`/`18` aggregation. The current ownership and
-blockers live in [README.md](README.md#closure-status); this overview records
-the architecture baseline only.
+live Playwright proof for the expanded trained-artifact contract on `linux-cpu`.
+Phase `15` re-closed the real `linux-cuda` all-model lane on the NVIDIA RTX
+5090 host; Phase `16` re-closed the real `apple-silicon` all-model lane on an
+Apple M1 Max host with macOS 26.5 and Metal 4; Phase `17` aggregated the
+per-lane fragments on `linux-cpu`; and Phase `18` ran the final `linux-cpu`
+handoff gates. Current closure evidence lives in
+[README.md](README.md#closure-status); this overview records the architecture
+baseline only.
 
 `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is the canonical
 full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
@@ -898,20 +898,23 @@ for the governing rule.
 
 ## Current Baseline
 
-**✅ Current status (2026-06-26): the `linux-cpu` model/product baseline and the
-real `linux-cuda` lane are closed.** Phases `8`–`14` are Done for the
-fixed-budget all-model trained-artifact contract. Validation includes `jitml
-test all --live --linux-cpu` **8 / 8**, live Playwright **15 / 15**, `docker
-compose build jitml` with embedded `check-code: ok`, `jitml lint purescript`,
-and `jitml docs check`. Phase `15` Sprint `15.21` also passed the real
-`linux-cuda` gate on the RTX 5090 host: live rollout 110 steps, `jitml test all
---linux-cuda` **8 / 8**, `jitml-backends` **20 / 20**, eight demo checkpoints
-seeded, and live Playwright **15 / 15** at edge `:9092`.
-
-The remaining open phases are Phase `16` (`apple-silicon`, blocked by external
-Mac/Metal hardware), Phase `17` (blocked by that Apple per-lane fragment), and
-Phase `18` (blocked by Phases `16`–`17`). The dated reopen/re-close narrative
-below is retained as historical record only.
+**✅ Current status (2026-06-26): all Phases `0`–`18` are Done.** Phases
+`8`–`14` are Done for the fixed-budget all-model trained-artifact contract.
+Validation includes `jitml test all --live --linux-cpu` **8 / 8**, live
+Playwright **15 / 15**, `docker compose build jitml` with embedded
+`check-code: ok`, `jitml lint purescript`, and `jitml docs check`. Phase `15`
+Sprint `15.21` passed the real `linux-cuda` gate on the RTX 5090 host: live
+rollout 110 steps, `jitml test all --linux-cuda` **8 / 8**, `jitml-backends`
+**20 / 20**, eight demo checkpoints seeded, and live Playwright **15 / 15** at
+edge `:9092`. Phase `16` Sprint `16.13` passed the real `apple-silicon` gate:
+live rollout 109 steps, host Metal daemon subscriptions acquired,
+`bootstrap/apple-silicon.sh test` **8 / 8**, and live Playwright **15 / 15**.
+Phase `17` Sprint `17.9` aggregated the lane fragments on `linux-cpu`; Phase
+`18` Sprint `18.4` ran the final `linux-cpu` handoff gates with `jitml test all
+--live --linux-cpu` **8 / 8**, populated report-card measurements,
+`browser_product_matrix` **8 / 8** at edge `:9091`, `check-code: ok`, and
+`docs check: ok`. The dated reopen/re-close narrative below is retained as
+historical record only.
 
 **Reopened + re-closed (2026-06-20 — authenticated third-party image pre-pull).**
 Phase `2` reopened for **Sprint `2.13`** and re-closed `✅ Done` on its retained

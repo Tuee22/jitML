@@ -2,10 +2,9 @@
 
 > **Reopened 2026-06-14.** The no-caveat product target expands final handoff
 > beyond the prior scoped Dense-MLP / current-RL / panel-reachability closure.
-> Final handoff is blocked until the reopened runtime/browser matrix closes on
-> every lane and the legacy ledger is empty again. The `linux-cpu` and
-> `linux-cuda` fragments are now closed; the current blocker is the external
-> Apple Silicon lane.
+> The `linux-cpu`, `linux-cuda`, and `apple-silicon` fragments are now closed;
+> Sprint `17.9` aggregates those committed lane fragments without re-running
+> accelerator lanes.
 >
 > **Reopened and re-closed 2026-06-13.** The Apple Silicon host-residency
 > placement audit reopened final handoff until the stale Apple Kubernetes-Job
@@ -56,10 +55,15 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-26 for Sprint `17.9`; blocked by Phase `16`
-Sprint `16.13`). The prior handoff-prep evidence remains historical; the
-expanded `linux-cuda` all-model fragment now exists from Phase `15` Sprint
-`15.21`, and this aggregation waits for the expanded Apple Silicon fragment.
+✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `17.9`). The expanded
+`linux-cuda` all-model fragment from Phase `15` Sprint `15.21` and the expanded
+`apple-silicon` fragment from Phase `16` Sprint `16.13` are both available, and
+the aggregation closed on `linux-cpu` only. The live `linux-cpu` stack reconciled
+109 rollout steps on edge `9091`; all 12 canonical dataset artifacts were staged
+and SHA-verified through `jitml internal upload-dataset`; the eight demo
+checkpoints were seeded; `docker compose run --rm jitml jitml test all --live
+--linux-cpu` passed all **8/8** stanzas with live report-card measurements
+populated; and `docker compose run --rm jitml jitml docs check` passed.
 
 Historical closure: reopened 2026-06-14 — no-caveat final handoff; re-closed
 2026-06-23. Sprint `17.8` updated the report card, within-substrate reproducibility evidence,
@@ -1016,10 +1020,10 @@ removals.
   the same day, the ledger is empty — Exit Definition item 18 is met and the
   phase has re-closed.
 
-## Sprint 17.9: Expanded All-Model Lane Fragment Handoff [⏸️ Blocked]
+## Sprint 17.9: Expanded All-Model Lane Fragment Handoff ✅
 
-**Status**: Blocked
-**Blocked by**: Phase `16` Sprint `16.13`
+**Status**: Done (closed 2026-06-26; linux-cpu aggregation only, no accelerator
+lane reruns)
 **Implementation**: `DEVELOPMENT_PLAN/attestations/`,
 `src/JitML/Test/Report.hs`, `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`
 **Docs to update**: `system-components.md`,
@@ -1039,14 +1043,27 @@ fragments without re-running accelerator lanes.
 
 ### Validation
 
-- `docker compose run --rm jitml jitml test all --live --linux-cpu`
-- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm -e JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 jitml jitml
+  bootstrap --linux-cpu` — 109 live rollout steps reconciled, edge `9091`, all
+  published components `ready`.
+- `jitml internal upload-dataset` — staged and SHA-verified all **12** canonical
+  dataset artifacts: MNIST and Fashion-MNIST train/test image+label IDX gzip
+  files, plus CIFAR-10, CIFAR-100, Tiny ImageNet, and California Housing train
+  archives.
+- `docker compose run --rm jitml jitml internal seed-demo-checkpoints` — seeded
+  all eight demo checkpoints for the report-card/browser matrix.
+- `docker compose run --rm jitml jitml test all --live --linux-cpu` — all **8/8**
+  stanzas passed; report-card measurements populated (`sl_final_loss`,
+  `rl_final_reward`, `alphazero_arena_win_rate`, `tune_best_objective`,
+  `jit_cache_hit_rate`, `daemon_healthz`, `browser_product_matrix`).
+- `docker compose run --rm jitml jitml docs check` — `docs check: ok`.
 
 ### Remaining Work
 
-- Waiting for Phase `16` Sprint `16.13`. The Phase `15` Sprint `15.21`
-  `linux-cuda` fragment is available in
-  [attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md).
+None. The Phase `15` Sprint `15.21` `linux-cuda` fragment is available in
+[attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md),
+and the Phase `16` Sprint `16.13` `apple-silicon` fragment is available in
+[attestations/apple-silicon-report-card.md](attestations/apple-silicon-report-card.md).
 
 ## Related Documents
 

@@ -35,15 +35,13 @@
 > frontend, and the Cabal test stanzas.
 
 The inventory documents the authoritative target end state and the present
-checked-in implementation. **Current status (2026-06-26):** Phases `8`–`14` are
-`✅ Done` for the fixed-budget all-model `linux-cpu` trained-artifact baseline,
-and Phase `15` is `✅ Done` for the matching real `linux-cuda` all-model lane.
-The worktree now has the pure fixed terminating `TrainingBudget`,
+checked-in implementation. **Current status (2026-06-26):** Phases `0`–`18` are
+`✅ Done`. The worktree has the pure fixed terminating `TrainingBudget`,
 `CompletedTraining` witness, `InferenceEligibleCheckpoint` value, per-model
 convergence statistics in checkpoint/TensorBoard metadata, and UI/e2e proof
 that inference and demos omit partial, random, smoke, hardcoded, or unwitnessed
-artifacts. Phases `16`–`18` remain blocked on external `apple-silicon` lane
-revalidation plus downstream handoff aggregation.
+artifacts across the closed `linux-cpu`, `linux-cuda`, and `apple-silicon`
+lanes.
 
 Historical closure evidence remains in the phase files and attestation files as
 dated record. The current `linux-cpu` closure evidence is the 2026-06-26
@@ -51,21 +49,22 @@ aggregate `jitml test all --live --linux-cpu` 8/8 run plus live Playwright
 15/15. The current `linux-cuda` closure evidence is the 2026-06-26 RTX 5090 run:
 live rollout 110 steps, `jitml test all --linux-cuda` 8/8 with
 `jitml-backends` 20/20 on the GPU, and live Playwright 15/15 at edge `:9092`.
-The remaining accelerator closure requires the Apple host named in
-[README.md](README.md) and [00-overview.md](00-overview.md).
+The current `apple-silicon` closure evidence is the 2026-06-26 Apple M1 Max run:
+live rollout 109 steps, host Metal daemon subscriptions acquired,
+`bootstrap/apple-silicon.sh test` 8/8, and live Playwright 15/15. The final
+handoff evidence is Phase `18` Sprint `18.4`: `jitml test all --live
+--linux-cpu` 8/8 with populated report-card measurements and
+`browser_product_matrix` 8/8, `check-code: ok`, and `docs check: ok`.
 
 Per-row component cells below describe current worktree state. A component row
 is `✅ Done` only when every current Exit-Definition obligation that the row
-contributes to is met in the worktree. Components that already provide a stable
-typed substrate, route, or parser seam may remain `✅ Done` for that seam while
-their external Apple Silicon consumers are `⏸️ Blocked` until Phase `16` runs
-on real hardware.
+contributes to is met in the worktree.
 
 ## Substrates
 
 | Substrate | Identifier | Codegen | Container Shape | Daemon Topology | Status | Owning Phase |
 |-----------|------------|---------|-----------------|-----------------|--------|--------------|
-| Apple Silicon | `apple-silicon` | Haskell renders canonical MSL plus launch metadata, persists `./.build/jit/apple-silicon/<hash>.metal.json`, and calls a fixed host Metal bridge that invokes `MTLDevice.makeLibrary(source:options:)` with fast math disabled before dispatching on the host GPU. Core cache misses require `apple.metal-runtime` + `apple.metal-bridge`, not Tart, SwiftPM, full Xcode, the offline `metal` compiler, or keychain state. MLP forward/backward/batch kernels use the same fixed bridge ABI. | partial — cluster services in Kind; second `jitml service` runs host-native (Metal cannot be containerized) | two instances of one binary, distinguished by Dhall: `Cluster + ForwardToHost` (in-pod orchestrator) + `Host + SelfInference` (host-native execution). Sprint `5.11` extends host residency beyond inference to Training/RL/Tune starts through `training.host-command.apple-silicon`, `rl.host-command.apple-silicon`, and `tune.host-command.apple-silicon`; host daemons run with `httpListener = None` and consume work through Pulsar/MinIO only. | ✅ Done for the fixed-bridge substrate/runtime surface; the reopened fixed-budget all-model Phase `16` lane is externally blocked until an Apple Silicon host with a Metal-capable GPU reruns the current Phase `13`/`14` matrix. Historical Apple closure evidence remains dated in Phase `16`. | [Phase 5](phase-5-jitml-service-daemon.md) / [Phase 7](phase-7-jit-codegen-and-substrates.md) / [Phase 16](phase-16-apple-silicon-closure.md) |
+| Apple Silicon | `apple-silicon` | Haskell renders canonical MSL plus launch metadata, persists `./.build/jit/apple-silicon/<hash>.metal.json`, and calls a fixed host Metal bridge that invokes `MTLDevice.makeLibrary(source:options:)` with fast math disabled before dispatching on the host GPU. Core cache misses require `apple.metal-runtime` + `apple.metal-bridge`, not Tart, SwiftPM, full Xcode, the offline `metal` compiler, or keychain state. MLP forward/backward/batch kernels use the same fixed bridge ABI. | partial — cluster services in Kind; second `jitml service` runs host-native (Metal cannot be containerized) | two instances of one binary, distinguished by Dhall: `Cluster + ForwardToHost` (in-pod orchestrator) + `Host + SelfInference` (host-native execution). Sprint `5.11` extends host residency beyond inference to Training/RL/Tune starts through `training.host-command.apple-silicon`, `rl.host-command.apple-silicon`, and `tune.host-command.apple-silicon`; host daemons run with `httpListener = None` and consume work through Pulsar/MinIO only. | ✅ Done for the fixed-bridge substrate/runtime surface and the Phase `16` fixed-budget all-model lane; Sprint `16.13` revalidated it on Apple M1 Max / macOS 26.5 / Metal 4 with a live 109-step rollout, host Metal daemon subscriptions, `bootstrap/apple-silicon.sh test` 8/8, and Playwright 15/15. | [Phase 5](phase-5-jitml-service-daemon.md) / [Phase 7](phase-7-jit-codegen-and-substrates.md) / [Phase 16](phase-16-apple-silicon-closure.md) |
 | Linux CPU | `linux-cpu` | generated libdnnl-linked oneDNN C++ source under `./.build/jit-src/linux-cpu/<hash>/`, plus local identity/reorder, reduction, dense/matmul, convolution, normalization, attention/matmul, and embedding/reorder compile/load/run through `JitML.Engines.Loader` and `JitML.Engines.Local` with exported `jitml_kernel_family_name` and `jitml_kernel_output_count` verification; local cache keys include `artifact-abi=<os>-<arch>` and `reduction-block=256` in the toolchain fingerprint; `JitML.Engines.CpuFeatures` probes AVX2/AVX-512 through typed subprocesses for the oneDNN micro-kernel knob; `JitML.Engines.OneDnnRuntime` probes `pkg-config`, readable oneDNN headers, and dynamic-linker `libdnnl` visibility through typed subprocesses; `jitml service` routes `linux-cpu` + `SelfInference` requests through `loadInferenceCheckpointWithWeights` and `runLinuxCpuWeightedCheckpointInference` after MinIO latest-pointer/manifest/weight loading | fully containerized target: `jitml:local` | one daemon: `Cluster + SelfInference`; current code renders configs and summaries, validates same-host oneDNN primitive kernel paths, and wires daemon inference dispatch to the Linux CPU weighted FFI runner | ✅ Done for Phase 7.3 Linux CPU runtime; later model tensor payload growth can reuse the same ABI | [Phase 7](phase-7-jit-codegen-and-substrates.md) |
 | Linux CUDA | `linux-cuda` | generated CUDA C source under `./.build/jit-src/linux-cuda/<hash>/`; host SplitMix64 RNG surface, generated no-curand metadata, deterministic reduction source with no `atomicAdd`, generated host-callable `jitml_kernel(float*, const float*, size_t)` wrapper that allocates device buffers / launches / synchronizes / copies output back, generated family/output-count metadata symbols, guarded local CUDA loader in `JitML.Engines.CudaLocal`, `LocalCudaEngine` `HasEngine` dispatch, host reduction partial-count/finalization helpers, and typed CUDA runtime probes for `nvcc`, `nvidia-smi`, and dynamic-linker visibility; Phase `15` adds live per-family weighted CUDA bodies plus nvcc forward/backward MLP kernels validated on the Linux/NVIDIA host | fully containerized target: `jitml:local` (CUDA activates at runtime when scheduled to `runtimeClassName: nvidia`) | one daemon: `Cluster + SelfInference`, pod anti-affinity = one per node; live `RuntimeClass/nvidia` GPU visibility, CUDA compile/load/run, and live inference dispatch are owned by Phase `15` | ✅ Done for the Phase `7` CUDA runtime surface and the Phase `15` fixed-budget all-model lane; Sprint `15.21` revalidated the lane on the RTX 5090 host with live rollout, staged canonical datasets, `jitml test all --linux-cuda` 8/8, `jitml-backends` 20/20, seeded demo checkpoints, and Playwright 15/15. | [Phase 7](phase-7-jit-codegen-and-substrates.md) / [Phase 15](phase-15-linux-cuda-and-cluster-closure.md) |
 

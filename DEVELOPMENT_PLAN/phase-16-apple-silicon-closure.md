@@ -27,10 +27,17 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-26 for Sprint `16.13`; blocked by a real
-Apple Silicon host for the expanded all-model Metal lane). The prior Apple lane
-remains historical evidence, but it must be re-exercised on external Mac/Metal
-hardware after the now-closed `linux-cpu` baseline.
+✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `16.13`). The expanded
+all-model Metal lane re-ran on a real Apple Silicon host: macOS `26.5` (build
+`25F71`), Apple M1 Max, Metal 4. `bootstrap/apple-silicon.sh up` reconciled the
+live stack in 109 steps on edge `9091`, `bootstrap/apple-silicon.sh run-daemon`
+acquired the host Metal command subscriptions with `apple.metal-runtime=yes` and
+`apple.metal-bridge=yes`, `bootstrap/apple-silicon.sh test` passed all **8/8**
+stanzas (`jitml-integration` **72/72**, `jitml-backends --apple-silicon`
+**17/17**), `jitml internal seed-demo-checkpoints` seeded the live browser
+artifacts, and the live Playwright matrix passed **15/15** against the Apple
+edge. Phases `17`/`18` consume this fragment on `linux-cpu` and do not re-run the
+accelerator lane.
 
 Historical closure: re-closed 2026-06-22 — full no-caveat Apple live lane
 validated on the M1 Max. Sprint `16.11` closed on the live `apple-silicon` cluster + host Metal
@@ -1197,11 +1204,9 @@ The historical "remaining slice" notes below predate this closure.
   for host-resident workload closure; keychain state is historical evidence for
   the retired VM path.
 
-## Sprint 16.13: Apple-Silicon All-Model Trained-Artifact Lane [⏸️ Blocked]
+## Sprint 16.13: Apple-Silicon All-Model Trained-Artifact Lane ✅
 
-**Status**: Blocked
-**Blocked by**: External Apple Silicon host with a Metal-capable GPU visible to
-`jitml`
+**Status**: Done (closed 2026-06-26 on macOS `26.5` / Apple M1 Max / Metal 4)
 **Implementation**: `test/integration/Main.hs`, `test/e2e/Main.hs`,
 `playwright/jitml-demo.spec.ts`, `src/JitML/Test/WorkflowMatrix.hs`
 **Docs to update**: `../documents/engineering/training_workloads.md`,
@@ -1221,13 +1226,25 @@ real Apple Silicon host with the fixed Metal bridge.
 
 ### Validation
 
-- `jitml test all --apple-silicon`
-- live Apple Playwright product matrix
+- `bootstrap/apple-silicon.sh up` — 109 live rollout steps reconciled; published
+  `cluster-publication.json` with substrate `apple-silicon`, edge port `9091`,
+  and all components `ready`.
+- `bootstrap/apple-silicon.sh run-daemon` — host daemon acquired
+  `inference.command.apple-silicon`, `training.host-command.apple-silicon`,
+  `tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`;
+  Metal acquisition reported `apple.metal-runtime=yes` and
+  `apple.metal-bridge=yes`.
+- `bootstrap/apple-silicon.sh test` — all **8/8** stanzas passed; live
+  `jitml-integration` passed **72/72** and `jitml-backends --apple-silicon`
+  passed **17/17**.
+- `jitml internal seed-demo-checkpoints` — seeded MNIST, generic, CIFAR, and
+  AlphaZero browser checkpoints for the live matrix.
+- Live Playwright product matrix in the pinned Playwright browser container:
+  **15/15** passed (`npx playwright test --config=playwright/playwright.config.ts`).
 
 ### Remaining Work
 
-- Waiting for an external Apple Silicon host with a Metal-capable GPU visible to
-  `jitml`.
+None.
 
 ## Related Documents
 
