@@ -66,9 +66,6 @@ commandRegistry =
     , evalCommand
     , tuneCommand
     , rlCommand
-    , verifyCommand
-    , inspectCommand
-    , benchCommand
     , inferenceCommand
     , testCommand
     , lintCommand
@@ -76,7 +73,6 @@ commandRegistry =
     , checkCodeCommand
     , buildCommand
     , projectCommand
-    , kubectlCommand
     , internalCommand
     , commandsCommand
     , helpCommand
@@ -359,121 +355,6 @@ rlCommand =
         ]
     ]
 
-verifyCommand :: CommandSpec
-verifyCommand =
-  group
-    "verify"
-    "Verify determinism."
-    "Determinism and replay verification commands."
-    [ leaf
-        "same-run"
-        "Verify same-run determinism."
-        "Runs the same experiment repeatedly and checks byte-equivalent outputs."
-        [ value "experiment" Nothing "experiment-dhall" True "Experiment Dhall file."
-        , value "runs" Nothing "int" True "Number of same-run repetitions."
-        ]
-        [ Example
-            "jitml verify same-run --experiment experiments/mnist.dhall --runs 2"
-            "Verify same-run determinism."
-        ]
-    , leaf
-        "replay"
-        "Verify checkpoint replay."
-        "Replays a checkpoint transcript and checks deterministic reproduction."
-        [ value "experiment" Nothing "experiment-dhall" True "Experiment Dhall file."
-        , value "checkpoint" Nothing "checkpoint-id" True "Checkpoint identifier to replay."
-        ]
-        [ Example
-            "jitml verify replay --experiment experiments/mnist.dhall --checkpoint latest"
-            "Replay a checkpoint."
-        ]
-    ]
-
-inspectCommand :: CommandSpec
-inspectCommand =
-  group
-    "inspect"
-    "Inspect cached run state."
-    "Inspects cached transcripts, checkpoints, trials, and frontiers."
-    [ leaf
-        "list"
-        "List cached manifests."
-        "Lists cached transcripts and checkpoints."
-        []
-        [Example "jitml inspect list" "List cached manifests."]
-    , leaf
-        "show"
-        "Show a manifest."
-        "Shows a cached manifest, optionally with equity details."
-        [ positional "manifest-sha" True "Manifest SHA."
-        , flag "with-equity" Nothing False "Include equity details."
-        ]
-        [Example "jitml inspect show abc123 --with-equity" "Show a manifest with equity details."]
-    , leaf
-        "replay"
-        "Replay a manifest."
-        "Replays a cached manifest transcript."
-        [ positional "manifest-sha" False "Manifest SHA (omit when using --manifest-sha + --experiment-hash)."
-        , value "manifest-sha" Nothing "manifest-sha" False "Manifest SHA (alternative to the positional)."
-        , value
-            "experiment-hash"
-            Nothing
-            "experiment-hash"
-            False
-            "Override the experiment hash directly (live MinIO lookup)."
-        ]
-        [ Example
-            "jitml inspect replay abc123"
-            "Replay a cached manifest from the local store."
-        , Example
-            "jitml inspect replay --manifest-sha abc123 --experiment-hash live-test-1"
-            "Replay a live-MinIO manifest by SHA."
-        ]
-    , leaf
-        "trial"
-        "Inspect a trial."
-        "Shows a cached hyperparameter trial."
-        [positional "trial-hash" True "Trial hash."]
-        [Example "jitml inspect trial trial123" "Inspect a tuning trial."]
-    , leaf
-        "frontier"
-        "Inspect a tuning frontier."
-        "Shows the Pareto frontier for a sweep."
-        [positional "sweep-id" True "Sweep identifier."]
-        [Example "jitml inspect frontier sweep123" "Inspect a sweep frontier."]
-    ]
-
-benchCommand :: CommandSpec
-benchCommand =
-  group
-    "bench"
-    "Run benchmark harnesses."
-    "Reproducible benchmark harnesses for training, inference, and environment stepping."
-    [ leaf
-        "train"
-        "Benchmark training."
-        "Runs the training benchmark harness."
-        [positional "experiment-dhall" True "Experiment Dhall file."]
-        [Example "jitml bench train experiments/mnist.dhall" "Benchmark training throughput."]
-    , leaf
-        "inference"
-        "Benchmark inference."
-        "Runs the inference benchmark harness."
-        [ positional "experiment-dhall" True "Experiment Dhall file."
-        , value "checkpoint" Nothing "checkpoint-id" True "Checkpoint identifier to load."
-        ]
-        [ Example
-            "jitml bench inference experiments/mnist.dhall --checkpoint latest"
-            "Benchmark inference throughput."
-        ]
-    , leaf
-        "env"
-        "Benchmark environment stepping."
-        "Runs the RL environment-step benchmark harness."
-        [positional "rl-experiment-dhall" True "RL experiment Dhall file."]
-        [Example "jitml bench env experiments/cartpole.dhall" "Benchmark environment steps."]
-    ]
-
 inferenceCommand :: CommandSpec
 inferenceCommand =
   group
@@ -483,10 +364,8 @@ inferenceCommand =
     [ leaf
         "run"
         "Run inference at any point."
-        "Runs inference against latest, best/<metric>, or a manifest SHA checkpoint."
+        "Runs inference against the latest live MinIO checkpoint for an experiment hash."
         [ positional "experiment-dhall" False "Experiment Dhall file."
-        , value "checkpoint" Nothing "latest|best/<metric>|manifest-sha" False "Checkpoint selector."
-        , value "trial" Nothing "trial-hash" False "Optional tuning trial hash."
         , value
             "experiment-hash"
             Nothing
@@ -495,8 +374,8 @@ inferenceCommand =
             "Override the experiment hash directly (live MinIO lookup)."
         ]
         [ Example
-            "jitml inference run experiments/mnist.dhall --checkpoint latest"
-            "Run inference using the latest checkpoint."
+            "jitml inference run experiments/mnist.dhall --experiment-hash abc123"
+            "Run live-MinIO inference using the latest checkpoint for the experiment."
         , Example
             "jitml inference run --experiment-hash abc123"
             "Live-MinIO inference run against a known experiment hash."
@@ -598,15 +477,6 @@ buildCommand =
         "jitml build --dry-run --substrate linux-cuda"
         "Render the CUDA generated-source build plan."
     ]
-
-kubectlCommand :: CommandSpec
-kubectlCommand =
-  leaf
-    "kubectl"
-    "Run kubectl against the jitML kubeconfig."
-    "Passes arguments to kubectl with ./.build/jitml.kubeconfig pre-bound."
-    [remainder "kubectl-args" False "Arguments passed through to kubectl."]
-    [Example "jitml kubectl get pods" "List pods using the jitML kubeconfig."]
 
 internalCommand :: CommandSpec
 internalCommand =
@@ -739,26 +609,26 @@ cacheCommand :: CommandSpec
 cacheCommand =
   group
     "cache"
-    "Inspect the JIT cache."
-    "JIT cache stat, list, and eviction commands."
+    "Report the internal JIT cache placeholder."
+    "Internal cache placeholder commands; live cache telemetry is reported through metrics and `jitml test all --live`."
     [ leaf
         "stat"
-        "Print cache stats."
-        "Prints JIT cache statistics."
+        "Print placeholder cache stats."
+        "Prints the current internal placeholder cache-stat line."
         []
-        [Example "jitml internal cache stat" "Print JIT cache stats."]
+        [Example "jitml internal cache stat" "Print placeholder cache stats."]
     , leaf
         "list"
-        "List cache entries."
-        "Lists JIT cache entries."
+        "Print placeholder cache entries."
+        "Prints the current internal placeholder cache-list line."
         []
-        [Example "jitml internal cache list" "List cache entries."]
+        [Example "jitml internal cache list" "Print placeholder cache entries."]
     , leaf
         "evict"
-        "Evict a cache entry."
-        "Evicts a JIT cache entry by hash."
+        "Echo a placeholder cache eviction."
+        "Echoes the requested cache hash; no cache object is deleted by this placeholder."
         [positional "hash" True "JIT cache hash."]
-        [Example "jitml internal cache evict abc123" "Evict one cache entry."]
+        [Example "jitml internal cache evict abc123" "Echo a placeholder cache eviction."]
     ]
 
 allTestCommand :: CommandSpec

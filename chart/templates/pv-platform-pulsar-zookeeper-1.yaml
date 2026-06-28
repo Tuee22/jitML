@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: platform-pulsar-zookeeper-pv-1
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: jitml-manual
+  local:
+    path: /jitml/.data/platform/pulsar-zookeeper/pv_1/
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: Exists
+  claimRef:
+    namespace: platform
+    name: data-pulsar-zookeeper-1

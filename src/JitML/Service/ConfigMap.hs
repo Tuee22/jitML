@@ -12,7 +12,7 @@ import Data.Text qualified as Text
 
 import JitML.Service.BootConfig (BootConfig, bootSubstrate, renderBootConfigDhall)
 import JitML.Service.LiveConfig (LiveConfig, renderLiveConfigDhall)
-import JitML.Substrate (Substrate, renderSubstrate, substrateRuntimeClass)
+import JitML.Substrate (Substrate (..), renderSubstrate, substrateRuntimeClass)
 
 renderServiceConfigMap :: BootConfig -> LiveConfig -> Text
 renderServiceConfigMap bootConfig liveConfig =
@@ -38,7 +38,7 @@ renderServiceDeployment substrate =
     , "  name: jitml-service"
     , "  namespace: platform"
     , "spec:"
-    , "  replicas: 1"
+    , "  replicas: " <> Text.pack (show (serviceReplicaCount substrate))
     , "  strategy:"
     , "    type: RollingUpdate"
     , "    rollingUpdate:"
@@ -52,18 +52,14 @@ renderServiceDeployment substrate =
     , "      labels:"
     , "        app: jitml-service"
     , "        jitml.substrate: " <> renderSubstrate substrate
+    , "        jitml.role: engine"
+    , "        jitml.compute: " <> yamlLabelBool (substrateHasClusterCompute substrate)
     , "    spec:"
     , "      serviceAccountName: jitml-service"
     ]
       <> runtimeClassLines
-      <> [ "      affinity:"
-         , "        podAntiAffinity:"
-         , "          requiredDuringSchedulingIgnoredDuringExecution:"
-         , "            - topologyKey: kubernetes.io/hostname"
-         , "              labelSelector:"
-         , "                matchLabels:"
-         , "                  app: jitml-service"
-         , "      containers:"
+      <> clusterComputePlacementLines substrate
+      <> [ "      containers:"
          , "        - name: jitml-service"
          , "          image: jitml:local"
          , "          imagePullPolicy: IfNotPresent"
@@ -101,6 +97,42 @@ renderServiceDeployment substrate =
         , "            - name: NVIDIA_DRIVER_CAPABILITIES"
         , "              value: compute,utility"
         ]
+
+serviceReplicaCount :: Substrate -> Int
+serviceReplicaCount AppleSilicon = 1
+serviceReplicaCount LinuxCPU = 3
+serviceReplicaCount LinuxCUDA = 3
+
+substrateHasClusterCompute :: Substrate -> Bool
+substrateHasClusterCompute AppleSilicon = False
+substrateHasClusterCompute LinuxCPU = True
+substrateHasClusterCompute LinuxCUDA = True
+
+yamlLabelBool :: Bool -> Text
+yamlLabelBool True = "\"true\""
+yamlLabelBool False = "\"false\""
+
+clusterComputePlacementLines :: Substrate -> [Text]
+clusterComputePlacementLines substrate
+  | not (substrateHasClusterCompute substrate) = []
+  | otherwise =
+      [ "      nodeSelector:"
+      , "        jitml.node-role/compute: \"true\""
+      , "      affinity:"
+      , "        podAntiAffinity:"
+      , "          requiredDuringSchedulingIgnoredDuringExecution:"
+      , "            - topologyKey: kubernetes.io/hostname"
+      , "              labelSelector:"
+      , "                matchLabels:"
+      , "                  jitml.compute: \"true\""
+      , "      topologySpreadConstraints:"
+      , "        - maxSkew: 1"
+      , "          topologyKey: kubernetes.io/hostname"
+      , "          whenUnsatisfiable: DoNotSchedule"
+      , "          labelSelector:"
+      , "            matchLabels:"
+      , "              jitml.compute: \"true\""
+      ]
 
 indentBlock :: Text -> Text
 indentBlock =

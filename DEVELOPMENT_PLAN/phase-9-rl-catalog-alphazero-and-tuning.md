@@ -875,8 +875,9 @@ tautology with a genuine resume-equality check. Owns the tuning slice of
 - `resumeMatchesFullRun` compares a resumed sweep's trial objectives against the
   full-run objectives bit-for-bit (within-substrate determinism), not a
   structural tautology.
-- The `jitml tune` summary and `jitml inspect trial` / `inspect frontier`
-  surfaces read the real measured objective.
+- The `jitml tune` summary and tuning transcript/report-card surfaces read the
+  real measured objective; the old `inspect trial` / `inspect frontier`
+  placeholders were retired by Phase `1` Sprint `1.16`.
 
 ### Validation
 

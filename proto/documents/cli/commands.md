@@ -21,9 +21,9 @@ jitml bootstrap [--apple-silicon] [--linux-cpu] [--linux-cuda] [--dry-run] [--pl
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
-| `--apple-silicon` | flag | no | Bootstrap the Apple Silicon substrate. |
-| `--linux-cpu` | flag | no | Bootstrap the Linux CPU substrate. |
-| `--linux-cuda` | flag | no | Bootstrap the Linux CUDA substrate. |
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -197,13 +197,15 @@ Run a supervised training job.
 Plans and applies a training job described by an experiment Dhall file.
 
 ```text
-jitml train <experiment-dhall> [--resume <checkpoint-id>] [--dry-run] [--plan-file <path>]
+jitml train <experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
 | `--resume <checkpoint-id>` | value | no | Checkpoint identifier to resume from. |
+| `--substrate <substrate>` | value | no | Override the experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda). |
+| `--seed <word64>` | value | no | Override the experiment Dhall's seed. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -214,6 +216,12 @@ jitml train experiments/mnist.dhall
 ```
 
 Run a supervised training experiment.
+
+```text
+jitml train experiments/mnist.dhall --substrate linux-cpu --seed 42
+```
+
+Run with a CLI substrate/seed override of the experiment Dhall.
 
 
 ## `jitml eval`
@@ -247,13 +255,18 @@ Run a hyperparameter sweep.
 Plans and applies a hyperparameter sweep described by a tuning Dhall file.
 
 ```text
-jitml tune <tune-dhall> [--resume <sweep-id>] [--dry-run] [--plan-file <path>]
+jitml tune <tune-dhall> [--resume <sweep-id>] [--sampler <name>] [--scheduler <name>] [--pruner <name>] [--trials <natural>] [--parallelism <natural>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `<tune-dhall>` | positional | yes | Tuning Dhall file. |
 | `--resume <sweep-id>` | value | no | Sweep identifier to resume. |
+| `--sampler <name>` | value | no | Override the tuning sampler axis (Grid, Sobol, Random, TPE, GPBO, GeneticAlgorithm, NSGA2, MuLambdaES, CMAES, EvolutionStrategies, PBT). |
+| `--scheduler <name>` | value | no | Override the tuning scheduler axis (Fifo, SuccessiveHalving, Hyperband, ASHA). |
+| `--pruner <name>` | value | no | Override the tuning pruner axis (NoPruner, MedianPruner, PercentilePruner). |
+| `--trials <natural>` | value | no | Override the tuning trial budget. |
+| `--parallelism <natural>` | value | no | Override the tuning parallelism. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -265,6 +278,18 @@ jitml tune experiments/mnist-tune.dhall
 
 Run a tuning sweep.
 
+```text
+jitml tune experiments/mnist-tune.dhall --sampler Sobol --trials 64 --parallelism 8
+```
+
+Override sampler, trial budget, and parallelism from the CLI.
+
+```text
+jitml tune experiments/mnist-tune.dhall --sampler TPE --scheduler ASHA --pruner MedianPruner
+```
+
+Override every tuning axis from the CLI.
+
 
 ## `jitml rl train`
 
@@ -273,13 +298,15 @@ Train an RL policy.
 Plans and applies an RL training job.
 
 ```text
-jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--dry-run] [--plan-file <path>]
+jitml rl train <rl-experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `<rl-experiment-dhall>` | positional | yes | RL experiment Dhall file. |
 | `--resume <checkpoint-id>` | value | no | Checkpoint identifier to resume from. |
+| `--substrate <substrate>` | value | no | Override the RL experiment Dhall's substrate (apple-silicon, linux-cpu, or linux-cuda). |
+| `--seed <word64>` | value | no | Override the RL experiment Dhall's seed. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -290,6 +317,12 @@ jitml rl train experiments/cartpole.dhall
 ```
 
 Train an RL policy.
+
+```text
+jitml rl train experiments/cartpole.dhall --substrate apple-silicon --seed 1729
+```
+
+Train with a CLI substrate/seed override of the RL Dhall.
 
 
 ## `jitml rl eval`
@@ -340,306 +373,57 @@ jitml rl rollout experiments/cartpole.dhall --seed 42
 Run a fixed-seed rollout.
 
 
-## `jitml verify same-run`
+## `jitml rl alphazero self-play`
 
-Verify same-run determinism.
+Run AlphaZero self-play.
 
-Runs the same experiment repeatedly and checks byte-equivalent outputs.
+Runs a bounded AlphaZero self-play generation through the selected substrate MLP device.
 
 ```text
-jitml verify same-run --experiment <experiment-dhall> --runs <int>
+jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
-| `--experiment <experiment-dhall>` | value | yes | Experiment Dhall file. |
-| `--runs <int>` | value | yes | Number of same-run repetitions. |
+| `--substrate <substrate>` | value | no | Override the self-play substrate (apple-silicon, linux-cpu, or linux-cuda). |
+| `--seed <word64>` | value | no | Self-play seed. |
+| `--games <n>` | value | no | Number of self-play games. |
+| `--sims <n>` | value | no | MCTS simulations per move. |
+| `--max-plies <n>` | value | no | Maximum plies per self-play game. |
+| `--updates <n>` | value | no | Policy/value gradient updates. |
+| `--arena-games <n>` | value | no | Arena games for win-rate reporting. |
 
 Examples:
 
 ```text
-jitml verify same-run --experiment experiments/mnist.dhall --runs 2
+jitml rl alphazero self-play --substrate linux-cpu --seed 31
 ```
 
-Verify same-run determinism.
-
-
-## `jitml verify cross-backend`
-
-Verify cross-backend parity.
-
-Runs or compares the Sprint 15.1 weighted cross-substrate cohort and checks configured tolerances.
-
-```text
-jitml verify cross-backend --experiment <experiment-dhall> [--backends <list>] [--export <path>] [--compare <paths>]
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `--experiment <experiment-dhall>` | value | yes | Experiment Dhall file. |
-| `--backends <list>` | value | no | Comma-separated substrate list to run locally. |
-| `--export <path>` | value | no | Write the local cohort report bundle to this path. |
-| `--compare <paths>` | value | no | Comma-separated cross-host report bundle paths to compare. |
-
-Examples:
-
-```text
-jitml verify cross-backend --experiment experiments/mnist.dhall --backends linux-cpu,linux-cuda
-```
-
-Verify backend parity.
-
-```text
-jitml verify cross-backend --experiment experiments/mnist.dhall --backends apple-silicon --export /tmp/jitml-apple.json
-```
-
-Export an ephemeral Apple Silicon cohort report for cross-host comparison.
-
-```text
-jitml verify cross-backend --experiment experiments/mnist.dhall --compare /tmp/jitml-linux.json,/tmp/jitml-apple.json
-```
-
-Compare ephemeral cross-host cohort reports.
-
-
-## `jitml verify replay`
-
-Verify checkpoint replay.
-
-Replays a checkpoint transcript and checks deterministic reproduction.
-
-```text
-jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `--experiment <experiment-dhall>` | value | yes | Experiment Dhall file. |
-| `--checkpoint <checkpoint-id>` | value | yes | Checkpoint identifier to replay. |
-
-Examples:
-
-```text
-jitml verify replay --experiment experiments/mnist.dhall --checkpoint latest
-```
-
-Replay a checkpoint.
-
-
-## `jitml inspect list`
-
-List cached manifests.
-
-Lists cached transcripts and checkpoints.
-
-```text
-jitml inspect list
-```
-
-Examples:
-
-```text
-jitml inspect list
-```
-
-List cached manifests.
-
-
-## `jitml inspect show`
-
-Show a manifest.
-
-Shows a cached manifest, optionally with equity details.
-
-```text
-jitml inspect show <manifest-sha> [--with-equity]
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<manifest-sha>` | positional | yes | Manifest SHA. |
-| `--with-equity` | flag | no | Include equity details. |
-
-Examples:
-
-```text
-jitml inspect show abc123 --with-equity
-```
-
-Show a manifest with equity details.
-
-
-## `jitml inspect replay`
-
-Replay a manifest.
-
-Replays a cached manifest transcript.
-
-```text
-jitml inspect replay [<manifest-sha>] [--manifest-sha <manifest-sha>] [--experiment-hash <experiment-hash>]
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<manifest-sha>` | positional | no | Manifest SHA (omit when using --manifest-sha + --experiment-hash). |
-| `--manifest-sha <manifest-sha>` | value | no | Manifest SHA (alternative to the positional). |
-| `--experiment-hash <experiment-hash>` | value | no | Override the experiment hash directly (live MinIO lookup). |
-
-Examples:
-
-```text
-jitml inspect replay abc123
-```
-
-Replay a cached manifest from the local store.
-
-```text
-jitml inspect replay --manifest-sha abc123 --experiment-hash live-test-1
-```
-
-Replay a live-MinIO manifest by SHA.
-
-
-## `jitml inspect trial`
-
-Inspect a trial.
-
-Shows a cached hyperparameter trial.
-
-```text
-jitml inspect trial <trial-hash>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<trial-hash>` | positional | yes | Trial hash. |
-
-Examples:
-
-```text
-jitml inspect trial trial123
-```
-
-Inspect a tuning trial.
-
-
-## `jitml inspect frontier`
-
-Inspect a tuning frontier.
-
-Shows the Pareto frontier for a sweep.
-
-```text
-jitml inspect frontier <sweep-id>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<sweep-id>` | positional | yes | Sweep identifier. |
-
-Examples:
-
-```text
-jitml inspect frontier sweep123
-```
-
-Inspect a sweep frontier.
-
-
-## `jitml bench train`
-
-Benchmark training.
-
-Runs the training benchmark harness.
-
-```text
-jitml bench train <experiment-dhall>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
-
-Examples:
-
-```text
-jitml bench train experiments/mnist.dhall
-```
-
-Benchmark training throughput.
-
-
-## `jitml bench inference`
-
-Benchmark inference.
-
-Runs the inference benchmark harness.
-
-```text
-jitml bench inference <experiment-dhall> --checkpoint <checkpoint-id>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
-| `--checkpoint <checkpoint-id>` | value | yes | Checkpoint identifier to load. |
-
-Examples:
-
-```text
-jitml bench inference experiments/mnist.dhall --checkpoint latest
-```
-
-Benchmark inference throughput.
-
-
-## `jitml bench env`
-
-Benchmark environment stepping.
-
-Runs the RL environment-step benchmark harness.
-
-```text
-jitml bench env <rl-experiment-dhall>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<rl-experiment-dhall>` | positional | yes | RL experiment Dhall file. |
-
-Examples:
-
-```text
-jitml bench env experiments/cartpole.dhall
-```
-
-Benchmark environment steps.
+Run a bounded AlphaZero generation through the Linux CPU device.
 
 
 ## `jitml inference run`
 
 Run inference at any point.
 
-Runs inference against latest, best/<metric>, or a manifest SHA checkpoint.
+Runs inference against the latest live MinIO checkpoint for an experiment hash.
 
 ```text
-jitml inference run [<experiment-dhall>] [--checkpoint <latest|best/<metric>|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]
+jitml inference run [<experiment-dhall>] [--experiment-hash <experiment-hash>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `<experiment-dhall>` | positional | no | Experiment Dhall file. |
-| `--checkpoint <latest\|best/<metric>\|manifest-sha>` | value | no | Checkpoint selector. |
-| `--trial <trial-hash>` | value | no | Optional tuning trial hash. |
 | `--experiment-hash <experiment-hash>` | value | no | Override the experiment hash directly (live MinIO lookup). |
 
 Examples:
 
 ```text
-jitml inference run experiments/mnist.dhall --checkpoint latest
+jitml inference run experiments/mnist.dhall --experiment-hash abc123
 ```
 
-Run inference using the latest checkpoint.
+Run live-MinIO inference using the latest checkpoint for the experiment.
 
 ```text
 jitml inference run --experiment-hash abc123
@@ -652,15 +436,19 @@ Live-MinIO inference run against a known experiment hash.
 
 Run all test stanzas.
 
-Runs every test-only Cabal stanza and renders the report card.
+Runs every test-only Cabal stanza and renders the report card. With a substrate flag, substrate-partitioned stanzas run only that substrate's lane (and linux-cuda builds with -fcuda); pure-logic stanzas always run in full.
 
 ```text
-jitml test all [--live] [--dry-run] [--plan-file <path>]
+jitml test all [--live] [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>] [--dry-run] [--plan-file <path>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `--live` | flag | no | Collect live report-card measurements after the Cabal stanzas pass. |
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
 
@@ -671,6 +459,18 @@ jitml test all --dry-run
 ```
 
 Print the aggregate test plan.
+
+```text
+jitml test all --linux-cuda
+```
+
+Run the linux-cuda lane (auto -fcuda); pure-logic stanzas run in full.
+
+```text
+jitml test all --linux-cpu
+```
+
+Run the linux-cpu lane.
 
 ```text
 jitml test all --live
@@ -686,8 +486,15 @@ Run jitml-unit.
 Runs the jitml-unit Cabal test stanza.
 
 ```text
-jitml test jitml-unit
+jitml test jitml-unit [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -697,6 +504,12 @@ jitml test jitml-unit
 
 Run jitml-unit.
 
+```text
+jitml test jitml-unit --linux-cuda
+```
+
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+
 
 ## `jitml test jitml-integration`
 
@@ -705,8 +518,15 @@ Run jitml-integration.
 Runs the jitml-integration Cabal test stanza.
 
 ```text
-jitml test jitml-integration
+jitml test jitml-integration [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -715,6 +535,12 @@ jitml test jitml-integration
 ```
 
 Run jitml-integration.
+
+```text
+jitml test jitml-integration --linux-cuda
+```
+
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-sl-canonicals`
@@ -724,8 +550,15 @@ Run jitml-sl-canonicals.
 Runs the jitml-sl-canonicals Cabal test stanza.
 
 ```text
-jitml test jitml-sl-canonicals
+jitml test jitml-sl-canonicals [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -735,6 +568,12 @@ jitml test jitml-sl-canonicals
 
 Run jitml-sl-canonicals.
 
+```text
+jitml test jitml-sl-canonicals --linux-cuda
+```
+
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+
 
 ## `jitml test jitml-rl-canonicals`
 
@@ -743,8 +582,15 @@ Run jitml-rl-canonicals.
 Runs the jitml-rl-canonicals Cabal test stanza.
 
 ```text
-jitml test jitml-rl-canonicals
+jitml test jitml-rl-canonicals [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -753,6 +599,12 @@ jitml test jitml-rl-canonicals
 ```
 
 Run jitml-rl-canonicals.
+
+```text
+jitml test jitml-rl-canonicals --linux-cuda
+```
+
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-hyperparameter`
@@ -762,8 +614,15 @@ Run jitml-hyperparameter.
 Runs the jitml-hyperparameter Cabal test stanza.
 
 ```text
-jitml test jitml-hyperparameter
+jitml test jitml-hyperparameter [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -773,24 +632,43 @@ jitml test jitml-hyperparameter
 
 Run jitml-hyperparameter.
 
+```text
+jitml test jitml-hyperparameter --linux-cuda
+```
 
-## `jitml test jitml-cross-backend`
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
-Run jitml-cross-backend.
 
-Runs the jitml-cross-backend Cabal test stanza.
+## `jitml test jitml-backends`
+
+Run jitml-backends.
+
+Runs the jitml-backends Cabal test stanza.
 
 ```text
-jitml test jitml-cross-backend
+jitml test jitml-backends [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
 ```text
-jitml test jitml-cross-backend
+jitml test jitml-backends
 ```
 
-Run jitml-cross-backend.
+Run jitml-backends.
+
+```text
+jitml test jitml-backends --linux-cuda
+```
+
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-daemon-lifecycle`
@@ -800,8 +678,15 @@ Run jitml-daemon-lifecycle.
 Runs the jitml-daemon-lifecycle Cabal test stanza.
 
 ```text
-jitml test jitml-daemon-lifecycle
+jitml test jitml-daemon-lifecycle [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -811,6 +696,12 @@ jitml test jitml-daemon-lifecycle
 
 Run jitml-daemon-lifecycle.
 
+```text
+jitml test jitml-daemon-lifecycle --linux-cuda
+```
+
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+
 
 ## `jitml test jitml-e2e`
 
@@ -819,8 +710,15 @@ Run jitml-e2e.
 Runs the jitml-e2e Cabal test stanza.
 
 ```text
-jitml test jitml-e2e
+jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--apple-silicon` | flag | no | Select the Apple Silicon substrate. |
+| `--linux-cpu` | flag | no | Select the Linux CPU substrate. |
+| `--linux-cuda` | flag | no | Select the Linux CUDA substrate. |
+| `--test-options <text>` | value | no | Forward an opaque argument string to cabal test (e.g. -p linux-cuda). |
 
 Examples:
 
@@ -829,6 +727,12 @@ jitml test jitml-e2e
 ```
 
 Run jitml-e2e.
+
+```text
+jitml test jitml-e2e --linux-cuda
+```
+
+Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml lint files`
@@ -1080,27 +984,34 @@ jitml build --dry-run --substrate linux-cuda
 Render the CUDA generated-source build plan.
 
 
-## `jitml kubectl`
+## `jitml project init`
 
-Run kubectl against the jitML kubeconfig.
+Generate a default jitml.dhall durable-state config.
 
-Passes arguments to kubectl with ./.build/jitml.kubeconfig pre-bound.
+Writes a self-contained, self-validating jitml.dhall (the closed StoreRegistry of MinIO buckets + Pulsar topics, the typed RetentionPolicy, and an assert : contractOK self === True that rejects an over-budget / over-quota / write-to-Retired / malformed-retention topology). Refuses to overwrite an existing file unless --force is given.
 
 ```text
-jitml kubectl [-- <kubectl-args...>]
+jitml project init [--output <path>] [--force]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
-| `-- <kubectl-args...>` | remainder | no | Arguments passed through to kubectl. |
+| `--output <path>` | value | no | Output path for the generated config (default ./jitml.dhall). |
+| `--force` | flag | no | Overwrite an existing config file. |
 
 Examples:
 
 ```text
-jitml kubectl get pods
+jitml project init
 ```
 
-List pods using the jitML kubeconfig.
+Write a default ./jitml.dhall.
+
+```text
+jitml project init --output cfg.dhall --force
+```
+
+Overwrite cfg.dhall with the default durable-state config.
 
 
 ## `jitml internal materialize-substrate`
@@ -1145,11 +1056,30 @@ jitml internal list-prereqs
 List prerequisite checks.
 
 
+## `jitml internal install-metal-bridge`
+
+Build the fixed Apple Metal bridge.
+
+Builds the process-stable Apple Metal bridge dylib from jitML-generated source under ./.build/host/apple-silicon/.
+
+```text
+jitml internal install-metal-bridge
+```
+
+Examples:
+
+```text
+jitml internal install-metal-bridge
+```
+
+Build and probe the fixed Apple Metal bridge.
+
+
 ## `jitml internal upload-dataset`
 
 Upload a real dataset blob to MinIO.
 
-Sprint 13.4 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/<data|labels>.bin via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin) or labels (labels.bin).
+Sprint 13.4 / 8.12 — reads a local file, verifies its SHA-256 against the canonical SHA from JitML.SL.Dataset, and uploads it to jitml-datasets/<name>/<split>/{data.bin,labels.bin,archive.tar.gz} via the routed MinIOSubprocess. The canonical SHA is the one returned by `JitML.SL.Dataset.canonicalArtifactSha256For`; mismatches abort the upload. --artifact selects images (data.bin), labels (labels.bin), or archive (archive.tar.gz).
 
 ```text
 jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <artifact>] [--path <path>] [--dry-run] [--plan-file <path>]
@@ -1159,7 +1089,7 @@ jitml internal upload-dataset [--name <name>] [--split <split>] [--artifact <art
 |--------|------|----------|-------------|
 | `--name <name>` | value | no | Dataset name (e.g., MNIST). |
 | `--split <split>` | value | no | Dataset split (train/validation/test). |
-| `--artifact <artifact>` | value | no | Artifact kind (images/labels); defaults to images. |
+| `--artifact <artifact>` | value | no | Artifact kind (images/labels/archive); defaults to images. |
 | `--path <path>` | value | no | Local file path to upload. |
 | `--dry-run` | flag | no | Print the plan without applying it. |
 | `--plan-file <path>` | value | no | Write the plan to a file. |
@@ -1177,6 +1107,86 @@ jitml internal upload-dataset --name MNIST --split train --artifact labels --pat
 ```
 
 Upload the canonical MNIST training labels alongside the images.
+
+```text
+jitml internal upload-dataset --name CIFAR-10 --split train --artifact archive --path /tmp/cifar-10-binary.tar.gz
+```
+
+Upload the canonical CIFAR-10 binary archive for later train/test materialization.
+
+
+## `jitml internal seed-demo-checkpoints`
+
+Seed demo inference checkpoints into MinIO.
+
+Writes self-describing MLP weight checkpoints (manifest + .jmw1 + latest-pointer) at the demo browser-panel experiment hashes (mnist-deep-mlp, generic-tensor-demo, generic-tensor-demo-candidate, cifar-imagenet, connect4-alphazero, othello-alphazero, hex-alphazero, gomoku-alphazero) through the routed MinIOSubprocess, so the live jitml-demo checkpoint-backed panels serve real full-width inference results. Requires a live cluster.
+
+```text
+jitml internal seed-demo-checkpoints
+```
+
+Examples:
+
+```text
+jitml internal seed-demo-checkpoints
+```
+
+Seed the demo panel checkpoints into live MinIO.
+
+
+## `jitml internal dhall-schema`
+
+Print the reflected Dhall config schema.
+
+Sprint 5.12 (Pulsar ML-Workflow convergence) — prints the binary's own reflected Dhall schema for each daemon config surface (BootConfig, LiveConfig, TrainingRunConfig, TuneRunConfig, RlRunConfig). The schema is read back off the live FromDhall decoder via Dhall.expected, so it cannot drift from the decoder types. With --config NAME it prints one surface; otherwise it prints every surface. With --catalog numerics|rl|all it instead prints the reflected numerics/RL catalog Dhall leaves, emitted from the Haskell catalogs so the checked-in dhall/numerics and dhall/rl leaves cannot drift.
+
+```text
+jitml internal dhall-schema [--config <config>] [--catalog <catalog>]
+```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--config <config>` | value | no | Config surface to print (BootConfig/LiveConfig/TrainingRunConfig/TuneRunConfig/RlRunConfig); defaults to all. |
+| `--catalog <catalog>` | value | no | Catalog surface to print (numerics/rl/all) emitted from the Haskell catalogs; prints catalog Dhall instead of the config schema. |
+
+Examples:
+
+```text
+jitml internal dhall-schema
+```
+
+Print the reflected Dhall schema for every daemon config surface.
+
+```text
+jitml internal dhall-schema --config BootConfig
+```
+
+Print only the reflected BootConfig schema.
+
+```text
+jitml internal dhall-schema --catalog numerics
+```
+
+Print the reflected numerics catalog Dhall leaves.
+
+
+## `jitml internal third-party-images`
+
+Print the third-party chart image list.
+
+Sprint 2.13 (Docker Hub credential path) — prints the third-party chart images (MinIO, Pulsar, Harbor, etc.) the bootstrap loads into the Kind cluster, one per line. The stage-0 bootstrap scripts pipe this list into an authenticated host `docker pull` before `kind load`, so the cluster never pulls these images anonymously from Docker Hub (avoiding the 429 rate limit on a cold host). This is jitML's own self-contained Docker Hub credential path.
+
+```text
+jitml internal third-party-images
+```
+
+Examples:
+
+```text
+jitml internal third-party-images
+```
+
+Print the third-party chart image list.
 
 
 ## `jitml internal gc`
@@ -1206,9 +1216,9 @@ Apply retention to an experiment.
 
 ## `jitml internal cache stat`
 
-Print cache stats.
+Print placeholder cache stats.
 
-Prints JIT cache statistics.
+Prints the current internal placeholder cache-stat line.
 
 ```text
 jitml internal cache stat
@@ -1220,14 +1230,14 @@ Examples:
 jitml internal cache stat
 ```
 
-Print JIT cache stats.
+Print placeholder cache stats.
 
 
 ## `jitml internal cache list`
 
-List cache entries.
+Print placeholder cache entries.
 
-Lists JIT cache entries.
+Prints the current internal placeholder cache-list line.
 
 ```text
 jitml internal cache list
@@ -1239,14 +1249,14 @@ Examples:
 jitml internal cache list
 ```
 
-List cache entries.
+Print placeholder cache entries.
 
 
 ## `jitml internal cache evict`
 
-Evict a cache entry.
+Echo a placeholder cache eviction.
 
-Evicts a JIT cache entry by hash.
+Echoes the requested cache hash; no cache object is deleted by this placeholder.
 
 ```text
 jitml internal cache evict <hash>
@@ -1262,7 +1272,7 @@ Examples:
 jitml internal cache evict abc123
 ```
 
-Evict one cache entry.
+Echo a placeholder cache eviction.
 
 
 ## `jitml commands`

@@ -261,12 +261,6 @@ main =
               , ParsedCommand ["cluster", "up"] [ParsedOption "substrate" ["apple-silicon"]]
               )
             ,
-              ( ["verify", "same-run", "--experiment", "experiments/mnist.dhall", "--runs", "2"]
-              , ParsedCommand
-                  ["verify", "same-run"]
-                  [ParsedOption "experiment" ["experiments/mnist.dhall"], ParsedOption "runs" ["2"]]
-              )
-            ,
               ( ["test", "jitml-unit"]
               , ParsedCommand ["test", "jitml-unit"] []
               )
@@ -3725,16 +3719,6 @@ canonicalLeafPaths =
   , ["rl", "eval"]
   , ["rl", "rollout"]
   , ["rl", "alphazero", "self-play"]
-  , ["verify", "same-run"]
-  , ["verify", "replay"]
-  , ["inspect", "list"]
-  , ["inspect", "show"]
-  , ["inspect", "replay"]
-  , ["inspect", "trial"]
-  , ["inspect", "frontier"]
-  , ["bench", "train"]
-  , ["bench", "inference"]
-  , ["bench", "env"]
   , ["inference", "run"]
   , ["test", "all"]
   , ["test", "jitml-unit"]
@@ -3757,7 +3741,6 @@ canonicalLeafPaths =
   , ["check-code"]
   , ["build"]
   , ["project", "init"]
-  , ["kubectl"]
   , ["internal", "materialize-substrate"]
   , ["internal", "list-prereqs"]
   , ["internal", "install-metal-bridge"]

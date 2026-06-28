@@ -76,18 +76,21 @@ Metal cannot be containerized.
 
 ## Current Reopened Status
 
-The 2026-06-26 model-runtime audit reopened Phases `8`–`18`, and every reopened
-phase is closed again. Phases `8`–`14` provide the pure fixed
-`TrainingBudget`, `CompletedTraining` witness, `InferenceEligibleCheckpoint`
-boundary, convergence/TensorBoard metadata, generated browser model matrix, and
-live Playwright proof for the expanded trained-artifact contract on `linux-cpu`.
-Phase `15` re-closed the real `linux-cuda` all-model lane on the NVIDIA RTX
-5090 host; Phase `16` re-closed the real `apple-silicon` all-model lane on an
-Apple M1 Max host with macOS 26.5 and Metal 4; Phase `17` aggregated the
-per-lane fragments on `linux-cpu`; and Phase `18` ran the final `linux-cpu`
-handoff gates. Current closure evidence lives in
-[README.md](README.md#closure-status); this overview records the architecture
-baseline only.
+The 2026-06-27 HA-topology audit reopened Phases `3`, `4`, and `5`; those
+implementation phases re-closed on 2026-06-28. The checked-in topology now
+matches the HA documentation: HA stateful platform services, one routed Envoy
+socket, one control-plane plus three Kind workers, and **at most one numerical
+ML compute worker per Kubernetes node**. Phase `15` remains blocked until a real
+Linux/NVIDIA HA live lane can run; Phase `16` is blocked until the Apple host
+exposes a GHC-compatible LLVM `opt`/`llc` for the documented `-fllvm`
+host-native build; Phases `17` and `18` remain blocked on those refreshed
+fragments.
+
+The 2026-06-26 fixed-budget all-model closure remains historical evidence: the
+`linux-cpu`, `linux-cuda`, and `apple-silicon` lanes each closed on their
+then-current topology, and Phase `17`/`18` aggregated that evidence. It is no
+longer the current product status until the HA live lane/aggregation gates
+re-run.
 
 `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is the canonical
 full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
@@ -247,27 +250,27 @@ and the deletion ledger has no pending rows.
   subsequent work. Owned by
   [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md).
 - **Cluster substrate and routing.** Per-substrate Kind configs at
-  `./kind/cluster-<substrate>.yaml` (single-node `control-plane` topology with
-  no separate worker, NodePort 30090 backing the edge listener, host
-  `./.build/` bind-mounted into the Kind node via `extraMounts`); storage uses
-  `kubernetes.io/no-provisioner` only — manual PVs against a
-  `jitml-manual` StorageClass backed by hostPath under
-  `./.data/<namespace>/<StatefulSet>/pv_<integer>`. The umbrella Helm
-  chart at `chart/` carries subchart dependencies for Harbor, Apache
-  Pulsar, MinIO, Percona PostgreSQL, Envoy Gateway, and
-  kube-prometheus-stack, plus TensorBoard/observability renderers. The
-  exposed listener is one `127.0.0.1:<edge-port>` Envoy Gateway socket;
-  the typed route registry in `src/JitML/Routes.hs` is the source of
-  truth for every HTTPRoute. The CLI never touches `~/.kube/config`.
-  The explicit live bootstrap path now sequences typed Kind, Helm, Docker
-  build / Kind image-load, repo-owned manifest apply, and Pulsar-topic
-  subprocesses, writes the leased-port publication with Helm-status-derived
-  component health, patches Apple host Dhall, serves `/api` through the single
-  Envoy localhost socket, and tears the Kind cluster down through
-  `jitml cluster down`. The renderer targets the single-node Kind shape, and
-  2026-05-23 live Linux CPU validation proves bootstrap, Docker build / Kind
-  image-load, ready publication health, `/api` through Envoy, and teardown on
-  that topology.
+  `./kind/cluster-<substrate>.yaml` target an HA-capable topology: one
+  control-plane, worker nodes sized by the HA resource profile, NodePort 30090
+  backing the single edge listener, host `./.build/` bind-mounted into every
+  node that can run jitML workloads via `extraMounts`, and at most one
+  numerical ML compute worker per Kubernetes node. Storage uses
+  `kubernetes.io/no-provisioner` only: manual PVs against a `jitml-manual`
+  StorageClass backed by hostPath under
+  `./.data/<namespace>/<StatefulSet>/pv_<integer>`. The umbrella Helm chart at
+  `chart/` carries subchart dependencies for Harbor, Apache Pulsar, MinIO, the
+  Percona Postgres operator, Envoy Gateway, and kube-prometheus-stack, plus
+  local TensorBoard/observability renderers. The exposed listener is one
+  `127.0.0.1:<edge-port>` Envoy Gateway socket; the typed route registry in
+  `src/JitML/Routes.hs` is the source of truth for every HTTPRoute. The CLI
+  never touches `~/.kube/config`. The explicit live bootstrap path sequences
+  typed Kind, Helm, Docker build / Kind image-load, repo-owned manifest apply,
+  and Pulsar-topic subprocesses, writes the leased-port publication with
+  Helm-status-derived component health, patches Apple host Dhall, serves `/api`
+  through the single Envoy localhost socket, and tears the Kind cluster down
+  through `jitml cluster down`. The current renderer still materializes the
+  historical compact single-node shape; Phase `3` Sprint `3.6` owns replacing
+  that implementation with the HA topology described here.
   Phase: [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md).
 - **Stateful platform services.** Harbor as the in-cluster registry
   against dedicated PostgreSQL storage, with explicit Harbor registry/token
@@ -337,9 +340,10 @@ and the deletion ledger has no pending rows.
   `--consume-once`; 2026-05-21 live Linux CPU validation proves duplicate
   payload dedup through the held-open worker path and dispatch-failure
   negative-ack redelivery after a checkpoint is seeded; 2026-05-21 live Linux
-  2026-05-23 CUDA service-pod validation runs the actual `jitml-service` pod
-  with `runtimeClassName: nvidia` on the GPU-labelled single Kind node and
-  confirms `nvidia-smi -L` inside the service container; 2026-05-23 live Apple
+  2026-05-23 CUDA service-pod validation historically ran the actual
+  `jitml-service` pod with `runtimeClassName: nvidia` on the GPU-labelled
+  compact Kind node and confirmed `nvidia-smi -L` inside the service container;
+  2026-05-23 live Apple
   Silicon host validation runs the generated
   `./.build/conf/host/apple-silicon.dhall` through
   `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl
@@ -691,11 +695,12 @@ each constraint.
    ForwardToHost`, and host-side connection info when `residency = Host`.
 5. On every substrate the in-cluster `jitml-service` is a stateless `Deployment`,
    not a `StatefulSet`. Required pod anti-affinity at `topologyKey:
-   kubernetes.io/hostname` enforces at most one replica per node. The local
-   Kind topology is single-node, so the supported local service replica count
-   is one; `maxSurge: 0` / `maxUnavailable: 1` keeps replacement rollouts valid
-   on that node. Durable state lives in MinIO and Pulsar exclusively (no
-   relational DB on jitML's data path).
+   kubernetes.io/hostname` enforces at most one numerical ML compute worker per
+   Kubernetes node, irrespective of other replica counts. Linux Engine pods and
+   daemon-spawned Linux workload Jobs share the `jitml.compute="true"`
+   hard-placement contract; Apple clustered pods remain non-compute forwarders.
+   Durable state lives in MinIO and Pulsar exclusively (no relational DB on
+   jitML's data path).
 6. The CLI never touches `~/.kube/config`. Cluster kubeconfig lives at
    `./.build/jitml.kubeconfig`. Stage-0 bootstrap scripts never write
    `~/.kube/config`, `~/.docker/config.json`, the user's Homebrew prefix, or any
@@ -856,9 +861,11 @@ each constraint.
     [system-components.md](system-components.md).
 36. The toolchain is pinned at GHC `9.12.4` and Cabal `3.16.1.0`. `jitml.cabal`
     declares `tested-with: ghc ==9.12.4`; `cabal.project` declares
-    `with-compiler: ghc-9.12.4`. Codegen toolchains (LLVM, NVCC, the host OS
-    Metal runtime + fixed bridge ABI, oneDNN, `kindest/node`) are pinned in
-    `cabal.project` or bridge metadata.
+    `with-compiler: ghc-9.12.4`. CUDA/NVCC, cuDNN, Node, ALE, Playwright, and
+    `kindest/node` have concrete pins in Docker, package, or Kind config files
+    as documented in [../README.md → Toolchain pinning](../README.md#toolchain-pinning).
+    LLVM and oneDNN currently come from the host/container package set and are
+    recorded/probed, not pinned by `cabal.project`.
 
 ## Dependency Chain
 
@@ -898,23 +905,32 @@ for the governing rule.
 
 ## Current Baseline
 
-**✅ Current status (2026-06-26): all Phases `0`–`18` are Done.** Phases
-`8`–`14` are Done for the fixed-budget all-model trained-artifact contract.
-Validation includes `jitml test all --live --linux-cpu` **8 / 8**, live
-Playwright **15 / 15**, `docker compose build jitml` with embedded
-`check-code: ok`, `jitml lint purescript`, and `jitml docs check`. Phase `15`
-Sprint `15.21` passed the real `linux-cuda` gate on the RTX 5090 host: live
-rollout 110 steps, `jitml test all --linux-cuda` **8 / 8**, `jitml-backends`
-**20 / 20**, eight demo checkpoints seeded, and live Playwright **15 / 15** at
-edge `:9092`. Phase `16` Sprint `16.13` passed the real `apple-silicon` gate:
-live rollout 109 steps, host Metal daemon subscriptions acquired,
-`bootstrap/apple-silicon.sh test` **8 / 8**, and live Playwright **15 / 15**.
-Phase `17` Sprint `17.9` aggregated the lane fragments on `linux-cpu`; Phase
-`18` Sprint `18.4` ran the final `linux-cpu` handoff gates with `jitml test all
---live --linux-cpu` **8 / 8**, populated report-card measurements,
-`browser_product_matrix` **8 / 8** at edge `:9091`, `check-code: ok`, and
-`docs check: ok`. The dated reopen/re-close narrative below is retained as
-historical record only.
+**🔄 Current status (2026-06-27): HA topology audit active.** Phases `3`, `4`,
+and `5` are reopened for the documentation-first HA topology target: HA-capable
+Kind nodes, HA platform-service replica/PV topology, and exactly one numerical
+ML compute worker per Kubernetes node. Phases `15`, `16`, `17`, and `18` are
+blocked until those reopened phases close and the substrate lanes are
+revalidated against the HA shape. The 2026-06-26 all-Done closure below remains
+historical evidence for the compact local topology and fixed-budget model
+contract, not the current completion state.
+
+**Historical status (2026-06-26): all Phases `0`–`18` were Done for the compact
+topology.** Phases `8`–`14` were Done for the fixed-budget all-model
+trained-artifact contract. Validation included `jitml test all --live
+--linux-cpu` **8 / 8**, live Playwright **15 / 15**, `docker compose build
+jitml` with embedded `check-code: ok`, `jitml lint purescript`, and `jitml docs
+check`. Phase `15` Sprint `15.21` passed the real `linux-cuda` gate on the RTX
+5090 host: live rollout 110 steps, `jitml test all --linux-cuda` **8 / 8**,
+`jitml-backends` **20 / 20**, eight demo checkpoints seeded, and live Playwright
+**15 / 15** at edge `:9092`. Phase `16` Sprint `16.13` passed the real
+`apple-silicon` gate: live rollout 109 steps, host Metal daemon subscriptions
+acquired, `bootstrap/apple-silicon.sh test` **8 / 8**, and live Playwright
+**15 / 15**. Phase `17` Sprint `17.9` aggregated the lane fragments on
+`linux-cpu`; Phase `18` Sprint `18.4` ran the final `linux-cpu` handoff gates
+with `jitml test all --live --linux-cpu` **8 / 8**, populated report-card
+measurements, `browser_product_matrix` **8 / 8** at edge `:9091`,
+`check-code: ok`, and `docs check: ok`. The dated reopen/re-close narrative
+below is retained as historical record only.
 
 **Reopened + re-closed (2026-06-20 — authenticated third-party image pre-pull).**
 Phase `2` reopened for **Sprint `2.13`** and re-closed `✅ Done` on its retained
@@ -1133,24 +1149,24 @@ container-exclusive Haskell style/code-quality rule: the mandatory
 Fourmolu / HLint binaries, runs `jitml check-code`, and host lint/check-code
 execution is unsupported.
 Phase `4` reclosed on 2026-05-23 against a Linux CUDA validation host
-(NVIDIA GeForce RTX 5090, CUDA 12.8, compute capability `12.0`): the
-single-node CUDA Kind cluster brings up `jitml-linux-cuda-control-plane` with
-the GPU node label, the containerd `nvidia` runtime handler, the read-only
-`/run/nvidia/driver` mount, and the repo-owned NVIDIA runtime config;
-`RuntimeClass/nvidia` applies; the `nvidia-smi-probe` pod reaches `Succeeded`
-and `kubectl logs nvidia-smi-probe` reports the RTX 5090. Phase `5` Sprint
-`5.6`'s Linux CPU and Linux CUDA service-pod validations both closed the
-same date: the live `jitml bootstrap --linux-cpu` rollout completes all seven
-platform components ready and `kubectl rollout restart deployment/jitml-service`
-cleanly replaces the pod without surge under `maxSurge: 0` /
-`maxUnavailable: 1` with required hostname anti-affinity; the CUDA service-pod
-variant runs `nvidia-smi -L` inside the service container, and the Apple
-Silicon host-Dhall path completes `./bootstrap/apple-silicon.sh up` on
-`edge_port: 9090` before the host-native
-`jitml service --consume-once 0` run acquires
-`inference.command.apple-silicon` as `jitml-host`.
-Phase `3` reclosed on 2026-05-23 after live Linux CPU bootstrap and teardown
-validated the single-node topology.
+(NVIDIA GeForce RTX 5090, CUDA 12.8, compute capability `12.0`) for the then
+current compact topology: the CUDA Kind cluster brought up
+`jitml-linux-cuda-control-plane` with the GPU node label, the containerd
+`nvidia` runtime handler, the read-only `/run/nvidia/driver` mount, and the
+repo-owned NVIDIA runtime config; `RuntimeClass/nvidia` applied; the
+`nvidia-smi-probe` pod reached `Succeeded`; and `kubectl logs
+nvidia-smi-probe` reported the RTX 5090. Phase `5` Sprint `5.6`'s Linux CPU and
+Linux CUDA service-pod validations both closed the same date: the live
+`jitml bootstrap --linux-cpu` rollout completed all seven platform components
+ready and `kubectl rollout restart deployment/jitml-service` cleanly replaced
+the pod without surge under `maxSurge: 0` / `maxUnavailable: 1` with required
+hostname anti-affinity; the CUDA service-pod variant ran `nvidia-smi -L` inside
+the service container, and the Apple Silicon host-Dhall path completed
+`./bootstrap/apple-silicon.sh up` on `edge_port: 9090` before the host-native
+`jitml service --consume-once 0` run acquired `inference.command.apple-silicon`
+as `jitml-host`. Phase `3` reclosed on 2026-05-23 after live Linux CPU
+bootstrap and teardown validated the compact topology. These records are
+historical; the HA target is reopened under Phases `3` / `4` / `5`.
 Phase `7` (JIT codegen) closed its code surface on 2026-05-24 against an
 RTX 3090 + CUDA 12.8 validation host; the live CUDA execution obligation it
 fed migrated to Phase `15`, which reopened 2026-06-06 for re-validation on the
@@ -1175,9 +1191,9 @@ sequence lives in
 |---------|--------------------|--------------------|
 | Repository layout | Sprints `1.1` through `12.9` have landed the library-first Haskell CLI, AppError, cache, docs, env, lint, plan, subprocess, prerequisite, bootstrap, route, cluster-renderer, service-config, numerical-catalog, engine, runtime-source, SL/RL/tuning, checkpoint, web-contract, and report modules; stage-0 scripts; generated CLI docs; `compose.yaml`, `docker/`, `chart/`, `kind/`, `dhall/`, `web/`, `infra/`, `proto/`, and `experiments/` surfaces; and dedicated test bodies for every Cabal stanza. Sprint `1.15` removed the VM command surface, Sprints `2.12` / `5.10` removed Tart prerequisite/bootstrap and daemon acquire/config residue, and Sprint `7.11` removed the generated Swift/Tart cache-miss code path. | Full library-first Haskell layout with Haskell-owned runtime JIT source generation per [../README.md → Repository layout (target)](../README.md#repository-layout-target) |
 | Build artefacts | The Cabal package declares one supported executable, `jitml`; `bootstrap/apple-silicon.sh build` targets `./.build/jitml`; the `jitml-demo` image/tag/workload is a retagged Webapp role of that binary. The typed JIT cache key/layout/manifest layer is implemented; Apple uses `.metal.json` source metadata plus a fixed host bridge under `./.build/host/apple-silicon/`; `jitml build --dry-run --substrate <substrate>` renders generated-source compile plans under `./.build/jit-src/<substrate>/<hash>/`; non-dry-run `jitml build` routes the selected JIT artifact through `JitML.Engines.Loader`; `jitml-cross-backend` validates generated Linux CPU libdnnl-linked oneDNN primitive compile/load/run paths plus exported family/output-count metadata, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement through generated FFI output digests, and Apple fixed-bridge Metal execution in the Apple lane; `jitml-unit` validates the CUDA host-callable wrapper/source ABI and guarded local CUDA runner fail-closed path | `cabal build all`-produced `jitml` binary, generated JIT compiler inputs under `./.build/jit-src/<substrate>/<hash>/`, plus per-substrate JIT-cache artefacts under `./.build/jit/<substrate>/` |
-| CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference execution paths, test report rendering, internal substrate materialization, dataset upload, generated-source build-plan rendering, and cache stubs. Sprint `5.11` replaced Apple Metal-backed Job placement with host-resident workload commands while preserving Linux Job placement. Sprint `1.15` removed the `jitml internal vm` group from the implemented command surface and regenerated the CLI mirrors. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete `jitml` command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `verify {same-run,replay}`, `inspect {list,show,replay,trial,frontier}`, `bench {train,inference,env}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `kubectl`, `internal {materialize-substrate,list-prereqs,upload-dataset,gc,cache}`, `commands`, and `help`; the `jitml-demo` HTTP surface is the Webapp role run by `jitml service` |
+| CLI surface | The full command family is registered and parseable from `CommandSpec`; implemented commands cover bootstrap materialization with no-op exit `3`, live Kind/Helm bootstrap, doctor/remediation, commands/help, docs, lint/check-code, Plan/Apply dry-runs, env resolution, AppError rendering, cluster status/up/down/reset summaries, typed Kind down execution, service dry-run/surface rendering plus HTTP listener startup and bounded `--consume-once` daemon batch execution, daemon workload dispatch from parsed Training/RL/Tune command envelopes into Kubernetes Job apply/delete effects, train/eval/tune/RL/inference execution paths, test report rendering, internal substrate materialization, dataset upload, generated-source build-plan rendering, and explicit internal cache placeholders. Sprint `5.11` replaced Apple Metal-backed Job placement with host-resident workload commands while preserving Linux Job placement. Sprint `1.15` removed the `jitml internal vm` group from the implemented command surface, and Sprint `1.16` removed placeholder top-level `verify`, `inspect`, `bench`, and user-facing `kubectl` groups. The lint stack enforces config presence, whitespace normalization, forbidden paths, generated-doc drift, chart-shape checks, forbidden subprocess/terminal primitives, static JIT source/build artefact rejection, external `fourmolu`, `hlint`, `cabal format`, and warning-clean build execution inside `jitml:local`; host lint/check-code execution fails before linting. | The complete `jitml` command family parses and runs against three substrates: `doctor`, `cluster {up,down,status,reset}`, `service`, `train`, `eval`, `tune`, `rl {train,eval,rollout}`, `inference run`, `test`, `lint`, `docs`, `check-code`, `build`, `internal {materialize-substrate,list-prereqs,upload-dataset,gc,cache}`, `commands`, and `help`; the `jitml-demo` HTTP surface is the Webapp role run by `jitml service` |
 | Test stanzas | Eight Cabal stanzas are declared with dedicated deterministic bodies; `jitml-unit` covers CLI/docs/prerequisite/env/cache/checkpoint-store surfaces, `jitml-integration` covers subprocess/bootstrap/renderers, BootConfig-derived daemon client settings, linkable oneDNN probing, local checkpoint inference through a Linux CPU generated oneDNN kernel, and live daemon/event dispatch cases, `jitml-cross-backend` includes generated Linux CPU oneDNN primitive compile/load/run, family/output-count symbol checks, local Linux CPU `HasEngine` dispatch, Linux CPU benchmark candidate measurement, and per-substrate run-to-run bit-identity (within-substrate reproducibility); `jitml-daemon-lifecycle` covers injected engine-backed daemon inference dispatch, and `jitml-e2e` includes typed live-plan rendering plus report-card knob parsing. Sprint `12.12` adds failed Kubernetes Job fail-fast diagnostics, bounded host-command polling, and Apple host-resident placement assertions while preserving Linux Job assertions. | Eight Cabal stanzas: `jitml-unit`, `jitml-integration`, `jitml-sl-canonicals`, `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-cross-backend`, `jitml-daemon-lifecycle`, `jitml-e2e` |
-| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, no `source-repository-package` pins, and no local dependency packages, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Plain Hackage solves under the GHC `9.12.4` / `base-4.21` baseline. Phase `8` Sprint `8.8` leaves only pinned ALE library/runtime prerequisites for optional external/generated `atari-subset` adapter experiments, while Sprint `8.9` moved default demos to `KeyDoorGrid-v0`. | GHC `9.12.4`, Cabal `3.16.1.0`, LLVM pinned in `cabal.project`, NVCC pinned, optional ALE library/runtime pinned in `docker/Dockerfile`, host OS Metal runtime + fixed bridge for core Apple execution, optional `swiftc`/macOS SDK only for non-core Swift JIT modules, oneDNN pinned, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
+| Toolchain | `jitml.cabal` pins `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`, records the codegen-toolchain comments and report-card knobs, carries no `allow-newer`, no `source-repository-package` pins, and no local dependency packages, and `jitml doctor --scope toolchain` validates the Sprint `2.2` host toolchain prerequisites after typed remediation. Plain Hackage solves under the GHC `9.12.4` / `base-4.21` baseline. LLVM and oneDNN currently come from host/container packages; CUDA/NVCC/cuDNN are Docker package-family pins; Node, Playwright, ALE, Metal runtime/bridge ABI, and Kind node image are pinned or probed at their owning surfaces. | GHC `9.12.4`, Cabal `3.16.1.0`, LLVM supplied by the host or Ubuntu package set rather than `cabal.project`, CUDA package family `12-8` plus cuDNN 9 in `docker/Dockerfile`, optional ALE library/runtime pinned in `docker/Dockerfile`, host OS Metal runtime + fixed bridge for core Apple execution, optional `swiftc`/macOS SDK only for non-core Swift JIT modules, oneDNN from Ubuntu `libdnnl-dev`, `kindest/node` pinned in `./kind/cluster-<substrate>.yaml`, and no `allow-newer` override |
 | Determinism contract | Deterministic SL curves, RL trajectories, tuning trials, checkpoint inference, engine flags, Linux CPU oneDNN primitive execution, local Linux CPU `HasEngine` dispatch, CUDA host-wrapper source ABI, and per-substrate run-to-run bit-identity (within-substrate reproducibility) are covered by dedicated Cabal stanzas. Cross-substrate equivalence is out of contract and not asserted | Enforced by the `jitml-integration` (same-substrate bit-equality), `jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-cross-backend` stanzas plus the per-substrate determinism notes in [../documents/engineering/determinism_contract.md](../documents/engineering/determinism_contract.md) |
 | Frontend | `web/` contains the PureScript shell, generated browser contracts from `src/JitML/Web/Contracts.hs`, Halogen panel modules under `web/src/Panels/`, and a `spec-node` `purescript-spec` smoke suite under `web/test/`; Sprint `11.9` adds current-panel generated payload parsers and request renderers, generated training/RL/tune command-envelope controls, request-aware command publication when a live cluster publication is present, checkpoint-runtime-backed MNIST/generic/CIFAR/checkpoint-compare/Connect 4 REST route injection, training metadata, RL replay scrub summaries, multi-game adversarial boards, and non-placeholder summary charts; `src/JitML/Web/Server.hs` serves the demo/API/WebSocket surface; the live-only Playwright scaffold drives the published edge route | PureScript shell under `web/`, generated contracts from `src/JitML/Web/Contracts.hs`, panel modules under `web/src/Panels/`, Playwright scaffold under `playwright/`, demo surface served by `jitml-demo` |
 

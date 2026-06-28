@@ -102,9 +102,11 @@ where:
   choices) plus the optimizer + loss when `kind = Training`.
 - `kind ∈ Training | Inference`.
 - `substrate ∈ apple-silicon | linux-cpu | linux-cuda`.
-- `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, the host OS Metal runtime plus fixed bridge ABI,
-  oneDNN) plus loader-relevant ABI facts for local FFI paths.
+- `toolchain-fingerprint` is the hash of the active codegen toolchain identity:
+  the GHC/cabal baseline and `cabal.project` toolchain comments, LLVM and oneDNN
+  package/runtime probes, Docker-pinned CUDA/NVCC/cuDNN package families, the
+  host OS Metal runtime plus fixed bridge ABI, and loader-relevant ABI facts for
+  local FFI paths.
 - `rendered-source-payload` is the canonical payload emitted by
   `renderRuntimeSource`.
 - `tuning-choice` is the selected `TuningChoice`.
@@ -376,8 +378,8 @@ Use only for fresh-start debugging.
 
 ## Linux Substrates Share the Cache via Kind `extraMounts`
 
-The Kind cluster config bind-mounts host `./.build/` into the single Kind node,
-and the `jitml-service` Deployment mounts that path into the pod at
+The Kind cluster config bind-mounts host `./.build/` into every materialized Kind
+node, and the `jitml-service` Deployment mounts that path into the pod at
 `/opt/build`. Linux cache hits / misses share the same content-addressed layout:
 on a Linux miss the compile runs in-process inside the pod because the substrate
 image carries the full JIT toolchain. Later `docker compose run --rm jitml jitml <command>` invocations

@@ -1,5 +1,7 @@
 substrate: linux-cpu
 edgePort: 9090
+engineReplicas: 3
+appleForwarderReplicas: 1
 
 image:
   repository: jitml

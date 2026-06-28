@@ -621,7 +621,7 @@ main =
                 , "minio:read-object"
                 , "minio:read-bytes"
                 ]
-      , testCase "daemon-rendered linux-cuda workload Jobs request NVIDIA RuntimeClass" $ do
+      , testCase "daemon-rendered workload Jobs enforce compute cardinality and CUDA RuntimeClass" $ do
           let trainingCuda =
                 renderTrainingJob
                   (Training.StartTraining "cuda-train" "experiments/mnist.dhall" LinuxCUDA 11 2 32)
@@ -634,6 +634,24 @@ main =
               trainingCpu =
                 renderTrainingJob
                   (Training.StartTraining "cpu-train" "experiments/mnist.dhall" LinuxCPU 11 2 32)
+              assertComputeJob label manifest = do
+                assertBool
+                  (label <> " labels the pod as numerical compute")
+                  ("jitml.compute: \"true\"" `Text.isInfixOf` manifest)
+                assertBool
+                  (label <> " pins to compute nodes")
+                  ("jitml.node-role/compute: \"true\"" `Text.isInfixOf` manifest)
+                assertBool
+                  (label <> " uses required hostname anti-affinity")
+                  ("requiredDuringSchedulingIgnoredDuringExecution" `Text.isInfixOf` manifest)
+                assertBool
+                  (label <> " uses hard topology spread")
+                  ( "topologySpreadConstraints:" `Text.isInfixOf` manifest
+                      && "whenUnsatisfiable: DoNotSchedule" `Text.isInfixOf` manifest
+                  )
+                assertBool
+                  (label <> " avoids advisory anti-affinity")
+                  (not ("preferredDuringSchedulingIgnoredDuringExecution" `Text.isInfixOf` manifest))
               assertCudaJob label manifest = do
                 assertBool
                   (label <> " requests NVIDIA RuntimeClass")
@@ -644,6 +662,10 @@ main =
                 assertBool
                   (label <> " restricts NVIDIA driver capabilities")
                   ("NVIDIA_DRIVER_CAPABILITIES" `Text.isInfixOf` manifest)
+          assertComputeJob "training-cuda" trainingCuda
+          assertComputeJob "rl-cuda" rlCuda
+          assertComputeJob "tune-cuda" tuneCuda
+          assertComputeJob "training-cpu" trainingCpu
           assertCudaJob "training" trainingCuda
           assertCudaJob "rl" rlCuda
           assertCudaJob "tune" tuneCuda

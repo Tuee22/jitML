@@ -233,22 +233,27 @@ main =
           assertBool
             "linux-cpu does not mount NVIDIA toolkit"
             (not ("nvidia-container-runtime" `Text.isInfixOf` cpuConfig))
-      , testCase "kind config renders a single mounted node for every substrate (Sprint 3.1)" $ do
+      , testCase "kind config renders HA control-plane plus mounted workers (Sprint 3.6)" $ do
           let cpuConfig = renderKindConfig (kindConfigFor LinuxCPU)
               controlPlaneCount =
                 length (Text.breakOnAll "  - role: control-plane" cpuConfig)
+              workerCount =
+                length (Text.breakOnAll "  - role: worker" cpuConfig)
           controlPlaneCount @?= 1
+          workerCount @?= 3
           assertBool
-            "single-node kind config has no separate worker"
-            (not ("  - role: worker" `Text.isInfixOf` cpuConfig))
+            "worker nodes are labelled as compute-capable"
+            ("jitml.node-role/compute=true" `Text.isInfixOf` cpuConfig)
           assertBool
-            "the single node has the repo build mount"
-            (length (Text.breakOnAll "containerPath: /jitml/.build" cpuConfig) == 1)
+            "every HA node has the repo build mount"
+            (length (Text.breakOnAll "containerPath: /jitml/.build" cpuConfig) == 4)
       , testCase "linux-cuda Kind config wires NVIDIA runtime handler (Sprint 4.7)" $ do
           let cudaConfig = renderKindConfig (kindConfigFor LinuxCUDA)
           assertBool
-            "linux-cuda carries the GPU node label"
-            ("node-labels: jitml.runtime/gpu=true,jitml.substrate/linux-cuda=true" `Text.isInfixOf` cudaConfig)
+            "linux-cuda worker nodes carry the GPU node label"
+            ( "jitml.substrate/linux-cuda=true,jitml.node-role/compute=true,jitml.runtime/gpu=true"
+                `Text.isInfixOf` cudaConfig
+            )
           assertBool
             "linux-cuda configures containerd patches"
             ("containerdConfigPatches:" `Text.isInfixOf` cudaConfig)
@@ -1400,6 +1405,17 @@ main =
             "local chart uses the daemon service account"
             ("serviceAccountName: jitml-service" `Text.isInfixOf` deployment)
           assertBool
+            "local chart exposes HA engine replica values"
+            (".Values.engineReplicas" `Text.isInfixOf` deployment)
+          assertBool
+            "local chart labels Engine pods as numerical compute"
+            ( "jitml.compute: {{ if eq .Values.substrate \"apple-silicon\" }}\"false\"{{ else }}\"true\"{{ end }}"
+                `Text.isInfixOf` deployment
+            )
+          assertBool
+            "local chart pins Linux Engine pods to compute nodes"
+            ("jitml.node-role/compute: \"true\"" `Text.isInfixOf` deployment)
+          assertBool
             "local chart grants namespace-scoped daemon kubectl access"
             ("kind: RoleBinding" `Text.isInfixOf` rbac)
           assertBool
@@ -1438,6 +1454,33 @@ main =
           assertBool
             "direct Pulsar values do not request a LoadBalancer"
             (not ("type: LoadBalancer" `Text.isInfixOf` directValues))
+      , testCase "HA platform service values use distributed MinIO and 3x Pulsar (Sprint 4.10)" $ do
+          minioValues <- Text.IO.readFile "chart/values/minio.yaml"
+          pulsarValues <- Text.IO.readFile "chart/values/pulsar.yaml"
+          umbrellaValues <- Text.IO.readFile "chart/values.yaml"
+          assertBool "direct MinIO is distributed" ("mode: distributed" `Text.isInfixOf` minioValues)
+          assertBool "direct MinIO has four replicas" ("replicas: 4" `Text.isInfixOf` minioValues)
+          assertBool
+            "direct MinIO uses manual persistent storage"
+            ("storageClass: jitml-manual" `Text.isInfixOf` minioValues)
+          assertBool
+            "direct Pulsar has 3x ZooKeeper"
+            ("zookeeper:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
+          assertBool
+            "direct Pulsar has 3x BookKeeper"
+            ("bookkeeper:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
+          assertBool
+            "direct Pulsar has 3x Broker"
+            ("broker:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
+          assertBool
+            "direct Pulsar has 3x Proxy"
+            ("proxy:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
+          assertBool
+            "umbrella values retain distributed MinIO"
+            ("minio:\n  mode: distributed\n  replicas: 4" `Text.isInfixOf` umbrellaValues)
+          assertBool
+            "umbrella values retain 3x Pulsar broker"
+            ("broker:\n    replicaCount: 3" `Text.isInfixOf` umbrellaValues)
       , testCase
           "live phased rollout wires the explicit Kind image load phase before final services (Sprint 3.5)"
           $ do
@@ -1460,6 +1503,20 @@ main =
                   `Text.isInfixOf` commandText
               )
             assertBool
+              "live rollout raises worker inotify caps before Helm waits"
+              ( "docker exec jitml-linux-cpu-worker sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_queued_events=65536"
+                  `Text.isInfixOf` commandText
+                  && "docker exec jitml-linux-cpu-worker3 sysctl -w fs.inotify.max_user_instances=1024 fs.inotify.max_queued_events=65536"
+                    `Text.isInfixOf` commandText
+              )
+            assertBool
+              "live rollout caps every HA Kind node"
+              ( "docker update --memory 12884901888 --memory-swap 12884901888 --cpus 4 jitml-linux-cpu-control-plane"
+                  `Text.isInfixOf` commandText
+                  && "docker update --memory 12884901888 --memory-swap 12884901888 --cpus 4 jitml-linux-cpu-worker3"
+                    `Text.isInfixOf` commandText
+              )
+            assertBool
               "live rollout restarts kube-proxy after the inotify cap is applied"
               ( "kubectl --kubeconfig ./.build/jitml.kubeconfig delete pod -n kube-system -l k8s-app=kube-proxy --ignore-not-found"
                   `Text.isInfixOf` commandText
@@ -1468,6 +1525,13 @@ main =
               "linux-cpu live rollout binds Postgres PVs to node-local storage before Harbor"
               ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; mountpoint -q /jitml/.data/platform/harbor-pg/pv_0/ || mount --bind /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/ /jitml/.data/platform/harbor-pg/pv_0/; chown -R 26:26 /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/;"
                   `Text.isInfixOf` commandText
+              )
+            assertBool
+              "linux-cpu live rollout prepares worker-local Postgres PV storage"
+              ( "docker exec jitml-linux-cpu-worker sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/"
+                  `Text.isInfixOf` commandText
+                  && "docker exec jitml-linux-cpu-worker3 sh -c 'set -e; mkdir -p /var/local/jitml-postgres-pv/jitml/.data/platform/harbor-pg/pv_0/"
+                    `Text.isInfixOf` commandText
               )
             assertBool
               "apple-silicon live rollout binds Postgres PVs to node-local storage before Harbor"
@@ -1702,7 +1766,7 @@ main =
           assertBool
             "MinIO readiness gate calls mc against jitml-minio"
             ("/opt/bitnami/minio-client/bin/mc ls jitml-minio" `Text.isInfixOf` rendered)
-      , testCase "jitml-service runtimeClassName is linux-cuda only (Sprints 4.7/5.6)" $ do
+      , testCase "jitml-service cardinality is one numerical worker per Kubernetes node (Sprint 5.16)" $ do
           let appleDeployment = ServiceConfigMap.renderServiceDeployment AppleSilicon
               cpuDeployment = ServiceConfigMap.renderServiceDeployment LinuxCPU
               cudaDeployment = ServiceConfigMap.renderServiceDeployment LinuxCUDA
@@ -1725,10 +1789,27 @@ main =
             "linux-cpu does not set NVIDIA runtime environment"
             (not ("NVIDIA_VISIBLE_DEVICES" `Text.isInfixOf` cpuDeployment))
           assertBool
-            "jitml-service uses required pod anti-affinity for one pod per node"
+            "linux-cpu service has one Engine replica per HA worker"
+            ("replicas: 3" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "apple-silicon service remains a single non-multiplying forwarder"
+            ( "replicas: 1" `Text.isInfixOf` appleDeployment
+                && "jitml.compute: \"false\"" `Text.isInfixOf` appleDeployment
+            )
+          assertBool
+            "jitml-service labels Linux Engine pods as numerical compute"
+            ("jitml.compute: \"true\"" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "jitml-service pins Linux Engine pods to compute nodes"
+            ("jitml.node-role/compute: \"true\"" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "apple-silicon service does not pin to in-cluster compute workers"
+            (not ("nodeSelector:" `Text.isInfixOf` appleDeployment))
+          assertBool
+            "jitml-service uses required pod anti-affinity for one compute pod per node"
             ("requiredDuringSchedulingIgnoredDuringExecution" `Text.isInfixOf` cpuDeployment)
           assertBool
-            "jitml-service rolls on single-node clusters without anti-affinity deadlock"
+            "jitml-service rolling update avoids surge over compute cardinality"
             ("maxSurge: 0" `Text.isInfixOf` cpuDeployment && "maxUnavailable: 1" `Text.isInfixOf` cpuDeployment)
           assertBool
             "jitml-service pins its service account"
@@ -1736,6 +1817,14 @@ main =
           assertBool
             "jitml-service anti-affinity is keyed by hostname"
             ("topologyKey: kubernetes.io/hostname" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "jitml-service anti-affinity matches numerical compute pods globally"
+            ("jitml.compute: \"true\"" `Text.isInfixOf` cpuDeployment)
+          assertBool
+            "jitml-service uses hard topology spread for HA compute workers"
+            ( "topologySpreadConstraints:" `Text.isInfixOf` cpuDeployment
+                && "whenUnsatisfiable: DoNotSchedule" `Text.isInfixOf` cpuDeployment
+            )
           assertBool
             "jitml-service does not rely on advisory anti-affinity"
             (not ("preferredDuringSchedulingIgnoredDuringExecution" `Text.isInfixOf` cpuDeployment))
@@ -1886,6 +1975,9 @@ main =
           assertBool
             "rendered PerconaPGCluster binds a manual PV by volumeName"
             ("volumeName: platform-harbor-pg-pv-0" `Text.isInfixOf` yaml)
+          assertBool
+            "rendered PerconaPGCluster binds every HA instance PV by volumeName"
+            ("volumeName: platform-harbor-pg-pv-2" `Text.isInfixOf` yaml)
           assertBool
             "rendered PerconaPGCluster binds a manual backup PV by volumeName"
             ("volumeName: platform-harbor-pg-repo1-pv-0" `Text.isInfixOf` yaml)
@@ -3012,37 +3104,6 @@ main =
                                 <> " stderr: "
                                 <> Text.unpack stderrText
                             )
-                  -- jitml inspect replay <sha> reads the manifest by SHA
-                  -- from live MinIO and prints the deterministic summary.
-                  let manifestSha = Checkpoint.manifestContentSha manifest
-                      replayCmd =
-                        ( subprocess
-                            binary
-                            [ "inspect"
-                            , "replay"
-                            , "--experiment-hash"
-                            , experimentHash
-                            , "--manifest-sha"
-                            , manifestSha
-                            ]
-                        )
-                          { JitML.Sub.Subprocess.subprocessWorkingDirectory = Just repoRoot
-                          }
-                  (replayExit, replayStdout, replayStderr) <- runStreaming defaultSubprocessEnv replayCmd
-                  case replayExit of
-                    ExitSuccess ->
-                      assertBool
-                        ( "expected `inspect replay: <sha> ->` in stdout; got: "
-                            <> Text.unpack replayStdout
-                        )
-                        (("inspect replay: " <> manifestSha) `Text.isInfixOf` replayStdout)
-                    ExitFailure code ->
-                      assertFailure
-                        ( "jitml inspect replay failed exit "
-                            <> show code
-                            <> " stderr: "
-                            <> Text.unpack replayStderr
-                        )
               -- Cleanup: delete the three written objects.
               MinIOSubprocess.runMinIOSubprocess settings $ do
                 _ <- deleteObject (CheckpointStore.checkpointObjectRef blobObjectKey)

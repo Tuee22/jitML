@@ -37,11 +37,10 @@ postgresRegistry =
   [ PerconaPGCluster
       { perconaClusterName = "harbor-pg"
       , perconaNamespace = "platform"
-      , -- Sprint 4.8 (reopened 2026-05-29): right-sized from `3` (HA) to `1`
-        -- so the cluster fits under the Sprint 2.8 kind-node cap on a
-        -- ~16 GiB single-node host. The dhall/cluster/ profile's
-        -- `postgres.replicas` is the single source of truth for this value.
-        perconaReplicas = 1
+      , -- Sprint 4.10: HA service Postgres topology.
+        -- The dhall/cluster/ profile's `postgres.replicas` records the same
+        -- target count for resource budgeting.
+        perconaReplicas = 3
       , perconaStorageSize = "10Gi"
       , perconaDatabase = "harbor"
       , perconaSecretName = "harbor-pg-secrets"
@@ -93,9 +92,8 @@ perconaPgVolumeNames cluster =
   perconaPgBackupVolumeName cluster
     : fmap (perconaPgVolumeName cluster) [0 .. perconaReplicas cluster - 1]
 
--- | Sprint 4.8 — per-instance CPU/memory requests+limits matching the
--- @postgres@ budget in @dhall/cluster/resources.dhall@ so the platform fits
--- under the Sprint 2.8 kind-node cap.
+-- | Per-instance CPU/memory requests+limits matching the @postgres@ budget in
+-- @dhall/cluster/resources.dhall@.
 renderInstance :: PerconaPGCluster -> Int -> [Text]
 renderInstance cluster replica =
   [ "    - name: instance" <> Text.pack (show (replica + 1))

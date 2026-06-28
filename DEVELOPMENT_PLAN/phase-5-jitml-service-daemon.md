@@ -24,6 +24,19 @@
 
 ## Phase Status
 
+✅ **Done** (re-closed 2026-06-28 for Sprint `5.16`). The HA service topology now
+enforces **at most one numerical ML compute worker per Kubernetes node**:
+Linux Engine service pods render three replicas, `jitml.compute="true"`,
+`nodeSelector: jitml.node-role/compute=true`, required hostname anti-affinity,
+and hard topology spread; daemon-spawned Linux Training/RL/Tune Jobs render the
+same compute label and placement contract; Apple clustered service pods remain
+single non-compute forwarders so host Metal compute does not multiply with
+cluster replicas. Validation: `cabal build exe:jitml --ghc-options=-fasm`;
+`cabal test jitml-integration --ghc-options=-fasm --test-options='-p cardinality'`;
+`cabal test jitml-daemon-lifecycle --ghc-options=-fasm --test-options='-p cardinality'`.
+Live HA lane revalidation is owned by Phases `15` and `16`. Prior closure history
+follows.
+
 ✅ **Done** (reopened 2026-06-23 for Sprint `5.15`; unblocked by Phases 2/4's
 2026-06-24 close, **re-closed 2026-06-24**) — the durable-state registry
 (`JitML.Project.Config`) now declares the logical Pulsar topic family, and a
@@ -730,6 +743,8 @@ connectivity is closed by Sprint `5.6`.
 ## Sprint 5.6: Stateless `Deployment`, Pod Anti-Affinity, Per-Substrate Dhall ✅
 
 **Status**: Done
+**Superseded for HA scheduling by**: Sprint `5.16`, which owns the current
+one-numerical-worker-per-Kubernetes-node invariant.
 **Implementation**: `chart/templates/deployment-jitml-service.yaml`,
 `src/JitML/Service/ConfigMap.hs`, `src/JitML/Service/BootConfig.hs`,
 `src/JitML/App.hs`
@@ -744,11 +759,11 @@ Dhall configs.
 
 ### Deliverables
 
-- `Deployment/jitml-service` with `replicas: 1` default, required pod
-  anti-affinity at hostname topology. The local Kind topology is single-node,
-  so the supported local replica count is one; the anti-affinity rule remains
-  in the chart for non-local multi-node environments. **Not** a `StatefulSet` —
-  durable state lives entirely in MinIO and Pulsar.
+- Historical compact `Deployment/jitml-service` with `replicas: 1` default and
+  required pod anti-affinity at hostname topology. Sprint `5.16` replaces this
+  as the current HA target by enforcing at most one numerical ML compute worker
+  per Kubernetes node while other roles may scale separately. **Not** a
+  `StatefulSet` — durable state lives entirely in MinIO and Pulsar.
 - Rolling updates use `maxSurge: 0` and `maxUnavailable: 1` so the required
   anti-affinity does not deadlock a single-node development cluster during a
   replacement rollout.
@@ -769,8 +784,9 @@ Dhall configs.
   so the standalone file loads without an out-of-scope type alias.
 - Linux substrates do not render a host-level Dhall file; all JIT operations
   happen in the cluster and the daemon knows that from its ConfigMap Dhall.
-- Deployment template mounts `./.build/` from the single-node hostPath into the
-  pod at `/opt/build/` so the JIT cache is shared.
+- Deployment template mounts `./.build/` from the compact hostPath into the pod
+  at `/opt/build/` so the JIT cache is shared; Sprint `3.6` owns extending the
+  mount materialization to every HA node that can run jitML workloads.
 - `chart/local/jitml-demo/templates/deployment.yaml` is the sibling Deployment
   for the Webapp role workload; Phase `11` owns the current frontend/demo
   scaffold and target HTTP server behavior.
@@ -1535,6 +1551,48 @@ the per-substrate routing, which is load-bearing.
   logical topic family is registry-declared and anti-drift-checked (`topologyLogicalNames`),
   cross-linking `durable_state_dsl.md`; the README durable-state registry note covers the
   Pulsar topic prose.
+
+## Sprint 5.16: One Numerical Worker per Kubernetes Node [✅ Done]
+
+**Status**: Done (opened 2026-06-27; closed 2026-06-28)
+**Implementation**: `chart/local/jitml-service`, `src/JitML/Service/*`,
+`src/JitML/Cluster/Helm.hs`, `dhall/service/*`, daemon lifecycle/workload
+placement tests
+**Docs to update**: `documents/engineering/daemon_architecture.md`,
+`documents/engineering/cluster_topology.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make the HA service topology enforce that only the Engine/numerical compute role
+does ML work and that no Kubernetes node can host more than one numerical ML
+compute worker for a substrate.
+
+### Deliverables
+
+- Separate numerical Engine worker scheduling from Coordinator, Webapp,
+  observability, and platform-service replica scaling.
+- Render required anti-affinity/topology-spread or equivalent placement rules so
+  the Engine/numerical compute role is capped at one per Kubernetes node.
+- Preserve Apple Silicon host-resident compute semantics: cluster replicas may
+  forward/control work, but host Metal compute remains bound to the host topology
+  and does not multiply with in-cluster replicas.
+- Add tests that scaling noncompute roles does not add numerical compute workers
+  and that Engine replicas cannot co-locate on a Kubernetes node.
+
+### Validation
+
+- `cabal test jitml-integration --ghc-options=-fasm --test-options='-p cardinality'`
+- `cabal test jitml-daemon-lifecycle --ghc-options=-fasm --test-options='-p cardinality'`
+- `cabal test jitml-integration --ghc-options=-fasm --test-options='-p HA'`
+  re-ran the HA topology regressions after service placement changed.
+- Shared final gates: `jitml docs check`, `jitml lint chart`, and
+  `docker compose run --rm jitml jitml check-code`.
+
+### Remaining Work
+
+- None. Live HA substrate revalidation is tracked by Phase `15` Sprint `15.22`
+  and Phase `16` Sprint `16.14`.
 
 ## Related Documents
 

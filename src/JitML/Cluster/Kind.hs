@@ -3,9 +3,14 @@
 module JitML.Cluster.Kind
   ( KindConfig (..)
   , defaultKindestNodeImage
+  , defaultKindWorkerCount
   , kindConfigFor
   , kindConfigForEdgePort
+  , kindConfigForEdgePortAndWorkers
+  , kindConfigForWorkers
+  , kindConfigNodeContainerNames
   , renderKindConfig
+  , substrateKindNodeContainerNames
   )
 where
 
@@ -19,6 +24,7 @@ data KindConfig = KindConfig
   , kindConfigName :: Text
   , kindConfigNodeImage :: Text
   , kindConfigEdgePort :: Int
+  , kindConfigWorkerCount :: Int
   , kindConfigGpuLabel :: Bool
   }
   deriving stock (Eq, Show)
@@ -26,17 +32,29 @@ data KindConfig = KindConfig
 defaultKindestNodeImage :: Text
 defaultKindestNodeImage = "kindest/node:v1.34.0"
 
+defaultKindWorkerCount :: Int
+defaultKindWorkerCount = 3
+
 kindConfigFor :: Substrate -> KindConfig
 kindConfigFor substrate =
   kindConfigForEdgePort substrate (substrateEdgePort substrate)
 
 kindConfigForEdgePort :: Substrate -> Int -> KindConfig
 kindConfigForEdgePort substrate edgePort =
+  kindConfigForEdgePortAndWorkers substrate edgePort defaultKindWorkerCount
+
+kindConfigForWorkers :: Substrate -> Int -> KindConfig
+kindConfigForWorkers substrate =
+  kindConfigForEdgePortAndWorkers substrate (substrateEdgePort substrate)
+
+kindConfigForEdgePortAndWorkers :: Substrate -> Int -> Int -> KindConfig
+kindConfigForEdgePortAndWorkers substrate edgePort workerCount =
   KindConfig
     { kindConfigSubstrate = substrate
     , kindConfigName = substrateClusterName substrate
     , kindConfigNodeImage = defaultKindestNodeImage
     , kindConfigEdgePort = edgePort
+    , kindConfigWorkerCount = max 1 workerCount
     , kindConfigGpuLabel = substrate == LinuxCUDA
     }
 
@@ -48,18 +66,29 @@ renderKindConfig config =
     , "name: " <> kindConfigName config
     ]
       <> nvidiaContainerdPatch
-      <> [ "nodes:"
-         , "  - role: control-plane"
-         , "    image: " <> kindConfigNodeImage config
-         , "    extraPortMappings:"
-         , "      - containerPort: 30090"
-         , "        hostPort: " <> Text.pack (show (kindConfigEdgePort config))
-         , "        listenAddress: 127.0.0.1"
-         , "        protocol: TCP"
-         ]
-      <> gpuPatch
-      <> nodeMounts
+      <> ["nodes:"]
+      <> controlPlaneNode
+      <> concatMap workerNode [1 .. kindConfigWorkerCount config]
  where
+  controlPlaneNode =
+    [ "  - role: control-plane"
+    , "    image: " <> kindConfigNodeImage config
+    , "    extraPortMappings:"
+    , "      - containerPort: 30090"
+    , "        hostPort: " <> Text.pack (show (kindConfigEdgePort config))
+    , "        listenAddress: 127.0.0.1"
+    , "        protocol: TCP"
+    ]
+      <> nodeLabels "InitConfiguration" False
+      <> nodeMounts False
+
+  workerNode _index =
+    [ "  - role: worker"
+    , "    image: " <> kindConfigNodeImage config
+    ]
+      <> nodeLabels "JoinConfiguration" True
+      <> nodeMounts True
+
   nvidiaContainerdPatch
     | kindConfigGpuLabel config =
         [ "containerdConfigPatches:"
@@ -74,20 +103,21 @@ renderKindConfig config =
         ]
     | otherwise = []
 
-  gpuPatch
-    | kindConfigGpuLabel config =
-        [ "    kubeadmConfigPatches:"
-        , "      - |"
-        , "        kind: InitConfiguration"
-        , "        nodeRegistration:"
-        , "          kubeletExtraArgs:"
-        , "            node-labels: jitml.runtime/gpu=true,jitml.substrate/"
-            <> renderSubstrate (kindConfigSubstrate config)
-            <> "=true"
-        ]
-    | otherwise = []
+  nodeLabels kubeadmKind computeNode =
+    [ "    kubeadmConfigPatches:"
+    , "      - |"
+    , "        kind: " <> kubeadmKind
+    , "        nodeRegistration:"
+    , "          kubeletExtraArgs:"
+    , "            node-labels: " <> Text.intercalate "," labels
+    ]
+   where
+    labels =
+      ["jitml.substrate/" <> renderSubstrate (kindConfigSubstrate config) <> "=true"]
+        <> ["jitml.node-role/compute=true" | computeNode]
+        <> ["jitml.runtime/gpu=true" | computeNode && kindConfigGpuLabel config]
 
-  nodeMounts =
+  nodeMounts includeNvidia =
     [ "    extraMounts:"
     , "      - hostPath: ./.build"
     , "        containerPath: /jitml/.build"
@@ -96,10 +126,10 @@ renderKindConfig config =
     , "        containerPath: /jitml/.data"
     , "        readOnly: false"
     ]
-      <> nvidiaToolkitMounts
+      <> nvidiaToolkitMounts includeNvidia
 
-  nvidiaToolkitMounts
-    | kindConfigGpuLabel config =
+  nvidiaToolkitMounts includeNvidia
+    | includeNvidia && kindConfigGpuLabel config =
         concatMap
           renderReadOnlyMount
           [ ("./kind/nvidia-container-runtime", "/etc/nvidia-container-runtime")
@@ -127,3 +157,20 @@ renderKindConfig config =
     , "        containerPath: " <> containerPath
     , "        readOnly: true"
     ]
+
+kindConfigNodeContainerNames :: KindConfig -> [Text]
+kindConfigNodeContainerNames config =
+  substrateKindNodeContainerNames
+    (kindConfigSubstrate config)
+    (kindConfigWorkerCount config)
+
+substrateKindNodeContainerNames :: Substrate -> Int -> [Text]
+substrateKindNodeContainerNames substrate workerCount =
+  substrateClusterName substrate
+    <> "-control-plane"
+    : [ substrateClusterName substrate <> workerSuffix index
+      | index <- [1 .. max 1 workerCount]
+      ]
+ where
+  workerSuffix 1 = "-worker"
+  workerSuffix index = "-worker" <> Text.pack (show index)

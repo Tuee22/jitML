@@ -40,6 +40,23 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-06-28 — HA topology implementation rows closed; ledger empty.** The
+compact single-node/right-sized implementation deviations found on 2026-06-27
+have moved to `Completed`: HA Kind nodes/manual PVs, HA platform service values,
+and one-numerical-worker-per-node scheduling are now implemented. Phase `15`
+remains blocked until a real Linux/NVIDIA HA live lane can be run; Phase `16`
+is blocked until the Apple host exposes a GHC-compatible LLVM `opt`/`llc` for
+the documented `-fllvm` host-native build; Phases `17` and `18` remain blocked
+on those refreshed live fragments.
+
+**2026-06-27 — HA topology audit; ledger reopened.** Documentation became the
+source of truth for the targeted HA topology, but the worktree still carried
+compact single-node/right-sized implementation paths in Kind materialization,
+manual PVs, chart values, and service scheduling. Phases `3`, `4`, and `5`
+reopened; Phases `15`, `16`, `17`, and `18` blocked until HA implementation and
+live revalidation could close. Those temporary compact-topology rows closed on
+2026-06-28.
+
 **2026-06-26 — fixed-budget all-model trained-artifact audit; ledger
 re-closed for the `linux-cpu` baseline.** The no-caveat model/product chain
 reopened because representative convergence, seeded demo checkpoints,
@@ -231,13 +248,13 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-06-26): Pending Removal is empty.** The fixed-budget
-trained-artifact audit rows introduced on 2026-06-26 are completed or cordoned
-off as non-product fixtures. Primary external-lane obligations remain only in
-the owning Phase `15` / Phase `16` / Phase `17` / Phase `18` `### Remaining
-Work` blocks.
+**Current state (2026-06-28): Pending Removal is empty.** The compact-topology
+rows discovered by the HA topology audit moved to `Completed` after the owning
+HA implementation sprints closed.
 
-No pending rows.
+| Item | Owning Sprint | Removal Condition |
+|------|---------------|-------------------|
+| _None_ | _N/A_ | _N/A_ |
 
 New rows are enqueued here only when a sprint introduces or discovers a
 doctrine deviation or temporary stand-in (per standards rule I / L).
@@ -332,6 +349,12 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Compact single-node/right-sized local topology | Sprints `3.6` / `4.10` (2026-06-28) | Replaced the single-control-plane/no-worker Kind fixtures and right-sized service/storage materialization with the HA topology: `JitML.Cluster.Kind` and `kind/cluster-*.yaml` render one control-plane plus three workers, resource caps/mount prep covers every materialized node, `JitML.Cluster.Storage` and PV templates cover HA storage counts, `chart/values/minio.yaml` is distributed with 4 replicas, `chart/values/pulsar.yaml` is 3x ZooKeeper/BookKeeper/Broker/Proxy, and registered Postgres renders 3 instances plus pgBackRest. Validation: `cabal build exe:jitml --ghc-options=-fasm`; materialized all three substrates; `jitml-integration -p HA`; `jitml-integration -p distributed`. Live HA lane revalidation remains Phase `15`/`16` work, not ledger debt. |
+| Ambiguous numerical worker cardinality under HA scaling | Sprint `5.16` (2026-06-28) | Encoded the one-numerical-worker-per-Kubernetes-node invariant in `src/JitML/Service/ConfigMap.hs`, `src/JitML/Service/Workload.hs`, and `chart/local/jitml-service`: Linux Engine pods and daemon-spawned Linux workload Jobs share `jitml.compute="true"`, compute-node selectors, required hostname anti-affinity, and hard topology spread; Apple cluster pods remain non-compute forwarders. Validation: `jitml-integration -p cardinality`; `jitml-daemon-lifecycle -p cardinality`. |
+| Placeholder top-level `jitml verify` command group | Sprint `1.16` (2026-06-27) | Removed `verify same-run` and `verify replay` from `CommandSpec`, parser/help/generated docs, completions/manpage, canonical leaf tests, and `App.hs` dispatch. Same-run/replay obligations remain covered by substrate-partitioned Cabal stanzas, checkpoint/inference tests, and `jitml inference run`; no user-facing placeholder `verify` surface remains. |
+| Placeholder top-level `jitml inspect` command group | Sprint `1.16` (2026-06-27) | Removed `inspect list/show/replay/trial/frontier` from `CommandSpec`, generated docs, completions/manpage, canonical leaf tests, and `App.hs` dispatch. The old `inspect replay` manifest branch and helpers were deleted; checkpoint replay/inference verification is owned by `jitml inference run`, checkpoint loaders, and the live test lanes. |
+| Placeholder top-level `jitml bench` command group | Sprint `1.16` (2026-06-27) | Removed `bench train/inference/env` from `CommandSpec`, generated docs, completions/manpage, canonical leaf tests, and `App.hs` dispatch. Benchmark/report-card telemetry remains on `jitml test all --live`, `/metrics`, and backend measurement tests. |
+| User-facing `jitml kubectl` passthrough command | Sprint `1.16` (2026-06-27) | Removed the top-level `kubectl` passthrough from `CommandSpec`, generated docs, completions/manpage, canonical leaf tests, and `App.hs` dispatch. Kubernetes effects remain behind typed bootstrap subprocesses and the daemon `HasKubectl` capability; no public passthrough command is documented or implemented. |
 | Seeded demo checkpoint catalog and seeded experiment list | Sprints `10.10` / `14.4` (2026-06-26) | The seeded demo manifests now carry `CompletedTraining`, checkpoint listing filters through the inference-eligibility boundary, and the browser checkpoint panel renders budget, convergence, metrics, and TensorBoard provenance. They remain fixtures, but no uncompleted seeded manifest can satisfy product inference evidence. Validation: `jitml test all --live --linux-cpu` 8/8 with `browser_product_matrix` 8/8 and live Playwright 15/15. |
 | Seeded AlphaZero policy/value panel tensors | Sprints `9.14` / `14.4` (2026-06-26) | The Connect 4, Othello, Hex, and Gomoku demo checkpoints are seeded as completed policy/value manifests with self-play metrics (`arena_win_rate`, `legal_move_rate`, `mcts_simulations_per_move`, `self_play_samples`) and are rendered through the all-model matrix. Validation: live Playwright exercises all adversarial selectors and checkpoint browse rejects partial/untrained/smoke/fake evidence. |
 | Hardcoded WorkflowMatrix checkpoint staging | Sprints `12.15` / `13.3` (2026-06-26) | `stageWorkflowMatrixCheckpoint` now stages completed checkpoint manifests for transport/eval coverage, while infer-before-complete rejection is covered separately and product proof comes from live completed artifacts. The helper remains test scaffolding, not no-caveat product evidence. |

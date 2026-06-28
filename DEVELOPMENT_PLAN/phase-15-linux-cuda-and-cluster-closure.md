@@ -27,6 +27,20 @@
 
 ## Phase Status
 
+⏸️ **Blocked** (reopened 2026-06-27 for Sprint `15.22`; blocker updated
+2026-06-28 after Phases `3`/`4`/`5` re-closed).
+
+**Blocked by**: a real Linux/NVIDIA host session with the NVIDIA Container
+Runtime attached. The current execution host is Darwin arm64 on Apple M1 Max
+and has no `nvidia-smi`/NVIDIA runtime, so the `linux-cuda` HA live lane cannot
+run here.
+
+The lower HA implementation sprints (`3.6`, `4.10`, `5.16`) are closed. The
+live Linux CUDA/cluster lane still must be revalidated against the targeted HA
+topology on real NVIDIA hardware. The 2026-06-26 RTX 5090 evidence remains
+historical evidence for the compact/right-sized topology, not a current final
+closure for the HA target. Prior closure history follows.
+
 ✅ **Done** (re-closed 2026-06-26 for Sprint `15.21` on the NVIDIA GeForce RTX
 5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`, driver
 `570.211.01`, CUDA 12.8). The expanded `linux-cuda` all-model
@@ -224,8 +238,8 @@ PolicyValueNet — Sprint 15.9 closure 2026-05-30),
 15.10 (live tuning sweep with MinIO trial persistence + daemon
 TuneHandler dispatch — re-validated 2026-05-29 with typed Dhall
 `TuneRunConfig` dispatch), 15.11 (CUDA + Linux CPU production weight
-loading), 15.12 (live `jitml inference run` + `jitml inspect
-replay`), 15.13 (live `/api/ws` broker-frame round-trip + compiled
+loading), 15.12 (live `jitml inference run` plus the now-retired replay
+helper), 15.13 (live `/api/ws` broker-frame round-trip + compiled
 Halogen bundle), 15.14 (Playwright panel matrix against the live demo
 edge), 15.15 (Linux CPU full-tensor benchmark payloads +
 first-cache-miss persistence assertion).
@@ -589,10 +603,9 @@ partial live)**:
   `InferenceCheckpointMissing :: Text -> AppError` and
   `InferenceManifestShaMismatch :: Text -> Text -> AppError` added
   to `JitML.AppError.AppError`, render boundary + golden fixture
-  extended, `runInference` / `runInspectReplay` mapped to the new
-  variants, and `assertManifestShaMatches` defensively compares
-  `Checkpoint.manifestContentSha` against the user-supplied
-  `--manifest-sha`.
+  extended, `runInference` mapped live checkpoint-read failures to the new
+  variants, and the historical replay helper added a defensive manifest-SHA
+  check before that public helper was retired by Sprint `1.16`.
 - Sprint `15.6` convergence-assertion wiring through
   `jitml-rl-canonicals`: 2 new tests assert `cohortThreshold`
   covers every in-evaluation-matrix algorithm × env pair and
@@ -3378,7 +3391,7 @@ output under the determinism contract. The live `jitml inference
 
 - None remaining for Sprint 13.11. Sprint closed 2026-05-27.
 
-## Sprint 15.12: Live `jitml inference run` and `jitml inspect replay` ✅
+## Sprint 15.12: Live `jitml inference run` and Legacy Replay Helper ✅
 
 **Status**: Done (re-validated 2026-06-06 on RTX 5090; previously Done on RTX 3090) (closed 2026-05-27)
 **Blocked by**: Sprint `15.11`
@@ -3390,21 +3403,22 @@ output under the determinism contract. The live `jitml inference
 
 ### Objective
 
-Extend the user-facing inference and replay commands from the current
-local-store path to the live MinIO + JIT cache path: `jitml inference
-run` reads the latest pointer from MinIO bucket
+Extend the user-facing inference path from the current local-store path to the
+live MinIO + JIT cache path: `jitml inference run` reads the latest pointer from
+MinIO bucket
 `jitml-checkpoints/<experiment-hash>/`, fetches the addressed manifest,
 loads weight-only blobs, loads the substrate-bound `KernelHandle` from
-the JIT cache, and runs real inference. `jitml inspect replay
-<manifest-sha>` fetches the named manifest from live MinIO.
+the JIT cache, and runs real inference. The historical companion replay helper
+fetched the named manifest from live MinIO; Sprint `1.16` later removed that
+public `inspect` command surface.
 
 ### Deliverables
 
 - `jitml inference run experiments/mnist.dhall --checkpoint latest`
   reads through live MinIO and produces an inference result through
   the loaded JIT kernel.
-- `jitml inspect replay <manifest-sha>` reads the named manifest from
-  live MinIO and prints the replay summary.
+- The checkpoint manifest read path validates addressed manifests and reports
+  real metadata; the old public replay CLI was retired by Sprint `1.16`.
 - The Sprint `15.11` weighted runners execute the actual inference; the
   command exits non-zero with `AppError` on missing pointers or
   manifest SHA mismatches.
@@ -3414,8 +3428,8 @@ the JIT cache, and runs real inference. `jitml inspect replay
 1. End-to-end: `jitml inference run experiments/mnist.dhall --checkpoint
    latest` against the live cluster outputs the expected deterministic
    inference summary.
-2. `jitml inspect replay <manifest-sha>` against a manifest written by
-   Sprint `15.4` succeeds.
+2. Historical replay-helper validation against a manifest written by Sprint
+   `15.4` succeeded; the public helper was later removed by Sprint `1.16`.
 
 ### Live Validation Note (2026-05-25)
 
@@ -3429,9 +3443,8 @@ Sprint 15.1 cluster (edge port `127.0.0.1:9092`) — 8/8 pass in
 to live MinIO via `writeCheckpointSnapshotWithMinIO`, (b) spawns
 `./.build/jitml inference run --experiment-hash <hash>` via the typed
 `Subprocess` boundary and asserts the stdout contains
-`inference: experiment=<hash>`, (c) spawns `./.build/jitml inspect
-replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
-`inspect replay: <sha>` appears in the stdout, then (d) cleans up.
+`inference: experiment=<hash>`. The same historical case also exercised the now
+retired replay CLI before cleanup.
 
 ### Code Surface Landed (2026-05-25)
 
@@ -3444,12 +3457,11 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   manifest, decodes weight-only `.jmw1` blobs, and runs the selected substrate's
   weighted checkpoint runner. Without a live publication the command fails
   closed with `InferenceCheckpointMissing`.
-- `JitML.App.runInspectReplay` similarly routes through MinIO when a
-  publication is present: it fetches
+- The historical `JitML.App.runInspectReplay` branch routed through MinIO when a
+  publication was present, fetched
   `jitml-checkpoints/<experiment-hash>/manifests/<sha>.cbor` via
-  `Capabilities.minioReadBytes`, decodes it via
-  `Checkpoint.decodeManifestCbor`, and prints the replay summary. The
-  local-fs path is preserved for offline use.
+  `Capabilities.minioReadBytes`, decoded it via `Checkpoint.decodeManifestCbor`,
+  and printed the replay summary. Sprint `1.16` removed that public branch.
 - `JitML.Bootstrap.readExistingLivePublication` is exported from
   `JitML.Bootstrap` so the CLI commands (and any future tests) share
   one publication-detection surface.
@@ -3459,10 +3471,9 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   latest pointer to live MinIO via `writeCheckpointSnapshotWithMinIO`,
   (b) spawns `./.build/jitml inference run --experiment-hash
   <hash>` via the typed `Subprocess` boundary, asserting the output
-  contains `inference: experiment=<hash>`, (c) spawns `./.build/jitml
-  inspect replay --experiment-hash <hash> --manifest-sha <sha>` and
-  asserts the output contains `inspect replay: <sha>`, then (d) cleans
-  up the three written objects.
+  contains `inference: experiment=<hash>`. The original historical version also
+  spawned the now-retired replay CLI before cleaning up the three written
+  objects.
 
 ### Remaining Work
 
@@ -3486,16 +3497,10 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   underlying `pointer read failed` / `manifest read failed` cases to
   `InferenceCheckpointMissing experimentHash`. Decode failures retain
   `InvalidConfig` since they indicate format drift, not absence.
-- `JitML.App.runInspectReplay` (both the live MinIO branch and the
-  local-fs branch) maps "read failed" outcomes to
-  `InferenceCheckpointMissing experimentHash`, and adds an explicit
-  post-decode `assertManifestShaMatches` check that compares
-  `Checkpoint.manifestContentSha decoded` against the user-supplied
-  `--manifest-sha`. A mismatch exits with
-  `InferenceManifestShaMismatch experimentHash requestedSha`. This is
-  defensive — manifests are content-addressed at write time — but the
-  typed mismatch surface lets a caller distinguish corruption /
-  misaddressing from absence without parsing the rendered error text.
+- The historical replay branch mapped "read failed" outcomes to
+  `InferenceCheckpointMissing experimentHash` and added an explicit post-decode
+  manifest-SHA check. Sprint `1.16` removed that public replay branch with the
+  rest of the placeholder `inspect` group.
 - `system-components.md → CLI Doctrine Components` enumerates the new
   variants in the canonical `AppError` row.
 - `jitml-unit`'s "AppError render golden covers canonical variants"
@@ -3511,8 +3516,8 @@ replay --experiment-hash <hash> --manifest-sha <sha>` and asserts
   - `LinuxCPU` → `runLinuxCpuWeightedCheckpointInference`
   - `LinuxCUDA` → `runCudaWeightedCheckpointInference`
   - `AppleSilicon` → `runMetalWeightedCheckpointInference`
-- The `runInspectReplay` command was already routed through the live
-  MinIO path in the prior session; no change needed.
+- The historical replay helper had already been routed through the live MinIO
+  path in the prior session; Sprint `1.16` later removed the public command.
 
 ### Live Validation Note (2026-05-27)
 
@@ -3537,8 +3542,9 @@ real device-computed result is returned. The pre-existing
 `--use_fast_math=false` nvcc syntax was exposed by this live wiring and
 corrected (default behaviour is fast-math-off, matching the
 [determinism contract](../documents/engineering/determinism_contract.md)).
-The `runInspectReplay` half remains exercised by its earlier Live case
-against a Sprint 15.4-written manifest.
+The historical replay-helper half was exercised by its earlier Live case
+against a Sprint 15.4-written manifest; Sprint `1.16` later removed the public
+command.
 
 ### Remaining Work
 
@@ -4305,6 +4311,40 @@ real `linux-cuda` lane after the `linux-cpu` baseline closes.
 
 None. The expanded `linux-cuda` all-model lane is closed; Phase `16` remains
 blocked on a separate Apple Silicon/Metal host.
+
+## Sprint 15.22: Linux-CUDA HA Cluster Revalidation [⏸️ Blocked]
+
+**Status**: Blocked (opened 2026-06-27)
+**Blocked by**: real Linux/NVIDIA host session with NVIDIA Container Runtime
+attached. Current session: Darwin arm64 / Apple M1 Max, no `nvidia-smi`.
+**Implementation**: `bootstrap/linux-cuda.sh`, `docker compose` `jitml-cuda`,
+live `jitml test all --linux-cuda`, `DEVELOPMENT_PLAN/attestations/`
+**Docs to update**: `system-components.md`,
+`../documents/engineering/unit_testing_policy.md`
+
+### Objective
+
+Re-run the Linux CUDA live lane on real NVIDIA hardware after the HA Kind,
+platform-service, and one-numerical-worker-per-node topology sprints close.
+
+### Deliverables
+
+- Bootstrap the HA `linux-cuda` topology with the real NVIDIA runtime.
+- Validate the Engine/numerical compute placement invariant: at most one
+  numerical ML worker per Kubernetes node.
+- Re-run the CUDA substrate test lane and live workflow/report-card matrix.
+- Refresh the Linux CUDA attestation for the HA topology.
+
+### Validation
+
+- `docker compose run --rm jitml-cuda jitml test all --linux-cuda`
+- Live Playwright product matrix against the published CUDA edge.
+- `jitml docs check`
+
+### Remaining Work
+
+- Re-run this sprint on a real Linux/NVIDIA host now that Sprints `3.6`,
+  `4.10`, and `5.16` are closed.
 
 ## Related Documents
 

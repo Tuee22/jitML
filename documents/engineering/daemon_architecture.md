@@ -30,20 +30,22 @@ info when `residency = Host`.
 
 The clustered `jitml-service` Deployment is **stateless** — durable state
 lives in MinIO and Pulsar exclusively. Required pod anti-affinity at
-`topologyKey: kubernetes.io/hostname` enforces at most one replica per node.
-The local Kind topology is single-node for every substrate, so local bootstrap
-runs one `jitml-service` replica. `maxSurge: 0` / `maxUnavailable: 1` keeps
-replacement rollouts valid on that single node. 2026-05-23 live Linux CUDA validation rolls out the actual `jitml-service`
-Deployment with `runtimeClassName: nvidia` on the single
-`jitml-linux-cuda-control-plane` node, confirms the CUDA env vars, and runs
-`nvidia-smi -L` inside the service container; the Phase `4` Sprint `4.7` live
-`RuntimeClass/nvidia` probe passed on the same date against a Linux CUDA host
-(NVIDIA GeForce RTX 5090, CUDA 12.8) with Docker's NVIDIA runtime.
-The 2026-06-11 real-workflow validation extends that requirement to
-daemon-spawned `linux-cuda` worker Jobs: rendered workload Jobs request
-`runtimeClassName: nvidia` and set NVIDIA visibility / driver-capability env
-vars, with `jitml-daemon-lifecycle --linux-cuda` covering the manifest shape and
-the full live CUDA integration suite passing 67 / 67.
+`topologyKey: kubernetes.io/hostname` enforces at most one numerical ML compute
+worker per Kubernetes node, irrespective of other replica counts. Linux
+substrates run three Engine replicas, one for each HA worker, and render
+`jitml.compute="true"`, `nodeSelector: jitml.node-role/compute=true`, required
+hostname anti-affinity, and hard topology spread matching that compute label.
+Daemon-spawned Linux Training/RL/Tune Jobs carry the same compute label and
+placement rule so Jobs cannot co-locate with another numerical worker on a
+node. Apple Silicon's clustered service remains a single non-compute
+forwarder; host Metal work runs in the host daemon. `maxSurge: 0` /
+`maxUnavailable: 1` keeps rolling updates from temporarily exceeding compute
+cardinality. 2026-05-23 live Linux CUDA validation historically proved the CUDA
+RuntimeClass path against the compact topology; the current renderer preserves
+that path on CUDA workers by rendering `runtimeClassName: nvidia`,
+`NVIDIA_VISIBLE_DEVICES=all`, and
+`NVIDIA_DRIVER_CAPABILITIES=compute,utility`. HA live revalidation is owned by
+Phase `15` Sprint `15.22` and Phase `16` Sprint `16.14`.
 Live Apple Silicon validation on 2026-05-23 completes
 `./bootstrap/apple-silicon.sh up`, then runs the generated host Dhall through
 `jitml service --consume-once 0`, passes routed MinIO / Harbor / kubectl

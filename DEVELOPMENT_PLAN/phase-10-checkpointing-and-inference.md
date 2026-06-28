@@ -399,9 +399,8 @@ proto-lens bindings for `inference.proto` closed on 2026-05-24
 re-exported by the cabal library; `jitml-daemon-lifecycle` validates
 the local proto3 bytes decode through
 `Proto.Jitml.Inference.InferenceRequest` round-trip). The
-user-facing live `jitml inference run` MinIO path, `jitml inspect
-replay` live MinIO manifest read, and per-substrate production weight
-loading (Linux CPU + CUDA) migrated to Phase `15`
+user-facing live `jitml inference run` MinIO path and per-substrate production
+weight loading (Linux CPU + CUDA) migrated to Phase `15`
 Sprints `15.11` / `15.12`. Apple Metal production weight loading
 migrated to Phase `16` Sprint `16.5`.
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
@@ -434,8 +433,9 @@ fetches, and production runtime exercise are closed by Phase `10` Sprint
   every no-caveat model-family checkpoint and inference path.
 - `jitml inference run` fails closed without a live publication and uses the
   selected substrate's weighted checkpoint runner when live MinIO is available.
-- `jitml inspect replay <manifest-sha>` validates the addressed manifest content
-  SHA and reports real manifest metadata instead of an inference summary.
+- Checkpoint/inference loaders validate manifest identity and report real
+  manifest metadata instead of a synthetic inference summary. The old public
+  `inspect replay` command was retired by Phase `1` Sprint `1.16`.
 - `proto/jitml/inference.proto` declares `InferenceRequest` and
   `InferenceResult`, and `JitML.Proto.Inference` round-trips both through
   proto3-compatible bytes using packed repeated doubles for input/output.
@@ -467,8 +467,7 @@ fetches, and production runtime exercise are closed by Phase `10` Sprint
   cleanly through `Proto.Jitml.Inference.InferenceRequest` and
   re-encodes back to bytes the local codec decodes to the original
   value (wire-format byte-equivalence).
-- The user-facing `jitml inference run` live MinIO path and `jitml
-  inspect replay` live MinIO manifest read are owned by
+- The user-facing `jitml inference run` live MinIO path is owned by
   [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md)
   Sprint `15.12`.
 - Per-substrate production weight loading: Linux CPU oneDNN and Linux
@@ -482,7 +481,7 @@ fetches, and production runtime exercise are closed by Phase `10` Sprint
 **Implementation**: `src/JitML/Checkpoint/Format.hs`,
 `src/JitML/Checkpoint/Store.hs`, `src/JitML/Service/Workload.hs`,
 `src/JitML/Engines/{Local,CudaLocal,MetalLocal}.hs` (checkpoint runners),
-`src/JitML/App.hs` (`runInference`, `assertManifestShaMatches`)
+`src/JitML/App.hs` (`runInference`)
 **Docs to update**: `../documents/engineering/checkpoint_format.md`, `system-components.md`
 
 ### Objective
@@ -502,9 +501,8 @@ the inference-read slice of [Exit Definition](README.md#exit-definition) item 7.
 - `Service.Workload` default inference fails closed with `weighted inference
   runner required`; runtime self-inference supplies the weighted runner.
 - `jitml inference run` fails closed (`InferenceCheckpointMissing`) when no live
-  publication is present, instead of the `emptyManifest` + synthetic summary;
-  `jitml inspect replay` reports the verified manifest's real metadata
-  (content SHA + weight-tensor count), not a synthetic inference value.
+  publication is present, instead of the `emptyManifest` + synthetic summary,
+  and reports real checkpoint metadata rather than a synthetic inference value.
 
 ### Validation
 

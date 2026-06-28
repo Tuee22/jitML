@@ -2,12 +2,13 @@ with-compiler: ghc-9.12.4
 packages:
     .
 
--- Codegen toolchain pins recorded for the deterministic JIT cache key:
--- LLVM: pinned with the GHC 9.12.4 toolchain
--- NVCC: pinned, --use_fast_math=false, baseline sm_70
--- Xcode/Metal: pinned by the apple-silicon bootstrap lane
--- oneDNN: pinned with AVX2 baseline
--- kindest/node: pinned in kind/cluster-<substrate>.yaml and mirrored here
+-- Codegen toolchain assumptions recorded for the deterministic JIT cache key:
+-- LLVM: supplied by the host or the Ubuntu 24.04 `jitml:local` package set.
+-- CUDA/NVCC: Docker installs CUDA package family 12-8; JIT flags include
+--   --use_fast_math=false and baseline sm_70.
+-- Apple Metal: host OS Metal runtime plus the fixed jitML bridge ABI.
+-- oneDNN: Docker installs Ubuntu 24.04 libdnnl-dev; runtime probes verify it.
+-- kindest/node: pinned in kind/cluster-<substrate>.yaml and mirrored here.
 
 -- POC report-card typed defaults, mirrored by JitML.Test.Report:
 -- sl_epochs: 5

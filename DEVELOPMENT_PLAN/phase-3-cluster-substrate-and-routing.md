@@ -20,6 +20,18 @@
 
 ## Phase Status
 
+✅ **Done** (re-closed 2026-06-28 for Sprint `3.6`). `JitML.Cluster.Kind`,
+materialized `kind/cluster-*.yaml`, `JitML.Cluster.Storage`, manual PV
+templates, and bootstrap pre-grant resource-cap/mount preparation now implement
+the HA topology: one control-plane plus three workers, repo mounts and resource
+caps across all materialized Kind nodes, Linux CUDA GPU runtime material on
+workers, HA manual PV counts, and one public localhost Envoy socket. Validation:
+`cabal build exe:jitml --ghc-options=-fasm`; `jitml internal
+materialize-substrate` for `apple-silicon`, `linux-cpu`, and `linux-cuda`;
+`cabal test jitml-integration --ghc-options=-fasm --test-options='-p HA'`.
+Live HA lane revalidation is owned by Phases `15` and `16`. Prior closure
+history follows.
+
 ✅ **Done** (re-closed 2026-05-29; Sprint `3.2`'s right-sized PV layout
 (MinIO `4→1`, Pulsar `3→1`, Postgres `3→1`) landed in `JitML.Cluster.Storage` and
 validated against the container build + unit + integration renderer assertions;
@@ -410,6 +422,53 @@ steady-state cluster is a no-op (exit code `3`).
 
 - `system-components.md → Cluster Substrate Components` rows remain aligned
   with the implemented Kind, chart, route, and publication surfaces.
+
+## Sprint 3.6: HA Kind Node and Manual-PV Topology [✅ Done]
+
+**Status**: Done (opened 2026-06-27; closed 2026-06-28)
+**Implementation**: `kind/cluster-*.yaml`, `src/JitML/Cluster/Kind.hs`,
+`src/JitML/Cluster/Storage.hs`, `chart/templates/pv-*.yaml`,
+`src/JitML/Lint/Chart.hs`
+**Docs to update**: `documents/engineering/cluster_topology.md`,
+`system-components.md`, `legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make the documented HA cluster shape the implemented Kind/materialization
+surface: control-plane plus worker nodes from the HA profile, HA-sized manual
+PVs, single localhost Envoy edge socket, and no hidden single-node/right-sized
+assumptions.
+
+### Deliverables
+
+- Render a target HA Kind topology for every substrate, including worker nodes
+  that can host platform services and Engine compute while preserving the
+  `127.0.0.1:<edge-port>` Envoy listener.
+- Apply `kindest/node` pins, `extraMounts`, GPU labels/runtime material, and
+  resource caps to the correct node set rather than only the compact
+  control-plane node.
+- Expand manual PV rendering and chart templates for the HA storage topology:
+  distributed MinIO, Pulsar ZooKeeper/BookKeeper/Broker/Proxy where persistent,
+  Percona Postgres replicas, and pgBackRest.
+- Keep the one-numerical-worker-per-node compute invariant coordinated with
+  Phase `5` Sprint `5.16`; Phase `3` owns the node topology that makes that
+  scheduling rule enforceable.
+
+### Validation
+
+- `cabal build exe:jitml --ghc-options=-fasm`
+- `cabal test jitml-integration --ghc-options=-fasm --test-options='-p HA'`
+  covers the HA Kind renderer and HA PV/service shape.
+- `cabal run exe:jitml --ghc-options=-fasm -- internal materialize-substrate
+  --substrate <apple-silicon|linux-cpu|linux-cuda>` regenerated the checked-in
+  substrate fixtures from the HA renderer.
+- Shared final gates: `jitml docs check`, `jitml lint chart`, and
+  `docker compose run --rm jitml jitml check-code`.
+
+### Remaining Work
+
+- None. Live HA substrate revalidation is tracked by Phase `15` Sprint `15.22`
+  and Phase `16` Sprint `16.14`.
 
 ## Related Documents
 

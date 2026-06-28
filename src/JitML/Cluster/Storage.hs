@@ -22,20 +22,17 @@ data ManualPV = ManualPV
   }
   deriving stock (Eq, Show)
 
--- | Sprint 3.2 (reopened 2026-05-29) — right-sized manual-PV layout. The
--- replica counts match the default `dhall/cluster/resources.dhall` profile
--- (`replicas = 1` for minio / pulsar / postgres) so the sum of pod limits stays
--- under the kind-node cap (Sprint 2.8) on a ~16 GiB single-node host. The
--- pgbackrest backup repo (`harbor-pg-repo1`) remains a single PV (one repo).
--- Operators retuning `dhall/cluster/` to enable HA replicas must also widen this
--- list — both surfaces live in this module pair so the audit is local.
+-- | Sprint 3.6 — HA manual-PV layout. Replica counts match the target
+-- `dhall/cluster/resources.dhall` profile and chart values: distributed MinIO,
+-- Pulsar ZooKeeper/BookKeeper persistence, three Percona Postgres instances,
+-- and one pgBackRest repository PV.
 manualPVs :: [ManualPV]
 manualPVs =
   concat
-    [ statefulSetReplicas "platform" "minio" 1 "20Gi"
-    , statefulSetReplicas "platform" "pulsar-bookkeeper" 1 "20Gi"
-    , statefulSetReplicas "platform" "pulsar-zookeeper" 1 "10Gi"
-    , perconaReplicas "platform" "harbor-pg" 1 "10Gi"
+    [ statefulSetReplicas "platform" "minio" 4 "20Gi"
+    , statefulSetReplicas "platform" "pulsar-bookkeeper" 3 "20Gi"
+    , statefulSetReplicas "platform" "pulsar-zookeeper" 3 "10Gi"
+    , perconaReplicas "platform" "harbor-pg" 3 "10Gi"
     , perconaReplicas "platform" "harbor-pg-repo1" 1 "10Gi"
     ]
 

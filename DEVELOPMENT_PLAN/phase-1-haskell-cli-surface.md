@@ -20,6 +20,16 @@
 
 ## Phase Status
 
+✅ **Done** (re-closed 2026-06-27 after Sprint `1.16`). The placeholder
+top-level `verify`, `inspect`, `bench`, and `kubectl` command groups are removed
+from the canonical `CommandSpec` registry and app dispatch. Determinism,
+checkpoint replay, benchmark/report-card, and Kubernetes effects remain covered
+by their real surfaces: substrate-partitioned Cabal stanzas, `jitml inference
+run`, `jitml test all --live`, bootstrap typed subprocesses, and daemon
+capability classes. Generated CLI artifacts are regenerated from `CommandSpec`;
+historical plan references stay dated records only. Prior closure history
+follows.
+
 ✅ **Done** (re-closed 2026-06-12 after Sprint `1.15`). The true-headless Apple
 Metal fixed-bridge doctrine no longer exposes a VM lifecycle command. Sprint
 `1.15` deleted the `jitml internal vm` leaves from `CommandSpec`, removed their
@@ -206,19 +216,18 @@ Generated Documentation`.
   `src/JitML/CLI/Spec.hs` with the doctrine-mandated fields (`name`, `summary`,
   `description`, `children`, `options`, `examples`, `longName`, `shortName`,
   `metavar`, `description`, `required`).
-- The `CommandSpec` registry covers every command surface from
+- The `CommandSpec` registry covers every current command surface from
   [system-components.md → Haskell CLI
   Surface](system-components.md#haskell-cli-surface): `cluster up`, `cluster down`,
   `cluster status`, `cluster reset`, `service`, `train`, `eval`, `tune`,
-  `rl train`, `rl eval`, `rl rollout`, `verify same-run`, `verify cross-backend`,
-  `verify replay`, `inspect list`, `inspect show`, `inspect replay`,
-  `inspect trial`, `inspect frontier`, `bench train`, `bench inference`,
-  `bench env`, `inference run`, `test all`, every per-stanza `test` leaf,
-  `lint files|docs|proto|chart|haskell|purescript|all`, `docs check`,
-  `docs generate`, `check-code`, `build`, `kubectl`,
+  `rl train`, `rl eval`, `rl rollout`, `inference run`, `test all`, every
+  per-stanza `test` leaf, `lint files|docs|proto|chart|haskell|purescript|all`,
+  `docs check`, `docs generate`, `check-code`, `build`,
   `internal materialize-substrate`, `internal list-prereqs`, `internal gc`,
   `internal upload-dataset`, `internal cache stat|list|evict`,
-  `commands`, and `help`. Each leaf carries at least one `Example`.
+  `commands`, and `help`. Each leaf carries at least one `Example`. Earlier
+  placeholder `verify`, `inspect`, `bench`, and user-facing `kubectl` leaves are
+  removed by Sprint `1.16`.
 - The parser in `src/JitML/CLI/Parser.hs` is generated from the registry — it is
   a renderer of the spec, not its own source. Hand-written
   `optparse-applicative` parsers outside the renderer are hlint-forbidden.
@@ -862,8 +871,9 @@ passthrough to the `jitml test` leaves that forwards arbitrary arguments to
 ### Deliverables
 
 - Delete the `verify` → `cross-backend` leaf from the `CommandSpec` registry in
-  `src/JitML/CLI/Spec.hs`, keeping the `verify same-run` and `verify replay`
-  leaves intact (doctrine `CommandSpec`).
+  `src/JitML/CLI/Spec.hs`, keeping the then-current `verify same-run` and
+  `verify replay` leaves intact. Sprint `1.16` later removes the remaining
+  placeholder `verify` group.
 - Add an optional `--test-options <text>` option to the `test` and `test all`
   leaves in `src/JitML/CLI/Spec.hs`.
 - Forward the value from `runCabalTest` in `src/JitML/App.hs` as
@@ -891,7 +901,8 @@ passthrough to the `jitml test` leaves that forwards arbitrary arguments to
 **2026-06-09 (closed)** — all three edits landed and validated:
 
 - `src/JitML/CLI/Spec.hs` no longer carries the `verify` → `cross-backend`
-  leaf (`verify same-run` / `verify replay` stay), and the new
+  leaf; at the time `verify same-run` / `verify replay` stayed, and Sprint
+  `1.16` later removed them with the rest of the placeholder group. The new
   `testOptionsOption` (`--test-options <text>`) is attached to both the
   `test all` and the per-stanza `test <stanza>` leaves.
 - `src/JitML/App.hs` removes `runVerifyCrossBackend` and all its helpers
@@ -1102,6 +1113,44 @@ introspection path. Adopts `CommandSpec`, `Generated documentation flow`, and
 - A repo-wide search over `README.md`, generated CLI docs/manpage/completions,
   `src/`, and `test/` finds no `internal vm` command residue outside historical
   development-plan records.
+
+### Remaining Work
+
+None.
+
+## Sprint 1.16: Remove Placeholder Top-Level CLI Groups [✅ Done]
+
+**Status**: Done (closed 2026-06-27)
+**Implementation**: `src/JitML/CLI/Spec.hs`, `src/JitML/App.hs`,
+`test/unit/Main.hs`, generated CLI artifacts
+**Docs to update**: `documents/engineering/cli_command_surface.md`,
+`documents/cli/commands.md`, `README.md` generated command regions,
+`share/man/man1/jitml.1`, shell completions
+
+### Objective
+
+Remove the top-level placeholder command groups whose behavior was either a
+summary stub or a thin duplicate of better-owned surfaces: `verify`, `inspect`,
+`bench`, and user-facing `kubectl`.
+
+### Deliverables
+
+- Delete the `verify`, `inspect`, `bench`, and `kubectl` command groups from
+  `CommandSpec`, parser help, JSON/tree output, generated Markdown, manpage, and
+  completions.
+- Delete the corresponding `App.hs` dispatch handlers, including the
+  `inspect replay` branch that duplicated checkpoint/inference verification
+  now owned by `jitml inference run` and the test lanes.
+- Keep effectful Kubernetes access inside bootstrap typed subprocesses and the
+  daemon `HasKubectl` capability; no user-facing passthrough command remains.
+- Keep benchmark/cache/daemon telemetry on `jitml test all --live` and `/metrics`.
+
+### Validation
+
+- `jitml docs generate`, then `jitml docs check`.
+- `jitml commands --tree` contains no `verify`, `inspect`, `bench`, or `kubectl`
+  top-level groups.
+- `jitml-unit` parser/canonical-leaves snapshots pass.
 
 ### Remaining Work
 

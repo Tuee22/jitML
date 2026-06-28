@@ -34,6 +34,7 @@ ENV CABAL_CONFIG=/root/.cabal/config
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        clang \
         cmake \
         curl \
         docker.io \

@@ -27,6 +27,23 @@
 
 ## Phase Status
 
+⏸️ **Blocked** (reopened 2026-06-27 for Sprint `16.14`; blocked 2026-06-28 on
+the host LLVM prerequisite for the documented `-fllvm` build).
+
+The lower HA implementation sprints (`3.6`, `4.10`, `5.16`) are closed. The
+Apple Silicon live lane must still be revalidated against the targeted HA
+topology on a real Apple Silicon host, but this host cannot currently build the
+host-native `.build/jitml` binary with the documented GHC `-fllvm` flags:
+`./bootstrap/apple-silicon.sh doctor` passes, while
+`./bootstrap/apple-silicon.sh build` fails because GHC cannot execute `opt`
+(`LLVM Optimiser: could not execute: opt`). The only `opt` found locally is
+`/opt/homebrew/Cellar/llvm@21/21.1.8/bin/opt`, outside GHC 9.12.4's supported
+LLVM range `[13,20)`.
+
+The 2026-06-26 M1 Max
+evidence remains historical evidence for the compact/right-sized topology, not a
+current final closure for the HA target. Prior closure history follows.
+
 ✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `16.13`). The expanded
 all-model Metal lane re-ran on a real Apple Silicon host: macOS `26.5` (build
 `25F71`), Apple M1 Max, Metal 4. `bootstrap/apple-silicon.sh up` reconciled the
@@ -1245,6 +1262,55 @@ real Apple Silicon host with the fixed Metal bridge.
 ### Remaining Work
 
 None.
+
+## Sprint 16.14: Apple-Silicon HA Cluster Revalidation [⏸️ Blocked]
+
+**Status**: Blocked (opened 2026-06-27; HA implementation unblocked 2026-06-28
+after Sprints `3.6`, `4.10`, and `5.16` closed; host LLVM prerequisite blocked
+2026-06-28)
+**Blocked by**: A compatible host LLVM optimizer for GHC `-fllvm` on the Apple
+Silicon host. GHC 9.12.4 requires LLVM in `[13,20)`; this host has no `opt` on
+`PATH`, and the only local `opt` found is `llvm@21`.
+**Implementation**: `bootstrap/apple-silicon.sh`, host Metal bridge,
+live `jitml test all --apple-silicon`, `DEVELOPMENT_PLAN/attestations/`
+**Docs to update**: `system-components.md`,
+`../documents/engineering/unit_testing_policy.md`
+
+### Objective
+
+Re-run the Apple Silicon live lane on real Apple hardware after the HA Kind,
+platform-service, and one-numerical-worker-per-node topology sprints close.
+
+### Deliverables
+
+- Bootstrap the HA `apple-silicon` topology and run the host Metal daemon.
+- Validate that in-cluster replicas do not multiply host Metal compute and that
+  numerical compute remains bounded by host/node topology.
+- Re-run the Apple substrate test lane and live workflow/report-card matrix.
+- Refresh the Apple Silicon attestation for the HA topology.
+
+### Validation
+
+- `bootstrap/apple-silicon.sh up`
+- `bootstrap/apple-silicon.sh run-daemon`
+- `bootstrap/apple-silicon.sh test`
+- Live Playwright product matrix against the Apple edge.
+- `jitml docs check`
+
+Attempted 2026-06-28 on the local Apple M1 Max host:
+
+- `./bootstrap/apple-silicon.sh doctor` — passed.
+- `./bootstrap/apple-silicon.sh build` — failed before live bootstrap because
+  GHC `-fllvm` could not execute `opt`; no compatible LLVM `[13,20)` optimizer
+  was available on `PATH`.
+
+### Remaining Work
+
+- Expose a compatible host LLVM `opt`/`llc` for GHC 9.12.4's `-fllvm` backend on
+  the Apple Silicon host.
+- Re-run the Apple Silicon HA live lane on the current HA topology:
+  `bootstrap/apple-silicon.sh up`, `bootstrap/apple-silicon.sh run-daemon`,
+  `bootstrap/apple-silicon.sh test`, and the live Playwright product matrix.
 
 ## Related Documents
 

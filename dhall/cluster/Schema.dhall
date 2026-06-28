@@ -1,8 +1,8 @@
--- Sprint 2.8 — typed cluster resource profile schema.
+-- Sprint 2.8 / 3.6 — typed cluster resource profile schema.
 -- Decoded in Haskell by JitML.Cluster.Resources; the concrete budget lives in
--- ./resources.dhall. `nodeMemoryMiB` / `nodeCpus` bound the single kind node
--- container (applied via `docker update` after `kind create`); the per-component
--- budgets size the platform pods so their sum stays under the node cap.
+-- ./resources.dhall. `workerCount` sets the HA Kind worker count, and
+-- `nodeMemoryMiB` / `nodeCpus` bound each materialized Kind node container
+-- (applied via `docker update` after `kind create`).
 let ComponentBudget : Type =
       { replicas : Natural
       , cpuRequest : Text
@@ -14,6 +14,7 @@ let ComponentBudget : Type =
 let ClusterResources : Type =
       { nodeMemoryMiB : Natural
       , nodeCpus : Text
+      , workerCount : Natural
       , harbor : ComponentBudget
       , minio : ComponentBudget
       , pulsar : ComponentBudget

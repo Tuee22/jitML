@@ -4,7 +4,7 @@ metadata:
   name: jitml-service
   namespace: platform
 spec:
-  replicas: 1
+  replicas: 3
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -18,16 +18,27 @@ spec:
       labels:
         app: jitml-service
         jitml.substrate: linux-cuda
+        jitml.role: engine
+        jitml.compute: "true"
     spec:
       serviceAccountName: jitml-service
       runtimeClassName: nvidia
+      nodeSelector:
+        jitml.node-role/compute: "true"
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - topologyKey: kubernetes.io/hostname
               labelSelector:
                 matchLabels:
-                  app: jitml-service
+                  jitml.compute: "true"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              jitml.compute: "true"
       containers:
         - name: jitml-service
           image: jitml:local

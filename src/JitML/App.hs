@@ -268,8 +268,6 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runBuild parsedOptions
   | parsedPath == ["project", "init"] =
       runProjectInit parsedOptions
-  | parsedPath == ["kubectl"] =
-      runKubectl parsedOptions
   | parsedPath == ["train"] =
       runTrain parsedOptions
   | parsedPath == ["eval"] =
@@ -280,12 +278,6 @@ runParsed ParsedCommand {parsedPath, parsedOptions}
       runRl parsedPath parsedOptions
   | parsedPath == ["inference", "run"] =
       runInference parsedOptions
-  | take 1 parsedPath == ["verify"] =
-      runVerify parsedPath parsedOptions
-  | take 1 parsedPath == ["bench"] =
-      runBench parsedPath parsedOptions
-  | take 1 parsedPath == ["inspect"] =
-      runInspect parsedPath parsedOptions
   | take 1 parsedPath == ["test"] =
       runTest parsedPath parsedOptions
   | parsedPath == ["help"] =
@@ -1516,11 +1508,6 @@ buildToolchainFingerprint LinuxCPU =
   linuxCpuToolchainFingerprint
 buildToolchainFingerprint _ =
   Cache.ToolchainFingerprint "jitml-build;compiler-pins=cabal.project"
-
-runKubectl :: [ParsedOption] -> App ()
-runKubectl parsedOptions =
-  writeLine
-    ("kubectl: ./.build/jitml.kubeconfig " <> Text.unwords (optionValues "kubectl-args" parsedOptions))
 
 runTrain :: [ParsedOption] -> App ()
 runTrain parsedOptions = do
@@ -4054,92 +4041,6 @@ publishLoadTranscriptCommandOnly settings substrate transcriptId = do
             pure (Left ("load-transcript command publish failed: " <> Text.pack (show err)))
           Right _ ->
             consumeMatchingKindPayload subscriptionId "TranscriptReplay" callId inferenceReplyAttempts
-
-runVerify :: [Text] -> [ParsedOption] -> App ()
-runVerify path parsedOptions =
-  writeLine
-    ("verify: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
-
-runBench :: [Text] -> [ParsedOption] -> App ()
-runBench path parsedOptions =
-  writeLine ("bench: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
-
-runInspect :: [Text] -> [ParsedOption] -> App ()
-runInspect ["inspect", "replay"] parsedOptions =
-  runInspectReplay parsedOptions
-runInspect path parsedOptions =
-  writeLine
-    ("inspect: " <> commandPathText path <> " " <> Text.pack (show (optionPairs parsedOptions)))
-
--- | `jitml inspect replay <manifest-sha>` — fetches a named manifest by
--- content SHA and reports verified manifest metadata. Real inference belongs
--- to `jitml inference run`, which requires the latest pointer and decoded
--- weights.
---
--- When a live `cluster-publication.json` is present, the manifest is
--- read from MinIO bucket `jitml-checkpoints/<experiment-hash>/manifests/`
--- via `JitML.Service.MinIOSubprocess`. Otherwise the local on-disk
--- checkpoint store is used. Live half of Sprint 13.12.
-runInspectReplay :: [ParsedOption] -> App ()
-runInspectReplay parsedOptions = do
-  let manifestSha = selectedValue "manifest-sha" "missing" parsedOptions
-      experimentHash = selectedValue "experiment-hash" "default" parsedOptions
-  livePublication <- liftIO (readExistingLivePublication ".")
-  case livePublication of
-    Just publication -> do
-      let edgePort = Publication.publicationEdgePort publication
-          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-          manifestRef =
-            CheckpointStore.checkpointObjectRef
-              (Checkpoint.manifestKey experimentHash manifestSha)
-      bytes <-
-        liftIO
-          ( MinIOSubprocess.runMinIOSubprocess
-              minioSettings
-              (Capabilities.minioReadBytes manifestRef)
-          )
-      case bytes of
-        Left _ ->
-          exitWithError (InferenceCheckpointMissing experimentHash)
-        Right payload ->
-          case Checkpoint.decodeManifestCbor (LazyByteString.fromStrict payload) of
-            Left err ->
-              exitWithError (InvalidConfig ("inspect replay: " <> err))
-            Right manifest ->
-              assertManifestShaMatches experimentHash manifestSha manifest
-    Nothing -> do
-      checkpointRoot <- localCheckpointRoot
-      result <-
-        liftIO
-          (CheckpointStore.readCheckpointManifest checkpointRoot experimentHash manifestSha)
-      case result of
-        Left _ ->
-          exitWithError (InferenceCheckpointMissing experimentHash)
-        Right manifest ->
-          assertManifestShaMatches experimentHash manifestSha manifest
-
--- | Print verified metadata for a replayed manifest, or exit with
--- `InferenceManifestShaMismatch` when the manifest body's
--- content SHA does not match the SHA the caller requested. The mismatch
--- case is rare under normal storage discipline (manifests are written at
--- `manifests/<content-sha>.cbor`), but surfaces clearly when a manifest
--- has been corrupted, mis-keyed, or otherwise drifted from its address.
-assertManifestShaMatches :: Text -> Text -> Checkpoint.CheckpointManifest -> App ()
-assertManifestShaMatches experimentHash requestedSha manifest =
-  let actualSha = Checkpoint.manifestContentSha manifest
-   in if actualSha /= requestedSha
-        then exitWithError (InferenceManifestShaMismatch experimentHash requestedSha)
-        else
-          -- Sprint 10.5 — report the verified manifest's real metadata (content
-          -- SHA + weight-tensor count) instead of the former synthetic
-          -- manifest-only number. Real inference is `jitml inference run`,
-          -- which drives the substrate weighted kernel over the decoded weights.
-          writeLine
-            ( "inspect replay: "
-                <> requestedSha
-                <> " verified tensors="
-                <> Text.pack (show (length (Checkpoint.manifestTensors manifest)))
-            )
 
 -- | Map a weighted checkpoint load `Left Text` to a typed `AppError`. The
 -- live read path returns "pointer read failed: ..." when the latest

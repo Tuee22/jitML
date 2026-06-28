@@ -63,50 +63,10 @@ Run a fixed\\-seed rollout.
 Run AlphaZero self\\-play.
 .PP
 .B jitml rl alphazero self\\-play [\\-\\-substrate <substrate>] [\\-\\-seed <word64>] [\\-\\-games <n>] [\\-\\-sims <n>] [\\-\\-max\\-plies <n>] [\\-\\-updates <n>] [\\-\\-arena\\-games <n>]
-.SS JITML VERIFY SAME-RUN
-Verify same\\-run determinism.
-.PP
-.B jitml verify same\\-run \\-\\-experiment <experiment\\-dhall> \\-\\-runs <int>
-.SS JITML VERIFY REPLAY
-Verify checkpoint replay.
-.PP
-.B jitml verify replay \\-\\-experiment <experiment\\-dhall> \\-\\-checkpoint <checkpoint\\-id>
-.SS JITML INSPECT LIST
-List cached manifests.
-.PP
-.B jitml inspect list
-.SS JITML INSPECT SHOW
-Show a manifest.
-.PP
-.B jitml inspect show <manifest\\-sha> [\\-\\-with\\-equity]
-.SS JITML INSPECT REPLAY
-Replay a manifest.
-.PP
-.B jitml inspect replay [<manifest\\-sha>] [\\-\\-manifest\\-sha <manifest\\-sha>] [\\-\\-experiment\\-hash <experiment\\-hash>]
-.SS JITML INSPECT TRIAL
-Inspect a trial.
-.PP
-.B jitml inspect trial <trial\\-hash>
-.SS JITML INSPECT FRONTIER
-Inspect a tuning frontier.
-.PP
-.B jitml inspect frontier <sweep\\-id>
-.SS JITML BENCH TRAIN
-Benchmark training.
-.PP
-.B jitml bench train <experiment\\-dhall>
-.SS JITML BENCH INFERENCE
-Benchmark inference.
-.PP
-.B jitml bench inference <experiment\\-dhall> \\-\\-checkpoint <checkpoint\\-id>
-.SS JITML BENCH ENV
-Benchmark environment stepping.
-.PP
-.B jitml bench env <rl\\-experiment\\-dhall>
 .SS JITML INFERENCE RUN
 Run inference at any point.
 .PP
-.B jitml inference run [<experiment\\-dhall>] [\\-\\-checkpoint <latest|best/<metric>|manifest\\-sha>] [\\-\\-trial <trial\\-hash>] [\\-\\-experiment\\-hash <experiment\\-hash>]
+.B jitml inference run [<experiment\\-dhall>] [\\-\\-experiment\\-hash <experiment\\-hash>]
 .SS JITML TEST ALL
 Run all test stanzas.
 .PP
@@ -191,10 +151,6 @@ Build inside the substrate container.
 Generate a default jitml.dhall durable\\-state config.
 .PP
 .B jitml project init [\\-\\-output <path>] [\\-\\-force]
-.SS JITML KUBECTL
-Run kubectl against the jitML kubeconfig.
-.PP
-.B jitml kubectl [\\-\\- <kubectl\\-args...>]
 .SS JITML INTERNAL MATERIALIZE-SUBSTRATE
 Materialize substrate files.
 .PP
@@ -228,15 +184,15 @@ Apply checkpoint retention.
 .PP
 .B jitml internal gc <experiment\\-hash> [\\-\\-dry\\-run] [\\-\\-plan\\-file <path>]
 .SS JITML INTERNAL CACHE STAT
-Print cache stats.
+Print placeholder cache stats.
 .PP
 .B jitml internal cache stat
 .SS JITML INTERNAL CACHE LIST
-List cache entries.
+Print placeholder cache entries.
 .PP
 .B jitml internal cache list
 .SS JITML INTERNAL CACHE EVICT
-Evict a cache entry.
+Echo a placeholder cache eviction.
 .PP
 .B jitml internal cache evict <hash>
 .SS JITML COMMANDS

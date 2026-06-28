@@ -136,9 +136,11 @@ where:
   step kernel; inference is forward-only with frozen-weight constant folding
   enabled.
 - `substrate` ∈ `apple-silicon | linux-cpu | linux-cuda`.
-- `toolchain-fingerprint` is the hash of every codegen-toolchain pin from
-  `cabal.project` (LLVM, NVCC, the host OS Metal runtime plus fixed bridge ABI,
-  oneDNN) plus loader-relevant ABI facts for local FFI artifacts. The Apple
+- `toolchain-fingerprint` is the hash of the active codegen toolchain identity:
+  the GHC/cabal baseline and `cabal.project` toolchain comments, LLVM and oneDNN
+  package/runtime probes, Docker-pinned CUDA/NVCC/cuDNN package families, the
+  host OS Metal runtime plus fixed bridge ABI, and loader-relevant ABI facts for
+  local FFI artifacts. The Apple
   fingerprint includes the fixed bridge ABI/version, host artifact ABI, runtime
   `makeLibrary` policy, safe math mode, launch policy, rendered MSL payload, and
   tuning choice. The current Linux CPU local
@@ -170,9 +172,9 @@ reproducibility witnesses:
 
 The envelope is **not** part of the cache key — two runs with equal envelopes
 (same substrate, same toolchain) should produce bit-identical kernel output by
-the within-substrate contract. The envelope is the forensic record that lets
-`jitml inspect replay` detect substrate drift rather than silently displaying
-ULP-shifted floats as if they were the originator's. It is not a
+the within-substrate contract. The envelope is the forensic record consumed by
+checkpoint/inference tooling to detect substrate drift rather than silently
+displaying ULP-shifted floats as if they were the originator's. It is not a
 cross-substrate numeric-parity check: across substrates no equivalence is
 asserted.
 

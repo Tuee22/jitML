@@ -4,7 +4,7 @@ metadata:
   name: jitml-service
   namespace: platform
 spec:
-  replicas: 1
+  replicas: {{ if eq .Values.substrate "apple-silicon" }}{{ .Values.appleForwarderReplicas }}{{ else }}{{ .Values.engineReplicas }}{{ end }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -18,18 +18,31 @@ spec:
       labels:
         app: jitml-service
         jitml.substrate: {{ .Values.substrate | quote }}
+        jitml.role: engine
+        jitml.compute: {{ if eq .Values.substrate "apple-silicon" }}"false"{{ else }}"true"{{ end }}
     spec:
       serviceAccountName: jitml-service
       {{- if eq .Values.substrate "linux-cuda" }}
       runtimeClassName: nvidia
       {{- end }}
+      {{- if ne .Values.substrate "apple-silicon" }}
+      nodeSelector:
+        jitml.node-role/compute: "true"
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             - topologyKey: kubernetes.io/hostname
               labelSelector:
                 matchLabels:
-                  app: jitml-service
+                  jitml.compute: "true"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              jitml.compute: "true"
+      {{- end }}
       containers:
         - name: jitml-service
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

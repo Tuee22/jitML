@@ -6,9 +6,60 @@ nodes:
     image: kindest/node:v1.34.0
     extraPortMappings:
       - containerPort: 30090
-        hostPort: 9090
+        hostPort: 9091
         listenAddress: 127.0.0.1
         protocol: TCP
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: jitml.substrate/linux-cpu=true
+    extraMounts:
+      - hostPath: ./.build
+        containerPath: /jitml/.build
+        readOnly: false
+      - hostPath: ./.data
+        containerPath: /jitml/.data
+        readOnly: false
+  - role: worker
+    image: kindest/node:v1.34.0
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: jitml.substrate/linux-cpu=true,jitml.node-role/compute=true
+    extraMounts:
+      - hostPath: ./.build
+        containerPath: /jitml/.build
+        readOnly: false
+      - hostPath: ./.data
+        containerPath: /jitml/.data
+        readOnly: false
+  - role: worker
+    image: kindest/node:v1.34.0
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: jitml.substrate/linux-cpu=true,jitml.node-role/compute=true
+    extraMounts:
+      - hostPath: ./.build
+        containerPath: /jitml/.build
+        readOnly: false
+      - hostPath: ./.data
+        containerPath: /jitml/.data
+        readOnly: false
+  - role: worker
+    image: kindest/node:v1.34.0
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: jitml.substrate/linux-cpu=true,jitml.node-role/compute=true
     extraMounts:
       - hostPath: ./.build
         containerPath: /jitml/.build

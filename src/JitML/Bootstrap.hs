@@ -63,7 +63,12 @@ import JitML.Cluster.Helm
   , releaseName
   , renderHelmDependencyBuildPlan
   )
-import JitML.Cluster.Kind (kindConfigFor, kindConfigForEdgePort, renderKindConfig)
+import JitML.Cluster.Kind
+  ( kindConfigForEdgePortAndWorkers
+  , kindConfigForWorkers
+  , renderKindConfig
+  , substrateKindNodeContainerNames
+  )
 import JitML.Cluster.PostgresRegistry
   ( PerconaPGCluster (..)
   , postgresRegistry
@@ -79,10 +84,11 @@ import JitML.Cluster.Readiness (platformReadinessSubprocesses, runMinioBucketRea
 import JitML.Cluster.Readiness qualified as Readiness
 import JitML.Cluster.Resources
   ( ClusterResources
-  , clusterNodeCapSubprocess
+  , clusterNodeCapSubprocesses
   , defaultClusterResources
   , loadClusterResourcesOrDefault
   , renderClusterResourcesDhall
+  , workerCount
   )
 import JitML.Cluster.Storage
   ( ManualPV (..)
@@ -144,11 +150,12 @@ materializeBootstrapFiles root substrate = do
   createDirectoryIfMissing True runtimeRoot
   createDirectoryIfMissing True clusterConfRoot
   createDirectoryIfMissing True hostConfRoot
+  clusterResources <- loadClusterResourcesOrDefault root
   results <-
     sequence
       [ writeTextFileIfChanged
           (kindRoot </> "cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml")
-          (renderKindConfig (kindConfigFor substrate))
+          (renderKindConfig (kindConfigForWorkers substrate (workerCount clusterResources)))
       , writeTextFileIfChanged (chartTemplatesRoot </> "storageclass-jitml-manual.yaml") renderStorageClass
       , writeTextFileIfChanged (chartTemplatesRoot </> "gatewayclass-jitml.yaml") renderGatewayClass
       , writeTextFileIfChanged
@@ -167,7 +174,6 @@ materializeBootstrapFiles root substrate = do
   legacyValuesChanged <- removeFileIfExists (chartTemplatesRoot </> "minio-values.yaml")
   standaloneValuesChanged <- removeFileIfExists (chartRoot </> "minio-values.yaml")
   let clusterBoot = defaultBootConfig substrate Cluster
-  clusterResources <- loadClusterResourcesOrDefault root
   configResults <-
     sequence
       [ writeTextFileIfChanged
@@ -251,13 +257,14 @@ livePhasedRolloutSubprocesses substrate =
 livePreGrantSubprocessesForPort :: Substrate -> Int -> ClusterResources -> FilePath -> [Subprocess]
 livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
   [ kindCreateSubprocess substrate kindConfigPath
-  , kindNodeInotifyCapSubprocess substrate
-  , kubectlRestartPodsByLabelSubprocess "kube-system" "k8s-app=kube-proxy"
-  , kubectlRestartPodsByLabelSubprocess "local-path-storage" "app=local-path-provisioner"
-  , clusterNodeCapSubprocess substrate resources
-  , helmDependencyBuildSubprocess chartPath
   ]
-    <> kindPreparePostgresPvSubprocesses substrate
+    <> kindNodeInotifyCapSubprocesses substrate resources
+    <> [ kubectlRestartPodsByLabelSubprocess "kube-system" "k8s-app=kube-proxy"
+       , kubectlRestartPodsByLabelSubprocess "local-path-storage" "app=local-path-provisioner"
+       ]
+    <> clusterNodeCapSubprocesses substrate resources
+    <> [helmDependencyBuildSubprocess chartPath]
+    <> kindPreparePostgresPvSubprocesses substrate resources
     <> cachedThirdPartyImageLoadSteps substrate
     <> foundationManifestApplySubprocesses chartPath
     -- Sprint 2.14 — bind the host Docker Hub login to the platform namespace's
@@ -349,12 +356,18 @@ cachedThirdPartyRolloutImages =
   , "python:3.11-slim"
   ]
 
-kindNodeInotifyCapSubprocess :: Substrate -> Subprocess
-kindNodeInotifyCapSubprocess substrate =
+kindNodeInotifyCapSubprocesses :: Substrate -> ClusterResources -> [Subprocess]
+kindNodeInotifyCapSubprocesses substrate resources =
+  fmap
+    kindNodeInotifyCapSubprocess
+    (substrateKindNodeContainerNames substrate (workerCount resources))
+
+kindNodeInotifyCapSubprocess :: Text -> Subprocess
+kindNodeInotifyCapSubprocess nodeName =
   subprocess
     "docker"
     [ "exec"
-    , substrateClusterName substrate <> "-control-plane"
+    , nodeName
     , "sysctl"
     , "-w"
     , "fs.inotify.max_user_instances=1024"
@@ -376,12 +389,12 @@ kubectlRestartPodsByLabelSubprocess namespace selector =
     , "--ignore-not-found"
     ]
 
-kindNormalizePostgresPvOwnershipSubprocess :: Substrate -> Subprocess
-kindNormalizePostgresPvOwnershipSubprocess substrate =
+kindNormalizePostgresPvOwnershipSubprocess :: Text -> Subprocess
+kindNormalizePostgresPvOwnershipSubprocess nodeName =
   subprocess
     "docker"
     ( [ "exec"
-      , substrateClusterName substrate <> "-control-plane"
+      , nodeName
       , "chown"
       , "-R"
       , "26:26"
@@ -389,20 +402,24 @@ kindNormalizePostgresPvOwnershipSubprocess substrate =
         <> fmap pvNodeDataPath postgresManualPVs
     )
 
-kindPreparePostgresPvSubprocesses :: Substrate -> [Subprocess]
-kindPreparePostgresPvSubprocesses AppleSilicon =
-  [kindMountPostgresPvNodeLocalSubprocess AppleSilicon]
-kindPreparePostgresPvSubprocesses LinuxCPU =
-  [kindMountPostgresPvNodeLocalSubprocess LinuxCPU]
-kindPreparePostgresPvSubprocesses LinuxCUDA =
-  [kindNormalizePostgresPvOwnershipSubprocess LinuxCUDA]
+kindPreparePostgresPvSubprocesses :: Substrate -> ClusterResources -> [Subprocess]
+kindPreparePostgresPvSubprocesses substrate resources =
+  case substrate of
+    AppleSilicon ->
+      fmap kindMountPostgresPvNodeLocalSubprocess nodeNames
+    LinuxCPU ->
+      fmap kindMountPostgresPvNodeLocalSubprocess nodeNames
+    LinuxCUDA ->
+      fmap kindNormalizePostgresPvOwnershipSubprocess nodeNames
+ where
+  nodeNames = substrateKindNodeContainerNames substrate (workerCount resources)
 
-kindMountPostgresPvNodeLocalSubprocess :: Substrate -> Subprocess
-kindMountPostgresPvNodeLocalSubprocess substrate =
+kindMountPostgresPvNodeLocalSubprocess :: Text -> Subprocess
+kindMountPostgresPvNodeLocalSubprocess nodeName =
   subprocess
     "docker"
     [ "exec"
-    , substrateClusterName substrate <> "-control-plane"
+    , nodeName
     , "sh"
     , "-c"
     , Text.unwords
@@ -1042,13 +1059,16 @@ patchLiveMaterialization substrate lease publication = do
       chartTemplatesRoot = "chart" </> "templates"
       hostConfRoot = ".build" </> "conf" </> "host"
       kindConfigPath = kindRoot </> "cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml"
+  clusterResources <- loadClusterResourcesOrDefault "."
   createDirectoryIfMissing True kindRoot
   createDirectoryIfMissing True chartTemplatesRoot
   createDirectoryIfMissing True hostConfRoot
   _ <-
     writeTextFileIfChanged
       kindConfigPath
-      (renderKindConfig (kindConfigForEdgePort substrate (EdgePort.leasedPort lease)))
+      ( renderKindConfig
+          (kindConfigForEdgePortAndWorkers substrate (EdgePort.leasedPort lease) (workerCount clusterResources))
+      )
   _ <-
     writeTextFileIfChanged
       (chartTemplatesRoot </> "gateway-jitml-edge.yaml")

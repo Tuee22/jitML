@@ -402,268 +402,28 @@ jitml rl alphazero self-play --substrate linux-cpu --seed 31
 Run a bounded AlphaZero generation through the Linux CPU device.
 
 
-## `jitml verify same-run`
-
-Verify same-run determinism.
-
-Runs the same experiment repeatedly and checks byte-equivalent outputs.
-
-```text
-jitml verify same-run --experiment <experiment-dhall> --runs <int>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `--experiment <experiment-dhall>` | value | yes | Experiment Dhall file. |
-| `--runs <int>` | value | yes | Number of same-run repetitions. |
-
-Examples:
-
-```text
-jitml verify same-run --experiment experiments/mnist.dhall --runs 2
-```
-
-Verify same-run determinism.
-
-
-## `jitml verify replay`
-
-Verify checkpoint replay.
-
-Replays a checkpoint transcript and checks deterministic reproduction.
-
-```text
-jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `--experiment <experiment-dhall>` | value | yes | Experiment Dhall file. |
-| `--checkpoint <checkpoint-id>` | value | yes | Checkpoint identifier to replay. |
-
-Examples:
-
-```text
-jitml verify replay --experiment experiments/mnist.dhall --checkpoint latest
-```
-
-Replay a checkpoint.
-
-
-## `jitml inspect list`
-
-List cached manifests.
-
-Lists cached transcripts and checkpoints.
-
-```text
-jitml inspect list
-```
-
-Examples:
-
-```text
-jitml inspect list
-```
-
-List cached manifests.
-
-
-## `jitml inspect show`
-
-Show a manifest.
-
-Shows a cached manifest, optionally with equity details.
-
-```text
-jitml inspect show <manifest-sha> [--with-equity]
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<manifest-sha>` | positional | yes | Manifest SHA. |
-| `--with-equity` | flag | no | Include equity details. |
-
-Examples:
-
-```text
-jitml inspect show abc123 --with-equity
-```
-
-Show a manifest with equity details.
-
-
-## `jitml inspect replay`
-
-Replay a manifest.
-
-Replays a cached manifest transcript.
-
-```text
-jitml inspect replay [<manifest-sha>] [--manifest-sha <manifest-sha>] [--experiment-hash <experiment-hash>]
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<manifest-sha>` | positional | no | Manifest SHA (omit when using --manifest-sha + --experiment-hash). |
-| `--manifest-sha <manifest-sha>` | value | no | Manifest SHA (alternative to the positional). |
-| `--experiment-hash <experiment-hash>` | value | no | Override the experiment hash directly (live MinIO lookup). |
-
-Examples:
-
-```text
-jitml inspect replay abc123
-```
-
-Replay a cached manifest from the local store.
-
-```text
-jitml inspect replay --manifest-sha abc123 --experiment-hash live-test-1
-```
-
-Replay a live-MinIO manifest by SHA.
-
-
-## `jitml inspect trial`
-
-Inspect a trial.
-
-Shows a cached hyperparameter trial.
-
-```text
-jitml inspect trial <trial-hash>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<trial-hash>` | positional | yes | Trial hash. |
-
-Examples:
-
-```text
-jitml inspect trial trial123
-```
-
-Inspect a tuning trial.
-
-
-## `jitml inspect frontier`
-
-Inspect a tuning frontier.
-
-Shows the Pareto frontier for a sweep.
-
-```text
-jitml inspect frontier <sweep-id>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<sweep-id>` | positional | yes | Sweep identifier. |
-
-Examples:
-
-```text
-jitml inspect frontier sweep123
-```
-
-Inspect a sweep frontier.
-
-
-## `jitml bench train`
-
-Benchmark training.
-
-Runs the training benchmark harness.
-
-```text
-jitml bench train <experiment-dhall>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
-
-Examples:
-
-```text
-jitml bench train experiments/mnist.dhall
-```
-
-Benchmark training throughput.
-
-
-## `jitml bench inference`
-
-Benchmark inference.
-
-Runs the inference benchmark harness.
-
-```text
-jitml bench inference <experiment-dhall> --checkpoint <checkpoint-id>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<experiment-dhall>` | positional | yes | Experiment Dhall file. |
-| `--checkpoint <checkpoint-id>` | value | yes | Checkpoint identifier to load. |
-
-Examples:
-
-```text
-jitml bench inference experiments/mnist.dhall --checkpoint latest
-```
-
-Benchmark inference throughput.
-
-
-## `jitml bench env`
-
-Benchmark environment stepping.
-
-Runs the RL environment-step benchmark harness.
-
-```text
-jitml bench env <rl-experiment-dhall>
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `<rl-experiment-dhall>` | positional | yes | RL experiment Dhall file. |
-
-Examples:
-
-```text
-jitml bench env experiments/cartpole.dhall
-```
-
-Benchmark environment steps.
-
-
 ## `jitml inference run`
 
 Run inference at any point.
 
-Runs inference against latest, best/<metric>, or a manifest SHA checkpoint.
+Runs inference against the latest live MinIO checkpoint for an experiment hash.
 
 ```text
-jitml inference run [<experiment-dhall>] [--checkpoint <latest|best/<metric>|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]
+jitml inference run [<experiment-dhall>] [--experiment-hash <experiment-hash>]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `<experiment-dhall>` | positional | no | Experiment Dhall file. |
-| `--checkpoint <latest\|best/<metric>\|manifest-sha>` | value | no | Checkpoint selector. |
-| `--trial <trial-hash>` | value | no | Optional tuning trial hash. |
 | `--experiment-hash <experiment-hash>` | value | no | Override the experiment hash directly (live MinIO lookup). |
 
 Examples:
 
 ```text
-jitml inference run experiments/mnist.dhall --checkpoint latest
+jitml inference run experiments/mnist.dhall --experiment-hash abc123
 ```
 
-Run inference using the latest checkpoint.
+Run live-MinIO inference using the latest checkpoint for the experiment.
 
 ```text
 jitml inference run --experiment-hash abc123
@@ -1254,29 +1014,6 @@ jitml project init --output cfg.dhall --force
 Overwrite cfg.dhall with the default durable-state config.
 
 
-## `jitml kubectl`
-
-Run kubectl against the jitML kubeconfig.
-
-Passes arguments to kubectl with ./.build/jitml.kubeconfig pre-bound.
-
-```text
-jitml kubectl [-- <kubectl-args...>]
-```
-
-| Option | Kind | Required | Description |
-|--------|------|----------|-------------|
-| `-- <kubectl-args...>` | remainder | no | Arguments passed through to kubectl. |
-
-Examples:
-
-```text
-jitml kubectl get pods
-```
-
-List pods using the jitML kubeconfig.
-
-
 ## `jitml internal materialize-substrate`
 
 Materialize substrate files.
@@ -1479,9 +1216,9 @@ Apply retention to an experiment.
 
 ## `jitml internal cache stat`
 
-Print cache stats.
+Print placeholder cache stats.
 
-Prints JIT cache statistics.
+Prints the current internal placeholder cache-stat line.
 
 ```text
 jitml internal cache stat
@@ -1493,14 +1230,14 @@ Examples:
 jitml internal cache stat
 ```
 
-Print JIT cache stats.
+Print placeholder cache stats.
 
 
 ## `jitml internal cache list`
 
-List cache entries.
+Print placeholder cache entries.
 
-Lists JIT cache entries.
+Prints the current internal placeholder cache-list line.
 
 ```text
 jitml internal cache list
@@ -1512,14 +1249,14 @@ Examples:
 jitml internal cache list
 ```
 
-List cache entries.
+Print placeholder cache entries.
 
 
 ## `jitml internal cache evict`
 
-Evict a cache entry.
+Echo a placeholder cache eviction.
 
-Evicts a JIT cache entry by hash.
+Echoes the requested cache hash; no cache object is deleted by this placeholder.
 
 ```text
 jitml internal cache evict <hash>
@@ -1535,7 +1272,7 @@ Examples:
 jitml internal cache evict abc123
 ```
 
-Evict one cache entry.
+Echo a placeholder cache eviction.
 
 
 ## `jitml commands`

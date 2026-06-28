@@ -248,7 +248,10 @@ library
 
     hs-source-dirs:   src gen
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+
     build-depends:
         base >=4.21 && <4.22,
         text,
@@ -303,7 +306,12 @@ executable jitml
     main-is:          Main.hs
     hs-source-dirs:   app
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         base >=4.21 && <4.22,
         jitml
@@ -314,7 +322,12 @@ test-suite jitml-unit
     hs-source-dirs:   test/unit
     other-modules:    DurableStateTopology
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         base >=4.21 && <4.22,
         aeson,
@@ -338,7 +351,12 @@ test-suite jitml-integration
     main-is:          Main.hs
     hs-source-dirs:   test/integration
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         aeson,
         base >=4.21 && <4.22,
@@ -360,7 +378,12 @@ test-suite jitml-sl-canonicals
     main-is:          Main.hs
     hs-source-dirs:   test/sl-canonicals
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         base >=4.21 && <4.22,
         bytestring,
@@ -380,7 +403,12 @@ test-suite jitml-rl-canonicals
     main-is:          Main.hs
     hs-source-dirs:   test/rl-canonicals
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         base >=4.21 && <4.22,
         jitml,
@@ -395,7 +423,12 @@ test-suite jitml-hyperparameter
     main-is:          Main.hs
     hs-source-dirs:   test/hyperparameter
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         base >=4.21 && <4.22,
         jitml,
@@ -408,7 +441,12 @@ test-suite jitml-backends
     main-is:          Main.hs
     hs-source-dirs:   test/backends
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         base >=4.21 && <4.22,
         directory,
@@ -427,7 +465,12 @@ test-suite jitml-daemon-lifecycle
     main-is:          Main.hs
     hs-source-dirs:   test/daemon-lifecycle
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         base >=4.21 && <4.22,
         bytestring,
@@ -446,7 +489,12 @@ test-suite jitml-e2e
     main-is:          Main.hs
     hs-source-dirs:   test/e2e
     default-language: GHC2024
-    ghc-options:      -Wall -Wcompat
+    ghc-options:
+        -Wall -Wcompat -O2 -fllvm -funbox-strict-fields
+        -fspecialise-aggressively -fexpose-all-unfoldings
+        -with-rtsopts=-A64m -with-rtsopts=-n4m -with-rtsopts=-qg1
+        -with-rtsopts=-qb -with-rtsopts=-T
+
     build-depends:
         base >=4.21 && <4.22,
         bytestring,

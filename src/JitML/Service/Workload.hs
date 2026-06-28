@@ -958,10 +958,18 @@ renderJob substrate component name args envVars =
     , "    app.kubernetes.io/component: " <> component
     , "spec:"
     , "  template:"
+    , "    metadata:"
+    , "      labels:"
+    , "        app.kubernetes.io/name: jitml"
+    , "        app.kubernetes.io/component: " <> component
+    , "        jitml.substrate: " <> renderSubstrate substrate
+    , "        jitml.role: engine"
+    , "        jitml.compute: " <> yamlLabelBool (substrateHasClusterCompute substrate)
     , "    spec:"
     , "      restartPolicy: Never"
     ]
       <> renderRuntimeClassLines substrate
+      <> clusterComputePlacementLines substrate
       <> [ "      containers:"
          , "        - name: " <> component
          , "          image: jitml:local"
@@ -978,6 +986,37 @@ renderRuntimeClassLines substrate =
     Nothing -> []
     Just runtimeClass ->
       ["      runtimeClassName: " <> runtimeClass]
+
+substrateHasClusterCompute :: Substrate -> Bool
+substrateHasClusterCompute AppleSilicon = False
+substrateHasClusterCompute LinuxCPU = True
+substrateHasClusterCompute LinuxCUDA = True
+
+yamlLabelBool :: Bool -> Text
+yamlLabelBool True = "\"true\""
+yamlLabelBool False = "\"false\""
+
+clusterComputePlacementLines :: Substrate -> [Text]
+clusterComputePlacementLines substrate
+  | not (substrateHasClusterCompute substrate) = []
+  | otherwise =
+      [ "      nodeSelector:"
+      , "        jitml.node-role/compute: \"true\""
+      , "      affinity:"
+      , "        podAntiAffinity:"
+      , "          requiredDuringSchedulingIgnoredDuringExecution:"
+      , "            - topologyKey: kubernetes.io/hostname"
+      , "              labelSelector:"
+      , "                matchLabels:"
+      , "                  jitml.compute: \"true\""
+      , "      topologySpreadConstraints:"
+      , "        - maxSkew: 1"
+      , "          topologyKey: kubernetes.io/hostname"
+      , "          whenUnsatisfiable: DoNotSchedule"
+      , "          labelSelector:"
+      , "            matchLabels:"
+      , "              jitml.compute: \"true\""
+      ]
 
 nvidiaEnvVars :: Substrate -> [(Text, Text)]
 nvidiaEnvVars substrate =
@@ -1042,10 +1081,18 @@ renderJobMountedRunConfig substrate component jobName configMapName args =
     , "    app.kubernetes.io/component: " <> component
     , "spec:"
     , "  template:"
+    , "    metadata:"
+    , "      labels:"
+    , "        app.kubernetes.io/name: jitml"
+    , "        app.kubernetes.io/component: " <> component
+    , "        jitml.substrate: " <> renderSubstrate substrate
+    , "        jitml.role: engine"
+    , "        jitml.compute: " <> yamlLabelBool (substrateHasClusterCompute substrate)
     , "    spec:"
     , "      restartPolicy: Never"
     ]
       <> renderRuntimeClassLines substrate
+      <> clusterComputePlacementLines substrate
       <> [ "      containers:"
          , "        - name: " <> component
          , "          image: jitml:local"

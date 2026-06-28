@@ -31,13 +31,14 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (reopened 2026-06-26):** The codebase has real
-> substrate-backed training and inference foundations, but the no-caveat
-> all-model product target is **not closed**. The reopened work is tracked in
-> Phases `8`–`18`: every supported SL/RL/AlphaZero model must train for a pure
-> fixed budget, record convergence statistics in its checkpoint/TensorBoard
-> stream, mint an inference-eligible trained-artifact witness, and be covered by
-> integration, demo, Playwright, and e2e tests. Known stand-ins and compatibility
+> **Current product status (reopened 2026-06-27):** The fixed-budget all-model
+> training/inference lanes re-closed on 2026-06-26, but the no-caveat product
+> handoff is **not closed** against the targeted HA cluster topology. The current
+> reopen is tracked through Phases `3`, `4`, `5`, `15`, `16`, `17`, and `18`:
+> the development plan is the SSoT for the HA target, the implementation still
+> carries a local right-sized/single-node topology, and final closure requires
+> HA storage/broker/Postgres/observability rollout while preserving exactly one
+> numerical ML worker per Kubernetes node. Known stand-ins and compatibility
 > residues live in
 > [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
@@ -73,18 +74,30 @@ We want a runtime that is:
 
 # Toolchain pinning
 
-Per doctrine §Overview → Toolchain pinning, these versions are normative, not recommendations. The `.cabal` file declares `tested-with: ghc ==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`; CI uses the same versions. Codegen toolchains (LLVM, NVCC, the host OS Metal runtime + fixed Metal bridge ABI, oneDNN) are pinned in `cabal.project` or the bridge metadata so kernel output is reproducible across hosts.
+Per doctrine §Overview → Toolchain pinning, these versions are normative where
+the repository actually pins them. The `.cabal` file declares `tested-with: ghc
+==9.12.4`; `cabal.project` pins `with-compiler: ghc-9.12.4`; the Docker image
+uses `ARG GHC_VERSION=9.12.4` and `ARG CABAL_VERSION=3.16.1.0`; and the
+prerequisite DAG checks for those host tool versions. Codegen toolchains are
+pinned only where the worktree has a concrete pin: CUDA package family `12-8`,
+cuDNN 9 for CUDA 12, the fixed Apple Metal bridge ABI plus host OS Metal
+runtime policy, the Kind node image, the ALE source commit, and the Playwright
+package/container version. LLVM and oneDNN currently come from the Ubuntu 24.04
+packages installed in `jitml:local`; `cabal.project` records comments for those
+toolchain assumptions but does not pin their package versions.
 
 | Tool | Pinned version | Where it's pinned |
 |---|---|---|
 | GHC | `9.12.4` | `.cabal` (`tested-with`) and `cabal.project` (`with-compiler`) |
-| Cabal | `3.16.1.0` | `cabal.project` |
-| LLVM | pinned across GHC's `-fllvm` and JIT codegen | `cabal.project` |
-| NVCC | pinned | `cabal.project` (`--use_fast_math=false`, baseline `sm_70`) |
+| Cabal | `3.16.1.0` | `docker/Dockerfile` (`ARG CABAL_VERSION`) and the host prerequisite DAG (`toolchain.cabal-3.16.1.0`) |
+| LLVM / Clang | Ubuntu 24.04 `llvm` + `clang` packages in `jitml:local`; host LLVM/Clang come from the host toolchain used to build `jitml` | `docker/Dockerfile` installs `llvm` and `clang`; `cabal.project` does not pin an LLVM package version |
+| NVCC / CUDA | CUDA package family `12-8`, cuDNN 9 for CUDA 12, deterministic JIT flags (`--use_fast_math=false`, baseline `sm_70`) | `docker/Dockerfile` (`CUDA_TOOLKIT_PACKAGE`, `CUDNN_PACKAGE`) and Haskell CUDA source renderers |
 | Metal (Apple) | host OS Metal runtime + fixed jitML Metal bridge; core cache misses render MSL and call `MTLDevice.makeLibrary(source:options:)`; no Tart, no keychain, no SwiftPM, no full Xcode, no offline `metal` in the core path | bridge ABI + Metal runtime policy in the Apple cache metadata |
-| oneDNN | pinned | `cabal.project` (AVX2 baseline, AVX-512 detected at JIT time) |
+| oneDNN | Ubuntu 24.04 `libdnnl-dev` package in `jitml:local`; AVX2 baseline, AVX-512 detected at JIT time | `docker/Dockerfile` installs `libdnnl-dev`; runtime probes verify headers/linker visibility |
 | `kindest/node` | pinned | `./kind/cluster-<substrate>.yaml` (canonical); mirrored as a comment in `cabal.project` for the toolchain-truth record |
-| Node.js, Poetry | pinned | Haskell prerequisite DAG |
+| Node.js | Docker ARG `22.16.0` plus host prerequisite presence check | `docker/Dockerfile`; `JitML.Prerequisite.Nodes.Toolchain` checks that `node` exists on host |
+| Poetry | host prerequisite presence check only | `JitML.Prerequisite.Nodes.Toolchain`; not installed by `docker/Dockerfile` |
+| Playwright | `@playwright/test` `1.49.1` for the repo spec, normally run in the matching Playwright container image | `playwright/package.json`; live commands use `mcr.microsoft.com/playwright:v1.49.1-noble` |
 | Haskell style tools | built with `9.12.4` | `docker/Dockerfile`; the code-quality stack uses the same pinned compiler inside `jitml:local` |
 
 `cabal.project` carries no `allow-newer` override, no source-repository
@@ -111,7 +124,7 @@ jitML produces **one Haskell front end** with JIT codegen for several hardware t
 
 There is **one CLI surface for the daemon — `jitml service` — parameterised entirely by its Dhall config** ([CLI command topology, typed](#cli-command-topology-typed)). The Dhall declares substrate, residency (cluster | host), inference mode (`SelfInference` | `ForwardToHost`), and the host-side MinIO / Pulsar connection info when `residency = Host`. There is no separate `host-service` CLI verb.
 
-On every substrate the in-cluster `jitml-service` Deployment is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), the orchestrator owns no PVC of its own, and the local development topology is a single-node Kind cluster. Required pod anti-affinity at `topologyKey: kubernetes.io/hostname` preserves the one-service-pod-per-node rule when the chart is applied to a multi-node environment; on the local Kind stack this means the supported service replica count is one. `maxSurge: 0` / `maxUnavailable: 1` keeps replacement rollouts valid on that single node. The single Kind node keeps the JIT cache hostPath mounted from `./.build/` (see [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)). On every substrate the clustered daemon performs Pulsar fan-in/fan-out, durable state coordination, and client-facing routing. Linux substrates additionally execute device-backed workloads in-pod (`SelfInference`); Apple Silicon forwards every Metal-backed workload to the host daemon, since Metal cannot be containerized. Either mode is in principle expressible on either substrate; the substrate × mode table above reflects current practice.
+On every substrate the in-cluster `jitml-service` Deployment is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), and the orchestrator owns no PVC of its own. The target topology is HA-capable, but it preserves a stricter numerical-worker invariant: required pod anti-affinity at `topologyKey: kubernetes.io/hostname` allows at most one numerical ML compute worker per Kubernetes node, irrespective of other service replica counts. The current checked-in local profile is still compact and single-node while Phases `3`, `4`, and `5` are reopened for HA alignment; that legacy implementation is tracked in `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`. On every substrate the clustered daemon performs Pulsar fan-in/fan-out, durable state coordination, and client-facing routing. Linux substrates additionally execute device-backed workloads in-pod (`SelfInference`); Apple Silicon forwards every Metal-backed workload to the host daemon, since Metal cannot be containerized. Either mode is in principle expressible on either substrate; the substrate x mode table above reflects current practice.
 
 [^linux-opencl]: An optional fourth substrate `linux-opencl` (Intel GPU) is admitted as a future extension; the codegen path is shaped to accept it without disturbing the three primary substrates above. Not in the current support matrix.
 
@@ -212,7 +225,7 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 - `apple-silicon.sh` checks that the host is macOS on Apple Silicon, the source-build prerequisites for `./.build/jitml` are available, and Homebrew is installed when typed remediation may need it. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local`, retags it as `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; `./bootstrap/apple-silicon.sh run-daemon` rebuilds / code-signs the host binary if needed, then starts `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install style tools or code-quality tooling during bootstrap. Core Apple Metal cache misses require only the OS Metal runtime and the fixed jitML bridge probe; optional Swift/SDK probes are for non-core Swift JIT modules, not training/inference cache misses.
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically and the root `compose.yaml` runs that service with host networking so the outer-container Kind kubeconfig loopback endpoint is reachable. The in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
-- `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast before any CUDA Kind cluster is created. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same headless, host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU label on the single Kind node, node-local containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap. Direct live CUDA tests that need the outer container itself to see NVIDIA devices use the companion `jitml-cuda` compose service.
+- `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast before any CUDA Kind cluster is created. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same headless, host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU label on the CUDA-capable Kind node, node-local containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap. Direct live CUDA tests that need the outer container itself to see NVIDIA devices use the companion `jitml-cuda` compose service.
 
 > **Authenticated third-party image pre-pull.** The `docker.io/*` third-party chart images (MinIO, Pulsar, Harbor, …) are pre-pulled **authenticated on the host** and `kind load`ed before the cluster rolls out, so the Kind node's containerd never pulls them anonymously from Docker Hub and trips the Docker Hub **429** rate limit on a cold host. The pre-pull only **reads** the host's existing `docker login` (so `docker login` to Docker Hub once per host); it never writes `~/.docker/config.json`, preserving the no-touch invariant below. This is jitML's own self-contained Docker Hub credential path, owned by the project.
 
@@ -298,8 +311,9 @@ re-rendering model source. Runtime pipeline caches are process-local and are
 rebuilt from `.metal.json` when needed.
 
 **Linux substrates share the same cache via Kind extraMounts.** The Kind cluster
-config bind-mounts host `./.build/` into the single Kind node, and the
-`jitml-service` Deployment mounts that path into the pod at `/opt/build`. Linux
+config bind-mounts host `./.build/` into every Kind node that can run jitML
+workloads, and the `jitml-service` Deployment mounts that path into the pod at
+`/opt/build`. Linux
 JIT operations happen entirely in the cluster; the outer
 `docker compose run --rm jitml jitml <command>` container only re-enters the
 cluster using metadata persisted under `./.build/`. Apple execution happens on
@@ -322,7 +336,14 @@ A reconciler that finds a missing prerequisite fails with exit code `2` (system 
 
 # Cluster topology and Kind
 
-Per-substrate Kind configs at `./kind/cluster-<substrate>.yaml`. Every substrate uses a single-node Kind cluster: one `control-plane` node and no separate `worker` node. Apple Silicon and Linux CPU use that node without substrate-specific labels. Linux CUDA labels the same single node `jitml.runtime/gpu=true` so the NVIDIA runtime class binds there. After `kind create`, the bootstrap reconciler caps that node container's memory and CPU (`docker update --memory/--memory-swap/--cpus`) from the typed `dhall/cluster/` resource profile, so the whole-cluster footprint is bounded and a runaway rollout cannot exhaust the host.
+Per-substrate Kind configs live at `./kind/cluster-<substrate>.yaml`. The
+checked-in topology is HA-capable: one control-plane plus three worker nodes
+sized by the HA resource profile, a single user-facing Envoy socket, and at most
+one numerical ML compute worker per Kubernetes node.
+After `kind create`, the bootstrap reconciler caps materialized node containers'
+memory and CPU (`docker update --memory/--memory-swap/--cpus`) from the typed
+`dhall/cluster/` resource profile, so the cluster footprint is bounded and a
+runaway rollout cannot exhaust the host.
 
 The edge port (Envoy listener) is selected starting at 9090 and incremented until available; recorded as the `edge_port` field of `./.build/runtime/cluster-publication.json` (the single file bootstrap writes; see [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) for its other fields) and reported by `jitml cluster status`. NodePort 30090 is the in-cluster service for the edge gateway.
 
@@ -330,7 +351,10 @@ Kubeconfig lives at `./.build/jitml.kubeconfig`. The CLI never touches `~/.kube/
 
 Storage is a `jitml-manual` storage class (no provisioner) backed by host-path PVs under `./.data/<namespace>/<StatefulSet>/pv_<integer>`. `.data` is only for these manual PV bind mounts; runtime metadata, Kind metadata, generated config, and kubeconfig live under `./.build/`.
 
-The host `./.build/` directory is bind-mounted into the single Kind node via the `extraMounts` block in `./kind/cluster-<substrate>.yaml`, which is what lets the in-cluster `jitml-service` pod see the same JIT artifacts the host built (see [Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)).
+The host `./.build/` directory is bind-mounted into every materialized Kind node
+via the `extraMounts` block in `./kind/cluster-<substrate>.yaml`, which is what
+lets in-cluster Linux workloads see the same JIT artifacts the host built (see
+[Built-artifact and JIT-cache discipline](#built-artifact-and-jit-cache-discipline)).
 
 Apple Silicon has one additional Postgres storage implementation detail: the
 registered manual PV paths are still rendered under `./.data/`, but before the
@@ -384,17 +408,25 @@ TLS is off for the local demo. The production-deployment posture is intentionall
 
 # Helm chart layout
 
-Single umbrella chart at `./chart/`. `Chart.yaml` declares subchart dependencies:
+Single umbrella chart at `./chart/`. The target release graph contains
+third-party chart dependencies plus jitML-owned local charts and rendered CRs.
+`Chart.yaml` declares the third-party subchart dependencies:
 
 - `harbor` — image registry.
-- `pg-operator` + `pg-db` — Percona Kubernetes Operator, providing Patroni-managed HA Postgres for every packaged service that requires Postgres (jitML itself never writes to it — see [PostgreSQL](#postgresql)).
+- `pg-operator` — Percona Kubernetes Operator. HA Postgres clusters are
+  jitML-rendered `PerconaPGCluster` CRs, not a separate `pg-db` subchart.
 - `pulsar` — Apache Pulsar with ZooKeeper + BookKeeper + Broker + Proxy + WebSocket.
 - `minio` — distributed mode, four replicas.
 - `gateway-helm` — Envoy Gateway controller.
 - `kube-prometheus-stack` — Prometheus operator + Grafana.
-- `tensorboard` — a jitML-owned chart for TensorBoard with MinIO-backed event storage.
 
-Templates in `chart/templates/`: GatewayClass, Gateway, HTTPRoutes (rendered from the route registry), EnvoyProxy, manual PVs (one per replica, see below), the `jitml-service` Deployment, NVIDIA RuntimeClass for the CUDA substrate, Grafana datasources and dashboards (provisioned ConfigMaps), Prometheus scrape configs. The `jitml-demo` Webapp Deployment lives in `chart/local/jitml-demo`.
+jitML-owned local charts live under `chart/local/`: `tensorboard`,
+`jitml-service`, and `jitml-demo`. Templates in `chart/templates/` include
+GatewayClass, Gateway, HTTPRoutes (rendered from the route registry), EnvoyProxy,
+manual PVs (one per replica, see below), NVIDIA RuntimeClass for the CUDA
+substrate, Grafana datasources and dashboards, Prometheus scrape configs, and
+rendered CRs such as registered Percona Postgres clusters. The `jitml-demo`
+Webapp Deployment lives in `chart/local/jitml-demo`.
 
 Helm values ownership follows the same umbrella-chart rule as
 [documents/engineering/cluster_topology.md](documents/engineering/cluster_topology.md#helm-values-ownership):
@@ -422,11 +454,25 @@ Naming convention is uniform: **`<k8s-namespace>/<StatefulSet-name>/pv_<replica-
 
 Corresponding PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookkeeper-pv-1`, etc.; StatefulSet PVs are bound to the per-replica PVC (e.g. `data-minio-0`, `journal-pulsar-bookkeeper-1`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
 
-On the single-node local Kind stack the platform is bounded by a typed Dhall cluster-resource profile (`dhall/cluster/`): the kind node container is memory/CPU capped after creation (so an over-budget cluster OOM-kills its own pods inside the node cgroup rather than taking down the host), the heavy subcharts are right-sized (MinIO `4→1–2`, Pulsar `3→1`, service Postgres `3→1`) with per-pod CPU/memory requests+limits, and a `cluster.host-memory` preflight refuses to bootstrap when host RAM is below the cap. The example layout above reflects the unbounded upstream default; the right-sized local layout has correspondingly fewer PVs.
+The HA layout above is the documentation source of truth and the checked-in
+implementation: MinIO renders four distributed replicas, Pulsar renders three
+ZooKeeper / BookKeeper / Broker / Proxy replicas, registered Percona Postgres
+renders three instances plus the pgBackRest repo PV, and the typed Dhall
+cluster-resource profile drives those materialized counts.
 
 ## `jitml-service` Deployment, not StatefulSet
 
-The orchestrator is a stateless **Deployment** with `replicas: 1` by default and required pod **anti-affinity** at `topologyKey: kubernetes.io/hostname`. The local Kind topology is single-node, so the supported local replica count is one; the anti-affinity rule remains in the chart so a non-local multi-node environment can scale to N replicas without placing two service pods on the same node. Its rolling update strategy uses `maxSurge: 0` and `maxUnavailable: 1`, so the single-node Kind cluster can replace the lone pod without creating an unschedulable surge pod. The daemon owns no PVC of its own — durable state lives entirely in MinIO and Pulsar — so a StatefulSet (which exists for stable identity + ordered scale-up + per-pod PVCs) would be the wrong shape. The Kind node maintains its JIT cache under the mounted `./.build/jit/<substrate>/` hostPath, which is fine because JIT artifacts are deterministic functions of `(model-shape, kind, substrate, toolchain)`.
+The Engine/numerical compute role is stateless and owns no PVC of its own —
+durable state lives entirely in MinIO and Pulsar — so a StatefulSet would be the
+wrong shape. Numerical ML compute is capped at **one Engine worker per
+Kubernetes node** via scheduling rules; Coordinator, Webapp, observability, and
+platform services may have their own replica counts without creating additional
+numerical workers on the same node. Linux clustered service pods and rendered
+workload Jobs carry `jitml.compute: "true"`, use the compute-node selector, and
+enforce hard per-host anti-affinity/topology spread; Apple Silicon clustered
+service pods are non-compute forwarders. Kind nodes maintain JIT cache under the mounted
+`./.build/jit/<substrate>/` hostPath, which is fine because JIT artifacts are
+deterministic functions of `(model-shape, kind, substrate, toolchain)`.
 
 Namespace: `platform` (fixed). `jitml bootstrap --<substrate>` creates it idempotently.
 
@@ -782,7 +828,29 @@ The dashboards are gated by lint just like the route registry: `jitml docs check
 
 # Outer-container Linux builds
 
-On Linux substrates, *all* builds happen inside `docker compose run --rm jitml jitml ...` against the single substrate image `jitml:local`. The repo has **one Dockerfile** under `docker/`, **one image tag `jitml:local`**, and two host-networked compose service wrappers over that image: `jitml` for headless code-quality, bootstrap, and non-GPU command runs, plus `jitml-cuda` for live in-container CUDA validation that requires the outer container to receive `gpus: all`. There are no substrate-suffixed images. The image carries ghcup, Poetry, Node.js 22+, Kind/kubectl/Helm/Docker toolbelt, LLVM, NVCC + cuBLAS + cuDNN (the CUDA bits are baked unconditionally; they activate at runtime only when the pod is scheduled with `runtimeClassName: nvidia` or when `jitml-cuda` is used for direct live CUDA tests), the pinned ALE library/runtime for any future generated or externally supplied Atari adapter, Playwright, and the pinned Haskell style tools. The root `compose.yaml` mounts the repository at the same absolute path inside the container that it has on the host, so Kind node `extraMounts` resolve host `./.build/` and `./.data/` correctly. Linux CUDA's single Kind node additionally mounts the host NVIDIA driver root read-only at `/run/nvidia/driver` and uses the repo-owned NVIDIA runtime config to run the node-local toolkit binary against those host driver files. Substrate selection (linux-cpu vs linux-cuda) happens at runtime via the Dhall config passed to `jitml service`, not via the image tag.
+On Linux substrates, *all* builds happen inside `docker compose run --rm jitml
+jitml ...` against the single substrate image `jitml:local`. The repo has **one
+Dockerfile** under `docker/`, **one image tag `jitml:local`**, and two
+host-networked compose service wrappers over that image: `jitml` for headless
+code-quality, bootstrap, and non-GPU command runs, plus `jitml-cuda` for live
+in-container CUDA validation that requires the outer container to receive
+`gpus: all`. There are no substrate-suffixed images. The image carries ghcup,
+Node.js/npm, Kind/kubectl/Helm/Docker toolbelt, LLVM, NVCC + cuBLAS + cuDNN (the
+CUDA bits are baked unconditionally; they activate at runtime only when the pod
+is scheduled with `runtimeClassName: nvidia` or when `jitml-cuda` is used for
+direct live CUDA tests), the pinned ALE library/runtime for any future generated
+or externally supplied Atari adapter, and the pinned Haskell style tools. Poetry
+is a host prerequisite check, not an image install. Playwright is owned by
+`playwright/package.json` and the pinned `mcr.microsoft.com/playwright` runtime
+used by live browser validation, not by the `jitml:local` image. The root
+`compose.yaml` mounts the repository at the same absolute path inside the
+container that it has on the host, so Kind node `extraMounts` resolve host
+`./.build/` and `./.data/` correctly. Linux CUDA nodes that can run CUDA work
+additionally mount the host NVIDIA driver root read-only at `/run/nvidia/driver`
+and use the repo-owned NVIDIA runtime config to run the node-local toolkit
+binary against those host driver files. Substrate selection (linux-cpu vs linux-cuda)
+happens at runtime via the Dhall config passed to `jitml service`, not via the
+image tag.
 
 On Apple Silicon, `cabal install` runs directly on the host because the host is the GPU. The asymmetry is intentional: the inner container ensures the Linux build is bit-reproducible across hosts; the Apple host build is reproducible because the host GHC and Cabal versions are pinned by the bootstrap script.
 
@@ -800,7 +868,7 @@ code-quality execution path.
 
 Per doctrine §Command Topology, commands are modelled as ordinary Haskell data types and the parser is generated from a separate `CommandSpec`. The current supported executable is `app/Main.hs` → `jitml` (control plane, daemon, Coordinator, Engine, and Webapp roles). The Kubernetes workload named `jitml-demo` is a Helm release/service/image tag that runs `jitml service --config /etc/jitml/BootConfig.dhall` with `activeRole = Webapp`; it is not a separate Cabal executable.
 
-This README is the authoritative documentation for the target command surface. In the implemented tree, `CommandSpec` is the code source that renders the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`bootstrap`, `cluster`, `rl`, `verify`, `inspect`, `bench`, `test`, `lint`, `docs`) hold substrate bootstrap, lifecycle, introspection, benchmarks, and tooling. Sub-ADTs that model >2-state workflows — `ClusterCommand`, `VerifyCommand`, the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `jitml bootstrap --<substrate>`, `cluster up`, `docs generate`, `lint --write`, and `internal gc` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers.
+This README is the authoritative documentation for the target command surface. In the implemented tree, `CommandSpec` is the code source that renders the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`bootstrap`, `cluster`, `rl`, `test`, `lint`, `docs`, `project`, `internal`) hold substrate bootstrap, lifecycle, reinforcement-learning, testing/tooling, project config, and internal support surfaces. Sub-ADTs that model >2-state workflows — `ClusterCommand` and the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `jitml bootstrap --<substrate>`, `cluster up`, `docs generate`, `lint --write`, and `internal gc` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers.
 
 **Generated mirror.** Every command-surface artifact in this README — the registry snapshot, the command tree, and generated help fragments — is rendered from `CommandSpec` by `jitml docs generate`.
 
@@ -825,19 +893,6 @@ mindmap
       rollout
       alphazero
         self-play
-    verify
-      same-run
-      replay
-    inspect
-      list
-      show
-      replay
-      trial
-      frontier
-    bench
-      train
-      inference
-      env
     inference
       run
     test
@@ -865,7 +920,6 @@ mindmap
     build
     project
       init
-    kubectl
     internal
       materialize-substrate
       list-prereqs
@@ -901,17 +955,7 @@ mindmap
 | `jitml rl eval` | Evaluate an RL policy. | `jitml rl eval <rl-experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml rl rollout` | Run a fixed-seed rollout. | `jitml rl rollout <rl-experiment-dhall> [--seed <word64>]` |
 | `jitml rl alphazero self-play` | Run AlphaZero self-play. | `jitml rl alphazero self-play [--substrate <substrate>] [--seed <word64>] [--games <n>] [--sims <n>] [--max-plies <n>] [--updates <n>] [--arena-games <n>]` |
-| `jitml verify same-run` | Verify same-run determinism. | `jitml verify same-run --experiment <experiment-dhall> --runs <int>` |
-| `jitml verify replay` | Verify checkpoint replay. | `jitml verify replay --experiment <experiment-dhall> --checkpoint <checkpoint-id>` |
-| `jitml inspect list` | List cached manifests. | `jitml inspect list` |
-| `jitml inspect show` | Show a manifest. | `jitml inspect show <manifest-sha> [--with-equity]` |
-| `jitml inspect replay` | Replay a manifest. | `jitml inspect replay [<manifest-sha>] [--manifest-sha <manifest-sha>] [--experiment-hash <experiment-hash>]` |
-| `jitml inspect trial` | Inspect a trial. | `jitml inspect trial <trial-hash>` |
-| `jitml inspect frontier` | Inspect a tuning frontier. | `jitml inspect frontier <sweep-id>` |
-| `jitml bench train` | Benchmark training. | `jitml bench train <experiment-dhall>` |
-| `jitml bench inference` | Benchmark inference. | `jitml bench inference <experiment-dhall> --checkpoint <checkpoint-id>` |
-| `jitml bench env` | Benchmark environment stepping. | `jitml bench env <rl-experiment-dhall>` |
-| `jitml inference run` | Run inference at any point. | `jitml inference run [<experiment-dhall>] [--checkpoint <latest\|best/<metric>\|manifest-sha>] [--trial <trial-hash>] [--experiment-hash <experiment-hash>]` |
+| `jitml inference run` | Run inference at any point. | `jitml inference run [<experiment-dhall>] [--experiment-hash <experiment-hash>]` |
 | `jitml test all` | Run all test stanzas. | `jitml test all [--live] [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>] [--dry-run] [--plan-file <path>]` |
 | `jitml test jitml-unit` | Run jitml-unit. | `jitml test jitml-unit [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
 | `jitml test jitml-integration` | Run jitml-integration. | `jitml test jitml-integration [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]` |
@@ -933,7 +977,6 @@ mindmap
 | `jitml check-code` | Run the code quality gate. | `jitml check-code` |
 | `jitml build` | Build inside the substrate container. | `jitml build [--substrate <substrate>] [--dry-run] [--plan-file <path>]` |
 | `jitml project init` | Generate a default jitml.dhall durable-state config. | `jitml project init [--output <path>] [--force]` |
-| `jitml kubectl` | Run kubectl against the jitML kubeconfig. | `jitml kubectl [-- <kubectl-args...>]` |
 | `jitml internal materialize-substrate` | Materialize substrate files. | `jitml internal materialize-substrate [--substrate <substrate>]` |
 | `jitml internal list-prereqs` | List prerequisite checks. | `jitml internal list-prereqs` |
 | `jitml internal install-metal-bridge` | Build the fixed Apple Metal bridge. | `jitml internal install-metal-bridge` |
@@ -942,9 +985,9 @@ mindmap
 | `jitml internal dhall-schema` | Print the reflected Dhall config schema. | `jitml internal dhall-schema [--config <config>] [--catalog <catalog>]` |
 | `jitml internal third-party-images` | Print the third-party chart image list. | `jitml internal third-party-images` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |
-| `jitml internal cache stat` | Print cache stats. | `jitml internal cache stat` |
-| `jitml internal cache list` | List cache entries. | `jitml internal cache list` |
-| `jitml internal cache evict` | Evict a cache entry. | `jitml internal cache evict <hash>` |
+| `jitml internal cache stat` | Print placeholder cache stats. | `jitml internal cache stat` |
+| `jitml internal cache list` | Print placeholder cache entries. | `jitml internal cache list` |
+| `jitml internal cache evict` | Echo a placeholder cache eviction. | `jitml internal cache evict <hash>` |
 | `jitml commands` | Print the command registry. | `jitml commands [--tree] [--json]` |
 | `jitml help` | Print focused command help. | `jitml help [-- <subcommand...>]` |
 <!-- jitml:command-registry:end -->
@@ -1008,10 +1051,10 @@ Per doctrine §Standard Flag Families for the canonical spellings, semantics, an
 | `cluster status` |   |   | ✓ |
 | `service` | ✓ | ✓ |   |
 | `train` / `eval` / `tune` / `rl *` | ✓ |   | ✓ |
-| `verify *` / `inspect *` / `bench *` / `inference run` |   |   | ✓ |
+| `inference run` |   |   | ✓ |
 | `test all` | ✓ |   | ✓ |
 | `test <stanza>` / `lint *` / `docs *` |   |   | ✓ |
-| `check-code` / `build` / `kubectl` |   |   | ✓ |
+| `check-code` / `build` |   |   | ✓ |
 | `internal gc` | ✓ |   | ✓ |
 | `internal materialize-substrate` / `internal list-prereqs` / `internal upload-dataset` / `internal gc` / `internal cache *` |   |   | ✓ |
 | `commands` / `help` |   |   | ✓ |
@@ -1026,8 +1069,7 @@ Concrete invocations:
 ./.build/jitml tune   experiments/mnist-mlp.dhall --sampler sobol --trials 64 --parallelism 8
 ./.build/jitml tune   experiments/mnist-mlp.dhall --sampler tpe --scheduler asha --trials 256 --parallelism 8
 ./.build/jitml rl     train experiments/cartpole-ppo.dhall --substrate apple-silicon --seed 42
-./.build/jitml verify same-run     --experiment experiments/mnist-mlp.dhall --runs 3
-./.build/jitml inspect frontier <sweep-id>
+./.build/jitml inference run experiments/mnist-mlp.dhall --checkpoint latest
 ./.build/jitml test   all
 ```
 
@@ -1042,7 +1084,7 @@ Per doctrine §Error Handling for the typed-domain-ADT discipline and single ren
 | `2` | system / capability error (MinIO, Pulsar, Harbor, kubectl, network failure after retry) |
 | `3` | reconciler no-op-on-match (`bootstrap`, `cluster up`, `docs generate`, `lint --write` found nothing to do) |
 
-`test all`, `verify *`, `lint *`, and `docs check` communicate pass/fail by exit code only; their stdout is the rendered Plan, snapshot output, or summary block — never a status string for callers to grep.
+`test all`, `lint *`, and `docs check` communicate pass/fail by exit code only; their stdout is the rendered Plan, snapshot output, or summary block — never a status string for callers to grep.
 
 The daemon classifies thrown errors as `Recoverable` or `Fatal`. `Recoverable` logs structured JSON and continues after retry per [Retry policy](#retry-policy); `Fatal` drains in-flight work, emits a final structured event, and exits. The full daemon contract (`/healthz`, `/readyz`, `/metrics`, structured JSON logging, drain-on-SIGTERM, `BootConfig`/`LiveConfig` split with SIGHUP hot reload) is doctrine §Long-Running Daemons in the Same Binary; jitML opts in (see [Doctrine scope](#doctrine-scope)).
 
@@ -1895,7 +1937,7 @@ The framing for this section is *"we're not reimplementing PyTorch."* The list b
 - **Python class hierarchy** (`BaseAlgorithm` → `OnPolicyAlgorithm` → `PPO`). Replaced with ADTs + GADTs. Inheritance is not an idiomatic Haskell tool here.
 - **Pickle-based save/load** (`model.save()` / `model.load()`). Replaced with Dhall-described configuration + MinIO-checkpointed weights, optimizer state, RNG state, buffer state, and normalisation stats. The full state is reconstructible from `(experiment.dhall, seed, checkpoint blob)`.
 - **`gym.make()` env registry.** Replaced with explicit Dhall env declarations referencing typed envs in `src/JitML/Env/`. No global registry; no string-keyed env lookup.
-- **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: the daemon is single-node by design; multi-node distributed SGD is an explicit non-goal. Within-substrate bit-for-bit reproducibility is the headline execution property, not multi-GPU SGD.
+- **PyTorch `DataParallel` / `DistributedDataParallel`.** jitML's distribution story is different: HA may run multiple service replicas, but numerical ML compute is limited to one worker per Kubernetes node and multi-node distributed SGD is an explicit non-goal. Within-substrate bit-for-bit reproducibility is the headline execution property, not multi-GPU SGD.
 - **The default multi-sink logger** that fans out to stdout, csv, log, and tensorboard simultaneously. Replaced with `Semigroup` composition over typed `Logger` and `Callback` values, so the developer states the fan-out explicitly.
 
 Patterns we *do* borrow, contrary to "out of scope" language that earlier drafts of this section included: standard RL wrappers such as no-op reset, frame skip, frame warp, frame stack, time limits, reward clipping, and action masking live alongside the native envs without making Atari ROMs part of the default demo surface; gSDE is a first-class `ActionDistribution` variant; every SB3-contrib algorithm (TRPO, MaskablePPO, RecurrentPPO, QR-DQN, CrossQ, TQC, ARS) is a first-class `AlgoSpec` case in [RL algorithm catalog](#rl-algorithm-catalog).
@@ -2222,7 +2264,7 @@ Cross-substrate, the weight blobs are **not** byte-equal, and no byte-equality o
 
 ## No Postgres on jitML's data path
 
-jitML keeps no derived index in Postgres. Every fact about a training run, a hyperparameter trial, or a lineage relationship is encoded **inside the MinIO manifests themselves** — `cmParentManifest` carries lineage, `pointers/latest` and `pointers/best/<metric>` index by experiment, and the `jitml-trials` bucket holds trial transcripts keyed on `sha256(resolved-dhall || trial-seed)`. Queries that would naturally be SQL (e.g. "every manifest produced by experiment X past step Y") are answered by `mc ls`-style listings or by `jitml inspect`, both of which read MinIO directly. The cluster may host Postgres for third-party services (Harbor's metadata, optional Grafana history), but jitML itself never writes to it — its durable contracts are MinIO and Pulsar only.
+jitML keeps no derived index in Postgres. Every fact about a training run, a hyperparameter trial, or a lineage relationship is encoded **inside the MinIO manifests themselves** — `cmParentManifest` carries lineage, `pointers/latest` and `pointers/best/<metric>` index by experiment, and the `jitml-trials` bucket holds trial transcripts keyed on `sha256(resolved-dhall || trial-seed)`. Queries that would naturally be SQL (e.g. "every manifest produced by experiment X past step Y") are answered by MinIO object listings and purpose-built live surfaces such as `jitml inference run`, which read MinIO directly. The cluster may host Postgres for third-party services (Harbor's metadata, optional Grafana history), but jitML itself never writes to it — its durable contracts are MinIO and Pulsar only.
 
 ## Inference-only read path
 
@@ -2673,8 +2715,8 @@ Per-target codegen stack:
 - **GHC:** 9.12.4, Cabal 3.16.1.0, `-O2 -fllvm -funbox-strict-fields -fspecialise-aggressively -fexpose-all-unfoldings`, RTS `-A64m -n4m -qg1 -qb -T`.
 - **CUDA codegen:** pinned NVCC, `-O3 --use_fast_math=false` (bit-determinism), `--gpu-architecture=sm_70` baseline + per-host detection at JIT time.
 - **Metal codegen:** Haskell-rendered MSL source metadata + fixed host Metal bridge runtime `MTLDevice.makeLibrary(source:options:)`, `MTLCompileOptions.fastMathEnabled = false` or equivalent safe math mode.
-- **CPU oneDNN:** pinned version, AVX2 baseline + AVX-512 detection at JIT time.
-- **LLVM:** pinned LLVM version across GHC's `-fllvm` and the JIT codegen, so codegen is reproducible.
+- **CPU oneDNN:** Ubuntu `libdnnl-dev` from the `jitml:local` image, AVX2 baseline + AVX-512 detection at JIT time.
+- **LLVM:** GHC builds with `-fllvm`; the LLVM toolchain comes from the host or `jitml:local` Ubuntu package set and is recorded by runtime probes/cache fingerprints instead of a Cabal project pin.
 
 **Documented asymmetry.** jitML has no equivalent of the PyTorch JIT autotuner — its kernel cache is built on the fly during pilot execution, not from a profile from a prior run. The pilot-tuning state is itself checkpointed for replay.
 

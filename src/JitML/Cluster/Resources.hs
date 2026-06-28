@@ -19,6 +19,7 @@ module JitML.Cluster.Resources
   , renderClusterResourcesDhall
   , nodeMemoryBytes
   , clusterNodeCapSubprocess
+  , clusterNodeCapSubprocesses
   )
 where
 
@@ -28,6 +29,7 @@ import Dhall qualified
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 
+import JitML.Cluster.Kind (substrateKindNodeContainerNames)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 import JitML.Substrate (Substrate, substrateClusterName)
 
@@ -42,12 +44,14 @@ data ComponentBudget = ComponentBudget
   }
   deriving stock (Eq, Show)
 
--- | The whole-cluster resource profile. @nodeMemoryMiB@ / @nodeCpus@ bound the
--- single kind node container; the per-component budgets size the platform pods
--- so their sum stays under the node cap.
+-- | The whole-cluster resource profile. @workerCount@ sets the HA Kind worker
+-- node count. @nodeMemoryMiB@ / @nodeCpus@ bound each materialized Kind node
+-- container; the per-component budgets size the platform pods that schedule
+-- across those nodes.
 data ClusterResources = ClusterResources
   { nodeMemoryMiB :: Int
   , nodeCpus :: Text
+  , workerCount :: Int
   , harbor :: ComponentBudget
   , minio :: ComponentBudget
   , pulsar :: ComponentBudget
@@ -80,6 +84,7 @@ clusterResourcesDecoder =
     ClusterResources
       <$> fmap fromIntegral (Dhall.field "nodeMemoryMiB" Dhall.natural)
       <*> Dhall.field "nodeCpus" Dhall.strictText
+      <*> fmap fromIntegral (Dhall.field "workerCount" Dhall.natural)
       <*> Dhall.field "harbor" componentBudgetDecoder
       <*> Dhall.field "minio" componentBudgetDecoder
       <*> Dhall.field "pulsar" componentBudgetDecoder
@@ -91,20 +96,21 @@ clusterResourcesDecoder =
       <*> Dhall.field "tensorboard" componentBudgetDecoder
 
 -- | Fallback profile used when the source Dhall is absent and for the pure
--- plan/dry-run path. Sized for a ~16 GiB single-node host: a ~10 GiB node cap
--- with the heavy subcharts right-sized so the sum of pod limits stays under it.
+-- plan/dry-run path. It represents the HA target: one control-plane plus three
+-- workers, HA storage/broker/Postgres counts, and one Engine worker per node.
 defaultClusterResources :: ClusterResources
 defaultClusterResources =
   ClusterResources
-    { nodeMemoryMiB = 10240
-    , nodeCpus = "6"
-    , harbor = ComponentBudget 1 "100m" "500m" "256Mi" "512Mi"
-    , minio = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
-    , pulsar = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
-    , postgres = ComponentBudget 1 "200m" "500m" "512Mi" "1Gi"
+    { nodeMemoryMiB = 12288
+    , nodeCpus = "4"
+    , workerCount = 3
+    , harbor = ComponentBudget 2 "100m" "500m" "256Mi" "512Mi"
+    , minio = ComponentBudget 4 "100m" "500m" "512Mi" "1Gi"
+    , pulsar = ComponentBudget 3 "100m" "500m" "512Mi" "1Gi"
+    , postgres = ComponentBudget 3 "200m" "500m" "512Mi" "1Gi"
     , prometheus = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
     , grafana = ComponentBudget 1 "50m" "250m" "256Mi" "512Mi"
-    , jitmlService = ComponentBudget 1 "500m" "2" "1Gi" "2Gi"
+    , jitmlService = ComponentBudget 3 "500m" "2" "1Gi" "2Gi"
     , jitmlDemo = ComponentBudget 1 "50m" "250m" "128Mi" "256Mi"
     , tensorboard = ComponentBudget 1 "50m" "250m" "256Mi" "512Mi"
     }
@@ -126,6 +132,7 @@ renderClusterResourcesDhall res =
   Text.unlines
     [ "{ nodeMemoryMiB = " <> Text.pack (show (nodeMemoryMiB res))
     , ", nodeCpus = " <> quote (nodeCpus res)
+    , ", workerCount = " <> Text.pack (show (workerCount res))
     , ", harbor = " <> renderBudget (harbor res)
     , ", minio = " <> renderBudget (minio res)
     , ", pulsar = " <> renderBudget (pulsar res)
@@ -158,13 +165,23 @@ renderClusterResourcesDhall res =
 nodeMemoryBytes :: ClusterResources -> Integer
 nodeMemoryBytes res = toInteger (nodeMemoryMiB res) * 1048576
 
--- | Typed @docker update@ that caps the kind node container's memory and CPU
--- from the profile. @--memory-swap == --memory@ disables swap thrash so an
+-- | Typed @docker update@ that caps a Kind node container's memory and CPU from
+-- the profile. @--memory-swap == --memory@ disables swap thrash so an
 -- over-budget cluster OOM-kills its own pods inside the node cgroup rather than
 -- taking down the host. Runs after @kind create@; the reconciler stops at the
 -- first failed step, so a cap that cannot be applied fails the bootstrap closed.
 clusterNodeCapSubprocess :: Substrate -> ClusterResources -> Subprocess
 clusterNodeCapSubprocess substrate res =
+  clusterNodeCapSubprocessFor res (substrateClusterName substrate <> "-control-plane")
+
+clusterNodeCapSubprocesses :: Substrate -> ClusterResources -> [Subprocess]
+clusterNodeCapSubprocesses substrate res =
+  fmap
+    (clusterNodeCapSubprocessFor res)
+    (substrateKindNodeContainerNames substrate (workerCount res))
+
+clusterNodeCapSubprocessFor :: ClusterResources -> Text -> Subprocess
+clusterNodeCapSubprocessFor res nodeName =
   subprocess
     "docker"
     [ "update"
@@ -174,7 +191,7 @@ clusterNodeCapSubprocess substrate res =
     , bytes
     , "--cpus"
     , nodeCpus res
-    , substrateClusterName substrate <> "-control-plane"
+    , nodeName
     ]
  where
   bytes = Text.pack (show (nodeMemoryBytes res))

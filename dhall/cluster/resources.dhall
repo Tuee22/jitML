@@ -1,34 +1,36 @@
--- Sprint 2.8 — concrete cluster resource budget (single source of truth).
--- Sized for a ~16 GiB single-node host: a ~10 GiB kind-node cap with the heavy
--- subcharts right-sized so the sum of pod memory limits stays under the cap.
+-- Sprint 2.8 / 3.6 — concrete HA cluster resource budget (single source of truth).
+-- One control-plane plus three worker nodes, with each Kind node capped by the
+-- values below. Platform replicas are HA-sized; numerical compute cardinality is
+-- constrained separately by the jitml-service Engine worker placement rules.
 -- Edit here to retune; the bootstrap reconciler reads this file at apply time.
 let S = ./Schema.dhall
 
-in    { nodeMemoryMiB = 10240
-      , nodeCpus = "6"
+in    { nodeMemoryMiB = 12288
+      , nodeCpus = "4"
+      , workerCount = 3
       , harbor =
-        { replicas = 1
+        { replicas = 2
         , cpuRequest = "100m"
         , cpuLimit = "500m"
         , memoryRequest = "256Mi"
         , memoryLimit = "512Mi"
         }
       , minio =
-        { replicas = 1
+        { replicas = 4
         , cpuRequest = "100m"
         , cpuLimit = "500m"
         , memoryRequest = "512Mi"
         , memoryLimit = "1Gi"
         }
       , pulsar =
-        { replicas = 1
+        { replicas = 3
         , cpuRequest = "100m"
         , cpuLimit = "500m"
         , memoryRequest = "512Mi"
         , memoryLimit = "1Gi"
         }
       , postgres =
-        { replicas = 1
+        { replicas = 3
         , cpuRequest = "200m"
         , cpuLimit = "500m"
         , memoryRequest = "512Mi"
@@ -49,7 +51,7 @@ in    { nodeMemoryMiB = 10240
         , memoryLimit = "512Mi"
         }
       , jitmlService =
-        { replicas = 1
+        { replicas = 3
         , cpuRequest = "500m"
         , cpuLimit = "2"
         , memoryRequest = "1Gi"

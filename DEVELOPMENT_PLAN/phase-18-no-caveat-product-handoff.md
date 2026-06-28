@@ -21,6 +21,14 @@
 
 ## Phase Status
 
+⏸️ **Blocked** (reopened 2026-06-27 for Sprint `18.5`).
+
+**Blocked by**: Phase `17` Sprint `17.10`.
+
+Final product handoff is blocked until the HA topology implementation and
+per-lane aggregation close. The 2026-06-26 handoff remains historical evidence
+for the compact/right-sized topology. Prior closure history follows.
+
 ✅ **Done** (reopened 2026-06-26 for Sprint `18.4`; re-closed 2026-06-26).
 The fixed-budget all-model handoff is complete: the `linux-cpu` baseline is
 closed, Phase `15` has revalidated the real `linux-cuda` lane, Phase `16` has
@@ -280,6 +288,39 @@ all-model runtime, browser, per-lane, and cleanup obligations are complete.
 - None. The `linux-cpu` fixed-budget baseline, the Phase `15` `linux-cuda`
   fragment, the Phase `16` `apple-silicon` fragment, Phase `17` aggregation,
   the final `linux-cpu` handoff gates, and the Pending Removal ledger are closed.
+
+## Sprint 18.5: HA Topology Product Handoff [⏸️ Blocked]
+
+**Status**: Blocked (opened 2026-06-27)
+**Blocked by**: Phase `17` Sprint `17.10`
+**Implementation**: `DEVELOPMENT_PLAN/attestations/`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, product docs
+**Docs to update**: `README.md`, `00-overview.md`, `system-components.md`,
+`../documents/engineering/cluster_topology.md`
+
+### Objective
+
+Re-close final handoff only after the HA topology is implemented, live lanes are
+revalidated, aggregation consumes the refreshed evidence, and the Pending Removal
+ledger is empty again.
+
+### Deliverables
+
+- Confirm Phases `3`, `4`, `5`, `15`, `16`, and `17` are closed on the HA
+  topology.
+- Confirm the compact single-node/right-sized topology deviations have moved
+  from `Pending Removal` to `Completed`.
+- Run final docs/check-code/report-card gates.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test all --live --linux-cpu`
+- `docker compose run --rm jitml jitml check-code`
+- `docker compose run --rm jitml jitml docs check`
+
+### Remaining Work
+
+- Blocked until Sprint `17.10` closes.
 
 ## Related Documents
 

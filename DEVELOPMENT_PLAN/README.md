@@ -43,6 +43,21 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
+**⏸️ HA topology live revalidation partially blocked 2026-06-28.** The high-availability
+implementation work is closed for Phases `3`, `4`, and `5`: the checked-in
+materialization now has HA Kind workers/manual PVs, HA stateful platform service
+replicas, one public Envoy socket, and **at most one numerical ML compute worker
+per Kubernetes node** regardless of Coordinator, Webapp, observability, or
+platform-service replica counts. Phase `15` Sprint `15.22` remains blocked until
+a real Linux/NVIDIA host session can run the HA `linux-cuda` lane; Phase `16`
+Sprint `16.14` is blocked on this Apple host because the host-native
+`./bootstrap/apple-silicon.sh build` cannot satisfy GHC 9.12.4's documented
+`-fllvm` requirement (`opt` absent from `PATH`; only local `opt` found was
+`llvm@21`, outside GHC's supported `[13,20)` range). Phases `17` and `18` remain
+blocked on those refreshed live/aggregation fragments. The
+2026-06-26 all-`Done` closure records below are retained as historical evidence,
+not current status.
+
 **✅ `linux-cpu` fixed-budget all-model baseline re-closed 2026-06-26.**
 Phases `8`–`14` are Done again after landing the shared `TrainingBudget` /
 `CompletedTraining` witness, inference-eligible checkpoint boundary,
@@ -920,9 +935,9 @@ exercises the full handler / mount / RuntimeClass chain on
 Linux CPU, Linux CUDA service-pod, and Apple Silicon host-Dhall validations, plus
 the optimizer/RNG/metric/parent-lineage CheckpointManifest shape
 with typed `AdvancePredicate` and `RetentionPolicy` +
-`JitML.App.runInternalGc` reconciler exiting `3` on no-op +
-`JitML.App.runInspectReplay` for `jitml inspect replay
-<manifest-sha>`, the TFRecord wire format with Castagnoli CRC32C
+`JitML.App.runInternalGc` reconciler exiting `3` on no-op plus the historical
+manifest replay helper that Sprint `1.16` later removed with the public
+`inspect` command group, the TFRecord wire format with Castagnoli CRC32C
 (`JitML.Observability.TensorBoard.{encodeTfRecord,crc32cCastagnoli,maskedCrc32c}`)
 validated against canonical CRC vectors, the TensorBoard scalar-event codec
 (`JitML.Proto.TensorBoard.encodeTensorBoardEventProto`), the write-once shard
@@ -1201,10 +1216,10 @@ obligation exists.
 | 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.15 — per-model integration/e2e matrix and infer-before-complete rejection) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ✅ Done (Sprint 13.3 — linux-cpu aggregate runtime gate passed 8/8 stanzas) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
 | 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ✅ Done (Sprint 14.4 — live Playwright proves eligible trained-artifact metadata and all generated model rows) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
-| 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.21 — expanded all-model lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
-| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.13 — expanded all-model lane revalidated on Apple M1 Max / Metal 4 host) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
-| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.9 — per-lane fragments aggregated on `linux-cpu`) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (Sprint 18.4 — final `linux-cpu` handoff gates passed) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ⏸️ Blocked (Sprint 15.22 — HA live revalidation requires a real Linux/NVIDIA host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
+| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ⏸️ Blocked (Sprint 16.14 — HA live revalidation requires compatible host LLVM `opt` for GHC `-fllvm`) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
+| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ⏸️ Blocked (Sprint 17.10 — waits on refreshed Phase 15/16 HA lane evidence) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ⏸️ Blocked (Sprint 18.5 — waits on Phase 17 HA aggregation) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-26 — fixed-budget all-model trained-artifact contract)
 
@@ -1373,8 +1388,9 @@ the live `linux-cpu` / `linux-cuda` cluster lanes:
 - **Phase 10** (Sprint `10.5`) — the synthetic `+ nTensors/100` inference offset is
   removed; the engine runners return faithful output, `inferFromManifest` and
   the default Store wrappers around it are deleted, `Service.Workload` default
-  inference fails closed, and `jitml inference run` / `inspect replay` fail
-  closed / report real metadata. Validated: `jitml-unit` 196/196,
+  inference fails closed, and `jitml inference run` fails closed / reports real
+  metadata. The old replay helper was later retired with the public `inspect`
+  command group in Sprint `1.16`. Validated: `jitml-unit` 196/196,
   `jitml-daemon-lifecycle` 31/31, and focused offline `jitml-integration`
   weighted-load / HasMinIO checkpoint-write cases.
 - **Phase 11** (Sprint `11.8`) — the demo `/api/inference`, `/api/images`, and
@@ -1803,8 +1819,8 @@ running daemon processes. The later Phase `17` scope
   (then-planned cross-substrate comparison + report card + empty ledger) closed after Sprint
   `1.11` retired the source-pin/vendor helper: the
 `linux-cpu` / `linux-cuda` weighted drift assertion passed on the
-Linux/NVIDIA host on 2026-06-01, `jitml verify cross-backend` now
-provides ephemeral `--export` / `--compare` report bundles for the
+Linux/NVIDIA host on 2026-06-01, the then-present `jitml verify cross-backend`
+provided ephemeral `--export` / `--compare` report bundles for the
 multi-host handoff, the 2026-06-03 Apple host export produced all eight
 weighted tensor families, and the 2026-06-03 Linux/Apple report-bundle
 comparison passed every weighted family against the in-code tolerance
@@ -1910,12 +1926,11 @@ pipeline (`listCheckpointManifestsMinIO` →
 `buildGcPlan LastN 2` → `executeGcPlan`) that stages three manifests,
 lists them through the routed S3 surface, executes the plan, and
 asserts the lowest-step manifest + blob are reaped, and a live
-`./.build/jitml inference run --experiment-hash <hash>` +
-`./.build/jitml inspect replay --experiment-hash <hash>
---manifest-sha <sha>` round-trip through the spawned CLI binary
-that exercises `JitML.App.runInference` /
-`JitML.App.runInspectReplay` reading from live MinIO via
-`JitML.Service.MinIOSubprocess`, and a `./.build/jitml internal gc
+`./.build/jitml inference run --experiment-hash <hash>` round-trip through
+the spawned CLI binary that exercises `JitML.App.runInference` reading from
+live MinIO via `JitML.Service.MinIOSubprocess` (the companion inspect replay
+branch from this historical validation was removed in Sprint `1.16`), and a
+`./.build/jitml internal gc
 <hash>` round-trip that stages six manifests, runs the CLI, asserts
 `reaped=1 reaped-blobs=1` on the first call and exit `3` on the second
 (noop) call — all against the leased edge port `127.0.0.1:9092`; the `kubectl logs deploy/jitml-service` daemon-side
@@ -1942,9 +1957,9 @@ Sprint `15.12` typed inference `AppError` variants
 (`InferenceCheckpointMissing :: Text -> AppError` and
 `InferenceManifestShaMismatch :: Text -> Text -> AppError`,
 `renderError` boundary updates, `runInference` mapping `pointer read
-failed` / `manifest read failed` to `InferenceCheckpointMissing`,
-`runInspectReplay` `assertManifestShaMatches` against
-`Checkpoint.manifestContentSha`, golden render fixture extended), and
+failed` / `manifest read failed` to `InferenceCheckpointMissing`, and the
+now-retired replay SHA check against `Checkpoint.manifestContentSha`, golden
+render fixture extended), and
 the Sprint `15.6` convergence-assertion wiring through
 `jitml-rl-canonicals` (`cohortThreshold` lookups asserted for every
 in-evaluation-matrix algorithm × env pair, `passesConvergence`
@@ -1988,7 +2003,7 @@ persistence), and `kubectl logs deploy/jitml-service` reports four
 held subscriptions on `training.command.linux-cuda`,
 `tune.command.linux-cuda`, `rl.command.linux-cuda`, and
 `inference.request.linux-cuda` as `jitml-service`. Sprint `15.12`
-(Live `jitml inference run` / `jitml inspect replay`) flipped from
+(Live `jitml inference run` plus the now-retired replay helper) flipped from
 Active to ✅ Done after the JIT-kernel path exercised the real
 nvcc → `.so` → dlopen → device kernel launch chain against MinIO,
 including the corrective fix of the pre-existing

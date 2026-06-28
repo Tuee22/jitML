@@ -55,6 +55,15 @@
 
 ## Phase Status
 
+⏸️ **Blocked** (reopened 2026-06-27 for Sprint `17.10`).
+
+**Blocked by**: Phase `15` Sprint `15.22`; Phase `16` Sprint `16.14`.
+
+This aggregation phase consumes per-lane evidence and does not re-run
+accelerator lanes. It is blocked until the Linux CUDA and Apple Silicon HA lane
+revalidations close. The 2026-06-26 aggregation remains historical evidence for
+the compact/right-sized topology. Prior closure history follows.
+
 ✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `17.9`). The expanded
 `linux-cuda` all-model fragment from Phase `15` Sprint `15.21` and the expanded
 `apple-silicon` fragment from Phase `16` Sprint `16.13` are both available, and
@@ -1064,6 +1073,34 @@ None. The Phase `15` Sprint `15.21` `linux-cuda` fragment is available in
 [attestations/linux-cuda-report-card.md](attestations/linux-cuda-report-card.md),
 and the Phase `16` Sprint `16.13` `apple-silicon` fragment is available in
 [attestations/apple-silicon-report-card.md](attestations/apple-silicon-report-card.md).
+
+## Sprint 17.10: HA Topology Aggregation [⏸️ Blocked]
+
+**Status**: Blocked (opened 2026-06-27)
+**Blocked by**: Phase `15` Sprint `15.22`; Phase `16` Sprint `16.14`
+**Implementation**: `DEVELOPMENT_PLAN/attestations/`, `src/JitML/Test/Report.hs`
+**Docs to update**: `system-components.md`,
+`../documents/engineering/unit_testing_policy.md`
+
+### Objective
+
+Aggregate the HA topology lane fragments without re-running accelerator lanes.
+
+### Deliverables
+
+- Verify the refreshed Linux CUDA and Apple Silicon HA attestations.
+- Merge HA topology evidence on the `linux-cpu` aggregation lane.
+- Confirm the one-numerical-worker-per-node invariant is represented in the
+  report-card/attestation set.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test all --live --linux-cpu`
+- `jitml docs check`
+
+### Remaining Work
+
+- Blocked until Sprints `15.22` and `16.14` close.
 
 ## Related Documents
 

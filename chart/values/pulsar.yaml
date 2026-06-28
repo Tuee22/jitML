@@ -1,26 +1,26 @@
 initialize: true
-persistence: false
+persistence: true
 
 volumes:
-  persistence: false
+  persistence: true
 
 affinity:
-  anti_affinity: false
+  anti_affinity: true
 
 kube-prometheus-stack:
   enabled: false
 
-# Sprint 4.8 — pod resource budgets from dhall/cluster/resources.dhall
-# (`pulsar`; applied uniformly across zk/bookkeeper/broker/proxy on the
-# single-node local stack). Right-sized to `replicaCount: 1` per component.
+# Sprint 4.10 — HA pod resource budgets from dhall/cluster/resources.dhall
+# (`pulsar`; applied uniformly across zk/bookkeeper/broker/proxy).
 zookeeper:
-  replicaCount: 1
+  replicaCount: 3
   podMonitor:
     enabled: false
   affinity:
-    anti_affinity: false
+    anti_affinity: true
   volumes:
-    persistence: false
+    persistence: true
+    storageClassName: jitml-manual
   resources:
     requests:
       cpu: 100m
@@ -30,13 +30,17 @@ zookeeper:
       memory: 1Gi
 
 bookkeeper:
-  replicaCount: 1
+  replicaCount: 3
   podMonitor:
     enabled: false
   affinity:
-    anti_affinity: false
+    anti_affinity: true
   volumes:
-    persistence: false
+    persistence: true
+    journal:
+      storageClassName: jitml-manual
+    ledgers:
+      storageClassName: jitml-manual
   resources:
     requests:
       cpu: 100m
@@ -46,13 +50,13 @@ bookkeeper:
       memory: 1Gi
 
 broker:
-  replicaCount: 1
+  replicaCount: 3
   configData:
     webSocketServiceEnabled: "true"
   podMonitor:
     enabled: false
   affinity:
-    anti_affinity: false
+    anti_affinity: true
   resources:
     requests:
       cpu: 100m
@@ -62,13 +66,13 @@ broker:
       memory: 1Gi
 
 proxy:
-  replicaCount: 1
+  replicaCount: 3
   service:
     type: ClusterIP
   podMonitor:
     enabled: false
   affinity:
-    anti_affinity: false
+    anti_affinity: true
   resources:
     requests:
       cpu: 100m
