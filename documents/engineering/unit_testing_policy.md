@@ -177,7 +177,11 @@ Current 2026-06-26 evidence: the `linux-cuda` all-model lane revalidated on the
 RTX 5090 host with `docker compose run --rm jitml-cuda jitml test all
 --linux-cuda` passing all 8 stanzas, `jitml-backends` passing 20/20 on the GPU,
 and the live Playwright product matrix passing 15/15 at the published CUDA edge.
-The remaining external lane blocker is the Apple Silicon host.
+Current 2026-06-29 Apple state: the host-native source build succeeds with
+Homebrew `llvm@19` providing GHC-compatible `opt`/`llc`, the HA
+`apple-silicon` rollout completed 131 steps at edge `:9090`, the host Metal
+daemon acquired its command topics, `bootstrap/apple-silicon.sh test` passed
+8/8 stanzas, and live Playwright passed 15/15.
 
 `jitml-unit` owns the CUDA runtime-probe parser snapshots for `nvcc`,
 `nvidia-smi`, and `ldconfig`, plus the guarded CUDA benchmark-runner preflight

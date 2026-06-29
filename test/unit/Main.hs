@@ -2,7 +2,7 @@
 
 module Main where
 
-import Control.Exception (bracket_)
+import Control.Exception (bracket_, finally)
 import Control.Monad qualified
 import Data.Aeson (FromJSON (..), Value, decode, eitherDecode, encode, withObject, (.:))
 import Data.ByteString qualified as StrictByteString
@@ -20,10 +20,12 @@ import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure)
 import Path (toFilePath)
 import Path.IO (resolveDir')
 import System.Directory
-  ( createDirectoryIfMissing
+  ( copyFile
+  , createDirectoryIfMissing
   , doesFileExist
   , getCurrentDirectory
   , getPermissions
+  , removeFile
   , setCurrentDirectory
   , setOwnerExecutable
   , setPermissions
@@ -1877,6 +1879,28 @@ main =
                     ["doctor"]
                 scriptExit result @?= ExitSuccess
                 assertContains "apple doctor ok" "stage-0 doctor: ok" (scriptStderr result)
+          , testCase "apple build prepends compatible Homebrew LLVM for GHC" $
+              withSystemTempDirectory "jitml-llvm-prefix" $ \llvmPrefix -> do
+                let llvmBin = llvmPrefix </> "bin"
+                createDirectoryIfMissing True llvmBin
+                writeStubCommand llvmBin (llvmToolStub "opt" "19")
+                writeStubCommand llvmBin (llvmToolStub "llc" "19")
+                withPreservedFile ".build/jitml"
+                  $ withStubCommands
+                    [ unameStub "Darwin" "arm64"
+                    , xcodeSelectStub
+                    , brewPrefixStub llvmPrefix
+                    , cabalBuildStub
+                    , codesignStub
+                    ]
+                  $ \stubDir -> do
+                    result <-
+                      runBootstrapScript
+                        (Just stubDir)
+                        "bootstrap/apple-silicon.sh"
+                        ["build"]
+                    scriptExit result @?= ExitSuccess
+                    assertContains "apple build llvm path" "using llvm@19" (scriptStderr result)
           , testCase "linux CPU doctor reports missing Docker" $ do
               withStubCommands [] $ \stubDir -> do
                 result <-
@@ -1900,6 +1924,15 @@ main =
                     ["doctor"]
                 scriptExit result @?= ExitSuccess
                 assertContains "linux cpu doctor ok" "stage-0 doctor: ok" (scriptStderr result)
+          , testCase "linux CPU up handles absent optional compose env" $
+              withStubCommands [dockerOkStub] $ \stubDir -> do
+                result <-
+                  runBootstrapScript
+                    (Just stubDir)
+                    "bootstrap/linux-cpu.sh"
+                    ["up"]
+                scriptExit result @?= ExitSuccess
+                assertContains "linux cpu up doctor ok" "stage-0 doctor: ok" (scriptStderr result)
           , testCase "linux CUDA doctor reports missing NVIDIA runtime" $
               withStubCommands [dockerWithoutNvidiaRuntimeStub, nvidiaSmiHighCapabilityStub] $ \stubDir -> do
                 result <- runBootstrapScript (Just stubDir) "bootstrap/linux-cuda.sh" ["doctor"]
@@ -3576,6 +3609,17 @@ writeStubCommand dir (name, body) = do
   permissions <- getPermissions path
   setPermissions path (setOwnerExecutable True permissions)
 
+withPreservedFile :: FilePath -> IO a -> IO a
+withPreservedFile path action =
+  withSystemTempDirectory "jitml-preserved-file" $ \dir -> do
+    let backup = dir </> "backup"
+    existed <- doesFileExist path
+    Control.Monad.when existed (copyFile path backup)
+    action `finally` do
+      generated <- doesFileExist path
+      Control.Monad.when generated (removeFile path)
+      Control.Monad.when existed (copyFile backup path)
+
 assertContains :: String -> String -> String -> Assertion
 assertContains label needle haystack =
   assertBool
@@ -3629,6 +3673,64 @@ brewStub =
       , "  printf '%s\\n' 'Homebrew 4.0.0'"
       , "  exit 0"
       , "fi"
+      , "exit 0"
+      ]
+  )
+
+brewPrefixStub :: FilePath -> (FilePath, String)
+brewPrefixStub prefix =
+  ( "brew"
+  , unlines
+      [ "#!/usr/bin/env bash"
+      , "if [ \"${1:-}\" = \"--version\" ]; then"
+      , "  printf '%s\\n' 'Homebrew 4.0.0'"
+      , "  exit 0"
+      , "fi"
+      , "if [ \"${1:-}\" = \"--prefix\" ] && [ \"${2:-}\" = \"llvm@19\" ]; then"
+      , "  printf '%s\\n' '" <> prefix <> "'"
+      , "  exit 0"
+      , "fi"
+      , "exit 1"
+      ]
+  )
+
+llvmToolStub :: FilePath -> String -> (FilePath, String)
+llvmToolStub name major =
+  ( name
+  , unlines
+      [ "#!/usr/bin/env bash"
+      , "if [ \"${1:-}\" = \"--version\" ]; then"
+      , "  printf '%s\\n' 'LLVM version " <> major <> ".1.0'"
+      , "  exit 0"
+      , "fi"
+      , "exit 0"
+      ]
+  )
+
+cabalBuildStub :: (FilePath, String)
+cabalBuildStub =
+  ( "cabal"
+  , unlines
+      [ "#!/usr/bin/env bash"
+      , "if [ \"${1:-}\" = \"build\" ]; then"
+      , "  mkdir -p .build/stub"
+      , "  printf '%s\\n' '#!/usr/bin/env bash' 'exit 0' > .build/stub/jitml"
+      , "  chmod +x .build/stub/jitml"
+      , "  exit 0"
+      , "fi"
+      , "if [ \"${1:-}\" = \"list-bin\" ]; then"
+      , "  printf '%s\\n' \"$PWD/.build/stub/jitml\""
+      , "  exit 0"
+      , "fi"
+      , "exit 1"
+      ]
+  )
+
+codesignStub :: (FilePath, String)
+codesignStub =
+  ( "codesign"
+  , unlines
+      [ "#!/usr/bin/env bash"
       , "exit 0"
       ]
   )

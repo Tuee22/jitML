@@ -55,15 +55,21 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-27 for Sprint `17.10`).
-
-**Blocked by**: Phase `16` Sprint `16.14`.
+✅ **Done** (reopened 2026-06-27 for Sprint `17.10`; re-closed 2026-06-29).
 
 This aggregation phase consumes per-lane evidence and does not re-run
 accelerator lanes. The Linux CUDA HA lane re-closed in Phase `15` Sprint
-`15.22`; this phase remains blocked until the Apple Silicon HA lane
-revalidation closes. The 2026-06-26 aggregation remains historical evidence for
-the compact/right-sized topology. Prior closure history follows.
+`15.22`; the Apple Silicon HA lane re-closed in Phase `16` Sprint `16.14`; this
+phase then re-aggregated the refreshed evidence on `linux-cpu`. The HA
+`linux-cpu` stack reconciled **130** rollout steps at edge `:9091`, all seven
+published components were ready, all 12 canonical dataset artifacts were staged
+and SHA-verified, eight demo checkpoints were seeded, and `docker compose run
+--rm jitml jitml test all --live --linux-cpu` passed **8 / 8** stanzas with
+every report-card measurement populated (`cabal_test: passed: 8, failed: 0`,
+`browser_product_matrix` **8 / 8** at edge `:9091`).
+
+The 2026-06-26 aggregation remains historical evidence for the previous
+compact/right-sized topology. Prior closure history follows.
 
 ✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `17.9`). The expanded
 `linux-cuda` all-model fragment from Phase `15` Sprint `15.21` and the expanded
@@ -1075,10 +1081,10 @@ None. The Phase `15` Sprint `15.21` `linux-cuda` fragment is available in
 and the Phase `16` Sprint `16.13` `apple-silicon` fragment is available in
 [attestations/apple-silicon-report-card.md](attestations/apple-silicon-report-card.md).
 
-## Sprint 17.10: HA Topology Aggregation [⏸️ Blocked]
+## Sprint 17.10: HA Topology Aggregation [✅ Done]
 
-**Status**: Blocked (opened 2026-06-27)
-**Blocked by**: Phase `16` Sprint `16.14`
+**Status**: Done (opened 2026-06-27; re-closed 2026-06-29 after Phase `16`
+Sprint `16.14` closed)
 **Implementation**: `DEVELOPMENT_PLAN/attestations/`, `src/JitML/Test/Report.hs`
 **Docs to update**: `system-components.md`,
 `../documents/engineering/unit_testing_policy.md`
@@ -1096,12 +1102,34 @@ Aggregate the HA topology lane fragments without re-running accelerator lanes.
 
 ### Validation
 
-- `docker compose run --rm jitml jitml test all --live --linux-cpu`
-- `jitml docs check`
+- `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cpu.sh up` — HA rollout
+  PASS, **130** steps, edge `9091`, all seven publication components ready;
+  `GET http://127.0.0.1:9091/healthz` returned `ok`.
+- `jitml internal upload-dataset` — all **12** canonical dataset artifacts were
+  staged and SHA-verified in MinIO. Two stale MNIST train placeholders
+  (`28B` / `14B`) were deleted and replaced with the canonical gzip artifacts:
+  train images
+  `440fcabf73cc546fa21475e81ea370265605f56be210a4024d2ca8f203523609` and train
+  labels `3552534a0a558bbed6aed32b30c495cca23d567ec52cac8be1a0730e8010255c`.
+- `docker compose run --rm jitml jitml internal seed-demo-checkpoints` — seeded
+  all eight demo checkpoints for the report-card/browser matrix.
+- `docker compose run --rm jitml cabal test jitml-sl-canonicals
+  --test-options='--hide-successes'` — focused live SL canonical validation
+  passed **24 / 24** after the dataset replacement.
+- `docker compose run --rm jitml jitml test all --live --linux-cpu` — all
+  **8 / 8** stanzas passed; `jitml-unit` **226 / 226**,
+  `jitml-integration` PASS, `jitml-sl-canonicals` PASS, `jitml-rl-canonicals`
+  PASS, `jitml-hyperparameter` **16 / 16**, `jitml-backends --linux-cpu`
+  **23 / 23**, `jitml-daemon-lifecycle` **32 / 32**, `jitml-e2e` **23 / 23**,
+  and report-card measurements populated (`sl_final_loss`, `rl_final_reward`,
+  `alphazero_arena_win_rate`, `tune_best_objective`, `jit_cache_hit_rate`,
+  `daemon_healthz`, `browser_product_matrix` **8 / 8** at edge `:9091`;
+  `cabal_test: passed: 8, failed: 0`).
 
 ### Remaining Work
 
-- Blocked until Sprint `16.14` closes.
+None. The refreshed Phase `15` Linux CUDA and Phase `16` Apple Silicon HA lane
+fragments have been consumed, and the HA `linux-cpu` aggregation is green.
 
 ## Related Documents
 

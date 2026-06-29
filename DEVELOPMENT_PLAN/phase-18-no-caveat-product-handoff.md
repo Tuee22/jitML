@@ -21,14 +21,20 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-27 for Sprint `18.5`).
+✅ **Done** (reopened 2026-06-27 for Sprint `18.5`; re-closed 2026-06-29).
 
-**Blocked by**: Phase `17` Sprint `17.10`.
+Final product handoff is re-closed for the HA topology: Phases `3`, `4`, and
+`5` own the checked-in HA topology; Phase `15` owns the refreshed Linux CUDA HA
+lane; Phase `16` owns the refreshed Apple Silicon HA lane; Phase `17` consumes
+those lane fragments on `linux-cpu`; and the Pending Removal ledger is empty.
+The final `linux-cpu` handoff gate passed `docker compose run --rm jitml jitml
+test all --live --linux-cpu` with **8 / 8** stanzas and every report-card
+measurement populated (`browser_product_matrix` **8 / 8** at edge `:9091`,
+`cabal_test: passed: 8, failed: 0`). `check-code: ok` and `docs check: ok`
+passed after the edited worktree documentation updates.
 
-Final product handoff is blocked until the remaining Apple Silicon HA
-revalidation and per-lane aggregation close. The 2026-06-26 handoff remains
-historical evidence for the compact/right-sized topology. Prior closure history
-follows.
+The 2026-06-26 handoff remains historical evidence for the previous
+compact/right-sized topology. Prior closure history follows.
 
 ✅ **Done** (reopened 2026-06-26 for Sprint `18.4`; re-closed 2026-06-26).
 The fixed-budget all-model handoff is complete: the `linux-cpu` baseline is
@@ -290,10 +296,10 @@ all-model runtime, browser, per-lane, and cleanup obligations are complete.
   fragment, the Phase `16` `apple-silicon` fragment, Phase `17` aggregation,
   the final `linux-cpu` handoff gates, and the Pending Removal ledger are closed.
 
-## Sprint 18.5: HA Topology Product Handoff [⏸️ Blocked]
+## Sprint 18.5: HA Topology Product Handoff [✅ Done]
 
-**Status**: Blocked (opened 2026-06-27)
-**Blocked by**: Phase `17` Sprint `17.10`
+**Status**: Done (opened 2026-06-27; re-closed 2026-06-29 after Phase `17`
+Sprint `17.10` closed)
 **Implementation**: `DEVELOPMENT_PLAN/attestations/`,
 `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, product docs
 **Docs to update**: `README.md`, `00-overview.md`, `system-components.md`,
@@ -301,9 +307,9 @@ all-model runtime, browser, per-lane, and cleanup obligations are complete.
 
 ### Objective
 
-Re-close final handoff only after the remaining Apple Silicon HA live lane is
-revalidated, aggregation consumes the refreshed evidence, and the Pending
-Removal ledger is empty again.
+Re-close final handoff after the Apple Silicon HA live lane is revalidated,
+aggregation consumes the refreshed evidence, and the Pending Removal ledger is
+empty again.
 
 ### Deliverables
 
@@ -315,13 +321,20 @@ Removal ledger is empty again.
 
 ### Validation
 
-- `docker compose run --rm jitml jitml test all --live --linux-cpu`
+- `docker compose run --rm jitml jitml test all --live --linux-cpu` — all
+  **8 / 8** stanzas passed on the HA `linux-cpu` aggregation lane; report-card
+  measurements were populated (`sl_final_loss`, `rl_final_reward`,
+  `alphazero_arena_win_rate`, `tune_best_objective`, `jit_cache_hit_rate`,
+  `daemon_healthz`, `browser_product_matrix` **8 / 8** at edge `:9091`;
+  `cabal_test: passed: 8, failed: 0`).
 - `docker compose run --rm jitml jitml check-code`
 - `docker compose run --rm jitml jitml docs check`
 
 ### Remaining Work
 
-- Blocked until Sprint `17.10` closes.
+None. The HA handoff is closed after Phase `17` aggregation, the final
+`linux-cpu` report-card gate, the code-quality gate, the docs gate, and the
+empty Pending Removal ledger.
 
 ## Related Documents
 

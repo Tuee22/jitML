@@ -110,6 +110,67 @@ require_homebrew() {
   fi
 }
 
+llvm_tool_supported_by_ghc() {
+  local tool_path=$1
+  local output
+  local major=""
+  if ! output=$("$tool_path" --version 2>/dev/null); then
+    return 1
+  fi
+  while IFS= read -r line; do
+    if [[ "$line" =~ version[[:space:]]+([0-9]+) ]]; then
+      major=${BASH_REMATCH[1]}
+      break
+    fi
+  done <<<"$output"
+  case "$major" in
+    "" | *[!0-9]*) return 1 ;;
+  esac
+  ((10#$major >= 13 && 10#$major < 20))
+}
+
+ghc_llvm_pair_supported() {
+  local opt_path=$1
+  local llc_path=$2
+  [ -x "$opt_path" ] \
+    && [ -x "$llc_path" ] \
+    && llvm_tool_supported_by_ghc "$opt_path" \
+    && llvm_tool_supported_by_ghc "$llc_path"
+}
+
+configure_ghc_llvm_path() {
+  if [ "$(host_uname_s)" != "Darwin" ]; then
+    return 0
+  fi
+
+  local opt_path=""
+  local llc_path=""
+  if have opt && have llc; then
+    opt_path=$(command_path opt)
+    llc_path=$(command_path llc)
+    if ghc_llvm_pair_supported "$opt_path" "$llc_path"; then
+      return 0
+    fi
+  fi
+
+  require_homebrew
+  local formula
+  local prefix
+  for formula in llvm@19 llvm@18 llvm@17 llvm@16 llvm@15 llvm@14 llvm@13; do
+    if prefix=$(run_command brew --prefix "$formula" 2>/dev/null); then
+      opt_path="$prefix/bin/opt"
+      llc_path="$prefix/bin/llc"
+      if ghc_llvm_pair_supported "$opt_path" "$llc_path"; then
+        export PATH="$prefix/bin:$PATH"
+        info "using $formula for GHC -fllvm ($prefix/bin)"
+        return 0
+      fi
+    fi
+  done
+
+  die 2 "missing GHC-compatible LLVM opt/llc for GHC 9.12.4 -fllvm; install llvm@19 with 'brew install llvm@19' or put LLVM [13,20) opt and llc on PATH"
+}
+
 require_docker_without_sudo() {
   require_command "docker" "install Docker and make it usable by the current user"
   if ! run_command docker info >/dev/null 2>&1; then
@@ -177,6 +238,7 @@ build_host_jitml() {
   local cabal_binary
   root=$(repo_root)
   cabal_binary=$(command_path cabal)
+  configure_ghc_llvm_path
   mkdir -p "$root/.build"
   info "building host-native jitml binary"
   (cd "$root" && "$cabal_binary" build exe:jitml)
@@ -205,11 +267,11 @@ run_linux_compose_bootstrap() {
   shift || true
   local root
   root=$(repo_root)
-  local compose_env=()
   if [ -n "${JITML_BOOTSTRAP_SKIP_IMAGE_BUILD:-}" ]; then
-    compose_env=(-e "JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=$JITML_BOOTSTRAP_SKIP_IMAGE_BUILD")
+    (cd "$root" && run_command docker compose run --rm -e "JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=$JITML_BOOTSTRAP_SKIP_IMAGE_BUILD" jitml jitml bootstrap "--$substrate" "$@")
+  else
+    (cd "$root" && run_command docker compose run --rm jitml jitml bootstrap "--$substrate" "$@")
   fi
-  (cd "$root" && run_command docker compose run --rm "${compose_env[@]}" jitml jitml bootstrap "--$substrate" "$@")
 }
 
 run_linux_compose_jitml() {
@@ -250,7 +312,7 @@ prepull_third_party_images() {
   local pulled=0 skipped=0 img
   while IFS= read -r img; do
     [ -n "$img" ] || continue
-    if docker pull "$img" >/dev/null 2>&1; then
+    if run_command docker pull "$img" >/dev/null 2>&1; then
       pulled=$((pulled + 1))
     else
       skipped=$((skipped + 1))
@@ -262,7 +324,7 @@ prepull_third_party_images() {
 prepull_linux_third_party_images() {
   local root
   root=$(repo_root)
-  (cd "$root" && docker compose run --rm jitml jitml internal third-party-images 2>/dev/null) \
+  (cd "$root" && run_command docker compose run --rm jitml jitml internal third-party-images 2>/dev/null) \
     | prepull_third_party_images
 }
 

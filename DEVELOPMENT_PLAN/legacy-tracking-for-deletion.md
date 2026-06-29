@@ -40,14 +40,22 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-06-29 — HA topology live revalidation closed; ledger empty.** The
+remaining primary HA obligations closed without adding ledger debt: Phase `16`
+revalidated the real Apple Silicon HA lane after the host LLVM and Docker/Colima
+capacity blockers were removed; Phase `17` aggregated the refreshed lane
+fragments on `linux-cpu`; and Phase `18` re-closed the final product handoff.
+The compact-topology rows remain in `Completed`, and the `Pending Removal`
+section is empty.
+
 **2026-06-28 — HA topology implementation rows closed; ledger empty.** The
 compact single-node/right-sized implementation deviations found on 2026-06-27
 have moved to `Completed`: HA Kind nodes/manual PVs, HA platform service values,
 and scoped one-numerical-worker-per-node scheduling are now implemented. Phase
-`15` is re-closed on the real Linux/NVIDIA HA live lane; Phase `16` is blocked
-until the Apple host exposes a GHC-compatible LLVM `opt`/`llc` for the
-documented `-fllvm` host-native build; Phases `17` and `18` remain blocked on
-that refreshed Apple fragment and downstream aggregation.
+`15` is re-closed on the real Linux/NVIDIA HA live lane; Phase `16` has cleared
+the Apple host-native `-fllvm` build prerequisite but is blocked by current
+Docker/Colima capacity for the four-node HA Apple Kind topology; Phases `17` and
+`18` remain blocked on that refreshed Apple fragment and downstream aggregation.
 
 **2026-06-27 — HA topology audit; ledger reopened.** Documentation became the
 source of truth for the targeted HA topology, but the worktree still carried

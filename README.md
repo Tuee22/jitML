@@ -31,15 +31,16 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (reopened 2026-06-27):** The fixed-budget all-model
-> training/inference lanes re-closed on 2026-06-26, but the no-caveat product
-> handoff is **not closed** against the targeted HA cluster topology. The current
-> reopen is tracked through Phases `3`, `4`, `5`, `15`, `16`, `17`, and `18`:
-> the development plan is the SSoT for the HA target, the implementation still
-> carries a local right-sized/single-node topology, and final closure requires
-> HA storage/broker/Postgres/observability rollout while preserving exactly one
-> numerical ML worker per Kubernetes node. Known stand-ins and compatibility
-> residues live in
+> **Current product status (all phases re-closed 2026-06-29):** The no-caveat
+> product handoff is closed against the targeted HA cluster topology. Phases
+> `3`, `4`, and `5` own the HA Kind/platform/compute-cardinality work; Phase
+> `15` revalidated the HA `linux-cuda` lane on the RTX 5090 host; Phase `16`
+> revalidated the HA `apple-silicon` lane on the Apple M1 Max host after fixing
+> the GHC-compatible LLVM selection and resizing Docker/Colima; Phase `17`
+> aggregated the refreshed lane fragments on `linux-cpu`; and Phase `18`
+> re-closed the final handoff with `jitml test all --live --linux-cpu` passing
+> **8 / 8** stanzas and the report card populated. Known stand-ins and
+> compatibility residues live in
 > [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 ---
@@ -223,7 +224,7 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 > **Bootstrap verbs are not CLI verbs.** Historical script verbs such as `doctor`, `status`, `down`, and `purge` remain script conveniences, but the cluster bootstrap contract is the Haskell command `jitml bootstrap --apple-silicon | --linux-cpu | --linux-cuda`. Script `up` is a wrapper around that command.
 
-- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, the source-build prerequisites for `./.build/jitml` are available, and Homebrew is installed when typed remediation may need it. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local`, retags it as `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; `./bootstrap/apple-silicon.sh run-daemon` rebuilds / code-signs the host binary if needed, then starts `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install style tools or code-quality tooling during bootstrap. Core Apple Metal cache misses require only the OS Metal runtime and the fixed jitML bridge probe; optional Swift/SDK probes are for non-core Swift JIT modules, not training/inference cache misses.
+- `apple-silicon.sh` checks that the host is macOS on Apple Silicon, the source-build prerequisites for `./.build/jitml` are available, and Homebrew is installed when typed remediation may need it. The `build` path also exposes a GHC-compatible LLVM `opt`/`llc` pair for the pinned `-fllvm` build by using PATH tools when they are in GHC 9.12.4's supported `[13,20)` range or by prepending an installed Homebrew `llvm@19` ... `llvm@13` keg. If any gate fails, it exits with a short, actionable install message. If the gates pass, it builds `./.build/jitml` host-native, then calls `./.build/jitml bootstrap --apple-silicon`. The Haskell bootstrap writes Dhall under `./.build/conf/`, creates the Kind cluster, brings MinIO and the registered Percona `harbor-pg` database up first, brings Harbor up against those dependencies, builds `jitml:local`, retags it as `jitml-demo:local`, loads those tags explicitly into Kind, then rolls out Pulsar, Prometheus/Grafana, Envoy Gateway, the `jitml-service` cluster daemon via Helm, and the demo app. Because Apple still builds `jitml:local` for the in-cluster daemon, the Docker image build is also the exclusive Haskell style-tool bootstrap and code-quality gate. Once the localhost edge port is selected, bootstrap updates the host Dhall so the host daemon can reach Pulsar and MinIO; `./bootstrap/apple-silicon.sh run-daemon` rebuilds / code-signs the host binary if needed, then starts `./.build/jitml service --config ./.build/conf/host/apple-silicon.dhall`. The host does **not** install style tools or code-quality tooling during bootstrap. Core Apple Metal cache misses require only the OS Metal runtime and the fixed jitML bridge probe; optional Swift/SDK probes are for non-core Swift JIT modules, not training/inference cache misses.
 - `linux-cpu.sh` checks that Docker is installed and usable by the current user without `sudo`. If the gate passes, it calls `docker compose run --rm jitml jitml bootstrap --linux-cpu`; Compose builds the outer `jitml` image automatically and the root `compose.yaml` runs that service with host networking so the outer-container Kind kubeconfig loopback endpoint is reachable. The in-container bootstrap deploys the same cluster stack, and the outer container exits once the in-cluster daemon is in charge. Linux has no host daemon and no host-level Dhall: only the ConfigMap Dhall mounted into the cluster daemon is needed.
 - `linux-cuda.sh` performs the Linux CPU Docker gate plus CUDA gates: the NVIDIA container runtime must be available, and `nvidia-smi` must report at least one device meeting the required compute capability. Missing gates fail fast before any CUDA Kind cluster is created. If the gates pass, it calls `docker compose run --rm jitml jitml bootstrap --linux-cuda` through the same headless, host-networked compose service; after that the rollout is the same as Linux CPU, with the CUDA RuntimeClass, GPU label on the CUDA-capable Kind node, node-local containerd `nvidia` runtime handler, repo-owned NVIDIA runtime config, and read-only `/run/nvidia/driver` host driver-root mount applied by bootstrap. Direct live CUDA tests that need the outer container itself to see NVIDIA devices use the companion `jitml-cuda` compose service.
 
@@ -2042,9 +2043,10 @@ placeholder fixtures. Target coverage:
 | HER | goal-conditioned canonical env success rate plus achieved-goal distance |
 | AlphaZero | per-game arena win-rate for Connect 4, Othello, Hex, and Gomoku |
 
-> Reopened 2026-06-26: current measured convergence is representative, not
-> all-model. The closure target is one fixed-budget completed-training witness
-> and convergence-statistics payload per row above. See
+> Closed 2026-06-29: the all-model closure target is one fixed-budget
+> completed-training witness and convergence-statistics payload per row above,
+> validated through the substrate lane attestations and the final `linux-cpu`
+> aggregation. See
 > [documents/engineering/training_metrics_and_splits.md](documents/engineering/training_metrics_and_splits.md).
 
 The convergence check is the load-bearing test; the run-to-run
@@ -2472,8 +2474,8 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 |---|---|---|---|
 | `jitml-unit` | Pure Logic + Parser + Property + Snapshot | `TestUnit` | CommandSpec snapshot, Dhall round-trip, autodiff property, optimizer-step property, route-registry render snapshot, Grafana-dashboard render snapshot, RNG mixer property, run-to-run trajectory-determinism for RL (compares two fresh runs against each other; no stored trajectory) |
 | `jitml-integration` | Integration | `TestIntegration` | `jitml` binary across all substrates; checkpoint round-trip; resume semantics; Dhall→typed-record decode; per-substrate run-to-run determinism |
-| `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): current coverage includes catalog properties, selected live convergence, and all-row smoke; reopened coverage requires fixed-budget convergence, checkpoint reload, and inference eligibility for every row — no committed numerical fixtures |
-| `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: current coverage includes catalog properties and representative measured convergence; reopened coverage requires fixed-budget convergence, checkpoint reload, rollout/eval eligibility, and per-evaluation curve properties for every algorithm/game row — no committed numerical fixtures |
+| `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): catalog properties, real-artifact SHA/parser coverage, selected live convergence, all-row staged-byte smoke, fixed-budget convergence, checkpoint reload, and inference eligibility — no committed numerical fixtures |
+| `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: catalog properties, run-to-run trajectory determinism, fixed-budget convergence, checkpoint reload, rollout/eval eligibility, and per-evaluation curve properties for every algorithm/game row — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
 | `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected via `--test-options='-p <substrate>'`, **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |

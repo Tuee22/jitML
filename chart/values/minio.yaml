@@ -50,5 +50,4 @@ persistence:
 volumes:
   persistence: true
 
-affinity:
-  anti_affinity: true
+podAntiAffinityPreset: soft

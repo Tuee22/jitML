@@ -1,4 +1,4 @@
-# `linux-cpu` Per-Lane Attestation (Phases 13/14 + Sprint 17.8)
+# `linux-cpu` Per-Lane Attestation (Phases 13/14 + Sprint 17.10)
 
 **Status**: Authoritative source
 **Referenced by**: [../README.md](../README.md),
@@ -10,7 +10,7 @@
 
 > **Purpose**: The committed `linux-cpu` per-lane report-card fragment that the
 > always-available accelerator-free lane (Phases `13`/`14`) owns. Phase `17`
-> (Sprint `17.8`) and Phase `18` (Sprint `18.1`) consume this fragment on
+> (Sprint `17.10`) and Phase `18` (Sprint `18.5`) consume this fragment on
 > `linux-cpu` as the third merge input alongside the committed `linux-cuda`
 > (Phase `15`) and `apple-silicon` (Phase `16`) fragments (standards rule
 > M(b)/(d)).
@@ -20,8 +20,9 @@
 - Apple M1 Max workstation (macOS, arm64); Docker Desktop aarch64 Linux VM
   (47 GiB), no NVIDIA GPU. The `linux-cpu` lane runs in the `jitml:local`
   container where oneDNN (`libdnnl`, `oneapi/dnnl/dnnl.hpp`) is present.
-- Validated 2026-06-23 and re-attested 2026-06-26 after the real-SL/RL chain and
-  Sprint `14.3` demo-runtime replacement. The image under test was built from the worktree
+- Validated 2026-06-23, re-attested 2026-06-26 after the real-SL/RL chain and
+  Sprint `14.3` demo-runtime replacement, and re-attested 2026-06-29 as the HA
+  `linux-cpu` aggregation after Phases `15` / `16` re-closed. The image under test was built from the worktree
   **including** the 2026-06-23 reflected-catalog-schema
   (`JitML.Service.CatalogSchema`), tuning-objective-migration
   (`JitML.SL.Architecture` seam + `pureReferenceMlpDevice`), and the three
@@ -46,14 +47,17 @@
 | in-image `jitml check-code` (run during `jitml bootstrap --linux-cpu` image build) | ok |
 
 The full-stack rollout came up clean: `bootstrap/linux-cpu.sh up` completed a
-**110-step** live phased rollout (all platform components Ready — MinIO, Harbor +
+**130-step** live phased rollout (all platform components Ready — MinIO, Harbor +
 `harbor-pg`, Pulsar broker/bookie/zookeeper/proxy, kube-prometheus-stack,
 TensorBoard, `jitml-service`, `jitml-demo`) and wrote the leased-port publication
 at the Envoy edge `127.0.0.1:9091`. All **12 canonical dataset blobs** (MNIST ×4,
 Fashion-MNIST ×4, CIFAR-10, CIFAR-100, California Housing, Tiny ImageNet) were
 SHA-verified against the pinned `JitML.SL.Dataset` hashes and staged into live
 MinIO via `jitml internal upload-dataset`, and the eight demo checkpoints were
-seeded via `jitml internal seed-demo-checkpoints`.
+seeded via `jitml internal seed-demo-checkpoints`. During the 2026-06-29
+aggregation, stale MNIST train placeholders (`28B` / `14B`) were deleted and
+replaced with the canonical gzip artifacts before `jitml-sl-canonicals` and the
+full live lane were rerun.
 
 `jitml-backends --linux-cpu` compiled and executed the real oneDNN primitive
 paths through the Haskell FFI — every within-substrate `linux-cpu` kernel case
@@ -85,8 +89,8 @@ stanzas:
   jitml-daemon-lifecycle: PASS
   jitml-e2e: PASS
 measurements:
-  sl_final_loss: mnist-shallow-mlp=TrainingMetrics {tmTrainLoss = 1.8540104041609557, tmValidationLoss = 1.8269222023181846, tmExamplesProcessed = 5001, tmHeldOutMetric = Just ("test_acc",0.348)}
-  rl_final_reward: ppo/cartpole=123.09870143334923
+  sl_final_loss: mnist-shallow-mlp=TrainingMetrics {tmTrainLoss = 1.8540103969868302, tmValidationLoss = 1.8269221874061756, tmExamplesProcessed = 5001, tmHeldOutMetric = Just ("test_acc",0.348)}
+  rl_final_reward: ppo/cartpole=119.99308238573022
   alphazero_arena_win_rate: connect4/gen0=0.75
   tune_best_objective: TPE=1.0
   jit_cache_hit_rate: prometheus=1.0 hits=1 misses=0

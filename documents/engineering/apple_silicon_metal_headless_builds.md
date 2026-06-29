@@ -225,6 +225,7 @@ The headless Apple substrate has separate prerequisites:
 |--------------|--------------|------------------|
 | `apple.metal-runtime` | Core execution | Probe `MTLCreateSystemDefaultDevice` and a tiny runtime `makeLibrary(source:)` dispatch. |
 | `apple.metal-bridge` | Core execution | Build or verify the fixed bridge, then `dlopen` and call its probe symbol. |
+| GHC-compatible LLVM `opt`/`llc` | Host-native source build of `./.build/jitml` when the package uses `-fllvm` | The stage-0 Apple `build` path accepts PATH tools in GHC 9.12.4's supported `[13,20)` range or prepends an installed Homebrew `llvm@19` ... `llvm@13` keg. |
 | `apple.swiftc` | Optional Swift JIT modules | Prefer Homebrew `swift`; verify `swiftc --version` and compile a Swift + Metal probe with explicit SDK. |
 | `apple.macos-sdk` | Optional Swift / Objective-C source builds | Verify `xcrun --sdk macosx --show-sdk-path` or an explicitly configured SDK path. |
 
@@ -233,9 +234,9 @@ It does **not** require `apple.swiftc` during cache misses.
 
 If jitML is always built from source, then building the fixed bridge from source
 is acceptable at jitML build time. That build-time prerequisite is different from
-a runtime JIT prerequisite. A source-build bootstrap may install Homebrew tools
-or use an existing SDK, but `jitml service` and cache misses must not install
-tools or wait on toolchain interactions.
+a runtime JIT prerequisite. The stage-0 source build may use an installed
+Homebrew LLVM keg to satisfy GHC's `-fllvm` backend; `jitml service` and cache
+misses must not install tools or wait on toolchain interactions.
 
 ## Optional Swift JIT Lane
 

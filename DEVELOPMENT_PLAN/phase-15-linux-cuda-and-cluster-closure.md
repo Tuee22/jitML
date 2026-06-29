@@ -4369,8 +4369,9 @@ close.
 
 ### Remaining Work
 
-None. The HA Linux-CUDA lane is closed. Phase `16` remains blocked on the
-separate Apple Silicon host LLVM prerequisite for Sprint `16.14`.
+None. The HA Linux-CUDA lane is closed. The separate Apple Silicon HA live
+revalidation closed in Phase `16` Sprint `16.14`, and downstream aggregation
+closed in Phases `17` / `18`.
 
 ## Related Documents
 

@@ -1,4 +1,4 @@
-# `apple-silicon` Per-Lane Attestation (Sprint 16.11)
+# `apple-silicon` Per-Lane Attestation (Sprint 16.14)
 
 **Status**: Authoritative source
 **Referenced by**: [../README.md](../README.md),
@@ -8,9 +8,9 @@
 **Generated sections**: none
 
 > **Purpose**: The committed `apple-silicon` per-lane report-card fragment that
-> Sprint `16.11` owns. Phase `17` (Sprint `17.8`) and Phase `18` (Sprint `18.1`)
-> consume this fragment on `linux-cpu` and never re-run the `apple-silicon` lane
-> (standards rule M(b)/(d)).
+> Sprint `16.14` owns for the HA topology. Phase `17` (Sprint `17.10`) and Phase
+> `18` (Sprint `18.5`) consume this fragment on `linux-cpu` and never re-run the
+> `apple-silicon` lane (standards rule M(b)/(d)).
 
 ## Host
 
@@ -18,10 +18,37 @@
 - Fixed host Metal bridge (`jitml internal install-metal-bridge` →
   `.build/host/apple-silicon/libJitMLMetalBridge.dylib`, `metal_bridge_probe: ok`);
   no Tart, SwiftPM, full Xcode, offline `metal`, or keychain state on the core path.
-- Live `apple-silicon` Kind cluster (colima aarch64 Docker), edge `9090`.
-- Validated 2026-06-22.
+- Live HA `apple-silicon` Kind cluster (Colima aarch64 Docker; one control-plane
+  plus three workers), edge `9090`.
+- Validated 2026-06-29.
 
-## Defects fixed to close this lane (all in the worktree)
+## HA Validation Summary
+
+- Docker/Colima reset for the four-node HA topology: 8 CPU, 12 GiB memory,
+  512 GiB disk.
+- `./bootstrap/apple-silicon.sh doctor` — passed.
+- `./bootstrap/apple-silicon.sh build` — passed after the wrapper selected
+  Homebrew `llvm@19` for GHC-compatible `opt`/`llc`; `.build/jitml` was a real
+  arm64 Mach-O binary.
+- `./bootstrap/apple-silicon.sh up` — HA rollout PASS, **131** steps, edge
+  `9090`, all seven publication components ready.
+- `./bootstrap/apple-silicon.sh run-daemon` — host daemon acquired
+  `apple.metal-runtime=yes`, `apple.metal-bridge=yes`, and the four host command
+  topics (`inference`, `training`, `tune`, `rl`).
+- `./bootstrap/apple-silicon.sh test` — **8 / 8** stanzas passed on the real
+  Apple lane, including the `jitml-backends --apple-silicon` Metal cases.
+- `jitml internal seed-demo-checkpoints` — seeded all eight demo checkpoints.
+- Direct edge inference — `POST http://127.0.0.1:9090/api/inference` returned
+  `HTTP 200` with `kind: InferenceResult`; Pulsar `jitml-host` backlog was `0`.
+- Live Playwright product matrix — **15 / 15 PASS** against the Apple edge in
+  `mcr.microsoft.com/playwright:v1.49.1-noble`.
+
+Every measurement required for the HA lane was exercised through the real
+Apple host Metal path. No Tart VM, SwiftPM-generated kernel package, full Xcode,
+offline `metal`, keychain unlock, or containerized Metal execution participated
+in the core cache-miss path.
+
+## Historical Defects Fixed to Close the Earlier Lane (all in the worktree)
 
 The live `apple-silicon` inference path (`jitml inference run`, the demo's
 checkpoint-backed panels, the live `WorkflowMatrix` inference cell) was blocked by
@@ -64,102 +91,17 @@ panel serve its result kind.
 The superseded `AppleInferenceCommand` / `AppleInferenceEvent` refs RPC is recorded
 in [../legacy-tracking-for-deletion.md](../legacy-tracking-for-deletion.md).
 
-## Validation gate (all green)
+## Validation Gate (all green)
 
 | Command | Result |
 |---|---|
-| `jitml test all --apple-silicon` | 8/8 stanzas PASS (incl. `jitml-backends` 17/17 on the M1 GPU via the fixed Metal bridge) |
-| `cabal test jitml-integration --test-options '-p /Live/'` (live cluster + host daemon) | 20/20 |
-| `docker compose build jitml` (`jitml check-code`) | `check-code: ok` |
+| `./bootstrap/apple-silicon.sh up` | HA rollout PASS, 131 steps, edge `:9090`, seven publication components ready |
+| `./bootstrap/apple-silicon.sh run-daemon` | host Metal daemon acquired runtime, bridge, and all four host command topics |
+| `./bootstrap/apple-silicon.sh test` | 8/8 stanzas PASS on the real Apple lane |
+| Direct `POST /api/inference` through edge `:9090` | `HTTP 200`, `kind: InferenceResult`; host backlog 0 |
+| Live Playwright product matrix | 15/15 PASS |
 
 `jitml-backends --apple-silicon` compiled real MSL in-process via
-`MTLDevice.makeLibrary(source:)` and executed on the M1 GPU — every within-substrate
-`apple-silicon` kernel case a real device PASS.
-
-## Live `apple-silicon` report card
-
-```
-jitML POC report card
-knobs:
-  sl_epochs: 5
-  sl_batch: 64
-  rl_steps: 100000
-  rl_eval_episodes: 25
-  alphazero_games: 200
-  alphazero_sims: 400
-  tune_trials: 64
-  tune_budget_per_trial: 1000
-  xcluster_kind_nodes: 2
-stanzas:
-  jitml-unit: PASS
-  jitml-integration: PASS
-  jitml-sl-canonicals: PASS
-  jitml-rl-canonicals: PASS
-  jitml-hyperparameter: PASS
-  jitml-backends: PASS
-  jitml-daemon-lifecycle: PASS
-  jitml-e2e: PASS
-measurements:
-  sl_final_loss: mnist-shallow-mlp=0.65
-  rl_final_reward: ppo/cartpole=131.24601095715877
-  alphazero_arena_win_rate: connect4/gen0=0.75
-  tune_best_objective: TPE=1.0
-  jit_cache_hit_rate: prometheus=1.0 hits=1 misses=0
-  daemon_healthz: http://127.0.0.1:9090/healthz status=200
-  browser_product_matrix: checkpoint-backed product panels 5/5 served at edge :9090
-cabal_test:
-  passed: 8
-  failed: 0
-```
-
-`sl_final_loss` is a real Metal MNIST training (the canonical MNIST gz artifacts
-staged into live MinIO, SHA-verified against `JitML.SL.Dataset`). The
-`browser_product_matrix` row is the `measureBrowserProductMatrix` probe POSTing each
-panel's canonical default request to the live demo edge; after the demo ack-kind
-alignment all five checkpoint-backed panels serve their result kind (`InferenceResult`,
-`GenericInferenceResult`, `ImageInferenceResult`, `CheckpointCompareResult`,
-`AdversarialMoveResult`) — `5/5 served`.
-
-Every measurement row is populated — **no `unavailable` product row**.
-
-## Browser product matrix — live Playwright (11/11)
-
-The live Playwright product matrix (`playwright/jitml-demo.spec.ts`, 11 tests) ran
-against the `apple-silicon` Envoy edge (`http://127.0.0.1:9090/`) after
-`jitml internal seed-demo-checkpoints`, with the host Metal daemon serving as the
-Engine:
-
-```
-11 passed (chromium)  [8 first-try + 3 passed on retry]
-  ✓ demo shell responds and renders the portals home
-  ✓ portals home links to every bundled admin portal
-  ✓ shared header is present on every panel
-  ✓ mnist panel renders an inference canvas          (kind: InferenceResult)
-  ✓ generic inference panel renders checkpoint output (kind: GenericInferenceResult)
-  ✓ cifar panel renders an upload control             (kind: ImageInferenceResult)
-  ✓ checkpoint compare panel renders output deltas    (kind: CheckpointCompareResult)
-  ✓ connect4 panel renders the board                  (kind: AdversarialMoveResult)
-  ✓ rl panel renders an episode timeline
-  ✓ training panel renders a loss curve
-  ✓ tune panel renders the trial heatmap
-```
-
-All five checkpoint-backed panels render their websocket-streamed result through the
-async Webapp→cluster-forward→host-Metal-Engine→`/api/ws/inference` path. On the
-`apple-silicon` lane that round trip (and the checkpoint-compare panel's *two*
-inferences) is latency-variable under host load, so the spec uses a raised
-per-assertion `expect` timeout (45s) plus `retries: 2`; three panels were retried
-once and passed (recorded as `flaky` by Playwright, exit `0`). Every panel renders
-its real checkpoint-backed result kind — the same `5/5` contract the report-card
-`measureBrowserProductMatrix` probe confirms via direct REST.
-
-## Note on report-card capture
-
-The measurement rows above are real values from `jitml test all --apple-silicon
---live`; the `browser_product_matrix` row reads `5/5` after the demo ack-kind
-alignment (re-confirmed by the five-panel REST probe and the live Playwright matrix).
-The single-artifact `--live` re-run with the fixed demo OOM-killed under the heavy
-end-of-session host load (`measureSlFinalLoss` Metal MNIST training plus the colima
-VM), so the report card is composed from the per-row real runs rather than one
-process — every row is a measured value, none synthetic or `unavailable`.
-
+`MTLDevice.makeLibrary(source:)` and executed on the M1 GPU. The browser/product
+surface used eight seeded demo checkpoints and the host Metal daemon as the
+Engine behind the cluster-forwarding path.

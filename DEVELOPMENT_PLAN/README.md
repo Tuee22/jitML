@@ -43,22 +43,28 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**⏸️ HA topology live revalidation partially blocked 2026-06-28.** The high-availability
-implementation work is closed for Phases `3`, `4`, and `5`: the checked-in
-materialization now has HA Kind workers/manual PVs, HA stateful platform service
-replicas, one public Envoy socket, and **at most one numerical ML compute worker
-per Kubernetes node** regardless of Coordinator, Webapp, observability, or
-platform-service replica counts. Phase `15` Sprint `15.22` is also re-closed on
-the real NVIDIA GeForce RTX 5090 host: clean HA `linux-cuda` rollout 130 steps,
-`jitml test all --linux-cuda` **8 / 8**, `jitml-backends` **20 / 20**, live
-Playwright **15 / 15**, `docs check: ok`, and `check-code: ok`. Phase `16`
-Sprint `16.14` remains blocked on this Apple host because the host-native
-`./bootstrap/apple-silicon.sh build` cannot satisfy GHC 9.12.4's documented
-`-fllvm` requirement (`opt` absent from `PATH`; only local `opt` found was
-`llvm@21`, outside GHC's supported `[13,20)` range). Phases `17` and `18` remain
-blocked on the refreshed Apple live/aggregation fragments. The 2026-06-26
-all-`Done` closure records below are retained as historical evidence, not
-current status.
+**🎉 ALL PHASES `0`-`18` reached `✅ Done` again for the HA topology
+(2026-06-29).** The high-availability implementation work is closed for Phases
+`3`, `4`, and `5`: the checked-in materialization has HA Kind workers/manual
+PVs, HA stateful platform service replicas, one public Envoy socket, and **at
+most one numerical ML compute worker per Kubernetes node** regardless of
+Coordinator, Webapp, observability, or platform-service replica counts. Phase
+`15` Sprint `15.22` re-closed on the real NVIDIA GeForce RTX 5090 host: clean
+HA `linux-cuda` rollout 130 steps, `jitml test all --linux-cuda` **8 / 8**,
+`jitml-backends` **20 / 20**, live Playwright **15 / 15**, `docs check: ok`,
+and `check-code: ok`. Phase `16` Sprint `16.14` re-closed on the Apple M1 Max
+host after the GHC-compatible LLVM and Docker/Colima capacity blockers were
+removed: HA `apple-silicon` rollout **131** steps at edge `:9090`, host Metal
+daemon subscriptions acquired with `apple.metal-runtime=yes` and
+`apple.metal-bridge=yes`, `bootstrap/apple-silicon.sh test` **8 / 8**, direct
+inference `HTTP 200`, eight demo checkpoints seeded, and live Playwright
+**15 / 15**. Phase `17` Sprint `17.10` aggregated the refreshed lane fragments
+on `linux-cpu` at edge `:9091`, staged and SHA-verified all 12 canonical
+dataset artifacts, seeded eight demo checkpoints, and passed `jitml test all
+--live --linux-cpu` **8 / 8** with every report-card measurement populated.
+Phase `18` Sprint `18.5` re-closed the final product handoff; the `Pending
+Removal` ledger is empty. The 2026-06-26 all-`Done` closure records below are
+retained as historical evidence for the previous compact/right-sized topology.
 
 **✅ `linux-cpu` fixed-budget all-model baseline re-closed 2026-06-26.**
 Phases `8`–`14` are Done again after landing the shared `TrainingBudget` /
@@ -1219,9 +1225,9 @@ obligation exists.
 | 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ✅ Done (Sprint 13.3 — linux-cpu aggregate runtime gate passed 8/8 stanzas) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
 | 14 | Interactive Demo and Playwright Closure (`linux-cpu`) | ✅ Done (Sprint 14.4 — live Playwright proves eligible trained-artifact metadata and all generated model rows) | [phase-14-interactive-demo-and-playwright-closure.md](phase-14-interactive-demo-and-playwright-closure.md) |
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.22 — HA linux-cuda lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
-| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ⏸️ Blocked (Sprint 16.14 — HA live revalidation requires compatible host LLVM `opt` for GHC `-fllvm`) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
-| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ⏸️ Blocked (Sprint 17.10 — waits on refreshed Phase 16 HA Apple lane evidence) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ⏸️ Blocked (Sprint 18.5 — waits on Phase 17 HA aggregation) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
+| 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (Sprint 18.5 — final HA product handoff re-closed, ledger empty) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-26 — fixed-budget all-model trained-artifact contract)
 

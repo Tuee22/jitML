@@ -74,26 +74,33 @@ Apple Silicon two daemons run, both the same binary distinguished by Dhall
 (`Cluster + ForwardToHost` in-pod and `Host + SelfInference` host-native) because
 Metal cannot be containerized.
 
-## Current Reopened Status
+## Current Baseline
 
-The 2026-06-27 HA-topology audit reopened Phases `3`, `4`, and `5`; those
+All phases `0`-`18` are re-closed for the HA topology as of 2026-06-29. The
+2026-06-27 HA-topology audit reopened Phases `3`, `4`, and `5`; those
 implementation phases re-closed on 2026-06-28. The checked-in topology now
 matches the HA documentation: HA stateful platform services, one routed Envoy
 socket, one control-plane plus three Kind workers, and **at most one numerical
-ML compute worker per Kubernetes node**. Phase `15` Sprint `15.22` also
-re-closed on 2026-06-28 on the real NVIDIA GeForce RTX 5090 host: HA
-`linux-cuda` rollout 130 steps, `jitml test all --linux-cuda` **8 / 8**,
-`jitml-backends` **20 / 20**, live Playwright **15 / 15**, `docs check: ok`, and
-`check-code: ok`. Phase `16` is blocked until the Apple host exposes a
-GHC-compatible LLVM `opt`/`llc` for the documented `-fllvm` host-native build;
-Phases `17` and `18` remain blocked on that refreshed Apple fragment and the
-downstream aggregation.
+ML compute worker per Kubernetes node**. Phase `15` Sprint `15.22` re-closed on
+the real NVIDIA GeForce RTX 5090 host: HA `linux-cuda` rollout 130 steps,
+`jitml test all --linux-cuda` **8 / 8**, `jitml-backends` **20 / 20**, live
+Playwright **15 / 15**, `docs check: ok`, and `check-code: ok`.
 
-The 2026-06-26 fixed-budget all-model closure remains historical evidence: the
-`linux-cpu`, `linux-cuda`, and `apple-silicon` lanes each closed on their
-then-current topology, and Phase `17`/`18` aggregated that evidence. It is no
-longer the current product status until the HA live lane/aggregation gates
-re-run.
+Phase `16` Sprint `16.14` re-closed on the Apple M1 Max host after the
+GHC-compatible LLVM selection and Docker/Colima capacity blockers were removed.
+`./bootstrap/apple-silicon.sh up` reconciled the HA Apple lane in **131** steps
+at edge `:9090`; the host Metal daemon acquired all host command topics;
+`./bootstrap/apple-silicon.sh test` passed **8 / 8**; direct browser inference
+returned `HTTP 200` with `kind: InferenceResult`; eight demo checkpoints were
+seeded; and the live Playwright product matrix passed **15 / 15**. Phase `17`
+then aggregated the refreshed lane fragments on `linux-cpu` with the HA stack at
+edge `:9091`, all 12 canonical dataset artifacts staged and SHA-verified, and
+`docker compose run --rm jitml jitml test all --live --linux-cpu` passing
+**8 / 8** stanzas with every report-card measurement populated. Phase `18`
+re-closed the final handoff on the same `linux-cpu` aggregation surface.
+
+The 2026-06-26 fixed-budget all-model closure remains historical evidence for
+the previous compact/right-sized topology.
 
 `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is the canonical
 full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
@@ -134,9 +141,9 @@ registered real-environment rollout generation, AlphaZero Connect 4 helpers,
 text command-envelope parsers for the current training/RL/tuning proto mirrors,
 and hyperparameter trial sequences. Real daemon-backed SL/RL/AlphaZero training
 loops, real env stepping, real checkpoint persistence, and Pulsar/MinIO-backed
-hyperparameter sweeps are validated only when the current phase-owned
-fixed-budget model matrix closes; the older per-lane evidence remains
-historical. Phase `8`
+hyperparameter sweeps are validated by the closed fixed-budget model matrix and
+the Phase `15` / `16` live lane attestations, then aggregated by Phase `17`.
+Phase `8`
 Sprint `8.8` retired the deterministic `atari-subset` stand-in and added the
 runtime-loaded Haskell ALE boundary plus explicit ROM policy. The later static
 foreign-source correction removed the checked-in C++ shim; any future ALE
@@ -175,10 +182,9 @@ request envelopes, checkpoint-backed MNIST/CIFAR/Connect 4 route injection,
 generic tensor inference, and checkpoint comparison, plus the RL environment
 animation, training throughput-telemetry, and rules-complete adversarial
 annotations; Sprint `11.9` closed `✅ Done` on 2026-06-16 on that owned code
-surface, and its remaining live all-substrate REST proof, live command-state
-reconciliation, expanded replay/game surfaces, and live no-caveat Playwright
-product matrix are owned downstream by Sprint `14.1` / `14.2` and the Phase
-`15`/`16` live lanes (rule E).
+surface. The live all-substrate REST proof, command-state reconciliation,
+expanded replay/game surfaces, and no-caveat Playwright product matrix are
+closed by Sprint `14.1` / `14.2` and the Phase `15` / `16` live lanes (rule E).
 
 `jitml test all --dry-run` renders the aggregate test plan and non-dry-run
 `jitml test all` invokes every test-only Cabal test-suite stanza (`jitml-unit`,
@@ -194,10 +200,10 @@ AlphaZero, tune, JIT-cache, and daemon-health measurements.
 Sprint `12.11` adds `JitML.Test.WorkflowMatrix` as the single real-workflow
 matrix for SL/RL/tune/inference/AlphaZero coverage. Sprint `12.15` expands that
 workflow matrix into per-model cells and negative infer-before-complete checks.
-The live trained-artifact matrix is part of the `linux-cpu` baseline and the
-Phase `15` `linux-cuda` lane that re-closed on 2026-06-26 (`linux-cpu`: `jitml
-test all --live --linux-cpu` 8/8 and Playwright 15/15; `linux-cuda`: `jitml
-test all --linux-cuda` 8/8 and Playwright 15/15); see
+The live trained-artifact matrix is part of the HA `linux-cpu` aggregation
+baseline and the Phase `15` `linux-cuda` lane (`linux-cpu`: `jitml test all
+--live --linux-cpu` 8/8 and report-card `browser_product_matrix` 8/8;
+`linux-cuda`: `jitml test all --linux-cuda` 8/8 and Playwright 15/15); see
 [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md).
 
 Haskell style and code-quality execution is container-exclusive. The
@@ -533,9 +539,9 @@ and the deletion ledger has no pending rows.
   the current panels away from marker/default parsers, adds training/RL/tune
   command-envelope controls, training metadata, RL replay scrub summaries, and
   multi-game adversarial boards, and renders non-placeholder loss/policy/MCTS/tuning
-  summaries. The no-caveat product target remains open for live all-substrate
-  REST proof, live command-state reconciliation, expanded replay/adversarial
-  surfaces, and live Playwright proof.
+  summaries. The no-caveat product target is closed for live all-substrate REST
+  proof, live command-state reconciliation, expanded replay/adversarial
+  surfaces, and live Playwright proof through Phases `14`-`18`.
   The default `purs-tidy check 'src/**/*.purs'` invocation in `web/` lands
   through `jitml lint purescript` (Sprint `11.3`). Phase:
   [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md).
@@ -908,15 +914,24 @@ for the governing rule.
 
 ## Current Baseline
 
-**⏸️ Current status (2026-06-28): HA topology audit partially re-closed.** Phases
-`3`, `4`, `5`, and `15` are closed for the HA topology target: HA-capable Kind
-nodes, HA platform-service replica/PV topology, exactly one numerical ML compute
-worker per Kubernetes node, and the real `linux-cuda` HA lane. Phase `16`
-remains blocked by the Apple host LLVM prerequisite for the documented
-host-native `-fllvm` build, and Phases `17` and `18` remain blocked downstream
-of that refreshed Apple lane and aggregation. The 2026-06-26 all-Done closure
-below remains historical evidence for the compact local topology and
-fixed-budget model contract, not the current completion state.
+**✅ Current status (2026-06-29): all Phases `0`-`18` are Done for the HA
+topology.** Phases `3`, `4`, `5`, and `15` are closed for the HA topology
+target: HA-capable Kind nodes, HA platform-service replica/PV topology, exactly
+one numerical ML compute worker per Kubernetes node, and the real
+`linux-cuda` HA lane. Phase `16` Sprint `16.14` revalidated the real
+`apple-silicon` HA lane on the Apple M1 Max host after the host LLVM and
+Docker/Colima capacity blockers were removed: live rollout **131** steps,
+host Metal daemon subscriptions acquired, `bootstrap/apple-silicon.sh test`
+**8 / 8**, direct inference `HTTP 200`, and live Playwright **15 / 15**. Phase
+`17` Sprint `17.10` aggregated the refreshed lane fragments on `linux-cpu`; the
+HA `linux-cpu` rollout used edge `:9091`, staged and SHA-verified all 12
+canonical dataset artifacts, seeded eight demo checkpoints, and passed `jitml
+test all --live --linux-cpu` **8 / 8** with populated report-card measurements.
+Phase `18` Sprint `18.5` re-closed the final product handoff; the Pending
+Removal ledger is empty.
+
+The 2026-06-26 all-Done closure below remains historical evidence for the
+compact local topology and fixed-budget model contract.
 
 **Historical status (2026-06-26): all Phases `0`–`18` were Done for the compact
 topology.** Phases `8`–`14` were Done for the fixed-budget all-model

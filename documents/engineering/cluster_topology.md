@@ -23,7 +23,7 @@ scoped placement that permits at most one numerical ML compute worker of each
 scope per Kubernetes node. Phase `3` Sprint `3.6`, Phase `4` Sprint `4.10`, and
 Phase `5` Sprint `5.16` implemented the local materialization; Phase `15`
 Sprint `15.22` revalidated the Linux CUDA live lane, and Phase `16` Sprint
-`16.14` owns the remaining Apple Silicon live lane revalidation.
+`16.14` revalidated the Apple Silicon live lane.
 
 ## Substrates and Cluster Shapes
 
