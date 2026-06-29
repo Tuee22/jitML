@@ -25,13 +25,15 @@
 ## Phase Status
 
 ✅ **Done** (re-closed 2026-06-28 for Sprint `5.16`). The HA service topology now
-enforces **at most one numerical ML compute worker per Kubernetes node**:
-Linux Engine service pods render three replicas, `jitml.compute="true"`,
-`nodeSelector: jitml.node-role/compute=true`, required hostname anti-affinity,
-and hard topology spread; daemon-spawned Linux Training/RL/Tune Jobs render the
-same compute label and placement contract; Apple clustered service pods remain
-single non-compute forwarders so host Metal compute does not multiply with
-cluster replicas. Validation: `cabal build exe:jitml --ghc-options=-fasm`;
+enforces **at most one numerical ML compute worker per compute scope per
+Kubernetes node**: Linux Engine service pods render three replicas,
+`jitml.compute="true"`, `jitml.compute-scope="service"`, `nodeSelector:
+jitml.node-role/compute=true`, required hostname anti-affinity, and hard
+topology spread; daemon-spawned Linux Training/RL/Tune Jobs render
+`jitml.compute-scope="workload"` with the same node-placement contract; Apple
+clustered service pods remain single non-compute forwarders so host Metal
+compute does not multiply with cluster replicas. Validation:
+`cabal build exe:jitml --ghc-options=-fasm`;
 `cabal test jitml-integration --ghc-options=-fasm --test-options='-p cardinality'`;
 `cabal test jitml-daemon-lifecycle --ghc-options=-fasm --test-options='-p cardinality'`.
 Live HA lane revalidation is owned by Phases `15` and `16`. Prior closure history

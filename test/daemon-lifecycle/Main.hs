@@ -639,6 +639,9 @@ main =
                   (label <> " labels the pod as numerical compute")
                   ("jitml.compute: \"true\"" `Text.isInfixOf` manifest)
                 assertBool
+                  (label <> " labels workload compute scope")
+                  ("jitml.compute-scope: workload" `Text.isInfixOf` manifest)
+                assertBool
                   (label <> " pins to compute nodes")
                   ("jitml.node-role/compute: \"true\"" `Text.isInfixOf` manifest)
                 assertBool
@@ -649,6 +652,9 @@ main =
                   ( "topologySpreadConstraints:" `Text.isInfixOf` manifest
                       && "whenUnsatisfiable: DoNotSchedule" `Text.isInfixOf` manifest
                   )
+                assertBool
+                  (label <> " scopes anti-affinity to workload Jobs")
+                  ("jitml.compute-scope: workload" `Text.isInfixOf` manifest)
                 assertBool
                   (label <> " avoids advisory anti-affinity")
                   (not ("preferredDuringSchedulingIgnoredDuringExecution" `Text.isInfixOf` manifest))

@@ -20,6 +20,7 @@ spec:
         jitml.substrate: {{ .Values.substrate | quote }}
         jitml.role: engine
         jitml.compute: {{ if eq .Values.substrate "apple-silicon" }}"false"{{ else }}"true"{{ end }}
+        jitml.compute-scope: service
     spec:
       serviceAccountName: jitml-service
       {{- if eq .Values.substrate "linux-cuda" }}
@@ -35,6 +36,7 @@ spec:
               labelSelector:
                 matchLabels:
                   jitml.compute: "true"
+                  jitml.compute-scope: service
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -42,6 +44,7 @@ spec:
           labelSelector:
             matchLabels:
               jitml.compute: "true"
+              jitml.compute-scope: service
       {{- end }}
       containers:
         - name: jitml-service

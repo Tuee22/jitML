@@ -396,7 +396,7 @@ buckets, and pin the server to a release with S3 conditional-write support
 - `JitML.Cluster.Readiness.minioBucketReadinessSubprocess` is wired into
   `platformReadinessSubprocesses` after the MinIO rollout check and before
   Pulsar topic bootstrap. It executes the Bitnami in-pod `mc` binary from
-  `deploy/minio`, aliases `http://minio.platform.svc.cluster.local:9000` with
+  `statefulset/minio`, aliases `http://minio.platform.svc.cluster.local:9000` with
   the chart's explicit local demo credentials, and checks every bucket from
   `JitML.Storage.Buckets.bucketNames` with a bounded retry loop so the command
   survives MinIO's setup-server to final-server transition. Live Linux CPU

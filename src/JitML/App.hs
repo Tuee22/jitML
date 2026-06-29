@@ -180,7 +180,7 @@ import JitML.Service.Workload qualified as Workload
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (subprocess)
-import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
 import JitML.Test.Report
   ( ReportCard (..)
   , ReportMeasurement (..)
@@ -1668,16 +1668,15 @@ runDeviceMnistTrainingWithLimits
   :: Substrate -> SL.CanonicalProblem -> Int -> Int -> Int -> App (Either Text TrainingMetrics)
 runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit = do
   env <- ask
-  cluster <- liftIO (readExistingLivePublication ".")
-  case cluster of
+  liveContext <- workerLiveContext
+  case liveContext of
     Nothing ->
       pure (Left "no live cluster publication (run `jitml bootstrap --<substrate>`)")
-    Just publication ->
+    Just context ->
       case Dataset.datasetForProblem problem of
         Just trainRef
           | hasCanonicalLabels trainRef -> do
-              let edgePort = Publication.publicationEdgePort publication
-                  minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+              let minioSettings = workerLiveMinIOSettings context
                   run :: MinIOSubprocess.MinIOSubprocess a -> App a
                   run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
               imagesE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ImagesArtifact)
@@ -1736,7 +1735,7 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                 trainLimit
                 epochs
                 testLimit
-                publication
+                (workerLiveMinIOSettings context)
                 Classifier.decodeCifar10ArchiveBoundedDataset
           | Dataset.datasetName trainRef == "CIFAR-100" && hasCanonicalArchive trainRef ->
               runDeviceArchiveClassifierTraining
@@ -1746,7 +1745,7 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                 trainLimit
                 epochs
                 testLimit
-                publication
+                (workerLiveMinIOSettings context)
                 Classifier.decodeCifar100ArchiveBoundedDataset
           | Dataset.datasetName trainRef == "Tiny ImageNet" && hasCanonicalArchive trainRef ->
               runDeviceArchiveClassifierTraining
@@ -1756,7 +1755,7 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                 trainLimit
                 epochs
                 testLimit
-                publication
+                (workerLiveMinIOSettings context)
                 TinyImageNet.decodeTinyImageNetArchiveBoundedClassificationDataset
           | Dataset.datasetName trainRef == "California Housing" && hasCanonicalArchive trainRef ->
               runDeviceCaliforniaHousingTraining
@@ -1765,7 +1764,7 @@ runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit =
                 trainRef
                 trainLimit
                 epochs
-                publication
+                (workerLiveMinIOSettings context)
         _ ->
           pure
             (Left ("no staged canonical dataset for problem " <> SL.problemName problem))
@@ -1777,7 +1776,7 @@ runDeviceArchiveClassifierTraining
   -> Int
   -> Int
   -> Int
-  -> ClusterPublication
+  -> MinIOSubprocess.MinIOSettings
   -> ( Classifier.ClassifierConfig
        -> Dataset.DatasetSplit
        -> Maybe Int
@@ -1785,11 +1784,9 @@ runDeviceArchiveClassifierTraining
        -> Either String (Classifier.ClassifierConfig, Classifier.Dataset)
      )
   -> App (Either Text TrainingMetrics)
-runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs testLimit publication decodeArchive = do
+runDeviceArchiveClassifierTraining substrate problem trainRef trainLimit epochs testLimit minioSettings decodeArchive = do
   env <- ask
-  let edgePort = Publication.publicationEdgePort publication
-      minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-      run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
+  let run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
       config = Classifier.defaultClassifierConfig {Classifier.clfEpochs = max 1 epochs}
       device = mlpDeviceForSubstrate substrate env
   archiveE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
@@ -1848,13 +1845,11 @@ runDeviceCaliforniaHousingTraining
   -> Dataset.DatasetRef
   -> Int
   -> Int
-  -> ClusterPublication
+  -> MinIOSubprocess.MinIOSettings
   -> App (Either Text TrainingMetrics)
-runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs publication = do
+runDeviceCaliforniaHousingTraining substrate problem trainRef trainLimit epochs minioSettings = do
   env <- ask
-  let edgePort = Publication.publicationEdgePort publication
-      minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-      run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
+  let run action = liftIO (MinIOSubprocess.runMinIOSubprocess minioSettings action)
       device = mlpDeviceForSubstrate substrate env
   archiveE <- run (Dataset.fetchDatasetArtifactBytes trainRef Dataset.ArchiveArtifact)
   case archiveE of
@@ -1990,6 +1985,53 @@ evaluateTestSplitDevice device minioSettings trainRef trained limit = do
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe (Right value) = Just value
 eitherToMaybe (Left _) = Nothing
+
+data WorkerLiveContext = WorkerLiveContext
+  { workerLivePublication :: ClusterPublication
+  , workerLiveMinIOSettings :: MinIOSubprocess.MinIOSettings
+  , workerLivePulsarSettings :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
+  }
+
+-- | Resolve live service coordinates for a worker process. Daemon-dispatched
+-- Kubernetes Jobs mount @BootConfig.dhall@ but do not have the host's
+-- @.build/runtime/cluster-publication.json@, so they must use in-cluster
+-- service DNS for MinIO/Pulsar. Host-side developer commands keep using the
+-- leased edge publication file.
+workerLiveContext :: App (Maybe WorkerLiveContext)
+workerLiveContext = do
+  bootMaybe <- liftIO (tryLoadBootConfigFromFile serviceBootConfigPath)
+  case bootMaybe of
+    Just bootConfig -> do
+      let clientSettings = ServiceClients.daemonClientSettingsForBootConfig bootConfig
+      pure $
+        Just
+          WorkerLiveContext
+            { workerLivePublication = publicationFromBootConfig bootConfig
+            , workerLiveMinIOSettings = ServiceClients.daemonMinIOSettings clientSettings
+            , workerLivePulsarSettings = ServiceClients.daemonPulsarSettings clientSettings
+            }
+    Nothing -> do
+      cluster <- liftIO (readExistingLivePublication ".")
+      pure $
+        fmap
+          ( \publication ->
+              let edgePort = Publication.publicationEdgePort publication
+               in WorkerLiveContext
+                    { workerLivePublication = publication
+                    , workerLiveMinIOSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+                    , workerLivePulsarSettings =
+                        PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+                    }
+          )
+          cluster
+
+publicationFromBootConfig :: BootConfig.BootConfig -> ClusterPublication
+publicationFromBootConfig bootConfig =
+  (defaultPublication (BootConfig.bootSubstrate bootConfig))
+    { Publication.publicationEdgePort = substrateEdgePort (BootConfig.bootSubstrate bootConfig)
+    , Publication.publicationPulsarUrl = BootConfig.bootPulsarServiceUrl bootConfig
+    , Publication.publicationMinioUrl = BootConfig.bootMinioEndpoint bootConfig
+    }
 
 -- | Sprint 13.5 — resolve the worker's broker publish target. A
 -- daemon-dispatched worker runs inside a Kubernetes Job pod where the
@@ -2485,15 +2527,15 @@ renderAlphaZeroTranscriptArtifact experimentHash seed sims maxPlies samples =
 publishWorkerTuneEvent :: App ()
 publishWorkerTuneEvent = do
   env <- ask
-  cluster <- liftIO (readExistingLivePublication ".")
+  liveContext <- workerLiveContext
   experimentHashMaybe <- liftIO workerExperimentHash
-  case (cluster, experimentHashMaybe) of
-    (Just publication, Just experimentHash) -> do
-      let substrate = Publication.publicationSubstrate publication
-          edgePort = Publication.publicationEdgePort publication
-          pulsarSettings = PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
+  case (liveContext, experimentHashMaybe) of
+    (Just context, Just experimentHash) -> do
+      let publication = workerLivePublication context
+          substrate = Publication.publicationSubstrate publication
+          pulsarSettings = workerLivePulsarSettings context
           topic = Capabilities.TopicName (ProtoTune.tuneEventTopic substrate)
-          minioSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
+          minioSettings = workerLiveMinIOSettings context
           device = mlpDeviceForSubstrate substrate env
       trialBudget <- liftIO (lookupTrialBudget 6)
       sweepSeed <- liftIO (lookupSweepSeed 0)

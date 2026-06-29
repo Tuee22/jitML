@@ -965,6 +965,7 @@ renderJob substrate component name args envVars =
     , "        jitml.substrate: " <> renderSubstrate substrate
     , "        jitml.role: engine"
     , "        jitml.compute: " <> yamlLabelBool (substrateHasClusterCompute substrate)
+    , "        jitml.compute-scope: workload"
     , "    spec:"
     , "      restartPolicy: Never"
     ]
@@ -1009,6 +1010,7 @@ clusterComputePlacementLines substrate
       , "              labelSelector:"
       , "                matchLabels:"
       , "                  jitml.compute: \"true\""
+      , "                  jitml.compute-scope: workload"
       , "      topologySpreadConstraints:"
       , "        - maxSkew: 1"
       , "          topologyKey: kubernetes.io/hostname"
@@ -1016,6 +1018,7 @@ clusterComputePlacementLines substrate
       , "          labelSelector:"
       , "            matchLabels:"
       , "              jitml.compute: \"true\""
+      , "              jitml.compute-scope: workload"
       ]
 
 nvidiaEnvVars :: Substrate -> [(Text, Text)]
@@ -1088,6 +1091,7 @@ renderJobMountedRunConfig substrate component jobName configMapName args =
     , "        jitml.substrate: " <> renderSubstrate substrate
     , "        jitml.role: engine"
     , "        jitml.compute: " <> yamlLabelBool (substrateHasClusterCompute substrate)
+    , "        jitml.compute-scope: workload"
     , "    spec:"
     , "      restartPolicy: Never"
     ]

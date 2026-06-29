@@ -119,12 +119,12 @@ jitML produces **one Haskell front end** with JIT codegen for several hardware t
 | Substrate | Codegen | Container shape | Service residency |
 |---|---|---|---|
 | `apple-silicon` | Haskell-rendered MSL + fixed host Metal bridge | partial — cluster services in Kind; a second `jitml service` runs host-native because Metal cannot be containerized | **one binary, two instances** of `jitml service`, distinguished entirely by their Dhall configs: clustered (Dhall: `residency = Cluster`, `inferenceMode = ForwardToHost`) + host-native (Dhall: `residency = Host`, `inferenceMode = SelfInference`). See [Bit-determinism contract](#bit-determinism-contract) for what same-substrate equality means under this split. |
-| `linux-cpu` | oneDNN + AVX2/AVX-512 | fully containerized: `jitml:local` | one daemon: clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); pod anti-affinity = one per node |
-| `linux-cuda` | CUDA C + cuBLAS / cuDNN | fully containerized: `jitml:local` (CUDA activates at runtime when scheduled to `runtimeClassName: nvidia`) | one daemon: clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); pod anti-affinity = one per node |
+| `linux-cpu` | oneDNN + AVX2/AVX-512 | fully containerized: `jitml:local` | clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); HA service replicas and daemon-spawned workload Jobs use separate compute-scope anti-affinity |
+| `linux-cuda` | CUDA C + cuBLAS / cuDNN | fully containerized: `jitml:local` (CUDA activates at runtime when scheduled to `runtimeClassName: nvidia`) | clustered `jitml service` (Dhall: `residency = Cluster`, `inferenceMode = SelfInference`); HA service replicas and daemon-spawned workload Jobs use separate compute-scope anti-affinity |
 
 There is **one CLI surface for the daemon — `jitml service` — parameterised entirely by its Dhall config** ([CLI command topology, typed](#cli-command-topology-typed)). The Dhall declares substrate, residency (cluster | host), inference mode (`SelfInference` | `ForwardToHost`), and the host-side MinIO / Pulsar connection info when `residency = Host`. There is no separate `host-service` CLI verb.
 
-On every substrate the in-cluster `jitml-service` Deployment is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), and the orchestrator owns no PVC of its own. The target topology is HA-capable, but it preserves a stricter numerical-worker invariant: required pod anti-affinity at `topologyKey: kubernetes.io/hostname` allows at most one numerical ML compute worker per Kubernetes node, irrespective of other service replica counts. The current checked-in local profile is still compact and single-node while Phases `3`, `4`, and `5` are reopened for HA alignment; that legacy implementation is tracked in `DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`. On every substrate the clustered daemon performs Pulsar fan-in/fan-out, durable state coordination, and client-facing routing. Linux substrates additionally execute device-backed workloads in-pod (`SelfInference`); Apple Silicon forwards every Metal-backed workload to the host daemon, since Metal cannot be containerized. Either mode is in principle expressible on either substrate; the substrate x mode table above reflects current practice.
+On every substrate the in-cluster `jitml-service` Deployment is a **stateless Deployment**, not a StatefulSet: durable state lives in MinIO and Pulsar exclusively (no relational DB in jitML's path), and the orchestrator owns no PVC of its own. The HA topology preserves a strict numerical-worker invariant with scoped scheduling: service Engine pods use `jitml.compute-scope: service`, daemon-spawned workload Jobs use `jitml.compute-scope: workload`, and each scope has required pod anti-affinity at `topologyKey: kubernetes.io/hostname`. This keeps HA service replicas and live workload Jobs from deadlocking each other while still placing at most one numerical worker of a scope on a node. On every substrate the clustered daemon performs Pulsar fan-in/fan-out, durable state coordination, and client-facing routing. Linux substrates additionally execute device-backed workloads in-pod (`SelfInference`); Apple Silicon forwards every Metal-backed workload to the host daemon, since Metal cannot be containerized. Either mode is in principle expressible on either substrate; the substrate x mode table above reflects current practice.
 
 [^linux-opencl]: An optional fourth substrate `linux-opencl` (Intel GPU) is admitted as a future extension; the codegen path is shaped to accept it without disturbing the three primary substrates above. Not in the current support matrix.
 
@@ -338,8 +338,9 @@ A reconciler that finds a missing prerequisite fails with exit code `2` (system 
 
 Per-substrate Kind configs live at `./kind/cluster-<substrate>.yaml`. The
 checked-in topology is HA-capable: one control-plane plus three worker nodes
-sized by the HA resource profile, a single user-facing Envoy socket, and at most
-one numerical ML compute worker per Kubernetes node.
+sized by the HA resource profile, a single user-facing Envoy socket, and scoped
+placement that permits at most one numerical ML compute worker of each scope per
+Kubernetes node.
 After `kind create`, the bootstrap reconciler caps materialized node containers'
 memory and CPU (`docker update --memory/--memory-swap/--cpus`) from the typed
 `dhall/cluster/` resource profile, so the cluster footprint is bounded and a
@@ -446,13 +447,14 @@ Naming convention is uniform: **`<k8s-namespace>/<StatefulSet-name>/pv_<replica-
 .data/
 └── platform/
     ├── minio/{pv_0, pv_1, pv_2, pv_3}                  -- 4 distributed replicas
-    ├── pulsar-bookkeeper/{pv_0, pv_1, pv_2}            -- 3 bookies
-    ├── pulsar-zookeeper/{pv_0, pv_1, pv_2}             -- 3 ZK nodes
+    ├── pulsar-bookie-journal/{pv_0, pv_1, pv_2}        -- bookie journals
+    ├── pulsar-bookie-ledgers/{pv_0, pv_1, pv_2}        -- bookie ledgers
+    ├── pulsar-zookeeper-data/{pv_0, pv_1, pv_2}        -- ZK data
     ├── harbor-pg/{pv_0, pv_1, pv_2}                    -- 3 Postgres instances
     └── harbor-pg-repo1/pv_0                            -- pgBackRest repo
 ```
 
-Corresponding PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookkeeper-pv-1`, etc.; StatefulSet PVs are bound to the per-replica PVC (e.g. `data-minio-0`, `journal-pulsar-bookkeeper-1`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
+Corresponding PV resources are named `platform-minio-pv-0`, `platform-pulsar-bookie-journal-pv-1`, `platform-pulsar-bookie-ledgers-pv-1`, etc.; StatefulSet PVs are bound to the chart-generated per-replica PVC (for example `data-minio-0`, `pulsar-bookie-journal-pulsar-bookie-1`, `pulsar-bookie-ledgers-pulsar-bookie-1`, and `pulsar-zookeeper-data-pulsar-zookeeper-1`), and registered Percona PVs are bound by `volumeName`. `jitml lint files` rejects any path under `.data/` that does not match the `<namespace>/<StatefulSet>/pv_<int>` regex, and `jitml lint chart` rejects any StorageClass with a provisioner other than `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either an explicit `claimRef` or a registered Percona `volumeName` binding.
 
 The HA layout above is the documentation source of truth and the checked-in
 implementation: MinIO renders four distributed replicas, Pulsar renders three
@@ -468,8 +470,11 @@ wrong shape. Numerical ML compute is capped at **one Engine worker per
 Kubernetes node** via scheduling rules; Coordinator, Webapp, observability, and
 platform services may have their own replica counts without creating additional
 numerical workers on the same node. Linux clustered service pods and rendered
-workload Jobs carry `jitml.compute: "true"`, use the compute-node selector, and
-enforce hard per-host anti-affinity/topology spread; Apple Silicon clustered
+service pods carry `jitml.compute: "true"` plus `jitml.compute-scope: "service"`,
+and workload Jobs carry `jitml.compute: "true"` plus
+`jitml.compute-scope: "workload"`. Each scope uses the compute-node selector and
+hard per-host anti-affinity/topology spread against its own selector, so service
+replicas and transient work do not block each other; Apple Silicon clustered
 service pods are non-compute forwarders. Kind nodes maintain JIT cache under the mounted
 `./.build/jit/<substrate>/` hostPath, which is fine because JIT artifacts are
 deterministic functions of `(model-shape, kind, substrate, toolchain)`.

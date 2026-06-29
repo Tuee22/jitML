@@ -1279,7 +1279,8 @@ live `jitml test all --apple-silicon`, `DEVELOPMENT_PLAN/attestations/`
 ### Objective
 
 Re-run the Apple Silicon live lane on real Apple hardware after the HA Kind,
-platform-service, and one-numerical-worker-per-node topology sprints close.
+platform-service, and scoped one-numerical-worker-per-node topology sprints
+close.
 
 ### Deliverables
 

@@ -27,19 +27,26 @@
 
 ## Phase Status
 
-⏸️ **Blocked** (reopened 2026-06-27 for Sprint `15.22`; blocker updated
-2026-06-28 after Phases `3`/`4`/`5` re-closed).
+✅ **Done** (re-closed 2026-06-28 for Sprint `15.22` on the NVIDIA GeForce RTX
+5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`). The HA
+Linux-CUDA topology is now live-validated: one control-plane plus three Kind
+workers, distributed MinIO with provisioning-managed buckets, HA Pulsar with
+chart-matched manual PV/PVC names, three `jitml-service` Engine replicas, and
+daemon-dispatched workload Jobs spread independently from service replicas by
+`jitml.compute-scope`.
 
-**Blocked by**: a real Linux/NVIDIA host session with the NVIDIA Container
-Runtime attached. The current execution host is Darwin arm64 on Apple M1 Max
-and has no `nvidia-smi`/NVIDIA runtime, so the `linux-cuda` HA live lane cannot
-run here.
+Validation used rebuilt `jitml:local` image manifest list
+`sha256:4357054cfac0135eccd06ddea37e4f0c4d9ed8d07abbe8cab9a278a98caa03b2`
+(`check-code: ok`, PureScript bundle build OK), a clean
+`JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cuda.sh up` HA rollout
+that executed **130 steps** at edge `:9092`, the full
+`docker compose run --rm jitml-cuda jitml test all --linux-cuda` gate passing
+**8 / 8 stanzas** with `jitml-backends` **20 / 20** on the real GPU, seeded
+eight demo checkpoints, a clean live Playwright product matrix **15 / 15**,
+`jitml docs check: ok`, and final `jitml check-code: ok`.
 
-The lower HA implementation sprints (`3.6`, `4.10`, `5.16`) are closed. The
-live Linux CUDA/cluster lane still must be revalidated against the targeted HA
-topology on real NVIDIA hardware. The 2026-06-26 RTX 5090 evidence remains
-historical evidence for the compact/right-sized topology, not a current final
-closure for the HA target. Prior closure history follows.
+The 2026-06-26 RTX 5090 evidence remains historical evidence for the previous
+compact/right-sized topology. Prior closure history follows.
 
 ✅ **Done** (re-closed 2026-06-26 for Sprint `15.21` on the NVIDIA GeForce RTX
 5090 host, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`, driver
@@ -4312,11 +4319,9 @@ real `linux-cuda` lane after the `linux-cpu` baseline closes.
 None. The expanded `linux-cuda` all-model lane is closed; Phase `16` remains
 blocked on a separate Apple Silicon/Metal host.
 
-## Sprint 15.22: Linux-CUDA HA Cluster Revalidation [⏸️ Blocked]
+## Sprint 15.22: Linux-CUDA HA Cluster Revalidation [✅ Done]
 
-**Status**: Blocked (opened 2026-06-27)
-**Blocked by**: real Linux/NVIDIA host session with NVIDIA Container Runtime
-attached. Current session: Darwin arm64 / Apple M1 Max, no `nvidia-smi`.
+**Status**: Done (closed 2026-06-28 on the NVIDIA GeForce RTX 5090 host)
 **Implementation**: `bootstrap/linux-cuda.sh`, `docker compose` `jitml-cuda`,
 live `jitml test all --linux-cuda`, `DEVELOPMENT_PLAN/attestations/`
 **Docs to update**: `system-components.md`,
@@ -4325,26 +4330,47 @@ live `jitml test all --linux-cuda`, `DEVELOPMENT_PLAN/attestations/`
 ### Objective
 
 Re-run the Linux CUDA live lane on real NVIDIA hardware after the HA Kind,
-platform-service, and one-numerical-worker-per-node topology sprints close.
+platform-service, and scoped one-numerical-worker-per-node topology sprints
+close.
 
 ### Deliverables
 
 - Bootstrap the HA `linux-cuda` topology with the real NVIDIA runtime.
 - Validate the Engine/numerical compute placement invariant: at most one
-  numerical ML worker per Kubernetes node.
+  numerical ML worker per compute scope per Kubernetes node.
 - Re-run the CUDA substrate test lane and live workflow/report-card matrix.
 - Refresh the Linux CUDA attestation for the HA topology.
 
 ### Validation
 
-- `docker compose run --rm jitml-cuda jitml test all --linux-cuda`
-- Live Playwright product matrix against the published CUDA edge.
-- `jitml docs check`
+- `docker compose build jitml` — PASS, including embedded `check-code: ok`,
+  PureScript bundle build, and image manifest list
+  `sha256:4357054cfac0135eccd06ddea37e4f0c4d9ed8d07abbe8cab9a278a98caa03b2`.
+- `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cuda.sh up` — clean HA
+  rollout PASS, **130 steps**, edge `9092`, all seven publication components
+  Ready.
+- Canonical dataset staging — all 12 canonical artifacts present in live MinIO
+  with pinned SHA-256 verification from the Sprint `15.22` session.
+- `docker compose run --rm jitml-cuda jitml test all --linux-cuda` — PASS,
+  **8 / 8 stanzas**, including `jitml-integration` live WorkflowMatrix
+  `880.86s`, live PPO convergence `264.46s`, and `jitml-backends` **20 / 20**
+  on the RTX 5090.
+- Focused regression checks during closure:
+  `jitml-sl-canonicals` **24 / 24**, HA service cardinality and Pulsar PV/PVC
+  integration checks, and the HA-aware duplicate `StartTraining` dedup log
+  assertion.
+- `docker compose run --rm jitml jitml internal seed-demo-checkpoints` — eight
+  demo checkpoints seeded.
+- Live Playwright product matrix against the published CUDA edge — clean
+  **15 / 15 PASS** (`15 passed (17.4s)`) in
+  `mcr.microsoft.com/playwright:v1.49.1-noble`.
+- `docker compose run --rm jitml jitml docs check` — PASS (`docs check: ok`).
+- `docker compose run --rm jitml jitml check-code` — PASS (`check-code: ok`).
 
 ### Remaining Work
 
-- Re-run this sprint on a real Linux/NVIDIA host now that Sprints `3.6`,
-  `4.10`, and `5.16` are closed.
+None. The HA Linux-CUDA lane is closed. Phase `16` remains blocked on the
+separate Apple Silicon host LLVM prerequisite for Sprint `16.14`.
 
 ## Related Documents
 

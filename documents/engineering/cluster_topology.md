@@ -19,10 +19,11 @@ against `JitML.Coordinator.Topology`. See [durable_state_dsl.md](durable_state_d
 **HA topology source of truth (2026-06-27):** this document describes the
 implemented HA topology: one control-plane node plus three workers per
 substrate, one localhost Envoy edge socket, distributed stateful services, and
-at most one numerical ML compute worker per Kubernetes node. Phase `3` Sprint
-`3.6`, Phase `4` Sprint `4.10`, and Phase `5` Sprint `5.16` implemented the
-local materialization; Phase `15` Sprint `15.22` and Phase `16` Sprint `16.14`
-own the next live lane revalidations.
+scoped placement that permits at most one numerical ML compute worker of each
+scope per Kubernetes node. Phase `3` Sprint `3.6`, Phase `4` Sprint `4.10`, and
+Phase `5` Sprint `5.16` implemented the local materialization; Phase `15`
+Sprint `15.22` revalidated the Linux CUDA live lane, and Phase `16` Sprint
+`16.14` owns the remaining Apple Silicon live lane revalidation.
 
 ## Substrates and Cluster Shapes
 
@@ -91,8 +92,9 @@ Example layout for the `platform` namespace:
 .data/
 └── platform/
     ├── minio/{pv_0, pv_1, pv_2, pv_3}                  -- 4 distributed replicas
-    ├── pulsar-bookkeeper/{pv_0, pv_1, pv_2}            -- 3 bookies
-    ├── pulsar-zookeeper/{pv_0, pv_1, pv_2}             -- 3 ZK nodes
+    ├── pulsar-bookie-journal/{pv_0, pv_1, pv_2}        -- bookie journals
+    ├── pulsar-bookie-ledgers/{pv_0, pv_1, pv_2}        -- bookie ledgers
+    ├── pulsar-zookeeper-data/{pv_0, pv_1, pv_2}        -- ZK data
     ├── harbor-pg/{pv_0, pv_1, pv_2}                    -- 3 Postgres instances
     └── harbor-pg-repo1/pv_0                            -- pgBackRest repo
 ```
@@ -334,17 +336,19 @@ writes a Haskell-encoded TensorBoard scalar shard through routed
 
 The Engine/numerical compute role is stateless and owns no PVC of its own —
 durable state lives entirely in MinIO and Pulsar — so a StatefulSet would be the
-wrong shape. The HA target enforces **at most one numerical ML compute worker per
-Kubernetes node**. Required anti-affinity/topology-spread belongs to that compute
-role; Coordinator, Webapp, observability, and platform services may use their own
-replica counts without placing additional numerical workers on a node. Linux
-substrates render three Engine replicas, pin them to
-`jitml.node-role/compute=true` workers, label them `jitml.compute="true"`, and
-use required hostname anti-affinity plus hard topology spread matching that
-compute label. Daemon-spawned Linux Training/RL/Tune Jobs use the same
-`jitml.compute="true"` placement contract, so Jobs cannot bypass the one-per-node
-invariant. Apple Silicon keeps the clustered service as a single non-compute
-forwarder (`jitml.compute="false"`); Metal work remains on the host daemon.
+wrong shape. The HA target enforces scoped **at most one numerical ML compute
+worker per Kubernetes node** placement. Required anti-affinity/topology-spread
+belongs to compute scopes; Coordinator, Webapp, observability, and platform
+services may use their own replica counts without placing additional numerical
+workers on a node. Linux substrates render three Engine replicas, pin them to
+`jitml.node-role/compute=true` workers, and label them `jitml.compute="true"` plus
+`jitml.compute-scope="service"`. Daemon-spawned Linux Training/RL/Tune Jobs use
+`jitml.compute="true"` plus `jitml.compute-scope="workload"`. Each scope matches
+only itself for required hostname anti-affinity and hard topology spread, so Jobs
+cannot bypass their one-per-node invariant and also cannot be blocked by the HA
+service replicas. Apple Silicon keeps the clustered service as a single
+non-compute forwarder (`jitml.compute="false"`); Metal work remains on the host
+daemon.
 
 The Kind node maintains its JIT cache under the mounted
 `./.build/jit/<substrate>/` hostPath. JIT artifacts are deterministic functions

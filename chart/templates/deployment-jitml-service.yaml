@@ -20,6 +20,7 @@ spec:
         jitml.substrate: linux-cuda
         jitml.role: engine
         jitml.compute: "true"
+        jitml.compute-scope: service
     spec:
       serviceAccountName: jitml-service
       runtimeClassName: nvidia
@@ -32,6 +33,7 @@ spec:
               labelSelector:
                 matchLabels:
                   jitml.compute: "true"
+                  jitml.compute-scope: service
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -39,6 +41,7 @@ spec:
           labelSelector:
             matchLabels:
               jitml.compute: "true"
+              jitml.compute-scope: service
       containers:
         - name: jitml-service
           image: jitml:local

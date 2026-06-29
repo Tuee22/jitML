@@ -30,8 +30,8 @@ manualPVs :: [ManualPV]
 manualPVs =
   concat
     [ statefulSetReplicas "platform" "minio" 4 "20Gi"
-    , statefulSetReplicas "platform" "pulsar-bookkeeper" 3 "20Gi"
-    , statefulSetReplicas "platform" "pulsar-zookeeper" 3 "10Gi"
+    , pulsarBookieReplicas "platform" 3
+    , pulsarZookeeperReplicas "platform" 3 "10Gi"
     , perconaReplicas "platform" "harbor-pg" 3 "10Gi"
     , perconaReplicas "platform" "harbor-pg-repo1" 1 "10Gi"
     ]
@@ -114,6 +114,32 @@ statefulSetReplicas namespace statefulSet count size =
       replica
       size
       (Just ("data-" <> statefulSet <> "-" <> Text.pack (show replica)))
+  | replica <- [0 .. count - 1]
+  ]
+
+pulsarBookieReplicas :: Text -> Int -> [ManualPV]
+pulsarBookieReplicas namespace count =
+  pulsarBookieVolume "pulsar-bookie-journal" "journal" "10Gi"
+    ++ pulsarBookieVolume "pulsar-bookie-ledgers" "ledgers" "20Gi"
+ where
+  pulsarBookieVolume statefulSet volumeName size =
+    [ ManualPV
+        namespace
+        statefulSet
+        replica
+        size
+        (Just ("pulsar-bookie-" <> volumeName <> "-pulsar-bookie-" <> Text.pack (show replica)))
+    | replica <- [0 .. count - 1]
+    ]
+
+pulsarZookeeperReplicas :: Text -> Int -> Text -> [ManualPV]
+pulsarZookeeperReplicas namespace count size =
+  [ ManualPV
+      namespace
+      "pulsar-zookeeper-data"
+      replica
+      size
+      (Just ("pulsar-zookeeper-data-pulsar-zookeeper-" <> Text.pack (show replica)))
   | replica <- [0 .. count - 1]
   ]
 

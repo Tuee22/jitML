@@ -9,11 +9,9 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (eitherDecode)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as AesonKeyMap
-import Data.Function ((&))
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Data.Text.Encoding.Error qualified as Text.Encoding.Error
 import Data.Text.IO qualified as Text.IO
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Word (Word64)
@@ -49,6 +47,7 @@ import JitML.Cluster.PostgresRegistry qualified as PostgresRegistry
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Cluster.Readiness qualified as Readiness
+import JitML.Cluster.Storage qualified as Storage
 import JitML.Engines.CpuFeatures (CpuFeatures (..), detectCpuFeatures, microKernelChoice)
 import JitML.Engines.CudaRuntime qualified as CudaRuntime
 import JitML.Engines.Local qualified as Local
@@ -1394,6 +1393,30 @@ main =
           assertBool
             "retired mirror placeholder is absent from the Helm release plan"
             (not ("jitml-mirror" `Text.isInfixOf` rendered))
+      , testCase "Pulsar HA manual PVs match chart-generated PVC names (Sprint 15.22)" $ do
+          let renderedPVs = Text.unlines (fmap Storage.renderManualPV Storage.manualPVs)
+          assertBool
+            "BookKeeper journal PVC claimRef"
+            ("name: pulsar-bookie-journal-pulsar-bookie-0" `Text.isInfixOf` renderedPVs)
+          assertBool
+            "BookKeeper ledgers PVC claimRef"
+            ("name: pulsar-bookie-ledgers-pulsar-bookie-0" `Text.isInfixOf` renderedPVs)
+          assertBool
+            "ZooKeeper data PVC claimRef"
+            ("name: pulsar-zookeeper-data-pulsar-zookeeper-0" `Text.isInfixOf` renderedPVs)
+          assertBool
+            "stale single-volume BookKeeper claimRefs are absent"
+            (not ("data-pulsar-bookkeeper" `Text.isInfixOf` renderedPVs))
+          pulsarValues <- Text.IO.readFile "chart/values/pulsar.yaml"
+          assertBool
+            "ZooKeeper storage class is set at the chart's data-volume leaf"
+            ("    data:\n      size: 10Gi\n      storageClassName: jitml-manual" `Text.isInfixOf` pulsarValues)
+          assertBool
+            "BookKeeper journal storage class is set at the chart's journal leaf"
+            ("    journal:\n      size: 10Gi\n      storageClassName: jitml-manual" `Text.isInfixOf` pulsarValues)
+          assertBool
+            "BookKeeper ledgers storage class is set at the chart's ledgers leaf"
+            ("    ledgers:\n      size: 20Gi\n      storageClassName: jitml-manual" `Text.isInfixOf` pulsarValues)
       , testCase "jitml-service local chart carries current Dhall config surface" $ do
           configMap <- Text.IO.readFile "chart/local/jitml-service/templates/configmap.yaml"
           deployment <- Text.IO.readFile "chart/local/jitml-service/templates/deployment.yaml"
@@ -1412,6 +1435,9 @@ main =
             ( "jitml.compute: {{ if eq .Values.substrate \"apple-silicon\" }}\"false\"{{ else }}\"true\"{{ end }}"
                 `Text.isInfixOf` deployment
             )
+          assertBool
+            "local chart scopes service Engine anti-affinity"
+            ("jitml.compute-scope: service" `Text.isInfixOf` deployment)
           assertBool
             "local chart pins Linux Engine pods to compute nodes"
             ("jitml.node-role/compute: \"true\"" `Text.isInfixOf` deployment)
@@ -1463,6 +1489,18 @@ main =
           assertBool
             "direct MinIO uses manual persistent storage"
             ("storageClass: jitml-manual" `Text.isInfixOf` minioValues)
+          assertBool
+            "direct distributed MinIO uses provisioning buckets"
+            ("provisioning:\n  enabled: true\n  buckets:" `Text.isInfixOf` minioValues)
+          assertBool
+            "direct distributed MinIO does not use standalone defaultBuckets"
+            (not ("defaultBuckets:" `Text.isInfixOf` minioValues))
+          assertBool
+            "direct MinIO provisions the Harbor registry bucket"
+            ("- name: harbor-registry" `Text.isInfixOf` minioValues)
+          assertBool
+            "direct MinIO bucket provisioning does not issue versioning commands"
+            ("versioning: Unchanged" `Text.isInfixOf` minioValues)
           assertBool
             "direct Pulsar has 3x ZooKeeper"
             ("zookeeper:\n  replicaCount: 3" `Text.isInfixOf` pulsarValues)
@@ -1674,7 +1712,7 @@ main =
             -- so they no longer appear in the rendered subprocess text.
             assertBool
               "live rollout waits for MinIO deployment readiness before topic bootstrap"
-              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status deployment/minio --timeout=300s"
+              ( "kubectl --kubeconfig ./.build/jitml.kubeconfig -n platform rollout status statefulset/minio --timeout=300s"
                   `Text.isInfixOf` commandText
               )
             assertBool
@@ -1740,7 +1778,7 @@ main =
       , testCase "platform readiness checks cover Phase 4 service rollouts" $ do
           let rendered = Text.unlines (fmap renderSubprocess Readiness.platformReadinessSubprocesses)
           assertBool "Harbor readiness" ("rollout status deployment/harbor-core" `Text.isInfixOf` rendered)
-          assertBool "MinIO readiness" ("rollout status deployment/minio" `Text.isInfixOf` rendered)
+          assertBool "MinIO readiness" ("rollout status statefulset/minio" `Text.isInfixOf` rendered)
           assertBool "Pulsar readiness" ("rollout status statefulset/pulsar-broker" `Text.isInfixOf` rendered)
           assertBool
             "Prometheus readiness"
@@ -1751,10 +1789,14 @@ main =
           assertBool
             "PerconaPGCluster readiness"
             ("wait perconapgcluster/harbor-pg '--for=jsonpath={.status.state}=ready'" `Text.isInfixOf` rendered)
-          assertBool "NVIDIA RuntimeClass check" ("get runtimeclass nvidia" `Text.isInfixOf` rendered)
-          assertBool "MinIO bucket readiness exec" ("exec -n platform deploy/minio" `Text.isInfixOf` rendered)
+          assertBool
+            "NVIDIA RuntimeClass check"
+            ("get runtimeclass nvidia" `Text.isInfixOf` rendered)
+          assertBool
+            "MinIO bucket readiness exec"
+            ("exec -n platform statefulset/minio" `Text.isInfixOf` rendered)
           -- Sprint 4.8: the typed final-gate `minioBucketReadinessSubprocess`
-          -- runs a single `kubectl exec deploy/minio -- env
+          -- runs a single `kubectl exec statefulset/minio -- env
           -- MC_HOST_jitml-minio=... mc ls jitml-minio` (no in-pod shell). The
           -- bootstrap-time per-bucket retry loop moved to typed Haskell IO in
           -- `JitML.Cluster.Readiness.runMinioBucketReadinessIO`, called by
@@ -1800,6 +1842,9 @@ main =
             "jitml-service labels Linux Engine pods as numerical compute"
             ("jitml.compute: \"true\"" `Text.isInfixOf` cpuDeployment)
           assertBool
+            "jitml-service labels Linux Engine pods with service compute scope"
+            ("jitml.compute-scope: service" `Text.isInfixOf` cpuDeployment)
+          assertBool
             "jitml-service pins Linux Engine pods to compute nodes"
             ("jitml.node-role/compute: \"true\"" `Text.isInfixOf` cpuDeployment)
           assertBool
@@ -1818,8 +1863,8 @@ main =
             "jitml-service anti-affinity is keyed by hostname"
             ("topologyKey: kubernetes.io/hostname" `Text.isInfixOf` cpuDeployment)
           assertBool
-            "jitml-service anti-affinity matches numerical compute pods globally"
-            ("jitml.compute: \"true\"" `Text.isInfixOf` cpuDeployment)
+            "jitml-service anti-affinity matches service-scope compute pods"
+            ("jitml.compute-scope: service" `Text.isInfixOf` cpuDeployment)
           assertBool
             "jitml-service uses hard topology spread for HA compute workers"
             ( "topologySpreadConstraints:" `Text.isInfixOf` cpuDeployment
@@ -2367,9 +2412,6 @@ main =
                     expectedJobName = "jitml-train-" <> experimentHash
                     eventId =
                       eventIdFromPayload (Text.Encoding.encodeUtf8 payload)
-                -- Snapshot the daemon log offset before publish so the
-                -- post-publish tail only sees lines from this test's run.
-                logStartBytes <- daemonLogByteSize
                 hostSubscription <-
                   case substrate of
                     AppleSilicon ->
@@ -2407,13 +2449,14 @@ main =
                           <> " to be applied by the daemon's first consume"
                       )
                       jobAppeared
-                -- Drain a window of fresh daemon log lines (since the
-                -- snapshot above) and assert at least one "deduplicated
-                -- training <event-id>" line is present matching the
-                -- payload's eventId.
+                -- Drain a recent HA-wide daemon log window and assert at least
+                -- one "deduplicated training <event-id>" line is present
+                -- matching the payload's eventId. The eventId is unique to
+                -- this test, so a time window is more stable than byte-slicing
+                -- one Deployment log stream across three service replicas.
                 let waitForDedup :: Int -> IO Bool
                     waitForDedup remaining = do
-                      tail' <- daemonLogTailSinceBytes logStartBytes
+                      (_, tail', _) <- daemonLogStream (Just "2m")
                       let needle =
                             "deduplicated training "
                               <> unEventId eventId
@@ -4045,36 +4088,23 @@ kubectlJobExists jobName = do
   (exitCode, stdoutText, _stderrText) <- runStreaming defaultSubprocessEnv command
   pure (exitCode == ExitSuccess && not (Text.null (Text.strip stdoutText)))
 
--- | Current `kubectl logs deploy/jitml-service` byte length. The Sprint
--- 13.3 dedup live test snapshots this before publishing the duplicate
--- StartTraining envelopes so the post-publish tail only sees lines
--- emitted during this test.
-daemonLogByteSize :: IO Int
-daemonLogByteSize = do
-  (_, stdoutText, _) <- daemonLogStream Nothing
-  pure (Text.Encoding.encodeUtf8 stdoutText & Data.ByteString.length)
-
--- | Drain `kubectl logs deploy/jitml-service` and return the tail of
--- the log that was emitted after `startBytes`. The daemon writes one
--- `service: <outcome>` line per consumed envelope (Sprint 13.3 dedup
--- assertion observes the `deduplicated training <event-id>` line).
-daemonLogTailSinceBytes :: Int -> IO Text
-daemonLogTailSinceBytes startBytes = do
-  (_, stdoutText, _) <- daemonLogStream Nothing
-  let asBytes = Text.Encoding.encodeUtf8 stdoutText
-      tailBytes = Data.ByteString.drop startBytes asBytes
-  pure (Text.Encoding.decodeUtf8With Text.Encoding.Error.lenientDecode tailBytes)
-
+-- | Drain the HA-wide `jitml-service` pod logs. The daemon writes one
+-- `service: <outcome>` line per consumed envelope; in the HA topology any one
+-- of the three replicas can be the active Pulsar consumer, so this must select
+-- all service pods rather than `logs deploy/jitml-service`, which follows only
+-- one backing pod.
 daemonLogStream :: Maybe Text -> IO (ExitCode, Text, Text)
 daemonLogStream sinceArg = do
   let baseArgs =
         [ "--kubeconfig"
         , "./.build/jitml.kubeconfig"
         , "logs"
-        , "deploy/jitml-service"
         , "-n"
         , "platform"
+        , "-l"
+        , "app=jitml-service"
         , "--tail=-1"
+        , "--max-log-requests=10"
         ]
       args = baseArgs <> maybe [] (\s -> ["--since=" <> s]) sinceArg
       command = subprocess "kubectl" args

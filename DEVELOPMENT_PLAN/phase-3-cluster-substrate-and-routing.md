@@ -148,8 +148,9 @@ the Linux CUDA node label `jitml.runtime/gpu=true`.
 **Status**: Done (re-closed 2026-05-29 after the right-sized PV layout landed; live hostPath-backed rollout owned by Phase 15 Sprint 15.1)
 **Implementation**: `chart/templates/storageclass-jitml-manual.yaml`,
 `chart/templates/pv-platform-minio-*.yaml`,
-`chart/templates/pv-platform-pulsar-bookkeeper-*.yaml`,
-`chart/templates/pv-platform-pulsar-zookeeper-*.yaml`,
+`chart/templates/pv-platform-pulsar-bookie-journal-*.yaml`,
+`chart/templates/pv-platform-pulsar-bookie-ledgers-*.yaml`,
+`chart/templates/pv-platform-pulsar-zookeeper-data-*.yaml`,
 `chart/templates/pv-platform-harbor-pg-*.yaml`,
 `src/JitML/Cluster/Storage.hs`, `src/JitML/Lint/Chart.hs`
 **Docs to update**: `documents/engineering/cluster_topology.md`
@@ -450,9 +451,9 @@ assumptions.
 - Expand manual PV rendering and chart templates for the HA storage topology:
   distributed MinIO, Pulsar ZooKeeper/BookKeeper/Broker/Proxy where persistent,
   Percona Postgres replicas, and pgBackRest.
-- Keep the one-numerical-worker-per-node compute invariant coordinated with
-  Phase `5` Sprint `5.16`; Phase `3` owns the node topology that makes that
-  scheduling rule enforceable.
+- Keep the scoped one-numerical-worker-per-node compute invariant coordinated
+  with Phase `5` Sprint `5.16`; Phase `3` owns the node topology that makes
+  that scheduling rule enforceable.
 
 ### Validation
 

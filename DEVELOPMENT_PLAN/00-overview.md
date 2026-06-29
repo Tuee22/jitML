@@ -80,11 +80,14 @@ The 2026-06-27 HA-topology audit reopened Phases `3`, `4`, and `5`; those
 implementation phases re-closed on 2026-06-28. The checked-in topology now
 matches the HA documentation: HA stateful platform services, one routed Envoy
 socket, one control-plane plus three Kind workers, and **at most one numerical
-ML compute worker per Kubernetes node**. Phase `15` remains blocked until a real
-Linux/NVIDIA HA live lane can run; Phase `16` is blocked until the Apple host
-exposes a GHC-compatible LLVM `opt`/`llc` for the documented `-fllvm`
-host-native build; Phases `17` and `18` remain blocked on those refreshed
-fragments.
+ML compute worker per Kubernetes node**. Phase `15` Sprint `15.22` also
+re-closed on 2026-06-28 on the real NVIDIA GeForce RTX 5090 host: HA
+`linux-cuda` rollout 130 steps, `jitml test all --linux-cuda` **8 / 8**,
+`jitml-backends` **20 / 20**, live Playwright **15 / 15**, `docs check: ok`, and
+`check-code: ok`. Phase `16` is blocked until the Apple host exposes a
+GHC-compatible LLVM `opt`/`llc` for the documented `-fllvm` host-native build;
+Phases `17` and `18` remain blocked on that refreshed Apple fragment and the
+downstream aggregation.
 
 The 2026-06-26 fixed-budget all-model closure remains historical evidence: the
 `linux-cpu`, `linux-cuda`, and `apple-silicon` lanes each closed on their
@@ -905,14 +908,15 @@ for the governing rule.
 
 ## Current Baseline
 
-**🔄 Current status (2026-06-27): HA topology audit active.** Phases `3`, `4`,
-and `5` are reopened for the documentation-first HA topology target: HA-capable
-Kind nodes, HA platform-service replica/PV topology, and exactly one numerical
-ML compute worker per Kubernetes node. Phases `15`, `16`, `17`, and `18` are
-blocked until those reopened phases close and the substrate lanes are
-revalidated against the HA shape. The 2026-06-26 all-Done closure below remains
-historical evidence for the compact local topology and fixed-budget model
-contract, not the current completion state.
+**⏸️ Current status (2026-06-28): HA topology audit partially re-closed.** Phases
+`3`, `4`, `5`, and `15` are closed for the HA topology target: HA-capable Kind
+nodes, HA platform-service replica/PV topology, exactly one numerical ML compute
+worker per Kubernetes node, and the real `linux-cuda` HA lane. Phase `16`
+remains blocked by the Apple host LLVM prerequisite for the documented
+host-native `-fllvm` build, and Phases `17` and `18` remain blocked downstream
+of that refreshed Apple lane and aggregation. The 2026-06-26 all-Done closure
+below remains historical evidence for the compact local topology and
+fixed-budget model contract, not the current completion state.
 
 **Historical status (2026-06-26): all Phases `0`–`18` were Done for the compact
 topology.** Phases `8`–`14` were Done for the fixed-budget all-model

@@ -25,9 +25,10 @@
 
 **Blocked by**: Phase `17` Sprint `17.10`.
 
-Final product handoff is blocked until the HA topology implementation and
-per-lane aggregation close. The 2026-06-26 handoff remains historical evidence
-for the compact/right-sized topology. Prior closure history follows.
+Final product handoff is blocked until the remaining Apple Silicon HA
+revalidation and per-lane aggregation close. The 2026-06-26 handoff remains
+historical evidence for the compact/right-sized topology. Prior closure history
+follows.
 
 ✅ **Done** (reopened 2026-06-26 for Sprint `18.4`; re-closed 2026-06-26).
 The fixed-budget all-model handoff is complete: the `linux-cpu` baseline is
@@ -300,9 +301,9 @@ all-model runtime, browser, per-lane, and cleanup obligations are complete.
 
 ### Objective
 
-Re-close final handoff only after the HA topology is implemented, live lanes are
-revalidated, aggregation consumes the refreshed evidence, and the Pending Removal
-ledger is empty again.
+Re-close final handoff only after the remaining Apple Silicon HA live lane is
+revalidated, aggregation consumes the refreshed evidence, and the Pending
+Removal ledger is empty again.
 
 ### Deliverables
 

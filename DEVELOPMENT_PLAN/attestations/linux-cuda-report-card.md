@@ -1,4 +1,4 @@
-# `linux-cuda` Per-Lane Attestation (Sprints 15.20 / 15.21)
+# `linux-cuda` Per-Lane Attestation (Sprints 15.20 / 15.21 / 15.22)
 
 **Status**: Authoritative source
 **Referenced by**: [../README.md](../README.md),
@@ -8,33 +8,54 @@
 **Generated sections**: none
 
 > **Purpose**: The committed `linux-cuda` per-lane report-card fragment. Sprint
-> `15.20` supplied the earlier no-caveat runtime/browser fragment, and Sprint
+> `15.20` supplied the earlier no-caveat runtime/browser fragment, Sprint
 > `15.21` revalidated the expanded fixed-budget all-model lane on the same real
-> NVIDIA host. Phase `17` and Phase `18` consume this fragment on `linux-cpu`
-> and never re-run the `linux-cuda` lane (standards rule M(b)/(d)).
+> NVIDIA host, and Sprint `15.22` revalidated that lane against the HA topology.
+> Phase `17` and Phase `18` consume this fragment on `linux-cpu` and never
+> re-run the `linux-cuda` lane (standards rule M(b)/(d)).
 
 ## Host
 
 - NVIDIA GeForce RTX 5090, UUID `GPU-e764ef97-32d7-4981-c348-029983c64073`
 - CUDA 12.8, driver `570.211.01`, Ubuntu 24.04 (x86_64), Docker 29.x,
   NVIDIA Container Runtime
-- Revalidated 2026-06-26 for Sprint `15.21`.
+- Revalidated 2026-06-28 for Sprint `15.22` HA topology.
 
-## Current Sprint 15.21 validation gate (all green)
+## Current Sprint 15.22 HA validation gate (all green)
 
 | Command | Result |
 |---|---|
-| `docker compose build jitml` | Image build PASS, including embedded `check-code: ok` and PureScript bundle build |
-| `./bootstrap/linux-cuda.sh up` | Live rollout PASS: 110 steps, edge `9092`, all seven components Ready |
-| `jitml internal upload-dataset` via `jitml-cuda` | MNIST, Fashion-MNIST, CIFAR-10, CIFAR-100, Tiny ImageNet, and California Housing artifacts uploaded and SHA-verified |
-| `docker compose run --rm jitml-cuda cabal test -fcuda jitml-sl-canonicals --test-show-details=direct` | 24/24 PASS; live MNIST threshold 136.49s, all canonical rows 24.42s |
-| `docker compose run --rm jitml-cuda jitml test all --linux-cuda` | 8/8 stanzas PASS; `jitml-backends` 20/20 on the RTX 5090, live WorkflowMatrix current-substrate cell 847.02s, PPO convergence 266.21s |
-| `docker compose run --rm jitml-cuda jitml internal seed-demo-checkpoints` | 8 demo checkpoints seeded |
-| Live Playwright product matrix against `http://127.0.0.1:9092/` | 15/15 PASS |
+| `docker compose build jitml` | Image build PASS, including embedded `check-code: ok`, PureScript bundle build, and image manifest list `sha256:4357054cfac0135eccd06ddea37e4f0c4d9ed8d07abbe8cab9a278a98caa03b2` |
+| `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 ./bootstrap/linux-cuda.sh up` | Clean HA rollout PASS: 130 steps, edge `9092`, all seven components Ready |
+| HA MinIO | Distributed `statefulset/minio` Ready; buckets provisioned through Bitnami `provisioning.buckets` with `versioning: Unchanged`, including `harbor-registry` and all jitML object buckets |
+| HA Pulsar | Three ZooKeeper, three bookie, three broker, and three proxy pods Ready; manual PV/PVC names match chart-generated claims (`pulsar-bookie-journal-*`, `pulsar-bookie-ledgers-*`, `pulsar-zookeeper-data-*`) |
+| HA compute placement | Three `jitml-service` Engine pods spread across the three worker nodes with `jitml.compute-scope=service`; daemon-dispatched Training/RL workload Jobs completed with `jitml.compute-scope=workload` without anti-affinity deadlock |
+| Canonical dataset staging | All 12 canonical artifacts present in live `jitml-datasets` MinIO with pinned SHA-256 verification |
+| `docker compose run --rm jitml-cuda jitml test all --linux-cuda` | 8/8 stanzas PASS; `jitml-integration` live WorkflowMatrix 880.86s, live PPO convergence 264.46s, `jitml-backends` 20/20 on the RTX 5090 |
+| `docker compose run --rm jitml jitml internal seed-demo-checkpoints` | 8 demo checkpoints seeded |
+| Live Playwright product matrix against `http://127.0.0.1:9092/` | Clean 15/15 PASS (`15 passed (17.4s)`) |
+| `docker compose run --rm jitml jitml docs check` | PASS (`docs check: ok`) |
+| `docker compose run --rm jitml jitml check-code` | PASS (`check-code: ok`) |
 
 `jitml-backends --linux-cuda` compiled and executed the real cuBLAS/cuDNN
 bindings (`-fcuda`) on the attached RTX 5090 — every within-substrate
 `linux-cuda` kernel case a real device PASS.
+
+## Sprint 15.22 defects closed in this fragment
+
+- Replaced invalid MinIO distributed-mode `defaultBuckets` with provisioning
+  bucket declarations and `versioning: Unchanged`.
+- Corrected MinIO readiness from `deployment/minio` to `statefulset/minio`.
+- Corrected Pulsar manual PV/PVC claim names to match the Bitnami chart's
+  journal, ledgers, and ZooKeeper data claims.
+- Split HA compute placement into `jitml.compute-scope=service` for Engine
+  replicas and `jitml.compute-scope=workload` for daemon-spawned Jobs, preserving
+  the scoped one-numerical-worker-per-node invariant without blocking live work.
+- Made in-cluster worker commands derive live MinIO/Pulsar settings from mounted
+  `BootConfig.dhall`, so worker Jobs no longer require a host-local
+  `.build/runtime/cluster-publication.json`.
+- Updated the duplicate-`StartTraining` live assertion to read all HA service
+  pod logs by label instead of byte-slicing one Deployment log stream.
 
 ## Historical Sprint 15.20 live `linux-cuda` report card
 

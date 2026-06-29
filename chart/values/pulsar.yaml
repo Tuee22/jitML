@@ -20,7 +20,9 @@ zookeeper:
     anti_affinity: true
   volumes:
     persistence: true
-    storageClassName: jitml-manual
+    data:
+      size: 10Gi
+      storageClassName: jitml-manual
   resources:
     requests:
       cpu: 100m
@@ -38,8 +40,10 @@ bookkeeper:
   volumes:
     persistence: true
     journal:
+      size: 10Gi
       storageClassName: jitml-manual
     ledgers:
+      size: 20Gi
       storageClassName: jitml-manual
   resources:
     requests:

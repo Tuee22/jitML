@@ -43,11 +43,11 @@ the owning sprint's `### Remaining Work` block per
 **2026-06-28 — HA topology implementation rows closed; ledger empty.** The
 compact single-node/right-sized implementation deviations found on 2026-06-27
 have moved to `Completed`: HA Kind nodes/manual PVs, HA platform service values,
-and one-numerical-worker-per-node scheduling are now implemented. Phase `15`
-remains blocked until a real Linux/NVIDIA HA live lane can be run; Phase `16`
-is blocked until the Apple host exposes a GHC-compatible LLVM `opt`/`llc` for
-the documented `-fllvm` host-native build; Phases `17` and `18` remain blocked
-on those refreshed live fragments.
+and scoped one-numerical-worker-per-node scheduling are now implemented. Phase
+`15` is re-closed on the real Linux/NVIDIA HA live lane; Phase `16` is blocked
+until the Apple host exposes a GHC-compatible LLVM `opt`/`llc` for the
+documented `-fllvm` host-native build; Phases `17` and `18` remain blocked on
+that refreshed Apple fragment and downstream aggregation.
 
 **2026-06-27 — HA topology audit; ledger reopened.** Documentation became the
 source of truth for the targeted HA topology, but the worktree still carried

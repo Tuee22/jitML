@@ -25,20 +25,20 @@ info when `residency = Host`.
 | Substrate | Daemon topology | Dhall configs |
 |-----------|-----------------|----------------|
 | `apple-silicon` | two instances of one binary | ConfigMap from `./.build/conf/cluster/apple-silicon.dhall` (`Cluster + ForwardToHost`) + host file `./.build/conf/host/apple-silicon.dhall` (`Host + SelfInference`) |
-| `linux-cpu` | one instance | ConfigMap from `./.build/conf/cluster/linux-cpu.dhall` (`Cluster + SelfInference`) |
-| `linux-cuda` | one instance | ConfigMap from `./.build/conf/cluster/linux-cuda.dhall` (`Cluster + SelfInference`) |
+| `linux-cpu` | three clustered HA replicas | ConfigMap from `./.build/conf/cluster/linux-cpu.dhall` (`Cluster + SelfInference`) |
+| `linux-cuda` | three clustered HA replicas | ConfigMap from `./.build/conf/cluster/linux-cuda.dhall` (`Cluster + SelfInference`) |
 
 The clustered `jitml-service` Deployment is **stateless** — durable state
 lives in MinIO and Pulsar exclusively. Required pod anti-affinity at
-`topologyKey: kubernetes.io/hostname` enforces at most one numerical ML compute
-worker per Kubernetes node, irrespective of other replica counts. Linux
-substrates run three Engine replicas, one for each HA worker, and render
-`jitml.compute="true"`, `nodeSelector: jitml.node-role/compute=true`, required
-hostname anti-affinity, and hard topology spread matching that compute label.
-Daemon-spawned Linux Training/RL/Tune Jobs carry the same compute label and
-placement rule so Jobs cannot co-locate with another numerical worker on a
-node. Apple Silicon's clustered service remains a single non-compute
-forwarder; host Metal work runs in the host daemon. `maxSurge: 0` /
+`topologyKey: kubernetes.io/hostname` enforces scoped numerical worker
+cardinality. Linux substrates run three Engine replicas, one for each HA worker,
+with `jitml.compute="true"` and `jitml.compute-scope="service"`. Daemon-spawned
+Linux Training/RL/Tune Jobs carry `jitml.compute="true"` and
+`jitml.compute-scope="workload"`. Service replicas and workload Jobs each match
+their own scope in required hostname anti-affinity and hard topology spread, so
+HA service residency and transient workload execution do not deadlock each
+other. Apple Silicon's clustered service remains a single non-compute forwarder;
+host Metal work runs in the host daemon. `maxSurge: 0` /
 `maxUnavailable: 1` keeps rolling updates from temporarily exceeding compute
 cardinality. 2026-05-23 live Linux CUDA validation historically proved the CUDA
 RuntimeClass path against the compact topology; the current renderer preserves

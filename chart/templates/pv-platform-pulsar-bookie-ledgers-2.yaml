@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: platform-pulsar-bookie-ledgers-pv-2
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: jitml-manual
+  local:
+    path: /jitml/.data/platform/pulsar-bookie-ledgers/pv_2/
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: Exists
+  claimRef:
+    namespace: platform
+    name: pulsar-bookie-ledgers-pulsar-bookie-2

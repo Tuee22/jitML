@@ -57,11 +57,12 @@
 
 ⏸️ **Blocked** (reopened 2026-06-27 for Sprint `17.10`).
 
-**Blocked by**: Phase `15` Sprint `15.22`; Phase `16` Sprint `16.14`.
+**Blocked by**: Phase `16` Sprint `16.14`.
 
 This aggregation phase consumes per-lane evidence and does not re-run
-accelerator lanes. It is blocked until the Linux CUDA and Apple Silicon HA lane
-revalidations close. The 2026-06-26 aggregation remains historical evidence for
+accelerator lanes. The Linux CUDA HA lane re-closed in Phase `15` Sprint
+`15.22`; this phase remains blocked until the Apple Silicon HA lane
+revalidation closes. The 2026-06-26 aggregation remains historical evidence for
 the compact/right-sized topology. Prior closure history follows.
 
 ✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `17.9`). The expanded
@@ -1077,7 +1078,7 @@ and the Phase `16` Sprint `16.13` `apple-silicon` fragment is available in
 ## Sprint 17.10: HA Topology Aggregation [⏸️ Blocked]
 
 **Status**: Blocked (opened 2026-06-27)
-**Blocked by**: Phase `15` Sprint `15.22`; Phase `16` Sprint `16.14`
+**Blocked by**: Phase `16` Sprint `16.14`
 **Implementation**: `DEVELOPMENT_PLAN/attestations/`, `src/JitML/Test/Report.hs`
 **Docs to update**: `system-components.md`,
 `../documents/engineering/unit_testing_policy.md`
@@ -1090,8 +1091,8 @@ Aggregate the HA topology lane fragments without re-running accelerator lanes.
 
 - Verify the refreshed Linux CUDA and Apple Silicon HA attestations.
 - Merge HA topology evidence on the `linux-cpu` aggregation lane.
-- Confirm the one-numerical-worker-per-node invariant is represented in the
-  report-card/attestation set.
+- Confirm the scoped one-numerical-worker-per-node invariant is represented in
+  the report-card/attestation set.
 
 ### Validation
 
@@ -1100,7 +1101,7 @@ Aggregate the HA topology lane fragments without re-running accelerator lanes.
 
 ### Remaining Work
 
-- Blocked until Sprints `15.22` and `16.14` close.
+- Blocked until Sprint `16.14` closes.
 
 ## Related Documents
 

@@ -205,7 +205,11 @@ run_linux_compose_bootstrap() {
   shift || true
   local root
   root=$(repo_root)
-  (cd "$root" && run_command docker compose run --rm jitml jitml bootstrap "--$substrate" "$@")
+  local compose_env=()
+  if [ -n "${JITML_BOOTSTRAP_SKIP_IMAGE_BUILD:-}" ]; then
+    compose_env=(-e "JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=$JITML_BOOTSTRAP_SKIP_IMAGE_BUILD")
+  fi
+  (cd "$root" && run_command docker compose run --rm "${compose_env[@]}" jitml jitml bootstrap "--$substrate" "$@")
 }
 
 run_linux_compose_jitml() {

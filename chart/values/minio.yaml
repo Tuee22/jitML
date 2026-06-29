@@ -24,7 +24,23 @@ auth:
   rootUser: minio
   rootPassword: minioadmin
 
-defaultBuckets: harbor-registry,jitml-checkpoints,jitml-datasets,jitml-transcripts,jitml-trials,jitml-tensorboard,jitml-artifacts
+provisioning:
+  enabled: true
+  buckets:
+    - name: harbor-registry
+      versioning: Unchanged
+    - name: jitml-checkpoints
+      versioning: Unchanged
+    - name: jitml-datasets
+      versioning: Unchanged
+    - name: jitml-transcripts
+      versioning: Unchanged
+    - name: jitml-trials
+      versioning: Unchanged
+    - name: jitml-tensorboard
+      versioning: Unchanged
+    - name: jitml-artifacts
+      versioning: Unchanged
 
 persistence:
   enabled: true

@@ -54,6 +54,7 @@ renderServiceDeployment substrate =
     , "        jitml.substrate: " <> renderSubstrate substrate
     , "        jitml.role: engine"
     , "        jitml.compute: " <> yamlLabelBool (substrateHasClusterCompute substrate)
+    , "        jitml.compute-scope: service"
     , "    spec:"
     , "      serviceAccountName: jitml-service"
     ]
@@ -125,6 +126,7 @@ clusterComputePlacementLines substrate
       , "              labelSelector:"
       , "                matchLabels:"
       , "                  jitml.compute: \"true\""
+      , "                  jitml.compute-scope: service"
       , "      topologySpreadConstraints:"
       , "        - maxSkew: 1"
       , "          topologyKey: kubernetes.io/hostname"
@@ -132,6 +134,7 @@ clusterComputePlacementLines substrate
       , "          labelSelector:"
       , "            matchLabels:"
       , "              jitml.compute: \"true\""
+      , "              jitml.compute-scope: service"
       ]
 
 indentBlock :: Text -> Text

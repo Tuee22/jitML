@@ -1,16 +1,16 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: platform-pulsar-zookeeper-pv-0
+  name: platform-pulsar-bookie-ledgers-pv-0
 spec:
   capacity:
-    storage: 10Gi
+    storage: 20Gi
   accessModes:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   storageClassName: jitml-manual
   local:
-    path: /jitml/.data/platform/pulsar-zookeeper/pv_0/
+    path: /jitml/.data/platform/pulsar-bookie-ledgers/pv_0/
   nodeAffinity:
     required:
       nodeSelectorTerms:
@@ -19,4 +19,4 @@ spec:
               operator: Exists
   claimRef:
     namespace: platform
-    name: data-pulsar-zookeeper-0
+    name: pulsar-bookie-ledgers-pulsar-bookie-0

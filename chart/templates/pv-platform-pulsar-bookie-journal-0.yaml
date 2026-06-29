@@ -1,16 +1,16 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: platform-pulsar-bookkeeper-pv-0
+  name: platform-pulsar-bookie-journal-pv-0
 spec:
   capacity:
-    storage: 20Gi
+    storage: 10Gi
   accessModes:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
   storageClassName: jitml-manual
   local:
-    path: /jitml/.data/platform/pulsar-bookkeeper/pv_0/
+    path: /jitml/.data/platform/pulsar-bookie-journal/pv_0/
   nodeAffinity:
     required:
       nodeSelectorTerms:
@@ -19,4 +19,4 @@ spec:
               operator: Exists
   claimRef:
     namespace: platform
-    name: data-pulsar-bookkeeper-0
+    name: pulsar-bookie-journal-pulsar-bookie-0
