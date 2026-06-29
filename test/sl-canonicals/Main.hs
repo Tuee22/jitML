@@ -20,6 +20,7 @@ import Data.Text.IO qualified as Text.IO
 import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64, Word8)
 import Numeric (showOct)
+import System.Environment (lookupEnv)
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -99,7 +100,7 @@ import JitML.Service.MinIOSubprocess
   , runMinIOSubprocess
   )
 import JitML.Service.Retry (ServiceError)
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
   ( ReportCardKnobs (..)
   , loadReportCardKnobs
@@ -487,35 +488,30 @@ main =
             (loss < 0.5)
       , testCase "SL classifier converges through the substrate JIT device (Sprint 8.10 --linux-cpu)" $ do
           -- Sprint 8.10 device-backed convergence. Routes the softmax
-          -- cross-entropy classifier through the resolved substrate's
-          -- JIT-compiled MLP device (oneDNN under `--linux-cpu`, Metal under
-          -- `--apple-silicon`) and asserts it learns the separable synthetic
-          -- task. On a host without the substrate toolchain the device probe
-          -- returns Left and the case skips with a passing message, matching
-          -- the live-test skip convention. No committed fixtures.
+          -- cross-entropy classifier through the selected substrate's
+          -- JIT-compiled MLP device and asserts it learns the separable
+          -- synthetic task. Missing substrate runtime is a hard test failure:
+          -- the suite must not pass by silently falling back or skipping.
           env <- buildEnv defaultGlobalFlags
-          let device = mlpDeviceForSubstrate LinuxCPU env
-          probe <- probeMlpDevice device
-          case probe of
-            Left _ ->
-              assertBool "linux-cpu JIT device unavailable; device convergence skipped" True
-            Right () -> do
-              let config =
-                    defaultClassifierConfig
-                      { clfSeed = 7
-                      , clfInputs = 4
-                      , clfHidden = 16
-                      , clfClasses = 3
-                      , clfEpochs = 400
-                      , clfLearningRate = 1.0e-2
-                      }
-              result <- trainClassifierWithDevice device config syntheticDataset
-              case result of
-                Left err -> assertFailure ("device training failed: " <> Text.unpack err)
-                Right (_, acc) ->
-                  assertBool
-                    ("expected device train accuracy >= 0.9, got " <> show acc)
-                    (acc >= 0.9)
+          substrate <- selectedTestSubstrate
+          let device = mlpDeviceForSubstrate substrate env
+          requireMlpDevice substrate device
+          let config =
+                defaultClassifierConfig
+                  { clfSeed = 7
+                  , clfInputs = 4
+                  , clfHidden = 16
+                  , clfClasses = 3
+                  , clfEpochs = 400
+                  , clfLearningRate = 1.0e-2
+                  }
+          result <- trainClassifierWithDevice device config syntheticDataset
+          case result of
+            Left err -> assertFailure ("device training failed: " <> Text.unpack err)
+            Right (_, acc) ->
+              assertBool
+                ("expected device train accuracy >= 0.9, got " <> show acc)
+                (acc >= 0.9)
       , testCase "real SL metrics: validation-driven selection, real CE loss, throughput (Sprint 8.13)" $ do
           -- Sprint 8.13 — exercise the real-metric SL path through whichever
           -- substrate JIT device is real on this host: Apple Metal on the Mac
@@ -527,136 +523,120 @@ main =
           -- throughput metric is the deterministic train-examples × epochs count
           -- (non-wall-clock, inside the determinism contract); and a fresh
           -- device cross-entropy on the validation-selected model reproduces the
-          -- published train loss. Skips with a passing message on a host with no
-          -- substrate device. No committed fixtures.
+          -- published train loss. Missing substrate runtime fails closed.
           env <- buildEnv defaultGlobalFlags
-          let firstDevice [] = pure Nothing
-              firstDevice (substrate : rest) = do
-                let candidate = mlpDeviceForSubstrate substrate env
-                probe <- probeMlpDevice candidate
-                case probe of
-                  Right () -> pure (Just candidate)
-                  Left _ -> firstDevice rest
-          deviceMaybe <- firstDevice [AppleSilicon, LinuxCPU]
-          case deviceMaybe of
-            Nothing ->
-              assertBool "no substrate JIT device available; real-metric SL path skipped" True
-            Just device -> do
-              let config =
-                    defaultClassifierConfig
-                      { clfSeed = 11
-                      , clfInputs = 4
-                      , clfHidden = 16
-                      , clfClasses = 3
-                      , clfEpochs = 40
-                      , clfLearningRate = 1.0e-2
-                      }
-                  denseProblem =
-                    case filter ((== "Dense") . SL.problemModel) canonicalProblems of
-                      (p : _) -> p
-                      [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
-                  spec = Architecture.architectureSpecForProblem config denseProblem
-                  examples = syntheticDataset
-                  valCount = max 1 (length examples `div` 6)
-                  trainCount = length examples - valCount
-                  trainSet = take trainCount examples
-                  validationSet = drop trainCount examples
-              result <-
-                Architecture.trainArchitectureWithDeviceSelected device spec config trainSet validationSet
-              case result of
-                Left err -> assertFailure ("real-metric SL training failed: " <> Text.unpack err)
-                Right (trained, metrics) -> do
+          substrate <- selectedTestSubstrate
+          let device = mlpDeviceForSubstrate substrate env
+          requireMlpDevice substrate device
+          let config =
+                defaultClassifierConfig
+                  { clfSeed = 11
+                  , clfInputs = 4
+                  , clfHidden = 16
+                  , clfClasses = 3
+                  , clfEpochs = 40
+                  , clfLearningRate = 1.0e-2
+                  }
+              denseProblem =
+                case filter ((== "Dense") . SL.problemModel) canonicalProblems of
+                  (p : _) -> p
+                  [] -> SL.CanonicalProblem "mnist-shallow-mlp" "MNIST" "Dense" 1001
+              spec = Architecture.architectureSpecForProblem config denseProblem
+              examples = syntheticDataset
+              valCount = max 1 (length examples `div` 6)
+              trainCount = length examples - valCount
+              trainSet = take trainCount examples
+              validationSet = drop trainCount examples
+          result <-
+            Architecture.trainArchitectureWithDeviceSelected device spec config trainSet validationSet
+          case result of
+            Left err -> assertFailure ("real-metric SL training failed: " <> Text.unpack err)
+            Right (trained, metrics) -> do
+              assertBool
+                ( "expected a real train cross-entropy in (0, log 3 ~ 1.0986), got "
+                    <> show (Architecture.slmTrainLoss metrics)
+                )
+                (Architecture.slmTrainLoss metrics > 0 && Architecture.slmTrainLoss metrics < log 3)
+              assertBool
+                ( "expected a finite held-out validation loss >= 0, got "
+                    <> show (Architecture.slmValidationLoss metrics)
+                )
+                ( Architecture.slmValidationLoss metrics >= 0
+                    && not (isNaN (Architecture.slmValidationLoss metrics))
+                    && not (isInfinite (Architecture.slmValidationLoss metrics))
+                )
+              Architecture.slmExamplesProcessed metrics @?= trainCount * clfEpochs config
+              reMeasured <- Architecture.crossEntropyArchitectureWithDevice device trained trainSet
+              case reMeasured of
+                Left err -> assertFailure ("re-measured device cross-entropy failed: " <> Text.unpack err)
+                Right ce ->
                   assertBool
-                    ( "expected a real train cross-entropy in (0, log 3 ~ 1.0986), got "
+                    ( "expected re-measured CE to reproduce the published train loss, got "
+                        <> show ce
+                        <> " vs "
                         <> show (Architecture.slmTrainLoss metrics)
                     )
-                    (Architecture.slmTrainLoss metrics > 0 && Architecture.slmTrainLoss metrics < log 3)
-                  assertBool
-                    ( "expected a finite held-out validation loss >= 0, got "
-                        <> show (Architecture.slmValidationLoss metrics)
-                    )
-                    ( Architecture.slmValidationLoss metrics >= 0
-                        && not (isNaN (Architecture.slmValidationLoss metrics))
-                        && not (isInfinite (Architecture.slmValidationLoss metrics))
-                    )
-                  Architecture.slmExamplesProcessed metrics @?= trainCount * clfEpochs config
-                  reMeasured <- Architecture.crossEntropyArchitectureWithDevice device trained trainSet
-                  case reMeasured of
-                    Left err -> assertFailure ("re-measured device cross-entropy failed: " <> Text.unpack err)
-                    Right ce ->
-                      assertBool
-                        ( "expected re-measured CE to reproduce the published train loss, got "
-                            <> show ce
-                            <> " vs "
-                            <> show (Architecture.slmTrainLoss metrics)
-                        )
-                        (abs (ce - Architecture.slmTrainLoss metrics) < 1.0e-9)
+                    (abs (ce - Architecture.slmTrainLoss metrics) < 1.0e-9)
       , testCase "SL regression converges through the substrate JIT device (Sprint 8.12 --linux-cpu)" $ do
           env <- buildEnv defaultGlobalFlags
-          let device = mlpDeviceForSubstrate LinuxCPU env
-          probe <- probeMlpDevice device
-          case probe of
-            Left _ ->
-              assertBool "linux-cpu JIT device unavailable; regression convergence skipped" True
-            Right () -> do
-              let config =
-                    Regression.defaultRegressionConfig
-                      { Regression.regSeed = 23
-                      , Regression.regInputs = 2
-                      , Regression.regHidden = 12
-                      , Regression.regEpochs = 300
-                      , Regression.regLearningRate = 5.0e-2
-                      }
-              result <- Regression.trainRegressorWithDevice device config regressionSyntheticDataset
-              case result of
-                Left err -> assertFailure ("device regression training failed: " <> Text.unpack err)
-                Right (_, mse) ->
-                  assertBool
-                    ("expected device regression MSE < 0.02, got " <> show mse)
-                    (mse < 0.02)
+          substrate <- selectedTestSubstrate
+          let device = mlpDeviceForSubstrate substrate env
+          requireMlpDevice substrate device
+          let config =
+                Regression.defaultRegressionConfig
+                  { Regression.regSeed = 23
+                  , Regression.regInputs = 2
+                  , Regression.regHidden = 12
+                  , Regression.regEpochs = 300
+                  , Regression.regLearningRate = 5.0e-2
+                  }
+          result <- Regression.trainRegressorWithDevice device config regressionSyntheticDataset
+          case result of
+            Left err -> assertFailure ("device regression training failed: " <> Text.unpack err)
+            Right (_, mse) ->
+              assertBool
+                ("expected device regression MSE < 0.02, got " <> show mse)
+                (mse < 0.02)
       , testCase
           "all canonical SL architectures execute a substrate-backed train step (Sprint 8.12 --linux-cpu)"
           $ do
             env <- buildEnv defaultGlobalFlags
-            let device = mlpDeviceForSubstrate LinuxCPU env
-            probe <- probeMlpDevice device
-            case probe of
-              Left _ ->
-                assertBool "linux-cpu JIT device unavailable; architecture train step skipped" True
-              Right () -> do
-                let config =
-                      defaultClassifierConfig
-                        { clfSeed = 17
-                        , clfInputs = 16
-                        , clfHidden = 8
-                        , clfClasses = 3
-                        , clfEpochs = 1
-                        , clfLearningRate = 5.0e-3
-                        }
-                forM_ canonicalProblems $ \problem -> do
-                  let spec = Architecture.architectureSpecForProblem config problem
-                  result <-
-                    Architecture.trainArchitectureWithDevice
-                      device
-                      spec
-                      config
-                      architectureSyntheticDataset
-                  case result of
-                    Left err ->
-                      assertFailure
-                        ( "architecture train failed for "
-                            <> Text.unpack (problemName problem)
-                            <> ": "
-                            <> Text.unpack err
-                        )
-                    Right (_, acc) ->
-                      assertBool
-                        ( "expected finite accuracy for "
-                            <> Text.unpack (problemName problem)
-                            <> ", got "
-                            <> show acc
-                        )
-                        (acc >= 0.0 && acc <= 1.0 && not (isNaN acc))
+            substrate <- selectedTestSubstrate
+            let device = mlpDeviceForSubstrate substrate env
+            requireMlpDevice substrate device
+            let config =
+                  defaultClassifierConfig
+                    { clfSeed = 17
+                    , clfInputs = 16
+                    , clfHidden = 8
+                    , clfClasses = 3
+                    , clfEpochs = 1
+                    , clfLearningRate = 5.0e-3
+                    }
+            forM_ canonicalProblems $ \problem -> do
+              let spec = Architecture.architectureSpecForProblem config problem
+              result <-
+                Architecture.trainArchitectureWithDevice
+                  device
+                  spec
+                  config
+                  architectureSyntheticDataset
+              case result of
+                Left err ->
+                  assertFailure
+                    ( "architecture train failed for "
+                        <> Text.unpack (problemName problem)
+                        <> ": "
+                        <> Text.unpack err
+                    )
+                Right (_, acc) ->
+                  assertBool
+                    ( "expected finite accuracy for "
+                        <> Text.unpack (problemName problem)
+                        <> ", got "
+                        <> show acc
+                    )
+                    (acc >= 0.0 && acc <= 1.0 && not (isNaN acc))
       , testCase "SL classifier training is run-to-run deterministic (Sprint 13.4)" $ do
           let config = defaultClassifierConfig {clfInputs = 4, clfHidden = 16, clfClasses = 3, clfEpochs = 20}
               dataset = syntheticDataset
@@ -775,17 +755,13 @@ main =
           -- gunzip + IDX-parse + train the canonical row through the
           -- substrate-backed Architecture runtime over a bounded budget, and
           -- assert the measured test accuracy clears the in-code literature
-          -- threshold − slack. Offline (no publication) the case skips with a
-          -- passing message, matching the live-test convention in the
-          -- integration / playwright stanzas. No committed fixtures — the data
-          -- is the canonical MinIO-staged MNIST and the bar is the in-code
-          -- threshold.
+          -- threshold − slack. No committed fixtures — the data is the
+          -- canonical MinIO-staged MNIST and the bar is the in-code threshold.
+          -- Missing publication or staged bytes fail closed.
           publication <- readExistingLivePublication "."
           case publication of
             Nothing ->
-              assertBool
-                "no live cluster publication; live SL convergence assertion skipped"
-                True
+              assertFailure "no live cluster publication; live SL convergence assertion cannot run"
             Just pub ->
               case ( Data.Maybe.listToMaybe canonicalProblems
                    , Data.Maybe.listToMaybe canonicalProblems >>= Dataset.datasetForProblem
@@ -850,13 +826,7 @@ main =
                                     )
                                     (passesSlConvergence threshold testAcc)
                     _ ->
-                      -- A stale publication can survive `jitml cluster down`;
-                      -- when MinIO is unreachable / the bytes aren't staged the
-                      -- fetch returns Left, so the live assertion skips rather
-                      -- than failing offline.
-                      assertBool
-                        "live MNIST bytes unavailable (cluster down or not staged); skipped"
-                        True
+                      assertFailure "live MNIST bytes unavailable from MinIO; staged dataset is required"
                 _ -> assertFailure "missing MNIST dataset ref or convergence threshold"
       , testCase
           "live all canonical SL rows materialize staged bytes and train through the substrate runtime (Sprint 8.12 Live)"
@@ -864,67 +834,86 @@ main =
             publication <- readExistingLivePublication "."
             case publication of
               Nothing ->
-                assertBool
-                  "no live cluster publication; live all-row SL matrix skipped"
-                  True
+                assertFailure "no live cluster publication; live all-row SL matrix cannot run"
               Just pub -> do
                 env <- buildEnv defaultGlobalFlags
-                let device = mlpDeviceForSubstrate LinuxCPU env
-                probe <- probeMlpDevice device
-                case probe of
-                  Left _ ->
-                    assertBool "linux-cpu JIT device unavailable; live all-row matrix skipped" True
-                  Right () -> do
-                    let settings = minioSettingsForLocalEdge (publicationEdgePort pub)
-                        run = runMinIOSubprocess settings
-                        trainProblem problem =
-                          case Dataset.datasetForProblem problem of
-                            Nothing ->
+                let substrate = publicationSubstrate pub
+                    device = mlpDeviceForSubstrate substrate env
+                requireMlpDevice substrate device
+                let settings = minioSettingsForLocalEdge (publicationEdgePort pub)
+                    run = runMinIOSubprocess settings
+                    trainProblem problem =
+                      case Dataset.datasetForProblem problem of
+                        Nothing ->
+                          pure
+                            ( Left
+                                ( "missing dataset ref for "
+                                    <> Text.unpack (problemName problem)
+                                )
+                            )
+                        Just trainRef
+                          | SL.problemDataset problem == "California Housing" ->
+                              trainLiveCalifornia run device problem trainRef
+                          | SL.problemDataset problem == "MNIST"
+                              || SL.problemDataset problem == "Fashion-MNIST" ->
+                              trainLiveIdx run device problem trainRef
+                          | SL.problemDataset problem == "CIFAR-10" ->
+                              trainLiveArchiveClassifier
+                                run
+                                device
+                                problem
+                                trainRef
+                                decodeCifar10ArchiveBoundedDataset
+                          | SL.problemDataset problem == "CIFAR-100" ->
+                              trainLiveArchiveClassifier
+                                run
+                                device
+                                problem
+                                trainRef
+                                decodeCifar100ArchiveBoundedDataset
+                          | SL.problemDataset problem == "Tiny ImageNet" ->
+                              trainLiveArchiveClassifier
+                                run
+                                device
+                                problem
+                                trainRef
+                                TinyImageNet.decodeTinyImageNetArchiveBoundedClassificationDataset
+                          | otherwise ->
                               pure
                                 ( Left
-                                    ( "missing dataset ref for "
+                                    ( "unhandled dataset for "
                                         <> Text.unpack (problemName problem)
                                     )
                                 )
-                            Just trainRef
-                              | SL.problemDataset problem == "California Housing" ->
-                                  trainLiveCalifornia run device problem trainRef
-                              | SL.problemDataset problem == "MNIST"
-                                  || SL.problemDataset problem == "Fashion-MNIST" ->
-                                  trainLiveIdx run device problem trainRef
-                              | SL.problemDataset problem == "CIFAR-10" ->
-                                  trainLiveArchiveClassifier
-                                    run
-                                    device
-                                    problem
-                                    trainRef
-                                    decodeCifar10ArchiveBoundedDataset
-                              | SL.problemDataset problem == "CIFAR-100" ->
-                                  trainLiveArchiveClassifier
-                                    run
-                                    device
-                                    problem
-                                    trainRef
-                                    decodeCifar100ArchiveBoundedDataset
-                              | SL.problemDataset problem == "Tiny ImageNet" ->
-                                  trainLiveArchiveClassifier
-                                    run
-                                    device
-                                    problem
-                                    trainRef
-                                    TinyImageNet.decodeTinyImageNetArchiveBoundedClassificationDataset
-                              | otherwise ->
-                                  pure
-                                    ( Left
-                                        ( "unhandled dataset for "
-                                            <> Text.unpack (problemName problem)
-                                        )
-                                    )
-                    results <- traverse trainProblem canonicalProblems
-                    case lefts results of
-                      [] -> pure ()
-                      errs -> assertFailure (unlines errs)
+                results <- traverse trainProblem canonicalProblems
+                case lefts results of
+                  [] -> pure ()
+                  errs -> assertFailure (unlines errs)
       ]
+
+selectedTestSubstrate :: IO Substrate
+selectedTestSubstrate = do
+  value <- lookupEnv "JITML_SUBSTRATE"
+  case value of
+    Nothing -> pure LinuxCPU
+    Just raw ->
+      case parseSubstrate (Text.pack raw) of
+        Just substrate -> pure substrate
+        Nothing -> assertFailure ("invalid JITML_SUBSTRATE: " <> raw)
+
+requireMlpDevice :: Substrate -> MlpDevice -> IO ()
+requireMlpDevice substrate device = do
+  probe <- probeMlpDevice device
+  case probe of
+    Right () -> pure ()
+    Left err ->
+      assertFailure
+        ( Text.unpack
+            ( renderSubstrate substrate
+                <> " JIT device unavailable: "
+                <> err
+            )
+        )
 
 trainLiveIdx
   :: (MinIOSubprocess (Either ServiceError ByteString) -> IO (Either ServiceError ByteString))

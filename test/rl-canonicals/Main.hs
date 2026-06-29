@@ -7,14 +7,15 @@ import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word64)
+import System.Environment (lookupEnv)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
 import JitML.Checkpoint.Format (decodeJmw1, encodeJmw1)
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Numerics.Mlp (forwardOutput, mlpForward)
-import JitML.Numerics.MlpDevice (probeMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Proto.Rl
   ( CheckpointDoneRL (..)
@@ -99,7 +100,7 @@ import JitML.RL.Policy (defaultPolicy)
 import JitML.RL.Simulator (cartPoleInitial)
 import JitML.RL.Simulator qualified as Sim
 import JitML.RL.SimulatorLoop qualified as SimulatorLoop
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
   ( ReportCardKnobs (..)
   , loadReportCardKnobs
@@ -1142,44 +1143,40 @@ assertPpoTrainerImprovesOnCartpole = do
 -- JIT-compiled MLP device ('rlDeviceForSubstrate' → 'trainOnPolicyOnDevice')
 -- and assert the final iteration's mean reward improves over the first. This
 -- is the on-device analogue of 'assertPpoTrainerImprovesOnCartpole': it proves
--- the trainer learns when the network forward/backward run on the real oneDNN
--- kernel (under `--linux-cpu`) rather than the pure-Haskell reference path. On
--- a host without the substrate toolchain the device probe returns Left and the
--- case skips with a passing message (the live-test skip convention).
+-- the trainer learns when the network forward/backward run on the selected
+-- substrate device rather than the pure-Haskell reference path. Missing
+-- substrate runtime fails closed.
 assertPpoDeviceImproves :: IO ()
 assertPpoDeviceImproves = do
   env <- buildEnv defaultGlobalFlags
-  let device = rlDeviceForSubstrate LinuxCPU env
-  probe <- probeMlpDevice device
-  case probe of
-    Left _ ->
-      assertBool "linux-cpu JIT device unavailable; on-device PPO improvement skipped" True
-    Right () -> do
-      let config =
-            PpoTrainer.defaultPpoTrainConfig
-              { PpoTrainer.ppoSeed = 42
-              , PpoTrainer.ppoRolloutSteps = 512
-              , PpoTrainer.ppoNumIterations = 8
-              , PpoTrainer.ppoEpochsPerUpdate = 4
-              , PpoTrainer.ppoLearningRate = 1.0e-3
-              , PpoTrainer.ppoMaxEpisodeSteps = 200
-              }
-      resultE <- PpoTrainer.trainOnPolicyOnDevice device PpoTrainer.VariantPPO config
-      case resultE of
-        Left err ->
-          assertBool ("on-device PPO training failed: " <> Text.unpack err) False
-        Right result ->
-          case PpoTrainer.resultIterations result of
-            (firstStat : rest@(_ : _)) ->
-              let lastStat = last rest
-               in assertBool
-                    ( "on-device PPO should improve: first="
-                        <> show (PpoTrainer.iterMeanReward firstStat)
-                        <> " last="
-                        <> show (PpoTrainer.iterMeanReward lastStat)
-                    )
-                    (PpoTrainer.iterMeanReward lastStat > PpoTrainer.iterMeanReward firstStat)
-            _ -> assertBool "on-device PPO returned too few iteration stats" False
+  substrate <- selectedTestSubstrate
+  let device = rlDeviceForSubstrate substrate env
+  requireMlpDevice substrate device
+  let config =
+        PpoTrainer.defaultPpoTrainConfig
+          { PpoTrainer.ppoSeed = 42
+          , PpoTrainer.ppoRolloutSteps = 512
+          , PpoTrainer.ppoNumIterations = 8
+          , PpoTrainer.ppoEpochsPerUpdate = 4
+          , PpoTrainer.ppoLearningRate = 1.0e-3
+          , PpoTrainer.ppoMaxEpisodeSteps = 200
+          }
+  resultE <- PpoTrainer.trainOnPolicyOnDevice device PpoTrainer.VariantPPO config
+  case resultE of
+    Left err ->
+      assertBool ("on-device PPO training failed: " <> Text.unpack err) False
+    Right result ->
+      case PpoTrainer.resultIterations result of
+        (firstStat : rest@(_ : _)) ->
+          let lastStat = last rest
+           in assertBool
+                ( "on-device PPO should improve: first="
+                    <> show (PpoTrainer.iterMeanReward firstStat)
+                    <> " last="
+                    <> show (PpoTrainer.iterMeanReward lastStat)
+                )
+                (PpoTrainer.iterMeanReward lastStat > PpoTrainer.iterMeanReward firstStat)
+        _ -> assertBool "on-device PPO returned too few iteration stats" False
 
 -- | Sprint 13.8 — drive a DDPG continuous actor-critic cohort on the
 -- Pendulum-v1 simulator and assert the local canonical run is deterministic
@@ -1423,24 +1420,45 @@ assertMctsVisitTargets = do
 assertMctsVisitTargetsWithDevice :: IO ()
 assertMctsVisitTargetsWithDevice = do
   env <- buildEnv defaultGlobalFlags
-  let device = rlDeviceForSubstrate LinuxCPU env
+  substrate <- selectedTestSubstrate
+  let device = rlDeviceForSubstrate substrate env
       net = PVN.initPolicyValueNet 43 7 16 71
+  requireMlpDevice substrate device
+  distResult <- PVN.mctsVisitDistributionWithDevice device net 16 initialConnect4 1234
+  case distResult of
+    Left err ->
+      assertBool ("device-backed MCTS visit distribution failed: " <> Text.unpack err) False
+    Right dist -> do
+      let entries = Data.Vector.Unboxed.toList dist
+      Data.Vector.Unboxed.length dist @?= 7
+      assertBool "device visit probabilities are non-negative" (all (>= 0) entries)
+      assertBool
+        "device visit distribution sums to 1"
+        (abs (sum entries - 1.0) < 1.0e-6)
+      assertBool
+        "device search concentrates visits beyond the uniform 1/7 baseline"
+        (maximum entries > 1.0 / 7.0)
+
+selectedTestSubstrate :: IO Substrate
+selectedTestSubstrate = do
+  value <- lookupEnv "JITML_SUBSTRATE"
+  case value of
+    Nothing -> pure LinuxCPU
+    Just raw ->
+      case parseSubstrate (Text.pack raw) of
+        Just substrate -> pure substrate
+        Nothing -> assertFailure ("invalid JITML_SUBSTRATE: " <> raw)
+
+requireMlpDevice :: Substrate -> MlpDevice -> IO ()
+requireMlpDevice substrate device = do
   probe <- probeMlpDevice device
   case probe of
-    Left _ ->
-      assertBool "linux-cpu JIT device unavailable; device MCTS leaf-eval skipped" True
-    Right () -> do
-      distResult <- PVN.mctsVisitDistributionWithDevice device net 16 initialConnect4 1234
-      case distResult of
-        Left err ->
-          assertBool ("device-backed MCTS visit distribution failed: " <> Text.unpack err) False
-        Right dist -> do
-          let entries = Data.Vector.Unboxed.toList dist
-          Data.Vector.Unboxed.length dist @?= 7
-          assertBool "device visit probabilities are non-negative" (all (>= 0) entries)
-          assertBool
-            "device visit distribution sums to 1"
-            (abs (sum entries - 1.0) < 1.0e-6)
-          assertBool
-            "device search concentrates visits beyond the uniform 1/7 baseline"
-            (maximum entries > 1.0 / 7.0)
+    Right () -> pure ()
+    Left err ->
+      assertFailure
+        ( Text.unpack
+            ( renderSubstrate substrate
+                <> " JIT device unavailable: "
+                <> err
+            )
+        )

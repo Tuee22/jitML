@@ -154,6 +154,19 @@ main =
           exitCode @?= ExitSuccess
           stdoutText @?= "subprocess-ok\n"
           stderrText @?= ""
+      , testCase "runStreaming does not wait on descendant-held stdout pipes" $ do
+          result <-
+            Timeout.timeout 1_000_000 $
+              runStreaming
+                defaultSubprocessEnv
+                (subprocess "sh" ["-c", "(sleep 2 &) ; printf parent-out ; printf parent-err >&2"])
+          case result of
+            Nothing ->
+              assertFailure "runStreaming waited for a descendant process that inherited stdout/stderr"
+            Just (exitCode, stdoutText, stderrText) -> do
+              exitCode @?= ExitSuccess
+              stdoutText @?= "parent-out"
+              stderrText @?= "parent-err"
       , testCase "failed Job observation renders status, pod states, and logs (Sprint 12.12)" $ do
           let observation =
                 JobFailureObservation
@@ -280,6 +293,22 @@ main =
             ("containerPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1" `Text.isInfixOf` cudaConfig)
       , testCase "route registry renders HTTPRoute manifests" $
           length (fmap renderHTTPRoute routeRegistry) @?= length routeRegistry
+      , testCase "Harbor registry route allows real blob upload finalization" $ do
+          case filter
+            (Text.isInfixOf "  name: harbor-registry")
+            (fmap renderHTTPRoute routeRegistry) of
+            [routeYaml] -> do
+              assertBool
+                "Harbor registry route has a request timeout above Envoy's default"
+                ("        request: 120s" `Text.isInfixOf` routeYaml)
+              assertBool
+                "Harbor registry route has a backend request timeout above Envoy's default"
+                ("        backendRequest: 120s" `Text.isInfixOf` routeYaml)
+            other ->
+              assertFailure
+                ( "expected exactly one rendered harbor-registry route, got "
+                    <> show (length other)
+                )
       , testCase "EnvoyProxy renderer pins local data-plane resource requests" $ do
           let envoyProxy = Gateway.renderEnvoyProxy 9091
           assertBool
@@ -716,7 +745,9 @@ main =
           withSystemTempDirectory "jitml-spawned-bin" $ \workdir -> do
             jitmlBinary <- locateJitmlBinary
             case jitmlBinary of
-              Nothing -> pure () -- skip when the binary isn't built (e.g., first build)
+              Nothing ->
+                assertFailure
+                  "jitml binary not found; spawned-binary integration matrix requires a built executable"
               Just binary -> do
                 let runJitml args = do
                       let cmd =
@@ -1384,6 +1415,9 @@ main =
           assertBool
             "Pulsar install uses direct subchart values"
             ("--values chart/values/pulsar.yaml" `Text.isInfixOf` rendered)
+          assertBool
+            "Helm installs use an explicit wait timeout for slow HA rollouts"
+            ("--wait --timeout=900s" `Text.isInfixOf` rendered)
           assertBool
             "Envoy install uses gateway-helm dependency archive"
             ("chart/charts/gateway-helm-1.2.6.tgz" `Text.isInfixOf` rendered)
@@ -3122,9 +3156,8 @@ main =
                   inferenceRunnable <- liveInferenceCliRunnable publication
                   if not inferenceRunnable
                     then
-                      assertBool
-                        "Apple Silicon live inference run skipped because this runner cannot see host Metal"
-                        True
+                      assertFailure
+                        "Apple Silicon live inference requires visible host Metal; this runner cannot see a Metal device"
                     else do
                       let inferenceCmd =
                             (subprocess binary ["inference", "run", "--experiment-hash", experimentHash])

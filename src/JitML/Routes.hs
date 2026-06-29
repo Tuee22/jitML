@@ -19,20 +19,29 @@ data Route = Route
   , routeServicePort :: Int
   , routeRewritePrefix :: Maybe Text
   , routeWebSocket :: Bool
+  , routeTimeoutSeconds :: Maybe Int
   , routeAdminPortalLabel :: Maybe Text
   }
   deriving stock (Eq, Show)
 
 routeRegistry :: [Route]
 routeRegistry =
-  [ Route "demo-root" "/" "jitml-demo" 80 Nothing False Nothing
-  , Route "demo-api" "/api" "jitml-demo" 80 Nothing False Nothing
-  , Route "demo-ws" "/api/ws" "jitml-demo" 80 Nothing True Nothing
-  , Route "jitml-service-healthz" "/healthz" "jitml-service" 8080 Nothing False Nothing
-  , Route "jitml-service-readyz" "/readyz" "jitml-service" 8080 Nothing False Nothing
-  , Route "jitml-service-metrics" "/metrics" "jitml-service" 8080 Nothing False Nothing
-  , Route "tensorboard" "/tensorboard" "tensorboard" 80 (Just "/") False (Just "TensorBoard")
-  , Route "grafana" "/grafana" "kube-prometheus-stack-grafana" 80 (Just "/") False (Just "Grafana")
+  [ Route "demo-root" "/" "jitml-demo" 80 Nothing False Nothing Nothing
+  , Route "demo-api" "/api" "jitml-demo" 80 Nothing False Nothing Nothing
+  , Route "demo-ws" "/api/ws" "jitml-demo" 80 Nothing True Nothing Nothing
+  , Route "jitml-service-healthz" "/healthz" "jitml-service" 8080 Nothing False Nothing Nothing
+  , Route "jitml-service-readyz" "/readyz" "jitml-service" 8080 Nothing False Nothing Nothing
+  , Route "jitml-service-metrics" "/metrics" "jitml-service" 8080 Nothing False Nothing Nothing
+  , Route "tensorboard" "/tensorboard" "tensorboard" 80 (Just "/") False Nothing (Just "TensorBoard")
+  , Route
+      "grafana"
+      "/grafana"
+      "kube-prometheus-stack-grafana"
+      80
+      (Just "/")
+      False
+      Nothing
+      (Just "Grafana")
   , Route
       "prometheus"
       "/prometheus"
@@ -40,15 +49,24 @@ routeRegistry =
       9090
       (Just "/")
       False
+      Nothing
       (Just "Prometheus")
-  , Route "harbor-portal" "/harbor" "harbor" 80 (Just "/") False (Just "Harbor")
-  , Route "harbor-api" "/harbor/api" "harbor" 80 (Just "/api") False Nothing
-  , Route "harbor-registry" "/v2" "harbor" 80 Nothing False Nothing
-  , Route "harbor-service" "/service" "harbor" 80 Nothing False Nothing
-  , Route "minio-console" "/minio/console" "minio" 9001 (Just "/") False (Just "MinIO console")
-  , Route "minio-s3" "/minio/s3" "minio" 9000 (Just "/") False Nothing
-  , Route "pulsar-admin" "/pulsar/admin" "pulsar-proxy" 80 (Just "/admin") False (Just "Pulsar admin")
-  , Route "pulsar-ws" "/pulsar/ws" "pulsar-broker" 8080 (Just "/ws") True Nothing
+  , Route "harbor-portal" "/harbor" "harbor" 80 (Just "/") False Nothing (Just "Harbor")
+  , Route "harbor-api" "/harbor/api" "harbor" 80 (Just "/api") False Nothing Nothing
+  , Route "harbor-registry" "/v2" "harbor" 80 Nothing False (Just 120) Nothing
+  , Route "harbor-service" "/service" "harbor" 80 Nothing False Nothing Nothing
+  , Route "minio-console" "/minio/console" "minio" 9001 (Just "/") False Nothing (Just "MinIO console")
+  , Route "minio-s3" "/minio/s3" "minio" 9000 (Just "/") False Nothing Nothing
+  , Route
+      "pulsar-admin"
+      "/pulsar/admin"
+      "pulsar-proxy"
+      80
+      (Just "/admin")
+      False
+      Nothing
+      (Just "Pulsar admin")
+  , Route "pulsar-ws" "/pulsar/ws" "pulsar-broker" 8080 (Just "/ws") True Nothing Nothing
   ]
 
 -- | Route registry entries that surface as user-facing admin portals.
@@ -101,6 +119,7 @@ renderHTTPRoute route =
     , "            value: " <> routePathPrefix route
     ]
       <> rewriteFilter
+      <> timeoutBlock
       <> [ "      backendRefs:"
          , "        - name: " <> routeServiceName route
          , "          port: " <> Text.pack (show (routeServicePort route))
@@ -117,6 +136,15 @@ renderHTTPRoute route =
         , "              type: ReplacePrefixMatch"
         , "              replacePrefixMatch: " <> prefix
         ]
+  timeoutBlock =
+    case routeTimeoutSeconds route of
+      Nothing -> []
+      Just seconds ->
+        let value = Text.pack (show seconds) <> "s"
+         in [ "      timeouts:"
+            , "        request: " <> value
+            , "        backendRequest: " <> value
+            ]
 
 renderRouteRow :: Route -> Text
 renderRouteRow route =

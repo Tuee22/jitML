@@ -358,7 +358,7 @@ main =
             @?= [["test", "jitml-unit", "jitml-backends"]]
           substrateTestInvocations Nothing ["jitml-backends"] (Just "-p Live")
             @?= [["test", "jitml-backends", "--test-options", "-p Live"]]
-          -- linux-cpu: pure-logic stanza runs in full; the partitioned stanza
+          -- linux-cpu: non-backend stanza runs in full; the partitioned stanza
           -- is restricted to the linux-cpu lane. No -fcuda.
           substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-backends"] Nothing
             @?= [ ["test", "jitml-unit"]
@@ -370,12 +370,15 @@ main =
             @?= [ ["test", "-fcuda", "jitml-unit"]
                 , ["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda"]
                 ]
-          -- A single partitioned stanza omits the (empty) pure-logic invocation.
+          -- A single partitioned stanza omits the (empty) non-backend invocation.
           substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-backends"] Nothing
             @?= [["test", "-fcuda", "jitml-backends", "--test-options", "-p linux-cuda"]]
-          -- A pure-logic-only run omits the (empty) partitioned invocation.
+          -- A non-backend-only substrate run serializes stanzas, avoiding
+          -- Cabal-native parallelism over a shared live cluster/device.
           substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-unit", "jitml-e2e"] Nothing
-            @?= [["test", "jitml-unit", "jitml-e2e"]]
+            @?= [ ["test", "jitml-unit"]
+                , ["test", "jitml-e2e"]
+                ]
           -- User --test-options still apply to non-partitioned stanzas under a
           -- substrate flag; otherwise focused live filters such as WorkflowMatrix
           -- accidentally expand to the whole integration suite.
@@ -1312,7 +1315,7 @@ main =
           if Cublas.cublasBindingsCompiledIn
             then
               assertBool
-                "cuBLAS bindings compiled in: skip the unavailable-stub assertion"
+                "cuBLAS bindings compiled in; unavailable-stub assertion is not applicable"
                 True
             else do
               result <- Cublas.verifyCublasRuntime
@@ -1322,7 +1325,7 @@ main =
           if Cudnn.cudnnBindingsCompiledIn
             then
               assertBool
-                "cuDNN bindings compiled in: skip the unavailable-stub assertion"
+                "cuDNN bindings compiled in; unavailable-stub assertion is not applicable"
                 True
             else do
               let unavailableCudnn = Cudnn.CudnnStatus (-2)

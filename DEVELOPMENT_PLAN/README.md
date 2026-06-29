@@ -288,7 +288,7 @@ clusters only) and a co-tenant-induced disk-full event. **Phases `16`, `17`, and
 **Update 2026-06-20 (Apple M1 Max session):** Phase `16` moves to `🔄 Active` —
 the Mac-hardware blocker is resolved and the **host Apple Metal lane is validated**
 on M1 Max (`jitml-backends --apple-silicon` 17/17 via the fixed Metal bridge on
-the host GPU; pure-logic stanzas host-native green), re-confirmed on the
+the host GPU; non-backend stanzas host-native green), re-confirmed on the
 post-convergence worktree. **Update 2026-06-21:** Phase `2` Sprint `2.14` (in-cluster Docker Hub
 `imagePullSecret`) closed the cluster-pull blocker — the **live Apple cluster now
 comes up authenticated** (110-step rollout, no blocking 429), and `jitml-integration
@@ -615,7 +615,8 @@ lane through the GPU container's raw `cabal test -fcuda` form. **Superseded
 2026-06-09 (later that day): the `jitml test` orchestrator now owns all three
 lanes directly via an explicit `--apple-silicon | --linux-cpu | --linux-cuda`
 flag — it restricts the partitioned `jitml-backends` stanza to the chosen lane,
-runs pure-logic stanzas in full, and on `--linux-cuda` adds `-fcuda` itself — so
+runs non-backend stanzas in full, binds canonical SL/RL/tuning device cases via
+`JITML_SUBSTRATE`, and on `--linux-cuda` adds `-fcuda` itself — so
 `bootstrap/<substrate>.sh test` runs each lane end-to-end without a hand-passed
 cabal flag**). With that run, **Phases `12`, `15`, and `17`
 re-closed `✅ Done`**, so all Phases `0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `9`, `10`, `11`, `12`, `15`, `16`, and `17` are now `✅ Done`; the `linux-cuda`

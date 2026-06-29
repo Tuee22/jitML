@@ -179,9 +179,9 @@ Linux CPU oneDNN primitive kernels through
 `dlopen` and checks the exported family and output-count symbols; the `jitml-e2e` body
 verifies the typed live Helm/Playwright plan and the deterministic
 demo stream routes without executing the live stack. Its local
-post-teardown check asserts no `jitml-e2e-*` Kind clusters survive when both
-`kind` and `/var/run/docker.sock` are available, and skips only the Docker
-query when the container cannot reach the Docker daemon. `jitml test all`
+post-teardown check asserts no `jitml-e2e-*` Kind clusters survive when `kind`
+is present and the active Docker context answers `docker info`; when Docker is
+unreachable, the check fails closed instead of passing vacuously. `jitml test all`
 invokes Cabal through the typed `Subprocess` boundary after the Plan/Apply
 dry-run surface. Lint and code-quality commands run separately inside
 `jitml:local`.
@@ -685,10 +685,9 @@ external container/runtime state, and validates teardown.
   contract endpoint count, demo deployment command, demo HTTP route table
   coverage for generated stream endpoints, one-shot demo HTTP server,
   report-card rendering, typed report-card defaults, typed live plan rendering,
-  and, when the `kind` binary and `/var/run/docker.sock` are both available,
-  the absence of leaked `jitml-e2e-*` Kind clusters. When `kind` or the
-  Docker socket is absent, the no-leak query is skipped in the local scaffold
-  because live Kind orchestration is an explicit target gate.
+  and, when the `kind` binary is present and the active Docker context answers
+  `docker info`, the absence of leaked `jitml-e2e-*` Kind clusters. When Docker
+  is unreachable, the no-leak query fails closed instead of passing vacuously.
 - The target live path runs typed `helm dependency build chart` before apply and
   records whether `Chart.lock` is part of the reproducible dependency surface.
 - Default `cabal test jitml-e2e` remains local. The full live path is a separate
@@ -750,10 +749,12 @@ health, and the then-planned cross-substrate comparison summary).
   3. Aggregate results into the report card.
 - Current `jitml test all --dry-run` renders the aggregate plan from
   `src/JitML/Plan/Plan.hs`; current non-dry-run `jitml test all` invokes
-  `cabal test` with the explicit eight test-only stanza names through
-  `JitML.Sub.Stream.runStreaming` and then renders a typed `ReportCard`
-  with `ReportCardKnobs` and the actual target stanza list after Cabal
-  succeeds.
+  Cabal through `JitML.Sub.Stream.runStreaming` and then renders a typed
+  `ReportCard` with `ReportCardKnobs` and the actual target stanza list after
+  Cabal succeeds. Without a substrate selector it keeps the legacy single
+  `cabal test` invocation over the explicit test-only stanza names; with a
+  substrate selector it serializes stanzas as separate Cabal subprocesses so
+  live tests do not contend over one cluster/device.
 - The report-card knob block in `cabal.project` carries `sl_epochs`,
   `sl_batch`, `rl_steps`, `rl_eval_episodes`, `az_games`, `az_sims`,
   `tune_trials`, `tune_budget_per_trial`, `xcluster_kind_nodes` (see
@@ -779,9 +780,10 @@ health, and the then-planned cross-substrate comparison summary).
 
 1. `jitml test all --dry-run` emits the typed plan enumerating all eight
    test stanzas.
-2. `jitml test all` invokes `cabal test` with the explicit eight test-only
-   stanza names, exits `0` on the current tree, parses the `cabal.project`
-   report-card knob block, and prints the target-stanza report card.
+2. `jitml test all` invokes Cabal over the explicit eight test-only stanza
+   names (serializing by stanza under a substrate selector), exits `0` on the
+   current tree, parses the `cabal.project` report-card knob block, and prints
+   the target-stanza report card.
 3. `cabal test jitml-e2e` verifies report-card default rendering and that the
    `cabal.project` knob block matches the typed defaults.
 4. Transferred live validation: the explicit live `jitml test all` path schedules

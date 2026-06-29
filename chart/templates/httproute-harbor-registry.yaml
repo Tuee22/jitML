@@ -14,6 +14,9 @@ spec:
         - path:
             type: PathPrefix
             value: /v2
+      timeouts:
+        request: 120s
+        backendRequest: 120s
       backendRefs:
         - name: harbor
           port: 80

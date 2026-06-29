@@ -22,7 +22,7 @@ import Network.Socket
   , withSocketsDo
   )
 import Network.Socket.ByteString (recv, sendAll)
-import System.Directory (doesPathExist, findExecutable)
+import System.Directory (findExecutable)
 import System.Exit (ExitCode (..))
 import System.Timeout (timeout)
 import Test.Tasty (defaultMain, testGroup)
@@ -421,21 +421,30 @@ main =
           kind <- findExecutable "kind"
           case kind of
             Nothing ->
-              assertBool "kind is absent; live no-leak check is skipped locally" True
+              assertFailure "kind is absent; post-teardown no-leak check cannot run"
             Just _ -> do
-              hasDockerSocket <- doesPathExist "/var/run/docker.sock"
-              if hasDockerSocket
-                then do
-                  (exitCode, stdoutText, _stderr) <-
-                    runStreaming defaultSubprocessEnv (subprocess "kind" ["get", "clusters"])
-                  assertBool
-                    "kind get clusters exits zero"
-                    (case exitCode of ExitSuccess -> True; _ -> False)
-                  assertBool
-                    "no jitml-e2e-* clusters survive"
-                    (not ("jitml-e2e-" `Text.isInfixOf` stdoutText))
-                else
-                  assertBool "Docker socket is absent; live no-leak check is skipped locally" True
+              docker <- findExecutable "docker"
+              case docker of
+                Nothing ->
+                  assertFailure "docker is absent; post-teardown no-leak check cannot run"
+                Just _ -> do
+                  (dockerExitCode, _dockerStdout, dockerStderr) <-
+                    runStreaming defaultSubprocessEnv (subprocess "docker" ["info"])
+                  case dockerExitCode of
+                    ExitSuccess -> do
+                      (exitCode, stdoutText, _stderr) <-
+                        runStreaming defaultSubprocessEnv (subprocess "kind" ["get", "clusters"])
+                      assertBool
+                        "kind get clusters exits zero"
+                        (case exitCode of ExitSuccess -> True; _ -> False)
+                      assertBool
+                        "no jitml-e2e-* clusters survive"
+                        (not ("jitml-e2e-" `Text.isInfixOf` stdoutText))
+                    _ ->
+                      assertFailure
+                        ( "Docker context is unavailable; post-teardown no-leak check cannot run: "
+                            <> Text.unpack dockerStderr
+                        )
       ]
 
 fakeBrowserRuntime :: BrowserRuntimeRequest -> IO (Either Text BrowserRuntimeResult)

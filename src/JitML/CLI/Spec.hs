@@ -609,26 +609,29 @@ cacheCommand :: CommandSpec
 cacheCommand =
   group
     "cache"
-    "Report the internal JIT cache placeholder."
-    "Internal cache placeholder commands; live cache telemetry is reported through metrics and `jitml test all --live`."
+    "Inspect and evict internal JIT cache artifacts."
+    "Reads the local `.build/jit` manifest and artifact tree, reports real cache counts, lists manifest/file state, and deletes cache artifacts by hash."
     [ leaf
         "stat"
-        "Print placeholder cache stats."
-        "Prints the current internal placeholder cache-stat line."
+        "Print JIT cache stats."
+        "Prints the current manifest-entry count, cache-file count, and artifact bytes under `.build/jit`."
         []
-        [Example "jitml internal cache stat" "Print placeholder cache stats."]
+        [Example "jitml internal cache stat" "Print JIT cache stats."]
     , leaf
         "list"
-        "Print placeholder cache entries."
-        "Prints the current internal placeholder cache-list line."
+        "List JIT cache entries."
+        "Lists manifest entries with artifact presence and any unowned cache files under `.build/jit`."
         []
-        [Example "jitml internal cache list" "Print placeholder cache entries."]
+        [Example "jitml internal cache list" "List JIT cache entries."]
     , leaf
         "evict"
-        "Echo a placeholder cache eviction."
-        "Echoes the requested cache hash; no cache object is deleted by this placeholder."
+        "Evict a JIT cache hash."
+        "Deletes cache artifact files whose basename starts with the requested hash and removes matching manifest entries."
         [positional "hash" True "JIT cache hash."]
-        [Example "jitml internal cache evict abc123" "Echo a placeholder cache eviction."]
+        [ Example
+            "jitml internal cache evict 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            "Evict a JIT cache hash."
+        ]
     ]
 
 allTestCommand :: CommandSpec
@@ -636,7 +639,7 @@ allTestCommand =
   leaf
     "all"
     "Run all test stanzas."
-    "Runs every test-only Cabal stanza and renders the report card. With a substrate flag, substrate-partitioned stanzas run only that substrate's lane (and linux-cuda builds with -fcuda); pure-logic stanzas always run in full."
+    "Runs every test-only Cabal stanza and renders the report card. With a substrate flag, substrate-backed ML stanzas preflight that runtime and receive JITML_SUBSTRATE; backend tests run only that substrate's tasty lane, and linux-cuda builds with -fcuda."
     ( [flag "live" Nothing False "Collect live report-card measurements after the Cabal stanzas pass."]
         <> substrateFlags
         <> [ testOptionsOption
@@ -647,7 +650,7 @@ allTestCommand =
     [ Example "jitml test all --dry-run" "Print the aggregate test plan."
     , Example
         "jitml test all --linux-cuda"
-        "Run the linux-cuda lane (auto -fcuda); pure-logic stanzas run in full."
+        "Run the linux-cuda lane (auto -fcuda) with substrate-backed ML tests bound to linux-cuda."
     , Example "jitml test all --linux-cpu" "Run the linux-cpu lane."
     , Example "jitml test all --live" "Run the stanzas and append live report-card measurements."
     ]
@@ -657,12 +660,15 @@ testStanzaCommand stanzaName =
   leaf
     stanzaName
     ("Run " <> stanzaName <> ".")
-    ("Runs the " <> stanzaName <> " Cabal test stanza.")
+    ( "Runs the "
+        <> stanzaName
+        <> " Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable."
+    )
     (substrateFlags <> [testOptionsOption])
     [ Example ("jitml test " <> stanzaName) ("Run " <> stanzaName <> ".")
     , Example
         ("jitml test " <> stanzaName <> " --linux-cuda")
-        "Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda)."
+        "Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda)."
     ]
 
 -- | Optional passthrough that forwards an opaque argument string to

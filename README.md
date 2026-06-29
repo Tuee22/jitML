@@ -991,9 +991,9 @@ mindmap
 | `jitml internal dhall-schema` | Print the reflected Dhall config schema. | `jitml internal dhall-schema [--config <config>] [--catalog <catalog>]` |
 | `jitml internal third-party-images` | Print the third-party chart image list. | `jitml internal third-party-images` |
 | `jitml internal gc` | Apply checkpoint retention. | `jitml internal gc <experiment-hash> [--dry-run] [--plan-file <path>]` |
-| `jitml internal cache stat` | Print placeholder cache stats. | `jitml internal cache stat` |
-| `jitml internal cache list` | Print placeholder cache entries. | `jitml internal cache list` |
-| `jitml internal cache evict` | Echo a placeholder cache eviction. | `jitml internal cache evict <hash>` |
+| `jitml internal cache stat` | Print JIT cache stats. | `jitml internal cache stat` |
+| `jitml internal cache list` | List JIT cache entries. | `jitml internal cache list` |
+| `jitml internal cache evict` | Evict a JIT cache hash. | `jitml internal cache evict <hash>` |
 | `jitml commands` | Print the command registry. | `jitml commands [--tree] [--json]` |
 | `jitml help` | Print focused command help. | `jitml help [-- <subcommand...>]` |
 <!-- jitml:command-registry:end -->
@@ -2516,16 +2516,18 @@ is only run where its hardware/toolchain is real, and running a lane without its
 hardware **fails by design** — it does not vacuously pass. Select a lane with the
 explicit substrate flag — `jitml test <stanza> --<substrate>` (e.g.
 `jitml test all --linux-cuda`). The orchestrator restricts the
-substrate-partitioned stanzas (`jitml-backends`) to that lane, runs the
-pure-logic stanzas in full, adds `-fcuda` automatically on `linux-cuda`, and
-fails fast if the substrate's runtime is not actually present. The lower-level
-`--test-options='-p <substrate>'` tasty passthrough still works for ad-hoc runs.
+substrate-partitioned stanza (`jitml-backends`) to that lane, runs the
+non-backend stanzas in full, binds the canonical SL/RL/tuning device cases to
+the selected substrate through `JITML_SUBSTRATE`, adds `-fcuda` automatically on
+`linux-cuda`, and fails fast if the substrate's runtime is not actually present.
+The lower-level `--test-options='-p <substrate>'` tasty passthrough still works
+for ad-hoc runs.
 
 - **apple-silicon** runs on the **Mac host**: Metal cannot be containerized, so
   kernels execute through the fixed host Metal bridge on the host GPU; the
-  `apple-silicon` cases plus the six pure-logic
-  stanzas (`jitml-unit`, `jitml-sl-canonicals`, `jitml-rl-canonicals`,
-  `jitml-hyperparameter`, `jitml-daemon-lifecycle`, `jitml-e2e`) run on the Mac.
+  `apple-silicon` backend lane plus the non-backend stanzas run on the Mac, and
+  the SL/RL/tuning device cases use the Metal device selected by
+  `JITML_SUBSTRATE`.
 - **linux-cpu** runs inside the `jitml` container, where oneDNN (`libdnnl-dev`,
   `oneapi/dnnl/dnnl.hpp`) is present so the generated `kernel.cc` compiles and the
   primitives load and run.
@@ -2678,20 +2680,24 @@ cabal_test:
 `jitml test all` is a Plan/Apply command per doctrine §Plan / Apply.
 `--dry-run` prints the rendered plan and exits 0. The summary block is rendered
 by a pure function over a typed `ReportCard` value and the target stanza names.
-The current non-dry-run wrapper invokes `cabal test` with the explicit eight
-test-only stanza names, parses the `cabal.project` report-card knob block, and
-prints the report card after Cabal succeeds.
+Without a substrate flag, the current non-dry-run wrapper invokes `cabal test`
+with the explicit eight test-only stanza names, parses the `cabal.project`
+report-card knob block, and prints the report card after Cabal succeeds.
 
 **Substrate selection.** Passing one of `--apple-silicon | --linux-cpu |
 --linux-cuda` (mirroring `jitml bootstrap`) restricts the substrate-partitioned
-stanzas (`jitml-backends`) to that substrate's tasty lane while the pure-logic
-stanzas still run in full, so a substrate selector never silently drops
-coverage. On `--linux-cuda` the wrapper builds with `-fcuda` automatically (the
-cuBLAS/cuDNN bindings link in), so no one hand-passes the cabal flag. Before
-running a hardware lane it probes the substrate's runtime (GPU+CUDA toolkit /
-oneDNN / Metal) and aborts with a clear message if it is absent — a
-missing-hardware run fails by design rather than degrading. Without a substrate
-flag the wrapper keeps its legacy single-`cabal test` behavior. The
+stanza (`jitml-backends`) to that substrate's tasty lane while the non-backend
+stanzas still run in full, one Cabal invocation at a time, so a substrate
+selector never silently drops coverage and live stanzas do not contend over one
+cluster/device. For canonical SL/RL/tuning tests, the wrapper exports
+`JITML_SUBSTRATE` so their device-backed training/inference checks run on the
+selected substrate and fail closed if that device is unavailable. On
+`--linux-cuda` the wrapper builds with `-fcuda` automatically (the cuBLAS/cuDNN
+bindings link in), so no one hand-passes the cabal flag. Before running a
+hardware lane it probes the substrate's runtime (GPU+CUDA toolkit / oneDNN /
+Metal) and aborts with a clear message if it is absent — a missing-hardware run
+fails by design rather than degrading. Without a substrate flag the wrapper
+keeps its legacy single-`cabal test` behavior. The
 `bootstrap/<substrate>.sh test` scripts pass the matching flag, so they are now
 the supported one-shot way to run a substrate's full surface. `--live` keeps those values as
 per-host telemetry; they are not stored as cross-run reference fixtures (see

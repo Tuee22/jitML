@@ -478,7 +478,7 @@ main =
           -- dlopen the resulting `.so`, launch the identity kernel,
           -- and verify the copied-back output matches the input
           -- bit-equally. On hosts without a positive CUDA runtime
-          -- probe the test logs a skip and passes.
+          -- probe the selected lane fails by design.
           env <- buildEnv defaultGlobalFlags
           let payload = [1.25, -2.5, 0.0, 3.5]
           result <- runCudaFamilyKernel env Identity payload
@@ -789,16 +789,16 @@ main =
             preExisting <-
               listDirectory tuningDir
                 `Control.Exception.catch` \(_ :: Control.Exception.IOException) -> pure []
-            -- Drive the cache-miss path. The deterministic-stub runner
+            -- Drive the cache-miss path. The deterministic fixture runner
             -- returns a constant observation; the typed
             -- ensureKernelArtifactWithBenchmarkTuningWithRunner closure
             -- writes the selection to disk via TuningStore.
-            let stubRunner _env _spec _kind _input _candidate =
+            let fixtureRunner _env _spec _kind _input _candidate =
                   pure
                     ( Right
                         ( TuningBenchmark.BenchmarkObservation
                             { TuningBenchmark.benchmarkObservationLatencyMicros = 1
-                            , TuningBenchmark.benchmarkObservationOutputDigest = "stub-digest"
+                            , TuningBenchmark.benchmarkObservationOutputDigest = "fixture-digest"
                             }
                         )
                     )
@@ -806,7 +806,7 @@ main =
               TuningBenchmark.ensureKernelArtifactWithBenchmarkTuningWithRunner
                 env
                 Substrate.LinuxCPU
-                stubRunner
+                fixtureRunner
                 kernelSpec
                 Cache.Inference
                 (Cache.ToolchainFingerprint "13.15-fingerprint")

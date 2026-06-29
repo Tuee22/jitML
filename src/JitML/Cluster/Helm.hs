@@ -117,6 +117,7 @@ helmInstallSubprocessWith extraArgs release chartPath =
       , "platform"
       , "--create-namespace"
       , "--wait"
+      , "--timeout=900s"
       , "--kubeconfig"
       , "./.build/jitml.kubeconfig"
       ]

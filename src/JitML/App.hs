@@ -20,7 +20,7 @@ import Data.Aeson (decode, encode)
 import Data.ByteString qualified
 import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.Either (isRight)
+import Data.Either (isRight, lefts)
 import Data.Foldable (for_, traverse_)
 import Data.List (sort, stripPrefix)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
@@ -31,11 +31,18 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word32, Word64)
 import Options.Applicative (ParserResult (..), renderFailure)
-import Path (toFilePath)
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import Path (Abs, Dir, Path, toFilePath)
+import System.Directory
+  ( createDirectoryIfMissing
+  , doesDirectoryExist
+  , doesFileExist
+  , getFileSize
+  , listDirectory
+  , removeFile
+  )
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
+import System.FilePath (takeFileName, (</>))
 import System.IO qualified
 import Text.Read (readMaybe)
 
@@ -75,6 +82,8 @@ import JitML.CLI.Parser (ParsedCommand (..), ParsedOption (..), parseCommandPure
 import JitML.CLI.Spec (commandPathText, commandRegistry)
 import JitML.CLI.Tree (renderCommandList, renderCommandTree)
 import JitML.Cache.Key qualified as Cache
+import JitML.Cache.Layout qualified as CacheLayout
+import JitML.Cache.Manifest qualified as CacheManifest
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.Helm qualified as Helm
@@ -189,7 +198,7 @@ import JitML.Test.Report
   , loadReportCardKnobs
   , renderReportCardForTargets
   , reportStanzas
-  , substratePartitionedStanzas
+  , substrateRuntimeStanzas
   , substrateTestInvocations
   )
 import JitML.Training.Budget qualified as TrainingBudget
@@ -4114,9 +4123,12 @@ runTest path _ =
 -- @cabal test \<targets\>@ with the opaque @--test-options@ passthrough (the
 -- legacy behavior). With exactly one substrate flag the
 -- 'substratePartitionedStanzas' run under @-p \<substrate\>@ (and @-fcuda@ on
--- @linux-cuda@) while pure-logic stanzas run in full; a precondition probe
--- first asserts the substrate's runtime is really present so a missing-hardware
--- run fails by design instead of silently degrading.
+-- @linux-cuda@), while non-partitioned stanzas run in full, one invocation at a
+-- time, so live substrate tests do not contend over the same cluster/device.
+-- The canonical SL/RL/tuning stanzas still contain selected-substrate device
+-- cases, so a precondition probe first asserts the substrate's runtime is
+-- really present and the child test process receives @JITML_SUBSTRATE@. A
+-- missing-hardware run fails by design instead of silently degrading.
 runCabalTest :: [ParsedOption] -> [Text] -> App ()
 runCabalTest parsedOptions targets =
   case bootstrapSubstrates parsedOptions of
@@ -4145,11 +4157,11 @@ runCabalTest parsedOptions targets =
       opts -> Just opts
 
 -- | Fail fast when a substrate lane is requested but its runtime is absent,
--- but only when the run actually includes a substrate-partitioned stanza
--- (pure-logic-only runs do not need the hardware).
+-- but only when the run actually includes a stanza with substrate-backed
+-- device work.
 ensureSubstrateRuntimeFor :: Substrate -> [Text] -> App ()
 ensureSubstrateRuntimeFor substrate targets
-  | not (any (`elem` substratePartitionedStanzas) targets) = pure ()
+  | not (any (`elem` substrateRuntimeStanzas) targets) = pure ()
   | otherwise =
       case substrate of
         LinuxCUDA ->
@@ -4173,7 +4185,7 @@ ensureSubstrateRuntimeFor substrate targets
 -- failure, then render the report card once over the full target set.
 runCabalInvocations :: [ParsedOption] -> [Text] -> [[Text]] -> App ()
 runCabalInvocations parsedOptions targets invocations = do
-  mapM_ runOne invocations
+  mapM_ (runOne selectedTestSubstrate) invocations
   loadedKnobs <- liftIO (loadReportCardKnobs "cabal.project")
   case loadedKnobs of
     Left err -> exitWithError (InvalidConfig err)
@@ -4189,8 +4201,22 @@ runCabalInvocations parsedOptions targets invocations = do
             (ReportCard (passedCount targets) 0 0 measurements)
         )
  where
-  runOne args = do
-    let command = subprocess "cabal" args
+  selectedTestSubstrate =
+    case bootstrapSubstrates parsedOptions of
+      [substrateName] -> parseSubstrate substrateName
+      _ -> Nothing
+
+  runOne substrateMaybe args = do
+    let command =
+          case substrateMaybe of
+            Nothing -> subprocess "cabal" args
+            Just substrate ->
+              subprocess
+                "env"
+                ( ("JITML_SUBSTRATE=" <> renderSubstrate substrate)
+                    : "cabal"
+                    : args
+                )
     (exitCode, stdoutText, stderrText) <- liftIO (runStreaming defaultSubprocessEnv command)
     case exitCode of
       ExitSuccess -> writeText stdoutText
@@ -5067,15 +5093,151 @@ localCheckpointRoot = do
   cacheDir <- asks envCacheDir
   pure (toFilePath cacheDir </> "checkpoints")
 
+data CacheFileInfo = CacheFileInfo
+  { cacheFilePath :: FilePath
+  , cacheFileBytes :: Integer
+  }
+
 runInternalCache :: [Text] -> [ParsedOption] -> App ()
-runInternalCache ["internal", "cache", "stat"] _ =
-  writeLine "cache stat: entries=0 bytes=0"
-runInternalCache ["internal", "cache", "list"] _ =
-  writeLine "cache list: empty"
-runInternalCache ["internal", "cache", "evict"] parsedOptions =
-  writeLine ("cache evict: " <> selectedValue "hash" "missing" parsedOptions)
+runInternalCache ["internal", "cache", "stat"] _ = do
+  buildRoot <- asks envCacheDir
+  manifest <- readCacheManifestOrExit buildRoot
+  files <- liftIO (scanCacheFiles buildRoot)
+  writeLine
+    ( "cache stat: manifest-entries="
+        <> Text.pack (show (length (CacheManifest.manifestEntries manifest)))
+        <> " files="
+        <> Text.pack (show (length files))
+        <> " bytes="
+        <> Text.pack (show (sum (fmap cacheFileBytes files)))
+    )
+runInternalCache ["internal", "cache", "list"] _ = do
+  buildRoot <- asks envCacheDir
+  manifest <- readCacheManifestOrExit buildRoot
+  files <- liftIO (scanCacheFiles buildRoot)
+  let entries = CacheManifest.manifestEntries manifest
+      renderedEntries = fmap (renderCacheManifestEntry files) entries
+      renderedFiles =
+        [ "cache file: path="
+            <> Text.pack (cacheFilePath file)
+            <> " bytes="
+            <> Text.pack (show (cacheFileBytes file))
+        | file <- files
+        , not (any (`cacheEntryOwnsFile` file) entries)
+        ]
+  writeText
+    ( if null renderedEntries && null renderedFiles
+        then "cache list: empty\n"
+        else Text.unlines (renderedEntries <> renderedFiles)
+    )
+runInternalCache ["internal", "cache", "evict"] parsedOptions = do
+  let rawHash = selectedValue "hash" "missing" parsedOptions
+  case Cache.hashFromHex rawHash of
+    Nothing ->
+      exitWithError (InvalidConfig ("invalid JIT cache hash: " <> rawHash))
+    Just hash -> do
+      buildRoot <- asks envCacheDir
+      manifest <- readCacheManifestOrExit buildRoot
+      files <- liftIO (scanCacheFiles buildRoot)
+      let hashText = Cache.hashHex hash
+          oldEntries = CacheManifest.manifestEntries manifest
+          keptEntries =
+            filter
+              ((/= hash) . CacheManifest.manifestEntryHash)
+              oldEntries
+          matchingFiles = filter (cacheFileHasHash hashText) files
+          removedEntries = length oldEntries - length keptEntries
+      deleteResults <- liftIO (traverse deleteCacheFile matchingFiles)
+      case lefts deleteResults of
+        [] -> do
+          when (removedEntries > 0) $
+            liftIO $
+              CacheManifest.writeManifestAtomic
+                buildRoot
+                (CacheManifest.Manifest keptEntries)
+          writeLine
+            ( "cache evict: hash="
+                <> hashText
+                <> " files-deleted="
+                <> Text.pack (show (length matchingFiles))
+                <> " manifest-entries-removed="
+                <> Text.pack (show removedEntries)
+            )
+        failures ->
+          exitWithError
+            ( InvalidConfig
+                ( "cache evict failed while deleting files: "
+                    <> Text.intercalate "; " (fmap Text.pack failures)
+                )
+            )
 runInternalCache path _ =
   exitWithError (UnknownCommand ("unknown cache command: " <> commandPathText path))
+
+readCacheManifestOrExit :: Path Abs Dir -> App CacheManifest.Manifest
+readCacheManifestOrExit buildRoot = do
+  result <- liftIO (CacheManifest.readManifest buildRoot)
+  case result of
+    Right manifest -> pure manifest
+    Left err -> exitWithError (InvalidConfig ("cache manifest unreadable: " <> Text.pack err))
+
+scanCacheFiles :: Path Abs Dir -> IO [CacheFileInfo]
+scanCacheFiles buildRoot = do
+  root <- CacheLayout.cacheRoot buildRoot
+  scanDirectory (toFilePath root)
+
+scanDirectory :: FilePath -> IO [CacheFileInfo]
+scanDirectory directory = do
+  exists <- doesDirectoryExist directory
+  if not exists
+    then pure []
+    else do
+      names <- sort <$> listDirectory directory
+      concat <$> traverse scanChild names
+ where
+  scanChild name = do
+    let path = directory </> name
+    isDirectory <- doesDirectoryExist path
+    isFile <- doesFileExist path
+    if isDirectory
+      then scanDirectory path
+      else
+        if isFile && name /= "manifest.json"
+          then do
+            size <- getFileSize path
+            pure [CacheFileInfo path size]
+          else pure []
+
+renderCacheManifestEntry :: [CacheFileInfo] -> CacheManifest.ManifestEntry -> Text
+renderCacheManifestEntry files entry =
+  let hashText = Cache.hashHex (CacheManifest.manifestEntryHash entry)
+      present =
+        if any (cacheFileHasHash hashText) files
+          then "present"
+          else "missing"
+   in Text.unwords
+        [ "cache entry:"
+        , "model=" <> Cache.unModelId (CacheManifest.manifestEntryModelId entry)
+        , "kind=" <> Cache.kindText (CacheManifest.manifestEntryKind entry)
+        , "substrate=" <> Cache.substrateText (CacheManifest.manifestEntrySubstrate entry)
+        , "toolchain=" <> Cache.unToolchainFingerprint (CacheManifest.manifestEntryToolchain entry)
+        , "hash=" <> hashText
+        , "artifact=" <> present
+        ]
+
+cacheEntryOwnsFile :: CacheManifest.ManifestEntry -> CacheFileInfo -> Bool
+cacheEntryOwnsFile entry =
+  cacheFileHasHash (Cache.hashHex (CacheManifest.manifestEntryHash entry))
+
+cacheFileHasHash :: Text -> CacheFileInfo -> Bool
+cacheFileHasHash hashText file =
+  (hashText <> ".") `Text.isPrefixOf` Text.pack (takeFileName (cacheFilePath file))
+
+deleteCacheFile :: CacheFileInfo -> IO (Either String ())
+deleteCacheFile file = do
+  result <- tryAny (removeFile (cacheFilePath file))
+  case result of
+    Right () -> pure (Right ())
+    Left err -> pure (Left (cacheFilePath file <> ": " <> displayException err))
 
 selectedSubstrate :: [ParsedOption] -> Either AppError Substrate
 selectedSubstrate =

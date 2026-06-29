@@ -8,6 +8,7 @@ module JitML.Sub.Stream
   )
 where
 
+import Control.Exception (evaluate)
 import Control.Monad (void)
 import Data.ByteString.Lazy (ByteString)
 import Data.ByteString.Lazy qualified as LazyByteString
@@ -16,7 +17,9 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.Encoding.Error (lenientDecode)
 import System.Exit (ExitCode)
-import System.IO (Handle)
+import System.FilePath ((</>))
+import System.IO (Handle, IOMode (WriteMode), hFlush, withBinaryFile)
+import System.IO.Temp (withSystemTempDirectory)
 import System.Process.Typed qualified as Typed
 
 import JitML.Sub.Subprocess (Subprocess (..))
@@ -56,15 +59,34 @@ startDetached _env subprocessValue =
 
 capture :: SubprocessEnv -> Subprocess -> IO (ExitCode, ByteString, ByteString)
 capture _env subprocessValue =
-  case subprocessStdin subprocessValue of
-    Nothing ->
-      Typed.readProcess (baseProcessConfig subprocessValue)
-    Just payload ->
-      Typed.readProcess
-        ( Typed.setStdin
-            (Typed.byteStringInput (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 payload)))
-            (baseProcessConfig subprocessValue)
-        )
+  withSystemTempDirectory "jitml-subprocess" $ \dir -> do
+    let stdoutPath = dir </> "stdout"
+        stderrPath = dir </> "stderr"
+    exitCode <-
+      withBinaryFile stdoutPath WriteMode $ \stdoutHandle ->
+        withBinaryFile stderrPath WriteMode $ \stderrHandle -> do
+          code <-
+            Typed.runProcess
+              ( Typed.setStdout (Typed.useHandleOpen stdoutHandle) $
+                  Typed.setStderr (Typed.useHandleOpen stderrHandle) $
+                    applyStdin (baseProcessConfig subprocessValue)
+              )
+          hFlush stdoutHandle
+          hFlush stderrHandle
+          pure code
+    stdoutBytes <- LazyByteString.readFile stdoutPath
+    stderrBytes <- LazyByteString.readFile stderrPath
+    _ <- evaluate (LazyByteString.length stdoutBytes)
+    _ <- evaluate (LazyByteString.length stderrBytes)
+    pure (exitCode, stdoutBytes, stderrBytes)
+ where
+  applyStdin config =
+    case subprocessStdin subprocessValue of
+      Nothing -> config
+      Just payload ->
+        Typed.setStdin
+          (Typed.byteStringInput (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 payload)))
+          config
 
 withPipedProcess :: Subprocess -> (Handle -> Handle -> IO a) -> IO a
 withPipedProcess subprocessValue action =

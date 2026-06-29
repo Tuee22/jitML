@@ -12,6 +12,7 @@ module JitML.Test.Report
   , renderReportCardForTargets
   , renderReportCardWithKnobs
   , reportStanzas
+  , substrateRuntimeStanzas
   , substratePartitionedStanzas
   , substrateTestInvocations
   , renderReportCard
@@ -108,10 +109,23 @@ reportStanzas =
 -- @linux-cpu …@ / @linux-cuda …@ / @apple-silicon …@) and that fail when run on
 -- the wrong substrate. Under an explicit substrate selector these run with
 -- @--test-options '-p <substrate>'@; every other stanza runs in full so that a
--- substrate selector never silently drops pure-logic coverage.
+-- substrate selector never silently drops non-backend coverage.
 substratePartitionedStanzas :: [Text]
 substratePartitionedStanzas =
   ["jitml-backends"]
+
+-- | Stanzas that contain substrate-backed ML/device work and therefore require
+-- the selected substrate runtime to be present before the test process starts.
+-- Only 'substratePartitionedStanzas' are filtered by tasty pattern; the
+-- canonical SL/RL/tuning stanzas run their full pure coverage and read
+-- @JITML_SUBSTRATE@ for the device-backed cases.
+substrateRuntimeStanzas :: [Text]
+substrateRuntimeStanzas =
+  [ "jitml-sl-canonicals"
+  , "jitml-rl-canonicals"
+  , "jitml-hyperparameter"
+  ]
+    <> substratePartitionedStanzas
 
 -- | Build the ordered list of @cabal test@ argument vectors for a run. Each
 -- element is the arguments passed after the @cabal@ executable.
@@ -120,27 +134,32 @@ substratePartitionedStanzas =
 -- optional user @--test-options@ string (the legacy behavior). With a
 -- substrate, 'substratePartitionedStanzas' run under @-p \<substrate\>@ (and
 -- @-fcuda@ on @linux-cuda@, so the cuBLAS/cuDNN bindings link) while every other
--- stanza runs unfiltered — this keeps pure-logic coverage instead of letting a
--- substrate-wide @-p@ vacuously match zero tests. Either group is omitted when
--- it has no targets, so single-stanza commands work too.
+-- stanza runs unfiltered in its own invocation. That keeps non-backend coverage
+-- instead of letting a substrate-wide @-p@ vacuously match zero tests, and it
+-- avoids Cabal-native parallel execution across live stanzas that share one
+-- cluster, registry, object store, and host device. Empty groups are omitted, so
+-- single-stanza commands work too.
 substrateTestInvocations :: Maybe Substrate -> [Text] -> Maybe Text -> [[Text]]
 substrateTestInvocations Nothing targets userOptions =
   ["test" : targets <> testOptionArgs userOptions]
 substrateTestInvocations (Just substrate) targets userOptions =
-  restInvocation <> partitionedInvocation
+  restInvocations <> partitionedInvocations
  where
   cudaArgs = ["-fcuda" | substrate == LinuxCUDA]
   partitioned = filter (`elem` substratePartitionedStanzas) targets
   rest = filter (`notElem` substratePartitionedStanzas) targets
-  restInvocation = ["test" : cudaArgs <> rest <> testOptionArgs userOptions | not (null rest)]
+  restInvocations =
+    [ "test" : cudaArgs <> [target] <> testOptionArgs userOptions
+    | target <- rest
+    ]
   laneOption = "-p " <> renderSubstrate substrate
   partitionedOptions =
     case userOptions of
       Just opts | not (Text.null opts) -> laneOption <> " " <> opts
       _ -> laneOption
-  partitionedInvocation =
-    [ "test" : cudaArgs <> partitioned <> ["--test-options", partitionedOptions]
-    | not (null partitioned)
+  partitionedInvocations =
+    [ "test" : cudaArgs <> [target] <> ["--test-options", partitionedOptions]
+    | target <- partitioned
     ]
 
 testOptionArgs :: Maybe Text -> [Text]

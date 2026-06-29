@@ -6,14 +6,15 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Data.Word (Word64)
+import System.Environment (lookupEnv)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import JitML.CLI.Parser (ParsedOption (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Env.Build (buildEnv, defaultGlobalFlags)
 import JitML.Experiment.Overrides qualified as Overrides
-import JitML.Numerics.MlpDevice (probeMlpDevice)
+import JitML.Numerics.MlpDevice (MlpDevice, probeMlpDevice)
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Proto.Tune
   ( StartSweep (..)
@@ -30,7 +31,7 @@ import JitML.Proto.Tune
   , parseTuneCommand
   , renderTuneCommand
   )
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Report
   ( ReportCardKnobs (..)
   , parseReportCardKnobs
@@ -149,25 +150,22 @@ main =
           "device-backed trial executor is deterministic through the substrate JIT device (Sprint 9.11 --linux-cpu)"
           $ do
             env <- buildEnv defaultGlobalFlags
-            let device = mlpDeviceForSubstrate LinuxCPU env
-            probe <- probeMlpDevice device
-            case probe of
-              Left _ ->
-                assertBool "linux-cpu JIT device unavailable; device-backed tuning trial skipped" True
-              Right () -> do
-                first <- deterministicTrialsWithDevice device TPE 3
-                second <- deterministicTrialsWithDevice device TPE 3
-                case (first, second) of
-                  (Right a, Right b) -> do
-                    a @?= b
-                    assertBool "device trial executor produced three objectives" (length a == 3)
-                    mapM_
-                      (\value -> assertBool "device value is [0,1]" (value >= 0 && value <= 1))
-                      a
-                  (Left err, _) ->
-                    assertBool ("first device-backed trial run failed: " <> Text.unpack err) False
-                  (_, Left err) ->
-                    assertBool ("second device-backed trial run failed: " <> Text.unpack err) False
+            substrate <- selectedTestSubstrate
+            let device = mlpDeviceForSubstrate substrate env
+            requireMlpDevice substrate device
+            first <- deterministicTrialsWithDevice device TPE 3
+            second <- deterministicTrialsWithDevice device TPE 3
+            case (first, second) of
+              (Right a, Right b) -> do
+                a @?= b
+                assertBool "device trial executor produced three objectives" (length a == 3)
+                mapM_
+                  (\value -> assertBool "device value is [0,1]" (value >= 0 && value <= 1))
+                  a
+              (Left err, _) ->
+                assertBool ("first device-backed trial run failed: " <> Text.unpack err) False
+              (_, Left err) ->
+                assertBool ("second device-backed trial run failed: " <> Text.unpack err) False
       , testCase "Sobol and GA trial streams regenerate deterministically without fixtures" $ do
           deterministicTrials Sobol 8 @?= deterministicTrials Sobol 8
           deterministicTrials GeneticAlgorithm 8 @?= deterministicTrials GeneticAlgorithm 8
@@ -408,3 +406,27 @@ assertOneTriple sampler scheduler trialBudget pruner = do
         <> " replays equal under 50% partial sweep"
     )
     (resumeMatchesFullRun sampler (trialBudget `div` 2) trialBudget)
+
+selectedTestSubstrate :: IO Substrate
+selectedTestSubstrate = do
+  value <- lookupEnv "JITML_SUBSTRATE"
+  case value of
+    Nothing -> pure LinuxCPU
+    Just raw ->
+      case parseSubstrate (Text.pack raw) of
+        Just substrate -> pure substrate
+        Nothing -> assertFailure ("invalid JITML_SUBSTRATE: " <> raw)
+
+requireMlpDevice :: Substrate -> MlpDevice -> IO ()
+requireMlpDevice substrate device = do
+  probe <- probeMlpDevice device
+  case probe of
+    Right () -> pure ()
+    Left err ->
+      assertFailure
+        ( Text.unpack
+            ( renderSubstrate substrate
+                <> " JIT device unavailable: "
+                <> err
+            )
+        )

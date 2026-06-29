@@ -51,7 +51,7 @@ baseline. Accelerator live validation remains phase-gated by Phases `15` and
 | `jitml-hyperparameter` | `test/hyperparameter/Main.hs` covers sampler / scheduler / pruner axes including TPE, the TPE worked-example Dhall decode, sampler resume equality (replay an event log → next-batch matches first-pass), checkpointable trained weights for measured trial objectives, fixed trial-budget completion, promoted-checkpoint eligibility, and Tune command/event envelope round-trips. Sampler trial values are checked as properties rather than committed numerical sequences. | Integration (project-specific) | Sprint 12.5 |
 | `jitml-backends` | `test/backends/Main.hs` covers per-substrate JIT backend validation, **symmetric across all three backends**: generated kernel compile/load/run + family/output-count symbols, weighted-family numeric correctness vs the pure `JitML.Numerics.FamilyReference` oracle, MLP forward/backward/batched-gradient/input-gradient vs the pure `JitML.Numerics.Mlp` network, the PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence — each substrate's cases run **for real** in their own lane (Apple host-native Metal; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA in the `jitml-cuda` GPU container), selected via `--test-options='-p <substrate>'`, with **no skipped tests**. Correctness is asserted within-lane against the in-process pure-Haskell oracle within `1e-3`; no cross-substrate cohort | Integration (project-specific) | Sprint 12.6 |
 | `jitml-daemon-lifecycle` | `test/daemon-lifecycle/Main.hs` covers lifecycle ordering, endpoints, retry policy, at-least-once deduplication, inference request/result protobuf byte round-trips, fully-qualified Pulsar topic routing, BootConfig-derived daemon subscription planning, startup subscription acquisition through the combined daemon client interpreter, bounded acquired-subscription consumer batches, LiveConfig-derived handler-router dedup cache sizing, daemon runtime summary rendering including `pulsar_subscriptions` / `pulsar_subscription_status`, and one-shot daemon HTTP serving | Daemon Lifecycle | Sprint 12.7 |
-| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` and `/var/run/docker.sock` are available, typed live-plan surfaces, and the Sprint 12.11 structural assertion that `JitML.Test.WorkflowMatrix` covers every workflow category × substrate with a command. Sprint 12.15 / Phase 14 make the live Playwright path launch or select every fixed-budget trained artifact, validate model-specific interactions, observe RL animations, replay adversarial games, exercise tuning controls, and prove inference rejection before training completion. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Sprint 12.15 / Phase 14 |
+| `jitml-e2e` | `test/e2e/Main.hs` covers route, bucket, publication, browser-contract, demo HTTP including generated stream routes, deployment, report-card, no leaked `jitml-e2e-*` clusters when `kind` is present and the active Docker context answers `docker info`, typed live-plan surfaces, and the Sprint 12.11 structural assertion that `JitML.Test.WorkflowMatrix` covers every workflow category × substrate with a command. Sprint 12.15 / Phase 14 make the live Playwright path launch or select every fixed-budget trained artifact, validate model-specific interactions, observe RL animations, replay adversarial games, exercise tuning controls, and prove inference rejection before training completion. | Ephemeral-Cluster Infrastructure | Sprint 12.8 / Sprint 12.11 / Sprint 12.13 / Sprint 12.15 / Phase 14 |
 Each stanza is `type: exitcode-stdio-1.0` with `tasty` as the in-stanza
 runner. A single `tasty` tree spanning all tiers is forbidden per doctrine
 `Test Organization`.
@@ -73,12 +73,14 @@ Integration** stanzas under doctrine §Test Organization's project-specific
 stanzas allowance — extensions of the Integration category, not parallel
 test systems.
 
-`jitml test all` (Sprint `12.9`) fans out to every test stanza above by
-invoking `cabal test` with the explicit eight test-only stanza names through
-the typed `Subprocess` boundary, then renders a target-stanza report card after
-Cabal succeeds. `jitml test <stanza>` renders the same report shape for the
-selected stanza only. Style and code-quality commands are deliberately
-separate; use `docker compose run --rm jitml jitml lint *` and
+`jitml test all` (Sprint `12.9`) fans out to every test stanza above through the
+typed `Subprocess` boundary, then renders a target-stanza report card after
+Cabal succeeds. Without a substrate selector it keeps the legacy single
+`cabal test` invocation over the explicit test-only stanza names; with a
+substrate selector it serializes stanzas as separate Cabal subprocesses so live
+tests do not contend over one cluster/device. `jitml test <stanza>` renders the
+same report shape for the selected stanza only. Style and code-quality commands
+are deliberately separate; use `docker compose run --rm jitml jitml lint *` and
 `docker compose run --rm jitml jitml check-code` inside the headless
 `jitml:local` service.
 `jitml test <stanza>` invokes one Cabal stanza through the same boundary.
@@ -215,9 +217,10 @@ The current `jitml-e2e` body validates local route, bucket, `chart/values.yaml`
 MinIO coverage, publication, browser-contract, demo HTTP routes including the
 generated stream endpoints, deployment, report-card rendering plus the
 `cabal.project` knob-block parser, typed live-plan surfaces, no leaked
-`jitml-e2e-*` Kind clusters when `kind` and `/var/run/docker.sock` are both
-available, and the bundle-serving fallback. When the binary or Docker socket is
-absent, only the local Docker-backed Kind query is skipped. The typed
+`jitml-e2e-*` Kind clusters when `kind` is present and the active Docker
+context answers `docker info`, and the bundle-serving fallback. When either
+binary is absent or Docker is unreachable, the local Docker-backed Kind query
+fails closed. The typed
 `JitML.Test.LivePlan.liveE2EPlan` records the live orchestration as `Subprocess`
 values: `helm dependency build chart` → `jitml bootstrap` (ephemeral Kind +
 phased Helm rollout) → `npx playwright test` → `jitml cluster down`. The live

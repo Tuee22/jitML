@@ -50,18 +50,20 @@ and a real toolchain. There are **no skipped substrate tests**: a lane is only
 run where its hardware/toolchain is real, and running a lane without its hardware
 **fails by design** — it does not vacuously pass. Select a lane with the explicit
 substrate flag — `jitml test <stanza|all> --<substrate>`. The orchestrator
-restricts the substrate-partitioned stanzas (`jitml-backends`) to that lane, runs
-the pure-logic stanzas in full, adds `-fcuda` automatically on `linux-cuda`, and
-aborts up front if the substrate's runtime is absent. `bootstrap/<substrate>.sh
-test` already passes the right flag, so it is the supported one-shot path. (The
-lower-level `--test-options='-p <substrate>'` tasty passthrough still works.)
+restricts the substrate-partitioned stanza (`jitml-backends`) to that lane, runs
+the non-backend stanzas in full, binds canonical SL/RL/tuning device cases to the
+selected substrate through `JITML_SUBSTRATE`, adds `-fcuda` automatically on
+`linux-cuda`, and aborts up front if the substrate's runtime is absent.
+`bootstrap/<substrate>.sh test` already passes the right flag, so it is the
+supported one-shot path. (The lower-level `--test-options='-p <substrate>'`
+tasty passthrough still works.)
 
 - **apple-silicon** runs on the **Mac host**: Metal kernels are JIT-compiled
   in-process by the fixed host Metal bridge (`MTLDevice.makeLibrary(source:)`)
-  and execute on the host GPU, so the apple-silicon cases plus the six
-  pure-logic stanzas (`jitml-unit`, `jitml-sl-canonicals`,
-  `jitml-rl-canonicals`, `jitml-hyperparameter`, `jitml-daemon-lifecycle`,
-  `jitml-e2e`) run on the Mac: `jitml test <stanza> --apple-silicon`.
+  and execute on the host GPU, so the apple-silicon backend lane plus the
+  non-backend stanzas run on the Mac; canonical SL/RL/tuning device cases use
+  the Metal device selected by `JITML_SUBSTRATE`:
+  `jitml test <stanza> --apple-silicon`.
 - **linux-cpu** runs in the `jitml` container, where oneDNN (`libdnnl`,
   `oneapi/dnnl/dnnl.hpp`) is present:
   `docker compose run --rm jitml jitml test <stanza> --linux-cpu`.

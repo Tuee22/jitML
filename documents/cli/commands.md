@@ -436,7 +436,7 @@ Live-MinIO inference run against a known experiment hash.
 
 Run all test stanzas.
 
-Runs every test-only Cabal stanza and renders the report card. With a substrate flag, substrate-partitioned stanzas run only that substrate's lane (and linux-cuda builds with -fcuda); pure-logic stanzas always run in full.
+Runs every test-only Cabal stanza and renders the report card. With a substrate flag, substrate-backed ML stanzas preflight that runtime and receive JITML_SUBSTRATE; backend tests run only that substrate's tasty lane, and linux-cuda builds with -fcuda.
 
 ```text
 jitml test all [--live] [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>] [--dry-run] [--plan-file <path>]
@@ -464,7 +464,7 @@ Print the aggregate test plan.
 jitml test all --linux-cuda
 ```
 
-Run the linux-cuda lane (auto -fcuda); pure-logic stanzas run in full.
+Run the linux-cuda lane (auto -fcuda) with substrate-backed ML tests bound to linux-cuda.
 
 ```text
 jitml test all --linux-cpu
@@ -483,7 +483,7 @@ Run the stanzas and append live report-card measurements.
 
 Run jitml-unit.
 
-Runs the jitml-unit Cabal test stanza.
+Runs the jitml-unit Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
 
 ```text
 jitml test jitml-unit [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
@@ -508,14 +508,14 @@ Run jitml-unit.
 jitml test jitml-unit --linux-cuda
 ```
 
-Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-integration`
 
 Run jitml-integration.
 
-Runs the jitml-integration Cabal test stanza.
+Runs the jitml-integration Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
 
 ```text
 jitml test jitml-integration [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
@@ -540,14 +540,14 @@ Run jitml-integration.
 jitml test jitml-integration --linux-cuda
 ```
 
-Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-sl-canonicals`
 
 Run jitml-sl-canonicals.
 
-Runs the jitml-sl-canonicals Cabal test stanza.
+Runs the jitml-sl-canonicals Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
 
 ```text
 jitml test jitml-sl-canonicals [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
@@ -572,14 +572,14 @@ Run jitml-sl-canonicals.
 jitml test jitml-sl-canonicals --linux-cuda
 ```
 
-Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-rl-canonicals`
 
 Run jitml-rl-canonicals.
 
-Runs the jitml-rl-canonicals Cabal test stanza.
+Runs the jitml-rl-canonicals Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
 
 ```text
 jitml test jitml-rl-canonicals [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
@@ -604,14 +604,14 @@ Run jitml-rl-canonicals.
 jitml test jitml-rl-canonicals --linux-cuda
 ```
 
-Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-hyperparameter`
 
 Run jitml-hyperparameter.
 
-Runs the jitml-hyperparameter Cabal test stanza.
+Runs the jitml-hyperparameter Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
 
 ```text
 jitml test jitml-hyperparameter [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
@@ -636,14 +636,14 @@ Run jitml-hyperparameter.
 jitml test jitml-hyperparameter --linux-cuda
 ```
 
-Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-backends`
 
 Run jitml-backends.
 
-Runs the jitml-backends Cabal test stanza.
+Runs the jitml-backends Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
 
 ```text
 jitml test jitml-backends [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
@@ -668,14 +668,14 @@ Run jitml-backends.
 jitml test jitml-backends --linux-cuda
 ```
 
-Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-daemon-lifecycle`
 
 Run jitml-daemon-lifecycle.
 
-Runs the jitml-daemon-lifecycle Cabal test stanza.
+Runs the jitml-daemon-lifecycle Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
 
 ```text
 jitml test jitml-daemon-lifecycle [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
@@ -700,14 +700,14 @@ Run jitml-daemon-lifecycle.
 jitml test jitml-daemon-lifecycle --linux-cuda
 ```
 
-Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml test jitml-e2e`
 
 Run jitml-e2e.
 
-Runs the jitml-e2e Cabal test stanza.
+Runs the jitml-e2e Cabal test stanza; substrate flags preflight substrate-backed ML stanzas and partition backend lanes where applicable.
 
 ```text
 jitml test jitml-e2e [--apple-silicon] [--linux-cpu] [--linux-cuda] [--test-options <text>]
@@ -732,7 +732,7 @@ Run jitml-e2e.
 jitml test jitml-e2e --linux-cuda
 ```
 
-Run the stanza's linux-cuda lane (substrate-partitioned stanzas filter to that lane; linux-cuda adds -fcuda).
+Run with linux-cuda selected (backend stanzas filter to that lane; linux-cuda adds -fcuda).
 
 
 ## `jitml lint files`
@@ -1216,9 +1216,9 @@ Apply retention to an experiment.
 
 ## `jitml internal cache stat`
 
-Print placeholder cache stats.
+Print JIT cache stats.
 
-Prints the current internal placeholder cache-stat line.
+Prints the current manifest-entry count, cache-file count, and artifact bytes under `.build/jit`.
 
 ```text
 jitml internal cache stat
@@ -1230,14 +1230,14 @@ Examples:
 jitml internal cache stat
 ```
 
-Print placeholder cache stats.
+Print JIT cache stats.
 
 
 ## `jitml internal cache list`
 
-Print placeholder cache entries.
+List JIT cache entries.
 
-Prints the current internal placeholder cache-list line.
+Lists manifest entries with artifact presence and any unowned cache files under `.build/jit`.
 
 ```text
 jitml internal cache list
@@ -1249,14 +1249,14 @@ Examples:
 jitml internal cache list
 ```
 
-Print placeholder cache entries.
+List JIT cache entries.
 
 
 ## `jitml internal cache evict`
 
-Echo a placeholder cache eviction.
+Evict a JIT cache hash.
 
-Echoes the requested cache hash; no cache object is deleted by this placeholder.
+Deletes cache artifact files whose basename starts with the requested hash and removes matching manifest entries.
 
 ```text
 jitml internal cache evict <hash>
@@ -1269,10 +1269,10 @@ jitml internal cache evict <hash>
 Examples:
 
 ```text
-jitml internal cache evict abc123
+jitml internal cache evict 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
-Echo a placeholder cache eviction.
+Evict a JIT cache hash.
 
 
 ## `jitml commands`
