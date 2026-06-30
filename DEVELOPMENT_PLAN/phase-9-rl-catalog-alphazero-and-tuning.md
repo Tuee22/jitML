@@ -21,9 +21,24 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `9.14` —
+✅ **Done** (reopened 2026-06-29; re-closed 2026-06-30 for Sprint `9.15`).
+The fixed-budget RL, AlphaZero, and tuning metric surfaces remain historically
+validated, and tuning resume/replay audit data is now total. `ResumeOutcome`
+records read failures as `(trial-key, ResumeReadFailure)`, where
+`ResumeServiceFailure ServiceError` covers missing/read failures and
+`ResumeDecodeFailure Text` covers corrupt transcript bytes. `ResumeOutcome`
+`Show` / `Eq` remain total, so callers can abort or rerun corrupt trials from
+structured data instead of encountering a latent bottom. Validation passed:
+`docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu`
+(**17 / 17**), `docker compose run --rm jitml jitml bootstrap --linux-cpu`
+(105-step live rollout after the fresh image build), `docker compose run --rm
+jitml jitml test jitml-integration --linux-cpu` (**77 / 77**, including **19 /
+19** `Live`), and `docker compose run --rm jitml jitml check-code`
+(`check-code: ok`). No Phase `9` blocker or remaining work survives.
+
+Historical Sprint `9.14` closure:
 stand-alone fixed-budget convergence metrics for every RL algorithm and
-AlphaZero game).
+AlphaZero game.
 Sprint `9.13` remains historically closed for representative real RL convergence +
 performance metrics + the AlphaZero arena-win-rate convergence form. The synthetic
 convergence probe (`literatureTarget ± slack`) is replaced with a real measured-median
@@ -1162,6 +1177,48 @@ vocabulary introduced by Sprint `8.14`.
   group observed the representative daemon-dispatched PPO/cartpole completion
   events and the `jitml-rl-canonicals` suite kept the all-RL/HER/AlphaZero
   convergence table at **31 / 31**.
+
+### Remaining Work
+
+- None.
+
+## Sprint 9.15: Typed Tuning Resume Decode Failures [✅ Done]
+
+**Status**: Done (reopened 2026-06-29; re-closed 2026-06-30)
+**Implementation**: `src/JitML/Tune/Resume.hs`, `src/JitML/Tune/Catalog.hs`,
+`test/hyperparameter/Main.hs`, `test/integration/Main.hs`
+**Docs to update**: `documents/engineering/training_workloads.md`,
+`documents/engineering/haskell_code_guide.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `system-components.md`
+
+### Objective
+
+Make tuning resume/replay audit data total. A missing transcript remains a
+service read failure; a corrupt transcript is a decode failure with a concrete
+message, not a bottom hidden inside `resumeReadFailures`.
+
+### Deliverables
+
+- Introduce a resume-read failure type that distinguishes `ServiceError` from
+  transcript decode failure.
+- Make `ResumeOutcome` `Show` / `Eq` total even when one or more transcripts are
+  corrupt.
+- Ensure callers can decide whether to abort or rerun a corrupt trial from the
+  structured failure data.
+- Add tests that write invalid transcript bytes and assert a typed decode
+  failure.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu`
+  passed **17 / 17**.
+- `docker compose run --rm jitml jitml bootstrap --linux-cpu` reconciled the
+  live cluster in **105 steps** after a fresh `jitml` image build
+  (`sha256:918cab6b7d7e703716404f04b7ac4d0acda97e2feeed230a8636db0a802da445`).
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+  passed **77 / 77**, including **19 / 19** `Live` cases and the corrupt
+  transcript decode-failure regression.
+- `docker compose run --rm jitml jitml check-code` passed (`check-code: ok`).
 
 ### Remaining Work
 

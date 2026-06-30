@@ -40,7 +40,7 @@ import DurableStateTopology (durableStateTopologyTests)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
 import Data.Vector.Unboxed qualified
-import JitML.App (SeededDemoCheckpoint (..), seededDemoCheckpoints)
+import JitML.App (SeededDemoCheckpoint (..), parseUserIntOptionAtLeast, seededDemoCheckpoints)
 import JitML.AppError.AppError (AppError)
 import JitML.AppError.AppError qualified as AppError
 import JitML.AppError.Render (renderError)
@@ -68,6 +68,7 @@ import JitML.Codegen.Metal qualified as Metal
 import JitML.Codegen.RuntimeSource (renderRuntimeSource, runtimeSourcePayload)
 import JitML.Codegen.SourceFile (SourceFile (..))
 import JitML.Coordinator.Topology qualified as Topology
+import JitML.Docs.Check qualified as DocsCheck
 import JitML.Engines.CpuFeatures qualified as CpuFeatures
 import JitML.Engines.CublasBindings qualified as Cublas
 import JitML.Engines.CudaLocal qualified as CudaLocal
@@ -101,6 +102,7 @@ import JitML.Lint.Chart (checkChartFiles)
 import JitML.Lint.DhallNumerics (checkDhallNumerics)
 import JitML.Lint.DhallRL (checkDhallRL)
 import JitML.Numerics.Mlp qualified as Mlp
+import JitML.Numerics.MlpDevice (MlpDevice (..), pureReferenceMlpDevice)
 import JitML.Numerics.Schema
   ( loadNumericsCatalog
   , validateNumericsCatalog
@@ -351,6 +353,39 @@ main =
               , ParsedCommand ["help"] [ParsedOption "subcommand" ["cluster", "up"]]
               )
             ]
+      , testCase "user-facing numeric CLI options return InvalidConfig on malformed values" $ do
+          let malformed option fallback minimumValue =
+                parseUserIntOptionAtLeast
+                  option
+                  fallback
+                  minimumValue
+                  [ParsedOption option ["not-an-int"]]
+                  @?= Left
+                    ( AppError.InvalidConfig
+                        ( "invalid --"
+                            <> option
+                            <> " value: \"not-an-int\"; expected an integer >= "
+                            <> Text.pack (show minimumValue)
+                        )
+                    )
+          traverse_
+            (\(option, fallback, minimumValue) -> malformed option fallback minimumValue)
+            [ ("consume-once", 0, 0)
+            , ("seed", 42, 0)
+            , ("games", 2, 1)
+            , ("sims", 4, 1)
+            , ("max-plies", 6, 1)
+            , ("updates", 1, 1)
+            , ("arena-games", 4, 1)
+            ]
+      , testCase "user-facing numeric CLI options enforce minimum values" $ do
+          parseUserIntOptionAtLeast "consume-once" 0 0 [ParsedOption "consume-once" ["0"]]
+            @?= Right 0
+          parseUserIntOptionAtLeast "games" 2 1 [ParsedOption "games" ["0"]]
+            @?= Left
+              ( AppError.InvalidConfig
+                  "invalid --games value: \"0\"; expected an integer >= 1"
+              )
       , testCase "substrateTestInvocations builds the right cabal lanes" $ do
           -- No substrate: one legacy invocation over all targets, with the
           -- opaque --test-options forwarded verbatim.
@@ -428,6 +463,76 @@ main =
             , "chart/templates/grafana-dashboard-daemon-health.yaml"
             , "chart/templates/prometheus-scrapeconfig-jitml.yaml"
             ]
+      , testCase "docs metadata check accepts complete governed headers" $ do
+          DocsCheck.checkDocumentMetadataText
+            "docs.md"
+            ( Text.unlines
+                [ "# Docs"
+                , ""
+                , "**Status**: Authoritative source"
+                , "**Supersedes**: N/A"
+                , "**Referenced by**: README.md"
+                , "**Generated sections**: none"
+                , ""
+                , "> **Purpose**: Test document."
+                ]
+            )
+            @?= []
+      , testCase "docs metadata check rejects missing required headers" $ do
+          let drifts =
+                DocsCheck.checkDocumentMetadataText
+                  "docs.md"
+                  ( Text.unlines
+                      [ "# Docs"
+                      , ""
+                      , "**Status**: Authoritative source"
+                      , "**Generated sections**: none"
+                      ]
+                  )
+          fmap DocsCheck.driftKey drifts
+            @?= ["metadata.supersedes", "metadata.referenced-by", "metadata.purpose"]
+      , testCase "docs metadata check reconciles generated-section markers" $ do
+          let good =
+                DocsCheck.checkDocumentMetadataText
+                  "documents/engineering/cluster_topology.md"
+                  ( Text.unlines
+                      [ "# Cluster"
+                      , ""
+                      , "**Status**: Authoritative source"
+                      , "**Supersedes**: N/A"
+                      , "**Referenced by**: README.md"
+                      , "**Generated sections**: cluster.routes"
+                      , ""
+                      , "> **Purpose**: Test document."
+                      , ""
+                      , "<!-- jitml:cluster.routes:start -->"
+                      , "generated"
+                      , "<!-- jitml:cluster.routes:end -->"
+                      ]
+                  )
+              stale =
+                DocsCheck.checkDocumentMetadataText
+                  "documents/engineering/cluster_topology.md"
+                  ( Text.unlines
+                      [ "# Cluster"
+                      , ""
+                      , "**Status**: Authoritative source"
+                      , "**Supersedes**: N/A"
+                      , "**Referenced by**: README.md"
+                      , "**Generated sections**: none"
+                      , ""
+                      , "> **Purpose**: Test document."
+                      , ""
+                      , "<!-- jitml:cluster.routes:start -->"
+                      , "generated"
+                      , "<!-- jitml:cluster.routes:end -->"
+                      ]
+                  )
+          good @?= []
+          fmap DocsCheck.driftKey stale
+            @?= [ "metadata.generated-sections.cluster.routes"
+                , "metadata.generated-sections.cluster.routes"
+                ]
       , testCase "numerical Dhall schema mirrors the Haskell catalog" $ do
           catalog <- loadNumericsCatalog "."
           validateNumericsCatalog catalog @?= Right ()
@@ -2397,24 +2502,62 @@ main =
                     "exp1"
                     [Checkpoint.TensorBlob "dense.weight" [2, 2] blobKey]
                 payload = Checkpoint.encodeJmw1 [1, 2, 3, 4]
-            firstWrite <- CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
-            CheckpointStore.storedPointerResult firstWrite
-              @?= Checkpoint.PointerWritten (CheckpointStore.storedManifestSha firstWrite)
-            decoded <-
-              CheckpointStore.readCheckpointManifest
+            firstWriteResult <-
+              CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
+            case firstWriteResult of
+              Left err -> assertFailure ("expected checkpoint write, got: " <> Text.unpack err)
+              Right firstWrite -> do
+                CheckpointStore.storedPointerResult firstWrite
+                  @?= Checkpoint.PointerWritten (CheckpointStore.storedManifestSha firstWrite)
+                decoded <-
+                  CheckpointStore.readCheckpointManifest
+                    dir
+                    "exp1"
+                    (CheckpointStore.storedManifestSha firstWrite)
+                decoded @?= Right manifest
+                listed <- CheckpointStore.listCheckpointManifests dir "exp1"
+                listed @?= Right [manifest]
+                latest <- CheckpointStore.readCheckpointPointer dir (Checkpoint.latestPointerKey "exp1")
+                latest @?= Right (Just (CheckpointStore.storedManifestSha firstWrite))
+                blob <- CheckpointStore.readObject dir blobKey
+                blob @?= Right payload
+                conflictResult <- CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
+                case conflictResult of
+                  Left err -> assertFailure ("expected checkpoint conflict result, got: " <> Text.unpack err)
+                  Right conflict ->
+                    CheckpointStore.storedPointerResult conflict
+                      @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp1")
+      , testCase "checkpoint store rejects unsafe local object keys as typed failures (Sprint 10.11)" $
+          withSystemTempDirectory "jitml-checkpoint-safe-path" $ \dir -> do
+            CheckpointStore.objectPathForKey dir "jitml-checkpoints/exp1/manifests/sha.cbor"
+              @?= Right (dir </> "jitml-checkpoints/exp1/manifests/sha.cbor")
+            traverse_
+              ( \objectKey ->
+                  CheckpointStore.objectPathForKey dir objectKey
+                    @?= Left ("unsafe object key: " <> objectKey)
+              )
+              [ ""
+              , "/absolute"
+              , "../escape"
+              , "exp1/../escape"
+              , "jitml-checkpoints/exp1/../../escape"
+              ]
+            writeFailure <- CheckpointStore.writeObjectIfAbsent dir "../escape" "payload"
+            writeFailure @?= Left "unsafe object key: ../escape"
+            readFailure <- CheckpointStore.readObject dir "../escape"
+            readFailure @?= Left "unsafe object key: ../escape"
+            pointerFailure <- CheckpointStore.readCheckpointPointer dir "../pointer"
+            pointerFailure @?= Left "unsafe object key: ../pointer"
+            listedFailure <- CheckpointStore.listCheckpointManifests dir "../escape"
+            listedFailure
+              @?= Left "unsafe object key: jitml-checkpoints/../escape/manifests"
+            validWrite <-
+              CheckpointStore.writeObjectIfAbsent
                 dir
-                "exp1"
-                (CheckpointStore.storedManifestSha firstWrite)
-            decoded @?= Right manifest
-            listed <- CheckpointStore.listCheckpointManifests dir "exp1"
-            listed @?= Right [manifest]
-            latest <- CheckpointStore.readCheckpointPointer dir (Checkpoint.latestPointerKey "exp1")
-            latest @?= Just (CheckpointStore.storedManifestSha firstWrite)
-            blob <- CheckpointStore.readObject dir blobKey
-            blob @?= Right payload
-            conflict <- CheckpointStore.writeCheckpointSnapshot dir manifest [(blobKey, payload)] Nothing
-            CheckpointStore.storedPointerResult conflict
-              @?= Checkpoint.PointerConflict (Checkpoint.latestPointerKey "exp1")
+                "jitml-checkpoints/exp1/artifacts/a.txt"
+                "payload"
+            validWrite
+              @?= Right (CheckpointStore.ObjectCreated "jitml-checkpoints/exp1/artifacts/a.txt")
       , testCase "TensorBoard checkpoint sidecar keys are stable" $
           TensorBoard.checkpointSidecarKey "exp-a" 12 "sha-m"
             @?= "jitml-tensorboard/exp-a/checkpoints/12-sha-m.cbor"
@@ -3338,33 +3481,56 @@ main =
                 (not (null (DqnTrainer.dqnResultStats resultA)))
               fmap DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats resultA)
                 @?= fmap DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats resultB)
+          , testCase "DQN device trainer returns Left on forward failure" $
+              assertLeftContains
+                "dqn device forward kernel failed mid-run"
+                ( DqnTrainer.trainDqnOnDevice
+                    (failingForwardBatchDevice "dqn forward unavailable")
+                    fastDqnDeviceConfig
+                )
+          , testCase "DQN device trainer returns Left on batch-gradient failure" $
+              assertLeftContains
+                "dqn device batch-gradient kernel failed mid-run"
+                ( DqnTrainer.trainDqnOnDevice
+                    (failingBatchGradientDevice "dqn gradient unavailable")
+                    fastDqnDeviceConfig
+                )
           ]
       , testGroup
           "Continuous actor-critic trainer (Sprint 13.8 DDPG/TD3/SAC/CrossQ/TQC)"
-          [ testCase (show variant <> " trains end-to-end and is run-to-run deterministic") $ do
-              resultA <- ContinuousTrainer.trainContinuousOnPendulum (smallContConfig variant)
-              resultB <- ContinuousTrainer.trainContinuousOnPendulum (smallContConfig variant)
-              assertBool
-                (show variant <> " emitted at least one stat")
-                (not (null (ContinuousTrainer.contResultStats resultA)))
-              assertBool
-                (show variant <> " produced finite episode rewards")
-                ( not
-                    ( any
-                        (isNaN . ContinuousTrainer.contIterMeanReward)
-                        (ContinuousTrainer.contResultStats resultA)
-                    )
-                )
-              fmap ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats resultA)
-                @?= fmap ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats resultB)
-          | variant <-
-              [ ContinuousTrainer.VariantDDPG
-              , ContinuousTrainer.VariantTD3
-              , ContinuousTrainer.VariantSAC
-              , ContinuousTrainer.VariantCrossQ
-              , ContinuousTrainer.VariantTQC
-              ]
-          ]
+          ( [ testCase (show variant <> " trains end-to-end and is run-to-run deterministic") $ do
+                resultA <- ContinuousTrainer.trainContinuousOnPendulum (smallContConfig variant)
+                resultB <- ContinuousTrainer.trainContinuousOnPendulum (smallContConfig variant)
+                assertBool
+                  (show variant <> " emitted at least one stat")
+                  (not (null (ContinuousTrainer.contResultStats resultA)))
+                assertBool
+                  (show variant <> " produced finite episode rewards")
+                  ( not
+                      ( any
+                          (isNaN . ContinuousTrainer.contIterMeanReward)
+                          (ContinuousTrainer.contResultStats resultA)
+                      )
+                  )
+                fmap ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats resultA)
+                  @?= fmap ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats resultB)
+            | variant <-
+                [ ContinuousTrainer.VariantDDPG
+                , ContinuousTrainer.VariantTD3
+                , ContinuousTrainer.VariantSAC
+                , ContinuousTrainer.VariantCrossQ
+                , ContinuousTrainer.VariantTQC
+                ]
+            ]
+              <> [ testCase "continuous device trainer returns Left on input-gradient failure" $
+                     assertLeftContains
+                       "continuous device input-gradient kernel"
+                       ( ContinuousTrainer.trainContinuousOnDevice
+                           (failingInputGradientDevice "continuous input-gradient unavailable")
+                           fastContinuousDeviceConfig
+                       )
+                 ]
+          )
       , testGroup
           "QR-DQN trainer (Sprint 13.8 distributional off-policy)"
           [ testCase "QR-DQN trains end-to-end and emits stats" $ do
@@ -3398,6 +3564,13 @@ main =
               resultB <- QrDqnTrainer.trainQrDqnOnCartpole cfg
               fmap QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats resultA)
                 @?= fmap QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats resultB)
+          , testCase "QR-DQN device trainer returns Left on forward failure" $
+              assertLeftContains
+                "qr-dqn device forward kernel failed mid-run"
+                ( QrDqnTrainer.trainQrDqnOnDevice
+                    (failingForwardBatchDevice "qr forward unavailable")
+                    fastQrDqnDeviceConfig
+                )
           ]
       , testGroup
           "ARS trainer (Sprint 13.8 gradient-free)"
@@ -3475,8 +3648,102 @@ main =
               assertBool
                 ("hindsight should help; HER=" <> show herRate <> " noHER=" <> show noHerRate)
                 (herRate >= noHerRate)
+          , testCase "HER device trainer returns Left on batch-gradient failure" $
+              assertLeftContains
+                "her device batch-gradient kernel failed mid-run"
+                ( HerTrainer.trainHerOnDevice
+                    (failingBatchGradientDevice "her gradient unavailable")
+                    fastHerDeviceConfig
+                )
           ]
       ]
+
+assertLeftContains :: Text -> IO (Either Text a) -> Assertion
+assertLeftContains expected action = do
+  result <- action
+  case result of
+    Left err ->
+      assertBool
+        ("expected error to contain " <> Text.unpack expected <> ", got " <> Text.unpack err)
+        (expected `Text.isInfixOf` err)
+    Right _ -> assertFailure ("expected Left containing " <> Text.unpack expected)
+
+failingForwardBatchDevice :: Text -> MlpDevice
+failingForwardBatchDevice message =
+  pureReferenceMlpDevice
+    { mlpdForwardBatch = \_ _ -> pure (Left message)
+    }
+
+failingBatchGradientDevice :: Text -> MlpDevice
+failingBatchGradientDevice message =
+  pureReferenceMlpDevice
+    { mlpdBatchGradient = \_ _ -> pure (Left message)
+    }
+
+failingInputGradientDevice :: Text -> MlpDevice
+failingInputGradientDevice message =
+  pureReferenceMlpDevice
+    { mlpdInputGradientBatch = \_ _ -> pure (Left message)
+    }
+
+fastDqnDeviceConfig :: DqnTrainer.DqnTrainConfig
+fastDqnDeviceConfig =
+  DqnTrainer.defaultDqnTrainConfig
+    { DqnTrainer.dqnSeed = 101
+    , DqnTrainer.dqnHiddenUnits = 8
+    , DqnTrainer.dqnNumSteps = 2
+    , DqnTrainer.dqnReplayCapacity = 8
+    , DqnTrainer.dqnBatchSize = 1
+    , DqnTrainer.dqnTrainStart = 1
+    , DqnTrainer.dqnUpdateFrequency = 1
+    , DqnTrainer.dqnTargetUpdateInterval = 2
+    , DqnTrainer.dqnMaxEpisodeSteps = 10
+    , DqnTrainer.dqnStatInterval = 1
+    }
+
+fastQrDqnDeviceConfig :: QrDqnTrainer.QrDqnTrainConfig
+fastQrDqnDeviceConfig =
+  QrDqnTrainer.defaultQrDqnTrainConfig
+    { QrDqnTrainer.qrSeed = 102
+    , QrDqnTrainer.qrHiddenUnits = 8
+    , QrDqnTrainer.qrNumQuantiles = 3
+    , QrDqnTrainer.qrNumSteps = 2
+    , QrDqnTrainer.qrReplayCapacity = 8
+    , QrDqnTrainer.qrBatchSize = 1
+    , QrDqnTrainer.qrTrainStart = 1
+    , QrDqnTrainer.qrUpdateFrequency = 1
+    , QrDqnTrainer.qrTargetUpdateInterval = 2
+    , QrDqnTrainer.qrMaxEpisodeSteps = 10
+    , QrDqnTrainer.qrStatInterval = 1
+    }
+
+fastHerDeviceConfig :: HerTrainer.HerTrainConfig
+fastHerDeviceConfig =
+  HerTrainer.defaultHerTrainConfig
+    { HerTrainer.herSeed = 103
+    , HerTrainer.herNumBits = 3
+    , HerTrainer.herHiddenUnits = 8
+    , HerTrainer.herEpisodes = 5
+    , HerTrainer.herReplayCapacity = 16
+    , HerTrainer.herBatchSize = 1
+    , HerTrainer.herTargetUpdateInterval = 2
+    , HerTrainer.herStatInterval = 1
+    }
+
+fastContinuousDeviceConfig :: ContinuousTrainer.ContinuousTrainConfig
+fastContinuousDeviceConfig =
+  (ContinuousTrainer.defaultContinuousTrainConfig ContinuousTrainer.VariantDDPG)
+    { ContinuousTrainer.ctSeed = 104
+    , ContinuousTrainer.ctHidden = 8
+    , ContinuousTrainer.ctNumSteps = 2
+    , ContinuousTrainer.ctReplayCapacity = 8
+    , ContinuousTrainer.ctBatchSize = 1
+    , ContinuousTrainer.ctStartSteps = 0
+    , ContinuousTrainer.ctTrainStart = 1
+    , ContinuousTrainer.ctPolicyDelay = 1
+    , ContinuousTrainer.ctMaxEpisodeSteps = 10
+    , ContinuousTrainer.ctStatInterval = 1
+    }
 
 -- | Small continuous-trainer config for fast unit-test runs.
 smallContConfig
@@ -3540,7 +3807,8 @@ canonicalErrors =
       Text.unlines
         [ "file: README.md"
         , "key: command-tree"
-        , "Run `jitml docs generate` to update."
+        , "reason: generated section drift"
+        , "remedy: run `jitml docs generate` to update"
         ]
   , AppError.UnknownCommand "unknown command: jitml missing"
   , AppError.InvalidConfig "BootConfig changed under SIGHUP"

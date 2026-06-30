@@ -15,11 +15,13 @@
 
 ## Phase Status
 
-✅ **Done**. The phase establishes the doctrine envelope and plan topology
-that every Exit-Definition obligation refers back to. Sprint `0.1`
-(canonical plan suite bootstrap) and Sprint `0.2` (doctrine-driven
-scheduling audit) are implemented and validated; every in-scope doctrine
-identifier is bound to an owned deliverable in Phases `1`–`12`.
+✅ **Done** (reopened and re-closed 2026-06-29 for Sprint `0.3`). The phase owns
+the doctrine envelope and plan topology that every Exit-Definition obligation
+refers back to, and the governed-document metadata contract is now executable:
+`jitml docs check` validates required header metadata, reconciles declared
+generated-section metadata with physical generated-region markers and the
+`GeneratedSectionRule` registry, and reports metadata drift through the same
+`DocsCheckDrift` / lint surface as generated-document drift.
 
 ## Phase Summary
 
@@ -553,8 +555,10 @@ None.
 Sprint `0.1` is structural rather than doctrine-adopting; it instantiates the
 plan suite and the doctrine-citation contract but binds no specific doctrine
 section to a code-level deliverable. Sprint `0.2` cites the doctrine globally —
-its purpose is to audit every in-scope section. Phases `1`–`12` cite individual
-doctrine sections at the deliverable level.
+its purpose is to audit every in-scope section. Sprint `0.3` cites the
+`Generated Artifacts` / documentation metadata contract and makes the governed
+metadata rules executable. Phases `1`–`12` cite individual doctrine sections at
+the deliverable level.
 
 The Phase `0`-owned doctrine sections — the meta-rules under which later phases
 adopt doctrine — are:
@@ -567,6 +571,45 @@ adopt doctrine — are:
 - Standards rule L of [development_plan_standards.md](development_plan_standards.md)
   is the project-internal CLI doctrine alignment contract that every later phase
   follows.
+
+## Sprint 0.3: Governed-Document Metadata Enforcement ✅
+
+**Status**: Done
+**Implementation**: `src/JitML/Docs/Check.hs`, `src/JitML/Lint/Stack.hs`,
+`DEVELOPMENT_PLAN/attestations/*.md`,
+`documents/documentation_standards.md`
+**Docs to update**: `README.md`, `DEVELOPMENT_PLAN/README.md`,
+`DEVELOPMENT_PLAN/00-overview.md`, `DEVELOPMENT_PLAN/system-components.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`,
+`documents/engineering/code_quality.md`
+
+### Objective
+
+Make the documentation metadata contract executable instead of aspirational.
+Owns the project-doctrine `Generated Artifacts` and documentation-standard
+surfaces for governed Markdown files.
+
+### Deliverables
+
+- `jitml docs check` validates the required governed-document header fields:
+  `Status`, `Supersedes`, `Referenced by`, `Generated sections`, and `Purpose`.
+- The `Generated sections` metadata must agree with physical generated-region
+  markers and with the `GeneratedSectionRule` registry.
+- The three per-lane attestation documents carry `**Supersedes**: N/A`, matching
+  [../documents/documentation_standards.md](../documents/documentation_standards.md).
+- Documentation status lives in `DEVELOPMENT_PLAN/README.md`; engineering docs
+  explain architecture and link back instead of maintaining a competing status
+  ledger.
+
+### Validation
+
+- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm jitml jitml lint docs`
+- `docker compose run --rm jitml jitml check-code`
+
+### Remaining Work
+
+None.
 
 ## Documentation Requirements
 

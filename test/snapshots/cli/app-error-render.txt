@@ -16,7 +16,8 @@ kubectl failed: context missing
 ---
 file: README.md
 key: command-tree
-Run `jitml docs generate` to update.
+reason: generated section drift
+remedy: run `jitml docs generate` to update
 ---
 unknown command: jitml missing
 ---

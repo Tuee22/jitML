@@ -61,6 +61,7 @@ import JitML.Tune.Catalog
   , tuningSamplerKind
   , tuningSchedulerKind
   )
+import JitML.Tune.Resume qualified as TuneResume
 
 completedTrainingFixture
   :: Text
@@ -146,6 +147,19 @@ main =
                 Checkpoint.decodeJmw1 (Checkpoint.encodeJmw1 weights) @?= Right weights
             )
             results
+      , testCase "resume decode failures keep ResumeOutcome Eq/Show total (Sprint 9.15)" $ do
+          let outcome =
+                TuneResume.ResumeOutcome
+                  { TuneResume.resumedSeeds = [1]
+                  , TuneResume.resumedTrials = []
+                  , TuneResume.resumeReadFailures =
+                      [ ("jitml-trials/exp/1.cbor", TuneResume.ResumeDecodeFailure "bad cbor")
+                      ]
+                  }
+          outcome @?= outcome
+          assertBool
+            "Show includes the concrete decode failure"
+            ("bad cbor" `Text.isInfixOf` Text.pack (show outcome))
       , testCase
           "device-backed trial executor is deterministic through the substrate JIT device (Sprint 9.11 --linux-cpu)"
           $ do

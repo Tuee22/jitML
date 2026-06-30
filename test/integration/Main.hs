@@ -777,6 +777,14 @@ main =
                 (gcExit, _gcStdout, _) <-
                   runJitml ["internal", "gc", "some-experiment-hash"]
                 gcExit @?= ExitFailure 3
+                -- Unsafe user-supplied experiment hashes must render through
+                -- InvalidConfig, not the local object-key guard.
+                (badGcExit, _badGcStdout, badGcStderr) <-
+                  runJitml ["internal", "gc", "../escape"]
+                badGcExit @?= ExitFailure 2
+                assertBool
+                  "unsafe gc hash renders invalid config"
+                  ("invalid config: gc manifest scan: unsafe object key" `Text.isInfixOf` badGcStderr)
                 -- service --help prints the daemon usage line
                 (serviceExit, serviceStdout, _) <- runJitml ["service", "--help"]
                 serviceExit @?= ExitSuccess
@@ -1932,6 +1940,31 @@ main =
                 TuneResume.resumeReadFailures outcome @?= []
                 fmap Tune.transcriptValues (TuneResume.resumedTrials outcome)
                   @?= fmap Tune.transcriptValues transcripts
+      , testCase "Tune replay reports corrupt transcripts as typed decode failures (Sprint 9.15)" $
+          withSystemTempDirectory "jitml-tune-resume-corrupt" $ \root ->
+            runFilesystemMinIO root $ do
+              let experimentHash = "exp-tune-resume-corrupt"
+                  corruptSeed = 7
+                  missingSeed = 8
+                  corruptKey = Tune.trialStorageKey experimentHash corruptSeed
+                  missingKey = Tune.trialStorageKey experimentHash missingSeed
+                  corruptRef = ObjectRef (BucketName "jitml-trials") (ObjectKey corruptKey)
+              written <- putBlobBytesIfAbsent corruptRef (Data.ByteString.pack [0, 1, 2, 3])
+              liftIO $ case written of
+                Right _ -> pure ()
+                Left err -> assertFailure ("failed to write corrupt transcript fixture: " <> show err)
+              outcome <- TuneResume.replaySweep experimentHash [corruptSeed, missingSeed]
+              liftIO $ do
+                TuneResume.resumedSeeds outcome @?= [corruptSeed, missingSeed]
+                TuneResume.resumedTrials outcome @?= []
+                case TuneResume.resumeReadFailures outcome of
+                  [ (keyA, TuneResume.ResumeDecodeFailure message)
+                    , (keyB, TuneResume.ResumeServiceFailure (SEUnauthorized _))
+                    ] -> do
+                      keyA @?= corruptKey
+                      keyB @?= missingKey
+                      assertBool "decode failure message is concrete" (not (Text.null message))
+                  other -> assertFailure ("unexpected resume failures: " <> show other)
       , testCase "AsyncBuffer sink writes transcripts through HasMinIO (Sprint 8.4)" $
           withSystemTempDirectory "jitml-async-minio-sink" $ \root -> do
             -- Build an AsyncSink that closes over a per-batch counter and

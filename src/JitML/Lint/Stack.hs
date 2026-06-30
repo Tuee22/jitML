@@ -524,8 +524,8 @@ docsDriftFinding drift =
   LintFinding
     { findingPath = DocsCheck.driftPath drift
     , findingKey = DocsCheck.driftKey drift
-    , findingMessage = "generated documentation drift"
-    , findingRemedy = "run `jitml docs generate` to update"
+    , findingMessage = DocsCheck.driftReason drift
+    , findingRemedy = DocsCheck.docsDriftRemedy drift
     }
 
 writeTextFileAtomic :: FilePath -> Text -> IO ()

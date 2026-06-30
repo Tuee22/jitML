@@ -43,28 +43,31 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🎉 ALL PHASES `0`-`18` reached `✅ Done` again for the HA topology
-(2026-06-29).** The high-availability implementation work is closed for Phases
-`3`, `4`, and `5`: the checked-in materialization has HA Kind workers/manual
-PVs, HA stateful platform service replicas, one public Envoy socket, and **at
-most one numerical ML compute worker per Kubernetes node** regardless of
-Coordinator, Webapp, observability, or platform-service replica counts. Phase
-`15` Sprint `15.22` re-closed on the real NVIDIA GeForce RTX 5090 host: clean
-HA `linux-cuda` rollout 130 steps, `jitml test all --linux-cuda` **8 / 8**,
-`jitml-backends` **20 / 20**, live Playwright **15 / 15**, `docs check: ok`,
-and `check-code: ok`. Phase `16` Sprint `16.14` re-closed on the Apple M1 Max
-host after the GHC-compatible LLVM and Docker/Colima capacity blockers were
-removed: HA `apple-silicon` rollout **131** steps at edge `:9090`, host Metal
-daemon subscriptions acquired with `apple.metal-runtime=yes` and
-`apple.metal-bridge=yes`, `bootstrap/apple-silicon.sh test` **8 / 8**, direct
-inference `HTTP 200`, eight demo checkpoints seeded, and live Playwright
-**15 / 15**. Phase `17` Sprint `17.10` aggregated the refreshed lane fragments
-on `linux-cpu` at edge `:9091`, staged and SHA-verified all 12 canonical
-dataset artifacts, seeded eight demo checkpoints, and passed `jitml test all
---live --linux-cpu` **8 / 8** with every report-card measurement populated.
-Phase `18` Sprint `18.5` re-closed the final product handoff; the `Pending
-Removal` ledger is empty. The 2026-06-26 all-`Done` closure records below are
-retained as historical evidence for the previous compact/right-sized topology.
+**🎉 ALL PHASES `0`–`18` reached `✅ Done` again (2026-06-30).** A full
+documentation/codebase audit found five closure gaps whose fix shape is now part
+of the execution plan. Phase `0` re-closed after documentation metadata
+enforcement landed in `jitml docs check`; Phases `1`, `8`, `9`, and `10`
+re-closed after landing typed numeric CLI parsing, typed fail-closed RL device
+errors, typed tuning resume decode failures, and typed checkpoint object-key
+validation. Phase `18` Sprint `18.6` re-aggregated those fixes on the
+`linux-cpu` handoff lane: `docker compose run --rm jitml jitml test all --live
+--linux-cpu` passed **8 / 8** stanzas (`jitml-unit` **237 / 237**,
+`jitml-integration` **77 / 77**, `jitml-sl-canonicals` **24 / 24**,
+`jitml-rl-canonicals` **31 / 31**, `jitml-hyperparameter` **17 / 17**,
+`jitml-daemon-lifecycle` **32 / 32**, `jitml-e2e` **23 / 23**,
+`jitml-backends` **23 / 23**) with populated report-card measurements and
+`browser_product_matrix` **8 / 8** at edge `:9091`. The Pending Removal ledger
+is empty again.
+
+The prior HA topology handoff remains historical evidence, not current closure:
+Phases `3`, `4`, and `5` closed the HA Kind/platform/compute-cardinality work;
+Phase `15` Sprint `15.22` revalidated the HA `linux-cuda` lane on the RTX 5090
+host; Phase `16` Sprint `16.14` revalidated the HA `apple-silicon` lane on the
+Apple M1 Max host; Phase `17` Sprint `17.10` aggregated the refreshed lane
+fragments on `linux-cpu`; and Phase `18` Sprint `18.5` re-closed the final HA
+handoff before this audit reopened the typed-failure and documentation-governance
+surface. The 2026-06-26 all-`Done` closure records below are retained as
+historical evidence for the previous compact/right-sized topology.
 
 **✅ `linux-cpu` fixed-budget all-model baseline re-closed 2026-06-26.**
 Phases `8`–`14` are Done again after landing the shared `TrainingBudget` /
@@ -1210,17 +1213,17 @@ obligation exists.
 
 | Phase | Name | Status | Document |
 |-------|------|--------|----------|
-| 0 | Planning and Documentation Topology | ✅ Done | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
-| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (re-closed 2026-06-12 — removed `jitml internal vm`, Sprint 1.15) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
+| 0 | Planning and Documentation Topology | ✅ Done (Sprint 0.3 — governed-document metadata enforcement; `docs check`, `lint docs`, `check-code` green 2026-06-29) | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
+| 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (Sprint 1.17 — typed numeric CLI parsing; `jitml-unit --linux-cpu`, `docs check`, `check-code` green 2026-06-29) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — durable-state Dhall DSL foundation: `jitml.dhall` / `dhall/project/Schema.dhall`, `jitml project init`, the asserted `Budget`/`fitsWithin`; Sprint 2.15, jitml-unit 217/217) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
 | 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 4.9: `bucketNames` now projected from the durable-state `StoreRegistry`, hand-written `[Text]` retired; jitml-unit 217/217, jitml-e2e 23/23) | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
 | 5 | `jitml service` Daemon | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 5.15: registry declares the logical Pulsar topic family + topology anti-drift check; jitml-unit 218/218) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (reopened/re-closed 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
-| 8 | Supervised Learning and RL Framework | ✅ Done (Sprint 8.14 — fixed-budget training witness and no inference representation for partial/untrained models) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (Sprint 9.14 — stand-alone convergence metric and fixed budget for every RL algorithm and AlphaZero game) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
-| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (Sprint 10.10 — manifest completion witness, convergence statistics, TensorBoard metadata, and inference eligibility gate) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
+| 8 | Supervised Learning and RL Framework | ✅ Done (Sprint 8.15 — typed fail-closed RL device errors; `jitml-unit`, `jitml-rl-canonicals`, `jitml-backends`, `check-code` green 2026-06-29) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (Sprint 9.15 — typed tuning resume decode failures; `jitml-hyperparameter`, live `jitml-integration`, and `check-code` green 2026-06-30) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 10 | Checkpointing and Inference-Only Read Path | ✅ Done (Sprint 10.11 — typed checkpoint object-key validation; `jitml-unit`, live `jitml-integration`, and `check-code` green 2026-06-30) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (Sprint 11.11 — all-model UI matrix, convergence display, trained-artifact selection, and generated admin portal navigation) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.15 — per-model integration/e2e matrix and infer-before-complete rejection) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
 | 13 | No-Caveat Model Runtime Closure (`linux-cpu`) | ✅ Done (Sprint 13.3 — linux-cpu aggregate runtime gate passed 8/8 stanzas) | [phase-13-no-caveat-model-runtime.md](phase-13-no-caveat-model-runtime.md) |
@@ -1228,7 +1231,7 @@ obligation exists.
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.22 — HA linux-cuda lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (Sprint 18.5 — final HA product handoff re-closed, ledger empty) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (Sprint 18.6 — re-aggregated after typed-failure/docs-governance remediation; 8/8 live linux-cpu stanzas and populated browser matrix 2026-06-30) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
 
 ## Reopened phases (2026-06-26 — fixed-budget all-model trained-artifact contract)
 

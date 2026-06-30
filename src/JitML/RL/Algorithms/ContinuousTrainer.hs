@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Sprint 13.8 — real continuous-action actor-critic training loop that
 -- closes the off-policy continuous-control half of the 14-algorithm
 -- catalog: DDPG, TD3, SAC, CrossQ, and TQC. All five share one
@@ -47,6 +49,8 @@ where
 
 import Control.Monad.Except (ExceptT (..), runExceptT)
 import Data.List qualified
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
@@ -250,14 +254,48 @@ loop
   -> [Double]
   -> [ContinuousIterationStat]
   -> IO ContinuousTrainResult
-loop config update nets opt gen buffer step state episodeLen episodeReturn episodes stats
+loop config update nets opt gen buffer step state episodeLen episodeReturn episodes stats = do
+  result <-
+    loopEither
+      config
+      (\ns op batch doActor -> Right <$> update ns op batch doActor)
+      nets
+      opt
+      gen
+      buffer
+      step
+      state
+      episodeLen
+      episodeReturn
+      episodes
+      stats
+  either (fail . Text.unpack) pure result
+
+loopEither
+  :: ContinuousTrainConfig
+  -> (ACNets -> ACOpt -> [ContTransition] -> Bool -> IO (Either Text (ACNets, ACOpt)))
+  -- ^ minibatch update: nets → opt → batch → doActor → either fault or (nets', opt')
+  -> ACNets
+  -> ACOpt
+  -> Random.StdGen
+  -> [ContTransition]
+  -> Int
+  -> PendulumState
+  -> Int
+  -> Double
+  -> [Double]
+  -> [ContinuousIterationStat]
+  -> IO (Either Text ContinuousTrainResult)
+loopEither config update nets opt gen buffer step state episodeLen episodeReturn episodes stats
   | step >= ctNumSteps config =
       pure
-        ContinuousTrainResult
-          { contResultStats = reverse stats
-          , contResultFinalActor = acActor nets
-          , contResultConfig = config
-          }
+        ( Right
+            ContinuousTrainResult
+              { contResultStats = reverse stats
+              , contResultFinalActor = acActor nets
+              , contResultConfig = config
+              }
+        )
   | otherwise = do
       let obs = obsVector state
           -- Action selection: random during warmup, else actor + Gaussian noise.
@@ -288,46 +326,48 @@ loop config update nets opt gen buffer step state episodeLen episodeReturn episo
             if terminal
               then (pendulumInitial, 0, 0.0, nextReturn : episodes)
               else (cStepState stepResult, episodeLen + 1, nextReturn, episodes)
-      (netsNext, optNext, gen3) <-
+      updateResult <-
         if step + 1 >= ctTrainStart config && length newBuffer >= ctBatchSize config
           then do
             let (batch, genB) = sampleBatch (ctBatchSize config) newBuffer gen2
                 doActor = (step + 1) `mod` ctPolicyDelay config == 0
-            (netsU, optU) <- update nets opt batch doActor
-            pure (netsU, optU, genB)
-          else pure (nets, opt, gen2)
-      let statsNext =
-            if (step + 1) `mod` ctStatInterval config == 0
-              then
-                let recent = take 20 newEpisodes
-                    meanR =
-                      if null recent
-                        then 0.0
-                        else sum recent / fromIntegral (length recent)
-                    lastR = case newEpisodes of
-                      (r : _) -> r
-                      [] -> 0.0
-                 in ContinuousIterationStat
-                      { contIterStep = step + 1
-                      , contIterEpisodes = length newEpisodes
-                      , contIterMeanReward = meanR
-                      , contIterLastEpisodeReward = lastR
-                      }
-                      : stats
-              else stats
-      loop
-        config
-        update
-        netsNext
-        optNext
-        gen3
-        newBuffer
-        (step + 1)
-        nextState
-        nextLen
-        finalReturn
-        newEpisodes
-        statsNext
+            fmap (\(netsU, optU) -> (netsU, optU, genB)) <$> update nets opt batch doActor
+          else pure (Right (nets, opt, gen2))
+      case updateResult of
+        Left err -> pure (Left err)
+        Right (netsNext, optNext, gen3) -> do
+          let statsNext =
+                if (step + 1) `mod` ctStatInterval config == 0
+                  then
+                    let recent = take 20 newEpisodes
+                        meanR =
+                          if null recent
+                            then 0.0
+                            else sum recent / fromIntegral (length recent)
+                        lastR = case newEpisodes of
+                          (r : _) -> r
+                          [] -> 0.0
+                     in ContinuousIterationStat
+                          { contIterStep = step + 1
+                          , contIterEpisodes = length newEpisodes
+                          , contIterMeanReward = meanR
+                          , contIterLastEpisodeReward = lastR
+                          }
+                          : stats
+                  else stats
+          loopEither
+            config
+            update
+            netsNext
+            optNext
+            gen3
+            newBuffer
+            (step + 1)
+            nextState
+            nextLen
+            finalReturn
+            newEpisodes
+            statsNext
 
 -- | One gradient update: critic(s) against the variant's Bellman target,
 -- then (optionally) the actor via the deterministic-policy gradient.
@@ -550,22 +590,26 @@ sampleBatch n buffer gen =
 -- env loop / replay / exploration are shared with the pure
 -- 'trainContinuousOnPendulum' via the parameterised 'loop'; only the
 -- gradient step ('updateStepDevice') runs on the device.
-trainContinuousOnPendulumCuda :: Env -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousOnPendulumCuda
+  :: Env -> ContinuousTrainConfig -> IO (Either Text ContinuousTrainResult)
 trainContinuousOnPendulumCuda env = trainContinuousOnDevice (cudaMlpDevice env)
 
 -- | Continuous actor-critic training through the oneDNN (linux-cpu) MLP device.
-trainContinuousOnPendulumOneDnn :: Env -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousOnPendulumOneDnn
+  :: Env -> ContinuousTrainConfig -> IO (Either Text ContinuousTrainResult)
 trainContinuousOnPendulumOneDnn env = trainContinuousOnDevice (oneDnnMlpDevice env)
 
 -- | Continuous actor-critic training through the Metal (apple-silicon) MLP device.
-trainContinuousOnPendulumMetal :: Env -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousOnPendulumMetal
+  :: Env -> ContinuousTrainConfig -> IO (Either Text ContinuousTrainResult)
 trainContinuousOnPendulumMetal env = trainContinuousOnDevice (metalMlpDevice env)
 
 -- | Continuous actor-critic training through an injected MLP device backend.
 -- The env loop / replay / exploration are shared with the pure
 -- 'trainContinuousOnPendulum' via the parameterised 'loop'; only the
 -- gradient step ('updateStepDevice') runs on the device.
-trainContinuousOnDevice :: MlpDevice -> ContinuousTrainConfig -> IO ContinuousTrainResult
+trainContinuousOnDevice
+  :: MlpDevice -> ContinuousTrainConfig -> IO (Either Text ContinuousTrainResult)
 trainContinuousOnDevice device config = do
   let actorShape =
         MlpShape {mlpInputs = ctObsSize config, mlpHidden = ctHidden config, mlpOutputs = 1}
@@ -589,7 +633,7 @@ trainContinuousOnDevice device config = do
           , acCriticAAdam = adamInit criticShape
           , acCriticBAdam = adamInit criticShape
           }
-  loop
+  loopEither
     config
     (updateStepDevice device config)
     nets0
@@ -619,8 +663,8 @@ updateStepDevice
   -> ACOpt
   -> [ContTransition]
   -> Bool
-  -> IO (ACNets, ACOpt)
-updateStepDevice device config nets opt batch doActor = do
+  -> IO (Either Text (ACNets, ACOpt))
+updateStepDevice device config nets opt batch doActor =
   let variant = ctVariant config
       targets = map (bellmanTarget config nets) batch
       criticInputs = [criticInput (contObs t) (contAction t) | t <- batch]
@@ -628,6 +672,12 @@ updateStepDevice device config nets opt batch doActor = do
       n = fromIntegral (max 1 (length batch)) :: Double
       criticAdamCfg = defaultAdamConfig {adamLearningRate = ctCriticLr config}
       actorAdamCfg = defaultAdamConfig {adamLearningRate = ctActorLr config}
+      deviceOp label action =
+        ExceptT $ do
+          result <- action
+          pure $ case result of
+            Left err -> Left ("continuous device " <> label <> " failed mid-run: " <> err)
+            Right value -> Right value
       scaleGradient sc g =
         MlpGradient
           { gradW1 = VU.map (* sc) (gradW1 g)
@@ -636,81 +686,78 @@ updateStepDevice device config nets opt batch doActor = do
           , gradB2 = VU.map (* sc) (gradB2 g)
           }
       criticGrad critic targetVals = do
-        qs <- ExceptT (mlpdForwardBatch device critic criticInputs)
+        qs <- deviceOp "forward kernel (critic)" (mlpdForwardBatch device critic criticInputs)
         let residuals = zipWith (\q tgt -> VU.head q - tgt) qs targetVals
-        summed <- ExceptT (mlpdBatchGradient device critic (zip criticInputs (map VU.singleton residuals)))
+        summed <-
+          deviceOp
+            "batch-gradient kernel (critic)"
+            (mlpdBatchGradient device critic (zip criticInputs (map VU.singleton residuals)))
         pure (scaleGradient (1.0 / n) summed)
-  deviceResult <-
-    runExceptT $ do
-      gradA <- criticGrad (acCriticA nets) targets
-      let (criticANext, criticAAdamNext) =
-            adamStep criticAdamCfg (acCriticAAdam opt) (acCriticA nets) gradA
-      (criticBNext, criticBAdamNext) <-
-        if variant == VariantDDPG
-          then pure (acCriticB nets, acCriticBAdam opt)
-          else do
-            gradB <- criticGrad (acCriticB nets) targets
-            pure (adamStep criticAdamCfg (acCriticBAdam opt) (acCriticB nets) gradB)
-      (actorNext, actorAdamNext) <-
-        if not doActor
-          then pure (acActor nets, acActorAdam opt)
-          else do
-            actorRaws <- ExceptT (mlpdForwardBatch device (acActor nets) obsList)
-            let raws = map VU.head actorRaws
-                actions = map (squash config) raws
-                actorCriticInputs = zipWith (criticInput . contObs) batch actions
-            -- dQ/da = action-slice of criticANext's input gradient (dL/dQ = 1).
-            dQdInputs <-
-              ExceptT
-                ( mlpdInputGradientBatch
-                    device
-                    criticANext
-                    [(ci, VU.singleton 1.0) | ci <- actorCriticInputs]
-                )
-            let dQdActions = map (VU.! ctObsSize config) dQdInputs
-                dLdRaws =
-                  zipWith
-                    ( \dQda raw ->
-                        negate (dQda * (ctActionHigh config * (1.0 - tanhRaw raw * tanhRaw raw)))
-                    )
-                    dQdActions
-                    raws
-            summed <- ExceptT (mlpdBatchGradient device (acActor nets) (zip obsList (map VU.singleton dLdRaws)))
-            pure (adamStep actorAdamCfg (acActorAdam opt) (acActor nets) (scaleGradient (1.0 / n) summed))
-      let tau = ctTau config
-          (tActor, tCriticA, tCriticB)
-            | usesTargetNets variant && doActor =
-                ( softUpdate tau actorNext (acTargetActor nets)
-                , softUpdate tau criticANext (acTargetCriticA nets)
-                , softUpdate tau criticBNext (acTargetCriticB nets)
-                )
-            | usesTargetNets variant =
-                ( acTargetActor nets
-                , softUpdate tau criticANext (acTargetCriticA nets)
-                , softUpdate tau criticBNext (acTargetCriticB nets)
-                )
-            | otherwise = (acTargetActor nets, acTargetCriticA nets, acTargetCriticB nets)
-      pure
-        ( ACNets
-            { acActor = actorNext
-            , acCriticA = criticANext
-            , acCriticB = criticBNext
-            , acTargetActor = tActor
-            , acTargetCriticA = tCriticA
-            , acTargetCriticB = tCriticB
-            }
-        , ACOpt
-            { acActorAdam = actorAdamNext
-            , acCriticAAdam = criticAAdamNext
-            , acCriticBAdam = criticBAdamNext
-            }
-        )
-  -- Sprint 8.11 — fail closed: the dispatch `probeMlpDevice` gate makes a
-  -- mid-run device `Left` a genuine fault, not a cue to silently degrade to the
-  -- pure `updateStep`.
-  pure
-    ( either
-        (\err -> error ("continuous device update failed mid-run: " <> show err))
-        id
-        deviceResult
-    )
+   in runExceptT $ do
+        gradA <- criticGrad (acCriticA nets) targets
+        let (criticANext, criticAAdamNext) =
+              adamStep criticAdamCfg (acCriticAAdam opt) (acCriticA nets) gradA
+        (criticBNext, criticBAdamNext) <-
+          if variant == VariantDDPG
+            then pure (acCriticB nets, acCriticBAdam opt)
+            else do
+              gradB <- criticGrad (acCriticB nets) targets
+              pure (adamStep criticAdamCfg (acCriticBAdam opt) (acCriticB nets) gradB)
+        (actorNext, actorAdamNext) <-
+          if not doActor
+            then pure (acActor nets, acActorAdam opt)
+            else do
+              actorRaws <- deviceOp "forward kernel (actor)" (mlpdForwardBatch device (acActor nets) obsList)
+              let raws = map VU.head actorRaws
+                  actions = map (squash config) raws
+                  actorCriticInputs = zipWith (criticInput . contObs) batch actions
+              -- dQ/da = action-slice of criticANext's input gradient (dL/dQ = 1).
+              dQdInputs <-
+                deviceOp
+                  "input-gradient kernel (critic action slice)"
+                  ( mlpdInputGradientBatch
+                      device
+                      criticANext
+                      [(ci, VU.singleton 1.0) | ci <- actorCriticInputs]
+                  )
+              let dQdActions = map (VU.! ctObsSize config) dQdInputs
+                  dLdRaws =
+                    zipWith
+                      ( \dQda raw ->
+                          negate (dQda * (ctActionHigh config * (1.0 - tanhRaw raw * tanhRaw raw)))
+                      )
+                      dQdActions
+                      raws
+              summed <-
+                deviceOp
+                  "batch-gradient kernel (actor)"
+                  (mlpdBatchGradient device (acActor nets) (zip obsList (map VU.singleton dLdRaws)))
+              pure (adamStep actorAdamCfg (acActorAdam opt) (acActor nets) (scaleGradient (1.0 / n) summed))
+        let tau = ctTau config
+            (tActor, tCriticA, tCriticB)
+              | usesTargetNets variant && doActor =
+                  ( softUpdate tau actorNext (acTargetActor nets)
+                  , softUpdate tau criticANext (acTargetCriticA nets)
+                  , softUpdate tau criticBNext (acTargetCriticB nets)
+                  )
+              | usesTargetNets variant =
+                  ( acTargetActor nets
+                  , softUpdate tau criticANext (acTargetCriticA nets)
+                  , softUpdate tau criticBNext (acTargetCriticB nets)
+                  )
+              | otherwise = (acTargetActor nets, acTargetCriticA nets, acTargetCriticB nets)
+        pure
+          ( ACNets
+              { acActor = actorNext
+              , acCriticA = criticANext
+              , acCriticB = criticBNext
+              , acTargetActor = tActor
+              , acTargetCriticA = tCriticA
+              , acTargetCriticB = tCriticB
+              }
+          , ACOpt
+              { acActorAdam = actorAdamNext
+              , acCriticAAdam = criticAAdamNext
+              , acCriticBAdam = criticBAdamNext
+              }
+          )

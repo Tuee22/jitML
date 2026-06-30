@@ -109,9 +109,11 @@ comma-separated list of the `<key>` portion of every generated-region marker
 pair the document contains (see Section 11). Marker text inside inline code,
 tables, or fenced examples is documentation, not a generated region. The lint
 pass owned by `jitml docs check` enforces that the metadata and the generated
-region markers physically present in the file agree: declaring `none` when
-generated-region markers are present is a lint failure, and declaring a key
-whose markers are missing is a lint failure. The reference list of generated
+region markers physically present in the file agree: declaring `none`
+when generated-region markers are present is a lint failure, and declaring a key
+whose markers are missing is a lint failure. Sprint `0.3` in
+[../DEVELOPMENT_PLAN/phase-0-planning-documentation.md](../DEVELOPMENT_PLAN/phase-0-planning-documentation.md)
+closed this enforcement path on 2026-06-29. The reference list of generated
 sections per file is the `GeneratedSectionRule` registry described in
 [../README.md](../README.md).
 

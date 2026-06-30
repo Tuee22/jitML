@@ -3421,7 +3421,7 @@ public `inspect` command surface.
 
 ### Deliverables
 
-- `jitml inference run experiments/mnist.dhall --checkpoint latest`
+- `jitml inference run experiments/mnist.dhall`
   reads through live MinIO and produces an inference result through
   the loaded JIT kernel.
 - The checkpoint manifest read path validates addressed manifests and reports
@@ -3432,8 +3432,8 @@ public `inspect` command surface.
 
 ### Validation
 
-1. End-to-end: `jitml inference run experiments/mnist.dhall --checkpoint
-   latest` against the live cluster outputs the expected deterministic
+1. End-to-end: `jitml inference run experiments/mnist.dhall` against the live
+   cluster reads the latest pointer and outputs the expected deterministic
    inference summary.
 2. Historical replay-helper validation against a manifest written by Sprint
    `15.4` succeeded; the public helper was later removed by Sprint `1.16`.

@@ -1,6 +1,7 @@
-# `linux-cpu` Per-Lane Attestation (Phases 13/14 + Sprint 17.10)
+# `linux-cpu` Per-Lane Attestation (Phases 13/14 + Sprints 17.10 / 18.6)
 
 **Status**: Authoritative source
+**Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md),
 [../phase-13-no-caveat-model-runtime.md](../phase-13-no-caveat-model-runtime.md),
 [../phase-14-interactive-demo-and-playwright-closure.md](../phase-14-interactive-demo-and-playwright-closure.md),
@@ -10,7 +11,7 @@
 
 > **Purpose**: The committed `linux-cpu` per-lane report-card fragment that the
 > always-available accelerator-free lane (Phases `13`/`14`) owns. Phase `17`
-> (Sprint `17.10`) and Phase `18` (Sprint `18.5`) consume this fragment on
+> (Sprint `17.10`) and Phase `18` (Sprints `18.5` / `18.6`) consume this fragment on
 > `linux-cpu` as the third merge input alongside the committed `linux-cuda`
 > (Phase `15`) and `apple-silicon` (Phase `16`) fragments (standards rule
 > M(b)/(d)).
@@ -21,8 +22,10 @@
   (47 GiB), no NVIDIA GPU. The `linux-cpu` lane runs in the `jitml:local`
   container where oneDNN (`libdnnl`, `oneapi/dnnl/dnnl.hpp`) is present.
 - Validated 2026-06-23, re-attested 2026-06-26 after the real-SL/RL chain and
-  Sprint `14.3` demo-runtime replacement, and re-attested 2026-06-29 as the HA
-  `linux-cpu` aggregation after Phases `15` / `16` re-closed. The image under test was built from the worktree
+  Sprint `14.3` demo-runtime replacement, re-attested 2026-06-29 as the HA
+  `linux-cpu` aggregation after Phases `15` / `16` re-closed, and re-aggregated
+  2026-06-30 after the typed-failure/docs-governance remediation in Phases `0`,
+  `1`, `8`, `9`, and `10`. The image under test was built from the worktree
   **including** the 2026-06-23 reflected-catalog-schema
   (`JitML.Service.CatalogSchema`), tuning-objective-migration
   (`JitML.SL.Architecture` seam + `pureReferenceMlpDevice`), and the three
@@ -57,7 +60,10 @@ MinIO via `jitml internal upload-dataset`, and the eight demo checkpoints were
 seeded via `jitml internal seed-demo-checkpoints`. During the 2026-06-29
 aggregation, stale MNIST train placeholders (`28B` / `14B`) were deleted and
 replaced with the canonical gzip artifacts before `jitml-sl-canonicals` and the
-full live lane were rerun.
+full live lane were rerun. During the 2026-06-30 Sprint `18.6` re-aggregation,
+the canonical dataset artifacts were present, `jitml internal seed-demo-checkpoints`
+re-seeded the eight demo checkpoints, and the full live report-card run passed
+with `browser_product_matrix` populated.
 
 `jitml-backends --linux-cpu` compiled and executed the real oneDNN primitive
 paths through the Haskell FFI — every within-substrate `linux-cpu` kernel case

@@ -40,13 +40,25 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
-**2026-06-29 — HA topology live revalidation closed; ledger empty.** The
-remaining primary HA obligations closed without adding ledger debt: Phase `16`
-revalidated the real Apple Silicon HA lane after the host LLVM and Docker/Colima
-capacity blockers were removed; Phase `17` aggregated the refreshed lane
-fragments on `linux-cpu`; and Phase `18` re-closed the final product handoff.
-The compact-topology rows remain in `Completed`, and the `Pending Removal`
-section is empty.
+**2026-06-29 — typed-failure and docs-governance audit; ledger reopened.** A
+full documentation/codebase audit found doctrine deviations that are cleanup
+rows under standards rule I/L: docs metadata enforcement was documented but not
+implemented, residual CLI integer parsing silently coerces malformed user input,
+several fail-closed runtime paths use `error` bottoms instead of typed failures,
+and one local checkpoint key guard terminates instead of returning validation
+data. Sprints `0.3`, `1.17`, `8.15`, `9.15`, and `10.11` have moved the docs
+metadata, typed numeric CLI, RL device-failure, tuning resume decode-failure,
+and checkpoint object-key rows to `Completed`. The Pending Removal ledger is
+empty again. Phase `18` Sprint `18.6` re-aggregated the final handoff on
+2026-06-30 with the full live `linux-cpu` report-card gate green.
+
+**2026-06-29 — HA topology live revalidation closed; ledger was empty before the
+typed-failure audit.** The remaining primary HA obligations closed without
+adding ledger debt: Phase `16` revalidated the real Apple Silicon HA lane after
+the host LLVM and Docker/Colima capacity blockers were removed; Phase `17`
+aggregated the refreshed lane fragments on `linux-cpu`; and Phase `18`
+re-closed the final product handoff. The compact-topology rows remain in
+`Completed`.
 
 **2026-06-28 — HA topology implementation rows closed; ledger empty.** The
 compact single-node/right-sized implementation deviations found on 2026-06-27
@@ -256,9 +268,9 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-06-28): Pending Removal is empty.** The compact-topology
-rows discovered by the HA topology audit moved to `Completed` after the owning
-HA implementation sprints closed.
+**Current state (2026-06-30): Pending Removal is empty.** The rows discovered by
+the typed-failure and docs-governance audit moved to `Completed` after their
+owning remediation sprints closed.
 
 | Item | Owning Sprint | Removal Condition |
 |------|---------------|-------------------|
@@ -357,6 +369,11 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| Untyped local checkpoint object-key guard in `JitML.Checkpoint.Store.safeRelativePath` | Sprint `10.11` (2026-06-30) | Local object-key-to-path conversion now returns `Either Text FilePath`; empty, absolute, and parent-traversing keys are rejected before filesystem path construction. Local checkpoint write/read/list helpers propagate typed validation failures, app write sites render them as `InvalidConfig`, and spawned local `jitml internal gc ../escape` exits through `InvalidConfig` rather than process termination. Validation: `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed 237/237; `docker compose run --rm jitml jitml test jitml-integration --linux-cpu` passed 77/77 including 19/19 `Live`; `docker compose run --rm jitml jitml check-code` passed. |
+| Untyped tuning resume decode bottom in `JitML.Tune.Resume.replaySweep` | Sprint `9.15` (2026-06-30) | `ResumeOutcome.resumeReadFailures` now carries `(trial-key, ResumeReadFailure)`, with `ResumeServiceFailure ServiceError` for missing/read failures and `ResumeDecodeFailure Text` for corrupt transcript bytes. `ResumeOutcome` `Show` / `Eq` are total, so corrupt transcripts remain structured data at the caller boundary. Validation: `docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu` passed 17/17; after a fresh image build and `jitml bootstrap --linux-cpu` 105-step rollout, `docker compose run --rm jitml jitml test jitml-integration --linux-cpu` passed 77/77 including 19/19 `Live`; `docker compose run --rm jitml jitml check-code` passed. |
+| Untyped RL device-failure bottoms in DQN / QR-DQN / HER / continuous trainer update helpers | Sprint `8.15` (2026-06-29) | `trainDqnOnDevice`, `trainQrDqnOnDevice`, `trainHerOnDevice`, and `trainContinuousOnDevice` now return `Either Text` and propagate forward, batch-gradient, and input-gradient failures through `runTrainerEpisodes` without partial episode projection or publication. ARS remains the only no-MLP exception; no pure fallback was reintroduced. Unit regressions inject failing `MlpDevice` operations. Validation: `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`, `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`, `docker compose run --rm jitml jitml test jitml-backends --linux-cpu`, and `docker compose run --rm jitml jitml check-code` all passed. |
+| Silent user-facing numeric CLI coercion through `readInt` | Sprint `1.17` (2026-06-29) | `service --consume-once`, `rl rollout --seed`, and AlphaZero self-play `--games` / `--sims` / `--max-plies` / `--updates` / `--arena-games` now parse through `parseUserIntOptionAtLeast`, returning typed `InvalidConfig` on malformed or below-bound values instead of silently coercing through `readInt` to `0` or `1`. Unit coverage asserts every listed flag. Validation: `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`, `docker compose run --rm jitml jitml docs check`, and `docker compose run --rm jitml jitml check-code` all passed. |
+| Documentation metadata enforcement gap | Sprint `0.3` (2026-06-29) | `JitML.Docs.Check` now validates governed Markdown headers for `Status`, `Supersedes`, `Referenced by`, `Generated sections`, and `Purpose`; generated-section metadata is reconciled with physical markers and the `GeneratedSectionRule` registry; failures surface through `DocsCheckDrift` / `jitml lint docs` with metadata-specific remedies. Validation: `docker compose run --rm jitml jitml docs check`, `docker compose run --rm jitml jitml lint docs`, and `docker compose run --rm jitml jitml check-code` all passed. |
 | Compact single-node/right-sized local topology | Sprints `3.6` / `4.10` (2026-06-28) | Replaced the single-control-plane/no-worker Kind fixtures and right-sized service/storage materialization with the HA topology: `JitML.Cluster.Kind` and `kind/cluster-*.yaml` render one control-plane plus three workers, resource caps/mount prep covers every materialized node, `JitML.Cluster.Storage` and PV templates cover HA storage counts, `chart/values/minio.yaml` is distributed with 4 replicas, `chart/values/pulsar.yaml` is 3x ZooKeeper/BookKeeper/Broker/Proxy, and registered Postgres renders 3 instances plus pgBackRest. Validation: `cabal build exe:jitml --ghc-options=-fasm`; materialized all three substrates; `jitml-integration -p HA`; `jitml-integration -p distributed`. Live HA lane revalidation remains Phase `15`/`16` work, not ledger debt. |
 | Ambiguous numerical worker cardinality under HA scaling | Sprint `5.16` (2026-06-28) | Encoded the one-numerical-worker-per-Kubernetes-node invariant in `src/JitML/Service/ConfigMap.hs`, `src/JitML/Service/Workload.hs`, and `chart/local/jitml-service`: Linux Engine pods and daemon-spawned Linux workload Jobs share `jitml.compute="true"`, compute-node selectors, required hostname anti-affinity, and hard topology spread; Apple cluster pods remain non-compute forwarders. Validation: `jitml-integration -p cardinality`; `jitml-daemon-lifecycle -p cardinality`. |
 | Placeholder top-level `jitml verify` command group | Sprint `1.16` (2026-06-27) | Removed `verify same-run` and `verify replay` from `CommandSpec`, parser/help/generated docs, completions/manpage, canonical leaf tests, and `App.hs` dispatch. Same-run/replay obligations remain covered by substrate-partitioned Cabal stanzas, checkpoint/inference tests, and `jitml inference run`; no user-facing placeholder `verify` surface remains. |

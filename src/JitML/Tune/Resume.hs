@@ -2,6 +2,7 @@
 
 module JitML.Tune.Resume
   ( ResumeOutcome (..)
+  , ResumeReadFailure (..)
   , persistTrialTranscript
   , replaySweep
   )
@@ -26,8 +27,13 @@ import JitML.Tune.Catalog (TrialTranscript (..), trialStorageKey)
 data ResumeOutcome = ResumeOutcome
   { resumedSeeds :: [Int]
   , resumedTrials :: [TrialTranscript]
-  , resumeReadFailures :: [(Text, ServiceError)]
+  , resumeReadFailures :: [(Text, ResumeReadFailure)]
   }
+  deriving stock (Eq, Show)
+
+data ResumeReadFailure
+  = ResumeServiceFailure ServiceError
+  | ResumeDecodeFailure Text
   deriving stock (Eq, Show)
 
 -- | Persist a single trial transcript to MinIO under
@@ -51,8 +57,9 @@ persistTrialTranscript transcript = do
 -- given seed list back from MinIO. The order is preserved (caller is
 -- responsible for canonical ordering per
 -- [../../README.md → Canonical replay order]). Missing transcripts are
--- recorded as `resumeReadFailures` so the caller can decide whether to
--- abort or re-run the trial.
+-- recorded as `ResumeServiceFailure`; corrupt transcripts are recorded as
+-- `ResumeDecodeFailure`. The caller can decide whether to abort or re-run a
+-- trial without forcing a latent bottom.
 replaySweep
   :: (HasMinIO m)
   => Text
@@ -64,7 +71,7 @@ replaySweep experimentHash seeds = do
   results <- traverse readOne seeds
   let trials = rights results
       failures = [(key, err) | (key, Left err) <- zip keys results]
-      keys = fmap (Text.pack . show) seeds
+      keys = fmap (trialStorageKey experimentHash) seeds
   pure
     ResumeOutcome
       { resumedSeeds = seeds
@@ -78,9 +85,9 @@ replaySweep experimentHash seeds = do
         ref = ObjectRef bucket (ObjectKey key)
     payload <- minioReadBytes ref
     case payload of
-      Left err -> pure (Left err)
+      Left err -> pure (Left (ResumeServiceFailure err))
       Right bytes ->
         case deserialiseOrFail (LazyByteString.fromStrict bytes) of
           Left decodeErr ->
-            pure (Left . error . show $ decodeErr)
+            pure (Left (ResumeDecodeFailure (Text.pack (show decodeErr))))
           Right transcript -> pure (Right transcript)

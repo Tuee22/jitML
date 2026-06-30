@@ -20,15 +20,13 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-27 after Sprint `1.16`). The placeholder
-top-level `verify`, `inspect`, `bench`, and `kubectl` command groups are removed
-from the canonical `CommandSpec` registry and app dispatch. Determinism,
-checkpoint replay, benchmark/report-card, and Kubernetes effects remain covered
-by their real surfaces: substrate-partitioned Cabal stanzas, `jitml inference
-run`, `jitml test all --live`, bootstrap typed subprocesses, and daemon
-capability classes. Generated CLI artifacts are regenerated from `CommandSpec`;
-historical plan references stay dated records only. Prior closure history
-follows.
+✅ **Done** (reopened and re-closed 2026-06-29 for Sprint `1.17`). The placeholder
+top-level `verify`, `inspect`, `bench`, and `kubectl` command groups remain
+removed from the canonical `CommandSpec` registry and app dispatch. Residual
+user-facing numeric flags now parse through the typed `InvalidConfig` error
+surface instead of silent `readInt` defaults, and exact command syntax remains
+owned by generated artifacts rather than duplicate hand-maintained prose.
+Prior closure history follows.
 
 ✅ **Done** (re-closed 2026-06-12 after Sprint `1.15`). The true-headless Apple
 Metal fixed-bridge doctrine no longer exposes a VM lifecycle command. Sprint
@@ -1151,6 +1149,42 @@ summary stub or a thin duplicate of better-owned surfaces: `verify`, `inspect`,
 - `jitml commands --tree` contains no `verify`, `inspect`, `bench`, or `kubectl`
   top-level groups.
 - `jitml-unit` parser/canonical-leaves snapshots pass.
+
+### Remaining Work
+
+None.
+
+## Sprint 1.17: Typed Numeric CLI Parsing and Generated-Only Command Reference ✅
+
+**Status**: Done
+**Implementation**: `src/JitML/App.hs`, `src/JitML/CLI/Parser.hs`,
+`src/JitML/AppError/AppError.hs`, `documents/engineering/cli_command_surface.md`
+**Docs to update**: `README.md`, `documents/engineering/cli_command_surface.md`,
+`documents/engineering/unit_testing_policy.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `system-components.md`
+
+### Objective
+
+Make every user-provided numeric CLI value parse through the typed error surface
+and remove stale duplicate command syntax from manually maintained docs.
+
+### Deliverables
+
+- Replace residual `readInt` use on user-facing flags with a parser that returns
+  `InvalidConfig` for malformed integers.
+- Cover `jitml service --consume-once`, `jitml rl rollout --seed`, and
+  `jitml rl alphazero self-play --games/--sims/--max-plies/--updates/--arena-games`.
+- Keep generated `CommandSpec` artifacts as the only exact command-reference
+  mirror; engineering prose may describe intent but does not duplicate flag
+  lists beside generated help blocks.
+- Move the CLI parsing / stale-manual-reference ledger row to `Completed` only
+  after code and docs validation pass.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`
+- `docker compose run --rm jitml jitml docs check`
+- `docker compose run --rm jitml jitml check-code`
 
 ### Remaining Work
 

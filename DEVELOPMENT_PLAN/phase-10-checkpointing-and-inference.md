@@ -25,9 +25,24 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `10.10` —
+✅ **Done** (reopened 2026-06-29; re-closed 2026-06-30 for Sprint `10.11`).
+Checkpoint manifests, readiness, TensorBoard metadata, and inference
+eligibility for fixed-budget trained artifacts remain historically validated,
+and local checkpoint object-key validation now returns typed failures before
+filesystem path construction. `objectPathForKey` / `safeRelativePath` reject
+empty, absolute, and parent-traversing keys as `Left Text`; local
+write/read/list helpers propagate those values; app call sites render them as
+`InvalidConfig`; and local `jitml internal gc --experiment-hash ...` rejects
+unsafe hashes without process termination. Validation passed:
+`docker compose run --rm jitml jitml test jitml-unit --linux-cpu`
+(**237 / 237**), `docker compose run --rm jitml jitml test
+jitml-integration --linux-cpu` (**77 / 77**), and `docker compose run --rm
+jitml jitml check-code` (`check-code: ok`). No Phase `10` blocker or remaining
+work survives.
+
+Historical Sprint `10.10` closure:
 checkpoint manifests, readiness, TensorBoard metadata, and inference
-eligibility for fixed-budget trained artifacts). Sprint `10.9` remains historically closed: `runInternalSeedDemoCheckpoints`' hardcoded `demoWeights` ramp
+eligibility for fixed-budget trained artifacts. Sprint `10.9` remains historically closed: `runInternalSeedDemoCheckpoints`' hardcoded `demoWeights` ramp
 (byte-identical across all five seeds) is replaced with `seededDemoCheckpoints`:
 distinct, provenance-tagged, **self-describing seeded fixture** weights per family (four
 softmax MLP classifiers + one AlphaZero policy/value-shaped net), each
@@ -932,6 +947,44 @@ for inference, evaluation, RL rollout, or browser interaction.
 - Live Playwright passed **15 / 15** against the rebuilt `linux-cpu` edge after
   reseeding all eight demo checkpoints as completed, inference-eligible
   manifests.
+
+### Remaining Work
+
+- None.
+
+## Sprint 10.11: Typed Checkpoint Object-Key Validation [✅ Done]
+
+**Status**: Done (reopened 2026-06-29; re-closed 2026-06-30)
+**Implementation**: `src/JitML/Checkpoint/Store.hs`,
+`src/JitML/Checkpoint/Format.hs`, `src/JitML/App.hs`,
+`test/unit/Main.hs`, `test/integration/Main.hs`
+**Docs to update**: `documents/engineering/checkpoint_format.md`,
+`documents/engineering/haskell_code_guide.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `system-components.md`
+
+### Objective
+
+Keep the local filesystem-backed checkpoint store traversal-safe while returning
+validation failures through typed command paths instead of `error`.
+
+### Deliverables
+
+- Change local object-key-to-path conversion to return `Either Text FilePath`
+  for empty, absolute, or parent-traversing keys.
+- Thread the typed validation result through local checkpoint read/write/list
+  operations.
+- Make local `jitml internal gc --experiment-hash ...` reject unsafe hashes with
+  `InvalidConfig`, not process termination.
+- Add tests for unsafe local keys and valid checkpoint prefixes.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed
+  **237 / 237**, including typed unsafe-key local store regressions.
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+  passed **77 / 77**, including the spawned-binary `jitml internal gc
+  ../escape` `InvalidConfig` regression and **19 / 19** `Live` cases.
+- `docker compose run --rm jitml jitml check-code` passed (`check-code: ok`).
 
 ### Remaining Work
 

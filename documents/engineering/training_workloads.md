@@ -11,12 +11,16 @@
 > surface for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
 
-**Current audit status (2026-06-26).** The `linux-cpu` no-caveat all-model
-baseline and the real `linux-cuda` all-model lane are closed again. The worktree
-has real substrate-backed training and inference foundations plus fixed-budget
-convergence, checkpoint reload, inference eligibility, integration coverage,
-demo interaction, and e2e coverage for the SL/RL/AlphaZero/tuning rows
-described here. The binding learning contract lives in
+**Current audit status (2026-06-30).** The `linux-cpu` no-caveat all-model
+baseline, the real accelerator lanes, and the typed-failure hardening have
+re-closed. Device-backed RL remains fail-closed with no pure fallback, and
+Sprint `8.15` routes post-probe DQN / QR-DQN / HER / continuous trainer update
+failures through typed trainer results instead of `error` bottoms. Sprint
+`9.15` makes corrupt tuning transcript decode failures representable data in
+resume outcomes. Phase `18` Sprint `18.6` re-aggregated those fixes with the
+final live `linux-cpu` report card passing **8 / 8** stanzas and
+`browser_product_matrix` **8 / 8** at edge `:9091`. The binding learning
+contract lives in
 [training_metrics_and_splits.md](training_metrics_and_splits.md):
 each model has a pure fixed `TrainingBudget`, completed training mints a
 `CompletedTraining` witness, and inference accepts only an
@@ -26,13 +30,10 @@ The shared pure vocabulary is implemented in `src/JitML/Training/Budget.hs`,
 checkpoint manifests carry the optional completion witness, and
 `JitML.Checkpoint.Format.requireInferenceEligibleCheckpoint` is the local gate
 that rejects partial manifests before inference loaders run. The SL, RL,
-AlphaZero self-play, and tuning command paths now write completed checkpoints
-or completion events with the same witness vocabulary when they reach their
-configured budget. The real `linux-cuda` rerun closed on 2026-06-26 on the RTX
-5090 host (`jitml test all --linux-cuda` 8/8, `jitml-backends` 20/20, live
-Playwright 15/15). The remaining external-lane obligation is the same
-fixed-budget all-model matrix on a real `apple-silicon` host, then aggregation
-of the lane fragments.
+AlphaZero self-play, and tuning command paths write completed checkpoints or
+completion events with the same witness vocabulary when they reach their
+configured budget; the 2026-06-30 remediation closed error representation gaps
+without reintroducing synthetic summaries or pure fallbacks.
 
 ## SL Training Loops
 
@@ -320,7 +321,12 @@ is unavailable. The trained-policy rollout surface steps real named environment
 dynamics with deterministic seeded policy evaluation, not a catalog projection.
 Device-backed MCTS value-head leaf evaluation and device-backed tuning trial
 training are implemented through the selected `MlpDevice` and fail closed on
-device errors.
+device errors. Sprint `8.15` applies that same typed fail-closed requirement to
+post-probe off-policy/continuous trainer update failures: DQN, QR-DQN, HER, and
+continuous actor-critic device trainers return `Left Text` for forward,
+batch-gradient, and input-gradient faults, and `runTrainerEpisodes` stops the
+run without bypassing the CLI/daemon error surface or publishing partial
+episodes.
 
 The same host-residency rule applies to supervised training, tuning trial
 training, and AlphaZero value/policy evaluation whenever the selected substrate
@@ -473,6 +479,10 @@ trial training is implemented by `trialObjectiveResultWithDevice` /
 `deterministicTrialsWithDevice`, which train each measured trial through the
 selected `MlpDevice`, return checkpointable trained weights for promotion, and
 return a typed failure instead of falling back to a pure objective.
+Sprint `9.15` keeps replay/resume total by recording `ResumeReadFailure` values
+in `resumeReadFailures`: missing/read failures use `ResumeServiceFailure
+ServiceError`, corrupt CBOR transcript bytes use `ResumeDecodeFailure Text`, and
+`ResumeOutcome` `Eq` / `Show` remain total at the caller boundary.
 `jitml-hyperparameter` consumes the `tune_trials` and
 `tune_budget_per_trial` report-card knobs from `cabal.project` for the local
 TPE trial-budget assertion.

@@ -97,9 +97,10 @@ gates on an accelerator.
 - Checkpoints and inference support every model family the `linux-cpu` runtime
   trains, including architecture metadata, weight layouts, preprocessing metadata,
   and output decoding.
-- The legacy ledger rows owned by reopened Phases `8`, `9`, and `10` move to
+- The current legacy ledger rows owned by reopened Phases `9` and `10` move to
   `Completed` only after their replacements are validated through this `linux-cpu`
-  matrix (with the accelerator lanes attested in Phases `15`/`16`).
+  matrix (with the accelerator lanes attested in Phases `15`/`16`). The Phase
+  `8` Sprint `8.15` RL device-failure row is already `Completed`.
 
 ### Validation
 

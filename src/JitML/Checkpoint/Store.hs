@@ -99,32 +99,49 @@ writeCheckpointSnapshot
   -> CheckpointManifest
   -> [(Text, LazyByteString.ByteString)]
   -> Maybe Text
-  -> IO StoredCheckpoint
+  -> IO (Either Text StoredCheckpoint)
 writeCheckpointSnapshot root manifest tensorPayloads expectedPointerETag = do
-  mapM_ (uncurry (writeObjectIfAbsent root)) tensorPayloads
-  let manifestSha = manifestContentSha manifest
-      manifestObjectKey = manifestKey (checkpointExperiment manifest) manifestSha
-      pointerKey = latestPointerKey (checkpointExperiment manifest)
-  _manifestWrite <- writeObjectIfAbsent root manifestObjectKey (encodeManifestCbor manifest)
-  currentPointer <- readCheckpointPointer root pointerKey
-  let pointerWrite =
-        PointerWrite
-          { pointerWriteKey = pointerKey
-          , pointerWriteExpectedETag = expectedPointerETag
-          , pointerWriteManifestSha = manifestSha
-          }
-      pointerResult = applyPointerWrite currentPointer pointerWrite
-  case pointerResult of
-    PointerWritten pointerSha ->
-      writeObject root pointerKey (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 pointerSha))
-    PointerConflict _ ->
-      pure ()
-  pure
-    StoredCheckpoint
-      { storedManifestSha = manifestSha
-      , storedManifestObjectKey = manifestObjectKey
-      , storedPointerResult = pointerResult
-      }
+  tensorWrites <- traverse (uncurry (writeObjectIfAbsent root)) tensorPayloads
+  case sequence tensorWrites of
+    Left err ->
+      pure (Left err)
+    Right _ -> do
+      let manifestSha = manifestContentSha manifest
+          manifestObjectKey = manifestKey (checkpointExperiment manifest) manifestSha
+          pointerKey = latestPointerKey (checkpointExperiment manifest)
+      manifestWrite <- writeObjectIfAbsent root manifestObjectKey (encodeManifestCbor manifest)
+      case manifestWrite of
+        Left err ->
+          pure (Left err)
+        Right _ -> do
+          currentPointerResult <- readCheckpointPointer root pointerKey
+          case currentPointerResult of
+            Left err ->
+              pure (Left err)
+            Right currentPointer -> do
+              let pointerWrite =
+                    PointerWrite
+                      { pointerWriteKey = pointerKey
+                      , pointerWriteExpectedETag = expectedPointerETag
+                      , pointerWriteManifestSha = manifestSha
+                      }
+                  pointerResult = applyPointerWrite currentPointer pointerWrite
+                  stored =
+                    StoredCheckpoint
+                      { storedManifestSha = manifestSha
+                      , storedManifestObjectKey = manifestObjectKey
+                      , storedPointerResult = pointerResult
+                      }
+              case pointerResult of
+                PointerWritten pointerSha -> do
+                  pointerWriteResult <-
+                    writeObject
+                      root
+                      pointerKey
+                      (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 pointerSha))
+                  pure (stored <$ pointerWriteResult)
+                PointerConflict _ ->
+                  pure (Right stored)
 
 -- | Checkpoint snapshot writer over the production `HasMinIO` capability
 -- boundary. Split blobs and manifests are byte-faithful write-once objects;
@@ -208,26 +225,33 @@ readCheckpointManifest root experimentHash manifestSha = do
   payload <- readObject root (manifestKey experimentHash manifestSha)
   pure (payload >>= decodeManifestCbor)
 
-readCheckpointPointer :: FilePath -> Text -> IO (Maybe Text)
+readCheckpointPointer :: FilePath -> Text -> IO (Either Text (Maybe Text))
 readCheckpointPointer root pointerKey = do
-  result <- readObject root pointerKey
-  pure $
-    case result of
-      Left _ -> Nothing
-      Right payload ->
-        Just (Text.strip (Text.Encoding.decodeUtf8 (LazyByteString.toStrict payload)))
+  case objectPathForKey root pointerKey of
+    Left err ->
+      pure (Left err)
+    Right path -> do
+      exists <- doesFileExist path
+      if exists
+        then do
+          payload <- LazyByteString.readFile path
+          pure (Right (Just (Text.strip (Text.Encoding.decodeUtf8 (LazyByteString.toStrict payload)))))
+        else pure (Right Nothing)
 
 listCheckpointManifests :: FilePath -> Text -> IO (Either Text [CheckpointManifest])
 listCheckpointManifests root experimentHash = do
   let manifestDirKey = "jitml-checkpoints/" <> experimentHash <> "/manifests"
-      manifestDir = objectPathForKey root manifestDirKey
-  exists <- doesDirectoryExist manifestDir
-  if not exists
-    then pure (Right [])
-    else do
-      entries <- listDirectory manifestDir
-      decoded <- traverse (readManifestEntry manifestDir) (filter isManifestFile entries)
-      pure (sequence decoded)
+  case objectPathForKey root manifestDirKey of
+    Left err ->
+      pure (Left err)
+    Right manifestDir -> do
+      exists <- doesDirectoryExist manifestDir
+      if not exists
+        then pure (Right [])
+        else do
+          entries <- listDirectory manifestDir
+          decoded <- traverse (readManifestEntry manifestDir) (filter isManifestFile entries)
+          pure (sequence decoded)
  where
   isManifestFile path = ".cbor" `Text.isSuffixOf` Text.pack path
 
@@ -612,42 +636,64 @@ checkpointObjectKey :: Text -> Text
 checkpointObjectKey objectKey =
   fromMaybe objectKey (Text.stripPrefix "jitml-checkpoints/" objectKey)
 
-writeObjectIfAbsent :: FilePath -> Text -> LazyByteString.ByteString -> IO ObjectWriteResult
+writeObjectIfAbsent
+  :: FilePath -> Text -> LazyByteString.ByteString -> IO (Either Text ObjectWriteResult)
 writeObjectIfAbsent root objectKey payload = do
-  let path = objectPathForKey root objectKey
-  exists <- doesFileExist path
-  if exists
-    then pure (ObjectAlreadyPresent objectKey)
-    else do
-      writeObject root objectKey payload
-      pure (ObjectCreated objectKey)
+  case objectPathForKey root objectKey of
+    Left err ->
+      pure (Left err)
+    Right path -> do
+      exists <- doesFileExist path
+      if exists
+        then pure (Right (ObjectAlreadyPresent objectKey))
+        else do
+          writeObjectAt path payload
+          pure (Right (ObjectCreated objectKey))
 
 readObject :: FilePath -> Text -> IO (Either Text LazyByteString.ByteString)
 readObject root objectKey = do
-  let path = objectPathForKey root objectKey
-  exists <- doesFileExist path
-  if exists
-    then Right <$> LazyByteString.readFile path
-    else pure (Left ("missing object: " <> objectKey))
+  case objectPathForKey root objectKey of
+    Left err ->
+      pure (Left err)
+    Right path -> do
+      exists <- doesFileExist path
+      if exists
+        then Right <$> LazyByteString.readFile path
+        else pure (Left ("missing object: " <> objectKey))
 
-writeObject :: FilePath -> Text -> LazyByteString.ByteString -> IO ()
+writeObject :: FilePath -> Text -> LazyByteString.ByteString -> IO (Either Text ())
 writeObject root objectKey payload = do
-  let path = objectPathForKey root objectKey
-      tmpPath = path <> ".tmp"
+  case objectPathForKey root objectKey of
+    Left err ->
+      pure (Left err)
+    Right path -> do
+      writeObjectAt path payload
+      pure (Right ())
+
+writeObjectAt :: FilePath -> LazyByteString.ByteString -> IO ()
+writeObjectAt path payload = do
+  let tmpPath = path <> ".tmp"
   createDirectoryIfMissing True (takeDirectory path)
   LazyByteString.writeFile tmpPath payload
   renameFile tmpPath path
 
-objectPathForKey :: FilePath -> Text -> FilePath
+objectPathForKey :: FilePath -> Text -> Either Text FilePath
 objectPathForKey root objectKey =
-  root </> safeRelativePath objectKey
+  fmap (root </>) (safeRelativePath objectKey)
 
-safeRelativePath :: Text -> FilePath
+safeRelativePath :: Text -> Either Text FilePath
 safeRelativePath objectKey =
-  let path = normalise (Text.unpack objectKey)
-   in if null path || path == "." || not (isRelative path) || ".." `elem` splitPathSegments path
-        then error ("unsafe object key: " <> Text.unpack objectKey)
-        else path
+  let rawPath = Text.unpack objectKey
+      path = normalise rawPath
+      rawSegments = splitPathSegments rawPath
+   in if null rawPath
+        || null path
+        || path == "."
+        || not (isRelative rawPath)
+        || not (isRelative path)
+        || ".." `elem` rawSegments
+        then Left ("unsafe object key: " <> objectKey)
+        else Right path
 
 splitPathSegments :: FilePath -> [FilePath]
 splitPathSegments =

@@ -22,12 +22,17 @@
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-26 for Sprint `8.14` — pure
-fixed-budget training witness and inference-ineligibility for partial/untrained
-models). `TrainingBudget`, `CompletedTraining`, and the
+✅ **Done** (reopened and re-closed 2026-06-29 for Sprint `8.15`). `TrainingBudget`,
+`CompletedTraining`, and the
 `InferenceEligibleCheckpoint` boundary are shared by SL, RL, tuning, and
 checkpointing; partial, smoke, skipped, seeded-without-witness, and otherwise
-untrained manifests cannot flow into inference.
+untrained manifests cannot flow into inference. Sprint `8.15` keeps the
+no-fallback policy while routing post-probe device failures in DQN, QR-DQN, HER,
+and continuous actor-critic trainers through typed `Left Text` results that flow
+to the CLI/daemon `InvalidConfig` boundary. Validation passed:
+`docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`,
+`docker compose run --rm jitml jitml test jitml-backends --linux-cpu`, and
+`docker compose run --rm jitml jitml check-code`.
 
 Historical Sprint `8.13` closure:
 `trainArchitectureWithDeviceSelected` selects the lowest-validation-loss epoch on a
@@ -958,9 +963,10 @@ and full live integration passed on both lanes.
 
 - None on the owned RL-routing surface. The per-trainer internal device updates
   (`dqnUpdateDevice` and the `QrDqnTrainer` / `ContinuousTrainer` / `HerTrainer`
-  peers) now **fail closed** on a mid-run device `Left` (no pure-Haskell
-  fallback); the ledger row moved to `Completed`. The live `--linux-cpu` /
-  `--apple-silicon` on-device reward exercise is owned by Phases `15`/`16`.
+  peers) now **fail closed** on a mid-run device `Left` through typed trainer
+  failures (no pure-Haskell fallback; completed by Sprint `8.15`). The live
+  `--linux-cpu` / `--apple-silicon` on-device reward exercise is owned by
+  Phases `15`/`16`.
 
 ## Sprint 8.12: No-Caveat SL/RL Framework Runtime ✅
 
@@ -1436,6 +1442,47 @@ untrained, smoke-only, cancelled, skipped, or partially trained weights.
   `jitml-hyperparameter` **16 / 16**, `jitml-daemon-lifecycle` **32 / 32**,
   `jitml-e2e` **23 / 23**, `jitml-integration` **72 / 72**, and
   `jitml-backends` **23 / 23** on the real `linux-cpu` lane.
+
+### Remaining Work
+
+- None.
+
+## Sprint 8.15: Typed Fail-Closed RL Device Errors [✅ Done]
+
+**Status**: Done (closed 2026-06-29)
+**Implementation**: `src/JitML/RL/Algorithms/DqnTrainer.hs`,
+`src/JitML/RL/Algorithms/QrDqnTrainer.hs`,
+`src/JitML/RL/Algorithms/HerTrainer.hs`,
+`src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/App.hs`
+**Docs to update**: `documents/engineering/training_workloads.md`,
+`documents/engineering/haskell_code_guide.md`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, `system-components.md`
+
+### Objective
+
+Preserve the Sprint `8.11` fail-closed device policy without using untyped
+bottoms. Mid-run device failures after a successful `probeMlpDevice` remain fatal
+to the run, but they return through the same `Either` / `InvalidConfig` path as
+upfront substrate unavailability.
+
+### Deliverables
+
+- Change the DQN, QR-DQN, HER, and continuous actor-critic device update helpers
+  to return typed failure values for forward, batch-gradient, and input-gradient
+  errors.
+- Change the corresponding `train*OnDevice` entrypoints and `runTrainerEpisodes`
+  callers so post-probe failures become `Left Text` / `InvalidConfig` with no
+  partial print or publication.
+- Keep ARS as the sole no-MLP exception; no pure-Haskell fallback is introduced
+  for MLP-backed trainers.
+- Add regression tests that inject failing `MlpDevice` operations and assert
+  typed failure rather than process termination.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`
+- `docker compose run --rm jitml jitml test jitml-backends --linux-cpu`
+- `docker compose run --rm jitml jitml check-code`
 
 ### Remaining Work
 

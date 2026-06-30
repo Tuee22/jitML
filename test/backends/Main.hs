@@ -5,7 +5,7 @@ module Main where
 import Data.Foldable (for_)
 import Data.Text qualified as Text
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (assertBool, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 import Control.Exception qualified
 import Data.Either (isRight)
@@ -125,6 +125,12 @@ import Path (toFilePath)
 import System.Directory (listDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
+
+expectRight :: String -> Either Text.Text a -> IO a
+expectRight label result =
+  case result of
+    Right value -> pure value
+    Left err -> assertFailure (label <> ": " <> Text.unpack err)
 
 main :: IO ()
 main =
@@ -1074,8 +1080,8 @@ main =
                     , dqnTargetUpdateInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainDqnOnCartpoleCuda env config
-            r2 <- trainDqnOnCartpoleCuda env config
+            r1 <- trainDqnOnCartpoleCuda env config >>= expectRight "CUDA DQN trainer failed"
+            r2 <- trainDqnOnCartpoleCuda env config >>= expectRight "CUDA DQN trainer failed"
             assertBool
               "DQN run produced at least one interval stat"
               (not (null (dqnResultStats r1)))
@@ -1103,8 +1109,8 @@ main =
                     , qrTargetUpdateInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainQrDqnOnCartpoleCuda env config
-            r2 <- trainQrDqnOnCartpoleCuda env config
+            r1 <- trainQrDqnOnCartpoleCuda env config >>= expectRight "CUDA QR-DQN trainer failed"
+            r2 <- trainQrDqnOnCartpoleCuda env config >>= expectRight "CUDA QR-DQN trainer failed"
             assertBool
               "QR-DQN run produced at least one interval stat"
               (not (null (qrResultStats r1)))
@@ -1131,8 +1137,8 @@ main =
                     , herTargetUpdateInterval = 20
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainHerOnBitFlipCuda env config
-            r2 <- trainHerOnBitFlipCuda env config
+            r1 <- trainHerOnBitFlipCuda env config >>= expectRight "CUDA HER trainer failed"
+            r2 <- trainHerOnBitFlipCuda env config >>= expectRight "CUDA HER trainer failed"
             assertBool
               "HER run produced at least one interval stat"
               (not (null (herResultStats r1)))
@@ -1166,8 +1172,8 @@ main =
                     , ctStatInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainContinuousOnPendulumCuda env config
-            r2 <- trainContinuousOnPendulumCuda env config
+            r1 <- trainContinuousOnPendulumCuda env config >>= expectRight "CUDA continuous trainer failed"
+            r2 <- trainContinuousOnPendulumCuda env config >>= expectRight "CUDA continuous trainer failed"
             assertBool
               "continuous run produced at least one interval stat"
               (not (null (contResultStats r1)))
@@ -1263,8 +1269,8 @@ main =
                     , dqnTargetUpdateInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainDqnOnCartpoleOneDnn env config
-            r2 <- trainDqnOnCartpoleOneDnn env config
+            r1 <- trainDqnOnCartpoleOneDnn env config >>= expectRight "oneDNN DQN trainer failed"
+            r2 <- trainDqnOnCartpoleOneDnn env config >>= expectRight "oneDNN DQN trainer failed"
             assertBool
               "DQN run produced at least one interval stat"
               (not (null (dqnResultStats r1)))
@@ -1288,8 +1294,8 @@ main =
                     , qrTargetUpdateInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainQrDqnOnCartpoleOneDnn env config
-            r2 <- trainQrDqnOnCartpoleOneDnn env config
+            r1 <- trainQrDqnOnCartpoleOneDnn env config >>= expectRight "oneDNN QR-DQN trainer failed"
+            r2 <- trainQrDqnOnCartpoleOneDnn env config >>= expectRight "oneDNN QR-DQN trainer failed"
             assertBool
               "QR-DQN run produced at least one interval stat"
               (not (null (qrResultStats r1)))
@@ -1312,8 +1318,8 @@ main =
                     , herTargetUpdateInterval = 20
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainHerOnBitFlipOneDnn env config
-            r2 <- trainHerOnBitFlipOneDnn env config
+            r1 <- trainHerOnBitFlipOneDnn env config >>= expectRight "oneDNN HER trainer failed"
+            r2 <- trainHerOnBitFlipOneDnn env config >>= expectRight "oneDNN HER trainer failed"
             assertBool
               "HER run produced at least one interval stat"
               (not (null (herResultStats r1)))
@@ -1339,8 +1345,8 @@ main =
                     , ctStatInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainContinuousOnPendulumOneDnn env config
-            r2 <- trainContinuousOnPendulumOneDnn env config
+            r1 <- trainContinuousOnPendulumOneDnn env config >>= expectRight "oneDNN continuous trainer failed"
+            r2 <- trainContinuousOnPendulumOneDnn env config >>= expectRight "oneDNN continuous trainer failed"
             assertBool
               "continuous run produced at least one interval stat"
               (not (null (contResultStats r1)))
@@ -1543,8 +1549,8 @@ main =
                     , dqnTargetUpdateInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainDqnOnCartpoleMetal env config
-            r2 <- trainDqnOnCartpoleMetal env config
+            r1 <- trainDqnOnCartpoleMetal env config >>= expectRight "Metal DQN trainer failed"
+            r2 <- trainDqnOnCartpoleMetal env config >>= expectRight "Metal DQN trainer failed"
             assertBool
               "DQN run produced at least one interval stat"
               (not (null (dqnResultStats r1)))
@@ -1568,8 +1574,8 @@ main =
                     , qrTargetUpdateInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainQrDqnOnCartpoleMetal env config
-            r2 <- trainQrDqnOnCartpoleMetal env config
+            r1 <- trainQrDqnOnCartpoleMetal env config >>= expectRight "Metal QR-DQN trainer failed"
+            r2 <- trainQrDqnOnCartpoleMetal env config >>= expectRight "Metal QR-DQN trainer failed"
             assertBool
               "QR-DQN run produced at least one interval stat"
               (not (null (qrResultStats r1)))
@@ -1592,8 +1598,8 @@ main =
                     , herTargetUpdateInterval = 20
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainHerOnBitFlipMetal env config
-            r2 <- trainHerOnBitFlipMetal env config
+            r1 <- trainHerOnBitFlipMetal env config >>= expectRight "Metal HER trainer failed"
+            r2 <- trainHerOnBitFlipMetal env config >>= expectRight "Metal HER trainer failed"
             assertBool
               "HER run produced at least one interval stat"
               (not (null (herResultStats r1)))
@@ -1619,8 +1625,8 @@ main =
                     , ctStatInterval = 200
                     }
                 finite x = not (isNaN x) && not (isInfinite x)
-            r1 <- trainContinuousOnPendulumMetal env config
-            r2 <- trainContinuousOnPendulumMetal env config
+            r1 <- trainContinuousOnPendulumMetal env config >>= expectRight "Metal continuous trainer failed"
+            r2 <- trainContinuousOnPendulumMetal env config >>= expectRight "Metal continuous trainer failed"
             assertBool
               "continuous run produced at least one interval stat"
               (not (null (contResultStats r1)))

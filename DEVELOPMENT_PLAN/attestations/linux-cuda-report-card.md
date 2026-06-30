@@ -1,6 +1,7 @@
 # `linux-cuda` Per-Lane Attestation (Sprints 15.20 / 15.21 / 15.22)
 
 **Status**: Authoritative source
+**Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md),
 [../phase-15-linux-cuda-and-cluster-closure.md](../phase-15-linux-cuda-and-cluster-closure.md),
 [../phase-17-cross-substrate-and-handoff.md](../phase-17-cross-substrate-and-handoff.md),

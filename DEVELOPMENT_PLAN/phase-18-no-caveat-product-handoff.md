@@ -21,19 +21,30 @@
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-27 for Sprint `18.5`; re-closed 2026-06-29).
+✅ **Done** (reopened 2026-06-29 for Sprint `18.6`; re-closed 2026-06-30).
 
-Final product handoff is re-closed for the HA topology: Phases `3`, `4`, and
-`5` own the checked-in HA topology; Phase `15` owns the refreshed Linux CUDA HA
-lane; Phase `16` owns the refreshed Apple Silicon HA lane; Phase `17` consumes
-those lane fragments on `linux-cpu`; and the Pending Removal ledger is empty.
-The final `linux-cpu` handoff gate passed `docker compose run --rm jitml jitml
-test all --live --linux-cpu` with **8 / 8** stanzas and every report-card
-measurement populated (`browser_product_matrix` **8 / 8** at edge `:9091`,
-`cabal_test: passed: 8, failed: 0`). `check-code: ok` and `docs check: ok`
-passed after the edited worktree documentation updates.
+Final product handoff is complete again after the lower-phase remediation sprints
+re-closed: Phase `0` Sprint `0.3`, Phase `1` Sprint `1.17`, Phase `8` Sprint
+`8.15`, Phase `9` Sprint `9.15`, and Phase `10` Sprint `10.11` are Done, and
+the Pending Removal ledger is empty. This phase remains `linux-cpu` aggregation
+only; it did not re-run accelerator lanes directly.
 
-The 2026-06-26 handoff remains historical evidence for the previous
+Sprint `18.6` validation passed `docker compose run --rm jitml jitml test all
+--live --linux-cpu` with **8 / 8** stanzas (`jitml-unit` **237 / 237**,
+`jitml-integration` **77 / 77**, `jitml-sl-canonicals` **24 / 24**,
+`jitml-rl-canonicals` **31 / 31**, `jitml-hyperparameter` **17 / 17**,
+`jitml-daemon-lifecycle` **32 / 32**, `jitml-e2e` **23 / 23**,
+`jitml-backends` **23 / 23**), staged canonical datasets, eight seeded demo
+checkpoints, populated report-card measurements, `browser_product_matrix`
+**8 / 8** at edge `:9091`, and `cabal_test: passed: 8, failed: 0`.
+
+The 2026-06-29 HA handoff remains historical evidence: Phases `3`, `4`, and `5`
+own the checked-in HA topology; Phase `15` owns the refreshed Linux CUDA HA
+lane; Phase `16` owns the refreshed Apple Silicon HA lane; Phase `17` consumed
+those lane fragments on `linux-cpu`; and Sprint `18.5` passed
+`docker compose run --rm jitml jitml test all --live --linux-cpu` with **8 / 8**
+stanzas before this audit reopened the typed-failure/documentation-governance
+surface. The 2026-06-26 handoff remains historical evidence for the previous
 compact/right-sized topology. Prior closure history follows.
 
 ✅ **Done** (reopened 2026-06-26 for Sprint `18.4`; re-closed 2026-06-26).
@@ -335,6 +346,53 @@ empty again.
 None. The HA handoff is closed after Phase `17` aggregation, the final
 `linux-cpu` report-card gate, the code-quality gate, the docs gate, and the
 empty Pending Removal ledger.
+
+## Sprint 18.6: Re-Aggregate after Typed-Failure and Docs-Governance Remediation [✅ Done]
+
+**Status**: Done (reopened 2026-06-29; re-closed 2026-06-30 after Phases `0`,
+`1`, `8`, `9`, and `10` re-closed)
+**Implementation**: `DEVELOPMENT_PLAN/attestations/`,
+`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`, product docs
+**Docs to update**: `README.md`, `00-overview.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`, `attestations/linux-cpu-report-card.md`,
+`../documents/engineering/README.md`,
+`../documents/engineering/training_workloads.md`
+
+### Objective
+
+Re-close final handoff after the typed-failure and documentation-governance
+remediation closes in the lower phases.
+
+### Deliverables
+
+- Confirm all reopened lower-phase remediation sprints are Done.
+- Confirm the Pending Removal rows added by the 2026-06-29 audit have moved to
+  `Completed`.
+- Run final docs/check-code/report-card gates from the `linux-cpu` aggregation
+  lane.
+
+### Validation
+
+- `docker compose run --rm jitml jitml internal seed-demo-checkpoints` — seeded
+  eight demo checkpoints before the final report-card probe.
+- `docker compose run --rm jitml jitml test all --live --linux-cpu` passed
+  **8 / 8** stanzas with `jitml-unit` **237 / 237**, `jitml-integration`
+  **77 / 77**, `jitml-sl-canonicals` **24 / 24**, `jitml-rl-canonicals`
+  **31 / 31**, `jitml-hyperparameter` **17 / 17**,
+  `jitml-daemon-lifecycle` **32 / 32**, `jitml-e2e` **23 / 23**,
+  `jitml-backends` **23 / 23**, populated measurements
+  (`sl_final_loss`, `rl_final_reward`, `alphazero_arena_win_rate`,
+  `tune_best_objective`, `jit_cache_hit_rate`, `daemon_healthz`,
+  `browser_product_matrix` **8 / 8** at edge `:9091`), and
+  `cabal_test: passed: 8, failed: 0`.
+- `docker compose run --rm jitml jitml docs check` returned `docs check: ok`.
+- `docker compose run --rm jitml jitml check-code` returned `check-code: ok`.
+
+### Remaining Work
+
+None. The typed-failure/docs-governance remediation has been re-aggregated, the
+Pending Removal ledger is empty, and the final `linux-cpu` product handoff gate
+is green.
 
 ## Related Documents
 

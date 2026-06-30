@@ -31,16 +31,17 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (all phases re-closed 2026-06-29):** The no-caveat
-> product handoff is closed against the targeted HA cluster topology. Phases
-> `3`, `4`, and `5` own the HA Kind/platform/compute-cardinality work; Phase
-> `15` revalidated the HA `linux-cuda` lane on the RTX 5090 host; Phase `16`
-> revalidated the HA `apple-silicon` lane on the Apple M1 Max host after fixing
-> the GHC-compatible LLVM selection and resizing Docker/Colima; Phase `17`
-> aggregated the refreshed lane fragments on `linux-cpu`; and Phase `18`
-> re-closed the final handoff with `jitml test all --live --linux-cpu` passing
-> **8 / 8** stanzas and the report card populated. Known stand-ins and
-> compatibility residues live in
+> **Current product status (all phases Done again 2026-06-30):** The
+> no-caveat product handoff has re-closed after the full-codebase clarity and
+> correctness audit. Phases `0`, `1`, `8`, `9`, and `10` re-closed on
+> documentation-governance hardening, typed numeric CLI parsing, typed
+> fail-closed RL device errors, typed tuning resume decode failures, and typed
+> checkpoint object-key validation; Phase `18` Sprint `18.6` then re-ran the
+> final `linux-cpu` aggregation. `docker compose run --rm jitml jitml test all
+> --live --linux-cpu` passed **8 / 8** stanzas with populated report-card
+> measurements and `browser_product_matrix` **8 / 8** at edge `:9091`. The
+> Pending Removal ledger is empty again. Known doctrine deviations and
+> duplicate/legacy surfaces live in
 > [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 ---
@@ -687,7 +688,7 @@ data TbCheckpointMarker = TbCheckpointMarker
   }
 ```
 
-Sidecars are CBOR canonical-form, content-addressed-style, and written with `If-None-Match: *`. The PureScript frontend lists the `checkpoints/` prefix once at panel-load and overlays clickable markers on the TB loss curve — clicking a marker opens the [Inference panel](#panels) pre-loaded with that manifest SHA only when the manifest has an inference-eligible trained-artifact witness. The overlay is a positioned div over the TensorBoard view; we do not ship a TensorBoard plugin (which would require a TB-extension build chain). This is the single design move that turns TB from passive telemetry into a navigable index into the checkpoint store, and it costs two extra MinIO PUTs per checkpoint event. Reopened Phase `10` / Phase `14` adds the fixed-budget completion counters, convergence-statistics scalars, and readiness status used by both TensorBoard and the SPA.
+Sidecars are CBOR canonical-form, content-addressed-style, and written with `If-None-Match: *`. The PureScript frontend lists the `checkpoints/` prefix once at panel-load and overlays clickable markers on the TB loss curve — clicking a marker opens the [Inference panel](#panels) pre-loaded with that manifest SHA only when the manifest has an inference-eligible trained-artifact witness. The overlay is a positioned div over the TensorBoard view; we do not ship a TensorBoard plugin (which would require a TB-extension build chain). This is the single design move that turns TB from passive telemetry into a navigable index into the checkpoint store, and it costs two extra MinIO PUTs per checkpoint event. Sprints `10.10` / `14.4` add the fixed-budget completion counters, convergence-statistics scalars, and readiness status used by both TensorBoard and the SPA.
 
 ## Determinism caveat
 
@@ -1075,13 +1076,13 @@ Concrete invocations:
 ./.build/jitml tune   experiments/mnist-mlp.dhall --sampler sobol --trials 64 --parallelism 8
 ./.build/jitml tune   experiments/mnist-mlp.dhall --sampler tpe --scheduler asha --trials 256 --parallelism 8
 ./.build/jitml rl     train experiments/cartpole-ppo.dhall --substrate apple-silicon --seed 42
-./.build/jitml inference run experiments/mnist-mlp.dhall --checkpoint latest
+./.build/jitml inference run experiments/mnist-mlp.dhall
 ./.build/jitml test   all
 ```
 
 ### Exit codes and error rendering
 
-Per doctrine §Error Handling for the typed-domain-ADT discipline and single rendering site. jitML's `AppError` at the CLI boundary and per-`Commands.*` validation errors follow that shape; the exit-code table below extends the doctrine with code `3` for reconciler no-op-on-match.
+Per doctrine §Error Handling for the typed-domain-ADT discipline and single rendering site. jitML's `AppError` at the CLI boundary and per-`Commands.*` validation errors follow that shape; the exit-code table below extends the doctrine with code `3` for reconciler no-op-on-match. Fail-closed runtime paths still return through this typed surface: device failures, decode failures, invalid CLI values, and unsafe local object keys must become `AppError` / domain `Either` values, not `error` bottoms or silent defaults.
 
 | Code | Meaning |
 |---|---|
@@ -2282,20 +2283,21 @@ representable as inference inputs unless their fixed budget completed and their
 convergence-statistics payload satisfies the model's metric predicate. The
 current implementation uses
 `JitML.Checkpoint.Store.loadInferenceCheckpointWithWeights` for latest-pointer →
-manifest → decoded `.jmw1` weights → substrate weighted runner flow; reopened
-Phase `10` makes that loader return an inference-eligible checkpoint rather
+manifest → decoded `.jmw1` weights → substrate weighted runner flow. Sprint
+`10.10` made that loader return an inference-eligible checkpoint rather
 than raw weights whenever the caller is an inference/eval/demo surface.
 The CLI surface is the `Inference` constructor of the top-level `Command` (see
 [CLI command topology, typed](#cli-command-topology-typed)):
 
 ```bash
-jitml inference run experiments/mnist-mlp.dhall --checkpoint latest
-jitml inference run experiments/mnist-mlp.dhall --checkpoint best/acc
-jitml inference run experiments/mnist-mlp.dhall --checkpoint <manifest-sha256>
-jitml inference run experiments/mnist-mlp.dhall --trial <trial-hash> --checkpoint latest
+jitml inference run experiments/mnist-mlp.dhall
+jitml inference run --experiment-hash <experiment-hash>
 ```
 
-Each variant resolves to one immutable `manifests/<sha>` object and one `blobs/<weight-sha>` object. Training and HPO trials can be writing concurrently to the same `<experiment-hash>` prefix; the inference reader is unaffected.
+The reader resolves the current latest pointer to one immutable
+`manifests/<sha>` object and the referenced `blobs/<weight-sha>` objects.
+Training and HPO trials can be writing concurrently to the same
+`<experiment-hash>` prefix; the inference reader is unaffected.
 
 ---
 
@@ -2477,7 +2479,7 @@ Per doctrine §Test Organization, one cabal `test-suite` stanza per tier. The **
 | `jitml-sl-canonicals` | Integration (project-specific) | `TestSL` | the eleven SL `(dataset, model)` pairs from [Canonical supervised learning problems](#canonical-supervised-learning-problems): catalog properties, real-artifact SHA/parser coverage, selected live convergence, all-row staged-byte smoke, fixed-budget convergence, checkpoint reload, and inference eligibility — no committed numerical fixtures |
 | `jitml-rl-canonicals` | Integration (project-specific) | `TestRL` | the RL target matrix: catalog properties, run-to-run trajectory determinism, fixed-budget convergence, checkpoint reload, rollout/eval eligibility, and per-evaluation curve properties for every algorithm/game row — no committed numerical fixtures |
 | `jitml-hyperparameter` | Integration (project-specific) | `TestHyperparameter` | per-sampler reproducibility (Grid, Random, Sobol, TPE, GP-BO, GA, NSGA-II, (μ,λ)-ES, CMA-ES, PBT) via run-to-run equality and resume-from-event-log equality, per-scheduler reproducibility (Hyperband / ASHA bracket scheduling), per-pruner reproducibility (median / percentile), resume-from-partial-sweep equality |
-| `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected via `--test-options='-p <substrate>'`, **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
+| `jitml-backends` | Integration (project-specific) | `TestCrossBackend` | per-substrate JIT backend validation run for real in each substrate's own lane (apple-silicon Metal — fixed bridge on the host GPU; linux-cpu oneDNN in the `jitml` container; linux-cuda CUDA on the GPU host), selected with `jitml test jitml-backends --<substrate>`; the orchestrator synthesizes the backend stanza's `-p <substrate>` filter and `-fcuda` on `linux-cuda`. The lane is **symmetric across all three backends**: generated family kernel compile/load/run + exported family/output-count symbols, **weighted-family numeric correctness against the pure `JitML.Numerics.FamilyReference` oracle**, **MLP forward/backward/batched-gradient/input-gradient matching the pure `JitML.Numerics.Mlp` network**, the **PPO/DQN/QR-DQN/HER/DDPG/AlphaZero device trainers** (via the injected `JitML.Numerics.MlpDevice` backend), run-to-run bit-determinism, benchmark-candidate measurement, and tuning-cache persistence. Correctness is asserted **within-lane against the in-process pure-Haskell oracle within `1e-3`**; no cross-substrate equivalence is asserted — there is no tolerance band and no `(cpu, cuda)` / `(cpu, metal)` parity cohort |
 | `jitml-daemon-lifecycle` | Daemon Lifecycle | `TestDaemonLifecycle` | spawn `jitml service`, poll `/readyz`, exercise Pulsar protocol, SIGTERM, assert graceful drain |
 | `jitml-e2e` | Ephemeral-Cluster Infrastructure | `TestE2E` | Current local route/bucket/publication/contract/demo/report, Docker-backed no-leak check for `jitml-e2e-*` clusters, and typed live-plan checks; the reopened no-caveat live path brings up an ephemeral Kind cluster via `jitml bootstrap`, runs Playwright against real Envoy routes, proves all-model fixed-budget training/checkpoint/inference/animation/replay/tuning interactions, rejects inference before training completion, and tears down via `jitml cluster down`; see [E2E cohorts](#e2e-cohorts) below. |
 

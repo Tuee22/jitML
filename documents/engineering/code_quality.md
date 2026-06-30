@@ -38,7 +38,10 @@ Sprint `1.1` has landed `jitml.cabal`, `cabal.project`, the app shims, and
 sentinel Cabal test stanzas. Sprint `1.2` has replaced the `jitml-unit` sentinel
 with parser/registry coverage. Sprint `1.3` has landed `jitml docs check`,
 `jitml docs generate`, and the active tracked-generated-path registry for CLI
-docs, the manpage, and shell completions. Sprint `1.4` has landed
+docs, the manpage, and shell completions. Sprint `0.3` extends the docs-check
+surface so that the required governed-document metadata declared in
+`documents/documentation_standards.md` is also enforced by the checker.
+Sprint `1.4` has landed
 `fourmolu.yaml`, `.hlint.yaml`, `forbiddenPathRegistry`, `jitml lint`,
 `jitml check-code`, external `fourmolu`, `hlint`, `cabal format` round-trip
 checks, and the warning-clean build runner.
@@ -151,6 +154,14 @@ The active project-specific tracked-generated-paths registry currently covers:
 Sprint `1.3` also records future generated-path patterns for:
 
 - `share/man/man1/jitml-*.1`
+
+### Governed-Document Metadata Lint (`jitml docs check`)
+
+Sprint `0.3` makes the metadata contract executable. `JitML.Docs.Check` rejects
+governed Markdown files missing `Status`, `Supersedes`, `Referenced by`,
+`Generated sections`, or `Purpose`, and verifies that `Generated sections`
+agrees with physical generated-region markers and the generated-section
+registry.
 
 ## Container-Exclusive Code Quality
 

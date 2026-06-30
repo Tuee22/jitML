@@ -76,31 +76,25 @@ Metal cannot be containerized.
 
 ## Current Baseline
 
-All phases `0`-`18` are re-closed for the HA topology as of 2026-06-29. The
-2026-06-27 HA-topology audit reopened Phases `3`, `4`, and `5`; those
-implementation phases re-closed on 2026-06-28. The checked-in topology now
-matches the HA documentation: HA stateful platform services, one routed Envoy
-socket, one control-plane plus three Kind workers, and **at most one numerical
-ML compute worker per Kubernetes node**. Phase `15` Sprint `15.22` re-closed on
-the real NVIDIA GeForce RTX 5090 host: HA `linux-cuda` rollout 130 steps,
-`jitml test all --linux-cuda` **8 / 8**, `jitml-backends` **20 / 20**, live
-Playwright **15 / 15**, `docs check: ok`, and `check-code: ok`.
+The current baseline reopened on 2026-06-29 after a full documentation/codebase
+audit. Phase `0` re-closed after making governed-document metadata enforcement
+executable through `jitml docs check`, Phase `1` re-closed after routing
+user-facing numeric CLI values through typed `InvalidConfig` parsing, Phase `8`
+re-closed after routing post-probe RL device failures through typed trainer
+results, Phase `9` re-closed on typed tuning resume decode failures, and Phase
+`10` re-closed on typed checkpoint object-key validation. The Pending Removal
+ledger is empty again. The remaining active work is deliberately narrow:
 
-Phase `16` Sprint `16.14` re-closed on the Apple M1 Max host after the
-GHC-compatible LLVM selection and Docker/Colima capacity blockers were removed.
-`./bootstrap/apple-silicon.sh up` reconciled the HA Apple lane in **131** steps
-at edge `:9090`; the host Metal daemon acquired all host command topics;
-`./bootstrap/apple-silicon.sh test` passed **8 / 8**; direct browser inference
-returned `HTTP 200` with `kind: InferenceResult`; eight demo checkpoints were
-seeded; and the live Playwright product matrix passed **15 / 15**. Phase `17`
-then aggregated the refreshed lane fragments on `linux-cpu` with the HA stack at
-edge `:9091`, all 12 canonical dataset artifacts staged and SHA-verified, and
-`docker compose run --rm jitml jitml test all --live --linux-cpu` passing
-**8 / 8** stanzas with every report-card measurement populated. Phase `18`
-re-closed the final handoff on the same `linux-cpu` aggregation surface.
+- Phase `18` re-aggregates the final `linux-cpu` product handoff after the
+  lower remediation phases closed.
 
-The 2026-06-26 fixed-budget all-model closure remains historical evidence for
-the previous compact/right-sized topology.
+The 2026-06-29 HA topology handoff remains historical evidence: Phases `3`,
+`4`, and `5` closed the HA topology; Phase `15` revalidated the HA
+`linux-cuda` lane; Phase `16` revalidated the HA `apple-silicon` lane; Phase
+`17` aggregated the refreshed lane fragments on `linux-cpu`; and Phase `18`
+re-closed the final handoff before this remediation reopened. The 2026-06-26
+fixed-budget all-model closure remains historical evidence for the previous
+compact/right-sized topology.
 
 `jitml bootstrap --apple-silicon|--linux-cpu|--linux-cuda` is the canonical
 full-stack rollout entrypoint. It writes generated Dhall and runtime metadata
@@ -914,23 +908,19 @@ for the governing rule.
 
 ## Current Baseline
 
-**✅ Current status (2026-06-29): all Phases `0`-`18` are Done for the HA
-topology.** Phases `3`, `4`, `5`, and `15` are closed for the HA topology
-target: HA-capable Kind nodes, HA platform-service replica/PV topology, exactly
-one numerical ML compute worker per Kubernetes node, and the real
-`linux-cuda` HA lane. Phase `16` Sprint `16.14` revalidated the real
-`apple-silicon` HA lane on the Apple M1 Max host after the host LLVM and
-Docker/Colima capacity blockers were removed: live rollout **131** steps,
-host Metal daemon subscriptions acquired, `bootstrap/apple-silicon.sh test`
-**8 / 8**, direct inference `HTTP 200`, and live Playwright **15 / 15**. Phase
-`17` Sprint `17.10` aggregated the refreshed lane fragments on `linux-cpu`; the
-HA `linux-cpu` rollout used edge `:9091`, staged and SHA-verified all 12
-canonical dataset artifacts, seeded eight demo checkpoints, and passed `jitml
-test all --live --linux-cpu` **8 / 8** with populated report-card measurements.
-Phase `18` Sprint `18.5` re-closed the final product handoff; the Pending
-Removal ledger is empty.
+**🎉 Current status (2026-06-30): all Phases `0`–`18` are Done again.** Phases
+`0`, `1`, `8`, `9`, and `10` re-closed after docs-check metadata enforcement,
+typed numeric CLI parsing, typed RL device failures, typed tuning resume decode
+failures, and typed local checkpoint object-key validation passed. Phase `18`
+Sprint `18.6` re-aggregated those fixes on `linux-cpu`: `jitml test all --live
+--linux-cpu` passed **8 / 8** stanzas with populated report-card measurements
+and `browser_product_matrix` **8 / 8** at edge `:9091`. The Pending Removal
+ledger is empty again.
 
-The 2026-06-26 all-Done closure below remains historical evidence for the
+The 2026-06-29 HA closure remains historical evidence for the HA topology:
+Phases `3`, `4`, `5`, `15`, `16`, `17`, and `18` closed the HA topology and
+product handoff before this audit reopened typed-failure/documentation-governance
+work. The 2026-06-26 all-Done closure below remains historical evidence for the
 compact local topology and fixed-budget model contract.
 
 **Historical status (2026-06-26): all Phases `0`–`18` were Done for the compact

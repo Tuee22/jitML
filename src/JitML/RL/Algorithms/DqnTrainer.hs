@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Sprint 13.8 — real DQN-style off-policy training loop that closes
 -- the network forward/backward seam for the off-policy half of the
 -- 14-algorithm catalog (DQN, QR-DQN, DDPG, TD3, SAC, CrossQ, TQC).
@@ -35,6 +37,8 @@ module JitML.RL.Algorithms.DqnTrainer
 where
 
 import Data.List qualified
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
@@ -177,14 +181,50 @@ loop
   -> [Double] -- recent episode returns
   -> [DqnIterationStat]
   -> IO DqnTrainResult
-loop config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
+loop config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
+  result <-
+    loopEither
+      config
+      (\o t a batch -> Right <$> update o t a batch)
+      online
+      target
+      adam
+      gen
+      buffer
+      step
+      state
+      episodeLen
+      episodeReturn
+      episodes
+      stats
+  either (fail . Text.unpack) pure result
+
+loopEither
+  :: DqnTrainConfig
+  -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (Either Text (MlpParams, AdamState)))
+  -- ^ minibatch update: online → target → adam → batch → either fault or (online', adam')
+  -> MlpParams -- online net
+  -> MlpParams -- target net
+  -> AdamState
+  -> Random.StdGen
+  -> [Transition] -- replay buffer (most-recent first)
+  -> Int -- step counter
+  -> CartPoleState
+  -> Int -- current episode step count
+  -> Double -- current episode return
+  -> [Double] -- recent episode returns
+  -> [DqnIterationStat]
+  -> IO (Either Text DqnTrainResult)
+loopEither config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= dqnNumSteps config =
       pure
-        DqnTrainResult
-          { dqnResultStats = reverse stats
-          , dqnResultFinalParams = online
-          , dqnResultConfig = config
-          }
+        ( Right
+            DqnTrainResult
+              { dqnResultStats = reverse stats
+              , dqnResultFinalParams = online
+              , dqnResultConfig = config
+              }
+        )
   | otherwise = do
       let epsilon = currentEpsilon config step
           obs = obsVector state
@@ -237,55 +277,57 @@ loop config update online target adam gen buffer step state episodeLen episodeRe
                 , episodes
                 )
       -- Do a gradient update if we've collected enough transitions.
-      (onlineNext, adamNext, gen3) <-
+      updateResult <-
         if step + 1 >= dqnTrainStart config
           && (step + 1) `mod` dqnUpdateFrequency config == 0
           && length newBuffer >= dqnBatchSize config
           then do
             let (batch, gen2b) =
                   sampleBatch (dqnBatchSize config) newBuffer gen2
-            (onlineUpd, adamUpd) <- update online target adam batch
-            pure (onlineUpd, adamUpd, gen2b)
-          else pure (online, adam, gen2)
-      -- Periodic target-net hard copy.
-      let targetNext =
-            if (step + 1) `mod` dqnTargetUpdateInterval config == 0
-              then onlineNext
-              else target
-      -- Record stat at intervals.
-      let statsNext =
-            if (step + 1) `mod` dqnStatInterval config == 0
-              then
-                let recent = take 100 newEpisodes
-                    meanR =
-                      if null recent
-                        then 0.0
-                        else sum recent / fromIntegral (length recent)
-                    lastR = case newEpisodes of
-                      (r : _) -> r
-                      [] -> 0.0
-                 in DqnIterationStat
-                      { dqnIterStep = step + 1
-                      , dqnIterEpisodes = length newEpisodes
-                      , dqnIterMeanReward = meanR
-                      , dqnIterLastEpisodeReward = lastR
-                      }
-                      : stats
-              else stats
-      loop
-        config
-        update
-        onlineNext
-        targetNext
-        adamNext
-        gen3
-        newBuffer
-        (step + 1)
-        nextState
-        nextEpisodeLen
-        finalReturn
-        newEpisodes
-        statsNext
+            fmap (\(onlineUpd, adamUpd) -> (onlineUpd, adamUpd, gen2b)) <$> update online target adam batch
+          else pure (Right (online, adam, gen2))
+      case updateResult of
+        Left err -> pure (Left err)
+        Right (onlineNext, adamNext, gen3) -> do
+          -- Periodic target-net hard copy.
+          let targetNext =
+                if (step + 1) `mod` dqnTargetUpdateInterval config == 0
+                  then onlineNext
+                  else target
+          -- Record stat at intervals.
+          let statsNext =
+                if (step + 1) `mod` dqnStatInterval config == 0
+                  then
+                    let recent = take 100 newEpisodes
+                        meanR =
+                          if null recent
+                            then 0.0
+                            else sum recent / fromIntegral (length recent)
+                        lastR = case newEpisodes of
+                          (r : _) -> r
+                          [] -> 0.0
+                     in DqnIterationStat
+                          { dqnIterStep = step + 1
+                          , dqnIterEpisodes = length newEpisodes
+                          , dqnIterMeanReward = meanR
+                          , dqnIterLastEpisodeReward = lastR
+                          }
+                          : stats
+                  else stats
+          loopEither
+            config
+            update
+            onlineNext
+            targetNext
+            adamNext
+            gen3
+            newBuffer
+            (step + 1)
+            nextState
+            nextEpisodeLen
+            finalReturn
+            newEpisodes
+            statsNext
 
 currentEpsilon :: DqnTrainConfig -> Int -> Double
 currentEpsilon config step =
@@ -428,22 +470,22 @@ obsVector state =
 -- the pure 'trainDqnOnCartpole' via the parameterised 'loop'); only the
 -- minibatch gradient update runs on the device ('dqnUpdateCuda'). The
 -- loss-gradient head ('dqnResidualDLdy') is shared with the pure path.
-trainDqnOnCartpoleCuda :: Env -> DqnTrainConfig -> IO DqnTrainResult
+trainDqnOnCartpoleCuda :: Env -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
 trainDqnOnCartpoleCuda env = trainDqnOnDevice (cudaMlpDevice env)
 
 -- | DQN training through the oneDNN (linux-cpu) MLP device.
-trainDqnOnCartpoleOneDnn :: Env -> DqnTrainConfig -> IO DqnTrainResult
+trainDqnOnCartpoleOneDnn :: Env -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
 trainDqnOnCartpoleOneDnn env = trainDqnOnDevice (oneDnnMlpDevice env)
 
 -- | DQN training through the Metal (apple-silicon) MLP device.
-trainDqnOnCartpoleMetal :: Env -> DqnTrainConfig -> IO DqnTrainResult
+trainDqnOnCartpoleMetal :: Env -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
 trainDqnOnCartpoleMetal env = trainDqnOnDevice (metalMlpDevice env)
 
 -- | DQN training through an injected MLP device backend. The env loop, replay
 -- buffer, epsilon-greedy, and target-net copy are shared with the pure
 -- 'trainDqnOnCartpole' via the parameterised 'loop'; only the minibatch
 -- gradient update runs on the device ('dqnUpdateDevice').
-trainDqnOnDevice :: MlpDevice -> DqnTrainConfig -> IO DqnTrainResult
+trainDqnOnDevice :: MlpDevice -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
 trainDqnOnDevice device config = do
   let shape =
         MlpShape
@@ -452,7 +494,7 @@ trainDqnOnDevice device config = do
           , mlpOutputs = dqnActionCount config
           }
       initialParams = mlpInit shape (dqnSeed config)
-  loop
+  loopEither
     config
     (dqnUpdateDevice device config)
     initialParams
@@ -484,7 +526,7 @@ dqnUpdateDevice
   -> MlpParams
   -> AdamState
   -> [Transition]
-  -> IO (MlpParams, AdamState)
+  -> IO (Either Text (MlpParams, AdamState))
 dqnUpdateDevice device config online target adam batch = do
   let obsList = map transObs batch
       nextObsList = map transNextObs batch
@@ -509,10 +551,8 @@ dqnUpdateDevice device config online target adam batch = do
               meanGradient = scaleGradient scale summed
               adamConfig = defaultAdamConfig {adamLearningRate = dqnLearningRate config}
               (onlineAfter, adamAfter) = adamStep adamConfig adam online meanGradient
-           in pure (onlineAfter, adamAfter)
-        -- Sprint 8.11 — fail closed: the dispatch-level `probeMlpDevice` gate
-        -- guarantees the kernel compiles/runs before training starts, so a
-        -- mid-run device `Left` is a genuine fault, not a cue to silently
-        -- degrade to the pure update.
-        Left err -> error ("dqn device gradient kernel failed mid-run: " <> show err)
-    _ -> error "dqn device forward kernel failed mid-run"
+           in pure (Right (onlineAfter, adamAfter))
+        Left err -> pure (Left ("dqn device batch-gradient kernel failed mid-run: " <> err))
+    (Left err, _, _) -> pure (Left ("dqn device forward kernel failed mid-run (online batch): " <> err))
+    (_, Left err, _) -> pure (Left ("dqn device forward kernel failed mid-run (target batch): " <> err))
+    (_, _, Left err) -> pure (Left ("dqn device forward kernel failed mid-run (double-dqn online-next batch): " <> err))

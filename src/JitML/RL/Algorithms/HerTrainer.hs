@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | Sprint 13.8 — real HER (Hindsight Experience Replay, Andrychowicz et
 -- al. 2017) training loop, the goal-conditioned member of the
@@ -33,6 +34,8 @@ module JitML.RL.Algorithms.HerTrainer
 where
 
 import Data.List qualified
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
@@ -161,14 +164,43 @@ episodeLoop
   -> [Bool] -- recent episode successes
   -> [HerIterationStat]
   -> IO HerTrainResult
-episodeLoop config update online target adam gen buffer episode successes stats
+episodeLoop config update online target adam gen buffer episode successes stats = do
+  result <-
+    episodeLoopEither
+      config
+      (\o t a batch -> Right <$> update o t a batch)
+      online
+      target
+      adam
+      gen
+      buffer
+      episode
+      successes
+      stats
+  either (fail . Text.unpack) pure result
+
+episodeLoopEither
+  :: HerTrainConfig
+  -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (Either Text (MlpParams, AdamState)))
+  -> MlpParams
+  -> MlpParams
+  -> AdamState
+  -> Random.StdGen
+  -> [Transition]
+  -> Int
+  -> [Bool] -- recent episode successes
+  -> [HerIterationStat]
+  -> IO (Either Text HerTrainResult)
+episodeLoopEither config update online target adam gen buffer episode successes stats
   | episode >= herEpisodes config =
       pure
-        HerTrainResult
-          { herResultStats = reverse stats
-          , herResultFinalParams = online
-          , herResultConfig = config
-          }
+        ( Right
+            HerTrainResult
+              { herResultStats = reverse stats
+              , herResultFinalParams = online
+              , herResultConfig = config
+              }
+        )
   | otherwise = do
       let n = herNumBits config
           (goal, gen1) = randomBits n gen
@@ -182,37 +214,39 @@ episodeLoop config update online target adam gen buffer episode successes stats
             take
               (herReplayCapacity config)
               (relabeled <> episodeTransitions <> buffer)
-      (onlineNext, adamNext, gen3) <-
+      updateResult <-
         if length newBuffer >= herBatchSize config
           then do
             let (batch, genB) = sampleBatch (herBatchSize config) newBuffer gen2
-            (o, a) <- update online target adam batch
-            pure (o, a, genB)
-          else pure (online, adam, gen2)
-      let targetNext =
-            if (episode + 1) `mod` herTargetUpdateInterval config == 0
-              then onlineNext
-              else target
-          newSuccesses = take 50 (reached : successes)
-          statsNext =
-            if (episode + 1) `mod` herStatInterval config == 0
-              then
-                let rate =
-                      fromIntegral (length (filter id newSuccesses))
-                        / fromIntegral (length newSuccesses)
-                 in HerIterationStat (episode + 1) rate : stats
-              else stats
-      episodeLoop
-        config
-        update
-        onlineNext
-        targetNext
-        adamNext
-        gen3
-        newBuffer
-        (episode + 1)
-        newSuccesses
-        statsNext
+            fmap (\(o, a) -> (o, a, genB)) <$> update online target adam batch
+          else pure (Right (online, adam, gen2))
+      case updateResult of
+        Left err -> pure (Left err)
+        Right (onlineNext, adamNext, gen3) -> do
+          let targetNext =
+                if (episode + 1) `mod` herTargetUpdateInterval config == 0
+                  then onlineNext
+                  else target
+              newSuccesses = take 50 (reached : successes)
+              statsNext =
+                if (episode + 1) `mod` herStatInterval config == 0
+                  then
+                    let rate =
+                          fromIntegral (length (filter id newSuccesses))
+                            / fromIntegral (length newSuccesses)
+                     in HerIterationStat (episode + 1) rate : stats
+                  else stats
+          episodeLoopEither
+            config
+            update
+            onlineNext
+            targetNext
+            adamNext
+            gen3
+            newBuffer
+            (episode + 1)
+            newSuccesses
+            statsNext
 
 -- | Roll out one bit-flip episode (epsilon-greedy). Returns the raw
 -- transitions, whether the goal was reached, and the advanced RNG.
@@ -350,22 +384,22 @@ sampleBatch n buffer gen =
 -- replay are unchanged (shared with the pure 'trainHerOnBitFlip' via the
 -- parameterised 'episodeLoop'); only the minibatch gradient update runs on
 -- the device ('herUpdateDevice'), reusing the shared head 'herResidualDLdy'.
-trainHerOnBitFlipCuda :: Env -> HerTrainConfig -> IO HerTrainResult
+trainHerOnBitFlipCuda :: Env -> HerTrainConfig -> IO (Either Text HerTrainResult)
 trainHerOnBitFlipCuda env = trainHerOnDevice (cudaMlpDevice env)
 
 -- | HER training through the oneDNN (linux-cpu) MLP device.
-trainHerOnBitFlipOneDnn :: Env -> HerTrainConfig -> IO HerTrainResult
+trainHerOnBitFlipOneDnn :: Env -> HerTrainConfig -> IO (Either Text HerTrainResult)
 trainHerOnBitFlipOneDnn env = trainHerOnDevice (oneDnnMlpDevice env)
 
 -- | HER training through the Metal (apple-silicon) MLP device.
-trainHerOnBitFlipMetal :: Env -> HerTrainConfig -> IO HerTrainResult
+trainHerOnBitFlipMetal :: Env -> HerTrainConfig -> IO (Either Text HerTrainResult)
 trainHerOnBitFlipMetal env = trainHerOnDevice (metalMlpDevice env)
 
 -- | HER training through an injected MLP device backend. The per-episode
 -- rollout + hindsight relabeling + replay are shared with the pure
 -- 'trainHerOnBitFlip' via the parameterised 'episodeLoop'; only the minibatch
 -- gradient update runs on the device ('herUpdateDevice').
-trainHerOnDevice :: MlpDevice -> HerTrainConfig -> IO HerTrainResult
+trainHerOnDevice :: MlpDevice -> HerTrainConfig -> IO (Either Text HerTrainResult)
 trainHerOnDevice device config = do
   let n = herNumBits config
       shape =
@@ -375,7 +409,7 @@ trainHerOnDevice device config = do
           , mlpOutputs = n
           }
       initialParams = mlpInit shape (herSeed config)
-  episodeLoop
+  episodeLoopEither
     config
     (herUpdateDevice device config)
     initialParams
@@ -390,8 +424,8 @@ trainHerOnDevice device config = do
 -- | Minibatch HER/DQN gradient update through the batched device primitives:
 -- batched online forward at the (state||goal) inputs + target forward at
 -- the next inputs, the per-sample TD-residual gradient ('herResidualDLdy'),
--- one batched device backward (mean gradient), and one Adam step. Falls
--- back to the pure 'dqnUpdate' if the device runtime/compile is unavailable.
+-- one batched device backward (mean gradient), and one Adam step. Fails
+-- closed with a typed `Left` on any mid-run device fault.
 herUpdateDevice
   :: MlpDevice
   -> HerTrainConfig
@@ -399,7 +433,7 @@ herUpdateDevice
   -> MlpParams
   -> AdamState
   -> [Transition]
-  -> IO (MlpParams, AdamState)
+  -> IO (Either Text (MlpParams, AdamState))
 herUpdateDevice device config online target adam batch = do
   onlineQE <- mlpdForwardBatch device online (map transInput batch)
   targetQE <- mlpdForwardBatch device target (map transNextInput batch)
@@ -416,11 +450,10 @@ herUpdateDevice device config online target adam batch = do
               meanGradient = scaleGradient scale summed
               adamCfg = defaultAdamConfig {adamLearningRate = herLearningRate config}
               (onlineAfter, adamAfter) = adamStep adamCfg adam online meanGradient
-           in pure (onlineAfter, adamAfter)
-        -- Sprint 8.11 — fail closed (the dispatch `probeMlpDevice` gate makes a
-        -- mid-run device `Left` a genuine fault, not a pure-fallback cue).
-        Left err -> error ("her device gradient kernel failed mid-run: " <> show err)
-    _ -> error "her device forward kernel failed mid-run"
+           in pure (Right (onlineAfter, adamAfter))
+        Left err -> pure (Left ("her device batch-gradient kernel failed mid-run: " <> err))
+    (Left err, _) -> pure (Left ("her device forward kernel failed mid-run (online batch): " <> err))
+    (_, Left err) -> pure (Left ("her device forward kernel failed mid-run (target batch): " <> err))
  where
   scaleGradient sc g =
     MlpGradient

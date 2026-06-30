@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Sprint 13.8 — real QR-DQN (Dabney et al. 2017) off-policy training
 -- loop, the distributional member of the discrete off-policy family.
 --
@@ -26,6 +28,8 @@ module JitML.RL.Algorithms.QrDqnTrainer
 where
 
 import Data.List qualified
+import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
@@ -166,14 +170,49 @@ loop
   -> [Double]
   -> [QrDqnIterationStat]
   -> IO QrDqnTrainResult
-loop config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
+loop config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
+  result <-
+    loopEither
+      config
+      (\o t a batch -> Right <$> update o t a batch)
+      online
+      target
+      adam
+      gen
+      buffer
+      step
+      state
+      episodeLen
+      episodeReturn
+      episodes
+      stats
+  either (fail . Text.unpack) pure result
+
+loopEither
+  :: QrDqnTrainConfig
+  -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (Either Text (MlpParams, AdamState)))
+  -> MlpParams
+  -> MlpParams
+  -> AdamState
+  -> Random.StdGen
+  -> [Transition]
+  -> Int
+  -> CartPoleState
+  -> Int
+  -> Double
+  -> [Double]
+  -> [QrDqnIterationStat]
+  -> IO (Either Text QrDqnTrainResult)
+loopEither config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= qrNumSteps config =
       pure
-        QrDqnTrainResult
-          { qrResultStats = reverse stats
-          , qrResultFinalParams = online
-          , qrResultConfig = config
-          }
+        ( Right
+            QrDqnTrainResult
+              { qrResultStats = reverse stats
+              , qrResultFinalParams = online
+              , qrResultConfig = config
+              }
+        )
   | otherwise = do
       let epsilon = currentEpsilon config step
           obs = obsVector state
@@ -192,43 +231,45 @@ loop config update online target adam gen buffer step state episodeLen episodeRe
             if terminal
               then (cartPoleInitial, 0, 0.0, nextReturn : episodes)
               else (simStepState stepResult, episodeLen + 1, nextReturn, episodes)
-      (onlineNext, adamNext, gen3) <-
+      updateResult <-
         if step + 1 >= qrTrainStart config
           && (step + 1) `mod` qrUpdateFrequency config == 0
           && length newBuffer >= qrBatchSize config
           then do
             let (batch, genB) = sampleBatch (qrBatchSize config) newBuffer gen2
-            (onlineUpd, adamUpd) <- update online target adam batch
-            pure (onlineUpd, adamUpd, genB)
-          else pure (online, adam, gen2)
-      let targetNext =
-            if (step + 1) `mod` qrTargetUpdateInterval config == 0
-              then onlineNext
-              else target
-          statsNext =
-            if (step + 1) `mod` qrStatInterval config == 0
-              then
-                let recent = take 100 newEpisodes
-                    meanR =
-                      if null recent
-                        then 0.0
-                        else sum recent / fromIntegral (length recent)
-                 in QrDqnIterationStat (step + 1) (length newEpisodes) meanR : stats
-              else stats
-      loop
-        config
-        update
-        onlineNext
-        targetNext
-        adamNext
-        gen3
-        newBuffer
-        (step + 1)
-        nextState
-        nextLen
-        finalReturn
-        newEpisodes
-        statsNext
+            fmap (\(onlineUpd, adamUpd) -> (onlineUpd, adamUpd, genB)) <$> update online target adam batch
+          else pure (Right (online, adam, gen2))
+      case updateResult of
+        Left err -> pure (Left err)
+        Right (onlineNext, adamNext, gen3) -> do
+          let targetNext =
+                if (step + 1) `mod` qrTargetUpdateInterval config == 0
+                  then onlineNext
+                  else target
+              statsNext =
+                if (step + 1) `mod` qrStatInterval config == 0
+                  then
+                    let recent = take 100 newEpisodes
+                        meanR =
+                          if null recent
+                            then 0.0
+                            else sum recent / fromIntegral (length recent)
+                     in QrDqnIterationStat (step + 1) (length newEpisodes) meanR : stats
+                  else stats
+          loopEither
+            config
+            update
+            onlineNext
+            targetNext
+            adamNext
+            gen3
+            newBuffer
+            (step + 1)
+            nextState
+            nextLen
+            finalReturn
+            newEpisodes
+            statsNext
 
 currentEpsilon :: QrDqnTrainConfig -> Int -> Double
 currentEpsilon config step =
@@ -345,15 +386,15 @@ obsVector state =
 -- 'trainQrDqnOnCartpole' (shared via the parameterised 'loop'); only the
 -- minibatch gradient update runs on the device ('qrUpdateDevice'), reusing
 -- the shared quantile-Huber head 'qrResidualDLdy'.
-trainQrDqnOnCartpoleCuda :: Env -> QrDqnTrainConfig -> IO QrDqnTrainResult
+trainQrDqnOnCartpoleCuda :: Env -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainResult)
 trainQrDqnOnCartpoleCuda env = trainQrDqnOnDevice (cudaMlpDevice env)
 
 -- | QR-DQN training through the oneDNN (linux-cpu) MLP device.
-trainQrDqnOnCartpoleOneDnn :: Env -> QrDqnTrainConfig -> IO QrDqnTrainResult
+trainQrDqnOnCartpoleOneDnn :: Env -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainResult)
 trainQrDqnOnCartpoleOneDnn env = trainQrDqnOnDevice (oneDnnMlpDevice env)
 
 -- | QR-DQN training through the Metal (apple-silicon) MLP device.
-trainQrDqnOnCartpoleMetal :: Env -> QrDqnTrainConfig -> IO QrDqnTrainResult
+trainQrDqnOnCartpoleMetal :: Env -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainResult)
 trainQrDqnOnCartpoleMetal env = trainQrDqnOnDevice (metalMlpDevice env)
 
 -- | QR-DQN training through an injected MLP device backend. Same env loop /
@@ -361,7 +402,7 @@ trainQrDqnOnCartpoleMetal env = trainQrDqnOnDevice (metalMlpDevice env)
 -- parameterised 'loop'); only the minibatch gradient update runs on the
 -- device ('qrUpdateDevice'), reusing the shared quantile-Huber head
 -- 'qrResidualDLdy'.
-trainQrDqnOnDevice :: MlpDevice -> QrDqnTrainConfig -> IO QrDqnTrainResult
+trainQrDqnOnDevice :: MlpDevice -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainResult)
 trainQrDqnOnDevice device config = do
   let shape =
         MlpShape
@@ -370,7 +411,7 @@ trainQrDqnOnDevice device config = do
           , mlpOutputs = qrActionCount config * qrNumQuantiles config
           }
       initialParams = mlpInit shape (qrSeed config)
-  loop
+  loopEither
     config
     (qrUpdateDevice device config)
     initialParams
@@ -388,8 +429,8 @@ trainQrDqnOnDevice device config = do
 -- | Minibatch QR-DQN gradient update through the batched device primitives:
 -- batched online forward at the states + target forward at the next states,
 -- the per-sample quantile-Huber gradient ('qrResidualDLdy'), one batched
--- device backward (mean gradient), and one Adam step. Falls back to the
--- pure 'qrUpdate' if the device runtime/compile is unavailable.
+-- device backward (mean gradient), and one Adam step. Fails closed with a
+-- typed `Left` on any mid-run device fault.
 qrUpdateDevice
   :: MlpDevice
   -> QrDqnTrainConfig
@@ -397,7 +438,7 @@ qrUpdateDevice
   -> MlpParams
   -> AdamState
   -> [Transition]
-  -> IO (MlpParams, AdamState)
+  -> IO (Either Text (MlpParams, AdamState))
 qrUpdateDevice device config online target adam batch = do
   onlineOutE <- mlpdForwardBatch device online (map transObs batch)
   targetOutE <- mlpdForwardBatch device target (map transNextObs batch)
@@ -414,11 +455,10 @@ qrUpdateDevice device config online target adam batch = do
               meanGradient = scaleGradient scale summed
               adamCfg = defaultAdamConfig {adamLearningRate = qrLearningRate config}
               (onlineAfter, adamAfter) = adamStep adamCfg adam online meanGradient
-           in pure (onlineAfter, adamAfter)
-        -- Sprint 8.11 — fail closed (the dispatch `probeMlpDevice` gate makes a
-        -- mid-run device `Left` a genuine fault, not a pure-fallback cue).
-        Left err -> error ("qr-dqn device gradient kernel failed mid-run: " <> show err)
-    _ -> error "qr-dqn device forward kernel failed mid-run"
+           in pure (Right (onlineAfter, adamAfter))
+        Left err -> pure (Left ("qr-dqn device batch-gradient kernel failed mid-run: " <> err))
+    (Left err, _) -> pure (Left ("qr-dqn device forward kernel failed mid-run (online batch): " <> err))
+    (_, Left err) -> pure (Left ("qr-dqn device forward kernel failed mid-run (target batch): " <> err))
  where
   scaleGradient sc g =
     MlpGradient

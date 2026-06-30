@@ -1,6 +1,7 @@
 # `apple-silicon` Per-Lane Attestation (Sprint 16.14)
 
 **Status**: Authoritative source
+**Supersedes**: N/A
 **Referenced by**: [../README.md](../README.md),
 [../phase-16-apple-silicon-closure.md](../phase-16-apple-silicon-closure.md),
 [../phase-17-cross-substrate-and-handoff.md](../phase-17-cross-substrate-and-handoff.md),

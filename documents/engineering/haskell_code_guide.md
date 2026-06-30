@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, daemon_architecture.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, daemon_architecture.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific Haskell code patterns for jitML. Defers to the
@@ -29,7 +29,9 @@ This doc defers to [../../README.md](../../README.md) for:
   package remediation.
 - **Application Environment** — `ReaderT Env IO`, single `Env` record.
 - **Error Handling** — single `AppError` ADT, `renderError`, forbidden
-  `print`/`exitFailure` outside the output module.
+  `print`/`exitFailure` outside the output module. Domain code that must
+  fail closed returns `Either` / `ExceptT` / `AppError`; it does not use
+  `error` as the fail-closed mechanism.
 - **Capability Classes and Service Errors** — `HasMinIO`, `HasPulsar`,
   `HasHarbor`, `HasKubectl`; service errors `SEConflict`, `SEUnauthorized`,
   `SETimeout`, `SETransient`.
@@ -111,6 +113,16 @@ Defined in `src/JitML/AppError/AppError.hs`:
 
 `renderError :: AppError -> Text` is the only Text rendering at the CLI
 boundary, defined in `src/JitML/CLI/Output.hs`.
+
+Fail-closed runtime paths still cross typed boundaries. A substrate device
+failure after an upfront probe, a corrupt persisted transcript, an invalid CLI
+integer, or an unsafe local checkpoint key is fatal to the requested operation
+but must be data at the boundary: `Left`, `ServiceError`/domain error, or
+`AppError`, rendered once by `renderError`.
+The current checkpoint store follows that rule: local object-key-to-path
+conversion returns `Either Text FilePath`, and app-level command paths such as
+`jitml internal gc` render unsafe user-supplied experiment hashes as
+`InvalidConfig`.
 
 ### Wrapped Subprocess Surface
 

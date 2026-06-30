@@ -5,6 +5,7 @@ module JitML.App
 
     -- * Sprint 10.9 — exposed for the host-native demo-checkpoint distinctness test
   , SeededDemoCheckpoint (..)
+  , parseUserIntOptionAtLeast
   , seededDemoCheckpoints
   )
 where
@@ -619,11 +620,11 @@ runService parsedOptions = do
   let configValues = optionValues "config" parsedOptions
       explicitConfig = not (null configValues)
       consumeOnceRequested = hasOption "consume-once" parsedOptions
-      consumeOnceBudget = max 0 (readInt (selectedValue "consume-once" "0" parsedOptions))
       configPath =
         case configValues of
           [] -> "./conf/cluster/linux-cpu.dhall"
           value : _ -> value
+  consumeOnceBudget <- requireUserIntOptionAtLeast "consume-once" 0 0 parsedOptions
   env <- ask
   runtime <- loadDaemonRuntime configPath explicitConfig
   -- Sprint 11.10 — one-binary role dispatch. `activeRole = Webapp` serves the
@@ -2825,7 +2826,7 @@ runRl ["rl", "eval"] parsedOptions = runCheckpointEval "rl eval" parsedOptions
 -- measured per-iteration episode rewards. No LCG `deterministicTrajectory`
 -- stand-in; an unavailable substrate device fails closed with `InvalidConfig`.
 runRl ["rl", "rollout"] parsedOptions = do
-  let seed = readInt (selectedValue "seed" "42" parsedOptions)
+  seed <- requireUserIntOptionAtLeast "seed" 42 0 parsedOptions
   substrate <- workerSubstrateBase
   env <- ask
   episodesE <- liftIO (runDeviceRollout (rlDeviceForSubstrate substrate env) seed)
@@ -2858,13 +2859,13 @@ runRl ["rl", "alphazero", "self-play"] parsedOptions = do
     Right ovr -> pure ovr
   baseSubstrate <- workerSubstrateBase
   env <- ask
+  games <- requireUserIntOptionAtLeast "games" 2 1 parsedOptions
+  sims <- requireUserIntOptionAtLeast "sims" 4 1 parsedOptions
+  maxPlies <- requireUserIntOptionAtLeast "max-plies" 6 1 parsedOptions
+  updates <- requireUserIntOptionAtLeast "updates" 1 1 parsedOptions
+  arenaGames <- requireUserIntOptionAtLeast "arena-games" 4 1 parsedOptions
   let substrate = Overrides.overrideSubstrate overrides baseSubstrate
       seed = fromIntegral (Overrides.overrideSeed overrides 31) :: Int
-      games = max 1 (readInt (selectedValue "games" "2" parsedOptions))
-      sims = max 1 (readInt (selectedValue "sims" "4" parsedOptions))
-      maxPlies = max 1 (readInt (selectedValue "max-plies" "6" parsedOptions))
-      updates = max 1 (readInt (selectedValue "updates" "1" parsedOptions))
-      arenaGames = max 1 (readInt (selectedValue "arena-games" "4" parsedOptions))
       device = rlDeviceForSubstrate substrate env
       net0 = PolicyValueNet.initPolicyValueNet 43 7 16 seed
       adam0 = PolicyValueNet.initAdamFor net0
@@ -2988,9 +2989,14 @@ writeLocalWeightCheckpoint experimentHash tensorName step metrics weights = do
   checkpointRoot <- localCheckpointRoot
   let (manifest, payloads) =
         buildWeightCheckpointSnapshot experimentHash tensorName step metrics weights
-  stored <- liftIO (CheckpointStore.writeCheckpointSnapshot checkpointRoot manifest payloads Nothing)
-  _ <- mirrorWeightCheckpointToLiveIfPublished manifest payloads
-  pure stored
+  writeResult <-
+    liftIO (CheckpointStore.writeCheckpointSnapshot checkpointRoot manifest payloads Nothing)
+  case writeResult of
+    Left err ->
+      exitWithError (InvalidConfig ("checkpoint write: " <> err))
+    Right stored -> do
+      _ <- mirrorWeightCheckpointToLiveIfPublished manifest payloads
+      pure stored
 
 writeMinIOWeightCheckpoint
   :: (Capabilities.HasMinIO m)
@@ -3293,9 +3299,14 @@ writeTextArtifact experimentHash kind payloadText = do
           <> "/"
           <> sha
           <> ".txt"
-  _ <-
+  writeResult <-
     liftIO
       (CheckpointStore.writeObjectIfAbsent checkpointRoot objectKey (LazyByteString.fromStrict payload))
+  case writeResult of
+    Left err ->
+      exitWithError (InvalidConfig ("artifact write: " <> err))
+    Right _ ->
+      pure ()
   mirrored <- mirrorObjectToLiveIfPublished objectKey payload
   pure
     StoredArtifact
@@ -3502,13 +3513,16 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             , DqnTrainer.dqnNumSteps = max 20000 (evalEpisodes * maxStepsPerEpisode)
             , DqnTrainer.dqnStatInterval = max 1000 maxStepsPerEpisode
             }
-    result <- DqnTrainer.trainDqnOnDevice device config
+    resultE <- DqnTrainer.trainDqnOnDevice device config
     pure
-      ( Right
-          TrainerRun
-            { trainerRunEpisodes = indexedEpisodes DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats result)
-            , trainerRunWeights = Just (mlpParamsToFlat (DqnTrainer.dqnResultFinalParams result))
-            }
+      ( fmap
+          ( \result ->
+              TrainerRun
+                { trainerRunEpisodes = indexedEpisodes DqnTrainer.dqnIterMeanReward (DqnTrainer.dqnResultStats result)
+                , trainerRunWeights = Just (mlpParamsToFlat (DqnTrainer.dqnResultFinalParams result))
+                }
+          )
+          resultE
       )
   qrDqnEpisodes = do
     let config =
@@ -3517,14 +3531,17 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             , QrDqnTrainer.qrNumSteps = max 20000 (evalEpisodes * maxStepsPerEpisode)
             , QrDqnTrainer.qrStatInterval = max 1000 maxStepsPerEpisode
             }
-    result <- QrDqnTrainer.trainQrDqnOnDevice device config
+    resultE <- QrDqnTrainer.trainQrDqnOnDevice device config
     pure
-      ( Right
-          TrainerRun
-            { trainerRunEpisodes =
-                indexedEpisodes QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats result)
-            , trainerRunWeights = Just (mlpParamsToFlat (QrDqnTrainer.qrResultFinalParams result))
-            }
+      ( fmap
+          ( \result ->
+              TrainerRun
+                { trainerRunEpisodes =
+                    indexedEpisodes QrDqnTrainer.qrIterMeanReward (QrDqnTrainer.qrResultStats result)
+                , trainerRunWeights = Just (mlpParamsToFlat (QrDqnTrainer.qrResultFinalParams result))
+                }
+          )
+          resultE
       )
   continuousEpisodes variant = do
     let config =
@@ -3534,14 +3551,17 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             , ContinuousTrainer.ctMaxEpisodeSteps = max 200 maxStepsPerEpisode
             , ContinuousTrainer.ctStatInterval = max 1000 maxStepsPerEpisode
             }
-    result <- ContinuousTrainer.trainContinuousOnDevice device config
+    resultE <- ContinuousTrainer.trainContinuousOnDevice device config
     pure
-      ( Right
-          TrainerRun
-            { trainerRunEpisodes =
-                indexedEpisodes ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats result)
-            , trainerRunWeights = Just (mlpParamsToFlat (ContinuousTrainer.contResultFinalActor result))
-            }
+      ( fmap
+          ( \result ->
+              TrainerRun
+                { trainerRunEpisodes =
+                    indexedEpisodes ContinuousTrainer.contIterMeanReward (ContinuousTrainer.contResultStats result)
+                , trainerRunWeights = Just (mlpParamsToFlat (ContinuousTrainer.contResultFinalActor result))
+                }
+          )
+          resultE
       )
   arsEpisodes = do
     let config =
@@ -3566,14 +3586,17 @@ runTrainerEpisodes substrate device atariRomPath trainerKind envName seed evalEp
             , HerTrainer.herEpisodes = max 200 (evalEpisodes * 20)
             , HerTrainer.herStatInterval = max 25 evalEpisodes
             }
-    result <- HerTrainer.trainHerOnDevice device config
+    resultE <- HerTrainer.trainHerOnDevice device config
     pure
-      ( Right
-          TrainerRun
-            { trainerRunEpisodes =
-                indexedEpisodes HerTrainer.herIterSuccessRate (HerTrainer.herResultStats result)
-            , trainerRunWeights = Just (mlpParamsToFlat (HerTrainer.herResultFinalParams result))
-            }
+      ( fmap
+          ( \result ->
+              TrainerRun
+                { trainerRunEpisodes =
+                    indexedEpisodes HerTrainer.herIterSuccessRate (HerTrainer.herResultStats result)
+                , trainerRunWeights = Just (mlpParamsToFlat (HerTrainer.herResultFinalParams result))
+                }
+          )
+          resultE
       )
 
 rlObservedBudgetUnits :: [SimulatorLoop.SimulatedEpisode] -> Word64
@@ -5259,11 +5282,26 @@ selectedValue optionName fallback parsedOptions =
     [] -> fallback
     value : _ -> value
 
-readInt :: Text -> Int
-readInt value =
-  case reads (Text.unpack value) of
-    [(parsed, "")] -> parsed
-    _ -> 0
+parseUserIntOptionAtLeast :: Text -> Int -> Int -> [ParsedOption] -> Either AppError Int
+parseUserIntOptionAtLeast optionName fallback minimumValue parsedOptions =
+  let raw = selectedValue optionName (Text.pack (show fallback)) parsedOptions
+   in case readMaybe (Text.unpack raw) of
+        Just parsed | parsed >= minimumValue -> Right parsed
+        _ ->
+          Left
+            ( InvalidConfig
+                ( "invalid --"
+                    <> optionName
+                    <> " value: \""
+                    <> raw
+                    <> "\"; expected an integer >= "
+                    <> Text.pack (show minimumValue)
+                )
+            )
+
+requireUserIntOptionAtLeast :: Text -> Int -> Int -> [ParsedOption] -> App Int
+requireUserIntOptionAtLeast optionName fallback minimumValue parsedOptions =
+  either exitWithError pure (parseUserIntOptionAtLeast optionName fallback minimumValue parsedOptions)
 
 readClusterPublication :: IO ClusterPublication
 readClusterPublication = do

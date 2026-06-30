@@ -17,6 +17,13 @@
 (`JitML.Project.Config.lookupStoreRetention`), replacing the former hardcoded
 `LastN 5` literal. See [durable_state_dsl.md](durable_state_dsl.md).
 
+**Typed local object-key validation (Sprint 10.11):** local filesystem
+object-key validation returns data, not bottoms. `objectPathForKey` /
+`safeRelativePath` reject empty, absolute, and parent-traversing keys as
+`Left Text` before path construction; local checkpoint write/read/list helpers
+propagate that result; and user-facing commands such as local `jitml internal gc
+--experiment-hash ...` report `InvalidConfig` instead of terminating.
+
 **Real trained weights only.** Checkpoint payloads carry weights produced by the
 declared training workflow with correct per-tensor shapes; synthetic,
 zero-padded, byte-identical-across-models, randomly initialized, or untrained
@@ -33,7 +40,7 @@ consumer (the demo inference path, Sprint `14.3`) reshapes the flat `.jmw1`
 blob into its layers without a hardcoded per-family lookup and runs the real
 substrate MLP forward before trimming to the semantic output width.
 `writeMinIOWeightCheckpointShaped` (`src/JitML/App.hs`) writes this for the
-current seeded demo checkpoints. Reopened Phase `10` / Phase `13` work makes the
+current seeded demo checkpoints. Sprints `10.10` / `13.3` make the
 self-describing shape contract subordinate to the stronger trained-artifact
 contract: the manifest shape is necessary but not sufficient for inference. See
 [training_metrics_and_splits.md](training_metrics_and_splits.md).
@@ -68,7 +75,7 @@ omitted from `CheckpointSummary` rows served to model-selection panels.
 ## No-Caveat Checkpoint Target
 
 The weighted checkpoint path is real for the implemented MLP-family payloads,
-but the no-caveat target is broader. Reopened Phase `10` adds the manifest
+but the no-caveat target is broader. Sprint `10.10` adds the manifest
 metadata needed by every model family that the runtime trains: Dense, DeepDense,
 Conv2D, residual, wide-residual, ResNet-50, VisionTransformer, RL policies,
 AlphaZero policy/value nets, and tuning trial checkpoints. The manifest carries
@@ -114,6 +121,12 @@ inference from the latest checkpoint only after the manifest mints an
 `checkpointObjectRef` adapts the bucket-prefixed key renderers to live
 `HasMinIO` calls by carrying bucket `jitml-checkpoints` separately and using
 keys relative to that bucket.
+The local interpreter must treat object-key-to-path conversion as validation:
+empty, absolute, or parent-traversing keys are typed failures, not exceptions.
+That boundary is `objectPathForKey :: FilePath -> Text -> Either Text FilePath`;
+filesystem-backed checkpoint snapshot writes, object reads/writes, pointer reads,
+and manifest listing propagate the `Left` unchanged until the app boundary
+renders it as `InvalidConfig`.
 `JitML.Service.MinIOSubprocess` provides the live HTTP MinIO
 `HasMinIO` interpreter; 2026-05-19 live Linux CPU validation confirms
 `If-None-Match: *` duplicate writes and stale `If-Match` pointer CAS surface as
@@ -328,6 +341,8 @@ detects the live cluster publication
 through `listCheckpointManifestsMinIO + buildGcPlan + executeGcPlan` via
 `JitML.Service.MinIOSubprocess`; the offline half scans
 `<cache-dir>/checkpoints/jitml-checkpoints/<experiment-hash>/manifests/`.
+Unsafe offline experiment-hash-derived prefixes fail as typed validation before
+filesystem path construction and render through `InvalidConfig`.
 The stdout reports
 `gc: <experiment-hash> kept=<n> reaped=<n> reaped-blobs=<n>` (live) or
 `gc: <experiment-hash> kept=<n> reaped=<n>` (offline) and exits `3`
