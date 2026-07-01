@@ -20,17 +20,16 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-28 for Sprint `3.6`). `JitML.Cluster.Kind`,
-materialized `kind/cluster-*.yaml`, `JitML.Cluster.Storage`, manual PV
-templates, and bootstrap pre-grant resource-cap/mount preparation now implement
-the HA topology: one control-plane plus three workers, repo mounts and resource
-caps across all materialized Kind nodes, Linux CUDA GPU runtime material on
-workers, HA manual PV counts, and one public localhost Envoy socket. Validation:
-`cabal build exe:jitml --ghc-options=-fasm`; `jitml internal
-materialize-substrate` for `apple-silicon`, `linux-cpu`, and `linux-cuda`;
-`cabal test jitml-integration --ghc-options=-fasm --test-options='-p HA'`.
-Live HA lane revalidation is owned by Phases `15` and `16`. Prior closure
-history follows.
+✅ **Done** (re-closed 2026-06-30 by Sprint `3.7`). The cluster lifecycle surface
+now matches the CLI/plan contract: `jitml cluster up --substrate <s>` materializes
+the selected substrate files and then executes the live Kind/Helm/image
+build-load/readiness rollout, writes a cluster publication only after live
+readiness is observed, and records `evidence: live-readiness` in that
+publication. `jitml cluster status` fails closed for missing, corrupt, or
+locally materialized/default publications without live evidence; it no longer
+synthesizes a ready Apple Silicon default. Validation on `linux-cpu` ran the live
+107-step `cluster up`, `jitml cluster status`, and `jitml-integration` 77/77
+including 19/19 `Live` cases. Prior closure history follows.
 
 ✅ **Done** (re-closed 2026-05-29; Sprint `3.2`'s right-sized PV layout
 (MinIO `4→1`, Pulsar `3→1`, Postgres `3→1`) landed in `JitML.Cluster.Storage` and
@@ -75,13 +74,13 @@ stay closed; the live exercise of the new PV layout is owned by Phase `15`.
 
 The worktree implements typed renderers for Kind config, manual PVs,
 storage class, Gateway/GatewayClass/EnvoyProxy, HTTPRoutes, cluster
-publication, and bootstrap file materialization. `jitml cluster up`
-materializes those files without live cluster mutation. `jitml bootstrap
---<substrate>` materializes the files and then calls
-`JitML.Bootstrap.liveExecutePhasedRollout` directly; there is no process
-environment gate for local Kind/Helm work. The live rollout runs the typed
-`kind`, Helm, Docker build / explicit Kind image-load, and Pulsar-topic
-subprocesses, rewrites the live Kind/Gateway inputs from the selected edge-port
+publication, bootstrap file materialization, and the live lower-level
+`jitml cluster up` reconciler. `jitml cluster up --substrate <s>` and `jitml
+bootstrap --<substrate>` both materialize the files and then call
+`JitML.Bootstrap.liveExecutePhasedRollout`; there is no process environment gate
+for local Kind/Helm work. The live rollout runs the typed `kind`, Helm, Docker
+build / explicit Kind image-load, and Pulsar-topic subprocesses, rewrites the
+live Kind/Gateway inputs from the selected edge-port
 lease, patches the Apple host Dhall from the resulting publication, and writes
 `./.build/runtime/cluster-publication.json` with that leased port plus component
 status measured from live Helm release status. It applies the repo-owned
@@ -366,9 +365,11 @@ steady-state cluster is a no-op (exit code `3`).
    effects.
 2. `jitml bootstrap --<substrate>` materializes local Kind/chart/Dhall and
    publication files.
-3. `jitml cluster status` parses
-   `./.build/runtime/cluster-publication.json` when present or reports the
-   default publication summary.
+3. Historical Sprint `3.5` target: `jitml cluster status` parsed
+   `./.build/runtime/cluster-publication.json` when present or reported the
+   default publication summary. Sprint `3.7` supersedes the default-ready
+   fallback: missing, corrupt, or locally materialized publication state must
+   report not-ready or fail through a typed path.
 4. Local materialization no-op exit `3` is covered by `jitml-unit`.
 5. `jitml-unit` covers `JitML.Cluster.Helm.renderHelmDependencyBuildPlan
    "chart" == "helm dependency build chart"` and the `cluster up` plan
@@ -470,6 +471,64 @@ assumptions.
 
 - None. Live HA substrate revalidation is tracked by Phase `15` Sprint `15.22`
   and Phase `16` Sprint `16.14`.
+
+## Sprint 3.7: Live Cluster Lifecycle and Publication Truth ✅
+
+**Status**: Done (closed 2026-06-30)
+**Implementation**: `src/JitML/App.hs`, `src/JitML/Bootstrap.hs`,
+`src/JitML/Cluster/Publication.hs`, `src/JitML/Plan/Plan.hs`,
+`src/JitML/CLI/Spec.hs`, generated command docs after code changes
+**Docs to update**: `README.md`, `documents/engineering/cluster_topology.md`,
+`documents/engineering/daemon_architecture.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make the cluster lifecycle command surface tell the truth and keep readiness
+live-measured. A command documented as bringing the cluster up must perform the
+live reconcile, and a status command must never manufacture a ready cluster from
+missing, corrupt, or default-local publication data.
+
+### Deliverables
+
+- Either implement `jitml cluster up --substrate <s>` as the lower-level live
+  Kind/Helm reconciler described by `CommandSpec` and `Plan.Plan`
+  (`materialize-substrate` → dependency build → Kind create/export → image
+  build/load → Helm/apply/readiness → measured publication), or narrow the
+  generated command descriptions and plan steps from code so `cluster up` is
+  explicitly file-only and not a live lifecycle command.
+- Stop writing a ready `defaultPublication` from file materialization alone.
+  Publications that claim component readiness are written only after live
+  readiness has been observed.
+- Make `jitml cluster status` fail closed or report `unknown/not-ready` when
+  `./.build/runtime/cluster-publication.json` is missing, corrupt, or locally
+  materialized without live evidence. It must not fall back to an Apple Silicon
+  ready default.
+- Keep `jitml bootstrap --<substrate>` as the canonical full-stack entrypoint;
+  if it delegates to `cluster up`, the delegation must preserve the staged image,
+  Dhall, Apple host patching, and measured publication semantics.
+- Regenerate `README.md`, `documents/cli/commands.md`, manpages, and completions
+  from `CommandSpec` if command descriptions or plan steps change.
+
+### Validation
+
+- `docker compose run --rm jitml jitml cluster up --substrate linux-cpu` executed
+  the live lower-level rollout, created/reconciled Kind, applied the Helm/local
+  workload phases, loaded `jitml:local` / `jitml-demo:local`, reached ready
+  component health, and wrote `cluster-publication.json` with
+  `evidence: live-readiness`.
+- `docker compose run --rm jitml jitml cluster status` read that publication and
+  reported the live edge, Pulsar, MinIO, and component health fields.
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+  passed **77 / 77**, including **19 / 19** `Live` cases and the spawned-binary
+  missing/corrupt/no-live-evidence `cluster status` fail-closed regressions.
+- `docker compose build jitml --progress plain` passed with embedded
+  `check-code: ok`; the shared `docs check` gate is rerun by the final handoff
+  after all reopened plan/docs updates land.
+
+### Remaining Work
+
+- None.
 
 ## Related Documents
 

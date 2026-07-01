@@ -1,4 +1,4 @@
-# `linux-cpu` Per-Lane Attestation (Phases 13/14 + Sprints 17.10 / 18.6)
+# `linux-cpu` Per-Lane Attestation (Phases 13/14 + Sprints 17.10 / 18.7)
 
 **Status**: Authoritative source
 **Supersedes**: N/A
@@ -11,7 +11,7 @@
 
 > **Purpose**: The committed `linux-cpu` per-lane report-card fragment that the
 > always-available accelerator-free lane (Phases `13`/`14`) owns. Phase `17`
-> (Sprint `17.10`) and Phase `18` (Sprints `18.5` / `18.6`) consume this fragment on
+> (Sprint `17.10`) and Phase `18` (Sprints `18.5` / `18.6` / `18.7`) consume this fragment on
 > `linux-cpu` as the third merge input alongside the committed `linux-cuda`
 > (Phase `15`) and `apple-silicon` (Phase `16`) fragments (standards rule
 > M(b)/(d)).
@@ -25,7 +25,9 @@
   Sprint `14.3` demo-runtime replacement, re-attested 2026-06-29 as the HA
   `linux-cpu` aggregation after Phases `15` / `16` re-closed, and re-aggregated
   2026-06-30 after the typed-failure/docs-governance remediation in Phases `0`,
-  `1`, `8`, `9`, and `10`. The image under test was built from the worktree
+  `1`, `8`, `9`, and `10`, then re-aggregated again for Sprint `18.7` after
+  Phases `3`, `5`, and `9` re-closed the live cluster, mounted RunConfig, and
+  tuning-fidelity remediation. The image under test was built from the worktree
   **including** the 2026-06-23 reflected-catalog-schema
   (`JitML.Service.CatalogSchema`), tuning-objective-migration
   (`JitML.SL.Architecture` seam + `pureReferenceMlpDevice`), and the three
@@ -63,7 +65,12 @@ replaced with the canonical gzip artifacts before `jitml-sl-canonicals` and the
 full live lane were rerun. During the 2026-06-30 Sprint `18.6` re-aggregation,
 the canonical dataset artifacts were present, `jitml internal seed-demo-checkpoints`
 re-seeded the eight demo checkpoints, and the full live report-card run passed
-with `browser_product_matrix` populated.
+with `browser_product_matrix` populated. During Sprint `18.7`, the Envoy Gateway
+data plane was restarted after the publication pointed at an unprogrammed edge,
+all 12 canonical dataset artifacts were restaged through `jitml internal
+upload-dataset`, the eight demo checkpoints were seeded again, and the full live
+report-card run passed with `browser_product_matrix` **8 / 8** and no
+`unavailable` row.
 
 `jitml-backends --linux-cpu` compiled and executed the real oneDNN primitive
 paths through the Haskell FFI — every within-substrate `linux-cpu` kernel case

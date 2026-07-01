@@ -106,12 +106,15 @@ their live exercise is owned by Phase `15`.
 
 ### Current Implementation Scope
 
-`jitml cluster up` materializes repo-local Kind, chart, Dhall, service, and
-publication files, then prints reconciliation summaries or exits `3` when the
-materialized files are already current. `jitml bootstrap --<substrate>`
-materializes those files and then executes the live bootstrap runner that
-drives typed `kind` / `helm` subprocesses. Sprint `2.12` re-closed this phase's
-Apple-specific prerequisite/cache surface by replacing the core Tart
+This phase owns prerequisite planning, cache discipline, and bootstrap file
+materialization. The current `jitml cluster up` implementation still
+materializes repo-local Kind, chart, Dhall, service, and publication files, then
+prints reconciliation summaries or exits `3` when the materialized files are
+already current; Phase `3` Sprint `3.7` owns reconciling that lower-level command
+with the live lifecycle contract documented by `CommandSpec`. `jitml bootstrap
+--<substrate>` materializes the files and then executes the live bootstrap runner
+that drives typed `kind` / `helm` subprocesses. Sprint `2.12` re-closed this
+phase's Apple-specific prerequisite/cache surface by replacing the core Tart
 prerequisite with fixed-bridge prerequisites and `.metal.json` cache entries.
 
 ## Phase Summary
@@ -631,8 +634,11 @@ Effects`.
 - `docker compose run --rm jitml jitml doctor --scope cluster` reports the new
   `cluster.host-memory` node and exits `0` on this host (15 GiB ≥ 10 GiB node cap +
   4 GiB reserve).
-- `docker compose run --rm jitml jitml cluster up --substrate linux-cpu` materializes
-  `./.build/conf/cluster/Resources.dhall` from the `dhall/cluster/` source.
+- Historical Phase `2` validation:
+  `docker compose run --rm jitml jitml cluster up --substrate linux-cpu`
+  materialized `./.build/conf/cluster/Resources.dhall` from the `dhall/cluster/`
+  source. Phase `3` Sprint `3.7` owns the stricter live lifecycle contract for
+  that command.
 - `cabal test jitml-unit` passes; `cabal test jitml-integration` failures are
   isolated to pre-existing live-cluster Sprint 13.x tests (Pulsar timeouts —
   no cluster up).

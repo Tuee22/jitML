@@ -598,8 +598,11 @@ schedulerFromText "ASHA" = Just ASHA
 schedulerFromText _ = Nothing
 
 prunerFromText :: Text -> Maybe Pruner
+prunerFromText "None" = Just NoPruner
 prunerFromText "NoPruner" = Just NoPruner
+prunerFromText "Median" = Just MedianPruner
 prunerFromText "MedianPruner" = Just MedianPruner
+prunerFromText "Percentile" = Just PercentilePruner
 prunerFromText "PercentilePruner" = Just PercentilePruner
 prunerFromText _ = Nothing
 

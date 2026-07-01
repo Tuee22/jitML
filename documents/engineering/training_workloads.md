@@ -12,15 +12,17 @@
 > workflows.
 
 **Current audit status (2026-06-30).** The `linux-cpu` no-caveat all-model
-baseline, the real accelerator lanes, and the typed-failure hardening have
-re-closed. Device-backed RL remains fail-closed with no pure fallback, and
-Sprint `8.15` routes post-probe DQN / QR-DQN / HER / continuous trainer update
-failures through typed trainer results instead of `error` bottoms. Sprint
-`9.15` makes corrupt tuning transcript decode failures representable data in
-resume outcomes. Phase `18` Sprint `18.6` re-aggregated those fixes with the
-final live `linux-cpu` report card passing **8 / 8** stanzas and
-`browser_product_matrix` **8 / 8** at edge `:9091`. The binding learning
-contract lives in
+baseline and the real accelerator lanes remain current evidence after Phase `9`
+Sprint `9.16` re-closed tuning fidelity: CLI overrides and daemon-dispatched
+`TuneRunConfig` axes now drive the actual sweep, artifact writer, worker trial
+selection, checkpoint promotion, and report-card measurements. Device-backed RL
+remains fail-closed with no pure fallback, and Sprint `8.15` routes post-probe
+DQN / QR-DQN / HER / continuous trainer update failures through typed trainer
+results instead of `error` bottoms. Sprint `9.15` makes corrupt tuning transcript
+decode failures representable data in resume outcomes. Phase `18` Sprint `18.7`
+has rerun the live `linux-cpu` aggregation with **8 / 8** stanzas and
+`browser_product_matrix` **8 / 8** at edge `:9091`; `docs check` and
+`check-code` are green. The binding learning contract lives in
 [training_metrics_and_splits.md](training_metrics_and_splits.md):
 each model has a pure fixed `TrainingBudget`, completed training mints a
 `CompletedTraining` witness, and inference accepts only an
@@ -119,7 +121,10 @@ live run stays tractable. The worker decodes these caps from Dhall, not environm
 variables: Phase `5` Sprint `5.7` retires the former `JITML_SL_TRAIN_LIMIT` /
 `JITML_SL_EPOCHS` / `JITML_SL_TEST_LIMIT` env IPC in favour of the typed
 `RunConfig` per the `Application Environment` doctrine (see
-[Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29)). The measured `train_acc` / `test_acc` are reported and the published
+[Development Plan → Reopened phases](../../DEVELOPMENT_PLAN/README.md#reopened-phases-2026-05-29)).
+Sprint `5.17` keeps that mount fail-closed: a present but malformed
+`/etc/jitml/run/RunConfig.dhall` exits as a typed configuration error instead of
+falling back to env/default caps. The measured `train_acc` / `test_acc` are reported and the published
 `EpochCompleted` loss becomes the live measurement. The `jitml-sl-canonicals`
 live MNIST assertion exercises the same architecture/device runtime when the
 publication and staged bytes exist, so the test does not certify a separate
@@ -482,7 +487,11 @@ return a typed failure instead of falling back to a pure objective.
 Sprint `9.15` keeps replay/resume total by recording `ResumeReadFailure` values
 in `resumeReadFailures`: missing/read failures use `ResumeServiceFailure
 ServiceError`, corrupt CBOR transcript bytes use `ResumeDecodeFailure Text`, and
-`ResumeOutcome` `Eq` / `Show` remain total at the caller boundary.
+`ResumeOutcome` `Eq` / `Show` remain total at the caller boundary. Sprint `9.16`
+keeps the real-workflow rule strict: overrides that appear in CLI output are
+applied before validation/artifact writing, and daemon-dispatched tuning workers
+consume the sampler/scheduler/pruner stored in their `TuneRunConfig` instead of
+enumerating the whole catalog grid.
 `jitml-hyperparameter` consumes the `tune_trials` and
 `tune_budget_per_trial` report-card knobs from `cabal.project` for the local
 TPE trial-budget assertion.
@@ -512,6 +521,10 @@ substrate and seed fields. See
 [../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md → Sprint 1.12](../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md#sprint-112-cli-dhall-overrides-)
 for the owning sprint and the doctrine-deviation interval recorded in
 [../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+Sprint `9.16` closes the tuning integration boundary: the resolved experiment,
+including CLI overrides, is the only input to local tune artifacts; daemon
+workers select trials from the `TuneRunConfig` sampler/scheduler/pruner fields
+and may not silently replace those fields with a catalog-wide product.
 
 ### Samplers
 
@@ -582,9 +595,10 @@ jitml tune <tune-dhall>
            [--dry-run | --plan-file <path>]
 ```
 
-Current normal execution decodes the tuning Dhall, renders the selected
-sampler/scheduler/pruner axes, and executes measured trial objectives through
-the selected device path where available. Sprint `9.12` writes the best local
+Target normal execution decodes the tuning Dhall, applies CLI overrides before
+validation, renders the selected sampler/scheduler/pruner axes from the resolved
+experiment, and executes measured trial objectives through the selected device
+path where available. Sprint `9.12` writes the best local
 trial's trained weights as a `.jmw1` checkpoint, emits a `tune-trials` artifact,
 and promotes daemon-dispatched trial weights into `jitml-checkpoints` alongside
 the `jitml-trials` transcript. Sprint `10.6` records tuning model-family

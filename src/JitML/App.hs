@@ -17,14 +17,14 @@ import Control.Monad (forever, unless, void, when)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Crypto.Hash.SHA256 qualified
-import Data.Aeson (decode, encode)
+import Data.Aeson (eitherDecode, encode)
 import Data.ByteString qualified
 import Data.ByteString.Char8 qualified as ByteString.Char8
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (isRight, lefts)
 import Data.Foldable (for_, traverse_)
 import Data.List (sort, stripPrefix)
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
@@ -1346,14 +1346,32 @@ runCluster ["cluster", "up"] parsedOptions =
     Right substrate -> do
       changed <- liftIO (materializeBootstrapFiles "." substrate)
       if changed
-        then writeLine ("cluster up: " <> renderSubstrate substrate <> " reconciled")
-        else
-          exitWithError (ReconcilerNoop ("cluster up: " <> renderSubstrate substrate <> " already current"))
+        then writeLine ("cluster up: " <> renderSubstrate substrate <> " materialized")
+        else writeLine ("cluster up: " <> renderSubstrate substrate <> " materialization already current")
+      result <- liftIO (liveExecutePhasedRollout substrate "chart")
+      writeLine
+        ( "cluster up: live phased rollout executed "
+            <> Text.pack (show (length (liveStepsExecuted result)))
+            <> " steps"
+        )
+      mapM_
+        ( \(step, stderrText) ->
+            writeLine ("cluster up: step failed: " <> step <> " stderr: " <> stderrText)
+        )
+        (liveStepsFailed result)
+      unless (null (liveStepsFailed result)) $
+        exitWithError
+          ( SubprocessFailed
+              "cluster up live phased rollout"
+              (ExitFailure 1)
+              (renderLiveStepFailures (liveStepsFailed result))
+          )
+      writeText (renderPublicationSummary (livePublication result))
 runCluster ["cluster", "status"] _ = do
-  publication <- liftIO readClusterPublication
+  publication <- readClusterPublicationOrExit
   writeText (renderPublicationSummary publication)
 runCluster ["cluster", "down"] _ = do
-  publication <- liftIO readClusterPublication
+  publication <- readClusterPublicationOrExit
   let substrate = Publication.publicationSubstrate publication
       command = Helm.kindDeleteSubprocess substrate
       clusterName = "jitml-" <> renderSubstrate substrate
@@ -1659,19 +1677,21 @@ runDeviceMnistTraining substrate problem = do
   -- env vars when no mount is present. Sprint 5.11 reuses the helper below for
   -- host-resident Apple work, where the config arrives as a Pulsar envelope
   -- rather than a pod-mounted file.
-  runConfigMaybe <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
-  (trainLimit, epochs, testLimit) <- case runConfigMaybe of
-    Just rc ->
+  runConfigLoad <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
+  (trainLimit, epochs, testLimit) <- case runConfigLoad of
+    RunConfig.RunConfigLoaded rc ->
       pure
         ( fromMaybe 2000 (RunConfig.trcSlTrainLimit rc)
         , fromMaybe 3 (RunConfig.trcSlEpochs rc)
         , fromMaybe 1000 (RunConfig.trcSlTestLimit rc)
         )
-    Nothing -> liftIO $ do
+    RunConfig.RunConfigMissing -> liftIO $ do
       tl <- readIntDefault 2000 <$> envWithDefault "JITML_SL_TRAIN_LIMIT" "2000"
       ep <- readIntDefault 3 <$> envWithDefault "JITML_SL_EPOCHS" "3"
       tt <- readIntDefault 1000 <$> envWithDefault "JITML_SL_TEST_LIMIT" "1000"
       pure (tl, ep, tt)
+    RunConfig.RunConfigDecodeFailed err ->
+      exitWithError (mountedRunConfigDecodeError "TrainingRunConfig" err)
   runDeviceMnistTrainingWithLimits substrate problem trainLimit epochs testLimit
 
 runDeviceMnistTrainingWithLimits
@@ -2060,7 +2080,7 @@ workerBrokerTarget = do
   -- `JITML_SUBSTRATE` / `JITML_PULSAR_WS` env vars. Falls back to env + the
   -- leased host-edge publication for developer-side local invocations.
   bootMaybe <- liftIO (tryLoadBootConfigFromFile serviceBootConfigPath)
-  mountedWs <- liftIO mountedWsFromRunConfig
+  mountedWs <- mountedWsFromRunConfig
   pulsarWsEnv <- liftIO (lookupEnv "JITML_PULSAR_WS")
   substrateEnv <- liftIO (lookupEnv "JITML_SUBSTRATE")
   cluster <- liftIO (readExistingLivePublication ".")
@@ -2091,18 +2111,21 @@ workerBrokerTarget = do
     Just _ -> first
     Nothing -> second
   -- Try each RunConfig variant in turn; pick the first that has a pulsarWsUrl.
-  mountedWsFromRunConfig :: IO (Maybe Text)
+  mountedWsFromRunConfig :: App (Maybe Text)
   mountedWsFromRunConfig = do
-    rl <- RunConfig.tryLoadRlRunConfig runConfigPath
-    case rl of
-      Just rc -> pure (Just (RunConfig.rlcPulsarWsUrl rc))
-      Nothing -> do
-        tr <- RunConfig.tryLoadTrainingRunConfig runConfigPath
-        case tr of
-          Just rc -> pure (Just (RunConfig.trcPulsarWsUrl rc))
-          Nothing -> do
-            tu <- RunConfig.tryLoadTuneRunConfig runConfigPath
-            pure (fmap RunConfig.turcPulsarWsUrl tu)
+    rl <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
+    tr <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
+    tu <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
+    case ( fmapRunConfig RunConfig.rlcPulsarWsUrl rl
+         , fmapRunConfig RunConfig.trcPulsarWsUrl tr
+         , fmapRunConfig RunConfig.turcPulsarWsUrl tu
+         ) of
+      (Just ws, _, _) -> pure (Just ws)
+      (_, Just ws, _) -> pure (Just ws)
+      (_, _, Just ws) -> pure (Just ws)
+      _ -> case firstRunConfigDecodeFailure [rlRunConfigError rl, trainingRunConfigError tr, tuneRunConfigError tu] of
+        Just err -> exitWithError (mountedRunConfigDecodeError "RunConfig" err)
+        Nothing -> pure Nothing
 
 -- | Sprint 8.11 — resolve the substrate the RL worker trains on, using the
 -- same precedence as 'workerBrokerTarget': the daemon-mounted
@@ -2138,34 +2161,76 @@ tryLoadBootConfigFromFile path = do
         Right value -> pure (Just value)
     else pure Nothing
 
+mountedRunConfigDecodeError :: Text -> Text -> AppError
+mountedRunConfigDecodeError configName detail =
+  InvalidConfig
+    ( "failed to decode mounted "
+        <> configName
+        <> " at "
+        <> Text.pack runConfigPath
+        <> ": "
+        <> detail
+    )
+
+fmapRunConfig :: (a -> b) -> RunConfig.RunConfigLoadResult a -> Maybe b
+fmapRunConfig f loadResult =
+  case loadResult of
+    RunConfig.RunConfigLoaded value -> Just (f value)
+    RunConfig.RunConfigMissing -> Nothing
+    RunConfig.RunConfigDecodeFailed _ -> Nothing
+
+runConfigDecodeError :: RunConfig.RunConfigLoadResult a -> Maybe Text
+runConfigDecodeError loadResult =
+  case loadResult of
+    RunConfig.RunConfigDecodeFailed err -> Just err
+    _ -> Nothing
+
+rlRunConfigError :: RunConfig.RunConfigLoadResult RunConfig.RlRunConfig -> Maybe Text
+rlRunConfigError = runConfigDecodeError
+
+trainingRunConfigError :: RunConfig.RunConfigLoadResult RunConfig.TrainingRunConfig -> Maybe Text
+trainingRunConfigError = runConfigDecodeError
+
+tuneRunConfigError :: RunConfig.RunConfigLoadResult RunConfig.TuneRunConfig -> Maybe Text
+tuneRunConfigError = runConfigDecodeError
+
+firstRunConfigDecodeFailure :: [Maybe Text] -> Maybe Text
+firstRunConfigDecodeFailure = listToMaybe . catMaybes
+
+nonEmptyText :: Text -> Maybe Text
+nonEmptyText value
+  | Text.null value = Nothing
+  | otherwise = Just value
+
 -- | Sprint 5.7 (worker side) — return the experiment hash the daemon wrote to
 -- the per-run @RunConfig.dhall@ mounted at 'runConfigPath'. Tries each
 -- RunConfig variant in turn (RL, training, tune) and falls back to the
 -- legacy @JITML_EXPERIMENT_HASH@ env var for developer-side local invocations
 -- that have not staged a mounted RunConfig.
-workerExperimentHash :: IO (Maybe Text)
+workerExperimentHash :: App (Maybe Text)
 workerExperimentHash = do
-  rl <- RunConfig.tryLoadRlRunConfig runConfigPath
-  case fmap RunConfig.rlcExperimentHash rl of
-    Just h | not (Text.null h) -> pure (Just h)
-    _ -> do
-      tr <- RunConfig.tryLoadTrainingRunConfig runConfigPath
-      case fmap RunConfig.trcExperimentHash tr of
-        Just h | not (Text.null h) -> pure (Just h)
-        _ -> do
-          tu <- RunConfig.tryLoadTuneRunConfig runConfigPath
-          case fmap RunConfig.turcExperimentHash tu of
-            Just h | not (Text.null h) -> pure (Just h)
-            _ -> do
-              raw <- lookupEnv "JITML_EXPERIMENT_HASH"
-              pure $ case raw of
-                Just value | not (null value) -> Just (Text.pack value)
-                _ -> Nothing
+  rl <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
+  tr <- liftIO (RunConfig.tryLoadTrainingRunConfig runConfigPath)
+  tu <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
+  case ( nonEmptyText =<< fmapRunConfig RunConfig.rlcExperimentHash rl
+       , nonEmptyText =<< fmapRunConfig RunConfig.trcExperimentHash tr
+       , nonEmptyText =<< fmapRunConfig RunConfig.turcExperimentHash tu
+       ) of
+    (Just h, _, _) -> pure (Just h)
+    (_, Just h, _) -> pure (Just h)
+    (_, _, Just h) -> pure (Just h)
+    _ -> case firstRunConfigDecodeFailure [rlRunConfigError rl, trainingRunConfigError tr, tuneRunConfigError tu] of
+      Just err -> exitWithError (mountedRunConfigDecodeError "RunConfig" err)
+      Nothing -> liftIO $ do
+        raw <- lookupEnv "JITML_EXPERIMENT_HASH"
+        pure $ case raw of
+          Just value | not (null value) -> Just (Text.pack value)
+          _ -> Nothing
 
 publishWorkerTrainingEvent :: TrainingMetrics -> App ()
 publishWorkerTrainingEvent metrics = do
   target <- workerBrokerTarget
-  experimentHashMaybe <- liftIO workerExperimentHash
+  experimentHashMaybe <- workerExperimentHash
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
       let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
@@ -2211,7 +2276,7 @@ publishWorkerTrainingCheckpoint substrate problem parsedOptions metrics =
   case tmCheckpointWeights metrics of
     Nothing -> pure ()
     Just weights -> do
-      liveExperimentHash <- liftIO workerExperimentHash
+      liveExperimentHash <- workerExperimentHash
       let experimentDhall = selectedValue "experiment-dhall" "experiments/mnist.dhall" parsedOptions
           derivedExperimentHash =
             Checkpoint.deriveExperimentHash
@@ -2238,7 +2303,7 @@ publishWorkerTrainingCheckpointEvent
   -> App ()
 publishWorkerTrainingCheckpointEvent tensorName step metricRows stored = do
   target <- workerBrokerTarget
-  experimentHashMaybe <- liftIO workerExperimentHash
+  experimentHashMaybe <- workerExperimentHash
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
       let topic = Capabilities.TopicName (ProtoTraining.trainingEventTopic substrate)
@@ -2360,10 +2425,11 @@ runTune parsedOptions = do
     Left message ->
       exitWithError (DhallTypeError message)
     Right experiment -> do
-      let rendered = Tune.renderTuningPlan tunePath experiment
+      let resolvedExperiment = Overrides.applyOverrides overrides experiment
+          rendered = Tune.renderTuningPlan tunePath resolvedExperiment
           renderedWithOverrides =
             rendered <> "overrides: " <> Overrides.renderTuningOverrides overrides <> "\n"
-      tuneArtifactLines <- writeLocalTuneArtifacts tunePath experiment
+      tuneArtifactLines <- writeLocalTuneArtifacts tunePath resolvedExperiment
       case optionValues "plan-file" parsedOptions of
         [] -> pure ()
         planPath : _ ->
@@ -2517,13 +2583,13 @@ renderAlphaZeroTranscriptArtifact experimentHash seed sims maxPlies samples =
     , "outcome: " <> Text.pack (show (PolicyValueNet.sampleOutcome sample))
     ]
 
--- | Sprint 13.10 — when running inside a daemon-dispatched tune Job (live
--- publication + JITML_EXPERIMENT_HASH set), iterate the canonical sampler ×
--- scheduler × pruner cross-product (capped by the configured trial budget).
+-- | Sprint 13.10 / 9.16 — when running inside a daemon-dispatched tune Job
+-- (live publication + JITML_EXPERIMENT_HASH set), run the sampler, scheduler,
+-- and pruner selected by the mounted TuneRunConfig for the configured trial
+-- budget.
 -- Each trial:
 --
---   1. picks one `(Sampler, Scheduler, Pruner)` combination from the catalog
---      grid in deterministic Cartesian order;
+--   1. uses the selected `(Sampler, Scheduler, Pruner)` axes;
 --   2. trains the sampled trial through the substrate-selected JIT device and
 --      returns both the measured objective and checkpointable weights;
 --   3. persists a `TrialTranscript` to MinIO via `persistTrialTranscript`;
@@ -2538,7 +2604,7 @@ publishWorkerTuneEvent :: App ()
 publishWorkerTuneEvent = do
   env <- ask
   liveContext <- workerLiveContext
-  experimentHashMaybe <- liftIO workerExperimentHash
+  experimentHashMaybe <- workerExperimentHash
   case (liveContext, experimentHashMaybe) of
     (Just context, Just experimentHash) -> do
       let publication = workerLivePublication context
@@ -2547,18 +2613,15 @@ publishWorkerTuneEvent = do
           topic = Capabilities.TopicName (ProtoTune.tuneEventTopic substrate)
           minioSettings = workerLiveMinIOSettings context
           device = mlpDeviceForSubstrate substrate env
-      trialBudget <- liftIO (lookupTrialBudget 6)
-      sweepSeed <- liftIO (lookupSweepSeed 0)
-      -- Sprint 13.10: enumerate the canonical sampler × scheduler × pruner
-      -- grid in deterministic Cartesian order. Each trial gets a unique
-      -- index = trial position in the cross product, used as the trial
-      -- seed so transcripts stay distinct in MinIO.
+      trialBudget <- lookupTrialBudget 6
+      sweepSeed <- lookupSweepSeed 0
+      (sampler, scheduler, pruner) <- lookupTuneAxes
+      -- Sprint 9.16 — daemon-dispatched workers use the sampler, scheduler,
+      -- and pruner selected in the mounted TuneRunConfig. Each trial gets a
+      -- unique seed derived from the sweep seed so transcripts stay distinct
+      -- in MinIO.
       let combos =
-            [ (sampler, scheduler, pruner)
-            | sampler <- Tune.samplerCatalog
-            , scheduler <- Tune.schedulerCatalog
-            , pruner <- Tune.prunerCatalog
-            ]
+            replicate (max 1 trialBudget) (sampler, scheduler, pruner)
           gridTrials =
             take trialBudget (zip [sweepSeed ..] combos)
       publishedResults <-
@@ -2676,28 +2739,56 @@ publishWorkerTuneEvent = do
   -- Sprint 5.7 — prefer the typed Dhall `TuneRunConfig` mount; fall back to
   -- the legacy env var when no mount is present (developer-side CLI).
   lookupTrialBudget defaultValue = do
-    runConfigMaybe <- RunConfig.tryLoadTuneRunConfig runConfigPath
-    case runConfigMaybe of
-      Just rc -> pure (RunConfig.turcTrialBudget rc)
-      Nothing -> do
+    runConfigLoad <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
+    case runConfigLoad of
+      RunConfig.RunConfigLoaded rc -> pure (RunConfig.turcTrialBudget rc)
+      RunConfig.RunConfigMissing -> liftIO $ do
         raw <- lookupEnv "JITML_TRIAL_BUDGET"
         pure $ case raw of
           Just text | [(parsed, "")] <- reads text -> parsed
           _ -> defaultValue
+      RunConfig.RunConfigDecodeFailed err ->
+        exitWithError (mountedRunConfigDecodeError "TuneRunConfig" err)
 
   firstServiceError (Left err) _ = Left err
   firstServiceError _ (Left err) = Left err
   firstServiceError (Right _) (Right _) = Right ()
 
   lookupSweepSeed defaultValue = do
-    runConfigMaybe <- RunConfig.tryLoadTuneRunConfig runConfigPath
-    case runConfigMaybe of
-      Just rc -> pure (RunConfig.turcSweepSeed rc)
-      Nothing -> do
+    runConfigLoad <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
+    case runConfigLoad of
+      RunConfig.RunConfigLoaded rc -> pure (RunConfig.turcSweepSeed rc)
+      RunConfig.RunConfigMissing -> liftIO $ do
         raw <- lookupEnv "JITML_SWEEP_SEED"
         pure $ case raw of
           Just text | [(parsed, "")] <- reads text -> parsed
           _ -> defaultValue
+      RunConfig.RunConfigDecodeFailed err ->
+        exitWithError (mountedRunConfigDecodeError "TuneRunConfig" err)
+
+  lookupTuneAxes = do
+    runConfigLoad <- liftIO (RunConfig.tryLoadTuneRunConfig runConfigPath)
+    case runConfigLoad of
+      RunConfig.RunConfigLoaded rc ->
+        case ( Tune.samplerFromText (RunConfig.turcSampler rc)
+             , Tune.schedulerFromText (RunConfig.turcScheduler rc)
+             , Tune.prunerFromText (RunConfig.turcPruner rc)
+             ) of
+          (Just sampler, Just scheduler, Just pruner) -> pure (sampler, scheduler, pruner)
+          _ ->
+            exitWithError
+              ( InvalidConfig
+                  ( "invalid mounted TuneRunConfig tuning axes: sampler="
+                      <> RunConfig.turcSampler rc
+                      <> " scheduler="
+                      <> RunConfig.turcScheduler rc
+                      <> " pruner="
+                      <> RunConfig.turcPruner rc
+                  )
+              )
+      RunConfig.RunConfigMissing -> pure (Tune.TPE, Tune.ASHA, Tune.MedianPruner)
+      RunConfig.RunConfigDecodeFailed err ->
+        exitWithError (mountedRunConfigDecodeError "TuneRunConfig" err)
 
 runRl :: [Text] -> [ParsedOption] -> App ()
 runRl ["rl", "train"] parsedOptions = do
@@ -2711,9 +2802,9 @@ runRl ["rl", "train"] parsedOptions = do
   -- env vars + defaults when no mount is present (e.g., developer-side CLI
   -- invocation outside the cluster). Defaults match the
   -- `experiments/cartpole.dhall` worked example.
-  runConfigMaybe <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
-  (envName, seed, maxSteps, evalEpisodes, trainerKind, atariRomPath) <- case runConfigMaybe of
-    Just rc ->
+  runConfigLoad <- liftIO (RunConfig.tryLoadRlRunConfig runConfigPath)
+  (envName, seed, maxSteps, evalEpisodes, trainerKind, atariRomPath) <- case runConfigLoad of
+    RunConfig.RunConfigLoaded rc ->
       pure
         ( RunConfig.rlcEnvironment rc
         , RunConfig.rlcSeed rc
@@ -2722,7 +2813,7 @@ runRl ["rl", "train"] parsedOptions = do
         , Text.toLower (Text.strip (RunConfig.rlcTrainerKind rc))
         , RunConfig.rlcAtariRomPath rc
         )
-    Nothing -> liftIO $ do
+    RunConfig.RunConfigMissing -> liftIO $ do
       e <- envWithDefault "JITML_ENVIRONMENT" "cartpole"
       sR <- envWithDefault "JITML_SEED" "42"
       msR <- envWithDefault "JITML_MAX_STEPS" "200"
@@ -2736,6 +2827,8 @@ runRl ["rl", "train"] parsedOptions = do
         , Text.toLower (Text.strip tkR)
         , Nothing
         )
+    RunConfig.RunConfigDecodeFailed err ->
+      exitWithError (mountedRunConfigDecodeError "RlRunConfig" err)
   -- Sprint 1.12 — apply the CLI seed override before dispatch so the
   -- override governs same-seed rollout generation. Substrate
   -- override is recorded in the summary; it flows through to deeper RL
@@ -2773,7 +2866,7 @@ runRl ["rl", "train"] parsedOptions = do
     Left err -> exitWithError (InvalidConfig err)
     Right run -> pure run
   let episodes = trainerRunEpisodes trainerRun
-  liveExperimentHash <- liftIO workerExperimentHash
+  liveExperimentHash <- workerExperimentHash
   let rlExperimentDhall = selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
       derivedExperimentHash =
         Checkpoint.deriveExperimentHash
@@ -3665,7 +3758,7 @@ publishWorkerRlCompletion
   -> App ()
 publishWorkerRlCompletion tensorName checkpointStep metrics checkpointMaybe = do
   target <- workerBrokerTarget
-  experimentHashMaybe <- liftIO workerExperimentHash
+  experimentHashMaybe <- workerExperimentHash
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
       timestampNs <- liftIO currentTimestampNs
@@ -3721,7 +3814,7 @@ publishWorkerRlCompletion tensorName checkpointStep metrics checkpointMaybe = do
 publishWorkerRlEpisode :: Text -> SimulatorLoop.SimulatedEpisode -> App ()
 publishWorkerRlEpisode environment episode = do
   target <- workerBrokerTarget
-  experimentHashMaybe <- liftIO workerExperimentHash
+  experimentHashMaybe <- workerExperimentHash
   case (target, experimentHashMaybe) of
     (Just (substrate, pulsarSettings), Just experimentHash) -> do
       let topic = Capabilities.TopicName (ProtoRl.rlEventTopic substrate)
@@ -5303,14 +5396,44 @@ requireUserIntOptionAtLeast :: Text -> Int -> Int -> [ParsedOption] -> App Int
 requireUserIntOptionAtLeast optionName fallback minimumValue parsedOptions =
   either exitWithError pure (parseUserIntOptionAtLeast optionName fallback minimumValue parsedOptions)
 
-readClusterPublication :: IO ClusterPublication
+readClusterPublicationOrExit :: App ClusterPublication
+readClusterPublicationOrExit = do
+  result <- liftIO readClusterPublication
+  case result of
+    Right publication -> pure publication
+    Left message -> exitWithError (InvalidConfig message)
+
+readClusterPublication :: IO (Either Text ClusterPublication)
 readClusterPublication = do
-  exists <- doesFileExist ".build/runtime/cluster-publication.json"
+  let publicationPath = ".build/runtime/cluster-publication.json"
+  exists <- doesFileExist publicationPath
   if exists
     then do
-      bytes <- LazyByteString.readFile ".build/runtime/cluster-publication.json"
-      pure (fromMaybe (defaultPublication AppleSilicon) (decode bytes))
-    else pure (defaultPublication AppleSilicon)
+      bytes <- LazyByteString.readFile publicationPath
+      pure $ case eitherDecode bytes of
+        Left err ->
+          Left
+            ( "cluster publication is corrupt: "
+                <> Text.pack publicationPath
+                <> ": "
+                <> Text.pack err
+            )
+        Right publication
+          | Publication.publicationHasLiveEvidence publication -> Right publication
+          | otherwise ->
+              Left
+                ( "cluster publication has no live readiness evidence: "
+                    <> Text.pack publicationPath
+                    <> "; run `jitml cluster up --substrate <substrate>` or `jitml bootstrap --<substrate>`"
+                )
+    else
+      pure
+        ( Left
+            ( "cluster publication is missing: "
+                <> Text.pack publicationPath
+                <> "; run `jitml cluster up --substrate <substrate>` or `jitml bootstrap --<substrate>`"
+            )
+        )
 
 writeClusterPublication :: ClusterPublication -> IO ()
 writeClusterPublication publication = do

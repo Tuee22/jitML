@@ -175,6 +175,7 @@ import JitML.Service.DhallSchema
   )
 import JitML.Service.HotReload qualified as HotReload
 import JitML.Service.LiveConfig qualified as LiveConfig
+import JitML.Service.RunConfig qualified as RunConfig
 import JitML.Service.WebSocket qualified as WS
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
@@ -550,6 +551,18 @@ main =
       , testCase "reflected RunConfig let-record equals dhall/run/Schema.dhall" $ do
           fileText <- Text.IO.readFile "dhall/run/Schema.dhall"
           canonicalDhallType fileText @?= canonicalDhallType runSchemaDhall
+      , testCase "Sprint 5.17 — malformed mounted RunConfig reports decode failure" $
+          withSystemTempDirectory "jitml-runconfig-malformed" $ \dir -> do
+            let path = dir </> "RunConfig.dhall"
+            missing <- RunConfig.tryLoadTrainingRunConfig path
+            missing @?= RunConfig.RunConfigMissing
+            Text.IO.writeFile path "not a valid RunConfig"
+            training <- RunConfig.tryLoadTrainingRunConfig path
+            tune <- RunConfig.tryLoadTuneRunConfig path
+            rl <- RunConfig.tryLoadRlRunConfig path
+            assertDecodeFailure "training" training
+            assertDecodeFailure "tune" tune
+            assertDecodeFailure "rl" rl
       , testCase "every reflected config schema is well-formed Dhall and reflexive" $
           -- Each reflected schema must itself parse + canonicalise back to itself,
           -- proving the emitted type is valid Dhall (anti-drift for RunConfig too).
@@ -782,6 +795,28 @@ main =
           Overrides.overridePruner ovr Tune.NoPruner @?= Tune.NoPruner
           Overrides.overrideTrials ovr 64 @?= 64
           Overrides.overrideParallelism ovr 4 @?= 4
+      , testCase "Sprint 9.16 — tuning overrides apply before artifact planning" $ do
+          loaded <- Tune.loadTuningExperiment "experiments/mnist-tune.dhall"
+          experiment <- case loaded of
+            Left err -> assertFailure ("expected tuning fixture to decode: " <> Text.unpack err)
+            Right value -> pure value
+          let ovr =
+                Overrides.TuningOverrides
+                  { Overrides.toSampler = Just Tune.Sobol
+                  , Overrides.toScheduler = Just Tune.Fifo
+                  , Overrides.toPruner = Just Tune.NoPruner
+                  , Overrides.toTrials = Just 2
+                  , Overrides.toParallelism = Just 1
+                  }
+              resolved = Overrides.applyOverrides ovr experiment
+          case Tune.tuningExperimentConfig resolved of
+            Nothing -> assertFailure "expected resolved tuning config"
+            Just config -> do
+              Tune.tuningSamplerKind (Tune.tuningConfigSampler config) @?= Tune.Sobol
+              Tune.tuningSchedulerKind (Tune.tuningConfigScheduler config) @?= Tune.Fifo
+              Tune.tuningPrunerKind (Tune.tuningConfigPruner config) @?= Tune.NoPruner
+              Tune.tuningConfigTrials config @?= 2
+              Tune.tuningConfigParallelism config @?= 1
       , testCase "Sprint 1.12 — empty overrides preserve every Dhall value" $ do
           let empty = Overrides.emptyTuningOverrides
           Overrides.overrideSampler empty Tune.Grid @?= Tune.Grid
@@ -1911,10 +1946,12 @@ main =
             second <- materializeBootstrapFiles dir Substrate.LinuxCPU
             legacyExists <- doesFileExist legacyMinioValues
             standaloneExists <- doesFileExist standaloneMinioValues
+            publicationExists <- doesFileExist (dir </> ".build" </> "runtime" </> "cluster-publication.json")
             first @?= True
             second @?= False
             legacyExists @?= False
             standaloneExists @?= False
+            publicationExists @?= False
       , testCase "chart lint skips Helm dependency archive cache" $
           withSystemTempDirectory "jitml-chart-lint" $ \dir -> do
             let archive = dir </> "chart" </> "charts" </> "gateway-helm-1.2.6.tgz"
@@ -3667,6 +3704,18 @@ assertLeftContains expected action = do
         ("expected error to contain " <> Text.unpack expected <> ", got " <> Text.unpack err)
         (expected `Text.isInfixOf` err)
     Right _ -> assertFailure ("expected Left containing " <> Text.unpack expected)
+
+assertDecodeFailure :: String -> RunConfig.RunConfigLoadResult a -> Assertion
+assertDecodeFailure label result =
+  case result of
+    RunConfig.RunConfigDecodeFailed message ->
+      assertBool (label <> " decode failure message should be non-empty") (not (Text.null message))
+    other -> assertFailure (label <> " expected RunConfigDecodeFailed, got " <> showLoadResult other)
+ where
+  showLoadResult RunConfig.RunConfigMissing = "RunConfigMissing"
+  showLoadResult (RunConfig.RunConfigLoaded _) = "RunConfigLoaded"
+  showLoadResult (RunConfig.RunConfigDecodeFailed message) =
+    "RunConfigDecodeFailed " <> Text.unpack message
 
 failingForwardBatchDevice :: Text -> MlpDevice
 failingForwardBatchDevice message =

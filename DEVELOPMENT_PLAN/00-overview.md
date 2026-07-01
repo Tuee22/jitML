@@ -76,17 +76,24 @@ Metal cannot be containerized.
 
 ## Current Baseline
 
-The current baseline reopened on 2026-06-29 after a full documentation/codebase
-audit. Phase `0` re-closed after making governed-document metadata enforcement
-executable through `jitml docs check`, Phase `1` re-closed after routing
-user-facing numeric CLI values through typed `InvalidConfig` parsing, Phase `8`
-re-closed after routing post-probe RL device failures through typed trainer
-results, Phase `9` re-closed on typed tuning resume decode failures, and Phase
-`10` re-closed on typed checkpoint object-key validation. The Pending Removal
-ledger is empty again. The remaining active work is deliberately narrow:
+The current baseline reopened on 2026-06-30 after a follow-up
+documentation/codebase audit found live-workflow contract gaps. Phase `3`
+re-closed the real cluster lifecycle/publication truth surface: `jitml cluster
+up` now performs the live lower-level Kind/Helm reconcile and cluster
+publication readiness requires `evidence: live-readiness`. Phase `5` re-closed
+fail-closed mounted `RunConfig` decoding. Phase `9` re-closed tuning override
+and daemon worker-axis fidelity. The Pending Removal ledger is empty again.
+Phase `18` Sprint `18.7` has passed the final `linux-cpu` live no-caveat product
+handoff re-aggregation with **8 / 8** stanzas and `browser_product_matrix`
+**8 / 8** at edge `:9091`; `docs check` and `check-code` are green.
 
-- Phase `18` re-aggregates the final `linux-cpu` product handoff after the
-  lower remediation phases closed.
+The 2026-06-29 typed-failure/docs-governance audit remains historical closure
+evidence: Phase `0` re-closed after making governed-document metadata
+enforcement executable through `jitml docs check`, Phase `1` re-closed after
+routing user-facing numeric CLI values through typed `InvalidConfig` parsing,
+Phase `8` re-closed after routing post-probe RL device failures through typed
+trainer results, Phase `9` re-closed on typed tuning resume decode failures, and
+Phase `10` re-closed on typed checkpoint object-key validation.
 
 The 2026-06-29 HA topology handoff remains historical evidence: Phases `3`,
 `4`, and `5` closed the HA topology; Phase `15` revalidated the HA
@@ -109,6 +116,9 @@ remaining services using the
 umbrella chart at `chart/`. The single exposed listener is one
 `127.0.0.1:<edge-port>` socket on the Envoy Gateway; every HTTPRoute in the
 cluster is rendered from the typed registry in `src/JitML/Routes.hs`.
+The lower-level `jitml cluster up` command is not accepted as closed while it
+only materializes files; it must perform the documented live reconcile or have
+its generated command docs narrowed from `CommandSpec`.
 
 The numerical core (layer catalog, real+complex activations, optimizers,
 schedulers, losses, spectral ops) ships as a Haskell catalog with a Dhall
@@ -908,18 +918,27 @@ for the governing rule.
 
 ## Current Baseline
 
-**🎉 Current status (2026-06-30): all Phases `0`–`18` are Done again.** Phases
-`0`, `1`, `8`, `9`, and `10` re-closed after docs-check metadata enforcement,
-typed numeric CLI parsing, typed RL device failures, typed tuning resume decode
-failures, and typed local checkpoint object-key validation passed. Phase `18`
-Sprint `18.6` re-aggregated those fixes on `linux-cpu`: `jitml test all --live
---linux-cpu` passed **8 / 8** stanzas with populated report-card measurements
-and `browser_product_matrix` **8 / 8** at edge `:9091`. The Pending Removal
-ledger is empty again.
+**Current status (2026-06-30): all Phases `0`–`18` are Done again.** The
+follow-up audit reopened the current baseline for live cluster lifecycle truth,
+fail-closed mounted worker `RunConfig.dhall` decoding, tuning CLI override
+fidelity, and daemon tuning worker-axis fidelity. Sprints `3.7`, `5.17`, and
+`9.16` are Done, the Pending Removal ledger is empty again, and Phase `18`
+Sprint `18.7` re-aggregated the handoff: `docker compose run --rm jitml jitml
+test all --live --linux-cpu` passed **8 / 8** stanzas with
+`browser_product_matrix` **8 / 8** at edge `:9091`, followed by `docs check: ok`
+and `check-code: ok`.
+
+Historical status from earlier on 2026-06-30: all Phases `0`–`18` were Done
+again after Phases `0`, `1`, `8`, `9`, and `10` re-closed docs-check metadata
+enforcement, typed numeric CLI parsing, typed RL device failures, typed tuning
+resume decode failures, and typed local checkpoint object-key validation. Phase
+`18` Sprint `18.6` re-aggregated those fixes on `linux-cpu`: `jitml test all
+--live --linux-cpu` passed **8 / 8** stanzas with populated report-card
+measurements and `browser_product_matrix` **8 / 8** at edge `:9091`.
 
 The 2026-06-29 HA closure remains historical evidence for the HA topology:
 Phases `3`, `4`, `5`, `15`, `16`, `17`, and `18` closed the HA topology and
-product handoff before this audit reopened typed-failure/documentation-governance
+product handoff before this audit reopened real cluster/tuning/runtime-config
 work. The 2026-06-26 all-Done closure below remains historical evidence for the
 compact local topology and fixed-budget model contract.
 

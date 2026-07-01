@@ -25,6 +25,17 @@ Phase `5` Sprint `5.16` implemented the local materialization; Phase `15`
 Sprint `15.22` revalidated the Linux CUDA live lane, and Phase `16` Sprint
 `16.14` revalidated the Apple Silicon live lane.
 
+**Current reconciliation closure (2026-06-30):** Phase `3` Sprint `3.7`
+re-closed the lower-level lifecycle surface. Cluster health and edge coordinates
+come only from a successful live Kind/Helm reconcile. A locally materialized
+publication, a missing publication, or a corrupt publication is not a ready
+cluster: `jitml cluster status` fails closed unless
+`./.build/runtime/cluster-publication.json` decodes and carries
+`evidence: live-readiness`. `jitml cluster up --substrate <s>` performs the live
+Kind create/export, dependency build, Docker image build/load, Helm/local apply,
+readiness, Pulsar-topic, and measured-publication write promised by the CLI and
+plan surfaces.
+
 ## Substrates and Cluster Shapes
 
 | Substrate | Kind shape | Node labels | Daemon residency |
@@ -201,7 +212,11 @@ under `minio:` in `chart/values.yaml`.
 
 ## Phased Deploy
 
-The target `jitml bootstrap --<substrate>` runs the phased rollout:
+The target `jitml bootstrap --<substrate>` runs the phased rollout. The lower
+level `jitml cluster up --substrate <s>` contract is the same live cluster
+reconcile without the stage-0 substrate script wrapper; a file-only
+materialization is insufficient for a command documented as bringing the cluster
+up.
 
 0. **Dependency phase**: `JitML.Cluster.Helm` renders
    `helm dependency build chart` before any live apply. `Chart.lock` is adopted
@@ -269,15 +284,16 @@ path and sends S3 requests through `/minio/s3`. It does not use the Kubernetes A
 to discover work, and the cluster must not schedule Apple Metal execution into
 Linux pods.
 
-`jitml cluster up` materializes local Kind, chart, Dhall, and publication inputs
-without mutating a live cluster. `jitml bootstrap --<substrate>` materializes
-those inputs and then calls `JitML.Bootstrap.liveExecutePhasedRollout` directly;
+The accepted lifecycle contract is that any command documented as bringing the
+cluster up executes the live reconcile. `jitml bootstrap --<substrate>` and the
+lower-level `jitml cluster up --substrate <s>` materialize local Kind, chart, and
+Dhall inputs and then call `JitML.Bootstrap.liveExecutePhasedRollout` directly;
 there is no process-environment safety gate for local Kind/Helm work. The live
-path runs the typed `kind`, Helm, Docker build / Kind image-load, repo-owned
-manifest apply, platform readiness, and Pulsar-topic subprocesses through the
-`Subprocess` boundary and stops at the first failed subprocess so a failed image
-build or image load cannot be masked by later Helm rollout failures. The topic
-subprocesses register the substrate-scoped
+path runs the typed `kind`, Helm, Docker build / Kind image-load,
+repo-owned manifest apply, platform readiness, and Pulsar-topic subprocesses
+through the `Subprocess` boundary and stops at the first failed subprocess so a
+failed image build or image load cannot be masked by later Helm rollout
+failures. The topic subprocesses register the substrate-scoped
 family consumed by `jitml service`: eight command/event topics for each
 substrate plus the Apple-only `inference.command.apple-silicon` forward topic
 and the Apple host-command topics `training.host-command.apple-silicon`,
@@ -289,8 +305,9 @@ model). The Apple placement path forwards Metal-backed starts to the
 host-command topics rather than rendering Linux worker Jobs; Phase `12` owns the
 live no-Job assertion. The live path rewrites the
 Kind/Gateway/EnvoyProxy inputs from the selected edge-port lease, writes
-`./.build/runtime/cluster-publication.json` with that lease and measured Helm
-release status, and patches the Apple host Dhall from the publication.
+`./.build/runtime/cluster-publication.json` with that lease, measured Helm
+release status, and `evidence: live-readiness`, and patches the Apple host Dhall
+from the publication.
 Platform readiness includes rollout checks and a
 retry-hardened in-pod MinIO bucket check that aliases
 `http://minio.platform.svc.cluster.local:9000` through the Bitnami `mc` client

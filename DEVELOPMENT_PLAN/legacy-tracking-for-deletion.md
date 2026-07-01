@@ -40,6 +40,17 @@ unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
 
+**2026-06-30 — real cluster/tuning/runtime-config audit; ledger reopened.** A
+follow-up documentation/codebase audit found five doctrine deviations that can
+make a workflow look real while bypassing live state or selected configuration.
+Sprint `3.7` closed the two cluster rows: `cluster up` is now the live Kind/Helm
+lifecycle command and publication/status readiness requires live evidence.
+Sprint `5.17` closed mounted worker `RunConfig` decode failures. Sprint `9.16`
+closed display-only tuning CLI overrides and daemon tuning workers ignoring
+their `TuneRunConfig` axes. The ledger is empty again; Phase `18` Sprint `18.7`
+has passed the final live `linux-cpu` aggregation, `docs check`, and
+`check-code`.
+
 **2026-06-29 — typed-failure and docs-governance audit; ledger reopened.** A
 full documentation/codebase audit found doctrine deviations that are cleanup
 rows under standards rule I/L: docs metadata enforcement was documented but not
@@ -269,12 +280,15 @@ opening event itself enqueues a row here naming the originating sprint.
 ## Pending Removal
 
 **Current state (2026-06-30): Pending Removal is empty.** The rows discovered by
-the typed-failure and docs-governance audit moved to `Completed` after their
-owning remediation sprints closed.
+the typed-failure and docs-governance audit moved to `Completed`; the cluster
+rows from the real cluster/tuning/runtime-config audit also moved to
+`Completed` after Sprint `3.7`, the mounted RunConfig row moved to `Completed`
+after Sprint `5.17`, and the tuning rows moved to `Completed` after Sprint
+`9.16`.
 
 | Item | Owning Sprint | Removal Condition |
 |------|---------------|-------------------|
-| _None_ | _N/A_ | _N/A_ |
+| _None_ | _N/A_ | Pending Removal is empty as of Sprint `9.16` closure on 2026-06-30. |
 
 New rows are enqueued here only when a sprint introduces or discovers a
 doctrine deviation or temporary stand-in (per standards rule I / L).
@@ -369,6 +383,11 @@ explicitly schedules their deletion.
 
 | Item | Removed In | Notes |
 |------|------------|-------|
+| File-only `jitml cluster up` implementation in `src/JitML/App.hs` | Sprint `3.7` (2026-06-30) | `runCluster ["cluster","up"]` now materializes the selected substrate files and executes `JitML.Bootstrap.liveExecutePhasedRollout`, so the command performs the documented live Kind/Helm lifecycle: dependency build, Kind create/export, Docker image build, explicit Kind image load, Helm/local apply, readiness, Pulsar topic creation, and measured publication write. Validation: `docker compose run --rm jitml jitml cluster up --substrate linux-cpu` completed a live 107-step rollout, and `docker compose run --rm jitml jitml test jitml-integration --linux-cpu` passed 77/77 including 19/19 `Live` cases. |
+| Ready `defaultPublication` written or synthesized without live evidence (`src/JitML/Bootstrap.hs`, `src/JitML/Cluster/Publication.hs`, `src/JitML/App.hs`) | Sprint `3.7` (2026-06-30) | Bootstrap materialization no longer writes `cluster-publication.json`; measured live publications carry `evidence: live-readiness`; `cluster status` exits through typed configuration failure for missing, corrupt, or no-live-evidence publications instead of synthesizing ready state. Validation: spawned-binary integration regressions cover missing publication, corrupt bytes, and default all-ready publication without evidence; live `cluster status` reports `evidence: live-readiness`. |
+| Mounted `RunConfig.dhall` decode failure treated as missing in `src/JitML/Service/RunConfig.hs` and worker callers | Sprint `5.17` (2026-06-30) | `RunConfig.tryLoadFile` now distinguishes `RunConfigMissing`, `RunConfigLoaded`, and `RunConfigDecodeFailed`; worker Training/Tune/RL entrypoints, broker-target lookup, and experiment-hash lookup route present-but-malformed mounts to `InvalidConfig` before workflow side effects. Env/default fallback remains only when no mounted file exists for developer-local invocations. Validation: `jitml-unit --linux-cpu` 239/239 includes malformed mounted Training/Tune/RL regressions; `jitml-daemon-lifecycle --linux-cpu` 32/32; live `jitml-integration --linux-cpu` 77/77; `check-code: ok`. |
+| Display-only tuning CLI overrides in local tune execution (`src/JitML/App.hs`) | Sprint `9.16` (2026-06-30) | `runTune` applies `JitML.Experiment.Overrides.applyOverrides` before rendering/validation and passes the resolved experiment into local artifact writing, so sampler/trial overrides drive `tune-trials` artifacts and best-trial checkpoint promotion. Validation: `jitml-hyperparameter --linux-cpu` 17/17; live `jitml-integration --linux-cpu` 77/77. |
+| Daemon tuning worker catalog-product fallback that ignores `TuneRunConfig` axes (`src/JitML/App.hs`, `src/JitML/Service/Workload.hs`) | Sprint `9.16` (2026-06-30) | Worker tuning event publication reads `turcSampler`, `turcScheduler`, `turcPruner`, trial budget, and sweep seed from mounted `TuneRunConfig`; absent mounts retain developer-local fallback, but malformed mounts fail closed through Sprint `5.17`. Integration assertions prove a non-default dispatched axis is the axis that runs and is published. Validation: live `jitml-integration --linux-cpu` 77/77, including daemon `StartSweep` placement. |
 | Untyped local checkpoint object-key guard in `JitML.Checkpoint.Store.safeRelativePath` | Sprint `10.11` (2026-06-30) | Local object-key-to-path conversion now returns `Either Text FilePath`; empty, absolute, and parent-traversing keys are rejected before filesystem path construction. Local checkpoint write/read/list helpers propagate typed validation failures, app write sites render them as `InvalidConfig`, and spawned local `jitml internal gc ../escape` exits through `InvalidConfig` rather than process termination. Validation: `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed 237/237; `docker compose run --rm jitml jitml test jitml-integration --linux-cpu` passed 77/77 including 19/19 `Live`; `docker compose run --rm jitml jitml check-code` passed. |
 | Untyped tuning resume decode bottom in `JitML.Tune.Resume.replaySweep` | Sprint `9.15` (2026-06-30) | `ResumeOutcome.resumeReadFailures` now carries `(trial-key, ResumeReadFailure)`, with `ResumeServiceFailure ServiceError` for missing/read failures and `ResumeDecodeFailure Text` for corrupt transcript bytes. `ResumeOutcome` `Show` / `Eq` are total, so corrupt transcripts remain structured data at the caller boundary. Validation: `docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu` passed 17/17; after a fresh image build and `jitml bootstrap --linux-cpu` 105-step rollout, `docker compose run --rm jitml jitml test jitml-integration --linux-cpu` passed 77/77 including 19/19 `Live`; `docker compose run --rm jitml jitml check-code` passed. |
 | Untyped RL device-failure bottoms in DQN / QR-DQN / HER / continuous trainer update helpers | Sprint `8.15` (2026-06-29) | `trainDqnOnDevice`, `trainQrDqnOnDevice`, `trainHerOnDevice`, and `trainContinuousOnDevice` now return `Either Text` and propagate forward, batch-gradient, and input-gradient failures through `runTrainerEpisodes` without partial episode projection or publication. ARS remains the only no-MLP exception; no pure fallback was reintroduced. Unit regressions inject failing `MlpDevice` operations. Validation: `docker compose run --rm jitml jitml test jitml-unit --linux-cpu`, `docker compose run --rm jitml jitml test jitml-rl-canonicals --linux-cpu`, `docker compose run --rm jitml jitml test jitml-backends --linux-cpu`, and `docker compose run --rm jitml jitml check-code` all passed. |

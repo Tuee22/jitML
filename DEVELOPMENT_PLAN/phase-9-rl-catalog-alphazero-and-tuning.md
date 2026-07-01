@@ -21,20 +21,15 @@
 
 ## Phase Status
 
-✅ **Done** (reopened 2026-06-29; re-closed 2026-06-30 for Sprint `9.15`).
-The fixed-budget RL, AlphaZero, and tuning metric surfaces remain historically
-validated, and tuning resume/replay audit data is now total. `ResumeOutcome`
-records read failures as `(trial-key, ResumeReadFailure)`, where
-`ResumeServiceFailure ServiceError` covers missing/read failures and
-`ResumeDecodeFailure Text` covers corrupt transcript bytes. `ResumeOutcome`
-`Show` / `Eq` remain total, so callers can abort or rerun corrupt trials from
-structured data instead of encountering a latent bottom. Validation passed:
-`docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu`
-(**17 / 17**), `docker compose run --rm jitml jitml bootstrap --linux-cpu`
-(105-step live rollout after the fresh image build), `docker compose run --rm
-jitml jitml test jitml-integration --linux-cpu` (**77 / 77**, including **19 /
-19** `Live`), and `docker compose run --rm jitml jitml check-code`
-(`check-code: ok`). No Phase `9` blocker or remaining work survives.
+✅ **Done** (re-closed 2026-06-30 by Sprint `9.16`). The fixed-budget RL,
+AlphaZero, tuning metric, typed tuning-resume failure, and tuning-control
+surfaces are closed again. CLI tuning overrides are applied to the resolved
+experiment before validation, plan rendering, local trial/artifact writing, and
+best-trial checkpoint promotion. Daemon-dispatched tuning workers read
+sampler/scheduler/pruner/trial budget from mounted `TuneRunConfig` instead of
+silently enumerating the whole catalog product. Validation passed
+`jitml-hyperparameter` 17/17 and the live `jitml-integration --linux-cpu` lane
+77/77. Prior closure history follows.
 
 Historical Sprint `9.14` closure:
 stand-alone fixed-budget convergence metrics for every RL algorithm and
@@ -1219,6 +1214,53 @@ message, not a bottom hidden inside `resumeReadFailures`.
   passed **77 / 77**, including **19 / 19** `Live` cases and the corrupt
   transcript decode-failure regression.
 - `docker compose run --rm jitml jitml check-code` passed (`check-code: ok`).
+
+### Remaining Work
+
+- None.
+
+## Sprint 9.16: Tuning Override and Worker Axis Fidelity ✅
+
+**Status**: Done (closed 2026-06-30)
+**Implementation**: `src/JitML/App.hs`, `src/JitML/Tune/Catalog.hs`,
+`src/JitML/Service/Workload.hs`, `src/JitML/Service/RunConfig.hs`,
+`test/hyperparameter/Main.hs`, `test/integration/Main.hs`
+**Docs to update**: `README.md`, `documents/engineering/training_workloads.md`,
+`system-components.md`, `legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make tuning control values real. A sampler/scheduler/pruner/trial count selected
+by CLI override or daemon `TuneRunConfig` must be the value used by validation,
+trial selection, local artifact writing, checkpoint promotion, and report-card
+measurement.
+
+### Deliverables
+
+- Apply `JitML.Experiment.Overrides.applyOverrides` to the decoded tuning
+  experiment before rendering the plan, validating the axes, computing local
+  trials, writing `tune-trials`, or writing the best-trial checkpoint.
+- Ensure `writeLocalTuneArtifacts` consumes the resolved/overridden experiment,
+  not the original Dhall value.
+- Make daemon-dispatched worker tuning consume `turcSampler`, `turcScheduler`,
+  and `turcPruner` from `TuneRunConfig`; workers must not enumerate the whole
+  catalog product unless the resolved config explicitly asks for that behaviour.
+- Add tests that `jitml tune experiments/mnist-tune.dhall --sampler Sobol
+  --trials 2` changes both rendered output and local artifact/trial selection,
+  and that a daemon `StartSweep` with a non-default axis runs that axis in the
+  worker event path.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-hyperparameter --linux-cpu`
+  passed **17 / 17**.
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+  passed **77 / 77**, including **19 / 19** `Live` cases and the live daemon
+  `StartSweep` placement path.
+- `docker compose run --rm jitml jitml docs check` is rerun after the Sprint
+  `9.16` documentation updates.
+- `docker compose run --rm jitml jitml check-code` is rerun after the Sprint
+  `9.16` documentation updates.
 
 ### Remaining Work
 

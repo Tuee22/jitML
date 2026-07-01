@@ -15,6 +15,13 @@ declared by the durable-state registry and held consistent with the per-substrat
 routing in `JitML.Coordinator.Topology` by a `jitml-unit` anti-drift test
 (`topologyLogicalNames`). See [durable_state_dsl.md](durable_state_dsl.md).
 
+**Current run-config closure (2026-06-30):** Phase `5` Sprint `5.17` makes a
+mounted worker `RunConfig.dhall` authoritative. `JitML.Service.RunConfig` returns
+`RunConfigMissing`, `RunConfigLoaded`, or `RunConfigDecodeFailed`; worker entry
+points treat decode failure as `InvalidConfig` before any workflow side effect.
+Env/default fallbacks are reserved for explicit local developer invocations where
+no mounted Job config exists.
+
 ## Service Daemon Model
 
 There is **one CLI verb for the daemon — `jitml service` — parameterised
@@ -171,6 +178,14 @@ messages. 2026-05-21 live Linux CPU validation proves this normal path handles
 `InferenceResult`, and proves a missing-checkpoint dispatch failure is
 negative-acked until broker redelivery publishes the result after the checkpoint
 is seeded.
+
+Worker Jobs use the sibling `RunConfig` surface mounted at `/etc/jitml/run/`.
+Training, tuning, and RL workers read the typed Dhall before consulting any
+developer-side fallback. Decode failure is fatal when the mounted file exists:
+a corrupt `TuneRunConfig`, `TrainingRunConfig`, or `RlRunConfig` must not turn
+into a different sampler, default seed, default trainer, or default environment.
+That fail-closed boundary is part of the same Application Environment doctrine
+that removed the former `JITML_*` run-parameter IPC.
 
 The live `chart/local/jitml-service` ConfigMap carries the same current Dhall
 surface: residency and inference mode use typed union constructors, and

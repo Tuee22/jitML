@@ -630,7 +630,17 @@ main =
                   (Rl.StartRLRun "cuda-rl" "ppo" "cartpole" LinuxCUDA 7 128 4)
               tuneCuda =
                 renderTuneJob
-                  (Tune.StartSweep "cuda-tune" "experiments/mnist-tune.dhall" LinuxCUDA 99 3 100 "TPE" "ASHA" "Median")
+                  ( Tune.StartSweep
+                      "cuda-tune"
+                      "experiments/mnist-tune.dhall"
+                      LinuxCUDA
+                      99
+                      3
+                      100
+                      "Sobol"
+                      "Fifo"
+                      "NoPruner"
+                  )
               trainingCpu =
                 renderTrainingJob
                   (Training.StartTraining "cpu-train" "experiments/mnist.dhall" LinuxCPU 11 2 32)
@@ -671,6 +681,15 @@ main =
           assertComputeJob "training-cuda" trainingCuda
           assertComputeJob "rl-cuda" rlCuda
           assertComputeJob "tune-cuda" tuneCuda
+          assertBool
+            "tune RunConfig preserves StartSweep sampler"
+            ("sampler = \"Sobol\"" `Text.isInfixOf` tuneCuda)
+          assertBool
+            "tune RunConfig preserves StartSweep scheduler"
+            ("scheduler = \"Fifo\"" `Text.isInfixOf` tuneCuda)
+          assertBool
+            "tune RunConfig preserves StartSweep pruner"
+            ("pruner = \"NoPruner\"" `Text.isInfixOf` tuneCuda)
           assertComputeJob "training-cpu" trainingCpu
           assertCudaJob "training" trainingCuda
           assertCudaJob "rl" rlCuda

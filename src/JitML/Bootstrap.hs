@@ -77,6 +77,8 @@ import JitML.Cluster.PostgresRegistry
 import JitML.Cluster.Publication
   ( ClusterPublication (..)
   , defaultPublication
+  , markPublicationLive
+  , publicationHasLiveEvidence
   , publicationWithLeasedPort
   )
 import JitML.Cluster.PulsarBootstrap (runPulsarTopicCreatesIO)
@@ -197,9 +199,6 @@ materializeBootstrapFiles root substrate = do
         writeTextFileIfChanged (hostConfRoot </> "apple-silicon.dhall") $
           renderBootConfigDhall (hostBootConfigForPublication (defaultPublication AppleSilicon))
     _ -> pure []
-  publicationChanged <-
-    writeLazyByteStringIfChanged (runtimeRoot </> "cluster-publication.json") $
-      encode (defaultPublication substrate)
   -- Sprint 2.14 — materialize the in-cluster Docker Hub imagePullSecret manifest
   -- from the host login (the credential lands only in this gitignored file).
   hostRegcred <- discoverHostDockerHubRegcred
@@ -213,7 +212,7 @@ materializeBootstrapFiles root substrate = do
             <> routeResults
             <> configResults
             <> hostResults
-            <> [publicationChanged, legacyValuesChanged, standaloneValuesChanged, regcredChanged]
+            <> [legacyValuesChanged, standaloneValuesChanged, regcredChanged]
         )
     )
  where
@@ -978,8 +977,12 @@ readExistingLivePublication root = do
   if exists
     then do
       bytes <- LazyByteString.readFile path
-      pure (eitherToMaybe (eitherDecode bytes))
+      pure (eitherToMaybe (eitherDecode bytes) >>= liveOnly)
     else pure Nothing
+ where
+  liveOnly publication
+    | publicationHasLiveEvidence publication = Just publication
+    | otherwise = Nothing
 
 eitherToMaybe :: Either error value -> Maybe value
 eitherToMaybe (Right value) = Just value
@@ -997,7 +1000,7 @@ instance FromJSON HelmStatus where
 measureLivePublication :: ClusterPublication -> IO ClusterPublication
 measureLivePublication publication = do
   components <- traverse measureComponent publicationHealthChecks
-  pure publication {publicationComponents = components}
+  pure (markPublicationLive publication {publicationComponents = components})
 
 publicationHealthChecks :: [(Text, [Text])]
 publicationHealthChecks =

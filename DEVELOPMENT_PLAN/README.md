@@ -43,21 +43,19 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🎉 ALL PHASES `0`–`18` reached `✅ Done` again (2026-06-30).** A full
-documentation/codebase audit found five closure gaps whose fix shape is now part
-of the execution plan. Phase `0` re-closed after documentation metadata
-enforcement landed in `jitml docs check`; Phases `1`, `8`, `9`, and `10`
-re-closed after landing typed numeric CLI parsing, typed fail-closed RL device
-errors, typed tuning resume decode failures, and typed checkpoint object-key
-validation. Phase `18` Sprint `18.6` re-aggregated those fixes on the
-`linux-cpu` handoff lane: `docker compose run --rm jitml jitml test all --live
---linux-cpu` passed **8 / 8** stanzas (`jitml-unit` **237 / 237**,
-`jitml-integration` **77 / 77**, `jitml-sl-canonicals` **24 / 24**,
-`jitml-rl-canonicals` **31 / 31**, `jitml-hyperparameter` **17 / 17**,
-`jitml-daemon-lifecycle` **32 / 32**, `jitml-e2e` **23 / 23**,
-`jitml-backends` **23 / 23**) with populated report-card measurements and
-`browser_product_matrix` **8 / 8** at edge `:9091`. The Pending Removal ledger
-is empty again.
+**🎉 ALL PHASES `0`–`18` reached `✅ Done` again (2026-06-30).** A follow-up
+documentation/codebase audit found five implementation deviations from the
+real-workflow contract. Sprint `3.7` closed the two cluster lifecycle deviations:
+`jitml cluster up` now performs the documented live Kind/Helm reconcile, and
+missing/corrupt/no-live-evidence cluster publications fail closed instead of
+looking ready. Sprint `5.17` closed the mounted worker `RunConfig` decode
+deviation. Sprint `9.16` closed the tuning deviations: `jitml tune` CLI overrides
+now drive local artifacts, and daemon-dispatched tuning workers use the
+sampler/scheduler/pruner stored in `TuneRunConfig`. The Pending Removal ledger
+is empty again. Sprint `18.7` reran the `linux-cpu` no-caveat aggregation:
+`jitml test all --live --linux-cpu` passed **8 / 8** stanzas with
+`browser_product_matrix` **8 / 8** at edge `:9091`; `docs check: ok` and
+`check-code: ok`.
 
 The prior HA topology handoff remains historical evidence, not current closure:
 Phases `3`, `4`, and `5` closed the HA Kind/platform/compute-cardinality work;
@@ -1109,6 +1107,22 @@ The historical execution order remains strictly phase-ordered: each phase closes
 on its owning implementation and validation lane before the final handoff phase
 can close.
 
+The roadmap reopened again on 2026-06-30 for real cluster/tuning/runtime-config
+correctness and closed in this order:
+
+1. **Phase `3` Sprint `3.7` — live cluster lifecycle and publication truth.**
+   `jitml cluster up` performs the documented live Kind/Helm reconcile and
+   `cluster status` fails closed on missing/corrupt/default-ready publications.
+2. **Phase `5` Sprint `5.17` — fail-closed worker RunConfig.** Mounted
+   `RunConfig.dhall` decode failure is `InvalidConfig`; env/default fallback is
+   preserved only for non-Job developer invocations where no mount exists.
+3. **Phase `9` Sprint `9.16` — tuning override and worker-axis fidelity.** CLI
+   overrides apply before validation/artifact writing, and daemon-dispatched
+   workers consume the exact `TuneRunConfig` sampler/scheduler/pruner axes.
+4. **Phase `18` Sprint `18.7` — final re-aggregation.** The `linux-cpu`
+   no-caveat handoff reran after `3.7`, `5.17`, and `9.16` closed and all new
+   Pending Removal rows moved to `Completed`.
+
 As of 2026-05-29, Phases `2`–`5` reopened for the cluster resource-guardrail and
 Dhall/functional-logic workstreams (see
 [Reopened phases (2026-05-29)](#reopened-phases-2026-05-29)). Their code-surface
@@ -1216,13 +1230,13 @@ obligation exists.
 | 0 | Planning and Documentation Topology | ✅ Done (Sprint 0.3 — governed-document metadata enforcement; `docs check`, `lint docs`, `check-code` green 2026-06-29) | [phase-0-planning-documentation.md](phase-0-planning-documentation.md) |
 | 1 | Haskell CLI Surface, `CommandSpec`, Lint Stack | ✅ Done (Sprint 1.17 — typed numeric CLI parsing; `jitml-unit --linux-cpu`, `docs check`, `check-code` green 2026-06-29) | [phase-1-haskell-cli-surface.md](phase-1-haskell-cli-surface.md) |
 | 2 | Bootstrap Reconciler, Prerequisite DAG, JIT Cache | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — durable-state Dhall DSL foundation: `jitml.dhall` / `dhall/project/Schema.dhall`, `jitml project init`, the asserted `Budget`/`fitsWithin`; Sprint 2.15, jitml-unit 217/217) | [phase-2-bootstrap-reconciler-and-jit-cache.md](phase-2-bootstrap-reconciler-and-jit-cache.md) |
-| 3 | Cluster Substrate and Routing | ✅ Done | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
+| 3 | Cluster Substrate and Routing | ✅ Done (Sprint 3.7 — live `cluster up` reconcile and fail-closed publication/status truth; live `jitml-integration --linux-cpu` 77/77 and `check-code` green 2026-06-30) | [phase-3-cluster-substrate-and-routing.md](phase-3-cluster-substrate-and-routing.md) |
 | 4 | Stateful Platform Services | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 4.9: `bucketNames` now projected from the durable-state `StoreRegistry`, hand-written `[Text]` retired; jitml-unit 217/217, jitml-e2e 23/23) | [phase-4-stateful-platform-services.md](phase-4-stateful-platform-services.md) |
-| 5 | `jitml service` Daemon | ✅ Done (reopened 2026-06-23, re-closed 2026-06-24 — Sprint 5.15: registry declares the logical Pulsar topic family + topology anti-drift check; jitml-unit 218/218) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
+| 5 | `jitml service` Daemon | ✅ Done (Sprint 5.17 — mounted worker `RunConfig.dhall` decode failures fail closed; `jitml-unit`, `jitml-daemon-lifecycle`, live `jitml-integration --linux-cpu`, and `check-code` green 2026-06-30) | [phase-5-jitml-service-daemon.md](phase-5-jitml-service-daemon.md) |
 | 6 | Numerical Core | ✅ Done | [phase-6-numerical-core.md](phase-6-numerical-core.md) |
 | 7 | JIT Codegen and Per-Substrate Execution | ✅ Done (reopened/re-closed 2026-06-12 — fixed host Metal bridge and source-metadata Apple cache, Sprint 7.11) | [phase-7-jit-codegen-and-substrates.md](phase-7-jit-codegen-and-substrates.md) |
 | 8 | Supervised Learning and RL Framework | ✅ Done (Sprint 8.15 — typed fail-closed RL device errors; `jitml-unit`, `jitml-rl-canonicals`, `jitml-backends`, `check-code` green 2026-06-29) | [phase-8-supervised-and-rl-framework.md](phase-8-supervised-and-rl-framework.md) |
-| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (Sprint 9.15 — typed tuning resume decode failures; `jitml-hyperparameter`, live `jitml-integration`, and `check-code` green 2026-06-30) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
+| 9 | RL Algorithm Catalog, AlphaZero, and Hyperparameter Tuning | ✅ Done (Sprint 9.16 — tuning CLI overrides and daemon `TuneRunConfig` axes drive actual local and worker sweep artifacts; `jitml-hyperparameter --linux-cpu`, live `jitml-integration --linux-cpu`, and `check-code` green 2026-06-30) | [phase-9-rl-catalog-alphazero-and-tuning.md](phase-9-rl-catalog-alphazero-and-tuning.md) |
 | 10 | Checkpointing and Inference-Only Read Path | ✅ Done (Sprint 10.11 — typed checkpoint object-key validation; `jitml-unit`, live `jitml-integration`, and `check-code` green 2026-06-30) | [phase-10-checkpointing-and-inference.md](phase-10-checkpointing-and-inference.md) |
 | 11 | PureScript Frontend and Demo | ✅ Done (Sprint 11.11 — all-model UI matrix, convergence display, trained-artifact selection, and generated admin portal navigation) | [phase-11-purescript-frontend-and-demo.md](phase-11-purescript-frontend-and-demo.md) |
 | 12 | Test Stanzas, Lint Matrix, Live Workflow Matrix | ✅ Done (Sprint 12.15 — per-model integration/e2e matrix and infer-before-complete rejection) | [phase-12-test-stanzas-and-cross-cluster.md](phase-12-test-stanzas-and-cross-cluster.md) |
@@ -1231,7 +1245,33 @@ obligation exists.
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.22 — HA linux-cuda lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (Sprint 18.6 — re-aggregated after typed-failure/docs-governance remediation; 8/8 live linux-cpu stanzas and populated browser matrix 2026-06-30) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (Sprint 18.7 — real cluster/tuning/runtime-config re-aggregation; live `linux-cpu` 8/8, browser matrix 8/8, `docs check`, and `check-code` green 2026-06-30) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+
+## Reopened phases (2026-06-30 — real cluster/tuning/runtime-config audit)
+
+The 2026-06-30 audit reopened Phases `3`, `5`, and `9` because the worktree still
+contained behaviours that could make an ML workflow appear real while bypassing
+the live cluster or the selected tuning configuration. Those lower-phase rows
+are now closed, and Phase `18` Sprint `18.7` has re-aggregated the handoff with
+the final live, docs, and code-quality gates green.
+
+- **Phase `3` / Sprint `3.7`** closed live cluster lifecycle truth: `jitml
+  cluster up` performs the lower-level Kind/Helm reconciler and `cluster status`
+  fails closed unless the publication carries live readiness evidence.
+- **Phase `5` / Sprint `5.17`** closed fail-closed worker config: mounted
+  `RunConfig.dhall` decode failure is fatal, while defaults/env fallbacks survive
+  only for explicit non-Job developer invocations with no mount.
+- **Phase `9` / Sprint `9.16`** closed tuning fidelity: `jitml tune` CLI
+  overrides apply before plan rendering, local artifact writing, checkpoint
+  promotion, and report-card measurement; daemon workers consume the
+  sampler/scheduler/pruner fields in `TuneRunConfig`.
+- **Phase `18` / Sprint `18.7`** has rerun the final `linux-cpu` no-caveat
+  aggregation with **8 / 8** stanzas and `browser_product_matrix` **8 / 8**;
+  `docs check` and `check-code` are green.
+
+Phases `15`, `16`, and `17` remain historical evidence for their owned lane
+surfaces. Sprint `18.7` consumed that evidence after the reopened lower-phase
+behaviours were fixed and re-aggregated.
 
 ## Reopened phases (2026-06-26 — fixed-budget all-model trained-artifact contract)
 

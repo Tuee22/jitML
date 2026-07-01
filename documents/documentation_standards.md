@@ -272,18 +272,22 @@ commands, and drift enforcement for documentation contributors.
 
 ### Marker Conventions
 
-Generated sections are delimited by paired sentinel comments in the host
-syntax of the target file. The marker key is dotted, hierarchical, and unique
-across the `GeneratedSectionRule` registry.
+Generated sections are delimited by paired sentinel comments. The marker key is
+dotted, hierarchical, and unique across the `GeneratedSectionRule` registry.
+
+The current marker-delimited implementation supports Markdown HTML comments
+only:
 
 | File type | Start marker | End marker |
 |-----------|--------------|------------|
 | Markdown | `<!-- jitml:<key>:start -->` | `<!-- jitml:<key>:end -->` |
-| YAML | `# jitml:<key>:start` | `# jitml:<key>:end` |
-| Haskell | `-- jitml:<key>:start` | `-- jitml:<key>:end` |
-| C / C++ / Rust | `// jitml:<key>:start` | `// jitml:<key>:end` |
-| PureScript | `-- jitml:<key>:start` | `-- jitml:<key>:end` |
-| Dhall | `-- jitml:<key>:start` | `-- jitml:<key>:end` |
+
+Do not add YAML, Haskell, PureScript, Dhall, C/C++, Rust, or other host-syntax
+sentinels until `JitML.Generated.Registry` and `JitML.Docs.Check` support both
+writing and checking that syntax. Non-Markdown generated artifacts are currently
+owned either as whole generated files through the tracked-generated-paths
+registry or through a domain-specific lint/check surface, not by marker-delimited
+regions.
 
 Example: a generated route table inside `engineering/cluster_topology.md`
 might look like:
@@ -341,7 +345,9 @@ The doctrine's five-step extension protocol:
 
 1. Define or extend the renderer in the relevant Haskell library module under
    `src/JitML/Generated/`.
-2. Add the marker pair to the target file using the conventions above.
+2. Add the Markdown marker pair to the target file using the conventions above,
+   or add a whole-file generated artifact to the tracked-generated-paths registry
+   when the target is not Markdown.
 3. Register a new `GeneratedSectionRule` or `TrackedGeneratedPath` entry in
    the in-code registry at `src/JitML/Generated/Registry.hs` or
    `src/JitML/Generated/Paths.hs`.

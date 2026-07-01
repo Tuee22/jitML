@@ -10,6 +10,7 @@ module JitML.Experiment.Overrides
   , hasTuningOverrides
   , parseExperimentOverrides
   , parseTuningOverrides
+  , applyOverrides
   , overrideSubstrate
   , overrideSeed
   , overrideSampler
@@ -36,6 +37,11 @@ import JitML.Tune.Catalog
   ( Pruner
   , Sampler
   , Scheduler
+  , TuningConfig (..)
+  , TuningExperiment (..)
+  , TuningPruner (..)
+  , TuningSampler (..)
+  , TuningScheduler (..)
   , prunerFromText
   , samplerFromText
   , schedulerFromText
@@ -190,6 +196,31 @@ overrideTrials ovr base = fromMaybe base (toTrials ovr)
 
 overrideParallelism :: TuningOverrides -> Natural -> Natural
 overrideParallelism ovr base = fromMaybe base (toParallelism ovr)
+
+applyOverrides :: TuningOverrides -> TuningExperiment -> TuningExperiment
+applyOverrides ovr experiment =
+  experiment {tuningExperimentConfig = fmap applyConfig (tuningExperimentConfig experiment)}
+ where
+  applyConfig config =
+    config
+      { tuningConfigSampler =
+          (tuningConfigSampler config)
+            { tuningSamplerKind =
+                overrideSampler ovr (tuningSamplerKind (tuningConfigSampler config))
+            }
+      , tuningConfigScheduler =
+          (tuningConfigScheduler config)
+            { tuningSchedulerKind =
+                overrideScheduler ovr (tuningSchedulerKind (tuningConfigScheduler config))
+            }
+      , tuningConfigPruner =
+          (tuningConfigPruner config)
+            { tuningPrunerKind =
+                overridePruner ovr (tuningPrunerKind (tuningConfigPruner config))
+            }
+      , tuningConfigTrials = overrideTrials ovr (tuningConfigTrials config)
+      , tuningConfigParallelism = overrideParallelism ovr (tuningConfigParallelism config)
+      }
 
 -- | Human-readable summary of which overrides are present, suitable for
 -- inclusion in `--dry-run` plan output and CLI summaries.

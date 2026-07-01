@@ -3,12 +3,15 @@
 module JitML.Cluster.Publication
   ( ClusterPublication (..)
   , defaultPublication
+  , markPublicationLive
+  , publicationHasLiveEvidence
   , publicationWithLeasedPort
   , renderPublicationSummary
   )
 where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, (.:), (.:?), (.=))
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 
@@ -21,6 +24,7 @@ data ClusterPublication = ClusterPublication
   , publicationPulsarUrl :: Text
   , publicationMinioUrl :: Text
   , publicationComponents :: [(Text, Text)]
+  , publicationEvidence :: Maybe Text
   }
   deriving stock (Eq, Show)
 
@@ -32,6 +36,7 @@ instance ToJSON ClusterPublication where
       , "pulsar_url" .= publicationPulsarUrl publication
       , "minio_url" .= publicationMinioUrl publication
       , "components" .= fmap componentObject (publicationComponents publication)
+      , "evidence" .= publicationEvidence publication
       ]
    where
     componentObject (name, status) =
@@ -52,6 +57,7 @@ instance FromJSON ClusterPublication where
         <*> objectValue .: "pulsar_url"
         <*> objectValue .: "minio_url"
         <*> traverse parseComponent components
+        <*> objectValue .:? "evidence"
    where
     parseComponent =
       withObject "component" $ \component ->
@@ -77,7 +83,16 @@ defaultPublication substrate =
         , ("jitml-service", "ready")
         , ("jitml-demo", "ready")
         ]
+    , publicationEvidence = Nothing
     }
+
+markPublicationLive :: ClusterPublication -> ClusterPublication
+markPublicationLive publication =
+  publication {publicationEvidence = Just "live-readiness"}
+
+publicationHasLiveEvidence :: ClusterPublication -> Bool
+publicationHasLiveEvidence publication =
+  publicationEvidence publication == Just "live-readiness"
 
 -- | Overlay a `leaseEdgePort` result onto a `ClusterPublication`,
 -- rewriting `publicationEdgePort` and the Pulsar / MinIO URLs so they
@@ -111,6 +126,7 @@ renderPublicationSummary publication =
     , "edge_port: " <> Text.pack (show (publicationEdgePort publication))
     , "pulsar_url: " <> publicationPulsarUrl publication
     , "minio_url: " <> publicationMinioUrl publication
+    , "evidence: " <> fromMaybe "none" (publicationEvidence publication)
     , "components:"
     ]
       <> fmap renderComponent (publicationComponents publication)

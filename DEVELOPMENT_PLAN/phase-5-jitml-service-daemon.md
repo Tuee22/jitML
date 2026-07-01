@@ -24,20 +24,14 @@
 
 ## Phase Status
 
-✅ **Done** (re-closed 2026-06-28 for Sprint `5.16`). The HA service topology now
-enforces **at most one numerical ML compute worker per compute scope per
-Kubernetes node**: Linux Engine service pods render three replicas,
-`jitml.compute="true"`, `jitml.compute-scope="service"`, `nodeSelector:
-jitml.node-role/compute=true`, required hostname anti-affinity, and hard
-topology spread; daemon-spawned Linux Training/RL/Tune Jobs render
-`jitml.compute-scope="workload"` with the same node-placement contract; Apple
-clustered service pods remain single non-compute forwarders so host Metal
-compute does not multiply with cluster replicas. Validation:
-`cabal build exe:jitml --ghc-options=-fasm`;
-`cabal test jitml-integration --ghc-options=-fasm --test-options='-p cardinality'`;
-`cabal test jitml-daemon-lifecycle --ghc-options=-fasm --test-options='-p cardinality'`.
-Live HA lane revalidation is owned by Phases `15` and `16`. Prior closure history
-follows.
+✅ **Done** (re-closed 2026-06-30 by Sprint `5.17`). Mounted worker
+`RunConfig.dhall` is authoritative: if the file exists but fails to decode, the
+worker exits through `InvalidConfig` before dataset fetch, trial selection,
+environment steps, checkpoint writes, or Pulsar publication. Env/default
+fallbacks remain only for explicit local developer invocations where no mounted
+RunConfig exists. Validation passed `jitml-unit` 239/239, `jitml-daemon-lifecycle`
+32/32, the live `jitml-integration --linux-cpu` lane 77/77, and
+`jitml check-code`. Prior closure history follows.
 
 ✅ **Done** (reopened 2026-06-23 for Sprint `5.15`; unblocked by Phases 2/4's
 2026-06-24 close, **re-closed 2026-06-24**) — the durable-state registry
@@ -907,8 +901,10 @@ ledger.
 ### Validation
 
 - `jitml rl train` / `jitml train` / `jitml tune` decode their parameters from the
-  typed Dhall with no `JITML_*` run-parameter or wiring env on the Job; a
-  missing/bad field fails typed rather than silently defaulting.
+  typed Dhall with no `JITML_*` run-parameter or wiring env on the Job. Sprint
+  `5.17` reopens the bad-field case because a present mounted file that fails
+  Dhall decoding is currently treated like an absent mount; the close condition
+  is a typed failure instead of silent defaulting.
 - Live (owned by Phase `15`): a dispatched train/rl/tune run produces the same
   results with the env IPC removed.
 
@@ -1595,6 +1591,49 @@ compute worker for a substrate.
 
 - None. Live HA substrate revalidation is tracked by Phase `15` Sprint `15.22`
   and Phase `16` Sprint `16.14`.
+
+## Sprint 5.17: Fail-Closed Mounted Worker `RunConfig` ✅
+
+**Status**: Done (closed 2026-06-30)
+**Implementation**: `src/JitML/Service/RunConfig.hs`, `src/JitML/App.hs`,
+`src/JitML/Service/Workload.hs`, worker config tests
+**Docs to update**: `documents/engineering/daemon_architecture.md`,
+`documents/engineering/training_workloads.md`, `system-components.md`,
+`legacy-tracking-for-deletion.md`
+
+### Objective
+
+Make mounted typed worker configuration authoritative. A daemon-dispatched Job
+with a present but malformed `RunConfig.dhall` must fail with a typed
+configuration error instead of silently running a default or env-derived workload.
+
+### Deliverables
+
+- Replace the `tryLoad*RunConfig` "decode error = Nothing" behaviour with a
+  result that distinguishes `missing` from `decode failed`.
+- Preserve env/default fallbacks only for explicit local developer invocations
+  where `/etc/jitml/run/RunConfig.dhall` does not exist.
+- Route malformed mounted Training/Tune/RL config to `AppError InvalidConfig`
+  before any dataset fetch, trial selection, environment step, checkpoint write,
+  or Pulsar publication.
+- Add regression coverage for malformed mounted `TrainingRunConfig`,
+  `TuneRunConfig`, and `RlRunConfig` bytes.
+
+### Validation
+
+- `docker compose run --rm jitml jitml test jitml-unit --linux-cpu` passed
+  **239 / 239**, including the Sprint `5.17` malformed mounted RunConfig
+  regression for Training/Tune/RL variants.
+- `docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu`
+  passed **32 / 32**, preserving rendered workload Job and RunConfig behavior.
+- `docker compose run --rm jitml jitml test jitml-integration --linux-cpu`
+  passed **77 / 77**, including **19 / 19** live cases against the `linux-cpu`
+  cluster publication.
+- `docker compose run --rm jitml jitml check-code` passed (`check-code: ok`).
+
+### Remaining Work
+
+- None.
 
 ## Related Documents
 

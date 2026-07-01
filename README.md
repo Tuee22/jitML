@@ -31,17 +31,18 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (all phases Done again 2026-06-30):** The
-> no-caveat product handoff has re-closed after the full-codebase clarity and
-> correctness audit. Phases `0`, `1`, `8`, `9`, and `10` re-closed on
-> documentation-governance hardening, typed numeric CLI parsing, typed
-> fail-closed RL device errors, typed tuning resume decode failures, and typed
-> checkpoint object-key validation; Phase `18` Sprint `18.6` then re-ran the
-> final `linux-cpu` aggregation. `docker compose run --rm jitml jitml test all
-> --live --linux-cpu` passed **8 / 8** stanzas with populated report-card
-> measurements and `browser_product_matrix` **8 / 8** at edge `:9091`. The
-> Pending Removal ledger is empty again. Known doctrine deviations and
-> duplicate/legacy surfaces live in
+> **Current product status (all phases Done again 2026-06-30):** A
+> documentation/code audit
+> found that the public no-caveat claim was ahead of current implementation.
+> Phase `3` has re-closed: `jitml cluster up` now performs the live Kind/Helm
+> reconciler and `cluster status` fails closed unless the publication carries
+> live readiness evidence. Phase `5` has re-closed with fail-closed mounted
+> worker `RunConfig` decoding, and Phase `9` has re-closed with tuning overrides
+> and daemon-dispatched tuning axes wired into the actual sweep/artifact paths.
+> Phase `18` Sprint `18.7` passed the live `linux-cpu` no-caveat aggregation
+> rerun with **8 / 8** stanzas and `browser_product_matrix` **8 / 8** at edge
+> `:9091`, followed by `docs check: ok` and `check-code: ok`.
+> Known doctrine deviations and duplicate/legacy surfaces live in
 > [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
 
 ---
@@ -348,7 +349,7 @@ memory and CPU (`docker update --memory/--memory-swap/--cpus`) from the typed
 `dhall/cluster/` resource profile, so the cluster footprint is bounded and a
 runaway rollout cannot exhaust the host.
 
-The edge port (Envoy listener) is selected starting at 9090 and incremented until available; recorded as the `edge_port` field of `./.build/runtime/cluster-publication.json` (the single file bootstrap writes; see [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) for its other fields) and reported by `jitml cluster status`. NodePort 30090 is the in-cluster service for the edge gateway.
+The edge port (Envoy listener) is selected starting at 9090 and incremented until available; recorded as the `edge_port` field of `./.build/runtime/cluster-publication.json` (the single file a successful live bootstrap or live cluster reconciler writes; see [Apple Silicon hybrid pattern](#apple-silicon-hybrid-pattern) for its other fields) and reported by `jitml cluster status`. Publication health is valid only when derived from live Kind/Helm/component readiness; a missing, corrupt, or locally materialized default publication is not a ready cluster and must fail closed. NodePort 30090 is the in-cluster service for the edge gateway.
 
 Kubeconfig lives at `./.build/jitml.kubeconfig`. The CLI never touches `~/.kube/config`. The `kindest/node` version is referenced in the Kind config under `./kind/cluster-<substrate>.yaml`; the same pin appears as a comment in `cabal.project` purely as a single-source-of-toolchain-truth record (Cabal itself does nothing with it), and the lint stack rejects drift between the two.
 
@@ -378,7 +379,7 @@ with ownership normalization.
 
 - `127.0.0.1:<edge-port>` — the single user-facing socket. Selected by bootstrap starting at `9090` and autoincremented if taken.
 - `NodePort 30090` — the in-cluster Envoy service that the edge port maps to.
-- `./.build/runtime/cluster-publication.json` — the single file bootstrap writes; `edge_port` lives here alongside `pulsar_url`, `minio_url`, and component health. `jitml cluster status` reads this file.
+- `./.build/runtime/cluster-publication.json` — the live publication written after a successful bootstrap or live cluster reconcile; `edge_port` lives here alongside `pulsar_url`, `minio_url`, and measured component health. `jitml cluster status` reads this file and must not synthesize a ready cluster from missing or invalid bytes.
 
 One Envoy-Gateway-API-owned localhost listener (`Gateway/jitml-edge`, port chosen by bootstrap starting at `9090`) backed by the repo-owned `EnvoyProxy/jitml-edge` service shape:
 
@@ -875,7 +876,7 @@ code-quality execution path.
 
 Per doctrine §Command Topology, commands are modelled as ordinary Haskell data types and the parser is generated from a separate `CommandSpec`. The current supported executable is `app/Main.hs` → `jitml` (control plane, daemon, Coordinator, Engine, and Webapp roles). The Kubernetes workload named `jitml-demo` is a Helm release/service/image tag that runs `jitml service --config /etc/jitml/BootConfig.dhall` with `activeRole = Webapp`; it is not a separate Cabal executable.
 
-This README is the authoritative documentation for the target command surface. In the implemented tree, `CommandSpec` is the code source that renders the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`bootstrap`, `cluster`, `rl`, `test`, `lint`, `docs`, `project`, `internal`) hold substrate bootstrap, lifecycle, reinforcement-learning, testing/tooling, project config, and internal support surfaces. Sub-ADTs that model >2-state workflows — `ClusterCommand` and the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `jitml bootstrap --<substrate>`, `cluster up`, `docs generate`, `lint --write`, and `internal gc` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers.
+This README is the authoritative documentation for the target command surface. In the implemented tree, `CommandSpec` is the code source that renders the optparse-applicative parser, `--help` text, JSON schema, Markdown, manpages, and the command tree below (doctrine §Command Topology + §Generated Artifacts). Top-level verbs (`train`, `eval`, `tune`) name the primary workflows; noun groups (`bootstrap`, `cluster`, `rl`, `test`, `lint`, `docs`, `project`, `internal`) hold substrate bootstrap, lifecycle, reinforcement-learning, testing/tooling, project config, and internal support surfaces. Sub-ADTs that model >2-state workflows — `ClusterCommand` and the RL lifecycle — are GADT-indexed in `src/` per doctrine §GADT-Indexed State Machines; the snapshot below elides phantom indices for readability. `jitml bootstrap --<substrate>`, `cluster up`, `docs generate`, `lint --write`, and `internal gc` are reconcilers (idempotent; no-op on match → exit code `3`) per doctrine §Reconcilers. Sprint `3.7` keeps the cluster lifecycle contract strict: `cluster up` performs the live lower-level Kind/Helm reconcile promised by the generated command docs, and `cluster status` reports ready only from a publication carrying live readiness evidence.
 
 **Generated mirror.** Every command-surface artifact in this README — the registry snapshot, the command tree, and generated help fragments — is rendered from `CommandSpec` by `jitml docs generate`.
 
@@ -1109,7 +1110,7 @@ Per doctrine §Application Environment and §Long-Running Daemons for the `Reade
 
 - **`BootConfig`** (immutable post-launch): listening port, MinIO endpoint, Pulsar broker URL, Harbor registry, kubeconfig path, drain deadline.
 - **`LiveConfig`** (hot-reloadable via SIGHUP): log level, request-timeout budgets, retry-policy values from [Retry policy](#retry-policy), inference batching/SLO knobs, and per-domain Pulsar dedup cache size/TTL.
-- **`RunConfig`** (per dispatched worker Job): the train/tune/rl run parameters (seed, epochs, batch size, max steps, eval episodes, sampler/scheduler/pruner, trial budgets, SL caps) are handed to worker Jobs as a typed Dhall `RunConfig` decoded through the same `loadBootConfig`-style path — not as `JITML_*` environment variables; worker Jobs mount the service ConfigMap to read `BootConfig` for substrate/Pulsar wiring, and the experiment hash is a CLI argument.
+- **`RunConfig`** (per dispatched worker Job): the train/tune/rl run parameters (seed, epochs, batch size, max steps, eval episodes, sampler/scheduler/pruner, trial budgets, SL caps) are handed to worker Jobs as a typed Dhall `RunConfig` decoded through the same `loadBootConfig`-style path — not as `JITML_*` environment variables; worker Jobs mount the service ConfigMap to read `BootConfig` for substrate/Pulsar wiring, and the experiment hash is a CLI argument. If a mounted `RunConfig.dhall` exists but fails to decode, the worker must fail with a typed configuration error; env/default fallbacks are only for explicit non-Job developer invocations where no mounted file exists.
 
 `Env` additionally carries the structured logger, metrics handle, shutdown signal, and explicit test hooks (e.g., a `clock` field so determinism tests can fix time). The lifecycle is exercised by the [`jitml-daemon-lifecycle`](#test-suite-stanzas) test stanza.
 
@@ -1245,7 +1246,7 @@ in
 
 # Hyperparameter tuning, first-class
 
-A `Tuning` block in any experiment Dhall converts a single-run definition into a multi-trial sweep. The same Dhall describes a single training run (no `tuning`) or a 128-trial sweep (`tuning = Some Tuning::{ … }`); CLI flags (`--sampler …`, `--scheduler …`, `--pruner …`) *override* the Dhall on each axis, never replace it.
+A `Tuning` block in any experiment Dhall converts a single-run definition into a multi-trial sweep. The same Dhall describes a single training run (no `tuning`) or a 128-trial sweep (`tuning = Some Tuning::{ … }`); CLI flags (`--sampler …`, `--scheduler …`, `--pruner …`) *override* the Dhall on each axis, never replace it. The resolved experiment is the only input to plan rendering, local tune artifacts, daemon `TuneRunConfig`, worker trial selection, checkpoint promotion, and report-card measurements; displaying overrides without applying them to the actual sweep is a bug, not an alternate mode.
 
 ## Search-space declaration
 

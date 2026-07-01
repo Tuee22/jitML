@@ -11,6 +11,7 @@ module JitML.Service.RunConfig
   ( TrainingRunConfig (..)
   , TuneRunConfig (..)
   , RlRunConfig (..)
+  , RunConfigLoadResult (..)
   , trainingRunConfigDecoder
   , tuneRunConfigDecoder
   , rlRunConfigDecoder
@@ -27,6 +28,7 @@ module JitML.Service.RunConfig
 where
 
 import Control.Exception (SomeException, try)
+import Control.Exception qualified as Exception
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Dhall qualified
@@ -71,6 +73,12 @@ data RlRunConfig = RlRunConfig
   , rlcAtariRomPath :: Maybe Text
   , rlcPulsarWsUrl :: Text
   }
+  deriving stock (Eq, Show)
+
+data RunConfigLoadResult a
+  = RunConfigMissing
+  | RunConfigLoaded a
+  | RunConfigDecodeFailed Text
   deriving stock (Eq, Show)
 
 naturalToInt :: Natural -> Int
@@ -128,29 +136,29 @@ loadTuneRunConfig = Dhall.inputFile tuneRunConfigDecoder
 loadRlRunConfig :: FilePath -> IO RlRunConfig
 loadRlRunConfig = Dhall.inputFile rlRunConfigDecoder
 
--- | Sprint 5.7 — return 'Nothing' when the per-run @RunConfig.dhall@ file is
--- absent (e.g., during a developer's local CLI invocation outside a Job pod).
--- Daemon-dispatched workers always see the file mounted by
--- 'JitML.Service.Workload.renderJobWithRunConfig'.
-tryLoadTrainingRunConfig :: FilePath -> IO (Maybe TrainingRunConfig)
+-- | Sprint 5.17 — distinguish an absent per-run @RunConfig.dhall@ from a
+-- present file that fails Dhall decoding. Local developer invocations may fall
+-- back only on 'RunConfigMissing'; mounted worker decode failures are fatal at
+-- the caller boundary.
+tryLoadTrainingRunConfig :: FilePath -> IO (RunConfigLoadResult TrainingRunConfig)
 tryLoadTrainingRunConfig = tryLoadFile trainingRunConfigDecoder
 
-tryLoadTuneRunConfig :: FilePath -> IO (Maybe TuneRunConfig)
+tryLoadTuneRunConfig :: FilePath -> IO (RunConfigLoadResult TuneRunConfig)
 tryLoadTuneRunConfig = tryLoadFile tuneRunConfigDecoder
 
-tryLoadRlRunConfig :: FilePath -> IO (Maybe RlRunConfig)
+tryLoadRlRunConfig :: FilePath -> IO (RunConfigLoadResult RlRunConfig)
 tryLoadRlRunConfig = tryLoadFile rlRunConfigDecoder
 
-tryLoadFile :: forall a. Dhall.Decoder a -> FilePath -> IO (Maybe a)
+tryLoadFile :: forall a. Dhall.Decoder a -> FilePath -> IO (RunConfigLoadResult a)
 tryLoadFile decoder path = do
   exists <- doesFileExist path
   if not exists
-    then pure Nothing
+    then pure RunConfigMissing
     else do
       attempt <- try (Dhall.inputFile decoder path) :: IO (Either SomeException a)
       case attempt of
-        Left _ -> pure Nothing
-        Right value -> pure (Just value)
+        Left err -> pure (RunConfigDecodeFailed (Text.pack (Exception.displayException err)))
+        Right value -> pure (RunConfigLoaded value)
 
 renderOptionalNatural :: Maybe Int -> Text
 renderOptionalNatural Nothing = "None Natural"

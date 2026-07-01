@@ -773,6 +773,33 @@ main =
                 assertBool
                   "cluster up --dry-run emits the typed Plan"
                   ("Command: jitml cluster up" `Text.isInfixOf` clusterStdout)
+                -- Sprint 3.7 — status must fail closed when no live
+                -- publication with readiness evidence exists.
+                (missingStatusExit, _missingStatusStdout, missingStatusStderr) <-
+                  runJitml ["cluster", "status"]
+                missingStatusExit @?= ExitFailure 2
+                assertBool
+                  "missing publication is not reported ready"
+                  ("cluster publication is missing" `Text.isInfixOf` missingStatusStderr)
+                let runtimeRoot = workdir </> ".build" </> "runtime"
+                    publicationPath = runtimeRoot </> "cluster-publication.json"
+                createDirectoryIfMissing True runtimeRoot
+                ByteString.Lazy.writeFile
+                  publicationPath
+                  (Aeson.encode (Publication.defaultPublication LinuxCPU))
+                (defaultStatusExit, _defaultStatusStdout, defaultStatusStderr) <-
+                  runJitml ["cluster", "status"]
+                defaultStatusExit @?= ExitFailure 2
+                assertBool
+                  "default-ready publication without evidence is rejected"
+                  ("no live readiness evidence" `Text.isInfixOf` defaultStatusStderr)
+                ByteString.Lazy.writeFile publicationPath "not-json"
+                (corruptStatusExit, _corruptStatusStdout, corruptStatusStderr) <-
+                  runJitml ["cluster", "status"]
+                corruptStatusExit @?= ExitFailure 2
+                assertBool
+                  "corrupt publication is rejected"
+                  ("cluster publication is corrupt" `Text.isInfixOf` corruptStatusStderr)
                 -- internal gc <hash> exits 3 on no-op
                 (gcExit, _gcStdout, _) <-
                   runJitml ["internal", "gc", "some-experiment-hash"]
@@ -846,15 +873,24 @@ main =
                     , "--sampler"
                     , "Sobol"
                     , "--trials"
-                    , "16"
+                    , "2"
                     ]
                 tuneOverrideExit @?= ExitSuccess
+                assertBool
+                  "tune rendered plan uses overridden sampler"
+                  ("sampler: Sobol" `Text.isInfixOf` tuneOverrideStdout)
+                assertBool
+                  "tune rendered plan uses overridden trial count"
+                  ("trials: 2" `Text.isInfixOf` tuneOverrideStdout)
                 assertBool
                   "tune override summary lists sampler"
                   ("sampler=Sobol" `Text.isInfixOf` tuneOverrideStdout)
                 assertBool
                   "tune override summary lists trials"
-                  ("trials=16" `Text.isInfixOf` tuneOverrideStdout)
+                  ("trials=2" `Text.isInfixOf` tuneOverrideStdout)
+                assertBool
+                  "local tune artifact uses overridden sampler in hash input"
+                  ("trial-checkpoint-experiment-hash: " `Text.isInfixOf` tuneOverrideStdout)
                 -- Sprint 1.12 — bare substrate aliases (cpu, cuda) fail
                 -- closed with a typed diagnostic naming the canonical
                 -- identifiers per Plan Standards rule B.
@@ -1251,9 +1287,10 @@ main =
                       , EdgePort.leasedHost = "127.0.0.1"
                       }
                   stalePublication =
-                    Publication.publicationWithLeasedPort
-                      staleLease
-                      (Publication.defaultPublication AppleSilicon)
+                    Publication.markPublicationLive $
+                      Publication.publicationWithLeasedPort
+                        staleLease
+                        (Publication.defaultPublication AppleSilicon)
                   runtimeRoot = root </> ".build" </> "runtime"
               createDirectoryIfMissing True runtimeRoot
               ByteString.Lazy.writeFile
