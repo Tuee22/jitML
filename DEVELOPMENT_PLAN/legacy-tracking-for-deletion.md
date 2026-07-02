@@ -24,6 +24,19 @@
 [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
 [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
+[phase-19-product-truth-gates.md](phase-19-product-truth-gates.md),
+[phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md),
+[phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md),
+[phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md),
+[phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md),
+[phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md),
+[phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md),
+[phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md),
+[phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md),
+[phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md),
+[phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md),
+[phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md),
+[phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
@@ -39,6 +52,17 @@ This ledger tracks **doctrine deviations and compatibility helpers**, not
 unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
 [development_plan_standards.md → C. Honest Completion Tracking](development_plan_standards.md#c-honest-completion-tracking).
+
+**2026-07-01 — product-truth reopen; ledger reopened.** The product-truth audit
+reopened no-caveat closure and the maintainer elected to implement the full
+documented model surface for real rather than narrow it. The forward chain is
+renumbered and extended to Phases `19`–`31` (new Phase `20` De-Fossilization &
+Scaffold Lint, Phase `23` General Differentiable Layer Engine, and Phase `26`
+AlphaZero Real Self-Play inserted). The legacy fake-ML fossils still present in
+the worktree and the accelerator-kernel scaffolds are enqueued under Pending
+Removal below, each naming the sprint that deletes or replaces it. The primary
+"implement it for real" obligations are not ledger rows — they live in the
+owning sprints' `### Remaining Work` per rule C.
 
 **2026-06-30 — real cluster/tuning/runtime-config audit; ledger reopened.** A
 follow-up documentation/codebase audit found five doctrine deviations that can
@@ -96,11 +120,11 @@ every documented model trains to a fixed terminating budget before inference.
 The worktree now carries the fixed-budget `CompletedTraining` witness,
 `InferenceEligibleCheckpoint` boundary, completed seeded demo manifests,
 all-model checkpoint/UI evidence, and live Playwright/product validation for
-the `linux-cpu` baseline. Phases `8`–`14` are Done again; Phase `15` revalidated
-the real `linux-cuda` lane, Phase `16` revalidated the real `apple-silicon`
-lane, Phase `17` aggregated the fragments, and Phase `18` re-closed the final
-handoff on 2026-06-26. The rows introduced by this audit have moved to
-`Completed` below.
+the historical `linux-cpu` baseline. Phases `8`–`14` were marked Done for that
+baseline; Phase `15` revalidated the real `linux-cuda` lane, Phase `16`
+revalidated the real `apple-silicon` lane, Phase `17` aggregated the fragments,
+and Phase `18` re-closed that historical handoff on 2026-06-26. The rows
+introduced by this audit have moved to `Completed` below.
 
 **2026-06-14 — no-caveat end-to-end product target (reopened; ledger
 non-empty).** The product bar is now explicit: every supported SL/RL/AlphaZero
@@ -279,16 +303,23 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-06-30): Pending Removal is empty.** The rows discovered by
-the typed-failure and docs-governance audit moved to `Completed`; the cluster
-rows from the real cluster/tuning/runtime-config audit also moved to
-`Completed` after Sprint `3.7`, the mounted RunConfig row moved to `Completed`
-after Sprint `5.17`, and the tuning rows moved to `Completed` after Sprint
-`9.16`.
+**Current state (2026-07-01): Pending Removal reopened by the product-truth
+audit.** The rows below are legacy fake-ML fossils and accelerator-kernel
+scaffolds present in the worktree that the Phase `19`–`31` chain deletes or
+replaces. Each row is removed when its owning sprint lands and the substrate
+lane it affects validates.
 
 | Item | Owning Sprint | Removal Condition |
 |------|---------------|-------------------|
-| _None_ | _N/A_ | Pending Removal is empty as of Sprint `9.16` closure on 2026-06-30. |
+| Dead deterministic RL scaffold `src/JitML/RL/VecEnv.hs` (zero product callers) | Sprint `20.1` | Deleted from the library and `jitml.cabal` exposed-modules. |
+| Fake non-learned RL loop `src/JitML/RL/Loop.hs` (`runRLLoop`/`runOneEpisode`) and `deterministicStep` in `src/JitML/RL/Environments.hs` | Sprint `20.1` | Relocated to test-support (scaffolding-only); removed from the library so no product module imports them. |
+| Fake-policy simulator runners `runSimulatedEpisode`/`runSimulatedEpisodes`/`runSimulatedEpisodesByName` in `src/JitML/RL/SimulatorLoop.hs` | Sprint `20.1` | Moved to test-support; the `SimulatedEpisode` projection type kept in a product module consumed by the real trainers. |
+| Stale `runTrainerEpisodes` docstring in `src/JitML/App.hs` claiming a deterministic-simulator fallback that no longer exists | Sprint `20.1` | Corrected to describe the fail-closed real-trainer dispatch. |
+| Fabricated `coPassed = True` / `coThreshold = Nothing` completion witness in `JitML.Training.Budget.completedTrainingFromMetrics` | Sprint `21.1` | Removed; completion witnesses derive `coPassed` from measured convergence against the per-row bar. |
+| Product-path seeded demo checkpoints (`seededDemoCheckpoints`, `*-demo-weights`) in `src/JitML/App.hs` | Sprint `27.1` | Retired from the product path; replaced by `jitml internal train-and-publish-product-rows` real trained artifacts. |
+| Identity-copy CUDA generic-family kernels and degenerate 1×1 weighted Conv2D/Conv3D plus misleading "cuBLAS/cuDNN scaffold" comments in `src/JitML/Codegen/Cuda.hs` | Sprint `29.1` | Replaced by real cuDNN/cuBLAS convolution/attention/pool/norm kernels. |
+| Dead cuBLAS/cuDNN bindings (`src/JitML/Engines/CublasBindings.hs`, `CudnnBindings.hs`) — linked and version-probed but never invoked | Sprint `29.1` | Wired into the real CUDA kernels or removed with their link flags. |
+| Identity-copy Metal generic-family kernels and degenerate 1×1 weighted conv in `src/JitML/Codegen/Metal.hs` | Sprint `30.1` | Replaced by real Metal (MPS/MSL) convolution/attention/pool/norm kernels. |
 
 New rows are enqueued here only when a sprint introduces or discovers a
 doctrine deviation or temporary stand-in (per standards rule I / L).

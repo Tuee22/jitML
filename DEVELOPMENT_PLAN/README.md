@@ -26,6 +26,19 @@
 [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
 [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
+[phase-19-product-truth-gates.md](phase-19-product-truth-gates.md),
+[phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md),
+[phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md),
+[phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md),
+[phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md),
+[phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md),
+[phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md),
+[phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md),
+[phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md),
+[phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md),
+[phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md),
+[phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md),
+[phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md)
 **Generated sections**: none
 
@@ -43,17 +56,51 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🎉 ALL PHASES `0`–`18` reached `✅ Done` again (2026-06-30).** A follow-up
-documentation/codebase audit found five implementation deviations from the
-real-workflow contract. Sprint `3.7` closed the two cluster lifecycle deviations:
-`jitml cluster up` now performs the documented live Kind/Helm reconcile, and
+**🔄 Product closure reopened 2026-07-01.** Phases `0`–`18` remain historical
+evidence for the surfaces they actually validated, but they are not a current
+no-caveat product handoff. A model-runtime audit found that the worktree still
+contains fake/deterministic infrastructure, static demo matrix proof,
+documented-vs-implemented SL/RL mismatches, unverified product dataset reads,
+and representative rather than per-model integration/e2e evidence. The current
+completion path is the new forward-only Phase `19`–`31` chain:
+
+- Phase `19` installs product-truth gates, the typed `ProductRow` registry and
+  matrix floor, and forbids scaffold evidence from satisfying product rows.
+- Phase `20` de-fossilizes the codebase and lints fake/deterministic scaffold
+  infrastructure out of the product path.
+- Phase `21` makes illegal inference state unrepresentable in Haskell/Dhall.
+- Phase `22` makes the documented product matrix, executable configs, and
+  dataset SHA boundary singular.
+- Phase `23` provides the general differentiable layer engine every real
+  architecture is built on.
+- Phase `24` closes every documented SL row with literal implementation,
+  weight-update evidence, convergence, checkpointing, and inference eligibility.
+- Phase `25` closes every documented RL row with real env/algorithm dispatch,
+  policy/weight update evidence, and no deterministic product stand-ins.
+- Phase `26` proves real AlphaZero self-play per game.
+- Phase `27` renders every product row in the demo from real eligible artifacts.
+- Phase `28` gives every product row integration and e2e coverage on
+  `linux-cpu`.
+- Phase `29` validates the row-complete product lane on `linux-cuda`.
+- Phase `30` validates the row-complete product lane on `apple-silicon`.
+- Phase `31` re-aggregates on `linux-cpu` only and restores the no-caveat claim
+  only if every row and every lane artifact is current.
+
+Phases `19`–`28` and `31` are `linux-cpu` only. Phase `29` may require
+`linux-cuda`; Phase `30` may require `apple-silicon`; no phase requires both
+accelerators in one validation session.
+
+Historical 2026-06-30 evidence follows. A follow-up documentation/codebase audit
+found five implementation deviations from the real-workflow contract. Sprint
+`3.7` closed the two cluster lifecycle deviations: `jitml cluster up` now
+performs the documented live Kind/Helm reconcile, and
 missing/corrupt/no-live-evidence cluster publications fail closed instead of
 looking ready. Sprint `5.17` closed the mounted worker `RunConfig` decode
-deviation. Sprint `9.16` closed the tuning deviations: `jitml tune` CLI overrides
-now drive local artifacts, and daemon-dispatched tuning workers use the
-sampler/scheduler/pruner stored in `TuneRunConfig`. The Pending Removal ledger
-is empty again. Sprint `18.7` reran the `linux-cpu` no-caveat aggregation:
-`jitml test all --live --linux-cpu` passed **8 / 8** stanzas with
+deviation. Sprint `9.16` closed the tuning deviations: `jitml tune` CLI
+overrides now drive local artifacts, and daemon-dispatched tuning workers use
+the sampler/scheduler/pruner stored in `TuneRunConfig`. The Pending Removal
+ledger was empty for that historical pass. Sprint `18.7` reran the `linux-cpu`
+aggregation: `jitml test all --live --linux-cpu` passed **8 / 8** stanzas with
 `browser_product_matrix` **8 / 8** at edge `:9091`; `docs check: ok` and
 `check-code: ok`.
 
@@ -67,8 +114,8 @@ handoff before this audit reopened the typed-failure and documentation-governanc
 surface. The 2026-06-26 all-`Done` closure records below are retained as
 historical evidence for the previous compact/right-sized topology.
 
-**✅ `linux-cpu` fixed-budget all-model baseline re-closed 2026-06-26.**
-Phases `8`–`14` are Done again after landing the shared `TrainingBudget` /
+**Historical 2026-06-26 `linux-cpu` fixed-budget all-model baseline.**
+Phases `8`–`14` were marked Done for that historical baseline after landing the shared `TrainingBudget` /
 `CompletedTraining` witness, inference-eligible checkpoint boundary,
 convergence/TensorBoard metadata, generated browser model matrix, and live
 browser assertions. Validation included `jitml test all --live --linux-cpu`
@@ -76,7 +123,7 @@ passing **8 / 8** stanzas, live Playwright **15 / 15**, `docker compose build
 jitml` with embedded `check-code: ok`, `jitml lint purescript`, `jitml docs
 check`, and the canonical `jitml-sl-canonicals` / `jitml-rl-canonicals` lanes.
 
-**✅ `linux-cuda` fixed-budget all-model lane re-closed 2026-06-26.** Phase
+**Historical 2026-06-26 `linux-cuda` fixed-budget all-model lane.** Phase
 `15` Sprint `15.21` ran on the real NVIDIA GeForce RTX 5090 host
 (`GPU-e764ef97-32d7-4981-c348-029983c64073`, driver `570.211.01`, CUDA 12.8):
 the live `linux-cuda` rollout executed 110 steps, canonical datasets were
@@ -85,7 +132,7 @@ including `jitml-backends` **20 / 20** on the GPU, eight demo checkpoints were
 seeded, and the live Playwright product matrix passed **15 / 15** at edge
 `:9092`.
 
-**🎉 ALL PHASES `0`–`18` reached `✅ Done` again (2026-06-26).** Phase `16`
+**Historical 2026-06-26 Phase `0`–`18` closure record.** Phase `16`
 Sprint `16.13` revalidated the real Apple Silicon lane on an Apple M1 Max host
 with macOS 26.5 and Metal 4: live rollout 109 steps, host Metal daemon
 subscriptions acquired, `bootstrap/apple-silicon.sh test` passed **8 / 8**
@@ -100,7 +147,7 @@ artifacts staged, eight demo checkpoints seeded, `jitml test all --live
 closure narratives below remain historical records; they are not the current
 status.
 
-**🎉 ALL PHASES `0`–`18` reached `✅ Done` — the durable-state Dhall DSL landed
+**Historical 2026-06-24 Phase `0`–`18` closure record — the durable-state Dhall DSL landed
 (2026-06-24, prior to the real-SL/RL reopen above).** The durable-state
 DSL refactor (reopened 2026-06-23) is complete: **Phase `2`** (Sprint `2.15` — the
 closed, self-validating `jitml.dhall` foundation + `jitml project init` + the asserted
@@ -112,7 +159,7 @@ checkpoint GC retention registry-sourced, `LastN 5` retired), and **Phase `18`**
 23/23, `cabal build all` clean; the `Pending Removal` ledger is empty again (Exit
 Definition item 18 re-met). The prior no-caveat closure narrative follows.
 
-**🎉 ALL PHASES `0`–`18` reached `✅ Done` — the no-caveat product handoff completed
+**Historical 2026-06-23 Phase `0`–`18` closure record — the no-caveat product handoff completed
 (2026-06-23, prior to the durable-state DSL reopen above).** Phases `17` and `18` closed on 2026-06-23: all three per-lane
 report-card fragments are committed (`linux-cpu` from Phases `13`/`14`,
 `linux-cuda` from Phase `15`, `apple-silicon` from Phase `16`), the `linux-cpu`
@@ -1245,7 +1292,56 @@ obligation exists.
 | 15 | Linux CUDA and Cluster Closure (`linux-cpu`+`linux-cuda`) | ✅ Done (Sprint 15.22 — HA linux-cuda lane revalidated on real RTX 5090 host) | [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md) |
 | 16 | Apple Silicon Closure (`linux-cpu`+`apple-silicon`) | ✅ Done (Sprint 16.14 — HA apple-silicon lane revalidated on Apple M1 Max, 131-step rollout, 8/8 stanzas, Playwright 15/15) | [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md) |
 | 17 | Within-Substrate Reproducibility and Handoff Prep (`linux-cpu` aggregation) | ✅ Done (Sprint 17.10 — refreshed HA lane fragments aggregated on linux-cpu, 8/8 stanzas with populated report card) | [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md) |
-| 18 | No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done (Sprint 18.7 — real cluster/tuning/runtime-config re-aggregation; live `linux-cpu` 8/8, browser matrix 8/8, `docs check`, and `check-code` green 2026-06-30) | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 18 | Historical No-Caveat Product Handoff (`linux-cpu` aggregation) | ✅ Done as historical 2026-06-30 evidence only; current product handoff reopened by Phase `19` | [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md) |
+| 19 | Product Truth Gates & Registry | 🔄 Active (typed `ProductRow` registry + matrix floor, phase-status registry, docs-check closure gate) | [phase-19-product-truth-gates.md](phase-19-product-truth-gates.md) |
+| 20 | De-Fossilization & Scaffold Lint | ⏸️ Blocked by Phase `19` | [phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md) |
+| 21 | Type-State DSL and Inference Eligibility | ⏸️ Blocked by Phase `20` | [phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md) |
+| 22 | Canonical Matrix and Dataset Integrity | ⏸️ Blocked by Phase `21` | [phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md) |
+| 23 | General Differentiable Layer Engine | ⏸️ Blocked by Phase `22` | [phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md) |
+| 24 | Real Supervised Architectures | ⏸️ Blocked by Phase `23` | [phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md) |
+| 25 | Real RL Algorithms and Environments | ⏸️ Blocked by Phase `24` | [phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md) |
+| 26 | AlphaZero Real Self-Play Per Game | ⏸️ Blocked by Phase `25` | [phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md) |
+| 27 | Demo All-Model Rendering | ⏸️ Blocked by Phase `26` | [phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md) |
+| 28 | Per-Model Integration and E2E | ⏸️ Blocked by Phase `27` | [phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md) |
+| 29 | Linux CUDA Product Lane | ⏸️ Blocked by Phase `28`; validates `linux-cpu` + `linux-cuda` only | [phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md) |
+| 30 | Apple Silicon Product Lane | ⏸️ Blocked by Phase `29`; validates `linux-cpu` + `apple-silicon` only | [phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md) |
+| 31 | No-Caveat Product Aggregation | ⏸️ Blocked by Phase `30`; `linux-cpu` aggregation only | [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md) |
+
+## Reopened phases (2026-07-01 — product truth and per-model completion)
+
+The 2026-07-01 audit reopened product closure because existing evidence could
+still be mistaken for completion while the implementation had not proven the
+documented model surface row by row. The user chose to **implement everything
+for real** — no doc-narrowing, no representative-only rows — so the reopen widens
+the forward-only chain to Phases `19`–`31`. This does not undo the owned closure
+of Phases `0`–`18`; it adds later, narrower phases whose incomplete state cannot
+block validation of earlier phases and whose validation commands respect the
+single-accelerator rule.
+
+- **What the reopen adds:** three new phases inserted into the chain — Phase `20`
+  De-Fossilization & Scaffold Lint, Phase `23` General Differentiable Layer
+  Engine, and Phase `26` AlphaZero Real Self-Play — plus a product **matrix
+  floor** (the typed `ProductRow` registry is the minimum surface every gate
+  enforces) and **per-row convergence bars** every trained row must clear.
+- **Renumber map (old → new):** the previous ten-phase chain (`19`–`28`) is
+  renumbered forward-only. Old `19` Product Truth Gates → `19` (expanded); old
+  Canonical-Matrix `20` → `22`; old Real-Supervised `21` → `24`; old Real-RL
+  `22` → `25`; old Type-State `23` → `21`; old Demo `24` → `27`; old
+  Per-Model-Integration/E2E `25` → `28`; old Linux-CUDA `26` → `29`; old Apple
+  `27` → `30`; old Aggregation `28` → `31`. The new phases are inserted at `20`,
+  `23`, and `26`.
+- **Known blocking gaps:** fake/deterministic infrastructure remains available
+  in the codebase; product training dataset reads are not all SHA-verified at
+  read time; documented SL architectures are not all literal; documented RL
+  environments and algorithm/env rows do not all map to actual trainers; demo
+  proof includes static matrix listing and seeded/synthetic artifacts; e2e
+  coverage is representative rather than row-complete.
+- **Exit condition:** every product row has implementation, config, verified
+  data, real training, weight/policy update evidence, completed checkpoint,
+  inference eligibility, demo rendering, integration coverage, e2e coverage, and
+  lane evidence.
+- **Machine protection:** `jitml docs check` and unit/integration/e2e coverage
+  gates must make stale "all done" claims and missing row evidence fail.
 
 ## Reopened phases (2026-06-30 — real cluster/tuning/runtime-config audit)
 
@@ -1821,12 +1917,11 @@ blocks) are tracked in
 
 ## Current Plan Status
 
-As of 2026-06-26, Phases `0`–`18` are `✅ Done`. The fixed-budget all-model
-`linux-cpu` baseline, the real `linux-cuda` lane, the real `apple-silicon` lane,
-the Phase `17` `linux-cpu` aggregation, and the final Phase `18` handoff gates
-are all closed. The earlier real-SL/RL, seeded demo, Playwright, Apple, and CUDA
-closure notes remain dated evidence only.
-The historical closure notes below are retained as dated evidence only.
+As of 2026-07-01, Phases `0`–`18` are historical evidence and Phase `19` is
+`🔄 Active`. Phases `20`–`31` are blocked in order behind Phase `19`. The fixed
+budget `linux-cpu`, `linux-cuda`, and `apple-silicon` closure notes below remain
+dated evidence only; they do not satisfy the current product-completion
+contract until the Phase `19`–`31` row-complete gates close.
 
 Phase `11`
 reopened and re-closed on 2026-06-05 for Sprint `11.7` — SPA portals
@@ -2763,6 +2858,40 @@ This plan is complete only when all of the following are true:
     stand-ins the refactor deleted were enqueued under `Pending Removal`; as of
     2026-06-12 they have moved to `Completed`, so the ledger is empty again.
     Sprint `17.6` re-audited this after the Phase `16` live gate closed.
+
+### Product-truth closure criteria (2026-07-01 reopen, Phases `19`–`31`)
+
+The 2026-07-01 reopen adds the following binding closure criteria on top of the
+eighteen items above. They implement
+[../documents/engineering/product_completion_contract.md](../documents/engineering/product_completion_contract.md)
+and none of the eighteen items is met in a way that violates them:
+
+19. One typed `ProductRow` registry (`src/JitML/Product/Matrix.hs`) is the single
+    source of truth for every documented SL/RL/AlphaZero/tuning/demo row; the
+    README canonical tables, browser contracts, and report-card rows are
+    generated from or parity-checked against it, and a `MatrixFloor` test forbids
+    narrowing the documented surface below its ambitious set.
+20. No fake, deterministic, seeded, or static-matrix helper can satisfy a product
+    row: a forbidden-scaffold lint plus an import-edge reachability check
+    (`src/JitML/Lint/ProductTruth.hs`) proves no production train/infer/demo/
+    report path imports a scaffold module, and the legacy ledger is empty.
+21. Training evidence is non-fabricable: every completed row records a
+    deterministic initial-parameter hash, final-parameter hash, update count, and
+    read-time dataset SHA, produced only by the real training path; inference
+    eligibility is a Haskell/Dhall type-state property, so "infer on an untrained
+    model" is unrepresentable.
+22. Every documented architecture is literal — deep MLP/BatchNorm/Dropout,
+    LeNet-5, ResNet-20/56, WideResNet-28-10, ViT, and ResNet-50 are real layer
+    graphs over a general differentiable layer engine, not single-hidden-layer
+    MLP compositions — and each row clears its per-row convergence bar.
+23. The accelerator lanes execute real kernels: `linux-cuda` invokes real
+    cuDNN/cuBLAS convolution/attention/GEMM (no identity-copy or degenerate-conv
+    stubs, no dead bindings) and `apple-silicon` runs real Metal kernels, each
+    with per-row device evidence that the substrate engine executed the
+    update-critical operations.
+24. Every product row owns a named integration test and e2e test; coverage
+    reports name any missing row/test pair, and a green pass count without row
+    identity does not close a phase.
 
 ## Related Documents
 

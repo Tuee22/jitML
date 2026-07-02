@@ -11,27 +11,26 @@
 [phase-15-linux-cuda-and-cluster-closure.md](phase-15-linux-cuda-and-cluster-closure.md),
 [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
 [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
+[phase-19-product-truth-gates.md](phase-19-product-truth-gates.md),
+[phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
 [../README.md](../README.md)
 **Generated sections**: none
 
-> **Purpose**: Own the final no-caveat handoff after every runtime and browser
-> surface is complete: all three substrate lanes pass, Playwright proves the
-> full product, the report card is populated, docs are aligned, and the legacy
-> ledger is empty.
+> **Purpose**: Preserve the historical Phase `18` no-caveat handoff evidence
+> from the pre-2026-07-01 product-truth reopen; current final product aggregation
+> is owned by Phase `31`.
 
 ## Phase Status
 
-✅ **Done** (reopened and re-closed 2026-06-30 for Sprint `18.7`). The
-lower-phase real-workflow remediation has closed: Phase `3` Sprint `3.7` (live
+✅ **Done as historical evidence** (reopened and re-closed 2026-06-30 for Sprint
+`18.7`). The 2026-07-01 model-runtime audit reopened product closure and moved
+the current final handoff to [phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md).
+This phase no longer authorizes a current no-caveat claim. Its evidence remains
+useful only for the surfaces it actually exercised: Phase `3` Sprint `3.7` (live
 cluster lifecycle and publication truth), Phase `5` Sprint `5.17` (fail-closed
-mounted RunConfig), and Phase `9` Sprint `9.16` (tuning override and worker-axis
-fidelity) are Done, and the Pending Removal ledger is empty again. The
-`linux-cpu` live aggregation gate passed with **8 / 8** stanzas and
-`browser_product_matrix` **8 / 8** at edge `:9091`; `docs check` and
-`check-code` are green. This phase remains a `linux-cpu` aggregation phase under
-standards rule M; it does not directly rerun accelerator lanes. Sprint `18.6`
-remains historical evidence for the previous typed-failure/docs-governance
-re-aggregation.
+mounted RunConfig), Phase `9` Sprint `9.16` (tuning override and worker-axis
+fidelity), and a `linux-cpu` aggregation with **8 / 8** stanzas and
+`browser_product_matrix` **8 / 8** at edge `:9091`.
 
 The 2026-06-29 HA handoff remains historical evidence: Phases `3`, `4`, and `5`
 own the checked-in HA topology; Phase `15` owns the refreshed Linux CUDA HA
@@ -101,14 +100,15 @@ Removal` ledger is empty** (Exit Definition item 18 met), and the merged
   `linux-cpu` Playwright matrix (11→14/14, exit 0; the persisted transcript object
   is confirmed in the `jitml-transcripts` MinIO bucket).
 
-No out-of-scope foundation, no accelerator hardware, and no missing fragment
-remains. The no-caveat product is closed.
+Historical 2026-06-23 conclusion: no out-of-scope foundation, no accelerator
+hardware, and no missing fragment remained for that earlier product definition.
+This conclusion is superseded by the 2026-07-01 product-truth reopen.
 
 ## Phase Summary
 
-This is the final handoff for the expanded product definition. It supersedes the
-previous "all phases done" handoff only after the no-caveat runtime and browser
-matrices are validated on `apple-silicon`, `linux-cpu`, and `linux-cuda`.
+This was the final handoff for the earlier expanded product definition. The
+current final handoff is Phase `31`, which closes only after Phases `19`–`30`
+produce row-complete product evidence.
 
 ## Sprint 18.1: Three-Substrate No-Caveat Handoff ✅
 
@@ -161,11 +161,8 @@ Docker host.
 
 ### Remaining Work
 
-None. All three per-lane fragments are committed (`13`/`14` → `linux-cpu`, `15` →
-`linux-cuda`, `16` → `apple-silicon`), the merged `jitml test all --live
---linux-cpu` aggregation is green (8/8 stanzas, every measurement populated,
-Playwright 14/14), and the `Pending Removal` ledger is empty (Exit Definition item
-18 met). The no-caveat product handoff is complete.
+None for the historical 2026-06-23 Sprint `18.1` definition. Current
+row-complete product handoff work is owned by Phases `19`–`31`.
 
 ## Documentation Requirements
 

@@ -24,6 +24,19 @@
 [phase-16-apple-silicon-closure.md](phase-16-apple-silicon-closure.md),
 [phase-17-cross-substrate-and-handoff.md](phase-17-cross-substrate-and-handoff.md),
 [phase-18-no-caveat-product-handoff.md](phase-18-no-caveat-product-handoff.md),
+[phase-19-product-truth-gates.md](phase-19-product-truth-gates.md),
+[phase-20-de-fossilization-and-scaffold-lint.md](phase-20-de-fossilization-and-scaffold-lint.md),
+[phase-21-type-state-dsl-and-inference-eligibility.md](phase-21-type-state-dsl-and-inference-eligibility.md),
+[phase-22-canonical-matrix-and-dataset-integrity.md](phase-22-canonical-matrix-and-dataset-integrity.md),
+[phase-23-general-differentiable-layer-engine.md](phase-23-general-differentiable-layer-engine.md),
+[phase-24-real-supervised-architectures.md](phase-24-real-supervised-architectures.md),
+[phase-25-real-rl-algorithms-and-environments.md](phase-25-real-rl-algorithms-and-environments.md),
+[phase-26-alphazero-real-self-play.md](phase-26-alphazero-real-self-play.md),
+[phase-27-demo-all-model-rendering.md](phase-27-demo-all-model-rendering.md),
+[phase-28-per-model-integration-and-e2e.md](phase-28-per-model-integration-and-e2e.md),
+[phase-29-linux-cuda-product-lane.md](phase-29-linux-cuda-product-lane.md),
+[phase-30-apple-silicon-product-lane.md](phase-30-apple-silicon-product-lane.md),
+[phase-31-no-caveat-product-aggregation.md](phase-31-no-caveat-product-aggregation.md),
 [../documents/documentation_standards.md](../documents/documentation_standards.md),
 [../README.md](../README.md)
 **Generated sections**: none
@@ -179,7 +192,20 @@ DEVELOPMENT_PLAN/
 ├── phase-15-linux-cuda-and-cluster-closure.md
 ├── phase-16-apple-silicon-closure.md
 ├── phase-17-cross-substrate-and-handoff.md
-└── phase-18-no-caveat-product-handoff.md
+├── phase-18-no-caveat-product-handoff.md
+├── phase-19-product-truth-gates.md
+├── phase-20-de-fossilization-and-scaffold-lint.md
+├── phase-21-type-state-dsl-and-inference-eligibility.md
+├── phase-22-canonical-matrix-and-dataset-integrity.md
+├── phase-23-general-differentiable-layer-engine.md
+├── phase-24-real-supervised-architectures.md
+├── phase-25-real-rl-algorithms-and-environments.md
+├── phase-26-alphazero-real-self-play.md
+├── phase-27-demo-all-model-rendering.md
+├── phase-28-per-model-integration-and-e2e.md
+├── phase-29-linux-cuda-product-lane.md
+├── phase-30-apple-silicon-product-lane.md
+└── phase-31-no-caveat-product-aggregation.md
 ```
 
 No phase may be skipped. No sprint may exist in two phases. CLI-surface ownership,
@@ -189,8 +215,15 @@ ownership, SL/RL-framework ownership, RL-algorithm/AlphaZero/tuning ownership,
 checkpointing ownership, frontend ownership, test-stanza ownership, no-caveat
 model-runtime closure ownership, interactive-demo/Playwright closure ownership,
 Linux-CUDA/cluster-closure ownership, Apple-Silicon-closure ownership,
-cross-substrate-handoff ownership, and no-caveat product-handoff ownership each
-live in one place only.
+cross-substrate-handoff ownership, historical no-caveat product-handoff
+ownership, product-truth gate ownership, de-fossilization/scaffold-lint
+ownership, type-state/inference-eligibility ownership, canonical
+matrix/dataset-integrity ownership, general differentiable-layer-engine
+ownership, real supervised-architecture ownership, real
+RL-algorithm/environment ownership, AlphaZero real-self-play ownership,
+all-model demo-rendering ownership, per-model integration/e2e ownership,
+linux-cuda product-lane ownership, apple-silicon product-lane ownership, and
+final no-caveat aggregation ownership each live in one place only.
 
 The closure phases form a **forward chain** (renumbered 2026-06-16 per the
 forward-DAG doctrine in rule M): Phase `13` owns the full no-caveat model runtime
@@ -206,6 +239,28 @@ committed per-lane artifacts on `linux-cpu`. Phase `18` is the final
 `linux-cpu`-only handoff that merges the per-lane evidence into one no-caveat
 report card. Every Blocked-by and dependency edge references a strictly
 lower-numbered phase (rule M), so the plan is workable in numerical order.
+
+The 2026-07-01 product-truth reopen extends that forward chain without
+modifying the owned closure of Phases `0`–`18`, and the user elected to
+implement every row **for real** — the plan narrows nothing by documentation;
+each obligation is closed by real training, real inference, and real kernels.
+Phase `19` installs the typed product-truth gates, the single `ProductRow`
+registry, a matrix floor, and per-row convergence bars. Phase `20` removes the
+legacy fake-ML fossils and installs the forbidden-scaffold + import-edge lint.
+Phase `21` makes inference eligibility a type-state property and training
+evidence non-fabricable. Phase `22` makes the canonical matrix and
+dataset-integrity boundary singular. Phase `23` builds the general
+differentiable layer engine — reverse-mode autodiff over the full layer catalog
+wired to real oneDNN. Phase `24` closes the real, literal supervised
+architectures. Phase `25` closes the real, genuinely-distinct RL algorithms and
+environments. Phase `26` closes real AlphaZero self-play per game. Phase `27`
+renders every row from real artifacts in the demo. Phase `28` gives every row
+integration and e2e coverage on `linux-cpu`. Phase `29` validates the product
+matrix on the `linux-cuda` lane with real cuDNN/cuBLAS kernels. Phase `30`
+validates it on the `apple-silicon` lane with real Metal kernels. Phase `31` is
+the `linux-cpu`-only aggregation and handoff. Phases `19`–`28` and `31` are
+`linux-cpu` only; Phase `29` may require `linux-cuda`; Phase `30` may require
+`apple-silicon`; no phase may require both accelerators.
 
 ### F. System Component Inventory
 

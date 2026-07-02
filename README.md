@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/apple_silicon_metal_headless_builds.md, documents/engineering/numerical_core.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
+**Referenced by**: DEVELOPMENT_PLAN/README.md, DEVELOPMENT_PLAN/00-overview.md, DEVELOPMENT_PLAN/system-components.md, documents/documentation_standards.md, documents/engineering/README.md, documents/engineering/cli_command_surface.md, documents/engineering/cluster_topology.md, documents/engineering/daemon_architecture.md, documents/engineering/jit_codegen_architecture.md, documents/engineering/apple_silicon_metal_headless_builds.md, documents/engineering/numerical_core.md, documents/engineering/product_completion_contract.md, documents/engineering/training_workloads.md, documents/engineering/checkpoint_format.md, documents/engineering/purescript_frontend.md
 **Generated sections**: command-tree, command-registry
 
 > **Purpose**: Operator-facing project intent and authoritative high-level architecture for jitML.
@@ -31,19 +31,21 @@ The result is:
 
 > **Development plan:** The single execution-ordered plan, sprint status, and cleanup ownership for jitML lives at [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). The plan adopts every in-scope doctrine section enumerated above in [Doctrine scope](#doctrine-scope) and binds each to an owning sprint; project-specific engineering docs live under [`documents/engineering/`](documents/engineering/README.md).
 
-> **Current product status (all phases Done again 2026-06-30):** A
-> documentation/code audit
-> found that the public no-caveat claim was ahead of current implementation.
-> Phase `3` has re-closed: `jitml cluster up` now performs the live Kind/Helm
-> reconciler and `cluster status` fails closed unless the publication carries
-> live readiness evidence. Phase `5` has re-closed with fail-closed mounted
-> worker `RunConfig` decoding, and Phase `9` has re-closed with tuning overrides
-> and daemon-dispatched tuning axes wired into the actual sweep/artifact paths.
-> Phase `18` Sprint `18.7` passed the live `linux-cpu` no-caveat aggregation
-> rerun with **8 / 8** stanzas and `browser_product_matrix` **8 / 8** at edge
-> `:9091`, followed by `docs check: ok` and `check-code: ok`.
-> Known doctrine deviations and duplicate/legacy surfaces live in
-> [`DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md`](DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md).
+> **Current product status (reopened 2026-07-01):** The public no-caveat
+> product claim is **not closed**. A model-runtime audit found that the
+> worktree still contains fake/deterministic infrastructure, static demo matrix
+> proof, incomplete documented SL/RL implementation coverage, and
+> representative rather than per-model integration/e2e evidence. Phases `0`–`18`
+> remain historical evidence for the surfaces they actually validated; the
+> reopened completion path is the forward-only Phase `19`–`31` chain in
+> [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md). Every documented
+> model row is implemented **for real** — literal deep architectures, genuinely
+> distinct RL algorithms, real per-substrate conv/attention kernels, and
+> non-fabricable weight-delta training evidence — rather than narrowed to fit a
+> simpler implementation. No future closure may claim "all phases done" until
+> every documented model row has real training, trained-artifact inference
+> eligibility, demo rendering, integration coverage, e2e coverage, and the
+> required per-lane substrate evidence.
 
 ---
 
@@ -55,7 +57,7 @@ The result is:
 
 **CLI & doctrine** — [Outer-container Linux builds](#outer-container-linux-builds) · [CLI command topology, typed](#cli-command-topology-typed) · [Doctrine scope](#doctrine-scope)
 
-**Numerical & RL core** — [Numerical core](#numerical-core) · [Concrete Dhall worked example](#concrete-dhall-worked-example) · [Hyperparameter tuning](#hyperparameter-tuning-first-class) · [Canonical supervised learning problems](#canonical-supervised-learning-problems) · [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) · [RL framework primitives](#rl-framework-primitives) · [RL algorithm catalog](#rl-algorithm-catalog) · [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) · [AlphaZero-style self-play and persistent MCTS state](#alphazero-style-self-play-and-persistent-mcts-state) · [Checkpointing](#checkpointing) · [JIT compilation architecture](#jit-compilation-architecture) · [PureScript frontend](#purescript-frontend)
+**Numerical & RL core** — [Product completion contract](#product-completion-contract) · [Numerical core](#numerical-core) · [Concrete Dhall worked example](#concrete-dhall-worked-example) · [Hyperparameter tuning](#hyperparameter-tuning-first-class) · [Canonical supervised learning problems](#canonical-supervised-learning-problems) · [Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments) · [RL framework primitives](#rl-framework-primitives) · [RL algorithm catalog](#rl-algorithm-catalog) · [Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl) · [AlphaZero-style self-play and persistent MCTS state](#alphazero-style-self-play-and-persistent-mcts-state) · [Checkpointing](#checkpointing) · [JIT compilation architecture](#jit-compilation-architecture) · [PureScript frontend](#purescript-frontend)
 
 **Tests & benchmarks** — [Test-suite stanzas](#test-suite-stanzas) · [`jitml test all`](#jitml-test-all) · [Benchmarks](#benchmarks) · [Compiler, runtime, and backend tuning](#compiler-runtime-and-backend-tuning)
 
@@ -72,6 +74,49 @@ We want a runtime that is:
 1. **Reproducible by construction.** Given identical inputs, seeds, and configuration, two runs produce identical outputs — including parameter initialization, minibatch ordering, optimizer state, RL trajectories, MCTS exploration paths, hyperparameter-trial selection, and checkpoint recovery. Reproducibility is an architectural requirement, not a flag.
 2. **Declarative end-to-end.** A `.dhall` file is the full source of truth for a training run, a hyperparameter sweep, an RL experiment, or a cluster deployment. The CLI flags layered on top *override* the Dhall; they never replace it.
 3. **Hardware-native without an embedded Python runtime.** jitML compiles kernels on demand for Apple Metal, NVIDIA CUDA, or oneDNN/AVX, with OpenCL held as a future extension, and executes them through Haskell FFI bindings. The runtime has no Python interpreter in the loop.
+
+---
+
+# Product completion contract
+
+The binding product-completion rules live in
+[documents/engineering/product_completion_contract.md](documents/engineering/product_completion_contract.md).
+This README owns the documented model surface; the contract owns the proof
+required before that surface may be called complete.
+
+Completion is per row, not per category. Every row documented under
+[Canonical supervised learning problems](#canonical-supervised-learning-problems),
+[Canonical reinforcement learning environments](#canonical-reinforcement-learning-environments),
+[Convergence and determinism checks for RL](#convergence-and-determinism-checks-for-rl),
+and [AlphaZero-style self-play and persistent MCTS state](#alphazero-style-self-play-and-persistent-mcts-state)
+must have all of the following:
+
+1. an implementation matching the documented dataset/environment/model/algorithm;
+2. a checked-in or generated Dhall experiment config that runs that row;
+3. product training that verifies dataset bytes, executes the selected substrate
+   device for update-critical work, and records that learned state changed from
+   initialization;
+4. a completed checkpoint with `CompletedTraining` and convergence metrics;
+5. inference that accepts only an inference-eligible trained artifact;
+6. demo rendering from that trained artifact, not from a static row name or
+   seeded synthetic checkpoint;
+7. integration and e2e tests named for that exact row.
+
+The DSL may not represent illegal state. Product inference accepts an
+`InferenceEligible` artifact minted from a completed training witness; declared
+experiments, partial checkpoints, failed runs, seeded demo fixtures, and static
+matrix rows cannot decode as inference targets.
+
+Fake, mock, deterministic, synthetic, and hardcoded helpers may exist only in
+explicitly named test/scaffold namespaces. They cannot satisfy a product row,
+cannot be imported by production train/infer/demo paths, and cannot appear in
+the final report card except as "forbidden surface absent" audit evidence.
+
+The remediation phases follow the single-accelerator rule. Phases `19`–`28` are
+`linux-cpu` only, Phase `29` is `linux-cpu` plus `linux-cuda`, Phase `30` is
+`linux-cpu` plus `apple-silicon`, and Phase `31` is `linux-cpu` aggregation over
+committed per-lane evidence. No phase requires switching between Apple and CUDA
+hardware during validation.
 
 ---
 
@@ -2045,10 +2090,14 @@ placeholder fixtures. Target coverage:
 | HER | goal-conditioned canonical env success rate plus achieved-goal distance |
 | AlphaZero | per-game arena win-rate for Connect 4, Othello, Hex, and Gomoku |
 
-> Closed 2026-06-29: the all-model closure target is one fixed-budget
-> completed-training witness and convergence-statistics payload per row above,
-> validated through the substrate lane attestations and the final `linux-cpu`
-> aggregation. See
+> Reopened 2026-07-01: the table above is a product obligation, not a
+> representative-test target. Closure requires every listed algorithm/env row to
+> dispatch to that exact environment, train through its documented algorithm
+> implementation, update learned state where the algorithm has learned state,
+> write a completed artifact, and have integration plus e2e evidence named for
+> that row. See
+> [documents/engineering/product_completion_contract.md](documents/engineering/product_completion_contract.md)
+> and
 > [documents/engineering/training_metrics_and_splits.md](documents/engineering/training_metrics_and_splits.md).
 
 The convergence check is the load-bearing test; the run-to-run
@@ -2404,7 +2453,7 @@ PureScript framework, signals model fits live-events well).
 
 ## Stance
 
-The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Training runs are started, paused, resumed, and stopped from the UI; inference is invoked against selected checkpoints by direct human input — drawing, uploading, or playing; RL trajectories animate from real event frames; adversarial games render boards with legal moves, MCTS/value details, and interactive replay. Playwright coverage belongs to the explicit live `jitml-e2e` orchestration path, and final handoff requires that browser matrix to prove the interactions against real workflows rather than only route/API reachability.
+The PureScript frontend is not a metrics dashboard with passive read-only panes; it is an interactive lab for every workload jitML supports. Training runs are started, paused, resumed, and stopped from the UI; inference is invoked against selected checkpoints by direct human input — drawing, uploading, or playing; RL trajectories animate from real event frames; adversarial games render boards with legal moves, MCTS/value details, and interactive replay. Playwright coverage belongs to the explicit live `jitml-e2e` orchestration path, and final handoff requires that browser matrix to prove the interactions against real workflows rather than only route/API reachability. A generated list of model names is not demo proof; each product row must render from an inference-eligible trained artifact and must fail closed when that artifact is absent.
 
 ## Panels
 

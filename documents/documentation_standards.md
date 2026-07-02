@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../README.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/apple_silicon_metal_headless_builds.md, engineering/numerical_core.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
+**Referenced by**: ../README.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, ../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, engineering/README.md, engineering/cli_command_surface.md, engineering/code_quality.md, engineering/unit_testing_policy.md, engineering/haskell_code_guide.md, engineering/determinism_contract.md, engineering/cluster_topology.md, engineering/daemon_architecture.md, engineering/jit_codegen_architecture.md, engineering/apple_silicon_metal_headless_builds.md, engineering/numerical_core.md, engineering/product_completion_contract.md, engineering/training_workloads.md, engineering/checkpoint_format.md, engineering/purescript_frontend.md
 **Generated sections**: documentation-standards.generated-section-index
 
 > **Purpose**: Single Source of Truth (SSoT) for writing and maintaining
@@ -19,7 +19,9 @@ but never duplicate.
 
 The project and CLI doctrine live at [../README.md](../README.md). The
 development plan lives at [../DEVELOPMENT_PLAN/README.md](../DEVELOPMENT_PLAN/README.md).
-Project-specific engineering doctrine lives under [engineering/](./engineering/).
+Project-specific engineering doctrine lives under [engineering/](./engineering/);
+the model-surface completion gate lives at
+[engineering/product_completion_contract.md](engineering/product_completion_contract.md).
 Operator-facing project intent lives at [../README.md](../README.md).
 
 ### Development Plan Authority

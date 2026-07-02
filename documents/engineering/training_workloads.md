@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md
 **Generated sections**: training.rl.catalog, training.tune.samplers, training.tune.schedulers, training.tune.pruners
 
 > **Purpose**: Project-specific training-workload doctrine for jitML — the
@@ -11,31 +11,24 @@
 > surface for real train/eval/rollout/self-play/tune/checkpoint/inference
 > workflows.
 
-**Current audit status (2026-06-30).** The `linux-cpu` no-caveat all-model
-baseline and the real accelerator lanes remain current evidence after Phase `9`
-Sprint `9.16` re-closed tuning fidelity: CLI overrides and daemon-dispatched
-`TuneRunConfig` axes now drive the actual sweep, artifact writer, worker trial
-selection, checkpoint promotion, and report-card measurements. Device-backed RL
-remains fail-closed with no pure fallback, and Sprint `8.15` routes post-probe
-DQN / QR-DQN / HER / continuous trainer update failures through typed trainer
-results instead of `error` bottoms. Sprint `9.15` makes corrupt tuning transcript
-decode failures representable data in resume outcomes. Phase `18` Sprint `18.7`
-has rerun the live `linux-cpu` aggregation with **8 / 8** stanzas and
-`browser_product_matrix` **8 / 8** at edge `:9091`; `docs check` and
-`check-code` are green. The binding learning contract lives in
-[training_metrics_and_splits.md](training_metrics_and_splits.md):
-each model has a pure fixed `TrainingBudget`, completed training mints a
-`CompletedTraining` witness, and inference accepts only an
-`InferenceEligibleCheckpoint` carrying the completed budget and convergence
-statistics.
-The shared pure vocabulary is implemented in `src/JitML/Training/Budget.hs`,
-checkpoint manifests carry the optional completion witness, and
-`JitML.Checkpoint.Format.requireInferenceEligibleCheckpoint` is the local gate
-that rejects partial manifests before inference loaders run. The SL, RL,
-AlphaZero self-play, and tuning command paths write completed checkpoints or
-completion events with the same witness vocabulary when they reach their
-configured budget; the 2026-06-30 remediation closed error representation gaps
-without reintroducing synthetic summaries or pure fallbacks.
+**Current audit status (2026-07-01).** Product training closure is reopened.
+Historical runs prove selected real paths, but they do not prove the complete
+documented SL/RL surface. Active gaps include documented SL architectures that
+are not yet literal implementations, documented RL rows that do not all dispatch
+to their named environment, production dataset reads that are not all
+SHA-verified at read time, remaining fake/deterministic scaffolds, and test/demo
+evidence that is representative rather than row-complete. The binding contract
+lives in [product_completion_contract.md](product_completion_contract.md) and
+the remediation phases are
+[Phase 22](../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md),
+[Phase 24](../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md), and
+[Phase 25](../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md).
+
+The existing `TrainingBudget`, `CompletedTraining`, and
+`InferenceEligibleCheckpoint` vocabulary remains the intended boundary, but it
+does not close the product until every product row records verified data,
+weight/policy update evidence, convergence metrics, completed checkpoint
+evidence, demo evidence, integration evidence, and e2e evidence.
 
 ## SL Training Loops
 
@@ -55,12 +48,10 @@ runtime in `src/JitML/SL/Architecture.hs`.
 
 ### Canonical SL Problems
 
-The catalog is the full no-caveat architecture set.
-`JitML.SL.Canonicals.trainableCanonicalCohort` covers all eleven product rows,
-and `JitML.SL.Architecture` maps those rows to trainable topologies backed by
-the selected substrate `MlpDevice`. The former Dense-only product gate and
-deterministic synthetic curve helpers were deleted; published training loss
-comes from live device measurements.
+The catalog names the intended no-caveat architecture set. Current product
+closure is reopened until Phase `24` proves that each documented feature is
+implemented literally. A simplified trainable topology is useful evidence, but
+it cannot close a row that documents a richer architecture.
 
 | Current problem key | Owning module | Current validation |
 |---------------------|---------------|--------------------|
@@ -76,15 +67,13 @@ comes from live device measurements.
 | `tiny-imagenet-resnet50` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/TinyImageNet.hs` | 50-block residual device stack; archive SHA pin, Zip64/JPEG tensor materialization, fixed-budget convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
 | `california-housing-mlp` | `src/JitML/SL/Architecture.hs`, `src/JitML/SL/Archive.hs`, `src/JitML/SL/Regression.hs` | Dense regression topology; parser, device-MSE trainer, fixed-budget RMSE/MSE convergence, checkpoint reload, and inference eligibility are validated in the `linux-cpu` baseline |
 
-Convergence is asserted statistically by `jitml-sl-canonicals` only where the
-test performs the model's declared fixed budget and produces a
-`CompletedTraining` witness. No per-substrate `.txt` loss-curve fixtures are
-committed — see [unit_testing_policy.md → Snapshot Tests and the Prohibition on
-Numerical Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
-The current live all-row baseline decodes staged dataset bytes, trains through
-the selected `MlpDevice`, reloads checkpoints, evaluates/inferences only through
-eligible artifacts, and exposes the TensorBoard/UI metric surface for every
-canonical SL row.
+Convergence is accepted only where the test performs the row's declared fixed
+budget, verifies dataset bytes at the product read boundary, proves learned
+state changed from initialization, and produces a `CompletedTraining` witness.
+No per-substrate `.txt` loss-curve fixtures are committed — see
+[unit_testing_policy.md → Snapshot Tests and the Prohibition on Numerical
+Fixtures](unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
+All-row smoke or materialization coverage is not product closure.
 
 ### `jitml train` CLI
 

@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/system-components.md, training_metrics_and_splits.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/system-components.md, product_completion_contract.md, training_metrics_and_splits.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific PureScript frontend doctrine for jitML — the
@@ -11,20 +11,14 @@
 > workload, including the Halogen panels, compiled bundle, live WebSocket proxy,
 > and the no-caveat Playwright product matrix.
 
-**Current audit status (2026-06-26).** The `linux-cpu` all-model product
-baseline and the real `linux-cuda` all-model browser lane are closed again. The
-frontend selects only inference-eligible checkpoints from the fixed-budget
-trained-artifact contract, exposes convergence statistics from the
-checkpoint/TensorBoard payload, and provides model-appropriate interactions for
-every supported SL, RL, and AlphaZero row.
-See [training_metrics_and_splits.md](training_metrics_and_splits.md) and
-[DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md](../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md).
-The Haskell checkpoint-list selector omits incomplete manifests from
-`CheckpointSummary`, and the live Playwright matrix proves all-model rendering
-plus partial/untrained rejection for the `linux-cpu` baseline. The same
-Playwright matrix passed 15/15 on the published `linux-cuda` edge on
-2026-06-26; the remaining downstream browser work is the real
-`apple-silicon` lane and handoff aggregation.
+**Current audit status (2026-07-01).** Browser product closure is reopened.
+Existing panels and Playwright specs prove useful route and representative
+workflow behavior, but a static generated model list or seeded demo checkpoint
+does not prove that every documented product row renders from a real trained
+artifact. The binding browser contract lives in
+[product_completion_contract.md](product_completion_contract.md); Phase `27`
+owns artifact-backed all-row demo rendering, and Phase `28` owns per-row e2e
+coverage on `linux-cpu` before the accelerator lanes revalidate it.
 
 ## Stack
 
@@ -43,7 +37,7 @@ Playwright matrix passed 15/15 on the published `linux-cuda` edge on
 | Demo HTTP routes | Haskell HTTP server for API routes, compiled bundle serving, and live WebSocket bridge | `src/JitML/Web/Server.hs` |
 | PureScript smoke file | Spec smoke file covering generated contracts and panel modules through the Node `spec-node` runner | `web/test/Main.purs` |
 | Panel payload modules | Eight Halogen panels with REST or live WebSocket actions; Sprint `11.9` consumes generated typed payloads for current controls, metrics, animation, inference, checkpoint comparison, and replay instead of text-marker/default-value parsers | `web/src/Panels/{Mnist,GenericInference,Cifar,CheckpointCompare,Connect4,Rl,Training,Tune}.purs` |
-| Playwright | Live-only spec covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, adversarial selectors, and all-model trained-artifact/convergence-statistics proof | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
+| Playwright | Live-only spec currently covers portals/header/admin links, panel hashes, typed REST response/rendered-value updates, workflow status, checkpoint browse, persisted transcript replay, RL/training/tuning panels, and adversarial selectors. Phase `27`/`28` expand this into row-complete trained-artifact/convergence-statistics proof for every product row. | `playwright/jitml-demo.spec.ts`, `src/JitML/Test/LivePlan.hs`, `test/e2e/Main.hs` |
 | Webapp role | HTTP/WebSocket server selected by typed `BootConfig.activeRole = Webapp` | `src/JitML/App.hs`, `chart/local/jitml-demo` |
 
 The PureScript stack is project-specific (the doctrine does not address
